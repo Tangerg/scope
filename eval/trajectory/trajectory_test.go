@@ -100,6 +100,23 @@ func TestRecorderAndEvaluatorCoverAgentRegressionDimensions(t *testing.T) {
 
 func TestRecorderCapturesInteractionModelAndToolFacts(t *testing.T) {
 	recorder := &trajectory.Recorder{}
+	result := runRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{})
+	recorded, err := recorder.Take(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recorded.ModelCalls()) != 2 || len(recorded.ToolCalls()) != 1 {
+		t.Fatalf("recorded %d model calls and %d tool calls", len(recorded.ModelCalls()), len(recorded.ToolCalls()))
+	}
+	call := recorded.ToolCalls()[0]
+	if call.Call.Name != "weather" || call.Call.Arguments != `{"city":"Paris"}` ||
+		call.Outcome != trajectory.ToolOutcomeSucceeded || call.Result == nil {
+		t.Fatalf("recorded tool call = %#v", call)
+	}
+}
+
+func runRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observer interaction.ExecutionObserver, weather tool.Tool) agent.Result {
+	t.Helper()
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
 		Name: "test.trajectory_interaction", Description: "Exercise trajectory observation boundaries.",
 		MaxModelCalls: 2,
@@ -108,7 +125,7 @@ func TestRecorderCapturesInteractionModelAndToolFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-		Client: &fixtureInteractionClient{}, Tools: []tool.Tool{fixtureWeatherTool{}}, Observer: recorder,
+		Client: &fixtureInteractionClient{}, Tools: []tool.Tool{weather}, Observer: observer,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -136,18 +153,7 @@ func TestRecorderCapturesInteractionModelAndToolFacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	recorded, err := recorder.Take(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(recorded.ModelCalls()) != 2 || len(recorded.ToolCalls()) != 1 {
-		t.Fatalf("recorded %d model calls and %d tool calls", len(recorded.ModelCalls()), len(recorded.ToolCalls()))
-	}
-	call := recorded.ToolCalls()[0]
-	if call.Call.Name != "weather" || call.Call.Arguments != `{"city":"Paris"}` ||
-		call.Outcome != trajectory.ToolOutcomeSucceeded || call.Result == nil {
-		t.Fatalf("recorded tool call = %#v", call)
-	}
+	return result
 }
 
 func TestBehaviorDigestExcludesTimingAndProviderAccounting(t *testing.T) {
@@ -366,7 +372,7 @@ func (*fixtureInteractionClient) Stream(
 	return func(func(*chat.ResponseDelta, error) bool) {}
 }
 
-type fixtureWeatherTool struct{}
+type fixtureWeatherTool struct{ failure error }
 
 func (fixtureWeatherTool) Definition() chat.ToolDefinition {
 	return chat.ToolDefinition{
@@ -380,7 +386,10 @@ func (fixtureWeatherTool) Definition() chat.ToolDefinition {
 	}
 }
 
-func (fixtureWeatherTool) Call(context.Context, tool.Invocation) (chat.ToolOutput, error) {
+func (f fixtureWeatherTool) Call(context.Context, tool.Invocation) (chat.ToolOutput, error) {
+	if f.failure != nil {
+		return chat.ToolOutput{}, f.failure
+	}
 	return chat.NewTextToolOutput("sunny"), nil
 }
 

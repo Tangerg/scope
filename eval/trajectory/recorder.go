@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -130,17 +131,17 @@ func (r *Recorder) OnToolSettled(
 
 // Take returns and releases the complete recording for one terminal root
 // Result. The result must belong to the root Process, not one child.
+// Incomplete observations remain available if validation fails.
 func (r *Recorder) Take(result agent.Result) (Trajectory, error) {
 	if r == nil || !result.Valid() || !result.ProcessID().Valid() {
 		return Trajectory{}, fmt.Errorf("%w: terminal root result is required", ErrIncompleteRecording)
 	}
 	root := result.ProcessID()
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	events := r.events[root]
-	delete(r.events, root)
-	models := takeModels(&r.models, root)
-	tools, recordingErr := takeTools(r.tools, root)
-	r.mu.Unlock()
+	models := recordedModels(r.models, root)
+	tools, recordingErr := recordedTools(r.tools, root)
 	if recordingErr != nil {
 		return Trajectory{}, recordingErr
 	}
@@ -148,7 +149,7 @@ func (r *Recorder) Take(result agent.Result) (Trajectory, error) {
 	if value, present := result.Output(); present {
 		output = &value
 	}
-	return New(Config{
+	recorded, err := New(Config{
 		RootProcessID: root,
 		Termination:   result.Termination(),
 		Output:        output,
@@ -158,6 +159,19 @@ func (r *Recorder) Take(result agent.Result) (Trajectory, error) {
 		ModelCalls:    models,
 		ToolCalls:     tools,
 	})
+	if err != nil {
+		return Trajectory{}, err
+	}
+	delete(r.events, root)
+	r.models = slices.DeleteFunc(r.models, func(observation modelObservation) bool {
+		return observation.root == root
+	})
+	for identity, observation := range r.tools {
+		if observation.root == root {
+			delete(r.tools, identity)
+		}
+	}
+	return recorded, nil
 }
 
 func toolIdentityOf(invocation interaction.ToolInvocation) toolIdentity {
@@ -178,7 +192,7 @@ func recordedOutcome(
 	if settlement.InputRequired {
 		modes++
 	}
-	if settlement.Failure != "" {
+	if settlement.Failure != "" && !settlement.Unknown {
 		modes++
 	}
 	if settlement.Unknown {
@@ -197,40 +211,35 @@ func recordedOutcome(
 	if settlement.InputRequired {
 		return ToolOutcomeInputRequired, nil, ""
 	}
+	if settlement.Unknown {
+		return ToolOutcomeUnknown, nil, settlement.Failure
+	}
 	if settlement.Failure != "" {
 		return ToolOutcomeFailed, nil, settlement.Failure
-	}
-	if settlement.Unknown {
-		return ToolOutcomeUnknown, nil, ""
 	}
 	return ToolOutcomeInvalid, nil, ""
 }
 
-func takeModels(observations *[]modelObservation, root agent.ProcessID) []ModelCall {
-	kept := (*observations)[:0]
+func recordedModels(observations []modelObservation, root agent.ProcessID) []ModelCall {
 	var calls []ModelCall
-	for _, observation := range *observations {
+	for _, observation := range observations {
 		if observation.root == root {
 			calls = append(calls, observation.call.Clone())
-			continue
 		}
-		kept = append(kept, observation)
 	}
-	*observations = kept
 	return calls
 }
 
-func takeTools(
+func recordedTools(
 	observations map[toolIdentity]toolObservation,
 	root agent.ProcessID,
 ) ([]ToolCall, error) {
 	var calls []ToolCall
 	var recordingErr error
-	for identity, observation := range observations {
+	for _, observation := range observations {
 		if observation.root != root {
 			continue
 		}
-		delete(observations, identity)
 		if observation.invalid || !observation.started || !observation.settled || !observation.call.Outcome.Valid() {
 			if recordingErr == nil {
 				recordingErr = fmt.Errorf("%w: tool call %q did not publish exactly one valid start and settlement", ErrIncompleteRecording, observation.call.Call.Name)
