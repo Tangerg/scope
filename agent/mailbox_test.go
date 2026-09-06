@@ -42,13 +42,13 @@ func TestMailboxCommitsOnlyAnExplicitSignalPrefix(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := mailbox.commit(2); err != nil {
+	if _, err := mailbox.commit(2); err != nil {
 		t.Fatal(err)
 	}
 	if mailbox.committedSignalCursor() != 2 || len(mailbox.pending()) != 1 || mailbox.pending()[0].ID().String() != "signal:3" {
 		t.Fatalf("mailbox cursor = %d pending %+v", mailbox.committedSignalCursor(), mailbox.pending())
 	}
-	if err := mailbox.commit(2); !errors.Is(err, errMailboxCursor) {
+	if _, err := mailbox.commit(2); !errors.Is(err, errMailboxCursor) {
 		t.Fatalf("over-consume error = %v, want errMailboxCursor", err)
 	}
 	if mailbox.committedSignalCursor() != 2 {
@@ -125,7 +125,7 @@ func TestMailboxSnapshotRestoresDeduplicationCursorAndWaitFacts(t *testing.T) {
 	if _, err := mailbox.enqueue(StatusRunning, plain, signalSourceExternal); err != nil {
 		t.Fatal(err)
 	}
-	if err := mailbox.commit(1); err != nil {
+	if _, err := mailbox.commit(1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -164,11 +164,45 @@ func TestMailboxWaitOpenedSignalDoesNotAnswerOrCloseWait(t *testing.T) {
 	if err := mailbox.enqueueWaitOpened(opened); err != nil {
 		t.Fatal(err)
 	}
-	if err := mailbox.commit(1); err != nil {
+	if _, err := mailbox.commit(1); err != nil {
 		t.Fatal(err)
 	}
 	if shouldWait, err := mailbox.enterWait(waitID); err != nil || !shouldWait {
 		t.Fatalf("enter open wait = %t, %v", shouldWait, err)
+	}
+}
+
+func TestMailboxCommitReportsOnlyConsumedChildWaits(t *testing.T) {
+	mailbox := newSignalMailbox()
+	key, _ := ParseWaitKey("children")
+	waitID, _ := ParseWaitID("wait:children")
+	if err := mailbox.registerWait(key, waitID, false); err != nil {
+		t.Fatal(err)
+	}
+	opened := mustMailboxSignal(t, "signal:opened", waitID, json.RawMessage(`{}`))
+	if err := mailbox.enqueueWaitOpened(opened); err != nil {
+		t.Fatal(err)
+	}
+	answer := mustMailboxSignal(t, "signal:answer", waitID, json.RawMessage(`{}`))
+	if _, err := mailbox.enqueue(StatusRunning, answer, signalSourceChildCompletion); err != nil {
+		t.Fatal(err)
+	}
+	candidate := mailbox.clone()
+	if closed, err := candidate.commit(1); err != nil || len(closed) != 0 {
+		t.Fatalf("consume wait-opened signal = %v, %v; want no closed child waits", closed, err)
+	}
+	closed, err := candidate.commit(1)
+	if err != nil || len(closed) != 1 || closed[0] != waitID {
+		t.Fatalf("consume child answer = %v, %v; want %s", closed, err, waitID)
+	}
+	if _, err := candidate.enterWait(waitID); !errors.Is(err, errWaitState) {
+		t.Fatalf("consumed child wait error = %v, want errWaitState", err)
+	}
+	if _, err := mailbox.enterWait(waitID); err != nil {
+		t.Fatalf("candidate commit closed the authoritative wait: %v", err)
+	}
+	if mailbox.committedSignalCursor() != 0 || candidate.committedSignalCursor() != 2 {
+		t.Fatalf("signal cursors = %d, %d; want 0, 2", mailbox.committedSignalCursor(), candidate.committedSignalCursor())
 	}
 }
 

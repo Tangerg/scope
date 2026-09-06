@@ -128,15 +128,9 @@ type preparedTransitionState struct {
 }
 
 func newPreparedStepFinalization(loop *processState) (*preparedStepFinalization, error) {
-	mailbox, err := restoreSignalMailbox(loop.mailbox.snapshot())
+	mailbox := loop.mailbox.clone()
+	consumedChildWaits, err := mailbox.commit(loop.prepared.wire.Transition.ConsumedSignals())
 	if err != nil {
-		return nil, err
-	}
-	consumedChildWaits, err := mailbox.consumedChildWaitIDs(loop.prepared.wire.Transition.ConsumedSignals())
-	if err != nil {
-		return nil, err
-	}
-	if err := mailbox.commit(loop.prepared.wire.Transition.ConsumedSignals()); err != nil {
 		return nil, err
 	}
 	return &preparedStepFinalization{

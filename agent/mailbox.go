@@ -175,36 +175,24 @@ func (s *signalMailbox) pending() []Signal {
 	return signals
 }
 
-func (s *signalMailbox) commit(consumedSignals uint32) error {
-	remaining := uint64(len(s.records)) - s.signalCursor
-	if uint64(consumedSignals) > remaining {
-		return errMailboxCursor
-	}
-	for _, record := range s.records[s.signalCursor : s.signalCursor+uint64(consumedSignals)] {
-		if waitID, addressed := record.signal.WaitID(); addressed && !record.opensWait {
-			if err := s.closeWait(waitID); err != nil {
-				return err
-			}
-		}
-	}
-	s.signalCursor += uint64(consumedSignals)
-	return nil
-}
-
-func (s *signalMailbox) consumedChildWaitIDs(consumedSignals uint32) ([]WaitID, error) {
+func (s *signalMailbox) commit(consumedSignals uint32) ([]WaitID, error) {
 	remaining := uint64(len(s.records)) - s.signalCursor
 	if uint64(consumedSignals) > remaining {
 		return nil, errMailboxCursor
 	}
-	var waitIDs []WaitID
+	var childWaits []WaitID
 	for _, record := range s.records[s.signalCursor : s.signalCursor+uint64(consumedSignals)] {
-		waitID, addressed := record.signal.WaitID()
-		wait, exists := s.waits[waitID]
-		if addressed && !record.opensWait && exists && !wait.externallyAddressable {
-			waitIDs = append(waitIDs, waitID)
+		if waitID, addressed := record.signal.WaitID(); addressed && !record.opensWait {
+			if err := s.closeWait(waitID); err != nil {
+				return nil, err
+			}
+			if !s.waits[waitID].externallyAddressable {
+				childWaits = append(childWaits, waitID)
+			}
 		}
 	}
-	return waitIDs, nil
+	s.signalCursor += uint64(consumedSignals)
+	return childWaits, nil
 }
 
 func (s *signalMailbox) arrivalSequence() uint64 { return uint64(len(s.records)) }
