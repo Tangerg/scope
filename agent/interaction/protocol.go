@@ -336,6 +336,9 @@ func (s signalEnvelope) validateToolResult() error {
 			if err := result.Results[index].Validate(); err != nil {
 				return fmt.Errorf("interaction: tool_result %d: %w", index, err)
 			}
+			if result.Direct && result.Results[index].IsError {
+				return fmt.Errorf("interaction: direct tool_result %d failed", index)
+			}
 		}
 	}
 	if err := validateAdvertisedToolNames(result.AdvertisedToolNames); err != nil {
