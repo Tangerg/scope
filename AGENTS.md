@@ -4,6 +4,8 @@ Scope is a Go workspace of independently versioned AI infrastructure modules. It
 
 Package contracts live in GoDoc and checked examples. Read [`DESIGN_PHILOSOPHY.md`](DESIGN_PHILOSOPHY.md) before designing a capability and [`REFACTORING.md`](REFACTORING.md) before refactoring.
 
+For ongoing audits and refinement, follow [`refactor-prompt.md`](refactor-prompt.md) to establish evidence, complete bounded repair batches, and stop when no justified work remains.
+
 - Do not preserve backward compatibility. Fix a wrong design at its owning layer, then remove obsolete APIs, schemas, aliases, fallbacks, migrations, and shims.
 - Prefer explicit, readable, flat, sparse code. Implement a proven need as the smallest complete end-to-end slice, keep necessary complexity visible, and reject speculative or hard-to-explain indirection.
 - Treat repository-local usage as no evidence for or against a public API. Give each capability one owner, one public representation, and one obvious call path; do not add synonymous methods, functions, builders, aliases, wrappers, or root facades.
