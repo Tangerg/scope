@@ -12,12 +12,14 @@ import (
 	"github.com/samber/lo"
 	apiotel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/log"
+	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
 	corespeech "github.com/Tangerg/scope/core/speech"
+	"github.com/Tangerg/scope/otel/internal/errortelemetry"
 )
 
 const (
@@ -44,6 +46,8 @@ type MiddlewareConfig struct {
 	Provider       string
 	TracerProvider trace.TracerProvider
 	MeterProvider  metric.MeterProvider
+	// LoggerProvider receives GenAI exception events. Nil uses the global provider.
+	LoggerProvider log.LoggerProvider
 }
 
 // Validate checks construction inputs without resolving global providers.
@@ -57,6 +61,7 @@ func (m MiddlewareConfig) Validate() error {
 // Middleware observes synthesis metadata without recording input text, voice
 // names, or generated audio.
 type Middleware struct {
+	logger   log.Logger
 	provider string
 	tracer   trace.Tracer
 	duration metric.Float64Histogram
@@ -72,6 +77,10 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	if lo.IsNil(tracerProvider) {
 		tracerProvider = apiotel.GetTracerProvider()
 	}
+	loggerProvider := config.LoggerProvider
+	if lo.IsNil(loggerProvider) {
+		loggerProvider = global.GetLoggerProvider()
+	}
 	meterProvider := config.MeterProvider
 	if lo.IsNil(meterProvider) {
 		meterProvider = apiotel.GetMeterProvider()
@@ -85,6 +94,7 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 		return Middleware{}, fmt.Errorf("%w: create duration histogram: %w", ErrInvalidConfig, err)
 	}
 	return Middleware{
+		logger:   loggerProvider.Logger(instrumentationName),
 		provider: strings.ToLower(strings.TrimSpace(config.Provider)),
 		tracer:   tracerProvider.Tracer(instrumentationName),
 		duration: duration,
@@ -135,7 +145,7 @@ func (m Middleware) WrapStream(next corespeech.Streamer) (corespeech.Streamer, e
 }
 
 func (m Middleware) validate() error {
-	if lo.IsNil(m.tracer) || lo.IsNil(m.duration) {
+	if lo.IsNil(m.logger) || lo.IsNil(m.tracer) || lo.IsNil(m.duration) {
 		return fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
 	}
 	return nil
@@ -197,9 +207,8 @@ func (o observation) finish(err error) {
 	}
 	if err != nil {
 		errorType := errorTypeAttribute(err)
-		o.span.RecordError(err)
-		o.span.SetStatus(codes.Error, err.Error())
-		o.span.SetAttributes(errorType)
+		errortelemetry.Record(o.span, errorType)
+		errortelemetry.EmitGenAIException(o.ctx, o.middleware.logger, errorType, time.Now())
 		attributes = append(attributes, errorType)
 	}
 	o.span.End()

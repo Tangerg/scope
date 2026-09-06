@@ -11,7 +11,8 @@ import (
 
 	apiotel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/log"
+	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/semconv/v1.41.0/genaiconv"
@@ -20,6 +21,7 @@ import (
 	"github.com/samber/lo"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/otel/internal/errortelemetry"
 )
 
 const (
@@ -50,11 +52,13 @@ var (
 // MiddlewareConfig identifies the remote GenAI provider and optionally supplies
 // providers scoped to this middleware. Provider is normalized to lowercase so
 // span and metric dimensions remain stable. The global OpenTelemetry providers
-// are used when TracerProvider or MeterProvider is nil.
+// are used when a signal provider is nil.
 type MiddlewareConfig struct {
 	Provider       string
 	TracerProvider trace.TracerProvider
 	MeterProvider  metric.MeterProvider
+	// LoggerProvider receives GenAI exception events. Nil uses the global provider.
+	LoggerProvider log.LoggerProvider
 }
 
 func (m MiddlewareConfig) Validate() error {
@@ -64,10 +68,11 @@ func (m MiddlewareConfig) Validate() error {
 	return nil
 }
 
-// Middleware adds GenAI spans and metrics to synchronous and streaming
-// chat capabilities. It is immutable after construction and safe for
+// Middleware adds GenAI spans, metrics, and exception events to synchronous and
+// streaming chat capabilities. It is immutable after construction and safe for
 // concurrent use.
 type Middleware struct {
+	logger        log.Logger
 	provider      string
 	tracer        trace.Tracer
 	duration      genaiconv.ClientOperationDuration
@@ -87,6 +92,10 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	tracerProvider := config.TracerProvider
 	if lo.IsNil(tracerProvider) {
 		tracerProvider = apiotel.GetTracerProvider()
+	}
+	loggerProvider := config.LoggerProvider
+	if lo.IsNil(loggerProvider) {
+		loggerProvider = global.GetLoggerProvider()
 	}
 	meterProvider := config.MeterProvider
 	if lo.IsNil(meterProvider) {
@@ -117,6 +126,7 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	}
 
 	return Middleware{
+		logger:   loggerProvider.Logger(instrumentationName),
 		provider: provider, tracer: tracerProvider.Tracer(instrumentationName),
 		duration: duration, tokens: tokens, firstChunk: firstChunk, chunkInterval: chunkInterval,
 	}, nil
@@ -224,7 +234,7 @@ func (m Middleware) Stream(next corechat.Streamer) corechat.Streamer {
 }
 
 func (m Middleware) validate() error {
-	if lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) || lo.IsNil(m.tokens.Inst()) ||
+	if lo.IsNil(m.logger) || lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) || lo.IsNil(m.tokens.Inst()) ||
 		lo.IsNil(m.firstChunk.Inst()) || lo.IsNil(m.chunkInterval.Inst()) {
 		return fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
 	}
@@ -273,9 +283,9 @@ func (m Middleware) finish(
 	}
 	span.SetAttributes(semconv.GenAIResponseFinishReasons(finishReason))
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		span.SetAttributes(errorTypeAttribute(err))
+		errorType := errorTypeAttribute(err)
+		errortelemetry.Record(span, errorType, trace.WithTimestamp(finished))
+		errortelemetry.EmitGenAIException(ctx, m.logger, errorType, finished)
 	}
 	m.recordMetrics(ctx, request, observation, finished.Sub(started), err)
 }

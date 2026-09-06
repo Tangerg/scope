@@ -11,13 +11,15 @@ import (
 	"github.com/samber/lo"
 	apiotel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/log"
+	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/semconv/v1.41.0/genaiconv"
 	"go.opentelemetry.io/otel/trace"
 
 	coreimage "github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/otel/internal/errortelemetry"
 )
 
 const (
@@ -40,6 +42,8 @@ type MiddlewareConfig struct {
 	Provider       string
 	TracerProvider trace.TracerProvider
 	MeterProvider  metric.MeterProvider
+	// LoggerProvider receives GenAI exception events. Nil uses the global provider.
+	LoggerProvider log.LoggerProvider
 }
 
 // Validate checks construction inputs without resolving global providers.
@@ -52,6 +56,7 @@ func (m MiddlewareConfig) Validate() error {
 
 // Middleware is an immutable image-generation instrumentation decorator.
 type Middleware struct {
+	logger   log.Logger
 	provider string
 	tracer   trace.Tracer
 	duration genaiconv.ClientOperationDuration
@@ -67,6 +72,10 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	if lo.IsNil(tracerProvider) {
 		tracerProvider = apiotel.GetTracerProvider()
 	}
+	loggerProvider := config.LoggerProvider
+	if lo.IsNil(loggerProvider) {
+		loggerProvider = global.GetLoggerProvider()
+	}
 	meterProvider := config.MeterProvider
 	if lo.IsNil(meterProvider) {
 		meterProvider = apiotel.GetMeterProvider()
@@ -76,6 +85,7 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 		return Middleware{}, fmt.Errorf("%w: create duration histogram: %w", ErrInvalidConfig, err)
 	}
 	return Middleware{
+		logger:   loggerProvider.Logger(instrumentationName),
 		provider: strings.ToLower(strings.TrimSpace(config.Provider)),
 		tracer:   tracerProvider.Tracer(instrumentationName),
 		duration: duration,
@@ -84,7 +94,7 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 
 // Wrap decorates one image Model without observing prompts or generated media.
 func (m Middleware) Wrap(next coreimage.Model) (coreimage.Model, error) {
-	if lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) {
+	if lo.IsNil(m.logger) || lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) {
 		return nil, fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
 	}
 	if lo.IsNil(next) {
@@ -102,9 +112,8 @@ func (m Middleware) Wrap(next coreimage.Model) (coreimage.Model, error) {
 		metricAttributes := m.metricAttributes(request)
 		if err != nil {
 			errorType := errorTypeAttribute(err)
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			span.SetAttributes(errorType)
+			errortelemetry.Record(span, errorType)
+			errortelemetry.EmitGenAIException(spanCtx, m.logger, errorType, time.Now())
 			metricAttributes = append(metricAttributes, errorType)
 		}
 		m.duration.Record(spanCtx, time.Since(startedAt).Seconds(),

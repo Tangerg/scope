@@ -10,7 +10,6 @@ import (
 
 	apiotel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
@@ -19,6 +18,7 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	coretool "github.com/Tangerg/scope/core/tool"
+	"github.com/Tangerg/scope/otel/internal/errortelemetry"
 )
 
 const (
@@ -122,9 +122,7 @@ func (i *instrumentedTool) Call(ctx context.Context, invocation coretool.Invocat
 	result, err := i.next.Call(ctx, invocation)
 	if err != nil {
 		errorType := errorTypeAttribute(err)
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		span.SetAttributes(errorType)
+		errortelemetry.Record(span, errorType)
 		attributes = append(attributes, errorType)
 	}
 	span.End()

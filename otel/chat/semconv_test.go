@@ -5,6 +5,7 @@ import (
 	"errors"
 	"iter"
 	"slices"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -13,6 +14,29 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 )
+
+func TestCallDoesNotExportErrorText(t *testing.T) {
+	middleware, rig := newRig(t, "openai")
+	const secret = "private-provider-payload"
+	want := errors.New(secret)
+	_, err := middleware.Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		return nil, want
+	})).Call(t.Context(), request("model"))
+	if !errors.Is(err, want) {
+		t.Fatalf("error = %v, want original provider error", err)
+	}
+	span := rig.spans.Ended()[0]
+	if strings.Contains(span.Status().Description, secret) {
+		t.Error("provider error text leaked through span status")
+	}
+	for _, event := range span.Events() {
+		for _, value := range event.Attributes {
+			if strings.Contains(value.Value.String(), secret) {
+				t.Errorf("provider error text leaked through %s", value.Key)
+			}
+		}
+	}
+}
 
 func TestStreamMeasuresEveryReceivedChunk(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {

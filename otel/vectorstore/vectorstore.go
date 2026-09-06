@@ -10,7 +10,6 @@ import (
 
 	apiotel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
@@ -19,6 +18,7 @@ import (
 
 	corevectorstore "github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
+	"github.com/Tangerg/scope/otel/internal/errortelemetry"
 )
 
 const (
@@ -228,9 +228,7 @@ func (v vectorStoreObservation) finish(err error) {
 	metricAttributes := v.metricAttributes
 	if err != nil {
 		errorType := vectorStoreErrorType(err)
-		v.span.RecordError(err)
-		v.span.SetStatus(codes.Error, err.Error())
-		v.span.SetAttributes(errorType)
+		errortelemetry.Record(v.span, errorType)
 		metricAttributes = append(metricAttributes, errorType)
 	}
 	v.span.End()

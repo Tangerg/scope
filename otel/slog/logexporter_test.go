@@ -34,6 +34,7 @@ func TestLogExporter_EmitViaProvider(t *testing.T) {
 	}
 
 	var rec otellog.Record
+	rec.SetEventName("gen_ai.client.operation.exception")
 	rec.SetSeverity(otellog.SeverityInfo)
 	rec.SetBody(attribute.StringValue("session created"))
 	rec.AddAttributes(attribute.String("gen_ai.conversation.id", "ses_42"))
@@ -45,6 +46,9 @@ func TestLogExporter_EmitViaProvider(t *testing.T) {
 	}
 	if !strings.Contains(out, "ses_42") {
 		t.Fatalf("attribute not in output: %q", out)
+	}
+	if !strings.Contains(out, "event_name=gen_ai.client.operation.exception") {
+		t.Fatalf("event name not in output: %q", out)
 	}
 }
 

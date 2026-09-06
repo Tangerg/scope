@@ -73,6 +73,9 @@ func (l *LogExporter) Export(ctx context.Context, records []sdklog.Record) error
 		if scope := rec.InstrumentationScope().Name; scope != "" {
 			attrs = append(attrs, stdslog.String("scope", scope))
 		}
+		if eventName := rec.EventName(); eventName != "" {
+			attrs = append(attrs, stdslog.String("event_name", eventName))
+		}
 		rec.WalkAttributes(func(kv attribute.KeyValue) bool {
 			attrs = append(attrs, logKVToSlog(kv))
 			return true
