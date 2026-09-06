@@ -462,12 +462,12 @@ func likeMatchRunes(s, p []rune) bool {
 	starS, starP := -1, -1
 	for si < len(s) {
 		switch {
-		case pi < len(p) && (p[pi] == '_' || p[pi] == s[si]):
-			si++
-			pi++
 		case pi < len(p) && p[pi] == '%':
 			starP = pi
 			starS = si
+			pi++
+		case pi < len(p) && (p[pi] == '_' || p[pi] == s[si]):
+			si++
 			pi++
 		case starP != -1:
 			pi = starP + 1
