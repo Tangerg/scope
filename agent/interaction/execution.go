@@ -730,6 +730,7 @@ func (e *execution) fail(
 }
 
 func boundedDiagnostic(message string) string {
+	message = strings.ToValidUTF8(message, "\ufffd")
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return "Interaction operation failed"

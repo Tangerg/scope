@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
@@ -253,6 +254,7 @@ func TestCompletionValidatorFailureClassification(t *testing.T) {
 		cause     agent.TerminationCause
 		kind      agent.FailureKind
 		code      string
+		message   string
 	}{
 		{
 			name: "returned error",
@@ -262,6 +264,22 @@ func TestCompletionValidatorFailureClassification(t *testing.T) {
 			cause: agent.TerminationCauseExecutionFailure,
 			kind:  agent.FailureKindExecution,
 			code:  "interaction.completion.validator_failed",
+		},
+		{
+			name: "invalid error encoding",
+			validator: func(interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
+				return interaction.CompletionDecision{}, errors.New("failure: \xff")
+			},
+			cause: agent.TerminationCauseExecutionFailure, kind: agent.FailureKindExecution,
+			code: "interaction.completion.validator_failed", message: "failure: \ufffd",
+		},
+		{
+			name: "long invalid error encoding",
+			validator: func(interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
+				return interaction.CompletionDecision{}, errors.New("\xff" + strings.Repeat("a", 2048))
+			},
+			cause: agent.TerminationCauseExecutionFailure, kind: agent.FailureKindExecution,
+			code: "interaction.completion.validator_failed", message: "\ufffd" + strings.Repeat("a", 2045),
 		},
 		{
 			name: "panic",
@@ -291,6 +309,9 @@ func TestCompletionValidatorFailureClassification(t *testing.T) {
 			if result.Termination().Cause() != test.cause || !present ||
 				failure.Kind() != test.kind || failure.Code() != test.code {
 				t.Fatalf("termination=%#v", result.Termination())
+			}
+			if test.message != "" && failure.Message() != test.message {
+				t.Fatal("validator failure diagnostic changed or was discarded")
 			}
 		})
 	}
