@@ -93,7 +93,9 @@ func NewTokenSplitter(config TokenSplitterConfig) (*TokenSplitter, error) {
 	return splitter, nil
 }
 
-// SplitText tokenizes text and emits chunks within the configured bounds.
+// SplitText emits trimmed chunks whose final text stays within the token budget.
+// The remaining source is encoded again after each chunk because trimming can
+// change vocabulary boundaries.
 func (t *TokenSplitter) SplitText(ctx context.Context, text string) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -106,63 +108,45 @@ func (t *TokenSplitter) SplitText(ctx context.Context, text string) ([]string, e
 		return nil, nil
 	}
 
-	tokens, err := t.tokenizer.Encode(ctx, text)
-	if err != nil {
-		return nil, fmt.Errorf("etl: tokenize text: %w", err)
-	}
-
-	chunks := make([]string, 0, min(len(tokens)/t.maxTokensPerChunk+1, t.maxChunks))
-	for len(tokens) > 0 {
+	var chunks []string
+	for text != "" {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		selected, consumedCount, err := t.nextChunk(ctx, text, tokens)
+		selected, err := t.nextChunk(ctx, text)
 		if err != nil {
 			return nil, err
 		}
-		tokens = tokens[consumedCount:]
-		text = text[len(selected):]
-		chunk := strings.TrimSpace(selected)
-		if chunk == "" {
-			continue
-		}
+		text = strings.TrimSpace(text[len(selected):])
 		if len(chunks) == t.maxChunks {
 			return nil, fmt.Errorf("%w: maximum is %d", ErrChunkLimitExceeded, t.maxChunks)
 		}
-		chunks = append(chunks, chunk)
+		chunks = append(chunks, strings.TrimSpace(selected))
 	}
 	return chunks, nil
 }
 
-func (t *TokenSplitter) nextChunk(ctx context.Context, source string, tokens []int) (string, int, error) {
-	windowText, count, err := tokenwindow.Prefix(ctx, t.tokenizer, source, tokens, t.maxTokensPerChunk)
+func (t *TokenSplitter) nextChunk(ctx context.Context, source string) (string, error) {
+	window, err := tokenwindow.Prefix(ctx, t.tokenizer, source, t.maxTokensPerChunk, strings.TrimSpace)
 	if err != nil {
-		return "", 0, fmt.Errorf("etl: decode token window: %w", err)
+		return "", fmt.Errorf("etl: select token window: %w", err)
 	}
-	if count == 0 {
-		return "", 0, fmt.Errorf("%w: maximum is %d", ErrChunkBudgetTooSmall, t.maxTokensPerChunk)
+	if window == "" {
+		return "", fmt.Errorf("%w: maximum is %d", ErrChunkBudgetTooSmall, t.maxTokensPerChunk)
 	}
-	windowTokens := tokens[:count]
-	boundary := t.lastSentenceBoundary(windowText)
-	if boundary <= 0 || boundary >= len(windowText) {
-		return windowText, len(windowTokens), nil
+	boundary := t.lastSentenceBoundary(window)
+	if boundary <= 0 || boundary >= len(window) {
+		return window, nil
 	}
-	prefix := windowText[:boundary]
-	prefixTokens, err := t.tokenizer.Encode(ctx, prefix)
+	prefix := window[:boundary]
+	tokens, err := t.tokenizer.Encode(ctx, strings.TrimSpace(prefix))
 	if err != nil {
-		return "", 0, fmt.Errorf("etl: measure sentence boundary: %w", err)
+		return "", fmt.Errorf("etl: measure sentence boundary: %w", err)
 	}
-	if len(prefixTokens) < t.minTokensPerChunk || len(prefixTokens) >= len(windowTokens) {
-		return windowText, len(windowTokens), nil
+	if len(tokens) < t.minTokensPerChunk || len(tokens) > t.maxTokensPerChunk {
+		return window, nil
 	}
-	originalPrefix, err := t.tokenizer.Decode(ctx, windowTokens[:len(prefixTokens)])
-	if err != nil {
-		return "", 0, fmt.Errorf("etl: verify sentence boundary: %w", err)
-	}
-	if originalPrefix != prefix {
-		return windowText, len(windowTokens), nil
-	}
-	return prefix, len(prefixTokens), nil
+	return prefix, nil
 }
 
 func (t *TokenSplitter) clean(text string) string {

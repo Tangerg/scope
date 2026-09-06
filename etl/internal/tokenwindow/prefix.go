@@ -9,20 +9,43 @@ import (
 	"github.com/Tangerg/scope/core/tokenizer"
 )
 
-// Prefix finds a non-empty, lossless text prefix within the token window.
-// A zero count means the budget cannot hold a complete source character.
-func Prefix(ctx context.Context, decoder tokenizer.Decoder, source string, tokens []int, limit int) (string, int, error) {
+// Prefix returns a lossless source prefix whose rendered text fits the budget.
+// The caller consumes source bytes and re-encodes the remaining text: vocabulary
+// boundaries are not stable after trimming or adding structural context.
+// An empty result means no complete source character fits.
+func Prefix(ctx context.Context, codec tokenizer.Tokenizer, source string, limit int, render func(string) string) (string, error) {
+	tokens, err := codec.Encode(ctx, source)
+	if err != nil {
+		return "", err
+	}
+	var prefix string
 	for count := min(limit, len(tokens)); count > 0; count-- {
 		if err := ctx.Err(); err != nil {
-			return "", 0, err
+			return "", err
 		}
-		decoded, err := decoder.Decode(ctx, tokens[:count])
+		decoded, err := codec.Decode(ctx, tokens[:count])
 		if err != nil {
-			return "", 0, err
+			return "", err
 		}
 		if decoded != "" && utf8.ValidString(decoded) && strings.HasPrefix(source, decoded) {
-			return decoded, count, nil
+			prefix = decoded
+			break
 		}
 	}
-	return "", 0, nil
+	for prefix != "" {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		rendered := render(prefix)
+		measured, err := codec.Encode(ctx, rendered)
+		if err != nil {
+			return "", err
+		}
+		if rendered != "" && len(measured) <= limit {
+			return prefix, nil
+		}
+		_, size := utf8.DecodeLastRuneInString(prefix)
+		prefix = prefix[:len(prefix)-size]
+	}
+	return "", nil
 }

@@ -356,58 +356,24 @@ func (s *Splitter) splitBlock(ctx context.Context, prefix string, block markdown
 }
 
 func (s *Splitter) splitParagraph(ctx context.Context, prefix, paragraph string) ([]string, error) {
-	tokens, err := s.tokenizer.Encode(ctx, paragraph)
-	if err != nil {
-		return nil, fmt.Errorf("markdown splitter: tokenize paragraph: %w", err)
-	}
-
-	chunks := make([]string, 0, min(len(tokens)/s.maxTokensPerChunk+1, s.maxChunks))
-	for len(tokens) > 0 {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		consumed, decoded, err := s.largestFittingTokenPrefix(ctx, prefix, paragraph, tokens)
+	render := func(body string) string { return renderChunk(prefix, strings.TrimSpace(body)) }
+	var chunks []string
+	for paragraph = strings.TrimSpace(paragraph); paragraph != ""; {
+		decoded, err := tokenwindow.Prefix(ctx, s.tokenizer, paragraph, s.maxTokensPerChunk, render)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("markdown splitter: select paragraph token window: %w", err)
 		}
-		if consumed == 0 {
-			return nil, s.semanticUnitError(ctx, blockParagraph, renderChunk(prefix, decoded))
+		if decoded == "" {
+			_, size := utf8.DecodeRuneInString(paragraph)
+			return nil, s.semanticUnitError(ctx, blockParagraph, render(paragraph[:size]))
 		}
-		tokens = tokens[consumed:]
-		paragraph = paragraph[len(decoded):]
-		if chunk := strings.TrimSpace(decoded); chunk != "" {
-			if len(chunks) == s.maxChunks {
-				return nil, fmt.Errorf("%w: maximum is %d", etl.ErrChunkLimitExceeded, s.maxChunks)
-			}
-			chunks = append(chunks, chunk)
+		paragraph = strings.TrimSpace(paragraph[len(decoded):])
+		if len(chunks) == s.maxChunks {
+			return nil, fmt.Errorf("%w: maximum is %d", etl.ErrChunkLimitExceeded, s.maxChunks)
 		}
+		chunks = append(chunks, strings.TrimSpace(decoded))
 	}
 	return chunks, nil
-}
-
-func (s *Splitter) largestFittingTokenPrefix(ctx context.Context, prefix, source string, tokens []int) (int, string, error) {
-	count := min(len(tokens), s.maxTokensPerChunk)
-	var decoded string
-	for count > 0 {
-		value, consumed, err := tokenwindow.Prefix(ctx, s.tokenizer, source, tokens, count)
-		if err != nil {
-			return 0, "", fmt.Errorf("markdown splitter: decode paragraph token window: %w", err)
-		}
-		if consumed == 0 {
-			_, size := utf8.DecodeRuneInString(source)
-			return 0, source[:size], nil
-		}
-		fits, _, err := s.fits(ctx, renderChunk(prefix, value))
-		if err != nil {
-			return 0, "", err
-		}
-		if fits {
-			return consumed, value, nil
-		}
-		count = consumed - 1
-		decoded = value
-	}
-	return 0, decoded, nil
 }
 
 func (s *Splitter) splitTable(ctx context.Context, prefix, table string) ([]string, error) {
