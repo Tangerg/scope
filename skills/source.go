@@ -2,6 +2,7 @@ package skills
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 )
@@ -13,9 +14,9 @@ import (
 //   - List — name + description for every skill (level 1)
 //   - Load — one skill's full instructions (level 2)
 //
-// Implementations must return valid Summary and Skill models, honor ctx
-// cancellation, and return an error matching context.Canceled or
-// context.DeadlineExceeded.
+// Implementations must return valid Summary and Skill models and honor ctx
+// cancellation. Cancellation errors preserve both context.Canceled or
+// context.DeadlineExceeded and any custom cancellation cause through errors.Is.
 type Source interface {
 	// List returns detached, valid summaries in the implementation's stable
 	// discovery order. Invalid skill bundles may be skipped, but repository I/O,
@@ -39,8 +40,15 @@ type ResourceSource interface {
 }
 
 func contextError(ctx context.Context, operation string) error {
-	if err := context.Cause(ctx); err != nil {
-		return fmt.Errorf("skills: %s: %w", operation, err)
+	err := ctx.Err()
+	if err == nil {
+		return nil
 	}
-	return nil
+	cause := context.Cause(ctx)
+	if errors.Is(cause, err) {
+		err = cause
+	} else {
+		err = errors.Join(err, cause)
+	}
+	return fmt.Errorf("skills: %s: %w", operation, err)
 }

@@ -60,11 +60,11 @@ type contextReader struct {
 }
 
 func (c contextReader) Read(buffer []byte) (int, error) {
-	if err := context.Cause(c.ctx); err != nil {
+	if err := contextError(c.ctx, "read"); err != nil {
 		return 0, err
 	}
 	read, err := c.reader.Read(buffer)
-	if contextErr := context.Cause(c.ctx); contextErr != nil {
+	if contextErr := contextError(c.ctx, "read"); contextErr != nil {
 		return read, errors.Join(err, contextErr)
 	}
 	return read, err
