@@ -169,6 +169,10 @@ func (p *processState) result() Result {
 
 func (p pendingControl) wire() pendingControlWire {
 	wire := pendingControlWire{PauseReason: p.pauseReason}
+	if p.failure.Valid() {
+		failure := p.failure
+		wire.Failure = &failure
+	}
 	if p.kill.valid() {
 		wire.KillReason = p.kill.reason
 	}
@@ -188,6 +192,9 @@ func pendingControlFromWire(wire pendingControlWire) (pendingControl, error) {
 		return pendingControl{}, err
 	}
 	control := pendingControl{pauseReason: wire.PauseReason}
+	if wire.Failure != nil {
+		control.failure = *wire.Failure
+	}
 	if wire.KillReason != "" {
 		control.kill, _ = newKillIntent(wire.KillReason)
 	}

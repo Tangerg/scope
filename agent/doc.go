@@ -114,6 +114,15 @@
 // settlement Signal — a local failure is never promoted to a Process terminal
 // state on its own.
 //
+// A child-completion delivery failure is recorded as pending termination.
+// Accepted external effects settle first, and any unknown identities remain
+// in the terminal result. The pending failure survives tree capture.
+//
+// A long-lived Engine retains completed trees for diagnostics and capture until
+// the Host calls [Engine.ReleaseTree]. Release waits for all descendant work to
+// settle, removes the tree from lookup, and leaves existing handles' terminal
+// results readable.
+//
 // # Recovery
 //
 // [ExecutionState] is a discriminated envelope of a kind and an opaque

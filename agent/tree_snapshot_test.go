@@ -27,13 +27,14 @@ func TestParseTreeSnapshotClassifiesVersionBeforeCurrentWireShape(t *testing.T) 
 		unsupported bool
 	}{
 		{name: "missing version", omitVersion: true, unsupported: true},
-		{name: "foreign version", version: json.RawMessage(`2`), unsupported: true},
+		{name: "previous version", version: json.RawMessage(`1`), unsupported: true},
+		{name: "foreign version", version: json.RawMessage(`3`), unsupported: true},
 		{
-			name: "foreign version with unknown member", version: json.RawMessage(`2`), unknown: true,
+			name: "foreign version with unknown member", version: json.RawMessage(`3`), unknown: true,
 			unsupported: true,
 		},
 		{name: "current version with unknown member", unknown: true},
-		{name: "malformed JSON", malformed: json.RawMessage(`{"version":1,"root_id":`)},
+		{name: "malformed JSON", malformed: json.RawMessage(`{"version":2,"root_id":`)},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

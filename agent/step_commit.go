@@ -380,13 +380,22 @@ func (p *processState) discardExecution() {
 	}
 }
 
-func (p *processState) fail(kind FailureKind, code string, err error) {
+// Asynchronous failures wait for accepted external effects to settle before
+// becoming terminal, just like cancellation and deadline intents.
+func (p *processState) recordFailure(kind FailureKind, code string, err error) {
+	if p.pendingControl.failure.Valid() {
+		return
+	}
 	failure, failureErr := failureFromError(kind, code, err)
 	if failureErr != nil {
 		failure, _ = NewFailure(FailureKindContract, "engine.failure.invalid", "Engine could not construct a valid failure")
 	}
-	outcome, _ := failedOutcome(failure)
-	p.commitTermination(outcome)
+	p.pendingControl.failure = failure
+}
+
+func (p *processState) fail(kind FailureKind, code string, err error) {
+	p.recordFailure(kind, code, err)
+	p.commitTermination(stepOutcome{})
 }
 
 func (p *processState) commitTermination(outcome stepOutcome) {
@@ -411,6 +420,9 @@ func (p *processState) commitTerminationWithUnresolved(
 }
 
 func (p *processState) resolveStepTermination(outcome stepOutcome) Termination {
+	if p.pendingControl.failure.Valid() {
+		outcome, _ = failedOutcome(p.pendingControl.failure)
+	}
 	termination, err := resolveTermination(terminationFacts{
 		kill: p.pendingControl.kill, deadline: p.pendingControl.deadline,
 		cancellation: p.pendingControl.cancellation, outcome: outcome,

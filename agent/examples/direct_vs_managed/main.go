@@ -76,6 +76,9 @@ func run(ctx context.Context, output io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if releaseErr := engine.ReleaseTree(ctx, process.ID()); releaseErr != nil {
+		return releaseErr
+	}
 	erased, ok := result.Output()
 	if !ok {
 		return fmt.Errorf("managed Process ended with %s", result.Status())

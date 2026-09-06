@@ -191,7 +191,6 @@ func (t *treeRuntime) applyTreeCommitCompletion(completion treeCommitCompletion)
 	}
 	t.commit = nil
 	t.inflight.Add(-1)
-	defer t.applyDeferredCommands(commit.deferred)
 	if completion.err != nil {
 		t.applyFailedTreeCommit(commit, completion.err)
 		return
@@ -259,12 +258,6 @@ func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 		t.markRunnable(commit.processID)
 	case treeCommitCheckpoint:
 		t.publishCheckpoint()
-	}
-}
-
-func (t *treeRuntime) applyDeferredCommands(commands []treeCommand) {
-	for _, command := range commands {
-		t.applyCommand(command)
 	}
 }
 
@@ -572,12 +565,4 @@ func (t *treeRuntime) setTreeCommit(commit *treeCommit) {
 	}
 	t.commit = commit
 	t.inflight.Add(1)
-}
-
-func (t *treeRuntime) deferDuringCommit(command treeCommand) bool {
-	if t.commit == nil {
-		return false
-	}
-	t.commit.deferred = append(t.commit.deferred, command)
-	return true
 }

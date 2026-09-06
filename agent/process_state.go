@@ -65,6 +65,7 @@ type preparedStep struct {
 }
 
 type pendingControl struct {
+	failure      Failure
 	kill         killIntent
 	deadline     deadlineIntent
 	cancellation cancellationIntent
@@ -177,12 +178,12 @@ func (p *processState) deliverChildrenCompleted(ctx context.Context, signal Sign
 		!resourceQuantitiesFit(
 			p.budget.Signals, p.usage.AcceptedSignals, reservedBudget.Signals, 1,
 		) {
-		p.fail(FailureKindExecution, "engine.limit.child_completion_signal", ErrResourceLimitExceeded)
+		p.recordFailure(FailureKindExecution, "engine.limit.child_completion_signal", ErrResourceLimitExceeded)
 		return false
 	}
 	accepted, err := p.mailbox.enqueueChildCompletion(p.status, signal)
 	if err != nil {
-		p.fail(FailureKindContract, "engine.child.completion.invalid", err)
+		p.recordFailure(FailureKindContract, "engine.child.completion.invalid", err)
 		return false
 	}
 	if !accepted {
@@ -403,7 +404,7 @@ func (p *processState) reservedSettlementSignals() uint64 {
 }
 
 func (p pendingControl) hasTerminalIntent() bool {
-	return p.kill.valid() || p.deadline.valid() || p.cancellation.valid()
+	return p.failure.Valid() || p.kill.valid() || p.deadline.valid() || p.cancellation.valid()
 }
 
 func (p *preparedStep) hasUnknownSettlement() bool {

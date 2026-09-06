@@ -14,8 +14,10 @@ import (
 
 // Exported defaults keep constructor behavior visible and overridable.
 const (
-	maxTreeSnapshotBytes                           = 512 << 20
-	CurrentTreeSnapshotVersion TreeSnapshotVersion = 1
+	maxTreeSnapshotBytes = 512 << 20
+	// CurrentTreeSnapshotVersion preserves pending failures across restoration.
+	// Earlier control wire contracts cannot represent that terminal intent.
+	CurrentTreeSnapshotVersion TreeSnapshotVersion = 2
 )
 
 var (
@@ -412,7 +414,7 @@ func (t *treeFreeze) resolve(kind treeCommandKind, projection *treeStateProjecti
 	}
 	response := make(chan error, 1)
 	select {
-	case t.runtime.commands <- treeCommand{
+	case t.runtime.controls <- treeCommand{
 		kind: kind, freeze: t, projection: projection, response: response,
 	}:
 	case <-t.runtime.done:
@@ -487,7 +489,7 @@ func (e *Engine) runtimeForTree(rootID ProcessID) (*treeRuntime, error) {
 	root := e.processes[rootID]
 	runtime := e.trees[rootID]
 	if root == nil || runtime == nil || !root.relation.IsRoot() ||
-		root.relation.RootID() != rootID || root.runtime != runtime {
+		root.relation.RootID() != rootID || root.runtime.Load() != runtime {
 		return nil, ErrInvalidProcessRelation
 	}
 	return runtime, nil
@@ -507,7 +509,7 @@ func (t *treeRuntime) acquireTreeFreeze(
 		mode:     mode,
 	}
 	select {
-	case t.commands <- treeCommand{
+	case t.controls <- treeCommand{
 		kind: treeCommandAcquireFreeze, acquisition: acquisition,
 	}:
 	case <-t.done:

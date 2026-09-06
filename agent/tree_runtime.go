@@ -25,6 +25,7 @@ type treeRuntime struct {
 	freezeHeld  atomic.Bool
 	context     context.Context
 	commands    chan treeCommand
+	controls    chan treeCommand
 	completions chan treeJobCompletion
 
 	// Everything below is owner-line state. Keeping it lock-free makes commit,
@@ -92,7 +93,6 @@ type treeFreezeAcquisitionResult struct {
 type activeTreeFreeze struct {
 	acquisition *treeFreezeAcquisition
 	freeze      *treeFreeze
-	deferred    []treeCommand
 	ready       bool
 }
 
@@ -157,7 +157,6 @@ type treeCommit struct {
 	response  chan processResponse
 	events    []Event
 	child     *pendingChildOutcome
-	deferred  []treeCommand
 }
 
 type pendingChildOutcome struct {
@@ -214,6 +213,7 @@ func newTreeRuntime(
 		rootID:            rootID,
 		context:           context.WithoutCancel(requireContext(ctx)),
 		commands:          make(chan treeCommand, treeCommandBufferCapacity),
+		controls:          make(chan treeCommand, treeCommandBufferCapacity),
 		completions:       make(chan treeJobCompletion),
 		processes:         make(map[ProcessID]*processState, len(processes)),
 		childWaits:        make(map[WaitID]*childWaitRegistration),
@@ -255,7 +255,7 @@ func (t *treeRuntime) addProcess(process *processState) {
 		panic("agent: duplicate tree Process")
 	}
 	process.runtime = t
-	process.controller.runtime = t
+	process.controller.runtime.Store(t)
 	t.processes[processID] = process
 	if !process.status.Terminal() {
 		t.markRunnable(processID)
@@ -311,17 +311,12 @@ func (t *treeRuntime) advanceReadyWork() bool {
 
 func (t *treeRuntime) waitForWork() {
 	if t.commit != nil {
-		select {
-		case command := <-t.commands:
-			t.applyCommand(command)
-		case completion := <-t.commitDone:
-			t.applyTreeCommitCompletion(completion)
-		}
+		t.applyTreeCommitCompletion(<-t.commitDone)
 		return
 	}
 	if t.freeze != nil && t.freeze.ready {
 		select {
-		case command := <-t.commands:
+		case command := <-t.controls:
 			t.applyCommand(command)
 		case <-t.freeze.acquisition.canceled:
 			t.releaseCurrentFreeze()
@@ -330,7 +325,7 @@ func (t *treeRuntime) waitForWork() {
 	}
 	if freezeCanceled := t.freezeCanceled(); freezeCanceled != nil {
 		select {
-		case command := <-t.commands:
+		case command := <-t.controls:
 			t.applyCommand(command)
 		case completion := <-t.completions:
 			t.applyCompletion(completion)
@@ -340,6 +335,8 @@ func (t *treeRuntime) waitForWork() {
 		return
 	}
 	select {
+	case command := <-t.controls:
+		t.applyCommand(command)
 	case command := <-t.commands:
 		t.applyCommand(command)
 	case completion := <-t.completions:
@@ -369,8 +366,18 @@ func (t *treeRuntime) tryFreezeCancellation() bool {
 }
 
 func (t *treeRuntime) tryCommand() bool {
+	if t.commit != nil {
+		return false
+	}
+	commands := t.commands
+	if t.freeze != nil {
+		commands = nil
+	}
 	select {
-	case command := <-t.commands:
+	case command := <-t.controls:
+		t.applyCommand(command)
+		return true
+	case command := <-commands:
 		t.applyCommand(command)
 		return true
 	default:

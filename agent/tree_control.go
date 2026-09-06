@@ -6,9 +6,6 @@ import (
 )
 
 func (t *treeRuntime) applyCommand(command treeCommand) {
-	if t.deferDuringCommit(command) {
-		return
-	}
 	switch command.kind {
 	case treeCommandAcquireFreeze:
 		t.acquireFreeze(command.acquisition)
@@ -35,10 +32,6 @@ func (t *treeRuntime) applyCommand(command treeCommand) {
 		})
 		return
 	case treeCommandProcess:
-		if t.freeze != nil {
-			t.freeze.deferred = append(t.freeze.deferred, command)
-			return
-		}
 	default:
 		if command.response != nil {
 			command.response <- ErrEngineQuiescenceUnavailable
@@ -186,16 +179,12 @@ func (t *treeRuntime) releaseFreeze(freeze *treeFreeze) error {
 // the active freeze. External capabilities still pass through releaseFreeze so
 // stale or foreign authority is rejected rather than silently accepted.
 func (t *treeRuntime) releaseCurrentFreeze() {
-	deferred := t.freeze.deferred
 	t.freeze = nil
 	t.freezeHeld.Store(false)
 	for _, process := range t.processes {
 		if !process.status.Terminal() {
 			t.markRunnable(process.controller.processID)
 		}
-	}
-	for _, command := range deferred {
-		t.applyCommand(command)
 	}
 }
 
@@ -243,7 +232,7 @@ func (t *treeRuntime) awaitHeadAdvance(ctx context.Context, previous Digest) err
 	ctx = requireContext(ctx)
 	response := make(chan error, 1)
 	select {
-	case t.commands <- treeCommand{
+	case t.controls <- treeCommand{
 		kind: treeCommandWaitHeadAdvance, previousHead: previous, response: response,
 	}:
 	case <-t.done:

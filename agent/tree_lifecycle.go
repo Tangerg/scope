@@ -51,13 +51,22 @@ func (t *treeRuntime) processFinished(process *processState) {
 		if !satisfied {
 			continue
 		}
-		signal, err := encodeChildrenCompleted(registration.waitID, registration.spec.Key, outcomes)
-		if err != nil {
+		parent := t.processes[registration.parent]
+		if parent == nil || parent.status.Terminal() || parent.pendingControl.hasTerminalIntent() {
 			continue
 		}
-		parent := t.processes[registration.parent]
-		if parent != nil && parent.deliverChildrenCompleted(t.context, signal) {
+		signal, err := encodeChildrenCompleted(registration.waitID, registration.spec.Key, outcomes)
+		if err != nil {
+			parent.recordFailure(FailureKindExecution, "engine.child.completion.encoding_failed", err)
+			t.invalidateStep(parent)
+			t.markRunnable(parent.controller.processID)
+			continue
+		}
+		if parent.deliverChildrenCompleted(t.context, signal) {
 			registration.delivered = true
+			t.markRunnable(parent.controller.processID)
+		} else if parent.pendingControl.hasTerminalIntent() {
+			t.invalidateStep(parent)
 			t.markRunnable(parent.controller.processID)
 		}
 	}

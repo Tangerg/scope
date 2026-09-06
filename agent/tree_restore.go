@@ -292,7 +292,7 @@ func (e *Engine) publishRestoredTree(restoration *treeRestoration) {
 	if e.closed || e.treeRestoreReservations[rootID] != restoration {
 		panic("agent: invalid restored tree reservation")
 	}
-	runtime := restoration.processes[0].controller.runtime
+	runtime := restoration.processes[0].controller.runtime.Load()
 	if runtime == nil || runtime.rootID != rootID || e.trees[rootID] != nil {
 		panic("agent: invalid restored tree runtime")
 	}

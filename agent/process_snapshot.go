@@ -162,6 +162,7 @@ type preparedStepWire struct {
 }
 
 type pendingControlWire struct {
+	Failure            *Failure          `json:"failure,omitempty"`
 	KillReason         string            `json:"kill_reason,omitempty"`
 	DeadlineOwner      deadlineOwner     `json:"deadline_owner,omitempty"`
 	DeadlineReason     string            `json:"deadline_reason,omitempty"`
@@ -428,6 +429,9 @@ func validatePreparedWaitEffect(record preparedEffectWire, name string) error {
 }
 
 func validatePendingControlWire(control pendingControlWire) error {
+	if control.Failure != nil && !control.Failure.Valid() {
+		return ErrInvalidFailure
+	}
 	if control.KillReason != "" {
 		if _, err := newKillIntent(control.KillReason); err != nil {
 			return err

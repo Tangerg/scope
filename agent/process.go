@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,6 +20,8 @@ var (
 
 // A bounded buffer lets control-plane callers submit while the tree owner is
 // completing a safe boundary without allowing an unbounded command backlog.
+// Freeze management has its own bounded lane so a full Process queue cannot
+// prevent the command that releases its barrier.
 const treeCommandBufferCapacity = 32
 
 // Process is an Engine-issued handle to one managed execution. Its fields and
@@ -141,9 +144,9 @@ func (p *Process) RequestCancellation(ctx context.Context, reason string) error 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	runtime := p.controller.runtime
+	runtime := p.controller.runtime.Load()
 	if runtime == nil {
-		return ErrProcessNotRunning
+		return ErrProcessFinished
 	}
 	select {
 	case runtime.commands <- newTreeProcessCommand(
@@ -213,9 +216,9 @@ func (p *Process) request(ctx context.Context, command processCommand) (processR
 		return processResponse{}, ErrProcessNotRunning
 	}
 	ctx = requireContext(ctx)
-	runtime := p.controller.runtime
+	runtime := p.controller.runtime.Load()
 	if runtime == nil {
-		return processResponse{}, ErrProcessNotRunning
+		return processResponse{}, ErrProcessFinished
 	}
 	command.response = make(chan processResponse, 1)
 	select {
@@ -291,7 +294,7 @@ type processController struct {
 	capabilities       CapabilitySet
 	treeLimits         TreeLimits
 	startedAt          time.Time
-	runtime            *treeRuntime
+	runtime            atomic.Pointer[treeRuntime]
 	done               chan struct{}
 	treeSettled        chan struct{}
 	treeSettledOnce    sync.Once
