@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -235,6 +236,54 @@ func TestMapServerToolOutputRejectsUnusableOutput(t *testing.T) {
 	unsupported := corechat.ToolOutput{Content: []corechat.Part{{Kind: corechat.PartKind("reasoning")}}}
 	if _, err := mapServerToolOutput(unsupported); err == nil {
 		t.Fatal("an unsupported part kind was accepted")
+	}
+}
+
+func TestMapServerToolOutputPreservesStructuredJSON(t *testing.T) {
+	for _, details := range []string{
+		`{"id":9007199254740993,"precise":0.12345678901234567890123456789}`,
+		`[9007199254740993,0.12345678901234567890123456789]`,
+		`9007199254740993`,
+		`0.12345678901234567890123456789`,
+		`null`,
+	} {
+		t.Run(details, func(t *testing.T) {
+			output, err := corechat.NewJSONToolOutput(json.RawMessage(details))
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := mapServerToolOutput(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			clear(output.Details)
+			data, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var wire map[string]json.RawMessage
+			if decodeErr := json.Unmarshal(data, &wire); decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+			if got := string(wire["structuredContent"]); got != details {
+				t.Fatalf("structuredContent=%s, want %s", got, details)
+			}
+		})
+	}
+	empty, err := mapServerToolOutput(corechat.ToolOutput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]json.RawMessage
+	if decodeErr := json.Unmarshal(data, &wire); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	if _, present := wire["structuredContent"]; present {
+		t.Fatalf("absent details acquired structuredContent: %s", data)
 	}
 }
 

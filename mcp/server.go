@@ -2,9 +2,9 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"mime"
+	"slices"
 	"strings"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -25,6 +25,8 @@ import (
 // A bad entry mid-list therefore never leaves the server half-registered, and
 // handlers use the same identity the server advertised even when a Tool
 // implementation is mutable.
+// Structured details are handed to the SDK as raw JSON, preserving numeric
+// precision and the distinction between explicit null and absent details.
 //
 // The generic sdkmcp.AddTool[In, Out] form is deliberately avoided:
 // tools already supply a hand-authored JSON schema, and the
@@ -135,9 +137,7 @@ func mapServerToolOutput(output corechat.ToolOutput) (*sdkmcp.CallToolResult, er
 		}
 	}
 	if len(output.Details) != 0 {
-		if err := json.Unmarshal(output.Details, &result.StructuredContent); err != nil {
-			return nil, fmt.Errorf("mcp: decode structured Tool details: %w", err)
-		}
+		result.StructuredContent = slices.Clone(output.Details)
 	}
 	return result, nil
 }
