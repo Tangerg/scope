@@ -210,10 +210,6 @@ func discountedGain(relevance float64, rank int) float64 {
 }
 
 func (r relevanceSet) ndcgAt(ranking []string, cutoff int) float64 {
-	dcg := 0.0
-	for index, identity := range ranking {
-		dcg += discountedGain(r[identity], index+1)
-	}
 	ideal := make([]float64, 0, len(r))
 	for _, grade := range r {
 		if grade > 0 {
@@ -229,9 +225,16 @@ func (r relevanceSet) ndcgAt(ranking []string, cutoff int) float64 {
 		}
 		return 0
 	})
+	// NDCG is scale invariant. Normalize before discounting or summing so
+	// finite grades cannot overflow or lose their ratio through underflow.
+	scale := ideal[0]
+	dcg := 0.0
+	for index, identity := range ranking {
+		dcg += discountedGain(r[identity]/scale, index+1)
+	}
 	idcg := 0.0
 	for index, grade := range ideal[:min(cutoff, len(ideal))] {
-		idcg += discountedGain(grade, index+1)
+		idcg += discountedGain(grade/scale, index+1)
 	}
 	return dcg / idcg
 }
