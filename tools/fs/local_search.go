@@ -24,6 +24,9 @@ const (
 )
 
 func (l *LocalExecutor) Glob(ctx context.Context, in GlobRequest) (_ GlobResponse, err error) {
+	if contextErr := ctx.Err(); contextErr != nil {
+		return GlobResponse{}, contextErr
+	}
 	if in.MaxResults < 0 {
 		return GlobResponse{}, fmt.Errorf("%w: max_results must not be negative", ErrInvalidInput)
 	}
@@ -72,7 +75,7 @@ func (l *LocalExecutor) Glob(ctx context.Context, in GlobRequest) (_ GlobRespons
 		truncated bool
 	)
 	pattern := path.Join(filepath.ToSlash(base), filepath.ToSlash(in.Pattern))
-	err = doublestar.GlobWalk(root.FS(), pattern, func(name string, _ fs.DirEntry) error {
+	err = doublestar.GlobWalk(globFilesystem{FS: root.FS(), ctx: ctx}, pattern, func(name string, _ fs.DirEntry) error {
 		if contextErr := ctx.Err(); contextErr != nil {
 			return contextErr
 		}
@@ -92,10 +95,34 @@ func (l *LocalExecutor) Glob(ctx context.Context, in GlobRequest) (_ GlobRespons
 		}
 		return nil
 	}, options...)
+	err = errors.Join(err, ctx.Err())
 	if err != nil {
 		return GlobResponse{}, fmt.Errorf("fs.LocalExecutor.Glob: %w", err)
 	}
 	return GlobResponse{Paths: paths, Truncated: truncated}, nil
+}
+
+// GlobWalk visits only matches, so cancellation belongs on its Stat and ReadDir
+// boundaries as well: a directory tree with no matches still performs I/O.
+type globFilesystem struct {
+	fs.FS
+	ctx context.Context
+}
+
+func (g globFilesystem) Stat(name string) (fs.FileInfo, error) {
+	if err := g.ctx.Err(); err != nil {
+		return nil, err
+	}
+	info, err := fs.Stat(g.FS, name)
+	return info, errors.Join(err, g.ctx.Err())
+}
+
+func (g globFilesystem) ReadDir(name string) ([]fs.DirEntry, error) {
+	if err := g.ctx.Err(); err != nil {
+		return nil, err
+	}
+	entries, err := fs.ReadDir(g.FS, name)
+	return entries, errors.Join(err, g.ctx.Err())
 }
 
 func validateGlobPattern(pattern string) error {

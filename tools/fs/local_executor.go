@@ -20,7 +20,8 @@ const (
 // that authority but cannot replace or escape it.
 //
 //   - Glob uses the platform-neutral doublestar matcher and never follows
-//     directory symlinks while walking.
+//     directory symlinks while walking. Cancellation is checked between
+//     filesystem operations even when the pattern has no matches.
 //   - Grep consumes ripgrep's structured JSON protocol and returns
 //     [ErrRipgrepUnavailable] when rg is not installed.
 //   - Write and Edit serialize per file via [LocalExecutor.lockPath]
