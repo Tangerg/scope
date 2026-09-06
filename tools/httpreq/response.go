@@ -11,7 +11,8 @@ type Response struct {
 	Headers   map[string][]string `json:"headers,omitempty"`
 	Body      string              `json:"body"`
 	Truncated bool                `json:"truncated,omitempty"`
-	Duration  string              `json:"duration"`
+	// Duration includes transport execution, body reading, and body closure.
+	Duration string `json:"duration"`
 }
 
 func readCapped(reader io.Reader, maxBytes int64) ([]byte, bool, error) {
