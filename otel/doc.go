@@ -3,8 +3,8 @@
 //
 // The module adds traces, metrics, and model exception events to Core's
 // capabilities from the outside. Development exporters write all three OTel
-// signals to log/slog. Core itself never imports OpenTelemetry: a wrapper here is an
-// ordinary decorator, and this module invents no tracer, meter, registry, or
+// signals to log/slog. Core itself never imports OpenTelemetry: a wrapper here
+// is an ordinary decorator, and this module invents no tracer, meter, registry, or
 // observation abstraction. The official API is the vendor-neutral layer.
 //
 // # Adapters
@@ -20,11 +20,13 @@
 //   - history: history store and conversation listing.
 //   - vectorstore: the vector-store capabilities.
 //   - agent: managed Process activation, Step, and Effect, through an Observer
-//     bound as an agent.EventListener.
+//     bound as an agent.EventListener. WrapDispatcher propagates Effect spans
+//     into downstream calls. Agent and tool durations use gen_ai.invoke_agent.duration
+//     and gen_ai.execute_tool.duration, matching their invocation spans.
 //
-// Chat streaming records gen_ai.client.operation.time_to_first_chunk and
-// gen_ai.client.operation.time_per_output_chunk for received deltas, including
-// metadata-only chunks. Token metrics retain known cumulative usage even when
+// Chat and speech streaming record gen_ai.client.operation.time_to_first_chunk
+// and gen_ai.client.operation.time_per_output_chunk at chunk arrival. Chat
+// includes metadata-only deltas. Token metrics retain known usage even when
 // generation fails. Response model identity is recorded only when reported by
 // the provider. Cache and reasoning token counts are subsets of the totals.
 //

@@ -73,8 +73,10 @@ func TestLogExporterLifecycle(t *testing.T) {
 
 	var record sdklog.Record
 	record.SetBody(attribute.StringValue("must not be exported"))
-	if err := exporter.Export(canceled, []sdklog.Record{record}); err != nil {
-		t.Fatalf("Export after shutdown = %v, want nil", err)
+	for _, ctx := range []context.Context{t.Context(), canceled} {
+		if err := exporter.Export(ctx, []sdklog.Record{record}); !errors.Is(err, sdklog.ErrExporterShutdown) {
+			t.Fatalf("Export after shutdown = %v, want sdklog.ErrExporterShutdown", err)
+		}
 	}
 	if output.Len() != 0 {
 		t.Fatalf("Export after shutdown wrote %q", output.String())
