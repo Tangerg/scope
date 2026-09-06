@@ -82,8 +82,10 @@
 //
 // # Signals and waiting
 //
-// A Signal is the only runtime input into an Execution. Repeated submission of
-// one signal identity produces exactly one logical consumption. The
+// A Signal is the only runtime input into an Execution. [Process.DeliverSignals]
+// admits one ordered batch atomically, including a batch with one Signal.
+// Repeated submission of one signal identity produces exactly one logical
+// consumption and never charges the signal budget twice. The
 // consumption cursor advances only when candidate state and transition commit,
 // so a failed Step never permanently swallows input.
 //

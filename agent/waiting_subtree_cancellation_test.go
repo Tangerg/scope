@@ -266,13 +266,13 @@ func testPreparedWaitingSubtreeCancellationFreezesSourceUntilDiscard(t *testing.
 	}
 	delivered := make(chan deliveryResult, 1)
 	go func() {
-		accepted, deliveryErr := descendant.DeliverSignal(context.Background(), response)
+		accepted, deliveryErr := descendant.DeliverSignals(context.Background(), response)
 		delivered <- deliveryResult{accepted: accepted, err: deliveryErr}
 	}()
 	synctest.Wait()
 	select {
 	case result := <-delivered:
-		t.Fatalf("DeliverSignal crossed the prepared boundary: %#v", result)
+		t.Fatalf("DeliverSignals crossed the prepared boundary: %#v", result)
 	default:
 	}
 	if root.Status() != StatusWaiting || target.Status() != StatusWaiting ||
@@ -284,7 +284,7 @@ func testPreparedWaitingSubtreeCancellationFreezesSourceUntilDiscard(t *testing.
 	}
 	result := <-delivered
 	if result.err != nil || !result.accepted {
-		t.Fatalf("DeliverSignal accepted = %t, error = %v", result.accepted, result.err)
+		t.Fatalf("DeliverSignals accepted = %t, error = %v", result.accepted, result.err)
 	}
 	if err := prepared.Discard(); !errors.Is(err, ErrPreparedWaitingSubtreeCancellationResolved) {
 		t.Fatalf("second Discard error = %v, want resolved", err)

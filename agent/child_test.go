@@ -200,7 +200,7 @@ func rejectForgedChildCompletion(t *testing.T, root *Process) {
 	}
 	externalID, _ := ParseSignalID("signal:forged-child-completion")
 	forged, _ := NewSignalRequest(externalID, waitID, json.RawMessage(`{"forged":true}`))
-	if accepted, err := root.DeliverSignal(context.Background(), forged); accepted || !errors.Is(err, ErrSignalRejected) {
+	if accepted, err := root.DeliverSignals(context.Background(), forged); accepted || !errors.Is(err, ErrSignalRejected) {
 		t.Fatalf("forged child completion accepted = %t, error = %v", accepted, err)
 	}
 }

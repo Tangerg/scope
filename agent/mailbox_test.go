@@ -20,11 +20,11 @@ func TestSignalRequestAndMailboxOwnPayloadAndDeduplicate(t *testing.T) {
 		t.Fatal(err)
 	}
 	mailbox := newSignalMailbox()
-	accepted, err := mailbox.enqueue(StatusRunning, signal)
+	accepted, err := mailbox.enqueue(StatusRunning, signal, signalSourceExternal)
 	if err != nil || !accepted {
 		t.Fatalf("first enqueue = %t, %v", accepted, err)
 	}
-	accepted, err = mailbox.enqueue(StatusRunning, signal)
+	accepted, err = mailbox.enqueue(StatusRunning, signal, signalSourceExternal)
 	if err != nil || accepted {
 		t.Fatalf("duplicate enqueue = %t, %v", accepted, err)
 	}
@@ -38,7 +38,7 @@ func TestMailboxCommitsOnlyAnExplicitSignalPrefix(t *testing.T) {
 	for index := 1; index <= 3; index++ {
 		id, _ := ParseSignalID("signal:" + strconv.Itoa(index))
 		signal := mustMailboxSignal(t, id.String(), WaitID{}, json.RawMessage(`{"kind":"input"}`))
-		if _, err := mailbox.enqueue(StatusRunning, signal); err != nil {
+		if _, err := mailbox.enqueue(StatusRunning, signal, signalSourceExternal); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -72,7 +72,7 @@ func TestMailboxRoutesWaitAnswersAndHandlesEarlyArrival(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := mailbox.enqueue(StatusRunning, answer)
+	accepted, err := mailbox.enqueue(StatusRunning, answer, signalSourceExternal)
 	if err != nil || !accepted {
 		t.Fatalf("early answer enqueue = %t, %v", accepted, err)
 	}
@@ -83,13 +83,13 @@ func TestMailboxRoutesWaitAnswersAndHandlesEarlyArrival(t *testing.T) {
 
 	secondID, _ := ParseSignalID("signal:second-answer")
 	second := mustMailboxSignal(t, secondID.String(), waitID, json.RawMessage(`{"approved":false}`))
-	if _, err := mailbox.enqueue(StatusWaiting, second); !errors.Is(err, ErrSignalRejected) {
+	if _, err := mailbox.enqueue(StatusWaiting, second, signalSourceExternal); !errors.Is(err, ErrSignalRejected) {
 		t.Fatalf("second answer error = %v, want ErrSignalRejected", err)
 	}
 	if err := mailbox.closeWait(waitID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := mailbox.enqueue(StatusWaiting, second); !errors.Is(err, ErrSignalRejected) {
+	if _, err := mailbox.enqueue(StatusWaiting, second, signalSourceExternal); !errors.Is(err, ErrSignalRejected) {
 		t.Fatalf("closed wait answer error = %v, want ErrSignalRejected", err)
 	}
 }
@@ -97,15 +97,15 @@ func TestMailboxRoutesWaitAnswersAndHandlesEarlyArrival(t *testing.T) {
 func TestMailboxRejectsUnaddressedWaitingAndAddressedPausedSignals(t *testing.T) {
 	mailbox := newSignalMailbox()
 	unaddressed := mustMailboxSignal(t, "signal:plain", WaitID{}, json.RawMessage(`{}`))
-	if _, err := mailbox.enqueue(StatusWaiting, unaddressed); !errors.Is(err, ErrSignalRejected) {
+	if _, err := mailbox.enqueue(StatusWaiting, unaddressed, signalSourceExternal); !errors.Is(err, ErrSignalRejected) {
 		t.Fatalf("unaddressed Waiting error = %v", err)
 	}
 	waitID, _ := ParseWaitID("wait:1")
 	addressed := mustMailboxSignal(t, "signal:answer", waitID, json.RawMessage(`{}`))
-	if _, err := mailbox.enqueue(StatusPaused, addressed); !errors.Is(err, ErrSignalRejected) {
+	if _, err := mailbox.enqueue(StatusPaused, addressed, signalSourceExternal); !errors.Is(err, ErrSignalRejected) {
 		t.Fatalf("addressed Paused error = %v", err)
 	}
-	if accepted, err := mailbox.enqueue(StatusPaused, unaddressed); err != nil || !accepted {
+	if accepted, err := mailbox.enqueue(StatusPaused, unaddressed, signalSourceExternal); err != nil || !accepted {
 		t.Fatalf("unaddressed Paused enqueue = %t, %v", accepted, err)
 	}
 }
@@ -118,11 +118,11 @@ func TestMailboxSnapshotRestoresDeduplicationCursorAndWaitFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	answer := mustMailboxSignal(t, "signal:answer", waitID, json.RawMessage(`{"approved":true}`))
-	if _, err := mailbox.enqueue(StatusRunning, answer); err != nil {
+	if _, err := mailbox.enqueue(StatusRunning, answer, signalSourceExternal); err != nil {
 		t.Fatal(err)
 	}
 	plain := mustMailboxSignal(t, "signal:plain", WaitID{}, json.RawMessage(`{"kind":"steer"}`))
-	if _, err := mailbox.enqueue(StatusRunning, plain); err != nil {
+	if _, err := mailbox.enqueue(StatusRunning, plain, signalSourceExternal); err != nil {
 		t.Fatal(err)
 	}
 	if err := mailbox.commit(1); err != nil {
@@ -145,7 +145,7 @@ func TestMailboxSnapshotRestoresDeduplicationCursorAndWaitFacts(t *testing.T) {
 	if restored.committedSignalCursor() != 1 || len(restored.pending()) != 1 || restored.pending()[0].ID() != plain.ID() {
 		t.Fatalf("restored mailbox cursor=%d pending=%+v", restored.committedSignalCursor(), restored.pending())
 	}
-	if accepted, err := restored.enqueue(StatusRunning, answer); err != nil || accepted {
+	if accepted, err := restored.enqueue(StatusRunning, answer, signalSourceExternal); err != nil || accepted {
 		t.Fatalf("restored duplicate enqueue = %t, %v", accepted, err)
 	}
 	if _, err := restored.enterWait(waitID); !errors.Is(err, errWaitState) {

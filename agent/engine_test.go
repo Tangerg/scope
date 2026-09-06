@@ -374,12 +374,12 @@ func TestEngineMintsWaitIDAndRequiresAddressedAnswer(t *testing.T) {
 	}
 	plainID, _ := ParseSignalID("signal:plain")
 	plain, _ := NewSignalRequest(plainID, WaitID{}, json.RawMessage(`{"kind":"answer","value":"wrong"}`))
-	if _, deliverSignalErr := process.DeliverSignal(context.Background(), plain); !errors.Is(deliverSignalErr, ErrSignalRejected) {
+	if _, deliverSignalErr := process.DeliverSignals(context.Background(), plain); !errors.Is(deliverSignalErr, ErrSignalRejected) {
 		t.Fatalf("unaddressed answer error=%v", deliverSignalErr)
 	}
 	answerID, _ := ParseSignalID("signal:answer")
 	answer, _ := NewSignalRequest(answerID, waitID, json.RawMessage(`{"kind":"answer","value":"approved"}`))
-	accepted, err := process.DeliverSignal(context.Background(), answer)
+	accepted, err := process.DeliverSignals(context.Background(), answer)
 	if err != nil || !accepted {
 		t.Fatalf("answer accepted=%t err=%v", accepted, err)
 	}
@@ -594,7 +594,7 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 	}
 	answerID, _ := ParseSignalID("signal:restored-answer")
 	answer, _ := NewSignalRequest(answerID, restoredWaitID, json.RawMessage(`{"kind":"answer","value":"restored"}`))
-	if accepted, err := restored.DeliverSignal(context.Background(), answer); err != nil || !accepted {
+	if accepted, err := restored.DeliverSignals(context.Background(), answer); err != nil || !accepted {
 		t.Fatalf("accepted=%t err=%v", accepted, err)
 	}
 	if result := awaitResult(t, restored); result.Status() != StatusCompleted {

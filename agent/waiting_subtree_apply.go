@@ -124,8 +124,9 @@ func (p *preparedProcessStateChange) preparePauseEvents(
 		if _, err := ParseChildrenCompleted(record.Signal); err != nil {
 			return ErrInvalidPreparedWaitingSubtreeCancellation
 		}
+		waitID, _ := record.Signal.WaitID()
 		payload, _ := json.Marshal(signalAcceptedEventPayload{
-			SignalID: record.Signal.ID().String(), WaitID: commandSignalWaitID(record.Signal),
+			SignalID: record.Signal.ID().String(), WaitID: waitID.String(),
 		})
 		p.events = append(p.events, preparedProcessEvent{
 			name: EventSignalAccepted, payload: payload,

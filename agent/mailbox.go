@@ -50,48 +50,32 @@ func newSignalMailbox() signalMailbox {
 	}
 }
 
-func (s *signalMailbox) enqueue(status Status, signal Signal) (bool, error) {
-	if !signal.Valid() {
+type signalSource uint8
+
+const (
+	signalSourceExternal signalSource = iota + 1
+	signalSourceChildCompletion
+)
+
+func (s *signalMailbox) enqueue(status Status, signal Signal, source signalSource) (bool, error) {
+	if !signal.Valid() || (source != signalSourceExternal && source != signalSourceChildCompletion) {
 		return false, fmt.Errorf("%w: %w", ErrSignalRejected, ErrInvalidSignal)
 	}
-	if _, duplicate := s.seen[signal.ID()]; duplicate {
+	if s.contains(signal.ID()) {
 		return false, nil
 	}
 	waitID, addressed := signal.WaitID()
 	if addressed {
 		record, exists := s.waits[waitID]
-		if !exists || !record.externallyAddressable || record.closed || record.answered ||
+		if !exists || record.externallyAddressable != (source == signalSourceExternal) || record.closed || record.answered ||
 			(status != StatusRunning && status != StatusWaiting) {
 			return false, ErrSignalRejected
 		}
 		record.answered = true
 		s.waits[waitID] = record
-	} else if status != StatusRunning && status != StatusPaused {
+	} else if source != signalSourceExternal || (status != StatusRunning && status != StatusPaused) {
 		return false, ErrSignalRejected
 	}
-	s.seen[signal.ID()] = struct{}{}
-	s.records = append(s.records, signalRecord{
-		arrivalSequence: uint64(len(s.records) + 1),
-		signal:          signal,
-	})
-	return true, nil
-}
-
-func (s *signalMailbox) enqueueChildCompletion(status Status, signal Signal) (bool, error) {
-	if !signal.Valid() {
-		return false, fmt.Errorf("%w: %w", ErrSignalRejected, ErrInvalidSignal)
-	}
-	if _, duplicate := s.seen[signal.ID()]; duplicate {
-		return false, nil
-	}
-	waitID, addressed := signal.WaitID()
-	record, exists := s.waits[waitID]
-	if !addressed || !exists || record.externallyAddressable || record.closed || record.answered ||
-		(status != StatusRunning && status != StatusWaiting) {
-		return false, ErrSignalRejected
-	}
-	record.answered = true
-	s.waits[waitID] = record
 	s.seen[signal.ID()] = struct{}{}
 	s.records = append(s.records, signalRecord{
 		arrivalSequence: uint64(len(s.records) + 1), signal: signal,

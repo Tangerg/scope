@@ -126,11 +126,3 @@ func (p *processState) prepareSettlementEvent(
 }
 
 func emptyEventPayload() json.RawMessage { return json.RawMessage("{}") }
-
-func commandWaitID(request SignalRequest) string {
-	waitID, addressed := request.WaitID()
-	if !addressed {
-		return ""
-	}
-	return waitID.String()
-}

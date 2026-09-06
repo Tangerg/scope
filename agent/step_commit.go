@@ -172,7 +172,7 @@ func (p *preparedStepFinalization) applySettlement(record preparedEffectWire) er
 	if waitID.Valid() {
 		return p.mailbox.enqueueWaitOpened(signal)
 	}
-	accepted, err := p.mailbox.enqueue(StatusRunning, signal)
+	accepted, err := p.mailbox.enqueue(StatusRunning, signal, signalSourceExternal)
 	if err != nil || !accepted {
 		return errors.Join(err, errors.New("internal settlement Signal was not accepted"))
 	}
@@ -251,7 +251,7 @@ func (p *preparedStepFinalization) enqueueImmediateChildSignals() error {
 		) {
 			return ErrResourceLimitExceeded
 		}
-		accepted, err := p.mailbox.enqueueChildCompletion(StatusRunning, signal)
+		accepted, err := p.mailbox.enqueue(StatusRunning, signal, signalSourceChildCompletion)
 		if err != nil || !accepted {
 			return errors.Join(err, errors.New("immediate child completion Signal was not accepted"))
 		}

@@ -176,7 +176,7 @@ func (w *waitingSubtreeProjection) deliverBoundaryCompletion(
 				"%w: %w", ErrWaitingSubtreeCancellationUnavailable, ErrResourceLimitExceeded,
 			)
 		}
-		accepted, err := mailbox.enqueueChildCompletion(parent.Status, signal)
+		accepted, err := mailbox.enqueue(parent.Status, signal, signalSourceChildCompletion)
 		if err != nil {
 			return err
 		}

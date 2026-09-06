@@ -92,18 +92,12 @@ func (p *Process) WaitID() (WaitID, bool) {
 	return p.controller.waitID()
 }
 
-// DeliverSignal submits immutable Strategy input. Running input is consumed only at
-// the next Strategy-safe Step boundary; Waiting input must address WaitID.
-// accepted is false, with nil error, when SignalID was already accepted.
-func (p *Process) DeliverSignal(ctx context.Context, request SignalRequest) (accepted bool, err error) {
-	response, err := p.request(ctx, processCommand{kind: commandDeliver, signalRequest: request})
-	return response.accepted, err
-}
-
-// DeliverSignals atomically appends an ordered Signal batch. This is useful
-// when one WaitID-addressed response and ordinary follow-up input must become
-// visible at the same safe Strategy boundary. Either the complete batch is
-// accepted in order or the mailbox remains unchanged.
+// DeliverSignals submits one or more immutable Strategy inputs as an ordered,
+// atomic batch. Running input is consumed at the next Strategy-safe Step
+// boundary; Waiting input must first address the current WaitID. The complete
+// batch is accepted in order or the mailbox remains unchanged. If any SignalID was
+// already accepted or repeats within the batch, accepted is false with nil error
+// and no resource budget is charged.
 func (p *Process) DeliverSignals(ctx context.Context, requests ...SignalRequest) (accepted bool, err error) {
 	if len(requests) == 0 {
 		return false, ErrInvalidSignalRequest
@@ -406,7 +400,6 @@ type commandKind uint8
 
 const (
 	commandInvalid commandKind = iota
-	commandDeliver
 	commandDeliverBatch
 	commandPause
 	commandResume
@@ -420,7 +413,6 @@ const (
 
 type processCommand struct {
 	kind               commandKind
-	signalRequest      SignalRequest
 	signalRequests     []SignalRequest
 	settlement         Settlement
 	hostErr            error

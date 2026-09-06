@@ -127,8 +127,6 @@ func (p *processState) applyCommand(ctx context.Context, command processCommand)
 		return
 	}
 	switch command.kind {
-	case commandDeliver:
-		p.deliver(ctx, command)
 	case commandDeliverBatch:
 		p.deliverBatch(ctx, command)
 	case commandPause:
@@ -172,84 +170,16 @@ func (p *processState) recordParentTermination(parent Termination) {
 }
 
 func (p *processState) deliverChildrenCompleted(ctx context.Context, signal Signal) bool {
-	reservedBudget := p.effectiveReservedBudget()
-	if !resourceQuantitiesFit(p.limits.MaxSignals, p.usage.AcceptedSignals, 1) ||
-		!resourceQuantitiesFit(p.limits.MaxPendingSignals, p.mailbox.pendingCount(), 1) ||
-		!resourceQuantitiesFit(
-			p.budget.Signals, p.usage.AcceptedSignals, reservedBudget.Signals, 1,
-		) {
-		p.recordFailure(FailureKindExecution, "engine.limit.child_completion_signal", ErrResourceLimitExceeded)
+	accepted, err := p.admitSignals(ctx, []Signal{signal}, signalSourceChildCompletion)
+	if err != nil {
+		if errors.Is(err, ErrResourceLimitExceeded) {
+			p.recordFailure(FailureKindExecution, "engine.limit.child_completion_signal", err)
+		} else {
+			p.recordFailure(FailureKindContract, "engine.child.completion.invalid", err)
+		}
 		return false
 	}
-	accepted, err := p.mailbox.enqueueChildCompletion(p.status, signal)
-	if err != nil {
-		p.recordFailure(FailureKindContract, "engine.child.completion.invalid", err)
-		return false
-	}
-	if !accepted {
-		return p.mailbox.contains(signal.ID())
-	}
-	p.usage.AcceptedSignals++
-	if p.status == StatusWaiting {
-		p.status = StatusRunning
-		p.currentWaitID = WaitID{}
-	}
-	p.updateView()
-	payload, _ := json.Marshal(signalAcceptedEventPayload{
-		SignalID: signal.ID().String(), WaitID: commandSignalWaitID(signal),
-	})
-	p.publishEvent(ctx, EventSignalAccepted, EventPhaseCommitted, 0, EffectID{}, payload)
-	return true
-}
-
-func commandSignalWaitID(signal Signal) string {
-	waitID, _ := signal.WaitID()
-	return waitID.String()
-}
-
-func (p *processState) deliver(ctx context.Context, command processCommand) {
-	if !command.signalRequest.Valid() {
-		command.reply(processResponse{err: ErrInvalidSignalRequest})
-		return
-	}
-	if p.mailbox.contains(command.signalRequest.ID()) {
-		command.reply(processResponse{accepted: false})
-		return
-	}
-	reserved := p.reservedSettlementSignals()
-	reservedBudget := p.effectiveReservedBudget()
-	if !resourceQuantitiesFit(p.limits.MaxSignals, p.usage.AcceptedSignals, reserved, 1) ||
-		!resourceQuantitiesFit(p.limits.MaxPendingSignals, p.mailbox.pendingCount(), reserved, 1) ||
-		!resourceQuantitiesFit(
-			p.budget.Signals, p.usage.AcceptedSignals, reservedBudget.Signals, reserved, 1,
-		) {
-		command.reply(processResponse{err: ErrResourceLimitExceeded})
-		return
-	}
-	signal, err := command.signalRequest.signal()
-	if err != nil {
-		command.reply(processResponse{err: err})
-		return
-	}
-	accepted, err := p.mailbox.enqueue(p.status, signal)
-	if err != nil {
-		command.reply(processResponse{err: err})
-		return
-	}
-	if accepted && p.status == StatusWaiting {
-		p.status = StatusRunning
-		p.currentWaitID = WaitID{}
-		p.updateView()
-	}
-	if accepted {
-		p.usage.AcceptedSignals++
-		p.updateView()
-		payload, _ := json.Marshal(signalAcceptedEventPayload{
-			SignalID: signal.ID().String(), WaitID: commandWaitID(command.signalRequest),
-		})
-		p.publishEvent(ctx, EventSignalAccepted, EventPhaseCommitted, 0, EffectID{}, payload)
-	}
-	command.reply(processResponse{accepted: accepted})
+	return accepted || p.mailbox.contains(signal.ID())
 }
 
 func (p *processState) deliverBatch(ctx context.Context, command processCommand) {
@@ -257,43 +187,43 @@ func (p *processState) deliverBatch(ctx context.Context, command processCommand)
 		command.reply(processResponse{err: ErrInvalidSignalRequest})
 		return
 	}
-	count := uint64(len(command.signalRequests))
-	reserved := p.reservedSettlementSignals()
-	reservedBudget := p.effectiveReservedBudget()
-	if !resourceQuantitiesFit(p.limits.MaxSignals, p.usage.AcceptedSignals, reserved, count) ||
-		!resourceQuantitiesFit(p.limits.MaxPendingSignals, p.mailbox.pendingCount(), reserved, count) ||
-		!resourceQuantitiesFit(p.budget.Signals, p.usage.AcceptedSignals, reservedBudget.Signals, reserved, count) {
-		command.reply(processResponse{err: ErrResourceLimitExceeded})
-		return
-	}
-	candidate := p.mailbox.clone()
-	status := p.status
 	signals := make([]Signal, 0, len(command.signalRequests))
 	for _, request := range command.signalRequests {
-		if !request.Valid() {
-			command.reply(processResponse{err: ErrInvalidSignalRequest})
-			return
-		}
-		if candidate.contains(request.ID()) {
-			command.reply(processResponse{accepted: false})
-			return
-		}
 		signal, err := request.signal()
 		if err != nil {
 			command.reply(processResponse{err: err})
 			return
 		}
-		accepted, err := candidate.enqueue(status, signal)
+		signals = append(signals, signal)
+	}
+	accepted, err := p.admitSignals(ctx, signals, signalSourceExternal)
+	command.reply(processResponse{accepted: accepted, err: err})
+}
+
+// Admission validates identity and wait authority before charging resources.
+// The candidate keeps a rejected batch from changing any mailbox or wait state.
+func (p *processState) admitSignals(ctx context.Context, signals []Signal, source signalSource) (bool, error) {
+	candidate := p.mailbox.clone()
+	status := p.status
+	for _, signal := range signals {
+		accepted, err := candidate.enqueue(status, signal, source)
 		if err != nil || !accepted {
-			command.reply(processResponse{err: err, accepted: false})
-			return
+			return false, err
 		}
 		if status == StatusWaiting {
-			if _, addressed := signal.WaitID(); addressed {
-				status = StatusRunning
-			}
+			status = StatusRunning
 		}
-		signals = append(signals, signal)
+	}
+	count := uint64(len(signals))
+	var reserved uint64
+	if source == signalSourceExternal {
+		reserved = p.reservedSettlementSignals()
+	}
+	reservedBudget := p.effectiveReservedBudget()
+	if !resourceQuantitiesFit(p.limits.MaxSignals, p.usage.AcceptedSignals, reserved, count) ||
+		!resourceQuantitiesFit(p.limits.MaxPendingSignals, p.mailbox.pendingCount(), reserved, count) ||
+		!resourceQuantitiesFit(p.budget.Signals, p.usage.AcceptedSignals, reservedBudget.Signals, reserved, count) {
+		return false, ErrResourceLimitExceeded
 	}
 	p.mailbox = candidate
 	if p.status == StatusWaiting && status == StatusRunning {
@@ -302,11 +232,12 @@ func (p *processState) deliverBatch(ctx context.Context, command processCommand)
 	}
 	p.usage.AcceptedSignals += count
 	p.updateView()
-	for index, signal := range signals {
-		payload, _ := json.Marshal(signalAcceptedEventPayload{SignalID: signal.ID().String(), WaitID: commandWaitID(command.signalRequests[index])})
+	for _, signal := range signals {
+		waitID, _ := signal.WaitID()
+		payload, _ := json.Marshal(signalAcceptedEventPayload{SignalID: signal.ID().String(), WaitID: waitID.String()})
 		p.publishEvent(ctx, EventSignalAccepted, EventPhaseCommitted, 0, EffectID{}, payload)
 	}
-	command.reply(processResponse{accepted: true})
+	return true, nil
 }
 
 func (p *processState) requestPause(command processCommand) {

@@ -122,14 +122,14 @@ func restoreWaitingCheckpoint(
 		t.Fatal(err)
 	}
 	answer := validCheckpointAnswer(t, restored, pending)
-	accepted, err := restored.DeliverSignal(context.Background(), answer)
+	accepted, err := restored.DeliverSignals(context.Background(), answer)
 	if err != nil || !accepted {
-		t.Fatalf("DeliverSignal accepted = %t, error = %v", accepted, err)
+		t.Fatalf("DeliverSignals accepted = %t, error = %v", accepted, err)
 	}
 	<-waiting.continuationStarted
-	accepted, err = restored.DeliverSignal(context.Background(), answer)
+	accepted, err = restored.DeliverSignals(context.Background(), answer)
 	if err != nil || accepted {
-		t.Fatalf("duplicate DeliverSignal accepted = %t, error = %v", accepted, err)
+		t.Fatalf("duplicate DeliverSignals accepted = %t, error = %v", accepted, err)
 	}
 	waiting.Release()
 	result, err := restored.Await(context.Background())
@@ -167,7 +167,7 @@ func validCheckpointAnswer(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if accepted, deliverSignalErr := restored.DeliverSignal(context.Background(), wrong); accepted || !errors.Is(deliverSignalErr, agent.ErrSignalRejected) {
+	if accepted, deliverSignalErr := restored.DeliverSignals(context.Background(), wrong); accepted || !errors.Is(deliverSignalErr, agent.ErrSignalRejected) {
 		t.Fatalf("wrong-wait delivery accepted = %t, error = %v", accepted, deliverSignalErr)
 	}
 	answer, err := pending.ResponseSignal(signalID, json.RawMessage(`"Ada"`))
@@ -215,7 +215,7 @@ func assertFinishedCheckpointRejectsStaleSignal(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if accepted, err := restored.DeliverSignal(context.Background(), stale); accepted || !errors.Is(err, agent.ErrProcessFinished) {
+	if accepted, err := restored.DeliverSignals(context.Background(), stale); accepted || !errors.Is(err, agent.ErrProcessFinished) {
 		t.Fatalf("stale delivery accepted = %t, error = %v", accepted, err)
 	}
 }
