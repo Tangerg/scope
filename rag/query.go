@@ -80,7 +80,7 @@ func (v ValueKey[T]) validate() error {
 }
 
 // Query is a persistent retrieval query: Text is required, and WithText or
-// WithValue returns a new envelope with an independent top-level value map.
+// WithValue returns a new envelope without changing existing queries' slots.
 // Referenced values remain caller-owned and must be treated as read-only when
 // the same query is used by parallel retrieval stages.
 type Query struct {
@@ -156,5 +156,5 @@ func (q Query) WithText(text string) (Query, error) {
 	if text == "" {
 		return Query{}, fmt.Errorf("%w: text must not be blank", ErrInvalidQuery)
 	}
-	return Query{text: text, values: maps.Clone(q.values)}, nil
+	return Query{text: text, values: q.values}, nil
 }

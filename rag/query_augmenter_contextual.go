@@ -211,10 +211,7 @@ func (c *ContextualAugmenter) formatContext(ctx context.Context, candidates Cand
 		if strings.TrimSpace(content) == "" {
 			return "", nil, fmt.Errorf("%w: candidate %d formatted to blank content", ErrInvalidAugmentation, index)
 		}
-		citation, err := NewCitation(len(citations)+1, candidate)
-		if err != nil {
-			return "", nil, err
-		}
+		citation := Citation{Number: len(citations) + 1, Candidate: candidate}
 		evidence = append(evidence, contextualEvidence{
 			Citation: citation.Marker(),
 			ID:       candidate.Document.ID,

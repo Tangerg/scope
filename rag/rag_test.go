@@ -44,7 +44,8 @@ func TestAugmentationOwnsValidatedCitationOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	citations := augmentation.Citations()
+	copied := augmentation
+	citations := copied.Citations()
 	citations[0].Number = 2
 	citations[0].Candidate.Document.Text = "mutated"
 	if augmentation.Citations()[0].Number != 1 {
@@ -52,6 +53,17 @@ func TestAugmentationOwnsValidatedCitationOrder(t *testing.T) {
 	}
 	if augmentation.Citations()[0].Candidate.Document.Text != "evidence" || doc.Text != "evidence" {
 		t.Fatal("citation document aliases caller mutation")
+	}
+	replacement, err := rag.NewCitation(1, candidate(identifiedDocument(t, "replacement", "other evidence")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	copied, err = copied.WithCitations(rag.Citations{replacement})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied.Citations()[0].Candidate.Document.Text != "other evidence" || augmentation.Citations()[0].Candidate.Document.Text != "evidence" {
+		t.Fatal("replacing citations changed another augmentation")
 	}
 	if _, err := rag.NewCitation(0, candidate(doc)); !errors.Is(err, rag.ErrInvalidAugmentation) {
 		t.Fatalf("invalid citation number error = %v", err)
@@ -86,13 +98,17 @@ func TestQueryValue(t *testing.T) {
 func TestWithValueReturnsIndependentQuery(t *testing.T) {
 	a, _ := rag.NewQuery("hi")
 	a, _ = a.WithValue(testQueryValueKey, "v")
-	b, _ := a.WithValue(testQueryValueKey, "modified")
+	rewritten, _ := a.WithText("rewritten")
+	b, _ := rewritten.WithValue(testQueryValueKey, "modified")
 
 	if value, _, _ := a.Value(testQueryValueKey); value != "v" {
 		t.Fatalf("update leaked into source query: a.k = %v", value)
 	}
 	if value, _, _ := b.Value(testQueryValueKey); value != "modified" {
 		t.Fatalf("updated value = %v", value)
+	}
+	if value, _, _ := rewritten.Value(testQueryValueKey); value != "v" || a.Text() != "hi" || rewritten.Text() != "rewritten" {
+		t.Fatalf("rewritten query changed an existing envelope: text=%q value=%v", rewritten.Text(), value)
 	}
 }
 
@@ -142,7 +158,7 @@ func (f *fakeRetriever) Retrieve(_ context.Context, q rag.Query) (rag.Candidates
 	if f.err != nil {
 		return nil, f.err
 	}
-	return f.docs, nil
+	return f.docs.Clone(), nil
 }
 
 func TestRetrieveValidatesCandidates(t *testing.T) {

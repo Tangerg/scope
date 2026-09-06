@@ -101,14 +101,12 @@ func (c Candidates) uniqueBest() Candidates {
 	return unique
 }
 
-// ranked returns an independent score-descending snapshot. Stable sorting
-// retains retrieval order when scores tie.
-func (c Candidates) ranked() Candidates {
-	ranked := c.Clone()
-	slices.SortStableFunc(ranked, func(left, right Candidate) int {
+// sortCandidatesByScore sorts an owned result. Refiners detach borrowed
+// documents before handing them to this ordering step.
+func sortCandidatesByScore(candidates Candidates) {
+	slices.SortStableFunc(candidates, func(left, right Candidate) int {
 		return cmp.Compare(right.Score, left.Score)
 	})
-	return ranked
 }
 
 func (c Candidate) Validate() error {

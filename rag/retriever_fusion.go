@@ -109,5 +109,6 @@ func (r reciprocalRankFusion) fuse(ctx context.Context, rankings []Candidates) (
 		}
 	}
 
-	return fused.ranked(), nil
+	sortCandidatesByScore(fused)
+	return fused, nil
 }

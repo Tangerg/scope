@@ -35,7 +35,8 @@ func (t topKRefiner) Refine(ctx context.Context, query Query, candidates Candida
 		return nil, err
 	}
 
-	sorted := candidates.uniqueBest().ranked()
+	sorted := candidates.uniqueBest()
+	sortCandidatesByScore(sorted)
 
 	if len(sorted) > t.topK {
 		sorted = sorted[:t.topK]

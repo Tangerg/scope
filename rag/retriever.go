@@ -32,7 +32,7 @@ func Retrieve(ctx context.Context, retriever Retriever, query Query) (Candidates
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return candidates.Clone(), nil
+	return candidates, nil
 }
 
 // Parallel returns a [Retriever] that runs retrievers concurrently and unions
@@ -179,7 +179,6 @@ func expand(ctx context.Context, expander Expander, query Query) ([]Query, error
 	if len(queries) == 0 {
 		return nil, ErrEmptyExpansion
 	}
-	queries = slices.Clone(queries)
 	seen := make(map[string]int, len(queries))
 	for index, expanded := range queries {
 		if err := expanded.Validate(); err != nil {
@@ -206,7 +205,7 @@ func refine(ctx context.Context, refiner Refiner, query Query, candidates Candid
 	if err := candidates.Validate(); err != nil {
 		return nil, err
 	}
-	refined, err := refiner.Refine(ctx, query, candidates.Clone())
+	refined, err := refiner.Refine(ctx, query, candidates)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +215,7 @@ func refine(ctx context.Context, refiner Refiner, query Query, candidates Candid
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return refined.Clone(), nil
+	return refined, nil
 }
 
 func parallelCandidates[Item any](
