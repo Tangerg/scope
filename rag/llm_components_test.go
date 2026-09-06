@@ -201,6 +201,43 @@ func TestContextualAugmenterValidatesTokenBudgetConfiguration(t *testing.T) {
 	}
 }
 
+func TestContextualAugmenterRejectsNegativeTokenMeasurements(t *testing.T) {
+	for name, count := range map[string]int{"negative": -1, "zero": 0} {
+		t.Run(name, func(t *testing.T) {
+			augmenter, err := rag.NewContextualAugmenter(rag.ContextualAugmenterConfig{
+				MaxContextTokens: 1, TokenEstimator: fixedContextTokenEstimator(count),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			query, err := rag.NewQuery("question")
+			if err != nil {
+				t.Fatal(err)
+			}
+			doc, err := document.NewDocument("evidence", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			augmentation, err := augmenter.Augment(t.Context(), query, rag.Candidates{{Document: doc, Score: 1}})
+			if count < 0 {
+				if !errors.Is(err, rag.ErrInvalidContextBudget) || augmentation.Text() != "" {
+					t.Fatalf("invalid measurement produced augmentation %q, error %v", augmentation.Text(), err)
+				}
+				return
+			}
+			if err != nil || !strings.Contains(augmentation.Text(), "evidence") {
+				t.Fatalf("zero token measurement lost evidence: %q, %v", augmentation.Text(), err)
+			}
+		})
+	}
+}
+
+type fixedContextTokenEstimator int
+
+func (f fixedContextTokenEstimator) EstimateText(context.Context, string) (int, error) {
+	return int(f), nil
+}
+
 type evidenceCountEstimator struct{}
 
 func (evidenceCountEstimator) EstimateText(ctx context.Context, text string) (int, error) {

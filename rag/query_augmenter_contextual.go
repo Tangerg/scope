@@ -13,7 +13,7 @@ import (
 	"github.com/Tangerg/scope/core/tokenizer"
 )
 
-// ErrInvalidContextBudget identifies an unbounded or impossible context window.
+// ErrInvalidContextBudget identifies an invalid context window or token measurement.
 var ErrInvalidContextBudget = errors.New("rag: invalid context token budget")
 
 // Keeping evidence as JSON data and explicitly marking it untrusted reduces
@@ -92,6 +92,9 @@ func (c contextBudget) accepts(ctx context.Context, encoded []byte) (bool, error
 	tokens, err := c.estimator.EstimateText(ctx, string(encoded))
 	if err != nil {
 		return false, fmt.Errorf("rag: estimate context tokens: %w", err)
+	}
+	if tokens < 0 {
+		return false, fmt.Errorf("%w: token estimator returned %d", ErrInvalidContextBudget, tokens)
 	}
 	return tokens <= c.maxTokens, nil
 }
