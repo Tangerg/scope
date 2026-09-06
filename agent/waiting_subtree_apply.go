@@ -198,24 +198,14 @@ func childWaitRegistrationsFromSnapshot(
 	if err != nil {
 		return nil, err
 	}
-	processes, _, err := processSnapshotWires(wire.ProcessSnapshots)
-	if err != nil {
-		return nil, err
-	}
 	registrations := make([]*childWaitRegistration, 0, len(wire.ChildWaits))
 	for _, encoded := range wire.ChildWaits {
 		spec, err := encoded.Spec.value()
 		if err != nil {
 			return nil, err
 		}
-		parent := processes[encoded.ParentProcessID]
-		mailbox, err := restoreSignalMailbox(parent.Mailbox)
-		if err != nil {
-			return nil, err
-		}
 		registrations = append(registrations, &childWaitRegistration{
 			parent: encoded.ParentProcessID, waitID: encoded.WaitID, spec: spec,
-			delivered: mailbox.contains(deriveChildCompletionSignalID(encoded.WaitID)),
 		})
 	}
 	return registrations, nil
