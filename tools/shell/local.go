@@ -100,7 +100,7 @@ func (l *LocalExecutor) Run(ctx context.Context, in Input) (Output, error) {
 
 	start := time.Now()
 	err := cmd.Run()
-	cleanupErr := terminateProcessGroup(cmd)
+	cleanupErr := cmd.Cancel()
 	duration := time.Since(start)
 
 	out := Output{
