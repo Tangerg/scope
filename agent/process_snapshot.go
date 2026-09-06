@@ -267,6 +267,7 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 	}
 	remainingPending := mailbox.pendingCount()
 	var reserved uint64
+	var preparedSteps uint64
 	if p.Prepared != nil {
 		if p.Status != StatusRunning || p.Termination != nil || p.FinishedAt != nil {
 			return fmt.Errorf("%w: prepared Step requires a nonterminal Running Process", ErrInvalidSnapshot)
@@ -282,11 +283,13 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 		}
 		remainingPending -= uint64(p.Prepared.Transition.ConsumedSignals())
 		reserved = uint64(len(p.Prepared.Effects))
+		preparedSteps = 1
 	}
 	if !resourceQuantitiesFit(p.Limits.MaxPendingSignals, mailbox.pendingCount()) ||
 		!resourceQuantitiesFit(p.Limits.MaxPendingSignals, remainingPending, reserved) ||
-		!resourceQuantitiesFit(p.Budget.Signals, p.Usage.AcceptedSignals, p.ReservedBudget.Signals, reserved) {
-		return fmt.Errorf("%w: Signal capacity exceeds limits or budget", ErrInvalidSnapshot)
+		!resourceQuantitiesFit(p.Budget.Signals, p.Usage.AcceptedSignals, p.ReservedBudget.Signals, reserved) ||
+		!resourceQuantitiesFit(p.Budget.Steps, p.CommittedSteps, p.ReservedBudget.Steps, preparedSteps) {
+		return fmt.Errorf("%w: execution capacity exceeds limits or budget", ErrInvalidSnapshot)
 	}
 	return nil
 }

@@ -112,7 +112,8 @@ func (u Usage) validFor(limits Limits) bool {
 
 // Budget is a non-renewable allocation of Framework-owned work units. A child
 // allocation is permanently transferred from its parent's remaining budget;
-// unused units are not silently reclaimed or duplicated.
+// unused units are not silently reclaimed or duplicated. Remaining budget
+// excludes the parent's prepared Step and its future settlement Signals.
 type Budget struct {
 	// Steps is the maximum committed Step count allocated to the child.
 	Steps uint64 `json:"steps"`

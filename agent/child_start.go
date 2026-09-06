@@ -148,8 +148,13 @@ func (c *childStartPlan) execute(ctx context.Context) childStartJobResult {
 }
 
 func (p *processState) reserveProvisionalChildBudget(requested Budget) bool {
-	if p.provisionalChildBudget.Valid() ||
-		!p.budget.canAllocate(p.usage, p.effectiveReservedBudget(), requested) {
+	if p.provisionalChildBudget.Valid() {
+		return false
+	}
+	reserved, ok := p.reservedBudget.add(Budget{
+		Steps: 1, Signals: uint64(len(p.prepared.wire.Effects)),
+	})
+	if !ok || !p.budget.canAllocate(p.usage, reserved, requested) {
 		return false
 	}
 	p.provisionalChildBudget = requested
