@@ -165,6 +165,14 @@ func TestWindowStorePreservesSystemPartStructure(t *testing.T) {
 	if value := string(got[0].Parts[1].Metadata["provider"]); value != `"preserved"` {
 		t.Fatalf("part metadata = %s", value)
 	}
+	got[0].Parts[1].Metadata["provider"][1] = 'X'
+	again, err := window.Read(t.Context(), "c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value := string(again[0].Parts[1].Metadata["provider"]); value != `"preserved"` {
+		t.Fatalf("reading window exposed stored part metadata: %s", value)
+	}
 }
 
 func TestWindowStoreDelegatesWritesAndClear(t *testing.T) {

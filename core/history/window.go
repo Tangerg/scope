@@ -142,9 +142,7 @@ func (m messageWindow) mergedSystemMessage() (chat.Message, error) {
 		if i > 0 {
 			merged.Parts = append(merged.Parts, chat.NewTextPart("\n\n"))
 		}
-		for _, part := range message.Parts {
-			merged.Parts = append(merged.Parts, part.Clone())
-		}
+		merged.Parts = append(merged.Parts, message.Parts...)
 		if err := merged.Metadata.Merge(message.Metadata); err != nil {
 			return chat.Message{}, fmt.Errorf("history: merge system message %d metadata: %w", i, err)
 		}

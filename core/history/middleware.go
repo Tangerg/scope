@@ -158,15 +158,17 @@ func (m Middleware) prepare(
 	if err != nil {
 		return nil, nil, fmt.Errorf("history: middleware: read history: %w", err)
 	}
-	stored, err = historyMessages(stored).snapshot()
-	if err != nil {
-		return nil, nil, fmt.Errorf("history: middleware: validate stored history: %w", err)
+	for index := range stored {
+		if err := stored[index].Validate(); err != nil {
+			return nil, nil, fmt.Errorf("history: middleware: stored message %d: %w", index, err)
+		}
 	}
 
 	systems, fresh := historyMessages(prepared.Messages).split()
-	freshSnapshot, err := fresh.snapshot()
-	if err != nil {
-		return nil, nil, fmt.Errorf("history: middleware: snapshot fresh messages: %w", err)
+	// Preserve the input exchange independently of downstream execution.
+	freshSnapshot := make([]chat.Message, len(fresh))
+	for index := range fresh {
+		freshSnapshot[index] = fresh[index].Clone()
 	}
 	prepared.Messages = make([]chat.Message, 0, len(systems)+len(stored)+len(fresh))
 	prepared.Messages = append(prepared.Messages, systems...)
@@ -216,7 +218,7 @@ func (m Middleware) persistableAssistant(response *chat.Response) (chat.Message,
 			return chat.Message{}, false
 		}
 	}
-	return response.Output.Message.Clone(), true
+	return *response.Output.Message, true
 }
 
 func (m Middleware) forward(sequence iter.Seq2[*chat.ResponseDelta, error], yield func(*chat.ResponseDelta, error) bool) {
@@ -240,15 +242,4 @@ func (h historyMessages) split() (systems, nonSystems historyMessages) {
 		}
 	}
 	return systems, nonSystems
-}
-
-func (h historyMessages) snapshot() ([]chat.Message, error) {
-	cloned := make([]chat.Message, len(h))
-	for index := range h {
-		if err := h[index].Validate(); err != nil {
-			return nil, fmt.Errorf("history: messages[%d]: %w", index, err)
-		}
-		cloned[index] = h[index].Clone()
-	}
-	return cloned, nil
 }
