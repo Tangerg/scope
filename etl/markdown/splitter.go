@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/tokenizer"
 	"github.com/Tangerg/scope/etl"
+	"github.com/Tangerg/scope/etl/internal/tokenwindow"
 )
 
 const (
@@ -178,12 +180,12 @@ func (s *Splitter) parseSections(ctx context.Context, source []byte) ([]markdown
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		start, end := nodeBounds(node, len(source))
+		start, end := nodeBounds(node, source)
 		if start < 0 || end <= start {
 			continue
 		}
-		raw := strings.TrimSpace(string(source[start:end]))
-		if raw == "" {
+		raw := strings.Trim(string(source[start:end]), "\r\n")
+		if strings.TrimSpace(raw) == "" {
 			continue
 		}
 
@@ -219,11 +221,16 @@ func headingTexts(stack []headingRef) []string {
 	return headings
 }
 
-func nodeBounds(node ast.Node, sourceLength int) (int, int) {
+func nodeBounds(node ast.Node, source []byte) (int, int) {
 	start := node.Pos()
-	end := sourceLength
+	if start >= 0 {
+		// Goldmark positions may begin after indentation, which is part of a
+		// Markdown block's syntax even when it is absent from its AST content.
+		start = bytes.LastIndexByte(source[:start], '\n') + 1
+	}
+	end := len(source)
 	if next := node.NextSibling(); next != nil && next.Pos() >= 0 {
-		end = next.Pos()
+		end = bytes.LastIndexByte(source[:next.Pos()], '\n') + 1
 	}
 	return start, end
 }
@@ -359,7 +366,7 @@ func (s *Splitter) splitParagraph(ctx context.Context, prefix, paragraph string)
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		consumed, decoded, err := s.largestFittingTokenPrefix(ctx, prefix, tokens)
+		consumed, decoded, err := s.largestFittingTokenPrefix(ctx, prefix, paragraph, tokens)
 		if err != nil {
 			return nil, err
 		}
@@ -367,6 +374,7 @@ func (s *Splitter) splitParagraph(ctx context.Context, prefix, paragraph string)
 			return nil, s.semanticUnitError(ctx, blockParagraph, renderChunk(prefix, decoded))
 		}
 		tokens = tokens[consumed:]
+		paragraph = paragraph[len(decoded):]
 		if chunk := strings.TrimSpace(decoded); chunk != "" {
 			if len(chunks) == s.maxChunks {
 				return nil, fmt.Errorf("%w: maximum is %d", etl.ErrChunkLimitExceeded, s.maxChunks)
@@ -377,22 +385,26 @@ func (s *Splitter) splitParagraph(ctx context.Context, prefix, paragraph string)
 	return chunks, nil
 }
 
-func (s *Splitter) largestFittingTokenPrefix(ctx context.Context, prefix string, tokens []int) (int, string, error) {
+func (s *Splitter) largestFittingTokenPrefix(ctx context.Context, prefix, source string, tokens []int) (int, string, error) {
 	count := min(len(tokens), s.maxTokensPerChunk)
 	var decoded string
 	for count > 0 {
-		value, err := s.tokenizer.Decode(ctx, tokens[:count])
+		value, consumed, err := tokenwindow.Prefix(ctx, s.tokenizer, source, tokens, count)
 		if err != nil {
 			return 0, "", fmt.Errorf("markdown splitter: decode paragraph token window: %w", err)
 		}
-		fits, measured, err := s.fits(ctx, renderChunk(prefix, value))
+		if consumed == 0 {
+			_, size := utf8.DecodeRuneInString(source)
+			return 0, source[:size], nil
+		}
+		fits, _, err := s.fits(ctx, renderChunk(prefix, value))
 		if err != nil {
 			return 0, "", err
 		}
 		if fits {
-			return count, value, nil
+			return consumed, value, nil
 		}
-		count -= max(1, measured-s.maxTokensPerChunk)
+		count = consumed - 1
 		decoded = value
 	}
 	return 0, decoded, nil
@@ -516,7 +528,7 @@ func (s *Splitter) tokenCount(ctx context.Context, value string) (int, error) {
 
 func renderChunk(prefix, body string) string {
 	prefix = strings.TrimSpace(prefix)
-	body = strings.TrimSpace(body)
+	body = strings.Trim(body, "\r\n")
 	switch {
 	case prefix == "":
 		return body

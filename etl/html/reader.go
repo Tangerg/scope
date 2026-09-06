@@ -11,6 +11,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/andybalholm/cascadia"
 	"github.com/samber/lo"
+	htmlnode "golang.org/x/net/html"
 
 	"github.com/Tangerg/scope/core/document"
 	coremetadata "github.com/Tangerg/scope/core/metadata"
@@ -185,15 +186,52 @@ func (r *Reader) buildMetadata(page pageInfo, selector string) (coremetadata.Map
 }
 
 func (r *Reader) extractText(sel *goquery.Selection) string {
-	// Drop script / style / noscript / template content so code and
-	// hidden text don't end up in embeddings.
-	clone := sel.Clone()
-	clone.Find("script, style, noscript, template, head").Remove()
-	text := clone.Text()
+	var content strings.Builder
+	for _, node := range sel.Nodes {
+		appendNodeText(&content, node)
+	}
+	text := content.String()
 	if r.stripWhitespace {
 		text = strings.Join(strings.Fields(text), " ")
 	}
 	return strings.TrimSpace(text)
+}
+
+func appendNodeText(content *strings.Builder, node *htmlnode.Node) {
+	if node.Type == htmlnode.TextNode {
+		content.WriteString(node.Data)
+		return
+	}
+	if node.Type == htmlnode.ElementNode {
+		switch node.Data {
+		case "script", "style", "noscript", "template", "head":
+			return
+		}
+	}
+	boundary := node.Type == htmlnode.ElementNode && textBoundaryElement(node.Data)
+	if boundary {
+		content.WriteByte('\n')
+	}
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		appendNodeText(content, child)
+	}
+	if boundary {
+		content.WriteByte('\n')
+	}
+}
+
+// Inline markup must not insert spaces inside words; structural boundaries must.
+func textBoundaryElement(name string) bool {
+	switch name {
+	case "address", "article", "aside", "blockquote", "br", "caption", "dd", "details",
+		"dialog", "div", "dl", "dt", "fieldset", "figcaption", "figure", "footer", "form",
+		"h1", "h2", "h3", "h4", "h5", "h6", "header", "hgroup", "hr", "li", "main",
+		"nav", "ol", "p", "pre", "section", "summary", "table", "tbody", "td", "tfoot",
+		"th", "thead", "tr", "ul":
+		return true
+	default:
+		return false
+	}
 }
 
 type pageInfo struct {

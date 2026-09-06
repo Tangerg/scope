@@ -10,6 +10,7 @@ import (
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/tokenizer"
+	"github.com/Tangerg/scope/etl/internal/tokenwindow"
 )
 
 const (
@@ -21,6 +22,9 @@ const (
 // ErrChunkLimitExceeded prevents token splitting from producing an unbounded
 // number of documents.
 var ErrChunkLimitExceeded = errors.New("etl: chunk limit exceeded")
+
+// ErrChunkBudgetTooSmall means no lossless source character fits the token budget.
+var ErrChunkBudgetTooSmall = errors.New("etl: chunk token budget is too small")
 
 // TokenSplitterConfig configures token-aware chunking. Zero sizing values use
 // documented defaults; negative values are rejected.
@@ -112,11 +116,12 @@ func (t *TokenSplitter) SplitText(ctx context.Context, text string) ([]string, e
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		selected, consumedCount, err := t.nextChunk(ctx, tokens)
+		selected, consumedCount, err := t.nextChunk(ctx, text, tokens)
 		if err != nil {
 			return nil, err
 		}
 		tokens = tokens[consumedCount:]
+		text = text[len(selected):]
 		chunk := strings.TrimSpace(selected)
 		if chunk == "" {
 			continue
@@ -129,12 +134,15 @@ func (t *TokenSplitter) SplitText(ctx context.Context, text string) ([]string, e
 	return chunks, nil
 }
 
-func (t *TokenSplitter) nextChunk(ctx context.Context, tokens []int) (string, int, error) {
-	windowTokens := tokens[:min(t.maxTokensPerChunk, len(tokens))]
-	windowText, err := t.tokenizer.Decode(ctx, windowTokens)
+func (t *TokenSplitter) nextChunk(ctx context.Context, source string, tokens []int) (string, int, error) {
+	windowText, count, err := tokenwindow.Prefix(ctx, t.tokenizer, source, tokens, t.maxTokensPerChunk)
 	if err != nil {
 		return "", 0, fmt.Errorf("etl: decode token window: %w", err)
 	}
+	if count == 0 {
+		return "", 0, fmt.Errorf("%w: maximum is %d", ErrChunkBudgetTooSmall, t.maxTokensPerChunk)
+	}
+	windowTokens := tokens[:count]
 	boundary := t.lastSentenceBoundary(windowText)
 	if boundary <= 0 || boundary >= len(windowText) {
 		return windowText, len(windowTokens), nil

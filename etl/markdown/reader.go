@@ -272,7 +272,7 @@ func (s *section) document(metadata coremetadata.Map) (*document.Document, error
 // top-level node boundaries preserves Markdown syntax and all whitespace
 // between adjacent nodes instead of reconstructing source from AST leaves.
 func (s *section) appendNodeSource(raw []byte, n ast.Node) {
-	start, end := nodeBounds(n, len(raw))
+	start, end := nodeBounds(n, raw)
 	if start < 0 || end <= start {
 		return
 	}
