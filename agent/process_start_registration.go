@@ -31,7 +31,7 @@ func (e *Engine) reserveProcessStart(
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.closed {
+	if e.closeDone != nil {
 		return ErrEngineClosed
 	}
 	processID := relation.ProcessID()
@@ -152,7 +152,7 @@ func (e *Engine) publishReservedProcess(controller *processController) {
 	reservation, exists := e.startReservations[controller.processID]
 	if !exists || reservation.relation != controller.relation ||
 		reservation.deploymentRef != controller.deploymentRef ||
-		reservation.treeLimits != controller.treeLimits || e.closed ||
+		reservation.treeLimits != controller.treeLimits || e.closeDone != nil ||
 		e.processes[controller.processID] != nil {
 		panic("agent: invalid Process start reservation")
 	}

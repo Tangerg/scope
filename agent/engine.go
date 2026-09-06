@@ -98,7 +98,8 @@ type Engine struct {
 	treeRestoreReservations map[ProcessID]*treeRestoration
 	children                map[childIdentity]ProcessID
 	childStartReservations  map[childIdentity]ProcessID
-	closed                  bool
+	// A non-nil closeDone closes admission; receiving from it joins closure.
+	closeDone chan struct{}
 }
 
 // ObservationFailures returns a concurrency-safe snapshot of listener panics
@@ -300,14 +301,17 @@ func (e *Engine) Process(id ProcessID) (*Process, bool) {
 }
 
 // Close releases observation workers after all Processes have reached a
-// terminal state. Process results remain readable from existing handles.
+// terminal state. Concurrent calls wait for the same completed closure.
+// Process results remain readable from existing handles.
 func (e *Engine) Close() error {
 	if e == nil {
 		return nil
 	}
 	e.mu.Lock()
-	if e.closed {
+	if e.closeDone != nil {
+		done := e.closeDone
 		e.mu.Unlock()
+		<-done
 		return nil
 	}
 	if len(e.startReservations) != 0 || len(e.treeRestoreReservations) != 0 {
@@ -338,25 +342,23 @@ func (e *Engine) Close() error {
 			)
 		}
 	}
-	if len(unpublished) != 0 {
-		if e.durability != nil {
-			e.mu.Unlock()
-			return fmt.Errorf(
-				"%w: Process %s has unpublished durable tree state",
-				ErrEngineHasActiveProcesses, unpublished[0].processID,
-			)
-		}
-		// No external job or durability callback remains. A terminal view can
-		// become visible immediately before its owner publishes the immutable
-		// Result; keeping e.mu held prevents a concurrent Start from reopening
-		// the Engine during this bounded local hand-off.
-		for _, controller := range unpublished {
-			<-controller.treeSettled
-		}
+	if len(unpublished) != 0 && e.durability != nil {
+		e.mu.Unlock()
+		return fmt.Errorf(
+			"%w: Process %s has unpublished durable tree state",
+			ErrEngineHasActiveProcesses, unpublished[0].processID,
+		)
 	}
-	e.closed = true
+	done := make(chan struct{})
+	e.closeDone = done
 	e.mu.Unlock()
+	// Admission is closed before joining publication, whose listeners may
+	// inspect the registry and therefore need e.mu to remain available.
+	for _, controller := range unpublished {
+		<-controller.treeSettled
+	}
 	e.observation.close()
+	close(done)
 	return nil
 }
 

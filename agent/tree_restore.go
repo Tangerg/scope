@@ -208,7 +208,7 @@ func (e *Engine) reserveRestoredTree(restoration *treeRestoration) error {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.closed {
+	if e.closeDone != nil {
 		return ErrEngineClosed
 	}
 	rootID := restoration.wire.RootID
@@ -289,7 +289,7 @@ func (e *Engine) publishRestoredTree(restoration *treeRestoration) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	rootID := restoration.wire.RootID
-	if e.closed || e.treeRestoreReservations[rootID] != restoration {
+	if e.closeDone != nil || e.treeRestoreReservations[rootID] != restoration {
 		panic("agent: invalid restored tree reservation")
 	}
 	runtime := restoration.processes[0].controller.runtime.Load()
