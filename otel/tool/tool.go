@@ -25,7 +25,7 @@ const (
 	instrumentationName = "github.com/Tangerg/scope/otel/tool"
 	operationName       = "execute_tool"
 	toolTypeFunction    = "function"
-	durationMetricName  = "gen_ai.client.operation.duration"
+	durationMetricName  = "gen_ai.execute_tool.duration"
 	durationUnit        = "s"
 	errorTypeCanceled   = "context.canceled"
 	errorTypeDeadline   = "context.deadline_exceeded"
@@ -69,6 +69,7 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 		durationMetricName,
 		metric.WithDescription("GenAI tool execution duration."),
 		metric.WithUnit(durationUnit),
+		metric.WithExplicitBucketBoundaries(0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92),
 	)
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create duration histogram: %w", ErrInvalidConfig, err)
@@ -117,18 +118,20 @@ func (i *instrumentedTool) Call(ctx context.Context, invocation coretool.Invocat
 		ctx,
 		strings.Join([]string{operationName, i.definition.Name}, " "),
 		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithTimestamp(startedAt),
 		trace.WithAttributes(attributes...),
 	)
 	result, err := i.next.Call(ctx, invocation)
+	finishedAt := time.Now()
 	if err != nil {
 		errorType := errorTypeAttribute(err)
-		errortelemetry.Record(span, errorType)
+		errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
 		attributes = append(attributes, errorType)
 	}
-	span.End()
+	span.End(trace.WithTimestamp(finishedAt))
 	i.middleware.duration.Record(
 		ctx,
-		time.Since(startedAt).Seconds(),
+		finishedAt.Sub(startedAt).Seconds(),
 		metric.WithAttributes(attributes...),
 	)
 	return result, err
