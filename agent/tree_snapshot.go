@@ -438,7 +438,7 @@ type quiescedTree struct {
 	operation        *treeOperation
 	freeze           *treeFreeze
 	snapshot         TreeSnapshot
-	acknowledgedHead Digest
+	acknowledgedHead *treeHead
 	releaseOnce      sync.Once
 }
 
@@ -463,7 +463,7 @@ func (e *Engine) quiesceOwnedTree(
 	}
 	return &quiescedTree{
 		operation: operation, freeze: freeze, snapshot: snapshot,
-		acknowledgedHead: runtime.headDigest,
+		acknowledgedHead: runtime.head,
 	}, nil
 }
 

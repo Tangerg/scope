@@ -130,7 +130,7 @@ func (t *treeRuntime) recoverPendingEffect(
 			EffectBoundarySettled,
 			effectRequestFor(process, batchIndex, *record),
 			settlement,
-			t.headDigest,
+			t.head.digest(),
 			snapshot,
 		)
 		if err != nil {
@@ -347,7 +347,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 			t.failDurability(err, parent.controller.processID, job.effectID)
 			return
 		}
-		outcome := pending.treeOutcome(t.headDigest, snapshot)
+		outcome := pending.treeOutcome(t.head.digest(), snapshot)
 		t.startChildOutcomeCommit(pending, outcome, snapshot)
 		return
 	}
@@ -551,7 +551,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 			}
 			request := effectRequestFor(process, uint32(index), *record)
 			boundary, err := newEffectBoundary(
-				EffectBoundarySettled, request, settlement, t.headDigest, snapshot,
+				EffectBoundarySettled, request, settlement, t.head.digest(), snapshot,
 			)
 			if err != nil {
 				t.failDurability(err, process.controller.processID, record.ID)

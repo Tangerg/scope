@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"errors"
 )
 
@@ -17,19 +16,6 @@ func (t *treeRuntime) applyCommand(command treeCommand) {
 	case treeCommandApplyFreeze:
 		err := t.applyFreeze(command.freeze, command.projection)
 		command.response <- err
-		return
-	case treeCommandWaitHeadAdvance:
-		if t.engine.durability == nil || !command.previousHead.Valid() {
-			command.response <- ErrTreeDurabilityMismatch
-			return
-		}
-		if t.headDigest != command.previousHead {
-			command.response <- nil
-			return
-		}
-		t.headWaiters = append(t.headWaiters, treeHeadWaiter{
-			previous: command.previousHead, response: command.response,
-		})
 		return
 	case treeCommandProcess:
 	default:
@@ -196,7 +182,7 @@ func (t *treeRuntime) applyFreeze(
 		projection == nil {
 		return ErrInvalidPreparedWaitingSubtreeCancellation
 	}
-	if t.engine.durability != nil && t.headDigest != projection.sourceDigest {
+	if t.engine.durability != nil && t.head.digest() != projection.sourceDigest {
 		return ErrTreeIncarnationConflict
 	}
 	for _, change := range projection.changes {
@@ -221,45 +207,10 @@ func (t *treeRuntime) applyFreeze(
 		if err != nil || result.Digest() != projection.resultingDigest {
 			return ErrInvalidPreparedWaitingSubtreeCancellation
 		}
-		t.headDigest = projection.resultingDigest
-		t.notifyHeadWaiters(nil)
+		t.advanceHead(projection.resultingDigest)
 		t.publishCheckpoint()
 	}
 	return t.releaseFreeze(freeze)
-}
-
-func (t *treeRuntime) awaitHeadAdvance(ctx context.Context, previous Digest) error {
-	ctx = requireContext(ctx)
-	response := make(chan error, 1)
-	select {
-	case t.controls <- treeCommand{
-		kind: treeCommandWaitHeadAdvance, previousHead: previous, response: response,
-	}:
-	case <-t.done:
-		return ErrEngineQuiescenceUnavailable
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	select {
-	case err := <-response:
-		return err
-	case <-t.done:
-		return ErrEngineQuiescenceUnavailable
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func (t *treeRuntime) notifyHeadWaiters(commitErr error) {
-	remaining := t.headWaiters[:0]
-	for _, waiter := range t.headWaiters {
-		if commitErr == nil && waiter.previous == t.headDigest {
-			remaining = append(remaining, waiter)
-			continue
-		}
-		waiter.response <- commitErr
-	}
-	t.headWaiters = remaining
 }
 
 func (t *treeRuntime) invalidateStep(process *processState) {

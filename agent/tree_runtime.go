@@ -17,10 +17,11 @@ type treeRuntime struct {
 	engine      *Engine
 	rootID      ProcessID
 	incarnation TreeIncarnationID
-	headDigest  Digest
+	head        *treeHead
 
-	// These atomics are the only state read outside the owner line. Commands and
-	// completions are the sole mutation entrances back into that line.
+	// Atomics publish scheduling state outside the owner line. Freeze acquisition
+	// publishes a stable checkpoint and head; commands and completions remain
+	// the only mutation entrances back into the owner.
 	inflight    atomic.Int64
 	freezeHeld  atomic.Bool
 	context     context.Context
@@ -35,7 +36,6 @@ type treeRuntime struct {
 	runnable          []ProcessID
 	queued            map[ProcessID]struct{}
 	jobs              map[ProcessID]*processJob
-	headWaiters       []treeHeadWaiter
 	commit            *treeCommit
 	commitDone        chan treeCommitCompletion
 	durabilityFault   bool
@@ -52,18 +52,16 @@ const (
 	treeCommandAcquireFreeze
 	treeCommandReleaseFreeze
 	treeCommandApplyFreeze
-	treeCommandWaitHeadAdvance
 )
 
 type treeCommand struct {
-	kind         treeCommandKind
-	processID    ProcessID
-	process      processCommand
-	freeze       *treeFreeze
-	acquisition  *treeFreezeAcquisition
-	projection   *treeStateProjection
-	previousHead Digest
-	response     chan error
+	kind        treeCommandKind
+	processID   ProcessID
+	process     processCommand
+	freeze      *treeFreeze
+	acquisition *treeFreezeAcquisition
+	projection  *treeStateProjection
+	response    chan error
 }
 
 func newTreeProcessCommand(processID ProcessID, command processCommand) treeCommand {
@@ -101,11 +99,6 @@ type treeStateProjection struct {
 	childWaits      []*childWaitRegistration
 	sourceDigest    Digest
 	resultingDigest Digest
-}
-
-type treeHeadWaiter struct {
-	previous Digest
-	response chan error
 }
 
 type processAttempt uint64
@@ -242,7 +235,7 @@ func (t *treeRuntime) establishDurableHead(
 		panic("agent: durable tree head incarnation mismatch")
 	}
 	t.incarnation = incarnation
-	t.headDigest = snapshot.Digest()
+	t.advanceHead(snapshot.Digest())
 }
 
 func (t *treeRuntime) addProcess(process *processState) {
