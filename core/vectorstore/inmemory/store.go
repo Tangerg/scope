@@ -106,17 +106,11 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 	if validateErr := request.Validate(); validateErr != nil {
 		return fmt.Errorf("inmemory: index documents: %w", validateErr)
 	}
-	docs := request.Documents
-
-	texts := make([]string, 0, len(docs))
-	for i, doc := range docs {
-		if doc == nil {
-			return fmt.Errorf("inmemory: index documents: document[%d] is nil", i)
-		}
-		if doc.ID == "" {
-			return fmt.Errorf("inmemory: index documents: document[%d] has empty ID", i)
-		}
-		texts = append(texts, doc.Text)
+	docs := make([]*document.Document, len(request.Documents))
+	texts := make([]string, len(docs))
+	for i, doc := range request.Documents {
+		docs[i] = doc.Clone()
+		texts[i] = docs[i].Text
 	}
 
 	var embeddings [][]float64
@@ -189,13 +183,13 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	s.mu.RUnlock()
 
 	slices.SortStableFunc(candidates, func(a, b scored) int {
-		return cmp.Compare(b.score, a.score)
+		return cmp.Or(cmp.Compare(b.score, a.score), cmp.Compare(a.doc.ID, b.doc.ID))
 	})
 
 	limit := min(req.Options.ResultLimit(), len(candidates))
 	out = make([]*vectorstore.SearchResult, 0, limit)
 	for i := range limit {
-		out = append(out, &vectorstore.SearchResult{Document: candidates[i].doc, Score: candidates[i].score})
+		out = append(out, &vectorstore.SearchResult{Document: candidates[i].doc.Clone(), Score: candidates[i].score})
 	}
 	return &vectorstore.SearchResponse{Results: out}, nil
 }
