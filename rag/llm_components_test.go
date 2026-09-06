@@ -382,12 +382,54 @@ func TestCompressionTransformer_UsesHistory(t *testing.T) {
 }
 
 func TestCompressionTransformerRejectsEmptyModelOutput(t *testing.T) {
-	model := newFakeChatModel(t, "")
-	tr, _ := rag.NewCompressionTransformer(rag.CompressionTransformerConfig{Model: model})
+	for _, test := range []struct {
+		name    string
+		reply   string
+		wantErr error
+	}{
+		{name: "missing response text", wantErr: chatclient.ErrInvalidOutput},
+		{name: "blank query text", reply: " \n\t ", wantErr: rag.ErrEmptyModelOutput},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			transformer, err := rag.NewCompressionTransformer(rag.CompressionTransformerConfig{Model: newFakeChatModel(t, test.reply)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			query, err := rag.NewQuery("original")
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := transformer.Transform(t.Context(), query)
+			if !errors.Is(err, test.wantErr) || result.Text() != "" {
+				t.Fatalf("Transform = %q, %v; want no query and %v", result.Text(), err, test.wantErr)
+			}
+		})
+	}
+}
 
-	q, _ := rag.NewQuery("orig")
-	if _, err := tr.Transform(t.Context(), q); !errors.Is(err, rag.ErrEmptyModelOutput) {
-		t.Fatalf("Transform error = %v, want ErrEmptyModelOutput", err)
+func TestCompressionTransformerPreservesUnsuccessfulCompletion(t *testing.T) {
+	for _, reason := range []chat.FinishReason{chat.FinishReasonLength, chat.FinishReasonRefusal} {
+		t.Run(reason.String(), func(t *testing.T) {
+			part := chat.NewTextPart("unfinished query")
+			if reason == chat.FinishReasonRefusal {
+				part = chat.NewRefusalPart("declined")
+			}
+			model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+				return chat.NewResponse(&chat.Output{FinishReason: reason, Message: new(chat.NewAssistantMessage(part))}, nil)
+			})
+			transformer, err := rag.NewCompressionTransformer(rag.CompressionTransformerConfig{Model: model})
+			if err != nil {
+				t.Fatal(err)
+			}
+			query, err := rag.NewQuery("original")
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := transformer.Transform(t.Context(), query)
+			if !errors.Is(err, chatclient.ErrInvalidOutput) || result.Text() != "" {
+				t.Fatalf("Transform = %q, %v; want identifiable %s completion", result.Text(), err, reason)
+			}
+		})
 	}
 }
 

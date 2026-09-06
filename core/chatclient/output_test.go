@@ -35,6 +35,82 @@ func TestClientOutputUsesTypedOutput(t *testing.T) {
 	}
 }
 
+func TestClientOutputPreservesUnsuccessfulCompletion(t *testing.T) {
+	for _, reason := range []chat.FinishReason{
+		chat.FinishReasonLength, chat.FinishReasonToolCalls, chat.FinishReasonContentFilter,
+		chat.FinishReasonRefusal, chat.FinishReasonOther,
+	} {
+		t.Run(reason.String(), func(t *testing.T) {
+			response := textResponse(`{"name":"tea","steps":[]}`)
+			response.Output.FinishReason = reason
+			client, err := New(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+				return response, nil
+			}), Config{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.Output(t.Context(), textRequest("tea"), JSON[recipe]())
+			completion, ok := errors.AsType[*OutputCompletionError](err)
+			if !errors.Is(err, ErrInvalidOutput) || !ok || completion.FinishReason != reason {
+				t.Fatalf("error=%v, want completion reason %s", err, reason)
+			}
+		})
+	}
+}
+
+func TestClientOutputPreservesRefusalDiagnostic(t *testing.T) {
+	response := &chat.Response{Output: &chat.Output{
+		FinishReason: chat.FinishReasonRefusal,
+		Message:      new(chat.NewAssistantMessage(chat.NewRefusalPart("declined"))),
+	}}
+	client, err := New(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		return response, nil
+	}), Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := client.Output(t.Context(), textRequest("request"), Text())
+	completion, ok := errors.AsType[*OutputCompletionError](err)
+	if value != "" || !errors.Is(err, ErrInvalidOutput) || !ok ||
+		completion.FinishReason != chat.FinishReasonRefusal || completion.Refusal != "declined" {
+		t.Fatalf("value=%q error=%v, want identifiable refusal", value, err)
+	}
+}
+
+func TestClientOutputRequiresCompletedTextParts(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		message *chat.Message
+		want    string
+		refusal string
+		invalid bool
+	}{
+		{name: "reasoning and text", message: new(chat.NewAssistantMessage(chat.NewReasoningPart("internal reasoning", nil), chat.NewTextPart("first"), chat.NewTextPart("second"))), want: "firstsecond"},
+		{name: "refusal despite stop", message: new(chat.NewAssistantMessage(chat.NewTextPart("partial"), chat.NewRefusalPart("declined"))), refusal: "declined", invalid: true},
+		{name: "tool request despite stop", message: new(chat.NewAssistantMessage(chat.NewTextPart("partial"), chat.NewToolCallPart(chat.ToolCall{ID: "pending", Name: "lookup", Arguments: `{}`}))), invalid: true},
+		{name: "reasoning alone", message: new(chat.NewAssistantMessage(chat.NewReasoningPart("still reasoning", nil))), invalid: true},
+		{name: "absent message", invalid: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := &chat.Response{Output: &chat.Output{FinishReason: chat.FinishReasonStop, Message: test.message}}
+			client, err := New(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return response, nil }), Config{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			value, err := client.Output(t.Context(), textRequest("request"), Text())
+			if value != test.want || errors.Is(err, ErrInvalidOutput) != test.invalid {
+				t.Fatalf("value=%q error=%v", value, err)
+			}
+			if test.refusal != "" {
+				completion, ok := errors.AsType[*OutputCompletionError](err)
+				if !ok || completion.Refusal != test.refusal {
+					t.Fatalf("refusal error=%v", err)
+				}
+			}
+		})
+	}
+}
+
 func TestClientOutputSnapshotsSchema(t *testing.T) {
 	format, err := JSONSchema[recipe](JSONSchemaConfig{Name: "recipe"})
 	if err != nil {

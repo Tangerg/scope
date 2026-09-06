@@ -70,8 +70,10 @@ func New(model chat.Model, config Config) (Client, error) {
 	}, nil
 }
 
-// Output asks the provider to enforce format, then strictly decodes the terminal
-// text. It never repairs JSON or injects format instructions into the prompt.
+// Output asks the provider to enforce format, then strictly decodes naturally
+// completed text. Refusal and other non-successful completion reasons return
+// OutputCompletionError. Media and tool requests cannot become typed values.
+// Output never repairs JSON or injects format instructions into the prompt.
 func (c Client) Output[T any](ctx context.Context, req *chat.Request, format OutputFormat[T]) (T, error) {
 	var zero T
 	if !c.valid() {
