@@ -38,10 +38,10 @@ func (d Direction) Validate() error {
 	}
 }
 
-// Metric identifies an evaluation without encoding configuration into a
-// string. Parameters holds owned, structured identity for calculation and
-// decision rules. Unit and Direction describe optional raw measurements;
-// normalized scores are always unitless and higher-is-better.
+// Metric is an immutable evaluation identity that can be copied by assignment.
+// Parameters holds structured identity for calculation and decision rules.
+// Unit and Direction describe optional raw measurements; normalized scores
+// are always unitless and higher-is-better.
 type Metric struct {
 	namespace  string
 	name       MetricName
@@ -73,11 +73,6 @@ func NewMetric(config MetricConfig) (Metric, error) {
 		return Metric{}, err
 	}
 	return metric, nil
-}
-
-func (m Metric) Clone() Metric {
-	m.parameters = m.parameters.Clone()
-	return m
 }
 
 func (m Metric) Namespace() string        { return m.namespace }

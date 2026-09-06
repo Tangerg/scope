@@ -210,7 +210,7 @@ func (e *Evaluator[T]) aggregate(outputs []modelReport) (eval.Report, error) {
 		verdict = decided
 	}
 	report := eval.Report{
-		Metric: e.metric.Clone(), Verdict: verdict, Score: &score,
+		Metric: e.metric, Verdict: verdict, Score: &score,
 		Feedback: feedback, Metadata: reportMetadata,
 	}
 	if err := report.Validate(); err != nil {

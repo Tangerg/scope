@@ -333,7 +333,7 @@ func (e *Evaluator) Evaluate(ctx context.Context, sample Sample) (eval.Report, e
 			return eval.Report{}, fmt.Errorf("eval/ranking: verdict: %w", err)
 		}
 	}
-	report := eval.Report{Metric: e.reportMetric.Clone(), Verdict: verdict, Score: &score}
+	report := eval.Report{Metric: e.reportMetric, Verdict: verdict, Score: &score}
 	if err := report.Validate(); err != nil {
 		return eval.Report{}, err
 	}

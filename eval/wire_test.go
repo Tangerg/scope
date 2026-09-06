@@ -163,9 +163,7 @@ func TestDirectionIsAClosedVocabulary(t *testing.T) {
 	}
 }
 
-// TestMetricCloneDoesNotAliasParameters keeps metric identity immutable: two
-// reports carrying "the same" metric must not be able to change each other's.
-func TestMetricCloneDoesNotAliasParameters(t *testing.T) {
+func TestMetricCopiesPreserveParameterIsolation(t *testing.T) {
 	metric, err := eval.NewMetric(eval.MetricConfig{
 		Name:       "accuracy",
 		Parameters: metadata.Map{"threshold": json.RawMessage(`0.5`)},
@@ -173,11 +171,20 @@ func TestMetricCloneDoesNotAliasParameters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	clone := metric.Clone()
-	cloneParameters := clone.Parameters()
-	cloneParameters["threshold"] = json.RawMessage(`0.9`)
-	if string(metric.Parameters()["threshold"]) != "0.5" {
-		t.Fatal("Clone aliases the metric parameters")
+	copied := metric
+	parameters := copied.Parameters()
+	parameters["threshold"][2] = '9'
+	if got := string(copied.Parameters()["threshold"]); got != "0.5" {
+		t.Fatalf("copied metric threshold = %s, want 0.5", got)
+	}
+	if err := json.Unmarshal([]byte(`{"name":"accuracy","parameters":{"threshold":0.9}}`), &copied); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(copied.Parameters()["threshold"]); got != "0.9" {
+		t.Fatalf("decoded metric threshold = %s, want 0.9", got)
+	}
+	if got := string(metric.Parameters()["threshold"]); got != "0.5" {
+		t.Fatalf("original metric threshold = %s, want 0.5", got)
 	}
 }
 

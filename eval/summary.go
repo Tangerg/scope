@@ -71,43 +71,17 @@ type ExperimentReport struct {
 
 // Cases returns owned results in Dataset order.
 func (e ExperimentReport) Cases() []CaseResult {
-	return cloneCaseResults(e.cases)
+	results := slices.Clone(e.cases)
+	for index := range results {
+		results[index] = results[index].clone()
+	}
+	return results
 }
 
 // Summary returns the owned aggregate calculated from Cases.
 func (e ExperimentReport) Summary() ExperimentSummary {
-	return cloneExperimentSummary(e.summary)
-}
-
-func newExperimentReport(cases []CaseResult, summary ExperimentSummary) ExperimentReport {
-	return ExperimentReport{
-		cases: cloneCaseResults(cases), summary: cloneExperimentSummary(summary),
-	}
-}
-
-func cloneCaseResults(results []CaseResult) []CaseResult {
-	cloned := slices.Clone(results)
-	for index := range cloned {
-		cloned[index] = cloned[index].clone()
-	}
-	return cloned
-}
-
-func cloneExperimentSummary(summary ExperimentSummary) ExperimentSummary {
-	summary.Metrics = cloneMetricSummaries(summary.Metrics)
-	return summary
-}
-
-func cloneMetricSummaries(summaries []MetricSummary) []MetricSummary {
-	cloned := slices.Clone(summaries)
-	for index := range cloned {
-		cloned[index] = cloneMetricSummary(cloned[index])
-	}
-	return cloned
-}
-
-func cloneMetricSummary(summary MetricSummary) MetricSummary {
-	summary.Metric = summary.Metric.Clone()
+	summary := e.summary
+	summary.Metrics = slices.Clone(summary.Metrics)
 	return summary
 }
 
@@ -137,7 +111,7 @@ func summarize(results []CaseResult) (ExperimentSummary, error) {
 		if current == nil {
 			current = &accumulator{index: len(summary.Metrics)}
 			metrics[identity] = current
-			summary.Metrics = append(summary.Metrics, MetricSummary{Metric: report.Metric.Clone()})
+			summary.Metrics = append(summary.Metrics, MetricSummary{Metric: report.Metric})
 		}
 		metricSummary := &summary.Metrics[current.index]
 		metricSummary.Evaluated++

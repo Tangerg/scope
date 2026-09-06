@@ -189,7 +189,7 @@ func (c *CompositeEvaluator[T]) metricFor(reports []Report) (Metric, error) {
 	components := make([]componentIdentity, len(reports))
 	for index, report := range reports {
 		components[index] = componentIdentity{
-			Metric: report.Metric.Clone(), Weight: c.components[index].Weight,
+			Metric: report.Metric, Weight: c.components[index].Weight,
 			Required: c.components[index].Required,
 		}
 	}

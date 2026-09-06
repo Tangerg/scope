@@ -23,7 +23,7 @@ func evaluateAll[T any](ctx context.Context, evaluators []Evaluator[T], maxConcu
 			if err := report.Validate(); err != nil {
 				return fmt.Errorf("eval: evaluator %d: %w", index, err)
 			}
-			reports[index] = report.cloneValid()
+			reports[index] = report
 			return nil
 		})
 	}

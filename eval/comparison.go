@@ -42,8 +42,7 @@ type Comparison struct {
 // Dataset and Metric identities are comparable. Exact deltas avoid inventing
 // statistical significance or a synthetic score across unlike units.
 func (e ExperimentReport) Compare(candidate ExperimentReport) (Comparison, error) {
-	baselineCases, candidateCases := e.Cases(), candidate.Cases()
-	if err := comparableCases(baselineCases, candidateCases); err != nil {
+	if err := comparableCases(e.cases, candidate.cases); err != nil {
 		return Comparison{}, err
 	}
 	baselineSummary, candidateSummary := e.Summary(), candidate.Summary()
@@ -60,8 +59,6 @@ func (e ExperimentReport) Compare(candidate ExperimentReport) (Comparison, error
 		ErrorDelta:     candidateSummary.Errors - baselineSummary.Errors,
 		Metrics:        make([]MetricComparison, len(metricPairs)),
 	}
-	comparison.Baseline.Metrics = cloneMetricSummaries(comparison.Baseline.Metrics)
-	comparison.Candidate.Metrics = cloneMetricSummaries(comparison.Candidate.Metrics)
 	for index, pair := range metricPairs {
 		comparison.Metrics[index] = compareMetric(pair.baseline, pair.candidate)
 	}
@@ -123,8 +120,8 @@ func comparableMetrics(baseline, candidate []MetricSummary) ([]metricPair, error
 
 func compareMetric(baseline, candidate MetricSummary) MetricComparison {
 	return MetricComparison{
-		Metric:   baseline.Metric.Clone(),
-		Baseline: cloneMetricSummary(baseline), Candidate: cloneMetricSummary(candidate),
+		Metric:   baseline.Metric,
+		Baseline: baseline, Candidate: candidate,
 		EvaluatedDelta:   candidate.Evaluated - baseline.Evaluated,
 		PassedDelta:      candidate.Passed - baseline.Passed,
 		FailedDelta:      candidate.Failed - baseline.Failed,

@@ -36,7 +36,6 @@ func (r Report) Clone() (Report, error) {
 }
 
 func (r Report) cloneValid() Report {
-	r.Metric = r.Metric.Clone()
 	if r.Score != nil {
 		score := *r.Score
 		r.Score = &score
