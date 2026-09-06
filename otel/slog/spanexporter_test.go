@@ -66,7 +66,7 @@ func TestExporter_SuccessSpan(t *testing.T) {
 		attribute.String("gen_ai.provider.name", "openai"),
 		attribute.Int("gen_ai.request.max_tokens", 1024),
 	)
-	span.AddEvent("first_token_received")
+	span.AddEvent("checkpoint")
 	span.End()
 
 	records := handler.Records()
@@ -101,7 +101,7 @@ func TestExporter_SuccessSpan(t *testing.T) {
 	if _, ok := attrs["duration"]; !ok {
 		t.Error("duration attribute missing")
 	}
-	if events, ok := attrs["events"].([]string); !ok || len(events) != 1 || events[0] != "first_token_received" {
+	if events, ok := attrs["events"].([]string); !ok || len(events) != 1 || events[0] != "checkpoint" {
 		t.Errorf("events mismatch: %v", attrs["events"])
 	}
 }

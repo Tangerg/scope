@@ -22,6 +22,12 @@
 //   - agent: managed Process activation, Step, and Effect, through an Observer
 //     bound as an agent.EventListener.
 //
+// Chat streaming records gen_ai.client.operation.time_to_first_chunk and
+// gen_ai.client.operation.time_per_output_chunk for received deltas, including
+// metadata-only chunks. Token metrics retain known cumulative usage even when
+// generation fails. Response model identity is recorded only when reported by
+// the provider. Cache and reasoning token counts are subsets of the totals.
+//
 // The a2a and mcp modules are protocol integrations and use the official OTel
 // API directly at their own call boundary, so this module has no adapter for
 // them.
