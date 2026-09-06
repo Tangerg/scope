@@ -24,7 +24,7 @@ import (
 
 const (
 	instrumentationName = "github.com/Tangerg/scope/otel/image"
-	operationName       = "generate_image"
+	operationName       = "generate_content"
 	errorCanceled       = "context.canceled"
 	errorDeadline       = "context.deadline_exceeded"
 	errorInvalidRequest = "image.invalid_request"
@@ -80,7 +80,9 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	if lo.IsNil(meterProvider) {
 		meterProvider = apiotel.GetMeterProvider()
 	}
-	duration, err := genaiconv.NewClientOperationDuration(meterProvider.Meter(instrumentationName))
+	duration, err := genaiconv.NewClientOperationDuration(meterProvider.Meter(instrumentationName), metric.WithExplicitBucketBoundaries(
+		0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92,
+	))
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create duration histogram: %w", ErrInvalidConfig, err)
 	}
@@ -105,18 +107,20 @@ func (m Middleware) Wrap(next coreimage.Model) (coreimage.Model, error) {
 		attributes := m.requestAttributes(request)
 		spanCtx, span := m.tracer.Start(ctx, m.spanName(request),
 			trace.WithSpanKind(trace.SpanKindClient),
+			trace.WithTimestamp(startedAt),
 			trace.WithAttributes(attributes...),
 		)
 		response, err := next.Call(spanCtx, request)
-		defer span.End()
+		finishedAt := time.Now()
+		defer span.End(trace.WithTimestamp(finishedAt))
 		metricAttributes := m.metricAttributes(request)
 		if err != nil {
 			errorType := errorTypeAttribute(err)
-			errortelemetry.Record(span, errorType)
-			errortelemetry.EmitGenAIException(spanCtx, m.logger, errorType, time.Now())
+			errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
+			errortelemetry.EmitGenAIException(spanCtx, m.logger, errorType, finishedAt)
 			metricAttributes = append(metricAttributes, errorType)
 		}
-		m.duration.Record(spanCtx, time.Since(startedAt).Seconds(),
+		m.duration.Record(spanCtx, finishedAt.Sub(startedAt).Seconds(),
 			genaiconv.OperationNameGenerateContent,
 			genaiconv.ProviderNameAttr(m.provider),
 			metricAttributes...,
@@ -135,6 +139,7 @@ func (m Middleware) spanName(request *coreimage.Request) string {
 func (m Middleware) requestAttributes(request *coreimage.Request) []attribute.KeyValue {
 	attributes := []attribute.KeyValue{
 		semconv.GenAIOperationNameGenerateContent,
+		semconv.GenAIOutputTypeImage,
 		semconv.GenAIProviderNameKey.String(m.provider),
 	}
 	if request != nil && request.Options.Model != "" {
@@ -149,7 +154,6 @@ func (m Middleware) metricAttributes(request *coreimage.Request) []attribute.Key
 	}
 	return []attribute.KeyValue{
 		semconv.GenAIRequestModel(request.Options.Model),
-		semconv.GenAIResponseModel(request.Options.Model),
 	}
 }
 

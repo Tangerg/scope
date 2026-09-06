@@ -87,6 +87,7 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 		operationDurationMetric,
 		metric.WithDescription(operationDurationDescription),
 		metric.WithUnit(operationDurationUnit),
+		metric.WithExplicitBucketBoundaries(0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92),
 	)
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create duration histogram: %w", ErrInvalidConfig, err)
@@ -112,10 +113,11 @@ func (m Middleware) Wrap(next coretranscription.Model) (coretranscription.Model,
 		attributes := m.requestAttributes(request)
 		spanCtx, span := m.tracer.Start(ctx, m.spanName(request),
 			trace.WithSpanKind(trace.SpanKindClient),
+			trace.WithTimestamp(startedAt),
 			trace.WithAttributes(attributes...),
 		)
 		response, err := next.Call(spanCtx, request)
-		m.finish(spanCtx, span, request, response, err, time.Since(startedAt))
+		m.finish(spanCtx, span, request, response, err, startedAt, time.Now())
 		return response, err
 	}), nil
 }
@@ -131,6 +133,7 @@ func (m Middleware) requestAttributes(request *coretranscription.Request) []attr
 	attributes := []attribute.KeyValue{
 		semconv.GenAIOperationNameKey.String(operationName),
 		semconv.GenAIProviderNameKey.String(m.provider),
+		semconv.GenAIOutputTypeText,
 	}
 	if request != nil && request.Options.Model != "" {
 		attributes = append(attributes, semconv.GenAIRequestModel(request.Options.Model))
@@ -144,20 +147,20 @@ func (m Middleware) finish(
 	request *coretranscription.Request,
 	response *coretranscription.Response,
 	err error,
-	elapsed time.Duration,
+	startedAt, finishedAt time.Time,
 ) {
-	defer span.End()
+	defer span.End(trace.WithTimestamp(finishedAt))
 	attributes := m.metricAttributes(request, response)
 	if response != nil && response.Metadata != nil && response.Metadata.Model != "" {
 		span.SetAttributes(semconv.GenAIResponseModel(response.Metadata.Model))
 	}
 	if err != nil {
 		errorType := errorTypeAttribute(err)
-		errortelemetry.Record(span, errorType)
-		errortelemetry.EmitGenAIException(ctx, m.logger, errorType, time.Now())
+		errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
+		errortelemetry.EmitGenAIException(ctx, m.logger, errorType, finishedAt)
 		attributes = append(attributes, errorType)
 	}
-	m.duration.Record(ctx, elapsed.Seconds(), metric.WithAttributes(attributes...))
+	m.duration.Record(ctx, finishedAt.Sub(startedAt).Seconds(), metric.WithAttributes(attributes...))
 }
 
 func (m Middleware) metricAttributes(
@@ -174,9 +177,6 @@ func (m Middleware) metricAttributes(
 	model := ""
 	if response != nil && response.Metadata != nil {
 		model = response.Metadata.Model
-	}
-	if model == "" && request != nil {
-		model = request.Options.Model
 	}
 	if model != "" {
 		attributes = append(attributes, semconv.GenAIResponseModel(model))

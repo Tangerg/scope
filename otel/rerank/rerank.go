@@ -85,11 +85,15 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 		meterProvider = apiotel.GetMeterProvider()
 	}
 	meter := meterProvider.Meter(instrumentationName)
-	duration, err := genaiconv.NewClientOperationDuration(meter)
+	duration, err := genaiconv.NewClientOperationDuration(meter, metric.WithExplicitBucketBoundaries(
+		0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92,
+	))
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create duration histogram: %w", ErrInvalidConfig, err)
 	}
-	tokens, err := genaiconv.NewClientTokenUsage(meter)
+	tokens, err := genaiconv.NewClientTokenUsage(meter, metric.WithExplicitBucketBoundaries(
+		1, 4, 16, 64, 256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216, 67108864,
+	))
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create token histogram: %w", ErrInvalidConfig, err)
 	}
@@ -115,10 +119,11 @@ func (m Middleware) Wrap(next corererank.Model) (corererank.Model, error) {
 		attributes := m.requestAttributes(request)
 		spanCtx, span := m.tracer.Start(ctx, m.spanName(request),
 			trace.WithSpanKind(trace.SpanKindClient),
+			trace.WithTimestamp(startedAt),
 			trace.WithAttributes(attributes...),
 		)
 		response, err := next.Call(spanCtx, request)
-		m.finish(spanCtx, span, request, response, err, time.Since(startedAt))
+		m.finish(spanCtx, span, request, response, err, startedAt, time.Now())
 		return response, err
 	}), nil
 }
@@ -150,30 +155,32 @@ func (m Middleware) finish(
 	request *corererank.Request,
 	response *corererank.Response,
 	err error,
-	elapsed time.Duration,
+	startedAt, finishedAt time.Time,
 ) {
-	defer span.End()
+	defer span.End(trace.WithTimestamp(finishedAt))
 	attributes := m.metricAttributes(request, response)
 	if response != nil && response.Metadata != nil && response.Metadata.Model != "" {
 		span.SetAttributes(semconv.GenAIResponseModel(response.Metadata.Model))
 	}
-	if err != nil {
-		errorType := errorTypeAttribute(err)
-		errortelemetry.Record(span, errorType)
-		errortelemetry.EmitGenAIException(ctx, m.logger, errorType, time.Now())
-		attributes = append(attributes, errorType)
-	}
-	operation := genaiconv.OperationNameAttr(operationName)
-	m.duration.Record(ctx, elapsed.Seconds(), operation, genaiconv.ProviderNameAttr(m.provider), attributes...)
-	if err == nil && response != nil && response.Metadata != nil && response.Metadata.Usage != nil &&
-		response.Metadata.Usage.InputTokens > 0 {
+	if response != nil && response.Metadata != nil && response.Metadata.Usage != nil &&
+		response.Metadata.Usage.InputTokens >= 0 {
+		span.SetAttributes(semconv.GenAIUsageInputTokensKey.Int64(response.Metadata.Usage.InputTokens))
 		m.tokens.Record(ctx, response.Metadata.Usage.InputTokens,
-			operation,
+			genaiconv.OperationNameAttr(operationName),
 			genaiconv.ProviderNameAttr(m.provider),
 			genaiconv.TokenTypeInput,
 			attributes...,
 		)
 	}
+
+	if err != nil {
+		errorType := errorTypeAttribute(err)
+		errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
+		errortelemetry.EmitGenAIException(ctx, m.logger, errorType, finishedAt)
+		attributes = append(attributes, errorType)
+	}
+	operation := genaiconv.OperationNameAttr(operationName)
+	m.duration.Record(ctx, finishedAt.Sub(startedAt).Seconds(), operation, genaiconv.ProviderNameAttr(m.provider), attributes...)
 }
 
 func (m Middleware) metricAttributes(request *corererank.Request, response *corererank.Response) []attribute.KeyValue {
@@ -184,9 +191,6 @@ func (m Middleware) metricAttributes(request *corererank.Request, response *core
 	model := ""
 	if response != nil && response.Metadata != nil {
 		model = response.Metadata.Model
-	}
-	if model == "" && request != nil {
-		model = request.Options.Model
 	}
 	if model != "" {
 		attributes = append(attributes, semconv.GenAIResponseModel(model))
