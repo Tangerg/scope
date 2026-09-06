@@ -139,7 +139,7 @@ func (r *Repository) summaryForEntry(ctx context.Context, entry fs.DirEntry) (Su
 	if ctxErr := contextError(ctx, "list"); ctxErr != nil {
 		return Summary{}, false, ctxErr
 	}
-	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, ErrInvalidSkill) {
+	if errors.Is(err, ErrInvalidSkill) {
 		return Summary{}, false, nil
 	}
 	return Summary{}, false, fmt.Errorf("skills: list: %w", err)
@@ -188,15 +188,21 @@ func (r *Repository) loadSummary(ctx context.Context, name string) (Summary, err
 	operation := fmt.Sprintf("load summary %q", name)
 	file, err := r.fsys.Open(name + "/" + SkillFile)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return Summary{}, invalidSkill(name, err)
+		}
 		return Summary{}, fmt.Errorf("skills: %s: %w", operation, err)
 	}
 	frontmatter, readErr := readFrontmatter(ctx, file, r.limits.maxFrontmatterBytes)
 	closeErr := file.Close()
-	if combinedErr := errors.Join(readErr, closeErr); combinedErr != nil {
-		if errors.Is(combinedErr, ErrNoFrontmatter) || errors.Is(combinedErr, ErrContentTooLarge) {
-			return Summary{}, invalidSkill(name, combinedErr)
+	if closeErr != nil {
+		return Summary{}, fmt.Errorf("skills: %s: %w", operation, errors.Join(readErr, closeErr))
+	}
+	if readErr != nil {
+		if errors.Is(readErr, ErrNoFrontmatter) || errors.Is(readErr, ErrContentTooLarge) {
+			return Summary{}, invalidSkill(name, readErr)
 		}
-		return Summary{}, fmt.Errorf("skills: %s: %w", operation, combinedErr)
+		return Summary{}, fmt.Errorf("skills: %s: %w", operation, readErr)
 	}
 	skill, err := Parse(frontmatter)
 	if err != nil {
