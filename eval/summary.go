@@ -175,10 +175,15 @@ func distribution(values []float64) Distribution {
 		Count: len(values), Minimum: values[0], Maximum: values[len(values)-1],
 		P10: percentile(values, 0.10), P50: percentile(values, 0.50), P90: percentile(values, 0.90),
 	}
-	for _, value := range values {
-		result.Mean += value
+	scale := max(math.Abs(result.Minimum), math.Abs(result.Maximum))
+	if scale == 0 {
+		return result
 	}
-	result.Mean /= float64(len(values))
+	// The mean is bounded by the inputs even when their sum would overflow.
+	for _, value := range values {
+		result.Mean += value / scale
+	}
+	result.Mean = result.Mean / float64(len(values)) * scale
 	return result
 }
 
