@@ -151,38 +151,11 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		return nil, fmt.Errorf("inmemory: search: embed query: %w", err)
 	}
 
-	type scored struct {
-		doc   *document.Document
-		score vectorstore.Score
+	candidates, err := s.searchCandidates(query, req.Options)
+	if err != nil {
+		return nil, err
 	}
-
-	s.mu.RLock()
-	candidates := make([]scored, 0, len(s.records))
-	for _, rec := range s.records {
-		if req.Options.Filter != nil {
-			metadataValues, decodeErr := rec.doc.Metadata.Values()
-			if decodeErr != nil {
-				s.mu.RUnlock()
-				return nil, fmt.Errorf("inmemory: search: metadata: %w", decodeErr)
-			}
-			match, ferr := matchesFilter(req.Options.Filter, metadataValues)
-			if ferr != nil {
-				s.mu.RUnlock()
-				return nil, fmt.Errorf("inmemory: search: filter: %w", ferr)
-			}
-			if !match {
-				continue
-			}
-		}
-		score := s.similarity(query, rec.embedding)
-		if score < req.Options.MinScore {
-			continue
-		}
-		candidates = append(candidates, scored{doc: rec.doc, score: score})
-	}
-	s.mu.RUnlock()
-
-	slices.SortStableFunc(candidates, func(a, b scored) int {
+	slices.SortStableFunc(candidates, func(a, b scoredDocument) int {
 		return cmp.Or(cmp.Compare(b.score, a.score), cmp.Compare(a.doc.ID, b.doc.ID))
 	})
 
@@ -192,6 +165,41 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		out = append(out, &vectorstore.SearchResult{Document: candidates[i].doc.Clone(), Score: candidates[i].score})
 	}
 	return &vectorstore.SearchResponse{Results: out}, nil
+}
+
+type scoredDocument struct {
+	doc   *document.Document
+	score vectorstore.Score
+}
+
+func (s *Store) searchCandidates(query []float64, options vectorstore.SearchOptions) ([]scoredDocument, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	candidates := make([]scoredDocument, 0, len(s.records))
+	for _, rec := range s.records {
+		if options.Filter != nil {
+			metadataValues, decodeErr := rec.doc.Metadata.Values()
+			if decodeErr != nil {
+				return nil, fmt.Errorf("inmemory: search: metadata: %w", decodeErr)
+			}
+			match, ferr := matchesFilter(options.Filter, metadataValues)
+			if ferr != nil {
+				return nil, fmt.Errorf("inmemory: search: filter: %w", ferr)
+			}
+			if !match {
+				continue
+			}
+		}
+		score := s.similarity(query, rec.embedding)
+		if err := score.Validate(); err != nil {
+			return nil, fmt.Errorf("inmemory: search: similarity score: %w", err)
+		}
+		if score < options.MinScore {
+			continue
+		}
+		candidates = append(candidates, scoredDocument{doc: rec.doc, score: score})
+	}
+	return candidates, nil
 }
 
 func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
