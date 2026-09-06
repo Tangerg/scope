@@ -32,8 +32,9 @@ type Limits struct {
 	// MaxSignals bounds all accepted external and Engine-generated Signals.
 	MaxSignals uint64 `json:"max_signals"`
 
-	// MaxPendingSignals bounds the unconsumed mailbox suffix, including space
-	// reserved for the current prepared Effect batch.
+	// MaxPendingSignals bounds the current unconsumed mailbox suffix and the
+	// suffix after the prepared Step consumes inputs and appends settlements.
+	// Every arriving Signal preserves both bounds regardless of its source.
 	MaxPendingSignals uint64 `json:"max_pending_signals"`
 }
 

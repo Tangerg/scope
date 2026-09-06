@@ -265,6 +265,8 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 	if p.Usage.AcceptedSignals != mailbox.arrivalSequence() {
 		return fmt.Errorf("%w: accepted Signal count does not match mailbox", ErrInvalidSnapshot)
 	}
+	remainingPending := mailbox.pendingCount()
+	var reserved uint64
 	if p.Prepared != nil {
 		if p.Status != StatusRunning || p.Termination != nil || p.FinishedAt != nil {
 			return fmt.Errorf("%w: prepared Step requires a nonterminal Running Process", ErrInvalidSnapshot)
@@ -278,6 +280,13 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 		); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidSnapshot, err)
 		}
+		remainingPending -= uint64(p.Prepared.Transition.ConsumedSignals())
+		reserved = uint64(len(p.Prepared.Effects))
+	}
+	if !resourceQuantitiesFit(p.Limits.MaxPendingSignals, mailbox.pendingCount()) ||
+		!resourceQuantitiesFit(p.Limits.MaxPendingSignals, remainingPending, reserved) ||
+		!resourceQuantitiesFit(p.Budget.Signals, p.Usage.AcceptedSignals, p.ReservedBudget.Signals, reserved) {
+		return fmt.Errorf("%w: Signal capacity exceeds limits or budget", ErrInvalidSnapshot)
 	}
 	return nil
 }

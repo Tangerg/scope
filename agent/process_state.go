@@ -215,13 +215,15 @@ func (p *processState) admitSignals(ctx context.Context, signals []Signal, sourc
 		}
 	}
 	count := uint64(len(signals))
-	var reserved uint64
-	if source == signalSourceExternal {
-		reserved = p.reservedSettlementSignals()
+	reserved := p.reservedSettlementSignals()
+	remainingPending := p.mailbox.pendingCount()
+	if p.prepared != nil {
+		remainingPending -= uint64(p.prepared.wire.Transition.ConsumedSignals())
 	}
 	reservedBudget := p.effectiveReservedBudget()
 	if !resourceQuantitiesFit(p.limits.MaxSignals, p.usage.AcceptedSignals, reserved, count) ||
-		!resourceQuantitiesFit(p.limits.MaxPendingSignals, p.mailbox.pendingCount(), reserved, count) ||
+		!resourceQuantitiesFit(p.limits.MaxPendingSignals, p.mailbox.pendingCount(), count) ||
+		!resourceQuantitiesFit(p.limits.MaxPendingSignals, remainingPending, reserved, count) ||
 		!resourceQuantitiesFit(p.budget.Signals, p.usage.AcceptedSignals, reservedBudget.Signals, reserved, count) {
 		return false, ErrResourceLimitExceeded
 	}
