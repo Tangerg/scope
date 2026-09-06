@@ -275,7 +275,8 @@ func (e executionState) validateArtifacts(definition *Definition) error {
 }
 
 func (e executionState) validateCurrentBatchArtifacts(definition *Definition) error {
-	if len(e.ArtifactRecords) == 0 || e.ArtifactRecords[len(e.ArtifactRecords)-1].ModelCallSequence != e.ModelCallCount {
+	if e.PendingModelResponse == nil || len(e.ArtifactRecords) == 0 ||
+		e.ArtifactRecords[len(e.ArtifactRecords)-1].ModelCallSequence != e.ModelCallCount {
 		return nil
 	}
 	calls, _, err := responseToolCalls(e.PendingModelResponse)
