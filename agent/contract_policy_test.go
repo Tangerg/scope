@@ -12,7 +12,7 @@ import (
 )
 
 var frameworkPackageDirectories = []string{
-	".", "agenttest", "interaction", "planning", "planning/goap", "workflow", "platform",
+	".", "agenttest", "interaction", "planning", "planning/goap", "workflow",
 }
 
 func TestPublicInterfacesAreDocumentedAndParametersNamed(t *testing.T) {

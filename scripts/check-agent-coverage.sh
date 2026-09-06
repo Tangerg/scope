@@ -11,7 +11,6 @@ coverage_budget=(
   "./examples/autonomous 67.8"
   "./examples/composition 71.3"
   "./examples/direct_vs_managed 67.4"
-  "./examples/embedded_vs_platform 75.5"
   "./examples/evaluator_optimizer 72.6"
   "./examples/orchestrator_workers 67.3"
   "./examples/workflow 67.6"
@@ -19,7 +18,6 @@ coverage_budget=(
   "./interaction 75.5"
   "./planning 76.1"
   "./planning/goap 86.1"
-  "./platform 87.0"
   "./workflow 78.4"
 )
 

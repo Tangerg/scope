@@ -158,7 +158,7 @@
 // recovery protocol.
 //
 // The host owns product identity, transports, stores and transactions,
-// permissions and billing, provider and model selection, when a checkpoint
+// permissions and billing, deployment catalogs and routing, provider and model selection, when a checkpoint
 // commits, and the retention of its own facts. A host depends only on this
 // neutral lifecycle contract and never parses a strategy's snapshot payload.
 //
