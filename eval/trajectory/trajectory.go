@@ -19,6 +19,8 @@ const (
 // Trajectory is an owned, portable record of one completed root Process tree.
 // Absolute timing and provider responses remain available in the record, but
 // BehaviorDigest deliberately excludes them from replay comparison.
+// Root termination and usage must agree with the root Process's finished Event,
+// including its termination cause and stable failure classification.
 type Trajectory struct {
 	rootProcessID agent.ProcessID
 	termination   agent.Termination
@@ -161,7 +163,7 @@ func (t Trajectory) Validate() error {
 		sequences[event.ProcessID()] = want
 		if event.ProcessID() == t.rootProcessID && event.Name() == agent.EventProcessFinished {
 			fact, present := event.ProcessFinished()
-			if !present || fact.Status() != t.termination.Status() || fact.Usage() != t.usage {
+			if !present || !t.matchesRootOutcome(fact) {
 				return fmt.Errorf("%w: root finished event disagrees with outcome", ErrInvalidTrajectory)
 			}
 			finished++
@@ -193,6 +195,18 @@ func (t Trajectory) Validate() error {
 		}
 	}
 	return nil
+}
+
+func (t Trajectory) matchesRootOutcome(fact agent.ProcessFinishedFact) bool {
+	if fact.Status() != t.termination.Status() || fact.Cause() != t.termination.Cause() || fact.Usage() != t.usage {
+		return false
+	}
+	failure, failed := t.termination.Failure()
+	if !failed {
+		return true
+	}
+	kind, code, _ := fact.Failure()
+	return kind == failure.Kind() && code == failure.Code()
 }
 
 func (t Trajectory) TotalTokens() (int64, error) {
