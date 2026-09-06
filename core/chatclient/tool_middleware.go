@@ -21,9 +21,10 @@ type toolMiddleware struct {
 }
 
 // NewToolMiddleware keeps direct Client usage useful for one model-requested
-// Tool batch. It advertises a frozen Tool set, validates and executes the first
-// returned batch serially, then makes one follow-up model call. Further rounds
-// and execution policy deliberately remain outside this boundary.
+// Tool batch. It advertises a frozen Tool set and validates every invocation
+// before executing any Tool. The accepted batch executes serially, followed by
+// one model call. Runtime failures do not roll back completed Tools. Further
+// rounds and execution policy remain outside this boundary.
 func NewToolMiddleware(executables ...tool.Tool) (chat.CallMiddleware, error) {
 	if len(executables) == 0 {
 		return nil, fmt.Errorf("%w: at least one Tool is required", ErrInvalidToolMiddleware)
@@ -77,7 +78,11 @@ func (t *toolMiddleware) call(
 	if err != nil || len(calls) == 0 {
 		return response, err
 	}
-	results, err := t.execute(ctx, calls)
+	batch, err := t.prepare(calls)
+	if err != nil {
+		return nil, err
+	}
+	results, err := batch.execute(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -89,8 +94,19 @@ func (t *toolMiddleware) call(
 	return next.Call(ctx, current)
 }
 
-func (t *toolMiddleware) execute(ctx context.Context, calls []chat.ToolCall) ([]chat.ToolResult, error) {
-	results := make([]chat.ToolResult, 0, len(calls))
+type preparedToolCall struct {
+	id         string
+	name       string
+	binding    tool.Binding
+	invocation tool.Invocation
+}
+
+// A batch becomes executable only after every proposal satisfies its frozen
+// contract, so a later invalid proposal cannot strand earlier side effects.
+type preparedToolBatch []preparedToolCall
+
+func (t *toolMiddleware) prepare(calls []chat.ToolCall) (preparedToolBatch, error) {
+	batch := make(preparedToolBatch, len(calls))
 	for index, call := range calls {
 		binding, exists := t.bindings[call.Name]
 		if !exists {
@@ -100,14 +116,24 @@ func (t *toolMiddleware) execute(ctx context.Context, calls []chat.ToolCall) ([]
 		if err != nil {
 			return nil, fmt.Errorf("chatclient: prepare tool call[%d]: %w", index, err)
 		}
-		output, err := binding.Call(ctx, invocation)
+		batch[index] = preparedToolCall{
+			id: call.ID, name: call.Name, binding: binding, invocation: invocation,
+		}
+	}
+	return batch, nil
+}
+
+func (p preparedToolBatch) execute(ctx context.Context) ([]chat.ToolResult, error) {
+	results := make([]chat.ToolResult, 0, len(p))
+	for index, call := range p {
+		output, err := call.binding.Call(ctx, call.invocation)
 		if err != nil {
-			return nil, fmt.Errorf("chatclient: execute tool call[%d] %q: %w", index, call.Name, err)
+			return nil, fmt.Errorf("chatclient: execute tool call[%d] %q: %w", index, call.name, err)
 		}
 		if err := output.Validate(); err != nil {
-			return nil, fmt.Errorf("chatclient: validate tool call[%d] %q output: %w", index, call.Name, err)
+			return nil, fmt.Errorf("chatclient: validate tool call[%d] %q output: %w", index, call.name, err)
 		}
-		results = append(results, chat.ToolResult{ID: call.ID, Name: call.Name, Output: output.Clone()})
+		results = append(results, chat.ToolResult{ID: call.id, Name: call.name, Output: output.Clone()})
 	}
 	return results, nil
 }
