@@ -144,7 +144,8 @@ func (t TransformerFunc) Transform(ctx context.Context, query Query) (Query, err
 // (alternative phrasings) or complex problems (decompose into sub-queries).
 type Expander interface {
 	// Expand returns a non-empty, ordered set of valid alternative or decomposed
-	// queries. It must not mutate query or expose reusable backing storage;
+	// queries with distinct Text values. Per-query values do not create another
+	// expansion identity. It must not mutate query or expose reusable backing storage;
 	// ordering is semantic because downstream fusion uses it for stable ties.
 	Expand(ctx context.Context, query Query) ([]Query, error)
 }

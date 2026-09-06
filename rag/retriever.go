@@ -180,10 +180,15 @@ func expand(ctx context.Context, expander Expander, query Query) ([]Query, error
 		return nil, ErrEmptyExpansion
 	}
 	queries = slices.Clone(queries)
+	seen := make(map[string]int, len(queries))
 	for index, expanded := range queries {
 		if err := expanded.Validate(); err != nil {
 			return nil, fmt.Errorf("%w: query %d: %w", ErrInvalidExpansion, index, err)
 		}
+		if first, duplicate := seen[expanded.Text()]; duplicate {
+			return nil, fmt.Errorf("%w: queries %d and %d have the same text", ErrInvalidExpansion, first, index)
+		}
+		seen[expanded.Text()] = index
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
