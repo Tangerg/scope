@@ -2,11 +2,70 @@ package eval_test
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"math"
 	"testing"
 
 	"github.com/Tangerg/scope/eval"
 )
+
+func TestComparisonRejectsUnrepresentableMeasurementDeltas(t *testing.T) {
+	for _, testCase := range []struct {
+		name                      string
+		baseline, candidate, want float64
+		overflow                  bool
+	}{
+		{name: "ordinary", baseline: -1, candidate: 2, want: 3},
+		{name: "largest finite", candidate: math.MaxFloat64, want: math.MaxFloat64},
+		{name: "negative largest finite", candidate: -math.MaxFloat64, want: -math.MaxFloat64},
+		{name: "positive overflow", baseline: -math.MaxFloat64, candidate: math.MaxFloat64, overflow: true},
+		{name: "negative overflow", baseline: math.MaxFloat64, candidate: -math.MaxFloat64, overflow: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			baseline := measurementReport(t, testCase.baseline)
+			comparison, err := baseline.Compare(measurementReport(t, testCase.candidate))
+			if testCase.overflow {
+				if !errors.Is(err, eval.ErrInvalidComparison) || comparison.Metrics != nil {
+					t.Fatalf("overflow comparison = %#v, error %v", comparison, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			delta := comparison.Metrics[0].MeasurementDelta
+			if !delta.Present || delta.Mean != testCase.want {
+				t.Errorf("measurement delta = %#v, want %g", delta, testCase.want)
+			}
+			if _, err := json.Marshal(comparison); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func measurementReport(t *testing.T, measurement float64) eval.ExperimentReport {
+	t.Helper()
+	dataset, err := eval.NewDataset(eval.Case[int]{ID: "same", Subject: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	experiment, err := eval.NewExperiment(eval.ExperimentConfig[int]{
+		Dataset: dataset,
+		Evaluator: eval.EvaluatorFunc[int](func(context.Context, int) (eval.Report, error) {
+			return eval.Report{Metric: testMetric("measurement"), Measurement: &measurement}, nil
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := experiment.Run(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return report
+}
 
 func TestCompositeIsInvariantToWeightScale(t *testing.T) {
 	for _, testCase := range []struct {

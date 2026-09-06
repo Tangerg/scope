@@ -2,6 +2,7 @@ package eval
 
 import (
 	"fmt"
+	"math"
 )
 
 // DistributionDelta is candidate mean minus baseline mean. Present is false
@@ -41,6 +42,8 @@ type Comparison struct {
 // Compare keeps the baseline authoritative: only reports over the same ordered
 // Dataset and Metric identities are comparable. Exact deltas avoid inventing
 // statistical significance or a synthetic score across unlike units.
+// A mean difference outside the finite float64 range returns ErrInvalidComparison
+// without exposing a partial comparison.
 func (e ExperimentReport) Compare(candidate ExperimentReport) (Comparison, error) {
 	if err := comparableCases(e.cases, candidate.cases); err != nil {
 		return Comparison{}, err
@@ -60,7 +63,11 @@ func (e ExperimentReport) Compare(candidate ExperimentReport) (Comparison, error
 		Metrics:        make([]MetricComparison, len(metricPairs)),
 	}
 	for index, pair := range metricPairs {
-		comparison.Metrics[index] = compareMetric(pair.baseline, pair.candidate)
+		metricComparison, err := compareMetric(pair.baseline, pair.candidate)
+		if err != nil {
+			return Comparison{}, err
+		}
+		comparison.Metrics[index] = metricComparison
 	}
 	return comparison, nil
 }
@@ -118,7 +125,15 @@ func comparableMetrics(baseline, candidate []MetricSummary) ([]metricPair, error
 	return pairs, nil
 }
 
-func compareMetric(baseline, candidate MetricSummary) MetricComparison {
+func compareMetric(baseline, candidate MetricSummary) (MetricComparison, error) {
+	scoreDelta, err := distributionDelta(baseline.Scores, candidate.Scores)
+	if err != nil {
+		return MetricComparison{}, fmt.Errorf("eval: compare metric %q scores: %w", baseline.Metric, err)
+	}
+	measurementDelta, err := distributionDelta(baseline.Measurements, candidate.Measurements)
+	if err != nil {
+		return MetricComparison{}, fmt.Errorf("eval: compare metric %q measurements: %w", baseline.Metric, err)
+	}
 	return MetricComparison{
 		Metric:   baseline.Metric,
 		Baseline: baseline, Candidate: candidate,
@@ -126,14 +141,18 @@ func compareMetric(baseline, candidate MetricSummary) MetricComparison {
 		PassedDelta:      candidate.Passed - baseline.Passed,
 		FailedDelta:      candidate.Failed - baseline.Failed,
 		UnjudgedDelta:    candidate.Unjudged - baseline.Unjudged,
-		ScoreDelta:       distributionDelta(baseline.Scores, candidate.Scores),
-		MeasurementDelta: distributionDelta(baseline.Measurements, candidate.Measurements),
-	}
+		ScoreDelta:       scoreDelta,
+		MeasurementDelta: measurementDelta,
+	}, nil
 }
 
-func distributionDelta(baseline, candidate Distribution) DistributionDelta {
+func distributionDelta(baseline, candidate Distribution) (DistributionDelta, error) {
 	if baseline.Count == 0 || candidate.Count == 0 {
-		return DistributionDelta{}
+		return DistributionDelta{}, nil
 	}
-	return DistributionDelta{Present: true, Mean: candidate.Mean - baseline.Mean}
+	difference := candidate.Mean - baseline.Mean
+	if math.IsInf(difference, 0) {
+		return DistributionDelta{}, fmt.Errorf("%w: mean difference overflows float64", ErrInvalidComparison)
+	}
+	return DistributionDelta{Present: true, Mean: difference}, nil
 }
