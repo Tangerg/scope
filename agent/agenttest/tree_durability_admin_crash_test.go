@@ -44,12 +44,13 @@ func (a *administrativeCommitGate) commit() error {
 	a.store.mu.Lock()
 	head, exists := a.store.heads[a.prospective.RootID()]
 	incarnationID, durable := a.prospective.IncarnationID()
-	if !exists || !durable || head.incarnationID != incarnationID ||
-		head.digest != a.source {
+	headIncarnationID, _ := head.IncarnationID()
+	if !exists || !durable || headIncarnationID != incarnationID ||
+		head.Digest() != a.source {
 		a.store.mu.Unlock()
 		return treeIncarnationConflict()
 	}
-	a.store.heads[a.prospective.RootID()] = memoryHead(a.prospective)
+	a.store.heads[a.prospective.RootID()] = a.prospective
 	a.store.mu.Unlock()
 	close(a.reached)
 	return <-a.decision

@@ -10,33 +10,16 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-type memoryDurabilityFactKind uint8
-
-const (
-	memoryDurabilityFactInvalid memoryDurabilityFactKind = iota
-	memoryDurabilityFactCheckpointStart
-	memoryDurabilityFactCheckpointChild
-	memoryDurabilityFactActivation
-	memoryDurabilityFactEffectPending
-	memoryDurabilityFactEffectSettled
-	memoryDurabilityFactEffectResolved
-	memoryDurabilityFactCheckpointInput
-	memoryDurabilityFactCheckpointParked
-	memoryDurabilityFactCheckpointTerminal
-)
-
+// Each boundary retains its own identity scope: Effects by ID and phase,
+// checkpoints by cut, and activations by the proposed writer. Using the protocol
+// types avoids a second vocabulary that can drift when a boundary is added.
 type memoryDurabilityFactKey struct {
-	kind     memoryDurabilityFactKind
-	rootID   agent.ProcessID
-	effectID agent.EffectID
-	digest   agent.Digest
-	writer   agent.TreeIncarnationID
-}
-
-type memoryDurabilityHead struct {
-	incarnationID agent.TreeIncarnationID
-	digest        agent.Digest
-	snapshot      agent.TreeSnapshot
+	rootID         agent.ProcessID
+	effectKind     agent.EffectBoundaryKind
+	effectID       agent.EffectID
+	checkpointKind agent.TreeCheckpointKind
+	digest         agent.Digest
+	writer         agent.TreeIncarnationID
 }
 
 // MemoryTreeDurability is a concurrency-safe teaching and test adapter for the
@@ -44,13 +27,13 @@ type memoryDurabilityHead struct {
 // Hosts should implement the same transaction with their own durable store.
 type MemoryTreeDurability struct {
 	mu    sync.Mutex
-	heads map[agent.ProcessID]memoryDurabilityHead
+	heads map[agent.ProcessID]agent.TreeSnapshot
 	facts map[memoryDurabilityFactKey]agent.Digest
 }
 
 func NewMemoryTreeDurability() *MemoryTreeDurability {
 	return &MemoryTreeDurability{
-		heads: make(map[agent.ProcessID]memoryDurabilityHead),
+		heads: make(map[agent.ProcessID]agent.TreeSnapshot),
 		facts: make(map[memoryDurabilityFactKey]agent.Digest),
 	}
 }
@@ -67,7 +50,7 @@ func (m *MemoryTreeDurability) LoadTree(
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	head, exists := m.heads[rootID]
-	return head.snapshot, exists, nil
+	return head, exists, nil
 }
 
 func (m *MemoryTreeDurability) ActivateTree(
@@ -80,7 +63,7 @@ func (m *MemoryTreeDurability) ActivateTree(
 	prospective := activation.TreeSnapshot()
 	rootID := prospective.RootID()
 	key := memoryDurabilityFactKey{
-		kind: memoryDurabilityFactActivation, rootID: rootID,
+		rootID: rootID,
 		writer: activation.IncarnationID(),
 	}
 	content := agent.ComputeDigest(prospective.JSON())
@@ -88,19 +71,19 @@ func (m *MemoryTreeDurability) ActivateTree(
 	defer m.mu.Unlock()
 	if previous, exists := m.facts[key]; exists {
 		head := m.heads[rootID]
-		if previous == content && head.incarnationID == activation.IncarnationID() &&
-			head.digest == prospective.Digest() {
+		if previous == content && head.Digest() == prospective.Digest() {
 			return nil
 		}
 		return durabilityContentConflict()
 	}
 	head, exists := m.heads[rootID]
-	if !exists || head.incarnationID != activation.PreviousIncarnationID() ||
-		head.digest != activation.PreviousTreeDigest() {
+	incarnationID, _ := head.IncarnationID()
+	if !exists || incarnationID != activation.PreviousIncarnationID() ||
+		head.Digest() != activation.PreviousTreeDigest() {
 		return treeIncarnationConflict()
 	}
 	m.facts[key] = content
-	m.heads[rootID] = memoryHead(prospective)
+	m.heads[rootID] = prospective
 	return nil
 }
 
@@ -111,14 +94,9 @@ func (m *MemoryTreeDurability) CommitEffect(
 	if m == nil || !boundary.Valid() {
 		return errors.New("agenttest: invalid Effect boundary")
 	}
-	kind := memoryEffectFactKind(boundary.Kind())
-	if kind == memoryDurabilityFactInvalid {
-		return errors.New("agenttest: invalid Effect boundary kind")
-	}
 	prospective := boundary.TreeSnapshot()
-	incarnationID, _ := prospective.IncarnationID()
 	key := memoryDurabilityFactKey{
-		kind: kind, rootID: prospective.RootID(), effectID: boundary.Request().ID(),
+		effectKind: boundary.Kind(), rootID: prospective.RootID(), effectID: boundary.Request().ID(),
 	}
 	content, err := effectBoundaryDigest(boundary)
 	if err != nil {
@@ -127,8 +105,7 @@ func (m *MemoryTreeDurability) CommitEffect(
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.advanceHead(
-		key, content, prospective.RootID(), incarnationID,
-		boundary.PreviousTreeDigest(), prospective,
+		key, content, boundary.PreviousTreeDigest(), prospective,
 	)
 }
 
@@ -139,41 +116,34 @@ func (m *MemoryTreeDurability) CommitCheckpoint(
 	if m == nil || !checkpoint.Valid() {
 		return errors.New("agenttest: invalid tree checkpoint")
 	}
-	kind := memoryCheckpointFactKind(checkpoint.Kind())
-	if kind == memoryDurabilityFactInvalid {
-		return errors.New("agenttest: invalid tree checkpoint kind")
-	}
 	prospective := checkpoint.TreeSnapshot()
-	incarnationID, _ := prospective.IncarnationID()
 	key := memoryDurabilityFactKey{
-		kind: kind, rootID: prospective.RootID(), digest: prospective.Digest(),
+		checkpointKind: checkpoint.Kind(), rootID: prospective.RootID(), digest: prospective.Digest(),
 	}
 	if checkpoint.Kind() == agent.TreeCheckpointStart {
+		// A second creation must conflict under the same root key even if its content differs.
 		key.digest = agent.Digest{}
 	}
 	content := agent.ComputeDigest(prospective.JSON())
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if checkpoint.Kind() == agent.TreeCheckpointStart {
-		return m.createHead(key, content, prospective.RootID(), incarnationID, prospective)
+		return m.createHead(key, content, prospective)
 	}
 	return m.advanceHead(
-		key, content, prospective.RootID(), incarnationID,
-		checkpoint.PreviousTreeDigest(), prospective,
+		key, content, checkpoint.PreviousTreeDigest(), prospective,
 	)
 }
 
 func (m *MemoryTreeDurability) createHead(
 	key memoryDurabilityFactKey,
 	content agent.Digest,
-	rootID agent.ProcessID,
-	incarnationID agent.TreeIncarnationID,
 	prospective agent.TreeSnapshot,
 ) error {
+	rootID := prospective.RootID()
 	if previous, exists := m.facts[key]; exists {
 		head := m.heads[rootID]
-		if previous == content && head.incarnationID == incarnationID &&
-			head.digest == prospective.Digest() {
+		if previous == content && head.Digest() == prospective.Digest() {
 			return nil
 		}
 		return durabilityContentConflict()
@@ -182,71 +152,35 @@ func (m *MemoryTreeDurability) createHead(
 		return treeIncarnationConflict()
 	}
 	m.facts[key] = content
-	m.heads[rootID] = memoryHead(prospective)
+	m.heads[rootID] = prospective
 	return nil
 }
 
 func (m *MemoryTreeDurability) advanceHead(
 	key memoryDurabilityFactKey,
 	content agent.Digest,
-	rootID agent.ProcessID,
-	incarnationID agent.TreeIncarnationID,
 	previousDigest agent.Digest,
 	prospective agent.TreeSnapshot,
 ) error {
+	rootID := prospective.RootID()
+	incarnationID, _ := prospective.IncarnationID()
 	head, exists := m.heads[rootID]
-	if !exists || head.incarnationID != incarnationID {
+	headIncarnationID, _ := head.IncarnationID()
+	if !exists || headIncarnationID != incarnationID {
 		return treeIncarnationConflict()
 	}
 	if previous, committed := m.facts[key]; committed {
-		if previous == content && head.digest == prospective.Digest() {
+		if previous == content && head.Digest() == prospective.Digest() {
 			return nil
 		}
 		return durabilityContentConflict()
 	}
-	if head.digest != previousDigest {
+	if head.Digest() != previousDigest {
 		return treeIncarnationConflict()
 	}
 	m.facts[key] = content
-	m.heads[rootID] = memoryHead(prospective)
+	m.heads[rootID] = prospective
 	return nil
-}
-
-func memoryHead(snapshot agent.TreeSnapshot) memoryDurabilityHead {
-	incarnationID, _ := snapshot.IncarnationID()
-	return memoryDurabilityHead{
-		incarnationID: incarnationID, digest: snapshot.Digest(), snapshot: snapshot,
-	}
-}
-
-func memoryEffectFactKind(kind agent.EffectBoundaryKind) memoryDurabilityFactKind {
-	switch kind {
-	case agent.EffectBoundaryPending:
-		return memoryDurabilityFactEffectPending
-	case agent.EffectBoundarySettled:
-		return memoryDurabilityFactEffectSettled
-	case agent.EffectBoundaryResolved:
-		return memoryDurabilityFactEffectResolved
-	default:
-		return memoryDurabilityFactInvalid
-	}
-}
-
-func memoryCheckpointFactKind(kind agent.TreeCheckpointKind) memoryDurabilityFactKind {
-	switch kind {
-	case agent.TreeCheckpointStart:
-		return memoryDurabilityFactCheckpointStart
-	case agent.TreeCheckpointChild:
-		return memoryDurabilityFactCheckpointChild
-	case agent.TreeCheckpointInput:
-		return memoryDurabilityFactCheckpointInput
-	case agent.TreeCheckpointParked:
-		return memoryDurabilityFactCheckpointParked
-	case agent.TreeCheckpointTerminal:
-		return memoryDurabilityFactCheckpointTerminal
-	default:
-		return memoryDurabilityFactInvalid
-	}
 }
 
 func effectBoundaryDigest(boundary agent.EffectBoundary) (agent.Digest, error) {
