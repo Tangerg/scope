@@ -569,9 +569,12 @@ preserving the underlying operation's identity and settlement.
    local fakes alone cannot prove a remote system's guarantee.
 2. **Shared child-lifecycle scenarios.** Verify declared responses to terminal
    children and unknown-settlement waits for strategies that compose children,
-   without imposing one failure policy. Extend an existing composition example
-   with a focused recovery scenario to demonstrate that distinct strategies
-   share one tree protocol without exposing their private state to the Host.
+   without imposing one failure policy. The checked
+   [composition recovery scenario](../examples/composition/main_test.go)
+   captures a parent waiting for an Interaction child's unknown settlement,
+   restores the same tree identities, and completes through explicit settlement
+   without a second dispatch or Host access to private Strategy state. Extend
+   such scenarios only for a distinct, unverified policy or lifecycle boundary.
 3. **Cooperative execution deadlines.** Consider only with a consumer requiring
    bounded waiting for cooperating implementations and an explicit cancellation,
    job completion, settlement, and recovery design. Do not promise forced
