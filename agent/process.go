@@ -94,8 +94,9 @@ func (p *Process) WaitID() (WaitID, bool) {
 
 // DeliverSignals submits one or more immutable Strategy inputs as an ordered,
 // atomic batch. Running input is consumed at the next Strategy-safe Step
-// boundary; Waiting input must first address the current WaitID. The complete
-// batch is accepted in order or the mailbox remains unchanged. If any SignalID was
+// boundary; Waiting input must first address the current WaitID, otherwise it
+// returns ErrSignalRejected. The complete batch is accepted in order or the
+// mailbox remains unchanged. If any SignalID was
 // already accepted or repeats within the batch, accepted is false with nil error
 // and no resource budget is charged.
 func (p *Process) DeliverSignals(ctx context.Context, requests ...SignalRequest) (accepted bool, err error) {

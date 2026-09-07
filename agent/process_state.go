@@ -211,6 +211,10 @@ func (p *processState) admitSignals(ctx context.Context, signals []Signal, sourc
 			return false, err
 		}
 		if status == StatusWaiting {
+			waitID, _ := signal.WaitID()
+			if source == signalSourceExternal && waitID != p.currentWaitID {
+				return false, ErrSignalRejected
+			}
 			status = StatusRunning
 		}
 	}
