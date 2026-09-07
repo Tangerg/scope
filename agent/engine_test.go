@@ -568,7 +568,9 @@ func TestPausedProcessCapturesRestoresAndResumesAtSafeBoundary(t *testing.T) {
 func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.wait", "wait")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
-	engine, _ := NewEngine(EngineConfig{})
+	limits := Limits{MaxSteps: 3, MaxEffects: 1, MaxSignals: 2, MaxPendingSignals: 2}
+	engine, _ := NewEngine(EngineConfig{Limits: limits})
+	t.Cleanup(func() { _ = engine.Close() })
 	input, _ := EncodeInput(engineTestInput{Value: "question"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
@@ -582,8 +584,10 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 	}
 	listener := &recordingEventListener{}
 	restoredEngine, _ := NewEngine(EngineConfig{
+		Limits:         limits,
 		EventListeners: []EventListener{listener},
 	})
+	t.Cleanup(func() { _ = restoredEngine.Close() })
 	restored, err := restoredEngine.RestoreTree(context.Background(), deployment, tree)
 	if err != nil {
 		t.Fatal(err)
@@ -594,11 +598,27 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 	}
 	answerID, _ := ParseSignalID("signal:restored-answer")
 	answer, _ := NewSignalRequest(answerID, restoredWaitID, json.RawMessage(`{"kind":"answer","value":"restored"}`))
-	if accepted, err := restored.DeliverSignals(context.Background(), answer); err != nil || !accepted {
-		t.Fatalf("accepted=%t err=%v", accepted, err)
-	}
-	if result := awaitResult(t, restored); result.Status() != StatusCompleted {
-		t.Fatalf("result status=%s", result.Status())
+	for _, continued := range []*Process{process, restored} {
+		before := continued.Usage()
+		if accepted, err := continued.DeliverSignals(t.Context(), answer, answer); err != nil || accepted {
+			t.Fatalf("duplicate batch accepted=%t error=%v", accepted, err)
+		}
+		if currentWait, ok := continued.WaitID(); !ok || currentWait != waitID || continued.Usage() != before {
+			t.Fatalf("rejected batch changed wait or usage: wait=%s usage=%+v", currentWait, continued.Usage())
+		}
+		if accepted, err := continued.DeliverSignals(t.Context(), answer); err != nil || !accepted {
+			t.Fatalf("accepted=%t err=%v", accepted, err)
+		}
+		result := awaitResult(t, continued)
+		wantUsage := Usage{CommittedSteps: 3, PreparedEffects: 1, AcceptedSignals: 2}
+		output, present := result.Output()
+		if result.Status() != StatusCompleted || result.Usage() != wantUsage ||
+			!present || string(output.JSON()) != `{"value":"restored"}` {
+			t.Fatalf("continued result status=%s usage=%+v output=%s", result.Status(), result.Usage(), output.JSON())
+		}
+		if _, waiting := continued.WaitID(); waiting {
+			t.Fatal("completed Process retained its current wait")
+		}
 	}
 	var accepted SignalAcceptedFact
 	for _, event := range listener.snapshot() {
@@ -614,8 +634,6 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 			accepted.SignalID(), acceptedWaitID, addressed,
 		)
 	}
-	_ = process.Kill(context.Background(), "test cleanup")
-	_ = awaitResult(t, process)
 }
 
 func TestRestoredPreparedEffectReplaysOnlyWithSameIdentityPolicy(t *testing.T) {

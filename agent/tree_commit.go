@@ -478,7 +478,6 @@ func (t *treeRuntime) failDurability(
 		if process.prepared != nil {
 			process.discardPrepared()
 		}
-		process.finalOutput = Output{}
 		process.commitTerminationWithUnresolved(
 			outcome,
 			unresolvedByProcess[process.controller.processID],

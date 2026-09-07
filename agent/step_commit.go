@@ -324,14 +324,12 @@ func (p *preparedStepFinalization) commit(ctx context.Context) error {
 	loop.usage.AcceptedSignals += uint64(len(p.prepared.wire.Effects))
 	loop.usage.AcceptedSignals += uint64(len(p.immediateChildSignals))
 	loop.prepared = nil
-	loop.status = p.transition.status
-	loop.currentWaitID = p.transition.currentWaitID
-	loop.pauseReason = p.transition.pauseReason
-	loop.finalOutput = p.transition.finalOutput
 	if p.transition.termination.Valid() {
-		loop.termination = p.transition.termination
-		loop.finishedAt = p.transition.finishedAt
-		loop.pendingControl = pendingControl{}
+		loop.installTermination(p.transition.termination, p.transition.finalOutput, p.transition.finishedAt)
+	} else {
+		loop.status = p.transition.status
+		loop.currentWaitID = p.transition.currentWaitID
+		loop.pauseReason = p.transition.pauseReason
 	}
 	loop.updateView()
 	payload, _ := json.Marshal(stepCommittedEventPayload{ProcessStatus: loop.status})
@@ -401,16 +399,24 @@ func (p *processState) commitTerminationWithUnresolved(
 	unresolvedEffectIDs []EffectID,
 ) {
 	termination := p.resolveStepTermination(outcome)
-	p.termination = termination.withUnresolvedEffectIDs(unresolvedEffectIDs)
-	p.status = termination.Status()
-	p.finishedAt = time.Now().Round(0).UTC()
-	p.currentWaitID = WaitID{}
-	p.pauseReason = ""
-	p.pendingControl = pendingControl{}
+	p.installTermination(termination.withUnresolvedEffectIDs(unresolvedEffectIDs), Output{}, time.Now().Round(0).UTC())
 	for _, waitID := range p.mailbox.closeAllWaits() {
 		p.runtime.unregisterChildWait(waitID)
 	}
 	p.updateView()
+}
+
+func (p *processState) installTermination(termination Termination, output Output, finishedAt time.Time) {
+	p.termination = termination
+	p.status = termination.Status()
+	p.finishedAt = finishedAt
+	p.currentWaitID = WaitID{}
+	p.pauseReason = ""
+	p.pendingControl = pendingControl{}
+	p.finalOutput = Output{}
+	if p.status == StatusCompleted {
+		p.finalOutput = output
+	}
 }
 
 func (p *processState) resolveStepTermination(outcome stepOutcome) Termination {
