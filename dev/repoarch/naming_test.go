@@ -1,6 +1,7 @@
 package repoarch
 
 import (
+	"bytes"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -114,9 +115,12 @@ func loadPackageNames(t *testing.T) map[string]string {
 	// The guard may run as an isolated module, but package identities belong
 	// to the repository workspace being inspected.
 	command.Env = append(command.Environ(), "GOWORK="+filepath.Join(root, "go.work"))
-	output, err := command.CombinedOutput()
+	// Dependency download diagnostics on stderr are not package identities.
+	var diagnostics bytes.Buffer
+	command.Stderr = &diagnostics
+	output, err := command.Output()
 	if err != nil {
-		t.Fatalf("resolve Go package names: %v\n%s", err, output)
+		t.Fatalf("resolve Go package names: %v\n%s", err, diagnostics.Bytes())
 	}
 
 	names := make(map[string]string)
