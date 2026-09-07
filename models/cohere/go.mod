@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/models/cohere
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.14.0
+	github.com/Tangerg/scope/core v0.15.0
 	github.com/cohere-ai/cohere-go/v2 v2.19.0
 )
 

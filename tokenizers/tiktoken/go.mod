@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/tokenizers/tiktoken
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.14.0
+	github.com/Tangerg/scope/core v0.15.0
 	github.com/pkoukk/tiktoken-go v0.1.8
 )
 
