@@ -243,30 +243,30 @@ const (
 	crashCleanupReason         = "durability crash matrix cleanup"
 )
 
-func TestTreeDurabilityCrashPrefixMatrix(t *testing.T) {
+func runTreeDurabilityCrashConformance(t *testing.T, factory func() TreeDurabilityConformanceDriver) {
+	t.Helper()
 	tests := []struct {
 		name string
-		run  func(*testing.T)
+		run  func(*testing.T, TreeDurabilityConformanceDriver)
 	}{
-		{name: "root outcome before commit", run: testCrashBeforeRootOutcomeCommit},
-		{name: "root outcome after commit before Process publication", run: testCrashAfterRootOutcomeCommit},
-		{name: "pending before commit", run: testCrashBeforePendingCommit},
-		{name: "pending after commit before dispatch", run: testCrashAfterPendingCommit},
-		{name: "after dispatch before settled commit", run: testCrashBeforeSettledCommit},
-		{name: "settled after commit before memory apply", run: testCrashAfterSettledCommit},
-		{name: "parked after commit before Event publication", run: testCrashAfterParkedCommit},
-		{name: "terminal after commit before Result publication", run: testCrashAfterTerminalCommit},
-		{name: "activation after CAS before Process publication", run: testCrashAfterActivationCommit},
-		{name: "admin after product commit before Apply", run: testCrashAfterAdministrativeCommit},
+		{name: "root outcome before commit", run: runCrashBeforeRootOutcomeCommit},
+		{name: "root outcome after commit before Process publication", run: runCrashAfterRootOutcomeCommit},
+		{name: "pending before commit", run: runCrashBeforePendingCommit},
+		{name: "pending after commit before dispatch", run: runCrashAfterPendingCommit},
+		{name: "after dispatch before settled commit", run: runCrashBeforeSettledCommit},
+		{name: "settled after commit before memory apply", run: runCrashAfterSettledCommit},
+		{name: "parked after commit before Event publication", run: runCrashAfterParkedCommit},
+		{name: "terminal after commit before Result publication", run: runCrashAfterTerminalCommit},
+		{name: "activation after CAS before Process publication", run: runCrashAfterActivationCommit},
 	}
 	for _, test := range tests {
-		t.Run(test.name, test.run)
+		t.Run(test.name, func(t *testing.T) { test.run(t, factory()) })
 	}
 }
 
-func testCrashBeforeRootOutcomeCommit(t *testing.T) {
-	store := NewMemoryTreeDurability()
-	gate := newTreeDurabilityCommitGate(t, store, crashCommitPoint{
+func runCrashBeforeRootOutcomeCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+	durability := store.TreeDurability()
+	gate := newTreeDurabilityCommitGate(t, durability, crashCommitPoint{
 		kind: crashCommitRootOutcome, phase: crashCommitBefore,
 	})
 	deployment, _ := newCrashDeployment(t, conformanceModePause, agent.ReplayPolicyNever)
@@ -285,9 +285,9 @@ func testCrashBeforeRootOutcomeCommit(t *testing.T) {
 	closeCrashEngine(t, engine)
 }
 
-func testCrashAfterRootOutcomeCommit(t *testing.T) {
-	store := NewMemoryTreeDurability()
-	gate := newTreeDurabilityCommitGate(t, store, crashCommitPoint{
+func runCrashAfterRootOutcomeCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+	durability := store.TreeDurability()
+	gate := newTreeDurabilityCommitGate(t, durability, crashCommitPoint{
 		kind: crashCommitRootOutcome, phase: crashCommitAfter,
 	})
 	deployment, _ := newCrashDeployment(t, conformanceModePause, agent.ReplayPolicyNever)
@@ -299,7 +299,7 @@ func testCrashAfterRootOutcomeCommit(t *testing.T) {
 		t.Fatal("root Process published before its committed base callback returned")
 	}
 
-	restoredEngine := newCrashEngine(t, store, nil)
+	restoredEngine := newCrashEngine(t, durability, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
 	waitForConformanceStatus(t, restored, agent.StatusPaused)
 	gate.abort()
@@ -312,9 +312,9 @@ func testCrashAfterRootOutcomeCommit(t *testing.T) {
 	closeCrashEngine(t, engine)
 }
 
-func testCrashBeforePendingCommit(t *testing.T) {
-	store := NewMemoryTreeDurability()
-	gate := newTreeDurabilityCommitGate(t, store, crashCommitPoint{
+func runCrashBeforePendingCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+	durability := store.TreeDurability()
+	gate := newTreeDurabilityCommitGate(t, durability, crashCommitPoint{
 		kind: crashCommitEffectPending, phase: crashCommitBefore,
 	})
 	deployment, dispatcher := newCrashDeployment(
@@ -329,7 +329,7 @@ func testCrashBeforePendingCommit(t *testing.T) {
 		t.Fatal("Dispatcher ran before pending state became authoritative")
 	}
 
-	restoredEngine := newCrashEngine(t, store, nil)
+	restoredEngine := newCrashEngine(t, durability, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
 	result := awaitCrashProcess(t, restored)
 	if result.Status() != agent.StatusCompleted || len(dispatcher.Requests()) != 1 {
@@ -341,9 +341,9 @@ func testCrashBeforePendingCommit(t *testing.T) {
 	closeCrashEngine(t, engine)
 }
 
-func testCrashAfterPendingCommit(t *testing.T) {
-	store := NewMemoryTreeDurability()
-	gate := newTreeDurabilityCommitGate(t, store, crashCommitPoint{
+func runCrashAfterPendingCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+	durability := store.TreeDurability()
+	gate := newTreeDurabilityCommitGate(t, durability, crashCommitPoint{
 		kind: crashCommitEffectPending, phase: crashCommitAfter,
 	})
 	deployment, dispatcher := newCrashDeployment(
@@ -357,7 +357,7 @@ func testCrashAfterPendingCommit(t *testing.T) {
 		t.Fatal("Dispatcher ran before the pending callback returned")
 	}
 
-	restoredEngine := newCrashEngine(t, store, nil)
+	restoredEngine := newCrashEngine(t, durability, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
 	resolveCrashUnknown(t, restored)
 	if result := awaitCrashProcess(t, restored); result.Status() != agent.StatusCompleted {
@@ -372,9 +372,9 @@ func testCrashAfterPendingCommit(t *testing.T) {
 	closeCrashEngine(t, engine)
 }
 
-func testCrashBeforeSettledCommit(t *testing.T) {
-	store := NewMemoryTreeDurability()
-	gate := newTreeDurabilityCommitGate(t, store, crashCommitPoint{
+func runCrashBeforeSettledCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+	durability := store.TreeDurability()
+	gate := newTreeDurabilityCommitGate(t, durability, crashCommitPoint{
 		kind: crashCommitEffectSettled, phase: crashCommitBefore,
 	})
 	deployment, dispatcher := newCrashDeployment(
@@ -389,7 +389,7 @@ func testCrashBeforeSettledCommit(t *testing.T) {
 		t.Fatalf("dispatches=%d, want 1", len(dispatcher.Requests()))
 	}
 
-	restoredEngine := newCrashEngine(t, store, nil)
+	restoredEngine := newCrashEngine(t, durability, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
 	resolveCrashUnknown(t, restored)
 	if result := awaitCrashProcess(t, restored); result.Status() != agent.StatusCompleted {
@@ -404,9 +404,9 @@ func testCrashBeforeSettledCommit(t *testing.T) {
 	closeCrashEngine(t, engine)
 }
 
-func testCrashAfterSettledCommit(t *testing.T) {
-	store := NewMemoryTreeDurability()
-	gate := newTreeDurabilityCommitGate(t, store, crashCommitPoint{
+func runCrashAfterSettledCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+	durability := store.TreeDurability()
+	gate := newTreeDurabilityCommitGate(t, durability, crashCommitPoint{
 		kind: crashCommitEffectSettled, phase: crashCommitAfter,
 	})
 	deployment, dispatcher := newCrashDeployment(
@@ -421,7 +421,7 @@ func testCrashAfterSettledCommit(t *testing.T) {
 		t.Fatal("settled state was applied in memory before its callback returned")
 	}
 
-	restoredEngine := newCrashEngine(t, store, nil)
+	restoredEngine := newCrashEngine(t, durability, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
 	if result := awaitCrashProcess(t, restored); result.Status() != agent.StatusCompleted {
 		t.Fatalf("restored settled result=%s", result.Status())
@@ -435,9 +435,9 @@ func testCrashAfterSettledCommit(t *testing.T) {
 	closeCrashEngine(t, engine)
 }
 
-func testCrashAfterParkedCommit(t *testing.T) {
-	store := NewMemoryTreeDurability()
-	gate := newTreeDurabilityCommitGate(t, store, crashCommitPoint{
+func runCrashAfterParkedCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+	durability := store.TreeDurability()
+	gate := newTreeDurabilityCommitGate(t, durability, crashCommitPoint{
 		kind: crashCommitCheckpointParked, phase: crashCommitAfter,
 	})
 	deployment, _ := newCrashDeployment(t, conformanceModePause, agent.ReplayPolicyNever)
@@ -448,7 +448,7 @@ func testCrashAfterParkedCommit(t *testing.T) {
 	head := assertCrashHead(t, store, observation.rootID, observation.prospective.Digest())
 	assertCrashEventAbsent(t, recorder, agent.EventProcessPaused)
 
-	restoredEngine := newCrashEngine(t, store, nil)
+	restoredEngine := newCrashEngine(t, durability, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
 	if restored.Status() != agent.StatusPaused {
 		t.Fatalf("restored status=%s, want paused", restored.Status())
@@ -460,9 +460,9 @@ func testCrashAfterParkedCommit(t *testing.T) {
 	closeCrashEngine(t, engine)
 }
 
-func testCrashAfterTerminalCommit(t *testing.T) {
-	store := NewMemoryTreeDurability()
-	gate := newTreeDurabilityCommitGate(t, store, crashCommitPoint{
+func runCrashAfterTerminalCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+	durability := store.TreeDurability()
+	gate := newTreeDurabilityCommitGate(t, durability, crashCommitPoint{
 		kind: crashCommitCheckpointTerminal, phase: crashCommitAfter,
 	})
 	deployment, _ := newCrashDeployment(
@@ -482,7 +482,7 @@ func testCrashAfterTerminalCommit(t *testing.T) {
 	}
 	assertCrashEventAbsent(t, recorder, agent.EventProcessFinished)
 
-	restoredEngine := newCrashEngine(t, store, nil)
+	restoredEngine := newCrashEngine(t, durability, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
 	if result := awaitCrashProcess(t, restored); result.Status() != agent.StatusCompleted {
 		t.Fatalf("restored terminal result=%s", result.Status())
@@ -493,14 +493,14 @@ func testCrashAfterTerminalCommit(t *testing.T) {
 	closeCrashEngine(t, engine)
 }
 
-func testCrashAfterActivationCommit(t *testing.T) {
-	store := NewMemoryTreeDurability()
+func runCrashAfterActivationCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+	durability := store.TreeDurability()
 	deployment, _ := newCrashDeployment(t, conformanceModePause, agent.ReplayPolicyNever)
-	sourceEngine := newCrashEngine(t, store, nil)
+	sourceEngine := newCrashEngine(t, durability, nil)
 	source := startCrashProcess(t, sourceEngine, deployment)
 	head := waitForConformanceHeadStatus(t, store, source.ID(), agent.StatusPaused)
 
-	gate := newTreeDurabilityCommitGate(t, store, crashCommitPoint{
+	gate := newTreeDurabilityCommitGate(t, durability, crashCommitPoint{
 		kind: crashCommitActivation, phase: crashCommitAfter,
 	})
 	firstEngine := newCrashEngine(t, gate, nil)
@@ -511,7 +511,7 @@ func testCrashAfterActivationCommit(t *testing.T) {
 		t.Fatal("restored Process published before activation callback returned")
 	}
 
-	secondEngine := newCrashEngine(t, store, nil)
+	secondEngine := newCrashEngine(t, durability, nil)
 	second := restoreCrashTree(t, secondEngine, deployment, newHead)
 	if second.Status() != agent.StatusPaused {
 		t.Fatalf("second restore status=%s, want paused", second.Status())
@@ -660,9 +660,13 @@ func restoreCrashTreeAsync(
 	return result
 }
 
+type treeSnapshotReader interface {
+	LoadTree(context.Context, agent.ProcessID) (agent.TreeSnapshot, bool, error)
+}
+
 func assertCrashHeadAbsent(
 	t *testing.T,
-	store *MemoryTreeDurability,
+	store treeSnapshotReader,
 	rootID agent.ProcessID,
 ) {
 	t.Helper()
@@ -674,7 +678,7 @@ func assertCrashHeadAbsent(
 
 func assertCrashHead(
 	t *testing.T,
-	store *MemoryTreeDurability,
+	store treeSnapshotReader,
 	rootID agent.ProcessID,
 	want agent.Digest,
 ) agent.TreeSnapshot {
