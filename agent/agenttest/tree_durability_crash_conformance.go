@@ -14,7 +14,7 @@ type crashCommitKind uint8
 
 const (
 	crashCommitInvalid crashCommitKind = iota
-	crashCommitRootOutcome
+	crashCommitRootStart
 	crashCommitActivation
 	crashCommitEffectPending
 	crashCommitEffectSettled
@@ -83,26 +83,6 @@ func newTreeDurabilityCommitGate(
 	return gate
 }
 
-func (t *treeDurabilityCommitGate) AcknowledgeProcessStartOutcome(
-	ctx context.Context,
-	outcome agent.ProcessStartOutcome,
-) error {
-	snapshot, _ := outcome.TreeSnapshot()
-	previous, _ := outcome.PreviousTreeDigest()
-	observation := crashCommitObservation{
-		rootID: outcome.Admission().Relation().RootID(), previousDigest: previous,
-		prospective: snapshot,
-	}
-	kind := crashCommitInvalid
-	if outcome.Admission().Relation().IsRoot() {
-		kind = crashCommitRootOutcome
-	}
-	point := crashCommitPoint{kind: kind, phase: t.point.phase}
-	return t.around(point, observation, func() error {
-		return t.delegate.AcknowledgeProcessStartOutcome(ctx, outcome)
-	})
-}
-
 func (t *treeDurabilityCommitGate) ActivateTree(
 	ctx context.Context,
 	activation agent.TreeActivation,
@@ -146,6 +126,8 @@ func (t *treeDurabilityCommitGate) CommitCheckpoint(
 ) error {
 	kind := crashCommitInvalid
 	switch checkpoint.Kind() {
+	case agent.TreeCheckpointStart:
+		kind = crashCommitRootStart
 	case agent.TreeCheckpointInput:
 		kind = crashCommitCheckpointInput
 	case agent.TreeCheckpointParked:
@@ -252,8 +234,8 @@ func runTreeDurabilityCrashConformance(t *testing.T, factory func() TreeDurabili
 		name string
 		run  func(*testing.T, TreeDurabilityConformanceDriver)
 	}{
-		{name: "root outcome before commit", run: runCrashBeforeRootOutcomeCommit},
-		{name: "root outcome after commit before Process publication", run: runCrashAfterRootOutcomeCommit},
+		{name: "root start before commit", run: runCrashBeforeRootStartCommit},
+		{name: "root start after commit before Process publication", run: runCrashAfterRootStartCommit},
 		{name: "pending before commit", run: runCrashBeforePendingCommit},
 		{name: "pending after commit before dispatch", run: runCrashAfterPendingCommit},
 		{name: "after dispatch before settled commit", run: runCrashBeforeSettledCommit},
@@ -267,10 +249,10 @@ func runTreeDurabilityCrashConformance(t *testing.T, factory func() TreeDurabili
 	}
 }
 
-func runCrashBeforeRootOutcomeCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+func runCrashBeforeRootStartCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
 	durability := store.TreeDurability()
 	gate := newTreeDurabilityCommitGate(t, durability, crashCommitPoint{
-		kind: crashCommitRootOutcome, phase: crashCommitBefore,
+		kind: crashCommitRootStart, phase: crashCommitBefore,
 	})
 	deployment, _ := newCrashDeployment(t, conformanceModePause, agent.ReplayPolicyNever)
 	engine := newCrashEngine(t, gate, nil)
@@ -288,10 +270,10 @@ func runCrashBeforeRootOutcomeCommit(t *testing.T, store TreeDurabilityConforman
 	closeCrashEngine(t, engine)
 }
 
-func runCrashAfterRootOutcomeCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+func runCrashAfterRootStartCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
 	durability := store.TreeDurability()
 	gate := newTreeDurabilityCommitGate(t, durability, crashCommitPoint{
-		kind: crashCommitRootOutcome, phase: crashCommitAfter,
+		kind: crashCommitRootStart, phase: crashCommitAfter,
 	})
 	deployment, _ := newCrashDeployment(t, conformanceModePause, agent.ReplayPolicyNever)
 	engine := newCrashEngine(t, gate, nil)

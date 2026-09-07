@@ -24,7 +24,7 @@ var (
 // Dispatcher, schema, and behavior configuration belong to each Deployment.
 type EngineConfig struct {
 	// TreeDurability enables active recovery for complete root Process trees. It
-	// owns the atomic Host transaction behind lifecycle, Effect, checkpoint, and
+	// owns the atomic Host transaction behind Effect, checkpoint, and
 	// activation boundaries. Nil selects zero-configuration ephemeral execution.
 	TreeDurability TreeDurability
 
@@ -137,12 +137,6 @@ func NewEngine(config EngineConfig) (*Engine, error) {
 	if config.ProcessStartOutcomeAcknowledger != nil && lo.IsNil(config.ProcessStartOutcomeAcknowledger) {
 		return nil, fmt.Errorf("%w: ProcessStartOutcomeAcknowledger is typed nil", ErrInvalidEngineConfig)
 	}
-	if config.TreeDurability != nil && config.ProcessStartOutcomeAcknowledger != nil {
-		return nil, fmt.Errorf(
-			"%w: TreeDurability and ProcessStartOutcomeAcknowledger are mutually exclusive",
-			ErrInvalidEngineConfig,
-		)
-	}
 	if config.DeploymentResolver != nil && lo.IsNil(config.DeploymentResolver) {
 		return nil, fmt.Errorf("%w: DeploymentResolver is typed nil", ErrInvalidEngineConfig)
 	}
@@ -174,13 +168,9 @@ func NewEngine(config EngineConfig) (*Engine, error) {
 	if !config.Capabilities.Valid() {
 		return nil, fmt.Errorf("%w: capabilities are invalid", ErrInvalidEngineConfig)
 	}
-	startOutcomeAcknowledger := config.ProcessStartOutcomeAcknowledger
-	if config.TreeDurability != nil {
-		startOutcomeAcknowledger = config.TreeDurability
-	}
 	return &Engine{
 		durability:               config.TreeDurability,
-		startOutcomeAcknowledger: startOutcomeAcknowledger,
+		startOutcomeAcknowledger: config.ProcessStartOutcomeAcknowledger,
 		resolver:                 config.DeploymentResolver,
 		admitter:                 config.ProcessAdmitter,
 		observation:              newObservationBus(config.EventListeners, config.DeltaListeners, capacity),
@@ -235,9 +225,13 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Input) 
 	startedAt := time.Now().Round(0).UTC()
 	execution, state, failure, err := initializeExecution(deployment.Definition(), input)
 	if err != nil {
-		acknowledgeErr := e.acknowledgeAbortedProcessOutcome(ctx, admission, failure)
+		acknowledgeErr := acknowledgeProcessStartOutcome(ctx, e.startOutcomeAcknowledger, abortedProcessOutcome(admission, failure))
 		e.discardProcessStartReservation(id)
 		return nil, errors.Join(fmt.Errorf("agent: initialize Process: %w", err), acknowledgeErr)
+	}
+	if err := acknowledgeProcessStartOutcome(ctx, e.startOutcomeAcknowledger, startedProcessOutcome(admission, startedAt)); err != nil {
+		e.discardProcessStartReservation(id)
+		return nil, err
 	}
 	controller := newProcessController(
 		relation, deployment.DeploymentRef(), budget, e.capabilities,
@@ -258,17 +252,16 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Input) 
 			e.discardProcessStartReservation(id)
 			return nil, captureErr
 		}
-		outcome := startedProcessTreeOutcome(
-			admission, startedAt, Digest{}, false, baseSnapshot,
-		)
-		if err := e.acknowledgeProcessStartOutcome(ctx, outcome); err != nil {
+		checkpoint, err := newTreeCheckpoint(TreeCheckpointStart, Digest{}, baseSnapshot)
+		if err != nil {
+			e.discardProcessStartReservation(id)
+			return nil, err
+		}
+		if err := commitTreeCheckpoint(ctx, e.durability, checkpoint); err != nil {
 			e.discardProcessStartReservation(id)
 			return nil, err
 		}
 		runtime.establishDurableHead(incarnation, baseSnapshot)
-	} else if err := e.acknowledgeStartedProcessOutcome(ctx, admission, startedAt); err != nil {
-		e.discardProcessStartReservation(id)
-		return nil, err
 	}
 	e.publishReservedProcess(controller)
 	go runtime.run(ctx)

@@ -30,9 +30,6 @@ type childStartJobResult struct {
 	execution  Execution
 	state      ExecutionState
 	startedAt  time.Time
-	admission  ProcessAdmission
-	failure    Failure
-	admitted   bool
 }
 
 func (c childStartJobResult) started() bool {
@@ -133,17 +130,21 @@ func (c *childStartPlan) execute(ctx context.Context) childStartJobResult {
 	startedAt := time.Now().Round(0).UTC()
 	execution, state, failure, err := initializeExecution(deployment.Definition(), c.spec.Input)
 	if err != nil {
-		return childStartJobResult{
-			result:    failedChildStart(c.spec, failure.Kind(), failure.Code(), err),
-			admission: admission, failure: failure, admitted: true,
-		}
+		acknowledgeErr := acknowledgeProcessStartOutcome(ctx, c.engine.startOutcomeAcknowledger, abortedProcessOutcome(admission, failure))
+		return childStartJobResult{result: failedChildStart(
+			c.spec, failure.Kind(), failure.Code(), errors.Join(err, acknowledgeErr),
+		)}
+	}
+	if err := acknowledgeProcessStartOutcome(ctx, c.engine.startOutcomeAcknowledger, startedProcessOutcome(admission, startedAt)); err != nil {
+		return childStartJobResult{result: failedChildStart(
+			c.spec, FailureKindExternal, "engine.child.start_outcome.unacknowledged", err,
+		)}
 	}
 	return childStartJobResult{
 		result: ChildStartResult{
 			key: c.spec.Key, processID: c.childID, deploymentRef: c.spec.DeploymentRef,
 		},
 		deployment: deployment, execution: execution, state: state, startedAt: startedAt,
-		admission: admission, admitted: true,
 	}
 }
 

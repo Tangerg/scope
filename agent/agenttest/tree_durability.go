@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	agent "github.com/Tangerg/scope/agent"
 )
@@ -15,7 +14,8 @@ type memoryDurabilityFactKind uint8
 
 const (
 	memoryDurabilityFactInvalid memoryDurabilityFactKind = iota
-	memoryDurabilityFactProcessOutcome
+	memoryDurabilityFactCheckpointStart
+	memoryDurabilityFactCheckpointChild
 	memoryDurabilityFactActivation
 	memoryDurabilityFactEffectPending
 	memoryDurabilityFactEffectSettled
@@ -26,12 +26,11 @@ const (
 )
 
 type memoryDurabilityFactKey struct {
-	kind      memoryDurabilityFactKind
-	rootID    agent.ProcessID
-	processID agent.ProcessID
-	effectID  agent.EffectID
-	digest    agent.Digest
-	writer    agent.TreeIncarnationID
+	kind     memoryDurabilityFactKind
+	rootID   agent.ProcessID
+	effectID agent.EffectID
+	digest   agent.Digest
+	writer   agent.TreeIncarnationID
 }
 
 type memoryDurabilityHead struct {
@@ -49,7 +48,6 @@ type MemoryTreeDurability struct {
 	facts map[memoryDurabilityFactKey]agent.Digest
 }
 
-// NewMemoryTreeDurability constructs an empty in-memory durability adapter.
 func NewMemoryTreeDurability() *MemoryTreeDurability {
 	return &MemoryTreeDurability{
 		heads: make(map[agent.ProcessID]memoryDurabilityHead),
@@ -57,10 +55,8 @@ func NewMemoryTreeDurability() *MemoryTreeDurability {
 	}
 }
 
-// TreeDurability returns this adapter through the conformance-driver port.
 func (m *MemoryTreeDurability) TreeDurability() agent.TreeDurability { return m }
 
-// LoadTree returns the current authoritative head for rootID.
 func (m *MemoryTreeDurability) LoadTree(
 	_ context.Context,
 	rootID agent.ProcessID,
@@ -74,41 +70,6 @@ func (m *MemoryTreeDurability) LoadTree(
 	return head.snapshot, exists, nil
 }
 
-// AcknowledgeProcessStartOutcome atomically closes admission and, for durable
-// started/child outcomes, installs the prospective tree head.
-func (m *MemoryTreeDurability) AcknowledgeProcessStartOutcome(
-	_ context.Context,
-	outcome agent.ProcessStartOutcome,
-) error {
-	if m == nil || !outcome.Valid() {
-		return errors.New("agenttest: invalid Process start outcome")
-	}
-	rootID := outcome.Admission().Relation().RootID()
-	processID := outcome.Admission().Relation().ProcessID()
-	key := memoryDurabilityFactKey{
-		kind: memoryDurabilityFactProcessOutcome, rootID: rootID, processID: processID,
-	}
-	content, err := processOutcomeDigest(outcome)
-	if err != nil {
-		return err
-	}
-	previous, hasPrevious := outcome.PreviousTreeDigest()
-	prospective, hasProspective := outcome.TreeSnapshot()
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if !hasProspective {
-		return m.commitFactWithoutHead(key, content)
-	}
-	incarnationID, _ := prospective.IncarnationID()
-	if hasPrevious {
-		return m.advanceHead(key, content, rootID, incarnationID, previous, prospective)
-	}
-	return m.createHead(key, content, rootID, incarnationID, prospective)
-}
-
-// ActivateTree atomically fences the previous writer and installs the new
-// incarnation snapshot.
 func (m *MemoryTreeDurability) ActivateTree(
 	_ context.Context,
 	activation agent.TreeActivation,
@@ -143,7 +104,6 @@ func (m *MemoryTreeDurability) ActivateTree(
 	return nil
 }
 
-// CommitEffect atomically records an Effect boundary and advances its tree.
 func (m *MemoryTreeDurability) CommitEffect(
 	_ context.Context,
 	boundary agent.EffectBoundary,
@@ -172,7 +132,6 @@ func (m *MemoryTreeDurability) CommitEffect(
 	)
 }
 
-// CommitCheckpoint atomically records a Runtime safe cut and advances its tree.
 func (m *MemoryTreeDurability) CommitCheckpoint(
 	_ context.Context,
 	checkpoint agent.TreeCheckpoint,
@@ -189,9 +148,15 @@ func (m *MemoryTreeDurability) CommitCheckpoint(
 	key := memoryDurabilityFactKey{
 		kind: kind, rootID: prospective.RootID(), digest: prospective.Digest(),
 	}
+	if checkpoint.Kind() == agent.TreeCheckpointStart {
+		key.digest = agent.Digest{}
+	}
 	content := agent.ComputeDigest(prospective.JSON())
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if checkpoint.Kind() == agent.TreeCheckpointStart {
+		return m.createHead(key, content, prospective.RootID(), incarnationID, prospective)
+	}
 	return m.advanceHead(
 		key, content, prospective.RootID(), incarnationID,
 		checkpoint.PreviousTreeDigest(), prospective,
@@ -247,20 +212,6 @@ func (m *MemoryTreeDurability) advanceHead(
 	return nil
 }
 
-func (m *MemoryTreeDurability) commitFactWithoutHead(
-	key memoryDurabilityFactKey,
-	content agent.Digest,
-) error {
-	if previous, exists := m.facts[key]; exists {
-		if previous == content {
-			return nil
-		}
-		return durabilityContentConflict()
-	}
-	m.facts[key] = content
-	return nil
-}
-
 func memoryHead(snapshot agent.TreeSnapshot) memoryDurabilityHead {
 	incarnationID, _ := snapshot.IncarnationID()
 	return memoryDurabilityHead{
@@ -283,6 +234,10 @@ func memoryEffectFactKind(kind agent.EffectBoundaryKind) memoryDurabilityFactKin
 
 func memoryCheckpointFactKind(kind agent.TreeCheckpointKind) memoryDurabilityFactKind {
 	switch kind {
+	case agent.TreeCheckpointStart:
+		return memoryDurabilityFactCheckpointStart
+	case agent.TreeCheckpointChild:
+		return memoryDurabilityFactCheckpointChild
 	case agent.TreeCheckpointInput:
 		return memoryDurabilityFactCheckpointInput
 	case agent.TreeCheckpointParked:
@@ -292,46 +247,6 @@ func memoryCheckpointFactKind(kind agent.TreeCheckpointKind) memoryDurabilityFac
 	default:
 		return memoryDurabilityFactInvalid
 	}
-}
-
-func processOutcomeDigest(outcome agent.ProcessStartOutcome) (agent.Digest, error) {
-	startedAt, hasStartedAt := outcome.StartedAt()
-	failure, hasFailure := outcome.Failure()
-	previous, hasPrevious := outcome.PreviousTreeDigest()
-	snapshot, hasSnapshot := outcome.TreeSnapshot()
-	content := struct {
-		Relation      agent.ProcessRelation
-		DeploymentRef agent.DeploymentRef
-		Descriptor    agent.Digest
-		Budget        agent.Budget
-		Capabilities  agent.CapabilitySet
-		Status        agent.ProcessStartOutcomeStatus
-		StartedAt     *time.Time
-		Failure       *agent.Failure
-		Previous      *agent.Digest
-		Snapshot      *agent.Digest
-	}{
-		Relation:      outcome.Admission().Relation(),
-		DeploymentRef: outcome.Admission().DeploymentRef(),
-		Descriptor:    outcome.Admission().Descriptor().Digest(),
-		Budget:        outcome.Admission().Budget(),
-		Capabilities:  outcome.Admission().Capabilities(),
-		Status:        outcome.Status(),
-	}
-	if hasStartedAt {
-		content.StartedAt = &startedAt
-	}
-	if hasFailure {
-		content.Failure = &failure
-	}
-	if hasPrevious {
-		content.Previous = &previous
-	}
-	if hasSnapshot {
-		digest := snapshot.Digest()
-		content.Snapshot = &digest
-	}
-	return jsonDigest(content)
 }
 
 func effectBoundaryDigest(boundary agent.EffectBoundary) (agent.Digest, error) {

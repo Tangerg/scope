@@ -1,12 +1,5 @@
 package agent
 
-import (
-	"context"
-	"errors"
-	"fmt"
-	"time"
-)
-
 type processStartReservation struct {
 	relation           ProcessRelation
 	deploymentRef      DeploymentRef
@@ -183,70 +176,4 @@ func (e *Engine) publishReservedProcess(controller *processController) {
 		delete(e.childStartReservations, identity)
 		e.children[identity] = controller.processID
 	}
-}
-
-func (e *Engine) acknowledgeStartedProcessOutcome(
-	ctx context.Context,
-	admission ProcessAdmission,
-	startedAt time.Time,
-) error {
-	if err := e.acknowledgeProcessStartOutcome(ctx, startedProcessOutcome(admission, startedAt)); err != nil {
-		return fmt.Errorf("agent: acknowledge started Process: %w", err)
-	}
-	return nil
-}
-
-func (e *Engine) acknowledgeProcessStartOutcome(
-	ctx context.Context,
-	outcome ProcessStartOutcome,
-) error {
-	if err := e.validateProcessStartOutcomeMode(outcome); err != nil {
-		return err
-	}
-	if err := acknowledgeProcessStartOutcome(ctx, e.startOutcomeAcknowledger, outcome); err != nil {
-		return fmt.Errorf("agent: acknowledge Process start outcome: %w", err)
-	}
-	return nil
-}
-
-func (e *Engine) validateProcessStartOutcomeMode(outcome ProcessStartOutcome) error {
-	if !outcome.Valid() {
-		return errors.New("agent: invalid Process start outcome")
-	}
-	_, hasPreviousTree := outcome.PreviousTreeDigest()
-	_, hasTreeSnapshot := outcome.TreeSnapshot()
-	if e.durability == nil {
-		if hasPreviousTree || hasTreeSnapshot {
-			return ErrTreeDurabilityMismatch
-		}
-		return nil
-	}
-	if outcome.Admission().Relation().IsRoot() {
-		switch outcome.Status() {
-		case ProcessStartOutcomeStatusStarted:
-			if !hasPreviousTree && hasTreeSnapshot {
-				return nil
-			}
-		case ProcessStartOutcomeStatusAborted:
-			if !hasPreviousTree && !hasTreeSnapshot {
-				return nil
-			}
-		}
-		return errors.New("agent: invalid durable root Process outcome")
-	}
-	if hasPreviousTree && hasTreeSnapshot {
-		return nil
-	}
-	return errors.New("agent: invalid durable child Process outcome")
-}
-
-func (e *Engine) acknowledgeAbortedProcessOutcome(
-	ctx context.Context,
-	admission ProcessAdmission,
-	failure Failure,
-) error {
-	if err := e.acknowledgeProcessStartOutcome(ctx, abortedProcessOutcome(admission, failure)); err != nil {
-		return fmt.Errorf("agent: acknowledge aborted Process: %w", err)
-	}
-	return nil
 }

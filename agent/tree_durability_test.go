@@ -12,21 +12,10 @@ import (
 
 type recordingTreeDurability struct {
 	mu          sync.Mutex
-	outcomes    []ProcessStartOutcome
 	activations []TreeActivation
 	effects     []EffectBoundary
 	checkpoints []TreeCheckpoint
 	pending     atomic.Bool
-}
-
-func (r *recordingTreeDurability) AcknowledgeProcessStartOutcome(
-	_ context.Context,
-	outcome ProcessStartOutcome,
-) error {
-	r.mu.Lock()
-	r.outcomes = append(r.outcomes, outcome)
-	r.mu.Unlock()
-	return nil
 }
 
 func (r *recordingTreeDurability) ActivateTree(
@@ -66,12 +55,6 @@ func (r *recordingTreeDurability) effectBoundaries() []EffectBoundary {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]EffectBoundary(nil), r.effects...)
-}
-
-func (r *recordingTreeDurability) startOutcomes() []ProcessStartOutcome {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]ProcessStartOutcome(nil), r.outcomes...)
 }
 
 func (r *recordingTreeDurability) treeCheckpoints() []TreeCheckpoint {
@@ -140,13 +123,6 @@ func (b *blockingTerminalCheckpointDurability) CommitCheckpoint(
 
 type typedNilTreeDurability struct{}
 
-func (*typedNilTreeDurability) AcknowledgeProcessStartOutcome(
-	context.Context,
-	ProcessStartOutcome,
-) error {
-	return nil
-}
-
 func (*typedNilTreeDurability) ActivateTree(context.Context, TreeActivation) error {
 	return nil
 }
@@ -173,8 +149,8 @@ func TestTreeDurabilityConfigurationIsUnambiguous(t *testing.T) {
 	})
 	if _, err := NewEngine(EngineConfig{
 		TreeDurability: durability, ProcessStartOutcomeAcknowledger: acknowledger,
-	}); !errors.Is(err, ErrInvalidEngineConfig) {
-		t.Fatalf("dual outcome owners error=%v", err)
+	}); err != nil {
+		t.Fatalf("independent durability and initialization ports error=%v", err)
 	}
 }
 
@@ -365,7 +341,7 @@ func TestDurableEffectCommitFailuresStopTheTreeAtTheCorrectBoundary(t *testing.T
 			if stopped != 1 {
 				t.Fatalf("runtime stop observations=%d, want 1", stopped)
 			}
-			head, _ := recorder.startOutcomes()[0].TreeSnapshot()
+			head := recorder.treeCheckpoints()[0].TreeSnapshot()
 			if test.kind == EffectBoundarySettled {
 				head = recorder.effectBoundaries()[0].TreeSnapshot()
 			}
@@ -442,7 +418,7 @@ func TestTreeDurabilityFaultPreservesEveryConcurrentEffectForReconciliation(t *t
 			}
 			t.Fatalf(
 				"started Dispatcher Effects=%v root_status=%s termination=%+v outcomes=%d boundaries=%d checkpoints=%d",
-				started, root.Status(), termination, len(recorder.startOutcomes()),
+				started, root.Status(), termination, len(recorder.treeCheckpoints()),
 				len(recorder.effectBoundaries()), len(recorder.treeCheckpoints()),
 			)
 		}
@@ -874,11 +850,7 @@ func TestDurableObservationsCarryCurrentIncarnation(t *testing.T) {
 	if err := engine.FlushDeltas(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	outcomes := durability.startOutcomes()
-	tree, present := outcomes[0].TreeSnapshot()
-	if !present {
-		t.Fatal("durable root outcome has no tree")
-	}
+	tree := durability.treeCheckpoints()[0].TreeSnapshot()
 	want, _ := tree.IncarnationID()
 	for _, boundary := range durability.effectBoundaries() {
 		if got, ok := boundary.Request().TreeIncarnationID(); !ok || got != want {
@@ -903,5 +875,84 @@ func TestDurableObservationsCarryCurrentIncarnation(t *testing.T) {
 		if got, ok := delta.TreeIncarnationID(); !ok || got != want {
 			t.Fatalf("Delta incarnation=%s present=%t, want %s", got, ok, want)
 		}
+	}
+}
+
+type rejectingStartCheckpointDurability struct {
+	*recordingTreeDurability
+	err error
+}
+
+func (r *rejectingStartCheckpointDurability) CommitCheckpoint(ctx context.Context, checkpoint TreeCheckpoint) error {
+	if err := r.recordingTreeDurability.CommitCheckpoint(ctx, checkpoint); err != nil {
+		return err
+	}
+	if checkpoint.Kind() == TreeCheckpointStart {
+		return r.err
+	}
+	return nil
+}
+
+func TestDurableStartSeparatesInitializationAcceptanceFromCheckpoint(t *testing.T) {
+	initializationErr := errors.New("initialization failed")
+	acknowledgmentErr := errors.New("initialization rejected")
+	persistenceErr := errors.New("checkpoint unavailable")
+	for _, test := range []struct {
+		name              string
+		initializationErr error
+		acknowledgmentErr error
+		persistenceErr    error
+		wantError         error
+		wantStatus        ProcessStartOutcomeStatus
+		wantCheckpoints   int
+	}{
+		{name: "initialization failure", initializationErr: initializationErr, wantError: initializationErr, wantStatus: ProcessStartOutcomeStatusAborted},
+		{name: "initialization rejected", acknowledgmentErr: acknowledgmentErr, wantError: acknowledgmentErr, wantStatus: ProcessStartOutcomeStatusStarted},
+		{name: "persistence failure after initialization acceptance", persistenceErr: persistenceErr, wantError: persistenceErr, wantStatus: ProcessStartOutcomeStatusStarted, wantCheckpoints: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := &recordingTreeDurability{}
+			durability := &rejectingStartCheckpointDurability{recordingTreeDurability: recorder, err: test.persistenceErr}
+			var outcomes []ProcessStartOutcome
+			engine, err := NewEngine(EngineConfig{
+				TreeDurability: durability,
+				ProcessStartOutcomeAcknowledger: ProcessStartOutcomeAcknowledgerFunc(func(_ context.Context, outcome ProcessStartOutcome) error {
+					if len(recorder.treeCheckpoints()) != 0 {
+						t.Error("persistence preceded initialization acceptance")
+					}
+					outcomes = append(outcomes, outcome)
+					return test.acknowledgmentErr
+				}),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			deployment := newChildTestDeployment(t)
+			if test.initializationErr != nil {
+				deployment = failingStartDeployment(t, test.initializationErr)
+			}
+			input, err := EncodeInput(childTestInput{Mode: "leaf"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			process, err := engine.Start(t.Context(), deployment, input)
+			if process != nil || !errors.Is(err, test.wantError) {
+				t.Fatalf("Start process=%v error=%v", process, err)
+			}
+			if len(outcomes) != 1 || outcomes[0].Status() != test.wantStatus || !outcomes[0].Valid() {
+				t.Fatalf("initialization outcomes=%v, want one %s", outcomes, test.wantStatus)
+			}
+			checkpoints := recorder.treeCheckpoints()
+			if len(checkpoints) != test.wantCheckpoints {
+				t.Fatalf("checkpoints=%d, want %d", len(checkpoints), test.wantCheckpoints)
+			}
+			if len(checkpoints) == 1 && (checkpoints[0].Kind() != TreeCheckpointStart || !checkpoints[0].Valid() || checkpoints[0].PreviousTreeDigest() != (Digest{})) {
+				t.Fatalf("invalid initial checkpoint: %+v", checkpoints[0])
+			}
+			assertNoPendingProcessStarts(t, engine)
+			if err := engine.Close(); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }

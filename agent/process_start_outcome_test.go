@@ -8,81 +8,92 @@ import (
 )
 
 func TestProcessStartOutcomesConcludeAcceptedRootAndChildAdmissions(t *testing.T) {
-	childDeployment := newChildTestDeployment(t)
-	parentDeployment := newCrossParentDeployment(t, childDeployment.DeploymentRef())
-	var engine *Engine
-	var mu sync.Mutex
-	var outcomes []ProcessStartOutcome
-	acknowledger := ProcessStartOutcomeAcknowledgerFunc(func(
-		_ context.Context,
-		outcome ProcessStartOutcome,
-	) error {
-		if !outcome.Valid() {
-			t.Fatal("acknowledger received an invalid outcome")
-		}
-		if _, published := engine.Process(outcome.Admission().Relation().ProcessID()); published {
-			t.Fatal("started outcome was acknowledged after Process publication")
-		}
-		mu.Lock()
-		outcomes = append(outcomes, outcome)
-		mu.Unlock()
-		return nil
-	})
-	var err error
-	engine, err = NewEngine(EngineConfig{
-		DeploymentResolver:              deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment},
-		ProcessStartOutcomeAcknowledger: acknowledger,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	input, _ := EncodeInput(struct{}{})
-	parent, err := engine.Start(t.Context(), parentDeployment, input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	parentOutput := childTestResult(t, mustAwait(t, parent))
-	if len(parentOutput.ChildIDs) != 1 || parentOutput.Failures != 0 {
-		t.Fatalf("parent output = %#v", parentOutput)
-	}
-	childID, _ := ParseProcessID(parentOutput.ChildIDs[0])
-	child, found := engine.Process(childID)
-	if !found {
-		t.Fatal("started child is missing")
-	}
-	_ = mustAwait(t, child)
+	for _, mode := range []struct {
+		name       string
+		durability TreeDurability
+	}{
+		{name: "ephemeral"},
+		{name: "durable", durability: &recordingTreeDurability{}},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			childDeployment := newChildTestDeployment(t)
+			parentDeployment := newCrossParentDeployment(t, childDeployment.DeploymentRef())
+			var engine *Engine
+			var mu sync.Mutex
+			var outcomes []ProcessStartOutcome
+			acknowledger := ProcessStartOutcomeAcknowledgerFunc(func(
+				_ context.Context,
+				outcome ProcessStartOutcome,
+			) error {
+				if !outcome.Valid() {
+					t.Fatal("acknowledger received an invalid outcome")
+				}
+				if _, published := engine.Process(outcome.Admission().Relation().ProcessID()); published {
+					t.Fatal("started outcome was acknowledged after Process publication")
+				}
+				mu.Lock()
+				outcomes = append(outcomes, outcome)
+				mu.Unlock()
+				return nil
+			})
+			var err error
+			engine, err = NewEngine(EngineConfig{
+				TreeDurability:                  mode.durability,
+				DeploymentResolver:              deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment},
+				ProcessStartOutcomeAcknowledger: acknowledger,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			input, _ := EncodeInput(struct{}{})
+			parent, err := engine.Start(t.Context(), parentDeployment, input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parentOutput := childTestResult(t, mustAwait(t, parent))
+			if len(parentOutput.ChildIDs) != 1 || parentOutput.Failures != 0 {
+				t.Fatalf("parent output = %#v", parentOutput)
+			}
+			childID, _ := ParseProcessID(parentOutput.ChildIDs[0])
+			child, found := engine.Process(childID)
+			if !found {
+				t.Fatal("started child is missing")
+			}
+			_ = mustAwait(t, child)
 
-	mu.Lock()
-	got := append([]ProcessStartOutcome(nil), outcomes...)
-	mu.Unlock()
-	if len(got) != 2 {
-		t.Fatalf("outcomes = %d, want root and child", len(got))
-	}
-	byProcess := make(map[ProcessID]ProcessStartOutcome, len(got))
-	for _, outcome := range got {
-		if outcome.Status() != ProcessStartOutcomeStatusStarted {
-			t.Fatalf("outcome status = %s, want started", outcome.Status())
-		}
-		if _, failed := outcome.Failure(); failed {
-			t.Fatal("started outcome exposes a Failure")
-		}
-		byProcess[outcome.Admission().Relation().ProcessID()] = outcome
-	}
-	rootOutcome, rootFound := byProcess[parent.ID()]
-	childOutcome, childFound := byProcess[child.ID()]
-	rootStartedAt, rootStarted := rootOutcome.StartedAt()
-	if !rootFound || !rootOutcome.Admission().Relation().IsRoot() ||
-		!rootStarted || rootStartedAt != parent.StartedAt() {
-		t.Fatalf("root outcome = %#v", rootOutcome)
-	}
-	parentID, hasParent := childOutcome.Admission().Relation().ParentID()
-	childStartedAt, childStarted := childOutcome.StartedAt()
-	if !childFound || !hasParent || parentID != parent.ID() ||
-		!childStarted || childStartedAt != child.StartedAt() {
-		t.Fatalf("child outcome = %#v", childOutcome)
-	}
-	if err := engine.Close(); err != nil {
-		t.Fatal(err)
+			mu.Lock()
+			got := append([]ProcessStartOutcome(nil), outcomes...)
+			mu.Unlock()
+			if len(got) != 2 {
+				t.Fatalf("outcomes = %d, want root and child", len(got))
+			}
+			byProcess := make(map[ProcessID]ProcessStartOutcome, len(got))
+			for _, outcome := range got {
+				if outcome.Status() != ProcessStartOutcomeStatusStarted {
+					t.Fatalf("outcome status = %s, want started", outcome.Status())
+				}
+				if _, failed := outcome.Failure(); failed {
+					t.Fatal("started outcome exposes a Failure")
+				}
+				byProcess[outcome.Admission().Relation().ProcessID()] = outcome
+			}
+			rootOutcome, rootFound := byProcess[parent.ID()]
+			childOutcome, childFound := byProcess[child.ID()]
+			rootStartedAt, rootStarted := rootOutcome.StartedAt()
+			if !rootFound || !rootOutcome.Admission().Relation().IsRoot() ||
+				!rootStarted || rootStartedAt != parent.StartedAt() {
+				t.Fatalf("root outcome = %#v", rootOutcome)
+			}
+			parentID, hasParent := childOutcome.Admission().Relation().ParentID()
+			childStartedAt, childStarted := childOutcome.StartedAt()
+			if !childFound || !hasParent || parentID != parent.ID() ||
+				!childStarted || childStartedAt != child.StartedAt() {
+				t.Fatalf("child outcome = %#v", childOutcome)
+			}
+			if err := engine.Close(); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
@@ -245,45 +256,56 @@ func TestRejectingAbortedProcessOutcomePreservesBothFailures(t *testing.T) {
 }
 
 func TestRejectingStartedChildOutcomePreventsChildPublication(t *testing.T) {
-	childDeployment := newChildTestDeployment(t)
-	parentDeployment := newCrossParentDeployment(t, childDeployment.DeploymentRef())
-	rejection := errors.New("child outcome was not accepted")
-	var childID ProcessID
-	engine, err := NewEngine(EngineConfig{
-		DeploymentResolver: deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment},
-		ProcessStartOutcomeAcknowledger: ProcessStartOutcomeAcknowledgerFunc(func(
-			_ context.Context,
-			outcome ProcessStartOutcome,
-		) error {
-			if outcome.Admission().Relation().IsRoot() {
-				return nil
+	for _, mode := range []struct {
+		name       string
+		durability TreeDurability
+	}{
+		{name: "ephemeral"},
+		{name: "durable", durability: &recordingTreeDurability{}},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			childDeployment := newChildTestDeployment(t)
+			parentDeployment := newCrossParentDeployment(t, childDeployment.DeploymentRef())
+			rejection := errors.New("child outcome was not accepted")
+			var childID ProcessID
+			engine, err := NewEngine(EngineConfig{
+				TreeDurability:     mode.durability,
+				DeploymentResolver: deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment},
+				ProcessStartOutcomeAcknowledger: ProcessStartOutcomeAcknowledgerFunc(func(
+					_ context.Context,
+					outcome ProcessStartOutcome,
+				) error {
+					if outcome.Admission().Relation().IsRoot() {
+						return nil
+					}
+					childID = outcome.Admission().Relation().ProcessID()
+					return rejection
+				}),
+			})
+			if err != nil {
+				t.Fatal(err)
 			}
-			childID = outcome.Admission().Relation().ProcessID()
-			return rejection
-		}),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	input, _ := EncodeInput(struct{}{})
-	parent, err := engine.Start(t.Context(), parentDeployment, input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	output := childTestResult(t, mustAwait(t, parent))
-	if output.Failures != 1 || len(output.FailureCodes) != 1 ||
-		output.FailureCodes[0] != "engine.child.start_outcome.unacknowledged" {
-		t.Fatalf("parent output = %#v", output)
-	}
-	if !childID.Valid() {
-		t.Fatal("child outcome was not proposed")
-	}
-	if _, published := engine.Process(childID); published {
-		t.Fatal("unacknowledged child was published")
-	}
-	assertNoPendingProcessStarts(t, engine)
-	if err := engine.Close(); err != nil {
-		t.Fatal(err)
+			input, _ := EncodeInput(struct{}{})
+			parent, err := engine.Start(t.Context(), parentDeployment, input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			output := childTestResult(t, mustAwait(t, parent))
+			if output.Failures != 1 || len(output.FailureCodes) != 1 ||
+				output.FailureCodes[0] != "engine.child.start_outcome.unacknowledged" {
+				t.Fatalf("parent output = %#v", output)
+			}
+			if !childID.Valid() {
+				t.Fatal("child outcome was not proposed")
+			}
+			if _, published := engine.Process(childID); published {
+				t.Fatal("unacknowledged child was published")
+			}
+			assertNoPendingProcessStarts(t, engine)
+			if err := engine.Close(); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 

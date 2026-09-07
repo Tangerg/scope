@@ -39,32 +39,6 @@ func TestProcessAdmissionContainsOnlyFrameworkStartContracts(t *testing.T) {
 	}
 }
 
-func TestProcessStartOutcomeContainsOnlyFrameworkLifecycleContracts(t *testing.T) {
-	typeOf := reflect.TypeFor[ProcessStartOutcome]()
-	want := []struct {
-		name   string
-		typeOf reflect.Type
-	}{
-		{name: "admission", typeOf: reflect.TypeFor[ProcessAdmission]()},
-		{name: "status", typeOf: reflect.TypeFor[ProcessStartOutcomeStatus]()},
-		{name: "startedAt", typeOf: reflect.TypeFor[time.Time]()},
-		{name: "failure", typeOf: reflect.TypeFor[Failure]()},
-		{name: "previousTreeDigest", typeOf: reflect.TypeFor[Digest]()},
-		{name: "hasPreviousTree", typeOf: reflect.TypeFor[bool]()},
-		{name: "treeSnapshot", typeOf: reflect.TypeFor[TreeSnapshot]()},
-		{name: "hasTreeSnapshot", typeOf: reflect.TypeFor[bool]()},
-	}
-	if typeOf.NumField() != len(want) {
-		t.Fatalf("ProcessStartOutcome fields = %d, want %d", typeOf.NumField(), len(want))
-	}
-	for index, expected := range want {
-		field := typeOf.Field(index)
-		if field.IsExported() || field.Name != expected.name || field.Type != expected.typeOf {
-			t.Fatalf("ProcessStartOutcome field %d = %s %v", index, field.Name, field.Type)
-		}
-	}
-}
-
 func TestPreparedWaitingSubtreeCancellationOwnsOnlyFrameworkState(t *testing.T) {
 	typeOf := reflect.TypeFor[PreparedWaitingSubtreeCancellation]()
 	want := []struct {

@@ -154,13 +154,12 @@ type treeCommit struct {
 }
 
 type pendingChildOutcome struct {
-	parentID           ProcessID
-	effectID           EffectID
-	plan               *childStartPlan
-	result             childStartJobResult
-	startedAt          time.Time
-	event              Event
-	prospectiveApplied bool
+	parentID  ProcessID
+	effectID  EffectID
+	plan      *childStartPlan
+	result    childStartJobResult
+	startedAt time.Time
+	event     Event
 }
 
 type treeCommitCompletion struct {

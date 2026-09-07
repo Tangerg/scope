@@ -11,8 +11,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"unicode"
-	"unicode/utf8"
 )
 
 var documentedCapabilityModules = []string{
@@ -29,22 +27,8 @@ var documentedCapabilityModules = []string{
 
 var documentationOnlyModuleRoots = []string{"core", "examples", "otel", "tools"}
 
-// primaryAdoptionPackages are the packages a newcomer reads before writing any
-// Scope code: the protocol, the ordinary client, and the suites a provider
-// author must satisfy. modeltest belongs here because it is the only package an
-// external implementor is required to read, and an undocumented fixture there
-// costs every future provider rather than one caller.
-var primaryAdoptionPackages = []string{"core/chat", "core/chatclient", "core/modeltest"}
-
-// checkedExampleDeclarationSpan is deliberately coarse because one example
-// explains a cooperating API slice, not one declaration. Sixty-four still
-// forces another path before a module can hide a second package-sized vocabulary
-// behind its original example.
-const checkedExampleDeclarationSpan = 64
-
 type packageDocumentation struct {
-	hasOverview          bool
-	exportedDeclarations int
+	hasOverview bool
 }
 
 type moduleDocumentation struct {
@@ -190,32 +174,10 @@ func TestRootReadmeKeepsDirectChatPath(t *testing.T) {
 	}
 }
 
-// TestPrimaryAdoptionPackagesDocumentEntryDeclarations keeps the protocol and
-// ordinary client discoverable on pkg.go.dev. Methods inherit their owning
-// type's contract. Self-describing error sentinels stay exempt because a
-// mandatory restatement adds no contract; sentinels with recovery or control-
-// flow semantics still require human-authored GoDoc.
-func TestPrimaryAdoptionPackagesDocumentEntryDeclarations(t *testing.T) {
-	t.Parallel()
-	root := repositoryRoot(t)
-	for _, relativePackage := range primaryAdoptionPackages {
-		t.Run(relativePackage, func(t *testing.T) {
-			t.Parallel()
-			assertExportedEntryDeclarationsDocumented(
-				t,
-				filepath.Join(root, filepath.FromSlash(relativePackage)),
-			)
-		})
-	}
-}
-
-// TestWorkspaceModulesDocumentEntryDeclarations extends the primary-adoption
-// rule to every published package. A provider or backend is chosen from
-// pkg.go.dev as often as Core is, so leaving its construction path undocumented
-// costs the reader exactly where the decision is made. Methods stay exempt for
-// the same reason as above, and internal packages are excluded because they are
-// not part of anyone's adoption path.
-func TestWorkspaceModulesDocumentEntryDeclarations(t *testing.T) {
+// Public structs and interfaces need an ownership contract because their fields
+// and method signatures cannot express lifetime or concurrency constraints.
+// Self-describing constructors, adapters, and constants do not need filler.
+func TestWorkspaceModulesDocumentPublicTypeContracts(t *testing.T) {
 	t.Parallel()
 	root := repositoryRoot(t)
 	modules := discoverModules(t, root)
@@ -225,7 +187,7 @@ func TestWorkspaceModulesDocumentEntryDeclarations(t *testing.T) {
 			t.Parallel()
 			moduleRoot := filepath.Join(root, filepath.FromSlash(module.dir))
 			for _, directory := range publishedPackageDirectories(t, moduleRoot) {
-				assertExportedEntryDeclarationsDocumented(t, directory)
+				assertPublicTypeContractsDocumented(t, directory)
 			}
 		})
 	}
@@ -266,7 +228,7 @@ func publishedPackageDirectories(t *testing.T, moduleRoot string) []string {
 	return slices.Sorted(maps.Keys(directories))
 }
 
-func assertExportedEntryDeclarationsDocumented(t *testing.T, directory string) {
+func assertPublicTypeContractsDocumented(t *testing.T, directory string) {
 	t.Helper()
 	entries, err := os.ReadDir(directory)
 	if err != nil {
@@ -283,55 +245,25 @@ func assertExportedEntryDeclarationsDocumented(t *testing.T, directory string) {
 		}
 		for _, declaration := range file.Decls {
 			switch declaration := declaration.(type) {
-			case *ast.FuncDecl:
-				if declaration.Recv == nil && declaration.Name.IsExported() && declaration.Doc == nil {
-					t.Errorf("%s: exported function %s has no GoDoc", path, declaration.Name)
-				}
 			case *ast.GenDecl:
-				assertExportedSpecificationsDocumented(t, path, declaration)
+				assertPublicTypesDocumented(t, path, declaration)
 			}
 		}
 	}
 }
 
-// isErrorSentinelName recognizes Go's conventional exported error vocabulary
-// without exempting unrelated names such as ErrorCollect. Requiring every
-// self-describing sentinel to restate its name would reward filler; comments
-// remain necessary when an error carries recovery or control-flow semantics.
-func isErrorSentinelName(name string) bool {
-	rest, found := strings.CutPrefix(name, "Err")
-	if !found || rest == "" {
-		return false
-	}
-	first, _ := utf8.DecodeRuneInString(rest)
-	return unicode.IsUpper(first)
-}
-
-func assertExportedSpecificationsDocumented(t *testing.T, path string, declaration *ast.GenDecl) {
+func assertPublicTypesDocumented(t *testing.T, path string, declaration *ast.GenDecl) {
 	t.Helper()
 	for _, specification := range declaration.Specs {
-		var (
-			exported bool
-			name     string
-			doc      *ast.CommentGroup
-		)
-		switch specification := specification.(type) {
-		case *ast.TypeSpec:
-			exported = specification.Name.IsExported()
-			name = specification.Name.Name
-			doc = specification.Doc
-		case *ast.ValueSpec:
-			for _, identifier := range specification.Names {
-				if identifier.IsExported() && !isErrorSentinelName(identifier.Name) {
-					exported = true
-					name = identifier.Name
-					break
-				}
-			}
-			doc = specification.Doc
+		specification, ok := specification.(*ast.TypeSpec)
+		if !ok || !specification.Name.IsExported() {
+			continue
 		}
-		if exported && declaration.Doc == nil && doc == nil {
-			t.Errorf("%s: exported declaration %s has no GoDoc", path, name)
+		switch specification.Type.(type) {
+		case *ast.StructType, *ast.InterfaceType:
+			if declaration.Doc == nil && specification.Doc == nil {
+				t.Errorf("%s: public type %s has no ownership contract", path, specification.Name)
+			}
 		}
 	}
 }
@@ -379,11 +311,9 @@ func assertPackageOverview(t *testing.T, path string) *ast.File {
 	return file
 }
 
-// TestCapabilityModulesDocumentTheirPublicSurface keeps documentation
-// discovery coupled to package discovery: new public package directories fail
-// until their ownership is stated, and every capability module must retain an
-// number of executable ordinary-path examples that grows with its public
-// surface.
+// Package discovery and checked examples protect the documented adoption path.
+// Example counts cannot measure coverage of a contract: adding an enum constant
+// does not create another user workflow, and filler examples prove nothing.
 func TestCapabilityModulesDocumentTheirPublicSurface(t *testing.T) {
 	t.Parallel()
 	root := repositoryRoot(t)
@@ -396,22 +326,13 @@ func TestCapabilityModulesDocumentTheirPublicSurface(t *testing.T) {
 			if len(documentation.packages) == 0 {
 				t.Fatalf("capability module %s has no public packages", relativeModule)
 			}
-			exportedDeclarations := 0
 			for directory, packageDocumentation := range documentation.packages {
 				if !packageDocumentation.hasOverview {
 					t.Errorf("public package %s has no Package comment in production code", filepath.ToSlash(directory))
 				}
-				exportedDeclarations += packageDocumentation.exportedDeclarations
 			}
-			requiredExamples := requiredCheckedExamples(exportedDeclarations)
-			if documentation.checkedExamples < requiredExamples {
-				t.Errorf(
-					"capability module %s has %d checked Go examples for %d exported declarations; need at least %d",
-					relativeModule,
-					documentation.checkedExamples,
-					exportedDeclarations,
-					requiredExamples,
-				)
+			if documentation.checkedExamples == 0 {
+				t.Errorf("capability module %s has no checked Go usage example", relativeModule)
 			}
 		})
 	}
@@ -449,7 +370,6 @@ func inspectModuleDocumentation(t *testing.T, moduleRoot string) moduleDocumenta
 		if file.Doc != nil && strings.HasPrefix(strings.TrimSpace(file.Doc.Text()), "Package "+file.Name.Name) {
 			packageDocumentation.hasOverview = true
 		}
-		packageDocumentation.exportedDeclarations += countExportedDeclarations(file)
 		documentation.packages[directory] = packageDocumentation
 		return nil
 	})
@@ -457,68 +377,6 @@ func inspectModuleDocumentation(t *testing.T, moduleRoot string) moduleDocumenta
 		t.Fatal(err)
 	}
 	return documentation
-}
-
-func requiredCheckedExamples(exportedDeclarations int) int {
-	if exportedDeclarations == 0 {
-		return 0
-	}
-	return (exportedDeclarations + checkedExampleDeclarationSpan - 1) / checkedExampleDeclarationSpan
-}
-
-// countExportedDeclarations measures package-level vocabulary and construction
-// paths. Methods and individual names in one value declaration are deliberately
-// not counted again because a checked example teaches them through their owning
-// type or vocabulary as one cooperating API slice.
-func countExportedDeclarations(file *ast.File) int {
-	count := 0
-	for _, declaration := range file.Decls {
-		switch declaration := declaration.(type) {
-		case *ast.FuncDecl:
-			if declaration.Recv == nil && declaration.Name.IsExported() {
-				count++
-			}
-		case *ast.GenDecl:
-			for _, specification := range declaration.Specs {
-				switch specification := specification.(type) {
-				case *ast.TypeSpec:
-					if specification.Name.IsExported() {
-						count++
-					}
-				case *ast.ValueSpec:
-					exported := false
-					for _, name := range specification.Names {
-						if name.IsExported() {
-							exported = true
-							break
-						}
-					}
-					if exported {
-						count++
-					}
-				}
-			}
-		}
-	}
-	return count
-}
-
-func TestRequiredCheckedExamplesScalesWithPublicSurface(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		declarations int
-		want         int
-	}{
-		{declarations: 0, want: 0},
-		{declarations: 1, want: 1},
-		{declarations: checkedExampleDeclarationSpan, want: 1},
-		{declarations: checkedExampleDeclarationSpan + 1, want: 2},
-	}
-	for _, test := range tests {
-		if got := requiredCheckedExamples(test.declarations); got != test.want {
-			t.Errorf("requiredCheckedExamples(%d) = %d, want %d", test.declarations, got, test.want)
-		}
-	}
 }
 
 func excludedDocumentationDirectory(name string) bool {

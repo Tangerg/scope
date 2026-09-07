@@ -9,27 +9,16 @@ import (
 )
 
 var (
-	// ErrDurabilityConflict reports that an idempotency key was previously
-	// committed with different content.
-	ErrDurabilityConflict = errors.New("agent: durability boundary conflicts with committed content")
-	// ErrTreeIncarnationConflict reports that a writer no longer owns the
-	// authoritative tree head it attempted to advance.
+	ErrDurabilityConflict      = errors.New("agent: durability boundary conflicts with committed content")
 	ErrTreeIncarnationConflict = errors.New("agent: tree incarnation conflict")
-	// ErrTreeDurabilityMismatch reports an attempt to restore a durable tree in
-	// an ephemeral Engine, or an ephemeral tree in a durable Engine.
-	ErrTreeDurabilityMismatch = errors.New("agent: tree durability mode mismatch")
-	// ErrTreeCaptureUnavailable reports that a durable tree cannot be captured
-	// through the ephemeral, caller-driven checkpoint API.
-	ErrTreeCaptureUnavailable = errors.New("agent: tree capture is unavailable in durable mode")
+	ErrTreeDurabilityMismatch  = errors.New("agent: tree durability mode mismatch")
+	ErrTreeCaptureUnavailable  = errors.New("agent: tree capture is unavailable in durable mode")
 )
 
-// EffectBoundaryKind identifies one monotonic durable transition of an
-// external Effect. The zero value is invalid.
+// EffectBoundaryKind is closed because recovery needs a defined continuation
+// for every acknowledged external Effect boundary.
 type EffectBoundaryKind string
 
-// These boundaries name the exact points at which durable state is committed.
-// They are a closed vocabulary because recovery reasons about them directly: a
-// boundary the kernel cannot name is one it cannot resume from.
 const (
 	EffectBoundaryInvalid  EffectBoundaryKind = ""
 	EffectBoundaryPending  EffectBoundaryKind = "pending"
@@ -53,8 +42,8 @@ func (e EffectBoundaryKind) String() string {
 	return string(e)
 }
 
-// EffectBoundary is an immutable proposal to atomically advance one tree head
-// together with one external Effect fact. Values are minted by Engine only.
+// EffectBoundary binds an external Effect fact to its prospective tree so a
+// Host cannot acknowledge dispatch or settlement independently of recovery state.
 type EffectBoundary struct {
 	kind               EffectBoundaryKind
 	request            EffectRequest
@@ -83,12 +72,8 @@ func newEffectBoundary(
 
 func (e EffectBoundary) Kind() EffectBoundaryKind { return e.kind }
 
-// Request returns the exact immutable dispatch request represented by this
-// boundary.
 func (e EffectBoundary) Request() EffectRequest { return e.request.clone() }
 
-// Settlement returns the settlement introduced by a settled or resolved
-// boundary. Pending boundaries return false.
 func (e EffectBoundary) Settlement() (Settlement, bool) {
 	return e.settlement.clone(), e.kind == EffectBoundarySettled || e.kind == EffectBoundaryResolved
 }
@@ -166,25 +151,26 @@ func sameBoundarySettlement(left, right Settlement) bool {
 	return leftErr == nil && rightErr == nil && bytes.Equal(leftJSON, rightJSON)
 }
 
-// TreeCheckpointKind identifies a Runtime-owned durable program-counter cut.
-// The zero value is invalid.
+// TreeCheckpointKind distinguishes absent-head creation from writer-fenced
+// updates, and stable owner cuts from fully parked or terminal trees.
 type TreeCheckpointKind string
 
-// These boundaries name the exact points at which durable state is committed.
-// They are a closed vocabulary because recovery reasons about them directly: a
-// boundary the kernel cannot name is one it cannot resume from.
 const (
-	TreeCheckpointInvalid TreeCheckpointKind = ""
-	// TreeCheckpointInput persists an admitted external Signal batch before
-	// acknowledging delivery. Sibling jobs may still be computing or dispatching;
-	// their snapshot contains only last-stable state or recorded Effect intent.
+	TreeCheckpointInvalid  TreeCheckpointKind = ""
+	TreeCheckpointStart    TreeCheckpointKind = "start"
+	TreeCheckpointChild    TreeCheckpointKind = "child"
 	TreeCheckpointInput    TreeCheckpointKind = "input"
 	TreeCheckpointParked   TreeCheckpointKind = "parked"
 	TreeCheckpointTerminal TreeCheckpointKind = "terminal"
 )
 
 func (t TreeCheckpointKind) Valid() bool {
-	return t == TreeCheckpointInput || t == TreeCheckpointParked || t == TreeCheckpointTerminal
+	switch t {
+	case TreeCheckpointStart, TreeCheckpointChild, TreeCheckpointInput, TreeCheckpointParked, TreeCheckpointTerminal:
+		return true
+	default:
+		return false
+	}
 }
 
 func (t TreeCheckpointKind) String() string {
@@ -194,8 +180,10 @@ func (t TreeCheckpointKind) String() string {
 	return string(t)
 }
 
-// TreeCheckpoint is an immutable Runtime-owned proposal to persist a safe
-// whole-tree cut. Values are minted by Engine only.
+// TreeCheckpoint keeps child publication, input acceptance, and execution
+// progress on the same head so recovery cannot observe partially accepted work.
+// Input and child cuts can coexist with sibling jobs because those jobs expose
+// only last-stable state or already recorded Effect intent.
 type TreeCheckpoint struct {
 	kind               TreeCheckpointKind
 	previousTreeDigest Digest
@@ -223,8 +211,14 @@ func (t TreeCheckpoint) PreviousTreeDigest() Digest { return t.previousTreeDiges
 func (t TreeCheckpoint) TreeSnapshot() TreeSnapshot { return t.treeSnapshot }
 
 func (t TreeCheckpoint) Valid() bool {
-	if !t.kind.Valid() || !t.previousTreeDigest.Valid() || !t.treeSnapshot.Valid() ||
-		t.previousTreeDigest == t.treeSnapshot.Digest() {
+	if !t.kind.Valid() || !t.treeSnapshot.Valid() {
+		return false
+	}
+	if t.kind == TreeCheckpointStart {
+		if t.previousTreeDigest != (Digest{}) {
+			return false
+		}
+	} else if !t.previousTreeDigest.Valid() || t.previousTreeDigest == t.treeSnapshot.Digest() {
 		return false
 	}
 	_, durable := t.treeSnapshot.IncarnationID()
@@ -232,7 +226,11 @@ func (t TreeCheckpoint) Valid() bool {
 }
 
 func (t TreeCheckpoint) matchesSafeCut() bool {
-	if t.kind == TreeCheckpointInput {
+	if t.kind == TreeCheckpointStart {
+		snapshots := t.treeSnapshot.ProcessSnapshots()
+		return len(snapshots) == 1 && snapshots[0].Status() == StatusRunning
+	}
+	if t.kind == TreeCheckpointInput || t.kind == TreeCheckpointChild {
 		return true
 	}
 	allTerminal := true
@@ -260,9 +258,8 @@ func (t TreeCheckpoint) matchesSafeCut() bool {
 		t.kind == TreeCheckpointParked && !allTerminal
 }
 
-// TreeActivation transfers active-writer authority from one durable snapshot
-// to a prospective snapshot with a freshly minted incarnation. Values are
-// minted by Engine only.
+// TreeActivation changes writer identity and recovery state together so the
+// previous Engine cannot continue committing after restoration takes ownership.
 type TreeActivation struct {
 	previousIncarnationID TreeIncarnationID
 	previousTreeDigest    Digest
@@ -308,19 +305,25 @@ func (t TreeActivation) Valid() bool {
 	return durable && incarnationID == t.incarnationID
 }
 
-// TreeDurability is the complete Host port for active recovery. Every boundary
-// that carries a prospective tree must atomically compare and advance the same
-// authoritative head; root-aborted outcomes only close their admission fact.
-// The implementation owns storage, transactions, product facts, deadlines,
-// and ambiguous-commit reconciliation; Engine owns ordering and fencing.
+// TreeDurability keeps all recoverable state on one authoritative head so a
+// restored writer cannot race its predecessor. Every commit must atomically
+// compare and advance that head; accepting a duplicate requires identical
+// content and a head that still matches the proposal. Hosts own storage,
+// deadlines, and reconciliation when a commit response is lost.
+//
+// A start checkpoint requires an absent head and a zero PreviousTreeDigest.
+// Other checkpoints and Effects require the current incarnation and digest.
+// Activation must replace both together to fence the previous writer before
+// restoration can publish a Process. Initialization acknowledgment is separate
+// because an aborted root has no execution tree to persist.
 type TreeDurability interface {
-	ProcessStartOutcomeAcknowledger
-	// ActivateTree atomically fences the previous incarnation and installs the
-	// prospective snapshot before a restored tree is published.
+	// ActivateTree must fence the previous writer before restored work can run.
 	ActivateTree(ctx context.Context, activation TreeActivation) error
-	// CommitEffect atomically records one Effect fact and advances the tree head.
+	// CommitEffect must keep the Effect fact and tree head atomic so recovery
+	// cannot disagree with the dispatch or settlement that was acknowledged.
 	CommitEffect(ctx context.Context, boundary EffectBoundary) error
-	// CommitCheckpoint atomically advances the tree head to a Runtime-owned safe cut.
+	// CommitCheckpoint must compare an absent head for start, or the current
+	// head otherwise, to prevent publication from overwriting another writer.
 	CommitCheckpoint(ctx context.Context, checkpoint TreeCheckpoint) error
 }
 

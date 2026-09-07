@@ -316,18 +316,11 @@ func (t *treeRuntime) applyChildStartCompletion(
 		parentID: parent.controller.processID, effectID: job.effectID,
 		plan: plan, result: result, startedAt: job.startedAt,
 	}
-	if !result.admitted {
-		if err := t.applyChildOutcome(pending); err != nil {
-			t.failPreparedEffect(parent, "engine.child.settlement.invalid", err)
-		}
+	if err := t.applyChildOutcome(pending); err != nil {
+		t.failPreparedEffect(parent, "engine.child.settlement.invalid", err)
 		return
 	}
 	if t.engine.durability != nil {
-		if err := t.applyChildOutcome(pending); err != nil {
-			t.failDurability(err, parent.controller.processID, job.effectID)
-			return
-		}
-		pending.prospectiveApplied = true
 		if event, ok := parent.prepareSettlementEvent(
 			job.effectID, EffectTargetFramework,
 			pending.childSettlementStatus(), job.startedAt,
@@ -335,23 +328,18 @@ func (t *treeRuntime) applyChildStartCompletion(
 			pending.event = event
 		}
 		snapshot, err := t.captureTree()
-		if err != nil {
-			t.failDurability(err, parent.controller.processID, job.effectID)
-			return
+		if err == nil {
+			err = t.startCheckpoint(&treeCommit{
+				kind: treeCommitChildOutcome, processID: pending.parentID,
+				effectID: pending.effectID, snapshot: snapshot, child: pending,
+			}, TreeCheckpointChild)
 		}
-		outcome := pending.treeOutcome(t.head.digest(), snapshot)
-		t.startChildOutcomeCommit(pending, outcome, snapshot)
+		if err != nil {
+			t.discardProspectiveChild(pending)
+			t.failDurability(err, parent.controller.processID, job.effectID)
+		}
 		return
 	}
-	if t.engine.startOutcomeAcknowledger != nil {
-		t.startChildOutcomeCommit(pending, pending.lifecycleOutcome(), TreeSnapshot{})
-		return
-	}
-	if err := t.applyChildOutcome(pending); err != nil {
-		t.failPreparedEffect(parent, "engine.child.settlement.invalid", err)
-		return
-	}
-	pending.prospectiveApplied = true
 	if err := t.publishChildOutcome(pending); err != nil {
 		t.failPreparedEffect(parent, "engine.child.settlement.invalid", err)
 	}

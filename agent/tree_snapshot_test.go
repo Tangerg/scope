@@ -436,17 +436,16 @@ func TestDurableChildOutcomeCommitsWholeProspectiveTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var childOutcome ProcessStartOutcome
-	for _, outcome := range durability.startOutcomes() {
-		if outcome.Admission().Relation().ProcessID() == wantChildID {
-			childOutcome = outcome
+	var childCheckpoint TreeCheckpoint
+	for _, checkpoint := range durability.treeCheckpoints() {
+		if checkpoint.Kind() == TreeCheckpointChild {
+			childCheckpoint = checkpoint
 			break
 		}
 	}
-	previous, hasPrevious := childOutcome.PreviousTreeDigest()
-	tree, hasTree := childOutcome.TreeSnapshot()
-	if !childOutcome.Valid() || !hasPrevious || !previous.Valid() || !hasTree {
-		t.Fatalf("child outcome lacks durable tree facts: %#v", childOutcome)
+	tree := childCheckpoint.TreeSnapshot()
+	if !childCheckpoint.Valid() || !childCheckpoint.PreviousTreeDigest().Valid() {
+		t.Fatalf("child checkpoint lacks durable tree facts: %#v", childCheckpoint)
 	}
 	if len(tree.ProcessSnapshots()) != 2 || !snapshotByID(tree.ProcessSnapshots(), wantChildID).Valid() {
 		t.Fatalf("child outcome tree does not contain both Processes: %#v", tree.ProcessSnapshots())

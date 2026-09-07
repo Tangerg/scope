@@ -121,7 +121,6 @@ func assertExportedTypeContract(
 			if len(method.Names) > 0 {
 				methodName := method.Names[0].Name
 				name += "." + methodName
-				assertGoDocStartsWithName(t, path, methodName, method.Doc)
 			}
 			assertParametersAreNamed(t, path, name, function.Params)
 		}

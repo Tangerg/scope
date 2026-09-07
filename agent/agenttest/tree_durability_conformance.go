@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -11,21 +12,21 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-// TreeDurabilityConformanceDriver exposes one empty adapter instance and its
-// authoritative head reader to the reusable TreeDurability contract suite.
+// TreeDurabilityConformanceDriver separates commits from reads so the suite can
+// detect acknowledgments that did not install the claimed authoritative head.
 type TreeDurabilityConformanceDriver interface {
-	// TreeDurability returns the adapter under test.
+	// TreeDurability must share storage with LoadTree so the suite can verify
+	// acknowledged writes through an independent read.
 	TreeDurability() agent.TreeDurability
-	// LoadTree reads the current authoritative head without activating it.
+	// LoadTree must not activate the tree, because observation cannot take
+	// ownership from the writer being tested.
 	LoadTree(ctx context.Context, rootID agent.ProcessID) (agent.TreeSnapshot, bool, error)
 }
 
-// RunTreeDurabilityConformance exercises base-head creation, same-content
-// callback retry, pending/settled/resolved Effect boundaries, Input/Parked/Terminal
-// checkpoints, old-writer fencing, and recovery after callback failures before
-// and after the underlying commit. It checks head contents, dispatch counts,
-// unknown outcomes, and publication ordering without assuming a storage engine.
-// Each factory call must return a new driver backed by an empty isolated store.
+// RunTreeDurabilityConformance injects failures on both sides of storage commits
+// because a lost response must not cause duplicate dispatch or false publication.
+// Each factory call must return an empty isolated store so prior head ownership
+// cannot mask a missing compare-and-swap or idempotency check.
 func RunTreeDurabilityConformance(
 	t *testing.T,
 	factory func() TreeDurabilityConformanceDriver,
@@ -133,7 +134,7 @@ func runConcurrentRestoreConformance(
 	}
 	waitForConformanceStatus(t, original, agent.StatusPaused)
 	head := waitForConformanceHeadStatus(t, driver, original.ID(), agent.StatusPaused)
-	probe.assertSingleCheckpoint(t, agent.TreeCheckpointParked)
+	probe.assertCheckpoints(t, agent.TreeCheckpointStart, agent.TreeCheckpointParked)
 
 	results := make(chan conformanceRestoreResult, 2)
 	for range 2 {
@@ -274,15 +275,6 @@ func newConformanceDurabilityProbe(
 	return &conformanceDurabilityProbe{durability: durability}
 }
 
-func (c *conformanceDurabilityProbe) AcknowledgeProcessStartOutcome(
-	ctx context.Context,
-	outcome agent.ProcessStartOutcome,
-) error {
-	return c.retry(func() error {
-		return c.durability.AcknowledgeProcessStartOutcome(ctx, outcome)
-	})
-}
-
 func (c *conformanceDurabilityProbe) ActivateTree(
 	ctx context.Context,
 	activation agent.TreeActivation,
@@ -340,15 +332,15 @@ func (c *conformanceDurabilityProbe) assertEffectLifecycle(t *testing.T) {
 	}
 }
 
-func (c *conformanceDurabilityProbe) assertSingleCheckpoint(
+func (c *conformanceDurabilityProbe) assertCheckpoints(
 	t *testing.T,
-	want agent.TreeCheckpointKind,
+	want ...agent.TreeCheckpointKind,
 ) {
 	t.Helper()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.checkpoints) != 1 || c.checkpoints[0] != want {
-		t.Fatalf("checkpoint order=%v, want [%s]", c.checkpoints, want)
+	if !slices.Equal(c.checkpoints, want) {
+		t.Fatalf("checkpoint order=%v, want %v", c.checkpoints, want)
 	}
 }
 

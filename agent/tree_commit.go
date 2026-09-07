@@ -117,52 +117,11 @@ func (t *treeRuntime) startUnknownResolutionCommit(
 	return ErrEffectNotPending
 }
 
-func (p *pendingChildOutcome) lifecycleOutcome() ProcessStartOutcome {
-	if p.result.started() {
-		return startedProcessOutcome(p.result.admission, p.result.startedAt)
-	}
-	return abortedProcessOutcome(p.result.admission, p.result.failure)
-}
-
-func (p *pendingChildOutcome) treeOutcome(
-	previousTreeDigest Digest,
-	treeSnapshot TreeSnapshot,
-) ProcessStartOutcome {
-	if p.result.started() {
-		return startedProcessTreeOutcome(
-			p.result.admission, p.result.startedAt,
-			previousTreeDigest, true, treeSnapshot,
-		)
-	}
-	return abortedProcessTreeOutcome(
-		p.result.admission, p.result.failure, previousTreeDigest, treeSnapshot,
-	)
-}
-
 func (p *pendingChildOutcome) childSettlementStatus() SettlementStatus {
 	if _, failed := p.result.result.Failure(); failed {
 		return SettlementStatusFailed
 	}
 	return SettlementStatusSucceeded
-}
-
-func (t *treeRuntime) startChildOutcomeCommit(
-	pending *pendingChildOutcome,
-	outcome ProcessStartOutcome,
-	snapshot TreeSnapshot,
-) {
-	if t.commit != nil || pending == nil || !outcome.Valid() {
-		panic("agent: invalid concurrent child outcome commit")
-	}
-	commit := &treeCommit{
-		kind: treeCommitChildOutcome, processID: pending.parentID,
-		effectID: pending.effectID, snapshot: snapshot, child: pending,
-	}
-	t.setTreeCommit(commit)
-	go func() {
-		err := t.engine.acknowledgeProcessStartOutcome(t.context, outcome)
-		t.commitDone <- treeCommitCompletion{commit: commit, err: err}
-	}()
 }
 
 func (t *treeRuntime) startCheckpointCommit(
@@ -214,22 +173,6 @@ func (t *treeRuntime) applyTreeCommitCompletion(completion treeCommitCompletion)
 }
 
 func (t *treeRuntime) applyFailedTreeCommit(commit *treeCommit, commitErr error) {
-	if commit.kind == treeCommitChildOutcome && t.engine.durability == nil {
-		pending := commit.child
-		pending.result = childStartJobResult{result: failedChildStart(
-			pending.plan.spec,
-			FailureKindExternal,
-			"engine.child.start_outcome.unacknowledged",
-			commitErr,
-		)}
-		if err := t.publishChildOutcome(pending); err != nil {
-			t.failPreparedEffect(
-				t.processes[pending.parentID], "engine.child.settlement.invalid", err,
-			)
-		}
-		t.markRunnable(pending.parentID)
-		return
-	}
 	if commit.response != nil {
 		commit.response <- processResponse{err: commitErr}
 	}
@@ -282,7 +225,7 @@ func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 }
 
 func (t *treeRuntime) discardProspectiveChild(pending *pendingChildOutcome) {
-	if pending == nil || pending.plan == nil || !pending.prospectiveApplied ||
+	if pending == nil || pending.plan == nil ||
 		!pending.result.started() {
 		return
 	}
@@ -303,12 +246,6 @@ func (t *treeRuntime) discardProspectiveChild(pending *pendingChildOutcome) {
 func (t *treeRuntime) publishChildOutcome(pending *pendingChildOutcome) error {
 	if pending == nil || pending.plan == nil {
 		return errors.New("child outcome is incomplete")
-	}
-	if !pending.prospectiveApplied {
-		if err := t.applyChildOutcome(pending); err != nil {
-			return err
-		}
-		pending.prospectiveApplied = true
 	}
 	if pending.result.started() {
 		child := t.processes[pending.plan.childID]
