@@ -20,59 +20,44 @@ var (
 	ErrProcessAlreadyExists        = errors.New("agent: process identity already exists")
 )
 
-// EngineConfig contains only cross-Strategy execution mechanics. Definition,
-// Dispatcher, schema, and behavior configuration belong to each Deployment.
+// EngineConfig keeps scheduling and authority policy outside Deployments so a
+// strategy cannot change Engine-wide constraints through its behavior binding.
 type EngineConfig struct {
-	// TreeDurability enables active recovery for complete root Process trees. It
-	// owns the atomic Host transaction behind Effect, checkpoint, and
-	// activation boundaries. Nil selects zero-configuration ephemeral execution.
+	// A nil port permits ephemeral execution without requiring storage. A port
+	// makes publication wait for an acknowledged, recoverable tree.
 	TreeDurability TreeDurability
 
-	// ProcessStartOutcomeAcknowledger enables the optional conclusive handshake
-	// after an accepted admission. A started outcome is acknowledged before
-	// Process publication; an aborted outcome guarantees no publication.
 	ProcessStartOutcomeAcknowledger ProcessStartOutcomeAcknowledger
 
-	// DeploymentResolver supplies exact Deployments requested by child Effects
-	// and tree restoration. It is unnecessary for same-Deployment recursion.
-	// Resolution is a bounded, context-free local binding lookup only; the
-	// resolver does not perform routing or own Process construction or lifecycle.
+	// Exact local bindings prevent restoration from silently selecting different
+	// behavior. Same-Deployment recursion needs no resolver.
 	DeploymentResolver DeploymentResolver
 
-	// ProcessAdmitter is the optional admission boundary immediately before any
-	// root or child Process initializes. It observes immutable Framework facts and
-	// may reject, but cannot modify resource or capability allocation.
 	ProcessAdmitter ProcessAdmitter
 
-	// EventListeners receive ordered facts for each Process. Different
-	// Processes may call a listener concurrently.
 	EventListeners []EventListener
 
-	// DeltaListeners receive best-effort streaming increments from the shared
-	// bounded queue. Delivery to each listener is sequential.
 	DeltaListeners []DeltaListener
 
-	// DeltaBufferCapacity bounds the Engine-wide pending Delta queue. Zero uses
-	// the documented internal default; negative values are invalid.
+	// A bounded queue prevents slow listeners from retaining unlimited Deltas.
+	// Zero selects the library default; negative capacities are invalid.
 	DeltaBufferCapacity int
 
-	// Limits supplies per-Process execution bounds. Each zero field inherits
-	// the corresponding value from DefaultLimits.
+	// Zero fields inherit DefaultLimits so partial overrides still produce
+	// complete per-Process resource bounds.
 	Limits Limits
 
-	// TreeLimits bounds child depth, lifetime fan-out, active children, and the
-	// total Process count in each independent tree.
 	TreeLimits TreeLimits
 
-	// Capabilities is the maximum authority of each root Process. Child Effects
-	// may only allocate subsets and Dispatcher Effects declare what they require.
+	// Children receive only subsets of root authority so composition cannot
+	// escalate privileges through a child Effect.
 	Capabilities CapabilitySet
 }
 
-// Engine is the sole owner of Process construction, scheduling, lifecycle,
-// Signal delivery, Effect dispatch, and snapshot boundaries. It contains no
-// Deployment catalog or Host persistence abstraction. Engine values must be
-// constructed with NewEngine and must not be copied after first use.
+// Engine keeps admission, publication, and execution under one owner because
+// resource reservations and recoverable tree state must describe the same
+// lifecycle. Construct it with NewEngine; copying an Engine would share its
+// registries while duplicating their synchronization.
 type Engine struct {
 	durability               TreeDurability
 	startOutcomeAcknowledger ProcessStartOutcomeAcknowledger
@@ -89,8 +74,8 @@ type Engine struct {
 	treeOperationsMu sync.Mutex
 	treeOperations   map[ProcessID]*treeOperation
 
-	// mu protects only the process/tree registry and admission reservations;
-	// each treeRuntime owns execution state after publication.
+	// Registry and reservation changes share this lock so publication cannot
+	// expose a Process whose admission still appears unreserved.
 	mu                      sync.RWMutex
 	processes               map[ProcessID]*processController
 	trees                   map[ProcessID]*treeRuntime
@@ -98,12 +83,11 @@ type Engine struct {
 	treeRestoreReservations map[ProcessID]*treeRestoration
 	children                map[childIdentity]ProcessID
 	childStartReservations  map[childIdentity]ProcessID
-	// A non-nil closeDone closes admission; receiving from it joins closure.
+	// One channel closes admission at allocation and joins completion on close,
+	// avoiding separate shutdown flags that could disagree.
 	closeDone chan struct{}
 }
 
-// ObservationFailures returns a concurrency-safe snapshot of listener panics
-// isolated by this Engine. The counts do not alter Process state or Usage.
 func (e *Engine) ObservationFailures() ObservationFailureCounts {
 	if e == nil || e.observation == nil {
 		return ObservationFailureCounts{}
@@ -111,11 +95,9 @@ func (e *Engine) ObservationFailures() ObservationFailureCounts {
 	return e.observation.failureCounts()
 }
 
-// FlushDeltas waits until every best-effort Delta accepted before this call has
-// finished delivery to the configured listeners. Deltas rejected by the bounded
-// queue remain dropped; the method is an ordering barrier, not a reliability
-// upgrade. Callers use it before publishing a final value that must not overtake
-// its already-accepted streaming observations.
+// FlushDeltas provides the ordering barrier needed before publishing a final
+// value that must not overtake accepted streaming observations. Dropped Deltas
+// remain lost because flushing cannot strengthen best-effort delivery.
 func (e *Engine) FlushDeltas(ctx context.Context) error {
 	if e == nil {
 		return ErrEngineClosed
@@ -192,9 +174,9 @@ type childIdentity struct {
 	key    ChildKey
 }
 
-// Start validates Input, creates exactly one Execution, registers its Process,
-// and starts the Engine-owned loop. Canceling ctx records a Host cancellation
-// or deadline; use a longer-lived context for execution beyond a request.
+// Start keeps ctx attached to the resulting tree so Host cancellation and
+// deadlines reach accepted work. Execution that outlives a request therefore
+// needs a longer-lived context.
 func (e *Engine) Start(ctx context.Context, deployment Deployment, input Input) (*Process, error) {
 	if e == nil {
 		return nil, ErrInvalidEngineConfig
@@ -268,9 +250,8 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Input) 
 	return &Process{controller: controller}, nil
 }
 
-// Run starts one Process and waits for its terminal result. Once Start succeeds,
-// Run waits for safe finalization even if ctx is canceled; the same ctx has
-// already recorded the Process termination intent.
+// Run keeps waiting after cancellation because accepted Effects must settle
+// before the terminal result can describe their outcomes truthfully.
 func (e *Engine) Run(ctx context.Context, deployment Deployment, input Input) (Result, error) {
 	process, err := e.Start(ctx, deployment, input)
 	if err != nil {
@@ -279,7 +260,6 @@ func (e *Engine) Run(ctx context.Context, deployment Deployment, input Input) (R
 	return process.Await(context.WithoutCancel(requireContext(ctx)))
 }
 
-// Process returns an Engine-issued handle for an identity known to this Engine.
 func (e *Engine) Process(id ProcessID) (*Process, bool) {
 	if e == nil || !id.Valid() {
 		return nil, false
@@ -293,10 +273,9 @@ func (e *Engine) Process(id ProcessID) (*Process, bool) {
 	return &Process{controller: controller}, true
 }
 
-// Close releases observation workers after all Process instances have completed
-// or stopped and their owned work has settled. Concurrent calls wait for the
-// same completed closure. Results and RuntimeErrors remain readable from
-// existing handles.
+// Close waits for owned work before stopping observation workers so lifecycle
+// completion cannot lose its final events. Concurrent callers join the same
+// closure; existing handles retain results and RuntimeErrors for later reads.
 func (e *Engine) Close() error {
 	if e == nil {
 		return nil

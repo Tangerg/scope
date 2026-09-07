@@ -15,21 +15,16 @@ const (
 
 var ErrInvalidFailure = errors.New("agent: invalid failure")
 
-// FailureKind is the stable framework-level classification of a failed
-// Process. It deliberately does not imply retryability or business semantics.
+// FailureKind stays independent of retryability so classifying a failure
+// cannot silently select a recovery or business policy.
 type FailureKind string
 
 const (
-	// FailureKindInvalid is the invalid zero value.
-	FailureKindInvalid FailureKind = ""
-	// FailureKindExecution identifies an ordinary Strategy execution failure.
+	FailureKindInvalid   FailureKind = ""
 	FailureKindExecution FailureKind = "execution"
-	// FailureKindContract identifies a violated Framework or Strategy contract.
-	FailureKindContract FailureKind = "contract"
-	// FailureKindExternal identifies failed external infrastructure.
-	FailureKindExternal FailureKind = "external"
-	// FailureKindPanic identifies a recovered panic at an execution boundary.
-	FailureKindPanic FailureKind = "panic"
+	FailureKindContract  FailureKind = "contract"
+	FailureKindExternal  FailureKind = "external"
+	FailureKindPanic     FailureKind = "panic"
 )
 
 func (f FailureKind) Valid() bool {
@@ -48,9 +43,9 @@ func (f FailureKind) String() string {
 	return string(f)
 }
 
-// Failure is an immutable, snapshot-safe classification and explanation. Code
-// is stable for machine decisions; Message is diagnostic and must not contain
-// secrets or unbounded external payloads.
+// Failure separates stable codes from diagnostic text so wording changes cannot
+// alter control flow. Its bounded UTF-8 message must survive snapshot JSON and
+// must exclude secrets.
 type Failure struct {
 	kind    FailureKind
 	code    string

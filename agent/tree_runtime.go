@@ -8,20 +8,20 @@ import (
 	"time"
 )
 
-// treeRuntime is the sole Framework state committer for one root Process tree.
-// Strategy reduction and external dispatch run as jobs; only their fenced
-// completions may re-enter this owner line.
+// treeRuntime serializes authoritative changes because sibling jobs must not
+// publish incompatible tree cuts. Fenced completions let computation and dispatch
+// run concurrently without sharing commit authority.
 type treeRuntime struct {
-	// Tree identity is fixed at publication; incarnation and head form the fence
-	// carried by every later durability transition.
+	// Incarnation and head travel together to prevent a retired writer from
+	// advancing the current tree.
 	engine      *Engine
 	rootID      ProcessID
 	incarnation TreeIncarnationID
 	head        *treeHead
 
-	// Atomics publish scheduling state outside the owner line. Freeze acquisition
-	// publishes a stable checkpoint and head; commands and completions remain
-	// the only mutation entrances back into the owner.
+	// External readers need scheduling liveness without acquiring execution
+	// state. Atomics expose that view while commands and completions preserve
+	// one mutation owner.
 	inflight    atomic.Int64
 	freezeHeld  atomic.Bool
 	context     context.Context

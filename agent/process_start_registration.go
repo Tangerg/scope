@@ -43,7 +43,7 @@ func (e *Engine) reserveProcessStart(
 	return e.reserveChildStart(reservation)
 }
 
-// reserveRootStart requires e.mu to be held.
+// Hold e.mu so root publication cannot overtake its admission reservation.
 func (e *Engine) reserveRootStart(reservation processStartReservation) error {
 	if reservation.childRequestDigest.Valid() {
 		return ErrInvalidProcessRelation
@@ -52,7 +52,7 @@ func (e *Engine) reserveRootStart(reservation processStartReservation) error {
 	return nil
 }
 
-// reserveChildStart requires e.mu to be held.
+// Hold e.mu so child identity and all tree limits are reserved atomically.
 func (e *Engine) reserveChildStart(reservation processStartReservation) error {
 	relation := reservation.relation
 	treeLimits := reservation.treeLimits
@@ -93,7 +93,8 @@ func (e *Engine) reserveChildStart(reservation processStartReservation) error {
 	return nil
 }
 
-// reservedTreeCounts requires e.mu to be held.
+// Hold e.mu so published Processes and pending reservations contribute to one
+// consistent limit check.
 func (e *Engine) reservedTreeCounts(rootID, parentID ProcessID) (
 	childCount uint32,
 	activeChildCount uint32,
