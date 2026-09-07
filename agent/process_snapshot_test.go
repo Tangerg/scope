@@ -25,6 +25,44 @@ func TestSnapshotStrictlyRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestPreparedSnapshotBindsCommittedExecutionState(t *testing.T) {
+	snapshot := preparedEngineTestSnapshot(t)
+	var projection struct {
+		CommittedState ExecutionState `json:"committed_execution_state"`
+		Prepared       struct {
+			CommittedDigest Digest         `json:"committed_execution_state_digest"`
+			CandidateState  ExecutionState `json:"candidate_state"`
+		} `json:"prepared"`
+	}
+	if err := json.Unmarshal(snapshot.JSON(), &projection); err != nil {
+		t.Fatal(err)
+	}
+	committed, err := json.Marshal(snapshot.CommittedExecutionState())
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(projection.CommittedState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := json.Marshal(projection.Prepared.CandidateState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(committed, encoded) || bytes.Equal(committed, candidate) ||
+		projection.Prepared.CommittedDigest != ComputeDigest(committed) {
+		t.Fatal("prepared snapshot did not preserve and identify the committed state")
+	}
+	wire, err := snapshot.wire()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire.Prepared.CommittedExecutionStateDigest = ComputeDigest(candidate)
+	if _, err := newProcessSnapshot(wire); !errors.Is(err, ErrInvalidSnapshot) {
+		t.Fatalf("prepared Step bound to its own candidate: %v", err)
+	}
+}
+
 func TestSnapshotRejectsAcceptedSignalCountThatDisagreesWithMailbox(t *testing.T) {
 	snapshot := completedEngineTestSnapshot(t)
 	wire, err := snapshot.wire()

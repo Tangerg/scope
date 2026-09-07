@@ -220,8 +220,8 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Input) 
 		e.treeLimits,
 		startedAt, StatusRunning,
 	)
-	loop := newProcessState(e, controller, deployment, execution, state, startedAt, e.limits)
-	runtime := newTreeRuntime(e, relation.RootID(), ctx, loop)
+	process := newProcessState(e, controller, deployment, execution, state, startedAt, e.limits)
+	runtime := newTreeRuntime(e, relation.RootID(), ctx, process)
 	if e.durability != nil {
 		incarnation, incarnationErr := newTreeIncarnationID()
 		if incarnationErr != nil {

@@ -26,9 +26,9 @@ const treeCommandBufferCapacity = 32
 
 // Process is an Engine-issued handle to one managed execution. Its fields and
 // construction remain private so a caller cannot create a second lifecycle
-// owner. Methods only submit control-plane requests to the owning Engine loop.
+// owner. Methods only submit control-plane requests to the owning tree runtime.
 // Except for RequestCancellation, ctx bounds both command submission and
-// response waiting. Once the Engine loop receives a command, canceling ctx does
+// response waiting. Once the tree runtime receives a command, canceling ctx does
 // not revoke it.
 type Process struct {
 	controller *processController
@@ -133,7 +133,7 @@ func (p *Process) Resume(ctx context.Context) error {
 }
 
 // RequestCancellation submits a caller-owned cancellation intent. A nil error
-// means the request entered the owning Engine loop's queue; it does not mean the
+// means the request entered the owning tree runtime's queue; it does not mean the
 // Process has reached a safe boundary or become terminal. Once submitted, ctx
 // cancellation cannot revoke the request. The first committed cancellation
 // intent maps to StatusCanceled with a host-cancellation cause.
@@ -191,8 +191,8 @@ func (p *Process) UnknownEffectIDs(ctx context.Context) ([]EffectID, error) {
 	return response.unknownEffectIDs, err
 }
 
-// Snapshot returns a consistent last-stable or prepared-step snapshot. Snapshot
-// does not imply that the caller persisted it durably. After a RuntimeError it
+// Snapshot returns a consistent capture of committed state and any prepared
+// Step. It does not imply that the caller persisted it durably. After a RuntimeError it
 // returns this instance's last acknowledged snapshot; the store may have
 // advanced further if a commit response was lost or another writer took over.
 func (p *Process) Snapshot(ctx context.Context) (ProcessSnapshot, error) {
@@ -298,7 +298,7 @@ func (r Result) Valid() bool {
 
 type processController struct {
 	// Identity and allocation are immutable after Engine publishes the Process,
-	// so callers can inspect them without contending with the runtime owner line.
+	// so callers can inspect them without contending with the runtime owner goroutine.
 	processID          ProcessID
 	deploymentRef      DeploymentRef
 	relation           ProcessRelation

@@ -375,7 +375,7 @@ func TestProcessEventSequenceAdvancesOnlyForConstructedEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = engine.Close() })
-	loop := &processState{
+	process := &processState{
 		engine: engine,
 		controller: &processController{
 			processID: processID, relation: relation, deploymentRef: deployment.DeploymentRef(),
@@ -383,29 +383,29 @@ func TestProcessEventSequenceAdvancesOnlyForConstructedEvents(t *testing.T) {
 		deployment: deployment,
 	}
 
-	loop.processEventSequence = 7
-	loop.publishEvent(
+	process.processEventSequence = 7
+	process.publishEvent(
 		context.Background(), "invalid event name", EventPhaseAttempt,
 		0, EffectID{}, emptyEventPayload(),
 	)
-	if loop.processEventSequence != 7 || len(events) != 0 {
-		t.Fatalf("invalid Event changed sequence to %d or published %d facts", loop.processEventSequence, len(events))
+	if process.processEventSequence != 7 || len(events) != 0 {
+		t.Fatalf("invalid Event changed sequence to %d or published %d facts", process.processEventSequence, len(events))
 	}
 
-	loop.publishEvent(
+	process.publishEvent(
 		context.Background(), EventProcessStarted, EventPhaseCommitted,
 		0, EffectID{}, emptyEventPayload(),
 	)
-	if loop.processEventSequence != 8 || len(events) != 1 || events[0].ProcessSequence() != 8 {
-		t.Fatalf("valid Event sequence = %d, events = %#v", loop.processEventSequence, events)
+	if process.processEventSequence != 8 || len(events) != 1 || events[0].ProcessSequence() != 8 {
+		t.Fatalf("valid Event sequence = %d, events = %#v", process.processEventSequence, events)
 	}
 
-	loop.processEventSequence = math.MaxUint64
-	loop.publishEvent(
+	process.processEventSequence = math.MaxUint64
+	process.publishEvent(
 		context.Background(), EventProcessResumed, EventPhaseCommitted,
 		0, EffectID{}, emptyEventPayload(),
 	)
-	if loop.processEventSequence != math.MaxUint64 || len(events) != 1 {
-		t.Fatalf("exhausted Event sequence wrapped to %d or published %d facts", loop.processEventSequence, len(events))
+	if process.processEventSequence != math.MaxUint64 || len(events) != 1 {
+		t.Fatalf("exhausted Event sequence wrapped to %d or published %d facts", process.processEventSequence, len(events))
 	}
 }

@@ -46,11 +46,11 @@
 // parallelism. Independent commit throughput means separate root trees.
 //
 // Each root tree has one private commit owner. Pure computation does not
-// occupy the owner line: a Process has at most one Step job in flight and
+// occupy the commit owner: a Process has at most one Step job in flight and
 // siblings run in parallel. Only the owner revalidates and adopts a result.
 // When a kill, pause, cancel, or a new incarnation expires an attempt, the
 // result and its error are discarded whole and the Execution is rebuilt from
-// last-stable state.
+// committed Execution state.
 //
 // Before adopting initial or candidate state, the Engine captures Snapshot and
 // successfully restores it through that Deployment's Definition. An

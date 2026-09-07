@@ -18,7 +18,7 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 		Budget{Steps: maxUint64, Effects: maxUint64, Signals: maxUint64},
 		CapabilitySet{}, DefaultTreeLimits(), time.Now(), StatusRunning,
 	)
-	loop := &processState{
+	process := &processState{
 		engine:         &Engine{},
 		controller:     controller,
 		status:         StatusRunning,
@@ -32,16 +32,16 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 		mailbox:        newSignalMailbox(),
 	}
 
-	schedulingFailure := loop.stepSchedulingFailure()
+	schedulingFailure := process.stepSchedulingFailure()
 	if schedulingFailure == nil {
 		t.Fatal("step scheduling failure is nil")
 	}
-	loop.fail(schedulingFailure.kind, schedulingFailure.code, schedulingFailure.cause)
+	process.fail(schedulingFailure.kind, schedulingFailure.code, schedulingFailure.cause)
 
-	if loop.status != StatusFailed {
-		t.Fatalf("status = %s, want %s", loop.status, StatusFailed)
+	if process.status != StatusFailed {
+		t.Fatalf("status = %s, want %s", process.status, StatusFailed)
 	}
-	failure, present := loop.termination.Failure()
+	failure, present := process.termination.Failure()
 	if !present || failure.Code() != "engine.limit.steps" {
 		t.Fatalf("failure = %+v, present = %t", failure, present)
 	}
@@ -51,7 +51,7 @@ func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 	limits := Limits{
 		MaxSteps: 10, MaxEffects: 10, MaxSignals: 3, MaxPendingSignals: 10,
 	}
-	loop := &processState{
+	process := &processState{
 		limits: limits,
 		budget: budgetFromLimits(limits),
 	}
@@ -71,7 +71,7 @@ func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 	firstSignal, _ := newSignal(firstSignalID, firstWait, json.RawMessage(`{}`))
 	secondSignal, _ := newSignal(secondSignalID, secondWait, json.RawMessage(`{}`))
 	finalization := &preparedStepFinalization{
-		loop: loop,
+		process: process,
 		prepared: &preparedStep{wire: preparedStepWire{
 			Effects: make([]preparedEffectWire, 2),
 		}},
@@ -104,7 +104,7 @@ func TestPreparedCompletionDoesNotRetainOutputWhenKillWins(t *testing.T) {
 		t.Fatal(err)
 	}
 	finalization := &preparedStepFinalization{
-		loop:     &processState{pendingControl: pendingControl{kill: kill}},
+		process:  &processState{pendingControl: pendingControl{kill: kill}},
 		prepared: &preparedStep{wire: preparedStepWire{Transition: transition}},
 	}
 	if err := finalization.prepareTransition(); err != nil {

@@ -961,9 +961,9 @@ func TestStepFailureDiscardsMutatedExecutionAndPreservesCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 	wire, _ := snapshot.wire()
-	state, _ := wireJSON.decode[engineTestState](wire.LastStableState.Payload())
+	state, _ := wireJSON.decode[engineTestState](wire.CommittedExecutionState.Payload())
 	if state.Phase != "ready" || wire.Mailbox.SignalCursor != 0 || wire.Prepared != nil {
-		t.Fatalf("last stable state=%+v cursor=%d prepared=%v", state, wire.Mailbox.SignalCursor, wire.Prepared)
+		t.Fatalf("committed execution state=%+v cursor=%d prepared=%v", state, wire.Mailbox.SignalCursor, wire.Prepared)
 	}
 	var finished ProcessFinishedFact
 	for _, event := range listener.snapshot() {

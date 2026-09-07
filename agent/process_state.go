@@ -10,27 +10,27 @@ import (
 
 type processState struct {
 	// These references establish ownership and remain fixed while the runtime
-	// owner line mutates the execution fields below.
+	// owner goroutine mutates the execution fields below.
 	engine     *Engine
 	controller *processController
 	deployment Deployment
 	execution  Execution
 
-	// Only treeRuntime's owner line mutates protocol and recovery state, keeping
+	// Only treeRuntime's owner goroutine mutates protocol and recovery state, keeping
 	// snapshots and externally visible transitions in one deterministic order.
-	startedAt            time.Time
-	finishedAt           time.Time
-	status               Status
-	committedSteps       uint64
-	processEventSequence uint64
-	lastStableState      ExecutionState
-	mailbox              signalMailbox
-	prepared             *preparedStep
-	currentWaitID        WaitID
-	pauseReason          string
-	pendingControl       pendingControl
-	finalOutput          Output
-	termination          Termination
+	startedAt               time.Time
+	finishedAt              time.Time
+	status                  Status
+	committedSteps          uint64
+	processEventSequence    uint64
+	committedExecutionState ExecutionState
+	mailbox                 signalMailbox
+	prepared                *preparedStep
+	currentWaitID           WaitID
+	pauseReason             string
+	pendingControl          pendingControl
+	finalOutput             Output
+	termination             Termination
 
 	// Allocation and authority stay adjacent because every child reservation
 	// must update both before it can become observable.
@@ -42,8 +42,8 @@ type processState struct {
 	capabilities           CapabilitySet
 	usage                  Usage
 
-	// Restore bookkeeping is consumed by the same owner line before new work is
-	// admitted, preventing recovered effects from racing fresh execution.
+	// Restore bookkeeping is consumed by the owner goroutine before admitting
+	// new work, preventing recovered effects from racing fresh execution.
 	restored        bool
 	restoredPending restoredPendingEffect
 	runtime         *treeRuntime
@@ -83,7 +83,7 @@ func newProcessState(
 ) *processState {
 	return &processState{
 		engine: engine, controller: controller, deployment: deployment, execution: execution,
-		startedAt: startedAt, status: StatusRunning, lastStableState: state,
+		startedAt: startedAt, status: StatusRunning, committedExecutionState: state,
 		mailbox: newSignalMailbox(), limits: limits, treeLimits: engine.treeLimits,
 		budget: controller.budget, capabilities: controller.capabilities,
 	}

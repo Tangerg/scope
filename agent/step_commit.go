@@ -68,15 +68,15 @@ func (p *processState) prepareStepResult(
 			}
 		}
 	}
-	digest, err := executionStateDigest(p.lastStableState)
+	digest, err := executionStateDigest(p.committedExecutionState)
 	if err != nil {
 		return &stepPreparationFailure{
-			kind: FailureKindContract, code: "engine.last_stable.invalid", cause: err,
+			kind: FailureKindContract, code: "engine.committed_execution_state.invalid", cause: err,
 		}
 	}
 	sequence := p.committedSteps + 1
 	wire := preparedStepWire{
-		StepSequence: sequence, LastStableDigest: digest, CandidateState: result.candidateState,
+		StepSequence: sequence, CommittedExecutionStateDigest: digest, CandidateState: result.candidateState,
 		SignalCursor: p.mailbox.committedSignalCursor() + uint64(transition.ConsumedSignals()),
 		Transition:   transition,
 	}
@@ -106,7 +106,7 @@ func (p *processState) finalizePrepared(ctx context.Context) error {
 }
 
 type preparedStepFinalization struct {
-	loop                  *processState
+	process               *processState
 	prepared              *preparedStep
 	mailbox               signalMailbox
 	consumedChildWaits    []WaitID
@@ -126,14 +126,14 @@ type preparedTransitionState struct {
 	closedChildWaits []WaitID
 }
 
-func newPreparedStepFinalization(loop *processState) (*preparedStepFinalization, error) {
-	mailbox := loop.mailbox.clone()
-	consumedChildWaits, err := mailbox.commit(loop.prepared.wire.Transition.ConsumedSignals())
+func newPreparedStepFinalization(process *processState) (*preparedStepFinalization, error) {
+	mailbox := process.mailbox.clone()
+	consumedChildWaits, err := mailbox.commit(process.prepared.wire.Transition.ConsumedSignals())
 	if err != nil {
 		return nil, err
 	}
 	return &preparedStepFinalization{
-		loop: loop, prepared: loop.prepared, mailbox: mailbox,
+		process: process, prepared: process.prepared, mailbox: mailbox,
 		consumedChildWaits: consumedChildWaits,
 	}, nil
 }
@@ -200,11 +200,11 @@ func (p *preparedStepFinalization) registerChildWait(record preparedEffectWire, 
 	if openErr := p.mailbox.openWait(spec.Key, signal, false); openErr != nil {
 		return openErr
 	}
-	if p.loop.runtime == nil {
+	if p.process.runtime == nil {
 		return ErrInvalidChildWait
 	}
-	immediateSignal, immediatelySatisfied, err := p.loop.runtime.registerChildWait(
-		p.loop.controller.processID, waitID, spec,
+	immediateSignal, immediatelySatisfied, err := p.process.runtime.registerChildWait(
+		p.process.controller.processID, waitID, spec,
 	)
 	if err != nil {
 		return err
@@ -218,17 +218,17 @@ func (p *preparedStepFinalization) registerChildWait(record preparedEffectWire, 
 
 func (p *preparedStepFinalization) enqueueImmediateChildSignals() error {
 	preparedSignals := uint64(len(p.prepared.wire.Effects))
-	reservedBudget := p.loop.effectiveReservedBudget()
+	reservedBudget := p.process.effectiveReservedBudget()
 	for index, signal := range p.immediateChildSignals {
 		acceptedSignals := uint64(index) + 1
 		if !resourceQuantitiesFit(
-			p.loop.limits.MaxSignals,
-			p.loop.usage.AcceptedSignals, preparedSignals, acceptedSignals,
+			p.process.limits.MaxSignals,
+			p.process.usage.AcceptedSignals, preparedSignals, acceptedSignals,
 		) || !resourceQuantitiesFit(
-			p.loop.limits.MaxPendingSignals, p.mailbox.pendingCount(), 1,
+			p.process.limits.MaxPendingSignals, p.mailbox.pendingCount(), 1,
 		) || !resourceQuantitiesFit(
-			p.loop.budget.Signals,
-			p.loop.usage.AcceptedSignals, reservedBudget.Signals,
+			p.process.budget.Signals,
+			p.process.usage.AcceptedSignals, reservedBudget.Signals,
 			preparedSignals, acceptedSignals,
 		) {
 			return ErrResourceLimitExceeded
@@ -286,7 +286,7 @@ func (p *preparedStepFinalization) prepareWaitTransition(transition Transition) 
 }
 
 func (p *preparedStepFinalization) prepareTermination(outcome stepOutcome) {
-	p.transition.termination = p.loop.resolveStepTermination(outcome)
+	p.transition.termination = p.process.resolveStepTermination(outcome)
 	p.transition.status = p.transition.termination.Status()
 	p.transition.finishedAt = time.Now().Round(0).UTC()
 	p.transition.closedChildWaits = p.mailbox.closeAllWaits()
@@ -297,41 +297,41 @@ func (p *preparedStepFinalization) commit(ctx context.Context) error {
 	if execution == nil {
 		var err error
 		execution, err = restoreExecution(
-			p.loop.deployment.Definition(), p.prepared.wire.CandidateState,
+			p.process.deployment.Definition(), p.prepared.wire.CandidateState,
 		)
 		if err != nil {
 			return err
 		}
 	}
-	loop := p.loop
-	loop.execution = execution
-	loop.lastStableState = p.prepared.wire.CandidateState
-	loop.mailbox = p.mailbox
-	loop.committedSteps = p.prepared.wire.StepSequence
-	loop.usage.CommittedSteps = loop.committedSteps
-	loop.usage.AcceptedSignals += uint64(len(p.prepared.wire.Effects))
-	loop.usage.AcceptedSignals += uint64(len(p.immediateChildSignals))
-	loop.prepared = nil
+	process := p.process
+	process.execution = execution
+	process.committedExecutionState = p.prepared.wire.CandidateState
+	process.mailbox = p.mailbox
+	process.committedSteps = p.prepared.wire.StepSequence
+	process.usage.CommittedSteps = process.committedSteps
+	process.usage.AcceptedSignals += uint64(len(p.prepared.wire.Effects))
+	process.usage.AcceptedSignals += uint64(len(p.immediateChildSignals))
+	process.prepared = nil
 	if p.transition.termination.Valid() {
-		loop.installTermination(p.transition.termination, p.transition.finalOutput, p.transition.finishedAt)
+		process.installTermination(p.transition.termination, p.transition.finalOutput, p.transition.finishedAt)
 	} else {
-		loop.status = p.transition.status
-		loop.currentWaitID = p.transition.currentWaitID
-		loop.pauseReason = p.transition.pauseReason
+		process.status = p.transition.status
+		process.currentWaitID = p.transition.currentWaitID
+		process.pauseReason = p.transition.pauseReason
 	}
-	loop.updateView()
-	payload, _ := json.Marshal(stepCommittedEventPayload{ProcessStatus: loop.status})
-	loop.publishEvent(ctx, EventStepCommitted, EventPhaseCommitted, loop.committedSteps, EffectID{}, payload)
-	if loop.status == StatusPaused {
-		loop.publishEventAfterCheckpoint(
+	process.updateView()
+	payload, _ := json.Marshal(stepCommittedEventPayload{ProcessStatus: process.status})
+	process.publishEvent(ctx, EventStepCommitted, EventPhaseCommitted, process.committedSteps, EffectID{}, payload)
+	if process.status == StatusPaused {
+		process.publishEventAfterCheckpoint(
 			ctx, EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload(),
 		)
 	}
 	for _, waitID := range p.consumedChildWaits {
-		loop.runtime.unregisterChildWait(waitID)
+		process.runtime.unregisterChildWait(waitID)
 	}
 	for _, waitID := range p.transition.closedChildWaits {
-		loop.runtime.unregisterChildWait(waitID)
+		process.runtime.unregisterChildWait(waitID)
 	}
 	p.committed = true
 	return nil
@@ -342,7 +342,7 @@ func (p *preparedStepFinalization) rollback() {
 		return
 	}
 	for _, waitID := range p.registeredChildWaits {
-		p.loop.runtime.unregisterChildWait(waitID)
+		p.process.runtime.unregisterChildWait(waitID)
 	}
 }
 
@@ -352,7 +352,7 @@ func (p *processState) discardPrepared() {
 }
 
 func (p *processState) discardExecution() {
-	execution, err := restoreExecution(p.deployment.Definition(), p.lastStableState)
+	execution, err := restoreExecution(p.deployment.Definition(), p.committedExecutionState)
 	if err == nil {
 		p.execution = execution
 	} else {

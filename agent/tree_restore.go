@@ -8,7 +8,7 @@ import (
 type restoredTreeProcess struct {
 	snapshot   ProcessSnapshot
 	controller *processController
-	loop       *processState
+	state      *processState
 	wire       processSnapshotWire
 }
 
@@ -106,7 +106,7 @@ type treeRestoration struct {
 func (t *treeRestoration) prepareRuntime(ctx context.Context) {
 	states := make([]*processState, 0, len(t.processes))
 	for index := range t.processes {
-		states = append(states, t.processes[index].loop)
+		states = append(states, t.processes[index].state)
 	}
 	t.runtime = newTreeRuntime(t.engine, t.wire.RootID, ctx, states...)
 	if incarnation, durable := treeSnapshotIncarnation(t.wire.IncarnationID); durable {
@@ -128,7 +128,7 @@ func (t *treeRestoration) prepareProcesses() error {
 		if err != nil {
 			return err
 		}
-		controller, loop, processWire, err := prepareRestoredProcess(
+		controller, state, processWire, err := prepareRestoredProcess(
 			t.engine, deployment, processSnapshot,
 		)
 		if err != nil {
@@ -138,7 +138,7 @@ func (t *treeRestoration) prepareProcesses() error {
 			)
 		}
 		t.processes = append(t.processes, restoredTreeProcess{
-			snapshot: processSnapshot, controller: controller, loop: loop, wire: processWire,
+			snapshot: processSnapshot, controller: controller, state: state, wire: processWire,
 		})
 	}
 	return nil
@@ -186,7 +186,7 @@ func (e *Engine) startRestoredTree(ctx context.Context, restoration *treeRestora
 	for index := range restoration.processes {
 		entry := &restoration.processes[index]
 		if entry.wire.Status.Terminal() {
-			entry.controller.complete(entry.loop.result(), entry.snapshot, nil)
+			entry.controller.complete(entry.state.result(), entry.snapshot, nil)
 		}
 	}
 	for index := len(restoration.processes) - 1; index >= 0; index-- {
@@ -194,7 +194,7 @@ func (e *Engine) startRestoredTree(ctx context.Context, restoration *treeRestora
 		if !entry.wire.Status.Terminal() {
 			continue
 		}
-		restoration.runtime.processFinished(entry.loop)
+		restoration.runtime.processFinished(entry.state)
 		entry.controller.markTreeSettled()
 	}
 	go restoration.runtime.run(requireContext(ctx))

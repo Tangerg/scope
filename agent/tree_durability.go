@@ -183,7 +183,7 @@ func (t TreeCheckpointKind) String() string {
 // TreeCheckpoint keeps child publication, input acceptance, and execution
 // progress on the same head so recovery cannot observe partially accepted work.
 // Input and child cuts can coexist with sibling jobs because those jobs expose
-// only last-stable state or already recorded Effect intent.
+// only committed Execution state or already recorded Effect intent.
 type TreeCheckpoint struct {
 	kind               TreeCheckpointKind
 	previousTreeDigest Digest

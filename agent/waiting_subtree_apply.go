@@ -158,7 +158,7 @@ func (p *preparedProcessStateChange) apply(ctx context.Context, process *process
 	process.startedAt = result.StartedAt
 	process.status = result.Status
 	process.committedSteps = result.CommittedSteps
-	process.lastStableState = result.LastStableState.clone()
+	process.committedExecutionState = result.CommittedExecutionState.clone()
 	process.mailbox = p.mailbox
 	process.prepared = nil
 	process.currentWaitID = WaitID{}

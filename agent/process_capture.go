@@ -23,7 +23,7 @@ func prepareRestoredProcess(
 			)
 		}
 	}
-	execution, err := restoreExecution(deployment.Definition(), wire.LastStableState)
+	execution, err := restoreExecution(deployment.Definition(), wire.CommittedExecutionState)
 	if err != nil {
 		return nil, nil, processSnapshotWire{}, fmt.Errorf(
 			"%w: restore Execution: %w", ErrInvalidSnapshot, err,
@@ -41,14 +41,14 @@ func prepareRestoredProcess(
 		relation, wire.DeploymentRef, wire.Budget, wire.Capabilities, wire.TreeLimits,
 		wire.StartedAt, wire.Status,
 	)
-	loop, err := restoreProcessLoop(engine, controller, deployment, execution, mailbox, wire)
+	process, err := restoreProcessState(engine, controller, deployment, execution, mailbox, wire)
 	if err != nil {
 		return nil, nil, processSnapshotWire{}, err
 	}
-	return controller, loop, wire, nil
+	return controller, process, wire, nil
 }
 
-func restoreProcessLoop(
+func restoreProcessState(
 	engine *Engine,
 	controller *processController,
 	deployment Deployment,
@@ -56,10 +56,10 @@ func restoreProcessLoop(
 	mailbox signalMailbox,
 	wire processSnapshotWire,
 ) (*processState, error) {
-	loop := &processState{
+	process := &processState{
 		engine: engine, controller: controller, deployment: deployment, execution: execution,
 		startedAt: wire.StartedAt, status: wire.Status, committedSteps: wire.CommittedSteps,
-		processEventSequence: wire.ProcessEventSequence, lastStableState: wire.LastStableState, mailbox: mailbox, restored: true,
+		processEventSequence: wire.ProcessEventSequence, committedExecutionState: wire.CommittedExecutionState, mailbox: mailbox, restored: true,
 		pauseReason: wire.PauseReason, limits: wire.Limits, treeLimits: wire.TreeLimits,
 		budget: wire.Budget, reservedBudget: wire.ReservedBudget,
 		capabilities: wire.Capabilities, usage: wire.Usage,
@@ -68,27 +68,27 @@ func restoreProcessLoop(
 		controller.childRequestDigest = *wire.ChildRequestDigest
 	}
 	if wire.FinishedAt != nil {
-		loop.finishedAt = *wire.FinishedAt
+		process.finishedAt = *wire.FinishedAt
 	}
 	if wire.CurrentWaitID != nil {
-		loop.currentWaitID = *wire.CurrentWaitID
+		process.currentWaitID = *wire.CurrentWaitID
 	}
 	if wire.Output != nil {
-		loop.finalOutput = *wire.Output
+		process.finalOutput = *wire.Output
 	}
 	if wire.Termination != nil {
-		loop.termination = *wire.Termination
+		process.termination = *wire.Termination
 	}
 	control, err := pendingControlFromWire(wire.PendingControl)
 	if err != nil {
 		return nil, fmt.Errorf("%w: pending control: %w", ErrInvalidSnapshot, err)
 	}
-	loop.pendingControl = control
-	if err := loop.restorePreparedStep(wire.Prepared); err != nil {
+	process.pendingControl = control
+	if err := process.restorePreparedStep(wire.Prepared); err != nil {
 		return nil, err
 	}
-	controller.updateView(loop.status, loop.currentWaitID, loop.usage)
-	return loop, nil
+	controller.updateView(process.status, process.currentWaitID, process.usage)
+	return process, nil
 }
 
 func (p *processState) restorePreparedStep(wire *preparedStepWire) error {
@@ -129,7 +129,7 @@ func (p *processState) capture() (ProcessSnapshot, error) {
 		Limits: p.limits, TreeLimits: p.treeLimits,
 		Budget: p.budget, ReservedBudget: p.reservedBudget,
 		Capabilities: p.capabilities, Usage: p.usage,
-		LastStableState: p.lastStableState, Mailbox: p.mailbox.snapshot(),
+		CommittedExecutionState: p.committedExecutionState, Mailbox: p.mailbox.snapshot(),
 		PauseReason: p.pauseReason, PendingControl: p.pendingControl.wire(),
 	}
 	if p.controller.childRequestDigest.Valid() {
