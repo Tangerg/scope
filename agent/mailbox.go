@@ -326,6 +326,9 @@ func (m *mailboxRestoration) validateAddressedSignals() error {
 				return fmt.Errorf("%w: addressed Signal has inconsistent wait state", errWaitState)
 			}
 			if !record.opensWait {
+				if _, duplicate := m.answered[waitID]; duplicate {
+					return fmt.Errorf("%w: wait has multiple answer Signals", errWaitState)
+				}
 				m.answered[waitID] = struct{}{}
 			}
 		}

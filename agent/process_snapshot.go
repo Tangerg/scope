@@ -30,7 +30,9 @@ type ProcessSnapshot struct {
 	capabilities   CapabilitySet
 }
 
-// ParseProcessSnapshot strictly validates one Process snapshot wire value.
+// ParseProcessSnapshot strictly validates one Process snapshot wire value,
+// including single-answer wait history and an open, unanswered current wait
+// when the Process is Waiting.
 func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 	wire, err := decodeProcessSnapshot(data)
 	if err != nil {
@@ -225,7 +227,7 @@ func validateProcessSnapshot(wire processSnapshotWire) error {
 	if err := wire.validateProgress(mailbox); err != nil {
 		return err
 	}
-	if err := validateSnapshotLifecycle(wire); err != nil {
+	if err := validateSnapshotLifecycle(wire, mailbox); err != nil {
 		return err
 	}
 	if err := validatePendingControlWire(wire.PendingControl); err != nil {
@@ -294,7 +296,7 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 	return nil
 }
 
-func validateSnapshotLifecycle(wire processSnapshotWire) error {
+func validateSnapshotLifecycle(wire processSnapshotWire, mailbox signalMailbox) error {
 	terminal := wire.Status.Terminal()
 	if terminal != (wire.Termination != nil) || terminal != (wire.FinishedAt != nil) {
 		return fmt.Errorf("%w: terminal status, termination, and finished time must agree", ErrInvalidSnapshot)
@@ -315,6 +317,9 @@ func validateSnapshotLifecycle(wire processSnapshotWire) error {
 	if wire.Status == StatusWaiting {
 		if wire.CurrentWaitID == nil || !wire.CurrentWaitID.Valid() {
 			return fmt.Errorf("%w: waiting process requires current WaitID", ErrInvalidSnapshot)
+		}
+		if shouldWait, err := mailbox.enterWait(*wire.CurrentWaitID); err != nil || !shouldWait {
+			return fmt.Errorf("%w: current WaitID requires an open unanswered wait", ErrInvalidSnapshot)
 		}
 	} else if wire.CurrentWaitID != nil {
 		return fmt.Errorf("%w: current WaitID requires Waiting status", ErrInvalidSnapshot)
