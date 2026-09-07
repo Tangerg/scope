@@ -14,10 +14,8 @@ type PlannedAction struct {
 	name string
 }
 
-// NewPlannedAction names a step by action name only. A plan holds names rather
-// than action values so it stays serializable in the Execution snapshot, and so
-// resuming resolves the action from the Definition instead of trusting a stored
-// copy.
+// NewPlannedAction references an Action by name so the Plan remains portable.
+// The Definition supplies the authoritative Action behavior and metadata.
 func NewPlannedAction(name string) (PlannedAction, error) {
 	if !validName(name) {
 		return PlannedAction{}, fmt.Errorf("%w: invalid Action name %q", ErrInvalidPlan, name)

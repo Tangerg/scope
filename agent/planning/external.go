@@ -27,7 +27,7 @@ type ActionRequest struct {
 	Input agent.Input
 	// ActionName is the exact frozen Action identity.
 	ActionName string
-	// ActionDescription is the exact frozen model-facing Action description.
+	// ActionDescription is the human-readable description of the exact bound Action.
 	ActionDescription string
 	// WorldState is the complete observation against which the Action was selected.
 	WorldState WorldState

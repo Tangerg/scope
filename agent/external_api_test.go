@@ -12,11 +12,11 @@ import (
 )
 
 func TestExternalPackageCanComposeAndRunDefinition(t *testing.T) {
-	definition, err := newExternalDefinition()
+	definition, err := newEchoDefinition()
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedPayload, err := json.Marshal(externalInput{Value: "done"})
+	expectedPayload, err := json.Marshal(echoInput{Value: "done"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,8 +39,8 @@ func TestExternalPackageCanComposeAndRunDefinition(t *testing.T) {
 	decorator := &countingDispatcher{next: dispatcher}
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
 		Definition: definition, Dispatcher: decorator,
-		ImplementationDigest: agent.ComputeDigest([]byte("external-direct-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("external-direct-configuration")),
+		ImplementationDigest: agent.ComputeDigest([]byte("example-echo-implementation")),
+		ConfigurationDigest:  agent.ComputeDigest([]byte("example-echo-configuration")),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestExternalPackageCanComposeAndRunDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := deployment.Descriptor().EncodeInput(externalInput{Value: "done"})
+	input, err := deployment.Descriptor().EncodeInput(echoInput{Value: "done"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestExternalPackageCanComposeAndRunDefinition(t *testing.T) {
 	if !ok {
 		t.Fatal("completed Result has no Output")
 	}
-	value, err := deployment.Descriptor().DecodeOutput[externalOutput](output)
+	value, err := deployment.Descriptor().DecodeOutput[echoOutput](output)
 	if err != nil || value.Value != "done" {
 		t.Fatalf("output=%+v err=%v", value, err)
 	}

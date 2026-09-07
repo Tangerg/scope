@@ -10,57 +10,57 @@ import (
 	"github.com/Tangerg/scope/agent"
 )
 
-type externalInput struct {
+type echoInput struct {
 	Value string `json:"value"`
 }
 
-type externalOutput struct {
+type echoOutput struct {
 	Value string `json:"value"`
 }
 
-type externalDefinition struct {
+type echoDefinition struct {
 	descriptor agent.Descriptor
 }
 
-type externalState struct {
+type echoState struct {
 	Phase string `json:"phase"`
 	Value string `json:"value"`
 }
 
-func (e externalDefinition) Descriptor() agent.Descriptor { return e.descriptor }
+func (e echoDefinition) Descriptor() agent.Descriptor { return e.descriptor }
 
-func (e externalDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (e echoDefinition) Start(input agent.Input) (agent.Execution, error) {
 	if err := e.descriptor.ValidateInput(input); err != nil {
 		return nil, err
 	}
-	value, err := input.Decode[externalInput]()
+	value, err := input.Decode[echoInput]()
 	if err != nil {
 		return nil, err
 	}
-	return &externalExecution{state: externalState{Phase: "ready", Value: value.Value}}, nil
+	return &echoExecution{state: echoState{Phase: "ready", Value: value.Value}}, nil
 }
 
-func (externalDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
-	if !state.Valid() || state.Kind() != "external.direct" {
+func (echoDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+	if !state.Valid() || state.Kind() != "example.echo" {
 		return nil, agent.ErrInvalidExecutionState
 	}
-	var value externalState
+	var value echoState
 	if err := jsonv2.Unmarshal(state.Payload(), &value, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return nil, err
 	}
 	switch value.Phase {
-	case "ready", "dispatched", "completed":
-		return &externalExecution{state: value}, nil
+	case "ready", "awaiting_echo", "completed":
+		return &echoExecution{state: value}, nil
 	default:
 		return nil, agent.ErrInvalidExecutionState
 	}
 }
 
-type externalExecution struct {
-	state externalState
+type echoExecution struct {
+	state echoState
 }
 
-func (e *externalExecution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
+func (e *echoExecution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if err := ctx.Err(); err != nil {
 		return agent.Transition{}, err
 	}
@@ -69,7 +69,7 @@ func (e *externalExecution) Step(ctx context.Context, signals []agent.Signal) (a
 		if len(signals) != 0 {
 			return agent.Transition{}, agent.ErrInvalidSignal
 		}
-		payload, err := json.Marshal(externalInput{Value: e.state.Value})
+		payload, err := json.Marshal(echoInput{Value: e.state.Value})
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -77,13 +77,13 @@ func (e *externalExecution) Step(ctx context.Context, signals []agent.Signal) (a
 		if err != nil {
 			return agent.Transition{}, err
 		}
-		e.state.Phase = "dispatched"
+		e.state.Phase = "awaiting_echo"
 		return agent.Continue(0, effect)
-	case "dispatched":
+	case "awaiting_echo":
 		if len(signals) != 1 {
 			return agent.Transition{}, agent.ErrInvalidSignal
 		}
-		var result externalOutput
+		var result echoOutput
 		if err := jsonv2.Unmarshal(signals[0].Payload(), &result, jsonv2.RejectUnknownMembers(true)); err != nil {
 			return agent.Transition{}, err
 		}
@@ -98,31 +98,31 @@ func (e *externalExecution) Step(ctx context.Context, signals []agent.Signal) (a
 	}
 }
 
-func (e *externalExecution) Snapshot() (agent.ExecutionState, error) {
+func (e *echoExecution) Snapshot() (agent.ExecutionState, error) {
 	payload, err := json.Marshal(e.state)
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.NewExecutionState("external.direct", payload)
+	return agent.NewExecutionState("example.echo", payload)
 }
 
-func newExternalDefinition() (externalDefinition, error) {
-	inputSchema, err := agent.SchemaFor[externalInput]()
+func newEchoDefinition() (echoDefinition, error) {
+	inputSchema, err := agent.SchemaFor[echoInput]()
 	if err != nil {
-		return externalDefinition{}, err
+		return echoDefinition{}, err
 	}
-	outputSchema, err := agent.SchemaFor[externalOutput]()
+	outputSchema, err := agent.SchemaFor[echoOutput]()
 	if err != nil {
-		return externalDefinition{}, err
+		return echoDefinition{}, err
 	}
 	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
-		Name: "external.direct", Description: "Completes a direct external API example.",
+		Name: "example.echo", Description: "Echoes a value through an Engine-managed Effect.",
 		InputSchema: inputSchema, OutputSchema: outputSchema,
 	})
 	if err != nil {
-		return externalDefinition{}, err
+		return echoDefinition{}, err
 	}
-	return externalDefinition{descriptor: descriptor}, nil
+	return echoDefinition{descriptor: descriptor}, nil
 }
 
 // echoDispatcher has no external mutation, so repeating an identity is safe.
@@ -160,15 +160,15 @@ func (c *countingDispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPolic
 // Engine contracts as built-in strategies. TestExternalPackageCanComposeAndRunDefinition
 // checks this implementation with agenttest.RunDefinitionConformance.
 func ExampleDefinition() {
-	definition, err := newExternalDefinition()
+	definition, err := newEchoDefinition()
 	if err != nil {
 		panic(err)
 	}
 	dispatcher := &countingDispatcher{next: echoDispatcher{}}
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
 		Definition: definition, Dispatcher: dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("external-direct-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("external-direct-configuration")),
+		ImplementationDigest: agent.ComputeDigest([]byte("example-echo-implementation")),
+		ConfigurationDigest:  agent.ComputeDigest([]byte("example-echo-configuration")),
 	})
 	if err != nil {
 		panic(err)
@@ -182,7 +182,7 @@ func ExampleDefinition() {
 			panic(closeErr)
 		}
 	}()
-	input, err := definition.Descriptor().EncodeInput(externalInput{Value: "hello"})
+	input, err := definition.Descriptor().EncodeInput(echoInput{Value: "hello"})
 	if err != nil {
 		panic(err)
 	}
@@ -194,7 +194,7 @@ func ExampleDefinition() {
 	if !ok {
 		panic("completed Result has no Output")
 	}
-	value, err := definition.Descriptor().DecodeOutput[externalOutput](output)
+	value, err := definition.Descriptor().DecodeOutput[echoOutput](output)
 	if err != nil {
 		panic(err)
 	}

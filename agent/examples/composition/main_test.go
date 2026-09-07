@@ -3,7 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -25,10 +28,62 @@ func TestRun(t *testing.T) {
 	}
 }
 
+func TestDefinitionsRejectInvalidBoundaryValues(t *testing.T) {
+	if _, err := newCompositionDeployment(agent.DeploymentRef{}, agent.DeploymentRef{}); !errors.Is(err, agent.ErrInvalidDeploymentRef) {
+		t.Fatalf("invalid child bindings: %v", err)
+	}
+	local, err := newUppercaseDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, err := newModelDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	composition, err := newCompositionDeployment(local.DeploymentRef(), model.DeploymentRef())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, deployment := range []agent.Deployment{local, composition} {
+		t.Run(deployment.Descriptor().Name(), func(t *testing.T) {
+			input, err := agent.ParseInput([]byte(`{}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, startErr := deployment.Definition().Start(input); startErr == nil {
+				t.Error("Start accepted missing required input")
+			}
+			state, err := agent.NewExecutionState(deployment.Descriptor().Name(), []byte(`{"phase":"ready","prompt":"x","text":"x","unknown":true}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := deployment.Definition().Restore(state); err == nil {
+				t.Error("Restore accepted unknown state fields")
+			}
+		})
+	}
+	for _, payload := range []string{
+		`{"phase":"unknown","prompt":"x"}`,
+		`{"phase":"ready","prompt":"x","child_ids":["child"]}`,
+		`{"phase":"waiting_children","prompt":"x"}`,
+		`{"phase":"awaiting_child_wait_open","prompt":"x","child_ids":["same","same"]}`,
+	} {
+		t.Run(payload, func(t *testing.T) {
+			state, err := agent.NewExecutionState("example.composition", []byte(payload))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := composition.Definition().Restore(state); err == nil {
+				t.Fatal("Restore accepted contradictory execution state")
+			}
+		})
+	}
+}
+
 func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	local, err := newTextDeployment()
+	local, err := newUppercaseDeployment()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,4 +261,237 @@ func (l *lostResponseDispatcher) Dispatch(ctx context.Context, request agent.Eff
 
 func (*lostResponseDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
 	return agent.ReplayPolicyNever
+}
+
+func TestCompositionRestoresEverySignalBoundary(t *testing.T) {
+	local, err := newUppercaseDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, err := newModelDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := newCompositionDeployment(local.DeploymentRef(), model.DeploymentRef())
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition := &recordingDefinition{Definition: base.Definition()}
+	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
+		Definition: definition, Dispatcher: rejectingDispatcher{},
+		ImplementationDigest: base.DeploymentRef().ImplementationDigest(),
+		ConfigurationDigest:  base.DeploymentRef().ConfigurationDigest(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deploymentResolver{
+		local.DeploymentRef(): local, model.DeploymentRef(): model,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := engine.Close(); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	input, err := base.Descriptor().EncodeInput(compositionInput{Prompt: "boundaries"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := engine.Run(t.Context(), deployment, input)
+	if err != nil || result.Status() != agent.StatusCompleted {
+		t.Fatalf("result=%s error=%v", result.Status(), err)
+	}
+	agenttest.RunDefinitionConformance(t, agenttest.DefinitionConformanceConfig{
+		Definition: base.Definition(), Input: input, RestoredCases: definition.samples,
+	})
+	var opening, completion agenttest.ExecutionConformanceCase
+	for _, sample := range definition.samples {
+		var state compositionState
+		if err := json.Unmarshal(sample.State.Payload(), &state); err != nil {
+			t.Fatal(err)
+		}
+		switch state.Phase {
+		case compositionAwaitingChildWaitOpen:
+			opening = sample
+		case compositionWaitingChildren:
+			completion = sample
+		}
+		t.Run(sample.Name+" rejects unexpected first signal", func(t *testing.T) {
+			execution, err := base.Definition().Restore(sample.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := execution.Step(t.Context(), append([]agent.Signal{{}}, sample.Signals...)); err == nil {
+				t.Fatal("unexpected first Signal was discarded")
+			}
+		})
+	}
+	if !opening.State.Valid() || !completion.State.Valid() {
+		t.Fatal("execution did not visit both child wait boundaries")
+	}
+	for _, sample := range []agenttest.ExecutionConformanceCase{opening, completion} {
+		t.Run(sample.Name+" consumes only its prefix", func(t *testing.T) {
+			execution, err := base.Definition().Restore(sample.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			transition, err := execution.Step(t.Context(), append(sample.Signals[:1:1], completion.Signals[0]))
+			if err != nil || transition.ConsumedSignals() != 1 {
+				t.Fatalf("consumed=%d error=%v", transition.ConsumedSignals(), err)
+			}
+			if sample.Name == opening.Name && transition.Kind() != agent.TransitionKindWait {
+				t.Fatalf("kind=%s, want wait", transition.Kind())
+			}
+		})
+		t.Run(sample.Name+" rejects unrelated wait", func(t *testing.T) {
+			execution, err := base.Definition().Restore(sample.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(sample.Signals[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded = bytes.ReplaceAll(encoded, []byte(`"composition"`), []byte(`"unrelated"`))
+			var signal agent.Signal
+			if err := json.Unmarshal(encoded, &signal); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := execution.Step(t.Context(), []agent.Signal{signal}); err == nil {
+				t.Fatal("unrelated wait was accepted")
+			}
+		})
+	}
+	if err := engine.ReleaseTree(t.Context(), result.ProcessID()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type recordingDefinition struct {
+	agent.Definition
+	samples []agenttest.ExecutionConformanceCase
+}
+
+func (r *recordingDefinition) Start(input agent.Input) (agent.Execution, error) {
+	execution, err := r.Definition.Start(input)
+	if err != nil {
+		return nil, err
+	}
+	return &recordingExecution{Execution: execution, definition: r}, nil
+}
+
+func (r *recordingDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+	execution, err := r.Definition.Restore(state)
+	if err != nil {
+		return nil, err
+	}
+	return &recordingExecution{Execution: execution, definition: r}, nil
+}
+
+type recordingExecution struct {
+	agent.Execution
+	definition *recordingDefinition
+}
+
+func (r *recordingExecution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
+	state, err := r.Snapshot()
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	r.definition.samples = append(r.definition.samples, agenttest.ExecutionConformanceCase{
+		Name: fmt.Sprintf("step %d", len(r.definition.samples)+1), State: state, Signals: slices.Clone(signals),
+	})
+	return r.Execution.Step(ctx, signals)
+}
+
+func TestCompositionPreservesChildFailures(t *testing.T) {
+	for _, failStart := range []bool{true, false} {
+		t.Run(fmt.Sprintf("start failure %t", failStart), func(t *testing.T) {
+			local, err := newUppercaseDeployment()
+			if err != nil {
+				t.Fatal(err)
+			}
+			model, err := newModelDeployment()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !failStart {
+				model, err = agent.NewDeployment(agent.DeploymentConfig{
+					Definition: failingDefinition{Definition: model.Definition()}, Dispatcher: rejectingDispatcher{},
+					ImplementationDigest: agent.ComputeDigest([]byte("failing-composition-child")),
+					ConfigurationDigest:  model.DeploymentRef().ConfigurationDigest(),
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			composition, err := newCompositionDeployment(local.DeploymentRef(), model.DeploymentRef())
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolver := deploymentResolver{local.DeploymentRef(): local}
+			if !failStart {
+				resolver[model.DeploymentRef()] = model
+			}
+			engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if closeErr := engine.Close(); closeErr != nil {
+					t.Error(closeErr)
+				}
+			})
+			input, err := composition.Descriptor().EncodeInput(compositionInput{Prompt: "failure"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := engine.Run(t.Context(), composition, input)
+			if err != nil || result.Status() != agent.StatusFailed {
+				t.Fatalf("status=%s error=%v", result.Status(), err)
+			}
+			failure, found := result.Termination().Failure()
+			wantCode := "example.child.failed"
+			if failStart {
+				wantCode = "engine.child.deployment_unavailable"
+			}
+			if !found || failure.Code() != wantCode {
+				t.Fatalf("failure=%s, want %s", failure.Code(), wantCode)
+			}
+			if err := engine.ReleaseTree(t.Context(), result.ProcessID()); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+type failingDefinition struct{ agent.Definition }
+
+func (f failingDefinition) Start(input agent.Input) (agent.Execution, error) {
+	execution, err := f.Definition.Start(input)
+	if err != nil {
+		return nil, err
+	}
+	return failingExecution{Execution: execution}, nil
+}
+
+func (f failingDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+	execution, err := f.Definition.Restore(state)
+	if err != nil {
+		return nil, err
+	}
+	return failingExecution{Execution: execution}, nil
+}
+
+type failingExecution struct{ agent.Execution }
+
+func (f failingExecution) Step(context.Context, []agent.Signal) (agent.Transition, error) {
+	failure, err := agent.NewFailure(agent.FailureKindExecution, "example.injected_failure", "composition child failed")
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	return agent.Fail(0, failure)
 }

@@ -6,10 +6,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -32,8 +34,8 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, output io.Writer) error {
-	localDeployment, err := newTextDeployment()
+func run(ctx context.Context, output io.Writer) (err error) {
+	localDeployment, err := newUppercaseDeployment()
 	if err != nil {
 		return err
 	}
@@ -55,9 +57,12 @@ func run(ctx context.Context, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer engine.Close()
+	defer func() { err = errors.Join(err, engine.Close()) }()
 
-	embeddedInput, _ := agent.EncodeInput(textInput{Text: "embedded"})
+	embeddedInput, err := localDeployment.Descriptor().EncodeInput(textInput{Text: "embedded"})
+	if err != nil {
+		return err
+	}
 	embeddedResult, err := engine.Run(ctx, localDeployment, embeddedInput)
 	if err != nil {
 		return err
@@ -67,8 +72,11 @@ func run(ctx context.Context, output io.Writer) error {
 		return err
 	}
 
-	compositionInput, _ := agent.EncodeInput(compositionInput{Prompt: "composition"})
-	compositionResult, err := engine.Run(ctx, compositionDeployment, compositionInput)
+	composedInput, err := compositionDeployment.Descriptor().EncodeInput(compositionInput{Prompt: "composition"})
+	if err != nil {
+		return err
+	}
+	compositionResult, err := engine.Run(ctx, compositionDeployment, composedInput)
 	if err != nil {
 		return err
 	}
@@ -91,9 +99,9 @@ type textOutput struct {
 	Text string `json:"text"`
 }
 
-type textDefinition struct{ descriptor agent.Descriptor }
+type uppercaseDefinition struct{ descriptor agent.Descriptor }
 
-func newTextDeployment() (agent.Deployment, error) {
+func newUppercaseDeployment() (agent.Deployment, error) {
 	inputSchema, err := agent.SchemaFor[textInput]()
 	if err != nil {
 		return agent.Deployment{}, err
@@ -110,49 +118,58 @@ func newTextDeployment() (agent.Deployment, error) {
 		return agent.Deployment{}, err
 	}
 	return agent.NewDeployment(agent.DeploymentConfig{
-		Definition: &textDefinition{descriptor: descriptor}, Dispatcher: rejectingDispatcher{},
+		Definition: &uppercaseDefinition{descriptor: descriptor}, Dispatcher: rejectingDispatcher{},
 		ImplementationDigest: agent.ComputeDigest([]byte("example-uppercase-implementation")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte("example-uppercase-configuration")),
 	})
 }
 
-func (t *textDefinition) Descriptor() agent.Descriptor { return t.descriptor }
+func (u *uppercaseDefinition) Descriptor() agent.Descriptor { return u.descriptor }
 
-func (*textDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (u *uppercaseDefinition) Start(input agent.Input) (agent.Execution, error) {
+	if err := u.descriptor.ValidateInput(input); err != nil {
+		return nil, err
+	}
 	decoded, err := input.Decode[textInput]()
 	if err != nil {
 		return nil, err
 	}
-	return &textExecution{Text: decoded.Text}, nil
+	return &uppercaseExecution{Text: decoded.Text}, nil
 }
 
-func (*textDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
-	if state.Kind() != "example.uppercase" {
+func (*uppercaseDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+	if !state.Valid() || state.Kind() != "example.uppercase" {
 		return nil, agent.ErrInvalidExecutionState
 	}
-	var execution textExecution
-	if err := json.Unmarshal(state.Payload(), &execution); err != nil {
+	var execution uppercaseExecution
+	if err := jsonv2.Unmarshal(state.Payload(), &execution, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return nil, err
 	}
 	return &execution, nil
 }
 
-type textExecution struct {
+type uppercaseExecution struct {
 	Text string `json:"text"`
 	Done bool   `json:"done"`
 }
 
-func (t *textExecution) Step(context.Context, []agent.Signal) (agent.Transition, error) {
-	if t.Done {
+func (u *uppercaseExecution) Step(_ context.Context, signals []agent.Signal) (agent.Transition, error) {
+	if len(signals) != 0 {
+		return agent.Transition{}, agent.ErrInvalidSignal
+	}
+	if u.Done {
 		return agent.Transition{}, errors.New("uppercase execution already completed")
 	}
-	t.Done = true
-	value, _ := agent.EncodeOutput(textOutput{Text: strings.ToUpper(t.Text)})
+	u.Done = true
+	value, err := agent.EncodeOutput(textOutput{Text: strings.ToUpper(u.Text)})
+	if err != nil {
+		return agent.Transition{}, err
+	}
 	return agent.Complete(0, value)
 }
 
-func (t *textExecution) Snapshot() (agent.ExecutionState, error) {
-	payload, err := json.Marshal(t)
+func (u *uppercaseExecution) Snapshot() (agent.ExecutionState, error) {
+	payload, err := json.Marshal(u)
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
@@ -198,6 +215,9 @@ type compositionDefinition struct {
 }
 
 func newCompositionDeployment(local, model agent.DeploymentRef) (agent.Deployment, error) {
+	if !local.Valid() || !model.Valid() {
+		return agent.Deployment{}, agent.ErrInvalidDeploymentRef
+	}
 	inputSchema, err := agent.SchemaFor[compositionInput]()
 	if err != nil {
 		return agent.Deployment{}, err
@@ -226,32 +246,70 @@ func newCompositionDeployment(local, model agent.DeploymentRef) (agent.Deploymen
 func (c *compositionDefinition) Descriptor() agent.Descriptor { return c.descriptor }
 
 func (c *compositionDefinition) Start(input agent.Input) (agent.Execution, error) {
+	if err := c.descriptor.ValidateInput(input); err != nil {
+		return nil, err
+	}
 	decoded, err := input.Decode[compositionInput]()
 	if err != nil {
 		return nil, err
 	}
 	return &compositionExecution{
 		local: c.local, model: c.model,
-		state: compositionState{Phase: "ready", Prompt: decoded.Prompt},
+		state: compositionState{Phase: compositionReady, Prompt: decoded.Prompt},
 	}, nil
 }
 
 func (c *compositionDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
-	if state.Kind() != "example.composition" {
+	if !state.Valid() || state.Kind() != "example.composition" {
 		return nil, agent.ErrInvalidExecutionState
 	}
 	var decoded compositionState
-	if err := json.Unmarshal(state.Payload(), &decoded); err != nil {
+	if err := jsonv2.Unmarshal(state.Payload(), &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return nil, err
+	}
+	if err := decoded.validate(); err != nil {
 		return nil, err
 	}
 	return &compositionExecution{local: c.local, model: c.model, state: decoded}, nil
 }
 
+type compositionPhase string
+
+const (
+	compositionReady                 compositionPhase = "ready"
+	compositionAwaitingChildStarts   compositionPhase = "awaiting_child_starts"
+	compositionAwaitingChildWaitOpen compositionPhase = "awaiting_child_wait_open"
+	compositionWaitingChildren       compositionPhase = "waiting_children"
+	compositionCompleted             compositionPhase = "completed"
+)
+
 type compositionState struct {
-	Phase    string   `json:"phase"`
-	Prompt   string   `json:"prompt"`
-	ChildIDs []string `json:"child_ids,omitempty"`
-	WaitID   string   `json:"wait_id,omitempty"`
+	Phase    compositionPhase  `json:"phase"`
+	Prompt   string            `json:"prompt"`
+	ChildIDs []agent.ProcessID `json:"child_ids,omitempty"`
+	WaitID   *agent.WaitID     `json:"wait_id,omitempty"`
+}
+
+func (c compositionState) validate() error {
+	switch c.Phase {
+	case compositionReady, compositionAwaitingChildStarts, compositionCompleted:
+		if len(c.ChildIDs) != 0 || c.WaitID != nil {
+			return agent.ErrInvalidExecutionState
+		}
+	case compositionAwaitingChildWaitOpen, compositionWaitingChildren:
+		if len(c.ChildIDs) != compositionChildCount || !c.ChildIDs[0].Valid() || !c.ChildIDs[1].Valid() || c.ChildIDs[0] == c.ChildIDs[1] {
+			return agent.ErrInvalidExecutionState
+		}
+		if c.Phase == compositionAwaitingChildWaitOpen && c.WaitID != nil {
+			return agent.ErrInvalidExecutionState
+		}
+		if c.Phase == compositionWaitingChildren && (c.WaitID == nil || !c.WaitID.Valid()) {
+			return agent.ErrInvalidExecutionState
+		}
+	default:
+		return agent.ErrInvalidExecutionState
+	}
+	return nil
 }
 
 type compositionExecution struct {
@@ -265,11 +323,14 @@ func (c *compositionExecution) Step(
 	signals []agent.Signal,
 ) (agent.Transition, error) {
 	switch c.state.Phase {
-	case "ready":
+	case compositionReady:
+		if len(signals) != 0 {
+			return agent.Transition{}, agent.ErrInvalidSignal
+		}
 		return c.startChildren()
-	case "children_started":
+	case compositionAwaitingChildStarts:
 		return c.waitForChildren(signals)
-	case "wait_opened":
+	case compositionAwaitingChildWaitOpen:
 		if len(signals) == 0 {
 			return agent.Transition{}, errors.New("composition wait was not opened")
 		}
@@ -277,30 +338,47 @@ func (c *compositionExecution) Step(
 		if err != nil {
 			return agent.Transition{}, err
 		}
-		c.state.WaitID = opened.WaitID().String()
-		if len(signals) > 1 {
-			return c.complete(signals, uint32(len(signals)))
+		spec := opened.Spec()
+		if spec.Key.String() != "composition" || !slices.Equal(spec.Children, c.state.ChildIDs) || spec.Condition != agent.AllChildren() {
+			return agent.Transition{}, agent.ErrInvalidChildWait
 		}
-		c.state.Phase = "waiting"
+		waitID := opened.WaitID()
+		c.state.WaitID = &waitID
+		c.state.Phase = compositionWaitingChildren
 		return agent.Wait(1, opened.WaitID())
-	case "waiting":
-		return c.complete(signals, uint32(len(signals)))
+	case compositionWaitingChildren:
+		return c.complete(signals)
 	default:
 		return agent.Transition{}, errors.New("composition execution cannot advance")
 	}
 }
 
 func (c *compositionExecution) startChildren() (agent.Transition, error) {
-	localInput, _ := agent.EncodeInput(textInput{Text: c.state.Prompt})
-	modelInput, _ := agent.EncodeInput(interaction.Input{Messages: []chat.Message{
+	localInput, err := agent.EncodeInput(textInput{Text: c.state.Prompt})
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	modelInput, err := agent.EncodeInput(interaction.Input{Messages: []chat.Message{
 		chat.NewUserMessage(chat.NewTextPart(c.state.Prompt)),
 	}})
-	localKey, _ := agent.ParseChildKey("local")
-	modelKey, _ := agent.ParseChildKey("model")
-	budget, _ := agent.NewBudget(agent.BudgetConfig{
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	localKey, err := agent.ParseChildKey("local")
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	modelKey, err := agent.ParseChildKey("model")
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	budget, err := agent.NewBudget(agent.BudgetConfig{
 		Steps: compositionChildBudgetSteps, Effects: compositionChildBudgetEffects,
 		Signals: compositionChildBudgetSignals,
 	})
+	if err != nil {
+		return agent.Transition{}, err
+	}
 	localEffect, err := agent.StartChild(agent.ChildSpec{
 		Key: localKey, DeploymentRef: c.local, Input: localInput, Budget: budget,
 	})
@@ -313,7 +391,7 @@ func (c *compositionExecution) startChildren() (agent.Transition, error) {
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	c.state.Phase = "children_started"
+	c.state.Phase = compositionAwaitingChildStarts
 	return agent.Continue(0, localEffect, modelEffect)
 }
 
@@ -321,79 +399,116 @@ func (c *compositionExecution) waitForChildren(signals []agent.Signal) (agent.Tr
 	if len(signals) != compositionChildCount {
 		return agent.Transition{}, errors.New("composition requires two child-start results")
 	}
-	for _, signal := range signals {
+	children := make([]agent.ProcessID, compositionChildCount)
+	keys := [...]string{"local", "model"}
+	references := [...]agent.DeploymentRef{c.local, c.model}
+	var failure *agent.Failure
+	for index, signal := range signals {
 		started, err := agent.ParseChildStartResult(signal)
 		if err != nil {
 			return agent.Transition{}, err
 		}
-		if failure, failed := started.Failure(); failed {
-			return agent.Fail(compositionChildCount, failure)
+		if started.Key().String() != keys[index] || started.DeploymentRef() != references[index] {
+			return agent.Transition{}, agent.ErrInvalidChildStart
 		}
-		childID, _ := started.ProcessID()
-		c.state.ChildIDs = append(c.state.ChildIDs, childID.String())
+		if startFailure, failed := started.Failure(); failed {
+			if failure == nil {
+				failure = &startFailure
+			}
+			continue
+		}
+		childID, present := started.ProcessID()
+		if !present {
+			return agent.Transition{}, agent.ErrInvalidChildStart
+		}
+		children[index] = childID
 	}
-	children := make([]agent.ProcessID, len(c.state.ChildIDs))
-	for index, encoded := range c.state.ChildIDs {
-		children[index], _ = agent.ParseProcessID(encoded)
+	if failure != nil {
+		return agent.Fail(compositionChildCount, *failure)
 	}
-	waitKey, _ := agent.ParseWaitKey("composition")
+	waitKey, err := agent.ParseWaitKey("composition")
+	if err != nil {
+		return agent.Transition{}, err
+	}
 	waitEffect, err := agent.WaitForChildren(agent.ChildWaitSpec{
 		Key: waitKey, Children: children, Condition: agent.AllChildren(),
 	})
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	c.state.Phase = "wait_opened"
+	c.state.ChildIDs = children
+	c.state.Phase = compositionAwaitingChildWaitOpen
 	return agent.Continue(compositionChildCount, waitEffect)
 }
 
 func (c *compositionExecution) complete(
 	signals []agent.Signal,
-	consumedSignals uint32,
 ) (agent.Transition, error) {
 	if len(signals) == 0 {
 		return agent.Transition{}, errors.New("composition child results are missing")
 	}
-	completed, err := agent.ParseChildrenCompleted(signals[len(signals)-1])
+	completed, err := agent.ParseChildrenCompleted(signals[0])
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if completed.WaitID().String() != c.state.WaitID {
+	if c.state.WaitID == nil || completed.WaitID() != *c.state.WaitID || completed.Key().String() != "composition" {
 		return agent.Transition{}, errors.New("composition received another wait's result")
 	}
+	outcomes := completed.Outcomes()
+	if len(outcomes) != compositionChildCount {
+		return agent.Transition{}, agent.ErrInvalidChildWait
+	}
+	keys := [...]string{"local", "model"}
+	for index, outcome := range outcomes {
+		if outcome.Key().String() != keys[index] || outcome.Result().ProcessID() != c.state.ChildIDs[index] {
+			return agent.Transition{}, agent.ErrInvalidChildWait
+		}
+	}
 	var output compositionOutput
-	for _, outcome := range completed.Outcomes() {
+	for _, outcome := range outcomes {
 		result := outcome.Result()
 		if result.Status() != agent.StatusCompleted {
-			failure, _ := agent.NewFailure(
+			failure, failureErr := agent.NewFailure(
 				agent.FailureKindExecution, "example.child.failed", "a composition child did not complete",
 			)
-			return agent.Fail(consumedSignals, failure)
+			if failureErr != nil {
+				return agent.Transition{}, failureErr
+			}
+			return agent.Fail(1, failure)
 		}
-		erased, _ := result.Output()
+		erased, present := result.Output()
+		if !present {
+			return agent.Transition{}, agent.ErrInvalidChildWait
+		}
 		switch outcome.Key().String() {
 		case "local":
-			decoded, err := erased.Decode[textOutput]()
-			if err != nil {
-				return agent.Transition{}, err
+			decoded, decodeErr := erased.Decode[textOutput]()
+			if decodeErr != nil {
+				return agent.Transition{}, decodeErr
 			}
 			output.Local = decoded.Text
 		case "model":
-			decoded, err := erased.Decode[interaction.Output]()
-			if err != nil {
-				return agent.Transition{}, err
+			decoded, decodeErr := erased.Decode[interaction.Output]()
+			if decodeErr != nil {
+				return agent.Transition{}, decodeErr
 			}
 			output.Model = decoded.ModelResponse.Text()
-		default:
-			return agent.Transition{}, errors.New("composition received an unknown child key")
 		}
 	}
-	c.state.Phase = "done"
-	erased, _ := agent.EncodeOutput(output)
-	return agent.Complete(consumedSignals, erased)
+	erased, err := agent.EncodeOutput(output)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	c.state.Phase = compositionCompleted
+	c.state.ChildIDs = nil
+	c.state.WaitID = nil
+	return agent.Complete(1, erased)
 }
 
 func (c *compositionExecution) Snapshot() (agent.ExecutionState, error) {
+	if err := c.state.validate(); err != nil {
+		return agent.ExecutionState{}, err
+	}
 	payload, err := json.Marshal(c.state)
 	if err != nil {
 		return agent.ExecutionState{}, err
