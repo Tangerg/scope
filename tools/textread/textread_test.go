@@ -55,6 +55,43 @@ func TestScanEnforcesInputAndContextLimits(t *testing.T) {
 	}
 }
 
+func TestScanPreservesReadFailureDuringCancellation(t *testing.T) {
+	for _, operation := range []string{"scan", "visit"} {
+		t.Run(operation, func(t *testing.T) {
+			cause := errors.New("scan stopped")
+			failure := errors.New("source read failed")
+			ctx, cancel := context.WithCancelCause(t.Context())
+			defer cancel(nil)
+			reader := cancelingReader{cancel: func() { cancel(cause) }, failure: failure}
+			var err error
+			if operation == "scan" {
+				var result Result
+				result, err = Scan(ctx, reader, Options{InputBytes: 16, LineBytes: 16, OutputBytes: 16})
+				if result != (Result{}) {
+					t.Errorf("failed Scan returned %+v", result)
+				}
+			} else {
+				err = VisitLines(ctx, reader, Limits{InputBytes: 16, LineBytes: 16}, func(int, []byte) error {
+					return nil
+				})
+			}
+			if !errors.Is(err, cause) || !errors.Is(err, failure) {
+				t.Errorf("scan error = %v, want cancellation and read failure", err)
+			}
+		})
+	}
+}
+
+type cancelingReader struct {
+	cancel  context.CancelFunc
+	failure error
+}
+
+func (c cancelingReader) Read(buffer []byte) (int, error) {
+	c.cancel()
+	return copy(buffer, "text"), c.failure
+}
+
 func TestScanSupportsConsumerSpecificOutputBoundaries(t *testing.T) {
 	input := "abcd\nefgh"
 	complete, err := Scan(t.Context(), strings.NewReader(input), Options{

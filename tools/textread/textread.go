@@ -296,7 +296,7 @@ func (c contextReader) Read(buffer []byte) (int, error) {
 	}
 	read, err := c.reader.Read(buffer)
 	if cause := context.Cause(c.ctx); cause != nil {
-		return read, cause
+		return read, errors.Join(err, cause)
 	}
 	return read, err
 }
