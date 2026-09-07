@@ -13,7 +13,7 @@
 # Required tools:
 #   go (1.27.0)
 #   golangci-lint  — install via:
-#     go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+#     go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1
 #   govulncheck    — install via:
 #     go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
 #   jq              — used to enforce the reviewed vulnerability allowlist
