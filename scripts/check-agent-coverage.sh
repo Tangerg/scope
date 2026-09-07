@@ -16,6 +16,7 @@ coverage_budget=(
   "./examples/workflow 67.6"
   "./examples/workflow_patterns 70.8"
   "./interaction 75.5"
+  "./internal/conformancetest 79.1"
   "./planning 76.1"
   "./planning/goap 86.1"
   "./workflow 78.4"
@@ -34,14 +35,27 @@ if [[ "$configured_packages" != "$tracked_packages" ]]; then
   exit 1
 fi
 
+coverage_profile="${TMPDIR:-/tmp}/scope-agent-coverage-$$.out"
+trap 'unlink "$coverage_profile" 2>/dev/null || true' EXIT
+
 failed=0
 for budget in "${coverage_budget[@]}"; do
   read -r package minimum <<<"$budget"
-  if ! output=$(go test -count=1 -cover "$package" 2>&1); then
-    echo "$output" >&2
-    exit 1
+  if [[ "$package" == "./internal/conformancetest" ]]; then
+    # The shared recorder is exercised by its Strategy consumers, not by a
+    # separate test of the test helper.
+    if ! output=$(go test -count=1 -coverpkg="$package" -coverprofile="$coverage_profile" ./interaction ./planning ./workflow 2>&1); then
+      echo "$output" >&2
+      exit 1
+    fi
+    actual=$(go tool cover -func="$coverage_profile" | awk '/^total:/ {gsub(/%/, "", $3); print $3}')
+  else
+    if ! output=$(go test -count=1 -cover "$package" 2>&1); then
+      echo "$output" >&2
+      exit 1
+    fi
+    actual=$(printf '%s\n' "$output" | sed -n 's/.*coverage: \([0-9][0-9.]*\)% of statements.*/\1/p')
   fi
-  actual=$(printf '%s\n' "$output" | sed -n 's/.*coverage: \([0-9][0-9.]*\)% of statements.*/\1/p')
   if [[ -z "$actual" ]]; then
     echo "could not read coverage for $package from: $output" >&2
     exit 1
