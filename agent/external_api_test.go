@@ -1,6 +1,7 @@
 package agent_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"testing"
@@ -10,101 +11,8 @@ import (
 	"github.com/Tangerg/scope/agent/agenttest"
 )
 
-type externalInput struct {
-	Value string `json:"value"`
-}
-
-type externalOutput struct {
-	Value string `json:"value"`
-}
-
-type externalDefinition struct {
-	descriptor agent.Descriptor
-}
-
-type externalState struct {
-	Phase string `json:"phase"`
-	Value string `json:"value"`
-}
-
-func (e externalDefinition) Descriptor() agent.Descriptor { return e.descriptor }
-
-func (externalDefinition) Start(input agent.Input) (agent.Execution, error) {
-	value, err := input.Decode[externalInput]()
-	if err != nil {
-		return nil, err
-	}
-	return &externalExecution{state: externalState{Phase: "ready", Value: value.Value}}, nil
-}
-
-func (externalDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
-	if state.Kind() != "external.direct" {
-		return nil, agent.ErrInvalidExecutionState
-	}
-	var value externalState
-	if err := json.Unmarshal(state.Payload(), &value); err != nil {
-		return nil, err
-	}
-	return &externalExecution{state: value}, nil
-}
-
-type externalExecution struct {
-	state externalState
-}
-
-func (e *externalExecution) Step(_ context.Context, signals []agent.Signal) (agent.Transition, error) {
-	switch e.state.Phase {
-	case "ready":
-		payload, err := json.Marshal(externalInput{Value: e.state.Value})
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		effect, err := agent.NewDispatcherEffect(payload)
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		e.state.Phase = "dispatched"
-		return agent.Continue(0, effect)
-	case "dispatched":
-		if len(signals) != 1 {
-			return agent.Transition{}, agent.ErrInvalidSignal
-		}
-		var result externalOutput
-		if err := json.Unmarshal(signals[0].Payload(), &result); err != nil {
-			return agent.Transition{}, err
-		}
-		output, err := agent.EncodeOutput(result)
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		e.state.Phase = "completed"
-		return agent.Complete(1, output)
-	default:
-		return agent.Transition{}, agent.ErrInvalidExecutionState
-	}
-}
-
-func (e *externalExecution) Snapshot() (agent.ExecutionState, error) {
-	payload, err := json.Marshal(e.state)
-	if err != nil {
-		return agent.ExecutionState{}, err
-	}
-	return agent.NewExecutionState("external.direct", payload)
-}
-
 func TestExternalPackageCanComposeAndRunDefinition(t *testing.T) {
-	inputSchema, err := agent.SchemaFor[externalInput]()
-	if err != nil {
-		t.Fatal(err)
-	}
-	outputSchema, err := agent.SchemaFor[externalOutput]()
-	if err != nil {
-		t.Fatal(err)
-	}
-	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
-		Name: "external.direct", Description: "Completes a direct external API example.",
-		InputSchema: inputSchema, OutputSchema: outputSchema,
-	})
+	definition, err := newExternalDefinition()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,8 +36,9 @@ func TestExternalPackageCanComposeAndRunDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	decorator := &countingDispatcher{next: dispatcher}
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: externalDefinition{descriptor: descriptor}, Dispatcher: dispatcher,
+		Definition: definition, Dispatcher: decorator,
 		ImplementationDigest: agent.ComputeDigest([]byte("external-direct-implementation")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte("external-direct-configuration")),
 	})
@@ -148,6 +57,9 @@ func TestExternalPackageCanComposeAndRunDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	agenttest.RunDefinitionConformance(t, agenttest.DefinitionConformanceConfig{
+		Definition: definition, Input: input,
+	})
 	result, err := engine.Run(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -163,6 +75,9 @@ func TestExternalPackageCanComposeAndRunDefinition(t *testing.T) {
 	if closeErr := engine.Close(); closeErr != nil {
 		t.Fatal(closeErr)
 	}
+	if decorator.attempts.Load() != 1 || decorator.ReplayPolicy(expectedEffect) != agent.ReplayPolicyNever {
+		t.Fatalf("attempts=%d replay policy=%s", decorator.attempts.Load(), decorator.ReplayPolicy(expectedEffect))
+	}
 	if dispatcher.Remaining() != 0 || len(dispatcher.Requests()) != 1 {
 		t.Fatalf("remaining dispatches=%d requests=%d", dispatcher.Remaining(), len(dispatcher.Requests()))
 	}
@@ -177,4 +92,29 @@ func TestExternalPackageCanComposeAndRunDefinition(t *testing.T) {
 	if err != nil || finished.ProcessID() != result.ProcessID() {
 		t.Fatalf("finished event=%+v error=%v", finished, err)
 	}
+	t.Run("decoration preserves same-identity replay", func(t *testing.T) {
+		request := dispatcher.Requests()[0]
+		decorator := &countingDispatcher{next: echoDispatcher{}}
+		var deltas []json.RawMessage
+		for range 2 {
+			if decorator.ReplayPolicy(request.Effect()) != agent.ReplayPolicySameIdentity {
+				t.Fatal("decoration changed replay policy")
+			}
+			settlement, err := decorator.Dispatch(t.Context(), request, func(payload json.RawMessage) {
+				deltas = append(deltas, bytes.Clone(payload))
+			})
+			if err != nil || settlement.EffectID() != request.ID() || settlement.Status() != agent.SettlementStatusSucceeded ||
+				!bytes.Equal(settlement.Payload(), request.Effect().Payload()) {
+				t.Fatalf("settlement=%+v error=%v", settlement, err)
+			}
+		}
+		if decorator.attempts.Load() != 2 || len(deltas) != 2 {
+			t.Fatalf("attempts=%d deltas=%d", decorator.attempts.Load(), len(deltas))
+		}
+		for _, delta := range deltas {
+			if !bytes.Equal(delta, request.Effect().Payload()) {
+				t.Fatalf("delta=%s", delta)
+			}
+		}
+	})
 }

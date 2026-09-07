@@ -554,32 +554,30 @@ Clarify and demonstrate existing contracts before extending the runtime. The
 order below is a suggested review order, not a dependency chain or a scheduled
 task. New capabilities still require a demonstrated need.
 
-1. **Explain restore before adoption in GoDoc.** State the candidate-state
-   guarantee together with the remaining Definition and tree-recovery
-   obligations, without promising that every Step validates complete recovery.
-2. **A minimal Definition example.** Show authorship of the narrow contract and
-   run [`RunDefinitionConformance`](../agenttest/definition_conformance.go)
-   immediately, so state equivalence and deterministic continuation are part
-   of the example. Complete the authoring path with deployment binding and one
-   managed execution; avoid a separate authoring API or plugin manifest.
-3. **Exercise `ReplayPolicy` conformance.** Require evidence that repeated
-   dispatch of the same immutable Effect under the original EffectID represents
-   one logical operation behind a `SameIdentity` claim, including any decorator
-   side effects. Local fakes alone cannot prove a remote system's guarantee.
-4. **Show transparent Dispatcher decoration with a checked example.** Reuse the
-   request identity and demonstrate preserved settlement and replay semantics.
-   Keep persistent human approval on the durable wait path.
-5. **Shared child-lifecycle scenarios.** Verify declared responses to terminal
+The [kernel GoDoc](../doc.go) states restore-before-adoption and its limits.
+The checked [Definition example](../example_definition_test.go) implements the
+public execution contract, binds a Dispatcher, runs through an Engine, and
+releases the retained tree. Its [external-package contract test](../external_api_test.go)
+runs `RunDefinitionConformance` and checks the same Dispatcher decorator under
+both replay policies. The decorator counts attempts, including replay, while
+preserving the underlying operation's identity and settlement.
+
+1. **Exercise `ReplayPolicy` at external boundaries.** Require evidence that
+   repeated dispatch of the same immutable Effect under the original EffectID
+   represents one logical operation behind a `SameIdentity` claim, including
+   any decorator side effects. The pure echo example demonstrates composition;
+   local fakes alone cannot prove a remote system's guarantee.
+2. **Shared child-lifecycle scenarios.** Verify declared responses to terminal
    children and unknown-settlement waits for strategies that compose children,
    without imposing one failure policy. Extend an existing composition example
    with a focused recovery scenario to demonstrate that distinct strategies
    share one tree protocol without exposing their private state to the Host.
-6. **Cooperative execution deadlines.** Consider only with a consumer requiring
+3. **Cooperative execution deadlines.** Consider only with a consumer requiring
    bounded waiting for cooperating implementations and an explicit cancellation,
    job completion, settlement, and recovery design. Do not promise forced
    termination of non-cooperating code.
-7. **Incremental state representation.** Investigate only after representative
+4. **Incremental state representation.** Investigate only after representative
    measurements establish a dominant bottleneck, preserving restore before
    adoption and the complete recovery contract.
-8. **Durable timers.** Follow the roadmap with a consumer supplying lifecycle
+5. **Durable timers.** Follow the roadmap with a consumer supplying lifecycle
    requirements. This direction is independent of cooperative job deadlines.

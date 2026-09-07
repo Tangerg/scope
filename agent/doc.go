@@ -52,6 +52,14 @@
 // result and its error are discarded whole and the Execution is rebuilt from
 // last-stable state.
 //
+// Before adopting initial or candidate state, the Engine captures Snapshot and
+// successfully restores it through that Deployment's Definition. An
+// unrestorable candidate cannot advance signal consumption or dispatch Effects.
+// This admission check does not prove exact state equivalence or deterministic
+// continuation: the Definition must establish those properties with conformance
+// cases. Complete tree recovery also validates runtime identities, mailboxes,
+// child ownership, settlements, and the exact Deployment binding.
+//
 // # Effects and settlement
 //
 // An Effect is the only way an Execution requests work outside a Step. The

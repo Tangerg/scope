@@ -113,6 +113,14 @@ type DeltaEmitter func(payload json.RawMessage)
 // concurrency-safe, return in bounded time, not mutate an Execution, and not
 // start unowned goroutines. ReplayPolicy must be a pure, deterministic
 // declaration for the supplied immutable Effect.
+//
+// A transparent decorator preserves the context, complete request identity, emitter,
+// Settlement, and error of its wrapped Dispatcher. Its ReplayPolicy must also
+// account for its own behavior: forwarding a SameIdentity claim is valid only
+// when the added work is safe to repeat under the original identity. Observation
+// counters may count dispatch attempts, including replay; they do not count
+// distinct logical external operations. See the Definition example for a
+// concurrency-safe attempt counter around a bound Dispatcher.
 type Dispatcher interface {
 	// Dispatch performs one frozen Strategy Effect outside Execution.Step.
 	// Settlement must address request.ID; a non-nil error means the external
