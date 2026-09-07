@@ -111,15 +111,20 @@ func (t ToolInvocation) ToolCallIndex() uint32 { return t.toolCallIndex }
 func (t ToolInvocation) ToolCall() chat.ToolCall { return t.toolCall }
 
 // ModelResult maps the executable Tool's Go return values onto the exact
-// provider-neutral ToolResult consumed by Interaction. present=false means the
-// cause belongs to the host or control plane and must not enter model context.
+// provider-neutral ToolResult consumed by Interaction. Invalid output becomes
+// an error ToolResult. present=false means the cause belongs to the host or
+// control plane and must not enter model context.
 func (t ToolInvocation) ModelResult(output chat.ToolOutput, cause error) (result chat.ToolResult, present bool) {
 	if !t.Valid() {
 		return chat.ToolResult{}, false
 	}
 	call := t.toolCall
 	if cause == nil {
-		return chat.ToolResult{ID: call.ID, Name: call.Name, Output: output.Clone()}, true
+		if err := output.Validate(); err != nil {
+			cause = fmt.Errorf("tool returned invalid output: %w", err)
+		} else {
+			return chat.ToolResult{ID: call.ID, Name: call.Name, Output: output.Clone()}, true
+		}
 	}
 	if errors.Is(cause, ErrHostFailure) ||
 		errors.Is(cause, context.Canceled) ||

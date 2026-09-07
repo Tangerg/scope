@@ -27,9 +27,8 @@ type ModelClient interface {
 // provider-neutral Response.
 type ModelResponseMode string
 
-// These name the two shapes a model effect can settle with. They are distinct
-// because a streamed response must be accumulated before it satisfies the same
-// contract a complete response already meets.
+// Complete mode receives one response; stream mode accumulates response events
+// before settling the same complete response contract.
 const (
 	ModelResponseComplete ModelResponseMode = ""
 	ModelResponseStream   ModelResponseMode = "stream"
@@ -87,16 +86,16 @@ type boundTool struct {
 // internal observation health counters are concurrency-safe. It may serve
 // Processes concurrently when the supplied Client and Tools support concurrent use.
 type Dispatcher struct {
-	client              ModelClient
-	streamer            chat.Streamer
-	tools               map[string]boundTool
-	delegates           map[string]struct{}
-	initialDefinitions  []chat.ToolDefinition
-	deferredToolNames   map[string]struct{}
-	maxParallel         int
-	observer            ExecutionObserver
-	observationFailures observationFailureCounters
-	contextReducer      ModelContextReducer
+	client                 ModelClient
+	streamer               chat.Streamer
+	tools                  map[string]boundTool
+	delegates              map[string]struct{}
+	initialDefinitions     []chat.ToolDefinition
+	deferredToolNames      map[string]struct{}
+	maxConcurrentToolCalls int
+	observer               ExecutionObserver
+	observationFailures    observationFailureCounters
+	contextReducer         ModelContextReducer
 }
 
 // ObservationFailures returns a concurrency-safe snapshot of ExecutionObserver
@@ -125,7 +124,7 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 	if config.ModelContextReducer != nil && lo.IsNil(config.ModelContextReducer) {
 		return nil, fmt.Errorf("%w: ModelContextReducer is typed nil", ErrInvalidDispatcherConfig)
 	}
-	maxParallel := max(1, config.MaxConcurrentToolCalls)
+	maxConcurrentToolCalls := max(1, config.MaxConcurrentToolCalls)
 	var streamer chat.Streamer
 	if config.ResponseMode == ModelResponseStream {
 		streamer, _ = config.Client.(chat.Streamer)
@@ -140,11 +139,11 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 		initialDefinitions: make(
 			[]chat.ToolDefinition, 0, len(config.Tools)+len(definition.delegates),
 		),
-		deferredToolNames: make(map[string]struct{}, len(config.DeferredTools)),
-		streamer:          streamer,
-		maxParallel:       maxParallel,
-		observer:          config.Observer,
-		contextReducer:    config.ModelContextReducer,
+		deferredToolNames:      make(map[string]struct{}, len(config.DeferredTools)),
+		streamer:               streamer,
+		maxConcurrentToolCalls: maxConcurrentToolCalls,
+		observer:               config.Observer,
+		contextReducer:         config.ModelContextReducer,
 	}
 	for index, executable := range config.Tools {
 		if err := dispatcher.bindTool(executable, false); err != nil {
@@ -304,11 +303,11 @@ func (d *Dispatcher) modelDefinitions(advertisedToolNames []string) ([]chat.Tool
 	}
 	definitions := cloneDefinitions(d.initialDefinitions)
 	for _, name := range advertisedToolNames {
-		hosted, found := d.tools[name]
-		if !found || !hosted.deferred {
+		binding, found := d.tools[name]
+		if !found || !binding.deferred {
 			return nil, fmt.Errorf("interaction: tool %q is not a bound deferred Tool", name)
 		}
-		definitions = append(definitions, hosted.definition.Clone())
+		definitions = append(definitions, binding.definition.Clone())
 	}
 	return definitions, nil
 }
@@ -442,13 +441,13 @@ func (t *toolBatchDispatch) resume() (agent.Settlement, bool, error) {
 }
 
 func (t *toolBatchDispatch) dispatchRemaining() (agent.Settlement, bool, error) {
-	plans, err := t.dispatcher.planToolCalls(t.prepared[t.start:])
+	plans, err := t.dispatcher.planToolConcurrency(t.prepared[t.start:])
 	if err != nil {
 		return agent.Settlement{}, false, err
 	}
 	for offset := 0; offset < len(plans); {
 		end := offset + 1
-		if t.dispatcher.maxParallel > 1 {
+		if t.dispatcher.maxConcurrentToolCalls > 1 {
 			end = concurrentBatchEnd(plans, offset)
 		}
 		outcomes := t.dispatcher.callToolBatch(
@@ -567,7 +566,7 @@ func (d *Dispatcher) callTool(
 		}
 		d.observeToolSettled(ctx, invocation, settlement)
 	}()
-	hosted := prepared.hosted
+	binding := prepared.binding
 	advertiser := newToolAdvertiser(d.deferredToolNames)
 	ctx = withToolInvocation(ctx, invocation)
 	ctx = withToolAdvertiser(ctx, advertiser)
@@ -579,12 +578,7 @@ func (d *Dispatcher) callTool(
 			err = fmt.Errorf("tool panicked: %v", recovered)
 		}
 	}()
-	output, err := hosted.executable.Call(ctx, prepared.invocation)
-	if err == nil {
-		if outputErr := output.Validate(); outputErr != nil {
-			err = fmt.Errorf("tool returned invalid output: %w", outputErr)
-		}
-	}
+	output, err := binding.executable.Call(ctx, prepared.invocation)
 	if err != nil {
 		if inputRequired, ok := errors.AsType[*ToolInputRequiredError](err); ok {
 			request, valid := inputRequired.inputRequest()
@@ -598,7 +592,7 @@ func (d *Dispatcher) callTool(
 	if !present {
 		return chat.ToolResult{}, nil, nil, err
 	}
-	if err != nil {
+	if result.IsError {
 		return result, nil, nil, nil
 	}
 	return result, advertiser.advertisedNames(), nil, nil
@@ -609,7 +603,7 @@ func (d *Dispatcher) allCallsDirect(calls []preparedToolCall) bool {
 		return false
 	}
 	for _, call := range calls {
-		if call.hosted == nil || call.rejection != nil || !call.hosted.direct {
+		if call.binding == nil || call.rejection != nil || !call.binding.direct {
 			return false
 		}
 	}
@@ -621,14 +615,14 @@ func (d *Dispatcher) prepareToolCalls(calls []chat.ToolCall) []preparedToolCall 
 	for index := range calls {
 		call := calls[index]
 		prepared[index].call = call
-		hosted, found := d.tools[call.Name]
+		binding, found := d.tools[call.Name]
 		if !found {
 			result := rejectedToolResult(call, fmt.Sprintf("tool %q is not available", call.Name))
 			prepared[index].rejection = &result
 			continue
 		}
-		prepared[index].hosted = &hosted
-		invocation, err := hosted.executable.Prepare(call)
+		prepared[index].binding = &binding
+		invocation, err := binding.executable.Prepare(call)
 		if err != nil {
 			result := rejectedToolResult(call, "invalid arguments: "+boundedDiagnostic(err.Error()))
 			prepared[index].rejection = &result

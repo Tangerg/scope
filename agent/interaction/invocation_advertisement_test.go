@@ -105,6 +105,20 @@ func assertModelToolResultPolicy(t *testing.T, invocation interaction.ToolInvoca
 	if !present || !reflect.DeepEqual(success, wantSuccess) {
 		t.Fatalf("success = %#v, present = %t", success, present)
 	}
+	empty, present := invocation.ModelResult(chat.ToolOutput{}, nil)
+	if !present || !reflect.DeepEqual(empty, chat.ToolResult{ID: call.ID, Name: call.Name}) {
+		t.Fatalf("empty success = %#v, present = %t", empty, present)
+	}
+	invalidOutput := chat.ToolOutput{Details: json.RawMessage(`{`)}
+	invalid, present := invocation.ModelResult(invalidOutput, nil)
+	wantInvalid := chat.ToolResult{
+		ID: call.ID, Name: call.Name, IsError: true,
+		Output: chat.NewTextToolOutput("error: tool \"" + call.Name +
+			"\" failed: tool returned invalid output: chat: invalid tool output: details must be one valid RFC 7493 JSON document"),
+	}
+	if !present || !reflect.DeepEqual(invalid, wantInvalid) {
+		t.Fatalf("invalid output result = %#v, present = %t", invalid, present)
+	}
 
 	diagnostic := strings.Repeat("x", 3_000)
 	failure, present := invocation.ModelResult(chat.NewTextToolOutput("ignored"), errors.New(diagnostic))
@@ -128,7 +142,7 @@ func assertModelToolResultPolicy(t *testing.T, invocation interaction.ToolInvoca
 		),
 	}
 	for _, cause := range controlCauses {
-		if result, present := invocation.ModelResult(chat.NewTextToolOutput("ignored"), cause); present || !reflect.DeepEqual(result, chat.ToolResult{}) {
+		if result, present := invocation.ModelResult(invalidOutput, cause); present || !reflect.DeepEqual(result, chat.ToolResult{}) {
 			t.Fatalf("control cause %v produced %#v, present = %t", cause, result, present)
 		}
 	}
@@ -185,35 +199,56 @@ func TestAdvertiseToolsRejectsUnavailableAndInvalidNames(t *testing.T) {
 	}
 }
 
-func TestFailedToolCallDiscardsStagedAdvertisements(t *testing.T) {
-	failing := &callbackTool{
-		name: "failing",
-		call: func(ctx context.Context, _ string) (string, error) {
-			if err := interaction.AdvertiseTools(ctx, "hidden"); err != nil {
-				return "", err
+func TestUnsuccessfulToolCallDiscardsStagedAdvertisements(t *testing.T) {
+	for _, invalidOutput := range []bool{false, true} {
+		t.Run(fmt.Sprintf("invalid_output=%t", invalidOutput), func(t *testing.T) {
+			failing := &callbackTool{
+				name: "failing",
+				call: func(ctx context.Context, _ string) (string, error) {
+					if err := interaction.AdvertiseTools(ctx, "hidden"); err != nil {
+						return "", err
+					}
+					if invalidOutput {
+						return "", nil
+					}
+					return "", errors.New("external failure")
+				},
 			}
-			return "", errors.New("external failure")
-		},
+			hidden := &callbackTool{name: "hidden", call: func(context.Context, string) (string, error) {
+				return "hidden", nil
+			}}
+			model := &manifestScriptModel{scripts: []manifestScript{
+				{wantTools: []string{"failing"}, response: toolCallResponse(chat.ToolCall{ID: "call_failing", Name: "failing", Arguments: `{}`})},
+				{wantTools: []string{"failing"}, response: textResponse("recovered")},
+			}}
+			var executable tool.Tool = failing
+			if invalidOutput {
+				executable = &invalidOutputTool{Tool: failing}
+			}
+			deployment := newDeferredDeployment(t, model, []tool.Tool{executable}, []tool.Tool{hidden}, 0)
+			process, engine := startDeferredInteraction(t, deployment)
+			result, err := process.Await(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := engine.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if result.Status() != agent.StatusCompleted {
+				t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
+			}
+		})
 	}
-	hidden := &callbackTool{name: "hidden", call: func(context.Context, string) (string, error) {
-		return "hidden", nil
-	}}
-	model := &manifestScriptModel{scripts: []manifestScript{
-		{wantTools: []string{"failing"}, response: toolCallResponse(chat.ToolCall{ID: "call_failing", Name: "failing", Arguments: `{}`})},
-		{wantTools: []string{"failing"}, response: textResponse("recovered")},
-	}}
-	deployment := newDeferredDeployment(t, model, []tool.Tool{failing}, []tool.Tool{hidden}, 0)
-	process, engine := startDeferredInteraction(t, deployment)
-	result, err := process.Await(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := engine.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
-	}
+}
+
+type invalidOutputTool struct {
+	tool.Tool
+}
+
+func (i *invalidOutputTool) Call(ctx context.Context, invocation tool.Invocation) (chat.ToolOutput, error) {
+	output, err := i.Tool.Call(ctx, invocation)
+	output.Details = json.RawMessage(`{`)
+	return output, err
 }
 
 func TestToolInputCheckpointKeepsOnlyCompletedToolAdvertisements(t *testing.T) {

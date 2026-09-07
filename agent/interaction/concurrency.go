@@ -12,12 +12,12 @@ import (
 
 type preparedToolCall struct {
 	call       chat.ToolCall
-	hosted     *boundTool
+	binding    *boundTool
 	invocation tool.Invocation
 	rejection  *chat.ToolResult
 }
 
-type toolCallPlan struct {
+type toolConcurrencyPlan struct {
 	concurrent bool
 	key        string
 }
@@ -29,18 +29,18 @@ type toolCallOutcome struct {
 	err                 error
 }
 
-func (d *Dispatcher) planToolCalls(calls []preparedToolCall) ([]toolCallPlan, error) {
-	plans := make([]toolCallPlan, len(calls))
+func (d *Dispatcher) planToolConcurrency(calls []preparedToolCall) ([]toolConcurrencyPlan, error) {
+	plans := make([]toolConcurrencyPlan, len(calls))
 	for index := range calls {
 		call := calls[index]
-		if call.hosted == nil || call.rejection != nil || call.hosted.concurrent == nil {
+		if call.binding == nil || call.rejection != nil || call.binding.concurrent == nil {
 			continue
 		}
-		key, concurrent, err := concurrencyDeclaration(call.hosted.concurrent, call.invocation)
+		key, concurrent, err := concurrencyDeclaration(call.binding.concurrent, call.invocation)
 		if err != nil {
 			return nil, fmt.Errorf("interaction: tool call %q concurrency: %w", call.call.ID, err)
 		}
-		plans[index] = toolCallPlan{concurrent: concurrent, key: key}
+		plans[index] = toolConcurrencyPlan{concurrent: concurrent, key: key}
 	}
 	return plans, nil
 }
@@ -63,7 +63,7 @@ func concurrencyDeclaration(
 // concurrentBatchEnd returns the longest consecutive range that may overlap.
 // One exclusive call forms its own batch; duplicate non-empty keys establish a
 // boundary so no same-resource calls are ever active together.
-func concurrentBatchEnd(plans []toolCallPlan, start int) int {
+func concurrentBatchEnd(plans []toolConcurrencyPlan, start int) int {
 	if start < 0 || start >= len(plans) || !plans[start].concurrent {
 		return start + 1
 	}
@@ -101,7 +101,7 @@ func (d *Dispatcher) callToolBatch(
 		return outcomes
 	}
 
-	limit := min(d.maxParallel, len(calls))
+	limit := min(d.maxConcurrentToolCalls, len(calls))
 	jobs := make(chan int, len(calls))
 	var group sync.WaitGroup
 	for range limit {
