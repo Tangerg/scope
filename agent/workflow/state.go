@@ -32,20 +32,18 @@ func (p phase) valid() bool {
 }
 
 type executionState struct {
-	Phase              phase              `json:"phase"`
-	StageIndex         uint32             `json:"stage_index"`
-	CurrentValue       json.RawMessage    `json:"current_value"`
-	SelectedCaseID     string             `json:"selected_case_id,omitempty"`
-	ChildProcessID     *agent.ProcessID   `json:"child_process_id,omitempty"`
-	WaitID             *agent.WaitID      `json:"wait_id,omitempty"`
-	NextFanoutIndex    uint32             `json:"next_fanout_index,omitempty"`
-	ActiveFanoutWindow []fanoutChildState `json:"active_fanout_window,omitempty"`
-	FanoutOutputs      []*json.RawMessage `json:"fanout_outputs,omitempty"`
-	LoopIteration      uint32             `json:"loop_iteration,omitempty"`
+	Phase                  phase              `json:"phase"`
+	StageIndex             uint32             `json:"stage_index"`
+	CurrentValue           json.RawMessage    `json:"current_value"`
+	SelectedCaseID         string             `json:"selected_case_id,omitempty"`
+	ChildProcessID         *agent.ProcessID   `json:"child_process_id,omitempty"`
+	WaitID                 *agent.WaitID      `json:"wait_id,omitempty"`
+	ActiveFanoutWindow     []fanoutChildState `json:"active_fanout_window,omitempty"`
+	CompletedFanoutOutputs []json.RawMessage  `json:"completed_fanout_outputs,omitempty"`
+	LoopIteration          uint32             `json:"loop_iteration,omitempty"`
 }
 
 type fanoutChildState struct {
-	FanoutIndex    uint32           `json:"fanout_index"`
 	ChildProcessID *agent.ProcessID `json:"child_process_id,omitempty"`
 	Failure        *agent.Failure   `json:"failure,omitempty"`
 }
@@ -127,51 +125,54 @@ func (e executionState) singleChildStage(definition *Definition) bool {
 
 func (e executionState) noProgress() bool {
 	return e.SelectedCaseID == "" && e.ChildProcessID == nil && e.WaitID == nil &&
-		e.NextFanoutIndex == 0 && e.ActiveFanoutWindow == nil && e.FanoutOutputs == nil &&
+		e.ActiveFanoutWindow == nil && e.CompletedFanoutOutputs == nil &&
 		e.LoopIteration == 0
 }
 
 func (e executionState) hasFanoutProgress() bool {
-	return e.NextFanoutIndex != 0 || e.ActiveFanoutWindow != nil || e.FanoutOutputs != nil
+	return e.ActiveFanoutWindow != nil || e.CompletedFanoutOutputs != nil
 }
 
 func (e executionState) validateFanout(definition *Definition) error {
-	stage, windowStart, err := e.validateFanoutBoundary(definition)
+	stage, err := e.validateFanoutBoundary(definition)
 	if err != nil {
 		return err
 	}
-	resolved, started, err := e.validateFanoutChildren(windowStart)
+	resolved, started, err := e.validateFanoutChildren()
 	if err != nil {
 		return err
 	}
-	if err := e.validateFanoutOutputs(stage, windowStart); err != nil {
+	if err := e.validateCompletedFanoutOutputs(stage); err != nil {
 		return err
 	}
 	return e.validateFanoutPhase(resolved, started)
 }
 
-func (e executionState) validateFanoutBoundary(definition *Definition) (Stage, uint32, error) {
+func (e executionState) fanoutWindowStart() uint32 {
+	return uint32(len(e.CompletedFanoutOutputs))
+}
+
+func (e executionState) validateFanoutBoundary(definition *Definition) (Stage, error) {
 	if e.StageIndex >= uint32(len(definition.stages)) {
-		return Stage{}, 0, ErrInvalidExecutionState
+		return Stage{}, ErrInvalidExecutionState
 	}
 	stage := definition.stages[e.StageIndex]
 	count, err := stage.fanoutCount(e.CurrentValue)
-	if err != nil || count == 0 || e.NextFanoutIndex == 0 || e.NextFanoutIndex > count ||
-		len(e.ActiveFanoutWindow) == 0 || uint64(len(e.ActiveFanoutWindow)) > uint64(stage.fanoutWindowSize()) ||
-		uint64(len(e.ActiveFanoutWindow)) > uint64(e.NextFanoutIndex) ||
-		uint64(len(e.FanoutOutputs)) != uint64(count) {
-		return Stage{}, 0, ErrInvalidExecutionState
+	windowSize := stage.fanoutWindowSize()
+	if err != nil || windowSize == 0 || uint64(len(e.CompletedFanoutOutputs)) >= uint64(count) {
+		return Stage{}, ErrInvalidExecutionState
 	}
-	return stage, e.NextFanoutIndex - uint32(len(e.ActiveFanoutWindow)), nil
+	start := e.fanoutWindowStart()
+	if start%windowSize != 0 || uint64(len(e.ActiveFanoutWindow)) != uint64(min(windowSize, count-start)) {
+		return Stage{}, ErrInvalidExecutionState
+	}
+	return stage, nil
 }
 
-func (e executionState) validateFanoutChildren(windowStart uint32) (int, int, error) {
+func (e executionState) validateFanoutChildren() (int, int, error) {
 	resolved := 0
 	started := make(map[agent.ProcessID]struct{}, len(e.ActiveFanoutWindow))
-	for offset, child := range e.ActiveFanoutWindow {
-		if child.FanoutIndex != windowStart+uint32(offset) {
-			return 0, 0, ErrInvalidExecutionState
-		}
+	for _, child := range e.ActiveFanoutWindow {
 		hasProcess := child.ChildProcessID != nil && child.ChildProcessID.Valid()
 		hasFailure := child.Failure != nil && child.Failure.Valid()
 		if child.ChildProcessID != nil && !hasProcess || child.Failure != nil && !hasFailure {
@@ -193,20 +194,13 @@ func (e executionState) validateFanoutChildren(windowStart uint32) (int, int, er
 	return resolved, len(started), nil
 }
 
-func (e executionState) validateFanoutOutputs(stage Stage, windowStart uint32) error {
-	for index, output := range e.FanoutOutputs {
-		if uint32(index) < windowStart {
-			if output == nil {
-				return ErrInvalidExecutionState
-			}
-			value, err := agent.ParseOutput(*output)
-			if err != nil {
-				return ErrInvalidExecutionState
-			}
-			if err := stage.fanoutOutputSchema().ValidateOutput(value); err != nil {
-				return ErrInvalidExecutionState
-			}
-		} else if output != nil {
+func (e executionState) validateCompletedFanoutOutputs(stage Stage) error {
+	for _, output := range e.CompletedFanoutOutputs {
+		value, err := agent.ParseOutput(output)
+		if err != nil {
+			return ErrInvalidExecutionState
+		}
+		if err := stage.fanoutOutputSchema().ValidateOutput(value); err != nil {
 			return ErrInvalidExecutionState
 		}
 	}

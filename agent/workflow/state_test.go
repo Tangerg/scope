@@ -61,15 +61,15 @@ func TestExecutionRejectsMissingProtocolSignals(t *testing.T) {
 		},
 		"fan-out starts": {
 			definition: fanoutDefinition,
-			payload:    `{"phase":"awaiting_fanout_starts","stage_index":0,"current_value":{"value":1},"next_fanout_index":1,"active_fanout_window":[{"fanout_index":0}],"fanout_outputs":[null]}`,
+			payload:    `{"phase":"awaiting_fanout_starts","stage_index":0,"current_value":{"value":1},"active_fanout_window":[{}]}`,
 		},
 		"fan-out wait opening": {
 			definition: fanoutDefinition,
-			payload:    `{"phase":"awaiting_fanout_wait_open","stage_index":0,"current_value":{"value":1},"next_fanout_index":1,"active_fanout_window":[{"fanout_index":0,"child_process_id":"child"}],"fanout_outputs":[null]}`,
+			payload:    `{"phase":"awaiting_fanout_wait_open","stage_index":0,"current_value":{"value":1},"active_fanout_window":[{"child_process_id":"child"}]}`,
 		},
 		"fan-out completion": {
 			definition: fanoutDefinition,
-			payload:    `{"phase":"waiting_fanout","stage_index":0,"current_value":{"value":1},"wait_id":"wait","next_fanout_index":1,"active_fanout_window":[{"fanout_index":0,"child_process_id":"child"}],"fanout_outputs":[null]}`,
+			payload:    `{"phase":"waiting_fanout","stage_index":0,"current_value":{"value":1},"wait_id":"wait","active_fanout_window":[{"child_process_id":"child"}]}`,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

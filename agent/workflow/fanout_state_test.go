@@ -42,22 +42,49 @@ func TestFanoutRestoreRejectsInvalidWindowState(t *testing.T) {
 	}
 
 	for _, test := range []struct {
-		name   string
-		fields map[string]json.RawMessage
+		name      string
+		fields    map[string]json.RawMessage
+		wantValid bool
 	}{
 		{
-			name: "window starts before zero",
+			name: "final partial window",
 			fields: map[string]json.RawMessage{
-				"next_fanout_index":    json.RawMessage(`1`),
-				"active_fanout_window": json.RawMessage(`[{"fanout_index":4294967295},{"fanout_index":0}]`),
-				"fanout_outputs":       json.RawMessage(`[{"value":1},{"value":2},{"value":3}]`),
+				"active_fanout_window":     json.RawMessage(`[{}]`),
+				"completed_fanout_outputs": json.RawMessage(`[{"value":1},{"value":2}]`),
+			},
+			wantValid: true,
+		},
+		{
+			name: "completed prefix contains invalid output",
+			fields: map[string]json.RawMessage{
+				"active_fanout_window":     json.RawMessage(`[{}]`),
+				"completed_fanout_outputs": json.RawMessage(`[null,{"value":2}]`),
+			},
+		},
+		{
+			name: "undersized non-final window",
+			fields: map[string]json.RawMessage{
+				"active_fanout_window": json.RawMessage(`[{}]`),
+			},
+		},
+		{
+			name: "window starts between fixed boundaries",
+			fields: map[string]json.RawMessage{
+				"active_fanout_window":     json.RawMessage(`[{},{}]`),
+				"completed_fanout_outputs": json.RawMessage(`[{"value":1}]`),
+			},
+		},
+		{
+			name: "completed outputs leave no active input",
+			fields: map[string]json.RawMessage{
+				"completed_fanout_outputs": json.RawMessage(`[{"value":1},{"value":2},{"value":3}]`),
 			},
 		},
 		{
 			name: "duplicate children before wait opens",
 			fields: map[string]json.RawMessage{
 				"phase":                json.RawMessage(`"awaiting_fanout_wait_open"`),
-				"active_fanout_window": json.RawMessage(`[{"fanout_index":0,"child_process_id":"child"},{"fanout_index":1,"child_process_id":"child"}]`),
+				"active_fanout_window": json.RawMessage(`[{"child_process_id":"child"},{"child_process_id":"child"}]`),
 			},
 		},
 		{
@@ -65,7 +92,7 @@ func TestFanoutRestoreRejectsInvalidWindowState(t *testing.T) {
 			fields: map[string]json.RawMessage{
 				"phase":                json.RawMessage(`"waiting_fanout"`),
 				"wait_id":              json.RawMessage(`"wait"`),
-				"active_fanout_window": json.RawMessage(`[{"fanout_index":0,"child_process_id":"child"},{"fanout_index":1,"child_process_id":"child"}]`),
+				"active_fanout_window": json.RawMessage(`[{"child_process_id":"child"},{"child_process_id":"child"}]`),
 			},
 		},
 	} {
@@ -85,8 +112,13 @@ func TestFanoutRestoreRejectsInvalidWindowState(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := definition.Restore(state); !errors.Is(err, workflow.ErrInvalidExecutionState) {
-				t.Fatalf("Restore() error = %v, want ErrInvalidExecutionState", err)
+			_, restoreErr := definition.Restore(state)
+			if test.wantValid {
+				if restoreErr != nil {
+					t.Fatalf("Restore() rejected a valid window: %v", restoreErr)
+				}
+			} else if !errors.Is(restoreErr, workflow.ErrInvalidExecutionState) {
+				t.Fatalf("Restore() error = %v, want ErrInvalidExecutionState", restoreErr)
 			}
 		})
 	}
