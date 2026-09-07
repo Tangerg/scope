@@ -85,6 +85,7 @@ func (r *Repository) List(ctx context.Context) (summaries []Summary, err error) 
 		if closeErr := directory.Close(); closeErr != nil {
 			err = errors.Join(err, fmt.Errorf("skills: close repository directory: %w", closeErr))
 		}
+		err = errors.Join(err, contextError(ctx, "list"))
 	}()
 	if contextErr := contextError(ctx, "list"); contextErr != nil {
 		return nil, contextErr
@@ -231,11 +232,11 @@ func (r *Repository) loadSummary(ctx context.Context, name string) (Summary, err
 func (r *Repository) readSkillFile(ctx context.Context, name string, maxBytes int64) ([]byte, error) {
 	file, err := r.fsys.Open(name + "/" + SkillFile)
 	if err != nil {
-		return nil, fmt.Errorf("skills: load %q: %w", name, err)
+		return nil, fmt.Errorf("skills: load %q: %w", name, errors.Join(err, contextError(ctx, "open skill")))
 	}
 	data, truncated, readErr := readBounded(ctx, file, maxBytes)
 	closeErr := file.Close()
-	if readErr = errors.Join(readErr, closeErr); readErr != nil {
+	if readErr = errors.Join(readErr, closeErr, contextError(ctx, "read skill")); readErr != nil {
 		return nil, fmt.Errorf("skills: load %q: %w", name, readErr)
 	}
 	if truncated {

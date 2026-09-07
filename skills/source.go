@@ -17,6 +17,7 @@ import (
 // Implementations must return valid Summary and Skill models and honor ctx
 // cancellation. Cancellation errors preserve both context.Canceled or
 // context.DeadlineExceeded and any custom cancellation cause through errors.Is.
+// Concurrent I/O and cleanup failures remain identifiable through errors.Is.
 type Source interface {
 	// List returns detached, valid summaries in the implementation's stable
 	// discovery order. Invalid skill bundles may be skipped, but repository I/O,
