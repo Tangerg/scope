@@ -179,16 +179,29 @@ func benchmarkRecoverableProcess(
 	return engine, deployment, process
 }
 
+// benchmarkCleanupTimeout only prevents a hung teardown from blocking the test
+// binary. It is deliberately far above any plausible termination time: the
+// heaviest cases here allocate tens of megabytes per iteration, so a budget
+// tuned for an idle machine expires under their own GC pressure and reports a
+// slow teardown as "status=invalid" — a failure signature that reads like a
+// kernel defect and makes the measurement unusable as evidence.
+const benchmarkCleanupTimeout = 2 * time.Minute
+
+// stopRecoveryBenchmarkProcess runs from b.Cleanup. It reports instead of
+// calling Fatal, because Fatal would Goexit inside cleanup and skip the
+// remaining teardown. It cannot use b.Context, which is already canceled by the
+// time cleanup functions run.
 func stopRecoveryBenchmarkProcess(b *testing.B, process *Process) {
 	b.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), benchmarkCleanupTimeout)
 	defer cancel()
 	if err := process.Kill(ctx, "benchmark cleanup"); err != nil {
-		b.Fatal(err)
+		b.Errorf("benchmark cleanup kill: %v", err)
+		return
 	}
 	result, err := process.Await(ctx)
 	if err != nil || result.Status() != StatusKilled {
-		b.Fatalf("benchmark cleanup status=%s error=%v", result.Status(), err)
+		b.Errorf("benchmark cleanup status=%s error=%v", result.Status(), err)
 	}
 }
 
