@@ -44,6 +44,7 @@ type TreeSnapshot struct {
 
 // ParseTreeSnapshot validates one complete Process tree snapshot. A syntactically
 // valid foreign version is classified before the current wire shape is enforced.
+// Every active child wait must have a registration belonging to its Process.
 func ParseTreeSnapshot(data json.RawMessage) (TreeSnapshot, error) {
 	if len(data) == 0 || len(data) > maxTreeSnapshotBytes {
 		return TreeSnapshot{}, fmt.Errorf(
@@ -322,14 +323,14 @@ func (t *treeSnapshotValidation) validateChildAccounting() error {
 }
 
 func (t *treeSnapshotValidation) validateChildWaits() error {
-	waits := make(map[WaitID]struct{}, len(t.wire.ChildWaits))
+	waitOwners := make(map[WaitID]ProcessID, len(t.wire.ChildWaits))
 	for _, encoded := range t.wire.ChildWaits {
 		parent, exists := t.processes[encoded.ParentProcessID]
 		spec, err := encoded.Spec.value()
 		if !exists || err != nil || !encoded.WaitID.Valid() || parent.Status.Terminal() {
 			return fmt.Errorf("%w: invalid child wait", ErrInvalidTreeSnapshot)
 		}
-		if _, duplicate := waits[encoded.WaitID]; duplicate {
+		if _, duplicate := waitOwners[encoded.WaitID]; duplicate {
 			return fmt.Errorf("%w: duplicate child WaitID", ErrInvalidTreeSnapshot)
 		}
 		waitRecord, exists := findWaitRecord(parent.Mailbox, encoded.WaitID)
@@ -344,13 +345,13 @@ func (t *treeSnapshotValidation) validateChildWaits() error {
 				return fmt.Errorf("%w: wait references a non-direct child", ErrInvalidTreeSnapshot)
 			}
 		}
-		waits[encoded.WaitID] = struct{}{}
+		waitOwners[encoded.WaitID] = encoded.ParentProcessID
 	}
 	for _, processWire := range t.processes {
 		for _, wait := range processWire.Mailbox.Waits {
 			if !wait.ExternallyAddressable && !wait.Closed {
-				if _, exists := waits[wait.WaitID]; !exists {
-					return fmt.Errorf("%w: active child wait registration is missing", ErrInvalidTreeSnapshot)
+				if waitOwners[wait.WaitID] != processWire.ProcessID {
+					return fmt.Errorf("%w: active child wait registration does not belong to Process", ErrInvalidTreeSnapshot)
 				}
 			}
 		}

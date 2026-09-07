@@ -172,6 +172,48 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 	if err != nil || parsed.RootID() != tree.RootID() || len(parsed.ProcessSnapshots()) != 4 {
 		t.Fatalf("parsed tree = %#v, error = %v", parsed, err)
 	}
+	t.Run("child wait registration belongs to its parent", func(t *testing.T) {
+		candidate, decodeErr := tree.wire()
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		registration := candidate.ChildWaits[0]
+		for index, snapshot := range candidate.ProcessSnapshots {
+			if snapshot.ProcessID() == root.ID() {
+				continue
+			}
+			child, childErr := snapshot.wire()
+			if childErr != nil {
+				t.Fatal(childErr)
+			}
+			mailbox, restoreErr := restoreSignalMailbox(child.Mailbox, child.Status)
+			if restoreErr != nil {
+				t.Fatal(restoreErr)
+			}
+			opened := mustMailboxSignal(t, "signal:foreign-wait", registration.WaitID, json.RawMessage(`{}`))
+			if openErr := mailbox.openWait(registration.Spec.Key, opened, false); openErr != nil {
+				t.Fatal(openErr)
+			}
+			child.Mailbox = mailbox.snapshot()
+			child.Usage.AcceptedSignals = mailbox.arrivalSequence()
+			child.Status = StatusWaiting
+			child.PauseReason = ""
+			child.CurrentWaitID = &registration.WaitID
+			changed, snapshotErr := newProcessSnapshot(child)
+			if snapshotErr != nil {
+				t.Fatalf("individual Process facts should be valid: %v", snapshotErr)
+			}
+			candidate.ProcessSnapshots[index] = changed
+			break
+		}
+		encoded, encodeErr := json.Marshal(candidate)
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
+		if _, parseErr := ParseTreeSnapshot(encoded); !errors.Is(parseErr, ErrInvalidTreeSnapshot) {
+			t.Fatalf("foreign child wait registration error=%v", parseErr)
+		}
+	})
 	wire, err := tree.wire()
 	if err != nil {
 		t.Fatal(err)
