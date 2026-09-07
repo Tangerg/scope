@@ -10,12 +10,12 @@ import (
 
 func (s Stage) fanoutCount(raw json.RawMessage) (uint32, error) {
 	switch s.kind {
-	case stageKindFork:
+	case StageKindFork:
 		if !s.fork.valid() {
 			return 0, ErrInvalidStage
 		}
 		return uint32(len(s.fork.branches)), nil
-	case stageKindMap:
+	case StageKindMap:
 		if !s.mapper.valid() {
 			return 0, ErrInvalidStage
 		}
@@ -27,9 +27,9 @@ func (s Stage) fanoutCount(raw json.RawMessage) (uint32, error) {
 
 func (s Stage) fanoutWindowSize() uint32 {
 	switch s.kind {
-	case stageKindFork:
+	case StageKindFork:
 		return s.fork.windowSize
-	case stageKindMap:
+	case StageKindMap:
 		return s.mapper.windowSize
 	default:
 		return 0
@@ -38,12 +38,12 @@ func (s Stage) fanoutWindowSize() uint32 {
 
 func (s Stage) fanoutBinding(index uint32) (childBinding, bool) {
 	switch s.kind {
-	case stageKindFork:
+	case StageKindFork:
 		if uint64(index) >= uint64(len(s.fork.branches)) {
 			return childBinding{}, false
 		}
 		return s.fork.branches[index].binding, true
-	case stageKindMap:
+	case StageKindMap:
 		return s.mapper.binding, s.mapper.valid()
 	default:
 		return childBinding{}, false
@@ -56,7 +56,7 @@ func (s Stage) fanoutWindowInputs(
 	raw json.RawMessage,
 ) ([]agent.Input, error) {
 	switch s.kind {
-	case stageKindFork:
+	case StageKindFork:
 		input, err := agent.ParseInput(raw)
 		if err != nil {
 			return nil, err
@@ -66,7 +66,7 @@ func (s Stage) fanoutWindowInputs(
 			inputs[index] = input
 		}
 		return inputs, nil
-	case stageKindMap:
+	case StageKindMap:
 		return s.mapper.windowInputs(raw, start, end)
 	default:
 		return nil, ErrInvalidStage
@@ -75,9 +75,9 @@ func (s Stage) fanoutWindowInputs(
 
 func (s Stage) fanoutOutputSchema() agent.Schema {
 	switch s.kind {
-	case stageKindFork:
+	case StageKindFork:
 		return s.fork.branchSchema
-	case stageKindMap:
+	case StageKindMap:
 		return s.mapper.itemOutputSchema
 	default:
 		return agent.Schema{}
@@ -86,9 +86,9 @@ func (s Stage) fanoutOutputSchema() agent.Schema {
 
 func (s Stage) fanoutComplete(outputs []json.RawMessage) (json.RawMessage, error) {
 	switch s.kind {
-	case stageKindFork:
+	case StageKindFork:
 		return s.fork.reduce(outputs)
-	case stageKindMap:
+	case StageKindMap:
 		return s.mapper.collect(outputs)
 	default:
 		return nil, ErrInvalidStage
@@ -97,12 +97,12 @@ func (s Stage) fanoutComplete(outputs []json.RawMessage) (json.RawMessage, error
 
 func (s Stage) fanoutMemberID(index uint32) (string, bool) {
 	switch s.kind {
-	case stageKindFork:
+	case StageKindFork:
 		if uint64(index) >= uint64(len(s.fork.branches)) {
 			return "", false
 		}
 		return s.fork.branches[index].id, true
-	case stageKindMap:
+	case StageKindMap:
 		return strconv.FormatUint(uint64(index), 10), true
 	default:
 		return "", false
@@ -111,7 +111,7 @@ func (s Stage) fanoutMemberID(index uint32) (string, bool) {
 
 func (s Stage) fanoutMemberLabel(index uint32) string {
 	id, _ := s.fanoutMemberID(index)
-	if s.kind == stageKindFork {
+	if s.kind == StageKindFork {
 		return "branch " + id
 	}
 	return "item " + id
@@ -122,11 +122,11 @@ func (s Stage) fanoutFailureCode(suffix string) string {
 }
 
 func (s Stage) failureCode(suffix string) string {
-	return fmt.Sprintf("workflow.%s.%s", s.kind.String(), suffix)
+	return fmt.Sprintf("workflow.%s.%s", string(s.kind), suffix)
 }
 
 func (s Stage) fanoutMemberNoun() string {
-	if s.kind == stageKindFork {
+	if s.kind == StageKindFork {
 		return "branch"
 	}
 	return "item"

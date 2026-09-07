@@ -90,7 +90,7 @@ func Map[I, O any](config MapConfig[I, O]) (Stage, error) {
 		return codec.collect[O](raw)
 	}
 	return Stage{
-		id: config.ID, kind: stageKindMap,
+		id: config.ID, kind: StageKindMap,
 		inputSchema: schemas.input, outputSchema: schemas.output,
 		mapper: mapStage{
 			binding: childBinding{

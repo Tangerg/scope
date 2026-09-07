@@ -155,9 +155,9 @@ func (e *execution) acceptFanoutCompletion(signals []agent.Signal) (agent.Transi
 		if fanoutChildKeyErr != nil || outcome.Key() != wantChildKey || outcome.Result().ProcessID() != *child.ChildProcessID {
 			return agent.Transition{}, fmt.Errorf("%w: fan-out member outcome mismatch", ErrInvalidProtocol)
 		}
-		failure, output, fanoutChildKeyErr := e.fanoutOutcome(child.FanoutIndex, outcome.Result())
-		if fanoutChildKeyErr != nil {
-			return agent.Transition{}, fanoutChildKeyErr
+		failure, output, outcomeErr := e.fanoutOutcome(child.FanoutIndex, outcome.Result())
+		if outcomeErr != nil {
+			return agent.Transition{}, outcomeErr
 		}
 		if failure != nil {
 			child.Failure = failure
@@ -230,7 +230,7 @@ func (e *execution) fanoutOutcome(
 }
 
 func (e *execution) fanoutFailureMessage(index uint32, diagnostic string) string {
-	return e.stage().kind.String() + " Stage " + e.stage().id + " " +
+	return string(e.stage().kind) + " Stage " + e.stage().id + " " +
 		e.stage().fanoutMemberLabel(index) + " " + diagnostic
 }
 
@@ -258,13 +258,13 @@ func (e *execution) fanoutChildKey(index uint32) (agent.ChildKey, error) {
 	if !found {
 		return agent.ChildKey{}, ErrInvalidExecutionState
 	}
-	return workflowChildKey(e.stage().kind.String(), e.stage().id, memberID)
+	return workflowChildKey(string(e.stage().kind), e.stage().id, memberID)
 }
 
 func (e *execution) fanoutWaitKey() (agent.WaitKey, error) {
 	windowStart := e.state.NextFanoutIndex - uint32(len(e.state.ActiveFanoutWindow))
 	return workflowWaitKey(
-		e.stage().kind.String(), e.stage().id,
+		string(e.stage().kind), e.stage().id,
 		strconv.FormatUint(uint64(windowStart), 10),
 	)
 }

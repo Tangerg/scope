@@ -46,14 +46,14 @@ func (e *execution) Step(_ context.Context, signals []agent.Signal) (agent.Trans
 		return e.acceptModel(signals)
 	case phaseAwaitingTools:
 		return e.acceptTools(signals)
-	case phaseAwaitingWaitID:
-		return e.acceptWaitID(signals)
+	case phaseAwaitingInputWaitOpen:
+		return e.acceptInputWaitOpen(signals)
 	case phaseWaitingInput:
 		return e.acceptInputResponse(signals)
 	case phaseAwaitingDelegateStarts:
 		return e.acceptDelegateStarts(signals)
-	case phaseAwaitingDelegateWaitID:
-		return e.acceptDelegateWaitID(signals)
+	case phaseAwaitingDelegateWaitOpen:
+		return e.acceptDelegateWaitOpen(signals)
 	case phaseWaitingDelegates:
 		return e.acceptDelegates(signals)
 	case phaseCompleted:
@@ -308,11 +308,11 @@ func (e *execution) requestInputWait(
 	cloned := checkpoint.clone()
 	e.state.ToolCheckpoint = &cloned
 	e.state.WaitID = nil
-	e.state.Phase = phaseAwaitingWaitID
+	e.state.Phase = phaseAwaitingInputWaitOpen
 	return agent.Continue(consumedSignals, effect)
 }
 
-func (e *execution) acceptWaitID(signals []agent.Signal) (agent.Transition, error) {
+func (e *execution) acceptInputWaitOpen(signals []agent.Signal) (agent.Transition, error) {
 	envelope, steer, consumedSignals, err := collectExpectedSignal(signals, operationWaitOpened)
 	if err != nil {
 		return agent.Transition{}, err

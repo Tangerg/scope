@@ -142,7 +142,7 @@ func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
 		return erased.JSON(), nil
 	}
 	return Stage{
-		id: config.ID, kind: stageKindFork,
+		id: config.ID, kind: StageKindFork,
 		inputSchema: inputSchema, outputSchema: outputSchema,
 		fork: forkStage{
 			branches: branches, windowSize: config.WindowSize,

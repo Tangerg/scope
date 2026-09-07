@@ -141,11 +141,11 @@ func (e *execution) acceptDelegateStarts(signals []agent.Signal) (agent.Transiti
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	e.state.Phase = phaseAwaitingDelegateWaitID
+	e.state.Phase = phaseAwaitingDelegateWaitOpen
 	return agent.Continue(consumedSignals, effect)
 }
 
-func (e *execution) acceptDelegateWaitID(signals []agent.Signal) (agent.Transition, error) {
+func (e *execution) acceptDelegateWaitOpen(signals []agent.Signal) (agent.Transition, error) {
 	opened, steer, consumedSignals, err := collectChildWaitOpened(signals)
 	if err != nil {
 		return agent.Transition{}, err

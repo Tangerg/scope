@@ -112,12 +112,12 @@ func (e executionState) singleChildStage(definition *Definition) bool {
 	}
 	stage := definition.stages[e.StageIndex]
 	switch stage.kind {
-	case stageKindCall:
+	case StageKindCall:
 		return e.SelectedCaseID == "" && e.LoopIteration == 0
-	case stageKindSwitch:
+	case StageKindSwitch:
 		_, found := stage.switcher.binding(e.SelectedCaseID)
 		return found && e.LoopIteration == 0
-	case stageKindLoop:
+	case StageKindLoop:
 		return e.SelectedCaseID == "" && e.LoopIteration > 0 &&
 			e.LoopIteration <= stage.loop.maxIterations
 	default:

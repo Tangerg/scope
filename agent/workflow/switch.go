@@ -131,7 +131,7 @@ func Switch[I any](config SwitchConfig[I]) (Stage, error) {
 		return selected, nil
 	}
 	return Stage{
-		id: config.ID, kind: stageKindSwitch,
+		id: config.ID, kind: StageKindSwitch,
 		inputSchema: inputSchema, outputSchema: outputSchema,
 		switcher: switchStage{selectCase: selectCase, cases: cases},
 	}, nil

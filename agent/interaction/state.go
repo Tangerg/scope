@@ -12,22 +12,22 @@ import (
 type phase string
 
 const (
-	phaseReadyModel             phase = "ready_model"
-	phaseAwaitingModel          phase = "awaiting_model"
-	phaseAwaitingTools          phase = "awaiting_tools"
-	phaseAwaitingWaitID         phase = "awaiting_wait_id"
-	phaseWaitingInput           phase = "waiting_input"
-	phaseAwaitingDelegateStarts phase = "awaiting_delegate_starts"
-	phaseAwaitingDelegateWaitID phase = "awaiting_delegate_wait_id"
-	phaseWaitingDelegates       phase = "waiting_delegates"
-	phaseCompleted              phase = "completed"
+	phaseReadyModel               phase = "ready_model"
+	phaseAwaitingModel            phase = "awaiting_model"
+	phaseAwaitingTools            phase = "awaiting_tools"
+	phaseAwaitingInputWaitOpen    phase = "awaiting_input_wait_open"
+	phaseWaitingInput             phase = "waiting_input"
+	phaseAwaitingDelegateStarts   phase = "awaiting_delegate_starts"
+	phaseAwaitingDelegateWaitOpen phase = "awaiting_delegate_wait_open"
+	phaseWaitingDelegates         phase = "waiting_delegates"
+	phaseCompleted                phase = "completed"
 )
 
 func (p phase) valid() bool {
 	switch p {
 	case phaseReadyModel, phaseAwaitingModel, phaseAwaitingTools,
-		phaseAwaitingWaitID, phaseWaitingInput, phaseAwaitingDelegateStarts,
-		phaseAwaitingDelegateWaitID, phaseWaitingDelegates, phaseCompleted:
+		phaseAwaitingInputWaitOpen, phaseWaitingInput, phaseAwaitingDelegateStarts,
+		phaseAwaitingDelegateWaitOpen, phaseWaitingDelegates, phaseCompleted:
 		return true
 	default:
 		return false
@@ -119,8 +119,8 @@ func (e executionState) validatePhaseState(definition *Definition) error {
 		return e.validateReadyModelState()
 	case phaseAwaitingModel:
 		return e.validateAwaitingModelState()
-	case phaseAwaitingTools, phaseAwaitingWaitID, phaseWaitingInput,
-		phaseAwaitingDelegateStarts, phaseAwaitingDelegateWaitID, phaseWaitingDelegates:
+	case phaseAwaitingTools, phaseAwaitingInputWaitOpen, phaseWaitingInput,
+		phaseAwaitingDelegateStarts, phaseAwaitingDelegateWaitOpen, phaseWaitingDelegates:
 		return e.validateActiveCallState(definition)
 	case phaseCompleted:
 		return e.validateCompletedState()
@@ -163,7 +163,7 @@ func (e executionState) validateActiveCallState(definition *Definition) error {
 
 func (e executionState) delegatePhase() bool {
 	return e.Phase == phaseAwaitingDelegateStarts ||
-		e.Phase == phaseAwaitingDelegateWaitID || e.Phase == phaseWaitingDelegates
+		e.Phase == phaseAwaitingDelegateWaitOpen || e.Phase == phaseWaitingDelegates
 }
 
 func (e executionState) validateDelegateCallState(active []chat.ToolCall) error {
@@ -178,7 +178,7 @@ func (e executionState) validateDelegateCallState(active []chat.ToolCall) error 
 		if e.WaitID != nil {
 			return fmt.Errorf("%w: awaiting Delegate starts contains a WaitID", ErrInvalidExecutionState)
 		}
-	case phaseAwaitingDelegateWaitID:
+	case phaseAwaitingDelegateWaitOpen:
 		if e.WaitID != nil {
 			return fmt.Errorf("%w: awaiting Delegate wait contains a WaitID", ErrInvalidExecutionState)
 		}
@@ -204,7 +204,7 @@ func (e executionState) validateToolCallState(active []chat.ToolCall) error {
 				return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 			}
 		}
-	case phaseAwaitingWaitID, phaseWaitingInput:
+	case phaseAwaitingInputWaitOpen, phaseWaitingInput:
 		return e.validateInputWaitingState(active)
 	}
 	return nil
@@ -217,8 +217,8 @@ func (e executionState) validateInputWaitingState(active []chat.ToolCall) error 
 	if err := e.ToolCheckpoint.validate(active); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
-	if e.Phase == phaseAwaitingWaitID && e.WaitID != nil {
-		return fmt.Errorf("%w: awaiting_wait_id already has a WaitID", ErrInvalidExecutionState)
+	if e.Phase == phaseAwaitingInputWaitOpen && e.WaitID != nil {
+		return fmt.Errorf("%w: awaiting_input_wait_open already has a WaitID", ErrInvalidExecutionState)
 	}
 	if e.Phase == phaseWaitingInput && (e.WaitID == nil || !e.WaitID.Valid()) {
 		return fmt.Errorf("%w: waiting_input requires an Engine WaitID", ErrInvalidExecutionState)
@@ -369,7 +369,7 @@ func (d delegateSegmentState) validate(current phase, calls []chat.ToolCall) err
 	}
 	if current == phaseAwaitingDelegateStarts && (pending == 0 || started != 0) ||
 		current != phaseAwaitingDelegateStarts && pending != 0 ||
-		(current == phaseAwaitingDelegateWaitID || current == phaseWaitingDelegates) && started == 0 {
+		(current == phaseAwaitingDelegateWaitOpen || current == phaseWaitingDelegates) && started == 0 {
 		return fmt.Errorf("%w: Delegate batch phase does not match settlements", ErrInvalidExecutionState)
 	}
 	return nil
@@ -397,7 +397,7 @@ func (e executionState) validatePendingToolInput() error {
 
 func (e executionState) activeDelegateCalls() ([]chat.ToolCall, error) {
 	if e.Phase != phaseAwaitingDelegateStarts &&
-		e.Phase != phaseAwaitingDelegateWaitID &&
+		e.Phase != phaseAwaitingDelegateWaitOpen &&
 		e.Phase != phaseWaitingDelegates ||
 		e.WorkingContext == nil || e.ModelCallCount == 0 ||
 		e.FinalOutput != nil || e.ToolCheckpoint != nil || e.DelegateSegment == nil {
@@ -420,7 +420,7 @@ func (e executionState) activeDelegateCalls() ([]chat.ToolCall, error) {
 		return nil, err
 	}
 	switch e.Phase {
-	case phaseAwaitingDelegateStarts, phaseAwaitingDelegateWaitID:
+	case phaseAwaitingDelegateStarts, phaseAwaitingDelegateWaitOpen:
 		if e.WaitID != nil {
 			return nil, ErrInvalidExecutionState
 		}

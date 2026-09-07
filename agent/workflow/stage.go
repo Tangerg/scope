@@ -10,36 +10,25 @@ import (
 
 const maxStageIDBytes = 128
 
-type stageKind uint8
+// StageKind is the operation kind owned by a sealed Workflow Stage.
+type StageKind string
 
 const (
-	stageKindInvalid stageKind = iota
-	stageKindTransform
-	stageKindCall
-	stageKindSwitch
-	stageKindFork
-	stageKindMap
-	stageKindLoop
+	// StageKindInvalid is the invalid zero value.
+	StageKindInvalid StageKind = ""
+	// StageKindTransform identifies a pure value transformation.
+	StageKindTransform StageKind = "transform"
+	// StageKindCall identifies one exact child Process call.
+	StageKindCall StageKind = "call"
+	// StageKindSwitch identifies pure selection among exact child cases.
+	StageKindSwitch StageKind = "switch"
+	// StageKindFork identifies bounded homogeneous branch fan-out.
+	StageKindFork StageKind = "fork"
+	// StageKindMap identifies bounded homogeneous item fan-out.
+	StageKindMap StageKind = "map"
+	// StageKindLoop identifies bounded at-least-once child iteration.
+	StageKindLoop StageKind = "loop"
 )
-
-func (s stageKind) String() string {
-	switch s {
-	case stageKindTransform:
-		return "transform"
-	case stageKindCall:
-		return "call"
-	case stageKindSwitch:
-		return "switch"
-	case stageKindFork:
-		return "fork"
-	case stageKindMap:
-		return "map"
-	case stageKindLoop:
-		return "loop"
-	default:
-		return "invalid"
-	}
-}
 
 // TransformFunc is the pure reduction a Transform stage applies. It takes no
 // context and returns no stream because a transform runs inside a Step, where
@@ -59,7 +48,7 @@ type childBinding struct {
 // be constructed by this package, keeping the execution algebra closed.
 type Stage struct {
 	id           string
-	kind         stageKind
+	kind         StageKind
 	inputSchema  agent.Schema
 	outputSchema agent.Schema
 	transform    transformStage
@@ -127,7 +116,7 @@ func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error
 		return erased.JSON(), nil
 	}
 	return Stage{
-		id: id, kind: stageKindTransform,
+		id: id, kind: StageKindTransform,
 		inputSchema: inputSchema, outputSchema: outputSchema, transform: apply,
 	}, nil
 }
@@ -141,7 +130,7 @@ func Call(config CallConfig) (Stage, error) {
 	}
 	descriptor := config.Deployment.Descriptor()
 	return Stage{
-		id: config.ID, kind: stageKindCall,
+		id: config.ID, kind: StageKindCall,
 		inputSchema: descriptor.InputSchema(), outputSchema: descriptor.OutputSchema(),
 		call: childBinding{
 			deploymentRef: config.Deployment.DeploymentRef(), budget: config.Budget,
@@ -158,29 +147,29 @@ func (s Stage) Valid() bool {
 	return exclusivelyOwned && behaviorKind == s.kind
 }
 
-func (s Stage) behaviorKind() (stageKind, bool) {
+func (s Stage) behaviorKind() (StageKind, bool) {
 	behaviors := [...]struct {
-		kind   stageKind
+		kind   StageKind
 		active bool
 	}{
-		{kind: stageKindTransform, active: s.transform != nil},
-		{kind: stageKindCall, active: s.call.valid()},
-		{kind: stageKindSwitch, active: s.switcher.valid()},
-		{kind: stageKindFork, active: s.fork.valid()},
-		{kind: stageKindMap, active: s.mapper.valid()},
-		{kind: stageKindLoop, active: s.loop.valid()},
+		{kind: StageKindTransform, active: s.transform != nil},
+		{kind: StageKindCall, active: s.call.valid()},
+		{kind: StageKindSwitch, active: s.switcher.valid()},
+		{kind: StageKindFork, active: s.fork.valid()},
+		{kind: StageKindMap, active: s.mapper.valid()},
+		{kind: StageKindLoop, active: s.loop.valid()},
 	}
-	selected := stageKindInvalid
+	selected := StageKindInvalid
 	for _, behavior := range behaviors {
 		if !behavior.active {
 			continue
 		}
-		if selected != stageKindInvalid {
-			return stageKindInvalid, false
+		if selected != StageKindInvalid {
+			return StageKindInvalid, false
 		}
 		selected = behavior.kind
 	}
-	return selected, selected != stageKindInvalid
+	return selected, selected != StageKindInvalid
 }
 
 func (s Stage) accepts(schema agent.Schema) bool {

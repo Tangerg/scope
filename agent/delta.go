@@ -61,7 +61,7 @@ func newDelta(
 // ProcessID returns the Process that owns the Effect attempt.
 func (d Delta) ProcessID() ProcessID { return d.processID }
 
-// EffectID returns the Effect attempt that emitted the increment.
+// EffectID identifies the logical Effect and remains stable across replay attempts.
 func (d Delta) EffectID() EffectID { return d.effectID }
 
 // TreeIncarnationID returns the active durable writer that emitted this delta.

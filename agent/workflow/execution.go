@@ -60,16 +60,16 @@ func (e *execution) advance(signals []agent.Signal) (agent.Transition, error) {
 	}
 	stage := e.stage()
 	switch stage.kind {
-	case stageKindTransform:
+	case StageKindTransform:
 		value, err := stage.transform(e.state.CurrentValue)
 		if err != nil {
 			return agent.Transition{}, err
 		}
 		e.state.CurrentValue = value
 		return e.finishStage(0)
-	case stageKindCall:
+	case StageKindCall:
 		return e.startSingleChild(0, stage.call)
-	case stageKindSwitch:
+	case StageKindSwitch:
 		selected, err := stage.switcher.selectCase(e.state.CurrentValue)
 		if err != nil {
 			if _, ok := errors.AsType[unknownSwitchCaseError](err); ok {
@@ -86,9 +86,9 @@ func (e *execution) advance(signals []agent.Signal) (agent.Transition, error) {
 		}
 		e.state.SelectedCaseID = selected
 		return e.startSingleChild(0, binding)
-	case stageKindFork:
+	case StageKindFork:
 		return e.startFanoutWindow(0)
-	case stageKindMap:
+	case StageKindMap:
 		count, err := stage.fanoutCount(e.state.CurrentValue)
 		if err != nil {
 			if _, ok := errors.AsType[mapMaxItemsExceededError](err); ok {
@@ -108,7 +108,7 @@ func (e *execution) advance(signals []agent.Signal) (agent.Transition, error) {
 		}
 		e.state.CurrentValue = value
 		return e.finishStage(0)
-	case stageKindLoop:
+	case StageKindLoop:
 		e.state.LoopIteration = 1
 		return e.startSingleChild(0, stage.loop.binding)
 	default:
@@ -139,11 +139,11 @@ func (e *execution) startSingleChild(consumedSignals uint32, binding childBindin
 func (e *execution) singleChildBinding() (childBinding, bool) {
 	stage := e.stage()
 	switch stage.kind {
-	case stageKindCall:
+	case StageKindCall:
 		return stage.call, true
-	case stageKindSwitch:
+	case StageKindSwitch:
 		return stage.switcher.binding(e.state.SelectedCaseID)
-	case stageKindLoop:
+	case StageKindLoop:
 		return stage.loop.binding, stage.loop.valid()
 	default:
 		return childBinding{}, false
@@ -156,11 +156,11 @@ func (e *execution) clearSingleChild() {
 	e.state.WaitID = nil
 }
 
-func (e *execution) singleChildID() string {
-	if e.stage().kind == stageKindSwitch {
+func (e *execution) stageInvocationLabel() string {
+	if e.stage().kind == StageKindSwitch {
 		return e.stage().id + ".case." + e.state.SelectedCaseID
 	}
-	if e.stage().kind == stageKindLoop {
+	if e.stage().kind == StageKindLoop {
 		return e.stage().id + ".iteration." + strconv.FormatUint(uint64(e.state.LoopIteration), 10)
 	}
 	return e.stage().id
@@ -180,7 +180,7 @@ func (e *execution) acceptChildStart(signals []agent.Signal) (agent.Transition, 
 	if failure, failed := result.Failure(); failed {
 		return e.fail(
 			1, stage.failureCode("start_failed"),
-			"Child Process start failed for Stage "+e.singleChildID()+": "+failure.Code(),
+			"Child Process start failed for Stage "+e.stageInvocationLabel()+": "+failure.Code(),
 			failure.Kind(),
 		)
 	}
@@ -240,13 +240,13 @@ func (e *execution) acceptChildCompletion(signals []agent.Signal) (agent.Transit
 		if failure, failed := result.Termination().Failure(); failed {
 			return e.failExternal(
 				1, e.stage().failureCode("child_failed"),
-				"Child Process failed for Stage "+e.singleChildID()+": "+failure.Code(),
+				"Child Process failed for Stage "+e.stageInvocationLabel()+": "+failure.Code(),
 			)
 		}
 		return e.failExternal(
 			1,
 			e.stage().failureCode("child_not_completed"),
-			"Child Process for Stage "+e.singleChildID()+" terminated with status "+result.Status().String(),
+			"Child Process for Stage "+e.stageInvocationLabel()+" terminated with status "+result.Status().String(),
 		)
 	}
 	output, present := result.Output()
@@ -256,7 +256,7 @@ func (e *execution) acceptChildCompletion(signals []agent.Signal) (agent.Transit
 	if err := e.singleChildOutputSchema().ValidateOutput(output); err != nil {
 		return e.failContract(1, e.stage().failureCode("output_invalid"), "Child Process Output violated the Stage contract")
 	}
-	if e.stage().kind == stageKindLoop {
+	if e.stage().kind == StageKindLoop {
 		return e.finishLoopIteration(1, output)
 	}
 	e.state.CurrentValue = output.JSON()
@@ -322,7 +322,7 @@ func (e *execution) waitKey() (agent.WaitKey, error) {
 }
 
 func (e *execution) singleChildOutputSchema() agent.Schema {
-	if e.stage().kind == stageKindLoop {
+	if e.stage().kind == StageKindLoop {
 		return e.stage().loop.valueSchema
 	}
 	return e.stage().outputSchema

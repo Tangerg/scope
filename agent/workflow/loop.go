@@ -120,7 +120,7 @@ func Loop[T any](config LoopConfig[T]) (Stage, error) {
 		return erased.JSON(), nil
 	}
 	return Stage{
-		id: config.ID, kind: stageKindLoop,
+		id: config.ID, kind: StageKindLoop,
 		inputSchema: valueSchema, outputSchema: resultSchema,
 		loop: loopStage{
 			binding: childBinding{

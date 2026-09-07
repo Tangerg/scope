@@ -2,26 +2,6 @@ package workflow
 
 import agent "github.com/Tangerg/scope/agent"
 
-// StageKind is the stable operation kind in a Workflow Topology projection.
-type StageKind string
-
-const (
-	// StageKindInvalid is the invalid zero value.
-	StageKindInvalid StageKind = ""
-	// StageKindTransform identifies a pure value transformation.
-	StageKindTransform StageKind = "transform"
-	// StageKindCall identifies one exact child Process call.
-	StageKindCall StageKind = "call"
-	// StageKindSwitch identifies pure selection among exact child cases.
-	StageKindSwitch StageKind = "switch"
-	// StageKindFork identifies bounded homogeneous branch fan-out.
-	StageKindFork StageKind = "fork"
-	// StageKindMap identifies bounded homogeneous item fan-out.
-	StageKindMap StageKind = "map"
-	// StageKindLoop identifies bounded at-least-once child iteration.
-	StageKindLoop StageKind = "loop"
-)
-
 // BindingRole describes how an exact child binding participates in a Stage.
 type BindingRole string
 
@@ -105,22 +85,22 @@ func (d *Definition) Topology() Topology {
 
 func (s Stage) topology() StageTopology {
 	projected := StageTopology{
-		ID: s.id, Kind: s.kind.topologyKind(),
+		ID: s.id, Kind: s.kind,
 		InputSchema: s.inputSchema, OutputSchema: s.outputSchema,
 	}
 	switch s.kind {
-	case stageKindCall:
+	case StageKindCall:
 		projected.Bindings = []BindingTopology{
 			s.call.topology(BindingRoleCall, "", s.inputSchema, s.outputSchema),
 		}
-	case stageKindSwitch:
+	case StageKindSwitch:
 		projected.Bindings = make([]BindingTopology, len(s.switcher.cases))
 		for index, candidate := range s.switcher.cases {
 			projected.Bindings[index] = candidate.binding.topology(
 				BindingRoleCase, candidate.id, s.inputSchema, s.outputSchema,
 			)
 		}
-	case stageKindFork:
+	case StageKindFork:
 		projected.WindowSize = s.fork.windowSize
 		projected.Bindings = make([]BindingTopology, len(s.fork.branches))
 		for index, branch := range s.fork.branches {
@@ -128,14 +108,14 @@ func (s Stage) topology() StageTopology {
 				BindingRoleBranch, branch.id, s.inputSchema, s.fork.branchSchema,
 			)
 		}
-	case stageKindMap:
+	case StageKindMap:
 		projected.WindowSize = s.mapper.windowSize
 		projected.MaxItems = s.mapper.maxItems
 		projected.Bindings = []BindingTopology{s.mapper.binding.topology(
 			BindingRoleItem, "",
 			s.mapper.itemInputSchema, s.mapper.itemOutputSchema,
 		)}
-	case stageKindLoop:
+	case StageKindLoop:
 		projected.MaxIterations = s.loop.maxIterations
 		projected.Bindings = []BindingTopology{s.loop.binding.topology(
 			BindingRoleBody, "", s.loop.valueSchema, s.loop.valueSchema,
@@ -154,24 +134,5 @@ func (c childBinding) topology(
 		Role: role, ID: id, DeploymentRef: c.deploymentRef,
 		InputSchema: inputSchema, OutputSchema: outputSchema,
 		Budget: c.budget, Capabilities: c.capabilities,
-	}
-}
-
-func (s stageKind) topologyKind() StageKind {
-	switch s {
-	case stageKindTransform:
-		return StageKindTransform
-	case stageKindCall:
-		return StageKindCall
-	case stageKindSwitch:
-		return StageKindSwitch
-	case stageKindFork:
-		return StageKindFork
-	case stageKindMap:
-		return StageKindMap
-	case stageKindLoop:
-		return StageKindLoop
-	default:
-		return StageKindInvalid
 	}
 }
