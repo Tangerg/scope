@@ -571,8 +571,16 @@ func TestDurableUnknownResolutionCommitsAResolvedBoundary(t *testing.T) {
 		boundaries[2].Kind() != EffectBoundaryResolved {
 		t.Fatalf("Effect boundary order=%v", boundaries)
 	}
+	pending, present := boundaries[0].Settlement()
+	if present || pending.Valid() {
+		t.Fatalf("pending settlement=%+v present=%t", pending, present)
+	}
+	unknown, present := boundaries[1].Settlement()
+	if !present || unknown.Status() != SettlementStatusUnknown || unknown.EffectID() != effectID {
+		t.Fatalf("unknown settlement=%+v present=%t", unknown, present)
+	}
 	resolved, present := boundaries[2].Settlement()
-	if !present || resolved.Status() != SettlementStatusSucceeded {
+	if !present || resolved.Status() != SettlementStatusSucceeded || resolved.EffectID() != effectID {
 		t.Fatalf("resolved settlement=%+v present=%t", resolved, present)
 	}
 }

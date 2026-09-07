@@ -59,7 +59,6 @@ type EffectBoundary struct {
 	kind               EffectBoundaryKind
 	request            EffectRequest
 	settlement         Settlement
-	hasSettlement      bool
 	previousTreeDigest Digest
 	treeSnapshot       TreeSnapshot
 }
@@ -71,11 +70,10 @@ func newEffectBoundary(
 	previousTreeDigest Digest,
 	treeSnapshot TreeSnapshot,
 ) (EffectBoundary, error) {
-	hasSettlement := kind == EffectBoundarySettled || kind == EffectBoundaryResolved
 	boundary := EffectBoundary{
 		kind: kind, request: request, settlement: settlement,
-		hasSettlement: hasSettlement, previousTreeDigest: previousTreeDigest,
-		treeSnapshot: treeSnapshot,
+		previousTreeDigest: previousTreeDigest,
+		treeSnapshot:       treeSnapshot,
 	}
 	if !boundary.Valid() {
 		return EffectBoundary{}, errors.New("invalid durable Effect boundary")
@@ -92,7 +90,7 @@ func (e EffectBoundary) Request() EffectRequest { return e.request.clone() }
 // Settlement returns the settlement introduced by a settled or resolved
 // boundary. Pending boundaries return false.
 func (e EffectBoundary) Settlement() (Settlement, bool) {
-	return e.settlement.clone(), e.hasSettlement
+	return e.settlement.clone(), e.kind == EffectBoundarySettled || e.kind == EffectBoundaryResolved
 }
 
 func (e EffectBoundary) PreviousTreeDigest() Digest { return e.previousTreeDigest }
@@ -113,12 +111,12 @@ func (e EffectBoundary) Valid() bool {
 	}
 	switch e.kind {
 	case EffectBoundaryPending:
-		return !e.hasSettlement && !e.settlement.Valid()
+		return !e.settlement.Valid()
 	case EffectBoundarySettled:
-		return e.hasSettlement && e.settlement.Valid() &&
+		return e.settlement.Valid() &&
 			e.settlement.EffectID() == e.request.ID()
 	case EffectBoundaryResolved:
-		return e.hasSettlement && e.settlement.Valid() &&
+		return e.settlement.Valid() &&
 			e.settlement.Status() != SettlementStatusUnknown &&
 			e.settlement.EffectID() == e.request.ID()
 	default:
