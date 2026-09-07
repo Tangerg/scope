@@ -114,9 +114,8 @@ func (r *ResponseMetadata) UnmarshalJSON(data []byte) error {
 }
 
 // Response is one transcription call's output plus shared metadata.
-// Providers that emit per-segment timing (Whisper verbose_json) should
-// stash the segment array under Output.Metadata.Extra; the top-level
-// Output holds the merged transcript text.
+// Providers may store per-segment timing in Output.Metadata while Output.Text
+// holds the merged transcript.
 type Response struct {
 	// Output holds the transcribed text. Non-nil after [NewResponse].
 	Output *Output `json:"output,omitempty"`
