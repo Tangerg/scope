@@ -6,8 +6,10 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/agenttest"
 	"github.com/Tangerg/scope/agent/interaction"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
@@ -120,22 +122,123 @@ func TestManagedInteractionTerminatesOnModelHostFailure(t *testing.T) {
 	assertInteractionHostFailure(t, result)
 }
 
-func TestManagedInteractionTerminatesOnToolHostFailureWithoutAnotherModelCall(t *testing.T) {
-	type input struct{}
-	failing, err := tool.NewFunc(tool.FuncConfig{
-		Name: "failing", Description: "Fail at the host boundary.",
-	}, func(context.Context, input) (string, error) {
-		return "", interaction.HostFailure(errors.New("tool boundary unavailable"))
-	})
-	if err != nil {
-		t.Fatal(err)
+func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		cause  error
+		panics bool
+	}{
+		{name: "host failure", cause: interaction.HostFailure(errors.New("tool boundary unavailable"))},
+		{name: "cancellation", cause: context.Canceled},
+		{name: "deadline", cause: context.DeadlineExceeded},
+		{name: "panic", panics: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			type input struct{}
+			failing, err := tool.NewFunc(tool.FuncConfig{
+				Name: "failing", Description: "Lose the result at the Tool boundary.",
+			}, func(context.Context, input) (string, error) {
+				if testCase.panics {
+					panic("tool result unavailable")
+				}
+				return "", testCase.cause
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			model := &singleToolCallModel{call: chat.ToolCall{ID: "call_unknown", Name: "failing", Arguments: `{}`}}
+			definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
+				Name: "interaction.unknown_tool", Description: "Preserve unknown Tool outcomes.", MaxModelCalls: 2,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			observer := &toolSettlementObserver{settlements: make(chan interaction.ToolSettlement, 1)}
+			dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
+				Client: model, Tools: []tool.Tool{failing}, Observer: observer,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			deployment, err := agent.NewDeployment(agent.DeploymentConfig{
+				Definition: definition, Dispatcher: dispatcher,
+				ImplementationDigest: agent.ComputeDigest([]byte("unknown-tool-implementation")),
+				ConfigurationDigest:  agent.ComputeDigest([]byte(testCase.name)),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			events := &agenttest.ObservationRecorder{}
+			engine, err := agent.NewEngine(agent.EngineConfig{EventListeners: []agent.EventListener{events}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			process, err := engine.Start(t.Context(), deployment, interactionInput(t, "preserve the unknown result"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				if killErr := process.Kill(ctx, "release test tree"); killErr != nil && !errors.Is(killErr, agent.ErrProcessFinished) {
+					t.Error(killErr)
+				}
+				if releaseErr := engine.ReleaseTree(ctx, process.ID()); releaseErr != nil {
+					t.Error(releaseErr)
+				}
+				if closeErr := engine.Close(); closeErr != nil {
+					t.Error(closeErr)
+				}
+			})
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			settled, err := events.AwaitEvent(ctx, func(event agent.Event) bool {
+				sequence, present := event.StepSequence()
+				return event.Name() == agent.EventEffectFinished && present && sequence == 2
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			fact, present := settled.EffectFinished()
+			if !present || fact.SettlementStatus() != agent.SettlementStatusUnknown {
+				t.Fatalf("Tool Effect settlement=%s, want unknown", fact.SettlementStatus())
+			}
+			select {
+			case settlement := <-observer.settlements:
+				if !settlement.Unknown || settlement.Failure == "" || settlement.Result != nil || settlement.InputRequired {
+					t.Fatalf("Tool observation=%+v, want an unknown outcome diagnostic", settlement)
+				}
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+			unknown, err := process.UnknownEffectIDs(ctx)
+			effectID, _ := settled.EffectID()
+			if err != nil || len(unknown) != 1 || unknown[0] != effectID {
+				t.Fatalf("unknown Effects=%v error=%v", unknown, err)
+			}
+			if process.Status().Terminal() || model.Calls() != 1 {
+				t.Fatalf("status=%s model calls=%d", process.Status(), model.Calls())
+			}
+			if killErr := process.Kill(ctx, "retain unresolved outcome in terminal result"); killErr != nil {
+				t.Fatal(killErr)
+			}
+			result, err := process.Await(ctx)
+			if err != nil || result.Status() != agent.StatusKilled || len(result.Termination().UnresolvedEffectIDs()) != 1 {
+				t.Fatalf("termination=%+v error=%v", result.Termination(), err)
+			}
+		})
 	}
-	model := &singleToolCallModel{call: chat.ToolCall{ID: "call_host", Name: "failing", Arguments: `{}`}}
-	result := runInteraction(t, newDeployment(t, model, []tool.Tool{failing}, 2), "fail before Tool")
-	assertInteractionHostFailure(t, result)
-	if model.Calls() != 1 {
-		t.Fatalf("model calls = %d, want no retry after host failure", model.Calls())
-	}
+}
+
+type toolSettlementObserver struct {
+	settlements chan interaction.ToolSettlement
+}
+
+func (*toolSettlementObserver) OnModelResponse(context.Context, interaction.ModelInvocation, *chat.Response) {
+}
+func (*toolSettlementObserver) OnToolStarted(context.Context, interaction.ToolInvocation) {}
+func (t *toolSettlementObserver) OnToolSettled(_ context.Context, _ interaction.ToolInvocation, settlement interaction.ToolSettlement) {
+	t.settlements <- settlement
 }
 
 func runInteraction(t *testing.T, deployment agent.Deployment, prompt string) agent.Result {

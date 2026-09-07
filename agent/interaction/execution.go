@@ -245,15 +245,6 @@ func (e *execution) acceptTools(signals []agent.Signal) (agent.Transition, error
 	if addSteerErr := e.addSteer(steer); addSteerErr != nil {
 		return agent.Transition{}, addSteerErr
 	}
-	if envelope.ToolResult.HostError != "" {
-		e.state.PendingSteer = nil
-		return e.fail(
-			consumedSignals,
-			agent.FailureKindExternal,
-			"interaction.host.failed",
-			envelope.ToolResult.HostError,
-		)
-	}
 	calls, err := e.activeCallSegment()
 	if err != nil {
 		return agent.Transition{}, err

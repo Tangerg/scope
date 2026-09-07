@@ -73,7 +73,6 @@ type toolBatchResult struct {
 	Direct              bool              `json:"direct"`
 	AdvertisedToolNames []string          `json:"advertised_tool_names,omitempty"`
 	Checkpoint          *toolCheckpoint   `json:"checkpoint,omitempty"`
-	HostError           string            `json:"host_error,omitempty"`
 }
 
 type toolCheckpoint struct {
@@ -313,17 +312,10 @@ func (s signalEnvelope) validateToolResult() error {
 	if result.Checkpoint != nil {
 		modes++
 	}
-	if result.HostError != "" {
-		modes++
-	}
 	if modes != 1 {
-		return errors.New("interaction: tool_result requires complete results, a checkpoint, or a host error")
+		return errors.New("interaction: tool_result requires complete results or a checkpoint")
 	}
 	switch {
-	case result.HostError != "":
-		if result.Direct || len(result.AdvertisedToolNames) != 0 {
-			return errors.New("interaction: failed tool_result must carry only its host error")
-		}
 	case result.Checkpoint != nil:
 		if result.Direct || len(result.AdvertisedToolNames) != 0 {
 			return errors.New("interaction: paused tool_result must carry only its checkpoint")

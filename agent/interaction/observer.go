@@ -8,8 +8,8 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-// ExecutionObserver receives exact, provider-neutral Interaction facts after
-// model and Tool boundaries settle. It is observational: callbacks cannot
+// ExecutionObserver receives exact, provider-neutral Interaction facts at
+// model and Tool call boundaries. It is observational: callbacks cannot
 // alter execution, panics are isolated, and implementations must return in
 // bounded time. A Dispatcher may invoke it concurrently for explicitly
 // concurrent Tool calls.
@@ -25,20 +25,23 @@ type ExecutionObserver interface {
 	OnToolStarted(ctx context.Context, invocation ToolInvocation)
 	// OnToolSettled receives exactly one conclusive or unknown host-boundary
 	// outcome for a started Tool call. The ToolResult, when present, is detached;
-	// the callback cannot alter the value committed to Interaction state.
+	// the callback cannot alter the candidate value used for settlement.
 	OnToolSettled(ctx context.Context, invocation ToolInvocation, settlement ToolSettlement)
 }
 
-// ToolSettlement is the conclusive outcome visible at the Tool host boundary.
-// Result is the exact value fed back to the model. InputRequired instead means
-// the Tool paused durably before producing a result. Failure is reserved for a
-// host/cancellation failure for which no ordinary ToolResult was produced.
+// ToolSettlement is the observed outcome of one Tool call attempt. Result is
+// the value produced for the model; it enters Execution state only after the
+// complete batch settles. InputRequired instead means the Tool
+// returned a continuation request; the Engine has not yet committed its wait.
+// Failure diagnoses an attempt that produced no ordinary ToolResult. Unknown
+// means its external outcome remains unestablished, including host failures,
+// cancellation, deadlines, and panics. Observation never settles the Effect.
 type ToolSettlement struct {
-	// Result is the exact ordinary Tool result fed back to the model.
+	// Result is the exact ordinary Tool result produced by this call.
 	Result *chat.ToolResult
 	// InputRequired reports that the Tool paused before producing Result.
 	InputRequired bool
-	// Failure describes a host or cancellation failure that produced no Result.
+	// Failure diagnoses an attempt that produced no Result.
 	Failure string
 	// Unknown reports that the external Tool settlement could not be determined.
 	Unknown bool

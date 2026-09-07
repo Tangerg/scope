@@ -6,15 +6,16 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/interaction"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
 func TestTrajectoryRequiresAgreementWithRootFinishedEvent(t *testing.T) {
 	recorder := &trajectory.Recorder{}
-	result := runRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{
-		failure: interaction.HostFailure(errors.New("fixture host failure")),
-	})
+	process := startRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{}, 1)
+	result, err := process.Await(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	recorded, err := recorder.Take(result)
 	if err != nil {
 		t.Fatal(err)

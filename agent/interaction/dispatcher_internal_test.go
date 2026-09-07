@@ -53,7 +53,7 @@ func TestFailedDirectResultCannotEnterProtocolOrRestore(t *testing.T) {
 	}
 }
 
-func TestHostFailureSignalModesAreExclusive(t *testing.T) {
+func TestModelHostFailureSignalModesAreExclusive(t *testing.T) {
 	modelHost := signalEnvelope{
 		Operation:   operationModelCall,
 		ModelResult: &modelCallResult{HostError: "journal unavailable"},
@@ -68,20 +68,6 @@ func TestHostFailureSignalModesAreExclusive(t *testing.T) {
 	}
 	if err := modelHost.validate(); err == nil {
 		t.Fatal("model result combined a host failure with a response")
-	}
-
-	toolHost := signalEnvelope{
-		Operation:  operationToolBatch,
-		ToolResult: &toolBatchResult{HostError: "journal unavailable"},
-	}
-	if err := toolHost.validate(); err != nil {
-		t.Fatalf("Tool host failure: %v", err)
-	}
-	toolHost.ToolResult.Results = []chat.ToolResult{{
-		ID: "call", Name: "tool", Output: chat.NewTextToolOutput("value"),
-	}}
-	if err := toolHost.validate(); err == nil {
-		t.Fatal("Tool result combined a host failure with ordinary results")
 	}
 }
 

@@ -61,7 +61,7 @@ type DispatcherConfig struct {
 	// calls and calls with the same non-empty concurrency key remain serial.
 	MaxConcurrentToolCalls int
 
-	// Observer receives exact settled Interaction facts. It is intentionally
+	// Observer receives exact model and Tool call facts. It is intentionally
 	// separate from Engine Events/Deltas: those describe execution mechanics,
 	// while this boundary exposes typed model and Tool semantics.
 	Observer ExecutionObserver
@@ -401,29 +401,12 @@ func newToolBatchDispatch(
 
 func (t *toolBatchDispatch) run() (agent.Settlement, error) {
 	if settlement, paused, err := t.resume(); err != nil || paused {
-		if errors.Is(err, ErrHostFailure) {
-			return toolHostFailureSettlement(t.request.ID(), err)
-		}
 		return settlement, err
 	}
 	if settlement, paused, err := t.dispatchRemaining(); err != nil || paused {
-		if errors.Is(err, ErrHostFailure) {
-			return toolHostFailureSettlement(t.request.ID(), err)
-		}
 		return settlement, err
 	}
 	return t.complete()
-}
-
-func toolHostFailureSettlement(effectID agent.EffectID, cause error) (agent.Settlement, error) {
-	payload, err := encodeProtocol(signalEnvelope{
-		Operation:  operationToolBatch,
-		ToolResult: &toolBatchResult{HostError: boundedDiagnostic(cause.Error())},
-	})
-	if err != nil {
-		return agent.Settlement{}, err
-	}
-	return agent.NewSettlement(effectID, agent.SettlementStatusFailed, payload)
 }
 
 func (t *toolBatchDispatch) resume() (agent.Settlement, bool, error) {
@@ -580,7 +563,7 @@ func (d *Dispatcher) callTool(
 			settlement.Result = &result
 		case err != nil:
 			settlement.Failure = boundedDiagnostic(err.Error())
-			settlement.Unknown = errors.Is(err, ErrHostFailure)
+			settlement.Unknown = true
 		}
 		d.observeToolSettled(ctx, invocation, settlement)
 	}()

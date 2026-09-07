@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/interaction"
@@ -13,11 +14,42 @@ import (
 
 func TestRecorderPreservesHostFailureAsUnknownToolOutcome(t *testing.T) {
 	recorder := &trajectory.Recorder{}
-	result := runRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{
+	process := startRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{
 		failure: interaction.HostFailure(errors.New("tool boundary unavailable")),
-	})
-	if result.Status() != agent.StatusFailed {
-		t.Fatalf("host failure Process status = %s", result.Status())
+	}, 2)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	var unknown []agent.EffectID
+	for len(unknown) == 0 {
+		var err error
+		unknown, err = process.UnknownEffectIDs(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if process.Status().Terminal() {
+			t.Fatalf("host failure lost the unresolved Tool Effect: %s", process.Status())
+		}
+		if len(unknown) != 0 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		case <-ticker.C:
+		}
+	}
+	if killErr := process.Kill(ctx, "retain unknown outcome for evaluation"); killErr != nil {
+		t.Fatal(killErr)
+	}
+	result, err := process.Await(ctx)
+	if err != nil || result.Status() != agent.StatusKilled {
+		t.Fatalf("terminated Process status=%s error=%v", result.Status(), err)
+	}
+	unresolved := result.Termination().UnresolvedEffectIDs()
+	if len(unresolved) != 1 || len(unknown) != 1 || unresolved[0] != unknown[0] {
+		t.Fatalf("terminal unresolved Effects=%v, want %v", unresolved, unknown)
 	}
 	recorded, err := recorder.Take(result)
 	if err != nil {

@@ -117,9 +117,19 @@ func TestRecorderCapturesInteractionModelAndToolFacts(t *testing.T) {
 
 func runRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observer interaction.ExecutionObserver, weather tool.Tool) agent.Result {
 	t.Helper()
+	process := startRecordedInteraction(t, recorder, observer, weather, 2)
+	result, err := process.Await(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+func startRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observer interaction.ExecutionObserver, weather tool.Tool, maxModelCalls uint32) *agent.Process {
+	t.Helper()
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
 		Name: "test.trajectory_interaction", Description: "Exercise trajectory observation boundaries.",
-		MaxModelCalls: 2,
+		MaxModelCalls: maxModelCalls,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -142,18 +152,30 @@ func runRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observe
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = engine.Close() })
 	input, err := agent.EncodeInput(interaction.Input{
 		Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("weather"))},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := engine.Run(t.Context(), deployment, input)
+	process, err := engine.Start(t.Context(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return result
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if killErr := process.Kill(ctx, "release recorded test tree"); killErr != nil && !errors.Is(killErr, agent.ErrProcessFinished) {
+			t.Error(killErr)
+		}
+		if releaseErr := engine.ReleaseTree(ctx, process.ID()); releaseErr != nil {
+			t.Error(releaseErr)
+		}
+		if closeErr := engine.Close(); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	return process
 }
 
 func TestBehaviorDigestExcludesTimingAndProviderAccounting(t *testing.T) {
