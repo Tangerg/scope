@@ -30,7 +30,7 @@ func TestSearch(t *testing.T) {
 			t.Errorf("decode body: %v", err)
 			return
 		}
-		if body.Query != "scope site:example.com" || body.Num != 3 || !body.Autocorrect || body.Tbs != "qdr:m" {
+		if body.Query != "scope (site:example.com OR site:example.org)" || body.Num != 3 || !body.Autocorrect || body.Tbs != "qdr:m" {
 			t.Errorf("body = %#v", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -42,7 +42,7 @@ func TestSearch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := client.Search(t.Context(), &web.SearchRequest{Query: "scope", MaxResults: 3, AllowedDomains: []string{"example.com"}, Recency: web.RecencyMonth})
+	response, err := client.Search(t.Context(), &web.SearchRequest{Query: "scope", MaxResults: 3, AllowedDomains: []string{"example.com", "example.org"}, Recency: web.RecencyMonth})
 	if err != nil {
 		t.Fatal(err)
 	}

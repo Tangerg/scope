@@ -13,7 +13,7 @@
 //   - Query          → q (after Google site:/-site: rewriting via
 //     [web.SearchRequest.QueryWithSiteOperators])
 //   - MaxResults     → num (forwarded as-is)
-//   - AllowedDomains → inlined into q as `site:foo.com site:bar.com`
+//   - AllowedDomains → inlined into q as `(site:foo.com OR site:bar.com)`
 //   - BlockedDomains → inlined into q as `-site:foo.com -site:bar.com`
 //   - Recency        → tbs=qdr:h|d|w|m|y
 //
