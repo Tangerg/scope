@@ -8,4 +8,9 @@
 // outside its Step through a Deployment-bound dispatcher or a child Process,
 // then senses again before accepting that the prediction became true. A Sensor
 // supplies decision input; it has no role in execution telemetry.
+//
+// Attempt facts determine which Actions remain eligible. An Action reported as
+// successful remains current until sensing confirms its predicted effects;
+// failed or unconfirmed Actions are excluded from subsequent planning. Restore
+// reconstructs those decisions from the same facts used during live execution.
 package planning

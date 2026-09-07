@@ -146,14 +146,14 @@ func (d *Definition) binding(name string) (ActionBinding, bool) {
 	return binding, found
 }
 
-func (d *Definition) problem(state WorldState, excluded []string) (Problem, error) {
+func (d *Definition) problem(state executionState) (Problem, error) {
 	actions := make([]Action, 0, len(d.bindings))
 	for _, binding := range d.bindings {
-		if !slices.Contains(excluded, binding.action.name) {
+		if !state.actionExcluded(binding.action.name) {
 			actions = append(actions, binding.action)
 		}
 	}
-	return NewProblem(state, d.goal, actions...)
+	return NewProblem(state.WorldState, d.goal, actions...)
 }
 
 func encodeExecutionState(state executionState) (agent.ExecutionState, error) {

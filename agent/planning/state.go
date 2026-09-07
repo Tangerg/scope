@@ -34,18 +34,16 @@ func (p phase) valid() bool {
 }
 
 type executionState struct {
-	Phase                     phase            `json:"phase"`
-	Input                     json.RawMessage  `json:"input"`
-	WorldState                WorldState       `json:"world_state"`
-	PlanningPasses            uint32           `json:"planning_passes"`
-	Attempts                  []Attempt        `json:"attempts,omitempty"`
-	ExcludedActionNames       []string         `json:"excluded_action_names,omitempty"`
-	CurrentActionName         string           `json:"current_action_name,omitempty"`
-	ActionConfirmationPending bool             `json:"action_confirmation_pending,omitempty"`
-	ChildKey                  *agent.ChildKey  `json:"child_key,omitempty"`
-	ChildProcessID            *agent.ProcessID `json:"child_process_id,omitempty"`
-	WaitID                    *agent.WaitID    `json:"wait_id,omitempty"`
-	FinalOutput               *Output          `json:"final_output,omitempty"`
+	Phase             phase            `json:"phase"`
+	Input             json.RawMessage  `json:"input"`
+	WorldState        WorldState       `json:"world_state"`
+	PlanningPasses    uint32           `json:"planning_passes"`
+	Attempts          []Attempt        `json:"attempts,omitempty"`
+	CurrentActionName string           `json:"current_action_name,omitempty"`
+	ChildKey          *agent.ChildKey  `json:"child_key,omitempty"`
+	ChildProcessID    *agent.ProcessID `json:"child_process_id,omitempty"`
+	WaitID            *agent.WaitID    `json:"wait_id,omitempty"`
+	Outcome           Outcome          `json:"outcome,omitempty"`
 }
 
 type phaseField uint8
@@ -57,12 +55,11 @@ const (
 )
 
 type phaseShape struct {
-	action                   phaseField
-	confirmationTracksAction bool
-	childKey                 phaseField
-	childProcessID           phaseField
-	waitID                   phaseField
-	initial                  bool
+	action         phaseField
+	childKey       phaseField
+	childProcessID phaseField
+	waitID         phaseField
+	initial        bool
 }
 
 func (p phase) shape() (phaseShape, bool) {
@@ -70,7 +67,7 @@ func (p phase) shape() (phaseShape, bool) {
 	case phaseReadySense:
 		return phaseShape{initial: true}, true
 	case phaseAwaitingSense:
-		return phaseShape{action: phaseFieldOptional, confirmationTracksAction: true}, true
+		return phaseShape{action: phaseFieldOptional}, true
 	case phaseAwaitingAction:
 		return phaseShape{action: phaseFieldRequired}, true
 	case phaseAwaitingChildStart:
@@ -131,20 +128,8 @@ func (e executionState) validateAttemptFacts(definition *Definition) error {
 			previouslyExcluded[attempt.ActionName] = struct{}{}
 		}
 	}
-	if uint64(len(e.Attempts)) > uint64(definition.maxActionAttempts) ||
-		!validExcludedActionNames(e.ExcludedActionNames, definition) {
+	if uint64(len(e.Attempts)) > uint64(definition.maxActionAttempts) {
 		return ErrInvalidExecutionState
-	}
-	wantExcluded := make([]string, 0, len(e.Attempts))
-	for _, attempt := range e.Attempts {
-		if attempt.Status != AttemptSucceeded {
-			wantExcluded = append(wantExcluded, attempt.ActionName)
-		}
-	}
-	slices.Sort(wantExcluded)
-	wantExcluded = slices.Compact(wantExcluded)
-	if !slices.Equal(e.ExcludedActionNames, wantExcluded) {
-		return fmt.Errorf("%w: excluded Actions do not match attempt facts", ErrInvalidExecutionState)
 	}
 	return nil
 }
@@ -157,7 +142,7 @@ func (e executionState) validateCurrentAction(definition *Definition) error {
 	if !found {
 		return fmt.Errorf("%w: unknown current Action %q", ErrInvalidExecutionState, e.CurrentActionName)
 	}
-	if slices.Contains(e.ExcludedActionNames, e.CurrentActionName) {
+	if e.actionExcluded(e.CurrentActionName) {
 		return fmt.Errorf("%w: current Action is excluded", ErrInvalidExecutionState)
 	}
 	if e.Phase == phaseAwaitingAction && binding.target != bindingTargetDispatcher ||
@@ -177,14 +162,11 @@ func (e executionState) validateCurrentAction(definition *Definition) error {
 
 func (e executionState) validateCompletion(definition *Definition) error {
 	if e.Phase == phaseCompleted {
-		if e.FinalOutput == nil || e.FinalOutput.Validate() != nil ||
-			e.FinalOutput.WorldState.Key() != e.WorldState.Key() ||
-			e.FinalOutput.PlanningPasses != e.PlanningPasses ||
-			!slices.Equal(e.FinalOutput.Attempts, e.Attempts) ||
-			e.FinalOutput.Outcome == OutcomeAchieved && !definition.goal.SatisfiedBy(e.WorldState) {
+		if !e.Outcome.Valid() ||
+			e.Outcome == OutcomeAchieved && !definition.goal.SatisfiedBy(e.WorldState) {
 			return ErrInvalidExecutionState
 		}
-	} else if e.FinalOutput != nil {
+	} else if e.Outcome != "" {
 		return ErrInvalidExecutionState
 	}
 	return nil
@@ -199,8 +181,8 @@ func (e executionState) validateProgress() error {
 			return ErrInvalidExecutionState
 		}
 	case phaseAwaitingSense:
-		if e.ActionConfirmationPending && passes != attempts+1 ||
-			!e.ActionConfirmationPending && (attempts == 0 && passes != 0 || attempts > 0 && passes != attempts) {
+		if e.awaitingConfirmation() && passes != attempts+1 ||
+			!e.awaitingConfirmation() && passes != attempts {
 			return fmt.Errorf("%w: sensing phase counters are inconsistent", ErrInvalidExecutionState)
 		}
 	case phaseAwaitingAction, phaseAwaitingChildStart, phaseAwaitingChildWaitOpen, phaseWaitingChild:
@@ -208,10 +190,7 @@ func (e executionState) validateProgress() error {
 			return fmt.Errorf("%w: active Action counters are inconsistent", ErrInvalidExecutionState)
 		}
 	case phaseCompleted:
-		if e.FinalOutput == nil {
-			return ErrInvalidExecutionState
-		}
-		switch e.FinalOutput.Outcome {
+		switch e.Outcome {
 		case OutcomeAchieved:
 			if passes != attempts {
 				return fmt.Errorf("%w: achieved counters are inconsistent", ErrInvalidExecutionState)
@@ -233,7 +212,6 @@ func (e executionState) validatePhase() error {
 	shape, found := e.Phase.shape()
 	hasAction := e.CurrentActionName != ""
 	if !found || !shape.action.matches(hasAction, true) ||
-		e.ActionConfirmationPending != (shape.confirmationTracksAction && hasAction) ||
 		!shape.childKey.matches(e.ChildKey != nil, e.ChildKey != nil && e.ChildKey.Valid()) ||
 		!shape.childProcessID.matches(
 			e.ChildProcessID != nil,
@@ -259,24 +237,61 @@ func (p phaseField) matches(present bool, valid bool) bool {
 	}
 }
 
-func validExcludedActionNames(actionNames []string, definition *Definition) bool {
-	for index, name := range actionNames {
-		if !validName(name) || index > 0 && actionNames[index-1] >= name {
-			return false
-		}
-		if _, found := definition.binding(name); !found {
-			return false
-		}
-	}
-	return true
+func (e executionState) awaitingConfirmation() bool {
+	return e.Phase == phaseAwaitingSense && e.CurrentActionName != ""
 }
 
-func (e *executionState) excludeAction(name string) {
-	index, found := slices.BinarySearch(e.ExcludedActionNames, name)
-	if found {
-		return
+func (e executionState) actionExcluded(name string) bool {
+	for _, attempt := range e.Attempts {
+		if attempt.ActionName == name && attempt.Status != AttemptSucceeded {
+			return true
+		}
 	}
-	e.ExcludedActionNames = slices.Insert(e.ExcludedActionNames, index, name)
+	return false
+}
+
+func (e *executionState) confirmAction(action Action) {
+	attempt := Attempt{ActionName: e.CurrentActionName, Status: AttemptSucceeded}
+	if !e.WorldState.Satisfies(action.effects...) {
+		attempt.Status = AttemptUnconfirmed
+		attempt.Diagnostic = "Reobservation did not establish the Action's predicted effects"
+	}
+	e.Attempts = append(e.Attempts, attempt)
+	e.CurrentActionName = ""
+}
+
+func (e *executionState) recordFailedAction(reason string) {
+	e.Attempts = append(e.Attempts, Attempt{
+		ActionName: e.CurrentActionName, Status: AttemptFailed, Diagnostic: diagnostic(reason),
+	})
+	e.CurrentActionName = ""
+}
+
+func (e *executionState) clearChild() {
+	e.ChildKey = nil
+	e.ChildProcessID = nil
+	e.WaitID = nil
+}
+
+func (e *executionState) complete(definition *Definition, outcome Outcome) (Output, error) {
+	candidate := *e
+	candidate.Phase = phaseCompleted
+	candidate.CurrentActionName = ""
+	candidate.clearChild()
+	candidate.Outcome = outcome
+	if err := candidate.validate(definition); err != nil {
+		return Output{}, err
+	}
+	attempts := slices.Clone(candidate.Attempts)
+	if attempts == nil {
+		attempts = []Attempt{}
+	}
+	output := Output{
+		Outcome: outcome, WorldState: candidate.WorldState,
+		Attempts: attempts, PlanningPasses: candidate.PlanningPasses,
+	}
+	*e = candidate
+	return output, nil
 }
 
 func (e executionState) input() (agent.Input, error) {

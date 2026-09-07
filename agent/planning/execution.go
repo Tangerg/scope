@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"slices"
 	"strconv"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -95,10 +94,12 @@ func (e *execution) acceptSense(
 		)
 	}
 	e.state.WorldState = *envelope.Sensing.WorldState
-	if e.state.ActionConfirmationPending {
-		if confirmActionErr := e.confirmAction(); confirmActionErr != nil {
-			return agent.Transition{}, confirmActionErr
+	if e.state.awaitingConfirmation() {
+		binding, found := e.definition.binding(e.state.CurrentActionName)
+		if !found {
+			return agent.Transition{}, ErrInvalidExecutionState
 		}
+		e.state.confirmAction(binding.action)
 	}
 	if e.definition.goal.SatisfiedBy(e.state.WorldState) {
 		return e.complete(consumedSignals, OutcomeAchieved)
@@ -112,7 +113,7 @@ func (e *execution) acceptSense(
 			"Planning exhausted its representable planning-pass count",
 		)
 	}
-	problem, err := e.definition.problem(e.state.WorldState, e.state.ExcludedActionNames)
+	problem, err := e.definition.problem(e.state)
 	if err != nil {
 		return e.fail(consumedSignals, agent.FailureKindContract, "planning.problem.invalid", err.Error())
 	}
@@ -204,11 +205,9 @@ func (e *execution) acceptAction(signals []agent.Signal) (agent.Transition, erro
 		return agent.Transition{}, fmt.Errorf("%w: expected Action Signal", ErrInvalidProtocol)
 	}
 	consumedSignals := uint32(len(signals))
-	if envelope.Action.Succeeded {
-		e.state.ActionConfirmationPending = true
-		return e.requestSense(consumedSignals)
+	if !envelope.Action.Succeeded {
+		e.state.recordFailedAction(envelope.Action.Diagnostic)
 	}
-	e.recordFailedAction(envelope.Action.Diagnostic)
 	return e.requestSense(consumedSignals)
 }
 
@@ -224,8 +223,8 @@ func (e *execution) acceptChildStart(signals []agent.Signal) (agent.Transition, 
 	}
 	consumedSignals := uint32(len(signals))
 	if failure, failed := result.Failure(); failed {
-		e.recordFailedAction(failure.Code() + ": " + failure.Message())
-		e.clearChild()
+		e.state.recordFailedAction(failure.Code() + ": " + failure.Message())
+		e.state.clearChild()
 		return e.requestSense(consumedSignals)
 	}
 	childID, started := result.ProcessID()
@@ -285,75 +284,22 @@ func (e *execution) acceptChildCompletion(signals []agent.Signal) (agent.Transit
 		return agent.Transition{}, fmt.Errorf("%w: child completion outcome mismatch", ErrInvalidProtocol)
 	}
 	result := outcomes[0].Result()
-	e.clearChild()
-	if result.Status() == agent.StatusCompleted {
-		e.state.ActionConfirmationPending = true
-	} else {
-		e.recordFailedAction(result.Termination().Reason())
+	e.state.clearChild()
+	if result.Status() != agent.StatusCompleted {
+		e.state.recordFailedAction(result.Termination().Reason())
 	}
 	return e.requestSense(uint32(len(signals)))
 }
 
-func (e *execution) confirmAction() error {
-	binding, found := e.definition.binding(e.state.CurrentActionName)
-	if !found {
-		return ErrInvalidExecutionState
-	}
-	if e.state.WorldState.Satisfies(binding.action.effects...) {
-		e.state.Attempts = append(e.state.Attempts, Attempt{
-			ActionName: e.state.CurrentActionName, Status: AttemptSucceeded,
-		})
-	} else {
-		e.state.Attempts = append(e.state.Attempts, Attempt{
-			ActionName: e.state.CurrentActionName, Status: AttemptUnconfirmed,
-			Diagnostic: "Reobservation did not establish the Action's predicted effects",
-		})
-		e.state.excludeAction(e.state.CurrentActionName)
-	}
-	e.state.CurrentActionName = ""
-	e.state.ActionConfirmationPending = false
-	return nil
-}
-
-func (e *execution) recordFailedAction(reason string) {
-	e.state.Attempts = append(e.state.Attempts, Attempt{
-		ActionName: e.state.CurrentActionName, Status: AttemptFailed, Diagnostic: diagnostic(reason),
-	})
-	e.state.excludeAction(e.state.CurrentActionName)
-	e.state.CurrentActionName = ""
-	e.state.ActionConfirmationPending = false
-}
-
-func (e *execution) clearChild() {
-	e.state.ChildKey = nil
-	e.state.ChildProcessID = nil
-	e.state.WaitID = nil
-}
-
 func (e *execution) complete(consumedSignals uint32, outcome Outcome) (agent.Transition, error) {
-	attempts := slices.Clone(e.state.Attempts)
-	if attempts == nil {
-		attempts = []Attempt{}
-	}
-	output := Output{
-		Outcome: outcome, WorldState: e.state.WorldState,
-		Attempts: attempts, PlanningPasses: e.state.PlanningPasses,
-	}
-	if err := output.Validate(); err != nil {
+	output, err := e.state.complete(e.definition, outcome)
+	if err != nil {
 		return agent.Transition{}, err
-	}
-	if outcome == OutcomeAchieved && !e.definition.goal.SatisfiedBy(output.WorldState) {
-		return agent.Transition{}, ErrInvalidExecutionState
 	}
 	erased, err := agent.EncodeOutput(output)
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	e.state.Phase = phaseCompleted
-	e.state.CurrentActionName = ""
-	e.state.ActionConfirmationPending = false
-	e.clearChild()
-	e.state.FinalOutput = &output
 	return agent.Complete(consumedSignals, erased)
 }
 
