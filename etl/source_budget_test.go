@@ -60,6 +60,48 @@ func TestSourceBudgetHonorsCanceledContextBeforeReading(t *testing.T) {
 	}
 }
 
+func TestSourceBudgetStopsBetweenReadsAndPreservesFailure(t *testing.T) {
+	failure := errors.New("source read failed")
+	for _, test := range []struct {
+		name    string
+		readErr error
+	}{
+		{name: "successful read"},
+		{name: "failed read", readErr: failure},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			source := &cancelingSource{cancel: cancel, readErr: test.readErr}
+			data, err := (etl.SourceBudget{}).ReadAll(ctx, source)
+			if data != nil || !errors.Is(err, context.Canceled) {
+				t.Errorf("ReadAll() = (%q, %v), want nil data and context.Canceled", data, err)
+			}
+			if test.readErr != nil && !errors.Is(err, test.readErr) {
+				t.Errorf("ReadAll() error = %v, want original source failure", err)
+			}
+			if source.reads != 1 {
+				t.Errorf("source reads = %d, want no reads after cancellation", source.reads)
+			}
+		})
+	}
+}
+
+type cancelingSource struct {
+	cancel  context.CancelFunc
+	readErr error
+	reads   int
+}
+
+func (c *cancelingSource) Read(buffer []byte) (int, error) {
+	c.reads++
+	if c.reads > 1 {
+		return 0, io.EOF
+	}
+	c.cancel()
+	return copy(buffer, "source"), c.readErr
+}
+
 func TestSourceBudgetRejectsNilSource(t *testing.T) {
 	var typedNil *nilSource
 	for _, source := range []io.Reader{nil, typedNil} {

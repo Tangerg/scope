@@ -53,7 +53,8 @@ func (s SourceBudget) MaxBytes() int64 {
 
 // ReadAll consumes at most MaxBytes plus one detection byte. It returns no
 // partial payload when the source exceeds the budget and preserves source and
-// context errors for errors.Is/errors.As.
+// context errors for errors.Is/errors.As. Cancellation stops subsequent reads;
+// interruption of an in-flight Read remains the source's responsibility.
 func (s SourceBudget) ReadAll(ctx context.Context, source io.Reader) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -62,15 +63,24 @@ func (s SourceBudget) ReadAll(ctx context.Context, source io.Reader) ([]byte, er
 		return nil, ErrNilSource
 	}
 	maxBytes := s.MaxBytes()
-	data, err := io.ReadAll(io.LimitReader(source, maxBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if err := ctx.Err(); err != nil {
+	data, err := io.ReadAll(io.LimitReader(sourceReader{ctx: ctx, source: source}, maxBytes+1))
+	if err = errors.Join(err, ctx.Err()); err != nil {
 		return nil, err
 	}
 	if int64(len(data)) > maxBytes {
 		return nil, fmt.Errorf("%w: maximum is %d bytes", ErrSourceTooLarge, maxBytes)
 	}
 	return data, nil
+}
+
+type sourceReader struct {
+	ctx    context.Context
+	source io.Reader
+}
+
+func (s sourceReader) Read(buffer []byte) (int, error) {
+	if err := s.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return s.source.Read(buffer)
 }
