@@ -60,7 +60,17 @@ func TestObservedTreeDurabilityRecordsAcknowledgedBoundaries(t *testing.T) {
 	if len(spans) != 4 {
 		t.Fatalf("durability spans=%d, want start, pending, settled, terminal", len(spans))
 	}
-	for _, span := range spans {
+	wantBoundaries := []struct{ operation, boundary string }{
+		{"checkpoint", "start"}, {"effect", "pending"},
+		{"effect", "settled"}, {"checkpoint", "terminal"},
+	}
+	for index, span := range spans {
+		want := wantBoundaries[index]
+		if span.Name() != "agent.durability."+want.operation ||
+			stringAttribute(span.Attributes(), "agent.durability.operation") != want.operation ||
+			stringAttribute(span.Attributes(), "agent.durability.boundary") != want.boundary {
+			t.Fatalf("boundary %d: name=%s attributes=%v", index, span.Name(), span.Attributes())
+		}
 		if stringAttribute(span.Attributes(), "agent.durability.outcome") != "acknowledged" || span.Status().Code == codes.Error {
 			t.Fatal("successful boundary was not acknowledged")
 		}

@@ -22,7 +22,6 @@ const (
 	durabilityOutcomeAttribute        attribute.Key = "agent.durability.outcome"
 	durabilityHeadAttribute           attribute.Key = "agent.tree.head_digest"
 
-	durabilityStartOperation      = "start"
 	durabilityActivateOperation   = "activate"
 	durabilityEffectOperation     = "effect"
 	durabilityCheckpointOperation = "checkpoint"
@@ -32,13 +31,12 @@ const (
 	durabilityUnresolved          = "unresolved"
 )
 
-// WrapTreeDurability observes the existing persistence protocol without selecting
-// storage or changing acknowledgments, fencing, errors, or transaction policy.
-// Durations and snapshot bytes use bounded operation, boundary, and outcome
-// labels; tree identities are trace attributes only. Errors are classified
-// without exporting adapter diagnostics, payloads, or connection details.
-// An error other than an explicit conflict is unresolved: observation cannot
-// infer whether storage committed before its response was lost.
+// WrapTreeDurability observes the existing port so instrumentation cannot select
+// a different commit or fencing path. Metric labels stay bounded to avoid one
+// time series per tree; identities belong only in traces. Adapter diagnostics
+// are excluded because they can contain credentials or payloads. An error other
+// than an explicit conflict remains unresolved because a lost response cannot
+// prove whether storage committed.
 func (o *Observer) WrapTreeDurability(next agent.TreeDurability) (agent.TreeDurability, error) {
 	if o == nil || lo.IsNil(o.tracer) {
 		return nil, fmt.Errorf("%w: observer must be constructed with NewObserver", ErrInvalidObserverConfig)
@@ -52,13 +50,6 @@ func (o *Observer) WrapTreeDurability(next agent.TreeDurability) (agent.TreeDura
 type observedTreeDurability struct {
 	observer *Observer
 	next     agent.TreeDurability
-}
-
-func (o *observedTreeDurability) AcknowledgeProcessStartOutcome(ctx context.Context, outcome agent.ProcessStartOutcome) error {
-	snapshot, _ := outcome.TreeSnapshot()
-	return o.observer.observeDurability(ctx, durabilityStartOperation, outcome.Status().String(), snapshot, func(ctx context.Context) error {
-		return o.next.AcknowledgeProcessStartOutcome(ctx, outcome)
-	})
 }
 
 func (o *observedTreeDurability) ActivateTree(ctx context.Context, activation agent.TreeActivation) error {
