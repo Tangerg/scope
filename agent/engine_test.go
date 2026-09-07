@@ -1181,7 +1181,7 @@ func awaitResult(t *testing.T, process *Process) Result {
 	return result
 }
 
-func waitForStatus(t *testing.T, process *Process, want Status) {
+func waitForStatus(t testing.TB, process *Process, want Status) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
@@ -1197,7 +1197,7 @@ func waitForStatus(t *testing.T, process *Process, want Status) {
 	}
 }
 
-func waitForUnknownSettlement(t *testing.T, process *Process) ProcessSnapshot {
+func waitForUnknownSettlement(t testing.TB, process *Process) ProcessSnapshot {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
