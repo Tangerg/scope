@@ -10,12 +10,12 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-// DispatcherConfig binds side-effect-free observation and the exact set of
+// DispatcherConfig binds side-effect-free sensing and the exact set of
 // dispatcher-targeted Action executors required by a Definition. Child-bound
 // Actions must not appear in ActionExecutors.
 type DispatcherConfig struct {
-	// Observer supplies each complete WorldState observation.
-	Observer Observer
+	// Sensor supplies each complete WorldState observation.
+	Sensor Sensor
 	// ActionExecutors maps dispatcher-bound Action names to exact executors.
 	ActionExecutors map[string]ActionExecutor
 }
@@ -25,12 +25,12 @@ type boundExecutor struct {
 	executor ActionExecutor
 }
 
-// Dispatcher executes observation and dispatcher Action Effects emitted by one
+// Dispatcher executes sensing and dispatcher Action Effects emitted by one
 // Planning Definition. It is immutable after construction and may serve
-// Processes concurrently when Observer and ActionExecutors are concurrent-safe.
+// Processes concurrently when Sensor and ActionExecutors are concurrent-safe.
 type Dispatcher struct {
 	descriptor agent.Descriptor
-	observer   Observer
+	sensor     Sensor
 	executors  map[string]boundExecutor
 }
 
@@ -38,7 +38,7 @@ type Dispatcher struct {
 // effects. It is constructed against an exact definition so an effect cannot
 // be routed to an executor the planner never planned against.
 func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher, error) {
-	if !definition.valid() || lo.IsNil(config.Observer) {
+	if !definition.valid() || lo.IsNil(config.Sensor) {
 		return nil, ErrInvalidDispatcherConfig
 	}
 	executors := make(map[string]boundExecutor)
@@ -67,11 +67,11 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 		}
 	}
 	return &Dispatcher{
-		descriptor: definition.descriptor, observer: config.Observer, executors: executors,
+		descriptor: definition.descriptor, sensor: config.Sensor, executors: executors,
 	}, nil
 }
 
-// Dispatch executes one validated Planning protocol operation. Observer errors
+// Dispatch executes one validated Planning protocol operation. Sensor errors
 // and valid ActionResult failures are definite failed settlements; an
 // ActionExecutor error leaves the Effect outcome unknown.
 func (d *Dispatcher) Dispatch(
@@ -79,7 +79,7 @@ func (d *Dispatcher) Dispatch(
 	request agent.EffectRequest,
 	_ agent.DeltaEmitter,
 ) (agent.Settlement, error) {
-	if d == nil || !d.descriptor.Valid() || lo.IsNil(d.observer) {
+	if d == nil || !d.descriptor.Valid() || lo.IsNil(d.sensor) {
 		return agent.Settlement{}, ErrInvalidDispatcherConfig
 	}
 	envelope, err := decodeEffect(request.Effect().Payload())
@@ -90,8 +90,8 @@ func (d *Dispatcher) Dispatch(
 		return agent.Settlement{}, fmt.Errorf("%w: Effect Input: %w", ErrInvalidProtocol, err)
 	}
 	switch envelope.Operation {
-	case operationObserve:
-		return d.observe(ctx, request.ID(), envelope.Input)
+	case operationSense:
+		return d.sense(ctx, request.ID(), envelope.Input)
 	case operationAction:
 		return d.execute(ctx, request.ID(), envelope.Input, *envelope.Action)
 	default:
@@ -100,35 +100,35 @@ func (d *Dispatcher) Dispatch(
 }
 
 // ReplayPolicy permits same-identity replay only for side-effect-free
-// observation. Action Effects may have irreversible external consequences and
+// sensing. Action Effects may have irreversible external consequences and
 // always require explicit resolution after an unknown attempt.
 func (*Dispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
 	envelope, err := decodeEffect(effect.Payload())
-	if err == nil && envelope.Operation == operationObserve {
+	if err == nil && envelope.Operation == operationSense {
 		return agent.ReplayPolicySameIdentity
 	}
 	return agent.ReplayPolicyNever
 }
 
-func (d *Dispatcher) observe(
+func (d *Dispatcher) sense(
 	ctx context.Context,
 	effectID agent.EffectID,
 	input agent.Input,
 ) (agent.Settlement, error) {
-	request := ObservationRequest{EffectID: effectID, Input: input}
-	if err := validateObservationRequest(request); err != nil {
+	request := SenseRequest{EffectID: effectID, Input: input}
+	if err := validateSenseRequest(request); err != nil {
 		return agent.Settlement{}, err
 	}
-	state, observeErr := d.observer.Observe(ctx, request)
-	if observeErr == nil && !state.Valid() {
-		return agent.Settlement{}, errors.New("planning: Observer returned an invalid WorldState")
+	state, senseErr := d.sensor.Sense(ctx, request)
+	if senseErr == nil && !state.Valid() {
+		return agent.Settlement{}, errors.New("planning: Sensor returned an invalid WorldState")
 	}
-	payload, err := observationSignal(state, observeErr)
+	payload, err := senseSignal(state, senseErr)
 	if err != nil {
 		return agent.Settlement{}, err
 	}
 	status := agent.SettlementStatusSucceeded
-	if observeErr != nil {
+	if senseErr != nil {
 		status = agent.SettlementStatusFailed
 	}
 	return agent.NewSettlement(effectID, status, payload)

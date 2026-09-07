@@ -14,8 +14,8 @@ import (
 type phase string
 
 const (
-	phaseReadyObservation      phase = "ready_observation"
-	phaseAwaitingObservation   phase = "awaiting_observation"
+	phaseReadySense            phase = "ready_sense"
+	phaseAwaitingSense         phase = "awaiting_sense"
 	phaseAwaitingAction        phase = "awaiting_action"
 	phaseAwaitingChildStart    phase = "awaiting_child_start"
 	phaseAwaitingChildWaitOpen phase = "awaiting_child_wait_open"
@@ -25,7 +25,7 @@ const (
 
 func (p phase) valid() bool {
 	switch p {
-	case phaseReadyObservation, phaseAwaitingObservation, phaseAwaitingAction,
+	case phaseReadySense, phaseAwaitingSense, phaseAwaitingAction,
 		phaseAwaitingChildStart, phaseAwaitingChildWaitOpen, phaseWaitingChild, phaseCompleted:
 		return true
 	default:
@@ -67,9 +67,9 @@ type phaseShape struct {
 
 func (p phase) shape() (phaseShape, bool) {
 	switch p {
-	case phaseReadyObservation:
+	case phaseReadySense:
 		return phaseShape{initial: true}, true
-	case phaseAwaitingObservation:
+	case phaseAwaitingSense:
 		return phaseShape{action: phaseFieldOptional, confirmationTracksAction: true}, true
 	case phaseAwaitingAction:
 		return phaseShape{action: phaseFieldRequired}, true
@@ -194,14 +194,14 @@ func (e executionState) validateProgress() error {
 	attempts := uint64(len(e.Attempts))
 	passes := uint64(e.PlanningPasses)
 	switch e.Phase {
-	case phaseReadyObservation:
+	case phaseReadySense:
 		if attempts != 0 || passes != 0 {
 			return ErrInvalidExecutionState
 		}
-	case phaseAwaitingObservation:
+	case phaseAwaitingSense:
 		if e.ActionConfirmationPending && passes != attempts+1 ||
 			!e.ActionConfirmationPending && (attempts == 0 && passes != 0 || attempts > 0 && passes != attempts) {
-			return fmt.Errorf("%w: observation phase counters are inconsistent", ErrInvalidExecutionState)
+			return fmt.Errorf("%w: sensing phase counters are inconsistent", ErrInvalidExecutionState)
 		}
 	case phaseAwaitingAction, phaseAwaitingChildStart, phaseAwaitingChildWaitOpen, phaseWaitingChild:
 		if passes != attempts+1 {

@@ -30,7 +30,7 @@ func TestManagedPlanningReobservesAndReplansAfterEveryAction(t *testing.T) {
 		mustDispatcherBinding(t, prepare), mustDispatcherBinding(t, finish),
 	}
 	deployment := newManagedDeployment(t, managedDeploymentConfig{
-		goal: mustGoal(t, done), bindings: bindings, observer: world,
+		goal: mustGoal(t, done), bindings: bindings, sensor: world,
 		executors: map[string]planning.ActionExecutor{
 			"action.prepare": world.apply(prepare), "action.finish": world.apply(finish),
 		},
@@ -66,7 +66,7 @@ func TestManagedPlanningExcludesUnconfirmedActionAndReplans(t *testing.T) {
 		bindings: []planning.ActionBinding{
 			mustDispatcherBinding(t, optimistic), mustDispatcherBinding(t, fallback),
 		},
-		observer: world,
+		sensor: world,
 		executors: map[string]planning.ActionExecutor{
 			"action.optimistic": planning.ActionExecutorFunc(func(context.Context, planning.ActionRequest) (planning.ActionResult, error) {
 				return planning.ActionSucceeded(), nil
@@ -103,7 +103,7 @@ func TestManagedPlanningRecordsDefiniteFailureAndUsesFallback(t *testing.T) {
 		bindings: []planning.ActionBinding{
 			mustDispatcherBinding(t, primary), mustDispatcherBinding(t, fallback),
 		},
-		observer: world,
+		sensor: world,
 		executors: map[string]planning.ActionExecutor{
 			"action.primary": planning.ActionExecutorFunc(func(context.Context, planning.ActionRequest) (planning.ActionResult, error) {
 				return failed, nil
@@ -126,7 +126,7 @@ func TestManagedPlanningUsesSemanticCompletionOutcomes(t *testing.T) {
 	t.Run("unreachable", func(t *testing.T) {
 		world := newManagedWorld(t)
 		deployment := newManagedDeployment(t, managedDeploymentConfig{
-			goal: mustGoal(t, done), observer: world,
+			goal: mustGoal(t, done), sensor: world,
 		})
 		output := managedOutput(t, runManaged(t, agent.EngineConfig{}, deployment))
 		if output.Outcome != planning.OutcomeUnreachable || len(output.Attempts) != 0 || output.PlanningPasses != 1 {
@@ -145,7 +145,7 @@ func TestManagedPlanningUsesSemanticCompletionOutcomes(t *testing.T) {
 		}
 		deployment := newManagedDeployment(t, managedDeploymentConfig{
 			goal: mustGoal(t, done), bindings: []planning.ActionBinding{mustDispatcherBinding(t, only)},
-			observer: world,
+			sensor: world,
 			executors: map[string]planning.ActionExecutor{
 				"action.only": planning.ActionExecutorFunc(func(context.Context, planning.ActionRequest) (planning.ActionResult, error) {
 					return failed, nil
@@ -179,7 +179,7 @@ func TestManagedPlanningUsesSemanticCompletionOutcomes(t *testing.T) {
 			bindings: []planning.ActionBinding{
 				mustDispatcherBinding(t, first), mustDispatcherBinding(t, second),
 			},
-			observer: world,
+			sensor: world,
 			executors: map[string]planning.ActionExecutor{
 				"action.first": planning.ActionExecutorFunc(func(context.Context, planning.ActionRequest) (planning.ActionResult, error) {
 					return failed, nil
@@ -201,12 +201,12 @@ func TestManagedPlanningClassifiesObservationAndPlannerFailures(t *testing.T) {
 	t.Run("observation", func(t *testing.T) {
 		deployment := newManagedDeployment(t, managedDeploymentConfig{
 			goal: mustGoal(t, done),
-			observer: planning.ObserverFunc(func(context.Context, planning.ObservationRequest) (planning.WorldState, error) {
+			sensor: planning.SensorFunc(func(context.Context, planning.SenseRequest) (planning.WorldState, error) {
 				return planning.WorldState{}, errors.New("sensor unavailable")
 			}),
 		})
 		result := runManaged(t, agent.EngineConfig{}, deployment)
-		assertFailure(t, result, agent.FailureKindExternal, "planning.observation.failed")
+		assertFailure(t, result, agent.FailureKindExternal, "planning.sensing.failed")
 	})
 
 	t.Run("planner contract", func(t *testing.T) {
@@ -224,7 +224,7 @@ func TestManagedPlanningClassifiesObservationAndPlannerFailures(t *testing.T) {
 		world := newManagedWorld(t)
 		deployment := newManagedDeployment(t, managedDeploymentConfig{
 			goal: mustGoal(t, done), bindings: []planning.ActionBinding{mustDispatcherBinding(t, action)},
-			observer:  world,
+			sensor:    world,
 			executors: map[string]planning.ActionExecutor{"action.finish": world.apply(action)},
 			planner: planning.PlannerFunc(func(context.Context, planning.Problem) (planning.Plan, bool, error) {
 				return invalidCost, true, nil
@@ -281,7 +281,7 @@ func TestManagedPlanningUnknownActionRequiresExplicitResolution(t *testing.T) {
 	requestSeen := make(chan planning.ActionRequest, 1)
 	deployment := newManagedDeployment(t, managedDeploymentConfig{
 		goal: mustGoal(t, done), bindings: []planning.ActionBinding{mustDispatcherBinding(t, action)},
-		observer: world,
+		sensor: world,
 		executors: map[string]planning.ActionExecutor{
 			"action.finish": planning.ActionExecutorFunc(func(_ context.Context, request planning.ActionRequest) (planning.ActionResult, error) {
 				requestSeen <- request
@@ -345,7 +345,7 @@ func TestManagedPlanningExecutesChildProcessAction(t *testing.T) {
 	})
 	childDeployment := newManagedDeployment(t, managedDeploymentConfig{
 		name: "planning.child", goal: mustGoal(t, done),
-		bindings: []planning.ActionBinding{mustDispatcherBinding(t, childAction)}, observer: world,
+		bindings: []planning.ActionBinding{mustDispatcherBinding(t, childAction)}, sensor: world,
 		executors: map[string]planning.ActionExecutor{"action.child_finish": world.apply(childAction)},
 	})
 	delegate := mustAction(t, planning.ActionConfig{
@@ -372,7 +372,7 @@ func TestManagedPlanningExecutesChildProcessAction(t *testing.T) {
 	}
 	parentDeployment := newManagedDeployment(t, managedDeploymentConfig{
 		name: "planning.parent", goal: mustGoal(t, done),
-		bindings: []planning.ActionBinding{childBinding}, observer: world,
+		bindings: []planning.ActionBinding{childBinding}, sensor: world,
 	})
 	resolver := managedResolver{childDeployment.DeploymentRef(): childDeployment}
 	result := runManaged(t, agent.EngineConfig{DeploymentResolver: resolver}, parentDeployment)
@@ -405,21 +405,21 @@ func TestManagedPlanningValidatesDispatcherBindingsAndCapabilities(t *testing.T)
 	executor := world.apply(action)
 	tests := []struct {
 		name      string
-		observer  planning.Observer
+		sensor    planning.Sensor
 		executors map[string]planning.ActionExecutor
 	}{
-		{name: "missing observer", executors: map[string]planning.ActionExecutor{"action.finish": executor}},
-		{name: "missing executor", observer: world},
-		{name: "extra executor", observer: world, executors: map[string]planning.ActionExecutor{
+		{name: "missing sensor", executors: map[string]planning.ActionExecutor{"action.finish": executor}},
+		{name: "missing executor", sensor: world},
+		{name: "extra executor", sensor: world, executors: map[string]planning.ActionExecutor{
 			"action.finish": executor, "action.extra": executor,
 		}},
-		{name: "typed nil observer", observer: planning.ObserverFunc(nil), executors: map[string]planning.ActionExecutor{"action.finish": executor}},
-		{name: "typed nil executor", observer: world, executors: map[string]planning.ActionExecutor{"action.finish": planning.ActionExecutorFunc(nil)}},
+		{name: "typed nil sensor", sensor: planning.SensorFunc(nil), executors: map[string]planning.ActionExecutor{"action.finish": executor}},
+		{name: "typed nil executor", sensor: world, executors: map[string]planning.ActionExecutor{"action.finish": planning.ActionExecutorFunc(nil)}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := planning.NewDispatcher(definition, planning.DispatcherConfig{
-				Observer: test.observer, ActionExecutors: test.executors,
+				Sensor: test.sensor, ActionExecutors: test.executors,
 			}); !errors.Is(err, planning.ErrInvalidDispatcherConfig) {
 				t.Fatalf("error = %v", err)
 			}
@@ -427,7 +427,7 @@ func TestManagedPlanningValidatesDispatcherBindingsAndCapabilities(t *testing.T)
 	}
 
 	deployment := newManagedDeployment(t, managedDeploymentConfig{
-		goal: mustGoal(t, done), bindings: []planning.ActionBinding{binding}, observer: world,
+		goal: mustGoal(t, done), bindings: []planning.ActionBinding{binding}, sensor: world,
 		executors: map[string]planning.ActionExecutor{"action.finish": executor},
 	})
 	result := runManaged(t, agent.EngineConfig{}, deployment)
@@ -461,7 +461,7 @@ func newManagedWorld(t testing.TB, conditions ...planning.Condition) *managedWor
 	return &managedWorld{state: state}
 }
 
-func (m *managedWorld) Observe(_ context.Context, _ planning.ObservationRequest) (planning.WorldState, error) {
+func (m *managedWorld) Sense(_ context.Context, _ planning.SenseRequest) (planning.WorldState, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.observations++
@@ -510,7 +510,7 @@ type managedDeploymentConfig struct {
 	name              string
 	goal              planning.Goal
 	bindings          []planning.ActionBinding
-	observer          planning.Observer
+	sensor            planning.Sensor
 	executors         map[string]planning.ActionExecutor
 	planner           planning.Planner
 	maxActionAttempts uint32
@@ -548,13 +548,13 @@ func newManagedDefinition(t testing.TB, config managedDeploymentConfig) *plannin
 func newManagedDeployment(t testing.TB, config managedDeploymentConfig) agent.Deployment {
 	t.Helper()
 	definition := newManagedDefinition(t, config)
-	observer := config.observer
-	if observer == nil {
+	sensor := config.sensor
+	if sensor == nil {
 		world := newManagedWorld(t)
-		observer = world
+		sensor = world
 	}
 	dispatcher, err := planning.NewDispatcher(definition, planning.DispatcherConfig{
-		Observer: observer, ActionExecutors: config.executors,
+		Sensor: sensor, ActionExecutors: config.executors,
 	})
 	if err != nil {
 		t.Fatal(err)

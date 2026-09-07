@@ -231,9 +231,9 @@ func newPlanningWorker(t *testing.T) (agent.Deployment, *planningTaskState) {
 		t.Fatal(err)
 	}
 	state := &planningTaskState{completed: make(map[string]bool)}
-	observer := planning.ObserverFunc(func(
+	sensor := planning.SensorFunc(func(
 		_ context.Context,
-		request planning.ObservationRequest,
+		request planning.SenseRequest,
 	) (planning.WorldState, error) {
 		task, decodeErr := request.Input.Decode[workerTask]()
 		if decodeErr != nil {
@@ -265,7 +265,7 @@ func newPlanningWorker(t *testing.T) (agent.Deployment, *planningTaskState) {
 		return planning.ActionSucceeded(), nil
 	})
 	dispatcher, err := planning.NewDispatcher(definition, planning.DispatcherConfig{
-		Observer: observer, ActionExecutors: map[string]planning.ActionExecutor{"review": executor},
+		Sensor: sensor, ActionExecutors: map[string]planning.ActionExecutor{"review": executor},
 	})
 	if err != nil {
 		t.Fatal(err)

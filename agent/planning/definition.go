@@ -24,7 +24,7 @@ type DefinitionConfig struct {
 	Description string
 
 	// InputSchema is the authoritative schema for opaque task input passed to
-	// Observer, ActionExecutor, and child input functions.
+	// Sensor, ActionExecutor, and child input functions.
 	InputSchema agent.Schema
 
 	// Goal is the immutable target state.
@@ -41,7 +41,7 @@ type DefinitionConfig struct {
 }
 
 // Definition is an immutable Planning Strategy definition. It contains no
-// Observer or ActionExecutor; those I/O capabilities belong to its
+// Sensor or ActionExecutor; those I/O capabilities belong to its
 // Deployment-bound Dispatcher.
 type Definition struct {
 	descriptor        agent.Descriptor
@@ -105,7 +105,7 @@ func (d *Definition) Start(input agent.Input) (agent.Execution, error) {
 	if err := d.descriptor.ValidateInput(input); err != nil {
 		return nil, err
 	}
-	state := executionState{Phase: phaseReadyObservation, Input: input.JSON()}
+	state := executionState{Phase: phaseReadySense, Input: input.JSON()}
 	return &execution{definition: d, state: state}, nil
 }
 

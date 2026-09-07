@@ -8,11 +8,11 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-// ObservationRequest is one side-effect-free request for the current complete
+// SenseRequest is one side-effect-free request for the current complete
 // WorldState. Input is the original Planning Process input; EffectID is stable
 // for the prepared attempt.
-type ObservationRequest struct {
-	// EffectID is the stable identity of the prepared observation attempt.
+type SenseRequest struct {
+	// EffectID is the stable identity of the prepared sensing attempt.
 	EffectID agent.EffectID
 	// Input is the original immutable Planning Process input.
 	Input agent.Input
@@ -33,27 +33,27 @@ type ActionRequest struct {
 	WorldState WorldState
 }
 
-// Observer produces one complete WorldState without externally visible side
-// effects. A returned error is a definite observation failure and terminates
-// Planning; an Observer must not use error to report an unknown side effect.
-type Observer interface {
-	// Observe obtains one complete immutable WorldState for the original Process
+// Sensor produces one complete WorldState without externally visible side
+// effects. A returned error is a definite sensing failure and terminates
+// Planning; a Sensor must not use error to report an unknown side effect.
+type Sensor interface {
+	// Sense obtains one complete immutable WorldState for the original Process
 	// input. It must honor ctx and must not cause externally visible side effects,
-	// because the same EffectID may be replayed after an unknown observation.
-	Observe(ctx context.Context, request ObservationRequest) (WorldState, error)
+	// because the same EffectID may be replayed after an unknown sensing outcome.
+	Sense(ctx context.Context, request SenseRequest) (WorldState, error)
 }
 
-// ObserverFunc adapts a plain function to the observer interface. Observation
+// SensorFunc adapts a plain function to the sensor interface. Sensing
 // is an Effect rather than part of a Step, because reading the world is
 // external I/O and its result must arrive as a settlement the Execution can be
 // resumed from.
-type ObserverFunc func(ctx context.Context, request ObservationRequest) (WorldState, error)
+type SensorFunc func(ctx context.Context, request SenseRequest) (WorldState, error)
 
-func (o ObserverFunc) Observe(
+func (s SensorFunc) Sense(
 	ctx context.Context,
-	request ObservationRequest,
+	request SenseRequest,
 ) (WorldState, error) {
-	return o(ctx, request)
+	return s(ctx, request)
 }
 
 // ActionExecutor performs one dispatcher-bound Action. A valid ActionResult is
@@ -130,9 +130,9 @@ func NewActionSettlement(effectID agent.EffectID, result ActionResult) (agent.Se
 	return agent.NewSettlement(effectID, status, payload)
 }
 
-func validateObservationRequest(request ObservationRequest) error {
+func validateSenseRequest(request SenseRequest) error {
 	if !request.EffectID.Valid() || !request.Input.Valid() {
-		return errors.New("planning: invalid observation request")
+		return errors.New("planning: invalid sensing request")
 	}
 	return nil
 }

@@ -24,7 +24,7 @@ func TestDefinitionConformance(t *testing.T) {
 	}
 	world := newManagedWorld(t)
 	dispatcher, err := planning.NewDispatcher(definition, planning.DispatcherConfig{
-		Observer: world, ActionExecutors: map[string]planning.ActionExecutor{"prepare": world.apply(action)},
+		Sensor: world, ActionExecutors: map[string]planning.ActionExecutor{"prepare": world.apply(action)},
 	})
 	if err != nil {
 		t.Fatal(err)

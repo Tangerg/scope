@@ -18,7 +18,7 @@ type execution struct {
 	state      executionState
 }
 
-// Step advances exactly one pure Planning boundary. Observation, dispatcher
+// Step advances exactly one pure Planning boundary. Sensing, dispatcher
 // Action I/O, and child Process work are represented as Effects and never run
 // inside this method.
 func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
@@ -29,13 +29,13 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 		return agent.Transition{}, err
 	}
 	switch e.state.Phase {
-	case phaseReadyObservation:
+	case phaseReadySense:
 		if len(signals) != 0 {
-			return agent.Transition{}, errors.New("planning: initial observation does not accept Signals")
+			return agent.Transition{}, errors.New("planning: initial sensing does not accept Signals")
 		}
-		return e.requestObservation(0)
-	case phaseAwaitingObservation:
-		return e.acceptObservation(ctx, signals)
+		return e.requestSense(0)
+	case phaseAwaitingSense:
+		return e.acceptSense(ctx, signals)
 	case phaseAwaitingAction:
 		return e.acceptAction(signals)
 	case phaseAwaitingChildStart:
@@ -63,20 +63,20 @@ func (e *execution) Snapshot() (agent.ExecutionState, error) {
 	return encodeExecutionState(e.state)
 }
 
-func (e *execution) requestObservation(consumedSignals uint32) (agent.Transition, error) {
+func (e *execution) requestSense(consumedSignals uint32) (agent.Transition, error) {
 	input, err := e.state.input()
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	effect, err := newObservationEffect(input)
+	effect, err := newSenseEffect(input)
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	e.state.Phase = phaseAwaitingObservation
+	e.state.Phase = phaseAwaitingSense
 	return agent.Continue(consumedSignals, effect)
 }
 
-func (e *execution) acceptObservation(
+func (e *execution) acceptSense(
 	ctx context.Context,
 	signals []agent.Signal,
 ) (agent.Transition, error) {
@@ -85,16 +85,16 @@ func (e *execution) acceptObservation(
 		return agent.Transition{}, err
 	}
 	envelope, err := decodeSignal(signal.Payload())
-	if err != nil || envelope.Operation != operationObserve {
-		return agent.Transition{}, fmt.Errorf("%w: expected observation Signal", ErrInvalidProtocol)
+	if err != nil || envelope.Operation != operationSense {
+		return agent.Transition{}, fmt.Errorf("%w: expected sensing Signal", ErrInvalidProtocol)
 	}
 	consumedSignals := uint32(len(signals))
-	if envelope.Observation.Error != "" {
+	if envelope.Sensing.Error != "" {
 		return e.fail(
-			consumedSignals, agent.FailureKindExternal, "planning.observation.failed", envelope.Observation.Error,
+			consumedSignals, agent.FailureKindExternal, "planning.sensing.failed", envelope.Sensing.Error,
 		)
 	}
-	e.state.WorldState = *envelope.Observation.WorldState
+	e.state.WorldState = *envelope.Sensing.WorldState
 	if e.state.ActionConfirmationPending {
 		if confirmActionErr := e.confirmAction(); confirmActionErr != nil {
 			return agent.Transition{}, confirmActionErr
@@ -206,10 +206,10 @@ func (e *execution) acceptAction(signals []agent.Signal) (agent.Transition, erro
 	consumedSignals := uint32(len(signals))
 	if envelope.Action.Succeeded {
 		e.state.ActionConfirmationPending = true
-		return e.requestObservation(consumedSignals)
+		return e.requestSense(consumedSignals)
 	}
 	e.recordFailedAction(envelope.Action.Diagnostic)
-	return e.requestObservation(consumedSignals)
+	return e.requestSense(consumedSignals)
 }
 
 func (e *execution) acceptChildStart(signals []agent.Signal) (agent.Transition, error) {
@@ -226,7 +226,7 @@ func (e *execution) acceptChildStart(signals []agent.Signal) (agent.Transition, 
 	if failure, failed := result.Failure(); failed {
 		e.recordFailedAction(failure.Code() + ": " + failure.Message())
 		e.clearChild()
-		return e.requestObservation(consumedSignals)
+		return e.requestSense(consumedSignals)
 	}
 	childID, started := result.ProcessID()
 	if !started {
@@ -291,7 +291,7 @@ func (e *execution) acceptChildCompletion(signals []agent.Signal) (agent.Transit
 	} else {
 		e.recordFailedAction(result.Termination().Reason())
 	}
-	return e.requestObservation(uint32(len(signals)))
+	return e.requestSense(uint32(len(signals)))
 }
 
 func (e *execution) confirmAction() error {

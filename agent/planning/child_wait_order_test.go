@@ -74,7 +74,7 @@ func TestPlanningAlreadyCompletedChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	def := newManagedDefinition(t, managedDeploymentConfig{goal: mustGoal(t, done), bindings: []planning.ActionBinding{binding}})
-	dispatcher, err := planning.NewDispatcher(def, planning.DispatcherConfig{Observer: newManagedWorld(t)})
+	dispatcher, err := planning.NewDispatcher(def, planning.DispatcherConfig{Sensor: newManagedWorld(t)})
 	if err != nil {
 		t.Fatal(err)
 	}

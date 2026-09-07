@@ -12,11 +12,11 @@ import (
 type operation string
 
 const (
-	operationObserve operation = "observe"
-	operationAction  operation = "action"
+	operationSense  operation = "sense"
+	operationAction operation = "action"
 )
 
-func (o operation) valid() bool { return o == operationObserve || o == operationAction }
+func (o operation) valid() bool { return o == operationSense || o == operationAction }
 
 type effectEnvelope struct {
 	Operation operation   `json:"operation"`
@@ -31,12 +31,12 @@ type actionCall struct {
 }
 
 type signalEnvelope struct {
-	Operation   operation          `json:"operation"`
-	Observation *observationResult `json:"observation,omitempty"`
-	Action      *actionResultWire  `json:"action,omitempty"`
+	Operation operation         `json:"operation"`
+	Sensing   *senseResult      `json:"sensing,omitempty"`
+	Action    *actionResultWire `json:"action,omitempty"`
 }
 
-type observationResult struct {
+type senseResult struct {
 	WorldState *WorldState `json:"world_state,omitempty"`
 	Error      string      `json:"error,omitempty"`
 }
@@ -46,12 +46,12 @@ type actionResultWire struct {
 	Diagnostic string `json:"diagnostic,omitempty"`
 }
 
-func newObservationEffect(input agent.Input) (agent.Effect, error) {
+func newSenseEffect(input agent.Input) (agent.Effect, error) {
 	if !input.Valid() {
 		return agent.Effect{}, ErrInvalidProtocol
 	}
 	payload, err := encodeProtocol(effectEnvelope{
-		Operation: operationObserve, Input: input,
+		Operation: operationSense, Input: input,
 	})
 	if err != nil {
 		return agent.Effect{}, err
@@ -86,7 +86,7 @@ func decodeEffect(payload json.RawMessage) (effectEnvelope, error) {
 		return effectEnvelope{}, ErrInvalidProtocol
 	}
 	switch envelope.Operation {
-	case operationObserve:
+	case operationSense:
 		if envelope.Action != nil {
 			return effectEnvelope{}, ErrInvalidProtocol
 		}
@@ -99,8 +99,8 @@ func decodeEffect(payload json.RawMessage) (effectEnvelope, error) {
 	return envelope, nil
 }
 
-func observationSignal(state WorldState, cause error) (json.RawMessage, error) {
-	result := &observationResult{}
+func senseSignal(state WorldState, cause error) (json.RawMessage, error) {
+	result := &senseResult{}
 	if cause != nil {
 		result.Error = diagnostic(cause.Error())
 	} else {
@@ -111,7 +111,7 @@ func observationSignal(state WorldState, cause error) (json.RawMessage, error) {
 		result.WorldState = &cloned
 	}
 	return encodeProtocol(signalEnvelope{
-		Operation: operationObserve, Observation: result,
+		Operation: operationSense, Sensing: result,
 	})
 }
 
@@ -136,17 +136,17 @@ func decodeSignal(payload json.RawMessage) (signalEnvelope, error) {
 		return signalEnvelope{}, ErrInvalidProtocol
 	}
 	switch envelope.Operation {
-	case operationObserve:
-		if envelope.Observation == nil || envelope.Action != nil ||
-			(envelope.Observation.WorldState == nil) == (envelope.Observation.Error == "") {
+	case operationSense:
+		if envelope.Sensing == nil || envelope.Action != nil ||
+			(envelope.Sensing.WorldState == nil) == (envelope.Sensing.Error == "") {
 			return signalEnvelope{}, ErrInvalidProtocol
 		}
-		if envelope.Observation.WorldState != nil && !envelope.Observation.WorldState.Valid() ||
-			envelope.Observation.Error != "" && diagnostic(envelope.Observation.Error) != envelope.Observation.Error {
+		if envelope.Sensing.WorldState != nil && !envelope.Sensing.WorldState.Valid() ||
+			envelope.Sensing.Error != "" && diagnostic(envelope.Sensing.Error) != envelope.Sensing.Error {
 			return signalEnvelope{}, ErrInvalidProtocol
 		}
 	case operationAction:
-		if envelope.Action == nil || envelope.Observation != nil {
+		if envelope.Action == nil || envelope.Sensing != nil {
 			return signalEnvelope{}, ErrInvalidProtocol
 		}
 		if envelope.Action.Succeeded && envelope.Action.Diagnostic != "" ||

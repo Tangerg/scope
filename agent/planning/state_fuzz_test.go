@@ -66,7 +66,7 @@ func FuzzExecutionStateRestore(f *testing.F) {
 	f.Add([]byte(initial.Payload()))
 	f.Add([]byte(awaiting.Payload()))
 	f.Add([]byte(`{"phase":"completed","input":{},"world_state":{"conditions":[]},"planning_passes":1}`))
-	f.Add([]byte(`{"phase":"ready_observation","input":{},"world_state":{"conditions":[]},"planning_passes":0,"excluded_action_names":["action.finish"]}`))
+	f.Add([]byte(`{"phase":"ready_sense","input":{},"world_state":{"conditions":[]},"planning_passes":0,"excluded_action_names":["action.finish"]}`))
 	f.Fuzz(func(t *testing.T, payload []byte) {
 		state, err := agent.NewExecutionState(executionStateKind, payload)
 		if err != nil {
@@ -95,9 +95,9 @@ func FuzzExecutionStateRestore(f *testing.F) {
 }
 
 func FuzzPlanningProtocol(f *testing.F) {
-	f.Add([]byte(`{"operation":"observe","input":{}}`))
+	f.Add([]byte(`{"operation":"sense","input":{}}`))
 	f.Add([]byte(`{"operation":"action","input":{},"action":{"name":"action.finish","description":"Finish work.","world_state":{"conditions":[]}}}`))
-	f.Add([]byte(`{"operation":"observe","observation":{"world_state":{"conditions":[]}}}`))
+	f.Add([]byte(`{"operation":"sense","sensing":{"world_state":{"conditions":[]}}}`))
 	f.Add([]byte(`{"operation":"action","action":{"succeeded":true}}`))
 	f.Fuzz(func(t *testing.T, payload []byte) {
 		if effect, err := decodeEffect(payload); err == nil {
@@ -126,7 +126,7 @@ func TestDispatcherReplaysOnlyObservationEffects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	observation, err := newObservationEffect(input)
+	observation, err := newSenseEffect(input)
 	if err != nil {
 		t.Fatal(err)
 	}
