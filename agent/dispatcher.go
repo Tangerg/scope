@@ -33,6 +33,7 @@ func (r ReplayPolicy) String() string {
 // EffectRequest is the immutable dispatch context prepared by the Engine.
 type EffectRequest struct {
 	processID     ProcessID
+	incarnationID TreeIncarnationID
 	deploymentRef DeploymentRef
 	relation      ProcessRelation
 	stepSequence  uint64
@@ -56,6 +57,7 @@ func (e EffectRequest) Valid() bool {
 
 func newEffectRequest(
 	processID ProcessID,
+	incarnationID TreeIncarnationID,
 	deploymentRef DeploymentRef,
 	relation ProcessRelation,
 	stepSequence uint64,
@@ -64,7 +66,7 @@ func newEffectRequest(
 	effect Effect,
 ) EffectRequest {
 	return EffectRequest{
-		processID: processID, deploymentRef: deploymentRef, relation: relation,
+		processID: processID, incarnationID: incarnationID, deploymentRef: deploymentRef, relation: relation,
 		stepSequence: stepSequence, batchIndex: batchIndex, id: id,
 		effect: effect.clone(),
 	}
@@ -72,6 +74,13 @@ func newEffectRequest(
 
 // ProcessID returns the Process that owns the Effect.
 func (e EffectRequest) ProcessID() ProcessID { return e.processID }
+
+// TreeIncarnationID identifies the active durable writer for observation and
+// correlation. Ephemeral requests return false. It does not participate in the
+// Effect's stable idempotency identity, which remains ID across restoration.
+func (e EffectRequest) TreeIncarnationID() (TreeIncarnationID, bool) {
+	return e.incarnationID, e.incarnationID.Valid()
+}
 
 // DeploymentRef returns the exact behavior binding executing the Effect.
 func (e EffectRequest) DeploymentRef() DeploymentRef { return e.deploymentRef }

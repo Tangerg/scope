@@ -200,15 +200,7 @@ func (t *treeRuntime) startDispatch(
 	if !ok {
 		return
 	}
-	request := newEffectRequest(
-		process.controller.processID,
-		process.controller.deploymentRef,
-		process.controller.relation,
-		process.prepared.wire.StepSequence,
-		batchIndex,
-		record.ID,
-		record.Effect,
-	)
+	request := effectRequestFor(process, batchIndex, record)
 	startedAt := process.publishEffectStarted(
 		t.context, process.prepared.wire.StepSequence, record.ID, EffectTargetDispatcher,
 	)

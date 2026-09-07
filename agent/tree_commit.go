@@ -20,6 +20,7 @@ func effectRequestFor(
 ) EffectRequest {
 	return newEffectRequest(
 		process.controller.processID,
+		process.runtime.incarnation,
 		process.controller.deploymentRef,
 		process.controller.relation,
 		process.prepared.wire.StepSequence,

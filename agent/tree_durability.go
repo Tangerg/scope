@@ -103,7 +103,8 @@ func (e EffectBoundary) Valid() bool {
 		e.treeSnapshot.RootID() != e.request.Relation().RootID() {
 		return false
 	}
-	if _, durable := e.treeSnapshot.IncarnationID(); !durable {
+	incarnationID, durable := e.treeSnapshot.IncarnationID()
+	if !durable || e.request.incarnationID != incarnationID {
 		return false
 	}
 	if !e.matchesProspectiveTree() {

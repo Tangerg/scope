@@ -44,8 +44,11 @@ func TestDeploymentBindsExactDefinitionAndDispatcher(t *testing.T) {
 	}
 	relation := rootProcessRelation(processID)
 	request := newEffectRequest(
-		processID, deployment.DeploymentRef(), relation, 1, 0, effectID, effect,
+		processID, TreeIncarnationID{}, deployment.DeploymentRef(), relation, 1, 0, effectID, effect,
 	)
+	if incarnationID, durable := request.TreeIncarnationID(); durable || incarnationID.Valid() {
+		t.Fatal("ephemeral request carries durable writer identity")
+	}
 	copyOfEffect := request.Effect()
 	copyOfEffect.payload[0] = '['
 	if request.ProcessID() != processID || request.DeploymentRef() != deployment.DeploymentRef() ||

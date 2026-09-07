@@ -880,6 +880,15 @@ func TestDurableObservationsCarryCurrentIncarnation(t *testing.T) {
 		t.Fatal("durable root outcome has no tree")
 	}
 	want, _ := tree.IncarnationID()
+	for _, boundary := range durability.effectBoundaries() {
+		if got, ok := boundary.Request().TreeIncarnationID(); !ok || got != want {
+			t.Fatalf("EffectRequest incarnation=%s present=%t, want %s", got, ok, want)
+		}
+		boundary.request.incarnationID = TreeIncarnationID{}
+		if boundary.Valid() {
+			t.Fatal("durable boundary accepted a request without its writer identity")
+		}
+	}
 	if len(events) == 0 || len(deltas) == 0 {
 		t.Fatalf("events=%d deltas=%d", len(events), len(deltas))
 	}
