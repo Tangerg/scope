@@ -51,6 +51,9 @@ func runSignalAdmissionConformance(t *testing.T, factory func() TreeDurabilityCo
 				closeSignalConformanceProcess(t, engine, process)
 			})
 			before := waitForConformanceHeadStatus(t, driver, process.ID(), agent.StatusPaused)
+			// A reader can see the stored pause before its acknowledgment has
+			// returned to the Engine. Establish both sides before taking usage.
+			waitForConformanceStatus(t, process, agent.StatusPaused)
 			usage := process.Usage()
 			id, err := agent.ParseSignalID("signal:durable-input")
 			if err != nil {
