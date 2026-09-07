@@ -29,8 +29,7 @@ func (p *processState) prepareStepResult(
 	result stepJobResult,
 ) *stepPreparationFailure {
 	transition := result.transition
-	signals := p.mailbox.pending()
-	if !transition.Valid() || uint64(transition.ConsumedSignals()) > uint64(len(signals)) {
+	if !transition.Valid() || uint64(transition.ConsumedSignals()) > result.deliveredSignals {
 		return &stepPreparationFailure{
 			kind: FailureKindContract, code: "execution.transition.invalid", cause: ErrInvalidTransition,
 		}

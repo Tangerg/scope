@@ -39,6 +39,112 @@ func TestEngineStartRejectsNilContextBeforePublication(t *testing.T) {
 	}
 }
 
+func TestStepCannotConsumeSignalsThatArriveDuringItsExecution(t *testing.T) {
+	for _, consumed := range []uint32{0, 1} {
+		name := "preserve later input"
+		if consumed == 1 {
+			name = "reject unseen consumption"
+		}
+		t.Run(name, func(t *testing.T) {
+			definition := &signalWindowDefinition{
+				engineTestDefinition: newEngineTestDefinition(t, "engine.effect", "effect"),
+				entered:              make(chan int, 1), release: make(chan struct{}), consumed: consumed,
+			}
+			engine, err := NewEngine(EngineConfig{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { mustCloseEngine(t, engine) })
+			release := sync.OnceFunc(func() { close(definition.release) })
+			t.Cleanup(release)
+			deployment := engineTestDeployment(t, definition, &engineTestDispatcher{})
+			input, _ := EncodeInput(engineTestInput{Value: "original"})
+			process, err := engine.Start(t.Context(), deployment, input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if received := <-definition.entered; received != 0 {
+				t.Fatalf("first Step received %d Signals, want 0", received)
+			}
+			id, _ := ParseSignalID("signal:arrived-during-step")
+			request, _ := NewSignalRequest(id, WaitID{}, []byte(`{}`))
+			if accepted, deliverErr := process.DeliverSignals(t.Context(), request); deliverErr != nil || !accepted {
+				t.Fatalf("concurrent input accepted = %t, error = %v", accepted, deliverErr)
+			}
+			release()
+			result := awaitResult(t, process)
+			wantStatus := StatusCompleted
+			if consumed == 1 {
+				wantStatus = StatusFailed
+				failure, _ := result.Termination().Failure()
+				if failure.Code() != "execution.transition.invalid" {
+					t.Fatalf("invalid consumption failure = %+v", failure)
+				}
+			}
+			if result.Status() != wantStatus {
+				t.Fatalf("status = %s, want %s", result.Status(), wantStatus)
+			}
+			snapshot, err := process.Snapshot(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			wire, err := snapshot.wire()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if wire.Mailbox.SignalCursor != 0 || len(wire.Mailbox.Signals) != 1 || wire.Mailbox.Signals[0].Signal.ID() != id {
+				t.Fatalf("later input was consumed: %+v", wire.Mailbox)
+			}
+			if consumed == 1 && wire.CommittedSteps != 0 {
+				t.Fatalf("invalid Step committed %d times", wire.CommittedSteps)
+			}
+		})
+	}
+}
+
+type signalWindowDefinition struct {
+	*engineTestDefinition
+	entered  chan int
+	release  chan struct{}
+	consumed uint32
+}
+
+func (s *signalWindowDefinition) Start(input Input) (Execution, error) {
+	execution, err := s.engineTestDefinition.Start(input)
+	if err != nil {
+		return nil, err
+	}
+	return &signalWindowExecution{engineTestExecution: execution.(*engineTestExecution), definition: s}, nil
+}
+
+func (s *signalWindowDefinition) Restore(state ExecutionState) (Execution, error) {
+	execution, err := s.engineTestDefinition.Restore(state)
+	if err != nil {
+		return nil, err
+	}
+	return &signalWindowExecution{engineTestExecution: execution.(*engineTestExecution), definition: s}, nil
+}
+
+type signalWindowExecution struct {
+	*engineTestExecution
+	definition *signalWindowDefinition
+}
+
+func (s *signalWindowExecution) Step(ctx context.Context, signals []Signal) (Transition, error) {
+	s.definition.entered <- len(signals)
+	select {
+	case <-s.definition.release:
+	case <-ctx.Done():
+		return Transition{}, ctx.Err()
+	}
+	s.state.Phase = "done"
+	output, err := EncodeOutput(engineTestOutput{Value: s.state.Value})
+	if err != nil {
+		return Transition{}, err
+	}
+	return Complete(s.definition.consumed, output)
+}
+
 type engineTestInput struct {
 	Value string `json:"value"`
 }

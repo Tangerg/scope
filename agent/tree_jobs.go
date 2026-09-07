@@ -29,7 +29,10 @@ func (t *treeRuntime) startStep(process *processState) {
 	})
 	go func() {
 		transition, err := stepExecution(stepCtx, execution, signals)
-		result := stepJobResult{transition: transition, stage: stepJobStageExecution, err: err}
+		result := stepJobResult{
+			transition: transition, deliveredSignals: uint64(len(signals)),
+			stage: stepJobStageExecution, err: err,
+		}
 		if err == nil {
 			result.stage = stepJobStageSnapshot
 			result.candidateState, result.err = captureExecution(execution)

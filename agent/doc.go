@@ -91,6 +91,8 @@
 // consumption and never charges the signal budget twice. The
 // consumption cursor advances only when candidate state and transition commit,
 // so a failed Step never permanently swallows input.
+// Consumption is bounded by the Signal window delivered to that Step; input
+// admitted while the Step runs belongs to a later window.
 //
 // A wait identity is minted by the Engine; an Execution cannot generate an
 // external one. The Execution declares a logical wait through a [Transition];

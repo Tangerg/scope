@@ -173,11 +173,12 @@ type checkpointPublication struct {
 }
 
 type stepJobResult struct {
-	transition     Transition
-	candidate      Execution
-	candidateState ExecutionState
-	stage          stepJobStage
-	err            error
+	transition       Transition
+	deliveredSignals uint64
+	candidate        Execution
+	candidateState   ExecutionState
+	stage            stepJobStage
+	err              error
 }
 
 type stepJobStage uint8
