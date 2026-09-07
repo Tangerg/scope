@@ -267,15 +267,8 @@ func parallelResults[Item, Out any](
 	}
 	wg.Wait()
 
-	errs := make([]error, 0, len(failures))
-	for _, err := range failures {
-		if err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	if len(errs) != 0 {
-		return nil, fmt.Errorf("%s: %w", op, errors.Join(errs...))
+	if err := errors.Join(failures...); err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 
 	return results, nil
