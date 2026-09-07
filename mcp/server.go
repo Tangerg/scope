@@ -9,7 +9,6 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -108,8 +107,7 @@ func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (*s
 }
 
 func (s serverTool) errorResult(span trace.Span, err error) *sdkmcp.CallToolResult {
-	span.RecordError(err)
-	span.SetStatus(codes.Error, err.Error())
+	recordSpanError(span, err)
 	return &sdkmcp.CallToolResult{
 		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error()}},
 		IsError: true,

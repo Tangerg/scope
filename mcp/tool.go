@@ -8,7 +8,6 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -87,8 +86,7 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 	)
 	defer func() {
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
+			recordSpanError(span, err)
 		}
 		span.End()
 	}()

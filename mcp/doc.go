@@ -7,6 +7,9 @@
 // context metadata, reverse-capability helpers, tool.Tool wrapping, tool
 // registration and prompt conversion.
 //
+// Client and server spans record error classifications without raw error
+// messages. Callers still receive the complete protocol error details.
+//
 // # Naming
 //
 // The package shares its name with the official Go SDK
