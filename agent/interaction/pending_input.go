@@ -19,7 +19,7 @@ var ErrInvalidPendingToolInput = errors.New("interaction: invalid pending tool i
 type PendingToolInput struct {
 	waitID         agent.WaitID
 	prompt         json.RawMessage
-	responseSchema json.RawMessage
+	responseSchema agent.Schema
 }
 
 // WaitID returns the Engine-minted identity required to address the response.
@@ -30,11 +30,11 @@ func (p PendingToolInput) Prompt() json.RawMessage { return bytes.Clone(p.prompt
 
 // ResponseSchema returns the authoritative JSON Schema for a response.
 func (p PendingToolInput) ResponseSchema() json.RawMessage {
-	return bytes.Clone(p.responseSchema)
+	return p.responseSchema.JSON()
 }
 
 func (p PendingToolInput) Valid() bool {
-	return p.waitID.Valid() && len(p.prompt) > 0 && len(p.responseSchema) > 0
+	return p.waitID.Valid() && len(p.prompt) > 0 && p.responseSchema.Valid()
 }
 
 // ResponseSignal validates response locally against ResponseSchema and returns
@@ -46,11 +46,7 @@ func (p PendingToolInput) ResponseSignal(
 	if !p.Valid() {
 		return agent.SignalRequest{}, ErrInvalidPendingToolInput
 	}
-	request, err := NewToolInputRequest(p.prompt, p.responseSchema, json.RawMessage("null"))
-	if err != nil {
-		return agent.SignalRequest{}, fmt.Errorf("%w: %w", ErrInvalidPendingToolInput, err)
-	}
-	response, err = request.validateResponse(response)
+	response, err := validateToolInputResponse(p.responseSchema, response)
 	if err != nil {
 		return agent.SignalRequest{}, err
 	}
@@ -115,6 +111,6 @@ func PendingToolInputFromSnapshot(snapshot agent.ProcessSnapshot) (PendingToolIn
 		return PendingToolInput{}, false, fmt.Errorf("%w: %w", ErrInvalidPendingToolInput, err)
 	}
 	return PendingToolInput{
-		waitID: outerWaitID, prompt: request.Prompt(), responseSchema: request.ResponseSchema(),
+		waitID: outerWaitID, prompt: request.Prompt(), responseSchema: request.responseSchema,
 	}, true, nil
 }

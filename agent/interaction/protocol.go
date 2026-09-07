@@ -359,7 +359,7 @@ func (s signalEnvelope) validateInputResponse() error {
 	if s.ModelResult != nil || s.ToolResult != nil || s.WaitOpened != nil || len(s.InputResponse) == 0 || s.Steer != nil {
 		return errors.New("interaction: input_response signal has an invalid payload set")
 	}
-	if _, err := canonicalJSON(s.InputResponse); err != nil {
+	if _, err := parseToolInputJSON(s.InputResponse); err != nil {
 		return fmt.Errorf("interaction: input_response: %w", err)
 	}
 	return nil

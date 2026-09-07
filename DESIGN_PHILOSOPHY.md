@@ -113,9 +113,9 @@ A large cohesive parser, engine, or protocol package is not automatically a god 
 
 ## One meaning, one public API
 
-Every capability has one semantic owner, one public representation, and one primary call path. A method, free function, facade, alias, builder, compatibility wrapper, and alternate stream implementation cannot coexist as synonyms.
+Every atomic capability has one semantic owner, one public representation, and one canonical API. A method, free function, alias, builder, compatibility wrapper, and alternate stream implementation cannot coexist as synonyms.
 
-An upper package may expose a new entry only when it owns a new lifecycle, state transition, type-erasure boundary, or composition invariant. Re-exporting lower symbols or shortening an import path does not create a capability.
+Higher-level convenience facades may compose canonical atomic APIs into useful operations. They reuse the same contracts, domain types, validation rules, and lifecycle ownership; any additional orchestration policy is explicit. A facade must not reimplement an atomic capability or introduce a parallel API family. Re-exporting lower symbols or shortening an import path does not create a capability.
 
 Extension follows the same rule. Prefer one homogeneous mechanism, such as one middleware shape or one structural interface, over a named hook for each variation. Each additional mechanism creates another ordering model, error path, documentation surface, and compatibility obligation.
 

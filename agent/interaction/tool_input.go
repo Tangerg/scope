@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -24,7 +23,7 @@ var (
 // It contains no Process identity or WaitID; Engine owns those identities.
 type ToolInputRequest struct {
 	prompt            json.RawMessage
-	responseSchema    json.RawMessage
+	responseSchema    agent.Schema
 	continuationState json.RawMessage
 }
 
@@ -32,29 +31,27 @@ type ToolInputRequest struct {
 // own continuation state. The response schema is validated here so an answer
 // can be checked when it arrives; the request holds no Process or wait
 // identity, because those are minted by the Engine and would otherwise be
-// forgeable by a tool.
+// forgeable by a tool. JSON numbers retain their precision; each JSON value
+// must fit within one MiB before and after normalization.
 func NewToolInputRequest(
 	prompt json.RawMessage,
 	responseSchema json.RawMessage,
 	continuationState json.RawMessage,
 ) (ToolInputRequest, error) {
-	prompt, err := canonicalJSON(prompt)
+	parsedPrompt, err := parseToolInputJSON(prompt)
 	if err != nil {
 		return ToolInputRequest{}, fmt.Errorf("%w: prompt: %w", ErrInvalidToolInputRequest, err)
 	}
-	responseSchema, err = canonicalJSON(responseSchema)
+	schema, err := agent.ParseSchema(responseSchema)
 	if err != nil {
 		return ToolInputRequest{}, fmt.Errorf("%w: response schema: %w", ErrInvalidToolInputRequest, err)
 	}
-	if _, parseSchemaErr := agent.ParseSchema(responseSchema); parseSchemaErr != nil {
-		return ToolInputRequest{}, fmt.Errorf("%w: response schema: %w", ErrInvalidToolInputRequest, parseSchemaErr)
-	}
-	continuationState, err = canonicalJSON(continuationState)
+	continuation, err := parseToolInputJSON(continuationState)
 	if err != nil {
 		return ToolInputRequest{}, fmt.Errorf("%w: continuation state: %w", ErrInvalidToolInputRequest, err)
 	}
 	return ToolInputRequest{
-		prompt: prompt, responseSchema: responseSchema, continuationState: continuationState,
+		prompt: parsedPrompt.JSON(), responseSchema: schema, continuationState: continuation.JSON(),
 	}, nil
 }
 
@@ -63,7 +60,7 @@ func (t ToolInputRequest) Prompt() json.RawMessage { return bytes.Clone(t.prompt
 
 // ResponseSchema returns the authoritative JSON Schema for an answer.
 func (t ToolInputRequest) ResponseSchema() json.RawMessage {
-	return bytes.Clone(t.responseSchema)
+	return t.responseSchema.JSON()
 }
 
 // ContinuationState returns opaque state owned by the requesting Tool.
@@ -72,29 +69,25 @@ func (t ToolInputRequest) ContinuationState() json.RawMessage {
 }
 
 func (t ToolInputRequest) Valid() bool {
-	return len(t.prompt) > 0 && len(t.responseSchema) > 0 && len(t.continuationState) > 0
+	return len(t.prompt) > 0 && t.responseSchema.Valid() && len(t.continuationState) > 0
 }
 
 func (t ToolInputRequest) validateResponse(response json.RawMessage) (json.RawMessage, error) {
 	if !t.Valid() {
 		return nil, ErrInvalidToolInputRequest
 	}
-	response, err := canonicalJSON(response)
-	if err != nil {
-		return nil, fmt.Errorf("%w: response: %w", ErrInvalidToolInputRequest, err)
-	}
-	schema, err := agent.ParseSchema(t.responseSchema)
-	if err != nil {
-		return nil, fmt.Errorf("%w: response schema: %w", ErrInvalidToolInputRequest, err)
-	}
-	input, err := agent.ParseInput(response)
+	return validateToolInputResponse(t.responseSchema, response)
+}
+
+func validateToolInputResponse(schema agent.Schema, response json.RawMessage) (json.RawMessage, error) {
+	input, err := parseToolInputJSON(response)
 	if err != nil {
 		return nil, fmt.Errorf("%w: response: %w", ErrInvalidToolInputRequest, err)
 	}
 	if err := schema.ValidateInput(input); err != nil {
 		return nil, fmt.Errorf("%w: response: %w", ErrInvalidToolInputRequest, err)
 	}
-	return response, nil
+	return input.JSON(), nil
 }
 
 // ToolInputRequiredError carries one validated, snapshot-safe ToolInputRequest across
@@ -175,6 +168,9 @@ func ToolInputContinuationFromContext(ctx context.Context) (ToolInputContinuatio
 // NewToolInputResponseSignal addresses an answer to the exact wait that asked
 // for it. Requiring the wait identity is what prevents a late or duplicated
 // response from satisfying a different pause than the one it was written for.
+// It validates JSON only; the Execution checks the authoritative response
+// schema. PendingToolInput.ResponseSignal composes local schema validation
+// with this constructor.
 func NewToolInputResponseSignal(
 	id agent.SignalID,
 	waitID agent.WaitID,
@@ -183,13 +179,13 @@ func NewToolInputResponseSignal(
 	if !waitID.Valid() {
 		return agent.SignalRequest{}, fmt.Errorf("%w: WaitID is required", ErrInvalidToolInputRequest)
 	}
-	response, err := canonicalJSON(response)
+	input, err := parseToolInputJSON(response)
 	if err != nil {
 		return agent.SignalRequest{}, fmt.Errorf("%w: response: %w", ErrInvalidToolInputRequest, err)
 	}
 	payload, err := encodeProtocol(signalEnvelope{
 		Operation:     operationInputResponse,
-		InputResponse: response,
+		InputResponse: input.JSON(),
 	})
 	if err != nil {
 		return agent.SignalRequest{}, err
@@ -197,17 +193,16 @@ func NewToolInputResponseSignal(
 	return agent.NewSignalRequest(id, waitID, payload)
 }
 
-func canonicalJSON(data json.RawMessage) (json.RawMessage, error) {
+func parseToolInputJSON(data json.RawMessage) (agent.Input, error) {
 	if len(data) == 0 || len(data) > maxInputProtocolBytes {
-		return nil, fmt.Errorf("JSON value must contain at most %d bytes", maxInputProtocolBytes)
+		return agent.Input{}, fmt.Errorf("JSON value must contain at most %d bytes", maxInputProtocolBytes)
 	}
-	var value any
-	if err := jsonv2.Unmarshal(data, &value, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return nil, err
-	}
-	canonical, err := json.Marshal(value)
+	input, err := agent.ParseInput(data)
 	if err != nil {
-		return nil, err
+		return agent.Input{}, err
 	}
-	return canonical, nil
+	if len(input.JSON()) > maxInputProtocolBytes {
+		return agent.Input{}, fmt.Errorf("normalized JSON value exceeds %d bytes", maxInputProtocolBytes)
+	}
+	return input, nil
 }

@@ -81,7 +81,7 @@ Find the semantic owner before editing the API. A duplicate path exists when a m
 
 Retain one canonical path and migrate all consumers to it. Do not leave a deprecated forwarder, alias, compatibility field, or second constructor.
 
-An upper package may add an entry only when it owns a real composition lifecycle, state, type-erasure boundary, or invariant. Shortening an import path is not sufficient.
+Keep useful higher-level facades when they compose the canonical atomic APIs. Trace through the facade to verify that it reuses their contracts, domain types, validation rules, and lifecycle ownership, with any additional orchestration policy explicit. Remove parallel implementations rather than deleting a facade merely because callers can assemble its operation themselves. Shortening an import path is not sufficient.
 
 Use one extension mechanism for one abstraction level. Prefer a homogeneous middleware shape or narrow structural interface over named hooks for each variation.
 
