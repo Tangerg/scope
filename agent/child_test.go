@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -535,40 +536,42 @@ func mustCloseEngine(t *testing.T, engine *Engine) {
 }
 
 func TestParentDeadlinePropagatesAsParentDeadline(t *testing.T) {
-	dispatcher := newBlockingChildDispatcher("first", "second", "third")
-	t.Cleanup(dispatcher.ReleaseAll)
-	deployment := newChildTestDeploymentWithDispatcher(t, dispatcher)
-	engine, err := NewEngine(EngineConfig{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-	input, _ := EncodeInput(childTestInput{Mode: "wait:all"})
-	parent, err := engine.Start(ctx, deployment, input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range 3 {
-		<-dispatcher.started
-	}
-	parentResult := mustAwait(t, parent)
-	if parentResult.Status() != StatusTimedOut || parentResult.Termination().Cause() != TerminationCauseHostDeadline {
-		t.Fatalf("parent termination = %#v", parentResult.Termination())
-	}
-	childIDs := directChildIDs(t, engine, parent.ID())
-	dispatcher.ReleaseAll()
-	for _, encoded := range childIDs {
-		childID, _ := ParseProcessID(encoded)
-		child, _ := engine.Process(childID)
-		result := mustAwait(t, child)
-		if result.Status() != StatusTimedOut || result.Termination().Cause() != TerminationCauseParentDeadline {
-			t.Fatalf("child termination = %#v", result.Termination())
+	synctest.Test(t, func(t *testing.T) {
+		dispatcher := newBlockingChildDispatcher("first", "second", "third")
+		t.Cleanup(dispatcher.ReleaseAll)
+		deployment := newChildTestDeploymentWithDispatcher(t, dispatcher)
+		engine, err := NewEngine(EngineConfig{})
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	if err := engine.Close(); err != nil {
-		t.Fatal(err)
-	}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		input, _ := EncodeInput(childTestInput{Mode: "wait:all"})
+		parent, err := engine.Start(ctx, deployment, input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for range 3 {
+			<-dispatcher.started
+		}
+		parentResult := mustAwait(t, parent)
+		if parentResult.Status() != StatusTimedOut || parentResult.Termination().Cause() != TerminationCauseHostDeadline {
+			t.Fatalf("parent termination = %#v", parentResult.Termination())
+		}
+		childIDs := directChildIDs(t, engine, parent.ID())
+		dispatcher.ReleaseAll()
+		for _, encoded := range childIDs {
+			childID, _ := ParseProcessID(encoded)
+			child, _ := engine.Process(childID)
+			result := mustAwait(t, child)
+			if result.Status() != StatusTimedOut || result.Termination().Cause() != TerminationCauseParentDeadline {
+				t.Fatalf("child termination = %#v", result.Termination())
+			}
+		}
+		if err := engine.Close(); err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 func TestChildFailureRemainsExplicitStrategyInput(t *testing.T) {
