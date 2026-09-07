@@ -655,10 +655,11 @@ type childTestOutput struct {
 }
 
 type childTestState struct {
-	Phase    string   `json:"phase"`
-	Mode     string   `json:"mode"`
-	ChildIDs []string `json:"child_ids,omitempty"`
-	WaitID   string   `json:"wait_id,omitempty"`
+	Phase          string   `json:"phase"`
+	Mode           string   `json:"mode"`
+	ChildIDs       []string `json:"child_ids,omitempty"`
+	WaitID         string   `json:"wait_id,omitempty"`
+	ExternalWaitID string   `json:"external_wait_id,omitempty"`
 }
 
 type childTestDefinition struct {
@@ -747,6 +748,15 @@ func (c *childTestExecution) Step(_ context.Context, signals []Signal) (Transiti
 		return c.acceptExternalWait(signals)
 	case "external_waiting":
 		return c.completeAfterSignal(signals, "external wait response is required")
+	case "external_children_waiting":
+		if len(signals) != 2 {
+			return Transition{}, errors.New("child completion and external answer are required")
+		}
+		waitID, _ := signals[1].WaitID()
+		if waitID.String() != c.state.ExternalWaitID {
+			return Transition{}, errors.New("external answer addressed another wait")
+		}
+		return c.completeChildren(signals[:1], 2)
 	case "leaf_effect":
 		return c.completeAfterSignal(signals, "leaf Effect settlement is required")
 	case "leaf_paused":
@@ -1019,6 +1029,16 @@ func (c *childTestExecution) acceptChildWait(signals []Signal) (Transition, erro
 		return c.completeChildren(signals, uint32(len(signals)))
 	}
 	c.state.Phase = "waiting"
+	if c.state.Mode == "wait:paused_parent" {
+		return Pause(1, "parent paused while children run")
+	}
+	if c.state.Mode == "wait:external_parent" {
+		transition, openErr := c.openExternalWait()
+		if openErr != nil {
+			return Transition{}, openErr
+		}
+		return Continue(1, transition.Effects()...)
+	}
 	return Wait(1, opened.WaitID())
 }
 
@@ -1030,8 +1050,13 @@ func (c *childTestExecution) acceptExternalWait(signals []Signal) (Transition, e
 	if !addressed {
 		return Transition{}, errors.New("external wait-opened Signal has no WaitID")
 	}
-	c.state.WaitID = waitID.String()
-	c.state.Phase = "external_waiting"
+	if c.state.Mode == "wait:external_parent" {
+		c.state.ExternalWaitID = waitID.String()
+		c.state.Phase = "external_children_waiting"
+	} else {
+		c.state.WaitID = waitID.String()
+		c.state.Phase = "external_waiting"
+	}
 	return Wait(1, waitID)
 }
 

@@ -215,7 +215,9 @@ func (p *processState) admitSignals(ctx context.Context, signals []Signal, sourc
 			if source == signalSourceExternal && waitID != p.currentWaitID {
 				return false, ErrSignalRejected
 			}
-			status = StatusRunning
+			if waitID == p.currentWaitID {
+				status = StatusRunning
+			}
 		}
 	}
 	count := uint64(len(signals))

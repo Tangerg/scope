@@ -8,6 +8,86 @@ import (
 	"time"
 )
 
+func TestChildCompletionPreservesParentSchedulingAcrossRestore(t *testing.T) {
+	for _, test := range []struct {
+		mode   string
+		status Status
+	}{
+		{mode: "wait:paused_parent", status: StatusPaused},
+		{mode: "wait:external_parent", status: StatusWaiting},
+	} {
+		t.Run(test.mode, func(t *testing.T) {
+			dispatcher := newBlockingChildDispatcher("first", "second", "third")
+			t.Cleanup(dispatcher.ReleaseAll)
+			deployment := newChildTestDeploymentWithDispatcher(t, dispatcher)
+			engine, err := NewEngine(EngineConfig{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { mustCloseEngine(t, engine) })
+			input, _ := EncodeInput(childTestInput{Mode: test.mode})
+			root, err := engine.Start(t.Context(), deployment, input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitForProcessStatus(t, root, test.status)
+			waitID, _ := root.WaitID()
+			dispatcher.ReleaseAll()
+			awaitChildren(t, engine, directChildIDs(t, engine, root.ID()))
+			if root.Status().Terminal() {
+				t.Fatalf("child completion terminated parent: %+v", mustAwait(t, root).Termination())
+			}
+			snapshot, err := root.Snapshot(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if snapshot.Status() != test.status {
+				t.Fatalf("child completion changed parent status to %s, want %s", snapshot.Status(), test.status)
+			}
+			if got, _ := snapshot.WaitID(); got != waitID {
+				t.Fatalf("child completion changed current wait to %s, want %s", got, waitID)
+			}
+			tree, err := engine.CaptureTree(t.Context(), root.ID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := ParseTreeSnapshot(tree.JSON())
+			if err != nil {
+				t.Fatal(err)
+			}
+			restoredEngine, err := NewEngine(EngineConfig{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { mustCloseEngine(t, restoredEngine) })
+			restored, err := restoredEngine.RestoreTree(t.Context(), deployment, parsed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, process := range []*Process{root, restored} {
+				if process.Status() != test.status {
+					t.Fatalf("parent status before resume = %s, want %s", process.Status(), test.status)
+				}
+				if test.status == StatusPaused {
+					if resumeErr := process.Resume(t.Context()); resumeErr != nil {
+						t.Fatal(resumeErr)
+					}
+				} else {
+					id, _ := ParseSignalID("signal:external-answer")
+					request, _ := NewSignalRequest(id, waitID, []byte(`{}`))
+					if accepted, deliverErr := process.DeliverSignals(t.Context(), request); deliverErr != nil || !accepted {
+						t.Fatalf("external answer accepted = %t, error = %v", accepted, deliverErr)
+					}
+				}
+				output := childTestResult(t, mustAwait(t, process))
+				if !slices.Equal(output.CompletedKeys, []string{"first", "second", "third"}) {
+					t.Fatalf("completed children = %v", output.CompletedKeys)
+				}
+			}
+		})
+	}
+}
+
 func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
 	controller := parent.controller

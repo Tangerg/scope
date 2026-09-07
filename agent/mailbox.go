@@ -67,8 +67,10 @@ func (s *signalMailbox) enqueue(status Status, signal Signal, source signalSourc
 	waitID, addressed := signal.WaitID()
 	if addressed {
 		record, exists := s.waits[waitID]
+		acceptsAnswer := status == StatusRunning || status == StatusWaiting ||
+			status == StatusPaused && source == signalSourceChildCompletion
 		if !exists || record.externallyAddressable != (source == signalSourceExternal) || record.closed || record.answered ||
-			(status != StatusRunning && status != StatusWaiting) {
+			!acceptsAnswer {
 			return false, ErrSignalRejected
 		}
 		record.answered = true

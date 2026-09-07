@@ -103,6 +103,9 @@
 // history uses the same opening, admission, and consumption rules: an answer
 // closes its wait when consumed, and Process termination closes all remaining
 // waits. Snapshots whose wait facts contradict that history are rejected.
+// Child completions remain queued while their parent is Paused or waiting on
+// another WaitID. Only an answer to the current WaitID releases Waiting;
+// an explicit pause still requires Resume.
 //
 // Each strategy declares its own safe consumption boundary and proves it with
 // contract tests.
