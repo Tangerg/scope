@@ -244,7 +244,8 @@ func (t *treeRuntime) applyFailedTreeCommit(commit *treeCommit, commitErr error)
 
 func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 	if commit.snapshot.Valid() {
-		t.advanceHead(commit.snapshot.Digest())
+		t.advanceHead(commit.snapshot)
+		t.publishCheckpoint()
 	}
 	process := t.processes[commit.processID]
 	switch commit.kind {
@@ -270,10 +271,7 @@ func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 		}
 		t.markRunnable(commit.processID)
 	case treeCommitCheckpoint:
-		t.publishCheckpoint()
 	case treeCommitSignals:
-		t.publishCheckpoint()
-		process.updateView()
 		for _, event := range commit.events {
 			process.publishPreparedEvent(t.context, event)
 		}
@@ -331,7 +329,7 @@ func (t *treeRuntime) publishChildOutcome(pending *pendingChildOutcome) error {
 }
 
 func (t *treeRuntime) tryStartCheckpoint() bool {
-	if t.engine.durability == nil || t.durabilityFault || t.commit != nil ||
+	if t.engine.durability == nil || t.fault != nil || t.commit != nil ||
 		t.freeze != nil || len(t.jobs) != 0 || len(t.runnable) != 0 {
 		return false
 	}
@@ -445,10 +443,10 @@ func (t *treeRuntime) failDurability(
 	processID ProcessID,
 	effectID EffectID,
 ) {
-	if t.durabilityFault {
+	if t.fault != nil {
 		return
 	}
-	t.durabilityFault = true
+	t.fault = cause
 	t.head.finish(cause)
 	unresolvedByProcess := make(map[ProcessID][]EffectID, len(t.processes))
 	for candidateID, process := range t.processes {
@@ -476,37 +474,45 @@ func (t *treeRuntime) failDurability(
 			t.abandonChildStartJob(t.processes[candidateID], job)
 		}
 	}
-	processes := t.processesInCanonicalOrder()
-	for _, process := range processes {
-		if process.status.Terminal() {
-			publication, staged := t.checkpointPending[process.controller.processID]
-			if !staged || !publication.terminal {
-				continue
-			}
-		}
-		delete(t.checkpointPending, process.controller.processID)
+	clear(t.checkpointPending)
+	clear(t.queued)
+	t.runnable = nil
+	for _, process := range t.processesInCanonicalOrder() {
 		select {
 		case <-process.controller.done:
 			continue
 		default:
 		}
-		failure := newTreeDurabilityFailure(cause)
-		outcome, _ := failedOutcome(failure)
-		// A durability fault replaces every unpublished in-memory transition
-		// with one authoritative failed terminal state. Prepared execution and
-		// successful output belong to the superseded transition and must not
-		// leak into that terminal snapshot. The affected Effect identity is
-		// preserved explicitly in Termination for Host reconciliation.
-		if process.prepared != nil {
-			process.discardPrepared()
+		processID := process.controller.processID
+		var acknowledged ProcessSnapshot
+		for _, snapshot := range t.head.snapshot.ProcessSnapshots() {
+			if snapshot.ProcessID() == processID {
+				acknowledged = snapshot
+				break
+			}
 		}
-		process.commitTerminationWithUnresolved(
-			outcome,
-			unresolvedByProcess[process.controller.processID],
-		)
+		if !acknowledged.Valid() {
+			// A prospective child that never entered an acknowledged head has
+			// no published lifecycle to stop.
+			t.engine.discardProcessStartReservation(processID)
+			delete(t.processes, processID)
+			continue
+		}
+		failure := newTreeDurabilityFailure(cause)
+		payload, _ := json.Marshal(runtimeStoppedEventPayload{
+			FailureKind: failure.Kind(), FailureCode: failure.Code(),
+		})
+		process.publishEvent(t.context, EventRuntimeStopped, EventPhaseAttempt, 0, EffectID{}, payload)
+		process.controller.stopRuntime(&RuntimeError{
+			processID: processID, incarnationID: t.incarnation, headDigest: t.head.digest(),
+			unresolvedEffectIDs: canonicalEffectIDs(unresolvedByProcess[processID]), cause: cause,
+		}, acknowledged)
+		process.controller.markTreeSettled()
 	}
-	for _, process := range processes {
-		t.finishTerminalLocally(process)
+	if t.freeze != nil {
+		acquisition := t.freeze.acquisition
+		t.releaseCurrentFreeze()
+		acquisition.response <- treeFreezeAcquisitionResult{err: cause}
 	}
 }
 
@@ -558,25 +564,6 @@ func newTreeDurabilityFailure(cause error) Failure {
 		return failure
 	}
 	return processInitializationFailure(kind, code, cause)
-}
-
-func (t *treeRuntime) finishTerminalLocally(process *processState) {
-	if process == nil || !process.status.Terminal() {
-		return
-	}
-	select {
-	case <-process.controller.done:
-		return
-	default:
-	}
-	process.publishEvent(
-		t.context, EventProcessFinished, EventPhaseCommitted, 0, EffectID{},
-		terminalEventPayload(process),
-	)
-	snapshot, err := process.capture()
-	process.controller.complete(process.result(), snapshot, err)
-	t.processFinished(process)
-	process.controller.markTreeSettled()
 }
 
 func (t *treeRuntime) setTreeCommit(commit *treeCommit) {

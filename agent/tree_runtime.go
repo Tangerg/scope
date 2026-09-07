@@ -38,7 +38,7 @@ type treeRuntime struct {
 	jobs              map[ProcessID]*processJob
 	commit            *treeCommit
 	commitDone        chan treeCommitCompletion
-	durabilityFault   bool
+	fault             error
 	checkpointPending map[ProcessID]checkpointPublication
 	freeze            *activeTreeFreeze
 	done              chan struct{}
@@ -237,7 +237,7 @@ func (t *treeRuntime) establishDurableHead(
 		panic("agent: durable tree head incarnation mismatch")
 	}
 	t.incarnation = incarnation
-	t.advanceHead(snapshot.Digest())
+	t.advanceHead(snapshot)
 }
 
 func (t *treeRuntime) addProcess(process *processState) {
@@ -395,7 +395,7 @@ func (t *treeRuntime) tryCompletion() bool {
 
 func (t *treeRuntime) markRunnable(processID ProcessID) {
 	process := t.processes[processID]
-	if process == nil || process.status.Terminal() || t.jobs[processID] != nil {
+	if t.fault != nil || process == nil || process.status.Terminal() || t.jobs[processID] != nil {
 		return
 	}
 	if _, exists := t.queued[processID]; exists {
@@ -419,7 +419,7 @@ func (t *treeRuntime) popRunnable() *processState {
 }
 
 func (t *treeRuntime) advanceOne() bool {
-	if t.commit != nil || t.durabilityFault || t.freeze != nil {
+	if t.commit != nil || t.fault != nil || t.freeze != nil {
 		return false
 	}
 	process := t.popRunnable()
@@ -497,6 +497,9 @@ func (t *treeRuntime) finished() bool {
 	if t.freeze != nil || t.commit != nil || len(t.jobs) != 0 ||
 		len(t.checkpointPending) != 0 {
 		return false
+	}
+	if t.fault != nil {
+		return true
 	}
 	for _, process := range t.processes {
 		if !process.status.Terminal() {

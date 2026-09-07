@@ -276,6 +276,9 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 	if job.cancel != nil {
 		job.cancel()
 	}
+	if t.fault != nil {
+		return
+	}
 	if job.stale {
 		if completion.kind == processJobStep {
 			process.discardExecution()

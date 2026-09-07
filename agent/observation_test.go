@@ -80,6 +80,15 @@ func TestEventRejectsMismatchedFrameworkFactContracts(t *testing.T) {
 			},
 		},
 		{
+			name: "runtime stop is not a committed Process outcome",
+			spec: eventSpec{name: EventRuntimeStopped, phase: EventPhaseCommitted,
+				payload: json.RawMessage(`{"failure_kind":"external","failure_code":"engine.tree.durability_failed"}`)},
+		},
+		{
+			name: "runtime stop requires a classification",
+			spec: eventSpec{name: EventRuntimeStopped, phase: EventPhaseAttempt, payload: emptyEventPayload()},
+		},
+		{
 			name: "invalid payload",
 			spec: eventSpec{
 				name: EventEffectStarted, phase: EventPhaseAttempt, stepSequence: 1,
@@ -135,6 +144,9 @@ func FuzzEventJSONRoundTrip(f *testing.F) {
 		}},
 		{name: EventSignalAccepted, phase: EventPhaseCommitted, payload: signalAcceptedEventPayload{
 			SignalID: "signal:event-fuzz",
+		}},
+		{name: EventRuntimeStopped, phase: EventPhaseAttempt, payload: runtimeStoppedEventPayload{
+			FailureKind: FailureKindExternal, FailureCode: treeDurabilityFailureCode,
 		}},
 		{name: EventStepFinished, phase: EventPhaseAttempt, stepSequence: 1, payload: stepFinishedEventPayload{
 			StepStatus: StepStatusSucceeded, DurationMS: &durationMS,

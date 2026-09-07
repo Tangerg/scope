@@ -23,6 +23,7 @@ type ProcessSnapshot struct {
 	processID      ProcessID
 	deploymentRef  DeploymentRef
 	status         Status
+	usage          Usage
 	executionState ExecutionState
 	waitID         WaitID
 	relation       ProcessRelation
@@ -50,6 +51,7 @@ func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 		processID:      wire.ProcessID,
 		deploymentRef:  wire.DeploymentRef,
 		status:         wire.Status,
+		usage:          wire.Usage,
 		executionState: wire.LastStableState,
 		waitID:         snapshotWaitID(wire.CurrentWaitID),
 		relation:       mustProcessRelation(wire.ProcessID, wire.Relation),

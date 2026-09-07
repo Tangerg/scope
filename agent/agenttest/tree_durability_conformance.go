@@ -245,14 +245,7 @@ func runDelayedCommitConformance(
 	}
 	blocking.continueCommit()
 	stale, err := original.Await(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	failure, failed := stale.Termination().Failure()
-	if stale.Status() != agent.StatusFailed || !failed ||
-		failure.Kind() != agent.FailureKindExternal {
-		t.Fatalf("stale writer result=%+v failure=%+v present=%t", stale, failure, failed)
-	}
+	assertCrashRuntimeError(t, original, crashAwaitResult{result: stale, err: err}, agent.ErrTreeIncarnationConflict)
 	assertCrashHead(t, driver, original.ID(), winningHead.Digest())
 	if err := restoredEngine.Close(); err != nil {
 		t.Fatal(err)

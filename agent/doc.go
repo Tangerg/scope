@@ -137,8 +137,17 @@
 //
 // A long-lived Engine retains completed trees for diagnostics and capture until
 // the Host calls [Engine.ReleaseTree]. Release waits for all descendant work to
-// settle, removes the tree from lookup, and leaves existing handles' terminal
-// results readable.
+// settle, removes the tree from lookup, and leaves existing handles' results
+// and runtime errors readable.
+//
+// A durable writer can stop without terminating the logical execution. Storage
+// failures and ownership conflicts reach [Process.Await] as a [RuntimeError]
+// with no Result. The error preserves the original cause, the last acknowledged
+// head, and uncertain Effect identities. [EventRuntimeStopped] describes this
+// instance failure; it never substitutes for [EventProcessFinished]. Status and
+// usage in durable mode project only acknowledged tree state. The Host reads
+// its authoritative head before reactivation, since a lost commit response or
+// another writer may have advanced it beyond the stopped instance's view.
 //
 // # Recovery
 //

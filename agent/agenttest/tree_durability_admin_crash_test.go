@@ -451,8 +451,11 @@ func TestCrashAfterAdministrativeCommit(t *testing.T) {
 		t.Fatalf("restored root result=%s", result.Status())
 	}
 	closeCrashEngine(t, restoredEngine)
-	finishCrashProcess(t, root)
-	awaitCrashProcess(t, child)
+	if err := root.Kill(t.Context(), crashCleanupReason); err != nil {
+		t.Fatal(err)
+	}
+	awaitCrashRuntimeError(t, root, agent.ErrTreeIncarnationConflict)
+	awaitCrashRuntimeError(t, child, agent.ErrTreeIncarnationConflict)
 	closeCrashEngine(t, engine)
 }
 

@@ -355,7 +355,9 @@ func (p *processState) resolveEffect(command processCommand) {
 }
 
 func (p *processState) updateView() {
-	p.controller.updateView(p.status, p.currentWaitID, p.usage)
+	if p.engine.durability == nil {
+		p.controller.updateView(p.status, p.currentWaitID, p.usage)
+	}
 }
 
 func (p *processState) unknownEffectIDs() []EffectID {

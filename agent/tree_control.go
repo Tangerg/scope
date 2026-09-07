@@ -33,6 +33,10 @@ func (t *treeRuntime) applyCommand(command treeCommand) {
 }
 
 func (t *treeRuntime) applyProcessCommand(process *processState, command processCommand) {
+	if t.fault != nil {
+		command.reply(processResponse{err: process.controller.closedRequestError()})
+		return
+	}
 	if command.kind == commandHostTerminated {
 		if !process.status.Terminal() {
 			process.recordHostTermination(command.hostErr)
@@ -78,6 +82,10 @@ func (t *treeRuntime) acquireFreeze(acquisition *treeFreezeAcquisition) {
 		if acquisition != nil && acquisition.response != nil {
 			acquisition.response <- treeFreezeAcquisitionResult{err: ErrEngineQuiescenceUnavailable}
 		}
+		return
+	}
+	if t.fault != nil {
+		acquisition.response <- treeFreezeAcquisitionResult{err: t.fault}
 		return
 	}
 	freeze := &treeFreeze{runtime: t}
@@ -207,7 +215,7 @@ func (t *treeRuntime) applyFreeze(
 		if err != nil || result.Digest() != projection.resultingDigest {
 			return ErrInvalidPreparedWaitingSubtreeCancellation
 		}
-		t.advanceHead(projection.resultingDigest)
+		t.advanceHead(result)
 		t.publishCheckpoint()
 	}
 	return t.releaseFreeze(freeze)

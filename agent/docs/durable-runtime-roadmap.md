@@ -62,48 +62,15 @@ The current runtime already has the important structural boundaries:
 - `TreeSnapshot` is the recovery unit. Exact `DeploymentRef` resolution and
   `TreeIncarnationID` fencing prevent ambiguous behavior selection and stale
   writer publication.
+- A stopped durable writer reports `RuntimeError` separately from a committed
+  logical `Result`, retaining its last acknowledged head and unresolved Effect
+  identities.
 - OpenTelemetry remains an external integration. Host storage, product routing,
   deployment catalogs, and operational policy remain outside the kernel.
 
 The key distinction is: a root tree owns transactional consistency, a Process
 owns strategy state and logical lifecycle, and an incarnation identifies an
 active writer. Improvements should make those boundaries more precise.
-
-## 2. Separate runtime-instance failure from logical execution outcome
-
-### Current evidence
-
-[`tree_commit.go`](../tree_commit.go) can finish Processes locally when a
-durability operation fails. A probe whose terminal checkpoint conclusively
-failed without writing observed a local `failed` result and a committed-phase
-failure event while the durable head still recorded the Process as `running`.
-
-This is current behavior, not proof of an undocumented database failure. It
-shows why a caller needs to distinguish an instance that can no longer make
-progress from a logical execution whose failure has been durably recorded.
-
-### Proposed change
-
-Treat loss of writer ownership and inability to establish a storage outcome as
-runtime-instance failures. Report them through an explicit control error and
-observation contract. A durable logical terminal result must correspond to a
-published terminal fact. Preserve unresolved effect identities for recovery
-and adjudication.
-
-The precise public result/error shape requires a separate API design decision
-before implementation. Avoid adding a framework-wide retry layer or transient
-error taxonomy. The Host owns reactivation policy; strategy failures and
-external effect outcomes retain their existing semantic owners.
-
-### Acceptance criteria
-
-- An instance that loses ownership cannot publish a new logical terminal fact.
-- Callers can distinguish a durably failed execution from an unavailable or
-  fenced instance without interpreting error text.
-- Recovery and local terminal reporting cannot make conflicting claims about
-  which logical result was committed.
-- Ambiguous external effects remain explicit across loss of the active
-  instance; reactivation does not silently repeat model or tool calls.
 
 ## 3. Scope observation to the active incarnation
 
@@ -147,31 +114,18 @@ event handling. Telemetry remains diagnostic rather than a recovery log.
 - Durability metrics and traces distinguish attempted, acknowledged, rejected,
   and unresolved operations without importing OpenTelemetry into Agent.
 
-## 4. Prove the protocol with a real transactional store
+## Framework and application storage boundary
 
-The repository already provides
-[`RunTreeDurabilityConformance`](../agenttest/tree_durability_conformance.go), a
-memory implementation, concurrent activation and stale-writer checks, and
-failure-boundary tests. The next step is to complement that foundation with an
-actual database implementation, not introduce another generic storage layer.
+Scope owns `TreeDurability`, the memory reference implementation, and
+[`RunTreeDurabilityConformance`](../agenttest/tree_durability_conformance.go).
+The shared suite covers admission acknowledgment, competing activation, stale
+writers, commit-response loss, and recovery across protocol boundaries.
 
-Implement the first production adapter in the consuming Host, such as Flame,
-or a separate integration justified by a real consumer. Atomically publish the
-whole-tree head and enforce the expected head and active incarnation in the
-database transaction. Keep storage deadlines and reconciliation of ambiguous
-commit outcomes explicit.
-
-Run the existing conformance suite and add integration evidence for process
-termination before and after commits, response loss after a successful commit,
-independent database connections competing for activation, stale writer
-publication, duplicate input, and unknown external outcomes. A timeout alone
-does not establish that a transaction rolled back.
-
-This verifies durable state transitions, not exactly-once physical execution
-across an arbitrary remote service. That service must enforce a stable
-idempotency key or provide a way to reconcile uncertain outcomes. Temporal's
-[Activity definition guidance](https://docs.temporal.io/activity-definition)
-describes the same external idempotency requirement.
+Database selection, production adapters, transaction configuration, and
+integration tests against a concrete database belong to the consuming
+application or its independently owned adapter. They are not implementation
+items for this framework roadmap. Adapters can reuse the shared conformance
+suite and supplement it with evidence from their own storage environment.
 
 ## 5. Bound long-lived state before adding long-lived execution features
 
@@ -218,14 +172,10 @@ generic parameters in the kernel, or parallel composition runtimes.
 
 ## Implementation order and boundaries
 
-1. Specify runtime-instance failure semantics, including the exported API and
-   schema impact. Implement the change as a bounded,
-   independently revertible change with contract tests.
-2. Fix Observer incarnation isolation as its own change. Add external durability
-   observation alongside the storage integration.
-3. Validate the complete input-to-recovery path against a real database using
-   the shared conformance suite and process-failure tests.
-4. Add long-lived execution or timer capabilities only when a concrete consumer
+1. Fix Observer incarnation isolation as its own change. Add external durability
+   observation at the existing `TreeDurability` protocol boundary.
+2. Extend framework conformance tests when a concrete contract gap is found.
+3. Add long-lived execution or timer capabilities only when a concrete consumer
    supplies the lifecycle requirements. Optimize only after measurement.
 
 Use one canonical API per atomic capability and one strict current schema.
@@ -236,5 +186,5 @@ or dual persistence paths. Discuss breaking changes before applying them.
 The evidence above came from source inspection, focused existing durability,
 incarnation, mailbox, and signal tests, and temporary public-API probes. The
 probes restored the last acknowledged memory-store head; they did not perform
-an operating-system crash or exercise a real SQL database. Those remain
-explicit acceptance work for the proposed implementation.
+an operating-system crash or exercise a real SQL database. Concrete database and
+operating-system crash validation belongs to downstream adapter integration tests.

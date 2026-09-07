@@ -12,10 +12,10 @@ type childWaitRegistration struct {
 }
 
 func (t *treeRuntime) finishIfTerminal(process *processState) {
-	if process == nil || !process.status.Terminal() {
+	if t.fault != nil || process == nil || !process.status.Terminal() {
 		return
 	}
-	if t.engine.durability != nil && !t.durabilityFault {
+	if t.engine.durability != nil {
 		t.stageTerminal(process)
 		return
 	}

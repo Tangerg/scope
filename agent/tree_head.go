@@ -5,7 +5,7 @@ import "context"
 // A head generation belongs to one acknowledged checkpoint. Callers retain the
 // generation while waiting; the tree never retains individual subscriptions.
 type treeHead struct {
-	value    Digest
+	snapshot TreeSnapshot
 	advanced chan struct{}
 	err      error
 }
@@ -14,7 +14,7 @@ func (t *treeHead) digest() Digest {
 	if t == nil {
 		return Digest{}
 	}
-	return t.value
+	return t.snapshot.Digest()
 }
 
 func (t *treeHead) await(ctx context.Context, done <-chan struct{}) error {
@@ -45,11 +45,16 @@ func (t *treeHead) finish(err error) {
 	}
 }
 
-func (t *treeRuntime) advanceHead(digest Digest) {
-	if t.head.digest() == digest {
+func (t *treeRuntime) advanceHead(snapshot TreeSnapshot) {
+	if t.head.digest() == snapshot.Digest() {
 		return
 	}
 	previous := t.head
-	t.head = &treeHead{value: digest, advanced: make(chan struct{})}
+	t.head = &treeHead{snapshot: snapshot, advanced: make(chan struct{})}
+	for _, snapshot := range snapshot.ProcessSnapshots() {
+		if process := t.processes[snapshot.ProcessID()]; process != nil {
+			process.controller.updateView(snapshot.status, snapshot.waitID, snapshot.usage)
+		}
+	}
 	previous.finish(nil)
 }

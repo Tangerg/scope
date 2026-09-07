@@ -53,6 +53,11 @@ type processFinishedEventPayload struct {
 	Usage            *Usage           `json:"usage"`
 }
 
+type runtimeStoppedEventPayload struct {
+	FailureKind FailureKind `json:"failure_kind"`
+	FailureCode string      `json:"failure_code"`
+}
+
 type stepFinishedEventPayload struct {
 	StepStatus StepStatus `json:"step_status"`
 	DurationMS *int64     `json:"duration_ms"`
@@ -89,6 +94,12 @@ func validateEventContract(
 			return err
 		}
 		_, err := decodeProcessFinishedFact(payload)
+		return err
+	case EventRuntimeStopped:
+		if err := validateEventIdentity(phase, EventPhaseAttempt, stepSequence, effectID, eventIdentityProcess); err != nil {
+			return err
+		}
+		_, err := decodeRuntimeStoppedFact(payload)
 		return err
 	case EventSignalAccepted:
 		if err := validateEventIdentity(phase, EventPhaseCommitted, stepSequence, effectID, eventIdentityProcess); err != nil {
@@ -199,6 +210,34 @@ func (p ProcessFinishedFact) Usage() Usage { return p.usage }
 
 func (p ProcessFinishedFact) Valid() bool {
 	return validProcessFinishedFact(p)
+}
+
+// RuntimeStoppedFact describes an instance failure, not a logical Process
+// termination. It contains only the failure classification, never storage error
+// messages or application payloads. Event carries the Process and incarnation.
+type RuntimeStoppedFact struct {
+	failureKind FailureKind
+	failureCode string
+}
+
+func (r RuntimeStoppedFact) FailureKind() FailureKind { return r.failureKind }
+
+func (r RuntimeStoppedFact) FailureCode() string { return r.failureCode }
+
+func (r RuntimeStoppedFact) Valid() bool {
+	return r.failureKind.Valid() && validQualifiedName(r.failureCode) && len(r.failureCode) <= maxFailureCodeBytes
+}
+
+func decodeRuntimeStoppedFact(payload json.RawMessage) (RuntimeStoppedFact, error) {
+	wire, err := wireJSON.decode[runtimeStoppedEventPayload](payload)
+	if err != nil {
+		return RuntimeStoppedFact{}, err
+	}
+	fact := RuntimeStoppedFact{failureKind: wire.FailureKind, failureCode: wire.FailureCode}
+	if !fact.Valid() {
+		return RuntimeStoppedFact{}, errors.New("invalid Runtime stopped event fact")
+	}
+	return fact, nil
 }
 
 // SignalAcceptedFact is the immutable delivery identity carried by an accepted

@@ -339,7 +339,7 @@ func runCrashBeforePendingCommit(t *testing.T, store TreeDurabilityConformanceDr
 		t.Fatalf("recomputed result=%s dispatches=%d", result.Status(), len(dispatcher.Requests()))
 	}
 	gate.abort()
-	awaitCrashProcess(t, original)
+	awaitCrashRuntimeError(t, original, errSimulatedHostCrash)
 	closeCrashEngine(t, restoredEngine)
 	closeCrashEngine(t, engine)
 }
@@ -370,7 +370,7 @@ func runCrashAfterPendingCommit(t *testing.T, store TreeDurabilityConformanceDri
 		t.Fatalf("never-replay pending Effect dispatches=%d", len(dispatcher.Requests()))
 	}
 	gate.abort()
-	awaitCrashProcess(t, original)
+	awaitCrashRuntimeError(t, original, errSimulatedHostCrash)
 	closeCrashEngine(t, restoredEngine)
 	closeCrashEngine(t, engine)
 }
@@ -402,7 +402,7 @@ func runCrashBeforeSettledCommit(t *testing.T, store TreeDurabilityConformanceDr
 		t.Fatalf("never-replay redispatched; calls=%d", len(dispatcher.Requests()))
 	}
 	gate.abort()
-	awaitCrashProcess(t, original)
+	awaitCrashRuntimeError(t, original, errSimulatedHostCrash)
 	closeCrashEngine(t, restoredEngine)
 	closeCrashEngine(t, engine)
 }
@@ -433,7 +433,7 @@ func runCrashAfterSettledCommit(t *testing.T, store TreeDurabilityConformanceDri
 		t.Fatalf("settled Effect redispatched; calls=%d", len(dispatcher.Requests()))
 	}
 	gate.abort()
-	awaitCrashProcess(t, original)
+	awaitCrashRuntimeError(t, original, errSimulatedHostCrash)
 	closeCrashEngine(t, restoredEngine)
 	closeCrashEngine(t, engine)
 }
@@ -457,7 +457,7 @@ func runCrashAfterParkedCommit(t *testing.T, store TreeDurabilityConformanceDriv
 		t.Fatalf("restored status=%s, want paused", restored.Status())
 	}
 	gate.abort()
-	awaitCrashProcess(t, original)
+	awaitCrashRuntimeError(t, original, errSimulatedHostCrash)
 	finishCrashProcess(t, restored)
 	closeCrashEngine(t, restoredEngine)
 	closeCrashEngine(t, engine)
@@ -491,7 +491,8 @@ func runCrashAfterTerminalCommit(t *testing.T, store TreeDurabilityConformanceDr
 		t.Fatalf("restored terminal result=%s", result.Status())
 	}
 	gate.abort()
-	awaitCrashAwait(t, awaited)
+	assertCrashRuntimeError(t, original, awaitCrashAwait(t, awaited), errSimulatedHostCrash)
+	assertCrashEventAbsent(t, recorder, agent.EventProcessFinished)
 	closeCrashEngine(t, restoredEngine)
 	closeCrashEngine(t, engine)
 }
@@ -527,7 +528,10 @@ func runCrashAfterActivationCommit(t *testing.T, store TreeDurabilityConformance
 	closeCrashEngine(t, firstEngine)
 	finishCrashProcess(t, second)
 	closeCrashEngine(t, secondEngine)
-	finishCrashProcess(t, source)
+	if err := source.Kill(t.Context(), crashCleanupReason); err != nil {
+		t.Fatal(err)
+	}
+	awaitCrashRuntimeError(t, source, agent.ErrTreeIncarnationConflict)
 	closeCrashEngine(t, sourceEngine)
 }
 
@@ -759,7 +763,27 @@ func awaitCrashProcessAsync(process *agent.Process) <-chan crashAwaitResult {
 
 func awaitCrashProcess(t *testing.T, process *agent.Process) agent.Result {
 	t.Helper()
-	return awaitCrashAwait(t, awaitCrashProcessAsync(process)).result
+	value := awaitCrashAwait(t, awaitCrashProcessAsync(process))
+	if value.err != nil {
+		t.Fatal(value.err)
+	}
+	return value.result
+}
+
+func awaitCrashRuntimeError(t *testing.T, process *agent.Process, cause error) {
+	t.Helper()
+	assertCrashRuntimeError(t, process, awaitCrashAwait(t, awaitCrashProcessAsync(process)), cause)
+}
+
+func assertCrashRuntimeError(t *testing.T, process *agent.Process, value crashAwaitResult, cause error) {
+	t.Helper()
+	runtimeErr, ok := errors.AsType[*agent.RuntimeError](value.err)
+	if !ok || !errors.Is(value.err, cause) || value.result.Valid() || value.result.Status() != agent.StatusInvalid || value.result.ProcessID().Valid() {
+		t.Fatalf("runtime stopped result=%+v error=%v, want cause %v", value.result, value.err, cause)
+	}
+	if runtimeErr.ProcessID() != process.ID() || !runtimeErr.IncarnationID().Valid() || !runtimeErr.HeadDigest().Valid() {
+		t.Fatalf("runtime stopped identity=%+v", runtimeErr)
+	}
 }
 
 func awaitCrashAwait(t *testing.T, result <-chan crashAwaitResult) crashAwaitResult {
@@ -768,9 +792,6 @@ func awaitCrashAwait(t *testing.T, result <-chan crashAwaitResult) crashAwaitRes
 	defer cancel()
 	select {
 	case value := <-result:
-		if value.err != nil {
-			t.Fatal(value.err)
-		}
 		return value
 	case <-ctx.Done():
 		t.Fatalf("Process did not settle: %v", ctx.Err())

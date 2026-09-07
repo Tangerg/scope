@@ -308,32 +308,27 @@ func TestDurableEffectCommitFailuresStopTheTreeAtTheCorrectBoundary(t *testing.T
 		wantUnresolvedID bool
 		wantFailureKind  FailureKind
 		wantFailureCode  string
-		wantCause        TerminationCause
 	}{
 		{
 			name: "pending is definitely undispatched", kind: EffectBoundaryPending,
 			cause:           errors.New("durability unavailable"),
 			wantFailureKind: FailureKindExternal, wantFailureCode: treeDurabilityFailureCode,
-			wantCause: TerminationCauseExternalFailure,
 		},
 		{
 			name: "settled preserves ambiguous Effect identity", kind: EffectBoundarySettled,
 			cause: errors.New("durability unavailable"), wantDispatches: 1,
 			wantUnresolvedID: true, wantFailureKind: FailureKindExternal,
 			wantFailureCode: treeDurabilityFailureCode,
-			wantCause:       TerminationCauseExternalFailure,
 		},
 		{
 			name: "content conflict is a Host contract violation", kind: EffectBoundaryPending,
 			cause: ErrDurabilityConflict, wantFailureKind: FailureKindContract,
 			wantFailureCode: treeDurabilityConflictCode,
-			wantCause:       TerminationCauseContractFailure,
 		},
 		{
 			name: "stale writer is fenced", kind: EffectBoundaryPending,
 			cause: ErrTreeIncarnationConflict, wantFailureKind: FailureKindExternal,
 			wantFailureCode: treeIncarnationConflictCode,
-			wantCause:       TerminationCauseExternalFailure,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -344,7 +339,8 @@ func TestDurableEffectCommitFailuresStopTheTreeAtTheCorrectBoundary(t *testing.T
 			dispatcher := &engineTestDispatcher{policy: ReplayPolicyNever}
 			definition := newEngineTestDefinition(t, "engine.effect", "effect")
 			deployment := engineTestDeployment(t, definition, dispatcher)
-			engine, err := NewEngine(EngineConfig{TreeDurability: durability})
+			listener := &recordingEventListener{}
+			engine, err := NewEngine(EngineConfig{TreeDurability: durability, EventListeners: []EventListener{listener}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -353,29 +349,57 @@ func TestDurableEffectCommitFailuresStopTheTreeAtTheCorrectBoundary(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			result := awaitResult(t, process)
-			if result.Status() != StatusFailed ||
-				result.Termination().Cause() != test.wantCause {
-				t.Fatalf("termination=%+v", result.Termination())
+			runtimeErr := awaitRuntimeError(t, process, test.cause)
+			stopped := 0
+			for _, event := range listener.snapshot() {
+				if event.Name() == EventProcessFinished {
+					t.Fatal("runtime failure published a logical terminal event")
+				}
+				if fact, ok := event.RuntimeStopped(); ok {
+					stopped++
+					if event.Phase() != EventPhaseAttempt || fact.FailureKind() != test.wantFailureKind || fact.FailureCode() != test.wantFailureCode {
+						t.Fatalf("runtime stop observation=%+v", fact)
+					}
+				}
 			}
-			failure, failed := result.Termination().Failure()
-			if !failed || failure.Kind() != test.wantFailureKind ||
-				failure.Code() != test.wantFailureCode {
-				t.Fatalf("failure=%+v present=%t", failure, failed)
+			if stopped != 1 {
+				t.Fatalf("runtime stop observations=%d, want 1", stopped)
+			}
+			head, _ := recorder.startOutcomes()[0].TreeSnapshot()
+			if test.kind == EffectBoundarySettled {
+				head = recorder.effectBoundaries()[0].TreeSnapshot()
+			}
+			if runtimeErr.HeadDigest() != head.Digest() || process.Status() != StatusRunning {
+				t.Fatalf("runtime failure changed acknowledged state: digest=%s status=%s", runtimeErr.HeadDigest(), process.Status())
+			}
+			snapshot, err := process.Snapshot(t.Context())
+			if err != nil || string(snapshot.JSON()) != string(head.ProcessSnapshots()[0].JSON()) {
+				t.Fatalf("stopped runtime snapshot does not match acknowledged head: %v", err)
 			}
 			if got := dispatcher.calls.Load(); got != test.wantDispatches {
 				t.Fatalf("dispatch calls=%d, want %d", got, test.wantDispatches)
 			}
-			unresolved := result.Termination().UnresolvedEffectIDs()
+			unresolved := runtimeErr.UnresolvedEffectIDs()
 			if test.wantUnresolvedID {
 				boundaries := recorder.effectBoundaries()
 				if len(unresolved) != 1 || len(boundaries) < 2 ||
 					unresolved[0] != boundaries[0].Request().ID() {
 					t.Fatalf("unresolved=%v boundaries=%v", unresolved, boundaries)
 				}
+				unresolved[0] = EffectID{}
+				if !runtimeErr.UnresolvedEffectIDs()[0].Valid() {
+					t.Fatal("caller mutated the retained unresolved identities")
+				}
 			} else if len(unresolved) != 0 {
 				t.Fatalf("undispatched pending failure has unresolved=%v", unresolved)
 			}
+			if err := process.Pause(t.Context(), "stopped instance"); !errors.Is(err, test.cause) {
+				t.Fatalf("stopped control request lost runtime cause: %v", err)
+			}
+			if err := engine.ReleaseTree(t.Context(), process.ID()); err != nil {
+				t.Fatal(err)
+			}
+			awaitRuntimeError(t, process, test.cause)
 			if err := engine.Close(); err != nil {
 				t.Fatal(err)
 			}
@@ -424,11 +448,7 @@ func TestTreeDurabilityFaultPreservesEveryConcurrentEffectForReconciliation(t *t
 		}
 	}
 	dispatcher.Release(started[0])
-	rootResult := awaitResult(t, root)
-	_, hasOutput := rootResult.Output()
-	if rootResult.Status() != StatusFailed || hasOutput {
-		t.Fatalf("root result=%+v", rootResult)
-	}
+	awaitRuntimeError(t, root, durability.err)
 
 	childIDs := directChildIDs(t, engine, root.ID())
 	if len(childIDs) != len(started) {
@@ -443,10 +463,10 @@ func TestTreeDurabilityFaultPreservesEveryConcurrentEffectForReconciliation(t *t
 		if !exists {
 			t.Fatalf("child %s is missing", childID)
 		}
-		result := awaitResult(t, child)
-		unresolved := result.Termination().UnresolvedEffectIDs()
-		if result.Status() != StatusFailed || len(unresolved) != 1 {
-			t.Fatalf("child %s status=%s unresolved=%v", childID, result.Status(), unresolved)
+		runtimeErr := awaitRuntimeError(t, child, durability.err)
+		unresolved := runtimeErr.UnresolvedEffectIDs()
+		if len(unresolved) != 1 {
+			t.Fatalf("child %s unresolved=%v", childID, unresolved)
 		}
 	}
 
@@ -510,14 +530,28 @@ func TestTreeDurabilityFaultReleasesConcurrentChildAdmissionOwnership(t *testing
 	}
 
 	dispatcher.Release(startedEffect)
-	result := awaitResult(t, root)
-	if result.Status() != StatusFailed ||
-		len(result.Termination().UnresolvedEffectIDs()) != 1 {
-		t.Fatalf("root status=%s unresolved=%v", result.Status(), result.Termination().UnresolvedEffectIDs())
+	runtimeErr := awaitRuntimeError(t, root, durability.err)
+	if len(runtimeErr.UnresolvedEffectIDs()) != 1 {
+		t.Fatalf("root unresolved=%v", runtimeErr.UnresolvedEffectIDs())
 	}
 	close(admitter.release)
 	dispatcher.ReleaseAll()
 	closeEngineEventually(t, engine)
+}
+
+func awaitRuntimeError(t *testing.T, process *Process, cause error) *RuntimeError {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	result, err := process.Await(ctx)
+	if !errors.Is(err, cause) || result.Valid() || result.ProcessID().Valid() || result.Status() != StatusInvalid {
+		t.Fatalf("runtime failure result=%+v error=%v, want cause %v", result, err, cause)
+	}
+	runtimeErr, ok := errors.AsType[*RuntimeError](err)
+	if !ok || runtimeErr.ProcessID() != process.ID() || !runtimeErr.IncarnationID().Valid() || !runtimeErr.HeadDigest().Valid() {
+		t.Fatalf("runtime failure identity=%+v", runtimeErr)
+	}
+	return runtimeErr
 }
 
 func closeEngineEventually(t *testing.T, engine *Engine) {
@@ -797,7 +831,7 @@ func TestEngineCloseRejectsUnpublishedTerminalCheckpoint(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("terminal checkpoint did not start")
 	}
-	if !process.Status().Terminal() {
+	if process.Status() != StatusRunning {
 		t.Fatalf("Process status=%s before terminal checkpoint", process.Status())
 	}
 	if err := engine.Close(); !errors.Is(err, ErrEngineHasActiveProcesses) {

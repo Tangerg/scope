@@ -8,7 +8,7 @@ import (
 
 func TestTreeHeadCancellationDoesNotAffectOtherCallers(t *testing.T) {
 	runtime := &treeRuntime{}
-	first := ComputeDigest([]byte("first"))
+	first := completedTreeSnapshot(t)
 	runtime.advanceHead(first)
 	head := runtime.head
 	for range 128 {
@@ -28,7 +28,8 @@ func TestTreeHeadCancellationDoesNotAffectOtherCallers(t *testing.T) {
 	for range 2 {
 		go func() { results <- head.await(t.Context(), nil) }()
 	}
-	runtime.advanceHead(ComputeDigest([]byte("second")))
+	second := completedTreeSnapshot(t)
+	runtime.advanceHead(second)
 	for range 2 {
 		if err := <-results; err != nil {
 			t.Fatalf("peer await = %v", err)

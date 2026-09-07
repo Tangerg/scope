@@ -300,9 +300,10 @@ func (e *Engine) Process(id ProcessID) (*Process, bool) {
 	return &Process{controller: controller}, true
 }
 
-// Close releases observation workers after all Processes have reached a
-// terminal state. Concurrent calls wait for the same completed closure.
-// Process results remain readable from existing handles.
+// Close releases observation workers after all Process instances have completed
+// or stopped and their owned work has settled. Concurrent calls wait for the
+// same completed closure. Results and RuntimeErrors remain readable from
+// existing handles.
 func (e *Engine) Close() error {
 	if e == nil {
 		return nil
@@ -320,12 +321,16 @@ func (e *Engine) Close() error {
 	}
 	var unpublished []*processController
 	for _, controller := range e.processes {
-		if !controller.status().Terminal() {
-			e.mu.Unlock()
-			return fmt.Errorf(
-				"%w: Process %s is not terminal",
-				ErrEngineHasActiveProcesses, controller.processID,
-			)
+		select {
+		case <-controller.done:
+		default:
+			if !controller.status().Terminal() {
+				e.mu.Unlock()
+				return fmt.Errorf(
+					"%w: Process %s is still running",
+					ErrEngineHasActiveProcesses, controller.processID,
+				)
+			}
 		}
 		select {
 		case <-controller.treeSettled:

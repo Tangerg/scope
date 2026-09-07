@@ -94,6 +94,7 @@ func runSignalAdmissionConformance(t *testing.T, factory func() TreeDurabilityCo
 						t.Fatalf("uncertain delivery = %+v", response)
 					}
 					assertCrashEventAbsent(t, recorder, agent.EventSignalAccepted)
+					awaitCrashRuntimeError(t, process, errSimulatedHostCrash)
 				} else if !response.accepted || response.err != nil {
 					t.Fatalf("acknowledged delivery = %+v", response)
 				}
@@ -139,10 +140,11 @@ func closeSignalConformanceProcess(t *testing.T, engine *agent.Engine, process *
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), conformanceStatusTimeout)
 	defer cancel()
-	if err := process.Kill(ctx, "signal conformance cleanup"); err != nil && !errors.Is(err, agent.ErrProcessFinished) {
+	if err := process.Kill(ctx, "signal conformance cleanup"); err != nil && !errors.Is(err, agent.ErrProcessFinished) &&
+		!errors.Is(err, errSimulatedHostCrash) && !errors.Is(err, agent.ErrTreeIncarnationConflict) {
 		t.Error(err)
 	}
-	if _, err := process.Await(ctx); err != nil {
+	if _, err := process.Await(ctx); err != nil && !errors.Is(err, errSimulatedHostCrash) && !errors.Is(err, agent.ErrTreeIncarnationConflict) {
 		t.Error(err)
 	}
 	if err := engine.Close(); err != nil {

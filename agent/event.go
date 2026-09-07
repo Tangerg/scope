@@ -21,6 +21,9 @@ const (
 	EventProcessResumed = "agent.process.resumed"
 	// EventProcessFinished reports one immutable terminal outcome.
 	EventProcessFinished = "agent.process.finished"
+	// EventRuntimeStopped reports loss of an active instance without a committed
+	// logical terminal result. It never changes the durable Process lifecycle.
+	EventRuntimeStopped = "agent.runtime.stopped"
 	// EventSignalAccepted reports one newly accepted Signal.
 	EventSignalAccepted = "agent.signal.accepted"
 	// EventStepStarted reports an Execution.Step call about to begin.
@@ -191,6 +194,15 @@ func (e Event) ProcessFinished() (ProcessFinishedFact, bool) {
 		return ProcessFinishedFact{}, false
 	}
 	fact, err := decodeProcessFinishedFact(e.payload)
+	return fact, err == nil
+}
+
+// RuntimeStopped returns the typed instance failure for EventRuntimeStopped.
+func (e Event) RuntimeStopped() (RuntimeStoppedFact, bool) {
+	if e.name != EventRuntimeStopped {
+		return RuntimeStoppedFact{}, false
+	}
+	fact, err := decodeRuntimeStoppedFact(e.payload)
 	return fact, err == nil
 }
 

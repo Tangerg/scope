@@ -67,7 +67,9 @@ func (p *Process) StartedAt() time.Time {
 	return p.controller.startedAt
 }
 
-// Status returns the latest committed common lifecycle status.
+// Status returns the latest committed common lifecycle status. In durable mode
+// this is the status in the last acknowledged tree head. A stopped runtime
+// retains that status; Await reports its RuntimeError separately.
 func (p *Process) Status() Status {
 	if p == nil || p.controller == nil {
 		return StatusInvalid
@@ -114,6 +116,8 @@ func (p *Process) DeliverSignals(ctx context.Context, requests ...SignalRequest)
 
 // Pause requests a scheduling pause at the next safe Step boundary. An
 // in-flight Effect is allowed to settle before the pause becomes visible.
+// A nil error acknowledges the local control intent, not its durable publication
+// or completion; Status reflects the acknowledged pause in durable mode.
 func (p *Process) Pause(ctx context.Context, reason string) error {
 	_, err := p.request(ctx, processCommand{kind: commandPause, reason: reason})
 	return err
@@ -121,6 +125,8 @@ func (p *Process) Pause(ctx context.Context, reason string) error {
 
 // Resume makes an explicitly Paused Process schedulable again. Waiting is
 // resumed only by a Signal addressed to its current WaitID.
+// A nil error acknowledges local resumption. Subsequent durable boundaries
+// publish the resumed state before reporting their own acknowledgments.
 func (p *Process) Resume(ctx context.Context) error {
 	_, err := p.request(ctx, processCommand{kind: commandResume})
 	return err
@@ -145,7 +151,7 @@ func (p *Process) RequestCancellation(ctx context.Context, reason string) error 
 	}
 	runtime := p.controller.runtime.Load()
 	if runtime == nil {
-		return ErrProcessFinished
+		return p.controller.closedRequestError()
 	}
 	select {
 	case runtime.commands <- newTreeProcessCommand(
@@ -154,7 +160,7 @@ func (p *Process) RequestCancellation(ctx context.Context, reason string) error 
 	):
 		return nil
 	case <-p.controller.done:
-		return ErrProcessFinished
+		return p.controller.closedRequestError()
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -162,6 +168,8 @@ func (p *Process) RequestCancellation(ctx context.Context, reason string) error 
 
 // Kill records the Engine control plane's highest-priority terminal intent.
 // It does not silently abandon an in-flight Effect; settlement finishes first.
+// A nil error acknowledges the local intent. Await establishes whether the
+// resulting termination committed or this instance stopped with a RuntimeError.
 func (p *Process) Kill(ctx context.Context, reason string) error {
 	_, err := p.request(ctx, processCommand{kind: commandKill, reason: reason})
 	return err
@@ -176,18 +184,22 @@ func (p *Process) ResolveUnknownEffect(ctx context.Context, settlement Settlemen
 
 // UnknownEffectIDs returns stable identities whose external outcome requires an
 // explicit ResolveUnknownEffect decision. Payloads remain owned by the Dispatcher.
+// A stopped instance returns its RuntimeError; inspect that error's unresolved
+// identities and the authoritative stored head before deciding how to recover.
 func (p *Process) UnknownEffectIDs(ctx context.Context) ([]EffectID, error) {
 	response, err := p.request(ctx, processCommand{kind: commandQueryUnknownEffectIDs})
 	return response.unknownEffectIDs, err
 }
 
 // Snapshot returns a consistent last-stable or prepared-step snapshot. Snapshot
-// does not imply that the caller persisted it durably.
+// does not imply that the caller persisted it durably. After a RuntimeError it
+// returns this instance's last acknowledged snapshot; the store may have
+// advanced further if a commit response was lost or another writer took over.
 func (p *Process) Snapshot(ctx context.Context) (ProcessSnapshot, error) {
 	if p == nil || p.controller == nil {
 		return ProcessSnapshot{}, ErrProcessNotRunning
 	}
-	if snapshot, ok, err := p.controller.finishedSnapshot(); ok {
+	if snapshot, ok, err := p.controller.closedSnapshot(); ok {
 		return snapshot, err
 	}
 	response, err := p.request(ctx, processCommand{kind: commandCapture})
@@ -197,6 +209,8 @@ func (p *Process) Snapshot(ctx context.Context) (ProcessSnapshot, error) {
 // Await waits for the immutable terminal result and the Engine's immediate
 // parent/child bookkeeping for that termination. Canceling ctx stops only the
 // wait; Process cancellation is explicit or follows the context passed to Start.
+// A durability failure stops this instance and returns a RuntimeError with no
+// Result. A failed logical execution returns a valid Result and nil error.
 func (p *Process) Await(ctx context.Context) (Result, error) {
 	if p == nil || p.controller == nil {
 		return Result{}, ErrProcessNotRunning
@@ -204,7 +218,7 @@ func (p *Process) Await(ctx context.Context) (Result, error) {
 	ctx = requireContext(ctx)
 	select {
 	case <-p.controller.treeSettled:
-		return p.controller.terminalResult(), nil
+		return p.controller.outcome()
 	case <-ctx.Done():
 		return Result{}, ctx.Err()
 	}
@@ -217,13 +231,13 @@ func (p *Process) request(ctx context.Context, command processCommand) (processR
 	ctx = requireContext(ctx)
 	runtime := p.controller.runtime.Load()
 	if runtime == nil {
-		return processResponse{}, ErrProcessFinished
+		return processResponse{}, p.controller.closedRequestError()
 	}
 	command.response = make(chan processResponse, 1)
 	select {
 	case runtime.commands <- newTreeProcessCommand(p.controller.processID, command):
 	case <-p.controller.done:
-		return processResponse{}, ErrProcessFinished
+		return processResponse{}, p.controller.closedRequestError()
 	case <-ctx.Done():
 		return processResponse{}, ctx.Err()
 	}
@@ -235,7 +249,7 @@ func (p *Process) request(ctx context.Context, command processCommand) (processR
 		case response := <-command.response:
 			return response, response.err
 		default:
-			return processResponse{}, ErrProcessFinished
+			return processResponse{}, p.controller.closedRequestError()
 		}
 	case <-ctx.Done():
 		return processResponse{}, ctx.Err()
@@ -300,13 +314,14 @@ type processController struct {
 
 	// viewMu protects only the read projection copied from processState; runtime
 	// execution never occurs while this lock is held.
-	viewMu              sync.RWMutex
-	viewStatus          Status
-	viewWaitID          WaitID
-	viewUsage           Usage
-	result              Result
-	terminalSnapshot    ProcessSnapshot
-	terminalSnapshotErr error
+	viewMu           sync.RWMutex
+	viewStatus       Status
+	viewWaitID       WaitID
+	viewUsage        Usage
+	result           Result
+	completionErr    error
+	retainedSnapshot ProcessSnapshot
+	snapshotErr      error
 }
 
 func newProcessController(
@@ -374,8 +389,8 @@ func (p *processController) complete(result Result, snapshot ProcessSnapshot, ca
 	p.viewWaitID = WaitID{}
 	p.viewUsage = result.usage
 	p.result = result
-	p.terminalSnapshot = snapshot
-	p.terminalSnapshotErr = captureErr
+	p.retainedSnapshot = snapshot
+	p.snapshotErr = captureErr
 	p.viewMu.Unlock()
 	close(p.done)
 }
@@ -384,18 +399,38 @@ func (p *processController) markTreeSettled() {
 	p.treeSettledOnce.Do(func() { close(p.treeSettled) })
 }
 
-func (p *processController) terminalResult() Result {
+func (p *processController) outcome() (Result, error) {
 	p.viewMu.RLock()
 	defer p.viewMu.RUnlock()
-	return p.result
+	return p.result, p.completionErr
 }
 
-func (p *processController) finishedSnapshot() (ProcessSnapshot, bool, error) {
+func (p *processController) stopRuntime(err *RuntimeError, snapshot ProcessSnapshot) {
+	p.viewMu.Lock()
+	p.viewStatus = snapshot.status
+	p.viewWaitID = snapshot.waitID
+	p.viewUsage = snapshot.usage
+	p.completionErr = err
+	p.retainedSnapshot = snapshot
+	p.viewMu.Unlock()
+	close(p.done)
+}
+
+func (p *processController) closedRequestError() error {
+	p.viewMu.RLock()
+	defer p.viewMu.RUnlock()
+	if p.completionErr != nil {
+		return p.completionErr
+	}
+	return ErrProcessFinished
+}
+
+func (p *processController) closedSnapshot() (ProcessSnapshot, bool, error) {
 	select {
 	case <-p.done:
 		p.viewMu.RLock()
 		defer p.viewMu.RUnlock()
-		return p.terminalSnapshot, true, p.terminalSnapshotErr
+		return p.retainedSnapshot, true, p.snapshotErr
 	default:
 		return ProcessSnapshot{}, false, nil
 	}
