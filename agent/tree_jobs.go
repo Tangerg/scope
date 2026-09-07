@@ -169,7 +169,7 @@ func (t *treeRuntime) startChild(
 	preparation := process.prepareChildStart(record.ID, spec)
 	if preparation.plan == nil {
 		if err := t.settleChildStart(process, record.ID, preparation.result, startedAt); err != nil {
-			t.failPreparedEffect(process, "engine.child.settlement.invalid", err)
+			t.failPreparedEffect(process, childSettlementInvalidCode, err)
 			return
 		}
 		t.markRunnable(process.controller.processID)
@@ -308,7 +308,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 	plan := job.childStart
 	if plan == nil {
 		if err := parent.prepared.settleUnknown(job.effectID); err != nil {
-			t.failPreparedEffect(parent, "engine.child.settlement.invalid", err)
+			t.failPreparedEffect(parent, childSettlementInvalidCode, err)
 		}
 		return
 	}
@@ -317,7 +317,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 		plan: plan, result: result, startedAt: job.startedAt,
 	}
 	if err := t.applyChildOutcome(pending); err != nil {
-		t.failPreparedEffect(parent, "engine.child.settlement.invalid", err)
+		t.failPreparedEffect(parent, childSettlementInvalidCode, err)
 		return
 	}
 	if t.engine.durability != nil {
@@ -341,7 +341,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 		return
 	}
 	if err := t.publishChildOutcome(pending); err != nil {
-		t.failPreparedEffect(parent, "engine.child.settlement.invalid", err)
+		t.failPreparedEffect(parent, childSettlementInvalidCode, err)
 	}
 }
 

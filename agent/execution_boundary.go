@@ -4,31 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/samber/lo"
 )
 
-func failureFromError(kind FailureKind, code string, err error) (Failure, error) {
-	message := "unknown error"
-	if err != nil {
-		// Go errors can contain arbitrary bytes; persisted diagnostics must
-		// preserve their value when strict JSON decoding runs during recovery.
-		message = strings.TrimSpace(strings.ToValidUTF8(err.Error(), "\ufffd"))
-	}
-	if message == "" {
-		message = "unknown error"
-	}
-	if len(message) > maxFailureMessageBytes {
-		message = message[:maxFailureMessageBytes]
-		for !utf8.ValidString(message) {
-			message = message[:len(message)-1]
-		}
-		message = strings.TrimSpace(message)
-	}
-	return NewFailure(kind, code, message)
-}
+const (
+	processStartFailedCode          = "engine.process.start.failed"
+	processSnapshotFailedCode       = "engine.process.snapshot.failed"
+	processSnapshotUnrestorableCode = "engine.process.snapshot.unrestorable"
+)
 
 func failureKindForError(err error) FailureKind {
 	if _, ok := errors.AsType[executionPanicError](err); ok {
@@ -101,37 +85,24 @@ func initializeExecution(
 ) (Execution, ExecutionState, Failure, error) {
 	execution, err := startExecution(definition, input)
 	if err != nil {
-		failure := processInitializationFailure(
-			failureKindForError(err), "engine.process.start.failed", err,
+		failure := newEngineFailure(
+			failureKindForError(err), processStartFailedCode, err,
 		)
 		return nil, ExecutionState{}, failure, fmt.Errorf("start Execution: %w", err)
 	}
 	state, err := captureExecution(execution)
 	if err != nil {
-		failure := processInitializationFailure(
-			failureKindForError(err), "engine.process.snapshot.failed", err,
+		failure := newEngineFailure(
+			failureKindForError(err), processSnapshotFailedCode, err,
 		)
 		return nil, ExecutionState{}, failure, fmt.Errorf("capture initial Execution state: %w", err)
 	}
 	restored, err := restoreExecution(definition, state)
 	if err != nil {
-		failure := processInitializationFailure(
-			failureKindForError(err), "engine.process.snapshot.unrestorable", err,
+		failure := newEngineFailure(
+			failureKindForError(err), processSnapshotUnrestorableCode, err,
 		)
 		return nil, ExecutionState{}, failure, fmt.Errorf("validate initial Execution state: %w", err)
 	}
 	return restored, state, Failure{}, nil
-}
-
-func processInitializationFailure(kind FailureKind, code string, cause error) Failure {
-	failure, err := failureFromError(kind, code, cause)
-	if err == nil {
-		return failure
-	}
-	failure, _ = NewFailure(
-		FailureKindContract,
-		"engine.process.start_outcome.invalid",
-		"invalid Process initialization failure",
-	)
-	return failure
 }

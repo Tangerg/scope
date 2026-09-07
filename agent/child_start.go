@@ -8,6 +8,21 @@ import (
 	"time"
 )
 
+const (
+	childRequestInvalidCode             = "engine.child.request.invalid"
+	childIdentityConflictCode           = "engine.child.identity_conflict"
+	childCapabilityEscalationCode       = "engine.child.capability_escalation"
+	childBudgetExhaustedCode            = "engine.child.budget_exhausted"
+	childBudgetInvalidCode              = "engine.child.budget_invalid"
+	childTreeLimitCode                  = "engine.child.tree_limit"
+	childStartUnavailableCode           = "engine.child.start.unavailable"
+	childDeploymentUnavailableCode      = "engine.child.deployment_unavailable"
+	childInputInvalidCode               = "engine.child.input.invalid"
+	childAdmissionRejectedCode          = "engine.child.admission.rejected"
+	childStartOutcomeUnacknowledgedCode = "engine.child.start_outcome.unacknowledged"
+	childSettlementInvalidCode          = "engine.child.settlement.invalid"
+)
+
 type childStartPreparation struct {
 	plan   *childStartPlan
 	result ChildStartResult
@@ -44,7 +59,7 @@ func (p *processState) prepareChildStart(
 ) childStartPreparation {
 	if !spec.Valid() || !p.controller.relation.Valid() {
 		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindContract, "engine.child.request.invalid", ErrInvalidChildStart,
+			spec, FailureKindContract, childRequestInvalidCode, ErrInvalidChildStart,
 		)}
 	}
 	childID := deriveChildProcessID(effectID)
@@ -52,7 +67,7 @@ func (p *processState) prepareChildStart(
 	requestDigest, err := childSpecDigest(spec)
 	if err != nil {
 		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindContract, "engine.child.request.invalid", err,
+			spec, FailureKindContract, childRequestInvalidCode, err,
 		)}
 	}
 	if existing, exists := p.engine.Process(childID); exists {
@@ -63,24 +78,24 @@ func (p *processState) prepareChildStart(
 			}}
 		}
 		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindContract, "engine.child.identity_conflict", ErrInvalidChildStart,
+			spec, FailureKindContract, childIdentityConflictCode, ErrInvalidChildStart,
 		)}
 	}
 	if !p.capabilities.Allows(spec.Capabilities) {
 		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindContract, "engine.child.capability_escalation", ErrInvalidCapability,
+			spec, FailureKindContract, childCapabilityEscalationCode, ErrInvalidCapability,
 		)}
 	}
 	if !p.reserveProvisionalChildBudget(spec.Budget) {
 		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindExecution, "engine.child.budget_exhausted", ErrResourceLimitExceeded,
+			spec, FailureKindExecution, childBudgetExhaustedCode, ErrResourceLimitExceeded,
 		)}
 	}
 	childLimits, err := limitsFromBudget(p.limits, spec.Budget)
 	if err != nil {
 		p.releaseProvisionalChildBudget(spec.Budget)
 		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindExecution, "engine.child.budget_invalid", err,
+			spec, FailureKindExecution, childBudgetInvalidCode, err,
 		)}
 	}
 	if reserveProcessStartErr := p.engine.reserveProcessStart(
@@ -89,16 +104,16 @@ func (p *processState) prepareChildStart(
 		p.releaseProvisionalChildBudget(spec.Budget)
 		if errors.Is(reserveProcessStartErr, ErrResourceLimitExceeded) {
 			return childStartPreparation{result: failedChildStart(
-				spec, FailureKindExecution, "engine.child.tree_limit", reserveProcessStartErr,
+				spec, FailureKindExecution, childTreeLimitCode, reserveProcessStartErr,
 			)}
 		}
 		if errors.Is(reserveProcessStartErr, ErrEngineClosed) {
 			return childStartPreparation{result: failedChildStart(
-				spec, FailureKindExternal, "engine.child.start.unavailable", reserveProcessStartErr,
+				spec, FailureKindExternal, childStartUnavailableCode, reserveProcessStartErr,
 			)}
 		}
 		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindContract, "engine.child.identity_conflict", reserveProcessStartErr,
+			spec, FailureKindContract, childIdentityConflictCode, reserveProcessStartErr,
 		)}
 	}
 	return childStartPreparation{plan: &childStartPlan{
@@ -113,18 +128,18 @@ func (c *childStartPlan) execute(ctx context.Context) childStartJobResult {
 	deployment, resolveErr := c.resolveDeployment()
 	if resolveErr != nil {
 		return childStartJobResult{result: failedChildStart(
-			c.spec, FailureKindExternal, "engine.child.deployment_unavailable", resolveErr,
+			c.spec, FailureKindExternal, childDeploymentUnavailableCode, resolveErr,
 		)}
 	}
 	if validateErr := deployment.Descriptor().ValidateInput(c.spec.Input); validateErr != nil {
 		return childStartJobResult{result: failedChildStart(
-			c.spec, FailureKindContract, "engine.child.input.invalid", validateErr,
+			c.spec, FailureKindContract, childInputInvalidCode, validateErr,
 		)}
 	}
 	admission := newProcessAdmission(c.relation, deployment, c.spec.Budget, c.spec.Capabilities)
 	if admissionErr := requestProcessAdmission(ctx, c.engine.admitter, admission); admissionErr != nil {
 		return childStartJobResult{result: failedChildStart(
-			c.spec, FailureKindExternal, "engine.child.admission.rejected", admissionErr,
+			c.spec, FailureKindExternal, childAdmissionRejectedCode, admissionErr,
 		)}
 	}
 	startedAt := time.Now().Round(0).UTC()
@@ -137,7 +152,7 @@ func (c *childStartPlan) execute(ctx context.Context) childStartJobResult {
 	}
 	if err := acknowledgeProcessStartOutcome(ctx, c.engine.startOutcomeAcknowledger, startedProcessOutcome(admission, startedAt)); err != nil {
 		return childStartJobResult{result: failedChildStart(
-			c.spec, FailureKindExternal, "engine.child.start_outcome.unacknowledged", err,
+			c.spec, FailureKindExternal, childStartOutcomeUnacknowledgedCode, err,
 		)}
 	}
 	return childStartJobResult{
@@ -232,11 +247,10 @@ func resolveDeployment(
 }
 
 func failedChildStart(spec ChildSpec, kind FailureKind, code string, cause error) ChildStartResult {
-	failure, err := failureFromError(kind, code, cause)
-	if err != nil {
-		failure, _ = NewFailure(FailureKindContract, "engine.child.failure.invalid", "invalid child failure")
+	return ChildStartResult{
+		key: spec.Key, deploymentRef: spec.DeploymentRef,
+		failure: newEngineFailure(kind, code, cause),
 	}
-	return ChildStartResult{key: spec.Key, deploymentRef: spec.DeploymentRef, failure: failure}
 }
 
 func childSpecDigest(spec ChildSpec) (Digest, error) {

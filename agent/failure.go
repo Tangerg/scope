@@ -75,18 +75,41 @@ func NewFailure(kind FailureKind, code, message string) (Failure, error) {
 	return Failure{kind: kind, code: code, message: message}, nil
 }
 
-// Kind returns the framework-level failure classification.
 func (f Failure) Kind() FailureKind { return f.kind }
 
-// Code returns the stable machine-readable reason.
 func (f Failure) Code() string { return f.code }
 
-// Message returns the bounded diagnostic explanation.
 func (f Failure) Message() string { return f.message }
 
 func (f Failure) Valid() bool {
 	return f.kind.Valid() &&
 		validQualifiedName(f.code) && f.message != ""
+}
+
+// Kernel classifications are fixed by their owning boundary. An invalid kind or
+// code is a programming error; substituting another Failure would hide its cause.
+func newEngineFailure(kind FailureKind, code string, err error) Failure {
+	message := "unknown error"
+	if err != nil {
+		// Go errors can contain arbitrary bytes; persisted diagnostics must
+		// preserve their value when strict JSON decoding runs during recovery.
+		message = strings.TrimSpace(strings.ToValidUTF8(err.Error(), "\ufffd"))
+	}
+	if message == "" {
+		message = "unknown error"
+	}
+	if len(message) > maxFailureMessageBytes {
+		message = message[:maxFailureMessageBytes]
+		for !utf8.ValidString(message) {
+			message = message[:len(message)-1]
+		}
+		message = strings.TrimSpace(message)
+	}
+	failure, failureErr := NewFailure(kind, code, message)
+	if failureErr != nil {
+		panic(failureErr)
+	}
+	return failure
 }
 
 func (f Failure) MarshalJSON() ([]byte, error) {

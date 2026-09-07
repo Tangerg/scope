@@ -366,11 +366,7 @@ func (p *processState) recordFailure(kind FailureKind, code string, err error) {
 	if p.pendingControl.failure.Valid() {
 		return
 	}
-	failure, failureErr := failureFromError(kind, code, err)
-	if failureErr != nil {
-		failure, _ = NewFailure(FailureKindContract, "engine.failure.invalid", "Engine could not construct a valid failure")
-	}
-	p.pendingControl.failure = failure
+	p.pendingControl.failure = newEngineFailure(kind, code, err)
 }
 
 func (p *processState) fail(kind FailureKind, code string, err error) {

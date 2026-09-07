@@ -497,11 +497,7 @@ func newTreeDurabilityFailure(cause error) Failure {
 	case errors.Is(cause, ErrTreeIncarnationConflict):
 		code = treeIncarnationConflictCode
 	}
-	failure, err := failureFromError(kind, code, cause)
-	if err == nil {
-		return failure
-	}
-	return processInitializationFailure(kind, code, cause)
+	return newEngineFailure(kind, code, cause)
 }
 
 func (t *treeRuntime) setTreeCommit(commit *treeCommit) {
