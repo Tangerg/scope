@@ -76,8 +76,8 @@ func captureWaitingForkTree(
 	if result, awaitErr := root.Await(context.Background()); awaitErr != nil || result.Status() != agent.StatusKilled {
 		t.Fatalf("original root result = %#v, %v", result, awaitErr)
 	}
-	if _, captureTreeErr := engine.CaptureTree(context.Background(), root.ID()); captureTreeErr != nil {
-		t.Fatal(captureTreeErr)
+	if releaseErr := engine.ReleaseTree(context.Background(), root.ID()); releaseErr != nil {
+		t.Fatal(releaseErr)
 	}
 	if closeErr := engine.Close(); closeErr != nil {
 		t.Fatal(closeErr)
@@ -299,15 +299,18 @@ func awaitPausedWindow(
 		snapshot, err := engine.CaptureTree(ctx, rootID)
 		if err == nil && len(snapshot.ProcessSnapshots()) == wantProcesses {
 			rootWaiting := false
+			allChildrenReady := true
 			paused := 0
 			for _, process := range snapshot.ProcessSnapshots() {
 				if process.Relation().IsRoot() {
 					rootWaiting = process.Status() == agent.StatusWaiting
 				} else if process.Status() == agent.StatusPaused {
 					paused++
+				} else if process.Status() != agent.StatusCompleted {
+					allChildrenReady = false
 				}
 			}
-			if rootWaiting && paused > 0 {
+			if rootWaiting && paused > 0 && allChildrenReady {
 				return snapshot
 			}
 		}

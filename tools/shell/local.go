@@ -29,7 +29,10 @@ type LocalConfig struct {
 }
 
 // LocalExecutor runs commands on the local host through one immutable
-// construction-time configuration.
+// construction-time configuration. Each call owns a Unix process group and
+// kills that group on cancellation or return, including background children.
+// A command that deliberately creates another session requires a host sandbox
+// to keep its lifetime confined; this executor is not a process sandbox.
 type LocalExecutor struct {
 	directory      string
 	shell          string
@@ -84,10 +87,10 @@ func (l *LocalExecutor) Run(ctx context.Context, in Input) (Output, error) {
 
 	cmd := exec.CommandContext(runCtx, l.shell, shellCommandFlag, in.Cmd)
 	cmd.Dir = l.directory
-	// On a timeout/ctx kill, force-close the command's pipes shortly after so
-	// Wait returns promptly even when a child the shell spawned still holds them
-	// (otherwise Wait blocks until that child exits — the command runs its full
-	// duration despite the kill, which is exactly what slow CI runners surface).
+	if err := configureProcessGroup(cmd); err != nil {
+		return Output{}, err
+	}
+	// Escaped descendants cannot keep inherited pipes alive indefinitely.
 	cmd.WaitDelay = pipeCloseDelay
 
 	stdout := newBoundedBuffer(l.maxOutputBytes)
@@ -97,6 +100,7 @@ func (l *LocalExecutor) Run(ctx context.Context, in Input) (Output, error) {
 
 	start := time.Now()
 	err := cmd.Run()
+	cleanupErr := cmd.Cancel()
 	duration := time.Since(start)
 
 	out := Output{
@@ -108,7 +112,7 @@ func (l *LocalExecutor) Run(ctx context.Context, in Input) (Output, error) {
 	if err != nil {
 		exitErr, ok := errors.AsType[*exec.ExitError](err)
 		if !ok {
-			return out, err
+			return out, errors.Join(err, cleanupErr)
 		}
 		out.ExitCode = exitErr.ExitCode()
 	}
@@ -116,7 +120,7 @@ func (l *LocalExecutor) Run(ctx context.Context, in Input) (Output, error) {
 	if runCtx.Err() != nil {
 		out.Killed = true
 	}
-	return out, nil
+	return out, cleanupErr
 }
 
 // boundedBuffer is an [io.Writer] that accepts up to `limit` bytes

@@ -29,8 +29,7 @@ func (p *processState) prepareStepResult(
 	result stepJobResult,
 ) *stepPreparationFailure {
 	transition := result.transition
-	signals := p.mailbox.pending()
-	if !transition.Valid() || uint64(transition.ConsumedSignals()) > uint64(len(signals)) {
+	if !transition.Valid() || uint64(transition.ConsumedSignals()) > result.deliveredSignals {
 		return &stepPreparationFailure{
 			kind: FailureKindContract, code: "execution.transition.invalid", cause: ErrInvalidTransition,
 		}
@@ -128,15 +127,9 @@ type preparedTransitionState struct {
 }
 
 func newPreparedStepFinalization(loop *processState) (*preparedStepFinalization, error) {
-	mailbox, err := restoreSignalMailbox(loop.mailbox.snapshot())
+	mailbox := loop.mailbox.clone()
+	consumedChildWaits, err := mailbox.commit(loop.prepared.wire.Transition.ConsumedSignals())
 	if err != nil {
-		return nil, err
-	}
-	consumedChildWaits, err := mailbox.consumedChildWaitIDs(loop.prepared.wire.Transition.ConsumedSignals())
-	if err != nil {
-		return nil, err
-	}
-	if err := mailbox.commit(loop.prepared.wire.Transition.ConsumedSignals()); err != nil {
 		return nil, err
 	}
 	return &preparedStepFinalization{
@@ -161,77 +154,66 @@ func (p *preparedStepFinalization) applySettlement(record preparedEffectWire) er
 	if !record.definitelySettled() {
 		return errors.New("effect batch is not definitely settled")
 	}
-	waitID, err := p.registerFrameworkEffect(record)
-	if err != nil {
-		return err
+	var waitID WaitID
+	if record.WaitID != nil {
+		waitID = *record.WaitID
 	}
 	signal, err := newSignal(deriveSettlementSignalID(record.ID), waitID, record.Settlement.Payload())
 	if err != nil {
 		return err
 	}
-	if waitID.Valid() {
-		return p.mailbox.enqueueWaitOpened(signal)
+	if record.Effect.Target() == EffectTargetFramework {
+		operation, operationErr := decodeFrameworkEffectOperation(record.Effect.Payload())
+		if operationErr != nil {
+			return errors.New("invalid prepared framework Effect")
+		}
+		switch operation {
+		case frameworkEffectWait:
+			key, _, decodeErr := decodeWaitRequest(record.Effect)
+			if decodeErr != nil {
+				return decodeErr
+			}
+			return p.mailbox.openWait(key, signal, true)
+		case frameworkEffectWaitChildren:
+			return p.registerChildWait(record, signal)
+		case frameworkEffectStartChild:
+			if waitID.Valid() {
+				return errors.New("child-start Effect unexpectedly contains a WaitID")
+			}
+		default:
+			return errors.New("unsupported prepared framework Effect")
+		}
 	}
-	accepted, err := p.mailbox.enqueue(StatusRunning, signal)
+	accepted, err := p.mailbox.enqueue(StatusRunning, signal, signalSourceExternal)
 	if err != nil || !accepted {
 		return errors.Join(err, errors.New("internal settlement Signal was not accepted"))
 	}
 	return nil
 }
 
-func (p *preparedStepFinalization) registerFrameworkEffect(record preparedEffectWire) (WaitID, error) {
-	if record.Effect.Target() != EffectTargetFramework {
-		return WaitID{}, nil
-	}
-	operation, err := decodeFrameworkEffectOperation(record.Effect.Payload())
-	if err != nil {
-		return WaitID{}, errors.New("invalid prepared framework Effect")
-	}
-	switch operation {
-	case frameworkEffectWait:
-		key, _, err := decodeWaitRequest(record.Effect)
-		if err != nil || record.WaitID == nil {
-			return WaitID{}, errors.New("invalid prepared wait Effect")
-		}
-		if err := p.mailbox.registerWait(key, *record.WaitID, true); err != nil {
-			return WaitID{}, err
-		}
-		return *record.WaitID, nil
-	case frameworkEffectStartChild:
-		if record.WaitID != nil {
-			return WaitID{}, errors.New("child-start Effect unexpectedly contains a WaitID")
-		}
-		return WaitID{}, nil
-	case frameworkEffectWaitChildren:
-		return p.registerChildWait(record)
-	default:
-		return WaitID{}, errors.New("unsupported prepared framework Effect")
-	}
-}
-
-func (p *preparedStepFinalization) registerChildWait(record preparedEffectWire) (WaitID, error) {
+func (p *preparedStepFinalization) registerChildWait(record preparedEffectWire, signal Signal) error {
 	spec, err := decodeChildWaitEffect(record.Effect.Payload())
 	if err != nil || record.WaitID == nil {
-		return WaitID{}, errors.New("invalid child-wait Effect")
+		return errors.New("invalid child-wait Effect")
 	}
 	waitID := *record.WaitID
-	if registerWaitErr := p.mailbox.registerWait(spec.Key, waitID, false); registerWaitErr != nil {
-		return WaitID{}, registerWaitErr
+	if openErr := p.mailbox.openWait(spec.Key, signal, false); openErr != nil {
+		return openErr
 	}
 	if p.loop.runtime == nil {
-		return WaitID{}, ErrInvalidChildWait
+		return ErrInvalidChildWait
 	}
 	immediateSignal, immediatelySatisfied, err := p.loop.runtime.registerChildWait(
 		p.loop.controller.processID, waitID, spec,
 	)
 	if err != nil {
-		return WaitID{}, err
+		return err
 	}
 	p.registeredChildWaits = append(p.registeredChildWaits, waitID)
 	if immediatelySatisfied {
 		p.immediateChildSignals = append(p.immediateChildSignals, immediateSignal)
 	}
-	return waitID, nil
+	return nil
 }
 
 func (p *preparedStepFinalization) enqueueImmediateChildSignals() error {
@@ -251,7 +233,7 @@ func (p *preparedStepFinalization) enqueueImmediateChildSignals() error {
 		) {
 			return ErrResourceLimitExceeded
 		}
-		accepted, err := p.mailbox.enqueueChildCompletion(StatusRunning, signal)
+		accepted, err := p.mailbox.enqueue(StatusRunning, signal, signalSourceChildCompletion)
 		if err != nil || !accepted {
 			return errors.Join(err, errors.New("immediate child completion Signal was not accepted"))
 		}
@@ -330,14 +312,12 @@ func (p *preparedStepFinalization) commit(ctx context.Context) error {
 	loop.usage.AcceptedSignals += uint64(len(p.prepared.wire.Effects))
 	loop.usage.AcceptedSignals += uint64(len(p.immediateChildSignals))
 	loop.prepared = nil
-	loop.status = p.transition.status
-	loop.currentWaitID = p.transition.currentWaitID
-	loop.pauseReason = p.transition.pauseReason
-	loop.finalOutput = p.transition.finalOutput
 	if p.transition.termination.Valid() {
-		loop.termination = p.transition.termination
-		loop.finishedAt = p.transition.finishedAt
-		loop.pendingControl = pendingControl{}
+		loop.installTermination(p.transition.termination, p.transition.finalOutput, p.transition.finishedAt)
+	} else {
+		loop.status = p.transition.status
+		loop.currentWaitID = p.transition.currentWaitID
+		loop.pauseReason = p.transition.pauseReason
 	}
 	loop.updateView()
 	payload, _ := json.Marshal(stepCommittedEventPayload{ProcessStatus: loop.status})
@@ -380,13 +360,22 @@ func (p *processState) discardExecution() {
 	}
 }
 
-func (p *processState) fail(kind FailureKind, code string, err error) {
+// Asynchronous failures wait for accepted external effects to settle before
+// becoming terminal, just like cancellation and deadline intents.
+func (p *processState) recordFailure(kind FailureKind, code string, err error) {
+	if p.pendingControl.failure.Valid() {
+		return
+	}
 	failure, failureErr := failureFromError(kind, code, err)
 	if failureErr != nil {
 		failure, _ = NewFailure(FailureKindContract, "engine.failure.invalid", "Engine could not construct a valid failure")
 	}
-	outcome, _ := failedOutcome(failure)
-	p.commitTermination(outcome)
+	p.pendingControl.failure = failure
+}
+
+func (p *processState) fail(kind FailureKind, code string, err error) {
+	p.recordFailure(kind, code, err)
+	p.commitTermination(stepOutcome{})
 }
 
 func (p *processState) commitTermination(outcome stepOutcome) {
@@ -398,19 +387,30 @@ func (p *processState) commitTerminationWithUnresolved(
 	unresolvedEffectIDs []EffectID,
 ) {
 	termination := p.resolveStepTermination(outcome)
-	p.termination = termination.withUnresolvedEffectIDs(unresolvedEffectIDs)
-	p.status = termination.Status()
-	p.finishedAt = time.Now().Round(0).UTC()
-	p.currentWaitID = WaitID{}
-	p.pauseReason = ""
-	p.pendingControl = pendingControl{}
+	p.installTermination(termination.withUnresolvedEffectIDs(unresolvedEffectIDs), Output{}, time.Now().Round(0).UTC())
 	for _, waitID := range p.mailbox.closeAllWaits() {
 		p.runtime.unregisterChildWait(waitID)
 	}
 	p.updateView()
 }
 
+func (p *processState) installTermination(termination Termination, output Output, finishedAt time.Time) {
+	p.termination = termination
+	p.status = termination.Status()
+	p.finishedAt = finishedAt
+	p.currentWaitID = WaitID{}
+	p.pauseReason = ""
+	p.pendingControl = pendingControl{}
+	p.finalOutput = Output{}
+	if p.status == StatusCompleted {
+		p.finalOutput = output
+	}
+}
+
 func (p *processState) resolveStepTermination(outcome stepOutcome) Termination {
+	if p.pendingControl.failure.Valid() {
+		outcome, _ = failedOutcome(p.pendingControl.failure)
+	}
 	termination, err := resolveTermination(terminationFacts{
 		kill: p.pendingControl.kill, deadline: p.pendingControl.deadline,
 		cancellation: p.pendingControl.cancellation, outcome: outcome,

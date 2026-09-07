@@ -3,6 +3,7 @@ package json_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -52,6 +53,28 @@ func TestReaderSplitsOnlyTopLevelArrays(t *testing.T) {
 			}
 			if len(documents) != testCase.want {
 				t.Fatalf("produced %d documents, want %d: %#v", len(documents), testCase.want, documents)
+			}
+		})
+	}
+}
+
+func TestReaderPreservesJSONNumbersOutsideFloat64Range(t *testing.T) {
+	for _, testCase := range []struct {
+		source string
+		want   []string
+	}{
+		{source: `1e400`, want: []string{`1e400`}},
+		{source: `-1e400`, want: []string{`-1e400`}},
+		{source: `{"large":1e400,"small":1e-400}`, want: []string{`{"large":1e400,"small":1e-400}`}},
+		{source: `[1e400,{"small":1e-400}]`, want: []string{`1e400`, `{"small":1e-400}`}},
+	} {
+		t.Run(testCase.source, func(t *testing.T) {
+			documents, err := read(t, testCase.source, etljson.ReaderConfig{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(documents, testCase.want) {
+				t.Fatalf("document text = %q, want %q", documents, testCase.want)
 			}
 		})
 	}

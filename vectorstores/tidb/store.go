@@ -242,9 +242,6 @@ func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 		s.tableName, s.fullTable, s.distanceMetric.function(), s.embeddingColumn,
 	)
 	if _, err := s.db.ExecContext(ctx, idxStmt); err != nil {
-		// Older TiDB versions may not yet support the HNSW vector
-		// index; the table itself still works for exact search.
-		// Surface the error so callers know the index didn't take.
 		return fmt.Errorf("create vector index on %s: %w", s.fullTable, err)
 	}
 	return nil

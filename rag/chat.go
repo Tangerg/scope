@@ -18,8 +18,8 @@ const (
 	promptVariableTarget     = "Target"
 )
 
-// ErrEmptyModelOutput prevents a model-backed query stage from silently
-// erasing retrieval intent.
+// ErrEmptyModelOutput rejects completed text that becomes empty after trimming.
+// Missing response text and unsuccessful completion preserve chatclient errors.
 var ErrEmptyModelOutput = errors.New("rag: model returned empty query text")
 
 // modelPrompt owns the common template and typed output boundary used by

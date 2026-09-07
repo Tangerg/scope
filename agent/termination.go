@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 const maxTerminationReasonBytes = 4096
@@ -269,8 +270,8 @@ func terminationForFailure(failure Failure) Termination {
 }
 
 func validateTerminationReason(reason string) error {
-	if reason == "" || strings.TrimSpace(reason) != reason || len(reason) > maxTerminationReasonBytes {
-		return fmt.Errorf("%w: reason must be non-empty, trimmed, and at most %d bytes", errInvalidTermination, maxTerminationReasonBytes)
+	if reason == "" || strings.TrimSpace(reason) != reason || !utf8.ValidString(reason) || len(reason) > maxTerminationReasonBytes {
+		return fmt.Errorf("%w: reason must be non-empty, trimmed UTF-8 within %d bytes", errInvalidTermination, maxTerminationReasonBytes)
 	}
 	return nil
 }
@@ -312,6 +313,9 @@ func (t Termination) Valid() bool {
 	if !t.status.Terminal() || !t.cause.Valid() {
 		return false
 	}
+	if t.status != StatusCompleted && validateTerminationReason(t.reason) != nil {
+		return false
+	}
 	for index, effectID := range t.unresolvedEffectIDs {
 		if !effectID.Valid() || index > 0 &&
 			t.unresolvedEffectIDs[index-1].String() >= effectID.String() {
@@ -326,18 +330,15 @@ func (t Termination) Valid() bool {
 		if !t.failure.Valid() || t.reason != t.failure.Message() {
 			return false
 		}
-		return t.cause == TerminationCauseExecutionFailure ||
-			t.cause == TerminationCauseContractFailure ||
-			t.cause == TerminationCauseExternalFailure ||
-			t.cause == TerminationCausePanic
+		return t.cause == terminationForFailure(t.failure).cause
 	case StatusCanceled:
 		return (t.cause == TerminationCauseParentCancellation || t.cause == TerminationCauseHostCancellation) &&
-			t.reason != "" && !t.failure.Valid()
+			!t.failure.Valid()
 	case StatusTimedOut:
 		return (t.cause == TerminationCauseProcessDeadline || t.cause == TerminationCauseParentDeadline || t.cause == TerminationCauseHostDeadline) &&
-			t.reason != "" && !t.failure.Valid()
+			!t.failure.Valid()
 	case StatusKilled:
-		return t.cause == TerminationCauseEngineKill && t.reason != "" && !t.failure.Valid()
+		return t.cause == TerminationCauseEngineKill && !t.failure.Valid()
 	default:
 		return false
 	}

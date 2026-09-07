@@ -101,14 +101,12 @@ func (c Candidates) uniqueBest() Candidates {
 	return unique
 }
 
-// ranked returns an independent score-descending snapshot. Stable sorting
-// retains retrieval order when scores tie.
-func (c Candidates) ranked() Candidates {
-	ranked := c.Clone()
-	slices.SortStableFunc(ranked, func(left, right Candidate) int {
+// sortCandidatesByScore sorts an owned result. Refiners detach borrowed
+// documents before handing them to this ordering step.
+func sortCandidatesByScore(candidates Candidates) {
+	slices.SortStableFunc(candidates, func(left, right Candidate) int {
 		return cmp.Compare(right.Score, left.Score)
 	})
-	return ranked
 }
 
 func (c Candidate) Validate() error {
@@ -144,7 +142,8 @@ func (t TransformerFunc) Transform(ctx context.Context, query Query) (Query, err
 // (alternative phrasings) or complex problems (decompose into sub-queries).
 type Expander interface {
 	// Expand returns a non-empty, ordered set of valid alternative or decomposed
-	// queries. It must not mutate query or expose reusable backing storage;
+	// queries with distinct Text values. Per-query values do not create another
+	// expansion identity. It must not mutate query or expose reusable backing storage;
 	// ordering is semantic because downstream fusion uses it for stable ties.
 	Expand(ctx context.Context, query Query) ([]Query, error)
 }

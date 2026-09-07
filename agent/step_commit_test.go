@@ -60,10 +60,10 @@ func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 	secondWait, _ := ParseWaitID("wait:second")
 	firstKey, _ := ParseWaitKey("first")
 	secondKey, _ := ParseWaitKey("second")
-	if err := mailbox.registerWait(firstKey, firstWait, false); err != nil {
+	if err := mailbox.openWait(firstKey, mustMailboxSignal(t, "signal:first-opened", firstWait, json.RawMessage(`{}`)), false); err != nil {
 		t.Fatal(err)
 	}
-	if err := mailbox.registerWait(secondKey, secondWait, false); err != nil {
+	if err := mailbox.openWait(secondKey, mustMailboxSignal(t, "signal:second-opened", secondWait, json.RawMessage(`{}`)), false); err != nil {
 		t.Fatal(err)
 	}
 	firstSignalID, _ := ParseSignalID("signal:first")
@@ -83,8 +83,8 @@ func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 	if !errors.Is(err, ErrResourceLimitExceeded) {
 		t.Fatalf("enqueue immediate child Signals error = %v, want %v", err, ErrResourceLimitExceeded)
 	}
-	if pending := finalization.mailbox.pendingCount(); pending != 1 {
-		t.Fatalf("pending immediate child Signals = %d, want 1 before cumulative limit", pending)
+	if pending := finalization.mailbox.pendingCount(); pending != 3 {
+		t.Fatalf("pending immediate child Signals = %d, want 3 including both opening Signals before cumulative limit", pending)
 	}
 }
 

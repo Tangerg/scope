@@ -20,13 +20,13 @@ func TestModelEvaluatorConstructionValidatesConfiguration(t *testing.T) {
 	model := &fakeModel{reply: `{"score":0.5}`}
 	negative := eval.Score(-0.1)
 	if _, err := texteval.NewGroundednessEvaluator(texteval.ModelEvaluatorConfig{
-		Model: model, Threshold: &negative,
+		ModelID: "test-model-v1", Model: model, Threshold: &negative,
 	}); !errors.Is(err, eval.ErrInvalidEvaluatorConfig) {
 		t.Fatalf("negative threshold error = %v", err)
 	}
 	large := eval.Score(1.1)
 	if _, err := texteval.NewGroundednessEvaluator(texteval.ModelEvaluatorConfig{
-		Model: model, Threshold: &large,
+		ModelID: "test-model-v1", Model: model, Threshold: &large,
 	}); !errors.Is(err, eval.ErrInvalidEvaluatorConfig) {
 		t.Fatalf("large threshold error = %v", err)
 	}
@@ -35,7 +35,7 @@ func TestModelEvaluatorConstructionValidatesConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, constructErr := texteval.NewGroundednessEvaluator(texteval.ModelEvaluatorConfig{
-		Model: model, PromptTemplate: missing,
+		ModelID: "test-model-v1", Model: model, PromptTemplate: missing,
 	}); !errors.Is(constructErr, eval.ErrInvalidEvaluatorConfig) {
 		t.Fatalf("unknown field error = %v", constructErr)
 	}
@@ -44,7 +44,7 @@ func TestModelEvaluatorConstructionValidatesConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, constructErr := texteval.NewAnswerRelevanceEvaluator(texteval.ModelEvaluatorConfig{
-		Model: model, PromptTemplate: unsupportedContext,
+		ModelID: "test-model-v1", Model: model, PromptTemplate: unsupportedContext,
 	}); !errors.Is(constructErr, eval.ErrInvalidEvaluatorConfig) {
 		t.Fatalf("unsupported relevance prompt field error = %v", constructErr)
 	}
@@ -60,7 +60,7 @@ func TestGroundednessBuildsStructuredRequestAndDecodesResult(t *testing.T) {
 	model := &fakeModel{reply: `{"score":0.95,"feedback":"Fully supported."}`}
 	threshold := eval.Score(0.5)
 	evaluator, err := texteval.NewGroundednessEvaluator(texteval.ModelEvaluatorConfig{
-		Model: model, Threshold: &threshold,
+		ModelID: "test-model-v1", Model: model, Threshold: &threshold,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +97,7 @@ func TestAnswerRelevanceSupportsCustomPromptAndThreshold(t *testing.T) {
 	}
 	threshold := eval.Score(0.8)
 	evaluator, err := texteval.NewAnswerRelevanceEvaluator(texteval.ModelEvaluatorConfig{
-		Model: model, Threshold: &threshold, PromptTemplate: prompt,
+		ModelID: "test-model-v1", Model: model, Threshold: &threshold, PromptTemplate: prompt,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestAnswerRelevanceSupportsCustomPromptAndThreshold(t *testing.T) {
 
 func TestModelEvaluatorsRejectMissingSemanticInputs(t *testing.T) {
 	model := &fakeModel{reply: `{"score":0.5}`}
-	groundedness, err := texteval.NewGroundednessEvaluator(texteval.ModelEvaluatorConfig{Model: model})
+	groundedness, err := texteval.NewGroundednessEvaluator(texteval.ModelEvaluatorConfig{ModelID: "test-model-v1", Model: model})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestModelEvaluatorsRejectMissingSemanticInputs(t *testing.T) {
 			t.Fatalf("Groundedness Evaluate(%#v) error = %v", sample, evaluateErr)
 		}
 	}
-	relevance, err := texteval.NewAnswerRelevanceEvaluator(texteval.ModelEvaluatorConfig{Model: model})
+	relevance, err := texteval.NewAnswerRelevanceEvaluator(texteval.ModelEvaluatorConfig{ModelID: "test-model-v1", Model: model})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestCorrectnessUsesReferenceAndSupportsSelfConsistency(t *testing.T) {
 	model := &fakeModel{reply: "{\"score\":0.9,\"feedback\":\"Correct.\"}"}
 	threshold := eval.Score(0.5)
 	evaluator, err := texteval.NewCorrectnessEvaluator(texteval.ModelEvaluatorConfig{
-		Model: model, Threshold: &threshold, Samples: 3,
+		ModelID: "test-model-v1", Model: model, Threshold: &threshold, Samples: 3,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -177,7 +177,7 @@ func TestCorrectnessUsesReferenceAndSupportsSelfConsistency(t *testing.T) {
 func TestModelEvaluatorPreservesCancellationAndModelErrors(t *testing.T) {
 	modelErr := errors.New("model failed")
 	model := &fakeModel{err: modelErr}
-	evaluator, err := texteval.NewGroundednessEvaluator(texteval.ModelEvaluatorConfig{Model: model})
+	evaluator, err := texteval.NewGroundednessEvaluator(texteval.ModelEvaluatorConfig{ModelID: "test-model-v1", Model: model})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestModelEvaluatorPreservesCancellationAndModelErrors(t *testing.T) {
 func TestModelEvaluatorRejectsInvalidStructuredResults(t *testing.T) {
 	for _, reply := range []string{"YES", "5 out of 10", "", `{"score":"0.5"}`} {
 		model := &fakeModel{reply: reply}
-		evaluator, err := texteval.NewGroundednessEvaluator(texteval.ModelEvaluatorConfig{Model: model})
+		evaluator, err := texteval.NewGroundednessEvaluator(texteval.ModelEvaluatorConfig{ModelID: "test-model-v1", Model: model})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -211,7 +211,7 @@ func TestModelEvaluatorRejectsInvalidStructuredResults(t *testing.T) {
 		}
 	}
 	model := &fakeModel{reply: `{"score":2}`}
-	evaluator, err := texteval.NewGroundednessEvaluator(texteval.ModelEvaluatorConfig{Model: model})
+	evaluator, err := texteval.NewGroundednessEvaluator(texteval.ModelEvaluatorConfig{ModelID: "test-model-v1", Model: model})
 	if err != nil {
 		t.Fatal(err)
 	}

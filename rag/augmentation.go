@@ -15,9 +15,9 @@ var (
 	ErrNilAugmenter = errors.New("rag: augmenter must not be nil")
 )
 
-// Augmentation is the final text handed to a generation model after retrieval.
-// It is intentionally distinct from [Query]: a retrieval query carries
-// retrieval-scoped values, while an augmentation is generation input.
+// Augmentation is immutable generation input that can be copied by assignment.
+// It keeps final text and citations separate from [Query]'s retrieval-scoped
+// values.
 type Augmentation struct {
 	text      string
 	citations Citations
@@ -103,12 +103,6 @@ func NewAugmentation(text string) (Augmentation, error) {
 // Text returns the final generation input.
 func (a Augmentation) Text() string { return a.text }
 
-// Clone returns an independently owned augmentation.
-func (a Augmentation) Clone() Augmentation {
-	a.citations = a.citations.Clone()
-	return a
-}
-
 // Citations returns an independent citation-order snapshot.
 func (a Augmentation) Citations() Citations { return a.citations.Clone() }
 
@@ -155,7 +149,7 @@ func augment(ctx context.Context, augmenter Augmenter, query Query, candidates C
 	if err := candidates.Validate(); err != nil {
 		return Augmentation{}, err
 	}
-	augmentation, err := augmenter.Augment(ctx, query, candidates.Clone())
+	augmentation, err := augmenter.Augment(ctx, query, candidates)
 	if err != nil {
 		return Augmentation{}, err
 	}
@@ -165,5 +159,5 @@ func augment(ctx context.Context, augmenter Augmenter, query Query, candidates C
 	if err := ctx.Err(); err != nil {
 		return Augmentation{}, err
 	}
-	return augmentation.Clone(), nil
+	return augmentation, nil
 }

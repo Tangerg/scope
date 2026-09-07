@@ -248,8 +248,8 @@ func (e *execution) acceptChildStart(signals []agent.Signal) (agent.Transition, 
 }
 
 func (e *execution) acceptChildWaitOpen(signals []agent.Signal) (agent.Transition, error) {
-	if len(signals) != 1 || e.state.ChildKey == nil || e.state.ChildProcessID == nil {
-		return agent.Transition{}, errors.New("planning: child wait opening requires exactly one settlement Signal")
+	if len(signals) == 0 || e.state.ChildKey == nil || e.state.ChildProcessID == nil {
+		return agent.Transition{}, errors.New("planning: child wait opening requires its settlement Signal")
 	}
 	opened, err := agent.ParseChildWaitOpened(signals[0])
 	if err != nil {
@@ -264,7 +264,7 @@ func (e *execution) acceptChildWaitOpen(signals []agent.Signal) (agent.Transitio
 	waitID := opened.WaitID()
 	e.state.WaitID = &waitID
 	e.state.Phase = phaseWaitingChild
-	return agent.Wait(uint32(len(signals)), waitID)
+	return agent.Wait(1, waitID)
 }
 
 func (e *execution) acceptChildCompletion(signals []agent.Signal) (agent.Transition, error) {

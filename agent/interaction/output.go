@@ -64,6 +64,11 @@ func (o Output) Validate() error {
 		if modelOutput == nil || modelOutput.Message == nil || modelOutput.FinishReason == "" {
 			return errors.New("interaction: output has no finished assistant response")
 		}
+		for _, part := range modelOutput.Message.Parts {
+			if part.ToolCall != nil {
+				return errors.New("interaction: final model response contains a pending tool call")
+			}
+		}
 	case CompletionSourceDirectToolResults:
 		if o.ModelResponse != nil || len(o.DirectToolResults) == 0 {
 			return errors.New("interaction: direct_tool_results output requires only DirectToolResults")
@@ -73,6 +78,9 @@ func (o Output) Validate() error {
 			result := o.DirectToolResults[index]
 			if err := result.Validate(); err != nil {
 				return fmt.Errorf("interaction: direct tool result %d: %w", index, err)
+			}
+			if result.IsError {
+				return fmt.Errorf("interaction: direct tool result %d failed", index)
 			}
 			if _, duplicate := seen[result.ID]; duplicate {
 				return fmt.Errorf("interaction: duplicate direct tool result ID %q", result.ID)

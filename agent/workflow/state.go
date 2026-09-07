@@ -158,6 +158,7 @@ func (e executionState) validateFanoutBoundary(definition *Definition) (Stage, u
 	count, err := stage.fanoutCount(e.CurrentValue)
 	if err != nil || count == 0 || e.NextFanoutIndex == 0 || e.NextFanoutIndex > count ||
 		len(e.ActiveFanoutWindow) == 0 || uint64(len(e.ActiveFanoutWindow)) > uint64(stage.fanoutWindowSize()) ||
+		uint64(len(e.ActiveFanoutWindow)) > uint64(e.NextFanoutIndex) ||
 		uint64(len(e.FanoutOutputs)) != uint64(count) {
 		return Stage{}, 0, ErrInvalidExecutionState
 	}
@@ -166,7 +167,7 @@ func (e executionState) validateFanoutBoundary(definition *Definition) (Stage, u
 
 func (e executionState) validateFanoutChildren(windowStart uint32) (int, int, error) {
 	resolved := 0
-	started := 0
+	started := make(map[agent.ProcessID]struct{}, len(e.ActiveFanoutWindow))
 	for offset, child := range e.ActiveFanoutWindow {
 		if child.FanoutIndex != windowStart+uint32(offset) {
 			return 0, 0, ErrInvalidExecutionState
@@ -180,13 +181,16 @@ func (e executionState) validateFanoutChildren(windowStart uint32) (int, int, er
 			resolved++
 		}
 		if hasProcess {
-			started++
+			if _, duplicate := started[*child.ChildProcessID]; duplicate {
+				return 0, 0, ErrInvalidExecutionState
+			}
+			started[*child.ChildProcessID] = struct{}{}
 		}
 	}
 	if resolved != 0 && resolved != len(e.ActiveFanoutWindow) {
 		return 0, 0, ErrInvalidExecutionState
 	}
-	return resolved, started, nil
+	return resolved, len(started), nil
 }
 
 func (e executionState) validateFanoutOutputs(stage Stage, windowStart uint32) error {

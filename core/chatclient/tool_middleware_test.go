@@ -121,6 +121,38 @@ func TestToolMiddlewarePropagatesExecutionFailure(t *testing.T) {
 	}
 }
 
+func TestToolMiddlewareRejectsEntireInvalidBatchBeforeExecution(t *testing.T) {
+	for _, second := range []chat.ToolCall{
+		{ID: "second", Name: "missing", Arguments: `{"value":"second"}`},
+		{ID: "second", Name: "write", Arguments: `{"value":123}`},
+	} {
+		t.Run(second.Name, func(t *testing.T) {
+			executions := 0
+			middleware, err := NewToolMiddleware(middlewareTool{
+				name: "write",
+				call: func(context.Context, tool.Invocation) (chat.ToolOutput, error) {
+					executions++
+					return chat.NewTextToolOutput("changed"), nil
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			modelCalls := 0
+			model := middleware(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+				modelCalls++
+				return toolCallResponse(
+					chat.ToolCall{ID: "first", Name: "write", Arguments: `{"value":"first"}`}, second,
+				), nil
+			}))
+			response, err := model.Call(t.Context(), textRequest("write"))
+			if err == nil || response != nil || executions != 0 || modelCalls != 1 {
+				t.Fatalf("response=%v error=%v executions=%d model calls=%d", response, err, executions, modelCalls)
+			}
+		})
+	}
+}
+
 func TestToolMiddlewareExecutesOnlyOneBatch(t *testing.T) {
 	var executions int
 	executable := middlewareTool{name: "lookup", call: func(context.Context, tool.Invocation) (chat.ToolOutput, error) {

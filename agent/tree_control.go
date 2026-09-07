@@ -1,14 +1,10 @@
 package agent
 
 import (
-	"context"
 	"errors"
 )
 
 func (t *treeRuntime) applyCommand(command treeCommand) {
-	if t.deferDuringCommit(command) {
-		return
-	}
 	switch command.kind {
 	case treeCommandAcquireFreeze:
 		t.acquireFreeze(command.acquisition)
@@ -21,24 +17,7 @@ func (t *treeRuntime) applyCommand(command treeCommand) {
 		err := t.applyFreeze(command.freeze, command.projection)
 		command.response <- err
 		return
-	case treeCommandWaitHeadAdvance:
-		if t.engine.durability == nil || !command.previousHead.Valid() {
-			command.response <- ErrTreeDurabilityMismatch
-			return
-		}
-		if t.headDigest != command.previousHead {
-			command.response <- nil
-			return
-		}
-		t.headWaiters = append(t.headWaiters, treeHeadWaiter{
-			previous: command.previousHead, response: command.response,
-		})
-		return
 	case treeCommandProcess:
-		if t.freeze != nil {
-			t.freeze.deferred = append(t.freeze.deferred, command)
-			return
-		}
 	default:
 		if command.response != nil {
 			command.response <- ErrEngineQuiescenceUnavailable
@@ -152,7 +131,7 @@ func (t *treeRuntime) freezeBlockedByJob() bool {
 }
 
 func (t *treeRuntime) captureTree() (TreeSnapshot, error) {
-	wire := treeSnapshotWire{Version: CurrentTreeSnapshotVersion, RootID: t.rootID}
+	wire := treeSnapshotWire{RootID: t.rootID}
 	if t.incarnation.Valid() {
 		incarnation := t.incarnation
 		wire.IncarnationID = &incarnation
@@ -186,16 +165,12 @@ func (t *treeRuntime) releaseFreeze(freeze *treeFreeze) error {
 // the active freeze. External capabilities still pass through releaseFreeze so
 // stale or foreign authority is rejected rather than silently accepted.
 func (t *treeRuntime) releaseCurrentFreeze() {
-	deferred := t.freeze.deferred
 	t.freeze = nil
 	t.freezeHeld.Store(false)
 	for _, process := range t.processes {
 		if !process.status.Terminal() {
 			t.markRunnable(process.controller.processID)
 		}
-	}
-	for _, command := range deferred {
-		t.applyCommand(command)
 	}
 }
 
@@ -207,7 +182,7 @@ func (t *treeRuntime) applyFreeze(
 		projection == nil {
 		return ErrInvalidPreparedWaitingSubtreeCancellation
 	}
-	if t.engine.durability != nil && t.headDigest != projection.sourceDigest {
+	if t.engine.durability != nil && t.head.digest() != projection.sourceDigest {
 		return ErrTreeIncarnationConflict
 	}
 	for _, change := range projection.changes {
@@ -232,45 +207,10 @@ func (t *treeRuntime) applyFreeze(
 		if err != nil || result.Digest() != projection.resultingDigest {
 			return ErrInvalidPreparedWaitingSubtreeCancellation
 		}
-		t.headDigest = projection.resultingDigest
-		t.notifyHeadWaiters(nil)
+		t.advanceHead(projection.resultingDigest)
 		t.publishCheckpoint()
 	}
 	return t.releaseFreeze(freeze)
-}
-
-func (t *treeRuntime) awaitHeadAdvance(ctx context.Context, previous Digest) error {
-	ctx = requireContext(ctx)
-	response := make(chan error, 1)
-	select {
-	case t.commands <- treeCommand{
-		kind: treeCommandWaitHeadAdvance, previousHead: previous, response: response,
-	}:
-	case <-t.done:
-		return ErrEngineQuiescenceUnavailable
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	select {
-	case err := <-response:
-		return err
-	case <-t.done:
-		return ErrEngineQuiescenceUnavailable
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func (t *treeRuntime) notifyHeadWaiters(commitErr error) {
-	remaining := t.headWaiters[:0]
-	for _, waiter := range t.headWaiters {
-		if commitErr == nil && waiter.previous == t.headDigest {
-			remaining = append(remaining, waiter)
-			continue
-		}
-		waiter.response <- commitErr
-	}
-	t.headWaiters = remaining
 }
 
 func (t *treeRuntime) invalidateStep(process *processState) {

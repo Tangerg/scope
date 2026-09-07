@@ -88,7 +88,7 @@ type suiteMetricIdentity struct {
 func suiteMetric(reports []Report) (Metric, error) {
 	metrics := make([]Metric, len(reports))
 	for index, report := range reports {
-		metrics[index] = report.Metric.Clone()
+		metrics[index] = report.Metric
 	}
 	parameters := metadata.Map{}
 	if err := parameters.Set(metricConfigurationKey, suiteMetricIdentity{Metrics: metrics}); err != nil {

@@ -205,9 +205,19 @@ func TestTopKDoesNotMutateInput(t *testing.T) {
 	b := candidate(bDoc, 0.9)
 	in := []rag.Candidate{a, b}
 
-	_, _ = r.Refine(t.Context(), mustQuery(t, "query"), in)
+	got, err := r.Refine(t.Context(), mustQuery(t, "query"), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Document.Text != "b" || got[1].Document.Text != "a" {
+		t.Fatalf("ranked candidates = %#v, want b then a", got)
+	}
+	got[0].Document.Text = "changed"
 
 	if in[0].Score != 0.1 || in[1].Score != 0.9 {
 		t.Fatalf("input mutated: %v %v", in[0].Score, in[1].Score)
+	}
+	if aDoc.Text != "a" || bDoc.Text != "b" {
+		t.Fatal("ranked output aliases input documents")
 	}
 }

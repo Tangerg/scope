@@ -5,6 +5,12 @@ import (
 	"slices"
 )
 
+type childWaitRegistration struct {
+	parent ProcessID
+	waitID WaitID
+	spec   ChildWaitSpec
+}
+
 func (t *treeRuntime) finishIfTerminal(process *processState) {
 	if process == nil || !process.status.Terminal() {
 		return
@@ -44,7 +50,12 @@ func (t *treeRuntime) processFinished(process *processState) {
 		}
 	}
 	for _, registration := range orderedChildWaitRegistrations(t.childWaits) {
-		if registration.delivered || !containsProcessID(registration.spec.Children, processID) {
+		if !containsProcessID(registration.spec.Children, processID) {
+			continue
+		}
+		parent := t.processes[registration.parent]
+		if parent == nil || parent.status.Terminal() || parent.pendingControl.hasTerminalIntent() ||
+			parent.mailbox.contains(deriveChildCompletionSignalID(registration.waitID)) {
 			continue
 		}
 		outcomes, satisfied := t.childWaitOutcomes(registration)
@@ -53,11 +64,15 @@ func (t *treeRuntime) processFinished(process *processState) {
 		}
 		signal, err := encodeChildrenCompleted(registration.waitID, registration.spec.Key, outcomes)
 		if err != nil {
+			parent.recordFailure(FailureKindExecution, "engine.child.completion.encoding_failed", err)
+			t.invalidateStep(parent)
+			t.markRunnable(parent.controller.processID)
 			continue
 		}
-		parent := t.processes[registration.parent]
-		if parent != nil && parent.deliverChildrenCompleted(t.context, signal) {
-			registration.delivered = true
+		if parent.deliverChildrenCompleted(t.context, signal) {
+			t.markRunnable(parent.controller.processID)
+		} else if parent.pendingControl.hasTerminalIntent() {
+			t.invalidateStep(parent)
 			t.markRunnable(parent.controller.processID)
 		}
 	}
@@ -139,7 +154,6 @@ func (t *treeRuntime) registerChildWait(
 		delete(t.childWaits, waitID)
 		return Signal{}, false, err
 	}
-	registration.delivered = true
 	return signal, true, nil
 }
 

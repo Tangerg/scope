@@ -4,10 +4,28 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/Tangerg/scope/core/chat"
 	corejsonschema "github.com/Tangerg/scope/core/jsonschema"
 )
+
+// OutputCompletionError preserves a provider outcome that cannot become the
+// requested typed value. It unwraps to ErrInvalidOutput; callers may inspect
+// FinishReason and Refusal without parsing an error message.
+type OutputCompletionError struct {
+	FinishReason chat.FinishReason
+	Refusal      string
+}
+
+func (o *OutputCompletionError) Error() string {
+	if o.Refusal != "" {
+		return fmt.Sprintf("chatclient: output ended with %q: refusal: %s", o.FinishReason, o.Refusal)
+	}
+	return fmt.Sprintf("chatclient: output ended with %q", o.FinishReason)
+}
+
+func (*OutputCompletionError) Unwrap() error { return ErrInvalidOutput }
 
 var (
 	// ErrInvalidOutputFormat identifies a format that cannot define one request
@@ -91,7 +109,39 @@ func (o OutputFormat[T]) decodeResponse(response *chat.Response, responseErr err
 	if err := response.Validate(); err != nil {
 		return zero, fmt.Errorf("%w: response: %w", ErrInvalidOutput, err)
 	}
-	return o.decodeText(response.Text())
+	text, err := o.completedText(response.Output)
+	if err != nil {
+		return zero, err
+	}
+	return o.decodeText(text)
+}
+
+func (o OutputFormat[T]) completedText(output *chat.Output) (string, error) {
+	var text, refusal strings.Builder
+	var unsupported chat.PartKind
+	if output.Message != nil {
+		for _, part := range output.Message.Parts {
+			switch part.Kind {
+			case chat.PartText:
+				text.WriteString(part.Text)
+			case chat.PartRefusal:
+				refusal.WriteString(part.Text)
+			case chat.PartReasoning:
+			default:
+				unsupported = part.Kind
+			}
+		}
+	}
+	if output.FinishReason != chat.FinishReasonStop || refusal.Len() != 0 {
+		return "", &OutputCompletionError{FinishReason: output.FinishReason, Refusal: refusal.String()}
+	}
+	if unsupported != "" {
+		return "", fmt.Errorf("%w: typed output cannot contain %q parts", ErrInvalidOutput, unsupported)
+	}
+	if text.Len() == 0 {
+		return "", fmt.Errorf("%w: completed output contains no text", ErrInvalidOutput)
+	}
+	return text.String(), nil
 }
 
 func (o OutputFormat[T]) decodeText(text string) (T, error) {

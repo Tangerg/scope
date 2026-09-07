@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -103,6 +104,14 @@ func TestMiddlewareTracesAndMeasuresExactToolBoundary(t *testing.T) {
 	}
 	metric := durationMetric(t, rig.reader)
 	assertHistogramAttribute(t, metric, "gen_ai.tool.name", "lookup")
+	data := metric.Data.(metricdata.Histogram[float64])
+	point := data.DataPoints[0]
+	if point.Sum != span.EndTime().Sub(span.StartTime()).Seconds() {
+		t.Errorf("metric duration = %v, span duration = %v", point.Sum, span.EndTime().Sub(span.StartTime()).Seconds())
+	}
+	if !slices.Equal(point.Bounds, []float64{0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92}) {
+		t.Errorf("duration bounds = %v", point.Bounds)
+	}
 }
 
 func TestMiddlewareClassifiesWrappedCancellationWithoutChangingError(t *testing.T) {
@@ -150,7 +159,7 @@ func durationMetric(t *testing.T, reader *sdkmetric.ManualReader) metricdata.Met
 	}
 	for _, scope := range metrics.ScopeMetrics {
 		for _, metric := range scope.Metrics {
-			if metric.Name == "gen_ai.client.operation.duration" {
+			if metric.Name == "gen_ai.execute_tool.duration" {
 				return metric
 			}
 		}

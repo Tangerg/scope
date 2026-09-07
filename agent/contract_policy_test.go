@@ -6,13 +6,14 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
 )
 
 var frameworkPackageDirectories = []string{
-	".", "agenttest", "interaction", "planning", "planning/goap", "workflow", "platform",
+	".", "agenttest", "interaction", "planning", "planning/goap", "workflow",
 }
 
 func TestPublicInterfacesAreDocumentedAndParametersNamed(t *testing.T) {
@@ -207,4 +208,27 @@ func stringLiteral(expression ast.Expr) (string, bool) {
 func isErrorCauseName(name string) bool {
 	return name == "err" || name == "cause" ||
 		strings.HasSuffix(name, "Err") || strings.HasSuffix(name, "Error")
+}
+
+func TestProcessHasOneSignalAdmissionContract(t *testing.T) {
+	process := reflect.TypeFor[*Process]()
+	request := reflect.TypeFor[SignalRequest]()
+	requests := reflect.TypeFor[[]SignalRequest]()
+	var count int
+	for index := range process.NumMethod() {
+		method := process.Method(index)
+		for parameter := 1; parameter < method.Type.NumIn(); parameter++ {
+			input := method.Type.In(parameter)
+			if input != request && input != requests {
+				continue
+			}
+			count++
+			if method.Name != "DeliverSignals" || input != requests || !method.Type.IsVariadic() {
+				t.Errorf("signal admission must use the ordered variadic batch contract: %s", method.Name)
+			}
+		}
+	}
+	if count != 1 {
+		t.Fatalf("signal admission entrypoints = %d, want 1", count)
+	}
 }

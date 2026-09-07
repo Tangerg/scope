@@ -220,16 +220,16 @@ func (e *Engine) quiesceAcknowledgedTree(
 		if err != nil {
 			return nil, err
 		}
-		if e.durability == nil || source.snapshot.Digest() == source.acknowledgedHead {
+		if e.durability == nil || source.snapshot.Digest() == source.acknowledgedHead.digest() {
 			return source, nil
 		}
 		previousHead := source.acknowledgedHead
 		runtime := source.freeze.runtime
 		source.release()
-		if !previousHead.Valid() || runtime == nil {
+		if !previousHead.digest().Valid() || runtime == nil {
 			return nil, ErrWaitingSubtreeCancellationUnavailable
 		}
-		if err := runtime.awaitHeadAdvance(ctx, previousHead); err != nil {
+		if err := previousHead.await(ctx, runtime.done); err != nil {
 			return nil, err
 		}
 	}

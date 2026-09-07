@@ -70,8 +70,10 @@ func New(model chat.Model, config Config) (Client, error) {
 	}, nil
 }
 
-// Output asks the provider to enforce format, then strictly decodes the terminal
-// text. It never repairs JSON or injects format instructions into the prompt.
+// Output asks the provider to enforce format, then strictly decodes naturally
+// completed text. Refusal and other non-successful completion reasons return
+// OutputCompletionError. Media and tool requests cannot become typed values.
+// Output never repairs JSON or injects format instructions into the prompt.
 func (c Client) Output[T any](ctx context.Context, req *chat.Request, format OutputFormat[T]) (T, error) {
 	var zero T
 	if !c.valid() {
@@ -80,7 +82,7 @@ func (c Client) Output[T any](ctx context.Context, req *chat.Request, format Out
 	if err := format.validate(); err != nil {
 		return zero, err
 	}
-	response, err := c.call(ctx, req, format.contract.Clone())
+	response, err := c.call(ctx, req, &format.contract)
 	return format.decodeResponse(response, err)
 }
 
@@ -108,11 +110,9 @@ func (c Client) prepareRequest(request *chat.Request, outputFormat *chat.OutputF
 		return nil, fmt.Errorf("%w: request options already define output_format", ErrInvalidOutputFormat)
 	}
 	prepared := request.Clone()
-	effectiveOptions := request.Options.Clone()
 	if outputFormat != nil {
-		effectiveOptions.OutputFormat = outputFormat.Clone()
+		prepared.Options.OutputFormat = outputFormat.Clone()
 	}
-	prepared.Options = effectiveOptions
 	if err := prepared.Validate(); err != nil {
 		return nil, err
 	}

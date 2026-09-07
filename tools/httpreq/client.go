@@ -2,6 +2,7 @@ package httpreq
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"time"
@@ -97,15 +98,14 @@ func (c *Client) Do(ctx context.Context, request *Request) (*Response, error) {
 
 	startedAt := time.Now()
 	response, err := restyRequest.Execute(string(method), prepared.URL)
-	duration := time.Since(startedAt)
 	if err != nil {
 		return nil, fmt.Errorf("httpreq: execute %s request to host %q: %w", method, host, err)
 	}
 	bodyReader := response.RawBody()
-	defer bodyReader.Close()
 	body, truncated, err := readCapped(bodyReader, c.maxResponseBytes)
+	err = errors.Join(err, bodyReader.Close())
 	if err != nil {
-		return nil, fmt.Errorf("httpreq: read response body from host %q: %w", host, err)
+		return nil, fmt.Errorf("httpreq: consume response body from host %q: %w", host, err)
 	}
 
 	return &Response{
@@ -113,6 +113,6 @@ func (c *Client) Do(ctx context.Context, request *Request) (*Response, error) {
 		Headers:   response.Header().Clone(),
 		Body:      string(body),
 		Truncated: truncated,
-		Duration:  duration.String(),
+		Duration:  time.Since(startedAt).String(),
 	}, nil
 }

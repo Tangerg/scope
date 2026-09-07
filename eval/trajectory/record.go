@@ -65,7 +65,9 @@ type ToolCall struct {
 	Call         chat.ToolCall    `json:"call"`
 	Outcome      ToolOutcome      `json:"outcome"`
 	Result       *chat.ToolResult `json:"result,omitempty"`
-	Failure      string           `json:"failure,omitempty"`
+	// Failure describes a failed call or diagnoses an unknown outcome without
+	// claiming that the external operation definitely failed.
+	Failure string `json:"failure,omitempty"`
 }
 
 func (t ToolCall) Clone() ToolCall {
@@ -103,9 +105,13 @@ func (t ToolCall) Validate() error {
 		if t.Result != nil || failure == "" || t.Failure != failure {
 			return fmt.Errorf("%w: failed tool call requires one failure", ErrInvalidTrajectory)
 		}
-	case ToolOutcomeInputRequired, ToolOutcomeUnknown:
+	case ToolOutcomeInputRequired:
 		if t.Result != nil || t.Failure != "" {
 			return fmt.Errorf("%w: %s tool call cannot carry a result or failure", ErrInvalidTrajectory, t.Outcome)
+		}
+	case ToolOutcomeUnknown:
+		if t.Result != nil || t.Failure != strings.TrimSpace(t.Failure) {
+			return fmt.Errorf("%w: unknown tool call permits only an optional failure diagnostic", ErrInvalidTrajectory)
 		}
 	}
 	if t.Result != nil {

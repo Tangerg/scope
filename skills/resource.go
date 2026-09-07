@@ -47,6 +47,7 @@ func ReadResource(
 	err = errors.Join(
 		resourceIOError("read", name, resource, err),
 		resourceIOError("close", name, resource, closeErr),
+		contextError(ctx, operation),
 	)
 	if err != nil {
 		return nil, false, err
@@ -60,11 +61,11 @@ type contextReader struct {
 }
 
 func (c contextReader) Read(buffer []byte) (int, error) {
-	if err := context.Cause(c.ctx); err != nil {
+	if err := contextError(c.ctx, "read"); err != nil {
 		return 0, err
 	}
 	read, err := c.reader.Read(buffer)
-	if contextErr := context.Cause(c.ctx); contextErr != nil {
+	if contextErr := contextError(c.ctx, "read"); contextErr != nil {
 		return read, errors.Join(err, contextErr)
 	}
 	return read, err
@@ -90,36 +91,38 @@ func checkedResourceFile(
 	file fs.File,
 	err error,
 ) (fs.File, error) {
-	if ctxErr := contextError(ctx, operation); ctxErr != nil {
-		return nil, errors.Join(ctxErr, closeResourceFile(name, resource, file))
-	}
+	err = errors.Join(err, contextError(ctx, operation))
 	if err != nil {
-		return nil, errors.Join(err, closeResourceFile(name, resource, file))
+		return nil, errors.Join(err, closeResourceFile(ctx, name, resource, file))
 	}
 	if lo.IsNil(file) {
 		return nil, fmt.Errorf("skills: %s: %w", operation, ErrNilResourceFile)
 	}
 	info, statErr := file.Stat()
+	statErr = errors.Join(resourceIOError("stat", name, resource, statErr), contextError(ctx, operation))
 	if statErr != nil {
 		return nil, errors.Join(
-			resourceIOError("stat", name, resource, statErr),
-			closeResourceFile(name, resource, file),
+			statErr,
+			closeResourceFile(ctx, name, resource, file),
 		)
 	}
 	if !info.Mode().IsRegular() {
 		return nil, errors.Join(
 			fmt.Errorf("skills: %s: %w: mode %s", operation, ErrResourceNotRegular, info.Mode().Type()),
-			closeResourceFile(name, resource, file),
+			closeResourceFile(ctx, name, resource, file),
 		)
 	}
 	return file, nil
 }
 
-func closeResourceFile(name, resource string, file fs.File) error {
+func closeResourceFile(ctx context.Context, name, resource string, file fs.File) error {
 	if lo.IsNil(file) {
 		return nil
 	}
-	return resourceIOError("close", name, resource, file.Close())
+	return errors.Join(
+		resourceIOError("close", name, resource, file.Close()),
+		contextError(ctx, "close resource"),
+	)
 }
 
 func resourceIOError(operation, name, resource string, err error) error {

@@ -139,8 +139,9 @@ func (l *LocalExecutor) ApplyPatch(ctx context.Context, in ApplyPatchRequest) (_
 	if err != nil {
 		return ApplyPatchResponse{}, err
 	}
-	if path := parsed.duplicatePath(); path != "" {
-		return ApplyPatchResponse{}, fmt.Errorf("fs.ApplyPatch: duplicate file patch for %s", path)
+	resolved, err := l.resolvePatch(parsed)
+	if err != nil {
+		return ApplyPatchResponse{}, err
 	}
 	root, err := l.openRoot()
 	if err != nil {
@@ -150,31 +151,23 @@ func (l *LocalExecutor) ApplyPatch(ctx context.Context, in ApplyPatchRequest) (_
 		err = errors.Join(err, root.Close())
 	}()
 
-	resolved := make([]patchTarget, len(parsed.files))
 	var locks []string
-	for i, file := range parsed.files {
-		if err := file.validate(); err != nil {
-			return ApplyPatchResponse{}, err
-		}
-		target, err := l.resolveTarget(file)
-		if err != nil {
-			return ApplyPatchResponse{}, err
-		}
-		resolved[i] = target
-		locks = append(locks, target.locks()...)
+	for _, file := range resolved.files {
+		locks = append(locks, file.touches()...)
 	}
 
 	// Both endpoints of a move are locked: it removes one file and creates
 	// another, and holding only the destination would let a concurrent write to
 	// the origin land in a file this call is about to delete.
-	for _, path := range sortedUnique(locks) {
+	slices.Sort(locks)
+	for _, path := range locks {
 		unlock := l.lockPath(path)
 		defer unlock()
 	}
 
-	prepared := make([]preparedPatch, len(parsed.files))
-	for i, file := range parsed.files {
-		next, err := l.preparePatch(ctx, root, file, resolved[i])
+	prepared := make([]preparedPatch, len(resolved.files))
+	for i, file := range resolved.files {
+		next, err := l.preparePatch(ctx, root, file)
 		if err != nil {
 			return ApplyPatchResponse{}, err
 		}
@@ -199,41 +192,33 @@ func validatePatchPath(path string) error {
 	return nil
 }
 
-// patchTarget is one file patch's resolved endpoints: where its content is read
-// and where it lands. They are the same file for every shape but a move, and one
-// of them is empty when the patch creates or deletes.
-type patchTarget struct {
-	from string
-	to   string
-}
-
-func (p patchTarget) locks() []string {
-	if p.from != "" && p.to != "" && p.from != p.to {
-		return []string{p.from, p.to}
-	}
-	if p.to != "" {
-		return []string{p.to}
-	}
-	return []string{p.from}
-}
-
-func (l *LocalExecutor) resolveTarget(file filePatch) (patchTarget, error) {
-	var target patchTarget
-	if file.oldPath != "" {
-		from, err := l.authorize(file.oldPath, false)
-		if err != nil {
-			return patchTarget{}, err
+// Paths acquire their execution identity before duplicate detection, locking,
+// preparation, or reporting. Those phases must agree on what one file means.
+func (l *LocalExecutor) resolvePatch(patch unifiedPatch) (unifiedPatch, error) {
+	resolved := unifiedPatch{files: make([]filePatch, len(patch.files))}
+	for index, file := range patch.files {
+		var err error
+		if file.oldPath != "" {
+			file.oldPath, err = l.authorize(file.oldPath, false)
+			if err != nil {
+				return unifiedPatch{}, err
+			}
 		}
-		target.from = from
-	}
-	if file.newPath != "" {
-		to, err := l.authorize(file.newPath, false)
-		if err != nil {
-			return patchTarget{}, err
+		if file.newPath != "" {
+			file.newPath, err = l.authorize(file.newPath, false)
+			if err != nil {
+				return unifiedPatch{}, err
+			}
 		}
-		target.to = to
+		if err := file.validate(); err != nil {
+			return unifiedPatch{}, err
+		}
+		resolved.files[index] = file
 	}
-	return target, nil
+	if path := resolved.duplicatePath(); path != "" {
+		return unifiedPatch{}, fmt.Errorf("fs.ApplyPatch: duplicate file patch for %s", path)
+	}
+	return resolved, nil
 }
 
 // preparedPatch is one file patch's committed outcome, computed before anything
@@ -267,12 +252,11 @@ func (l *LocalExecutor) preparePatch(
 	ctx context.Context,
 	root *os.Root,
 	file filePatch,
-	target patchTarget,
 ) (preparedPatch, error) {
 	// A patch may not land on a file it did not open. Create says so by having no
 	// origin; a move has one, but its destination is a new file all the same.
 	if file.created() || file.moved() {
-		if _, err := root.Stat(target.to); err == nil {
+		if _, err := root.Stat(file.newPath); err == nil {
 			return preparedPatch{}, fmt.Errorf("fs.ApplyPatch: %s: file already exists", file.newPath)
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return preparedPatch{}, fmt.Errorf("fs.ApplyPatch: %s: %w", file.newPath, err)
@@ -283,12 +267,12 @@ func (l *LocalExecutor) preparePatch(
 	var source []byte
 	hadBOM, hadCRLF := false, false
 	if !file.created() {
-		info, err := root.Stat(target.from)
+		info, err := root.Stat(file.oldPath)
 		if err != nil {
 			return preparedPatch{}, err
 		}
 		mode = info.Mode().Perm()
-		data, err := readBoundedRootFile(ctx, root, target.from, defaultMutationInputBytes)
+		data, err := readBoundedRootFile(ctx, root, file.oldPath, defaultMutationInputBytes)
 		if err != nil {
 			return preparedPatch{}, err
 		}
@@ -309,7 +293,7 @@ func (l *LocalExecutor) preparePatch(
 			return preparedPatch{}, fmt.Errorf("fs.ApplyPatch: delete %s: patched content is not empty", file.path())
 		}
 		return preparedPatch{
-			source: target.from,
+			source: file.oldPath,
 			result: PatchFileResponse{Path: file.path(), Hunks: file.hunks(), Deleted: true},
 		}, nil
 	}
@@ -320,14 +304,14 @@ func (l *LocalExecutor) preparePatch(
 		Created: file.created(),
 	}
 	prepared := preparedPatch{
-		path: target.to,
+		path: file.newPath,
 		data: restoreFormat(string(patched), hadBOM, hadCRLF),
 		mode: mode,
 	}
 	if file.moved() {
 		// The origin is reported, not just the destination: "moved" without saying
 		// from where leaves the model to infer which file stopped existing.
-		prepared.source = target.from
+		prepared.source = file.oldPath
 		result.MovedFrom = file.oldPath
 	}
 	prepared.result = result
@@ -363,10 +347,4 @@ func cleanPatchPath(path string) string {
 		path = rest
 	}
 	return filepath.Clean(path)
-}
-
-func sortedUnique(in []string) []string {
-	out := slices.Clone(in)
-	slices.Sort(out)
-	return slices.Compact(out)
 }

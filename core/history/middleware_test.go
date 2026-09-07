@@ -179,7 +179,7 @@ func TestCallDefersToolCallUntilCompleteToolExchange(t *testing.T) {
 	}
 }
 
-func TestCallSnapshotsAllRequestReferences(t *testing.T) {
+func TestCallPersistsExchangeBeforeCallerReusesValues(t *testing.T) {
 	image, err := media.NewBytes("image/png", []byte{1, 2, 3})
 	if err != nil {
 		t.Fatal(err)
@@ -189,37 +189,51 @@ func TestCallSnapshotsAllRequestReferences(t *testing.T) {
 	if setErr := user.Metadata.Set("turn", 1); setErr != nil {
 		t.Fatal(setErr)
 	}
-	temperature := 0.5
 	request := mustRequest(t, user)
-	request.Tools = []chat.ToolDefinition{{Name: "weather", InputSchema: []byte(`{"type":"object"}`)}}
-	request.Options = chat.Options{Temperature: &temperature, Stop: []string{"END"}}
-	if setExtensionErr := request.Options.Extensions.Set("test/value", "original"); setExtensionErr != nil {
-		t.Fatal(setExtensionErr)
-	}
-
-	store := &recordingStore{}
+	store := new(inmemory.Store)
 	middleware := mustMiddleware(t, store)
-	_, err = middleware.Call(chat.ModelFunc(func(_ context.Context, got *chat.Request) (*chat.Response, error) {
-		got.Messages[0].Metadata["turn"][0] = '9'
-		got.Messages[0].Parts[0].Media.Source.Bytes[0] = 9
-		got.Tools[0].InputSchema[0] = '['
-		*got.Options.Temperature = 1.5
-		got.Options.Stop[0] = "MUTATED"
-		if setErr := got.Options.Extensions.Set("test/value", "changed"); setErr != nil {
-			return nil, setErr
+	got, err := middleware.Call(chat.ModelFunc(func(_ context.Context, prepared *chat.Request) (*chat.Response, error) {
+		if string(prepared.Messages[0].Metadata["turn"]) != "1" || prepared.Messages[0].Parts[0].Media.Source.Bytes[0] != 1 {
+			t.Fatalf("prepared input = %#v", prepared.Messages)
 		}
 		return response(chat.NewAssistantMessage(chat.NewTextPart("answer"))), nil
 	})).Call(boundContext(t), request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	extension, found, decodeErr := request.Options.Extensions.Decode[string]("test/value")
-	if decodeErr != nil || !found || string(request.Messages[0].Metadata["turn"]) != "1" || request.Messages[0].Parts[0].Media.Source.Bytes[0] != 1 || request.Tools[0].InputSchema[0] != '{' || *request.Options.Temperature != 0.5 || request.Options.Stop[0] != "END" || extension != "original" {
-		t.Fatalf("caller request was mutated: %#v", request)
+	request.Messages[0].Metadata["turn"][0] = '9'
+	request.Messages[0].Parts[0].Media.Source.Bytes[0] = 9
+	got.Output.Message.Parts[0].Text = "edited"
+	stored, err := store.Read(t.Context(), "conversation-1")
+	if err != nil {
+		t.Fatal(err)
 	}
-	writes := store.writesSnapshot()
-	if len(writes) != 1 || string(writes[0][0].Metadata["turn"]) != "1" || writes[0][0].Parts[0].Media.Source.Bytes[0] != 1 {
-		t.Fatalf("persisted fresh message was aliased: %#v", writes)
+	if len(stored) != 2 || string(stored[0].Metadata["turn"]) != "1" || stored[0].Parts[0].Media.Source.Bytes[0] != 1 || stored[1].Text() != "answer" {
+		t.Fatalf("persisted exchange was aliased: %#v", stored)
+	}
+}
+
+func TestCallRejectsInvalidStoredMessagesBeforeModel(t *testing.T) {
+	for _, role := range []chat.Role{chat.RoleSystem, chat.RoleUser} {
+		t.Run(string(role), func(t *testing.T) {
+			store := &recordingStore{read: []chat.Message{{Role: role}}}
+			middleware := mustMiddleware(t, store)
+			called := false
+			model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+				called = true
+				return response(chat.NewAssistantMessage(chat.NewTextPart("answer"))), nil
+			})
+			request := mustRequest(t, chat.NewUserMessage(chat.NewTextPart("question")))
+			if _, err := middleware.Call(model).Call(boundContext(t), request); !errors.Is(err, chat.ErrInvalidMessage) {
+				t.Fatalf("stored message error = %v, want ErrInvalidMessage", err)
+			}
+			if called {
+				t.Fatal("model received invalid stored history")
+			}
+			if _, writes := store.counts(); writes != 0 {
+				t.Fatalf("writes after invalid stored history = %d, want 0", writes)
+			}
+		})
 	}
 }
 

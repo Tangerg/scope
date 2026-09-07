@@ -121,8 +121,8 @@ func (s *SignalID) UnmarshalText(text []byte) error {
 	return nil
 }
 
-// WaitID identifies one Engine-created external wait target. Parsing a WaitID
-// does not create a wait; the Engine rejects identities it did not mint.
+// WaitID identifies one Engine-created wait target owned by a Process. Parsing
+// a WaitID does not create a wait; the Engine rejects identities it did not mint.
 type WaitID struct{ identity }
 
 // ParseWaitID validates the wire representation of a Wait identity.

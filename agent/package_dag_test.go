@@ -14,13 +14,13 @@ import (
 const moduleImportPath = "github.com/Tangerg/scope/agent"
 
 var allowedPackageDependencies = map[string]map[string]struct{}{
-	".":             {},
-	"agenttest":     {".": {}},
-	"interaction":   {".": {}},
-	"planning":      {".": {}},
-	"planning/goap": {"planning": {}},
-	"platform":      {".": {}},
-	"workflow":      {".": {}},
+	".":                        {},
+	"agenttest":                {".": {}},
+	"interaction":              {".": {}},
+	"planning":                 {".": {}},
+	"planning/goap":            {"planning": {}},
+	"workflow":                 {".": {}},
+	"internal/conformancetest": {".": {}, "agenttest": {}},
 }
 
 func TestProductionPackageDependencyGraph(t *testing.T) {

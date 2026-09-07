@@ -32,7 +32,7 @@ func Retrieve(ctx context.Context, retriever Retriever, query Query) (Candidates
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return candidates.Clone(), nil
+	return candidates, nil
 }
 
 // Parallel returns a [Retriever] that runs retrievers concurrently and unions
@@ -179,11 +179,15 @@ func expand(ctx context.Context, expander Expander, query Query) ([]Query, error
 	if len(queries) == 0 {
 		return nil, ErrEmptyExpansion
 	}
-	queries = slices.Clone(queries)
+	seen := make(map[string]int, len(queries))
 	for index, expanded := range queries {
 		if err := expanded.Validate(); err != nil {
 			return nil, fmt.Errorf("%w: query %d: %w", ErrInvalidExpansion, index, err)
 		}
+		if first, duplicate := seen[expanded.Text()]; duplicate {
+			return nil, fmt.Errorf("%w: queries %d and %d have the same text", ErrInvalidExpansion, first, index)
+		}
+		seen[expanded.Text()] = index
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -201,7 +205,7 @@ func refine(ctx context.Context, refiner Refiner, query Query, candidates Candid
 	if err := candidates.Validate(); err != nil {
 		return nil, err
 	}
-	refined, err := refiner.Refine(ctx, query, candidates.Clone())
+	refined, err := refiner.Refine(ctx, query, candidates)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +215,7 @@ func refine(ctx context.Context, refiner Refiner, query Query, candidates Candid
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return refined.Clone(), nil
+	return refined, nil
 }
 
 func parallelCandidates[Item any](
@@ -263,15 +267,8 @@ func parallelResults[Item, Out any](
 	}
 	wg.Wait()
 
-	errs := make([]error, 0, len(failures))
-	for _, err := range failures {
-		if err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	if len(errs) != 0 {
-		return nil, fmt.Errorf("%s: %w", op, errors.Join(errs...))
+	if err := errors.Join(failures...); err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 
 	return results, nil

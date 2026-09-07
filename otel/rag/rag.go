@@ -9,13 +9,13 @@ import (
 
 	apiotel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/samber/lo"
 
+	"github.com/Tangerg/scope/otel/internal/errortelemetry"
 	corerag "github.com/Tangerg/scope/rag"
 )
 
@@ -112,9 +112,7 @@ func (i *instrumentedRetriever) Retrieve(
 	span.SetAttributes(attribute.Int(documentCountAttribute, len(candidates)))
 	if err != nil {
 		errorType := errorTypeAttribute(err)
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		span.SetAttributes(errorType)
+		errortelemetry.Record(span, errorType)
 		metricAttributes = append(metricAttributes, errorType)
 	}
 	span.End()

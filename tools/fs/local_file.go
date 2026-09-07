@@ -39,20 +39,13 @@ func (l *LocalExecutor) Read(ctx context.Context, in ReadInput) (_ ReadOutput, e
 	defer func() {
 		err = errors.Join(err, root.Close())
 	}()
-	file, err := root.Open(path)
+	file, info, err := openRegularRootFile(ctx, root, path)
 	if err != nil {
 		return ReadOutput{}, err
 	}
 	defer func() {
 		err = errors.Join(err, file.Close())
 	}()
-	info, err := file.Stat()
-	if err != nil {
-		return ReadOutput{}, err
-	}
-	if !info.Mode().IsRegular() {
-		return ReadOutput{}, fmt.Errorf("fs.LocalExecutor.Read: %s: unsupported file mode %s", in.Path, info.Mode().Type())
-	}
 
 	limits := in.resolvedLimits()
 	if info.Size() > limits.inputBytes {
@@ -137,6 +130,8 @@ func (l *LocalExecutor) Write(ctx context.Context, in WriteRequest) (_ WriteResp
 		if err != nil {
 			return WriteResponse{}, err
 		}
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return WriteResponse{}, statErr
 	}
 
 	out := restoreFormat(in.Content, hadBOM, hadCRLF)
@@ -196,20 +191,13 @@ func readBoundedRootFile(ctx context.Context, root *os.Root, path string, maxByt
 	if cause := context.Cause(ctx); cause != nil {
 		return nil, cause
 	}
-	file, err := root.Open(path)
+	file, info, err := openRegularRootFile(ctx, root, path)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
 		err = errors.Join(err, file.Close())
 	}()
-	info, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("fs: %s: unsupported file mode %s", path, info.Mode().Type())
-	}
 	if info.Size() > maxBytes {
 		return nil, fmt.Errorf("%w: %s uses %d bytes; limit is %d", ErrFileTooLarge, path, info.Size(), maxBytes)
 	}
@@ -225,7 +213,7 @@ func readBoundedRootFile(ctx context.Context, root *os.Root, path string, maxByt
 }
 
 func detectRootFormat(ctx context.Context, root *os.Root, path string) (hadBOM, hadCRLF bool, err error) {
-	file, err := root.Open(path)
+	file, _, err := openRegularRootFile(ctx, root, path)
 	if err != nil {
 		return false, false, err
 	}

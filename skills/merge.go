@@ -50,7 +50,7 @@ func (m *merged) List(ctx context.Context) ([]Summary, error) {
 		}
 		summaries, err := src.List(ctx)
 		if ctxErr := contextError(ctx, "list"); ctxErr != nil {
-			return nil, ctxErr
+			return nil, errors.Join(err, ctxErr)
 		}
 		if err != nil {
 			return nil, err
@@ -131,7 +131,7 @@ func (m *merged) resolve(ctx context.Context, name, operation string) (*skillBun
 		}
 		skill, err := src.Load(ctx, name)
 		if ctxErr := contextError(ctx, operation); ctxErr != nil {
-			return nil, ctxErr
+			return nil, errors.Join(err, ctxErr)
 		}
 		if err == nil {
 			if validateErr := skill.Validate(); validateErr != nil {

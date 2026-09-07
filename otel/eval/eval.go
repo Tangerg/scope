@@ -11,12 +11,12 @@ import (
 	"github.com/samber/lo"
 	apiotel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
 	coreeval "github.com/Tangerg/scope/eval"
+	"github.com/Tangerg/scope/otel/internal/errortelemetry"
 )
 
 const (
@@ -104,9 +104,7 @@ func (m Middleware[T]) Wrap(next coreeval.Evaluator[T]) (coreeval.Evaluator[T], 
 			attributes = append(attributes, metricIdentityAttributes(report.Metric)...)
 		} else {
 			errorType := errorTypeAttribute(err)
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			span.SetAttributes(errorType)
+			errortelemetry.Record(span, errorType)
 			attributes = append(attributes, errorType)
 		}
 		span.End()

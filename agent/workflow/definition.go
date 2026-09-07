@@ -86,7 +86,8 @@ func (d *Definition) Start(input agent.Input) (agent.Execution, error) {
 }
 
 // Restore recreates a Workflow solely from its opaque state and this exact
-// Definition.
+// Definition. Phase-specific progress, window bounds, and unique child identities
+// are validated before admitting the restored Execution.
 func (d *Definition) Restore(state agent.ExecutionState) (agent.Execution, error) {
 	if !d.valid() {
 		return nil, ErrInvalidDefinitionConfig

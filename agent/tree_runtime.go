@@ -17,14 +17,16 @@ type treeRuntime struct {
 	engine      *Engine
 	rootID      ProcessID
 	incarnation TreeIncarnationID
-	headDigest  Digest
+	head        *treeHead
 
-	// These atomics are the only state read outside the owner line. Commands and
-	// completions are the sole mutation entrances back into that line.
+	// Atomics publish scheduling state outside the owner line. Freeze acquisition
+	// publishes a stable checkpoint and head; commands and completions remain
+	// the only mutation entrances back into the owner.
 	inflight    atomic.Int64
 	freezeHeld  atomic.Bool
 	context     context.Context
 	commands    chan treeCommand
+	controls    chan treeCommand
 	completions chan treeJobCompletion
 
 	// Everything below is owner-line state. Keeping it lock-free makes commit,
@@ -34,7 +36,6 @@ type treeRuntime struct {
 	runnable          []ProcessID
 	queued            map[ProcessID]struct{}
 	jobs              map[ProcessID]*processJob
-	headWaiters       []treeHeadWaiter
 	commit            *treeCommit
 	commitDone        chan treeCommitCompletion
 	durabilityFault   bool
@@ -51,18 +52,16 @@ const (
 	treeCommandAcquireFreeze
 	treeCommandReleaseFreeze
 	treeCommandApplyFreeze
-	treeCommandWaitHeadAdvance
 )
 
 type treeCommand struct {
-	kind         treeCommandKind
-	processID    ProcessID
-	process      processCommand
-	freeze       *treeFreeze
-	acquisition  *treeFreezeAcquisition
-	projection   *treeStateProjection
-	previousHead Digest
-	response     chan error
+	kind        treeCommandKind
+	processID   ProcessID
+	process     processCommand
+	freeze      *treeFreeze
+	acquisition *treeFreezeAcquisition
+	projection  *treeStateProjection
+	response    chan error
 }
 
 func newTreeProcessCommand(processID ProcessID, command processCommand) treeCommand {
@@ -92,7 +91,6 @@ type treeFreezeAcquisitionResult struct {
 type activeTreeFreeze struct {
 	acquisition *treeFreezeAcquisition
 	freeze      *treeFreeze
-	deferred    []treeCommand
 	ready       bool
 }
 
@@ -101,11 +99,6 @@ type treeStateProjection struct {
 	childWaits      []*childWaitRegistration
 	sourceDigest    Digest
 	resultingDigest Digest
-}
-
-type treeHeadWaiter struct {
-	previous Digest
-	response chan error
 }
 
 type processAttempt uint64
@@ -157,7 +150,6 @@ type treeCommit struct {
 	response  chan processResponse
 	events    []Event
 	child     *pendingChildOutcome
-	deferred  []treeCommand
 }
 
 type pendingChildOutcome struct {
@@ -181,11 +173,12 @@ type checkpointPublication struct {
 }
 
 type stepJobResult struct {
-	transition     Transition
-	candidate      Execution
-	candidateState ExecutionState
-	stage          stepJobStage
-	err            error
+	transition       Transition
+	deliveredSignals uint64
+	candidate        Execution
+	candidateState   ExecutionState
+	stage            stepJobStage
+	err              error
 }
 
 type stepJobStage uint8
@@ -214,6 +207,7 @@ func newTreeRuntime(
 		rootID:            rootID,
 		context:           context.WithoutCancel(requireContext(ctx)),
 		commands:          make(chan treeCommand, treeCommandBufferCapacity),
+		controls:          make(chan treeCommand, treeCommandBufferCapacity),
 		completions:       make(chan treeJobCompletion),
 		processes:         make(map[ProcessID]*processState, len(processes)),
 		childWaits:        make(map[WaitID]*childWaitRegistration),
@@ -242,7 +236,7 @@ func (t *treeRuntime) establishDurableHead(
 		panic("agent: durable tree head incarnation mismatch")
 	}
 	t.incarnation = incarnation
-	t.headDigest = snapshot.Digest()
+	t.advanceHead(snapshot.Digest())
 }
 
 func (t *treeRuntime) addProcess(process *processState) {
@@ -255,7 +249,7 @@ func (t *treeRuntime) addProcess(process *processState) {
 		panic("agent: duplicate tree Process")
 	}
 	process.runtime = t
-	process.controller.runtime = t
+	process.controller.runtime.Store(t)
 	t.processes[processID] = process
 	if !process.status.Terminal() {
 		t.markRunnable(processID)
@@ -311,17 +305,12 @@ func (t *treeRuntime) advanceReadyWork() bool {
 
 func (t *treeRuntime) waitForWork() {
 	if t.commit != nil {
-		select {
-		case command := <-t.commands:
-			t.applyCommand(command)
-		case completion := <-t.commitDone:
-			t.applyTreeCommitCompletion(completion)
-		}
+		t.applyTreeCommitCompletion(<-t.commitDone)
 		return
 	}
 	if t.freeze != nil && t.freeze.ready {
 		select {
-		case command := <-t.commands:
+		case command := <-t.controls:
 			t.applyCommand(command)
 		case <-t.freeze.acquisition.canceled:
 			t.releaseCurrentFreeze()
@@ -330,7 +319,7 @@ func (t *treeRuntime) waitForWork() {
 	}
 	if freezeCanceled := t.freezeCanceled(); freezeCanceled != nil {
 		select {
-		case command := <-t.commands:
+		case command := <-t.controls:
 			t.applyCommand(command)
 		case completion := <-t.completions:
 			t.applyCompletion(completion)
@@ -340,6 +329,8 @@ func (t *treeRuntime) waitForWork() {
 		return
 	}
 	select {
+	case command := <-t.controls:
+		t.applyCommand(command)
 	case command := <-t.commands:
 		t.applyCommand(command)
 	case completion := <-t.completions:
@@ -369,8 +360,18 @@ func (t *treeRuntime) tryFreezeCancellation() bool {
 }
 
 func (t *treeRuntime) tryCommand() bool {
+	if t.commit != nil {
+		return false
+	}
+	commands := t.commands
+	if t.freeze != nil {
+		commands = nil
+	}
 	select {
-	case command := <-t.commands:
+	case command := <-t.controls:
+		t.applyCommand(command)
+		return true
+	case command := <-commands:
 		t.applyCommand(command)
 		return true
 	default:
@@ -439,18 +440,24 @@ func (t *treeRuntime) advanceOne() bool {
 }
 
 func (t *treeRuntime) advancePrepared(process *processState) {
-	if process.pendingControl.hasTerminalIntent() && process.prepared.hasUnknownSettlement() {
-		unresolvedEffectIDs := process.unknownEffectIDs()
+	index, err := process.prepared.wire.Effects.next()
+	if err != nil {
 		process.discardPrepared()
-		process.commitTerminationWithUnresolved(stepOutcome{}, unresolvedEffectIDs)
+		process.fail(FailureKindContract, "engine.effect.phase.invalid", err)
 		t.finishIfTerminal(process)
 		return
 	}
-	if process.prepared.hasUnknownSettlement() {
-		return
-	}
-	if !process.prepared.allEffectsSettled() {
-		t.startNextEffect(process)
+	if index < len(process.prepared.wire.Effects) {
+		if process.prepared.wire.Effects[index].unknown() {
+			if process.pendingControl.hasTerminalIntent() {
+				unresolvedEffectIDs := process.unknownEffectIDs()
+				process.discardPrepared()
+				process.commitTerminationWithUnresolved(stepOutcome{}, unresolvedEffectIDs)
+				t.finishIfTerminal(process)
+			}
+			return
+		}
+		t.startPreparedEffect(process, index)
 		return
 	}
 	if err := process.finalizePrepared(t.context); err != nil {

@@ -67,7 +67,7 @@ func TestCompositeUsesExplicitWeightsAndPassPolicy(t *testing.T) {
 	components := []eval.Component[string]{
 		{Evaluator: eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
 			report := scoredReport("quality", eval.VerdictPass, 1)
-			report.Feedback, report.Metadata = "good", firstMetadata
+			report.Feedback, report.Metadata = "good", firstMetadata.Clone()
 			return report, nil
 		}), Weight: 3, Required: true},
 		{Evaluator: eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
@@ -599,14 +599,28 @@ func TestExperimentReportDoesNotExposeOwnedMetadata(t *testing.T) {
 	cases := report.Cases()
 	caseParameters := cases[0].Report.Metric.Parameters()
 	caseParameters["rubric"][1] = 'X'
+	*cases[0].Report.Score = 0
 	summary := report.Summary()
 	summaryParameters := summary.Metrics[0].Metric.Parameters()
 	summaryParameters["rubric"][1] = 'Y'
+	summary.Metrics[0].Scores.Mean = 0
 	if got := string(report.Cases()[0].Report.Metric.Parameters()["rubric"]); got != `"strict"` {
 		t.Fatalf("case metric parameters = %s", got)
 	}
 	if got := string(report.Summary().Metrics[0].Metric.Parameters()["rubric"]); got != `"strict"` {
 		t.Fatalf("summary metric parameters = %s", got)
+	}
+	if got := *report.Cases()[0].Report.Score; got != 1 {
+		t.Fatalf("case score = %g, want 1", got)
+	}
+	comparison, err := report.Compare(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comparison.Baseline.Metrics[0].Scores.Mean = 0
+	comparison.Candidate.Metrics[0].Scores.Mean = 0
+	if got := report.Summary().Metrics[0].Scores.Mean; got != 1 {
+		t.Fatalf("summary score mean = %g, want 1", got)
 	}
 }
 

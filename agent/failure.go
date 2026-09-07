@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -59,7 +60,8 @@ type Failure struct {
 // NewFailure requires a kind and code alongside the message so callers
 // classify failures programmatically. Matching on message text is what makes
 // error handling break on wording changes, and it does not survive the
-// snapshot round trip.
+// snapshot round trip. Message must be trimmed, valid UTF-8 and contain at
+// most 4096 bytes.
 func NewFailure(kind FailureKind, code, message string) (Failure, error) {
 	if !kind.Valid() {
 		return Failure{}, fmt.Errorf("%w: kind is required", ErrInvalidFailure)
@@ -67,8 +69,8 @@ func NewFailure(kind FailureKind, code, message string) (Failure, error) {
 	if !validQualifiedName(code) || len(code) > maxFailureCodeBytes {
 		return Failure{}, fmt.Errorf("%w: code must be a lowercase qualified name containing at most %d bytes", ErrInvalidFailure, maxFailureCodeBytes)
 	}
-	if message == "" || strings.TrimSpace(message) != message || len(message) > maxFailureMessageBytes {
-		return Failure{}, fmt.Errorf("%w: message must be non-empty, trimmed, and at most %d bytes", ErrInvalidFailure, maxFailureMessageBytes)
+	if message == "" || strings.TrimSpace(message) != message || !utf8.ValidString(message) || len(message) > maxFailureMessageBytes {
+		return Failure{}, fmt.Errorf("%w: message must be non-empty, trimmed UTF-8 within %d bytes", ErrInvalidFailure, maxFailureMessageBytes)
 	}
 	return Failure{kind: kind, code: code, message: message}, nil
 }

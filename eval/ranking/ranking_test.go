@@ -100,6 +100,53 @@ func TestPrecisionUsesConfiguredCutoff(t *testing.T) {
 	}
 }
 
+func TestNDCGIsInvariantToGradeScale(t *testing.T) {
+	evaluator, err := ranking.NewEvaluator(ranking.Config{Metric: ranking.MetricNDCG, Cutoff: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scale := range []struct {
+		name  string
+		grade float64
+	}{
+		{name: "unit", grade: 1},
+		{name: "largest finite", grade: math.MaxFloat64},
+		{name: "smallest positive", grade: math.SmallestNonzeroFloat64},
+	} {
+		for _, test := range []struct {
+			name      string
+			ranking   []string
+			judgments []ranking.Judgment
+			want      float64
+		}{
+			{
+				name: "perfect", ranking: []string{"a", "b"},
+				judgments: []ranking.Judgment{{Identity: "a", Relevance: scale.grade}, {Identity: "b", Relevance: scale.grade}},
+				want:      1,
+			},
+			{
+				name: "second rank", ranking: []string{"missing", "a"},
+				judgments: []ranking.Judgment{{Identity: "a", Relevance: scale.grade}},
+				want:      0.6309297535714574,
+			},
+		} {
+			t.Run(scale.name+"/"+test.name, func(t *testing.T) {
+				sample, sampleErr := ranking.NewSample(test.ranking, test.judgments)
+				if sampleErr != nil {
+					t.Fatal(sampleErr)
+				}
+				report, evaluationErr := evaluator.Evaluate(t.Context(), sample)
+				if evaluationErr != nil {
+					t.Fatal(evaluationErr)
+				}
+				if report.Score == nil || math.Abs(report.Score.Float64()-test.want) > 1e-12 {
+					t.Fatalf("NDCG=%v, want %v", report.Score, test.want)
+				}
+			})
+		}
+	}
+}
+
 func TestSampleOwnsAndValidatesRanking(t *testing.T) {
 	identities := []string{"a"}
 	judgments := []ranking.Judgment{{Identity: "a", Relevance: 1}}

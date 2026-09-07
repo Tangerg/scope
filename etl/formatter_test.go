@@ -61,11 +61,11 @@ func TestSimpleFormatterExcludesConfiguredKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(formatted, "secret") {
-		t.Fatalf("excluded key leaked: %q", formatted)
+	if formatted != "public: yes\n\nbody" {
+		t.Fatalf("filtered output = %q", formatted)
 	}
-	if !strings.Contains(formatted, "public") {
-		t.Fatalf("public key missing: %q", formatted)
+	if value, present, err := doc.Metadata.Decode[string]("secret"); err != nil || !present || value != "hidden" {
+		t.Fatalf("caller metadata = %q, present %v, error %v", value, present, err)
 	}
 }
 

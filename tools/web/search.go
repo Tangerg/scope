@@ -44,7 +44,7 @@ type SearchRequest struct {
 	// provider's default (typically 5-10).
 	MaxResults int `json:"max_results,omitempty" jsonschema:"minimum=1,maximum=20" jsonschema_description:"Maximum results to return, from 1 to 20. Omit to use the configured search default (typically 5-10)."`
 
-	// AllowedDomains restricts results to these domains. Mutually
+	// AllowedDomains restricts results to any of these domains. Mutually
 	// exclusive with BlockedDomains on most providers.
 	AllowedDomains []string `json:"allowed_domains,omitempty" jsonschema:"maxItems=20" jsonschema_description:"Only include results from at most 20 domains (bare domain names, no protocol). Mutually exclusive with blocked_domains."`
 
@@ -151,17 +151,24 @@ func validDomainLabel(label string) bool {
 
 // QueryWithSiteOperators returns Query with Google-style site:/-site:
 // operators for the request's domain filters. Providers without native domain
-// fields use this projection; empty domain entries are ignored.
+// fields use this projection. Allowed domains form an OR group; every blocked
+// domain is excluded. Empty domain entries are ignored.
 func (s *SearchRequest) QueryWithSiteOperators() string {
 	if s == nil {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString(s.Query)
+	var allowed []string
 	for _, domain := range s.AllowedDomains {
 		if domain != "" {
-			fmt.Fprintf(&b, " site:%s", domain)
+			allowed = append(allowed, "site:"+domain)
 		}
+	}
+	if len(allowed) == 1 {
+		fmt.Fprintf(&b, " %s", allowed[0])
+	} else if len(allowed) > 1 {
+		fmt.Fprintf(&b, " (%s)", strings.Join(allowed, " OR "))
 	}
 	for _, domain := range s.BlockedDomains {
 		if domain != "" {

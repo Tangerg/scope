@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,6 +20,8 @@ var (
 
 // A bounded buffer lets control-plane callers submit while the tree owner is
 // completing a safe boundary without allowing an unbounded command backlog.
+// Freeze management has its own bounded lane so a full Process queue cannot
+// prevent the command that releases its barrier.
 const treeCommandBufferCapacity = 32
 
 // Process is an Engine-issued handle to one managed execution. Its fields and
@@ -89,18 +92,13 @@ func (p *Process) WaitID() (WaitID, bool) {
 	return p.controller.waitID()
 }
 
-// DeliverSignal submits immutable Strategy input. Running input is consumed only at
-// the next Strategy-safe Step boundary; Waiting input must address WaitID.
-// accepted is false, with nil error, when SignalID was already accepted.
-func (p *Process) DeliverSignal(ctx context.Context, request SignalRequest) (accepted bool, err error) {
-	response, err := p.request(ctx, processCommand{kind: commandDeliver, signalRequest: request})
-	return response.accepted, err
-}
-
-// DeliverSignals atomically appends an ordered Signal batch. This is useful
-// when one WaitID-addressed response and ordinary follow-up input must become
-// visible at the same safe Strategy boundary. Either the complete batch is
-// accepted in order or the mailbox remains unchanged.
+// DeliverSignals submits one or more immutable Strategy inputs as an ordered,
+// atomic batch. Running input is consumed at the next Strategy-safe Step
+// boundary; Waiting input must first address the current WaitID, otherwise it
+// returns ErrSignalRejected. The complete batch is accepted in order or the
+// mailbox remains unchanged. If any SignalID was
+// already accepted or repeats within the batch, accepted is false with nil error
+// and no resource budget is charged.
 func (p *Process) DeliverSignals(ctx context.Context, requests ...SignalRequest) (accepted bool, err error) {
 	if len(requests) == 0 {
 		return false, ErrInvalidSignalRequest
@@ -141,9 +139,9 @@ func (p *Process) RequestCancellation(ctx context.Context, reason string) error 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	runtime := p.controller.runtime
+	runtime := p.controller.runtime.Load()
 	if runtime == nil {
-		return ErrProcessNotRunning
+		return ErrProcessFinished
 	}
 	select {
 	case runtime.commands <- newTreeProcessCommand(
@@ -213,9 +211,9 @@ func (p *Process) request(ctx context.Context, command processCommand) (processR
 		return processResponse{}, ErrProcessNotRunning
 	}
 	ctx = requireContext(ctx)
-	runtime := p.controller.runtime
+	runtime := p.controller.runtime.Load()
 	if runtime == nil {
-		return processResponse{}, ErrProcessNotRunning
+		return processResponse{}, ErrProcessFinished
 	}
 	command.response = make(chan processResponse, 1)
 	select {
@@ -291,7 +289,7 @@ type processController struct {
 	capabilities       CapabilitySet
 	treeLimits         TreeLimits
 	startedAt          time.Time
-	runtime            *treeRuntime
+	runtime            atomic.Pointer[treeRuntime]
 	done               chan struct{}
 	treeSettled        chan struct{}
 	treeSettledOnce    sync.Once
@@ -403,7 +401,6 @@ type commandKind uint8
 
 const (
 	commandInvalid commandKind = iota
-	commandDeliver
 	commandDeliverBatch
 	commandPause
 	commandResume
@@ -417,7 +414,6 @@ const (
 
 type processCommand struct {
 	kind               commandKind
-	signalRequest      SignalRequest
 	signalRequests     []SignalRequest
 	settlement         Settlement
 	hostErr            error

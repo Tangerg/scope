@@ -16,6 +16,9 @@
 // stack; the SDK's REST/gRPC bindings are not precluded but are not wired
 // here.
 //
+// Client and server spans record error classifications without raw error
+// messages. Callers still receive the complete protocol error details.
+//
 // Naming convention: the SDK's core types package is imported as `sdka2a`
 // to avoid colliding with this package's own name; the server and client
 // SDK packages keep their names `a2asrv` / `a2aclient`.

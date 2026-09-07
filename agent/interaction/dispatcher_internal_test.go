@@ -2,11 +2,56 @@ package interaction
 
 import (
 	"encoding/json"
+	"errors"
 	"math"
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
 )
+
+func TestFailedDirectResultCannotEnterProtocolOrRestore(t *testing.T) {
+	result := chat.ToolResult{
+		ID: "failed", Name: "direct", IsError: true, Output: chat.NewTextToolOutput("failure"),
+	}
+	payload, err := encodeProtocol(signalEnvelope{
+		Operation:  operationToolBatch,
+		ToolResult: &toolBatchResult{Results: []chat.ToolResult{result}, Direct: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, decodeErr := decodeSignal(payload); decodeErr == nil {
+		t.Fatal("failed direct result entered the tool protocol")
+	}
+	definition, err := NewDefinition(DefinitionConfig{
+		Name: "interaction.restore_direct", Description: "Validate completed direct result recovery.", MaxModelCalls: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := executionState{
+		Phase: phaseCompleted, ModelCallCount: 1,
+		WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}},
+		FinalOutput: &Output{
+			Source: CompletionSourceDirectToolResults, ModelCalls: 1, DirectToolResults: []chat.ToolResult{result},
+		},
+	}
+	encoded, err := encodeState(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, restoreErr := definition.Restore(encoded); !errors.Is(restoreErr, ErrInvalidExecutionState) {
+		t.Fatalf("Restore = %v, want ErrInvalidExecutionState", restoreErr)
+	}
+	state.FinalOutput.DirectToolResults[0].IsError = false
+	encoded, err = encodeState(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, restoreErr := definition.Restore(encoded); restoreErr != nil {
+		t.Fatalf("Restore successful direct result: %v", restoreErr)
+	}
+}
 
 func TestHostFailureSignalModesAreExclusive(t *testing.T) {
 	modelHost := signalEnvelope{

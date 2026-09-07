@@ -12,40 +12,30 @@ import (
 	"time"
 )
 
-func TestParseTreeSnapshotClassifiesVersionBeforeCurrentWireShape(t *testing.T) {
+func TestParseTreeSnapshotRejectsInvalidWire(t *testing.T) {
 	tree := completedTreeSnapshot(t)
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(tree.JSON(), &fields); err != nil {
 		t.Fatal(err)
 	}
 	tests := []struct {
-		name        string
-		version     json.RawMessage
-		omitVersion bool
-		unknown     bool
-		malformed   json.RawMessage
-		unsupported bool
+		name      string
+		omit      string
+		unknown   bool
+		malformed json.RawMessage
 	}{
-		{name: "missing version", omitVersion: true, unsupported: true},
-		{name: "foreign version", version: json.RawMessage(`2`), unsupported: true},
-		{
-			name: "foreign version with unknown member", version: json.RawMessage(`2`), unknown: true,
-			unsupported: true,
-		},
-		{name: "current version with unknown member", unknown: true},
-		{name: "malformed JSON", malformed: json.RawMessage(`{"version":1,"root_id":`)},
+		{name: "missing root", omit: "root_id"},
+		{name: "missing processes", omit: "process_snapshots"},
+		{name: "unknown member", unknown: true},
+		{name: "malformed JSON", malformed: json.RawMessage(`{"root_id":`)},
+		{name: "null", malformed: json.RawMessage(`null`)},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			candidate := maps.Clone(fields)
-			if test.omitVersion {
-				delete(candidate, "version")
-			}
-			if test.version != nil {
-				candidate["version"] = test.version
-			}
+			delete(candidate, test.omit)
 			if test.unknown {
-				candidate["future"] = json.RawMessage(`1`)
+				candidate["unexpected"] = json.RawMessage(`1`)
 			}
 			data := test.malformed
 			if data == nil {
@@ -55,16 +45,8 @@ func TestParseTreeSnapshotClassifiesVersionBeforeCurrentWireShape(t *testing.T) 
 					t.Fatal(err)
 				}
 			}
-			_, err := ParseTreeSnapshot(data)
-			want, other := ErrInvalidTreeSnapshot, ErrUnsupportedTreeSnapshotVersion
-			if test.unsupported {
-				want, other = other, want
-			}
-			if !errors.Is(err, want) {
-				t.Fatalf("ParseTreeSnapshot() error = %v, want %v", err, want)
-			}
-			if errors.Is(err, other) {
-				t.Fatalf("ParseTreeSnapshot() error = %v, also classified as %v", err, other)
+			if _, err := ParseTreeSnapshot(data); !errors.Is(err, ErrInvalidTreeSnapshot) {
+				t.Fatalf("ParseTreeSnapshot() error = %v, want ErrInvalidTreeSnapshot", err)
 			}
 		})
 	}
@@ -79,8 +61,12 @@ func TestTreeSnapshotDigestIsCanonicalAndStable(t *testing.T) {
 	if tree.Digest() != parsed.Digest() || tree.Digest() != ComputeDigest(tree.JSON()) {
 		t.Fatalf("digest changed across canonical round trip: %s != %s", tree.Digest(), parsed.Digest())
 	}
-	if tree.Version() != CurrentTreeSnapshotVersion || parsed.Version() != CurrentTreeSnapshotVersion {
-		t.Fatalf("versions = %d, %d", tree.Version(), parsed.Version())
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(tree.JSON(), &fields); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := slices.Sorted(maps.Keys(fields)), []string{"process_snapshots", "root_id"}; !slices.Equal(got, want) {
+		t.Fatalf("ephemeral tree fields = %v, want %v", got, want)
 	}
 	if _, durable := tree.IncarnationID(); durable {
 		t.Fatal("ephemeral capture unexpectedly contains a TreeIncarnationID")
@@ -171,6 +157,48 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 	if err != nil || parsed.RootID() != tree.RootID() || len(parsed.ProcessSnapshots()) != 4 {
 		t.Fatalf("parsed tree = %#v, error = %v", parsed, err)
 	}
+	t.Run("child wait registration belongs to its parent", func(t *testing.T) {
+		candidate, decodeErr := tree.wire()
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		registration := candidate.ChildWaits[0]
+		for index, snapshot := range candidate.ProcessSnapshots {
+			if snapshot.ProcessID() == root.ID() {
+				continue
+			}
+			child, childErr := snapshot.wire()
+			if childErr != nil {
+				t.Fatal(childErr)
+			}
+			mailbox, restoreErr := restoreSignalMailbox(child.Mailbox, child.Status)
+			if restoreErr != nil {
+				t.Fatal(restoreErr)
+			}
+			opened := mustMailboxSignal(t, "signal:foreign-wait", registration.WaitID, json.RawMessage(`{}`))
+			if openErr := mailbox.openWait(registration.Spec.Key, opened, false); openErr != nil {
+				t.Fatal(openErr)
+			}
+			child.Mailbox = mailbox.snapshot()
+			child.Usage.AcceptedSignals = mailbox.arrivalSequence()
+			child.Status = StatusWaiting
+			child.PauseReason = ""
+			child.CurrentWaitID = &registration.WaitID
+			changed, snapshotErr := newProcessSnapshot(child)
+			if snapshotErr != nil {
+				t.Fatalf("individual Process facts should be valid: %v", snapshotErr)
+			}
+			candidate.ProcessSnapshots[index] = changed
+			break
+		}
+		encoded, encodeErr := json.Marshal(candidate)
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
+		if _, parseErr := ParseTreeSnapshot(encoded); !errors.Is(parseErr, ErrInvalidTreeSnapshot) {
+			t.Fatalf("foreign child wait registration error=%v", parseErr)
+		}
+	})
 	wire, err := tree.wire()
 	if err != nil {
 		t.Fatal(err)
@@ -461,8 +489,7 @@ func TestTreeRestoreValidatesTerminalOutputAgainstExactDeployment(t *testing.T) 
 		t.Fatal(err)
 	}
 	tree, err := newTreeSnapshot(treeSnapshotWire{
-		Version: CurrentTreeSnapshotVersion,
-		RootID:  forged.ProcessID(), ProcessSnapshots: []ProcessSnapshot{forged},
+		RootID: forged.ProcessID(), ProcessSnapshots: []ProcessSnapshot{forged},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -1,6 +1,7 @@
 package text
 
 import (
+	"crypto/sha256"
 	"fmt"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -20,7 +21,10 @@ const (
 // exposes only the prompt variables its own sample contains. Samples greater
 // than one use the median judge score.
 type ModelEvaluatorConfig struct {
-	Model          chat.Model
+	Model chat.Model
+	// ModelID identifies the selected judge model and revision. Prompt identity
+	// is derived from the complete template source, including custom rubrics.
+	ModelID        string
 	PromptTemplate *chatclient.Template
 	// Threshold is optional. Without one, evaluation produces a score without
 	// inventing a pass/fail decision.
@@ -59,6 +63,7 @@ func newModelEvaluator[Subject, Variables any](
 	}
 	return judge.NewEvaluator(judge.Config[Subject]{
 		Model: config.Model, Metric: metric, Threshold: config.Threshold, Samples: config.Samples,
+		ModelID: config.ModelID, RubricID: fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(prompt.Source()))),
 		Prompt: func(subject Subject) (chat.Message, error) {
 			return prompt.UserMessage(variables(subject))
 		},

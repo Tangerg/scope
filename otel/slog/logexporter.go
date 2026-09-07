@@ -47,11 +47,10 @@ func NewLogExporter(logger *stdslog.Logger) *LogExporter {
 }
 
 // Export writes one slog record per OTel log record. It returns only context
-// cancellation/deadline errors; after Shutdown it is a no-op as required by
-// [sdklog.Exporter].
+// cancellation/deadline errors and [sdklog.ErrExporterShutdown] when closed.
 func (l *LogExporter) Export(ctx context.Context, records []sdklog.Record) error {
 	if l.shutdown.Load() {
-		return nil
+		return sdklog.ErrExporterShutdown
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -61,7 +60,7 @@ func (l *LogExporter) Export(ctx context.Context, records []sdklog.Record) error
 			return err
 		}
 		if l.shutdown.Load() {
-			return nil
+			return sdklog.ErrExporterShutdown
 		}
 		attrs := make([]stdslog.Attr, 0, rec.AttributesLen()+3)
 		if tid := rec.TraceID(); tid.IsValid() {
@@ -72,6 +71,9 @@ func (l *LogExporter) Export(ctx context.Context, records []sdklog.Record) error
 		}
 		if scope := rec.InstrumentationScope().Name; scope != "" {
 			attrs = append(attrs, stdslog.String("scope", scope))
+		}
+		if eventName := rec.EventName(); eventName != "" {
+			attrs = append(attrs, stdslog.String("event_name", eventName))
 		}
 		rec.WalkAttributes(func(kv attribute.KeyValue) bool {
 			attrs = append(attrs, logKVToSlog(kv))

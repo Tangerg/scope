@@ -37,9 +37,9 @@ func TestSteerDuringModelCallIsVisibleOnlyToNextModelCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := process.DeliverSignal(context.Background(), steer)
+	accepted, err := process.DeliverSignals(context.Background(), steer)
 	if err != nil || !accepted {
-		t.Fatalf("DeliverSignal accepted = %t, error = %v", accepted, err)
+		t.Fatalf("DeliverSignals accepted = %t, error = %v", accepted, err)
 	}
 	model.ReleaseFirst()
 	result, err := process.Await(context.Background())
@@ -87,9 +87,9 @@ func TestSteerDuringToolBatchWaitsForWholeBatchSettlement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := process.DeliverSignal(context.Background(), steer)
+	accepted, err := process.DeliverSignals(context.Background(), steer)
 	if err != nil || !accepted {
-		t.Fatalf("DeliverSignal accepted = %t, error = %v", accepted, err)
+		t.Fatalf("DeliverSignals accepted = %t, error = %v", accepted, err)
 	}
 	if model.Calls() != 1 {
 		t.Fatalf("model calls before Tool settlement = %d, want 1", model.Calls())

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/samber/lo"
 )
@@ -12,13 +13,19 @@ import (
 func failureFromError(kind FailureKind, code string, err error) (Failure, error) {
 	message := "unknown error"
 	if err != nil {
-		message = strings.TrimSpace(err.Error())
+		// Go errors can contain arbitrary bytes; persisted diagnostics must
+		// preserve their value when strict JSON decoding runs during recovery.
+		message = strings.TrimSpace(strings.ToValidUTF8(err.Error(), "\ufffd"))
 	}
 	if message == "" {
 		message = "unknown error"
 	}
 	if len(message) > maxFailureMessageBytes {
 		message = message[:maxFailureMessageBytes]
+		for !utf8.ValidString(message) {
+			message = message[:len(message)-1]
+		}
+		message = strings.TrimSpace(message)
 	}
 	return NewFailure(kind, code, message)
 }

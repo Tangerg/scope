@@ -53,8 +53,8 @@ type Experiment[T any] struct {
 	errorPolicy    ErrorPolicy
 }
 
-// NewExperiment snapshots the Dataset and resolves bounded scheduling before a
-// run starts.
+// NewExperiment binds the immutable Dataset and resolves bounded scheduling
+// before a run starts.
 func NewExperiment[T any](config ExperimentConfig[T]) (Experiment[T], error) {
 	if lo.IsNil(config.Evaluator) {
 		return Experiment[T]{}, fmt.Errorf("%w: evaluator is nil", ErrInvalidExperiment)
@@ -70,27 +70,23 @@ func NewExperiment[T any](config ExperimentConfig[T]) (Experiment[T], error) {
 	if maxConcurrency == 0 {
 		maxConcurrency = DefaultMaxConcurrency
 	}
-	dataset, err := NewDataset(config.Dataset.Cases()...)
-	if err != nil {
-		return Experiment[T]{}, fmt.Errorf("%w: dataset: %w", ErrInvalidExperiment, err)
-	}
 	return Experiment[T]{
-		dataset: dataset, evaluator: config.Evaluator,
+		dataset: config.Dataset, evaluator: config.Evaluator,
 		maxConcurrency: maxConcurrency, errorPolicy: policy,
 	}, nil
 }
 
 func (e Experiment[T]) Run(ctx context.Context) (ExperimentReport, error) {
-	cases := e.dataset.Cases()
+	cases := e.dataset.cases
 	results := newCaseResults(cases)
 	if len(cases) == 0 {
-		return newExperimentReport(results, ExperimentSummary{}), nil
+		return ExperimentReport{cases: results}, nil
 	}
 
 	attempted, runErr := e.execute(ctx, cases, results)
 	markUnevaluated(results, attempted, ctx.Err())
 	summary, summaryErr := summarize(results)
-	report := newExperimentReport(results, summary)
+	report := ExperimentReport{cases: results, summary: summary}
 	if runErr != nil {
 		return report, runErr
 	}
@@ -125,7 +121,7 @@ func (e Experiment[T]) execute(
 				err = report.Validate()
 			}
 			if err == nil {
-				results[index].Report = report.cloneValid()
+				results[index].Report = report
 				return nil
 			}
 			results[index].Err = err

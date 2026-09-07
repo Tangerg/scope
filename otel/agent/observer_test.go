@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -28,9 +29,30 @@ func TestObserverTracesRealProcessStepAndEffectLifecycle(t *testing.T) {
 	result := runObservedProcess(t, harness.observer)
 	assertObservedSpans(t, harness.recorder.Ended(), result)
 	assertObservedMetrics(t, harness.reader, result)
+	process := spanByName(t, harness.recorder.Ended(), "invoke_agent test.otel", 0)
+	if stringAttribute(process.Attributes(), "gen_ai.operation.name") != "invoke_agent" || stringAttribute(process.Attributes(), "gen_ai.agent.name") != "test.otel" {
+		t.Error("agent span is missing its GenAI identity")
+	}
+	if process.SpanKind().String() != "internal" || stringAttribute(process.Attributes(), "gen_ai.agent.id") != "" {
+		t.Error("local invocation has incorrect kind or a fabricated stable agent ID")
+	}
+	var metrics metricdata.ResourceMetrics
+	if err := harness.reader.Collect(t.Context(), &metrics); err != nil {
+		t.Fatal(err)
+	}
+	duration := metricByName(t, metrics, "gen_ai.invoke_agent.duration")
+	point := duration.Data.(metricdata.Histogram[float64]).DataPoints[0]
+	if point.Sum != process.EndTime().Sub(process.StartTime()).Seconds() {
+		t.Error("agent metric duration differs from its span")
+	}
+	if !slices.Equal(point.Bounds, []float64{0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8, 25.6, 51.2, 102.4, 204.8, 409.6}) {
+		t.Errorf("agent duration bounds = %v", point.Bounds)
+	}
+	assertHistogramAttribute(t, duration, "gen_ai.agent.name", "test.otel")
 }
 
 type observerHarness struct {
+	provider *sdktrace.TracerProvider
 	recorder *tracetest.SpanRecorder
 	reader   *sdkmetric.ManualReader
 	observer *agentotel.Observer
@@ -51,7 +73,7 @@ func newObserverHarness(t *testing.T) observerHarness {
 		t.Fatal(err)
 	}
 	t.Cleanup(observer.Close)
-	return observerHarness{recorder: recorder, reader: reader, observer: observer}
+	return observerHarness{provider: provider, recorder: recorder, reader: reader, observer: observer}
 }
 
 func runObservedProcess(t *testing.T, observer *agentotel.Observer) agent.Result {
@@ -86,7 +108,7 @@ func assertObservedSpans(t *testing.T, spans []sdktrace.ReadOnlySpan, result age
 		}
 		t.Fatalf("ended spans = %d, want process + two steps + effect", len(spans))
 	}
-	process := spanByName(t, spans, "agent.process", 0)
+	process := spanByName(t, spans, "invoke_agent test.otel", 0)
 	steps := spansByName(spans, "agent.step")
 	effect := spanByName(t, spans, "agent.effect", 0)
 	if len(steps) != 2 {
@@ -149,11 +171,11 @@ func assertObservedMetrics(t *testing.T, reader *sdkmetric.ManualReader, result 
 	if got := histogramCount(t, metricByName(t, metrics, "agent.effect.duration")); got != 1 {
 		t.Fatalf("effect duration observations = %d, want 1", got)
 	}
-	if got := histogramCount(t, metricByName(t, metrics, "agent.process.activation.duration")); got != 1 {
+	if got := histogramCount(t, metricByName(t, metrics, "gen_ai.invoke_agent.duration")); got != 1 {
 		t.Fatalf("process duration observations = %d, want 1", got)
 	}
 	for _, name := range []string{
-		"agent.process.activation.duration", "agent.step.duration", "agent.effect.duration",
+		"gen_ai.invoke_agent.duration", "agent.step.duration", "agent.effect.duration",
 	} {
 		if got := metricByName(t, metrics, name).Unit; got != "s" {
 			t.Fatalf("metric %q unit = %q, want seconds", name, got)
@@ -198,7 +220,7 @@ func TestObserverRecordsStableProcessFailureAttribution(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	process := spanByName(t, recorder.Ended(), "agent.process", 0)
+	process := spanByName(t, recorder.Ended(), "invoke_agent test.otel", 0)
 	if got := stringAttribute(process.Attributes(), "agent.failure.kind"); got != "execution" {
 		t.Fatalf("failure kind = %q", got)
 	}
@@ -213,6 +235,10 @@ func TestObserverRecordsStableProcessFailureAttribution(t *testing.T) {
 	if err := reader.Collect(t.Context(), &metrics); err != nil {
 		t.Fatal(err)
 	}
+	if got := stringAttribute(process.Attributes(), "error.type"); got != "test.otel.failed" {
+		t.Errorf("process error.type = %q", got)
+	}
+	assertHistogramAttribute(t, metricByName(t, metrics, "gen_ai.invoke_agent.duration"), "error.type", "test.otel.failed")
 	exits := metricByName(t, metrics, "agent.process.exits")
 	assertSumAttribute(t, exits, "agent.failure.kind", "execution")
 	assertSumAttribute(t, exits, "agent.failure.code", "test.otel.failed")
@@ -338,7 +364,7 @@ func TestObserverDistinguishesRestoredProcessActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	process := spanByName(t, recorder.Ended(), "agent.process", 0)
+	process := spanByName(t, recorder.Ended(), "invoke_agent test.otel", 0)
 	if got := stringAttribute(process.Attributes(), "agent.process.activation"); got != "restored" {
 		t.Fatalf("restored Process activation = %q", got)
 	}
@@ -348,7 +374,7 @@ func TestObserverDistinguishesRestoredProcessActivation(t *testing.T) {
 	}
 	assertSumAttribute(t, metricByName(t, metrics, "agent.process.activations"), "agent.process.activation", "restored")
 	assertHistogramAttribute(
-		t, metricByName(t, metrics, "agent.process.activation.duration"),
+		t, metricByName(t, metrics, "gen_ai.invoke_agent.duration"),
 		"agent.process.activation", "restored",
 	)
 }
@@ -444,7 +470,7 @@ func TestObserverCloseRecordsIncompleteSpanError(t *testing.T) {
 	observer.OnEvent(t.Context(), captureProcessStartedEvent(t))
 	observer.Close()
 
-	process := spanByName(t, recorder.Ended(), "agent.process", 0)
+	process := spanByName(t, recorder.Ended(), "invoke_agent test.otel", 0)
 	assertSpanException(t, process, "agent otel: observer closed before span completion")
 }
 
@@ -685,6 +711,11 @@ func (testDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
 
 func testDeployment(t *testing.T) agent.Deployment {
 	t.Helper()
+	return testDeploymentWithDispatcher(t, testDispatcher{})
+}
+
+func testDeploymentWithDispatcher(t *testing.T, dispatcher agent.Dispatcher) agent.Deployment {
+	t.Helper()
 	inputSchema, err := agent.SchemaFor[testInput]()
 	if err != nil {
 		t.Fatal(err)
@@ -701,7 +732,7 @@ func testDeployment(t *testing.T) agent.Deployment {
 		t.Fatal(err)
 	}
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: testDefinition{descriptor: descriptor}, Dispatcher: testDispatcher{},
+		Definition: testDefinition{descriptor: descriptor}, Dispatcher: dispatcher,
 		ImplementationDigest: agent.ComputeDigest([]byte("test-otel-implementation")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte("test-otel-configuration")),
 	})

@@ -22,8 +22,10 @@ type TreeDurabilityConformanceDriver interface {
 
 // RunTreeDurabilityConformance exercises base-head creation, same-content
 // callback retry, pending/settled/resolved Effect boundaries, Parked/Terminal
-// checkpoints, and old-writer fencing against concurrent restore. Each factory
-// call must return a new driver backed by an empty isolated store.
+// checkpoints, old-writer fencing, and recovery after callback failures before
+// and after the underlying commit. It checks head contents, dispatch counts,
+// unknown outcomes, and publication ordering without assuming a storage engine.
+// Each factory call must return a new driver backed by an empty isolated store.
 func RunTreeDurabilityConformance(
 	t *testing.T,
 	factory func() TreeDurabilityConformanceDriver,
@@ -42,6 +44,9 @@ func RunTreeDurabilityConformance(
 
 	t.Run("delayed commit loses to activation", func(t *testing.T) {
 		runDelayedCommitConformance(t, factory)
+	})
+	t.Run("crash boundaries", func(t *testing.T) {
+		runTreeDurabilityCrashConformance(t, factory)
 	})
 }
 
@@ -196,8 +201,9 @@ func runDelayedCommitConformance(
 ) {
 	t.Helper()
 	driver := factory()
-	blocking := newConformanceBlockingPendingDurability(t, driver.TreeDurability())
-	t.Cleanup(blocking.releasePending)
+	blocking := newTreeDurabilityCommitGate(t, driver.TreeDurability(), crashCommitPoint{
+		kind: crashCommitEffectPending, phase: crashCommitBefore,
+	})
 	deployment := conformanceDeployment(t, conformanceModeEffect)
 	originalEngine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: blocking})
 	if err != nil {
@@ -211,7 +217,7 @@ func runDelayedCommitConformance(
 	if err != nil {
 		t.Fatal(err)
 	}
-	blocking.waitUntilPending(t)
+	blocking.await(t)
 	base, exists, err := driver.LoadTree(context.Background(), original.ID())
 	if err != nil || !exists || !base.Valid() {
 		t.Fatalf("authoritative base head exists=%t error=%v", exists, err)
@@ -225,11 +231,16 @@ func runDelayedCommitConformance(
 	if err != nil {
 		t.Fatal(err)
 	}
-	blocking.releasePending()
 	if result, awaitErr := restored.Await(context.Background()); awaitErr != nil ||
 		result.Status() != agent.StatusCompleted {
 		t.Fatalf("restored result status=%s error=%v", result.Status(), awaitErr)
 	}
+	winningHead, exists, err := driver.LoadTree(t.Context(), original.ID())
+	if err != nil || !exists || !winningHead.Valid() ||
+		conformanceSnapshotByID(winningHead.ProcessSnapshots(), original.ID()).Status() != agent.StatusCompleted {
+		t.Fatalf("winner did not publish a durable terminal head: exists=%t error=%v", exists, err)
+	}
+	blocking.continueCommit()
 	stale, err := original.Await(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -239,6 +250,7 @@ func runDelayedCommitConformance(
 		failure.Kind() != agent.FailureKindExternal {
 		t.Fatalf("stale writer result=%+v failure=%+v present=%t", stale, failure, failed)
 	}
+	assertCrashHead(t, driver, original.ID(), winningHead.Digest())
 	if err := restoredEngine.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -342,89 +354,6 @@ func (c *conformanceDurabilityProbe) assertSingleCheckpoint(
 	if len(c.checkpoints) != 1 || c.checkpoints[0] != want {
 		t.Fatalf("checkpoint order=%v, want [%s]", c.checkpoints, want)
 	}
-}
-
-type conformanceBlockingPendingDurability struct {
-	durability agent.TreeDurability
-	entered    chan struct{}
-	release    chan struct{}
-	blocked    bool
-	released   sync.Once
-	mu         sync.Mutex
-}
-
-func newConformanceBlockingPendingDurability(
-	t *testing.T,
-	durability agent.TreeDurability,
-) *conformanceBlockingPendingDurability {
-	t.Helper()
-	if durability == nil {
-		t.Fatal("TreeDurability conformance driver returned nil")
-	}
-	return &conformanceBlockingPendingDurability{
-		durability: durability,
-		entered:    make(chan struct{}),
-		release:    make(chan struct{}),
-	}
-}
-
-func (c *conformanceBlockingPendingDurability) AcknowledgeProcessStartOutcome(
-	ctx context.Context,
-	outcome agent.ProcessStartOutcome,
-) error {
-	return c.durability.AcknowledgeProcessStartOutcome(ctx, outcome)
-}
-
-func (c *conformanceBlockingPendingDurability) ActivateTree(
-	ctx context.Context,
-	activation agent.TreeActivation,
-) error {
-	return c.durability.ActivateTree(ctx, activation)
-}
-
-func (c *conformanceBlockingPendingDurability) CommitEffect(
-	ctx context.Context,
-	boundary agent.EffectBoundary,
-) error {
-	if boundary.Kind() == agent.EffectBoundaryPending && c.blockFirstPending() {
-		close(c.entered)
-		select {
-		case <-c.release:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-	return c.durability.CommitEffect(ctx, boundary)
-}
-
-func (c *conformanceBlockingPendingDurability) CommitCheckpoint(
-	ctx context.Context,
-	checkpoint agent.TreeCheckpoint,
-) error {
-	return c.durability.CommitCheckpoint(ctx, checkpoint)
-}
-
-func (c *conformanceBlockingPendingDurability) blockFirstPending() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.blocked {
-		return false
-	}
-	c.blocked = true
-	return true
-}
-
-func (c *conformanceBlockingPendingDurability) waitUntilPending(t *testing.T) {
-	t.Helper()
-	select {
-	case <-c.entered:
-	case <-time.After(conformanceStatusTimeout):
-		t.Fatal("pending Effect commit did not start")
-	}
-}
-
-func (c *conformanceBlockingPendingDurability) releasePending() {
-	c.released.Do(func() { close(c.release) })
 }
 
 type conformanceMode uint8

@@ -190,16 +190,14 @@ func readAudioChunks(reader io.Reader) iter.Seq2[[]byte, error] {
 		for {
 			buffer := make([]byte, chunkSize)
 			read, err := reader.Read(buffer)
-			eof := err == io.EOF
-			if eof {
-				err = nil
+			// Reader may return both bytes and an error; deliver the bytes first.
+			if read > 0 && !yield(buffer[:read], nil) {
+				return
 			}
-			if read > 0 || err != nil {
-				if !yield(buffer[:read], err) {
-					return
+			if err != nil {
+				if err != io.EOF {
+					yield(nil, err)
 				}
-			}
-			if eof || err != nil {
 				return
 			}
 		}

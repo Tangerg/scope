@@ -145,6 +145,11 @@ func (c *CompositeEvaluator[T]) combine(reports []Report) (Report, error) {
 	}
 	combined := Report{Metric: metric, Verdict: VerdictPass, Details: reports}
 	feedback := make([]string, 0, len(reports))
+	weightScale := 0.0
+	for _, component := range c.components {
+		weightScale = max(weightScale, component.Weight)
+	}
+	_, weightExponent := math.Frexp(weightScale)
 	passed := 0
 	totalWeight := 0.0
 	weightedScore := 0.0
@@ -155,8 +160,10 @@ func (c *CompositeEvaluator[T]) combine(reports []Report) (Report, error) {
 		} else if component.Required {
 			combined.Verdict = VerdictFail
 		}
-		weightedScore += report.Score.Float64() * component.Weight
-		totalWeight += component.Weight
+		// Binary scaling bounds the sum without rounding ordinary weights.
+		weight := math.Ldexp(component.Weight, -weightExponent)
+		weightedScore += report.Score.Float64() * weight
+		totalWeight += weight
 		if report.Feedback != "" {
 			feedback = append(feedback, report.Feedback)
 		}
@@ -189,7 +196,7 @@ func (c *CompositeEvaluator[T]) metricFor(reports []Report) (Metric, error) {
 	components := make([]componentIdentity, len(reports))
 	for index, report := range reports {
 		components[index] = componentIdentity{
-			Metric: report.Metric.Clone(), Weight: c.components[index].Weight,
+			Metric: report.Metric, Weight: c.components[index].Weight,
 			Required: c.components[index].Required,
 		}
 	}

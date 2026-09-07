@@ -233,8 +233,8 @@ func TestCallPreservesResponseAndError(t *testing.T) {
 	}
 	assertStringAttr(t, spanAttributes(t, span), "gen_ai.response.model", "served-model")
 	metrics := collectMetrics(t, rig.reader)
-	if metricExists(metrics, "gen_ai.client.token.usage") {
-		t.Fatal("failed calls must not emit token usage")
+	if got := histogramInt64Sum(t, metrics, "gen_ai.client.token.usage", "gen_ai.token.type", "input"); got != 4 {
+		t.Fatalf("known input token usage = %d, want 4", got)
 	}
 	assertMetricAttribute(t, metrics, "gen_ai.client.operation.duration", "error.type", "*errors.errorString")
 }
@@ -265,7 +265,7 @@ func TestCallClassifiesWrappedErrorsByCause(t *testing.T) {
 	}
 }
 
-func TestStreamIsLazyAndAggregatesForObservation(t *testing.T) {
+func TestStreamIsLazyAndObservesMetadata(t *testing.T) {
 	middleware, rig := newRig(t, "openai")
 	called := false
 	streamer := chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
@@ -299,21 +299,15 @@ func TestStreamIsLazyAndAggregatesForObservation(t *testing.T) {
 	if got := attrs["gen_ai.usage.output_tokens"].AsInt64(); got != 3 {
 		t.Fatalf("stream output tokens = %d, want 3", got)
 	}
-	var firstTokenEvents int
-	for _, event := range span.Events() {
-		if event.Name == "first_token_received" {
-			firstTokenEvents++
-		}
-	}
-	if firstTokenEvents != 1 {
-		t.Fatalf("first token events = %d, want 1", firstTokenEvents)
+	if !attrs["gen_ai.request.stream"].AsBool() {
+		t.Fatal("missing streaming request attribute")
 	}
 	metrics := collectMetrics(t, rig.reader)
 	if got := histogramInt64Sum(t, metrics, "gen_ai.client.token.usage", "gen_ai.token.type", "output"); got != 3 {
 		t.Fatalf("stream output metric = %d, want 3", got)
 	}
-	assertMetricAttribute(t, metrics, "gen_ai.client.time_to_first_token", "gen_ai.provider.name", "openai")
-	assertMetricAttribute(t, metrics, "gen_ai.client.time_to_first_token", "gen_ai.request.model", "gpt-request")
+	assertMetricAttribute(t, metrics, "gen_ai.client.operation.time_to_first_chunk", "gen_ai.provider.name", "openai")
+	assertMetricAttribute(t, metrics, "gen_ai.client.operation.time_to_first_chunk", "gen_ai.request.model", "gpt-request")
 }
 
 func TestStreamEndsSynchronouslyOnConsumerStop(t *testing.T) {
@@ -392,7 +386,7 @@ func TestStreamReportsNilAndProviderErrors(t *testing.T) {
 	})
 }
 
-func TestStreamDoesNotTurnObservationFailureIntoBusinessFailure(t *testing.T) {
+func TestStreamForwardsInvalidContentWithoutReassemblingIt(t *testing.T) {
 	middleware, rig := newRig(t, "openai")
 	invalid := &chat.ResponseDelta{}
 	streamer := chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
@@ -409,7 +403,7 @@ func TestStreamDoesNotTurnObservationFailureIntoBusinessFailure(t *testing.T) {
 		t.Fatal("invalid provider chunk was replaced")
 	}
 	events := rig.spans.Ended()[0].Events()
-	if len(events) != 1 || events[0].Name != "gen_ai.stream.accumulation_error" {
+	if len(events) != 0 {
 		t.Fatalf("events = %v", events)
 	}
 }
@@ -438,17 +432,6 @@ func collectMetrics(t *testing.T, reader *sdkmetric.ManualReader) metricdata.Res
 		t.Fatal(err)
 	}
 	return metrics
-}
-
-func metricExists(metrics metricdata.ResourceMetrics, name string) bool {
-	for _, scope := range metrics.ScopeMetrics {
-		for _, value := range scope.Metrics {
-			if value.Name == name {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func histogramInt64Sum(

@@ -97,13 +97,6 @@ func TestApplyPatch_MoveRefusesToOverwriteItsDestination(t *testing.T) {
 	}
 }
 
-func TestApplyPatch_MoveLocksBothEndpoints(t *testing.T) {
-	locks := (patchTarget{from: "old.txt", to: "new.txt"}).locks()
-	if len(locks) != 2 || locks[0] != "old.txt" || locks[1] != "new.txt" {
-		t.Fatalf("locks = %v, want both move endpoints", locks)
-	}
-}
-
 func TestApplyPatch_RefusesTwoPatchesTouchingOneEndpoint(t *testing.T) {
 	// Editing a file and moving another one onto it are two edits to one path, and
 	// the result would depend on which was applied first.
@@ -120,5 +113,34 @@ func TestApplyPatch_RefusesTwoPatchesTouchingOneEndpoint(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "duplicate file patch") {
 		t.Errorf("error = %v, want it to name the duplicate", err)
+	}
+}
+
+func TestApplyPatchRejectsAbsoluteAndRelativeAliasesBeforeMutation(t *testing.T) {
+	dir := t.TempDir()
+	path := writeTemp(t, dir, "file.txt", "one\ntwo\n")
+	patch := fmt.Sprintf("--- a/file.txt\n+++ b/file.txt\n@@ -1,2 +1,2 @@\n-one\n+ONE\n two\n"+
+		"--- %s\n+++ %s\n@@ -1,2 +1,2 @@\n one\n-two\n+TWO\n", path, path)
+	response, err := mustLocalExecutor(t, dir).ApplyPatch(t.Context(), ApplyPatchRequest{Patch: patch})
+	if err == nil || !strings.Contains(err.Error(), "duplicate file patch for file.txt") || len(response.Files) != 0 {
+		t.Fatalf("response=%+v error=%v, want duplicate target rejection", response, err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil || string(content) != "one\ntwo\n" {
+		t.Fatalf("content=%q error=%v, want unchanged source", content, err)
+	}
+}
+
+func TestApplyPatchReportsResolvedPaths(t *testing.T) {
+	dir := t.TempDir()
+	path := writeTemp(t, dir, "file.txt", "one\n")
+	patch := fmt.Sprintf("--- %s\n+++ %s\n@@ -1 +1 @@\n-one\n+ONE\n", path, path)
+	response, err := mustLocalExecutor(t, dir).ApplyPatch(t.Context(), ApplyPatchRequest{Patch: patch})
+	if err != nil || len(response.Files) != 1 || response.Files[0].Path != "file.txt" || response.Hunks != 1 {
+		t.Fatalf("response=%+v error=%v, want one root-relative target", response, err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil || string(content) != "ONE\n" {
+		t.Fatalf("content=%q error=%v, want committed content", content, err)
 	}
 }

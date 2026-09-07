@@ -29,7 +29,10 @@ func (t *treeRuntime) startStep(process *processState) {
 	})
 	go func() {
 		transition, err := stepExecution(stepCtx, execution, signals)
-		result := stepJobResult{transition: transition, stage: stepJobStageExecution, err: err}
+		result := stepJobResult{
+			transition: transition, deliveredSignals: uint64(len(signals)),
+			stage: stepJobStageExecution, err: err,
+		}
 		if err == nil {
 			result.stage = stepJobStageSnapshot
 			result.candidateState, result.err = captureExecution(execution)
@@ -52,53 +55,47 @@ func (t *treeRuntime) startStep(process *processState) {
 	}()
 }
 
-func (t *treeRuntime) startNextEffect(process *processState) {
-	for index := range process.prepared.wire.Effects {
-		record := &process.prepared.wire.Effects[index]
-		if record.Phase == effectPhaseSettled {
-			continue
-		}
-		if record.Phase == effectPhasePlanned {
-			if err := record.begin(); err != nil {
-				process.discardPrepared()
-				process.fail(FailureKindContract, "engine.effect.phase.invalid", err)
-				return
-			}
-			if record.Effect.Target() == EffectTargetDispatcher && t.engine.durability != nil {
-				if err := t.startPendingEffectCommit(process, uint32(index), *record); err != nil {
-					t.failDurability(err, process.controller.processID, EffectID{})
-				}
-				return
-			}
-		}
-		if record.Phase == effectPhasePending &&
-			record.Effect.Target() == EffectTargetDispatcher &&
-			process.restoredPending.matches(record.ID) {
-			t.recoverPendingEffect(process, uint32(index), record)
+func (t *treeRuntime) startPreparedEffect(process *processState, index int) {
+	record := &process.prepared.wire.Effects[index]
+	if record.Phase == effectPhasePlanned {
+		if err := record.begin(); err != nil {
+			process.discardPrepared()
+			process.fail(FailureKindContract, "engine.effect.phase.invalid", err)
 			return
 		}
-		if record.Effect.Target() == EffectTargetFramework {
-			startedAt := process.publishEffectStarted(
-				t.context, process.prepared.wire.StepSequence, record.ID, EffectTargetFramework,
-			)
-			operation, err := decodeFrameworkEffectOperation(record.Effect.Payload())
-			if err == nil && operation == frameworkEffectStartChild {
-				t.startChild(process, record, startedAt)
-				return
+		if record.Effect.Target() == EffectTargetDispatcher && t.engine.durability != nil {
+			if err := t.startPendingEffectCommit(process, uint32(index), *record); err != nil {
+				t.failDurability(err, process.controller.processID, EffectID{})
 			}
-			if err := process.dispatchFrameworkEffect(t.context, record); err != nil {
-				t.failPreparedEffect(process, "engine.framework_effect.settlement.invalid", err)
-				return
-			}
-			process.publishSettlementEvent(
-				t.context, record.ID, EffectTargetFramework, record.Settlement.Status(), startedAt,
-			)
-			t.markRunnable(process.controller.processID)
 			return
 		}
-		t.startDispatch(process, uint32(index), *record)
+	}
+	if record.Phase == effectPhasePending &&
+		record.Effect.Target() == EffectTargetDispatcher &&
+		process.restoredPending.matches(record.ID) {
+		t.recoverPendingEffect(process, uint32(index), record)
 		return
 	}
+	if record.Effect.Target() == EffectTargetFramework {
+		startedAt := process.publishEffectStarted(
+			t.context, process.prepared.wire.StepSequence, record.ID, EffectTargetFramework,
+		)
+		operation, err := decodeFrameworkEffectOperation(record.Effect.Payload())
+		if err == nil && operation == frameworkEffectStartChild {
+			t.startChild(process, record, startedAt)
+			return
+		}
+		if err := process.dispatchFrameworkEffect(t.context, record); err != nil {
+			t.failPreparedEffect(process, "engine.framework_effect.settlement.invalid", err)
+			return
+		}
+		process.publishSettlementEvent(
+			t.context, record.ID, EffectTargetFramework, record.Settlement.Status(), startedAt,
+		)
+		t.markRunnable(process.controller.processID)
+		return
+	}
+	t.startDispatch(process, uint32(index), *record)
 }
 
 func (t *treeRuntime) recoverPendingEffect(
@@ -130,7 +127,7 @@ func (t *treeRuntime) recoverPendingEffect(
 			EffectBoundarySettled,
 			effectRequestFor(process, batchIndex, *record),
 			settlement,
-			t.headDigest,
+			t.head.digest(),
 			snapshot,
 		)
 		if err != nil {
@@ -347,7 +344,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 			t.failDurability(err, parent.controller.processID, job.effectID)
 			return
 		}
-		outcome := pending.treeOutcome(t.headDigest, snapshot)
+		outcome := pending.treeOutcome(t.head.digest(), snapshot)
 		t.startChildOutcomeCommit(pending, outcome, snapshot)
 		return
 	}
@@ -551,7 +548,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 			}
 			request := effectRequestFor(process, uint32(index), *record)
 			boundary, err := newEffectBoundary(
-				EffectBoundarySettled, request, settlement, t.headDigest, snapshot,
+				EffectBoundarySettled, request, settlement, t.head.digest(), snapshot,
 			)
 			if err != nil {
 				t.failDurability(err, process.controller.processID, record.ID)

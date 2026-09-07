@@ -72,17 +72,24 @@ func (r *Repository) List(ctx context.Context) (summaries []Summary, err error) 
 		return nil, contextErr
 	}
 	directory, err := r.fsys.Open(".")
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
 	if err != nil {
+		if contextErr := contextError(ctx, "list"); contextErr != nil {
+			return nil, errors.Join(err, contextErr)
+		}
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("skills: list: %w", err)
 	}
 	defer func() {
 		if closeErr := directory.Close(); closeErr != nil {
 			err = errors.Join(err, fmt.Errorf("skills: close repository directory: %w", closeErr))
 		}
+		err = errors.Join(err, contextError(ctx, "list"))
 	}()
+	if contextErr := contextError(ctx, "list"); contextErr != nil {
+		return nil, contextErr
+	}
 	reader, ok := directory.(fs.ReadDirFile)
 	if !ok {
 		return nil, errors.New("skills: list: filesystem directory does not implement fs.ReadDirFile")
@@ -102,7 +109,13 @@ func (r *Repository) readSummaries(ctx context.Context, reader fs.ReadDirFile) (
 	summaries := make([]Summary, 0)
 	entriesSeen := 0
 	for {
+		if err := contextError(ctx, "list"); err != nil {
+			return nil, err
+		}
 		entries, readErr := reader.ReadDir(64)
+		if err := contextError(ctx, "list"); err != nil {
+			return nil, errors.Join(readErr, err)
+		}
 		for _, entry := range entries {
 			entriesSeen++
 			if entriesSeen > r.limits.maxEntries {
@@ -133,13 +146,13 @@ func (r *Repository) summaryForEntry(ctx context.Context, entry fs.DirEntry) (Su
 		return Summary{}, false, nil
 	}
 	summary, err := r.loadSummary(ctx, entry.Name())
+	if ctxErr := contextError(ctx, "list"); ctxErr != nil {
+		return Summary{}, false, errors.Join(err, ctxErr)
+	}
 	if err == nil {
 		return summary, true, nil
 	}
-	if ctxErr := contextError(ctx, "list"); ctxErr != nil {
-		return Summary{}, false, ctxErr
-	}
-	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, ErrInvalidSkill) {
+	if errors.Is(err, ErrInvalidSkill) {
 		return Summary{}, false, nil
 	}
 	return Summary{}, false, fmt.Errorf("skills: list: %w", err)
@@ -188,15 +201,21 @@ func (r *Repository) loadSummary(ctx context.Context, name string) (Summary, err
 	operation := fmt.Sprintf("load summary %q", name)
 	file, err := r.fsys.Open(name + "/" + SkillFile)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return Summary{}, invalidSkill(name, err)
+		}
 		return Summary{}, fmt.Errorf("skills: %s: %w", operation, err)
 	}
 	frontmatter, readErr := readFrontmatter(ctx, file, r.limits.maxFrontmatterBytes)
 	closeErr := file.Close()
-	if combinedErr := errors.Join(readErr, closeErr); combinedErr != nil {
-		if errors.Is(combinedErr, ErrNoFrontmatter) || errors.Is(combinedErr, ErrContentTooLarge) {
-			return Summary{}, invalidSkill(name, combinedErr)
+	if closeErr != nil {
+		return Summary{}, fmt.Errorf("skills: %s: %w", operation, errors.Join(readErr, closeErr))
+	}
+	if readErr != nil {
+		if errors.Is(readErr, ErrNoFrontmatter) || errors.Is(readErr, ErrContentTooLarge) {
+			return Summary{}, invalidSkill(name, readErr)
 		}
-		return Summary{}, fmt.Errorf("skills: %s: %w", operation, combinedErr)
+		return Summary{}, fmt.Errorf("skills: %s: %w", operation, readErr)
 	}
 	skill, err := Parse(frontmatter)
 	if err != nil {
@@ -213,11 +232,11 @@ func (r *Repository) loadSummary(ctx context.Context, name string) (Summary, err
 func (r *Repository) readSkillFile(ctx context.Context, name string, maxBytes int64) ([]byte, error) {
 	file, err := r.fsys.Open(name + "/" + SkillFile)
 	if err != nil {
-		return nil, fmt.Errorf("skills: load %q: %w", name, err)
+		return nil, fmt.Errorf("skills: load %q: %w", name, errors.Join(err, contextError(ctx, "open skill")))
 	}
 	data, truncated, readErr := readBounded(ctx, file, maxBytes)
 	closeErr := file.Close()
-	if readErr = errors.Join(readErr, closeErr); readErr != nil {
+	if readErr = errors.Join(readErr, closeErr, contextError(ctx, "read skill")); readErr != nil {
 		return nil, fmt.Errorf("skills: load %q: %w", name, readErr)
 	}
 	if truncated {
@@ -234,6 +253,9 @@ func readFrontmatter(ctx context.Context, reader io.Reader, maxBytes int64) ([]b
 	lineNumber := 0
 	for {
 		text, readErr := buffered.ReadString('\n')
+		if contextErr := contextError(ctx, "read frontmatter"); contextErr != nil {
+			return nil, errors.Join(readErr, contextErr)
+		}
 		if readErr != nil && !errors.Is(readErr, io.EOF) {
 			return nil, errors.Join(readErr, ctx.Err())
 		}

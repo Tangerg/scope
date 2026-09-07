@@ -2,6 +2,7 @@ package judge_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -29,7 +30,7 @@ func TestEvaluatorSupportsNonTextSubjectsAndMedianSampling(t *testing.T) {
 	}
 	threshold := eval.Score(0.5)
 	evaluator, err := judge.NewEvaluator(judge.Config[toolDecision]{
-		Model: model, Metric: metric, Threshold: &threshold, Samples: 3,
+		ModelID: "test-model-v1", RubricID: "test-rubric-v1", Model: model, Metric: metric, Threshold: &threshold, Samples: 3,
 		Prompt: func(subject toolDecision) (chat.Message, error) {
 			return chat.NewUserMessage(chat.NewTextPart(fmt.Sprintf(
 				"expected=%s actual=%s", subject.Expected, subject.Actual,
@@ -67,7 +68,7 @@ func TestEvaluatorDoesNotInventVerdictWithoutThreshold(t *testing.T) {
 		t.Fatal(err)
 	}
 	evaluator, err := judge.NewEvaluator(judge.Config[string]{
-		Model: model, Metric: metric, Prompt: validPrompt,
+		ModelID: "test-model-v1", RubricID: "test-rubric-v1", Model: model, Metric: metric, Prompt: validPrompt,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -89,13 +90,51 @@ func TestEvaluatorValidatesGenericJudgeConfiguration(t *testing.T) {
 	model := &fakeModel{replies: []string{"{\"score\":0.5}"}}
 	for _, config := range []judge.Config[string]{
 		{Metric: metric, Prompt: func(string) (chat.Message, error) { return chat.Message{}, nil }},
-		{Model: model, Metric: metric},
-		{Model: model, Metric: metric, Samples: -1, Prompt: validPrompt},
-		{Model: model, Prompt: validPrompt},
+		{ModelID: "test-model-v1", RubricID: "test-rubric-v1", Model: model, Metric: metric},
+		{ModelID: "test-model-v1", RubricID: "test-rubric-v1", Model: model, Metric: metric, Samples: -1, Prompt: validPrompt},
+		{ModelID: "test-model-v1", RubricID: "test-rubric-v1", Model: model, Prompt: validPrompt},
+		{Model: model, Metric: metric, Prompt: validPrompt, RubricID: "rubric-v1"},
+		{Model: model, Metric: metric, Prompt: validPrompt, ModelID: "model-v1"},
+		{Model: model, Metric: metric, Prompt: validPrompt, ModelID: " model-v1", RubricID: "rubric-v1"},
+		{Model: model, Metric: metric, Prompt: validPrompt, ModelID: "model-v1", RubricID: "rubric-v1 "},
 	} {
 		if _, err := judge.NewEvaluator(config); !errors.Is(err, eval.ErrInvalidEvaluatorConfig) {
 			t.Fatalf("NewEvaluator(%#v) error = %v", config, err)
 		}
+	}
+}
+
+func TestJudgeMetricIdentityIncludesModelRubricAndGenerationOptions(t *testing.T) {
+	metric, err := eval.NewMetric(eval.MetricConfig{Name: "quality"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := make(map[string]bool)
+	for _, config := range []judge.Config[string]{
+		{ModelID: "model-v1", RubricID: "rubric-v1"},
+		{ModelID: "model-v2", RubricID: "rubric-v1"},
+		{ModelID: "model-v1", RubricID: "rubric-v2"},
+		{ModelID: "model-v1", RubricID: "rubric-v1", Options: chat.Options{Temperature: new(0.1)}},
+	} {
+		config.Model = &fakeModel{replies: []string{`{"score":0.5}`}}
+		config.Metric = metric
+		config.Prompt = validPrompt
+		evaluator, err := judge.NewEvaluator(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		report, err := evaluator.Evaluate(t.Context(), "same subject")
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(report.Metric)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if seen[string(encoded)] {
+			t.Fatalf("changed scoring configuration retained metric identity: %s", encoded)
+		}
+		seen[string(encoded)] = true
 	}
 }
 

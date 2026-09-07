@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/samber/lo"
@@ -28,13 +29,13 @@ const (
 	signalUnit          = "{signal}"
 	deltaUnit           = "{delta}"
 
-	processSpanName = "agent.process"
-	stepSpanName    = "agent.step"
-	effectSpanName  = "agent.effect"
+	invokeAgentOperationName = "invoke_agent"
+	stepSpanName             = "agent.step"
+	effectSpanName           = "agent.effect"
 
 	processActivationsMetricName     = "agent.process.activations"
 	processExitsMetricName           = "agent.process.exits"
-	processActivationDurationName    = "agent.process.activation.duration"
+	invokeAgentDurationMetricName    = "gen_ai.invoke_agent.duration"
 	processCommittedStepsMetricName  = "agent.process.committed_steps"
 	processPreparedEffectsMetricName = "agent.process.prepared_effects"
 	processAcceptedSignalsMetricName = "agent.process.accepted_signals"
@@ -181,9 +182,10 @@ func newObserverInstruments(meter metric.Meter) (observerInstruments, error) {
 		return observerInstruments{}, fmt.Errorf("%w: create process exits counter: %w", ErrInvalidObserverConfig, err)
 	}
 	processActivationDuration, err := meter.Float64Histogram(
-		processActivationDurationName,
-		metric.WithDescription("Agent Process activation duration from start or restore to terminal outcome."),
+		invokeAgentDurationMetricName,
+		metric.WithDescription("Duration of one in-process agent invocation from start or restore to termination."),
 		metric.WithUnit(durationUnit),
+		metric.WithExplicitBucketBoundaries(0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8, 25.6, 51.2, 102.4, 204.8, 409.6),
 	)
 	if err != nil {
 		return observerInstruments{}, fmt.Errorf("%w: create process activation duration histogram: %w", ErrInvalidObserverConfig, err)
@@ -344,10 +346,12 @@ func (o *Observer) startProcess(ctx context.Context, event agent.Event) {
 	activation := activationForEvent(event)
 	spanAttributes := append(
 		processAttributes(event),
+		semconv.GenAIOperationNameInvokeAgent,
+		semconv.GenAIAgentName(event.DeploymentRef().Name()),
 		processActivationAttribute.String(string(activation)),
 	)
 	_, span := o.tracer.Start(
-		parentContext, processSpanName,
+		parentContext, invokeAgentOperationName+" "+event.DeploymentRef().Name(),
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithTimestamp(event.OccurredAt()),
 		trace.WithAttributes(spanAttributes...),
@@ -406,8 +410,21 @@ func (o *Observer) finishProcess(ctx context.Context, event agent.Event) {
 	if !found {
 		return
 	}
+	durationAttributes := []attribute.KeyValue{
+		semconv.GenAIAgentName(event.DeploymentRef().Name()),
+		processActivationAttribute.String(string(record.activation)),
+	}
+	observedError := processFactError{status: fact.Status(), cause: fact.Cause()}
+	if failureKind, failureCode, failed := fact.Failure(); failed {
+		observedError.failureKind = failureKind
+		observedError.failureCode = failureCode
+	}
+	if processStatusIsError(fact.Status()) {
+		durationAttributes = append(durationAttributes, semconv.ErrorType(observedError))
+	}
 	o.instruments.processActivationDuration.Record(
-		ctx, elapsedSeconds(record.startedAt, event.OccurredAt()), metricOptions,
+		trace.ContextWithSpan(ctx, record.span), elapsedSeconds(record.startedAt, event.OccurredAt()),
+		metric.WithAttributes(durationAttributes...),
 	)
 	spanAttributes := []attribute.KeyValue{
 		processStatusAttribute.String(fact.Status().String()),
@@ -421,13 +438,6 @@ func (o *Observer) finishProcess(ctx context.Context, event agent.Event) {
 	}
 	record.span.SetAttributes(spanAttributes...)
 	if processStatusIsError(fact.Status()) {
-		observedError := processFactError{
-			status: fact.Status(), cause: fact.Cause(),
-		}
-		if failureKind, failureCode, failed := fact.Failure(); failed {
-			observedError.failureKind = failureKind
-			observedError.failureCode = failureCode
-		}
 		recordSpanFailure(record.span, observedError, event.OccurredAt())
 	}
 	record.span.End(trace.WithTimestamp(event.OccurredAt()))
@@ -674,9 +684,18 @@ func (p processFactError) Error() string {
 	return "agent Process " + p.status.String() + ": " + p.cause.String()
 }
 
+func (p processFactError) ErrorType() string {
+	if p.failureCode != "" {
+		return p.failureCode
+	}
+	return "agent." + p.cause.String()
+}
+
 type stepFactError struct{}
 
 func (stepFactError) Error() string { return "agent Execution Step failed" }
+
+func (stepFactError) ErrorType() string { return "agent.step.failed" }
 
 type effectFactError struct {
 	target     agent.EffectTarget
@@ -687,7 +706,10 @@ func (e effectFactError) Error() string {
 	return "agent " + e.target.String() + " Effect " + e.settlement.String()
 }
 
+func (e effectFactError) ErrorType() string { return "agent.effect." + e.settlement.String() }
+
 func recordSpanFailure(span trace.Span, observedError error, occurredAt time.Time) {
+	span.SetAttributes(semconv.ErrorType(observedError))
 	span.RecordError(observedError, trace.WithTimestamp(occurredAt))
 	span.SetStatus(codes.Error, observedError.Error())
 }

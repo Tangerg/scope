@@ -40,7 +40,7 @@ func (t *treeRuntime) startPendingEffectCommit(
 		return err
 	}
 	boundary, err := newEffectBoundary(
-		EffectBoundaryPending, request, Settlement{}, t.headDigest, snapshot,
+		EffectBoundaryPending, request, Settlement{}, t.head.digest(), snapshot,
 	)
 	if err != nil {
 		return err
@@ -100,7 +100,7 @@ func (t *treeRuntime) startUnknownResolutionCommit(
 		}
 		request := effectRequestFor(process, uint32(index), *record)
 		boundary, err := newEffectBoundary(
-			EffectBoundaryResolved, request, command.settlement, t.headDigest, snapshot,
+			EffectBoundaryResolved, request, command.settlement, t.head.digest(), snapshot,
 		)
 		if err != nil {
 			return err
@@ -168,7 +168,7 @@ func (t *treeRuntime) startCheckpointCommit(
 	kind TreeCheckpointKind,
 	snapshot TreeSnapshot,
 ) error {
-	checkpoint, err := newTreeCheckpoint(kind, t.headDigest, snapshot)
+	checkpoint, err := newTreeCheckpoint(kind, t.head.digest(), snapshot)
 	if err != nil {
 		return err
 	}
@@ -191,7 +191,6 @@ func (t *treeRuntime) applyTreeCommitCompletion(completion treeCommitCompletion)
 	}
 	t.commit = nil
 	t.inflight.Add(-1)
-	defer t.applyDeferredCommands(commit.deferred)
 	if completion.err != nil {
 		t.applyFailedTreeCommit(commit, completion.err)
 		return
@@ -231,8 +230,7 @@ func (t *treeRuntime) applyFailedTreeCommit(commit *treeCommit, commitErr error)
 
 func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 	if commit.snapshot.Valid() {
-		t.headDigest = commit.snapshot.Digest()
-		t.notifyHeadWaiters(nil)
+		t.advanceHead(commit.snapshot.Digest())
 	}
 	process := t.processes[commit.processID]
 	switch commit.kind {
@@ -259,12 +257,6 @@ func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 		t.markRunnable(commit.processID)
 	case treeCommitCheckpoint:
 		t.publishCheckpoint()
-	}
-}
-
-func (t *treeRuntime) applyDeferredCommands(commands []treeCommand) {
-	for _, command := range commands {
-		t.applyCommand(command)
 	}
 }
 
@@ -330,7 +322,7 @@ func (t *treeRuntime) tryStartCheckpoint() bool {
 		t.failDurability(err, ProcessID{}, EffectID{})
 		return true
 	}
-	if snapshot.Digest() == t.headDigest {
+	if snapshot.Digest() == t.head.digest() {
 		return false
 	}
 	if err := t.startCheckpointCommit(kind, snapshot); err != nil {
@@ -435,7 +427,7 @@ func (t *treeRuntime) failDurability(
 		return
 	}
 	t.durabilityFault = true
-	t.notifyHeadWaiters(cause)
+	t.head.finish(cause)
 	unresolvedByProcess := make(map[ProcessID][]EffectID, len(t.processes))
 	for candidateID, process := range t.processes {
 		unresolvedByProcess[candidateID] = process.unknownEffectIDs()
@@ -486,7 +478,6 @@ func (t *treeRuntime) failDurability(
 		if process.prepared != nil {
 			process.discardPrepared()
 		}
-		process.finalOutput = Output{}
 		process.commitTerminationWithUnresolved(
 			outcome,
 			unresolvedByProcess[process.controller.processID],
@@ -572,12 +563,4 @@ func (t *treeRuntime) setTreeCommit(commit *treeCommit) {
 	}
 	t.commit = commit
 	t.inflight.Add(1)
-}
-
-func (t *treeRuntime) deferDuringCommit(command treeCommand) bool {
-	if t.commit == nil {
-		return false
-	}
-	t.commit.deferred = append(t.commit.deferred, command)
-	return true
 }

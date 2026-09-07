@@ -30,7 +30,9 @@ type ProcessSnapshot struct {
 	capabilities   CapabilitySet
 }
 
-// ParseProcessSnapshot strictly validates one Process snapshot wire value.
+// ParseProcessSnapshot strictly validates one Process snapshot wire value,
+// including single-answer wait history and an open, unanswered current wait
+// when the Process is Waiting.
 func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 	wire, err := decodeProcessSnapshot(data)
 	if err != nil {
@@ -153,15 +155,16 @@ type preparedEffectWire struct {
 }
 
 type preparedStepWire struct {
-	StepSequence     uint64               `json:"step_sequence"`
-	LastStableDigest Digest               `json:"last_stable_digest"`
-	CandidateState   ExecutionState       `json:"candidate_state"`
-	SignalCursor     uint64               `json:"signal_cursor"`
-	Transition       Transition           `json:"transition"`
-	Effects          []preparedEffectWire `json:"effects,omitempty"`
+	StepSequence     uint64          `json:"step_sequence"`
+	LastStableDigest Digest          `json:"last_stable_digest"`
+	CandidateState   ExecutionState  `json:"candidate_state"`
+	SignalCursor     uint64          `json:"signal_cursor"`
+	Transition       Transition      `json:"transition"`
+	Effects          preparedEffects `json:"effects,omitempty"`
 }
 
 type pendingControlWire struct {
+	Failure            *Failure          `json:"failure,omitempty"`
 	KillReason         string            `json:"kill_reason,omitempty"`
 	DeadlineOwner      deadlineOwner     `json:"deadline_owner,omitempty"`
 	DeadlineReason     string            `json:"deadline_reason,omitempty"`
@@ -217,14 +220,14 @@ func validateProcessSnapshot(wire processSnapshotWire) error {
 	if err := wire.validateRelation(); err != nil {
 		return err
 	}
-	mailbox, err := restoreSignalMailbox(wire.Mailbox)
+	mailbox, err := restoreSignalMailbox(wire.Mailbox, wire.Status)
 	if err != nil {
 		return fmt.Errorf("%w: mailbox: %w", ErrInvalidSnapshot, err)
 	}
 	if err := wire.validateProgress(mailbox); err != nil {
 		return err
 	}
-	if err := validateSnapshotLifecycle(wire); err != nil {
+	if err := validateSnapshotLifecycle(wire, mailbox); err != nil {
 		return err
 	}
 	if err := validatePendingControlWire(wire.PendingControl); err != nil {
@@ -264,6 +267,9 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 	if p.Usage.AcceptedSignals != mailbox.arrivalSequence() {
 		return fmt.Errorf("%w: accepted Signal count does not match mailbox", ErrInvalidSnapshot)
 	}
+	remainingPending := mailbox.pendingCount()
+	var reserved uint64
+	var preparedSteps uint64
 	if p.Prepared != nil {
 		if p.Status != StatusRunning || p.Termination != nil || p.FinishedAt != nil {
 			return fmt.Errorf("%w: prepared Step requires a nonterminal Running Process", ErrInvalidSnapshot)
@@ -277,11 +283,20 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 		); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidSnapshot, err)
 		}
+		remainingPending -= uint64(p.Prepared.Transition.ConsumedSignals())
+		reserved = uint64(len(p.Prepared.Effects))
+		preparedSteps = 1
+	}
+	if !resourceQuantitiesFit(p.Limits.MaxPendingSignals, mailbox.pendingCount()) ||
+		!resourceQuantitiesFit(p.Limits.MaxPendingSignals, remainingPending, reserved) ||
+		!resourceQuantitiesFit(p.Budget.Signals, p.Usage.AcceptedSignals, p.ReservedBudget.Signals, reserved) ||
+		!resourceQuantitiesFit(p.Budget.Steps, p.CommittedSteps, p.ReservedBudget.Steps, preparedSteps) {
+		return fmt.Errorf("%w: execution capacity exceeds limits or budget", ErrInvalidSnapshot)
 	}
 	return nil
 }
 
-func validateSnapshotLifecycle(wire processSnapshotWire) error {
+func validateSnapshotLifecycle(wire processSnapshotWire, mailbox signalMailbox) error {
 	terminal := wire.Status.Terminal()
 	if terminal != (wire.Termination != nil) || terminal != (wire.FinishedAt != nil) {
 		return fmt.Errorf("%w: terminal status, termination, and finished time must agree", ErrInvalidSnapshot)
@@ -302,6 +317,9 @@ func validateSnapshotLifecycle(wire processSnapshotWire) error {
 	if wire.Status == StatusWaiting {
 		if wire.CurrentWaitID == nil || !wire.CurrentWaitID.Valid() {
 			return fmt.Errorf("%w: waiting process requires current WaitID", ErrInvalidSnapshot)
+		}
+		if shouldWait, err := mailbox.enterWait(*wire.CurrentWaitID); err != nil || !shouldWait {
+			return fmt.Errorf("%w: current WaitID requires an open unanswered wait", ErrInvalidSnapshot)
 		}
 	} else if wire.CurrentWaitID != nil {
 		return fmt.Errorf("%w: current WaitID requires Waiting status", ErrInvalidSnapshot)
@@ -336,38 +354,12 @@ func validatePreparedStep(processID ProcessID, sequence uint64, lastStable Execu
 		return errors.New("prepared Effect count does not match Transition")
 	}
 	for index, record := range prepared.Effects {
-		if err := validatePreparedEffect(processID, sequence, index, effects[index], record); err != nil {
-			return err
+		if effectErr := validatePreparedEffect(processID, sequence, index, effects[index], record); effectErr != nil {
+			return effectErr
 		}
 	}
-	if err := validatePreparedEffectOrder(prepared.Effects); err != nil {
-		return err
-	}
-	return nil
-}
-
-func validatePreparedEffectOrder(effects []preparedEffectWire) error {
-	seenPendingOrPlanned := false
-	seenPending := false
-	for _, effect := range effects {
-		switch effect.Phase {
-		case effectPhaseSettled:
-			if seenPendingOrPlanned {
-				return errors.New("settled Effect follows an unsettled Effect")
-			}
-		case effectPhasePending:
-			if seenPending {
-				return errors.New("prepared batch contains multiple pending Effects")
-			}
-			seenPending = true
-			seenPendingOrPlanned = true
-		case effectPhasePlanned:
-			seenPendingOrPlanned = true
-		default:
-			return errors.New("prepared Effect has invalid phase")
-		}
-	}
-	return nil
+	_, err = prepared.Effects.next()
+	return err
 }
 
 func validatePreparedEffect(
@@ -380,11 +372,6 @@ func validatePreparedEffect(
 	wantID := deriveEffectID(processID, sequence, index)
 	if record.ID != wantID || !equalEffect(record.Effect, effect) {
 		return errors.New("prepared Effect identity or payload changed")
-	}
-	if !record.Phase.valid() ||
-		(record.Phase == effectPhaseSettled) != (record.Settlement != nil) ||
-		record.Settlement != nil && record.Settlement.EffectID() != record.ID {
-		return errors.New("prepared Effect phase and settlement disagree")
 	}
 	if record.Effect.Target() != EffectTargetFramework {
 		if record.WaitID != nil {
@@ -428,6 +415,9 @@ func validatePreparedWaitEffect(record preparedEffectWire, name string) error {
 }
 
 func validatePendingControlWire(control pendingControlWire) error {
+	if control.Failure != nil && !control.Failure.Valid() {
+		return ErrInvalidFailure
+	}
 	if control.KillReason != "" {
 		if _, err := newKillIntent(control.KillReason); err != nil {
 			return err

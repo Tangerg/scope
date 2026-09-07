@@ -103,10 +103,12 @@ func (a *api) textToSpeechStream(ctx context.Context, voiceID, outputFormat stri
 		return nil, nil, fmt.Errorf("elevenlabs: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		// Drain + close to surface the error body to the caller.
 		raw := resp.RawBody()
-		errBody, _ := io.ReadAll(io.LimitReader(raw, maximumErrorResponseBytes))
-		_ = raw.Close()
+		defer raw.Close()
+		errBody, readErr := io.ReadAll(io.LimitReader(raw, maximumErrorResponseBytes))
+		if readErr != nil {
+			return nil, nil, fmt.Errorf("elevenlabs: http %d; read error response: %w", resp.StatusCode(), readErr)
+		}
 		return nil, nil, fmt.Errorf("elevenlabs: http %d: %s", resp.StatusCode(), string(errBody))
 	}
 	return resp.RawBody(), resp.Header(), nil

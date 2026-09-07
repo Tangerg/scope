@@ -117,13 +117,74 @@ func TestPreparedEffectPhaseAndSettlementMustAgree(t *testing.T) {
 	}
 }
 
-func TestPreparedEffectOrderRejectsMultiplePendingEffects(t *testing.T) {
-	effects := []preparedEffectWire{
-		{Phase: effectPhasePending},
-		{Phase: effectPhasePending},
+func TestSnapshotEnforcesSequentialEffectProgress(t *testing.T) {
+	base := preparedEngineTestSnapshot(t)
+	type progress struct {
+		phase      effectPhase
+		settlement SettlementStatus
 	}
-	if err := validatePreparedEffectOrder(effects); err == nil {
-		t.Fatal("prepared batch accepted multiple pending Effects")
+	planned := progress{phase: effectPhasePlanned}
+	pending := progress{phase: effectPhasePending}
+	settled := progress{phase: effectPhaseSettled, settlement: SettlementStatusSucceeded}
+	unknown := progress{phase: effectPhaseSettled, settlement: SettlementStatusUnknown}
+	for _, sample := range []struct {
+		name    string
+		effects []progress
+		valid   bool
+	}{
+		{name: "all planned", effects: []progress{planned, planned, planned}, valid: true},
+		{name: "first pending", effects: []progress{pending, planned, planned}, valid: true},
+		{name: "settled prefix", effects: []progress{settled, settled, planned}, valid: true},
+		{name: "pending frontier", effects: []progress{settled, pending, planned}, valid: true},
+		{name: "unknown frontier", effects: []progress{settled, unknown, planned}, valid: true},
+		{name: "all settled", effects: []progress{settled, settled, settled}, valid: true},
+		{name: "planned before pending", effects: []progress{planned, pending, planned}},
+		{name: "multiple pending", effects: []progress{pending, pending, planned}},
+		{name: "planned before settled", effects: []progress{planned, settled, planned}},
+		{name: "unknown before settled", effects: []progress{unknown, settled, planned}},
+		{name: "unknown before pending", effects: []progress{unknown, pending, planned}},
+		{name: "multiple unknown", effects: []progress{unknown, unknown, planned}},
+	} {
+		t.Run(sample.name, func(t *testing.T) {
+			wire, err := base.wire()
+			if err != nil {
+				t.Fatal(err)
+			}
+			effect := wire.Prepared.Effects[0].Effect
+			effects := make([]Effect, len(sample.effects))
+			wire.Prepared.Effects = make(preparedEffects, len(sample.effects))
+			for index, item := range sample.effects {
+				effects[index] = effect
+				record := preparedEffectWire{
+					ID:     deriveEffectID(wire.ProcessID, wire.Prepared.StepSequence, index),
+					Effect: effect, Phase: item.phase,
+				}
+				if item.settlement.Valid() {
+					settlement, settlementErr := NewSettlement(record.ID, item.settlement, json.RawMessage(`null`))
+					if settlementErr != nil {
+						t.Fatal(settlementErr)
+					}
+					record.Settlement = &settlement
+				}
+				wire.Prepared.Effects[index] = record
+			}
+			wire.Prepared.Transition, err = Continue(wire.Prepared.Transition.ConsumedSignals(), effects...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wire.Usage.PreparedEffects = uint64(len(effects))
+			data, err := json.Marshal(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = ParseProcessSnapshot(data)
+			if sample.valid && err != nil {
+				t.Fatalf("legal progress rejected: %v", err)
+			}
+			if !sample.valid && !errors.Is(err, ErrInvalidSnapshot) {
+				t.Fatalf("illegal progress accepted: %v", err)
+			}
+		})
 	}
 }
 

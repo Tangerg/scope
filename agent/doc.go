@@ -79,13 +79,20 @@
 // settlement stays observable and awaits explicit adjudication. It is never
 // silently replayed and never assumed successful. Ephemeral mode runs the same
 // state machine without calling the durability port.
+// A prepared batch has one execution frontier: definitely settled Effects
+// precede at most one pending or unknown Effect, followed only by planned
+// Effects. Runtime scheduling and snapshot admission enforce this same order.
 //
 // # Signals and waiting
 //
-// A Signal is the only runtime input into an Execution. Repeated submission of
-// one signal identity produces exactly one logical consumption. The
+// A Signal is the only runtime input into an Execution. [Process.DeliverSignals]
+// admits one ordered batch atomically, including a batch with one Signal.
+// Repeated submission of one signal identity produces exactly one logical
+// consumption and never charges the signal budget twice. The
 // consumption cursor advances only when candidate state and transition commit,
 // so a failed Step never permanently swallows input.
+// Consumption is bounded by the Signal window delivered to that Step; input
+// admitted while the Step runs belongs to a later window.
 //
 // A wait identity is minted by the Engine; an Execution cannot generate an
 // external one. The Execution declares a logical wait through a [Transition];
@@ -94,6 +101,13 @@
 // explicitly. That round trip keeps the Execution the single writer of its own
 // state. The Engine wall clock never enters strategy input — business time is
 // submitted as an explicit payload.
+// Wait registration and its opening Signal are one mailbox operation. Restoring
+// history uses the same opening, admission, and consumption rules: an answer
+// closes its wait when consumed, and Process termination closes all remaining
+// waits. Snapshots whose wait facts contradict that history are rejected.
+// Child completions remain queued while their parent is Paused or waiting on
+// another WaitID. Only an answer to the current WaitID releases Waiting;
+// an explicit pause still requires Resume.
 //
 // Each strategy declares its own safe consumption boundary and proves it with
 // contract tests.
@@ -114,6 +128,15 @@
 // settlement Signal — a local failure is never promoted to a Process terminal
 // state on its own.
 //
+// A child-completion delivery failure is recorded as pending termination.
+// Accepted external effects settle first, and any unknown identities remain
+// in the terminal result. The pending failure survives tree capture.
+//
+// A long-lived Engine retains completed trees for diagnostics and capture until
+// the Host calls [Engine.ReleaseTree]. Release waits for all descendant work to
+// settle, removes the tree from lookup, and leaves existing handles' terminal
+// results readable.
+//
 // # Recovery
 //
 // [ExecutionState] is a discriminated envelope of a kind and an opaque
@@ -124,6 +147,8 @@
 // global kind-to-factory switch is forbidden.
 //
 // [TreeSnapshot] is the canonical recovery state of a complete root tree.
+// It uses one current strict wire shape without a version envelope or migration
+// dispatch; parsing validates the structure and the recorded domain facts.
 // [ProcessSnapshot] is a single-Process diagnostic value and is not a recovery
 // unit. Events and [Delta] values record attempts and observations only; they
 // never substitute for an acknowledged TreeSnapshot.
@@ -149,7 +174,7 @@
 // recovery protocol.
 //
 // The host owns product identity, transports, stores and transactions,
-// permissions and billing, provider and model selection, when a checkpoint
+// permissions and billing, deployment catalogs and routing, provider and model selection, when a checkpoint
 // commits, and the retention of its own facts. A host depends only on this
 // neutral lifecycle contract and never parses a strategy's snapshot payload.
 //

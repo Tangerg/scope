@@ -34,10 +34,15 @@ type Prompt[T any] func(T) (chat.Message, error)
 // Config binds a portable metric and subject prompt to a structured-output
 // model judge. Multiple samples use a deterministic median aggregation.
 type Config[T any] struct {
-	Model   chat.Model
-	Metric  eval.Metric
-	Prompt  Prompt[T]
-	Options chat.Options
+	Model chat.Model
+	// ModelID identifies the explicitly selected judge model and revision.
+	ModelID string
+	// RubricID versions the scoring rules implemented by Prompt. Callers must
+	// change it when those rules change; a function cannot reveal its identity.
+	RubricID string
+	Metric   eval.Metric
+	Prompt   Prompt[T]
+	Options  chat.Options
 	// Threshold is optional. Without one, evaluation produces a score without
 	// inventing a pass/fail decision.
 	Threshold *eval.Score
@@ -50,9 +55,12 @@ type modelReport struct {
 }
 
 type metricConfiguration struct {
-	Aggregation aggregation `json:"aggregation"`
-	Samples     int         `json:"samples"`
-	Threshold   *eval.Score `json:"threshold,omitzero"`
+	ModelID     string       `json:"model_id"`
+	RubricID    string       `json:"rubric_id"`
+	Options     chat.Options `json:"options"`
+	Aggregation aggregation  `json:"aggregation"`
+	Samples     int          `json:"samples"`
+	Threshold   *eval.Score  `json:"threshold,omitzero"`
 }
 
 // Evaluator asks a chat model for normalized scores without teaching the eval
@@ -78,6 +86,10 @@ func NewEvaluator[T any](config Config[T]) (*Evaluator[T], error) {
 	if config.Prompt == nil {
 		return nil, fmt.Errorf("%w: prompt is nil", eval.ErrInvalidEvaluatorConfig)
 	}
+	if config.ModelID == "" || config.ModelID != strings.TrimSpace(config.ModelID) ||
+		config.RubricID == "" || config.RubricID != strings.TrimSpace(config.RubricID) {
+		return nil, fmt.Errorf("%w: model ID and rubric ID must be non-empty without surrounding whitespace", eval.ErrInvalidEvaluatorConfig)
+	}
 	if err := config.Options.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: options: %w", eval.ErrInvalidEvaluatorConfig, err)
 	}
@@ -96,7 +108,10 @@ func NewEvaluator[T any](config Config[T]) (*Evaluator[T], error) {
 	if samples == 0 {
 		samples = 1
 	}
-	metric, err := configuredMetric(config.Metric, threshold, samples)
+	metric, err := configuredMetric(config.Metric, metricConfiguration{
+		ModelID: config.ModelID, RubricID: config.RubricID, Options: config.Options.Clone(),
+		Aggregation: aggregationMedian, Samples: samples, Threshold: threshold,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("%w: metric configuration: %w", eval.ErrInvalidEvaluatorConfig, err)
 	}
@@ -114,11 +129,9 @@ func NewEvaluator[T any](config Config[T]) (*Evaluator[T], error) {
 	}, nil
 }
 
-func configuredMetric(metric eval.Metric, threshold *eval.Score, samples int) (eval.Metric, error) {
+func configuredMetric(metric eval.Metric, configuration metricConfiguration) (eval.Metric, error) {
 	parameters := metric.Parameters()
-	if err := parameters.Set(metricJudgeConfigurationKey, metricConfiguration{
-		Aggregation: aggregationMedian, Samples: samples, Threshold: threshold,
-	}); err != nil {
+	if err := parameters.Set(metricJudgeConfigurationKey, configuration); err != nil {
 		return eval.Metric{}, err
 	}
 	return eval.NewMetric(eval.MetricConfig{
@@ -197,7 +210,7 @@ func (e *Evaluator[T]) aggregate(outputs []modelReport) (eval.Report, error) {
 		verdict = decided
 	}
 	report := eval.Report{
-		Metric: e.metric.Clone(), Verdict: verdict, Score: &score,
+		Metric: e.metric, Verdict: verdict, Score: &score,
 		Feedback: feedback, Metadata: reportMetadata,
 	}
 	if err := report.Validate(); err != nil {

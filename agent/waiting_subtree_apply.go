@@ -88,7 +88,7 @@ func newPreparedProcessStateChange(
 	if err != nil {
 		return nil, err
 	}
-	mailbox, err := restoreSignalMailbox(resultWire.Mailbox)
+	mailbox, err := restoreSignalMailbox(resultWire.Mailbox, resultWire.Status)
 	if err != nil {
 		return nil, err
 	}
@@ -124,8 +124,9 @@ func (p *preparedProcessStateChange) preparePauseEvents(
 		if _, err := ParseChildrenCompleted(record.Signal); err != nil {
 			return ErrInvalidPreparedWaitingSubtreeCancellation
 		}
+		waitID, _ := record.Signal.WaitID()
 		payload, _ := json.Marshal(signalAcceptedEventPayload{
-			SignalID: record.Signal.ID().String(), WaitID: commandSignalWaitID(record.Signal),
+			SignalID: record.Signal.ID().String(), WaitID: waitID.String(),
 		})
 		p.events = append(p.events, preparedProcessEvent{
 			name: EventSignalAccepted, payload: payload,
@@ -197,24 +198,14 @@ func childWaitRegistrationsFromSnapshot(
 	if err != nil {
 		return nil, err
 	}
-	processes, _, err := processSnapshotWires(wire.ProcessSnapshots)
-	if err != nil {
-		return nil, err
-	}
 	registrations := make([]*childWaitRegistration, 0, len(wire.ChildWaits))
 	for _, encoded := range wire.ChildWaits {
 		spec, err := encoded.Spec.value()
 		if err != nil {
 			return nil, err
 		}
-		parent := processes[encoded.ParentProcessID]
-		mailbox, err := restoreSignalMailbox(parent.Mailbox)
-		if err != nil {
-			return nil, err
-		}
 		registrations = append(registrations, &childWaitRegistration{
 			parent: encoded.ParentProcessID, waitID: encoded.WaitID, spec: spec,
-			delivered: mailbox.contains(deriveChildCompletionSignalID(encoded.WaitID)),
 		})
 	}
 	return registrations, nil

@@ -100,11 +100,11 @@ func (p *preparedChatRequest) replaceFinalUserText(text string) {
 				replaced = true
 			}
 		case chat.PartMedia:
-			parts = append(parts, original.Parts[partIndex].Clone())
+			parts = append(parts, original.Parts[partIndex])
 		}
 	}
 	p.request.Messages[index] = chat.Message{
-		Role: chat.RoleUser, Parts: parts, Metadata: original.Metadata.Clone(),
+		Role: chat.RoleUser, Parts: parts, Metadata: original.Metadata,
 	}
 }
 
@@ -204,7 +204,7 @@ func (m *Middleware) prepare(ctx context.Context, request *chat.Request) (prepar
 		return preparedChatRequest{}, err
 	}
 	prepared.candidates = candidates
-	prepared.citations = augmentation.Citations()
+	prepared.citations = augmentation.citations
 	prepared.replaceFinalUserText(augmentation.Text())
 	return prepared, nil
 }

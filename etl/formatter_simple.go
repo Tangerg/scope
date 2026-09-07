@@ -1,7 +1,6 @@
 package etl
 
 import (
-	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -10,7 +9,6 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/metadata"
 )
 
 // SimpleFormatterConfig controls the stable textual projection used before
@@ -61,29 +59,19 @@ func (s SimpleFormatter) Format(doc *document.Document) (string, error) {
 	if err := doc.Validate(); err != nil {
 		return "", fmt.Errorf("etl: format document: %w", err)
 	}
-	filtered := s.filterMetadata(doc.Metadata)
-	if len(filtered) == 0 {
-		return doc.Text, nil
-	}
-
-	entries := make([]string, 0, len(filtered))
-	for _, key := range slices.Sorted(maps.Keys(filtered)) {
-		value, err := metadataValue(filtered[key]).text()
+	entries := make([]string, 0, len(doc.Metadata))
+	for _, key := range slices.Sorted(maps.Keys(doc.Metadata)) {
+		if _, excluded := s.excludedMetadata[key]; excluded {
+			continue
+		}
+		value, err := metadataValue(doc.Metadata[key]).text()
 		if err != nil {
 			return "", fmt.Errorf("etl: format metadata %q: %w", key, err)
 		}
 		entries = append(entries, key+": "+value)
 	}
-	return strings.Join(entries, "\n") + "\n\n" + doc.Text, nil
-}
-
-func (s SimpleFormatter) filterMetadata(values metadata.Map) metadata.Map {
-	filtered := values.Clone()
-	if len(s.excludedMetadata) > 0 {
-		maps.DeleteFunc(filtered, func(key string, _ json.RawMessage) bool {
-			_, found := s.excludedMetadata[key]
-			return found
-		})
+	if len(entries) == 0 {
+		return doc.Text, nil
 	}
-	return filtered
+	return strings.Join(entries, "\n") + "\n\n" + doc.Text, nil
 }

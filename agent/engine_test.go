@@ -39,6 +39,112 @@ func TestEngineStartRejectsNilContextBeforePublication(t *testing.T) {
 	}
 }
 
+func TestStepCannotConsumeSignalsThatArriveDuringItsExecution(t *testing.T) {
+	for _, consumed := range []uint32{0, 1} {
+		name := "preserve later input"
+		if consumed == 1 {
+			name = "reject unseen consumption"
+		}
+		t.Run(name, func(t *testing.T) {
+			definition := &signalWindowDefinition{
+				engineTestDefinition: newEngineTestDefinition(t, "engine.effect", "effect"),
+				entered:              make(chan int, 1), release: make(chan struct{}), consumed: consumed,
+			}
+			engine, err := NewEngine(EngineConfig{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { mustCloseEngine(t, engine) })
+			release := sync.OnceFunc(func() { close(definition.release) })
+			t.Cleanup(release)
+			deployment := engineTestDeployment(t, definition, &engineTestDispatcher{})
+			input, _ := EncodeInput(engineTestInput{Value: "original"})
+			process, err := engine.Start(t.Context(), deployment, input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if received := <-definition.entered; received != 0 {
+				t.Fatalf("first Step received %d Signals, want 0", received)
+			}
+			id, _ := ParseSignalID("signal:arrived-during-step")
+			request, _ := NewSignalRequest(id, WaitID{}, []byte(`{}`))
+			if accepted, deliverErr := process.DeliverSignals(t.Context(), request); deliverErr != nil || !accepted {
+				t.Fatalf("concurrent input accepted = %t, error = %v", accepted, deliverErr)
+			}
+			release()
+			result := awaitResult(t, process)
+			wantStatus := StatusCompleted
+			if consumed == 1 {
+				wantStatus = StatusFailed
+				failure, _ := result.Termination().Failure()
+				if failure.Code() != "execution.transition.invalid" {
+					t.Fatalf("invalid consumption failure = %+v", failure)
+				}
+			}
+			if result.Status() != wantStatus {
+				t.Fatalf("status = %s, want %s", result.Status(), wantStatus)
+			}
+			snapshot, err := process.Snapshot(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			wire, err := snapshot.wire()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if wire.Mailbox.SignalCursor != 0 || len(wire.Mailbox.Signals) != 1 || wire.Mailbox.Signals[0].Signal.ID() != id {
+				t.Fatalf("later input was consumed: %+v", wire.Mailbox)
+			}
+			if consumed == 1 && wire.CommittedSteps != 0 {
+				t.Fatalf("invalid Step committed %d times", wire.CommittedSteps)
+			}
+		})
+	}
+}
+
+type signalWindowDefinition struct {
+	*engineTestDefinition
+	entered  chan int
+	release  chan struct{}
+	consumed uint32
+}
+
+func (s *signalWindowDefinition) Start(input Input) (Execution, error) {
+	execution, err := s.engineTestDefinition.Start(input)
+	if err != nil {
+		return nil, err
+	}
+	return &signalWindowExecution{engineTestExecution: execution.(*engineTestExecution), definition: s}, nil
+}
+
+func (s *signalWindowDefinition) Restore(state ExecutionState) (Execution, error) {
+	execution, err := s.engineTestDefinition.Restore(state)
+	if err != nil {
+		return nil, err
+	}
+	return &signalWindowExecution{engineTestExecution: execution.(*engineTestExecution), definition: s}, nil
+}
+
+type signalWindowExecution struct {
+	*engineTestExecution
+	definition *signalWindowDefinition
+}
+
+func (s *signalWindowExecution) Step(ctx context.Context, signals []Signal) (Transition, error) {
+	s.definition.entered <- len(signals)
+	select {
+	case <-s.definition.release:
+	case <-ctx.Done():
+		return Transition{}, ctx.Err()
+	}
+	s.state.Phase = "done"
+	output, err := EncodeOutput(engineTestOutput{Value: s.state.Value})
+	if err != nil {
+		return Transition{}, err
+	}
+	return Complete(s.definition.consumed, output)
+}
+
 type engineTestInput struct {
 	Value string `json:"value"`
 }
@@ -374,12 +480,12 @@ func TestEngineMintsWaitIDAndRequiresAddressedAnswer(t *testing.T) {
 	}
 	plainID, _ := ParseSignalID("signal:plain")
 	plain, _ := NewSignalRequest(plainID, WaitID{}, json.RawMessage(`{"kind":"answer","value":"wrong"}`))
-	if _, deliverSignalErr := process.DeliverSignal(context.Background(), plain); !errors.Is(deliverSignalErr, ErrSignalRejected) {
+	if _, deliverSignalErr := process.DeliverSignals(context.Background(), plain); !errors.Is(deliverSignalErr, ErrSignalRejected) {
 		t.Fatalf("unaddressed answer error=%v", deliverSignalErr)
 	}
 	answerID, _ := ParseSignalID("signal:answer")
 	answer, _ := NewSignalRequest(answerID, waitID, json.RawMessage(`{"kind":"answer","value":"approved"}`))
-	accepted, err := process.DeliverSignal(context.Background(), answer)
+	accepted, err := process.DeliverSignals(context.Background(), answer)
 	if err != nil || !accepted {
 		t.Fatalf("answer accepted=%t err=%v", accepted, err)
 	}
@@ -568,7 +674,9 @@ func TestPausedProcessCapturesRestoresAndResumesAtSafeBoundary(t *testing.T) {
 func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.wait", "wait")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
-	engine, _ := NewEngine(EngineConfig{})
+	limits := Limits{MaxSteps: 3, MaxEffects: 1, MaxSignals: 2, MaxPendingSignals: 2}
+	engine, _ := NewEngine(EngineConfig{Limits: limits})
+	t.Cleanup(func() { _ = engine.Close() })
 	input, _ := EncodeInput(engineTestInput{Value: "question"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
@@ -582,8 +690,10 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 	}
 	listener := &recordingEventListener{}
 	restoredEngine, _ := NewEngine(EngineConfig{
+		Limits:         limits,
 		EventListeners: []EventListener{listener},
 	})
+	t.Cleanup(func() { _ = restoredEngine.Close() })
 	restored, err := restoredEngine.RestoreTree(context.Background(), deployment, tree)
 	if err != nil {
 		t.Fatal(err)
@@ -594,11 +704,27 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 	}
 	answerID, _ := ParseSignalID("signal:restored-answer")
 	answer, _ := NewSignalRequest(answerID, restoredWaitID, json.RawMessage(`{"kind":"answer","value":"restored"}`))
-	if accepted, err := restored.DeliverSignal(context.Background(), answer); err != nil || !accepted {
-		t.Fatalf("accepted=%t err=%v", accepted, err)
-	}
-	if result := awaitResult(t, restored); result.Status() != StatusCompleted {
-		t.Fatalf("result status=%s", result.Status())
+	for _, continued := range []*Process{process, restored} {
+		before := continued.Usage()
+		if accepted, err := continued.DeliverSignals(t.Context(), answer, answer); err != nil || accepted {
+			t.Fatalf("duplicate batch accepted=%t error=%v", accepted, err)
+		}
+		if currentWait, ok := continued.WaitID(); !ok || currentWait != waitID || continued.Usage() != before {
+			t.Fatalf("rejected batch changed wait or usage: wait=%s usage=%+v", currentWait, continued.Usage())
+		}
+		if accepted, err := continued.DeliverSignals(t.Context(), answer); err != nil || !accepted {
+			t.Fatalf("accepted=%t err=%v", accepted, err)
+		}
+		result := awaitResult(t, continued)
+		wantUsage := Usage{CommittedSteps: 3, PreparedEffects: 1, AcceptedSignals: 2}
+		output, present := result.Output()
+		if result.Status() != StatusCompleted || result.Usage() != wantUsage ||
+			!present || string(output.JSON()) != `{"value":"restored"}` {
+			t.Fatalf("continued result status=%s usage=%+v output=%s", result.Status(), result.Usage(), output.JSON())
+		}
+		if _, waiting := continued.WaitID(); waiting {
+			t.Fatal("completed Process retained its current wait")
+		}
 	}
 	var accepted SignalAcceptedFact
 	for _, event := range listener.snapshot() {
@@ -614,8 +740,6 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 			accepted.SignalID(), acceptedWaitID, addressed,
 		)
 	}
-	_ = process.Kill(context.Background(), "test cleanup")
-	_ = awaitResult(t, process)
 }
 
 func TestRestoredPreparedEffectReplaysOnlyWithSameIdentityPolicy(t *testing.T) {
@@ -1163,7 +1287,7 @@ func awaitResult(t *testing.T, process *Process) Result {
 	return result
 }
 
-func waitForStatus(t *testing.T, process *Process, want Status) {
+func waitForStatus(t testing.TB, process *Process, want Status) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
@@ -1179,7 +1303,7 @@ func waitForStatus(t *testing.T, process *Process, want Status) {
 	}
 }
 
-func waitForUnknownSettlement(t *testing.T, process *Process) ProcessSnapshot {
+func waitForUnknownSettlement(t testing.TB, process *Process) ProcessSnapshot {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
@@ -1205,7 +1329,6 @@ func waitForUnknownSettlement(t *testing.T, process *Process) ProcessSnapshot {
 func singleProcessTreeSnapshot(t *testing.T, snapshot ProcessSnapshot) TreeSnapshot {
 	t.Helper()
 	tree, err := newTreeSnapshot(treeSnapshotWire{
-		Version:          CurrentTreeSnapshotVersion,
 		RootID:           snapshot.ProcessID(),
 		ProcessSnapshots: []ProcessSnapshot{snapshot},
 	})

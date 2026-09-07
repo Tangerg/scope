@@ -32,8 +32,9 @@ type Limits struct {
 	// MaxSignals bounds all accepted external and Engine-generated Signals.
 	MaxSignals uint64 `json:"max_signals"`
 
-	// MaxPendingSignals bounds the unconsumed mailbox suffix, including space
-	// reserved for the current prepared Effect batch.
+	// MaxPendingSignals bounds the current unconsumed mailbox suffix and the
+	// suffix after the prepared Step consumes inputs and appends settlements.
+	// Every arriving Signal preserves both bounds regardless of its source.
 	MaxPendingSignals uint64 `json:"max_pending_signals"`
 }
 
@@ -111,7 +112,8 @@ func (u Usage) validFor(limits Limits) bool {
 
 // Budget is a non-renewable allocation of Framework-owned work units. A child
 // allocation is permanently transferred from its parent's remaining budget;
-// unused units are not silently reclaimed or duplicated.
+// unused units are not silently reclaimed or duplicated. Remaining budget
+// excludes the parent's prepared Step and its future settlement Signals.
 type Budget struct {
 	// Steps is the maximum committed Step count allocated to the child.
 	Steps uint64 `json:"steps"`

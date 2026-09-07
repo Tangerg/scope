@@ -24,6 +24,8 @@ type ApplyPatchResponse struct {
 }
 
 // PatchFileResponse preserves create, delete, and move identity separately.
+// LocalExecutor reports paths relative to its authority root, even when patch
+// headers use absolute paths.
 type PatchFileResponse struct {
 	// Path is where the file ended up.
 	Path    string `json:"path"`

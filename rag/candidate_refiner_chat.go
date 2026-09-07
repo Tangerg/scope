@@ -91,7 +91,8 @@ func (c chatRerankingOutput) rank(candidates Candidates) (Candidates, error) {
 		seen[item.Index] = true
 		ranked[item.Index].Score = Score(item.Score)
 	}
-	return ranked.ranked(), nil
+	sortCandidatesByScore(ranked)
+	return ranked, nil
 }
 
 type chatRerankingInput struct {

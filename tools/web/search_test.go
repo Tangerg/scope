@@ -179,7 +179,9 @@ func TestSearchRequest_QueryWithSiteOperators(t *testing.T) {
 	}{
 		{"plain", "kittens", nil, nil, "kittens"},
 		{"allow one", "kittens", []string{"reddit.com"}, nil, "kittens site:reddit.com"},
-		{"allow many", "kittens", []string{"a.com", "b.com"}, nil, "kittens site:a.com site:b.com"},
+		{"allow many", "kittens", []string{"a.com", "b.com"}, nil, "kittens (site:a.com OR site:b.com)"},
+		{"allow many with empty entries", "x", []string{"", "a.com", "", "b.com", ""}, nil, "x (site:a.com OR site:b.com)"},
+		{"block many", "x", nil, []string{"a.com", "b.com"}, "x -site:a.com -site:b.com"},
 		{"block one", "kittens", nil, []string{"pinterest.com"}, "kittens -site:pinterest.com"},
 		{"both (caller filters)", "x", []string{"a"}, []string{"b"}, "x site:a -site:b"},
 		{"skip empty strings", "x", []string{"", "a", ""}, []string{""}, "x site:a"},

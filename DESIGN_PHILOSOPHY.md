@@ -15,6 +15,8 @@ Scope is still in active development, so backward compatibility with a known-wro
 1. Do not take on debt for convenience. Once the better shape is known, replace the wrong application programming interface (API), schema, name, or dependency direction instead of keeping an alias, migration, fallback, or temporary shim.
 2. Fix the root cause in the layer that owns it. A consumer-side condition, retry, coercion, or log entry that only hides an upstream invalid state is not a fix.
 
+Scope-owned state and persistence have one current schema during development. Validate that schema directly. Do not introduce schema-version envelopes, version dispatch, migration registries, or dual reads/writes to preserve a superseded shape. A module release number does not become a domain state field.
+
 A repair is complete only when the cause no longer exists. If the original invalid state can still be produced and one symptom merely stopped appearing, the change is a patch.
 
 Breaking exported APIs, wire shapes, and schemas still require an explicit blast-radius discussion before editing. Once approved, replace the old design outright and migrate every workspace consumer in the same change.
@@ -113,9 +115,9 @@ A large cohesive parser, engine, or protocol package is not automatically a god 
 
 ## One meaning, one public API
 
-Every capability has one semantic owner, one public representation, and one primary call path. A method, free function, facade, alias, builder, compatibility wrapper, and alternate stream implementation cannot coexist as synonyms.
+Every atomic capability has one semantic owner, one public representation, and one canonical API. A method, free function, alias, builder, compatibility wrapper, and alternate stream implementation cannot coexist as synonyms.
 
-An upper package may expose a new entry only when it owns a new lifecycle, state transition, type-erasure boundary, or composition invariant. Re-exporting lower symbols or shortening an import path does not create a capability.
+Higher-level convenience facades may compose canonical atomic APIs into useful operations. They reuse the same contracts, domain types, validation rules, and lifecycle ownership; any additional orchestration policy is explicit. A facade must not reimplement an atomic capability or introduce a parallel API family. Re-exporting lower symbols or shortening an import path does not create a capability.
 
 Extension follows the same rule. Prefer one homogeneous mechanism, such as one middleware shape or one structural interface, over a named hook for each variation. Each additional mechanism creates another ordering model, error path, documentation surface, and compatibility obligation.
 

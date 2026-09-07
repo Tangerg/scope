@@ -17,7 +17,8 @@ import (
 
 // Reader parses a JSON payload into [*document.Document] entries. Top-level
 // arrays produce one document per element; every other JSON value produces one
-// document containing its raw representation.
+// document containing its raw representation. Numbers retain their source
+// spelling and are not restricted to the float64 range.
 //
 // Use it to ingest API responses, dump files, or seed fixture data.
 //
@@ -62,14 +63,15 @@ func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 	if len(trimmed) > 0 && trimmed[0] == '[' {
 		return r.parseArray(ctx, trimmed)
 	}
-	if unmarshalErr := json.Unmarshal(trimmed, new(any)); unmarshalErr != nil {
+	var value json.RawMessage
+	if unmarshalErr := json.Unmarshal(trimmed, &value); unmarshalErr != nil {
 		return nil, fmt.Errorf("json reader: decode source: %w", unmarshalErr)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
 
-	doc, err := document.NewDocument(string(trimmed), nil)
+	doc, err := document.NewDocument(string(value), nil)
 	if err != nil {
 		return nil, fmt.Errorf("json reader: build document: %w", err)
 	}

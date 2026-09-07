@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/Tangerg/scope/core/document"
@@ -103,6 +104,40 @@ func TestNewStoreAcceptsACustomSimilarity(t *testing.T) {
 	}
 	if len(results) == 0 || results[0].Document.ID != "far" {
 		t.Fatalf("custom similarity was ignored: %#v", results)
+	}
+}
+
+func TestStoreRejectsInvalidScoresBeforeSelection(t *testing.T) {
+	for name, invalid := range map[string]vectorstore.Score{
+		"negative": -1, "too large": 2, "nan": vectorstore.Score(math.NaN()),
+		"negative infinity": vectorstore.Score(math.Inf(-1)), "positive infinity": vectorstore.Score(math.Inf(1)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			badCoordinate := vectorFor("bad")[0]
+			store, err := inmemory.NewStore(inmemory.StoreConfig{
+				EmbeddingModel: fakeEmbeddingModel{},
+				Similarity: func(left, right []float64) vectorstore.Score {
+					if left[0] == badCoordinate || right[0] == badCoordinate {
+						return invalid
+					}
+					return 1
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			indexDocuments(t, store, mustDoc(t, "good", "good", nil), mustDoc(t, "bad", "bad", nil))
+			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{
+				Query: "good", Options: vectorstore.SearchOptions{TopK: 1, MinScore: 0.1},
+			})
+			if !errors.Is(err, vectorstore.ErrInvalidScore) || response != nil {
+				t.Fatalf("search = %#v, %v; want nil, ErrInvalidScore", response, err)
+			}
+			store.Clear()
+			if store.Len() != 0 {
+				t.Fatal("store could not clear after score rejection")
+			}
+		})
 	}
 }
 

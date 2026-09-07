@@ -358,7 +358,6 @@ type toolBatchDispatch struct {
 	start               int
 	pauseCount          uint32
 	continuation        *ToolInputContinuation
-	allDirect           bool
 }
 
 func newToolBatchDispatch(
@@ -382,9 +381,7 @@ func newToolBatchDispatch(
 		batch:      batch,
 		prepared:   dispatcher.prepareToolCalls(batch.Calls),
 		results:    make([]chat.ToolResult, 0, len(batch.Calls)),
-		allDirect:  false,
 	}
-	dispatch.allDirect = dispatcher.allCallsDirect(dispatch.prepared)
 	if batch.Checkpoint != nil {
 		checkpoint := batch.Checkpoint
 		dispatch.results = append(dispatch.results, cloneToolResults(checkpoint.CompletedResults)...)
@@ -524,10 +521,13 @@ func (t *toolBatchDispatch) pause(index uint32, request ToolInputRequest) (agent
 }
 
 func (t *toolBatchDispatch) complete() (agent.Settlement, error) {
+	direct := t.dispatcher.allCallsDirect(t.prepared) && !slices.ContainsFunc(t.results, func(result chat.ToolResult) bool {
+		return result.IsError
+	})
 	payload, err := encodeProtocol(signalEnvelope{
 		Operation: operationToolBatch,
 		ToolResult: &toolBatchResult{
-			Results: t.results, Direct: t.allDirect,
+			Results: t.results, Direct: direct,
 			AdvertisedToolNames: t.advertisedToolNames,
 		},
 	})

@@ -204,6 +204,50 @@ func TestStore_SearchLikePattern(t *testing.T) {
 	}
 }
 
+func TestStoreLikeMatchesWildcardCharactersInMetadata(t *testing.T) {
+	cases := map[string]struct {
+		value   string
+		pattern string
+		want    bool
+	}{
+		"leading percent": {value: "%pending", pattern: "%", want: true},
+		"suffix percent":  {value: "100% complete", pattern: "100%", want: true},
+		"backtracking":    {value: "a%aa", pattern: "a%a", want: true},
+		"non-match":       {value: "a%b", pattern: "a%c", want: false},
+		"underscore":      {value: "50_ ready", pattern: "50_%", want: true},
+		"unicode":         {value: "caf\u00e9% complete", pattern: "caf\u00e9%", want: true},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			store := newStore(t)
+			doc := mustDoc(t, "progress", "progress", map[string]any{"name": testCase.value})
+			if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{doc}}); err != nil {
+				t.Fatal(err)
+			}
+			expr := filter.Like("name", testCase.pattern)
+			got, err := search(store, t.Context(), &vectorstore.SearchRequest{
+				Query: "progress", Options: vectorstore.SearchOptions{Filter: expr},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantMatches := 0
+			if testCase.want {
+				wantMatches = 1
+			}
+			if len(got) != wantMatches {
+				t.Errorf("search matched %d documents, want %d", len(got), wantMatches)
+			}
+			if err := store.DeleteWhere(t.Context(), expr); err != nil {
+				t.Fatal(err)
+			}
+			if store.Len() != 1-wantMatches {
+				t.Errorf("delete left %d documents, want %d", store.Len(), 1-wantMatches)
+			}
+		})
+	}
+}
+
 func TestStore_Delete(t *testing.T) {
 	store := newStore(t)
 	ctx := t.Context()

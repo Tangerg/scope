@@ -11,7 +11,8 @@ import (
 
 	apiotel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/log"
+	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/semconv/v1.41.0/genaiconv"
@@ -20,16 +21,13 @@ import (
 	"github.com/samber/lo"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/otel/internal/errortelemetry"
 )
 
 const (
 	instrumentationName            = "github.com/Tangerg/scope/otel/chat"
 	chatOperationName              = "chat"
-	firstTokenReceivedEvent        = "first_token_received"
-	timeToFirstTokenMetric         = "gen_ai.client.time_to_first_token"
-	timeToFirstTokenDescription    = "Time to the first generated content in a streaming response."
-	timeToFirstTokenUnit           = "s"
-	streamAccumulationFailureEvent = "gen_ai.stream.accumulation_error"
+	incompleteFinishReason         = "error"
 	errorTypeContextCanceled       = "context.canceled"
 	errorTypeDeadlineExceeded      = "context.deadline_exceeded"
 	errorTypeInvalidRequest        = "chat.invalid_request"
@@ -43,6 +41,7 @@ const (
 	errorTypeInvalidOptions        = "chat.invalid_options"
 	errorTypeInvalidUsage          = "chat.invalid_usage"
 	errorTypeNilStream             = "otel.chat.nil_stream"
+	cacheWriteInputTokensKey       = attribute.Key("gen_ai.usage.cache_write.input_tokens")
 )
 
 var (
@@ -53,11 +52,13 @@ var (
 // MiddlewareConfig identifies the remote GenAI provider and optionally supplies
 // providers scoped to this middleware. Provider is normalized to lowercase so
 // span and metric dimensions remain stable. The global OpenTelemetry providers
-// are used when TracerProvider or MeterProvider is nil.
+// are used when a signal provider is nil.
 type MiddlewareConfig struct {
 	Provider       string
 	TracerProvider trace.TracerProvider
 	MeterProvider  metric.MeterProvider
+	// LoggerProvider receives GenAI exception events. Nil uses the global provider.
+	LoggerProvider log.LoggerProvider
 }
 
 func (m MiddlewareConfig) Validate() error {
@@ -67,15 +68,17 @@ func (m MiddlewareConfig) Validate() error {
 	return nil
 }
 
-// Middleware adds GenAI spans and metrics to synchronous and streaming
-// chat capabilities. It is immutable after construction and safe for
+// Middleware adds GenAI spans, metrics, and exception events to synchronous and
+// streaming chat capabilities. It is immutable after construction and safe for
 // concurrent use.
 type Middleware struct {
-	provider           string
-	tracer             trace.Tracer
-	duration           genaiconv.ClientOperationDuration
-	tokens             genaiconv.ClientTokenUsage
-	firstTokenDuration metric.Float64Histogram
+	logger        log.Logger
+	provider      string
+	tracer        trace.Tracer
+	duration      genaiconv.ClientOperationDuration
+	tokens        genaiconv.ClientTokenUsage
+	firstChunk    genaiconv.ClientOperationTimeToFirstChunk
+	chunkInterval genaiconv.ClientOperationTimePerOutputChunk
 }
 
 // NewMiddleware fixes instrument identity and provider binding once so every
@@ -90,35 +93,42 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	if lo.IsNil(tracerProvider) {
 		tracerProvider = apiotel.GetTracerProvider()
 	}
+	loggerProvider := config.LoggerProvider
+	if lo.IsNil(loggerProvider) {
+		loggerProvider = global.GetLoggerProvider()
+	}
 	meterProvider := config.MeterProvider
 	if lo.IsNil(meterProvider) {
 		meterProvider = apiotel.GetMeterProvider()
 	}
 
 	meter := meterProvider.Meter(instrumentationName)
-	duration, err := genaiconv.NewClientOperationDuration(meter)
+	durationBuckets := metric.WithExplicitBucketBoundaries(
+		0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92,
+	)
+	duration, err := genaiconv.NewClientOperationDuration(meter, durationBuckets)
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create duration histogram: %w", ErrInvalidConfig, err)
 	}
-	tokens, err := genaiconv.NewClientTokenUsage(meter)
+	tokens, err := genaiconv.NewClientTokenUsage(meter, metric.WithExplicitBucketBoundaries(
+		1, 4, 16, 64, 256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216, 67108864,
+	))
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create token histogram: %w", ErrInvalidConfig, err)
 	}
-	firstTokenDuration, err := meter.Float64Histogram(
-		timeToFirstTokenMetric,
-		metric.WithDescription(timeToFirstTokenDescription),
-		metric.WithUnit(timeToFirstTokenUnit),
-	)
+	firstChunk, err := genaiconv.NewClientOperationTimeToFirstChunk(meter, durationBuckets)
 	if err != nil {
-		return Middleware{}, fmt.Errorf("%w: create first-token histogram: %w", ErrInvalidConfig, err)
+		return Middleware{}, fmt.Errorf("%w: create first-chunk histogram: %w", ErrInvalidConfig, err)
+	}
+	chunkInterval, err := genaiconv.NewClientOperationTimePerOutputChunk(meter, durationBuckets)
+	if err != nil {
+		return Middleware{}, fmt.Errorf("%w: create chunk-interval histogram: %w", ErrInvalidConfig, err)
 	}
 
 	return Middleware{
-		provider:           provider,
-		tracer:             tracerProvider.Tracer(instrumentationName),
-		duration:           duration,
-		tokens:             tokens,
-		firstTokenDuration: firstTokenDuration,
+		logger:   loggerProvider.Logger(instrumentationName),
+		provider: provider, tracer: tracerProvider.Tracer(instrumentationName),
+		duration: duration, tokens: tokens, firstChunk: firstChunk, chunkInterval: chunkInterval,
 	}, nil
 }
 
@@ -135,18 +145,26 @@ func (m Middleware) Call(next corechat.Model) corechat.Model {
 	}
 	return corechat.ModelFunc(func(ctx context.Context, request *corechat.Request) (*corechat.Response, error) {
 		started := time.Now()
-		ctx, span := m.start(ctx, request)
+		ctx, span := m.start(ctx, request, started, false)
 		response, err := next.Call(ctx, request)
-		m.finish(ctx, span, request, response, err, time.Since(started))
+		var observation responseObservation
+		if response != nil {
+			observation.observeMetadata(span, response.Metadata)
+			if response.Output != nil {
+				observation.finishReason = response.Output.FinishReason
+			}
+		}
+		m.finish(ctx, span, request, observation, err, started)
 		return response, err
 	})
 }
 
 // Stream is a [corechat.StreamMiddleware]. Instrumentation starts lazily when the
 // caller iterates and ends synchronously on completion, provider failure, or
-// early consumer stop. Invalid deltas are still forwarded unchanged; an
-// accumulation problem is recorded as an event and never becomes a business
-// error.
+// early consumer stop. Deltas are forwarded unchanged. Only identity, cumulative
+// usage, finish reason, and arrival times are observed; content is never buffered
+// or assembled into a second response. Each non-nil delta is a received chunk,
+// including metadata-only increments. Known usage survives an incomplete stream.
 func (m Middleware) Stream(next corechat.Streamer) corechat.Streamer {
 	if lo.IsNil(next) {
 		return nil
@@ -161,16 +179,15 @@ func (m Middleware) Stream(next corechat.Streamer) corechat.Streamer {
 	return corechat.StreamerFunc(func(ctx context.Context, request *corechat.Request) iter.Seq2[*corechat.ResponseDelta, error] {
 		return func(yield func(*corechat.ResponseDelta, error) bool) {
 			started := time.Now()
-			spanCtx, span := m.start(ctx, request)
+			spanCtx, span := m.start(ctx, request, started, true)
 			var (
-				accumulator corechat.ResponseAccumulator
-				streamErr   error
-				firstToken  bool
-				stopped     bool
+				observation   responseObservation
+				previousChunk time.Time
+				streamErr     error
+				stopped       bool
 			)
 			defer func() {
-				response, _ := accumulator.Response()
-				m.finish(spanCtx, span, request, response, streamErr, time.Since(started))
+				m.finish(spanCtx, span, request, observation, streamErr, started)
 			}()
 
 			sequence := next.Stream(spanCtx, request)
@@ -183,17 +200,25 @@ func (m Middleware) Stream(next corechat.Streamer) corechat.Streamer {
 				if stopped {
 					return false
 				}
-				if !firstToken && hasGeneratedContent(chunk) {
-					span.AddEvent(firstTokenReceivedEvent)
-					m.recordTimeToFirstToken(spanCtx, request, chunk, time.Since(started))
-					firstToken = true
-				}
 				if chunk != nil {
-					if accumulationErr := accumulator.Add(chunk); accumulationErr != nil {
-						span.AddEvent(streamAccumulationFailureEvent,
-							trace.WithAttributes(errorTypeAttribute(accumulationErr)),
+					receivedAt := time.Now()
+					observation.observeMetadata(span, chunk.Metadata)
+					if chunk.FinishReason != "" {
+						observation.finishReason = chunk.FinishReason
+					}
+					attributes := observation.metricAttributes(request)
+					if previousChunk.IsZero() {
+						elapsed := receivedAt.Sub(started).Seconds()
+						span.SetAttributes(semconv.GenAIResponseTimeToFirstChunk(elapsed))
+						m.firstChunk.Record(spanCtx, elapsed,
+							genaiconv.OperationNameChat, genaiconv.ProviderNameAttr(m.provider), attributes...,
+						)
+					} else {
+						m.chunkInterval.Record(spanCtx, receivedAt.Sub(previousChunk).Seconds(),
+							genaiconv.OperationNameChat, genaiconv.ProviderNameAttr(m.provider), attributes...,
 						)
 					}
+					previousChunk = receivedAt
 				}
 				if err != nil {
 					streamErr = err
@@ -209,34 +234,18 @@ func (m Middleware) Stream(next corechat.Streamer) corechat.Streamer {
 }
 
 func (m Middleware) validate() error {
-	if lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) || lo.IsNil(m.tokens.Inst()) ||
-		lo.IsNil(m.firstTokenDuration) {
+	if lo.IsNil(m.logger) || lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) || lo.IsNil(m.tokens.Inst()) ||
+		lo.IsNil(m.firstChunk.Inst()) || lo.IsNil(m.chunkInterval.Inst()) {
 		return fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
 	}
 	return nil
 }
 
-func (m Middleware) recordTimeToFirstToken(
-	ctx context.Context,
-	request *corechat.Request,
-	delta *corechat.ResponseDelta,
-	elapsed time.Duration,
-) {
-	attributes := metricAttributesForMetadata(request, delta.Metadata)
-	attributes = append(attributes,
-		semconv.GenAIOperationNameChat,
-		semconv.GenAIProviderNameKey.String(m.provider),
-	)
-	m.firstTokenDuration.Record(
-		ctx,
-		elapsed.Seconds(),
-		metric.WithAttributes(attributes...),
-	)
-}
-
 func (m Middleware) start(
 	ctx context.Context,
 	request *corechat.Request,
+	started time.Time,
+	streaming bool,
 ) (context.Context, trace.Span) {
 	model := requestModel(request)
 	name := chatOperationName
@@ -244,12 +253,16 @@ func (m Middleware) start(
 		name = chatOperationName + " " + model
 	}
 	attrs := requestAttributes(request)
+	if streaming {
+		attrs = append(attrs, semconv.GenAIRequestStream(true))
+	}
 	attrs = append(attrs,
 		semconv.GenAIOperationNameChat,
 		semconv.GenAIProviderNameKey.String(m.provider),
 	)
 	return m.tracer.Start(ctx, name,
 		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithTimestamp(started),
 		trace.WithAttributes(attrs...),
 	)
 }
@@ -258,51 +271,52 @@ func (m Middleware) finish(
 	ctx context.Context,
 	span trace.Span,
 	request *corechat.Request,
-	response *corechat.Response,
+	observation responseObservation,
 	err error,
-	elapsed time.Duration,
+	started time.Time,
 ) {
-	defer span.End()
-	span.SetAttributes(responseAttributes(response)...)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+	finished := time.Now()
+	defer span.End(trace.WithTimestamp(finished))
+	finishReason := observation.finishReason.String()
+	if finishReason == "" {
+		finishReason = incompleteFinishReason
 	}
-	m.recordMetrics(ctx, request, response, elapsed, err)
+	span.SetAttributes(semconv.GenAIResponseFinishReasons(finishReason))
+	if err != nil {
+		errorType := errorTypeAttribute(err)
+		errortelemetry.Record(span, errorType, trace.WithTimestamp(finished))
+		errortelemetry.EmitGenAIException(ctx, m.logger, errorType, finished)
+	}
+	m.recordMetrics(ctx, request, observation, finished.Sub(started), err)
 }
 
 func (m Middleware) recordMetrics(
 	ctx context.Context,
 	request *corechat.Request,
-	response *corechat.Response,
+	observation responseObservation,
 	elapsed time.Duration,
 	err error,
 ) {
-	attrs := metricAttributes(request, response)
+	attrs := observation.metricAttributes(request)
+	durationAttrs := attrs
 	if err != nil {
-		attrs = append(attrs, errorTypeAttribute(err))
+		durationAttrs = append(durationAttrs, errorTypeAttribute(err))
 	}
 	m.duration.Record(ctx, elapsed.Seconds(),
 		genaiconv.OperationNameChat,
 		genaiconv.ProviderNameAttr(m.provider),
-		attrs...,
+		durationAttrs...,
 	)
-	if err != nil || response == nil {
-		return
-	}
-	if response.Metadata == nil {
-		return
-	}
-	if response.Metadata.Usage.InputTokens > 0 {
-		m.tokens.Record(ctx, response.Metadata.Usage.InputTokens,
+	if observation.inputTokens > 0 {
+		m.tokens.Record(ctx, observation.inputTokens,
 			genaiconv.OperationNameChat,
 			genaiconv.ProviderNameAttr(m.provider),
 			genaiconv.TokenTypeInput,
 			attrs...,
 		)
 	}
-	if response.Metadata.Usage.OutputTokens > 0 {
-		m.tokens.Record(ctx, response.Metadata.Usage.OutputTokens,
+	if observation.outputTokens > 0 {
+		m.tokens.Record(ctx, observation.outputTokens,
 			genaiconv.OperationNameChat,
 			genaiconv.ProviderNameAttr(m.provider),
 			genaiconv.TokenTypeOutput,
@@ -319,6 +333,14 @@ func requestAttributes(request *corechat.Request) []attribute.KeyValue {
 	var attrs []attribute.KeyValue
 	if options.Model != "" {
 		attrs = append(attrs, semconv.GenAIRequestModel(options.Model))
+	}
+	if options.OutputFormat != nil {
+		switch options.OutputFormat.Type {
+		case corechat.OutputFormatText:
+			attrs = append(attrs, semconv.GenAIOutputTypeText)
+		case corechat.OutputFormatJSON, corechat.OutputFormatJSONSchema:
+			attrs = append(attrs, semconv.GenAIOutputTypeJSON)
+		}
 	}
 	if options.MaxOutputTokens != nil {
 		attrs = append(attrs, semconv.GenAIRequestMaxTokensKey.Int64(*options.MaxOutputTokens))
@@ -344,55 +366,59 @@ func requestAttributes(request *corechat.Request) []attribute.KeyValue {
 	return attrs
 }
 
-func responseAttributes(response *corechat.Response) []attribute.KeyValue {
-	if response == nil {
-		return nil
-	}
-	var attrs []attribute.KeyValue
-	if response.Metadata != nil {
-		if response.Metadata.ID != "" {
-			attrs = append(attrs, semconv.GenAIResponseID(response.Metadata.ID))
-		}
-		if response.Metadata.Model != "" {
-			attrs = append(attrs, semconv.GenAIResponseModel(response.Metadata.Model))
-		}
-		if response.Metadata.Usage.InputTokens > 0 {
-			attrs = append(attrs, semconv.GenAIUsageInputTokensKey.Int64(response.Metadata.Usage.InputTokens))
-		}
-		if response.Metadata.Usage.OutputTokens > 0 {
-			attrs = append(attrs, semconv.GenAIUsageOutputTokensKey.Int64(response.Metadata.Usage.OutputTokens))
-		}
-	}
-	if response.Output != nil && response.Output.FinishReason != "" {
-		attrs = append(attrs, semconv.GenAIResponseFinishReasons(response.Output.FinishReason.String()))
-	}
-	return attrs
+// responseObservation retains only scalar facts across iterator callbacks.
+// Provider content and mutable metadata remain owned by the caller.
+type responseObservation struct {
+	model        string
+	inputTokens  int64
+	outputTokens int64
+	finishReason corechat.FinishReason
 }
 
-func metricAttributes(request *corechat.Request, response *corechat.Response) []attribute.KeyValue {
-	var metadata *corechat.ResponseMetadata
-	if response != nil {
-		metadata = response.Metadata
+func (r *responseObservation) observeMetadata(span trace.Span, metadata *corechat.ResponseMetadata) {
+	if metadata == nil {
+		return
 	}
-	return metricAttributesForMetadata(request, metadata)
+	var attributes []attribute.KeyValue
+	if metadata.ID != "" {
+		attributes = append(attributes, semconv.GenAIResponseID(metadata.ID))
+	}
+	if metadata.Model != "" {
+		r.model = metadata.Model
+		attributes = append(attributes, semconv.GenAIResponseModel(metadata.Model))
+	}
+	usage := metadata.Usage
+	if usage.InputTokens > 0 || usage.OutputTokens > 0 || usage.ReasoningTokens != nil ||
+		usage.CacheReadInputTokens != nil || usage.CacheWriteInputTokens != nil {
+		r.inputTokens, r.outputTokens = usage.InputTokens, usage.OutputTokens
+	}
+	if usage.InputTokens > 0 {
+		attributes = append(attributes, semconv.GenAIUsageInputTokensKey.Int64(usage.InputTokens))
+	}
+	if usage.OutputTokens > 0 {
+		attributes = append(attributes, semconv.GenAIUsageOutputTokensKey.Int64(usage.OutputTokens))
+	}
+	if usage.CacheReadInputTokens != nil {
+		attributes = append(attributes, semconv.GenAIUsageCacheReadInputTokensKey.Int64(*usage.CacheReadInputTokens))
+	}
+	if usage.CacheWriteInputTokens != nil {
+		attributes = append(attributes, cacheWriteInputTokensKey.Int64(*usage.CacheWriteInputTokens))
+	}
+	if usage.ReasoningTokens != nil {
+		attributes = append(attributes, semconv.GenAIUsageReasoningOutputTokensKey.Int64(*usage.ReasoningTokens))
+	}
+	span.SetAttributes(attributes...)
 }
 
-func metricAttributesForMetadata(request *corechat.Request, metadata *corechat.ResponseMetadata) []attribute.KeyValue {
-	var attrs []attribute.KeyValue
+func (r responseObservation) metricAttributes(request *corechat.Request) []attribute.KeyValue {
+	var attributes []attribute.KeyValue
 	if model := requestModel(request); model != "" {
-		attrs = append(attrs, semconv.GenAIRequestModel(model))
+		attributes = append(attributes, semconv.GenAIRequestModel(model))
 	}
-	responseModel := ""
-	if metadata != nil {
-		responseModel = metadata.Model
+	if r.model != "" {
+		attributes = append(attributes, semconv.GenAIResponseModel(r.model))
 	}
-	if responseModel == "" {
-		responseModel = requestModel(request)
-	}
-	if responseModel != "" {
-		attrs = append(attrs, semconv.GenAIResponseModel(responseModel))
-	}
-	return attrs
+	return attributes
 }
 
 func requestModel(request *corechat.Request) string {
@@ -400,13 +426,6 @@ func requestModel(request *corechat.Request) string {
 		return ""
 	}
 	return request.Options.Model
-}
-
-func hasGeneratedContent(delta *corechat.ResponseDelta) bool {
-	if delta == nil {
-		return false
-	}
-	return len(delta.Parts) > 0
 }
 
 func errorTypeAttribute(err error) attribute.KeyValue {

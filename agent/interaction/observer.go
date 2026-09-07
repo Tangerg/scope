@@ -112,7 +112,7 @@ func (d *Dispatcher) observeToolSettled(ctx context.Context, invocation ToolInvo
 		return
 	}
 	if settlement.Result != nil {
-		settlement.Result = new(*settlement.Result)
+		settlement.Result = new(settlement.Result.Clone())
 	}
 	defer recordObserverPanic(&d.observationFailures.toolSettledPanics)
 	d.observer.OnToolSettled(ctx, invocation, settlement)

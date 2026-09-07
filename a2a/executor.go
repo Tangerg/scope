@@ -8,7 +8,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/samber/lo"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -90,8 +89,7 @@ func (e *executor) Execute(ctx context.Context, execCtx *a2asrv.ExecutorContext)
 		}
 
 		fail := func(err error) {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
+			recordSpanError(span, err)
 			message := sdka2a.NewMessage(sdka2a.MessageRoleAgent, sdka2a.NewTextPart(err.Error()))
 			yield(sdka2a.NewStatusUpdateEvent(execCtx, sdka2a.TaskStateFailed, message), nil)
 		}

@@ -20,7 +20,7 @@ func TestSearch(t *testing.T) {
 		if got := r.Header.Get("X-Subscription-Token"); got != "test-key" {
 			t.Errorf("X-Subscription-Token = %q", got)
 		}
-		if got := r.URL.Query().Get("q"); got != "scope site:example.com" {
+		if got := r.URL.Query().Get("q"); got != "scope (site:example.com OR site:example.org)" {
 			t.Errorf("q = %q", got)
 		}
 		if got := r.URL.Query().Get("count"); got != "20" {
@@ -35,7 +35,7 @@ func TestSearch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := client.Search(t.Context(), &web.SearchRequest{Query: "scope", MaxResults: 20, AllowedDomains: []string{"example.com"}})
+	response, err := client.Search(t.Context(), &web.SearchRequest{Query: "scope", MaxResults: 20, AllowedDomains: []string{"example.com", "example.org"}})
 	if err != nil {
 		t.Fatal(err)
 	}

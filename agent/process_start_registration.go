@@ -31,7 +31,7 @@ func (e *Engine) reserveProcessStart(
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.closed {
+	if e.closeDone != nil {
 		return ErrEngineClosed
 	}
 	processID := relation.ProcessID()
@@ -152,7 +152,7 @@ func (e *Engine) publishReservedProcess(controller *processController) {
 	reservation, exists := e.startReservations[controller.processID]
 	if !exists || reservation.relation != controller.relation ||
 		reservation.deploymentRef != controller.deploymentRef ||
-		reservation.treeLimits != controller.treeLimits || e.closed ||
+		reservation.treeLimits != controller.treeLimits || e.closeDone != nil ||
 		e.processes[controller.processID] != nil {
 		panic("agent: invalid Process start reservation")
 	}
@@ -170,14 +170,14 @@ func (e *Engine) publishReservedProcess(controller *processController) {
 	controller.childRequestDigest = reservation.childRequestDigest
 	e.processes[controller.processID] = controller
 	if controller.relation.IsRoot() {
-		if controller.runtime == nil || e.trees[controller.processID] != nil {
+		if controller.runtime.Load() == nil || e.trees[controller.processID] != nil {
 			panic("agent: invalid root tree runtime")
 		}
-		e.trees[controller.processID] = controller.runtime
+		e.trees[controller.processID] = controller.runtime.Load()
 	}
 	if isChild {
 		parent := e.processes[parentID]
-		if parent == nil || controller.runtime == nil || controller.runtime != parent.runtime {
+		if parent == nil || controller.runtime.Load() == nil || controller.runtime.Load() != parent.runtime.Load() {
 			panic("agent: invalid child tree runtime")
 		}
 		delete(e.childStartReservations, identity)

@@ -387,7 +387,7 @@ func (crashTreeDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
 	return agent.ReplayPolicyNever
 }
 
-func testCrashAfterAdministrativeCommit(t *testing.T) {
+func TestCrashAfterAdministrativeCommit(t *testing.T) {
 	store := NewMemoryTreeDurability()
 	parkedGate := newTreeDurabilityCommitGate(t, store, crashCommitPoint{
 		kind: crashCommitCheckpointParked, phase: crashCommitAfter,

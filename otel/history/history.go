@@ -10,7 +10,6 @@ import (
 
 	apiotel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
@@ -19,6 +18,7 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	corehistory "github.com/Tangerg/scope/core/history"
+	"github.com/Tangerg/scope/otel/internal/errortelemetry"
 )
 
 const (
@@ -176,9 +176,7 @@ func (h historyObservation) finish(err error) {
 	metricAttributes := h.metricAttributes
 	if err != nil {
 		errorType := historyErrorType(err)
-		h.span.RecordError(err)
-		h.span.SetStatus(codes.Error, err.Error())
-		h.span.SetAttributes(errorType)
+		errortelemetry.Record(h.span, errorType)
 		metricAttributes = append(metricAttributes, errorType)
 	}
 	h.span.End()
