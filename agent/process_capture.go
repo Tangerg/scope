@@ -29,7 +29,7 @@ func prepareRestoredProcess(
 			"%w: restore Execution: %w", ErrInvalidSnapshot, err,
 		)
 	}
-	mailbox, err := restoreSignalMailbox(wire.Mailbox)
+	mailbox, err := restoreSignalMailbox(wire.Mailbox, wire.Status)
 	if err != nil {
 		return nil, nil, processSnapshotWire{}, fmt.Errorf("%w: mailbox: %w", ErrInvalidSnapshot, err)
 	}

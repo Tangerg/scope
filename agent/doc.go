@@ -99,6 +99,10 @@
 // explicitly. That round trip keeps the Execution the single writer of its own
 // state. The Engine wall clock never enters strategy input — business time is
 // submitted as an explicit payload.
+// Wait registration and its opening Signal are one mailbox operation. Restoring
+// history uses the same opening, admission, and consumption rules: an answer
+// closes its wait when consumed, and Process termination closes all remaining
+// waits. Snapshots whose wait facts contradict that history are rejected.
 //
 // Each strategy declares its own safe consumption boundary and proves it with
 // contract tests.

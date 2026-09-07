@@ -194,7 +194,7 @@ func TestSnapshotRejectsUnfundedSignalReservations(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			mailbox, err := restoreSignalMailbox(wire.Mailbox)
+			mailbox, err := restoreSignalMailbox(wire.Mailbox, wire.Status)
 			if err != nil {
 				t.Fatal(err)
 			}

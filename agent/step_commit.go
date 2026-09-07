@@ -155,16 +155,35 @@ func (p *preparedStepFinalization) applySettlement(record preparedEffectWire) er
 	if !record.definitelySettled() {
 		return errors.New("effect batch is not definitely settled")
 	}
-	waitID, err := p.registerFrameworkEffect(record)
-	if err != nil {
-		return err
+	var waitID WaitID
+	if record.WaitID != nil {
+		waitID = *record.WaitID
 	}
 	signal, err := newSignal(deriveSettlementSignalID(record.ID), waitID, record.Settlement.Payload())
 	if err != nil {
 		return err
 	}
-	if waitID.Valid() {
-		return p.mailbox.enqueueWaitOpened(signal)
+	if record.Effect.Target() == EffectTargetFramework {
+		operation, operationErr := decodeFrameworkEffectOperation(record.Effect.Payload())
+		if operationErr != nil {
+			return errors.New("invalid prepared framework Effect")
+		}
+		switch operation {
+		case frameworkEffectWait:
+			key, _, decodeErr := decodeWaitRequest(record.Effect)
+			if decodeErr != nil {
+				return decodeErr
+			}
+			return p.mailbox.openWait(key, signal, true)
+		case frameworkEffectWaitChildren:
+			return p.registerChildWait(record, signal)
+		case frameworkEffectStartChild:
+			if waitID.Valid() {
+				return errors.New("child-start Effect unexpectedly contains a WaitID")
+			}
+		default:
+			return errors.New("unsupported prepared framework Effect")
+		}
 	}
 	accepted, err := p.mailbox.enqueue(StatusRunning, signal, signalSourceExternal)
 	if err != nil || !accepted {
@@ -173,59 +192,29 @@ func (p *preparedStepFinalization) applySettlement(record preparedEffectWire) er
 	return nil
 }
 
-func (p *preparedStepFinalization) registerFrameworkEffect(record preparedEffectWire) (WaitID, error) {
-	if record.Effect.Target() != EffectTargetFramework {
-		return WaitID{}, nil
-	}
-	operation, err := decodeFrameworkEffectOperation(record.Effect.Payload())
-	if err != nil {
-		return WaitID{}, errors.New("invalid prepared framework Effect")
-	}
-	switch operation {
-	case frameworkEffectWait:
-		key, _, err := decodeWaitRequest(record.Effect)
-		if err != nil || record.WaitID == nil {
-			return WaitID{}, errors.New("invalid prepared wait Effect")
-		}
-		if err := p.mailbox.registerWait(key, *record.WaitID, true); err != nil {
-			return WaitID{}, err
-		}
-		return *record.WaitID, nil
-	case frameworkEffectStartChild:
-		if record.WaitID != nil {
-			return WaitID{}, errors.New("child-start Effect unexpectedly contains a WaitID")
-		}
-		return WaitID{}, nil
-	case frameworkEffectWaitChildren:
-		return p.registerChildWait(record)
-	default:
-		return WaitID{}, errors.New("unsupported prepared framework Effect")
-	}
-}
-
-func (p *preparedStepFinalization) registerChildWait(record preparedEffectWire) (WaitID, error) {
+func (p *preparedStepFinalization) registerChildWait(record preparedEffectWire, signal Signal) error {
 	spec, err := decodeChildWaitEffect(record.Effect.Payload())
 	if err != nil || record.WaitID == nil {
-		return WaitID{}, errors.New("invalid child-wait Effect")
+		return errors.New("invalid child-wait Effect")
 	}
 	waitID := *record.WaitID
-	if registerWaitErr := p.mailbox.registerWait(spec.Key, waitID, false); registerWaitErr != nil {
-		return WaitID{}, registerWaitErr
+	if openErr := p.mailbox.openWait(spec.Key, signal, false); openErr != nil {
+		return openErr
 	}
 	if p.loop.runtime == nil {
-		return WaitID{}, ErrInvalidChildWait
+		return ErrInvalidChildWait
 	}
 	immediateSignal, immediatelySatisfied, err := p.loop.runtime.registerChildWait(
 		p.loop.controller.processID, waitID, spec,
 	)
 	if err != nil {
-		return WaitID{}, err
+		return err
 	}
 	p.registeredChildWaits = append(p.registeredChildWaits, waitID)
 	if immediatelySatisfied {
 		p.immediateChildSignals = append(p.immediateChildSignals, immediateSignal)
 	}
-	return waitID, nil
+	return nil
 }
 
 func (p *preparedStepFinalization) enqueueImmediateChildSignals() error {

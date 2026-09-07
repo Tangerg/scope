@@ -102,7 +102,7 @@ func (w *waitingSubtreeProjection) cancelProcess(
 	termination Termination,
 ) error {
 	process := w.processes[processID]
-	mailbox, err := restoreSignalMailbox(process.Mailbox)
+	mailbox, err := restoreSignalMailbox(process.Mailbox, process.Status)
 	if err != nil || process.ProcessEventSequence == ^uint64(0) {
 		return ErrWaitingSubtreeCancellationUnavailable
 	}
@@ -161,7 +161,7 @@ func (w *waitingSubtreeProjection) deliverBoundaryCompletion(
 	if parent.Status.Terminal() || parent.Prepared != nil || !emptyPendingControl(parent.PendingControl) {
 		return ErrWaitingSubtreeCancellationUnavailable
 	}
-	mailbox, err := restoreSignalMailbox(parent.Mailbox)
+	mailbox, err := restoreSignalMailbox(parent.Mailbox, parent.Status)
 	if err != nil {
 		return err
 	}

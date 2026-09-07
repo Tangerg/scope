@@ -220,7 +220,7 @@ func validateProcessSnapshot(wire processSnapshotWire) error {
 	if err := wire.validateRelation(); err != nil {
 		return err
 	}
-	mailbox, err := restoreSignalMailbox(wire.Mailbox)
+	mailbox, err := restoreSignalMailbox(wire.Mailbox, wire.Status)
 	if err != nil {
 		return fmt.Errorf("%w: mailbox: %w", ErrInvalidSnapshot, err)
 	}

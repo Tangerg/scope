@@ -88,7 +88,7 @@ func newPreparedProcessStateChange(
 	if err != nil {
 		return nil, err
 	}
-	mailbox, err := restoreSignalMailbox(resultWire.Mailbox)
+	mailbox, err := restoreSignalMailbox(resultWire.Mailbox, resultWire.Status)
 	if err != nil {
 		return nil, err
 	}
