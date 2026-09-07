@@ -155,12 +155,12 @@ type preparedEffectWire struct {
 }
 
 type preparedStepWire struct {
-	StepSequence     uint64               `json:"step_sequence"`
-	LastStableDigest Digest               `json:"last_stable_digest"`
-	CandidateState   ExecutionState       `json:"candidate_state"`
-	SignalCursor     uint64               `json:"signal_cursor"`
-	Transition       Transition           `json:"transition"`
-	Effects          []preparedEffectWire `json:"effects,omitempty"`
+	StepSequence     uint64          `json:"step_sequence"`
+	LastStableDigest Digest          `json:"last_stable_digest"`
+	CandidateState   ExecutionState  `json:"candidate_state"`
+	SignalCursor     uint64          `json:"signal_cursor"`
+	Transition       Transition      `json:"transition"`
+	Effects          preparedEffects `json:"effects,omitempty"`
 }
 
 type pendingControlWire struct {
@@ -354,38 +354,12 @@ func validatePreparedStep(processID ProcessID, sequence uint64, lastStable Execu
 		return errors.New("prepared Effect count does not match Transition")
 	}
 	for index, record := range prepared.Effects {
-		if err := validatePreparedEffect(processID, sequence, index, effects[index], record); err != nil {
-			return err
+		if effectErr := validatePreparedEffect(processID, sequence, index, effects[index], record); effectErr != nil {
+			return effectErr
 		}
 	}
-	if err := validatePreparedEffectOrder(prepared.Effects); err != nil {
-		return err
-	}
-	return nil
-}
-
-func validatePreparedEffectOrder(effects []preparedEffectWire) error {
-	seenPendingOrPlanned := false
-	seenPending := false
-	for _, effect := range effects {
-		switch effect.Phase {
-		case effectPhaseSettled:
-			if seenPendingOrPlanned {
-				return errors.New("settled Effect follows an unsettled Effect")
-			}
-		case effectPhasePending:
-			if seenPending {
-				return errors.New("prepared batch contains multiple pending Effects")
-			}
-			seenPending = true
-			seenPendingOrPlanned = true
-		case effectPhasePlanned:
-			seenPendingOrPlanned = true
-		default:
-			return errors.New("prepared Effect has invalid phase")
-		}
-	}
-	return nil
+	_, err = prepared.Effects.next()
+	return err
 }
 
 func validatePreparedEffect(
@@ -398,11 +372,6 @@ func validatePreparedEffect(
 	wantID := deriveEffectID(processID, sequence, index)
 	if record.ID != wantID || !equalEffect(record.Effect, effect) {
 		return errors.New("prepared Effect identity or payload changed")
-	}
-	if !record.Phase.valid() ||
-		(record.Phase == effectPhaseSettled) != (record.Settlement != nil) ||
-		record.Settlement != nil && record.Settlement.EffectID() != record.ID {
-		return errors.New("prepared Effect phase and settlement disagree")
 	}
 	if record.Effect.Target() != EffectTargetFramework {
 		if record.WaitID != nil {

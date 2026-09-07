@@ -27,6 +27,37 @@ func (e effectPhase) valid() bool {
 
 func (e effectPhase) String() string { return string(e) }
 
+// preparedEffects owns the sequential execution frontier. An uncertain result
+// occupies the frontier until adjudication, just as a pending Effect does.
+type preparedEffects []preparedEffectWire
+
+func (p preparedEffects) next() (int, error) {
+	next := len(p)
+	for index, record := range p {
+		if err := record.validatePhase(); err != nil {
+			return 0, err
+		}
+		if next != len(p) {
+			if record.Phase != effectPhasePlanned {
+				return 0, errors.New("started Effect follows an incomplete Effect")
+			}
+			continue
+		}
+		if !record.definitelySettled() {
+			next = index
+		}
+	}
+	return next, nil
+}
+
+func (p preparedEffectWire) validatePhase() error {
+	if !p.Phase.valid() || (p.Phase == effectPhaseSettled) != (p.Settlement != nil) ||
+		p.Settlement != nil && (!p.Settlement.Valid() || p.Settlement.EffectID() != p.ID) {
+		return errors.New("prepared Effect phase and settlement disagree")
+	}
+	return nil
+}
+
 func (p *preparedEffectWire) begin() error {
 	if p == nil || p.Phase != effectPhasePlanned || p.Settlement != nil {
 		return errors.New("effect is not planned")

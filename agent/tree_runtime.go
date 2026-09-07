@@ -439,18 +439,24 @@ func (t *treeRuntime) advanceOne() bool {
 }
 
 func (t *treeRuntime) advancePrepared(process *processState) {
-	if process.pendingControl.hasTerminalIntent() && process.prepared.hasUnknownSettlement() {
-		unresolvedEffectIDs := process.unknownEffectIDs()
+	index, err := process.prepared.wire.Effects.next()
+	if err != nil {
 		process.discardPrepared()
-		process.commitTerminationWithUnresolved(stepOutcome{}, unresolvedEffectIDs)
+		process.fail(FailureKindContract, "engine.effect.phase.invalid", err)
 		t.finishIfTerminal(process)
 		return
 	}
-	if process.prepared.hasUnknownSettlement() {
-		return
-	}
-	if !process.prepared.allEffectsSettled() {
-		t.startNextEffect(process)
+	if index < len(process.prepared.wire.Effects) {
+		if process.prepared.wire.Effects[index].unknown() {
+			if process.pendingControl.hasTerminalIntent() {
+				unresolvedEffectIDs := process.unknownEffectIDs()
+				process.discardPrepared()
+				process.commitTerminationWithUnresolved(stepOutcome{}, unresolvedEffectIDs)
+				t.finishIfTerminal(process)
+			}
+			return
+		}
+		t.startPreparedEffect(process, index)
 		return
 	}
 	if err := process.finalizePrepared(t.context); err != nil {

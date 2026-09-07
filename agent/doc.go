@@ -79,6 +79,9 @@
 // settlement stays observable and awaits explicit adjudication. It is never
 // silently replayed and never assumed successful. Ephemeral mode runs the same
 // state machine without calling the durability port.
+// A prepared batch has one execution frontier: definitely settled Effects
+// precede at most one pending or unknown Effect, followed only by planned
+// Effects. Runtime scheduling and snapshot admission enforce this same order.
 //
 // # Signals and waiting
 //

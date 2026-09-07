@@ -352,12 +352,3 @@ func (p *preparedStep) hasUnknownSettlement() bool {
 	}
 	return false
 }
-
-func (p *preparedStep) allEffectsSettled() bool {
-	for _, effect := range p.wire.Effects {
-		if !effect.definitelySettled() {
-			return false
-		}
-	}
-	return true
-}
