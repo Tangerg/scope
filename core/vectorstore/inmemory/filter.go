@@ -1,8 +1,10 @@
 package inmemory
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
+	"math/big"
 	"reflect"
 
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -307,102 +309,50 @@ func (e *evaluator) evalOrdering(b *filter.BinaryExpr) (any, error) {
 	return nil, fmt.Errorf("inmemory: evaluate ordering expression: unreachable op %s", b.Operator())
 }
 
-type integerValue struct {
-	signed bool
-	i      int64
-	u      uint64
-}
-
 func compareNumbers(left, right any) (order int, numeric, ordered bool) {
-	leftInteger, leftIsInteger := asInteger(left)
-	rightInteger, rightIsInteger := asInteger(right)
-	if leftIsInteger && rightIsInteger {
-		return compareIntegers(leftInteger, rightInteger), true, true
-	}
-
-	leftFloat, leftIsNumber := toFloat(left)
-	rightFloat, rightIsNumber := toFloat(right)
+	leftNumber, leftIsNumber := numberValue(left)
+	rightNumber, rightIsNumber := numberValue(right)
 	if !leftIsNumber || !rightIsNumber {
 		return 0, false, false
 	}
-	if math.IsNaN(leftFloat) || math.IsNaN(rightFloat) {
+	if leftNumber == nil || rightNumber == nil {
 		return 0, true, false
 	}
-	switch {
-	case leftFloat < rightFloat:
-		return -1, true, true
-	case leftFloat > rightFloat:
-		return 1, true, true
-	default:
-		return 0, true, true
-	}
+	return leftNumber.Cmp(rightNumber), true, true
 }
 
-func asInteger(value any) (integerValue, bool) {
+// Rational conversion preserves each number's value, including a float's
+// binary fraction, without rounding an integer to the float's precision.
+func numberValue(value any) (*big.Rat, bool) {
 	switch number := value.(type) {
 	case int:
-		return integerValue{signed: true, i: int64(number)}, true
+		return new(big.Rat).SetInt64(int64(number)), true
 	case int8:
-		return integerValue{signed: true, i: int64(number)}, true
+		return new(big.Rat).SetInt64(int64(number)), true
 	case int16:
-		return integerValue{signed: true, i: int64(number)}, true
+		return new(big.Rat).SetInt64(int64(number)), true
 	case int32:
-		return integerValue{signed: true, i: int64(number)}, true
+		return new(big.Rat).SetInt64(int64(number)), true
 	case int64:
-		return integerValue{signed: true, i: number}, true
+		return new(big.Rat).SetInt64(number), true
 	case uint:
-		return integerValue{u: uint64(number)}, true
+		return new(big.Rat).SetUint64(uint64(number)), true
 	case uint8:
-		return integerValue{u: uint64(number)}, true
+		return new(big.Rat).SetUint64(uint64(number)), true
 	case uint16:
-		return integerValue{u: uint64(number)}, true
+		return new(big.Rat).SetUint64(uint64(number)), true
 	case uint32:
-		return integerValue{u: uint64(number)}, true
+		return new(big.Rat).SetUint64(uint64(number)), true
 	case uint64:
-		return integerValue{u: number}, true
+		return new(big.Rat).SetUint64(number), true
+	case float32:
+		return new(big.Rat).SetFloat64(float64(number)), true
+	case float64:
+		return new(big.Rat).SetFloat64(number), true
+	case json.Number:
+		return new(big.Rat).SetString(number.String())
 	default:
-		return integerValue{}, false
-	}
-}
-
-func compareIntegers(left, right integerValue) int {
-	if left.signed && right.signed {
-		return compareInt64(left.i, right.i)
-	}
-	if !left.signed && !right.signed {
-		return compareUint64(left.u, right.u)
-	}
-	if left.signed {
-		if left.i < 0 {
-			return -1
-		}
-		return compareUint64(uint64(left.i), right.u)
-	}
-	if right.i < 0 {
-		return 1
-	}
-	return compareUint64(left.u, uint64(right.i))
-}
-
-func compareInt64(left, right int64) int {
-	switch {
-	case left < right:
-		return -1
-	case left > right:
-		return 1
-	default:
-		return 0
-	}
-}
-
-func compareUint64(left, right uint64) int {
-	switch {
-	case left < right:
-		return -1
-	case left > right:
-		return 1
-	default:
-		return 0
+		return nil, false
 	}
 }
 
@@ -490,38 +440,4 @@ func (e *evaluator) lookupField(name string) any {
 		return nil
 	}
 	return e.metadata[name]
-}
-
-// toFloat is the mixed integer/decimal fallback. Integer-only comparisons use
-// compareIntegers so values above float64's exact range do not collapse.
-func toFloat(v any) (float64, bool) {
-	switch n := v.(type) {
-	case int:
-		return float64(n), true
-	case int8:
-		return float64(n), true
-	case int16:
-		return float64(n), true
-	case int32:
-		return float64(n), true
-	case int64:
-		return float64(n), true
-	case uint:
-		return float64(n), true
-	case uint8:
-		return float64(n), true
-	case uint16:
-		return float64(n), true
-	case uint32:
-		return float64(n), true
-	case uint64:
-		return float64(n), true
-	case float32:
-		return float64(n), true
-	case float64:
-		return n, true
-	}
-	// Numeric strings stay strings — `"12" < "9"` should fail loudly,
-	// not silently coerce.
-	return 0, false
 }
