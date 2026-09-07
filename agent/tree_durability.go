@@ -173,13 +173,17 @@ type TreeCheckpointKind string
 // They are a closed vocabulary because recovery reasons about them directly: a
 // boundary the kernel cannot name is one it cannot resume from.
 const (
-	TreeCheckpointInvalid  TreeCheckpointKind = ""
+	TreeCheckpointInvalid TreeCheckpointKind = ""
+	// TreeCheckpointInput persists an admitted external Signal batch before
+	// acknowledging delivery. Sibling jobs may still be computing or dispatching;
+	// their snapshot contains only last-stable state or recorded Effect intent.
+	TreeCheckpointInput    TreeCheckpointKind = "input"
 	TreeCheckpointParked   TreeCheckpointKind = "parked"
 	TreeCheckpointTerminal TreeCheckpointKind = "terminal"
 )
 
 func (t TreeCheckpointKind) Valid() bool {
-	return t == TreeCheckpointParked || t == TreeCheckpointTerminal
+	return t == TreeCheckpointInput || t == TreeCheckpointParked || t == TreeCheckpointTerminal
 }
 
 func (t TreeCheckpointKind) String() string {
@@ -227,6 +231,9 @@ func (t TreeCheckpoint) Valid() bool {
 }
 
 func (t TreeCheckpoint) matchesSafeCut() bool {
+	if t.kind == TreeCheckpointInput {
+		return true
+	}
 	allTerminal := true
 	for _, snapshot := range t.treeSnapshot.ProcessSnapshots() {
 		if snapshot.Status().Terminal() {

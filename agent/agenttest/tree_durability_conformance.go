@@ -21,7 +21,7 @@ type TreeDurabilityConformanceDriver interface {
 }
 
 // RunTreeDurabilityConformance exercises base-head creation, same-content
-// callback retry, pending/settled/resolved Effect boundaries, Parked/Terminal
+// callback retry, pending/settled/resolved Effect boundaries, Input/Parked/Terminal
 // checkpoints, old-writer fencing, and recovery after callback failures before
 // and after the underlying commit. It checks head contents, dispatch counts,
 // unknown outcomes, and publication ordering without assuming a storage engine.
@@ -47,6 +47,9 @@ func RunTreeDurabilityConformance(
 	})
 	t.Run("crash boundaries", func(t *testing.T) {
 		runTreeDurabilityCrashConformance(t, factory)
+	})
+	t.Run("durable signal admission", func(t *testing.T) {
+		runSignalAdmissionConformance(t, factory)
 	})
 }
 

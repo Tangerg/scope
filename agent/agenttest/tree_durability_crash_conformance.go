@@ -18,6 +18,7 @@ const (
 	crashCommitActivation
 	crashCommitEffectPending
 	crashCommitEffectSettled
+	crashCommitCheckpointInput
 	crashCommitCheckpointParked
 	crashCommitCheckpointTerminal
 )
@@ -145,6 +146,8 @@ func (t *treeDurabilityCommitGate) CommitCheckpoint(
 ) error {
 	kind := crashCommitInvalid
 	switch checkpoint.Kind() {
+	case agent.TreeCheckpointInput:
+		kind = crashCommitCheckpointInput
 	case agent.TreeCheckpointParked:
 		kind = crashCommitCheckpointParked
 	case agent.TreeCheckpointTerminal:

@@ -89,6 +89,9 @@
 // admits one ordered batch atomically, including a batch with one Signal.
 // Repeated submission of one signal identity produces exactly one logical
 // consumption and never charges the signal budget twice. The
+// same identity with different immutable content is rejected as a conflict.
+// In durable mode, successful admission is acknowledged only after mailbox
+// records and budget charges commit to the authoritative tree head. The
 // consumption cursor advances only when candidate state and transition commit,
 // so a failed Step never permanently swallows input.
 // Consumption is bounded by the Signal window delivered to that Step; input

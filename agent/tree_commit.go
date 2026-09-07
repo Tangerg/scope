@@ -168,11 +168,25 @@ func (t *treeRuntime) startCheckpointCommit(
 	kind TreeCheckpointKind,
 	snapshot TreeSnapshot,
 ) error {
-	checkpoint, err := newTreeCheckpoint(kind, t.head.digest(), snapshot)
+	return t.startCheckpoint(&treeCommit{kind: treeCommitCheckpoint, snapshot: snapshot}, kind)
+}
+
+func (t *treeRuntime) startSignalCommit(process *processState, command processCommand, events []Event) error {
+	snapshot, err := t.captureTree()
 	if err != nil {
 		return err
 	}
-	commit := &treeCommit{kind: treeCommitCheckpoint, snapshot: snapshot}
+	return t.startCheckpoint(&treeCommit{
+		kind: treeCommitSignals, processID: process.controller.processID,
+		snapshot: snapshot, response: command.response, events: events,
+	}, TreeCheckpointInput)
+}
+
+func (t *treeRuntime) startCheckpoint(commit *treeCommit, kind TreeCheckpointKind) error {
+	checkpoint, err := newTreeCheckpoint(kind, t.head.digest(), commit.snapshot)
+	if err != nil {
+		return err
+	}
 	if t.commit != nil || t.engine.durability == nil {
 		return errors.New("invalid concurrent tree checkpoint")
 	}
@@ -257,6 +271,14 @@ func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 		t.markRunnable(commit.processID)
 	case treeCommitCheckpoint:
 		t.publishCheckpoint()
+	case treeCommitSignals:
+		t.publishCheckpoint()
+		process.updateView()
+		for _, event := range commit.events {
+			process.publishPreparedEvent(t.context, event)
+		}
+		commit.response <- processResponse{accepted: true}
+		t.markRunnable(commit.processID)
 	}
 }
 

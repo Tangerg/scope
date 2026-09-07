@@ -170,7 +170,7 @@ func (p *processState) recordParentTermination(parent Termination) {
 }
 
 func (p *processState) deliverChildrenCompleted(ctx context.Context, signal Signal) bool {
-	accepted, err := p.admitSignals(ctx, []Signal{signal}, signalSourceChildCompletion)
+	accepted, err := p.admitSignals([]Signal{signal}, signalSourceChildCompletion)
 	if err != nil {
 		if errors.Is(err, ErrResourceLimitExceeded) {
 			p.recordFailure(FailureKindExecution, "engine.limit.child_completion_signal", err)
@@ -178,6 +178,12 @@ func (p *processState) deliverChildrenCompleted(ctx context.Context, signal Sign
 			p.recordFailure(FailureKindContract, "engine.child.completion.invalid", err)
 		}
 		return false
+	}
+	if accepted {
+		p.updateView()
+		for _, event := range p.prepareSignalEvents([]Signal{signal}) {
+			p.publishPreparedEvent(ctx, event)
+		}
 	}
 	return accepted || p.mailbox.contains(signal.ID())
 }
@@ -196,19 +202,40 @@ func (p *processState) deliverBatch(ctx context.Context, command processCommand)
 		}
 		signals = append(signals, signal)
 	}
-	accepted, err := p.admitSignals(ctx, signals, signalSourceExternal)
-	command.reply(processResponse{accepted: accepted, err: err})
+	accepted, err := p.admitSignals(signals, signalSourceExternal)
+	if err != nil || !accepted {
+		command.reply(processResponse{err: err})
+		return
+	}
+	events := p.prepareSignalEvents(signals)
+	if p.engine.durability != nil {
+		if err := p.runtime.startSignalCommit(p, command, events); err != nil {
+			command.reply(processResponse{err: err})
+			p.runtime.failDurability(err, p.controller.processID, EffectID{})
+		}
+		return
+	}
+	p.updateView()
+	for _, event := range events {
+		p.publishPreparedEvent(ctx, event)
+	}
+	command.reply(processResponse{accepted: true})
 }
 
 // Admission validates identity and wait authority before charging resources.
 // The candidate keeps a rejected batch from changing any mailbox or wait state.
-func (p *processState) admitSignals(ctx context.Context, signals []Signal, source signalSource) (bool, error) {
+func (p *processState) admitSignals(signals []Signal, source signalSource) (bool, error) {
 	candidate := p.mailbox.clone()
 	status := p.status
+	duplicate := false
 	for _, signal := range signals {
 		accepted, err := candidate.enqueue(status, signal, source)
-		if err != nil || !accepted {
+		if err != nil {
 			return false, err
+		}
+		if !accepted {
+			duplicate = true
+			continue
 		}
 		if status == StatusWaiting {
 			waitID, _ := signal.WaitID()
@@ -219,6 +246,9 @@ func (p *processState) admitSignals(ctx context.Context, signals []Signal, sourc
 				status = StatusRunning
 			}
 		}
+	}
+	if duplicate {
+		return false, nil
 	}
 	count := uint64(len(signals))
 	reserved := p.reservedSettlementSignals()
@@ -239,13 +269,19 @@ func (p *processState) admitSignals(ctx context.Context, signals []Signal, sourc
 		p.currentWaitID = WaitID{}
 	}
 	p.usage.AcceptedSignals += count
-	p.updateView()
+	return true, nil
+}
+
+func (p *processState) prepareSignalEvents(signals []Signal) []Event {
+	var events []Event
 	for _, signal := range signals {
 		waitID, _ := signal.WaitID()
 		payload, _ := json.Marshal(signalAcceptedEventPayload{SignalID: signal.ID().String(), WaitID: waitID.String()})
-		p.publishEvent(ctx, EventSignalAccepted, EventPhaseCommitted, 0, EffectID{}, payload)
+		if event, ok := p.prepareEvent(EventSignalAccepted, EventPhaseCommitted, 0, EffectID{}, payload); ok {
+			events = append(events, event)
+		}
 	}
-	return true, nil
+	return events
 }
 
 func (p *processState) requestPause(command processCommand) {

@@ -57,6 +57,33 @@ func TestMailboxCommitsOnlyAnExplicitSignalPrefix(t *testing.T) {
 	}
 }
 
+func TestMailboxRejectsConflictingIdentityAfterConsumptionAndRestore(t *testing.T) {
+	mailbox := newSignalMailbox()
+	original := mustMailboxSignal(t, "signal:conflict", WaitID{}, json.RawMessage(`{"value":"original"}`))
+	if accepted, err := mailbox.enqueue(StatusRunning, original, signalSourceExternal); !accepted || err != nil {
+		t.Fatalf("initial admission=%t %v", accepted, err)
+	}
+	if _, err := mailbox.commit(1); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := restoreSignalMailbox(mailbox.snapshot(), StatusRunning)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitID, _ := ParseWaitID("wait:different")
+	for _, signal := range []Signal{
+		mustMailboxSignal(t, original.ID().String(), WaitID{}, json.RawMessage(`{"value":"changed"}`)),
+		mustMailboxSignal(t, original.ID().String(), waitID, original.Payload()),
+	} {
+		if accepted, err := restored.enqueue(StatusRunning, signal, signalSourceExternal); accepted || !errors.Is(err, ErrSignalConflict) {
+			t.Fatalf("conflicting admission=%t %v", accepted, err)
+		}
+	}
+	if restored.arrivalSequence() != 1 || restored.committedSignalCursor() != 1 {
+		t.Fatal("conflicting admission changed mailbox history")
+	}
+}
+
 func TestMailboxRoutesWaitAnswersAndHandlesEarlyArrival(t *testing.T) {
 	mailbox := newSignalMailbox()
 	key, _ := ParseWaitKey("approval:1")

@@ -54,6 +54,8 @@ The current runtime already has the important structural boundaries:
   work can run concurrently; authoritative tree commits remain serialized.
 - Effects advance through a prepared frontier of planned, pending, and settled
   work. Durable mode acknowledges pending state before dispatching the Effect.
+- External Signal admission acknowledges the durable mailbox and budget
+  publication. Conflicting identity reuse is rejected.
 - Stable effect identity and explicit replay capability govern redelivery.
   Unknown outcomes require explicit treatment; they are not assumed successful
   or silently retried.
@@ -66,61 +68,6 @@ The current runtime already has the important structural boundaries:
 The key distinction is: a root tree owns transactional consistency, a Process
 owns strategy state and logical lifecycle, and an incarnation identifies an
 active writer. Improvements should make those boundaries more precise.
-
-## 1. Acknowledge durable input only after persistence
-
-### Current evidence
-
-[`process_state.go`](../process_state.go) admits an external signal batch into
-the mailbox and replies without publishing a durable tree boundary.
-[`mailbox.go`](../mailbox.go) deduplicates by `SignalID`; it does not reject a
-repeated identity whose payload differs.
-
-A public-API probe used `agenttest.MemoryTreeDurability` and a controlled
-dispatcher paused after the pending boundary had committed. It then delivered
-a signal, loaded the current durable head, and restored that head in another
-Engine. The observed results were:
-
-```text
-signal accepted=true
-durable head unchanged=true
-signal present in durable head=false
-same SignalID with different payload accepted=false error=nil
-signal observation phase=committed before durable publication
-signal present after recovery from latest stored head=false
-```
-
-This demonstrates a gap relative to a stronger durable-input contract. The
-current `DeliverSignals` documentation promises atomic mailbox admission; it
-does not explicitly promise a storage acknowledgment.
-
-### Proposed change
-
-In durable mode, make the existing `Process.DeliverSignals` acknowledgment mean
-that the admitted input survives restoration from the acknowledged durable
-head. Publish mailbox admission, deduplication facts, budget charges, and any
-associated state transition atomically through the existing tree durability
-owner before reporting success. Ephemeral mode retains local admission.
-
-Reuse the canonical delivery API. Define an exact duplicate as the same signal
-identity with the same frozen semantic content, including its wait identity.
-Reject conflicting reuse explicitly. Clarify separately whether each control
-operation acknowledges a recorded intent or a completed transition.
-
-### Acceptance criteria
-
-- Every successfully acknowledged durable input is recoverable after immediate
-  termination of the hosting process, even before the next Step runs.
-- Repeating the same input does not consume another budget unit or deliver it
-  twice. Reusing its identity with different content reports a conflict.
-- Lost commit responses and competing incarnations cannot create a false
-  acknowledgment or partial batch admission.
-- Observation distinguishes local admission from durable publication where
-  that distinction exists; event wording matches the documented contract.
-
-Temporal's distinction between asynchronous Signals and tracked Updates is a
-useful reminder to specify the meaning of each acknowledgment, without copying
-its API vocabulary. See [workflow message passing](https://docs.temporal.io/encyclopedia/workflow-message-passing).
 
 ## 2. Separate runtime-instance failure from logical execution outcome
 
@@ -271,8 +218,8 @@ generic parameters in the kernel, or parallel composition runtimes.
 
 ## Implementation order and boundaries
 
-1. Specify durable input acknowledgment and runtime-instance failure semantics,
-   including the exported API and schema impact. Implement each as a bounded,
+1. Specify runtime-instance failure semantics, including the exported API and
+   schema impact. Implement the change as a bounded,
    independently revertible change with contract tests.
 2. Fix Observer incarnation isolation as its own change. Add external durability
    observation alongside the storage integration.

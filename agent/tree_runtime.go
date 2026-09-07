@@ -140,6 +140,7 @@ const (
 	treeCommitEffectResolved
 	treeCommitChildOutcome
 	treeCommitCheckpoint
+	treeCommitSignals
 )
 
 type treeCommit struct {

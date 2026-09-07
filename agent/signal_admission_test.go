@@ -60,6 +60,22 @@ func TestSignalBatchDeduplicatesBeforeChargingFullMailbox(t *testing.T) {
 			t.Fatalf("duplicate charged usage: before=%+v after=%+v", before, usage)
 		}
 	}
+	conflictingFirst, err := NewSignalRequest(firstID, WaitID{}, []byte(`{"value":"conflict"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflictingSecond, err := NewSignalRequest(secondID, WaitID{}, []byte(`{"value":"conflict"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, requests := range [][]SignalRequest{{first, conflictingFirst}, {second, conflictingSecond}} {
+		if accepted, deliveryErr := process.DeliverSignals(t.Context(), requests...); accepted || !errors.Is(deliveryErr, ErrSignalConflict) {
+			t.Fatalf("conflicting batch = %t, %v", accepted, deliveryErr)
+		}
+		if process.Usage() != before {
+			t.Fatal("conflicting batch changed usage")
+		}
+	}
 	if accepted, deliveryErr := process.DeliverSignals(t.Context(), second); accepted || !errors.Is(deliveryErr, ErrResourceLimitExceeded) {
 		t.Fatalf("new signal at capacity = %t, %v", accepted, deliveryErr)
 	}

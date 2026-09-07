@@ -20,6 +20,7 @@ const (
 	memoryDurabilityFactEffectPending
 	memoryDurabilityFactEffectSettled
 	memoryDurabilityFactEffectResolved
+	memoryDurabilityFactCheckpointInput
 	memoryDurabilityFactCheckpointParked
 	memoryDurabilityFactCheckpointTerminal
 )
@@ -282,6 +283,8 @@ func memoryEffectFactKind(kind agent.EffectBoundaryKind) memoryDurabilityFactKin
 
 func memoryCheckpointFactKind(kind agent.TreeCheckpointKind) memoryDurabilityFactKind {
 	switch kind {
+	case agent.TreeCheckpointInput:
+		return memoryDurabilityFactCheckpointInput
 	case agent.TreeCheckpointParked:
 		return memoryDurabilityFactCheckpointParked
 	case agent.TreeCheckpointTerminal:

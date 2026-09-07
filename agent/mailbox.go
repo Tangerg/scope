@@ -10,6 +10,9 @@ import (
 
 var (
 	ErrSignalRejected = errors.New("agent: signal rejected")
+	// ErrSignalConflict reports reuse of a SignalID with different immutable
+	// content, including the addressed WaitID.
+	ErrSignalConflict = errors.New("agent: signal identity conflicts with accepted content")
 	errMailboxCursor  = errors.New("agent: invalid signal cursor")
 	errWaitState      = errors.New("agent: invalid wait state")
 )
@@ -30,7 +33,7 @@ type waitRecord struct {
 
 type signalMailbox struct {
 	records      []signalRecord
-	seen         map[SignalID]struct{}
+	seen         map[SignalID]int
 	waits        map[WaitID]waitRecord
 	signalCursor uint64
 }
@@ -45,7 +48,7 @@ func (s signalMailbox) clone() signalMailbox {
 
 func newSignalMailbox() signalMailbox {
 	return signalMailbox{
-		seen:  make(map[SignalID]struct{}),
+		seen:  make(map[SignalID]int),
 		waits: make(map[WaitID]waitRecord),
 	}
 }
@@ -61,7 +64,10 @@ func (s *signalMailbox) enqueue(status Status, signal Signal, source signalSourc
 	if !signal.Valid() || (source != signalSourceExternal && source != signalSourceChildCompletion) {
 		return false, fmt.Errorf("%w: %w", ErrSignalRejected, ErrInvalidSignal)
 	}
-	if s.contains(signal.ID()) {
+	if index, exists := s.seen[signal.ID()]; exists {
+		if !s.records[index].signal.sameContent(signal) {
+			return false, ErrSignalConflict
+		}
 		return false, nil
 	}
 	waitID, addressed := signal.WaitID()
@@ -78,7 +84,7 @@ func (s *signalMailbox) enqueue(status Status, signal Signal, source signalSourc
 	} else if source != signalSourceExternal || (status != StatusRunning && status != StatusPaused) {
 		return false, ErrSignalRejected
 	}
-	s.seen[signal.ID()] = struct{}{}
+	s.seen[signal.ID()] = len(s.records)
 	s.records = append(s.records, signalRecord{
 		arrivalSequence: uint64(len(s.records) + 1), signal: signal,
 	})
@@ -102,7 +108,7 @@ func (s *signalMailbox) openWait(key WaitKey, signal Signal, externallyAddressab
 		}
 	}
 	s.waits[id] = waitRecord{key: key, id: id, externallyAddressable: externallyAddressable}
-	s.seen[signal.ID()] = struct{}{}
+	s.seen[signal.ID()] = len(s.records)
 	s.records = append(s.records, signalRecord{
 		arrivalSequence: uint64(len(s.records) + 1), signal: signal, opensWait: true,
 	})

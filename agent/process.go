@@ -96,9 +96,13 @@ func (p *Process) WaitID() (WaitID, bool) {
 // atomic batch. Running input is consumed at the next Strategy-safe Step
 // boundary; Waiting input must first address the current WaitID, otherwise it
 // returns ErrSignalRejected. The complete batch is accepted in order or the
-// mailbox remains unchanged. If any SignalID was
-// already accepted or repeats within the batch, accepted is false with nil error
-// and no resource budget is charged.
+// mailbox remains unchanged. Reusing a SignalID with different normalized
+// payload bytes or a different WaitID returns ErrSignalConflict. If any SignalID
+// repeats with identical content, accepted is false with nil error and the
+// whole batch is unchanged, including resource usage.
+// In durable mode, accepted is true only after the mailbox and budget changes
+// commit to the authoritative tree head. A caller timeout does not revoke an
+// admitted command; retry the identical batch to reconcile uncertain delivery.
 func (p *Process) DeliverSignals(ctx context.Context, requests ...SignalRequest) (accepted bool, err error) {
 	if len(requests) == 0 {
 		return false, ErrInvalidSignalRequest
