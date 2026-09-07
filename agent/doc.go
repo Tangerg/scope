@@ -147,6 +147,8 @@
 // global kind-to-factory switch is forbidden.
 //
 // [TreeSnapshot] is the canonical recovery state of a complete root tree.
+// It uses one current strict wire shape without a version envelope or migration
+// dispatch; parsing validates the structure and the recorded domain facts.
 // [ProcessSnapshot] is a single-Process diagnostic value and is not a recovery
 // unit. Events and [Delta] values record attempts and observations only; they
 // never substitute for an acknowledged TreeSnapshot.

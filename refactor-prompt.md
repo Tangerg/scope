@@ -83,9 +83,9 @@ Background failures must reach the existing owned completion, failure, or diagno
 
 ### One format authority
 
-Identify what decides a wire or persistence format before changing it. Preserve strict current-format decoding, structural checks, and meaningful public protocol versions. Independent module releases do not by themselves determine whether a stored checkpoint is valid.
+Identify what decides a wire or persistence format before changing it. Scope-owned state and persistence use one current schema during development. Keep strict structural and domain validation, without schema-version envelopes, version dispatch, migration registries, or dual reads/writes. External protocol formats remain owned by their protocols; module releases do not introduce domain version fields.
 
-State restart and recovery consequences explicitly. When a contract is replaced, delete obsolete aliases, dual reads, dual writes, fallback schemas, migrations, and stale references. Do not replace meaningful format distinctions with an unrelated version value or keep an old decoder as a compatibility path.
+State restart and recovery consequences explicitly. When a contract is replaced, delete obsolete aliases, dual reads, dual writes, fallback schemas, migrations, and stale references. Validate the current contract directly and remove superseded decoders instead of retaining them behind a version check.
 
 ## Preserve necessary complexity
 

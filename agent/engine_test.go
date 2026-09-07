@@ -1329,7 +1329,6 @@ func waitForUnknownSettlement(t testing.TB, process *Process) ProcessSnapshot {
 func singleProcessTreeSnapshot(t *testing.T, snapshot ProcessSnapshot) TreeSnapshot {
 	t.Helper()
 	tree, err := newTreeSnapshot(treeSnapshotWire{
-		Version:          CurrentTreeSnapshotVersion,
 		RootID:           snapshot.ProcessID(),
 		ProcessSnapshots: []ProcessSnapshot{snapshot},
 	})

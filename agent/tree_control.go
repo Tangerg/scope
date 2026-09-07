@@ -131,7 +131,7 @@ func (t *treeRuntime) freezeBlockedByJob() bool {
 }
 
 func (t *treeRuntime) captureTree() (TreeSnapshot, error) {
-	wire := treeSnapshotWire{Version: CurrentTreeSnapshotVersion, RootID: t.rootID}
+	wire := treeSnapshotWire{RootID: t.rootID}
 	if t.incarnation.Valid() {
 		incarnation := t.incarnation
 		wire.IncarnationID = &incarnation

@@ -4,11 +4,9 @@
 // Array(Float32)) reached through the official clickhouse-go v2
 // driver.
 //
-// Requirements: ClickHouse 24.x+ for the vector_similarity index
-// type (HNSW-backed). Earlier ClickHouse versions can still run the
-// store — they fall back to exhaustive `cosineDistance` /
-// `L2Distance` scans without an ANN index, which is still useful
-// for analytics-scale rather than real-time RAG.
+// Automatic schema initialization requires the vector_similarity index type
+// (HNSW-backed). Index creation errors fail construction. Hosts that provision
+// the table themselves can set InitializeSchema to false.
 //
 // Distance metrics: [DistanceCosine] (uses `cosineDistance`) /
 // [DistanceL2] (uses `L2Distance`). The store also wires the

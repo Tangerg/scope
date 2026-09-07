@@ -10,6 +10,8 @@ Fix the cause in the layer that owns it. If a software development kit (SDK) con
 
 Do not retain a known-wrong name, field, type, wire shape, or call path to reduce the number of edits. Once a breaking change is approved, migrate every workspace consumer, example, test, and document in the same batch, then delete the old path.
 
+For Scope-owned state and persistence, replace the schema and its producers and consumers together. Keep strict validation of the current shape; delete obsolete version fields, version dispatch, migration code, and compatibility branches.
+
 ## Start with evidence
 
 Audit before editing:

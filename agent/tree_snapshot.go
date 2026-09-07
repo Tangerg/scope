@@ -5,28 +5,15 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
 	"sync"
 )
 
-// Exported defaults keep constructor behavior visible and overridable.
-const (
-	maxTreeSnapshotBytes = 512 << 20
-	// CurrentTreeSnapshotVersion preserves pending failures across restoration.
-	// Earlier control wire contracts cannot represent that terminal intent.
-	CurrentTreeSnapshotVersion TreeSnapshotVersion = 2
-)
+const maxTreeSnapshotBytes = 512 << 20
 
-var (
-	ErrInvalidTreeSnapshot            = errors.New("agent: invalid process tree snapshot")
-	ErrUnsupportedTreeSnapshotVersion = errors.New("agent: unsupported process tree snapshot version")
-)
-
-// TreeSnapshotVersion identifies one exact durable wire contract.
-type TreeSnapshotVersion uint16
+var ErrInvalidTreeSnapshot = errors.New("agent: invalid process tree snapshot")
 
 // TreeSnapshot is an immutable, portable capture of one complete Process tree.
 // It owns Framework execution facts, a canonical content digest, and the
@@ -34,7 +21,6 @@ type TreeSnapshotVersion uint16
 // revisions, and cleanup policy remain Host responsibilities.
 type TreeSnapshot struct {
 	data           json.RawMessage
-	version        TreeSnapshotVersion
 	digest         Digest
 	rootID         ProcessID
 	incarnationID  TreeIncarnationID
@@ -42,21 +28,14 @@ type TreeSnapshot struct {
 	processes      []ProcessSnapshot
 }
 
-// ParseTreeSnapshot validates one complete Process tree snapshot. A syntactically
-// valid foreign version is classified before the current wire shape is enforced.
-// Every active child wait must have a registration belonging to its Process.
+// ParseTreeSnapshot validates the current wire shape and domain constraints of
+// one complete Process tree. Unknown members are rejected. Every active child
+// wait must have a registration belonging to its Process.
 func ParseTreeSnapshot(data json.RawMessage) (TreeSnapshot, error) {
 	if len(data) == 0 || len(data) > maxTreeSnapshotBytes {
 		return TreeSnapshot{}, fmt.Errorf(
 			"%w: JSON must contain at most %d bytes", ErrInvalidTreeSnapshot, maxTreeSnapshotBytes,
 		)
-	}
-	version, err := parseTreeSnapshotVersion(data)
-	if err != nil {
-		return TreeSnapshot{}, fmt.Errorf("%w: decode version: %w", ErrInvalidTreeSnapshot, err)
-	}
-	if versionErr := validateTreeSnapshotVersion(version); versionErr != nil {
-		return TreeSnapshot{}, versionErr
 	}
 	wire, err := wireJSON.decode[treeSnapshotWire](data)
 	if err != nil {
@@ -92,7 +71,7 @@ func treeSnapshotFromWire(wire treeSnapshotWire) (TreeSnapshot, error) {
 	}
 	incarnationID, hasIncarnation := treeSnapshotIncarnation(wire.IncarnationID)
 	return TreeSnapshot{
-		data: normalized, digest: ComputeDigest(normalized), version: wire.Version, rootID: wire.RootID,
+		data: normalized, digest: ComputeDigest(normalized), rootID: wire.RootID,
 		incarnationID: incarnationID, hasIncarnation: hasIncarnation,
 		processes: slices.Clone(wire.ProcessSnapshots),
 	}, nil
@@ -100,9 +79,6 @@ func treeSnapshotFromWire(wire treeSnapshotWire) (TreeSnapshot, error) {
 
 // JSON returns an independently owned tree snapshot representation.
 func (t TreeSnapshot) JSON() json.RawMessage { return bytes.Clone(t.data) }
-
-// Version lets a Host route explicit migration before asking Engine to restore.
-func (t TreeSnapshot) Version() TreeSnapshotVersion { return t.version }
 
 // RootID returns the identity of the tree's root Process.
 func (t TreeSnapshot) RootID() ProcessID { return t.rootID }
@@ -122,7 +98,7 @@ func (t TreeSnapshot) ProcessSnapshots() []ProcessSnapshot {
 }
 
 func (t TreeSnapshot) Valid() bool {
-	return len(t.data) > 0 && t.version == CurrentTreeSnapshotVersion && t.digest.Valid() && t.rootID.Valid() &&
+	return len(t.data) > 0 && t.digest.Valid() && t.rootID.Valid() &&
 		(!t.hasIncarnation || t.incarnationID.Valid()) && len(t.processes) > 0
 }
 
@@ -162,24 +138,11 @@ type childWaitSnapshotWire struct {
 	Spec            childWaitSpecWire `json:"spec"`
 }
 
-type treeSnapshotEnvelope struct {
-	Version TreeSnapshotVersion `json:"version"`
-}
-
 type treeSnapshotWire struct {
-	Version          TreeSnapshotVersion     `json:"version"`
 	RootID           ProcessID               `json:"root_id"`
 	IncarnationID    *TreeIncarnationID      `json:"incarnation_id,omitempty"`
 	ProcessSnapshots []ProcessSnapshot       `json:"process_snapshots"`
 	ChildWaits       []childWaitSnapshotWire `json:"child_waits,omitempty"`
-}
-
-func parseTreeSnapshotVersion(data json.RawMessage) (TreeSnapshotVersion, error) {
-	var envelope treeSnapshotEnvelope
-	if err := jsonv2.Unmarshal(data, &envelope); err != nil {
-		return 0, err
-	}
-	return envelope.Version, nil
 }
 
 func treeSnapshotIncarnation(value *TreeIncarnationID) (TreeIncarnationID, bool) {
@@ -204,9 +167,6 @@ func compareSnapshots(left, right ProcessSnapshot) int {
 }
 
 func validateTreeSnapshot(wire treeSnapshotWire) error {
-	if err := validateTreeSnapshotVersion(wire.Version); err != nil {
-		return err
-	}
 	validation, err := newTreeSnapshotValidation(wire)
 	if err != nil {
 		return err
@@ -218,16 +178,6 @@ func validateTreeSnapshot(wire treeSnapshotWire) error {
 		return err
 	}
 	return validation.validateChildWaits()
-}
-
-func validateTreeSnapshotVersion(version TreeSnapshotVersion) error {
-	if version == CurrentTreeSnapshotVersion {
-		return nil
-	}
-	return fmt.Errorf(
-		"%w: got %d, want %d",
-		ErrUnsupportedTreeSnapshotVersion, version, CurrentTreeSnapshotVersion,
-	)
 }
 
 type treeSnapshotValidation struct {
