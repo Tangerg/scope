@@ -57,7 +57,7 @@
 // An Effect is the only way an Execution requests work outside a Step. The
 // Engine derives a stable effect identity from the Process identity, step
 // sequence, and effect index, then freezes the payload. It interprets only its
-// own closed set of framework effects — child, wait, timer — and hands a
+// own closed set of framework effects — child and wait operations — and hands a
 // strategy effect whole to the dispatcher its [Deployment] bound. A dispatcher
 // never mutates an Execution; it produces deltas and one settlement Signal.
 //

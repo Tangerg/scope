@@ -1,10 +1,10 @@
 # Durable Agent runtime roadmap
 
-Status: proposed. Recorded on 2026-09-07 against v0.15.0, commit
-`b77639a810ac83ca0f6b367fc5ac4520fcff7e57`.
+Status: remaining design directions. Implemented correctness proposals now
+live in GoDoc and checked contract tests.
 
 This document records the requested design analysis and implementation direction.
-It does not change the current API or promise that the proposals are implemented.
+Future directions below require a demonstrated framework-level need.
 Package contracts remain in [GoDoc](../doc.go) and checked examples. Update or
 remove resolved proposals as implementation lands rather than maintaining a
 second description of the runtime.
@@ -65,54 +65,14 @@ The current runtime already has the important structural boundaries:
 - A stopped durable writer reports `RuntimeError` separately from a committed
   logical `Result`, retaining its last acknowledged head and unresolved Effect
   identities.
-- OpenTelemetry remains an external integration. Host storage, product routing,
-  deployment catalogs, and operational policy remain outside the kernel.
+- OpenTelemetry scopes durable observation to the active incarnation and
+  decorates the existing persistence boundary from outside Agent.
+  Host storage, product routing, deployment catalogs, and operational policy
+  remain outside the kernel.
 
 The key distinction is: a root tree owns transactional consistency, a Process
 owns strategy state and logical lifecycle, and an incarnation identifies an
 active writer. Improvements should make those boundaries more precise.
-
-## 3. Scope observation to the active incarnation
-
-### Current evidence
-
-[`otel/agent/observer.go`](../../otel/agent/observer.go) indexes Process spans by
-`ProcessID`, Step spans by Process identity and sequence, and Effect spans by
-`EffectID`. Those identities can recur during restoration.
-
-A public-API probe shared one Observer between an original Engine and an Engine
-restoring the same tree. While the original external operation remained in
-flight, the restored Process was still running but its new activation span had
-already ended: the Observer treated the repeated Process identity as a
-duplicate. This is a concrete overlap bug, independent of adding new metrics.
-
-### Proposed change
-
-Use the existing incarnation identity to separate active observation records
-for Processes, Steps, and Effects. Carry that identity through the dispatcher
-observation boundary where needed. Keep it separate from effect idempotency:
-changing the Effect's deduplication identity on restore would create a new
-external operation instead of resuming the same logical one.
-
-Add storage observation through an external `TreeDurability` decorator when
-implementing the durable path. Useful measurements include commit duration,
-snapshot size, ownership conflicts, durable-head age, and unresolved-effect
-age. Use high-cardinality identities as trace attributes rather than metric
-labels, and avoid exporting signal or model content by default.
-
-The existing observer callback runs synchronously on the owner line and must
-stay bounded. Keep exporter I/O outside it; do not blindly make all observation
-asynchronous because dispatcher span association currently depends on ordered
-event handling. Telemetry remains diagnostic rather than a recovery log.
-
-### Acceptance criteria
-
-- Old and restored instances sharing an Observer have independent span
-  lifecycles, including overlapping dispatch and late completion.
-- Finishing one incarnation cannot close another incarnation's spans.
-- Restoring observation identity does not change external idempotency keys.
-- Durability metrics and traces distinguish attempted, acknowledged, rejected,
-  and unresolved operations without importing OpenTelemetry into Agent.
 
 ## Framework and application storage boundary
 
@@ -127,7 +87,7 @@ application or its independently owned adapter. They are not implementation
 items for this framework roadmap. Adapters can reuse the shared conformance
 suite and supplement it with evidence from their own storage environment.
 
-## 5. Bound long-lived state before adding long-lived execution features
+## Bound long-lived state before adding long-lived execution features
 
 The current runtime has finite budgets and snapshot size limits. Its mailbox
 retains consumed records, deduplication identities, and wait history; a tree
@@ -145,18 +105,16 @@ is useful inspiration for separating logical continuity from one execution's
 bounded history. It is not a requirement to add a second lifecycle or API now.
 
 Durable timers also require a concrete design: persist the scheduled deadline
-and delivery identity, and recover wakeup delivery after restart. Despite the
-current overview mentioning timer effects, the implemented closed effect set
-does not provide a durable timer facility. Host scheduling and a recorded
-reached-deadline intent do not by themselves preserve a future timer.
+and delivery identity, and recover wakeup delivery after restart. The current
+closed effect set does not provide a durable timer facility. Host scheduling and
+a recorded reached-deadline intent do not by themselves preserve a future timer.
 
 Measure representative snapshot growth, commit latency, recovery time, and
 queueing before changing storage representation or scheduling. Existing
-benchmarks provide a starting point; no production measurement in this review
-established a dominant bottleneck. Incremental logs, per-Process commits, and
-additional indexing therefore remain unproven changes.
+benchmarks provide a starting point. Incremental logs, per-Process commits, and
+additional indexing require evidence of a dominant bottleneck.
 
-## 6. Extend through the existing execution boundary
+## Extend through the existing execution boundary
 
 Interaction, planning, and workflow should continue to express their behavior
 through the same `Definition`, `Execution`, Signal, and Effect contracts. Keep
@@ -172,19 +130,11 @@ generic parameters in the kernel, or parallel composition runtimes.
 
 ## Implementation order and boundaries
 
-1. Fix Observer incarnation isolation as its own change. Add external durability
-   observation at the existing `TreeDurability` protocol boundary.
-2. Extend framework conformance tests when a concrete contract gap is found.
-3. Add long-lived execution or timer capabilities only when a concrete consumer
+1. Extend framework conformance tests when a concrete contract gap is found.
+2. Add long-lived execution or timer capabilities only when a concrete consumer
    supplies the lifecycle requirements. Optimize only after measurement.
 
 Use one canonical API per atomic capability and one strict current schema.
 Replace superseded designs outright, including their consumers and tests;
 do not introduce compatibility aliases, schema-version envelopes, migrations,
 or dual persistence paths. Discuss breaking changes before applying them.
-
-The evidence above came from source inspection, focused existing durability,
-incarnation, mailbox, and signal tests, and temporary public-API probes. The
-probes restored the last acknowledged memory-store head; they did not perform
-an operating-system crash or exercise a real SQL database. Concrete database and
-operating-system crash validation belongs to downstream adapter integration tests.

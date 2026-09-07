@@ -85,8 +85,8 @@ type ObserverConfig struct {
 	TracerProvider trace.TracerProvider
 
 	// MeterProvider creates Process lifecycle and usage instruments, Step/Effect
-	// duration histograms, and the Delta drop counter. Nil uses the OpenTelemetry
-	// global provider.
+	// duration histograms, durability duration and snapshot size, and the Delta
+	// drop counter. Nil uses the OpenTelemetry global provider.
 	MeterProvider metric.MeterProvider
 }
 
@@ -105,9 +105,9 @@ type Observer struct {
 	closed      bool
 	closeDone   chan struct{}
 	stateMu     sync.Mutex
-	processes   map[agent.ProcessID]processSpanRecord
+	processes   map[processKey]processSpanRecord
 	steps       map[stepKey]trace.Span
-	effects     map[agent.EffectID]trace.Span
+	effects     map[effectKey]trace.Span
 }
 
 type processSpanRecord struct {
@@ -116,9 +116,24 @@ type processSpanRecord struct {
 	activation processActivation
 }
 
+type processKey struct {
+	processID     agent.ProcessID
+	incarnationID agent.TreeIncarnationID
+}
+
 type stepKey struct {
-	processID agent.ProcessID
-	sequence  uint64
+	process  processKey
+	sequence uint64
+}
+
+type effectKey struct {
+	process  processKey
+	effectID agent.EffectID
+}
+
+func processKeyFor(event agent.Event) processKey {
+	incarnationID, _ := event.TreeIncarnationID()
+	return processKey{processID: event.ProcessID(), incarnationID: incarnationID}
 }
 
 type observerInstruments struct {
@@ -131,6 +146,8 @@ type observerInstruments struct {
 	stepDuration              metric.Float64Histogram
 	effectDuration            metric.Float64Histogram
 	deltaDrops                metric.Int64Counter
+	durabilityDuration        metric.Float64Histogram
+	durabilitySnapshotBytes   metric.Int64Histogram
 }
 
 // NewObserver attaches to the kernel's listener boundary rather than living
@@ -159,9 +176,9 @@ func NewObserver(config ObserverConfig) (*Observer, error) {
 	return &Observer{
 		tracer:      tracerProvider.Tracer(instrumentationName),
 		instruments: instruments,
-		processes:   make(map[agent.ProcessID]processSpanRecord),
+		processes:   make(map[processKey]processSpanRecord),
 		steps:       make(map[stepKey]trace.Span),
-		effects:     make(map[agent.EffectID]trace.Span),
+		effects:     make(map[effectKey]trace.Span),
 		closeDone:   make(chan struct{}),
 	}, nil
 }
@@ -238,6 +255,22 @@ func newObserverInstruments(meter metric.Meter) (observerInstruments, error) {
 	if err != nil {
 		return observerInstruments{}, fmt.Errorf("%w: create delta drop counter: %w", ErrInvalidObserverConfig, err)
 	}
+	durabilityDuration, err := meter.Float64Histogram(
+		durabilityDurationMetricName,
+		metric.WithDescription("Duration of one durable protocol acknowledgment attempt."),
+		metric.WithUnit(durationUnit),
+	)
+	if err != nil {
+		return observerInstruments{}, fmt.Errorf("%w: create durability duration histogram: %w", ErrInvalidObserverConfig, err)
+	}
+	durabilitySnapshotBytes, err := meter.Int64Histogram(
+		durabilitySnapshotBytesMetricName,
+		metric.WithDescription("Whole-tree snapshot bytes proposed at a durable protocol boundary."),
+		metric.WithUnit("By"),
+	)
+	if err != nil {
+		return observerInstruments{}, fmt.Errorf("%w: create durability snapshot size histogram: %w", ErrInvalidObserverConfig, err)
+	}
 	return observerInstruments{
 		processActivations:        processActivations,
 		processExits:              processExits,
@@ -248,6 +281,8 @@ func newObserverInstruments(meter metric.Meter) (observerInstruments, error) {
 		stepDuration:              stepDuration,
 		effectDuration:            effectDuration,
 		deltaDrops:                deltaDrops,
+		durabilityDuration:        durabilityDuration,
+		durabilitySnapshotBytes:   durabilitySnapshotBytes,
 	}, nil
 }
 
@@ -267,6 +302,8 @@ func (o *Observer) OnEvent(ctx context.Context, event agent.Event) {
 		o.startProcess(ctx, event)
 	case agent.EventProcessFinished:
 		o.finishProcess(ctx, event)
+	case agent.EventRuntimeStopped:
+		o.stopRuntime(ctx, event)
 	case agent.EventStepStarted:
 		o.startStep(ctx, event)
 	case agent.EventStepFinished:
@@ -337,7 +374,7 @@ func (o *Observer) startProcess(ctx context.Context, event agent.Event) {
 	parentContext := ctx
 	if parentID, child := relation.ParentID(); child {
 		o.stateMu.Lock()
-		parent, found := o.processes[parentID]
+		parent, found := o.processes[processKey{processID: parentID, incarnationID: processKeyFor(event).incarnationID}]
 		o.stateMu.Unlock()
 		if found {
 			parentContext = trace.ContextWithSpan(ctx, parent.span)
@@ -360,12 +397,12 @@ func (o *Observer) startProcess(ctx context.Context, event agent.Event) {
 		span: span, startedAt: event.OccurredAt(), activation: activation,
 	}
 	o.stateMu.Lock()
-	if _, exists := o.processes[event.ProcessID()]; exists {
+	if _, exists := o.processes[processKeyFor(event)]; exists {
 		o.stateMu.Unlock()
 		span.End(trace.WithTimestamp(event.OccurredAt()))
 		return
 	}
-	o.processes[event.ProcessID()] = record
+	o.processes[processKeyFor(event)] = record
 	o.stateMu.Unlock()
 	attributes := append(
 		deploymentMetricAttributes(event),
@@ -380,9 +417,9 @@ func (o *Observer) finishProcess(ctx context.Context, event agent.Event) {
 		return
 	}
 	o.stateMu.Lock()
-	record, found := o.processes[event.ProcessID()]
+	record, found := o.processes[processKeyFor(event)]
 	if found {
-		delete(o.processes, event.ProcessID())
+		delete(o.processes, processKeyFor(event))
 	}
 	o.stateMu.Unlock()
 	attributes := append(deploymentMetricAttributes(event),
@@ -449,12 +486,12 @@ func (o *Observer) startStep(ctx context.Context, event agent.Event) {
 		return
 	}
 	o.stateMu.Lock()
-	process, found := o.processes[event.ProcessID()]
+	process, found := o.processes[processKeyFor(event)]
 	if !found {
 		o.stateMu.Unlock()
 		return
 	}
-	key := stepKey{processID: event.ProcessID(), sequence: sequence}
+	key := stepKey{process: processKeyFor(event), sequence: sequence}
 	if _, exists := o.steps[key]; exists {
 		o.stateMu.Unlock()
 		return
@@ -485,7 +522,7 @@ func (o *Observer) finishStep(ctx context.Context, event agent.Event) {
 	if !ok {
 		return
 	}
-	key := stepKey{processID: event.ProcessID(), sequence: sequence}
+	key := stepKey{process: processKeyFor(event), sequence: sequence}
 	fact, ok := event.StepFinished()
 	if !ok {
 		return
@@ -523,12 +560,12 @@ func (o *Observer) startEffect(ctx context.Context, event agent.Event) {
 		return
 	}
 	o.stateMu.Lock()
-	process, found := o.processes[event.ProcessID()]
+	process, found := o.processes[processKeyFor(event)]
 	if !found {
 		o.stateMu.Unlock()
 		return
 	}
-	if _, exists := o.effects[effectID]; exists {
+	if _, exists := o.effects[effectKey{process: processKeyFor(event), effectID: effectID}]; exists {
 		o.stateMu.Unlock()
 		return
 	}
@@ -545,12 +582,12 @@ func (o *Observer) startEffect(ctx context.Context, event agent.Event) {
 		trace.WithAttributes(attributes...),
 	)
 	o.stateMu.Lock()
-	if _, exists := o.effects[effectID]; exists {
+	if _, exists := o.effects[effectKey{process: processKeyFor(event), effectID: effectID}]; exists {
 		o.stateMu.Unlock()
 		span.End(trace.WithTimestamp(event.OccurredAt()))
 		return
 	}
-	o.effects[effectID] = span
+	o.effects[effectKey{process: processKeyFor(event), effectID: effectID}] = span
 	o.stateMu.Unlock()
 }
 
@@ -564,9 +601,9 @@ func (o *Observer) finishEffect(ctx context.Context, event agent.Event) {
 		return
 	}
 	o.stateMu.Lock()
-	record, found := o.effects[effectID]
+	record, found := o.effects[effectKey{process: processKeyFor(event), effectID: effectID}]
 	if found {
-		delete(o.effects, effectID)
+		delete(o.effects, effectKey{process: processKeyFor(event), effectID: effectID})
 	}
 	o.stateMu.Unlock()
 	metricAttributes := append(
@@ -605,7 +642,7 @@ func (o *Observer) recordDeltaDrop(ctx context.Context, event agent.Event) {
 
 func (o *Observer) addProcessEvent(event agent.Event) {
 	o.stateMu.Lock()
-	record, found := o.processes[event.ProcessID()]
+	record, found := o.processes[processKeyFor(event)]
 	o.stateMu.Unlock()
 	if !found {
 		return
