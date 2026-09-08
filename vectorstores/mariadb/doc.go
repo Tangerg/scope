@@ -17,13 +17,20 @@
 //
 // Filter visitor reaches into the JSON metadata column with
 // `JSON_VALUE(metadata, '$.k')`, wrapping numeric comparisons in
-// `CAST(... AS DOUBLE)` so range queries don't fall back to
+// `CAST(... AS DECIMAL(65,30))` so range queries don't fall back to
 // lexicographic ordering.
 //
 // Partial writes. Index prepares one upsert and runs it per document without
 // wrapping the batch in a transaction, so a failure leaves the rows already
 // written in place. The returned error names the id that failed, and repeating
 // the call is safe because the statement is idempotent per row.
+//
+// Numeric comparisons cast to DECIMAL, not DOUBLE. DOUBLE is an approximate
+// type whose 53-bit mantissa cannot hold every int64, so an id or timestamp
+// past 2^53 would compare equal to its neighbor and match the wrong row.
+// DECIMAL stores exact values up to the documented 65 digits, which covers
+// every integer the filter AST can carry — and the AST compares as a rational
+// precisely so an integer is never rounded to a float's precision.
 //
 // See https://mariadb.com/kb/en/vector-overview/ for the official
 // reference.

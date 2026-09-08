@@ -18,7 +18,7 @@ var _ filter.Visitor = (*visitor)(nil)
 // Output shape (default metadata column "metadata"):
 //
 //	author == "Alice"        →  JSON_VALUE(metadata, '$.author') = ?
-//	year >= 2020             →  CAST(JSON_VALUE(metadata, '$.year') AS DOUBLE) >= ?
+//	year >= 2020             →  CAST(JSON_VALUE(metadata, '$.year') AS DECIMAL(65,30)) >= ?
 //	tag IN ("a", "b")        →  JSON_VALUE(metadata, '$.tag') IN (?, ?)
 type visitor struct {
 	err            error
@@ -258,6 +258,16 @@ func (v *visitor) visitNullTestExpr(expr *filter.BinaryExpr) error {
 // The guard reads the uncast extraction on purpose: a cast is applied in order
 // to compare, and testing the raw value for NULL keeps the guard independent
 // of whether that cast succeeds. The caller closes the parenthesis opened here.
+// metadataNumericCast keeps a numeric comparison exact.
+//
+// DOUBLE is an approximate type: its 53-bit mantissa cannot hold every int64,
+// so an id or timestamp past 2^53 compares equal to its neighbor and a filter
+// silently matches the wrong row. DECIMAL stores "exact numeric data values",
+// and 65 digits is the documented maximum, which covers every int64 the filter
+// AST can carry — the AST itself compares as a rational precisely so an
+// integer is never rounded to a float's precision.
+const metadataNumericCast = "DECIMAL(65,30)"
+
 func (v *visitor) appendAbsentGuard(jsonPath string, absentMatches bool) {
 	v.sql.WriteByte('(')
 	v.appendJSONExtraction(jsonPath, "", filter.OpEqual)
@@ -275,14 +285,14 @@ func (v *visitor) appendJSONExtraction(jsonPath string, value any, op filter.Ope
 		v.sql.WriteString(v.metadataColumn)
 		v.sql.WriteString(", ")
 		v.sql.WriteString(quoteSQLString(jsonPath))
-		v.sql.WriteString(") AS DOUBLE)")
+		v.sql.WriteString(") AS " + metadataNumericCast + ")")
 	default:
 		if op.IsOrderingOperator() {
 			v.sql.WriteString("CAST(JSON_VALUE(")
 			v.sql.WriteString(v.metadataColumn)
 			v.sql.WriteString(", ")
 			v.sql.WriteString(quoteSQLString(jsonPath))
-			v.sql.WriteString(") AS DOUBLE)")
+			v.sql.WriteString(") AS " + metadataNumericCast + ")")
 		} else {
 			v.sql.WriteString("JSON_VALUE(")
 			v.sql.WriteString(v.metadataColumn)
