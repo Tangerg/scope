@@ -36,5 +36,12 @@
 // (e.g. `NOT (year >= 2020)` → `metadata.year:< 2020`). NOT wrapping
 // anything other than a single binary comparison is rejected.
 //
+// Scoring depends on the vector field's vec_dist. Typesense reports
+// vector_distance without units, and the store reads it as a cosine distance,
+// so InitializeSchema states vec_dist explicitly instead of relying on the
+// provider default and rejects an existing collection that uses "ip" — an
+// inner-product distance read as a cosine one produces plausible scores in the
+// right range that rank results wrongly, which no later call can detect.
+//
 // See https://typesense.org/docs/latest/api/vector-search.html.
 package typesense

@@ -152,10 +152,10 @@ func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 		return errors.New("typesense: Dimensions must be > 0")
 	}
 
-	// Probe for an existing collection; if Retrieve succeeds we
-	// assume the schema matches.
-	if _, err := s.client.Collection(s.collectionName).Retrieve(ctx); err == nil {
-		return nil
+	// An existing collection carries its own vec_dist, which decides what
+	// vector_distance means, so it is checked rather than assumed.
+	if existing, err := s.client.Collection(s.collectionName).Retrieve(ctx); err == nil {
+		return s.checkVectorDistance(existing)
 	}
 
 	schema := &api.CollectionSchema{
@@ -169,6 +169,9 @@ func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 				Type:     "float[]",
 				NumDim:   new(s.dimensions),
 				Optional: new(false),
+				// Cosine is Typesense's default, but the score conversion
+				// depends on it, so it is stated rather than inherited.
+				VecDist: new(vectorDistanceCosine),
 			},
 		},
 		EnableNestedFields: new(true),
@@ -177,6 +180,37 @@ func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 		return fmt.Errorf("typesense: create collection %s: %w", s.collectionName, err)
 	}
 	return nil
+}
+
+// vectorDistanceCosine is the only vec_dist this store can score. Typesense
+// also offers "ip", whose vector_distance is not a cosine distance at all.
+const vectorDistanceCosine = "cosine"
+
+// checkVectorDistance refuses a collection whose vector field is scored on a
+// metric this store cannot read.
+//
+// vector_distance carries no units: what it means is fixed by the field's
+// vec_dist, which defaults to cosine but may be "ip". Reading an inner-product
+// distance through the cosine mapping produces plausible scores in the right
+// range that rank results wrongly, and no later call can detect it — so a
+// host-provisioned collection is rejected at wiring instead.
+func (s *Store) checkVectorDistance(schema *api.CollectionResponse) error {
+	if schema == nil {
+		return fmt.Errorf("typesense: collection %s returned no schema", s.collectionName)
+	}
+	for _, field := range schema.Fields {
+		if field.Name != embeddingField {
+			continue
+		}
+		if distance := lo.FromPtrOr(field.VecDist, vectorDistanceCosine); distance != vectorDistanceCosine {
+			return fmt.Errorf(
+				"typesense: collection %s field %s uses vec_dist %q; this store scores %q only",
+				s.collectionName, embeddingField, distance, vectorDistanceCosine,
+			)
+		}
+		return nil
+	}
+	return fmt.Errorf("typesense: collection %s has no %s field", s.collectionName, embeddingField)
 }
 
 // Index embeds documents and imports them via the upsert action.
@@ -220,9 +254,9 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 		params := &api.ImportDocumentsParams{
 			Action: new(api.Upsert),
 		}
-		results, err := s.client.Collection(s.collectionName).Documents().Import(ctx, payload, params)
-		if err != nil {
-			return fmt.Errorf("typesense: import documents: %w", err)
+		results, importErr := s.client.Collection(s.collectionName).Documents().Import(ctx, payload, params)
+		if importErr != nil {
+			return fmt.Errorf("typesense: import documents: %w", importErr)
 		}
 		if err := checkImportResults(results, docs); err != nil {
 			return fmt.Errorf("typesense: import documents: %w", err)
