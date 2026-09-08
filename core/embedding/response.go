@@ -215,6 +215,53 @@ func (r *Response) Validate() error {
 	return nil
 }
 
+// ValidateFor checks a provider result against the request it answers.
+//
+// Outputs declares one entry per input text in the same order, and that
+// correspondence is the whole basis for using an embedding: a response one
+// vector short leaves every later text paired with its neighbor's vector, and
+// nothing downstream can notice. Validate alone cannot see it, because the
+// input count is not part of the response, so this is the check that makes the
+// declared correspondence enforceable rather than aspirational.
+func (r *Response) ValidateFor(request *Request) error {
+	if err := request.Validate(); err != nil {
+		return err
+	}
+	if err := r.Validate(); err != nil {
+		return err
+	}
+	if len(r.Outputs) != len(request.Texts) {
+		return fmt.Errorf("%w: got %d outputs for %d input texts",
+			ErrInvalidResponse, len(r.Outputs), len(request.Texts))
+	}
+	return nil
+}
+
+// PlaceOutput stores one provider result at the position it belongs to.
+//
+// outputs must already be sized to the input count. Providers that tag each
+// embedding with its own index may answer out of order, so placing by index is
+// what restores the correspondence [Response.Outputs] declares; appending in
+// arrival order silently pairs texts with the wrong vectors. An index outside
+// the request and a position claimed twice are both rejected, and a position
+// left unfilled fails when the Response is built.
+func PlaceOutput(outputs []*Output, index int, embedding []float64, outputMetadata metadata.Map) error {
+	if index < 0 || index >= len(outputs) {
+		return fmt.Errorf("%w: output index %d is out of range for %d inputs",
+			ErrInvalidResponse, index, len(outputs))
+	}
+	if outputs[index] != nil {
+		return fmt.Errorf("%w: output index %d appears more than once",
+			ErrInvalidResponse, index)
+	}
+	output, err := NewOutput(embedding, outputMetadata)
+	if err != nil {
+		return err
+	}
+	outputs[index] = output
+	return nil
+}
+
 func (r *Response) First() *Output {
 	if r == nil || len(r.Outputs) == 0 {
 		return nil

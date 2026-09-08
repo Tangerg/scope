@@ -48,11 +48,10 @@ func (c Client) EmbedTexts(ctx context.Context, texts []string) ([][]float64, er
 	if response == nil {
 		return nil, errors.New("embeddingclient: embed texts: model returned a nil response")
 	}
-	if err := response.Validate(); err != nil {
+	// The correspondence rule lives on the response type, so this facade asks
+	// it the same question a caller holding the Model directly would.
+	if err := response.ValidateFor(request); err != nil {
 		return nil, fmt.Errorf("embeddingclient: embed texts: invalid model response: %w", err)
-	}
-	if len(response.Outputs) != len(texts) {
-		return nil, fmt.Errorf("embeddingclient: embed texts: got %d outputs for %d inputs", len(response.Outputs), len(texts))
 	}
 
 	vectors := make([][]float64, len(response.Outputs))
