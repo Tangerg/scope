@@ -502,7 +502,10 @@ func (e *execution) finishToolCallBatch(
 ) (agent.Transition, error) {
 	results := cloneToolResults(e.state.SettledToolResults)
 	completionContext := []chat.Message{assistant.Clone(), chat.NewToolMessage(results...)}
-	if e.state.DirectToolResultEligible && e.state.PendingSteer == nil {
+	direct := e.state.DirectToolResultEligible && e.state.PendingSteer == nil
+	e.clearToolCallBatch()
+	e.state.Phase = phaseReadyModel
+	if direct {
 		return e.finishOrRetry(consumedSignals, Output{
 			Source:            CompletionSourceDirectToolResults,
 			DirectToolResults: results,
@@ -512,7 +515,6 @@ func (e *execution) finishToolCallBatch(
 	request := e.state.WorkingContext.Clone()
 	request.Messages = append(request.Messages, completionContext...)
 	e.state.WorkingContext = request
-	e.clearToolCallBatch()
 	appliedSteerSignalIDs, err := e.applyPendingSteer()
 	if err != nil {
 		return agent.Transition{}, err
@@ -520,7 +522,6 @@ func (e *execution) finishToolCallBatch(
 	if err := e.state.WorkingContext.Validate(); err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: continuation request: %w", ErrInvalidExecutionState, err)
 	}
-	e.state.Phase = phaseReadyModel
 	return e.requestModel(consumedSignals, appliedSteerSignalIDs)
 }
 
