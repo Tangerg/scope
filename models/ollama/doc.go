@@ -8,4 +8,12 @@
 // without it. A stream whose body ends before that chunk fails with
 // [chat.ErrInvalidResponse], because to a delta consumer a truncated body looks
 // exactly like a completed answer.
+// Reasoning. A reasoning effort names a thinking level, which is what
+// /api/chat's think parameter accepts (low, medium, high, max), so the
+// portable option reaches the daemon. An empty effort leaves think untouched,
+// including a boolean set through the request extension — no portable effort
+// can express "do not think", so that stays the extension's job.
+//
+// See https://github.com/ollama/ollama/blob/main/docs/api.md for the API
+// reference.
 package ollama

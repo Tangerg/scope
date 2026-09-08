@@ -29,6 +29,14 @@ const (
 // value means provider defaults. Resolve overlays only explicitly populated
 // fields, merges namespaced extensions, snapshots mutable values, and leaves
 // both source values unchanged.
+//
+// A populated field an adapter cannot express must be reported, never dropped.
+// A caller has no other way to learn the difference: a request that silently
+// loses its temperature or its reasoning effort still returns a plausible
+// answer, generated under settings nobody asked for. Refusing costs the caller
+// one error at the boundary and tells them exactly which of their intentions
+// the provider cannot carry, which is why an unsupported option is a provider
+// capability gap rather than a value to approximate.
 type Options struct {
 	Model            string              `json:"model,omitempty"`
 	OutputFormat     *OutputFormat       `json:"output_format,omitempty"`

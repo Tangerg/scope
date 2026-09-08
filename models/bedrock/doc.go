@@ -36,5 +36,14 @@
 // it. Copying inputTokens through would understate the input by the whole
 // cached prefix and put a breakdown above its own total.
 //
+// Reasoning. Converse has no reasoning field: reasoning rides in
+// additionalModelRequestFields, and its shape belongs to the model generation
+// rather than to Converse — Claude 3.7 takes reasoning_config with a
+// budget_tokens count, while newer models reject that form and take thinking
+// with an output_config effort. A portable reasoning effort is therefore
+// refused rather than translated into an invented token budget or a guessed
+// generation; state the model's own parameters through the request
+// extension's AdditionalModelRequestFields.
+//
 // See https://docs.aws.amazon.com/bedrock/ for the full reference.
 package bedrock

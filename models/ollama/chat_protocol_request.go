@@ -84,6 +84,20 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, stream
 	if options.TopP != nil {
 		apiReq.Options["top_p"] = float32(*options.TopP)
 	}
+	// A reasoning effort names a thinking level, which is exactly what
+	// /api/chat's think parameter accepts, so the portable option reaches the
+	// daemon rather than being dropped on the way. Every other option above
+	// overwrites whatever the native extension set; an empty effort does not,
+	// because empty means "the model's default" and a caller who set think
+	// natively has already chosen something else — including the boolean form,
+	// which no portable effort can express.
+	if options.ReasoningEffort != "" {
+		think, err := newNativeThinkLevel(string(options.ReasoningEffort))
+		if err != nil {
+			return nil, err
+		}
+		apiReq.Think = think
+	}
 	if apiReq.TopLogprobs < 0 || apiReq.TopLogprobs > 20 {
 		return nil, errors.New("ollama: top_logprobs must be between 0 and 20")
 	}

@@ -136,6 +136,20 @@ func (c *Chat) prepareRequest(req *corechat.Request) (*preparedChatRequest, erro
 	if options.FrequencyPenalty != nil || options.PresencePenalty != nil || options.TopK != nil {
 		return nil, errors.New("bedrock: frequency_penalty, presence_penalty, and top_k are not supported by Converse inference configuration")
 	}
+	// Converse has no reasoning field. Reasoning rides in
+	// additionalModelRequestFields, and its shape belongs to the model
+	// generation rather than to Converse: Claude 3.7 takes
+	// reasoning_config with a budget_tokens count, while the newer models
+	// reject that form and take thinking with an output_config effort. Turning
+	// an effort into a token budget would mean inventing the number, and
+	// picking between the two shapes would mean guessing the generation from a
+	// model id — so the option is refused and the caller states what the model
+	// actually accepts through [ChatRequestOptions.AdditionalModelRequestFields].
+	if options.ReasoningEffort != "" {
+		return nil, fmt.Errorf(
+			"bedrock: options.reasoning_effort %q is not supported: Converse has no reasoning field, so set the model's own reasoning parameters through the %q extension's AdditionalModelRequestFields",
+			options.ReasoningEffort, ChatRequestExtensionKey)
+	}
 
 	native, found, err := req.Options.Extensions.Decode[ChatRequestOptions](ChatRequestExtensionKey)
 	if err != nil {
