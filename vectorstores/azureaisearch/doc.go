@@ -15,6 +15,9 @@
 // Semantic search supplies one vector query. Hybrid search supplies the same
 // vector together with `search` and restricts lexical evidence to the
 // configured content field, leaving fusion to Azure AI Search.
+// Search and filtered deletion consume server-provided continuation parameters
+// before treating a query as complete. Returned metadata retains its JSON
+// representation, including integers outside the exact float64 range.
 //
 // Vector request shape:
 //

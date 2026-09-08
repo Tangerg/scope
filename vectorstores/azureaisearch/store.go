@@ -343,21 +343,13 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		body["filter"] = filterStr
 	}
 
-	path := fmt.Sprintf("/indexes/%s/docs/search", url.PathEscape(s.indexName))
-	raw, err := s.sendJSON(ctx, http.MethodPost, path, body)
+	rows, err := s.searchDocuments(ctx, body)
 	if err != nil {
 		return nil, fmt.Errorf("azureaisearch: search: %w", err)
 	}
 
-	var parsed struct {
-		Value []map[string]any `json:"value"`
-	}
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return nil, fmt.Errorf("azureaisearch: decode search response: %w", err)
-	}
-
-	docs = make([]*vectorstore.SearchResult, 0, len(parsed.Value))
-	for _, row := range parsed.Value {
+	docs = make([]*vectorstore.SearchResult, 0, len(rows))
+	for _, row := range rows {
 		match, err := s.toMatch(row, req.Options.EffectiveMode())
 		if err != nil {
 			return nil, err
@@ -397,29 +389,21 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 			"top":    pageSize,
 			"skip":   skip,
 		}
-		path := fmt.Sprintf("/indexes/%s/docs/search", url.PathEscape(s.indexName))
-		raw, err := s.sendJSON(ctx, http.MethodPost, path, body)
+		rows, err := s.searchDocuments(ctx, body)
 		if err != nil {
 			return fmt.Errorf("azureaisearch: enumerate ids: %w", err)
 		}
-		var parsed struct {
-			Value []map[string]any `json:"value"`
-		}
-		if err := json.Unmarshal(raw, &parsed); err != nil {
-			return fmt.Errorf("azureaisearch: decode id page: %w", err)
-		}
-		if len(parsed.Value) == 0 {
-			break
-		}
-		for _, row := range parsed.Value {
-			if id, ok := row[s.idField].(string); ok {
-				ids = append(ids, id)
+		for _, row := range rows {
+			id, err := s.documentID(row)
+			if err != nil {
+				return err
 			}
+			ids = append(ids, id)
 		}
-		if len(parsed.Value) < pageSize {
+		if len(rows) < pageSize {
 			break
 		}
-		skip += len(parsed.Value)
+		skip += len(rows)
 	}
 
 	if len(ids) == 0 {
@@ -434,6 +418,38 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		return fmt.Errorf("azureaisearch: delete documents: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) searchDocuments(ctx context.Context, body any) ([]metadata.Map, error) {
+	path := fmt.Sprintf("/indexes/%s/docs/search", url.PathEscape(s.indexName))
+	var rows []metadata.Map
+	for {
+		raw, err := s.sendJSON(ctx, http.MethodPost, path, body)
+		if err != nil {
+			return nil, err
+		}
+		var page struct {
+			Value          []metadata.Map             `json:"value"`
+			NextParameters map[string]json.RawMessage `json:"@search.nextPageParameters"`
+			NextLink       string                     `json:"@odata.nextLink"`
+		}
+		if err := json.Unmarshal(raw, &page); err != nil {
+			return nil, fmt.Errorf("decode search response: %w", err)
+		}
+		if page.Value == nil {
+			return nil, errors.New("search response is missing its result array")
+		}
+		rows = append(rows, page.Value...)
+		if len(page.NextParameters) == 0 {
+			if page.NextLink != "" {
+				return nil, errors.New("search continuation is missing POST parameters")
+			}
+			return rows, nil
+		}
+		// POST continuations carry the complete next request. The configured
+		// index endpoint retains authority over where credentials are sent.
+		body = page.NextParameters
+	}
 }
 
 func (s *Store) writeActions(ctx context.Context, actions []map[string]any) error {
@@ -489,44 +505,51 @@ func (s *Store) buildFilter(expr filter.Predicate) (string, error) {
 	return v.snapshot(), nil
 }
 
-func (s *Store) toMatch(row map[string]any, mode vectorstore.SearchMode) (*vectorstore.SearchResult, error) {
-	doc := &document.Document{}
-	id, ok := row[s.idField].(string)
-	if !ok || id == "" {
-		return nil, fmt.Errorf("azureaisearch: result is missing string field %q", s.idField)
+func (s *Store) documentID(row metadata.Map) (string, error) {
+	id, present, err := row.Decode[string](s.idField)
+	if err != nil {
+		return "", fmt.Errorf("azureaisearch: decode document ID: %w", err)
 	}
-	text, ok := row[s.contentField].(string)
-	if !ok || text == "" {
+	if !present || id == "" {
+		return "", fmt.Errorf("azureaisearch: result is missing string field %q", s.idField)
+	}
+	return id, nil
+}
+
+func (s *Store) toMatch(row metadata.Map, mode vectorstore.SearchMode) (*vectorstore.SearchResult, error) {
+	id, err := s.documentID(row)
+	if err != nil {
+		return nil, err
+	}
+	text, present, err := row.Decode[string](s.contentField)
+	if err != nil {
+		return nil, fmt.Errorf("azureaisearch: decode content: %w", err)
+	}
+	if !present || text == "" {
 		return nil, fmt.Errorf("azureaisearch: result is missing string field %q", s.contentField)
 	}
-	doc.ID = id
-	doc.Text = text
-	rawScore, ok := row["@search.score"].(float64)
-	if !ok {
+	rawScore, present, err := row.Decode[*float64]("@search.score")
+	if err != nil {
+		return nil, fmt.Errorf("azureaisearch: decode score: %w", err)
+	}
+	if !present || rawScore == nil {
 		return nil, errors.New("azureaisearch: result is missing numeric @search.score")
 	}
-	score := vectorstore.ScoreFromValue(rawScore)
+	score := vectorstore.ScoreFromValue(*rawScore)
 	if mode == vectorstore.SearchModeSemantic {
-		score = s.similarityMetric.score(rawScore)
+		score = s.similarityMetric.score(*rawScore)
 	}
 
-	// Metadata is everything except the reserved fields and the
-	// embedding vector itself.
-	meta := make(map[string]any, len(row))
-	for k, v := range row {
-		if s.reservedField(k) {
-			continue
-		}
-		meta[k] = v
-	}
-	if len(meta) > 0 {
-		var err error
-		doc.Metadata, err = metadata.FromValues(meta)
-		if err != nil {
-			return nil, fmt.Errorf("azureaisearch: convert metadata: %w", err)
+	// Rows are freshly decoded; transfer their raw metadata without passing
+	// integer values through a lossy floating-point representation.
+	for field := range row {
+		if s.reservedField(field) {
+			delete(row, field)
 		}
 	}
-	return &vectorstore.SearchResult{Document: doc, Score: score}, nil
+	return &vectorstore.SearchResult{
+		Document: &document.Document{ID: id, Text: text, Metadata: row}, Score: score,
+	}, nil
 }
 
 func (s *Store) sendJSON(ctx context.Context, method, path string, body any) ([]byte, error) {
