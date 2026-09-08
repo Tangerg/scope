@@ -221,10 +221,18 @@ func (i *ImageModel) pollUntilDone(ctx context.Context, pollingURL string) (*pol
 			return nil, err
 		}
 		switch resp.Status {
-		case "Ready":
+		case pollStatusReady:
 			return resp, nil
-		case "Error", "Failed", "Content Moderated", "Request Moderated", "Task not found":
+		case pollStatusPending, pollStatusReasoning, pollStatusGenerating:
+			// The three states BFL documents as still running.
+		case pollStatusError, pollStatusFailed, pollStatusContentModerated, pollStatusRequestModerated, pollStatusTaskNotFound:
 			return nil, fmt.Errorf("blackforestlabs: generation failed: %s", resp.Status)
+		default:
+			// Continuing to poll is only safe for a state known to advance, so
+			// an unrecognized one is reported rather than absorbed: an added
+			// end state would otherwise arrive as this call's own timeout,
+			// whose obvious remedies are both wrong.
+			return nil, fmt.Errorf("blackforestlabs: generation reports unrecognized status %q", resp.Status)
 		}
 		select {
 		case <-deadline.Done():

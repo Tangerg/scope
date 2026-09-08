@@ -91,11 +91,33 @@ type asyncResponse struct {
 	OutputMP   *float64 `json:"output_mp,omitempty"`
 }
 
-// PollResult is the body of GET /v1/get_result?id=... — Status moves
-// through "Pending" / "Ready" / "Error" / "Content Moderated".
+// pollStatus enumerates the statuses BFL's get_result reference declares.
+// Pending, Reasoning, and Generating are the three still-running states; every
+// other value ends the job.
+type pollStatus string
+
+const (
+	pollStatusPending    pollStatus = "Pending"
+	pollStatusReasoning  pollStatus = "Reasoning"
+	pollStatusGenerating pollStatus = "Generating"
+
+	pollStatusReady pollStatus = "Ready"
+
+	pollStatusError            pollStatus = "Error"
+	pollStatusRequestModerated pollStatus = "Request Moderated"
+	pollStatusContentModerated pollStatus = "Content Moderated"
+	pollStatusTaskNotFound     pollStatus = "Task not found"
+
+	// pollStatusFailed is absent from the get_result enum but is one of the
+	// two values BFL's own quick-start polling loop breaks out of, so it is
+	// treated as the end state that example says it is.
+	pollStatusFailed pollStatus = "Failed"
+)
+
+// PollResult is the body of GET /v1/get_result?id=...
 type pollResult struct {
 	ID       string         `json:"id"`
-	Status   string         `json:"status"`
+	Status   pollStatus     `json:"status"`
 	Progress *float64       `json:"progress,omitempty"`
 	Details  map[string]any `json:"details,omitempty"`
 	Preview  map[string]any `json:"preview,omitempty"`

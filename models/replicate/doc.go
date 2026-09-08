@@ -21,5 +21,14 @@
 // terminal state, validate the configured output schema, and copy ephemeral
 // output files before Replicate removes API prediction data.
 //
-// See https://replicate.com/docs/reference/http and each model's API schema.
+// Polling waits only on the two statuses the prediction lifecycle documents as
+// still running, "starting" and "processing". Every other status ends the call,
+// including "aborted", which means the prediction exceeded its deadline before
+// it could start and so will never advance. Waiting one out would report a
+// permanent provider verdict as this call's own timeout, and the remedies a
+// timeout invites — retry, a longer deadline — would both be wrong.
+//
+// See https://replicate.com/docs/reference/http,
+// https://replicate.com/docs/topics/predictions/lifecycle, and each model's
+// API schema.
 package replicate

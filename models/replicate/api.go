@@ -70,14 +70,24 @@ func (p predictionRunner) poll(ctx context.Context, id string) (*predictionRespo
 			return nil, err
 		}
 		switch response.Status {
-		case "succeeded":
+		case predictionStatusSucceeded:
 			return response, nil
-		case "failed", "canceled":
+		case predictionStatusStarting, predictionStatusProcessing:
+			// The only two states Replicate documents as still running.
+		case predictionStatusFailed, predictionStatusCanceled, predictionStatusAborted:
+			// Waiting out the poll deadline here would report a permanent
+			// provider verdict as a local timeout, and the caller's natural
+			// remedy — retry, or raise the timeout — would be the wrong one.
 			message := response.Error
 			if message == "" {
-				message = response.Status
+				message = string(response.Status)
 			}
 			return nil, fmt.Errorf("replicate: generation %s: %s", response.Status, message)
+		default:
+			// Continuing to poll is only safe for a state known to advance, so
+			// an unrecognized one is reported rather than absorbed: an added
+			// end state would otherwise be indistinguishable from slowness.
+			return nil, fmt.Errorf("replicate: prediction %s reports unrecognized status %q", id, response.Status)
 		}
 		select {
 		case <-deadline.Done():
@@ -156,25 +166,41 @@ type predictionRequestBody struct {
 	WebhookEventsFilter []string       `json:"webhook_events_filter,omitzero"`
 }
 
-// PredictionResponse mirrors Replicate's prediction-job document.
-// Status moves through "starting" → "processing" → "succeeded" /
-// "failed" / "canceled". Output is model-specific: image models
-// usually return []string (URLs) or a single string (URL); text models
-// return []string (token chunks) or string.
+// predictionStatus enumerates the six statuses Replicate's prediction
+// lifecycle documents. Only starting and processing are still running; the
+// rest are end states.
+type predictionStatus string
+
+const (
+	predictionStatusStarting   predictionStatus = "starting"
+	predictionStatusProcessing predictionStatus = "processing"
+	predictionStatusSucceeded  predictionStatus = "succeeded"
+	predictionStatusFailed     predictionStatus = "failed"
+	predictionStatusCanceled   predictionStatus = "canceled"
+
+	// predictionStatusAborted is reached when "the prediction exceeded its
+	// deadline before it could start running", so it is never charged and
+	// never advances.
+	predictionStatusAborted predictionStatus = "aborted"
+)
+
+// PredictionResponse mirrors Replicate's prediction-job document. Output is
+// model-specific: image models usually return []string (URLs) or a single
+// string (URL); text models return []string (token chunks) or string.
 type predictionResponse struct {
-	ID          string         `json:"id"`
-	Model       string         `json:"model,omitempty"`
-	Version     string         `json:"version,omitempty"`
-	Status      string         `json:"status"`
-	Input       map[string]any `json:"input,omitzero"`
-	Output      any            `json:"output,omitempty"`
-	Error       string         `json:"error,omitempty"`
-	Logs        string         `json:"logs,omitempty"`
-	CreatedAt   string         `json:"created_at,omitempty"`
-	StartedAt   string         `json:"started_at,omitempty"`
-	CompletedAt string         `json:"completed_at,omitempty"`
-	DataRemoved bool           `json:"data_removed,omitempty"`
-	Source      string         `json:"source,omitempty"`
+	ID          string           `json:"id"`
+	Model       string           `json:"model,omitempty"`
+	Version     string           `json:"version,omitempty"`
+	Status      predictionStatus `json:"status"`
+	Input       map[string]any   `json:"input,omitzero"`
+	Output      any              `json:"output,omitempty"`
+	Error       string           `json:"error,omitempty"`
+	Logs        string           `json:"logs,omitempty"`
+	CreatedAt   string           `json:"created_at,omitempty"`
+	StartedAt   string           `json:"started_at,omitempty"`
+	CompletedAt string           `json:"completed_at,omitempty"`
+	DataRemoved bool             `json:"data_removed,omitempty"`
+	Source      string           `json:"source,omitempty"`
 	URLs        struct {
 		Get    string `json:"get"`
 		Cancel string `json:"cancel"`

@@ -161,8 +161,16 @@ func (a *AudioTranscriptionModel) pollUntilDone(ctx context.Context, id string) 
 		switch resp.Status {
 		case jobStatusTranscribed:
 			return resp, nil
+		case jobStatusInProgress:
+			// The only state Rev.ai documents as still moving.
 		case jobStatusFailed:
 			return nil, fmt.Errorf("revai: transcription failed: %s", resp.FailureReason)
+		default:
+			// Continuing to poll is only safe for a state known to advance, so
+			// an unrecognized one is reported rather than absorbed: an added
+			// end state would otherwise arrive as this call's own timeout,
+			// whose obvious remedies are both wrong.
+			return nil, fmt.Errorf("revai: job %s reports unrecognized status %q", id, resp.Status)
 		}
 		select {
 		case <-deadline.Done():

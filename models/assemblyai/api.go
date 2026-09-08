@@ -80,10 +80,9 @@ type transcriptRequest struct {
 	SpeechUnderstanding         map[string]any `json:"speech_understanding,omitzero"`
 }
 
-// TranscriptStatus enumerates the values AssemblyAI puts on
-// [TranscriptResponse].Status. Polling treats Completed and Errored as
-// terminal; anything else keeps the loop spinning.
-type transcriptStatus = string
+// transcriptStatus enumerates the four values AssemblyAI documents for
+// [transcriptResponse].Status. Only queued and processing are still moving.
+type transcriptStatus string
 
 const (
 	statusQueued     transcriptStatus = "queued"
@@ -93,15 +92,15 @@ const (
 )
 
 type transcriptResponse struct {
-	ID                 string  `json:"id"`
-	Status             string  `json:"status"`
-	Text               string  `json:"text"`
-	Confidence         float64 `json:"confidence"`
-	AudioDuration      int64   `json:"audio_duration"`
-	LanguageCode       string  `json:"language_code"`
-	LanguageConfidence float64 `json:"language_confidence"`
-	SpeechModelUsed    string  `json:"speech_model_used"`
-	Error              string  `json:"error"`
+	ID                 string           `json:"id"`
+	Status             transcriptStatus `json:"status"`
+	Text               string           `json:"text"`
+	Confidence         float64          `json:"confidence"`
+	AudioDuration      int64            `json:"audio_duration"`
+	LanguageCode       string           `json:"language_code"`
+	LanguageConfidence float64          `json:"language_confidence"`
+	SpeechModelUsed    string           `json:"speech_model_used"`
+	Error              string           `json:"error"`
 	Utterances         []struct {
 		Start      int64   `json:"start"`
 		End        int64   `json:"end"`

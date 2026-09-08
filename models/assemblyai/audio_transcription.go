@@ -172,8 +172,16 @@ func (a *AudioTranscriptionModel) pollUntilDone(ctx context.Context, id string) 
 		switch resp.Status {
 		case statusCompleted:
 			return resp, nil
+		case statusQueued, statusProcessing:
+			// The two states AssemblyAI documents as still moving.
 		case statusErrored:
 			return nil, fmt.Errorf("assemblyai: transcription failed: %s", resp.Error)
+		default:
+			// Continuing to poll is only safe for a state known to advance, so
+			// an unrecognized one is reported rather than absorbed: an added
+			// end state would otherwise arrive as this call's own timeout,
+			// whose obvious remedies are both wrong.
+			return nil, fmt.Errorf("assemblyai: transcript %s reports unrecognized status %q", id, resp.Status)
 		}
 
 		select {

@@ -190,8 +190,16 @@ func (i *ImageModel) pollUntilDone(ctx context.Context, generationID string) (*l
 		switch generation.State {
 		case lumaagents.GenerationStateCompleted:
 			return generation, nil
+		case lumaagents.GenerationStateQueued, lumaagents.GenerationStateProcessing:
+			// The two states the SDK declares as still moving.
 		case lumaagents.GenerationStateFailed:
 			return nil, fmt.Errorf("luma: generation %q failed (%s): %s", generationID, generation.FailureCode, generation.FailureReason)
+		default:
+			// Continuing to poll is only safe for a state known to advance, so
+			// an unrecognized one is reported rather than absorbed: an added
+			// end state would otherwise arrive as this call's own timeout,
+			// whose obvious remedies are both wrong.
+			return nil, fmt.Errorf("luma: generation %q reports unrecognized state %q", generationID, generation.State)
 		}
 		select {
 		case <-deadline.Done():

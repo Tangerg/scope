@@ -183,10 +183,18 @@ func (a *AudioTranscriptionModel) pollUntilDone(ctx context.Context, id string) 
 			return nil, err
 		}
 		switch resp.Status {
-		case "done":
+		case transcriptionStatusDone:
 			return resp, nil
-		case "error":
+		case transcriptionStatusQueued, transcriptionStatusProcessing:
+			// The two states Gladia documents as still moving.
+		case transcriptionStatusError:
 			return nil, fmt.Errorf("gladia: transcription failed: %s", resp.ErrorCode)
+		default:
+			// Continuing to poll is only safe for a state known to advance, so
+			// an unrecognized one is reported rather than absorbed: an added
+			// end state would otherwise arrive as this call's own timeout,
+			// whose obvious remedies are both wrong.
+			return nil, fmt.Errorf("gladia: transcription %s reports unrecognized status %q", id, resp.Status)
 		}
 		select {
 		case <-deadline.Done():

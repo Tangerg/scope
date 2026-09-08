@@ -90,11 +90,21 @@ type transcriptionCreateResponse struct {
 	ResultURL string `json:"result_url"`
 }
 
-// TranscriptionResult is the body of GET /pre-recorded/{id}. Status moves
-// through "queued" / "processing" / "done" / "error".
+// transcriptionStatus enumerates the four values Gladia documents for a
+// pre-recorded job. Only queued and processing are still moving.
+type transcriptionStatus string
+
+const (
+	transcriptionStatusQueued     transcriptionStatus = "queued"
+	transcriptionStatusProcessing transcriptionStatus = "processing"
+	transcriptionStatusDone       transcriptionStatus = "done"
+	transcriptionStatusError      transcriptionStatus = "error"
+)
+
+// TranscriptionResult is the body of GET /pre-recorded/{id}.
 type transcriptionResult struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
+	ID     string              `json:"id"`
+	Status transcriptionStatus `json:"status"`
 	Result struct {
 		Transcription struct {
 			FullTranscript string   `json:"full_transcript"`
