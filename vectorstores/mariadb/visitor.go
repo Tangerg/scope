@@ -158,11 +158,13 @@ func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 		return err
 	}
 
+	v.appendAbsentGuard(jsonPath, expr.Operator() == filter.OpNotEqual)
 	v.appendJSONExtraction(jsonPath, value, expr.Operator())
 	v.sql.WriteByte(' ')
 	v.sql.WriteString(op)
 	v.sql.WriteByte(' ')
 	v.appendValuePlaceholder(value)
+	v.sql.WriteByte(')')
 	return nil
 }
 
@@ -186,6 +188,7 @@ func (v *visitor) visitInExpr(expr *filter.BinaryExpr) error {
 		values = append(values, val)
 	}
 
+	v.appendAbsentGuard(jsonPath, false)
 	v.appendJSONExtraction(jsonPath, values[0], filter.OpEqual)
 	v.sql.WriteString(" IN (")
 	for i, val := range values {
@@ -194,7 +197,7 @@ func (v *visitor) visitInExpr(expr *filter.BinaryExpr) error {
 		}
 		v.appendValuePlaceholder(val)
 	}
-	v.sql.WriteByte(')')
+	v.sql.WriteString("))")
 	return nil
 }
 
@@ -208,9 +211,11 @@ func (v *visitor) visitLikeExpr(expr *filter.BinaryExpr) error {
 		return fmt.Errorf("mariadb: %w", err)
 	}
 
+	v.appendAbsentGuard(jsonPath, false)
 	v.appendJSONExtraction(jsonPath, "", filter.OpEqual)
 	v.sql.WriteString(" LIKE ")
 	v.appendValuePlaceholder(pattern)
+	v.sql.WriteByte(')')
 	return nil
 }
 
@@ -234,6 +239,28 @@ func (v *visitor) visitNullTestExpr(expr *filter.BinaryExpr) error {
 
 // appendJSONExtraction emits the JSON_VALUE / CAST wrapper appropriate
 // for the comparison's value type.
+// appendAbsentGuard opens a leaf predicate with the truth value the filter AST
+// assigns an absent metadata key, so the leaf is never UNKNOWN.
+//
+// The AST is two-valued: an absent key evaluates as nil and filter.Match
+// decides every comparison against it — false for ==, ordering, LIKE and IN,
+// true for !=. SQL is three-valued, so a bare comparison on a missing key is
+// UNKNOWN, which drops the row for any operator and, worse, stays UNKNOWN
+// under NOT, dropping the rows a negated filter is supposed to keep.
+//
+// The guard reads the uncast extraction on purpose: a cast is applied in order
+// to compare, and testing the raw value for NULL keeps the guard independent
+// of whether that cast succeeds. The caller closes the parenthesis opened here.
+func (v *visitor) appendAbsentGuard(jsonPath string, absentMatches bool) {
+	v.sql.WriteByte('(')
+	v.appendJSONExtraction(jsonPath, "", filter.OpEqual)
+	if absentMatches {
+		v.sql.WriteString(" IS NULL OR ")
+	} else {
+		v.sql.WriteString(" IS NOT NULL AND ")
+	}
+}
+
 func (v *visitor) appendJSONExtraction(jsonPath string, value any, op filter.Operator) {
 	switch value.(type) {
 	case float64, int64, uint64, int:

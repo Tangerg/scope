@@ -145,6 +145,33 @@ func (c *Compiler) visitLogicalExpr(expr *filter.BinaryExpr) error {
 	return nil
 }
 
+// writeAbsentGuard prefixes a leaf predicate with the truth value the filter
+// AST assigns an absent metadata key, so the leaf is never UNKNOWN.
+//
+// The AST is two-valued: an absent key evaluates as nil and filter.Match
+// decides every comparison against it — false for ==, <, LIKE and IN, true for
+// !=. SQL is three-valued, so a bare comparison on a missing key is UNKNOWN,
+// which drops the row for any operator and, worse, stays UNKNOWN under NOT,
+// dropping the rows a negated filter is supposed to keep. Anchoring each leaf
+// restores two-valued behavior for the whole expression, negation included.
+//
+// The guard reads the uncast extraction on purpose: a cast is applied to
+// compare, and testing the raw text for NULL keeps the guard independent of
+// whether that cast succeeds.
+func (c *Compiler) writeAbsentGuard(expr *filter.BinaryExpr, absentMatches bool) error {
+	rawPath, err := buildJSONPath(expr, c.metadataCol, castNone)
+	if err != nil {
+		return err
+	}
+	c.sql.WriteString(rawPath)
+	if absentMatches {
+		c.sql.WriteString(" IS NULL OR ")
+	} else {
+		c.sql.WriteString(" IS NOT NULL AND ")
+	}
+	return nil
+}
+
 // visitComparisonExpr handles ==, !=, <, <=, >, >=. The JSON extraction
 // expression on the left side is type-cast based on the value type:
 // numbers → ::numeric, bools → ::boolean, strings → no cast.
@@ -166,6 +193,9 @@ func (c *Compiler) visitComparisonExpr(expr *filter.BinaryExpr) error {
 
 	c.args = append(c.args, value)
 	c.sql.WriteString("(")
+	if err := c.writeAbsentGuard(expr, expr.Operator() == filter.OpNotEqual); err != nil {
+		return fmt.Errorf("pgvector: %w (at %s)", err, expr.Start().String())
+	}
 	c.sql.WriteString(jsonPath)
 	c.sql.WriteString(" ")
 	c.sql.WriteString(op)
@@ -204,6 +234,9 @@ func (c *Compiler) visitInExpr(expr *filter.BinaryExpr) error {
 
 	c.args = append(c.args, values)
 	c.sql.WriteString("(")
+	if err := c.writeAbsentGuard(expr, false); err != nil {
+		return fmt.Errorf("pgvector: %w (at %s)", err, expr.Start().String())
+	}
 	c.sql.WriteString(jsonPath)
 	c.sql.WriteString(" = ANY($")
 	c.sql.WriteString(strconv.Itoa(len(c.args)))
@@ -228,6 +261,9 @@ func (c *Compiler) visitLikeExpr(expr *filter.BinaryExpr) error {
 
 	c.args = append(c.args, pattern)
 	c.sql.WriteString("(")
+	if err := c.writeAbsentGuard(expr, false); err != nil {
+		return fmt.Errorf("pgvector: %w (at %s)", err, expr.Start().String())
+	}
 	c.sql.WriteString(jsonPath)
 	c.sql.WriteString(" LIKE $")
 	c.sql.WriteString(strconv.Itoa(len(c.args)))
