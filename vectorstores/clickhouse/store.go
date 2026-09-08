@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
 	"github.com/samber/lo"
@@ -75,6 +76,16 @@ func (d DistanceMetric) score(distance float64) vectorstore.Score {
 	}
 }
 
+// Connection is the ClickHouse surface the store uses: a statement executor, a
+// row reader, and the typed batch insert. A clickhouse-go v2 [driver.Conn]
+// satisfies it. Naming only the three operations keeps every statement the
+// store issues observable without a live server.
+type Connection interface {
+	Exec(ctx context.Context, query string, args ...any) error
+	Query(ctx context.Context, query string, args ...any) (driver.Rows, error)
+	PrepareBatch(ctx context.Context, query string, opts ...driver.PrepareBatchOption) (driver.Batch, error)
+}
+
 // StoreConfig contains configuration options for the ClickHouse
 // vector store. The default schema uses `Map(String, String)` for
 // metadata to keep the visitor's column-subscript syntax simple;
@@ -82,7 +93,7 @@ func (d DistanceMetric) score(distance float64) vectorstore.Score {
 // themselves and set InitializeSchema=false.
 type StoreConfig struct {
 	// Conn is the clickhouse-go v2 driver connection. Required.
-	Conn driver.Conn
+	Conn Connection
 
 	// DatabaseName is the optional database prefix; empty uses the
 	// connection's current database.
@@ -104,7 +115,7 @@ type StoreConfig struct {
 
 func (s StoreConfig) Validate() error {
 	s.applyDefaults()
-	if s.Conn == nil {
+	if lo.IsNil(s.Conn) {
 		return errors.New("clickhouse: Conn is required")
 	}
 	if lo.IsNil(s.EmbeddingModel) {
@@ -162,7 +173,7 @@ var (
 
 // Store implements vector-store capabilities with ClickHouse.
 type Store struct {
-	conn            driver.Conn
+	conn            Connection
 	databaseName    string
 	tableName       string
 	fullTable       string
@@ -402,34 +413,48 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 	if predicate == "" {
 		return errors.New("clickhouse: refusing to delete on empty filter")
 	}
-	stmt := fmt.Sprintf("ALTER TABLE %s DELETE WHERE %s", s.fullTable, predicate)
-	if err := s.conn.Exec(ctx, stmt, args...); err != nil {
-		return fmt.Errorf("clickhouse: delete from %s: %w", s.fullTable, err)
-	}
-	return nil
+	return s.deleteMatching(ctx, predicate, args...)
 }
 
-// DeleteIDs removes rows by primary key via an `ALTER TABLE ...
-// DELETE WHERE <id> IN (?, ...)` mutation, matching the form Delete
-// uses. An empty slice is a no-op; unknown ids are silently ignored.
-// Implements [vectorstore.IDDeleter].
-//
-// ClickHouse mutations are asynchronous — callers should consider
-// MutationOptions for synchronous behavior in their environment.
-func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
+// DeleteIDs removes rows by primary key, matching the form DeleteWhere uses. An
+// empty slice is a no-op; unknown ids are silently ignored. Implements
+// [vectorstore.IDDeleter].
+func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil
 	}
 
 	placeholders := strings.Repeat("?, ", len(ids)-1) + "?"
-	stmt := fmt.Sprintf("ALTER TABLE %s DELETE WHERE %s IN (%s)", s.fullTable, s.idColumn, placeholders)
-
 	args := make([]any, len(ids))
 	for i, id := range ids {
 		args[i] = id
 	}
-	if err = s.conn.Exec(ctx, stmt, args...); err != nil {
-		return fmt.Errorf("clickhouse: delete by ids from %s: %w", s.fullTable, err)
+	return s.deleteMatching(ctx, fmt.Sprintf("%s IN (%s)", s.idColumn, placeholders), args...)
+}
+
+// lightweightDeletesWaitForReplicas makes DELETE FROM wait for every replica to
+// mark the rows deleted. It restates ClickHouse's own default for
+// lightweight_deletes_sync so a connection cannot lower it under the store.
+const lightweightDeletesWaitForReplicas = 2
+
+// deleteMatching removes every row predicate selects and does not return until
+// those rows have stopped being retrievable.
+//
+// ClickHouse offers two deletions and only one of them can carry the
+// [vectorstore.FilterDeleter] and [vectorstore.IDDeleter] contracts. `ALTER
+// TABLE ... DELETE` is a mutation, and a mutation query returns as soon as its
+// entry is recorded while the work runs asynchronously in the background — a
+// successful call proves the delete was queued, not that it happened. A
+// lightweight `DELETE FROM` instead waits until marking the rows as deleted is
+// complete, so it is the statement both delete paths issue, through one owner
+// that pins the wait rather than inheriting it from the caller's connection.
+func (s *Store) deleteMatching(ctx context.Context, predicate string, args ...any) error {
+	ctx = clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{
+		"lightweight_deletes_sync": lightweightDeletesWaitForReplicas,
+	}))
+	stmt := fmt.Sprintf("DELETE FROM %s WHERE %s", s.fullTable, predicate)
+	if err := s.conn.Exec(ctx, stmt, args...); err != nil {
+		return fmt.Errorf("clickhouse: delete from %s: %w", s.fullTable, err)
 	}
 	return nil
 }

@@ -23,9 +23,12 @@
 // `Batch.Append` + `Batch.Send`) — efficient for the bulk-insert
 // shape ClickHouse expects.
 //
-// Delete uses `ALTER TABLE ... DELETE WHERE`, which is an
-// asynchronous mutation; callers needing sync semantics should set
-// the appropriate connection setting (`mutations_sync = 1` or 2).
+// Delete uses a lightweight `DELETE FROM`, which waits until the rows are
+// marked deleted before returning, so both delete paths keep the contract they
+// advertise. `ALTER TABLE ... DELETE` cannot: it records a mutation and returns
+// while the work still runs in the background. The lightweight statement needs
+// a *MergeTree engine and the ALTER DELETE privilege, and it removes rows from
+// query results without physically deleting them until a later merge.
 //
 // See https://clickhouse.com/docs/en/engines/table-engines/
 // mergetree-family/annindexes for the official reference.
