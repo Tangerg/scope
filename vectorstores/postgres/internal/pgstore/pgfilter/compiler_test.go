@@ -174,13 +174,18 @@ func TestCompiler_HasUsesJSONBCollectionContainment(t *testing.T) {
 	}
 }
 
+// LIKE is case-sensitive, which is why Postgres ships ILIKE separately.
+// Emitting ILIKE would answer a wider question than the filter asked.
 func TestCompiler_Like(t *testing.T) {
 	sql, args, err := build(t, `author like '%Alice%'`)
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
-	if !strings.Contains(sql, "ILIKE $1") {
-		t.Fatalf("sql=%q must contain 'ILIKE $1'", sql)
+	if !strings.Contains(sql, " LIKE $1") {
+		t.Fatalf("sql=%q must contain ' LIKE $1'", sql)
+	}
+	if strings.Contains(sql, "ILIKE") {
+		t.Fatalf("sql=%q widens the match to case-insensitive", sql)
 	}
 	if !reflect.DeepEqual(args, []any{"%Alice%"}) {
 		t.Fatalf("args=%v, want [%%Alice%%]", args)

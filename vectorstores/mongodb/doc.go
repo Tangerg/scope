@@ -21,8 +21,10 @@
 //
 // Filter visitor produces MongoDB query-document syntax —
 // `{"metadata.author": {"$eq": "Alice"}}`, `{"$and": [...]}`,
-// `{"$nor": [...]}` for NOT, `{"$regex": ..., "$options": "i"}` for
-// LIKE. The result feeds the `filter` field of `$vectorSearch`.
+// `{"$nor": [...]}` for NOT, and an anchored `{"$regex": "^...$"}` for
+// LIKE — anchored because LIKE matches the whole value, and without the "i"
+// option because it is case-sensitive. The result feeds the `filter` field of
+// `$vectorSearch`.
 //
 // Search pipeline:
 //

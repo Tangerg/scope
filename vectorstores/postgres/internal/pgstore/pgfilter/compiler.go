@@ -211,9 +211,10 @@ func (c *Compiler) visitInExpr(expr *filter.BinaryExpr) error {
 	return nil
 }
 
-// visitLikeExpr emits a SQL ILIKE so callers get the case-insensitive
-// pattern-match that most filter DSLs assume. Right side must be a
-// string literal.
+// visitLikeExpr emits a SQL LIKE. ILIKE would be a wider match than the
+// operator asks for: LIKE is case-sensitive, which is exactly why Postgres
+// ships ILIKE as a separate keyword, and filter.Match compares case-sensitively
+// too. The right side must be a string literal.
 func (c *Compiler) visitLikeExpr(expr *filter.BinaryExpr) error {
 	pattern, err := expr.Pattern()
 	if err != nil {
@@ -228,7 +229,7 @@ func (c *Compiler) visitLikeExpr(expr *filter.BinaryExpr) error {
 	c.args = append(c.args, pattern)
 	c.sql.WriteString("(")
 	c.sql.WriteString(jsonPath)
-	c.sql.WriteString(" ILIKE $")
+	c.sql.WriteString(" LIKE $")
 	c.sql.WriteString(strconv.Itoa(len(c.args)))
 	c.sql.WriteString(")")
 	return nil

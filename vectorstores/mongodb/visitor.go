@@ -232,11 +232,11 @@ func (v *visitor) translateLike(expr *filter.BinaryExpr) (map[string]any, error)
 	}
 	b.WriteByte('$')
 
+	// No "i" option: LIKE is case-sensitive, and $options "i" would answer a
+	// wider question than the filter asked. The ^...$ anchors are what make
+	// this a whole-value match rather than a substring one.
 	return map[string]any{
-		field: map[string]any{
-			"$regex":   b.String(),
-			"$options": "i",
-		},
+		field: map[string]any{"$regex": b.String()},
 	}, nil
 }
 
