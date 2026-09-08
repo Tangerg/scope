@@ -144,3 +144,40 @@ func TestConversationsEnumeratesARingPerShard(t *testing.T) {
 		t.Fatalf("Conversations() = %v, want a non-nil empty slice", ids)
 	}
 }
+
+// singleNodeClient is a plain client for enumeration purposes: it answers SCAN
+// and nothing else, so the default branch is exercised without a server.
+type singleNodeClient struct {
+	goredis.UniversalClient
+	scanner *pagedScanner
+}
+
+func (s *singleNodeClient) Scan(ctx context.Context, cursor uint64, match string, count int64) *goredis.ScanCmd {
+	return s.scanner.Scan(ctx, cursor, match, count)
+}
+
+// A client that is neither a cluster nor a ring is scanned directly, which is
+// the case that always worked and has to keep working.
+func TestConversationsScansASingleClientDirectly(t *testing.T) {
+	t.Parallel()
+
+	client := &singleNodeClient{scanner: &pagedScanner{pages: [][]string{
+		{DefaultKeyPrefix + "beta"},
+		{DefaultKeyPrefix + "alpha"},
+	}}}
+
+	store, err := NewStore(StoreConfig{Client: client})
+	if err != nil {
+		t.Fatalf("NewStore() = %v, want nil", err)
+	}
+	ids, err := store.Conversations(t.Context())
+	if err != nil {
+		t.Fatalf("Conversations() = %v, want nil", err)
+	}
+	if !slices.Equal(ids, []history.ConversationID{"alpha", "beta"}) {
+		t.Fatalf("Conversations() = %v, want [alpha beta]", ids)
+	}
+	if want := []uint64{0, 17}; !slices.Equal(client.scanner.cursors, want) {
+		t.Fatalf("cursors = %v, want %v", client.scanner.cursors, want)
+	}
+}
