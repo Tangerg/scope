@@ -54,6 +54,15 @@
 // dimension, and a mismatch fails construction with [ErrIncompatibleIndex],
 // where the misconfiguration is.
 //
+// Field names. Every configured field name is written into the RediSearch
+// query language as text — FT.CREATE declares it and a filter emits it as
+// `@name` — and RediSearch cannot quote a field name, so construction
+// requires each to be a dot-separated path of plain identifiers. The dots
+// are allowed because a RediSearch schema is flat: a nested metadata key is
+// declared as a dotted field name, and that is the only way to filter one.
+// A filter can still only reference a declared field, so a key chosen at
+// query time never reaches the query language unchecked.
+//
 // See https://redis.io/docs/latest/develop/interact/search-and-query/
 // for the RediSearch reference.
 package redis

@@ -262,6 +262,9 @@ func (s StoreConfig) Validate() error {
 		(s.HNSWM <= 0 || s.HNSWEFConstruct <= 0 || s.HNSWEFRuntime <= 0) {
 		return errors.New("redis: HNSW parameters must all be > 0")
 	}
+	if err := s.validateFieldIdentifiers(); err != nil {
+		return err
+	}
 	// Metadata keys land in the same HASH as these fields, so a name reused
 	// here would have two writers and the last one would win.
 	reserved := map[string]string{
@@ -286,6 +289,33 @@ func (s StoreConfig) Validate() error {
 			return fmt.Errorf("redis: MetadataFields[%d] %q collides with %s", index, field.Name, owner)
 		}
 		fieldNames[field.Name] = struct{}{}
+	}
+	return nil
+}
+
+// validateFieldIdentifiers checks every name this store writes into the
+// RediSearch query language as text: FT.CREATE declares each one and the filter
+// visitor emits it as `@name`. RediSearch cannot quote a field name, so a name
+// carrying its syntax would be read as syntax instead of as a name.
+func (s StoreConfig) validateFieldIdentifiers() error {
+	named := []struct {
+		field string
+		value string
+	}{
+		{"ContentField", s.ContentField},
+		{"EmbeddingField", s.EmbeddingField},
+		{"MetadataJSONField", s.MetadataJSONField},
+	}
+	for index, field := range s.MetadataFields {
+		named = append(named, struct {
+			field string
+			value string
+		}{fmt.Sprintf("MetadataFields[%d].Name", index), field.Name})
+	}
+	for _, entry := range named {
+		if err := fieldIdentifier(entry.value).validate(entry.field); err != nil {
+			return err
+		}
 	}
 	return nil
 }
