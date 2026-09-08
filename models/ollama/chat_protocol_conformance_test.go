@@ -23,7 +23,7 @@ func TestChat_CoreConformance(t *testing.T) {
 			t.Helper()
 			server := newProtocolChatServer(t)
 			t.Cleanup(server.Close)
-			adapter, err := ollama.NewChat(ollama.ChatConfig{
+			adapter, err := ollama.NewChat(t.Context(), ollama.ChatConfig{
 				DefaultOptions: corechat.Options{Model: "default-must-be-overridden"},
 				BaseURL:        server.URL,
 			})
@@ -76,12 +76,12 @@ func TestChat_CoreConformance(t *testing.T) {
 }
 
 func TestOpenAIChatConstructor(t *testing.T) {
-	model, err := ollama.NewChatCompletions(ollama.ChatCompletionsConfig{})
+	model, err := ollama.NewChatCompletions(t.Context(), ollama.ChatCompletionsConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if model == nil {
-		t.Fatal("NewChatCompletions() = nil")
+		t.Fatal("NewChatCompletions(t.Context(), ) = nil")
 	}
 }
 
@@ -92,7 +92,7 @@ func TestChat_RejectsUnsupportedInputBeforeProviderIO(t *testing.T) {
 		http.Error(writer, "unexpected provider call", http.StatusInternalServerError)
 	}))
 	t.Cleanup(server.Close)
-	adapter, err := ollama.NewChat(ollama.ChatConfig{
+	adapter, err := ollama.NewChat(t.Context(), ollama.ChatConfig{
 		DefaultOptions: corechat.Options{Model: "qwen3:8b"},
 		BaseURL:        server.URL,
 	})
@@ -151,7 +151,7 @@ func TestChatRejectsToolChoiceAndDuplicateExtensionOptions(t *testing.T) {
 		http.Error(writer, "unexpected provider call", http.StatusInternalServerError)
 	}))
 	t.Cleanup(server.Close)
-	adapter, err := ollama.NewChat(ollama.ChatConfig{
+	adapter, err := ollama.NewChat(t.Context(), ollama.ChatConfig{
 		DefaultOptions: corechat.Options{Model: "qwen3:8b"}, BaseURL: server.URL,
 	})
 	if err != nil {

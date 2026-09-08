@@ -21,7 +21,7 @@ func TestAudioTTSModel_Call_Mock(t *testing.T) {
 		t.Fatal(err)
 	}
 	opts.Voice = "alloy"
-	m, err := openai.NewAudioTTSModel(openai.AudioTTSModelConfig{
+	m, err := openai.NewAudioTTSModel(t.Context(), openai.AudioTTSModelConfig{
 		Provider:       "openai",
 		APIKey:         "test-key",
 		DefaultOptions: opts,
@@ -40,7 +40,7 @@ func TestAudioTTSModel_Call_Mock(t *testing.T) {
 		t.Fatal("nil output")
 	}
 
-	limited, err := openai.NewAudioTTSModel(openai.AudioTTSModelConfig{
+	limited, err := openai.NewAudioTTSModel(t.Context(), openai.AudioTTSModelConfig{
 		Provider:         "openai",
 		APIKey:           "test-key",
 		DefaultOptions:   opts,
@@ -57,7 +57,7 @@ func TestAudioTTSModel_Call_Mock(t *testing.T) {
 
 func TestAudioTTSModelConfigRejectsNegativeResponseLimit(t *testing.T) {
 	opts := tts.Options{Model: "tts-1"}
-	_, err := openai.NewAudioTTSModel(openai.AudioTTSModelConfig{
+	_, err := openai.NewAudioTTSModel(t.Context(), openai.AudioTTSModelConfig{
 		Provider: "openai", APIKey: "test-key", DefaultOptions: opts, MaxResponseBytes: -1,
 	})
 	if err == nil {

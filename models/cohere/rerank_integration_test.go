@@ -15,7 +15,7 @@ func TestRerankModel_Integration(t *testing.T) {
 		Provider: "cohere",
 		Build: func(t *testing.T, key string) rerank.Model {
 			t.Helper()
-			model, err := cohere.NewRerankModel(cohere.RerankModelConfig{
+			model, err := cohere.NewRerankModel(t.Context(), cohere.RerankModelConfig{
 				APIKey: key, DefaultOptions: rerank.Options{Model: cohere.ModelRerankV35},
 			})
 			if err != nil {

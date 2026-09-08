@@ -61,7 +61,7 @@ func TestAudioTTSModel_Call_Mock(t *testing.T) {
 		t.Fatal(err)
 	}
 	opts.Voice = "https://example.com/reference.wav"
-	m, err := replicate.NewAudioTTSModel(replicate.AudioTTSModelConfig{
+	m, err := replicate.NewAudioTTSModel(t.Context(), replicate.AudioTTSModelConfig{
 		APIKey:         "test-key",
 		DefaultOptions: opts,
 		InputSchema:    replicate.XTTSV2SpeechInputSchema(),

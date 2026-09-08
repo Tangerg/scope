@@ -94,7 +94,7 @@ func collectMistralStream(t *testing.T, chunks []string) ([]*corechat.ResponseDe
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := mistral.NewChat(mistral.ChatConfig{
+	model, err := mistral.NewChat(t.Context(), mistral.ChatConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: "mistral-small-latest"},

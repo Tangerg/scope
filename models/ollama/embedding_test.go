@@ -35,7 +35,7 @@ func TestEmbeddingModel_Call_Mock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := ollama.NewEmbeddingModel(ollama.EmbeddingModelConfig{
+	m, err := ollama.NewEmbeddingModel(t.Context(), ollama.EmbeddingModelConfig{
 		DefaultOptions: opts,
 		BaseURL:        srv.URL,
 	})

@@ -17,7 +17,7 @@ func TestConstructorsRejectAnAbsentCredential(t *testing.T) {
 			return err
 		},
 		"NewChatCompletions": func() error {
-			_, err := google.NewChatCompletions(google.ChatCompletionsConfig{})
+			_, err := google.NewChatCompletions(t.Context(), google.ChatCompletionsConfig{})
 			return err
 		},
 		"NewEmbeddingModel": func() error {

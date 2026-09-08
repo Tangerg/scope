@@ -2,6 +2,7 @@ package together
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -45,11 +46,11 @@ func (c ChatConfig) Validate() error {
 }
 
 // NewChat rejects an invalid provider binding before the first chat call.
-func NewChat(config ChatConfig) (*Chat, error) {
+func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	protocol, err := openai.NewCompatibleChatCompletions(
+	protocol, err := openai.NewCompatibleChatCompletions(ctx,
 		openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURL), HTTPClient: config.HTTPClient},
 		openai.ReasoningReplayDialect("together"),
 	)

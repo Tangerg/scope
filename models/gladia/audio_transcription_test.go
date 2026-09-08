@@ -42,7 +42,7 @@ func TestAudioTranscriptionModel_Call_Mock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := gladia.NewAudioTranscriptionModel(gladia.AudioTranscriptionModelConfig{
+	m, err := gladia.NewAudioTranscriptionModel(t.Context(), gladia.AudioTranscriptionModelConfig{
 		APIKey:         "test-key",
 		DefaultOptions: opts,
 		BaseURL:        srv.URL,

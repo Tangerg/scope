@@ -61,7 +61,7 @@ type AudioTTSModel struct {
 }
 
 // NewAudioTTSModel rejects an invalid provider binding before the first speech call.
-func NewAudioTTSModel(config AudioTTSModelConfig) (*AudioTTSModel, error) {
+func NewAudioTTSModel(_ context.Context, config AudioTTSModelConfig) (*AudioTTSModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}

@@ -54,7 +54,7 @@ type EmbeddingModel struct {
 }
 
 // NewEmbeddingModel rejects an invalid provider binding before the first embedding call.
-func NewEmbeddingModel(config EmbeddingModelConfig) (*EmbeddingModel, error) {
+func NewEmbeddingModel(_ context.Context, config EmbeddingModelConfig) (*EmbeddingModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}

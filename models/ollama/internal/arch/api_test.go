@@ -1,6 +1,7 @@
 package arch_test
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -15,7 +16,7 @@ type configValidator interface {
 func TestChatConstructorsCompile(t *testing.T) {
 	t.Parallel()
 	var (
-		_ func(ollama.ChatConfig) (*ollama.Chat, error) = ollama.NewChat
+		_ func(context.Context, ollama.ChatConfig) (*ollama.Chat, error) = ollama.NewChat
 	)
 }
 

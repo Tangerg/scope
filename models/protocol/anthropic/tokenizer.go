@@ -46,7 +46,7 @@ type TextEstimator struct {
 }
 
 // NewTextEstimator rejects an invalid provider/model binding before estimation begins.
-func NewTextEstimator(config TextEstimatorConfig) (*TextEstimator, error) {
+func NewTextEstimator(_ context.Context, config TextEstimatorConfig) (*TextEstimator, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}

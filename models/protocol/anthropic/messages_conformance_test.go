@@ -28,7 +28,7 @@ func newProtocolChatModel(t *testing.T) (corechat.Model, corechat.Streamer) {
 	t.Helper()
 	server := newProtocolChatServer(t)
 	t.Cleanup(server.Close)
-	adapter, err := anthropic.NewMessages(anthropic.MessagesConfig{
+	adapter, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{
 		APIKey:         "test-key",
 		DefaultOptions: corechat.Options{Model: "default-must-be-overridden"},
 		BaseURL:        server.URL,

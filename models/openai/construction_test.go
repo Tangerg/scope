@@ -13,35 +13,35 @@ import (
 func TestConstructorsRejectAnAbsentCredential(t *testing.T) {
 	cases := map[string]func() error{
 		"NewChat": func() error {
-			_, err := openai.NewChat(openai.ChatConfig{})
+			_, err := openai.NewChat(t.Context(), openai.ChatConfig{})
 			return err
 		},
 		"NewResponses": func() error {
-			_, err := openai.NewResponses(openai.ResponsesConfig{})
+			_, err := openai.NewResponses(t.Context(), openai.ResponsesConfig{})
 			return err
 		},
 		"NewEmbeddingModel": func() error {
-			_, err := openai.NewEmbeddingModel(openai.EmbeddingModelConfig{})
+			_, err := openai.NewEmbeddingModel(t.Context(), openai.EmbeddingModelConfig{})
 			return err
 		},
 		"NewAudioTranscriptionModel": func() error {
-			_, err := openai.NewAudioTranscriptionModel(openai.AudioTranscriptionModelConfig{})
+			_, err := openai.NewAudioTranscriptionModel(t.Context(), openai.AudioTranscriptionModelConfig{})
 			return err
 		},
 		"NewAudioTranslationModel": func() error {
-			_, err := openai.NewAudioTranslationModel(openai.AudioTranslationModelConfig{})
+			_, err := openai.NewAudioTranslationModel(t.Context(), openai.AudioTranslationModelConfig{})
 			return err
 		},
 		"NewAudioTTSModel": func() error {
-			_, err := openai.NewAudioTTSModel(openai.AudioTTSModelConfig{})
+			_, err := openai.NewAudioTTSModel(t.Context(), openai.AudioTTSModelConfig{})
 			return err
 		},
 		"NewImageModel": func() error {
-			_, err := openai.NewImageModel(openai.ImageModelConfig{})
+			_, err := openai.NewImageModel(t.Context(), openai.ImageModelConfig{})
 			return err
 		},
 		"NewModerationModel": func() error {
-			_, err := openai.NewModerationModel(openai.ModerationModelConfig{})
+			_, err := openai.NewModerationModel(t.Context(), openai.ModerationModelConfig{})
 			return err
 		},
 	}

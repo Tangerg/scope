@@ -39,7 +39,7 @@ func TestChatCountsTheSameMultimodalMessageInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	model, err := anthropic.NewMessages(anthropic.MessagesConfig{
+	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{
 		APIKey:         "test-key",
 		DefaultOptions: chat.Options{Model: "claude-test"},
 		BaseURL:        server.URL,

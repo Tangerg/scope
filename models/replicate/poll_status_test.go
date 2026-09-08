@@ -79,7 +79,7 @@ func newAbortTestModel(t *testing.T, server *httptest.Server) *replicate.ImageMo
 	if err := options.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	model, err := replicate.NewImageModel(replicate.ImageModelConfig{
+	model, err := replicate.NewImageModel(t.Context(), replicate.ImageModelConfig{
 		APIKey:         "test-key",
 		DefaultOptions: options,
 		InputSchema:    replicate.FluxSchnellImageInputSchema(),

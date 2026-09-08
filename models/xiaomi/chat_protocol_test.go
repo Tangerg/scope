@@ -12,15 +12,15 @@ import (
 )
 
 func TestAnthropicChatConstructorValidatesCredential(t *testing.T) {
-	if _, err := xiaomi.NewMessages(xiaomi.MessagesConfig{}); err == nil {
-		t.Fatal("NewMessages() accepted an absent credential")
+	if _, err := xiaomi.NewMessages(t.Context(), xiaomi.MessagesConfig{}); err == nil {
+		t.Fatal("NewMessages(t.Context(), ) accepted an absent credential")
 	}
-	model, err := xiaomi.NewMessages(xiaomi.MessagesConfig{APIKey: "test-key"})
+	model, err := xiaomi.NewMessages(t.Context(), xiaomi.MessagesConfig{APIKey: "test-key"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if model == nil {
-		t.Fatal("NewMessages() = nil")
+		t.Fatal("NewMessages(t.Context(), ) = nil")
 	}
 }
 
@@ -38,7 +38,7 @@ func TestChatUsesMiMoThinkingAndToolReasoningContract(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	maxTokens := int64(4096)
-	model, err := xiaomi.NewChat(xiaomi.ChatConfig{
+	model, err := xiaomi.NewChat(t.Context(), xiaomi.ChatConfig{
 		APIKey:  "test-key",
 		BaseURL: server.URL,
 		DefaultOptions: corechat.Options{
@@ -95,7 +95,7 @@ func TestChatRejectsTemperatureAboveOfficialMaximum(t *testing.T) {
 		t.Fatal("request must fail before transport")
 	}))
 	t.Cleanup(server.Close)
-	model, err := xiaomi.NewChat(xiaomi.ChatConfig{
+	model, err := xiaomi.NewChat(t.Context(), xiaomi.ChatConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: xiaomi.ModelV25Pro},

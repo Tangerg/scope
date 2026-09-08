@@ -47,7 +47,7 @@ func TestAudioTranscriptionModel_Call_Mock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := revai.NewAudioTranscriptionModel(revai.AudioTranscriptionModelConfig{
+	m, err := revai.NewAudioTranscriptionModel(t.Context(), revai.AudioTranscriptionModelConfig{
 		APIKey:         "test-key",
 		DefaultOptions: opts,
 		BaseURL:        srv.URL,

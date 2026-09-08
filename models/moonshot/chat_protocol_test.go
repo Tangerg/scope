@@ -12,15 +12,15 @@ import (
 )
 
 func TestAnthropicChatConstructorValidatesCredential(t *testing.T) {
-	if _, err := moonshot.NewMessages(moonshot.MessagesConfig{}); err == nil {
-		t.Fatal("NewMessages() accepted an absent credential")
+	if _, err := moonshot.NewMessages(t.Context(), moonshot.MessagesConfig{}); err == nil {
+		t.Fatal("NewMessages(t.Context(), ) accepted an absent credential")
 	}
-	model, err := moonshot.NewMessages(moonshot.MessagesConfig{APIKey: "test-key"})
+	model, err := moonshot.NewMessages(t.Context(), moonshot.MessagesConfig{APIKey: "test-key"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if model == nil {
-		t.Fatal("NewMessages() = nil")
+		t.Fatal("NewMessages(t.Context(), ) = nil")
 	}
 }
 
@@ -38,7 +38,7 @@ func TestChatUsesCurrentKimiWireContract(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	maxTokens := int64(4096)
-	model, err := moonshot.NewChat(moonshot.ChatConfig{
+	model, err := moonshot.NewChat(t.Context(), moonshot.ChatConfig{
 		APIKey:  "test-key",
 		BaseURL: server.URL,
 		DefaultOptions: corechat.Options{
@@ -89,7 +89,7 @@ func TestChatRejectsK2ThinkingOptionsForK3(t *testing.T) {
 		t.Fatal("request must fail before transport")
 	}))
 	t.Cleanup(server.Close)
-	model, err := moonshot.NewChat(moonshot.ChatConfig{
+	model, err := moonshot.NewChat(t.Context(), moonshot.ChatConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: moonshot.ModelK3},

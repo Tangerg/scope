@@ -13,11 +13,11 @@ import (
 func TestConstructorsRejectAnAbsentCredential(t *testing.T) {
 	cases := map[string]func() error{
 		"NewChat": func() error {
-			_, err := anthropic.NewChat(anthropic.ChatConfig{})
+			_, err := anthropic.NewChat(t.Context(), anthropic.ChatConfig{})
 			return err
 		},
 		"NewChatCompletions": func() error {
-			_, err := anthropic.NewChatCompletions(anthropic.ChatCompletionsConfig{})
+			_, err := anthropic.NewChatCompletions(t.Context(), anthropic.ChatCompletionsConfig{})
 			return err
 		},
 	}

@@ -149,6 +149,8 @@ Magic includes more than literals. Ambient state, call-stack inspection, ancesto
 
 Related construction settings use an explicit `Config` value. Optional fields have useful zero meanings, and required collaborators are validated at construction. Scope does not promote provider SDK functional options into its cross-provider API and does not add builder chains beside `New`.
 
+A capability constructor takes a `context.Context` first, uniformly across a family, whether or not it uses one today. Some backends must be reached at construction — a vector store reads the metric its scores depend on, a Cosmos container its partition-key path, a Google or Bedrock client its credentials — and a constructor without a context cannot check the configuration it was handed, which is how an unchecked obligation on the caller becomes wrong output nothing can detect. Splitting the signature by which provider happens to need it makes callers memorize the exception list, so the parameter is required everywhere and named `_` where it is unused, which says plainly that construction performs no I/O.
+
 Accept interfaces and return concrete values. Inputs gain compatibility from narrow consumer-owned interfaces; outputs preserve information and behavior through concrete types. Return pointers only when identity, mutation, size, or meaningful optionality requires one.
 
 Useful zero values reduce constructors and invalid transitional states. Zero-value usefulness does not excuse an ambiguous zero, an unvalidated required collaborator, or a hidden default with protocol meaning.

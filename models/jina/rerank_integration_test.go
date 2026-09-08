@@ -15,7 +15,7 @@ func TestRerankModel_Integration(t *testing.T) {
 		Provider: "jina",
 		Build: func(t *testing.T, key string) rerank.Model {
 			t.Helper()
-			model, err := jina.NewRerankModel(jina.RerankModelConfig{
+			model, err := jina.NewRerankModel(t.Context(), jina.RerankModelConfig{
 				APIKey: key, DefaultOptions: rerank.Options{Model: jina.ModelRerankerV3},
 			})
 			if err != nil {

@@ -41,7 +41,7 @@ type ModerationModel struct {
 }
 
 // NewModerationModel rejects an invalid provider binding before the first moderation call.
-func NewModerationModel(config ModerationModelConfig) (*ModerationModel, error) {
+func NewModerationModel(_ context.Context, config ModerationModelConfig) (*ModerationModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}

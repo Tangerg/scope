@@ -2,6 +2,7 @@ package deepseek
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -47,7 +48,7 @@ var (
 type Chat = openai.ChatCompletions
 
 // NewChat rejects an invalid provider binding before the first chat call.
-func NewChat(config ChatConfig) (*Chat, error) {
+func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -57,7 +58,7 @@ func NewChat(config ChatConfig) (*Chat, error) {
 	}
 	dialect.PrepareRequest = requestDialect{defaults: config.DefaultOptions.Clone()}.prepareRequest
 	dialect.DisableRawRequestExtension = true
-	protocol, err := openai.NewCompatibleChatCompletions(
+	protocol, err := openai.NewCompatibleChatCompletions(ctx,
 		openai.ChatCompletionsConfig{
 			APIKey:         config.APIKey,
 			DefaultOptions: config.DefaultOptions,

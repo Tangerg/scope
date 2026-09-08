@@ -43,7 +43,7 @@ func TestChat_BehaviorConformance(t *testing.T) {
 
 func newOpenAIBehaviorChat(t *testing.T, baseURL string) *scopeopenai.ChatCompletions {
 	t.Helper()
-	adapter, err := scopeopenai.NewChatCompletions(scopeopenai.ChatCompletionsConfig{
+	adapter, err := scopeopenai.NewChatCompletions(t.Context(), scopeopenai.ChatCompletionsConfig{
 		APIKey:         "test-key",
 		DefaultOptions: corechat.Options{Model: "gpt-5.2"},
 		BaseURL:        baseURL,

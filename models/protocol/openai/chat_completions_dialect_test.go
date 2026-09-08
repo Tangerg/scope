@@ -1,6 +1,7 @@
 package openai_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -42,7 +43,7 @@ func testTextReasoningDialect(t *testing.T, test textReasoningDialectCase) {
 	server := newTextReasoningServer(t, test.responseField, &requestBody)
 	t.Cleanup(server.Close)
 
-	adapter, err := scopeopenai.NewCompatibleChatCompletions(scopeopenai.ChatCompletionsConfig{
+	adapter, err := scopeopenai.NewCompatibleChatCompletions(t.Context(), scopeopenai.ChatCompletionsConfig{
 		APIKey:         "test-key",
 		DefaultOptions: corechat.Options{Model: "provider-model"},
 		BaseURL:        server.URL,
@@ -116,14 +117,14 @@ func assertTextReasoningReplay(t *testing.T, assistant map[string]any, wantField
 func TestChatTokenLimitFieldMatchesProtocol(t *testing.T) {
 	tests := []struct {
 		name      string
-		construct func(scopeopenai.ChatCompletionsConfig) (*scopeopenai.ChatCompletions, error)
+		construct func(context.Context, scopeopenai.ChatCompletionsConfig) (*scopeopenai.ChatCompletions, error)
 		wantField string
 	}{
 		{name: "native", construct: scopeopenai.NewChatCompletions, wantField: "max_completion_tokens"},
 		{
 			name: "compatible",
-			construct: func(config scopeopenai.ChatCompletionsConfig) (*scopeopenai.ChatCompletions, error) {
-				return scopeopenai.NewCompatibleChatCompletions(config, scopeopenai.Dialect{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens})
+			construct: func(ctx context.Context, config scopeopenai.ChatCompletionsConfig) (*scopeopenai.ChatCompletions, error) {
+				return scopeopenai.NewCompatibleChatCompletions(ctx, config, scopeopenai.Dialect{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens})
 			},
 			wantField: "max_tokens",
 		},
@@ -144,7 +145,7 @@ func TestChatTokenLimitFieldMatchesProtocol(t *testing.T) {
 			t.Cleanup(server.Close)
 
 			maxTokens := int64(321)
-			adapter, err := test.construct(scopeopenai.ChatCompletionsConfig{
+			adapter, err := test.construct(t.Context(), scopeopenai.ChatCompletionsConfig{
 				APIKey: "test-key",
 				DefaultOptions: corechat.Options{
 					Model:           "model",

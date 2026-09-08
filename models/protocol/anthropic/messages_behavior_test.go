@@ -42,7 +42,7 @@ func TestChat_BehaviorConformance(t *testing.T) {
 
 func newAnthropicBehaviorChat(t *testing.T, baseURL string) *anthropic.Messages {
 	t.Helper()
-	adapter, err := anthropic.NewMessages(anthropic.MessagesConfig{
+	adapter, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{
 		APIKey:         "test-key",
 		DefaultOptions: corechat.Options{Model: "claude-opus-4-6"},
 		BaseURL:        baseURL,

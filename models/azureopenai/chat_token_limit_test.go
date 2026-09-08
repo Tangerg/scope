@@ -38,7 +38,7 @@ func TestChatSendsTheDocumentedTokenLimitField(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	limit := int64(64)
-	model, err := azureopenai.NewChat(azureopenai.ChatConfig{
+	model, err := azureopenai.NewChat(t.Context(), azureopenai.ChatConfig{
 		Config: azureopenai.Config{
 			APIKey:  "test-key",
 			BaseURL: server.URL + "/openai/v1/",

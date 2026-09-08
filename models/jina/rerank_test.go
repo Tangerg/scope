@@ -24,7 +24,7 @@ func TestRerankModel(t *testing.T) {
 		ExpectedPath: "/rerank",
 		Build: func(t *testing.T, baseURL string) rerank.Model {
 			t.Helper()
-			model, err := jina.NewRerankModel(jina.RerankModelConfig{
+			model, err := jina.NewRerankModel(t.Context(), jina.RerankModelConfig{
 				APIKey:         "test-key",
 				DefaultOptions: rerank.Options{Model: jina.ModelRerankerV3},
 				BaseURL:        baseURL,

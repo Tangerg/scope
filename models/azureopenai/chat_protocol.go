@@ -1,6 +1,7 @@
 package azureopenai
 
 import (
+	"context"
 	"fmt"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -39,12 +40,12 @@ func (c ChatConfig) Validate() error {
 }
 
 // NewChat rejects an invalid provider binding before the first chat call.
-func NewChat(config ChatConfig) (*Chat, error) {
+func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
 	endpoint, err := config.resolve()
 	if err != nil {
 		return nil, err
 	}
-	protocol, err := openai.NewCompatibleChatCompletions(openai.ChatCompletionsConfig{APIKey: endpoint.apiKey, DefaultOptions: config.DefaultOptions, BaseURL: endpoint.baseURL, HTTPClient: endpoint.httpClient}, openai.Dialect{
+	protocol, err := openai.NewCompatibleChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: endpoint.apiKey, DefaultOptions: config.DefaultOptions, BaseURL: endpoint.baseURL, HTTPClient: endpoint.httpClient}, openai.Dialect{
 		Provider: protocolProvider,
 		// Azure documents that reasoning models "will only work with the
 		// max_completion_tokens parameter when using the Chat Completions

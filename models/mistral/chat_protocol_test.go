@@ -20,7 +20,7 @@ func TestChatMapsNativeThinkingAndReplaysIt(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	maxTokens := int64(2048)
-	model, err := mistral.NewChat(mistral.ChatConfig{
+	model, err := mistral.NewChat(t.Context(), mistral.ChatConfig{
 		APIKey:  "test-key",
 		BaseURL: server.URL,
 		DefaultOptions: corechat.Options{
@@ -144,7 +144,7 @@ func TestChatMapsReferenceChunksToCitations(t *testing.T) {
 		fmt.Fprint(writer, `{"id":"cmpl-1","model":"mistral-small-latest","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":[{"type":"text","text":"Grounded answer."},{"type":"reference","reference_ids":[7,"doc-9"]}]}}],"usage":{}}`)
 	}))
 	t.Cleanup(server.Close)
-	model, err := mistral.NewChat(mistral.ChatConfig{
+	model, err := mistral.NewChat(t.Context(), mistral.ChatConfig{
 		APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "mistral-small-latest"},
 	})
 	if err != nil {
@@ -169,7 +169,7 @@ func TestChatRejectsDuplicateToolChoiceSurfacesBeforeProviderIO(t *testing.T) {
 		http.Error(writer, "unexpected", http.StatusInternalServerError)
 	}))
 	t.Cleanup(server.Close)
-	model, err := mistral.NewChat(mistral.ChatConfig{
+	model, err := mistral.NewChat(t.Context(), mistral.ChatConfig{
 		APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "mistral-small-latest"},
 	})
 	if err != nil {
@@ -221,7 +221,7 @@ func TestChatCoalescesStreamedThinkingForReplay(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := mistral.NewChat(mistral.ChatConfig{
+	model, err := mistral.NewChat(t.Context(), mistral.ChatConfig{
 		APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "mistral-small-latest"},
 	})
 	if err != nil {
@@ -273,7 +273,7 @@ func TestChatReturnsStructuredAPIError(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := mistral.NewChat(mistral.ChatConfig{
+	model, err := mistral.NewChat(t.Context(), mistral.ChatConfig{
 		APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "mistral-small-latest"},
 	})
 	if err != nil {
@@ -298,7 +298,7 @@ func TestChatStreamSurfacesMalformedEvent(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := mistral.NewChat(mistral.ChatConfig{
+	model, err := mistral.NewChat(t.Context(), mistral.ChatConfig{
 		APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "mistral-small-latest"},
 	})
 	if err != nil {

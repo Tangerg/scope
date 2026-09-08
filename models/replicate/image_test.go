@@ -63,7 +63,7 @@ func TestImageModel_Call_Mock(t *testing.T) {
 		t.Fatal(err)
 	}
 	opts.OutputFormat = "image/jpeg"
-	m, err := replicate.NewImageModel(replicate.ImageModelConfig{
+	m, err := replicate.NewImageModel(t.Context(), replicate.ImageModelConfig{
 		APIKey:         "test-key",
 		DefaultOptions: opts,
 		InputSchema:    replicate.FluxSchnellImageInputSchema(),

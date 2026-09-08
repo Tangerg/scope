@@ -29,7 +29,7 @@ func TestAudioTTSModel_Call_Mock(t *testing.T) {
 	}
 	opts.OutputFormat = "wav"
 	opts.Speed = 1.2
-	m, err := deepgram.NewAudioTTSModel(deepgram.AudioTTSModelConfig{
+	m, err := deepgram.NewAudioTTSModel(t.Context(), deepgram.AudioTTSModelConfig{
 		APIKey:         "test-key",
 		DefaultOptions: opts,
 		BaseURL:        srv.URL,
@@ -47,7 +47,7 @@ func TestAudioTTSModel_Call_Mock(t *testing.T) {
 		t.Fatal("nil output")
 	}
 
-	limited, err := deepgram.NewAudioTTSModel(deepgram.AudioTTSModelConfig{
+	limited, err := deepgram.NewAudioTTSModel(t.Context(), deepgram.AudioTTSModelConfig{
 		APIKey:           "test-key",
 		DefaultOptions:   opts,
 		BaseURL:          srv.URL,
@@ -63,7 +63,7 @@ func TestAudioTTSModel_Call_Mock(t *testing.T) {
 
 func TestAudioTTSModelConfigRejectsNegativeResponseLimit(t *testing.T) {
 	opts := tts.Options{Model: "aura-asteria-en"}
-	_, err := deepgram.NewAudioTTSModel(deepgram.AudioTTSModelConfig{
+	_, err := deepgram.NewAudioTTSModel(t.Context(), deepgram.AudioTTSModelConfig{
 		APIKey: "test-key", DefaultOptions: opts, MaxResponseBytes: -1,
 	})
 	if err == nil {

@@ -35,7 +35,7 @@ func TestAudioTranscriptionModel_Call_Mock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := deepgram.NewAudioTranscriptionModel(deepgram.AudioTranscriptionModelConfig{
+	m, err := deepgram.NewAudioTranscriptionModel(t.Context(), deepgram.AudioTranscriptionModelConfig{
 		APIKey:         "test-key",
 		DefaultOptions: opts,
 		BaseURL:        srv.URL,
@@ -60,7 +60,7 @@ func TestAudioTranscriptionModel_Call_Mock(t *testing.T) {
 		t.Fatal("empty transcript")
 	}
 
-	limited, err := deepgram.NewAudioTranscriptionModel(deepgram.AudioTranscriptionModelConfig{
+	limited, err := deepgram.NewAudioTranscriptionModel(t.Context(), deepgram.AudioTranscriptionModelConfig{
 		APIKey:           "test-key",
 		DefaultOptions:   opts,
 		BaseURL:          srv.URL,

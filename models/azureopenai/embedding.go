@@ -1,6 +1,8 @@
 package azureopenai
 
 import (
+	"context"
+
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
@@ -28,12 +30,12 @@ var _ embedding.Model = (*EmbeddingModel)(nil)
 type EmbeddingModel = openai.EmbeddingModel
 
 // NewEmbeddingModel rejects an invalid provider binding before the first embedding call.
-func NewEmbeddingModel(config EmbeddingModelConfig) (*EmbeddingModel, error) {
+func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*EmbeddingModel, error) {
 	endpoint, err := config.resolve()
 	if err != nil {
 		return nil, err
 	}
-	return openai.NewEmbeddingModel(openai.EmbeddingModelConfig{
+	return openai.NewEmbeddingModel(ctx, openai.EmbeddingModelConfig{
 		Provider:       protocolProvider,
 		APIKey:         endpoint.apiKey,
 		DefaultOptions: config.DefaultOptions,

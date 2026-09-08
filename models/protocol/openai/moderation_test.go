@@ -28,7 +28,7 @@ func TestModerationModel_Call_Mock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := openai.NewModerationModel(openai.ModerationModelConfig{
+	m, err := openai.NewModerationModel(t.Context(), openai.ModerationModelConfig{
 		Provider:       "openai",
 		APIKey:         "test-key",
 		DefaultOptions: opts,

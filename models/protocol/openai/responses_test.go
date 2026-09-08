@@ -15,7 +15,7 @@ import (
 
 func newResponsesModel(t *testing.T, baseURL, modelID string) *openai.Responses {
 	t.Helper()
-	m, err := openai.NewResponses(openai.ResponsesConfig{
+	m, err := openai.NewResponses(t.Context(), openai.ResponsesConfig{
 		APIKey:         "test-key",
 		DefaultOptions: chat.Options{Model: modelID},
 		BaseURL:        baseURL,

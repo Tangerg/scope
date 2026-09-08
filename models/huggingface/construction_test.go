@@ -13,7 +13,7 @@ import (
 func TestConstructorsRejectAnAbsentCredential(t *testing.T) {
 	cases := map[string]func() error{
 		"NewChat": func() error {
-			_, err := huggingface.NewChat(huggingface.ChatConfig{})
+			_, err := huggingface.NewChat(t.Context(), huggingface.ChatConfig{})
 			return err
 		},
 	}

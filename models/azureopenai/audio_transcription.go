@@ -1,6 +1,8 @@
 package azureopenai
 
 import (
+	"context"
+
 	"github.com/Tangerg/scope/core/transcription"
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
@@ -28,12 +30,12 @@ var _ transcription.Model = (*AudioTranscriptionModel)(nil)
 type AudioTranscriptionModel = openai.AudioTranscriptionModel
 
 // NewAudioTranscriptionModel rejects an invalid provider binding before the first transcription call.
-func NewAudioTranscriptionModel(config AudioTranscriptionModelConfig) (*AudioTranscriptionModel, error) {
+func NewAudioTranscriptionModel(ctx context.Context, config AudioTranscriptionModelConfig) (*AudioTranscriptionModel, error) {
 	endpoint, err := config.resolve()
 	if err != nil {
 		return nil, err
 	}
-	return openai.NewAudioTranscriptionModel(openai.AudioTranscriptionModelConfig{
+	return openai.NewAudioTranscriptionModel(ctx, openai.AudioTranscriptionModelConfig{
 		Provider:       protocolProvider,
 		APIKey:         endpoint.apiKey,
 		DefaultOptions: config.DefaultOptions,

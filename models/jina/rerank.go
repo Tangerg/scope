@@ -35,7 +35,7 @@ type RerankModel struct {
 }
 
 // NewRerankModel rejects an invalid provider binding before the first reranking call.
-func NewRerankModel(config RerankModelConfig) (*RerankModel, error) {
+func NewRerankModel(_ context.Context, config RerankModelConfig) (*RerankModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}

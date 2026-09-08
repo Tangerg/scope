@@ -53,7 +53,7 @@ type Messages struct {
 }
 
 // NewMessages rejects an invalid provider binding before the first Messages call.
-func NewMessages(config MessagesConfig) (*Messages, error) {
+func NewMessages(_ context.Context, config MessagesConfig) (*Messages, error) {
 	return newMessages(config, Dialect{
 		Provider: protocolProvider, MaxTemperature: protocolMaximumTemperature,
 		RejectTopK: true, RejectTopP: true, NativeJSONSchema: true,
@@ -61,7 +61,7 @@ func NewMessages(config MessagesConfig) (*Messages, error) {
 }
 
 // NewCompatibleMessages rejects an invalid compatible binding before the first call.
-func NewCompatibleMessages(config MessagesConfig, dialect Dialect) (*Messages, error) {
+func NewCompatibleMessages(_ context.Context, config MessagesConfig, dialect Dialect) (*Messages, error) {
 	return newMessages(config, dialect)
 }
 

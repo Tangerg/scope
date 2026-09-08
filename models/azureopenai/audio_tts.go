@@ -1,6 +1,7 @@
 package azureopenai
 
 import (
+	"context"
 	"errors"
 
 	tts "github.com/Tangerg/scope/core/speech"
@@ -40,12 +41,12 @@ var (
 type AudioTTSModel = openai.AudioTTSModel
 
 // NewAudioTTSModel rejects an invalid provider binding before the first speech call.
-func NewAudioTTSModel(config AudioTTSModelConfig) (*AudioTTSModel, error) {
+func NewAudioTTSModel(ctx context.Context, config AudioTTSModelConfig) (*AudioTTSModel, error) {
 	endpoint, err := config.resolve()
 	if err != nil {
 		return nil, err
 	}
-	return openai.NewAudioTTSModel(openai.AudioTTSModelConfig{
+	return openai.NewAudioTTSModel(ctx, openai.AudioTTSModelConfig{
 		Provider:         protocolProvider,
 		APIKey:           endpoint.apiKey,
 		DefaultOptions:   config.DefaultOptions,

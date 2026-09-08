@@ -52,7 +52,7 @@ type ImageModel struct {
 }
 
 // NewImageModel rejects an invalid provider binding before the first image call.
-func NewImageModel(config ImageModelConfig) (*ImageModel, error) {
+func NewImageModel(_ context.Context, config ImageModelConfig) (*ImageModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}

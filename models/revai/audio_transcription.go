@@ -57,7 +57,7 @@ type AudioTranscriptionModel struct {
 }
 
 // NewAudioTranscriptionModel rejects an invalid provider binding before the first transcription call.
-func NewAudioTranscriptionModel(config AudioTranscriptionModelConfig) (*AudioTranscriptionModel, error) {
+func NewAudioTranscriptionModel(_ context.Context, config AudioTranscriptionModelConfig) (*AudioTranscriptionModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}

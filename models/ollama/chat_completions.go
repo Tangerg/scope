@@ -2,6 +2,7 @@ package ollama
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -42,7 +43,7 @@ func (c ChatCompletionsConfig) Validate() error {
 }
 
 // NewChatCompletions rejects an invalid provider binding before the first Chat Completions call.
-func NewChatCompletions(config ChatCompletionsConfig) (*ChatCompletions, error) {
+func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ChatCompletions, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -50,7 +51,7 @@ func NewChatCompletions(config ChatCompletionsConfig) (*ChatCompletions, error) 
 	if apiKey == "" {
 		apiKey = "ollama"
 	}
-	protocol, err := openai.NewCompatibleChatCompletions(openai.ChatCompletionsConfig{APIKey: apiKey, DefaultOptions: config.DefaultOptions, BaseURL: resolveOpenAIBaseURL(config.BaseURL), HTTPClient: config.HTTPClient}, openai.Dialect{Provider: "ollama", TokenLimitField: openai.TokenLimitMaxTokens})
+	protocol, err := openai.NewCompatibleChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: apiKey, DefaultOptions: config.DefaultOptions, BaseURL: resolveOpenAIBaseURL(config.BaseURL), HTTPClient: config.HTTPClient}, openai.Dialect{Provider: "ollama", TokenLimitField: openai.TokenLimitMaxTokens})
 	if err != nil {
 		return nil, fmt.Errorf("ollama: construct OpenAI-compatible chat: %w", err)
 	}

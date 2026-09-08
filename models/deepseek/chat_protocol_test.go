@@ -69,7 +69,7 @@ func TestChat_ReasoningReplay(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 
-			model, err := deepseek.NewChat(deepseek.ChatConfig{
+			model, err := deepseek.NewChat(t.Context(), deepseek.ChatConfig{
 				APIKey:  "test-key",
 				BaseURL: server.URL,
 				DefaultOptions: corechat.Options{
@@ -105,7 +105,7 @@ func TestChatMapsOfficialRequestOptions(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := deepseek.NewChat(deepseek.ChatConfig{
+	model, err := deepseek.NewChat(t.Context(), deepseek.ChatConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: deepseek.ModelV4Flash},
@@ -179,7 +179,7 @@ func TestChatThinkingDisabledAllowsSampling(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := deepseek.NewChat(deepseek.ChatConfig{
+	model, err := deepseek.NewChat(t.Context(), deepseek.ChatConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: deepseek.ModelV4Flash},
@@ -218,7 +218,7 @@ func TestChatMapsStreamingUsageOption(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := deepseek.NewChat(deepseek.ChatConfig{
+	model, err := deepseek.NewChat(t.Context(), deepseek.ChatConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: deepseek.ModelV4Flash},
@@ -243,7 +243,7 @@ func TestChatMapsStreamingUsageOption(t *testing.T) {
 }
 
 func TestChatRejectsInvalidDeepSeekOptions(t *testing.T) {
-	model, err := deepseek.NewChat(deepseek.ChatConfig{
+	model, err := deepseek.NewChat(t.Context(), deepseek.ChatConfig{
 		APIKey:         "test-key",
 		DefaultOptions: corechat.Options{Model: deepseek.ModelV4Flash},
 	})
@@ -311,7 +311,7 @@ func TestChatRejectsInvalidDeepSeekOptions(t *testing.T) {
 }
 
 func TestNewChatRejectsIgnoredDefaultSampling(t *testing.T) {
-	_, err := deepseek.NewChat(deepseek.ChatConfig{
+	_, err := deepseek.NewChat(t.Context(), deepseek.ChatConfig{
 		APIKey:         "test-key",
 		DefaultOptions: corechat.Options{Model: deepseek.ModelV4Flash, Temperature: new(0.5)},
 	})

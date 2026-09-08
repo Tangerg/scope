@@ -30,7 +30,7 @@ func TestEmbeddingModel(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewOptions: %v", err)
 			}
-			m, err := voyage.NewEmbeddingModel(voyage.EmbeddingModelConfig{
+			m, err := voyage.NewEmbeddingModel(t.Context(), voyage.EmbeddingModelConfig{
 				APIKey:         "test-key",
 				DefaultOptions: opts,
 				BaseURL:        baseURL,

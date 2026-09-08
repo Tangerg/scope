@@ -37,7 +37,7 @@ func TestChatSendsTheDocumentedTokenLimitField(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	limit := int64(64)
-	model, err := groq.NewChat(groq.ChatConfig{
+	model, err := groq.NewChat(t.Context(), groq.ChatConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: "llama-3.3-70b-versatile"},

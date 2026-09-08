@@ -73,7 +73,7 @@ func TestStreamRejectsSecondDoneChunk(t *testing.T) {
 
 func collectOllamaStream(t *testing.T, baseURL string) ([]*corechat.ResponseDelta, error) {
 	t.Helper()
-	adapter, err := ollama.NewChat(ollama.ChatConfig{
+	adapter, err := ollama.NewChat(t.Context(), ollama.ChatConfig{
 		DefaultOptions: corechat.Options{Model: "qwen3:8b"},
 		BaseURL:        baseURL,
 	})

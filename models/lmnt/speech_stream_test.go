@@ -23,7 +23,7 @@ func TestSpeechStreamPreservesAudioBeforeReadError(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			body := &speechStreamBody{readErr: test.readErr}
-			model, err := NewAudioTTSModel(AudioTTSModelConfig{
+			model, err := NewAudioTTSModel(t.Context(), AudioTTSModelConfig{
 				APIKey:         "test-key",
 				DefaultOptions: speech.Options{Model: "blizzard", Voice: "test-voice"},
 				HTTPClient:     &http.Client{Transport: speechStreamTransport{body: body, status: http.StatusOK}},

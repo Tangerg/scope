@@ -130,11 +130,11 @@ func (c ChatCompletionsConfig) Validate() error {
 type ChatCompletions = openaiprotocol.ChatCompletions
 
 // NewChatCompletions rejects an invalid provider binding before the first Chat Completions call.
-func NewChatCompletions(config ChatCompletionsConfig) (*ChatCompletions, error) {
+func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ChatCompletions, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	return openaiprotocol.NewCompatibleChatCompletions(
+	return openaiprotocol.NewCompatibleChatCompletions(ctx,
 		openaiprotocol.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLOpenAI), HTTPClient: config.HTTPClient},
 		openaiprotocol.Dialect{Provider: protocolProvider, TokenLimitField: openaiprotocol.TokenLimitMaxTokens},
 	)

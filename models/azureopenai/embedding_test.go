@@ -28,7 +28,7 @@ func TestEmbeddingModel_Call_Mock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := azureopenai.NewEmbeddingModel(azureopenai.EmbeddingModelConfig{
+	m, err := azureopenai.NewEmbeddingModel(t.Context(), azureopenai.EmbeddingModelConfig{
 		Config:         azureopenai.Config{APIKey: "test-key", BaseURL: srv.URL + "/openai/v1/"},
 		DefaultOptions: opts,
 	})

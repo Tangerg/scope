@@ -29,7 +29,7 @@ func newCoreChatModel(t *testing.T) (corechat.Model, corechat.Streamer) {
 	t.Helper()
 	server := newCoreChatServer(t)
 	t.Cleanup(server.Close)
-	adapter, err := scopeopenai.NewCompatibleChatCompletions(
+	adapter, err := scopeopenai.NewCompatibleChatCompletions(t.Context(),
 		scopeopenai.ChatCompletionsConfig{
 			APIKey:         "test-key",
 			DefaultOptions: corechat.Options{Model: "gpt-default-must-be-overridden"},
@@ -153,7 +153,7 @@ func TestCompatibleChatRejectsMultipleProviderChoices(t *testing.T) {
 		]
 	}`)
 	t.Cleanup(server.Close)
-	model, err := scopeopenai.NewCompatibleChatCompletions(scopeopenai.ChatCompletionsConfig{
+	model, err := scopeopenai.NewCompatibleChatCompletions(t.Context(), scopeopenai.ChatCompletionsConfig{
 		APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "gpt-5.2"},
 	}, scopeopenai.Dialect{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens})
 	if err != nil {
@@ -173,7 +173,7 @@ func TestCompatibleChatRejectsResultCountOption(t *testing.T) {
 		t.Fatal("request must fail before provider I/O")
 	}))
 	t.Cleanup(server.Close)
-	model, err := scopeopenai.NewCompatibleChatCompletions(scopeopenai.ChatCompletionsConfig{
+	model, err := scopeopenai.NewCompatibleChatCompletions(t.Context(), scopeopenai.ChatCompletionsConfig{
 		APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "gpt-5.2"},
 	}, scopeopenai.Dialect{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens})
 	if err != nil {

@@ -24,7 +24,7 @@ func TestEmbeddingModel_Integration(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			m, err := mistral.NewEmbeddingModel(mistral.EmbeddingModelConfig{
+			m, err := mistral.NewEmbeddingModel(t.Context(), mistral.EmbeddingModelConfig{
 				APIKey:         key,
 				DefaultOptions: opts,
 			})

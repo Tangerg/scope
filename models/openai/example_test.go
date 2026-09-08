@@ -1,6 +1,7 @@
 package openai_test
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -8,7 +9,7 @@ import (
 )
 
 func ExampleNewChat() {
-	model, err := openai.NewChat(openai.ChatConfig{
+	model, err := openai.NewChat(context.Background(), openai.ChatConfig{
 		APIKey:         "example-key",
 		DefaultOptions: chat.Options{Model: "example-model"},
 	})

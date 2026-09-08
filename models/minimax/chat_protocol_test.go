@@ -11,15 +11,15 @@ import (
 )
 
 func TestAnthropicChatConstructorValidatesCredential(t *testing.T) {
-	if _, err := minimax.NewMessages(minimax.MessagesConfig{}); err == nil {
-		t.Fatal("NewMessages() accepted an absent credential")
+	if _, err := minimax.NewMessages(t.Context(), minimax.MessagesConfig{}); err == nil {
+		t.Fatal("NewMessages(t.Context(), ) accepted an absent credential")
 	}
-	model, err := minimax.NewMessages(minimax.MessagesConfig{APIKey: "test-key"})
+	model, err := minimax.NewMessages(t.Context(), minimax.MessagesConfig{APIKey: "test-key"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if model == nil {
-		t.Fatal("NewMessages() = nil")
+		t.Fatal("NewMessages(t.Context(), ) = nil")
 	}
 }
 
@@ -36,7 +36,7 @@ func TestChatUsesSplitReasoningByDefault(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := minimax.NewChat(minimax.ChatConfig{
+	model, err := minimax.NewChat(t.Context(), minimax.ChatConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: "MiniMax-M3"},
@@ -72,7 +72,7 @@ func TestChatRespectsExplicitReasoningSplit(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := minimax.NewChat(minimax.ChatConfig{
+	model, err := minimax.NewChat(t.Context(), minimax.ChatConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: "MiniMax-M3"},
@@ -110,7 +110,7 @@ func TestChatReplaysStructuredReasoningDetails(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := minimax.NewChat(minimax.ChatConfig{
+	model, err := minimax.NewChat(t.Context(), minimax.ChatConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: minimax.ModelM3},

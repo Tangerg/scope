@@ -27,7 +27,7 @@ func TestAudioTextModels_Call_Mock(t *testing.T) {
 			response: `{"text":"hello world"}`,
 			want:     "hello world",
 			newModel: func(baseURL string) (transcription.Model, error) {
-				return openai.NewAudioTranscriptionModel(openai.AudioTranscriptionModelConfig{
+				return openai.NewAudioTranscriptionModel(t.Context(), openai.AudioTranscriptionModelConfig{
 					Provider: "openai", APIKey: "test-key", DefaultOptions: opts, BaseURL: baseURL,
 				})
 			},
@@ -37,7 +37,7 @@ func TestAudioTextModels_Call_Mock(t *testing.T) {
 			response: `{"text":"good morning"}`,
 			want:     "good morning",
 			newModel: func(baseURL string) (transcription.Model, error) {
-				return openai.NewAudioTranslationModel(openai.AudioTranslationModelConfig{
+				return openai.NewAudioTranslationModel(t.Context(), openai.AudioTranslationModelConfig{
 					Provider: "openai", APIKey: "test-key", DefaultOptions: opts, BaseURL: baseURL,
 				})
 			},

@@ -48,7 +48,7 @@ func TestImageModel_Call_Mock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := luma.NewImageModel(luma.ImageModelConfig{
+	m, err := luma.NewImageModel(t.Context(), luma.ImageModelConfig{
 		APIKey:         "test-key",
 		DefaultOptions: opts,
 		BaseURL:        server.URL,
@@ -68,7 +68,7 @@ func TestImageModel_Call_Mock(t *testing.T) {
 		t.Fatalf("result = %#v", out.First())
 	}
 
-	limited, err := luma.NewImageModel(luma.ImageModelConfig{
+	limited, err := luma.NewImageModel(t.Context(), luma.ImageModelConfig{
 		APIKey:         "test-key",
 		DefaultOptions: opts,
 		BaseURL:        server.URL,
@@ -86,7 +86,7 @@ func TestImageModel_Call_Mock(t *testing.T) {
 
 func TestImageModelConfigRejectsNegativeOutputLimit(t *testing.T) {
 	opts := image.Options{Model: luma.ModelUni1}
-	_, err := luma.NewImageModel(luma.ImageModelConfig{
+	_, err := luma.NewImageModel(t.Context(), luma.ImageModelConfig{
 		APIKey: "test-key", DefaultOptions: opts, MaxOutputBytes: -1,
 	})
 	if err == nil {

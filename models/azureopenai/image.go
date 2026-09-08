@@ -1,6 +1,8 @@
 package azureopenai
 
 import (
+	"context"
+
 	"github.com/Tangerg/scope/core/image"
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
@@ -27,12 +29,12 @@ var _ image.Model = (*ImageModel)(nil)
 type ImageModel = openai.ImageModel
 
 // NewImageModel rejects an invalid provider binding before the first image call.
-func NewImageModel(config ImageModelConfig) (*ImageModel, error) {
+func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, error) {
 	endpoint, err := config.resolve()
 	if err != nil {
 		return nil, err
 	}
-	return openai.NewImageModel(openai.ImageModelConfig{
+	return openai.NewImageModel(ctx, openai.ImageModelConfig{
 		Provider:       protocolProvider,
 		APIKey:         endpoint.apiKey,
 		DefaultOptions: config.DefaultOptions,

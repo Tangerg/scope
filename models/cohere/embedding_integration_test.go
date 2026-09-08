@@ -31,7 +31,7 @@ func TestEmbeddingModel_Integration(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			m, err := cohere.NewEmbeddingModel(cohere.EmbeddingModelConfig{
+			m, err := cohere.NewEmbeddingModel(t.Context(), cohere.EmbeddingModelConfig{
 				APIKey:         key,
 				DefaultOptions: opts,
 			})

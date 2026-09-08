@@ -2,6 +2,7 @@ package anthropic
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -39,8 +40,8 @@ func (c ChatConfig) protocol() anthropicprotocol.MessagesConfig {
 type Chat = anthropicprotocol.Messages
 
 // NewChat rejects an invalid provider binding before the first chat call.
-func NewChat(config ChatConfig) (*Chat, error) {
-	return anthropicprotocol.NewMessages(config.protocol())
+func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
+	return anthropicprotocol.NewMessages(ctx, config.protocol())
 }
 
 // ChatCompletionsConfig binds provider access and defaults shared by every Chat Completions call.
@@ -65,11 +66,11 @@ func (c ChatCompletionsConfig) Validate() error {
 type ChatCompletions = openaiprotocol.ChatCompletions
 
 // NewChatCompletions rejects an invalid provider binding before the first Chat Completions call.
-func NewChatCompletions(config ChatCompletionsConfig) (*ChatCompletions, error) {
+func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ChatCompletions, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	return openaiprotocol.NewCompatibleChatCompletions(
+	return openaiprotocol.NewCompatibleChatCompletions(ctx,
 		openaiprotocol.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLOpenAI), HTTPClient: config.HTTPClient},
 		openaiprotocol.Dialect{Provider: "anthropic", TokenLimitField: openaiprotocol.TokenLimitMaxTokens},
 	)
@@ -93,6 +94,6 @@ func (t TextEstimatorConfig) protocol() anthropicprotocol.TextEstimatorConfig {
 type TextEstimator = anthropicprotocol.TextEstimator
 
 // NewTextEstimator rejects an invalid provider/model binding before estimation begins.
-func NewTextEstimator(config TextEstimatorConfig) (*TextEstimator, error) {
-	return anthropicprotocol.NewTextEstimator(config.protocol())
+func NewTextEstimator(ctx context.Context, config TextEstimatorConfig) (*TextEstimator, error) {
+	return anthropicprotocol.NewTextEstimator(ctx, config.protocol())
 }

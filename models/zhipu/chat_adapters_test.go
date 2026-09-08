@@ -28,28 +28,28 @@ func TestChatConfigsValidateCredentialAndOptions(t *testing.T) {
 func TestChatConstructorsProduceProtocolAdapters(t *testing.T) {
 	t.Parallel()
 
-	model, err := NewChat(ChatConfig{APIKey: "key"})
+	model, err := NewChat(t.Context(), ChatConfig{APIKey: "key"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if model == nil {
-		t.Fatal("NewChat() = nil")
+		t.Fatal("NewChat(t.Context(), ) = nil")
 	}
 
-	_, invalidErr := NewChat(ChatConfig{})
+	_, invalidErr := NewChat(t.Context(), ChatConfig{})
 	if invalidErr == nil {
-		t.Fatal("NewChat(invalid config) error = nil")
+		t.Fatal("NewChat(t.Context(), invalid config) error = nil")
 	}
 
-	anthropicModel, err := NewMessages(MessagesConfig{APIKey: "key"})
+	anthropicModel, err := NewMessages(t.Context(), MessagesConfig{APIKey: "key"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if anthropicModel == nil {
-		t.Fatal("NewMessages() = nil")
+		t.Fatal("NewMessages(t.Context(), ) = nil")
 	}
-	_, invalidErr = NewMessages(MessagesConfig{})
+	_, invalidErr = NewMessages(t.Context(), MessagesConfig{})
 	if invalidErr == nil {
-		t.Fatal("NewMessages(invalid config) error = nil")
+		t.Fatal("NewMessages(t.Context(), invalid config) error = nil")
 	}
 }

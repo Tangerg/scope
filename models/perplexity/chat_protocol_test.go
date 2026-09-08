@@ -35,7 +35,7 @@ func TestChatMapsOfficialSonarOptionsAndResponse(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := perplexity.NewChat(perplexity.ChatConfig{
+	model, err := perplexity.NewChat(t.Context(), perplexity.ChatConfig{
 		APIKey:  "test-key",
 		BaseURL: server.URL,
 		DefaultOptions: corechat.Options{
@@ -93,7 +93,7 @@ func TestChatMapsOfficialSonarOptionsAndResponse(t *testing.T) {
 }
 
 func TestChatRejectsProSearchWithoutStreaming(t *testing.T) {
-	model, err := perplexity.NewChat(perplexity.ChatConfig{
+	model, err := perplexity.NewChat(t.Context(), perplexity.ChatConfig{
 		APIKey:         "test-key",
 		DefaultOptions: corechat.Options{Model: perplexity.ModelSonarPro},
 	})

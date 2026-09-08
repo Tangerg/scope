@@ -106,3 +106,64 @@ func secondParameterIsStoreConfig(function *ast.FuncDecl) bool {
 	identifier, ok := parameters.List[1].Type.(*ast.Ident)
 	return ok && identifier.Name == "StoreConfig"
 }
+
+// Every model adapter constructor takes a context first, for the same reason
+// the stores do: two of them already had to (google and bedrock, because their
+// SDKs build a client from one), and a caller should not have to remember which
+// provider happens to need it. The parameter is unused in most of them today
+// and named _ there, which says so; what it buys is that an adapter that later
+// needs to reach the provider at construction can do it without changing its
+// signature.
+//
+// Value constructors are excluded. NewTextPart and NewThinkingPart build a
+// datum out of arguments and reach nothing, so a context there would be noise.
+func TestModelConstructorsTakeAContext(t *testing.T) {
+	t.Parallel()
+
+	clients := map[string]struct{}{
+		"NewChat": {}, "NewMessages": {}, "NewResponses": {},
+		"NewChatCompletions": {}, "NewCompatibleChatCompletions": {},
+		"NewCompatibleMessages": {}, "NewTextEstimator": {},
+	}
+
+	root := filepath.Join(repositoryRoot(t), "models")
+	fileSet := token.NewFileSet()
+	found := 0
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		file, parseErr := parser.ParseFile(fileSet, path, nil, 0)
+		if parseErr != nil {
+			return parseErr
+		}
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Recv != nil {
+				continue
+			}
+			name := function.Name.Name
+			_, isClient := clients[name]
+			isModel := strings.HasPrefix(name, "New") && strings.HasSuffix(name, "Model")
+			if !isClient && !isModel {
+				continue
+			}
+			found++
+			if !firstParameterIsContext(function) {
+				position := fileSet.Position(function.Pos())
+				t.Errorf("%s:%d: %s does not take a context first",
+					filepath.ToSlash(path), position.Line, name)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk models: %v", err)
+	}
+	if found == 0 {
+		t.Fatal("found no model constructors under models")
+	}
+}

@@ -20,7 +20,7 @@ func TestImageModel_Call_Mock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := azureopenai.NewImageModel(azureopenai.ImageModelConfig{
+	m, err := azureopenai.NewImageModel(t.Context(), azureopenai.ImageModelConfig{
 		Config:         azureopenai.Config{APIKey: "test-key", BaseURL: srv.URL + "/openai/v1/"},
 		DefaultOptions: opts,
 	})

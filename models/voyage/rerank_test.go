@@ -25,7 +25,7 @@ func TestRerankModel(t *testing.T) {
 		ExpectedPath: "/rerank",
 		Build: func(t *testing.T, baseURL string) rerank.Model {
 			t.Helper()
-			model, err := voyage.NewRerankModel(voyage.RerankModelConfig{
+			model, err := voyage.NewRerankModel(t.Context(), voyage.RerankModelConfig{
 				APIKey:         "test-key",
 				DefaultOptions: rerank.Options{Model: voyage.ModelRerank25},
 				BaseURL:        baseURL,

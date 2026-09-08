@@ -15,7 +15,7 @@ func TestRerankModel_Integration(t *testing.T) {
 		Provider: "voyage",
 		Build: func(t *testing.T, key string) rerank.Model {
 			t.Helper()
-			model, err := voyage.NewRerankModel(voyage.RerankModelConfig{
+			model, err := voyage.NewRerankModel(t.Context(), voyage.RerankModelConfig{
 				APIKey: key, DefaultOptions: rerank.Options{Model: voyage.ModelRerank25},
 			})
 			if err != nil {

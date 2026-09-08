@@ -12,15 +12,15 @@ import (
 )
 
 func TestAnthropicChatConstructorValidatesCredential(t *testing.T) {
-	if _, err := openrouter.NewMessages(openrouter.MessagesConfig{}); err == nil {
-		t.Fatal("NewMessages() accepted an absent credential")
+	if _, err := openrouter.NewMessages(t.Context(), openrouter.MessagesConfig{}); err == nil {
+		t.Fatal("NewMessages(t.Context(), ) accepted an absent credential")
 	}
-	model, err := openrouter.NewMessages(openrouter.MessagesConfig{APIKey: "test-key"})
+	model, err := openrouter.NewMessages(t.Context(), openrouter.MessagesConfig{APIKey: "test-key"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if model == nil {
-		t.Fatal("NewMessages() = nil")
+		t.Fatal("NewMessages(t.Context(), ) = nil")
 	}
 }
 
@@ -56,7 +56,7 @@ func TestChatPreservesStructuredReasoningDetails(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := openrouter.NewChat(openrouter.ChatConfig{
+	model, err := openrouter.NewChat(t.Context(), openrouter.ChatConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: "anthropic/claude-sonnet"},
@@ -133,7 +133,7 @@ func TestChatCoalescesStreamedReasoningDetailsForReplay(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := openrouter.NewChat(openrouter.ChatConfig{
+	model, err := openrouter.NewChat(t.Context(), openrouter.ChatConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: "model"},

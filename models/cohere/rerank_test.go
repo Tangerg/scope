@@ -24,7 +24,7 @@ func TestRerankModel(t *testing.T) {
 		ExpectedPath: "/v2/rerank",
 		Build: func(t *testing.T, baseURL string) rerank.Model {
 			t.Helper()
-			model, err := cohere.NewRerankModel(cohere.RerankModelConfig{
+			model, err := cohere.NewRerankModel(t.Context(), cohere.RerankModelConfig{
 				APIKey:         "test-key",
 				DefaultOptions: rerank.Options{Model: cohere.ModelRerankV35},
 				BaseURL:        baseURL,

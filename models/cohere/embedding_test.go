@@ -29,7 +29,7 @@ func TestEmbeddingModel(t *testing.T) {
 			if err := extensions.Set(scohere.EmbeddingRequestExtensionKey, cohere.V2EmbedRequest{InputType: cohere.EmbedInputTypeSearchDocument}); err != nil {
 				t.Fatal(err)
 			}
-			model, err := scohere.NewEmbeddingModel(scohere.EmbeddingModelConfig{
+			model, err := scohere.NewEmbeddingModel(t.Context(), scohere.EmbeddingModelConfig{
 				APIKey: "test-key",
 				DefaultOptions: embedding.Options{
 					Model: "embed-english-v3.0", Extensions: extensions,

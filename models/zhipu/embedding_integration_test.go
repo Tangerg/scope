@@ -24,7 +24,7 @@ func TestEmbeddingModel_Integration(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			m, err := zhipu.NewEmbeddingModel(zhipu.EmbeddingModelConfig{
+			m, err := zhipu.NewEmbeddingModel(t.Context(), zhipu.EmbeddingModelConfig{
 				APIKey:         key,
 				DefaultOptions: opts,
 			})

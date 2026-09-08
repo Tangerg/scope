@@ -40,7 +40,7 @@ func newMistralConformanceRequest(t *testing.T) *corechat.Request {
 
 func newMistralConformanceChat(t *testing.T, baseURL string) *mistral.Chat {
 	t.Helper()
-	adapter, err := mistral.NewChat(mistral.ChatConfig{
+	adapter, err := mistral.NewChat(t.Context(), mistral.ChatConfig{
 		APIKey:         "test-key",
 		BaseURL:        baseURL,
 		DefaultOptions: corechat.Options{Model: "mistral-small-latest"},

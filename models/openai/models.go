@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"context"
 	"net/http"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -56,8 +57,8 @@ func (c ChatConfig) protocol() openaiprotocol.ChatCompletionsConfig {
 type Chat = openaiprotocol.ChatCompletions
 
 // NewChat rejects an invalid provider binding before the first chat call.
-func NewChat(config ChatConfig) (*Chat, error) {
-	return openaiprotocol.NewChatCompletions(config.protocol())
+func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
+	return openaiprotocol.NewChatCompletions(ctx, config.protocol())
 }
 
 // ResponsesConfig configures the OpenAI Responses endpoint independently from
@@ -85,8 +86,8 @@ func (r ResponsesConfig) protocol() openaiprotocol.ResponsesConfig {
 type Responses = openaiprotocol.Responses
 
 // NewResponses rejects an invalid provider binding before the first Responses call.
-func NewResponses(config ResponsesConfig) (*Responses, error) {
-	return openaiprotocol.NewResponses(config.protocol())
+func NewResponses(ctx context.Context, config ResponsesConfig) (*Responses, error) {
+	return openaiprotocol.NewResponses(ctx, config.protocol())
 }
 
 // EmbeddingModelConfig binds provider access and defaults shared by every embedding call.
@@ -107,8 +108,8 @@ func (e EmbeddingModelConfig) protocol() openaiprotocol.EmbeddingModelConfig {
 type EmbeddingModel = openaiprotocol.EmbeddingModel
 
 // NewEmbeddingModel rejects an invalid provider binding before the first embedding call.
-func NewEmbeddingModel(config EmbeddingModelConfig) (*EmbeddingModel, error) {
-	return openaiprotocol.NewEmbeddingModel(config.protocol())
+func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*EmbeddingModel, error) {
+	return openaiprotocol.NewEmbeddingModel(ctx, config.protocol())
 }
 
 // AudioTranscriptionModelConfig binds provider access and defaults shared by every transcription call.
@@ -129,8 +130,8 @@ func (a AudioTranscriptionModelConfig) protocol() openaiprotocol.AudioTranscript
 type AudioTranscriptionModel = openaiprotocol.AudioTranscriptionModel
 
 // NewAudioTranscriptionModel rejects an invalid provider binding before the first transcription call.
-func NewAudioTranscriptionModel(config AudioTranscriptionModelConfig) (*AudioTranscriptionModel, error) {
-	return openaiprotocol.NewAudioTranscriptionModel(config.protocol())
+func NewAudioTranscriptionModel(ctx context.Context, config AudioTranscriptionModelConfig) (*AudioTranscriptionModel, error) {
+	return openaiprotocol.NewAudioTranscriptionModel(ctx, config.protocol())
 }
 
 // AudioTranslationModelConfig binds provider access and defaults shared by every translation call.
@@ -151,8 +152,8 @@ func (a AudioTranslationModelConfig) protocol() openaiprotocol.AudioTranslationM
 type AudioTranslationModel = openaiprotocol.AudioTranslationModel
 
 // NewAudioTranslationModel rejects an invalid provider binding before the first translation call.
-func NewAudioTranslationModel(config AudioTranslationModelConfig) (*AudioTranslationModel, error) {
-	return openaiprotocol.NewAudioTranslationModel(config.protocol())
+func NewAudioTranslationModel(ctx context.Context, config AudioTranslationModelConfig) (*AudioTranslationModel, error) {
+	return openaiprotocol.NewAudioTranslationModel(ctx, config.protocol())
 }
 
 // AudioTTSModelConfig binds provider access and defaults shared by every speech call.
@@ -181,8 +182,8 @@ func (a AudioTTSModelConfig) protocol() openaiprotocol.AudioTTSModelConfig {
 type AudioTTSModel = openaiprotocol.AudioTTSModel
 
 // NewAudioTTSModel rejects an invalid provider binding before the first speech call.
-func NewAudioTTSModel(config AudioTTSModelConfig) (*AudioTTSModel, error) {
-	return openaiprotocol.NewAudioTTSModel(config.protocol())
+func NewAudioTTSModel(ctx context.Context, config AudioTTSModelConfig) (*AudioTTSModel, error) {
+	return openaiprotocol.NewAudioTTSModel(ctx, config.protocol())
 }
 
 // ImageModelConfig binds provider access and defaults shared by every image call.
@@ -203,8 +204,8 @@ func (i ImageModelConfig) protocol() openaiprotocol.ImageModelConfig {
 type ImageModel = openaiprotocol.ImageModel
 
 // NewImageModel rejects an invalid provider binding before the first image call.
-func NewImageModel(config ImageModelConfig) (*ImageModel, error) {
-	return openaiprotocol.NewImageModel(config.protocol())
+func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, error) {
+	return openaiprotocol.NewImageModel(ctx, config.protocol())
 }
 
 // ModerationModelConfig binds provider access and defaults shared by every moderation call.
@@ -225,6 +226,6 @@ func (m ModerationModelConfig) protocol() openaiprotocol.ModerationModelConfig {
 type ModerationModel = openaiprotocol.ModerationModel
 
 // NewModerationModel rejects an invalid provider binding before the first moderation call.
-func NewModerationModel(config ModerationModelConfig) (*ModerationModel, error) {
-	return openaiprotocol.NewModerationModel(config.protocol())
+func NewModerationModel(ctx context.Context, config ModerationModelConfig) (*ModerationModel, error) {
+	return openaiprotocol.NewModerationModel(ctx, config.protocol())
 }
