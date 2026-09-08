@@ -88,13 +88,17 @@ func (v *visitor) visitHasExpr(expr *filter.BinaryExpr) error {
 	if err != nil {
 		return fmt.Errorf("elasticsearch: %w (at %s)", err, expr.Start().String())
 	}
-	value, err := expr.Value()
+	lit, err := expr.Literal()
 	if err != nil {
 		return fmt.Errorf("elasticsearch: %w (at %s)", err, expr.Start().String())
 	}
+	term, err := formatLiteral(lit)
+	if err != nil {
+		return err
+	}
 	v.sql.WriteString(field)
 	v.sql.WriteString(":")
-	v.sql.WriteString(formatValue(value))
+	v.sql.WriteString(term)
 	return nil
 }
 
@@ -132,37 +136,41 @@ func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 		return fmt.Errorf("elasticsearch: %w (at %s)", err, expr.Start().String())
 	}
 
-	value, err := expr.Value()
+	lit, err := expr.Literal()
 	if err != nil {
 		return fmt.Errorf("elasticsearch: %w (at %s)", err, expr.Start().String())
+	}
+	term, err := formatLiteral(lit)
+	if err != nil {
+		return err
 	}
 
 	switch expr.Operator() {
 	case filter.OpEqual:
 		v.sql.WriteString(field)
 		v.sql.WriteString(":")
-		v.sql.WriteString(formatValue(value))
+		v.sql.WriteString(term)
 	case filter.OpNotEqual:
 		v.sql.WriteString("NOT ")
 		v.sql.WriteString(field)
 		v.sql.WriteString(":")
-		v.sql.WriteString(formatValue(value))
+		v.sql.WriteString(term)
 	case filter.OpLess:
 		v.sql.WriteString(field)
 		v.sql.WriteString(":<")
-		v.sql.WriteString(formatValue(value))
+		v.sql.WriteString(term)
 	case filter.OpLessEqual:
 		v.sql.WriteString(field)
 		v.sql.WriteString(":<=")
-		v.sql.WriteString(formatValue(value))
+		v.sql.WriteString(term)
 	case filter.OpGreater:
 		v.sql.WriteString(field)
 		v.sql.WriteString(":>")
-		v.sql.WriteString(formatValue(value))
+		v.sql.WriteString(term)
 	case filter.OpGreaterEqual:
 		v.sql.WriteString(field)
 		v.sql.WriteString(":>=")
-		v.sql.WriteString(formatValue(value))
+		v.sql.WriteString(term)
 	default:
 		return fmt.Errorf("elasticsearch: unexpected comparison operator '%s'", expr.Operator().String())
 	}
@@ -182,11 +190,11 @@ func (v *visitor) visitInExpr(expr *filter.BinaryExpr) error {
 
 	parts := make([]string, 0, listLit.Len())
 	for _, lit := range listLit.Literals() {
-		val, err := lit.Value()
+		term, err := formatLiteral(lit)
 		if err != nil {
-			return fmt.Errorf("elasticsearch: %w (at %s)", err, expr.Start().String())
+			return err
 		}
-		parts = append(parts, formatValue(val))
+		parts = append(parts, term)
 	}
 
 	v.sql.WriteString(field)
@@ -249,24 +257,39 @@ func (v *visitor) fieldPath(expr *filter.BinaryExpr) (string, error) {
 	return v.metadataPrefix + "." + strings.Join(keys, "."), nil
 }
 
-func formatValue(v any) string {
-	switch val := v.(type) {
-	case string:
-		return `"` + escapeLuceneString(val) + `"`
-	case bool:
-		if val {
-			return "true"
+// formatLiteral renders a filter literal as a Lucene term.
+//
+// It reads the literal rather than a scalar decoded out of it because the
+// literal owns the exact numeral and a scalar cannot carry it back. Deciding
+// integer-ness with float64(int64(value)) == value asked Go for an
+// out-of-range float-to-int conversion, which the spec leaves
+// implementation-defined: at 2^63 arm64 saturates to MaxInt64, whose float64
+// compares equal, so the term became 9223372036854775807 while amd64 emitted
+// the right digits. An integer past int64 had no branch at all and fell
+// through to a %v rendering nobody owned.
+func formatLiteral(lit *filter.Literal) (string, error) {
+	switch {
+	case lit.IsString():
+		text, err := lit.AsString()
+		if err != nil {
+			return "", fmt.Errorf("elasticsearch: %w (at %s)", err, lit.Start().String())
 		}
-		return "false"
-	case int64:
-		return strconv.FormatInt(val, 10)
-	case float64:
-		if float64(int64(val)) == val {
-			return strconv.FormatInt(int64(val), 10)
+		return `"` + escapeLuceneString(text) + `"`, nil
+	case lit.IsNumber():
+		text, err := lit.NumberText()
+		if err != nil {
+			return "", fmt.Errorf("elasticsearch: %w (at %s)", err, lit.Start().String())
 		}
-		return strconv.FormatFloat(val, 'f', -1, 64)
+		return text, nil
+	case lit.IsBool():
+		value, err := lit.AsBool()
+		if err != nil {
+			return "", fmt.Errorf("elasticsearch: %w (at %s)", err, lit.Start().String())
+		}
+		return strconv.FormatBool(value), nil
 	default:
-		return fmt.Sprint(val)
+		return "", fmt.Errorf("elasticsearch: unsupported literal kind '%s' at %s",
+			lit.Kind(), lit.Start().String())
 	}
 }
 

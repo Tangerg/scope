@@ -84,13 +84,17 @@ func (v *visitor) visitHasExpr(expr *filter.BinaryExpr) error {
 	if err != nil {
 		return err
 	}
-	value, err := expr.Value()
+	lit, err := expr.Literal()
+	if err != nil {
+		return err
+	}
+	term, err := yqlLiteral(lit)
 	if err != nil {
 		return err
 	}
 	v.sql.WriteString(field)
 	v.sql.WriteString(" contains ")
-	v.sql.WriteString(yqlLiteral(value))
+	v.sql.WriteString(term)
 	return nil
 }
 
@@ -128,24 +132,28 @@ func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 	if err != nil {
 		return err
 	}
-	value, err := expr.Value()
+	lit, err := expr.Literal()
+	if err != nil {
+		return err
+	}
+	term, err := yqlLiteral(lit)
 	if err != nil {
 		return err
 	}
 
 	// String equality maps onto YQL `contains`; ordering / non-eq
 	// numeric ops use the standard relational operators.
-	if _, isString := value.(string); isString && expr.Operator().Is(filter.OpEqual) {
+	if lit.IsString() && expr.Operator().Is(filter.OpEqual) {
 		v.sql.WriteString(field)
 		v.sql.WriteString(" contains ")
-		v.sql.WriteString(yqlLiteral(value))
+		v.sql.WriteString(term)
 		return nil
 	}
-	if _, isString := value.(string); isString && expr.Operator().Is(filter.OpNotEqual) {
+	if lit.IsString() && expr.Operator().Is(filter.OpNotEqual) {
 		v.sql.WriteString("!(")
 		v.sql.WriteString(field)
 		v.sql.WriteString(" contains ")
-		v.sql.WriteString(yqlLiteral(value))
+		v.sql.WriteString(term)
 		v.sql.WriteString(")")
 		return nil
 	}
@@ -158,7 +166,7 @@ func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 	v.sql.WriteByte(' ')
 	v.sql.WriteString(op)
 	v.sql.WriteByte(' ')
-	v.sql.WriteString(yqlLiteral(value))
+	v.sql.WriteString(term)
 	return nil
 }
 
@@ -176,11 +184,11 @@ func (v *visitor) visitInExpr(expr *filter.BinaryExpr) error {
 	}
 	parts := make([]string, 0, listLit.Len())
 	for _, lit := range listLit.Literals() {
-		val, err := lit.Value()
+		term, err := yqlLiteral(lit)
 		if err != nil {
 			return err
 		}
-		parts = append(parts, yqlLiteral(val))
+		parts = append(parts, term)
 	}
 	v.sql.WriteString(field)
 	v.sql.WriteString(" in (")
@@ -220,7 +228,7 @@ func (v *visitor) visitLikeExpr(expr *filter.BinaryExpr) error {
 	}
 	v.sql.WriteString(field)
 	v.sql.WriteString(" matches ")
-	v.sql.WriteString(yqlLiteral(b.String()))
+	v.sql.WriteString(quoteYQLString(b.String()))
 	return nil
 }
 
@@ -258,23 +266,42 @@ func yqlOpFor(kind filter.Operator) (string, error) {
 	}
 }
 
-func yqlLiteral(v any) string {
-	switch val := v.(type) {
-	case string:
-		return `"` + strings.ReplaceAll(val, `"`, `\"`) + `"`
-	case bool:
-		if val {
-			return "true"
+// yqlLiteral renders a filter literal as a YQL term.
+//
+// It reads the literal rather than a scalar decoded out of it because the
+// literal owns the exact numeral and a scalar cannot carry it back. Deciding
+// integer-ness with float64(int64(value)) == value asked Go for an
+// out-of-range float-to-int conversion, which the spec leaves
+// implementation-defined: at 2^63 arm64 saturates to MaxInt64, whose float64
+// compares equal, so the term became 9223372036854775807 while amd64 emitted
+// the right digits. An integer past int64 had no branch at all and fell
+// through to a %v rendering nobody owned.
+func yqlLiteral(lit *filter.Literal) (string, error) {
+	switch {
+	case lit.IsString():
+		text, err := lit.AsString()
+		if err != nil {
+			return "", fmt.Errorf("vespa: %w (at %s)", err, lit.Start().String())
 		}
-		return "false"
-	case int64:
-		return strconv.FormatInt(val, 10)
-	case float64:
-		if float64(int64(val)) == val {
-			return strconv.FormatInt(int64(val), 10)
+		return quoteYQLString(text), nil
+	case lit.IsNumber():
+		text, err := lit.NumberText()
+		if err != nil {
+			return "", fmt.Errorf("vespa: %w (at %s)", err, lit.Start().String())
 		}
-		return strconv.FormatFloat(val, 'f', -1, 64)
+		return text, nil
+	case lit.IsBool():
+		value, err := lit.AsBool()
+		if err != nil {
+			return "", fmt.Errorf("vespa: %w (at %s)", err, lit.Start().String())
+		}
+		return strconv.FormatBool(value), nil
 	default:
-		return fmt.Sprint(val)
+		return "", fmt.Errorf("vespa: unsupported literal kind '%s' at %s",
+			lit.Kind(), lit.Start().String())
 	}
+}
+
+func quoteYQLString(value string) string {
+	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
 }

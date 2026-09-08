@@ -135,7 +135,11 @@ func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 	if err != nil {
 		return err
 	}
-	value, err := expr.Value()
+	lit, err := expr.Literal()
+	if err != nil {
+		return err
+	}
+	term, err := literalToSQL(lit)
 	if err != nil {
 		return err
 	}
@@ -147,7 +151,7 @@ func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 	v.sql.WriteByte(' ')
 	v.sql.WriteString(op)
 	v.sql.WriteByte(' ')
-	v.sql.WriteString(literalToSQL(value))
+	v.sql.WriteString(term)
 	return nil
 }
 
@@ -165,11 +169,11 @@ func (v *visitor) visitInExpr(expr *filter.BinaryExpr) error {
 	}
 	parts := make([]string, 0, listLit.Len())
 	for _, lit := range listLit.Literals() {
-		val, err := lit.Value()
+		term, err := literalToSQL(lit)
 		if err != nil {
 			return err
 		}
-		parts = append(parts, literalToSQL(val))
+		parts = append(parts, term)
 	}
 	v.sql.WriteString(field)
 	v.sql.WriteString(" IN (")
@@ -193,7 +197,7 @@ func (v *visitor) visitLikeExpr(expr *filter.BinaryExpr) error {
 	}
 	v.sql.WriteString(field)
 	v.sql.WriteString(" LIKE ")
-	v.sql.WriteString(literalToSQL(pattern))
+	v.sql.WriteString(quoteSQLString(pattern))
 	return nil
 }
 
@@ -227,23 +231,42 @@ func opFor(kind filter.Operator) (string, error) {
 	}
 }
 
-func literalToSQL(v any) string {
-	switch val := v.(type) {
-	case string:
-		return "'" + strings.ReplaceAll(val, "'", "''") + "'"
-	case bool:
-		if val {
-			return "true"
+// literalToSQL renders a filter literal as a Vectara metadata-filter term.
+//
+// It reads the literal rather than a scalar decoded out of it because the
+// literal owns the exact numeral and a scalar cannot carry it back. Deciding
+// integer-ness with float64(int64(value)) == value asked Go for an
+// out-of-range float-to-int conversion, which the spec leaves
+// implementation-defined: at 2^63 arm64 saturates to MaxInt64, whose float64
+// compares equal, so the term became 9223372036854775807 while amd64 emitted
+// the right digits. An integer past int64 had no branch at all and fell
+// through to a %v rendering nobody owned.
+func literalToSQL(lit *filter.Literal) (string, error) {
+	switch {
+	case lit.IsString():
+		text, err := lit.AsString()
+		if err != nil {
+			return "", fmt.Errorf("vectara: %w (at %s)", err, lit.Start().String())
 		}
-		return "false"
-	case int64:
-		return strconv.FormatInt(val, 10)
-	case float64:
-		if float64(int64(val)) == val {
-			return strconv.FormatInt(int64(val), 10)
+		return quoteSQLString(text), nil
+	case lit.IsNumber():
+		text, err := lit.NumberText()
+		if err != nil {
+			return "", fmt.Errorf("vectara: %w (at %s)", err, lit.Start().String())
 		}
-		return strconv.FormatFloat(val, 'f', -1, 64)
+		return text, nil
+	case lit.IsBool():
+		value, err := lit.AsBool()
+		if err != nil {
+			return "", fmt.Errorf("vectara: %w (at %s)", err, lit.Start().String())
+		}
+		return strconv.FormatBool(value), nil
 	default:
-		return fmt.Sprint(val)
+		return "", fmt.Errorf("vectara: unsupported literal kind '%s' at %s",
+			lit.Kind(), lit.Start().String())
 	}
+}
+
+func quoteSQLString(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }

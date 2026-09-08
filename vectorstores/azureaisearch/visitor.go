@@ -100,13 +100,17 @@ func (v *visitor) visitHasExpr(expr *filter.BinaryExpr) error {
 	if err != nil {
 		return err
 	}
-	value, err := expr.Value()
+	lit, err := expr.Literal()
+	if err != nil {
+		return err
+	}
+	term, err := odataLiteral(lit)
 	if err != nil {
 		return err
 	}
 	v.sql.WriteString(field)
 	v.sql.WriteString("/any(element: element eq ")
-	v.sql.WriteString(odataLiteral(value))
+	v.sql.WriteString(term)
 	v.sql.WriteByte(')')
 	return nil
 }
@@ -145,7 +149,11 @@ func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 	if err != nil {
 		return err
 	}
-	value, err := expr.Value()
+	lit, err := expr.Literal()
+	if err != nil {
+		return err
+	}
+	term, err := odataLiteral(lit)
 	if err != nil {
 		return err
 	}
@@ -157,7 +165,7 @@ func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 	v.sql.WriteByte(' ')
 	v.sql.WriteString(op)
 	v.sql.WriteByte(' ')
-	v.sql.WriteString(odataLiteral(value))
+	v.sql.WriteString(term)
 	return nil
 }
 
@@ -176,14 +184,13 @@ func (v *visitor) visitInExpr(expr *filter.BinaryExpr) error {
 
 	parts := make([]string, 0, listLit.Len())
 	for _, lit := range listLit.Literals() {
-		val, err := lit.Value()
+		term, err := odataTerm(lit)
 		if err != nil {
 			return err
 		}
-		s := fmt.Sprint(val)
 		// search.in's third argument is the separator — pick something
 		// that's unlikely to appear in tag values.
-		parts = append(parts, strings.ReplaceAll(s, "|", `\|`))
+		parts = append(parts, strings.ReplaceAll(term, "|", `\|`))
 	}
 	v.sql.WriteString("search.in(")
 	v.sql.WriteString(field)
@@ -251,23 +258,58 @@ func odataOpFor(kind filter.Operator) (string, error) {
 	}
 }
 
-func odataLiteral(v any) string {
-	switch val := v.(type) {
-	case string:
-		return "'" + strings.ReplaceAll(val, "'", "''") + "'"
-	case bool:
-		if val {
-			return "true"
+// odataTerm renders a filter literal as the bare text of an OData constant.
+//
+// It reads the literal rather than a scalar decoded out of it because the
+// literal owns the exact numeral and a scalar cannot carry it back. Deciding
+// integer-ness with float64(int64(value)) == value asked Go for an
+// out-of-range float-to-int conversion, which the spec leaves
+// implementation-defined: at 2^63 arm64 saturates to MaxInt64, whose float64
+// compares equal, so the constant became 9223372036854775807 while amd64
+// emitted the right digits. An integer past int64 had no branch at all and
+// fell through to a %v rendering nobody owned — the same %v that turned a
+// float into OData's undocumented exponent form inside search.in.
+func odataTerm(lit *filter.Literal) (string, error) {
+	switch {
+	case lit.IsString():
+		text, err := lit.AsString()
+		if err != nil {
+			return "", fmt.Errorf("azureaisearch: %w (at %s)", err, lit.Start().String())
 		}
-		return "false"
-	case int64:
-		return strconv.FormatInt(val, 10)
-	case float64:
-		if float64(int64(val)) == val {
-			return strconv.FormatInt(int64(val), 10)
+		return text, nil
+	case lit.IsNumber():
+		text, err := lit.NumberText()
+		if err != nil {
+			return "", fmt.Errorf("azureaisearch: %w (at %s)", err, lit.Start().String())
 		}
-		return strconv.FormatFloat(val, 'f', -1, 64)
+		return text, nil
+	case lit.IsBool():
+		value, err := lit.AsBool()
+		if err != nil {
+			return "", fmt.Errorf("azureaisearch: %w (at %s)", err, lit.Start().String())
+		}
+		return strconv.FormatBool(value), nil
 	default:
-		return fmt.Sprint(val)
+		return "", fmt.Errorf("azureaisearch: unsupported literal kind '%s' at %s",
+			lit.Kind(), lit.Start().String())
 	}
+}
+
+// odataLiteral quotes a string term and leaves every other term bare, which is
+// what a standalone OData constant needs. search.in wants the bare form
+// instead: its members live inside one quoted string, so a pre-quoted member
+// would compare against a value carrying literal quote characters.
+func odataLiteral(lit *filter.Literal) (string, error) {
+	term, err := odataTerm(lit)
+	if err != nil {
+		return "", err
+	}
+	if lit.IsString() {
+		return quoteODataString(term), nil
+	}
+	return term, nil
+}
+
+func quoteODataString(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }

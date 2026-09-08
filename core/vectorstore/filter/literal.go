@@ -116,12 +116,32 @@ func (l *Literal) AsBool() (bool, error) {
 	return b, nil
 }
 
-// NumberText returns the exact canonical representation of a number literal.
+// NumberText renders a number literal as a plain decimal numeral, without an
+// exponent, for a store that pastes the value into a provider filter string.
+//
+// A literal's canonical text uses 'g' formatting, so 1000000.0 canonicalizes
+// to "1e+06". Provider filter grammars document decimal numerals — Typesense's
+// filter_by comparisons, Azure AI Search's OData constants, Vespa's YQL — and
+// none of them documents exponent notation, so the canonical form is not a
+// numeral those languages promise to read. [Literal.Text] still exposes the
+// canonical text for callers that want it.
+//
+// An integer literal keeps its exact digits, including the magnitudes past
+// int64 that no float64 could hold. Every other literal renders from the
+// float64 it denotes, which is the same float64 the canonical text was
+// produced from, so no precision appears or disappears here.
 func (l *Literal) NumberText() (string, error) {
 	if _, err := l.numberRat(); err != nil {
 		return "", err
 	}
-	return l.text, nil
+	if !strings.ContainsAny(l.text, ".eE") {
+		return l.text, nil
+	}
+	number, err := strconv.ParseFloat(l.text, 64)
+	if err != nil {
+		return "", fmt.Errorf("filter: render number literal: invalid number %q: %w", l.text, err)
+	}
+	return strconv.FormatFloat(number, 'f', -1, 64), nil
 }
 
 // IsInteger reports whether a number literal has an integral value.

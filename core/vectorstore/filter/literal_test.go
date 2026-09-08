@@ -103,6 +103,46 @@ func TestExactNumberConversions(t *testing.T) {
 		}
 	})
 
+	// Provider filter grammars document decimal numerals, not exponents, and a
+	// store pastes NumberText straight into a filter string. The canonical text
+	// of these literals is "1e+06" and "9.223372036854776e+18"; emitting that
+	// would hand Typesense and Vespa a numeral their documented grammars never
+	// promise to read.
+	//
+	// 2^63 also pins the boundary that made the adapters' own rendering
+	// architecture-dependent: they decided integer-ness with
+	// float64(int64(val)) == val, and Go leaves an out-of-range float-to-int
+	// conversion implementation-defined — arm64 saturates to MaxInt64, whose
+	// float64 equals 2^63, so the comparison passed and the filter carried
+	// 9223372036854775807 while amd64 carried the right digits.
+	t.Run("decimal numeral without exponent", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			literal *filter.Literal
+			want    string
+		}{
+			{name: "integral float", literal: filter.NewLiteral(1000000.0), want: "1000000"},
+			{name: "fraction", literal: filter.NewLiteral(0.8), want: "0.8"},
+			{name: "int64 boundary", literal: filter.NewLiteral(float64(1 << 63)), want: "9223372036854776000"},
+			{name: "negative zero", literal: filter.NewLiteral(math.Copysign(0, -1)), want: "0"},
+			{name: "plain integer", literal: filter.NewLiteral(2020), want: "2020"},
+		}
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				actual, err := test.literal.NumberText()
+				if err != nil || actual != test.want {
+					t.Fatalf("NumberText() = %q, %v, want %q", actual, err, test.want)
+				}
+			})
+		}
+	})
+
+	t.Run("rejects a non-number literal", func(t *testing.T) {
+		if _, err := filter.NewLiteral("2020").NumberText(); err == nil {
+			t.Fatal("NumberText accepted a string literal")
+		}
+	})
+
 	t.Run("int64 rejects fraction and overflow", func(t *testing.T) {
 		if _, err := filter.NewLiteral(1.5).Int64(); err == nil {
 			t.Fatal("Int64 accepted a fraction")
