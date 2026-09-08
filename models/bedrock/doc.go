@@ -30,5 +30,11 @@
 // an error, so a stream that stops without one fails with
 // [chat.ErrInvalidResponse] rather than passing off a partial answer.
 //
+// Token usage. With prompt caching, Converse reports inputTokens as the
+// non-cached part only and the cache counts beside it, so the store adds the
+// three into the total Core reports and keeps the cache counts as breakdowns of
+// it. Copying inputTokens through would understate the input by the whole
+// cached prefix and put a breakdown above its own total.
+//
 // See https://docs.aws.amazon.com/bedrock/ for the full reference.
 package bedrock

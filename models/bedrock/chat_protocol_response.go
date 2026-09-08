@@ -148,19 +148,36 @@ func mapProtocolUsage(usage *types.TokenUsage) corechat.Usage {
 		return corechat.Usage{}
 	}
 	result := corechat.Usage{}
-	if usage.InputTokens != nil {
-		result.InputTokens = int64(*usage.InputTokens)
-	}
 	if usage.OutputTokens != nil {
 		result.OutputTokens = int64(*usage.OutputTokens)
 	}
+
+	var uncached, cacheRead, cacheWrite int64
+	if usage.InputTokens != nil {
+		uncached = int64(*usage.InputTokens)
+	}
 	if usage.CacheReadInputTokens != nil {
-		value := int64(*usage.CacheReadInputTokens)
-		result.CacheReadInputTokens = &value
+		cacheRead = int64(*usage.CacheReadInputTokens)
+		result.CacheReadInputTokens = &cacheRead
 	}
 	if usage.CacheWriteInputTokens != nil {
-		value := int64(*usage.CacheWriteInputTokens)
-		result.CacheWriteInputTokens = &value
+		cacheWrite = int64(*usage.CacheWriteInputTokens)
+		result.CacheWriteInputTokens = &cacheWrite
 	}
+	result.InputTokens = protocolTotalInputTokens(uncached, cacheRead, cacheWrite)
 	return result
+}
+
+// protocolTotalInputTokens converts Converse's disjoint input counters into the
+// total Core reports.
+//
+// With prompt caching, "the inputTokens field represents only the non-cached
+// input tokens", and AWS gives the total as
+// inputTokens + cacheReadInputTokens + cacheWriteInputTokens. Core's
+// InputTokens is that total, with the cache counts as breakdowns of it, so
+// copying the similarly named field both understates the input — usually by the
+// whole cached prefix — and puts a breakdown above its own total, which
+// [corechat.Usage.Validate] rejects. A cache hit would fail the response.
+func protocolTotalInputTokens(uncached, cacheRead, cacheWrite int64) int64 {
+	return uncached + cacheRead + cacheWrite
 }

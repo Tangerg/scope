@@ -107,8 +107,10 @@ func TestMapProtocolConverseResponse(t *testing.T) {
 	if err != nil || !found || kind != ReasoningBlockRedacted || string(parts[1].ReasoningState) != "opaque" {
 		t.Fatalf("redacted reasoning = %#v/%q/%v/%v", parts[1], kind, found, err)
 	}
+	// Converse reports inputTokens as the non-cached part only, so the Core
+	// total is 11 + 3.
 	usage := response.Metadata.Usage
-	if usage.InputTokens != 11 || usage.OutputTokens != 7 || usage.CacheReadInputTokens == nil || *usage.CacheReadInputTokens != 3 {
+	if usage.InputTokens != 14 || usage.OutputTokens != 7 || usage.CacheReadInputTokens == nil || *usage.CacheReadInputTokens != 3 {
 		t.Fatalf("usage = %#v", usage)
 	}
 }
