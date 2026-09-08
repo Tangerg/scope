@@ -87,13 +87,13 @@ func (p *processState) prepareStepResult(
 	}
 	for index, effect := range transition.Effects() {
 		wire.Effects = append(wire.Effects, preparedEffectWire{
-			ID: deriveEffectID(p.controller.processID, sequence, index), Effect: effect,
+			ID: deriveEffectID(p.handle.processID, sequence, index), Effect: effect,
 			Phase: effectPhasePlanned,
 		})
 	}
 	p.prepared = &preparedStep{wire: wire, candidate: result.candidate}
 	p.usage.PreparedEffects += effectCount
-	p.updateView()
+	p.publishEphemeralStatus()
 	p.publishEvent(ctx, EventStepPrepared, EventPhaseAttempt, sequence, EffectID{}, emptyEventPayload())
 	return nil
 }
@@ -210,7 +210,7 @@ func (p *preparedStepFinalization) registerChildWait(record preparedEffectWire, 
 		return ErrInvalidChildWait
 	}
 	immediateSignal, immediatelySatisfied, err := p.process.runtime.registerChildWait(
-		p.process.controller.processID, waitID, spec,
+		p.process.handle.processID, waitID, spec,
 	)
 	if err != nil {
 		return err
@@ -315,7 +315,7 @@ func (p *preparedStepFinalization) commit(ctx context.Context) {
 		process.currentWaitID = p.transition.currentWaitID
 		process.pauseReason = p.transition.pauseReason
 	}
-	process.updateView()
+	process.publishEphemeralStatus()
 	payload, _ := json.Marshal(stepCommittedEventPayload{ProcessStatus: process.status})
 	process.publishEvent(ctx, EventStepCommitted, EventPhaseCommitted, process.committedSteps, EffectID{}, payload)
 	if process.status == StatusPaused {
@@ -382,7 +382,7 @@ func (p *processState) commitTerminationWithUnresolved(
 	for _, waitID := range p.mailbox.closeAllWaits() {
 		p.runtime.unregisterChildWait(waitID)
 	}
-	p.updateView()
+	p.publishEphemeralStatus()
 }
 
 func (p *processState) installTermination(termination Termination, output Output, finishedAt time.Time) {

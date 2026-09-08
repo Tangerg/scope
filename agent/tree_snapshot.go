@@ -388,8 +388,8 @@ func (t *treeRuntime) acquireTreeFreeze(
 	ctx context.Context,
 ) (*treeFreeze, TreeSnapshot, error) {
 	ctx = requireContext(ctx)
-	if freeze, snapshot, err, done := t.finishedTreeFreeze(); done {
-		return freeze, snapshot, err
+	if snapshot, err, stopped := t.captureStoppedTree(); stopped {
+		return nil, snapshot, err
 	}
 	acquisition := &treeFreezeAcquisition{
 		response: make(chan treeFreezeAcquisitionResult, 1),
@@ -400,8 +400,8 @@ func (t *treeRuntime) acquireTreeFreeze(
 		kind: treeCommandAcquireFreeze, acquisition: acquisition,
 	}:
 	case <-t.done:
-		freeze, snapshot, err, _ := t.finishedTreeFreeze()
-		return freeze, snapshot, err
+		snapshot, err, _ := t.captureStoppedTree()
+		return nil, snapshot, err
 	case <-ctx.Done():
 		return nil, TreeSnapshot{}, ctx.Err()
 	}
@@ -409,23 +409,20 @@ func (t *treeRuntime) acquireTreeFreeze(
 	case result := <-acquisition.response:
 		return result.freeze, result.snapshot, result.err
 	case <-t.done:
-		freeze, snapshot, err, _ := t.finishedTreeFreeze()
-		return freeze, snapshot, err
+		snapshot, err, _ := t.captureStoppedTree()
+		return nil, snapshot, err
 	case <-ctx.Done():
 		close(acquisition.canceled)
 		return nil, TreeSnapshot{}, ctx.Err()
 	}
 }
 
-func (t *treeRuntime) finishedTreeFreeze() (*treeFreeze, TreeSnapshot, error, bool) {
+func (t *treeRuntime) captureStoppedTree() (TreeSnapshot, error, bool) {
 	select {
 	case <-t.done:
 		snapshot, err := t.captureTree()
-		if err != nil {
-			return nil, TreeSnapshot{}, err, true
-		}
-		return nil, snapshot, nil, true
+		return snapshot, err, true
 	default:
-		return nil, TreeSnapshot{}, nil, false
+		return TreeSnapshot{}, nil, false
 	}
 }

@@ -87,8 +87,8 @@ func TestChildCompletionPreservesParentSchedulingAcrossRestore(t *testing.T) {
 
 func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
-	controller := parent.controller
-	parentID := controller.processID
+	handle := parent.handle
+	parentID := handle.processID
 	now := parent.startedAt
 	parent.status = StatusWaiting
 	waitID, _ := ParseWaitID("wait:oversized-children")
@@ -111,11 +111,11 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 	for _, name := range []string{"first", "second"} {
 		id, _ := newProcessID()
 		key, _ := ParseChildKey(name)
-		relation := childProcessRelation(id, controller.relation, key)
+		relation := childProcessRelation(id, handle.relation, key)
 		last = &processState{
 			status: StatusCompleted, startedAt: now, finishedAt: now,
 			termination: termination, finalOutput: output,
-			controller: &processController{processID: id, relation: relation},
+			handle: &processHandleState{processID: id, relation: relation},
 		}
 		if !last.result().Valid() {
 			t.Fatal("invalid child result")
@@ -127,7 +127,7 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 		parent: parentID, waitID: waitID,
 		spec: ChildWaitSpec{Key: waitKey, Children: children, Condition: AllChildren()},
 	}
-	runtime.processFinished(last)
+	runtime.propagateProcessTermination(last)
 	if !parent.pendingControl.failure.Valid() {
 		t.Fatal("aggregate encoding failure left the parent waiting without a failure intent")
 	}
@@ -137,12 +137,12 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 	if !runtime.advanceOne() {
 		t.Fatal("failed parent was not scheduled")
 	}
-	result := mustAwait(t, &Process{controller: controller})
+	result := mustAwait(t, &Process{handle: handle})
 	failure, present := result.Termination().Failure()
 	if result.Status() != StatusFailed || !present || failure.Code() != "engine.child.completion.encoding_failed" {
 		t.Fatalf("parent result = %s, failure = %+v", result.Status(), failure)
 	}
-	if snapshot, err := runtime.processes[controller.processID].capture(); err != nil || !snapshot.Valid() {
+	if snapshot, err := runtime.processes[handle.processID].capture(); err != nil || !snapshot.Valid() {
 		t.Fatalf("terminal snapshot = %v, error = %v", snapshot.Valid(), err)
 	}
 }
@@ -157,7 +157,7 @@ func TestPendingFailureRetainsUnknownExternalEffect(t *testing.T) {
 	if err != nil || control.failure != parent.pendingControl.failure {
 		t.Fatalf("pending failure round trip = %+v, error = %v", control, err)
 	}
-	id := deriveEffectID(parent.controller.processID, 1, 0)
+	id := deriveEffectID(parent.handle.processID, 1, 0)
 	effect, err := NewDispatcherEffect([]byte(`{}`))
 	if err != nil {
 		t.Fatal(err)
@@ -169,7 +169,7 @@ func TestPendingFailureRetainsUnknownExternalEffect(t *testing.T) {
 	parent.prepared = &preparedStep{wire: preparedStepWire{Effects: []preparedEffectWire{record}}}
 	parent.usage.PreparedEffects = 1
 	runtime.advancePrepared(parent)
-	result := mustAwait(t, &Process{controller: parent.controller})
+	result := mustAwait(t, &Process{handle: parent.handle})
 	if result.Status() != StatusFailed || !slices.Equal(result.Termination().UnresolvedEffectIDs(), []EffectID{id}) {
 		t.Fatalf("failure lost unresolved effect: %+v", result.Termination())
 	}
@@ -190,9 +190,9 @@ func newChildCompletionTestProcess(t *testing.T) (*treeRuntime, *processState) {
 	}
 	now := time.Now().Round(0).UTC()
 	parentID, _ := newProcessID()
-	controller := newProcessController(rootProcessRelation(parentID), deployment.DeploymentRef(),
+	handle := newProcessHandleState(rootProcessRelation(parentID), deployment.DeploymentRef(),
 		budgetFromLimits(engine.limits), engine.capabilities, engine.treeLimits, now, StatusRunning)
-	parent := newProcessState(engine, controller, deployment, execution, state, now, engine.limits)
+	parent := newProcessState(engine, handle, deployment, execution, state, now, engine.limits)
 	runtime := newTreeRuntime(engine, parentID, t.Context(), parent)
 	return runtime, parent
 }

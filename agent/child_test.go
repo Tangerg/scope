@@ -369,10 +369,10 @@ func TestTreeProcessLimitBoundsRecursiveBinaryExpansion(t *testing.T) {
 	engine.mu.RLock()
 	processCount := 0
 	var deepest uint32
-	for _, controller := range engine.processes {
-		if controller.relation.RootID() == root.ID() {
+	for _, handle := range engine.processes {
+		if handle.relation.RootID() == root.ID() {
 			processCount++
-			deepest = max(deepest, controller.relation.Depth())
+			deepest = max(deepest, handle.relation.Depth())
 		}
 	}
 	engine.mu.RUnlock()
@@ -611,7 +611,7 @@ func TestEngineRejectsWaitingOnDescendantThatIsNotDirectChild(t *testing.T) {
 	grandchildID, _ := ParseProcessID(childOutput.ChildIDs[0])
 	waitID, _ := ParseWaitID("wait:ancestor-rejected")
 	waitKey, _ := ParseWaitKey("descendant")
-	_, _, err = root.controller.runtime.Load().registerChildWait(root.ID(), waitID, ChildWaitSpec{
+	_, _, err = root.handle.runtime.Load().registerChildWait(root.ID(), waitID, ChildWaitSpec{
 		Key: waitKey, Children: []ProcessID{grandchildID}, Condition: AllChildren(),
 	})
 	if !errors.Is(err, ErrInvalidChildWait) {
@@ -1244,10 +1244,10 @@ func directChildIDs(t *testing.T, engine *Engine, parentID ProcessID) []string {
 	engine.mu.RLock()
 	defer engine.mu.RUnlock()
 	var ids []string
-	for _, controller := range engine.processes {
-		actualParent, child := controller.relation.ParentID()
+	for _, handle := range engine.processes {
+		actualParent, child := handle.relation.ParentID()
 		if child && actualParent == parentID {
-			ids = append(ids, controller.processID.String())
+			ids = append(ids, handle.processID.String())
 		}
 	}
 	slices.Sort(ids)

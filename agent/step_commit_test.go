@@ -13,14 +13,14 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	controller := newProcessController(
+	handle := newProcessHandleState(
 		rootProcessRelation(processID), DeploymentRef{},
 		Budget{Steps: maxUint64, Effects: maxUint64, Signals: maxUint64},
 		CapabilitySet{}, DefaultTreeLimits(), time.Now(), StatusRunning,
 	)
 	process := &processState{
 		engine:         &Engine{},
-		controller:     controller,
+		handle:         handle,
 		status:         StatusRunning,
 		committedSteps: maxUint64 - 1,
 		limits: Limits{

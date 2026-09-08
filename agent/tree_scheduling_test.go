@@ -9,7 +9,7 @@ import (
 // on goroutine timing or measuring machine-specific execution latency.
 const schedulingProgressTurns = 8
 
-func TestTreeSchedulingMakesProgressUnderContinuousQueries(t *testing.T) {
+func TestTreeSchedulingMakesProgressUnderContinuousRequests(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	runtime.completions = make(chan treeJobCompletion, 1)
 	responses := make(chan treeInspectionResponse, treeCommandBufferCapacity)
@@ -20,7 +20,7 @@ func TestTreeSchedulingMakesProgressUnderContinuousQueries(t *testing.T) {
 			runtime.inspections <- responses
 		}
 		for len(runtime.commands) < cap(runtime.commands) {
-			runtime.commands <- newTreeProcessCommand(process.controller.processID, processCommand{
+			runtime.commands <- newTreeProcessCommand(process.handle.processID, processCommand{
 				kind: commandResume, response: commandResponses,
 			})
 		}
@@ -39,7 +39,7 @@ func TestTreeSchedulingMakesProgressUnderContinuousQueries(t *testing.T) {
 		}
 		for len(commandResponses) != 0 {
 			response := <-commandResponses
-			if response.err != nil && !errors.Is(response.err, ErrProcessFinished) && !errors.Is(response.err, ErrProcessNotRunning) {
+			if response.err != nil && !errors.Is(response.err, ErrProcessFinished) && !errors.Is(response.err, ErrInvalidProcessControl) {
 				t.Fatal(response.err)
 			}
 			commandsAnswered++
@@ -54,7 +54,7 @@ func TestTreeSchedulingMakesProgressUnderContinuousQueries(t *testing.T) {
 		}
 	}
 	if process.attemptSequence == 0 {
-		t.Fatal("continuous queries starved a runnable Process")
+		t.Fatal("continuous queries starved a queued Process")
 	}
 
 	// Hold the real Step result until it is ready, then keep the query lane full
@@ -65,8 +65,8 @@ func TestTreeSchedulingMakesProgressUnderContinuousQueries(t *testing.T) {
 		advance()
 	}
 	select {
-	case <-process.controller.done:
-		result, err := process.controller.outcome()
+	case <-process.handle.outcomePublished:
+		result, err := process.handle.outcome()
 		if err != nil || result.Status() != StatusCompleted {
 			t.Fatalf("completed work result=%s error=%v", result.Status(), err)
 		}
@@ -85,13 +85,13 @@ func TestTreeSchedulingHonorsControlBeforeAdoptingReadyWork(t *testing.T) {
 	completion := receiveTreeRuntimeProbe(t, runtime.completions)
 	runtime.completions <- completion
 	response := make(chan processResponse, 1)
-	runtime.commands <- newTreeProcessCommand(process.controller.processID, processCommand{
+	runtime.commands <- newTreeProcessCommand(process.handle.processID, processCommand{
 		kind: commandKill, reason: "stop before adopting the ready Step", response: response,
 	})
 	for range schedulingProgressTurns {
 		runtime.advanceReadyWork()
 		select {
-		case <-process.controller.done:
+		case <-process.handle.outcomePublished:
 			select {
 			case reply := <-response:
 				if reply.err != nil {
@@ -100,7 +100,7 @@ func TestTreeSchedulingHonorsControlBeforeAdoptingReadyWork(t *testing.T) {
 			default:
 				t.Fatal("ready work overtook the control request")
 			}
-			result, err := process.controller.outcome()
+			result, err := process.handle.outcome()
 			if err != nil || result.Status() != StatusKilled {
 				t.Fatalf("controlled result=%s error=%v", result.Status(), err)
 			}
@@ -128,7 +128,7 @@ func TestTreeSchedulingCommitsParkedStateUnderContinuousQueries(t *testing.T) {
 	runtime.establishDurableHead(incarnation, initial)
 	process.status = StatusPaused
 	process.pauseReason = "wait for explicit resumption"
-	runtime.popRunnable()
+	runtime.dequeueProcess()
 	response := make(chan treeInspectionResponse, 1)
 	for range schedulingProgressTurns {
 		runtime.inspections <- response
@@ -144,23 +144,23 @@ func TestTreeSchedulingCommitsParkedStateUnderContinuousQueries(t *testing.T) {
 	if runtime.commit == nil {
 		t.Fatal("continuous queries prevented a safe checkpoint")
 	}
-	if process.controller.status() != StatusRunning {
+	if process.handle.status() != StatusRunning {
 		t.Fatal("parked state was published before checkpoint acknowledgment")
 	}
 	runtime.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, runtime.commitDone))
 	checkpoints := durability.treeCheckpoints()
 	if len(checkpoints) != 1 || checkpoints[0].Kind() != TreeCheckpointParked ||
-		process.controller.status() != StatusPaused {
+		process.handle.status() != StatusPaused {
 		t.Fatal("safe checkpoint did not publish the parked state")
 	}
 }
 
-func TestProcessQueriesDoNotWakePausedExecution(t *testing.T) {
+func TestTreeInspectionDoesNotWakePausedExecution(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	process.status = StatusPaused
 	process.pauseReason = "wait for explicit resumption"
-	process.updateView()
-	runtime.popRunnable()
+	process.publishEphemeralStatus()
+	runtime.dequeueProcess()
 	response := make(chan treeInspectionResponse, 1)
 	runtime.inspections <- response
 	if !runtime.tryInspection() {

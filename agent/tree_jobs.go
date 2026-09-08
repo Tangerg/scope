@@ -24,7 +24,7 @@ func (t *treeRuntime) startStep(process *processState) {
 	process.execution = nil
 	signals := process.mailbox.pending()
 	stepCtx, cancel := context.WithCancel(context.Background())
-	t.setProcessJob(process.controller.processID, &processJob{
+	t.setProcessJob(process.handle.processID, &processJob{
 		kind: processJobStep, attempt: attempt, cancel: cancel, startedAt: time.Now(),
 	})
 	go func() {
@@ -47,7 +47,7 @@ func (t *treeRuntime) startStep(process *processState) {
 			result.stage = stepJobStageInvalid
 		}
 		t.completions <- treeJobCompletion{
-			processID: process.controller.processID,
+			processID: process.handle.processID,
 			attempt:   attempt,
 			kind:      processJobStep,
 			step:      result,
@@ -65,7 +65,7 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int) {
 		}
 		if record.Effect.Target() == EffectTargetDispatcher && t.engine.durability != nil {
 			if err := t.startPendingEffectCommit(process, uint32(index), *record); err != nil {
-				t.failDurability(err, process.controller.processID, EffectID{})
+				t.failDurability(err, process.handle.processID, EffectID{})
 			}
 			return
 		}
@@ -92,7 +92,7 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int) {
 		process.publishSettlementEvent(
 			t.context, record.ID, EffectTargetFramework, record.Settlement.Status(), startedAt,
 		)
-		t.markRunnable(process.controller.processID)
+		t.enqueueProcess(process.handle.processID)
 		return
 	}
 	t.startDispatch(process, uint32(index), *record)
@@ -114,13 +114,13 @@ func (t *treeRuntime) recoverPendingEffect(
 			return
 		}
 		if t.engine.durability == nil {
-			t.markRunnable(process.controller.processID)
+			t.enqueueProcess(process.handle.processID)
 			return
 		}
 		settlement := *record.Settlement
 		snapshot, err := t.captureTree()
 		if err != nil {
-			t.failDurability(err, process.controller.processID, record.ID)
+			t.failDurability(err, process.handle.processID, record.ID)
 			return
 		}
 		boundary, err := newEffectBoundary(
@@ -131,11 +131,11 @@ func (t *treeRuntime) recoverPendingEffect(
 			snapshot,
 		)
 		if err != nil {
-			t.failDurability(err, process.controller.processID, record.ID)
+			t.failDurability(err, process.handle.processID, record.ID)
 			return
 		}
 		t.startEffectCommit(&treeCommit{
-			kind: treeCommitEffectSettled, processID: process.controller.processID,
+			kind: treeCommitEffectSettled, processID: process.handle.processID,
 			effectID: record.ID, snapshot: snapshot,
 		}, boundary)
 	default:
@@ -159,7 +159,7 @@ func (t *treeRuntime) startChild(
 		process.publishSettlementEvent(
 			t.context, record.ID, EffectTargetFramework, record.Settlement.Status(), startedAt,
 		)
-		t.markRunnable(process.controller.processID)
+		t.enqueueProcess(process.handle.processID)
 		return
 	}
 	attempt, ok := t.nextAttempt(process)
@@ -172,18 +172,18 @@ func (t *treeRuntime) startChild(
 			t.failPreparedEffect(process, childSettlementInvalidCode, err)
 			return
 		}
-		t.markRunnable(process.controller.processID)
+		t.enqueueProcess(process.handle.processID)
 		return
 	}
 	job := &processJob{
 		kind: processJobChildStart, attempt: attempt, effectID: record.ID,
 		childStart: preparation.plan, startedAt: startedAt,
 	}
-	t.setProcessJob(process.controller.processID, job)
+	t.setProcessJob(process.handle.processID, job)
 	go func() {
 		result := preparation.plan.execute(t.context)
 		t.completions <- treeJobCompletion{
-			processID:  process.controller.processID,
+			processID:  process.handle.processID,
 			attempt:    attempt,
 			kind:       processJobChildStart,
 			childStart: result,
@@ -210,7 +210,7 @@ func (t *treeRuntime) startDispatch(
 		effectID:  record.ID,
 		startedAt: startedAt,
 	}
-	t.setProcessJob(process.controller.processID, job)
+	t.setProcessJob(process.handle.processID, job)
 	var deltaSequence atomic.Uint64
 	var dropped atomic.Uint64
 	var acceptingDeltas atomic.Bool
@@ -221,7 +221,7 @@ func (t *treeRuntime) startDispatch(
 		}
 		sequence := deltaSequence.Add(1)
 		delta, err := newDelta(
-			process.controller.processID, record.ID, t.incarnation,
+			process.handle.processID, record.ID, t.incarnation,
 			sequence, time.Now(), payload,
 		)
 		if err != nil || !process.engine.observation.offerDelta(t.context, delta) {
@@ -245,7 +245,7 @@ func (t *treeRuntime) startDispatch(
 			}
 		}
 		t.completions <- treeJobCompletion{
-			processID: process.controller.processID,
+			processID: process.handle.processID,
 			attempt:   attempt,
 			kind:      processJobDispatch,
 			dispatch: dispatchJobResult{
@@ -264,7 +264,7 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 		return
 	}
 	delete(t.jobs, completion.processID)
-	t.inflight.Add(-1)
+	t.inFlightWork.Add(-1)
 	if job.cancel != nil {
 		job.cancel()
 	}
@@ -276,7 +276,7 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 			process.discardExecution()
 		}
 		if t.freeze == nil {
-			t.markRunnable(completion.processID)
+			t.enqueueProcess(completion.processID)
 		}
 		t.completeFreeze()
 		return
@@ -295,7 +295,7 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 	}
 	t.finishIfTerminal(process)
 	if !process.status.Terminal() {
-		t.markRunnable(completion.processID)
+		t.enqueueProcess(completion.processID)
 	}
 	t.completeFreeze()
 }
@@ -313,7 +313,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 		return
 	}
 	pending := &pendingChildOutcome{
-		parentID: parent.controller.processID, effectID: job.effectID,
+		parentID: parent.handle.processID, effectID: job.effectID,
 		plan: plan, result: result, startedAt: job.startedAt,
 	}
 	if err := t.applyChildOutcome(pending); err != nil {
@@ -336,7 +336,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 		}
 		if err != nil {
 			t.discardProspectiveChild(pending)
-			t.failDurability(err, parent.controller.processID, job.effectID)
+			t.failDurability(err, parent.handle.processID, job.effectID)
 		}
 		return
 	}
@@ -357,7 +357,7 @@ func (t *treeRuntime) applyChildOutcome(pending *pendingChildOutcome) error {
 		if err := parent.commitProvisionalChildBudget(pending.plan.spec.Budget); err != nil {
 			return err
 		}
-		controller := newProcessController(
+		handle := newProcessHandleState(
 			pending.plan.relation,
 			pending.result.deployment.DeploymentRef(),
 			pending.plan.spec.Budget,
@@ -366,9 +366,9 @@ func (t *treeRuntime) applyChildOutcome(pending *pendingChildOutcome) error {
 			pending.result.startedAt,
 			StatusRunning,
 		)
-		controller.childRequestDigest = pending.plan.requestDigest
+		handle.childRequestDigest = pending.plan.requestDigest
 		child := newProcessState(
-			pending.plan.engine, controller, pending.result.deployment, pending.result.execution,
+			pending.plan.engine, handle, pending.result.deployment, pending.result.execution,
 			pending.result.state, pending.result.startedAt, pending.plan.limits,
 		)
 		t.addProcess(child)
@@ -502,7 +502,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 				process.usage.DroppedDeltas,
 				result.dropped,
 			)
-			process.updateView()
+			process.publishEphemeralStatus()
 			payload, _ := json.Marshal(deltaDroppedEventPayload{DroppedDeltaCount: result.dropped})
 			if t.engine.durability != nil {
 				if event, ok := process.prepareEvent(
@@ -526,7 +526,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 			}
 			snapshot, err := t.captureTree()
 			if err != nil {
-				t.failDurability(err, process.controller.processID, record.ID)
+				t.failDurability(err, process.handle.processID, record.ID)
 				return
 			}
 			request := effectRequestFor(process, uint32(index), *record)
@@ -534,11 +534,11 @@ func (t *treeRuntime) applyDispatchCompletion(
 				EffectBoundarySettled, request, settlement, t.head.digest(), snapshot,
 			)
 			if err != nil {
-				t.failDurability(err, process.controller.processID, record.ID)
+				t.failDurability(err, process.handle.processID, record.ID)
 				return
 			}
 			commit := &treeCommit{
-				kind: treeCommitEffectSettled, processID: process.controller.processID,
+				kind: treeCommitEffectSettled, processID: process.handle.processID,
 				effectID: record.ID, snapshot: snapshot, events: events,
 			}
 			t.startEffectCommit(commit, boundary)

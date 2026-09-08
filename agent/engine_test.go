@@ -39,6 +39,39 @@ func TestEngineStartRejectsNilContextBeforePublication(t *testing.T) {
 	}
 }
 
+func TestResumeRunningProcessReportsInvalidControl(t *testing.T) {
+	definition := &signalWindowDefinition{
+		engineTestDefinition: newEngineTestDefinition(t, "engine.effect", "effect"),
+		entered:              make(chan int, 1), release: make(chan struct{}),
+	}
+	release := sync.OnceFunc(func() { close(definition.release) })
+	engine, err := NewEngine(EngineConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		release()
+		mustCloseEngine(t, engine)
+	})
+	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{})
+	input, _ := EncodeInput(engineTestInput{Value: "running"})
+	process, err := engine.Start(t.Context(), deployment, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiveTreeRuntimeProbe(t, definition.entered)
+	if err := process.Resume(t.Context()); !errors.Is(err, ErrInvalidProcessControl) {
+		t.Errorf("Resume Running Process error=%v, want ErrInvalidProcessControl", err)
+	}
+	if status := inspectProcessSnapshot(t, process).Status(); status != StatusRunning {
+		t.Errorf("rejected Resume changed status to %s", status)
+	}
+	release()
+	if result := awaitResult(t, process); result.Status() != StatusCompleted {
+		t.Fatalf("execution after rejected Resume status=%s", result.Status())
+	}
+}
+
 func TestStepCannotConsumeSignalsThatArriveDuringItsExecution(t *testing.T) {
 	for _, consumed := range []uint32{0, 1} {
 		name := "preserve later input"

@@ -53,7 +53,7 @@
 // committed Execution state.
 //
 // The owner services continuously ready control requests, job completions, and
-// runnable Processes in bounded scheduling turns. Queries do not wake execution.
+// queued Processes in bounded scheduling turns. Queries do not wake execution.
 // Pending commits and held freezes still block work that cannot cross those
 // boundaries; a checkpoint still requires a safe tree cut. This is a scheduling
 // guarantee, not a wall-clock deadline: implementations must honor their bounded

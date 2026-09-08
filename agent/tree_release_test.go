@@ -43,7 +43,7 @@ func TestReleaseTreeRemovesRegistryAndPreservesTerminalHandles(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, handle := range handles {
-		if _, found := engine.Process(handle.ID()); found || handle.controller.runtime.Load() != nil {
+		if _, found := engine.Process(handle.ID()); found || handle.handle.runtime.Load() != nil {
 			t.Fatalf("released Process %s retains its tree", handle.ID())
 		}
 		if result := mustAwait(t, handle); result.Status() != StatusCompleted {

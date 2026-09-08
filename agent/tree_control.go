@@ -30,14 +30,14 @@ func (t *treeRuntime) applyCommand(command treeCommand) {
 
 func (t *treeRuntime) applyProcessCommand(process *processState, command processCommand) {
 	if t.fault != nil {
-		command.reply(processResponse{err: process.controller.closedRequestError()})
+		command.reply(processResponse{err: process.handle.closedRequestError()})
 		return
 	}
 	if command.kind == commandHostTerminated {
 		if !process.status.Terminal() {
 			process.recordHostTermination(command.hostErr)
 			t.invalidateStep(process)
-			t.markRunnable(process.controller.processID)
+			t.enqueueProcess(process.handle.processID)
 		}
 		return
 	}
@@ -50,7 +50,7 @@ func (t *treeRuntime) applyProcessCommand(process *processState, command process
 	}
 	t.finishIfTerminal(process)
 	if !process.status.Terminal() {
-		t.markRunnable(process.controller.processID)
+		t.enqueueProcess(process.handle.processID)
 	}
 }
 
@@ -65,7 +65,7 @@ func (t *treeRuntime) resolveUnknownEffect(process *processState, command proces
 	if err := t.startUnknownResolutionCommit(process, command); err != nil {
 		command.reply(processResponse{err: err})
 		if !errors.Is(err, ErrEffectNotPending) {
-			t.failDurability(err, process.controller.processID, command.settlement.EffectID())
+			t.failDurability(err, process.handle.processID, command.settlement.EffectID())
 		}
 	}
 	return true
@@ -84,7 +84,7 @@ func (t *treeRuntime) acquireFreeze(acquisition *treeFreezeAcquisition) {
 	}
 	freeze := &treeFreeze{runtime: t}
 	t.freeze = &activeTreeFreeze{acquisition: acquisition, freeze: freeze}
-	t.freezeHeld.Store(true)
+	t.freezeActive.Store(true)
 	t.completeFreeze()
 }
 
@@ -160,16 +160,16 @@ func (t *treeRuntime) releaseFreeze(freeze *treeFreeze) error {
 // stale or foreign authority is rejected rather than silently accepted.
 func (t *treeRuntime) releaseCurrentFreeze() {
 	t.freeze = nil
-	t.freezeHeld.Store(false)
+	t.freezeActive.Store(false)
 	for _, process := range t.processes {
 		if !process.status.Terminal() {
-			t.markRunnable(process.controller.processID)
+			t.enqueueProcess(process.handle.processID)
 		}
 	}
 }
 
 func (t *treeRuntime) invalidateStep(process *processState) {
-	job := t.jobs[process.controller.processID]
+	job := t.jobs[process.handle.processID]
 	if job == nil || job.kind != processJobStep || job.stale {
 		return
 	}

@@ -22,19 +22,19 @@ type treeRuntime struct {
 	// External readers need scheduling liveness without acquiring execution
 	// state. Atomics expose that view while commands and completions preserve
 	// one mutation owner.
-	inflight    atomic.Int64
-	freezeHeld  atomic.Bool
-	context     context.Context
-	commands    chan treeCommand
-	controls    chan treeCommand
-	completions chan treeJobCompletion
-	inspections chan chan treeInspectionResponse
+	inFlightWork atomic.Int64
+	freezeActive atomic.Bool
+	context      context.Context
+	commands     chan treeCommand
+	controls     chan treeCommand
+	completions  chan treeJobCompletion
+	inspections  chan chan treeInspectionResponse
 
 	// Everything below is owner-line state. Keeping it lock-free makes commit,
 	// scheduling, freeze, and checkpoint order a single explicit state machine.
 	processes         map[ProcessID]*processState
 	childWaits        map[WaitID]*childWaitRegistration
-	runnable          []ProcessID
+	processQueue      []ProcessID
 	queued            map[ProcessID]struct{}
 	jobs              map[ProcessID]*processJob
 	commit            *treeCommit
@@ -225,31 +225,31 @@ func (t *treeRuntime) establishDurableHead(
 }
 
 func (t *treeRuntime) addProcess(process *processState) {
-	if t == nil || process == nil || process.controller == nil ||
-		process.controller.relation.RootID() != t.rootID {
+	if t == nil || process == nil || process.handle == nil ||
+		process.handle.relation.RootID() != t.rootID {
 		panic("agent: invalid tree Process")
 	}
-	processID := process.controller.processID
+	processID := process.handle.processID
 	if t.processes[processID] != nil {
 		panic("agent: duplicate tree Process")
 	}
 	process.runtime = t
-	process.controller.runtime.Store(t)
+	process.handle.runtime.Store(t)
 	t.processes[processID] = process
 	if !process.status.Terminal() {
-		t.markRunnable(processID)
+		t.enqueueProcess(processID)
 	}
 }
 
 func (t *treeRuntime) run(rootContext context.Context) {
-	defer t.finishInspection()
+	defer t.finishRun()
 	t.publishInitialProcessEvents()
 	stopHostWatch := t.watchHostTermination(rootContext)
 	defer stopHostWatch()
 
 	for {
 		advanced := t.advanceReadyWork()
-		if t.finished() {
+		if t.canStop() {
 			return
 		}
 		inspected := t.tryInspection()
@@ -257,6 +257,13 @@ func (t *treeRuntime) run(rootContext context.Context) {
 			t.waitForWork()
 		}
 	}
+}
+
+func (t *treeRuntime) finishRun() {
+	inspection, err := t.buildInspection()
+	inspection.Stopped = true
+	t.finalInspection = treeInspectionResponse{inspection: inspection, err: err}
+	close(t.done)
 }
 
 func (t *treeRuntime) publishInitialProcessEvents() {
@@ -408,7 +415,7 @@ func (t *treeRuntime) tryCompletion() bool {
 	}
 }
 
-func (t *treeRuntime) markRunnable(processID ProcessID) {
+func (t *treeRuntime) enqueueProcess(processID ProcessID) {
 	process := t.processes[processID]
 	if t.fault != nil || process == nil || process.status.Terminal() || t.jobs[processID] != nil {
 		return
@@ -417,13 +424,13 @@ func (t *treeRuntime) markRunnable(processID ProcessID) {
 		return
 	}
 	t.queued[processID] = struct{}{}
-	t.runnable = append(t.runnable, processID)
+	t.processQueue = append(t.processQueue, processID)
 }
 
-func (t *treeRuntime) popRunnable() *processState {
-	for len(t.runnable) > 0 {
-		processID := t.runnable[0]
-		t.runnable = t.runnable[1:]
+func (t *treeRuntime) dequeueProcess() *processState {
+	for len(t.processQueue) > 0 {
+		processID := t.processQueue[0]
+		t.processQueue = t.processQueue[1:]
 		delete(t.queued, processID)
 		process := t.processes[processID]
 		if process != nil && !process.status.Terminal() && t.jobs[processID] == nil {
@@ -437,7 +444,7 @@ func (t *treeRuntime) advanceOne() bool {
 	if t.commit != nil || t.fault != nil || t.freeze != nil {
 		return false
 	}
-	process := t.popRunnable()
+	process := t.dequeueProcess()
 	if process == nil {
 		return false
 	}
@@ -482,7 +489,7 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 	}
 	t.finishIfTerminal(process)
 	if !process.status.Terminal() {
-		t.markRunnable(process.controller.processID)
+		t.enqueueProcess(process.handle.processID)
 	}
 }
 
@@ -505,10 +512,10 @@ func (t *treeRuntime) setProcessJob(processID ProcessID, job *processJob) {
 		panic("agent: invalid concurrent Process job")
 	}
 	t.jobs[processID] = job
-	t.inflight.Add(1)
+	t.inFlightWork.Add(1)
 }
 
-func (t *treeRuntime) finished() bool {
+func (t *treeRuntime) canStop() bool {
 	if t.freeze != nil || t.commit != nil || len(t.jobs) != 0 ||
 		len(t.checkpointPending) != 0 {
 		return false

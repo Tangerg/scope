@@ -12,7 +12,7 @@ type processState struct {
 	// These references establish ownership and remain fixed while the runtime
 	// owner goroutine mutates the execution fields below.
 	engine     *Engine
-	controller *processController
+	handle     *processHandleState
 	deployment Deployment
 	execution  Execution
 
@@ -74,7 +74,7 @@ type pendingControl struct {
 
 func newProcessState(
 	engine *Engine,
-	controller *processController,
+	handle *processHandleState,
 	deployment Deployment,
 	execution Execution,
 	state ExecutionState,
@@ -82,10 +82,10 @@ func newProcessState(
 	limits Limits,
 ) *processState {
 	return &processState{
-		engine: engine, controller: controller, deployment: deployment, execution: execution,
+		engine: engine, handle: handle, deployment: deployment, execution: execution,
 		startedAt: startedAt, status: StatusRunning, committedExecutionState: state,
 		mailbox: newSignalMailbox(), limits: limits, treeLimits: engine.treeLimits,
-		budget: controller.budget, capabilities: controller.capabilities,
+		budget: handle.budget, capabilities: handle.capabilities,
 	}
 }
 
@@ -100,7 +100,7 @@ func (p *processState) applyPendingControl(ctx context.Context) bool {
 	p.status = StatusPaused
 	p.pauseReason = p.pendingControl.pauseReason
 	p.pendingControl.pauseReason = ""
-	p.updateView()
+	p.publishEphemeralStatus()
 	p.publishEventAfterCheckpoint(
 		ctx, EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload(),
 	)
@@ -140,7 +140,7 @@ func (p *processState) applyCommand(ctx context.Context, command processCommand)
 	case commandResolveUnknownEffect:
 		p.resolveEffect(command)
 	default:
-		command.reply(processResponse{err: ErrProcessNotRunning})
+		command.reply(processResponse{err: ErrInvalidProcessControl})
 	}
 }
 
@@ -175,7 +175,7 @@ func (p *processState) deliverChildrenCompleted(ctx context.Context, signal Sign
 		return false
 	}
 	if accepted {
-		p.updateView()
+		p.publishEphemeralStatus()
 		for _, event := range p.prepareSignalEvents([]Signal{signal}) {
 			p.publishPreparedEvent(ctx, event)
 		}
@@ -206,11 +206,11 @@ func (p *processState) deliverBatch(ctx context.Context, command processCommand)
 	if p.engine.durability != nil {
 		if err := p.runtime.startSignalCommit(p, command, events); err != nil {
 			command.reply(processResponse{err: err})
-			p.runtime.failDurability(err, p.controller.processID, EffectID{})
+			p.runtime.failDurability(err, p.handle.processID, EffectID{})
 		}
 		return
 	}
-	p.updateView()
+	p.publishEphemeralStatus()
 	for _, event := range events {
 		p.publishPreparedEvent(ctx, event)
 	}
@@ -299,13 +299,15 @@ func (p *processState) requestPause(command processCommand) {
 
 func (p *processState) resume(ctx context.Context, command processCommand) {
 	if p.status != StatusPaused {
-		command.reply(processResponse{err: ErrProcessNotRunning})
+		command.reply(processResponse{err: fmt.Errorf(
+			"%w: Resume requires Paused status, got %s", ErrInvalidProcessControl, p.status,
+		)})
 		return
 	}
 	p.status = StatusRunning
 	p.pauseReason = ""
 	p.pendingControl.pauseReason = ""
-	p.updateView()
+	p.publishEphemeralStatus()
 	p.publishEvent(ctx, EventProcessResumed, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
 	command.reply(processResponse{})
 }
@@ -352,9 +354,9 @@ func (p *processState) resolveEffect(command processCommand) {
 	command.reply(processResponse{err: ErrEffectNotPending})
 }
 
-func (p *processState) updateView() {
+func (p *processState) publishEphemeralStatus() {
 	if p.engine.durability == nil {
-		p.controller.updateStatus(p.status)
+		p.handle.updateStatus(p.status)
 	}
 }
 

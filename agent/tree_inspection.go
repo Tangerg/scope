@@ -18,14 +18,14 @@ const (
 )
 
 // ProcessWork describes work owned by the current runtime, independently of
-// the lifecycle state in its last acknowledged snapshot. Runnable means queued
+// the lifecycle state in its last acknowledged snapshot. Queued means waiting
 // for an owner turn; a commit or freeze can still block it. Idle means no queued
 // work or job, not a terminal Process or a successful execution.
 type ProcessWork string
 
 const (
 	ProcessWorkIdle       ProcessWork = "idle"
-	ProcessWorkRunnable   ProcessWork = "runnable"
+	ProcessWorkQueued     ProcessWork = "queued"
 	ProcessWorkStep       ProcessWork = "step"
 	ProcessWorkDispatch   ProcessWork = "dispatch"
 	ProcessWorkChildStart ProcessWork = "child_start"
@@ -177,7 +177,7 @@ func (t *treeRuntime) buildInspection() (TreeInspection, error) {
 			continue
 		}
 		report := ProcessInspection{Snapshot: snapshot, Work: ProcessWorkIdle}
-		_, runtimeErr := process.controller.outcome()
+		_, runtimeErr := process.handle.outcome()
 		report.RuntimeError, _ = errors.AsType[*RuntimeError](runtimeErr)
 		if job := t.jobs[processID]; job != nil {
 			report.Stale = job.stale
@@ -191,16 +191,9 @@ func (t *treeRuntime) buildInspection() (TreeInspection, error) {
 				report.Work = ProcessWorkChildStart
 			}
 		} else if _, queued := t.queued[processID]; queued && !process.status.Terminal() {
-			report.Work = ProcessWorkRunnable
+			report.Work = ProcessWorkQueued
 		}
 		inspection.Processes = append(inspection.Processes, report)
 	}
 	return inspection, nil
-}
-
-func (t *treeRuntime) finishInspection() {
-	inspection, err := t.buildInspection()
-	inspection.Stopped = true
-	t.finalInspection = treeInspectionResponse{inspection: inspection, err: err}
-	close(t.done)
 }

@@ -140,41 +140,41 @@ func (e *Engine) discardProcessStartReservation(processID ProcessID) {
 	}
 }
 
-func (e *Engine) publishReservedProcess(controller *processController) {
+func (e *Engine) publishReservedProcess(handle *processHandleState) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	reservation, exists := e.startReservations[controller.processID]
-	if !exists || reservation.relation != controller.relation ||
-		reservation.deploymentRef != controller.deploymentRef ||
-		reservation.treeLimits != controller.treeLimits || e.closeDone != nil ||
-		e.processes[controller.processID] != nil {
+	reservation, exists := e.startReservations[handle.processID]
+	if !exists || reservation.relation != handle.relation ||
+		reservation.deploymentRef != handle.deploymentRef ||
+		reservation.treeLimits != handle.treeLimits || e.closeDone != nil ||
+		e.processes[handle.processID] != nil {
 		panic("agent: invalid Process start reservation")
 	}
 	var identity childIdentity
-	parentID, isChild := controller.relation.ParentID()
+	parentID, isChild := handle.relation.ParentID()
 	if isChild {
-		key, _ := controller.relation.ChildKey()
+		key, _ := handle.relation.ChildKey()
 		identity = childIdentity{parent: parentID, key: key}
-		if e.childStartReservations[identity] != controller.processID ||
+		if e.childStartReservations[identity] != handle.processID ||
 			e.children[identity].Valid() {
 			panic("agent: invalid child Process start reservation")
 		}
 	}
-	delete(e.startReservations, controller.processID)
-	controller.childRequestDigest = reservation.childRequestDigest
-	e.processes[controller.processID] = controller
-	if controller.relation.IsRoot() {
-		if controller.runtime.Load() == nil || e.trees[controller.processID] != nil {
+	delete(e.startReservations, handle.processID)
+	handle.childRequestDigest = reservation.childRequestDigest
+	e.processes[handle.processID] = handle
+	if handle.relation.IsRoot() {
+		if handle.runtime.Load() == nil || e.trees[handle.processID] != nil {
 			panic("agent: invalid root tree runtime")
 		}
-		e.trees[controller.processID] = controller.runtime.Load()
+		e.trees[handle.processID] = handle.runtime.Load()
 	}
 	if isChild {
 		parent := e.processes[parentID]
-		if parent == nil || controller.runtime.Load() == nil || controller.runtime.Load() != parent.runtime.Load() {
+		if parent == nil || handle.runtime.Load() == nil || handle.runtime.Load() != parent.runtime.Load() {
 			panic("agent: invalid child tree runtime")
 		}
 		delete(e.childStartReservations, identity)
-		e.children[identity] = controller.processID
+		e.children[identity] = handle.processID
 	}
 }

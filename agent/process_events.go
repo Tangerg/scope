@@ -58,9 +58,9 @@ func (p *processState) prepareEvent(
 	nextSequence := p.processEventSequence + 1
 	event, err := newEvent(eventSpec{
 		processSequence: nextSequence,
-		processID:       p.controller.processID,
+		processID:       p.handle.processID,
 		deploymentRef:   p.deployment.DeploymentRef(),
-		relation:        p.controller.relation,
+		relation:        p.handle.relation,
 		incarnationID:   incarnationID,
 		stepSequence:    step,
 		effectID:        effectID,
