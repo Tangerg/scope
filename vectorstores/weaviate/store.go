@@ -637,15 +637,63 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		return fmt.Errorf("weaviate: convert filter: %w", err)
 	}
 
-	_, err = s.client.Batch().ObjectsBatchDeleter().
-		WithClassName(s.className).
-		WithWhere(visitor.snapshot()).
-		Do(ctx)
-	if err != nil {
-		return fmt.Errorf("weaviate: delete from class %s: %w", s.className, err)
+	// One batch delete removes at most QUERY_MAXIMUM_RESULTS objects — the
+	// response calls Successful the count "in this round" — and Weaviate's
+	// guidance for a filter that matches more is to re-run the query. A single
+	// call would report success after deleting the first 10,000 of them.
+	where := visitor.snapshot()
+	for {
+		result, deleteErr := s.client.Batch().ObjectsBatchDeleter().
+			WithClassName(s.className).
+			WithWhere(where).
+			Do(ctx)
+		if deleteErr != nil {
+			return fmt.Errorf("weaviate: delete from class %s: %w", s.className, deleteErr)
+		}
+		round, roundErr := batchDeleteRound(s.className, result)
+		if roundErr != nil {
+			return roundErr
+		}
+		if round.remaining() {
+			continue
+		}
+		return nil
 	}
+}
 
-	return nil
+// deleteRound is one batch delete's accounting.
+type deleteRound struct {
+	matches    int64
+	successful int64
+}
+
+// remaining reports whether the filter still selects objects this round did not
+// reach, which happens when it matched the server's per-query maximum.
+func (d deleteRound) remaining() bool { return d.matches > d.successful }
+
+// batchDeleteRound reads what one batch delete actually did.
+//
+// Objects that "should have been deleted but could not be" are reported in
+// Failed rather than as a call error, so a nil error alone does not mean the
+// round removed what it matched. A round that matched more than it deleted has
+// hit the per-query maximum; a round that matched more and deleted nothing is
+// not making progress, and re-running it would loop forever.
+func batchDeleteRound(className string, response *models.BatchDeleteResponse) (deleteRound, error) {
+	if response == nil || response.Results == nil {
+		return deleteRound{}, fmt.Errorf("weaviate: batch delete for class %s returned no results", className)
+	}
+	results := response.Results
+	if results.Failed != 0 {
+		return deleteRound{}, fmt.Errorf("weaviate: batch delete for class %s failed on %d of %d matched objects",
+			className, results.Failed, results.Matches)
+	}
+	round := deleteRound{matches: results.Matches, successful: results.Successful}
+	if round.remaining() && results.Successful == 0 {
+		return deleteRound{}, fmt.Errorf(
+			"weaviate: batch delete for class %s matched %d objects and deleted none, so repeating cannot progress",
+			className, results.Matches)
+	}
+	return round, nil
 }
 
 // DeleteIDs removes objects by their Weaviate UUIDs. An empty slice is a

@@ -50,6 +50,15 @@
 // with declared nestedProperties, and dotted-path filtering on those leaves is
 // a Weaviate v1.38 preview feature.
 //
+// Filtered deletion repeats. One batch delete removes at most
+// QUERY_MAXIMUM_RESULTS objects — the response calls Successful the count "in
+// this round" — and Weaviate's guidance for a filter that matches more is to
+// re-run the query, so DeleteWhere does until the round deletes everything it
+// matched. Objects that could not be deleted are reported in Failed rather
+// than as a call error, so that count is checked too; a round that matches
+// more than it deletes while deleting nothing is refused instead of repeated,
+// since it cannot progress.
+//
 // See https://weaviate.io/developers/weaviate for the full API
 // surface.
 package weaviate
