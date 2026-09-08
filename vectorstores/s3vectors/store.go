@@ -31,11 +31,23 @@ const (
 	contentMetaKey = "scope_content"
 )
 
+// VectorClient is the narrow S3 Vectors surface the store depends on. It is
+// declared here rather than accepting the whole SDK client so the store's
+// requirements stay visible and a caller can supply a decorated or recorded
+// implementation. *s3vectors.Client satisfies it.
+type VectorClient interface {
+	PutVectors(context.Context, *s3vectors.PutVectorsInput, ...func(*s3vectors.Options)) (*s3vectors.PutVectorsOutput, error)
+	QueryVectors(context.Context, *s3vectors.QueryVectorsInput, ...func(*s3vectors.Options)) (*s3vectors.QueryVectorsOutput, error)
+	ListVectors(context.Context, *s3vectors.ListVectorsInput, ...func(*s3vectors.Options)) (*s3vectors.ListVectorsOutput, error)
+	DeleteVectors(context.Context, *s3vectors.DeleteVectorsInput, ...func(*s3vectors.Options)) (*s3vectors.DeleteVectorsOutput, error)
+}
+
 // StoreConfig contains configuration options for the AWS S3 Vectors
 // vector store.
 type StoreConfig struct {
-	// Client is the s3vectors client. Required.
-	Client *s3vectors.Client
+	// Client is the S3 Vectors API surface, normally an *s3vectors.Client.
+	// Required.
+	Client VectorClient
 
 	// VectorBucketName names the S3 Vectors bucket. Required.
 	VectorBucketName string
@@ -48,10 +60,6 @@ type StoreConfig struct {
 
 	// DocumentBatcher batches documents before upload. Required.
 	DocumentBatcher vectorstore.Batcher
-
-	// Dimensions stays explicit because filter deletion needs a placeholder
-	// vector and must not issue a hidden, billable embedding request.
-	Dimensions int
 
 	// DistanceMetric records the metric the index was created with —
 	// the store uses this only to map the raw distance returned by
@@ -93,7 +101,7 @@ func (d DistanceMetric) score(distance float64) vectorstore.Score {
 
 func (s StoreConfig) Validate() error {
 	s.applyDefaults()
-	if s.Client == nil {
+	if lo.IsNil(s.Client) {
 		return errors.New("s3vectors: Client is required")
 	}
 	if s.VectorBucketName == "" {
@@ -107,9 +115,6 @@ func (s StoreConfig) Validate() error {
 	}
 	if lo.IsNil(s.DocumentBatcher) {
 		return errors.New("s3vectors: DocumentBatcher is required")
-	}
-	if s.Dimensions <= 0 {
-		return errors.New("s3vectors: Dimensions must be > 0")
 	}
 	if !s.DistanceMetric.Valid() {
 		return fmt.Errorf("s3vectors: unsupported DistanceMetric %q", s.DistanceMetric)
@@ -131,13 +136,12 @@ var (
 
 // Store implements vector-store capabilities with Amazon S3 Vectors.
 type Store struct {
-	client           *s3vectors.Client
+	client           VectorClient
 	vectorBucketName string
 	indexName        string
 	embeddingClient  embeddingclient.Client
 	documentBatcher  vectorstore.Batcher
 	distanceMetric   DistanceMetric
-	dimensions       int
 }
 
 // NewStore needs no context because construction performs no I/O; the vector
@@ -161,7 +165,6 @@ func NewStore(config StoreConfig) (*Store, error) {
 		embeddingClient:  embeddingClient,
 		documentBatcher:  config.DocumentBatcher,
 		distanceMetric:   config.DistanceMetric,
-		dimensions:       config.Dimensions,
 	}, nil
 }
 
@@ -284,10 +287,16 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	return &vectorstore.SearchResponse{Results: docs}, nil
 }
 
-// Delete enumerates ids that match the filter via QueryVectors (S3
-// Vectors has no filter-based DeleteVectors) and then issues a
-// DeleteVectors call.
-
+// DeleteWhere removes every document matching expr. S3 Vectors has no
+// filter-based deletion, and QueryVectors is an approximate nearest-neighbor
+// search that answers with up to topK candidates rather than every match, so it
+// cannot enumerate a filter exhaustively. The store therefore lists the index
+// with ListVectors — exhaustive and key-paginated — and decides membership with
+// [filter.Match], the same evaluation the in-memory store uses. Listing
+// completes before anything is deleted so pagination never observes its own
+// mutations. Requires s3vectors:GetVectors alongside s3vectors:ListVectors,
+// because membership needs each vector's metadata. Implements
+// [vectorstore.FilterDeleter].
 func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
 	if expr == nil {
 		return vectorstore.ErrMissingFilter
@@ -296,42 +305,52 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		return fmt.Errorf("s3vectors.Store.DeleteWhere: %w", err)
 	}
 
-	filterDoc, err := s.buildFilter(expr)
+	keys, err := s.matchingKeys(ctx, expr)
 	if err != nil {
 		return err
 	}
-	if filterDoc == nil {
-		return errors.New("s3vectors: refusing to delete on empty filter")
-	}
+	return s.DeleteIDs(ctx, keys)
+}
 
-	// Use a placeholder embedding to drive the filter scan — the
-	// vector itself doesn't matter when the distance is discarded.
-	probe := make([]float32, s.dimensions)
-	const pageSize int32 = 1000
+// matchingKeys walks the whole index. Only a nil continuation token establishes
+// that the listing is complete: a page can come back short, or even empty,
+// while further pages remain.
+func (s *Store) matchingKeys(ctx context.Context, expr filter.Predicate) ([]string, error) {
+	const pageSize int32 = 500
+	var keys []string
+	var token *string
 	for {
-		resp, err := s.client.QueryVectors(ctx, &s3vectors.QueryVectorsInput{
+		page, err := s.client.ListVectors(ctx, &s3vectors.ListVectorsInput{
 			VectorBucketName: aws.String(s.vectorBucketName),
 			IndexName:        aws.String(s.indexName),
-			QueryVector:      &types.VectorDataMemberFloat32{Value: probe},
-			TopK:             aws.Int32(pageSize),
-			Filter:           s3vdoc.NewLazyDocument(filterDoc),
+			MaxResults:       aws.Int32(pageSize),
+			NextToken:        token,
+			ReturnMetadata:   true,
 		})
 		if err != nil {
-			return fmt.Errorf("s3vectors: enumerate ids: %w", err)
+			return nil, fmt.Errorf("s3vectors: list vectors: %w", err)
 		}
-		if len(resp.Vectors) == 0 {
-			return nil
+		for index := range page.Vectors {
+			listed := &page.Vectors[index]
+			if listed.Key == nil || *listed.Key == "" {
+				return nil, fmt.Errorf("s3vectors: listed vector[%d] is missing key", index)
+			}
+			_, values, err := decodeVectorMetadata(*listed.Key, listed.Metadata)
+			if err != nil {
+				return nil, err
+			}
+			matched, err := filter.Match(expr, values)
+			if err != nil {
+				return nil, fmt.Errorf("s3vectors: evaluate filter for %s: %w", *listed.Key, err)
+			}
+			if matched {
+				keys = append(keys, *listed.Key)
+			}
 		}
-		keys, err := queryVectorKeys(resp.Vectors)
-		if err != nil {
-			return err
+		if page.NextToken == nil || *page.NextToken == "" {
+			return keys, nil
 		}
-		if err := s.DeleteIDs(ctx, keys); err != nil {
-			return err
-		}
-		if int32(len(resp.Vectors)) < pageSize {
-			return nil
-		}
+		token = page.NextToken
 	}
 }
 
@@ -354,17 +373,6 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 		return fmt.Errorf("s3vectors: DeleteVectors: %w", err)
 	}
 	return nil
-}
-
-func queryVectorKeys(vectors []types.QueryOutputVector) ([]string, error) {
-	keys := make([]string, len(vectors))
-	for index := range vectors {
-		if vectors[index].Key == nil || *vectors[index].Key == "" {
-			return nil, fmt.Errorf("s3vectors: query result[%d] is missing key", index)
-		}
-		keys[index] = *vectors[index].Key
-	}
-	return keys, nil
 }
 
 func (s *Store) buildFilter(expr filter.Predicate) (map[string]any, error) {
@@ -391,43 +399,48 @@ func (s *Store) toMatch(hit types.QueryOutputVector, minScore vectorstore.Score)
 		return nil, nil
 	}
 
-	text, documentMetadata, err := decodeDocumentMetadata(hit.Metadata)
+	text, values, err := decodeVectorMetadata(doc.ID, hit.Metadata)
 	if err != nil {
 		return nil, err
+	}
+	documentMetadata, err := metadata.FromValues(values)
+	if err != nil {
+		return nil, fmt.Errorf("s3vectors: convert metadata for %s: %w", doc.ID, err)
 	}
 	doc.Text = text
 	doc.Metadata = documentMetadata
 	return &vectorstore.SearchResult{Document: doc, Score: score}, nil
 }
 
-func decodeDocumentMetadata(raw s3vdoc.Interface) (string, metadata.Map, error) {
+// decodeVectorMetadata is the one decode of an S3 Vectors metadata document.
+// Numbers stay json.Number so filter evaluation and stored metadata both
+// compare them exactly instead of through a lossy float64. The document text
+// travels in metadata because S3 Vectors stores only key, vector, and metadata.
+func decodeVectorMetadata(key string, raw s3vdoc.Interface) (string, map[string]any, error) {
 	if raw == nil {
-		return "", nil, errors.New("s3vectors: query result is missing metadata")
+		return "", nil, fmt.Errorf("s3vectors: vector %s is missing metadata", key)
 	}
 	encodedDocument, err := raw.MarshalSmithyDocument()
 	if err != nil {
-		return "", nil, fmt.Errorf("s3vectors: encode metadata document: %w", err)
+		return "", nil, fmt.Errorf("s3vectors: encode metadata document for %s: %w", key, err)
 	}
 	var values map[string]any
 	decoder := json.NewDecoder(bytes.NewReader(encodedDocument))
 	decoder.UseNumber()
 	if decodeErr := decoder.Decode(&values); decodeErr != nil {
-		return "", nil, fmt.Errorf("s3vectors: decode metadata: %w", decodeErr)
+		return "", nil, fmt.Errorf("s3vectors: decode metadata for %s: %w", key, decodeErr)
 	}
 	rawText, present := values[contentMetaKey]
 	if !present {
-		return "", nil, fmt.Errorf("s3vectors: query result metadata is missing %q", contentMetaKey)
+		return "", nil, fmt.Errorf("s3vectors: vector %s metadata is missing %q", key, contentMetaKey)
 	}
 	text, ok := rawText.(string)
 	if !ok || text == "" {
-		return "", nil, fmt.Errorf("s3vectors: query result metadata %q must be a non-empty string, got %T", contentMetaKey, rawText)
+		return "", nil, fmt.Errorf("s3vectors: vector %s metadata %q must be a non-empty string, got %T",
+			key, contentMetaKey, rawText)
 	}
 	delete(values, contentMetaKey)
-	encoded, err := metadata.FromValues(values)
-	if err != nil {
-		return "", nil, fmt.Errorf("s3vectors: convert metadata: %w", err)
-	}
-	return text, encoded, nil
+	return text, values, nil
 }
 
 func (s *Store) Close() error { return nil }

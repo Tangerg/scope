@@ -26,10 +26,15 @@
 // batcher should produce shards smaller than that. The store passes
 // each shard through as one PutVectors call.
 //
-// Delete. S3 Vectors has no filter-based DeleteVectors — the store
-// enumerates ids via paged QueryVectors (1000 per page using a zero
-// probe vector since the distance is discarded) and then issues a
-// DeleteVectors batch.
+// Delete. S3 Vectors has no filter-based DeleteVectors, and QueryVectors is an
+// approximate nearest-neighbor search that answers with up to topK candidates
+// rather than every match — it cannot enumerate a filter. The store therefore
+// walks the index with ListVectors, which is exhaustive and key-paginated, and
+// decides membership with the shared client-side evaluation in
+// [github.com/Tangerg/scope/core/vectorstore/filter.Match]. Listing completes
+// before anything is deleted, so pagination never observes its own mutations.
+// Filtered deletion needs s3vectors:GetVectors alongside
+// s3vectors:ListVectors, because membership reads each vector's metadata.
 //
 // See https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors.html.
 package s3vectors
