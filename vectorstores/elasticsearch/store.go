@@ -31,6 +31,7 @@ const (
 	mappingTypeText           = "text"
 	mappingTypeDenseVector    = "dense_vector"
 	mappingTypeObject         = "object"
+	mappingTypeKeyword        = "keyword"
 	maximumErrorResponseBytes = int64(64 * 1024)
 )
 
@@ -39,7 +40,34 @@ type createIndexRequest struct {
 }
 
 type indexMappings struct {
-	Properties map[string]any `json:"properties"`
+	DynamicTemplates []map[string]dynamicTemplate `json:"dynamic_templates,omitempty"`
+	Properties       map[string]any               `json:"properties"`
+}
+
+// dynamicTemplate names one dynamic-mapping rule. Metadata keys are unknown at
+// index-creation time, so their fields have to be mapped dynamically; the
+// default for a JSON string is "text with a .keyword sub-field", and the text
+// field is analyzed. Filters compare whole values, so the metadata path maps
+// strings straight to keyword instead, which also avoids the sub-field's
+// ignore_above cutoff.
+type dynamicTemplate struct {
+	PathMatch        string         `json:"path_match"`
+	MatchMappingType string         `json:"match_mapping_type"`
+	Mapping          map[string]any `json:"mapping"`
+}
+
+// metadataKeywordTemplate keeps string metadata exactly comparable. Without it
+// `metadata.author:"Alice"` reaches the analyzed text field and matches an
+// author of "Alice Smith" or "alice", which is neither whole-value nor
+// case-sensitive and disagrees with filter.Match.
+func metadataKeywordTemplate(metadataField string) map[string]dynamicTemplate {
+	return map[string]dynamicTemplate{
+		"metadata_strings_are_keywords": {
+			PathMatch:        metadataField + ".*",
+			MatchMappingType: "string",
+			Mapping:          map[string]any{"type": mappingTypeKeyword},
+		},
+	}
 }
 
 type textFieldMapping struct {
@@ -285,7 +313,12 @@ func (s *Store) createIndex(ctx context.Context) error {
 		s.metadataField: objectFieldMapping{Type: mappingTypeObject, Dynamic: true},
 	}
 	body, err := encodeJSONRequest(createIndexRequest{
-		Mappings: indexMappings{Properties: properties},
+		Mappings: indexMappings{
+			DynamicTemplates: []map[string]dynamicTemplate{
+				metadataKeywordTemplate(s.metadataField),
+			},
+			Properties: properties,
+		},
 	})
 	if err != nil {
 		return err

@@ -37,6 +37,16 @@
 // rejects a result missing any targeted shard, and filtered deletion rejects an
 // incomplete deletion while the documents it already removed stay removed.
 //
+// Metadata mapping. Metadata keys are unknown when the index is created, so
+// their fields map dynamically. The default for a JSON string is "text with a
+// .keyword sub-field" and the text field is analyzed, which would make
+// `metadata.author:"Alice"` a tokenized, case-insensitive match — it would
+// match an author of "Alice Smith" or of "alice". A dynamic template maps
+// strings under the metadata path straight to keyword instead, so the field
+// the filter compiler queries is the whole-value, case-sensitive one, and the
+// sub-field's ignore_above cutoff never applies. An index created before this
+// mapping needs a reindex for filters to compare exactly.
+//
 // See https://docs.opensearch.org/latest/search-plugins/knn/ for the
 // k-NN plugin reference.
 package opensearch

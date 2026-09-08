@@ -93,7 +93,7 @@ func TestToDocumentDecodesConfiguredMetadataObject(t *testing.T) {
 func TestToDocumentRejectsMalformedConfiguredMetadata(t *testing.T) {
 	store := &Store{contentField: "content", metadataField: "metadata"}
 	_, err := store.toDocument(searchHit{
-		ID:     "doc-1",
+		ID: "doc-1",
 		Source: metadata.Map{
 			"content":  json.RawMessage(`"hello"`),
 			"metadata": json.RawMessage(`"not-an-object"`),

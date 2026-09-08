@@ -135,7 +135,12 @@ func (s *Store) createIndex(ctx context.Context) error {
 
 	body, err := encodeJSONRequest(createIndexRequest{
 		Settings: indexSettings{KNN: true},
-		Mappings: indexMappings{Properties: properties},
+		Mappings: indexMappings{
+			DynamicTemplates: []map[string]dynamicTemplate{
+				metadataKeywordTemplate(s.metadataField),
+			},
+			Properties: properties,
+		},
 	})
 	if err != nil {
 		return err
