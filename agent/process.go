@@ -137,6 +137,10 @@ func (p *Process) Resume(ctx context.Context) error {
 // Process has reached a safe boundary or become terminal. Once submitted, ctx
 // cancellation cannot revoke the request. The first committed cancellation
 // intent maps to StatusCanceled with a host-cancellation cause.
+// Active descendants receive parent termination through the normal child
+// lifecycle. A surviving parent receives the ordinary child-completion Signal
+// and its Strategy decides how to continue. Await reports this Process's
+// acknowledged terminal result; every descendant retains its own settlement.
 func (p *Process) RequestCancellation(ctx context.Context, reason string) error {
 	if p == nil || p.controller == nil {
 		return ErrProcessNotRunning

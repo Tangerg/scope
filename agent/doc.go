@@ -140,6 +140,10 @@
 // overwrite it. An effect's own cancellation first reaches the strategy as a
 // settlement Signal — a local failure is never promoted to a Process terminal
 // state on its own.
+// [Process.RequestCancellation] also terminates active descendants through
+// their owned lifecycle. The surviving parent receives the ordinary completion
+// Signal and its Strategy chooses the next transition. Cancellation uses the
+// same checkpoint acknowledgment as every other terminal transition.
 //
 // A child-completion delivery failure is recorded as pending termination.
 // Accepted external effects settle first, and any unknown identities remain

@@ -51,7 +51,6 @@ const (
 	treeCommandProcess
 	treeCommandAcquireFreeze
 	treeCommandReleaseFreeze
-	treeCommandApplyFreeze
 )
 
 type treeCommand struct {
@@ -60,7 +59,6 @@ type treeCommand struct {
 	process     processCommand
 	freeze      *treeFreeze
 	acquisition *treeFreezeAcquisition
-	projection  *treeStateProjection
 	response    chan error
 }
 
@@ -71,16 +69,7 @@ func newTreeProcessCommand(processID ProcessID, command processCommand) treeComm
 type treeFreezeAcquisition struct {
 	response chan treeFreezeAcquisitionResult
 	canceled chan struct{}
-	mode     treeFreezeMode
 }
-
-type treeFreezeMode uint8
-
-const (
-	treeFreezeModeInvalid treeFreezeMode = iota
-	treeFreezeModeSnapshot
-	treeFreezeModeExclusive
-)
 
 type treeFreezeAcquisitionResult struct {
 	freeze   *treeFreeze
@@ -92,13 +81,6 @@ type activeTreeFreeze struct {
 	acquisition *treeFreezeAcquisition
 	freeze      *treeFreeze
 	ready       bool
-}
-
-type treeStateProjection struct {
-	changes         []*preparedProcessStateChange
-	childWaits      []*childWaitRegistration
-	sourceDigest    Digest
-	resultingDigest Digest
 }
 
 type processAttempt uint64

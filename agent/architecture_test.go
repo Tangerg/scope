@@ -11,7 +11,6 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
@@ -35,58 +34,6 @@ func TestProcessAdmissionContainsOnlyFrameworkStartContracts(t *testing.T) {
 		field := typeOf.Field(index)
 		if field.IsExported() || field.Name != expected.name || field.Type != expected.typeOf {
 			t.Fatalf("ProcessAdmission field %d = %s %v", index, field.Name, field.Type)
-		}
-	}
-}
-
-func TestPreparedWaitingSubtreeCancellationOwnsOnlyFrameworkState(t *testing.T) {
-	typeOf := reflect.TypeFor[PreparedWaitingSubtreeCancellation]()
-	want := []struct {
-		name   string
-		typeOf reflect.Type
-	}{
-		{name: "engine", typeOf: reflect.TypeFor[*Engine]()},
-		{name: "source", typeOf: reflect.TypeFor[*quiescedTree]()},
-		{name: "sourceTreeDigest", typeOf: reflect.TypeFor[Digest]()},
-		{name: "resultingSnapshot", typeOf: reflect.TypeFor[TreeSnapshot]()},
-		{name: "canceledProcessIDs", typeOf: reflect.TypeFor[[]ProcessID]()},
-		{name: "pausedProcessIDs", typeOf: reflect.TypeFor[[]ProcessID]()},
-		{name: "projection", typeOf: reflect.TypeFor[*treeStateProjection]()},
-		{name: "resolution", typeOf: reflect.TypeFor[*waitingSubtreeCancellationResolution]()},
-	}
-	if typeOf.NumField() != len(want) {
-		t.Fatalf("PreparedWaitingSubtreeCancellation fields = %d, want %d", typeOf.NumField(), len(want))
-	}
-	for index, expected := range want {
-		field := typeOf.Field(index)
-		if field.IsExported() || field.Name != expected.name || field.Type != expected.typeOf {
-			t.Fatalf(
-				"PreparedWaitingSubtreeCancellation field %d = %s %v",
-				index, field.Name, field.Type,
-			)
-		}
-	}
-}
-
-func TestWaitingSubtreeCancellationResolutionContainsOnlyFrameworkState(t *testing.T) {
-	typeOf := reflect.TypeFor[waitingSubtreeCancellationResolution]()
-	want := []struct {
-		name   string
-		typeOf reflect.Type
-	}{
-		{name: "mu", typeOf: reflect.TypeFor[sync.Mutex]()},
-		{name: "resolved", typeOf: reflect.TypeFor[bool]()},
-	}
-	if typeOf.NumField() != len(want) {
-		t.Fatalf("waitingSubtreeCancellationResolution fields = %d, want %d", typeOf.NumField(), len(want))
-	}
-	for index, expected := range want {
-		field := typeOf.Field(index)
-		if field.IsExported() || field.Name != expected.name || field.Type != expected.typeOf {
-			t.Fatalf(
-				"waitingSubtreeCancellationResolution field %d = %s %v",
-				index, field.Name, field.Type,
-			)
 		}
 	}
 }

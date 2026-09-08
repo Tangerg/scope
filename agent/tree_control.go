@@ -13,10 +13,6 @@ func (t *treeRuntime) applyCommand(command treeCommand) {
 		err := t.releaseFreeze(command.freeze)
 		command.response <- err
 		return
-	case treeCommandApplyFreeze:
-		err := t.applyFreeze(command.freeze, command.projection)
-		command.response <- err
-		return
 	case treeCommandProcess:
 	default:
 		if command.response != nil {
@@ -76,9 +72,7 @@ func (t *treeRuntime) resolveUnknownEffect(process *processState, command proces
 }
 
 func (t *treeRuntime) acquireFreeze(acquisition *treeFreezeAcquisition) {
-	if acquisition == nil || acquisition.response == nil || acquisition.canceled == nil ||
-		(acquisition.mode != treeFreezeModeSnapshot && acquisition.mode != treeFreezeModeExclusive) ||
-		t.freeze != nil {
+	if acquisition == nil || acquisition.response == nil || acquisition.canceled == nil || t.freeze != nil {
 		if acquisition != nil && acquisition.response != nil {
 			acquisition.response <- treeFreezeAcquisitionResult{err: ErrEngineQuiescenceUnavailable}
 		}
@@ -91,11 +85,6 @@ func (t *treeRuntime) acquireFreeze(acquisition *treeFreezeAcquisition) {
 	freeze := &treeFreeze{runtime: t}
 	t.freeze = &activeTreeFreeze{acquisition: acquisition, freeze: freeze}
 	t.freezeHeld.Store(true)
-	if acquisition.mode == treeFreezeModeExclusive {
-		for _, process := range t.processes {
-			t.invalidateStep(process)
-		}
-	}
 	t.completeFreeze()
 }
 
@@ -119,9 +108,6 @@ func (t *treeRuntime) completeFreeze() {
 func (t *treeRuntime) freezeBlockedByJob() bool {
 	if t.freeze == nil {
 		return false
-	}
-	if t.freeze.acquisition.mode == treeFreezeModeExclusive {
-		return len(t.jobs) != 0
 	}
 	allTerminal := true
 	for _, process := range t.processes {
@@ -180,45 +166,6 @@ func (t *treeRuntime) releaseCurrentFreeze() {
 			t.markRunnable(process.controller.processID)
 		}
 	}
-}
-
-func (t *treeRuntime) applyFreeze(
-	freeze *treeFreeze,
-	projection *treeStateProjection,
-) error {
-	if t.freeze == nil || !t.freeze.ready || freeze == nil || t.freeze.freeze != freeze ||
-		projection == nil {
-		return ErrInvalidPreparedWaitingSubtreeCancellation
-	}
-	if t.engine.durability != nil && t.head.digest() != projection.sourceDigest {
-		return ErrTreeIncarnationConflict
-	}
-	for _, change := range projection.changes {
-		process := t.processes[change.processID]
-		if err := change.validateSource(process); err != nil {
-			return err
-		}
-	}
-	for _, change := range projection.changes {
-		process := t.processes[change.processID]
-		change.apply(t.context, process)
-	}
-	t.childWaits = make(map[WaitID]*childWaitRegistration, len(projection.childWaits))
-	for _, registration := range projection.childWaits {
-		t.childWaits[registration.waitID] = registration
-	}
-	for _, change := range projection.changes {
-		t.finishIfTerminal(t.processes[change.processID])
-	}
-	if t.engine.durability != nil {
-		result, err := t.captureTree()
-		if err != nil || result.Digest() != projection.resultingDigest {
-			return ErrInvalidPreparedWaitingSubtreeCancellation
-		}
-		t.advanceHead(result)
-		t.publishCheckpoint()
-	}
-	return t.releaseFreeze(freeze)
 }
 
 func (t *treeRuntime) invalidateStep(process *processState) {
