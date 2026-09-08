@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/samber/lo"
@@ -294,26 +295,13 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		"ranking": s.rankingProfile,
 	}
 
-	raw, err := s.sendJSON(ctx, http.MethodPost, "/search/", body)
+	hits, err := s.query(ctx, body)
 	if err != nil {
 		return nil, fmt.Errorf("vespa: search: %w", err)
 	}
 
-	var parsed struct {
-		Root struct {
-			Children []struct {
-				ID        string         `json:"id"`
-				Relevance *float64       `json:"relevance"`
-				Fields    map[string]any `json:"fields"`
-			} `json:"children"`
-		} `json:"root"`
-	}
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return nil, fmt.Errorf("vespa: decode search response: %w", err)
-	}
-
-	docs = make([]*vectorstore.SearchResult, 0, len(parsed.Root.Children))
-	for _, hit := range parsed.Root.Children {
+	docs = make([]*vectorstore.SearchResult, 0, len(hits))
+	for _, hit := range hits {
 		if hit.Relevance == nil {
 			return nil, errors.New("vespa: search hit is missing relevance")
 		}
@@ -355,24 +343,14 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 			"yql":  yql,
 			"hits": deletePageSize,
 		}
-		raw, err := s.sendJSON(ctx, http.MethodPost, "/search/", body)
+		hits, err := s.query(ctx, body)
 		if err != nil {
 			return fmt.Errorf("vespa: enumerate ids: %w", err)
 		}
-		var parsed struct {
-			Root struct {
-				Children []struct {
-					Fields map[string]any `json:"fields"`
-				} `json:"children"`
-			} `json:"root"`
-		}
-		if err := json.Unmarshal(raw, &parsed); err != nil {
-			return fmt.Errorf("vespa: decode id page: %w", err)
-		}
-		if len(parsed.Root.Children) == 0 {
+		if len(hits) == 0 {
 			return nil
 		}
-		for _, hit := range parsed.Root.Children {
+		for _, hit := range hits {
 			id, _ := hit.Fields[s.idField].(string)
 			if id == "" {
 				return fmt.Errorf("vespa: enumerate ids: search hit is missing string field %q", s.idField)
@@ -384,6 +362,80 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 			}
 		}
 	}
+}
+
+// queryHit is one Vespa search hit. Relevance is absent for queries that
+// project fields without ranking, so only ranked callers require it.
+type queryHit struct {
+	ID        string         `json:"id"`
+	Relevance *float64       `json:"relevance"`
+	Fields    map[string]any `json:"fields"`
+}
+
+type queryResponse struct {
+	Root struct {
+		Errors   []queryError   `json:"errors"`
+		Coverage *queryCoverage `json:"coverage"`
+		Children []queryHit     `json:"children"`
+	} `json:"root"`
+}
+
+type queryError struct {
+	Code    int    `json:"code"`
+	Summary string `json:"summary"`
+	Message string `json:"message"`
+}
+
+// queryCoverage reports how much of the corpus a query actually evaluated.
+// Degraded holds one flag per degradation cause and is decoded as a map so a
+// newly introduced cause still reaches the caller.
+type queryCoverage struct {
+	Coverage int             `json:"coverage"`
+	Full     bool            `json:"full"`
+	Degraded map[string]bool `json:"degraded"`
+}
+
+func (q queryCoverage) reasons() string {
+	causes := make([]string, 0, len(q.Degraded))
+	for cause, degraded := range q.Degraded {
+		if degraded {
+			causes = append(causes, cause)
+		}
+	}
+	if len(causes) == 0 {
+		return "unspecified"
+	}
+	slices.Sort(causes)
+	return strings.Join(causes, ",")
+}
+
+// query runs one Vespa query and returns its hits only when the response proves
+// the query was fully evaluated. Soft timeout is enabled by default, so Vespa
+// answers a partially evaluated query with 200 and a degraded coverage report
+// rather than an error status; treating those hits as complete would silently
+// shrink a search result and silently skip documents during filtered deletion.
+func (s *Store) query(ctx context.Context, body map[string]any) ([]queryHit, error) {
+	raw, err := s.sendJSON(ctx, http.MethodPost, "/search/", body)
+	if err != nil {
+		return nil, err
+	}
+	var parsed queryResponse
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return nil, fmt.Errorf("decode query response: %w", err)
+	}
+	if len(parsed.Root.Errors) > 0 {
+		reported := parsed.Root.Errors[0]
+		return nil, fmt.Errorf("query reported error %d: %s: %s",
+			reported.Code, reported.Summary, reported.Message)
+	}
+	if parsed.Root.Coverage == nil {
+		return nil, errors.New("query response is missing its coverage report")
+	}
+	if !parsed.Root.Coverage.Full {
+		return nil, fmt.Errorf("query evaluated %d%% of the corpus, degraded by %s",
+			parsed.Root.Coverage.Coverage, parsed.Root.Coverage.reasons())
+	}
+	return parsed.Root.Children, nil
 }
 
 func (s *Store) buildFilter(expr filter.Predicate) (string, error) {

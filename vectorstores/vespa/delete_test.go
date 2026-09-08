@@ -39,7 +39,10 @@ func TestDeleteWhereRestartsSearchAfterMutation(t *testing.T) {
 				children = append(children, map[string]any{"fields": map[string]any{"doc_id": id}})
 			}
 			_ = json.NewEncoder(writer).Encode(map[string]any{
-				"root": map[string]any{"children": children},
+				"root": map[string]any{
+					"children": children,
+					"coverage": map[string]any{"coverage": 100, "full": true},
+				},
 			})
 
 		case request.Method == http.MethodDelete:

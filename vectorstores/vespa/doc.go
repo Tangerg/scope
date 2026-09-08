@@ -27,6 +27,12 @@
 // The result's `relevance` is taken as-is — for the default cosine
 // configuration this is already a [0, 1] similarity score.
 //
+// Query completeness. Vespa enables soft timeout by default and answers a
+// partially evaluated query with 200 plus a degraded `root.coverage` report.
+// Both search and filtered deletion require full coverage and no reported
+// `root.errors`, because a shortened hit list is indistinguishable from a
+// smaller result and would silently skip documents during deletion.
+//
 // Filter visitor produces YQL where-clause fragments — `author
 // contains "Alice"` (equality on string fields uses `contains`),
 // `year >= 2020`, `tag in ("a", "b")`, `!(...)`, ` and ` / ` or `.
