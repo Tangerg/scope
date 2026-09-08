@@ -6,7 +6,9 @@ import (
 	"slices"
 )
 
-// TreeFreezePhase describes a scheduling barrier in the current runtime.
+// TreeFreezePhase describes the current scheduling barrier. Acquiring blocks
+// scheduling while in-flight Effects settle. Held also stops completion
+// adoption; an in-flight Step may still be computing against its isolated state.
 type TreeFreezePhase string
 
 const (
@@ -16,7 +18,9 @@ const (
 )
 
 // ProcessWork describes work owned by the current runtime, independently of
-// the lifecycle state in its last acknowledged snapshot.
+// the lifecycle state in its last acknowledged snapshot. Runnable means queued
+// for an owner turn; a commit or freeze can still block it. Idle means no queued
+// work or job, not a terminal Process or a successful execution.
 type ProcessWork string
 
 const (
@@ -175,7 +179,6 @@ func (t *treeRuntime) buildInspection() (TreeInspection, error) {
 		report := ProcessInspection{Snapshot: snapshot, Work: ProcessWorkIdle}
 		_, runtimeErr := process.controller.outcome()
 		report.RuntimeError, _ = errors.AsType[*RuntimeError](runtimeErr)
-		report.RuntimeError = report.RuntimeError.clone()
 		if job := t.jobs[processID]; job != nil {
 			report.Stale = job.stale
 			report.EffectID = job.effectID

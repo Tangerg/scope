@@ -26,10 +26,10 @@ const treeCommandBufferCapacity = 32
 
 // Process is an Engine-issued handle to one managed execution. Its fields and
 // construction remain private so a caller cannot create a second lifecycle
-// owner. Methods only submit control-plane requests to the owning tree runtime.
-// Except for RequestCancellation, ctx bounds both command submission and
-// response waiting. Once the tree runtime receives a command, canceling ctx does
-// not revoke it.
+// owner. Identity and allocation are immutable; [Engine.InspectTree] owns live inspection.
+// Control methods submit requests to the owning tree runtime. Except for
+// RequestCancellation, ctx bounds both submission and response waiting. Once
+// the tree runtime receives a command, canceling ctx does not revoke it.
 type Process struct {
 	controller *processController
 }
@@ -92,14 +92,16 @@ func (p *Process) DeliverSignals(ctx context.Context, requests ...SignalRequest)
 // Pause requests a scheduling pause at the next safe Step boundary. An
 // in-flight Effect is allowed to settle before the pause becomes visible.
 // A nil error acknowledges the local control intent, not its durable publication
-// or completion; InspectTree reflects the acknowledged pause in durable mode.
+// or completion; [Engine.InspectTree] reports StatusPaused only after a tree
+// commit acknowledges the paused state in durable mode.
 func (p *Process) Pause(ctx context.Context, reason string) error {
 	_, err := p.request(ctx, processCommand{kind: commandPause, reason: reason})
 	return err
 }
 
-// Resume makes an explicitly Paused Process schedulable again. Waiting is
-// resumed only by a Signal addressed to its current WaitID.
+// Resume makes an explicitly Paused Process schedulable again. External waits
+// require an answer addressed to their WaitID; child waits require Framework
+// child completion. Resume does not satisfy either wait.
 // A nil error acknowledges local resumption. Subsequent durable boundaries
 // publish the resumed state before reporting their own acknowledgments.
 func (p *Process) Resume(ctx context.Context) error {
@@ -267,12 +269,12 @@ type processController struct {
 	treeSettled        chan struct{}
 	treeSettledOnce    sync.Once
 
-	// viewMu protects only the read projection copied from processState; runtime
-	// execution never occurs while this lock is held.
-	viewMu        sync.RWMutex
-	viewStatus    Status
-	result        Result
-	completionErr error
+	// viewMu protects the acknowledged status and retained instance outcome.
+	// It is never held while running execution code or invoking listeners.
+	viewMu     sync.RWMutex
+	viewStatus Status
+	result     Result
+	runtimeErr *RuntimeError
 }
 
 func newProcessController(
@@ -335,13 +337,16 @@ func (p *processController) markTreeSettled() {
 func (p *processController) outcome() (Result, error) {
 	p.viewMu.RLock()
 	defer p.viewMu.RUnlock()
-	return p.result, p.completionErr
+	if p.runtimeErr != nil {
+		return Result{}, p.runtimeErr.clone()
+	}
+	return p.result, nil
 }
 
 func (p *processController) stopRuntime(err *RuntimeError, snapshot ProcessSnapshot) {
 	p.viewMu.Lock()
 	p.viewStatus = snapshot.status
-	p.completionErr = err
+	p.runtimeErr = err
 	p.viewMu.Unlock()
 	close(p.done)
 }
@@ -349,8 +354,8 @@ func (p *processController) stopRuntime(err *RuntimeError, snapshot ProcessSnaps
 func (p *processController) closedRequestError() error {
 	p.viewMu.RLock()
 	defer p.viewMu.RUnlock()
-	if p.completionErr != nil {
-		return p.completionErr
+	if p.runtimeErr != nil {
+		return p.runtimeErr.clone()
 	}
 	return ErrProcessFinished
 }

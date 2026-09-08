@@ -26,6 +26,8 @@ const (
 // ProcessSnapshot is an immutable diagnostic capture of one Engine-owned
 // Process. Strategy state and Effect payloads remain opaque. A ProcessSnapshot
 // is not a recovery unit; only a complete TreeSnapshot can be restored.
+// Parsing validates the captured state, not storage acknowledgment.
+// [Engine.InspectTree] identifies the acknowledged head of its durable captures.
 type ProcessSnapshot struct {
 	data                    json.RawMessage
 	processID               ProcessID
@@ -117,7 +119,7 @@ func (p ProcessSnapshot) Capabilities() CapabilitySet { return p.capabilities }
 // Status returns the captured common lifecycle state.
 func (p ProcessSnapshot) Status() Status { return p.status }
 
-// Usage returns the Framework counters confirmed in this capture.
+// Usage returns the Framework counters recorded in this capture.
 func (p ProcessSnapshot) Usage() Usage { return p.usage }
 
 // UnknownEffectIDs returns Effects whose captured settlement requires explicit

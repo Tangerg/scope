@@ -159,6 +159,27 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 			if !errors.Is(awaitErr, durability.failure) {
 				t.Fatalf("runtime outcome=%v", awaitErr)
 			}
+			for _, source := range []struct {
+				name string
+				err  error
+			}{
+				{name: "Await", err: awaitErr},
+				{name: "stopped control", err: root.Pause(t.Context(), "inspect stopped runtime")},
+			} {
+				failure, ok := errors.AsType[*RuntimeError](source.err)
+				if !ok || failure.ProcessID() != root.ID() || failure.HeadDigest() != commit.previous ||
+					!errors.Is(failure, durability.failure) {
+					t.Fatalf("%s runtime failure=%v", source.name, source.err)
+				}
+				*failure = RuntimeError{}
+				_, nextErr := root.Await(t.Context())
+				retained, ok := errors.AsType[*RuntimeError](nextErr)
+				if !ok || retained.ProcessID() != root.ID() || retained.HeadDigest() != commit.previous ||
+					!errors.Is(retained, durability.failure) {
+					t.Fatalf("mutating %s error changed retained runtime failure: %v", source.name, nextErr)
+				}
+			}
+			_, awaitErr = root.Await(t.Context())
 			stopped := requireTreeInspection(t, engine, root.ID())
 			if !stopped.Stopped || stopped.CommitPending || stopped.HeadDigest != commit.previous || len(stopped.Processes) != 1 {
 				t.Fatalf("stopped inspection=%+v", stopped)

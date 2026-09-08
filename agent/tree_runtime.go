@@ -298,48 +298,40 @@ func (t *treeRuntime) advanceReadyWork() bool {
 }
 
 func (t *treeRuntime) waitForWork() {
+	// Nil channels disable blocked lanes without duplicating event dispatch.
+	// These are local selections; only the owner changes the actual barriers.
+	commitDone := t.commitDone
+	controls := t.controls
+	commands := t.commands
+	completions := t.completions
+	freezeCanceled := t.freezeCanceled()
 	if t.commit != nil {
-		select {
-		case completion := <-t.commitDone:
-			t.applyTreeCommitCompletion(completion)
-		case response := <-t.inspections:
-			t.replyInspection(response)
+		controls = nil
+		commands = nil
+		completions = nil
+		freezeCanceled = nil
+	} else {
+		commitDone = nil
+		if t.freeze != nil {
+			commands = nil
+			if t.freeze.ready {
+				completions = nil
+			}
 		}
-		return
-	}
-	if t.freeze != nil && t.freeze.ready {
-		select {
-		case command := <-t.controls:
-			t.applyCommand(command)
-		case response := <-t.inspections:
-			t.replyInspection(response)
-		case <-t.freeze.acquisition.canceled:
-			t.releaseCurrentFreeze()
-		}
-		return
-	}
-	if freezeCanceled := t.freezeCanceled(); freezeCanceled != nil {
-		select {
-		case command := <-t.controls:
-			t.applyCommand(command)
-		case response := <-t.inspections:
-			t.replyInspection(response)
-		case completion := <-t.completions:
-			t.applyCompletion(completion)
-		case <-freezeCanceled:
-			t.releaseCurrentFreeze()
-		}
-		return
 	}
 	select {
-	case command := <-t.controls:
+	case completion := <-commitDone:
+		t.applyTreeCommitCompletion(completion)
+	case command := <-controls:
 		t.applyCommand(command)
 	case response := <-t.inspections:
 		t.replyInspection(response)
-	case command := <-t.commands:
+	case command := <-commands:
 		t.applyCommand(command)
-	case completion := <-t.completions:
+	case completion := <-completions:
 		t.applyCompletion(completion)
+	case <-freezeCanceled:
+		t.releaseCurrentFreeze()
 	}
 }
 
