@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/document"
 )
 
@@ -102,7 +104,7 @@ func (i *IndexRequest) Batch(ctx context.Context, batcher Batcher) ([]*IndexRequ
 	if err := i.Validate(); err != nil {
 		return nil, err
 	}
-	if batcher == nil {
+	if lo.IsNil(batcher) {
 		return nil, errors.New("vectorstore: batch index request: batcher must not be nil")
 	}
 

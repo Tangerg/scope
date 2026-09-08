@@ -91,6 +91,16 @@ func TestIndexRequestBatch(t *testing.T) {
 	}
 }
 
+func TestIndexRequestBatchRejectsNilBatcher(t *testing.T) {
+	request := &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "a", Text: "content"}}}
+	for _, batcher := range []vectorstore.Batcher{nil, batcherFunc(nil)} {
+		batches, err := request.Batch(t.Context(), batcher)
+		if err == nil || err.Error() != "vectorstore: batch index request: batcher must not be nil" || batches != nil {
+			t.Fatalf("Batch = %v, %v; want nil batcher rejection", batches, err)
+		}
+	}
+}
+
 func TestIndexRequestBatchRejectsInvalidPartitions(t *testing.T) {
 	documents := []*document.Document{{ID: "a", Text: "a"}, {ID: "b", Text: "b"}}
 	tests := map[string][][]*document.Document{
