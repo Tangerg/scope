@@ -262,9 +262,15 @@ func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 		s.embeddingColumn, s.dimensions,
 	)
 	if _, err := s.db.ExecContext(ctx, createSQL); err != nil {
-		// Oracle returns ORA-00955 when the table already exists.
-		// Allow the IF-NOT-EXISTS semantics through string match
-		// because Oracle has no CREATE TABLE IF NOT EXISTS.
+		// Oracle returns ORA-00955 when the table already exists, and has no
+		// CREATE TABLE IF NOT EXISTS to ask for that outcome directly.
+		//
+		// The code is matched as text rather than through a typed driver error
+		// because this store takes a *sql.DB and holds no Oracle driver, so
+		// the caller chooses one and its error types are not visible here. The
+		// ORA-NNNNN prefix survives an NLS_LANGUAGE that translates the
+		// message after it, which is why the code and not the wording is what
+		// this looks for.
 		if !strings.Contains(err.Error(), "ORA-00955") {
 			return fmt.Errorf("create table %s: %w", s.fullTable, err)
 		}
