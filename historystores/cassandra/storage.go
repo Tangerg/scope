@@ -3,7 +3,6 @@ package cassandra
 import (
 	"fmt"
 	"regexp"
-	"sync"
 	"time"
 
 	"github.com/samber/lo"
@@ -37,25 +36,4 @@ func decodeMessage(raw []byte) (chat.Message, error) {
 		return chat.Message{}, err
 	}
 	return message, nil
-}
-
-type sequenceGenerator struct {
-	mu   sync.Mutex
-	last int64
-}
-
-func (s *sequenceGenerator) reserveTimeUUIDs(count int) int64 {
-	if count <= 0 {
-		panic("cassandra: sequence count must be positive")
-	}
-	span := int64(count) * int64(timeUUIDTick)
-	candidate := time.Now().UnixNano()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	first := candidate
-	if first <= s.last {
-		first = s.last + 1
-	}
-	s.last = first + span - 1
-	return first
 }

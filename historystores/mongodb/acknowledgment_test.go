@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -42,6 +43,18 @@ func (s *scriptedCollection) DeleteMany(
 // MongoDB sends no reply for a w: 0 write, so the driver returns a nil error
 // for messages it never learned the fate of. Reporting that as a successful
 // append would lose history silently.
+// storeFor builds the same Store NewStore would, minus the provider handle.
+// The sequence is a dependency rather than a zero value, so a literal cannot
+// stand in for it.
+func storeFor(t *testing.T, collection MessageCollection) *Store {
+	t.Helper()
+	sequence, err := history.NewSequence(time.Nanosecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &Store{collection: collection, sequence: sequence}
+}
+
 func TestWriteRejectsUnacknowledgedResult(t *testing.T) {
 	t.Parallel()
 
@@ -67,7 +80,7 @@ func TestWriteRejectsUnacknowledgedResult(t *testing.T) {
 	} {
 		t.Run(sample.name, func(t *testing.T) {
 			collection := &scriptedCollection{inserted: sample.inserted}
-			store := &Store{collection: collection}
+			store := storeFor(t, collection)
 			err := store.Write(t.Context(), history.ConversationID("conversation"),
 				chat.NewUserMessage(chat.NewTextPart("hello")))
 			if collection.calls != 1 {
@@ -92,14 +105,14 @@ func TestClearRejectsUnacknowledgedResult(t *testing.T) {
 	t.Parallel()
 
 	collection := &scriptedCollection{deleted: &mongo.DeleteResult{}}
-	store := &Store{collection: collection}
+	store := storeFor(t, collection)
 	err := store.Clear(t.Context(), history.ConversationID("conversation"))
 	if err == nil || !strings.Contains(err.Error(), "clear: collection writes are unacknowledged (w: 0)") {
 		t.Fatalf("Clear() = %v, want an unacknowledged-write error", err)
 	}
 
 	collection = &scriptedCollection{deleted: &mongo.DeleteResult{Acknowledged: true}}
-	store = &Store{collection: collection}
+	store = storeFor(t, collection)
 	if err := store.Clear(t.Context(), history.ConversationID("conversation")); err != nil {
 		t.Fatalf("Clear() = %v, want nil", err)
 	}

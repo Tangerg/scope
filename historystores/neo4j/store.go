@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	"github.com/samber/lo"
@@ -68,7 +69,7 @@ type Store struct {
 	driver   neo4j.DriverWithContext
 	database string
 	label    string
-	sequence sequenceGenerator
+	sequence *history.Sequence
 }
 
 // NewStore performs schema setup during construction, which is why it takes
@@ -85,10 +86,15 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if config.Label == "" {
 		config.Label = DefaultLabel
 	}
+	sequence, err := history.NewSequence(time.Nanosecond)
+	if err != nil {
+		return nil, err
+	}
 	s := &Store{
 		driver:   config.Driver,
 		database: config.Database,
 		label:    config.Label,
+		sequence: sequence,
 	}
 	if config.InitializeSchema {
 		if err := s.initIndex(ctx); err != nil {

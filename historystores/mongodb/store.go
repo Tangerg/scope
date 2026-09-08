@@ -84,7 +84,7 @@ var (
 // remains unspecified.
 type Store struct {
 	collection MessageCollection
-	sequence   sequenceGenerator
+	sequence   *history.Sequence
 }
 
 // NewStore performs schema setup during construction, which is why it takes
@@ -95,7 +95,11 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	s := &Store{collection: config.Collection}
+	sequence, err := history.NewSequence(time.Nanosecond)
+	if err != nil {
+		return nil, err
+	}
+	s := &Store{collection: config.Collection, sequence: sequence}
 	if config.InitializeSchema {
 		if err := s.initIndex(ctx); err != nil {
 			return nil, fmt.Errorf("mongodb: initialize schema: %w", err)

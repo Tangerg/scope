@@ -44,7 +44,7 @@ var (
 // ordering across separate Store values remains unspecified.
 type Store struct {
 	container *azcosmos.ContainerClient
-	sequence  sequenceGenerator
+	sequence  *history.Sequence
 }
 
 // NewStore needs no context because construction performs no I/O; the
@@ -54,7 +54,11 @@ func NewStore(config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	return &Store{container: config.Container}, nil
+	sequence, err := history.NewSequence(time.Nanosecond)
+	if err != nil {
+		return nil, err
+	}
+	return &Store{container: config.Container, sequence: sequence}, nil
 }
 
 // document is the wire shape stored in Cosmos. The struct tags match

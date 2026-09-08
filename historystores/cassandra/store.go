@@ -66,7 +66,7 @@ var (
 // across concurrent calls or separate Store values remains unspecified.
 type Store struct {
 	session  *gocql.Session
-	sequence sequenceGenerator
+	sequence *history.Sequence
 
 	writeCQL  string
 	readCQL   string
@@ -90,8 +90,16 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		config.TableName = DefaultTableName
 	}
 	qualified := config.Keyspace + "." + config.TableName
+	// A TIMEUUID timestamp advances in 100-nanosecond ticks, so positions are
+	// reserved in that unit: finer spacing would collapse two of them onto one
+	// identifier.
+	sequence, err := history.NewSequence(timeUUIDTick)
+	if err != nil {
+		return nil, err
+	}
 	s := &Store{
-		session: config.Session,
+		session:  config.Session,
+		sequence: sequence,
 		writeCQL: fmt.Sprintf(
 			"INSERT INTO %s (conversation_id, seq, message) VALUES (?, ?, ?)",
 			qualified,
@@ -138,7 +146,7 @@ func (s *Store) Write(ctx context.Context, conversationID history.ConversationID
 		return fmt.Errorf("cassandra: write: encode messages: %w", err)
 	}
 	batch := s.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
-	sequenceBase := s.sequence.reserveTimeUUIDs(len(encoded))
+	sequenceBase := s.sequence.Reserve(len(encoded))
 	for index, raw := range encoded {
 		messageSequence := sequenceUUID(sequenceBase, index)
 		batch.Query(s.writeCQL, conversationID.String(), messageSequence, string(raw))
