@@ -96,6 +96,11 @@ func (p *processState) restorePreparedStep(wire *preparedStepWire) error {
 		return nil
 	}
 	prepared := clonePreparedStep(*wire)
+	if output, completes := prepared.Transition.Output(); completes {
+		if err := p.deployment.Descriptor().ValidateOutput(output); err != nil {
+			return fmt.Errorf("%w: prepared output schema: %w", ErrInvalidSnapshot, err)
+		}
+	}
 	candidate, err := restoreExecution(p.deployment.Definition(), prepared.CandidateState)
 	if err != nil {
 		return fmt.Errorf("%w: restore prepared Execution: %w", ErrInvalidSnapshot, err)

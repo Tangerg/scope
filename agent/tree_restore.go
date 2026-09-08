@@ -18,6 +18,8 @@ type restoredTreeProcess struct {
 // DeploymentResolver. Registration is all-or-nothing within this Engine.
 // Committed and prepared candidate states must both restore through their exact
 // Definition before registration, durability activation, or Effect dispatch.
+// Both completed and prepared completion outputs must satisfy that Definition's
+// output schema before admission.
 func (e *Engine) RestoreTree(
 	ctx context.Context,
 	rootDeployment Deployment,

@@ -33,7 +33,8 @@ type ProcessSnapshot struct {
 
 // ParseProcessSnapshot strictly validates one Process snapshot wire value,
 // including single-answer wait history and an open, unanswered current wait
-// when the Process is Waiting.
+// when the Process is Waiting. Prepared Effects must fit the captured Process
+// capability grant.
 func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 	wire, err := decodeProcessSnapshot(data)
 	if err != nil {
@@ -285,8 +286,16 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 		); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidSnapshot, err)
 		}
+		for _, record := range p.Prepared.Effects {
+			if !p.Capabilities.Allows(record.Effect.RequiredCapabilities()) {
+				return fmt.Errorf("%w: prepared Effect capability denied: %w", ErrInvalidSnapshot, ErrInvalidCapability)
+			}
+		}
 		remainingPending -= uint64(p.Prepared.Transition.ConsumedSignals())
 		reserved = uint64(len(p.Prepared.Effects))
+		if p.Usage.PreparedEffects < reserved {
+			return fmt.Errorf("%w: prepared Effect identities exceed recorded usage", ErrInvalidSnapshot)
+		}
 		preparedSteps = 1
 	}
 	if !resourceQuantitiesFit(p.Limits.MaxPendingSignals, mailbox.pendingCount()) ||

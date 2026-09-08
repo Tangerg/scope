@@ -106,6 +106,29 @@ func TestSnapshotRejectsPreparedStepSequenceOverflow(t *testing.T) {
 	}
 }
 
+func TestSnapshotAccountsForPreparedEffectIdentities(t *testing.T) {
+	snapshot := preparedEngineTestSnapshot(t)
+	wire, err := snapshot.wire()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, count := range []uint64{0, 1, 2} {
+		wire.Usage.PreparedEffects = count
+		data, encodeErr := json.Marshal(wire)
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
+		_, parseErr := ParseProcessSnapshot(data)
+		if count == 0 {
+			if !errors.Is(parseErr, ErrInvalidSnapshot) {
+				t.Errorf("uncounted prepared Effect parse error = %v; want ErrInvalidSnapshot", parseErr)
+			}
+		} else if parseErr != nil {
+			t.Errorf("counted prepared Effect with usage %d rejected: %v", count, parseErr)
+		}
+	}
+}
+
 func TestPreparedEffectPhaseOwnsMonotonicTransitions(t *testing.T) {
 	snapshot := preparedEngineTestSnapshot(t)
 	wire, err := snapshot.wire()
