@@ -22,6 +22,7 @@ type DispatcherConfig struct {
 
 type boundExecutor struct {
 	action   Action
+	required agent.CapabilitySet
 	executor ActionExecutor
 }
 
@@ -49,7 +50,9 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 			if !supplied || lo.IsNil(executor) {
 				return nil, fmt.Errorf("%w: missing executor for Action %q", ErrInvalidDispatcherConfig, binding.action.name)
 			}
-			executors[binding.action.name] = boundExecutor{action: binding.action, executor: executor}
+			executors[binding.action.name] = boundExecutor{
+				action: binding.action, required: binding.required, executor: executor,
+			}
 		case bindingTargetChild:
 			if supplied {
 				return nil, fmt.Errorf("%w: child Action %q cannot have an executor", ErrInvalidDispatcherConfig, binding.action.name)
@@ -73,7 +76,8 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 
 // Dispatch executes one validated Planning protocol operation. Sensor errors
 // and valid ActionResult failures are definite failed settlements; an
-// ActionExecutor error leaves the Effect outcome unknown.
+// ActionExecutor error leaves the Effect outcome unknown. Action Effects must
+// declare every capability required by the frozen binding before execution.
 func (d *Dispatcher) Dispatch(
 	ctx context.Context,
 	request agent.EffectRequest,
@@ -93,7 +97,7 @@ func (d *Dispatcher) Dispatch(
 	case operationSense:
 		return d.sense(ctx, request.ID(), envelope.Input)
 	case operationAction:
-		return d.execute(ctx, request.ID(), envelope.Input, *envelope.Action)
+		return d.execute(ctx, request, envelope.Input, *envelope.Action)
 	default:
 		return agent.Settlement{}, ErrInvalidProtocol
 	}
@@ -136,16 +140,17 @@ func (d *Dispatcher) sense(
 
 func (d *Dispatcher) execute(
 	ctx context.Context,
-	effectID agent.EffectID,
+	effectRequest agent.EffectRequest,
 	input agent.Input,
 	call actionCall,
 ) (agent.Settlement, error) {
 	bound, found := d.executors[call.Name]
-	if !found || bound.action.description != call.Description || !bound.action.Applicable(call.WorldState) {
+	if !found || bound.action.description != call.Description || !bound.action.Applicable(call.WorldState) ||
+		!effectRequest.Effect().RequiredCapabilities().Allows(bound.required) {
 		return agent.Settlement{}, fmt.Errorf("%w: Action %q does not match frozen binding", ErrInvalidProtocol, call.Name)
 	}
 	request := ActionRequest{
-		EffectID: effectID, Input: input, ActionName: call.Name,
+		EffectID: effectRequest.ID(), Input: input, ActionName: call.Name,
 		ActionDescription: call.Description, WorldState: call.WorldState,
 	}
 	if err := validateActionRequest(request); err != nil {
@@ -158,7 +163,7 @@ func (d *Dispatcher) execute(
 	if !result.Valid() {
 		return agent.Settlement{}, fmt.Errorf("planning: Action %q returned an invalid result", call.Name)
 	}
-	return NewActionSettlement(effectID, result)
+	return NewActionSettlement(effectRequest.ID(), result)
 }
 
 var _ agent.Dispatcher = (*Dispatcher)(nil)
