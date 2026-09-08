@@ -11,6 +11,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/history"
 )
@@ -23,13 +25,41 @@ const (
 	fieldCreatedAt      = "created_at"
 )
 
+// MessageCollection is the MongoDB surface the store uses. A
+// [mongo.Collection] satisfies it. Naming only the five operations keeps the
+// store's write accounting checkable without a running server.
+type MessageCollection interface {
+	InsertMany(
+		ctx context.Context,
+		documents any,
+		opts ...options.Lister[options.InsertManyOptions],
+	) (*mongo.InsertManyResult, error)
+	Find(
+		ctx context.Context,
+		filter any,
+		opts ...options.Lister[options.FindOptions],
+	) (*mongo.Cursor, error)
+	DeleteMany(
+		ctx context.Context,
+		filter any,
+		opts ...options.Lister[options.DeleteManyOptions],
+	) (*mongo.DeleteResult, error)
+	Distinct(
+		ctx context.Context,
+		fieldName string,
+		filter any,
+		opts ...options.Lister[options.DistinctOptions],
+	) *mongo.DistinctResult
+	Indexes() mongo.IndexView
+}
+
 // StoreConfig names every dependency explicitly rather than defaulting a
 // client or connection, so a store cannot be built against a service the
 // caller did not choose.
 type StoreConfig struct {
 	// Collection is the live MongoDB collection. Required. The store
 	// does not take ownership of the underlying client.
-	Collection *mongo.Collection
+	Collection MessageCollection
 
 	// InitializeSchema, when true, ensures an index on
 	// (conversation_id, seq, _id) exists. Idempotent.
@@ -37,7 +67,7 @@ type StoreConfig struct {
 }
 
 func (s StoreConfig) Validate() error {
-	if s.Collection == nil {
+	if lo.IsNil(s.Collection) {
 		return errors.New("mongodb: collection is required")
 	}
 	return nil
@@ -53,7 +83,7 @@ var (
 // provide deterministic read order; ordering across separate Store values
 // remains unspecified.
 type Store struct {
-	collection *mongo.Collection
+	collection MessageCollection
 	sequence   sequenceGenerator
 }
 
@@ -120,10 +150,27 @@ func (s *Store) Write(ctx context.Context, conversationID history.ConversationID
 		})
 	}
 
-	if _, err = s.collection.InsertMany(ctx, docs); err != nil {
+	result, err := s.collection.InsertMany(ctx, docs)
+	if err != nil {
 		return fmt.Errorf("mongodb: write: insert messages: %w", err)
 	}
+	if result == nil || !result.Acknowledged {
+		return errUnacknowledged("write")
+	}
 	return nil
+}
+
+// errUnacknowledged reports a write concern under which no MongoDB write can be
+// confirmed. Under w: 0 the server sends no reply, so the driver returns a nil
+// error for a write it never heard about; its Acknowledged flag is the only
+// part of the result that means anything. InsertManyResult.InsertedIDs cannot
+// substitute for it — the driver fills that slice from the request before
+// sending, so its length always matches the input.
+func errUnacknowledged(operation string) error {
+	return fmt.Errorf(
+		"mongodb: %s: collection writes are unacknowledged (w: 0), so the operation cannot be confirmed",
+		operation,
+	)
 }
 
 // Read returns every message stored under conversationID in
@@ -183,8 +230,12 @@ func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID
 		return err
 	}
 
-	if _, err = s.collection.DeleteMany(ctx, bson.M{fieldConversationID: conversationID.String()}); err != nil {
+	result, err := s.collection.DeleteMany(ctx, bson.M{fieldConversationID: conversationID.String()})
+	if err != nil {
 		return fmt.Errorf("mongodb: clear: delete messages: %w", err)
+	}
+	if result == nil || !result.Acknowledged {
+		return errUnacknowledged("clear")
 	}
 	return nil
 }

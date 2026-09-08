@@ -16,6 +16,11 @@
 // clock regression. Concurrent calls and writes from distinct Store instances
 // have no defined relative order.
 //
+// Write acknowledgment. The collection must use an acknowledged write concern.
+// Under w: 0 MongoDB sends no reply, so the driver reports success for messages
+// it never learned the fate of; Write and Clear reject that result instead of
+// passing the silence on as a stored conversation.
+//
 // Example:
 //
 //	col := client.Database("scope").Collection("chat_history")
