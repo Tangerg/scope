@@ -37,10 +37,19 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		Limit:          pageSize,
 		DialectVersion: redisSearchDialectVersion,
 	}
+	// Only an empty page establishes that nothing matches. RediSearch runs
+	// FT.SEARCH under a query timeout whose default ON_TIMEOUT policy returns
+	// the hits accumulated so far, so a page shorter than the limit can mean a
+	// truncated scan rather than an exhausted match set. Re-querying after each
+	// DEL converges in either case; trusting a short page would report success
+	// while matching documents remained.
 	for {
 		result, err := s.client.FTSearchWithArgs(ctx, s.indexName, query, opts).Result()
 		if err != nil {
 			return fmt.Errorf("redis: FT.SEARCH %s: %w", s.indexName, err)
+		}
+		if err := checkSearchCompleteness(s.indexName, result); err != nil {
+			return err
 		}
 		if len(result.Docs) == 0 {
 			return nil
@@ -51,9 +60,6 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		}
 		if _, err = s.client.Del(ctx, keys...).Result(); err != nil {
 			return fmt.Errorf("redis: DEL: %w", err)
-		}
-		if len(result.Docs) < pageSize {
-			return nil
 		}
 	}
 }

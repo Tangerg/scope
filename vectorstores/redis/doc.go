@@ -24,6 +24,12 @@
 // `(<filter>)=>[KNN K @embedding $vec AS distance]`, passing the
 // binary FLOAT32 little-endian vector through PARAMS.
 //
+// Result completeness. RediSearch bounds every query with TIMEOUT and its
+// default ON_TIMEOUT policy answers successfully with the hits gathered so far,
+// reporting the truncation as a warning. Search and filtered deletion reject a
+// warned result, and deletion re-queries until a page comes back empty rather
+// than reading a short page as an exhausted match set.
+//
 // See https://redis.io/docs/latest/develop/interact/search-and-query/
 // for the RediSearch reference.
 package redis

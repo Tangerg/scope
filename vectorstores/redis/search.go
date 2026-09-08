@@ -74,6 +74,9 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	if err != nil {
 		return nil, fmt.Errorf("redis: FT.SEARCH %s: %w", s.indexName, err)
 	}
+	if err := checkSearchCompleteness(s.indexName, result); err != nil {
+		return nil, err
+	}
 
 	docs = make([]*vectorstore.SearchResult, 0, len(result.Docs))
 	for _, hit := range result.Docs {
