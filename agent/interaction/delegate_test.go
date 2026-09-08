@@ -530,7 +530,7 @@ func delegateWorkflow[I, O any](t *testing.T, name string, transform workflow.Tr
 		t.Fatal(err)
 	}
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: workflow.Dispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte(name + "-implementation")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte(name + "-configuration")),
 	})

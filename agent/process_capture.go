@@ -107,6 +107,9 @@ func (p *processState) restorePreparedStep(wire *preparedStepWire) error {
 	}
 	for index := range prepared.Effects {
 		record := &prepared.Effects[index]
+		if err := p.deployment.validateEffect(record.Effect); err != nil {
+			return fmt.Errorf("%w: prepared Effect: %w", ErrInvalidSnapshot, err)
+		}
 		if record.Phase != effectPhasePending || record.Effect.Target() != EffectTargetDispatcher {
 			continue
 		}

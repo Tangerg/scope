@@ -25,7 +25,7 @@ func TestDefinitionConformance(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := conformancetest.Run(t, agent.DeploymentConfig{
-		Definition: definition, Dispatcher: workflow.Dispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte("workflow-conformance")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte("child-call")),
 	}, agent.EngineConfig{

@@ -35,6 +35,11 @@ func (p *processState) prepareStepResult(
 		}
 	}
 	for _, effect := range transition.Effects() {
+		if err := p.deployment.validateEffect(effect); err != nil {
+			return &stepPreparationFailure{
+				kind: FailureKindContract, code: "execution.effect.invalid", cause: err,
+			}
+		}
 		if !p.capabilities.Allows(effect.RequiredCapabilities()) {
 			return &stepPreparationFailure{
 				kind: FailureKindContract, code: "engine.capability.denied", cause: ErrInvalidCapability,

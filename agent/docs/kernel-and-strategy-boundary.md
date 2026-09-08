@@ -64,9 +64,12 @@ protocol needs.
 ### A software identity includes its external interpretation
 
 [`Deployment`](../deployment.go) is the closest existing counterpart to bound
-software because it pairs the Definition with the Dispatcher that understands
-its Effects. A Definition alone does not identify all behavior: a different
-dispatcher policy or model configuration can change the outcome of the same
+software because it binds the Definition and, when it declares external Effects,
+the Dispatcher that understands them. Framework-only Definitions require no
+Dispatcher; the Engine rejects an unbound external Effect before preparing its
+Step or admitting a restored prepared Step. A Definition alone does not identify
+all external behavior: a different dispatcher policy or model configuration can
+change the outcome of the same
 declared request. The implementation and configuration digests must cover the
 artifacts and frozen settings required by the deployment contract. A digest is
 an identity assertion, not proof that an author included every dependency or

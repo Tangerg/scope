@@ -240,7 +240,7 @@ func mustTopologyDeployment[I, O any](
 	}
 	definition := mustDefinition(t, name, stage)
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: workflow.Dispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte(name + ":implementation")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte(name + ":configuration")),
 	})

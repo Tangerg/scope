@@ -113,7 +113,7 @@ func TestCallRejectsInvalidChildAllocation(t *testing.T) {
 func mustDeployment(t *testing.T, definition agent.Definition, identity string) agent.Deployment {
 	t.Helper()
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: workflow.Dispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte(identity + "-implementation")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte(identity + "-configuration")),
 	})

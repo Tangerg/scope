@@ -156,7 +156,7 @@ func newManagedWorkflow() (agent.Deployment, deploymentResolver, error) {
 		return agent.Deployment{}, nil, err
 	}
 	root, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: workflow.Dispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte("example-workflow-review-implementation")),
 		ConfigurationDigest: agent.ComputeDigest([]byte(
 			"example-workflow-review:" + normalizer.DeploymentRef().Digest().String() + ":" +
@@ -199,7 +199,7 @@ func transformDeployment[I, O any](
 		return agent.Deployment{}, err
 	}
 	return agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: workflow.Dispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte(name + "-implementation")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte(name + "-configuration")),
 	})

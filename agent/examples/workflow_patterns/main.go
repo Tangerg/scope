@@ -356,7 +356,7 @@ func newPatternRoot(
 		return agent.Deployment{}, err
 	}
 	root, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: workflow.Dispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte("workflow-patterns-root")),
 		ConfigurationDigest:  agent.ComputeDigest(configurationJSON),
 	})
@@ -500,7 +500,7 @@ func transformDeployment[I, O any](
 		return agent.Deployment{}, fmt.Errorf("encode %s configuration: %w", name, err)
 	}
 	return agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: workflow.Dispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte(name + "-transform")),
 		ConfigurationDigest:  agent.ComputeDigest(configurationJSON),
 	})

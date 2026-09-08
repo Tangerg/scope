@@ -473,7 +473,7 @@ func transformDeployment[I, O any](
 		return agent.Deployment{}, fmt.Errorf("encode %s configuration: %w", name, err)
 	}
 	return agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: workflow.Dispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte(name + "-transform")),
 		ConfigurationDigest:  agent.ComputeDigest(configurationJSON),
 	})
@@ -489,7 +489,7 @@ func newWorkflowDeployment(
 		return agent.Deployment{}, fmt.Errorf("encode %s configuration: %w", definition.Descriptor().Name(), err)
 	}
 	return agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: workflow.Dispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte(implementationIdentity)),
 		ConfigurationDigest:  agent.ComputeDigest(configurationJSON),
 	})

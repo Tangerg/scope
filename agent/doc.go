@@ -66,8 +66,10 @@
 // Engine derives a stable effect identity from the Process identity, step
 // sequence, and effect index, then freezes the payload. It interprets only its
 // own closed set of framework effects — child and wait operations — and hands a
-// strategy effect whole to the dispatcher its [Deployment] bound. A dispatcher
-// never mutates an Execution; it produces deltas and one settlement Signal.
+// strategy effect whole to the dispatcher its [Deployment] bound. A Deployment
+// without a dispatcher admits only framework Effects, including during recovery.
+// A dispatcher never mutates an Execution; it produces deltas and one settlement
+// Signal.
 //
 // Each effect advances through planned, pending, and settled in declaration
 // order, one at a time:
@@ -183,8 +185,8 @@
 // Processes rather than by nesting a second Execution.
 //
 // The Engine never imports or type-switches a concrete strategy. A new
-// strategy is admitted by implementing the waist plus its own dispatcher,
-// codec, and safe consumption boundary.
+// strategy is admitted by implementing the waist, state codec, and safe
+// consumption boundary, and binding a dispatcher when it declares external Effects.
 //
 // # Boundaries
 //

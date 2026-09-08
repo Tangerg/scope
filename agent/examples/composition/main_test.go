@@ -278,7 +278,7 @@ func TestCompositionRestoresEverySignalBoundary(t *testing.T) {
 	}
 	definition := &recordingDefinition{Definition: base.Definition()}
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: rejectingDispatcher{},
+		Definition:           definition,
 		ImplementationDigest: base.DeploymentRef().ImplementationDigest(),
 		ConfigurationDigest:  base.DeploymentRef().ConfigurationDigest(),
 	})
@@ -420,7 +420,7 @@ func TestCompositionPreservesChildFailures(t *testing.T) {
 			}
 			if !failStart {
 				model, err = agent.NewDeployment(agent.DeploymentConfig{
-					Definition: failingDefinition{Definition: model.Definition()}, Dispatcher: rejectingDispatcher{},
+					Definition:           failingDefinition{Definition: model.Definition()},
 					ImplementationDigest: agent.ComputeDigest([]byte("failing-composition-child")),
 					ConfigurationDigest:  model.DeploymentRef().ConfigurationDigest(),
 				})

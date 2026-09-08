@@ -275,17 +275,6 @@ func TestCallCannotEscalateBudgetOrCapabilities(t *testing.T) {
 	}
 }
 
-func TestWorkflowDispatcherRejectsEveryEffectProtocol(t *testing.T) {
-	settlement, err := (workflow.Dispatcher{}).Dispatch(context.Background(), agent.EffectRequest{}, nil)
-	if !errors.Is(err, workflow.ErrInvalidProtocol) || settlement.Valid() {
-		t.Fatalf("Dispatch = %#v, %v", settlement, err)
-	}
-	effect, _ := agent.NewDispatcherEffect(json.RawMessage(`{"operation":"unexpected"}`))
-	if policy := (workflow.Dispatcher{}).ReplayPolicy(effect); policy != agent.ReplayPolicyNever {
-		t.Fatalf("ReplayPolicy = %s", policy)
-	}
-}
-
 func awaitPausedWindow(
 	t *testing.T,
 	engine *agent.Engine,
@@ -350,7 +339,7 @@ func newPausingBranchDeployment(t *testing.T, branch string) agent.Deployment {
 	}
 	definition := &pausingBranchDefinition{descriptor: descriptor, branch: branch}
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: workflow.Dispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte("pausing-branch-implementation")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte("pausing-branch-" + branch)),
 	})

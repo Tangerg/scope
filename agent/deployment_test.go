@@ -81,3 +81,106 @@ func TestDeploymentRejectsMissingOrTypedNilBindings(t *testing.T) {
 		}
 	}
 }
+
+func TestDeploymentWithoutDispatcherRunsAndRestoresFrameworkEffects(t *testing.T) {
+	definition := newEngineTestDefinition(t, "engine.wait", "wait")
+	deployment := engineTestDeployment(t, definition, nil)
+	engine, err := NewEngine(EngineConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { mustCloseEngine(t, engine) })
+	input, _ := EncodeInput(engineTestInput{Value: "question"})
+	process, err := engine.Start(t.Context(), deployment, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, process, StatusWaiting)
+	tree, err := engine.CaptureTree(t.Context(), process.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredEngine, err := NewEngine(EngineConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { mustCloseEngine(t, restoredEngine) })
+	restored, err := restoredEngine.RestoreTree(t.Context(), deployment, tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range []*Process{process, restored} {
+		waitID, ok := candidate.WaitID()
+		if !ok {
+			t.Fatal("framework wait did not survive restoration")
+		}
+		id, _ := ParseSignalID("signal:answer")
+		answer, _ := NewSignalRequest(id, waitID, json.RawMessage(`{"kind":"answer","value":"approved"}`))
+		if accepted, err := candidate.DeliverSignals(t.Context(), answer); err != nil || !accepted {
+			t.Fatalf("answer accepted=%t, error=%v", accepted, err)
+		}
+		result := awaitResult(t, candidate)
+		output, ok := result.Output()
+		value, err := output.Decode[engineTestOutput]()
+		if result.Status() != StatusCompleted || !ok || err != nil || value.Value != "approved" {
+			t.Fatalf("framework completion status=%s, output=%+v, error=%v", result.Status(), value, err)
+		}
+	}
+}
+
+func TestDeploymentWithoutDispatcherRejectsWholeExternalEffectBatch(t *testing.T) {
+	definition := newEngineTestDefinition(t, "engine.batch", "batch")
+	deployment := engineTestDeployment(t, definition, nil)
+	engine, err := NewEngine(EngineConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { mustCloseEngine(t, engine) })
+	input, _ := EncodeInput(engineTestInput{Value: "request"})
+	result, err := engine.Run(t.Context(), deployment, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure, ok := result.Termination().Failure()
+	if result.Status() != StatusFailed || !ok || failure.Kind() != FailureKindContract ||
+		failure.Code() != "execution.effect.invalid" || result.Usage().PreparedEffects != 0 {
+		t.Fatalf("unbound Effect result=%+v, failure=%+v", result, failure)
+	}
+}
+
+func TestDeploymentWithoutDispatcherRejectsRestoredExternalEffect(t *testing.T) {
+	definition := newEngineTestDefinition(t, "engine.effect", "effect")
+	dispatcher := &failingEngineTestDispatcher{}
+	deployment := engineTestDeployment(t, definition, dispatcher)
+	engine, err := NewEngine(EngineConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { mustCloseEngine(t, engine) })
+	input, _ := EncodeInput(engineTestInput{Value: "request"})
+	process, err := engine.Start(t.Context(), deployment, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitForUnknownSettlement(t, process)
+	tree, err := engine.CaptureTree(t.Context(), process.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredEngine, err := NewEngine(EngineConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { mustCloseEngine(t, restoredEngine) })
+	withoutDispatcher := engineTestDeployment(t, definition, nil)
+	if restored, err := restoredEngine.RestoreTree(t.Context(), withoutDispatcher, tree); !errors.Is(err, ErrInvalidSnapshot) || !errors.Is(err, ErrInvalidEffect) || restored != nil {
+		t.Fatalf("restored=%v, error=%v", restored, err)
+	}
+	if dispatcher.calls.Load() != 1 {
+		t.Fatalf("restoration repeated %d external calls", dispatcher.calls.Load())
+	}
+	if err := process.Kill(t.Context(), "test cleanup"); err != nil {
+		t.Fatal(err)
+	}
+	_ = awaitResult(t, process)
+}

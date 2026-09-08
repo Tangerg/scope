@@ -133,7 +133,7 @@ func protocolTestDefinitions(t testing.TB) (*Definition, *Definition) {
 	t.Helper()
 	childDefinition := stateTestDefinition(t)
 	child, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: childDefinition, Dispatcher: Dispatcher{},
+		Definition:           childDefinition,
 		ImplementationDigest: agent.ComputeDigest([]byte("workflow-state-protocol-implementation")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte("workflow-state-protocol-configuration")),
 	})
