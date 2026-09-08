@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 
 	"github.com/go-openapi/strfmt"
@@ -78,6 +79,32 @@ func (d DistanceMetric) score(distance float64) vectorstore.Score {
 	}
 }
 
+// MetadataProperty declares one metadata key as a class property so filters
+// can select on it.
+//
+// Weaviate classes are typed and a where filter may only name a declared
+// property, so the filterable keys have to be known when the class is created
+// — the same constraint cassandra, milvus, and mongodb answer with their own
+// declarations.
+type MetadataProperty struct {
+	// Name is the metadata key, used verbatim as the property name.
+	Name string
+
+	// DataType is the Weaviate data type: "text", "int", "number",
+	// "boolean", or "date".
+	DataType string
+}
+
+// MetadataDataText is the data type whose tokenization the store pins. Filters
+// compare whole values case-sensitively, and Weaviate's default word
+// tokenization "splits text by any non-alphanumeric characters, then
+// lowercases each token" — field tokenization instead "treats the entire value
+// of the property as a single token" and "preserves both case and symbols".
+const MetadataDataText = "text"
+
+// metadataTextTokenization keeps a declared text property exactly comparable.
+const metadataTextTokenization = "field"
+
 // StoreConfig contains configuration options for Weaviate vector store.
 type StoreConfig struct {
 	// Client is the Weaviate client instance.
@@ -110,6 +137,13 @@ type StoreConfig struct {
 	// HybridAlpha controls the relative weight of vector evidence in native
 	// hybrid search. Nil preserves Weaviate's default; valid values are [0, 1].
 	HybridAlpha *float32
+
+	// MetadataProperties enumerates the metadata keys filters may select on.
+	// Each becomes a class property under InitializeSchema and is written
+	// alongside the document. A filter naming any other key is rejected,
+	// because a where filter on an undeclared property is not a narrower
+	// query — Weaviate has no such property to compare.
+	MetadataProperties []MetadataProperty
 }
 
 func (s StoreConfig) Validate() error {
@@ -132,6 +166,30 @@ func (s StoreConfig) Validate() error {
 	if s.HybridAlpha != nil && (*s.HybridAlpha < 0 || *s.HybridAlpha > 1) {
 		return fmt.Errorf("weaviate: HybridAlpha must be between 0 and 1, got %v", *s.HybridAlpha)
 	}
+	return s.validateMetadataProperties()
+}
+
+func (s StoreConfig) validateMetadataProperties() error {
+	seen := make(map[string]struct{}, len(s.MetadataProperties))
+	for index, property := range s.MetadataProperties {
+		if property.Name == "" {
+			return fmt.Errorf("weaviate: MetadataProperties[%d].Name must not be empty", index)
+		}
+		if property.Name == fieldContent || property.Name == fieldMetadata {
+			return fmt.Errorf("weaviate: MetadataProperties[%d] uses reserved property %q",
+				index, property.Name)
+		}
+		if _, duplicate := seen[property.Name]; duplicate {
+			return fmt.Errorf("weaviate: MetadataProperties[%d] duplicates %q", index, property.Name)
+		}
+		seen[property.Name] = struct{}{}
+		switch property.DataType {
+		case MetadataDataText, "int", "number", "boolean", "date":
+		default:
+			return fmt.Errorf("weaviate: MetadataProperties[%d] has unsupported DataType %q",
+				index, property.DataType)
+		}
+	}
 	return nil
 }
 
@@ -153,13 +211,14 @@ var (
 // names properties per class, so the field mapping is fixed at construction
 // and cannot vary per request.
 type Store struct {
-	client           *weaviate.Client
-	embeddingClient  embeddingclient.Client
-	documentBatcher  vectorstore.Batcher
-	className        string
-	distanceMetric   DistanceMetric
-	hybridAlpha      *float32
-	initializeSchema bool
+	client             *weaviate.Client
+	embeddingClient    embeddingclient.Client
+	documentBatcher    vectorstore.Batcher
+	className          string
+	metadataProperties []MetadataProperty
+	distanceMetric     DistanceMetric
+	hybridAlpha        *float32
+	initializeSchema   bool
 }
 
 // NewStore performs schema setup during construction, which is why it takes
@@ -183,13 +242,14 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		*hybridAlpha = *config.HybridAlpha
 	}
 	store := &Store{
-		client:           config.Client,
-		embeddingClient:  embeddingClient,
-		documentBatcher:  config.DocumentBatcher,
-		className:        config.ClassName,
-		distanceMetric:   config.DistanceMetric,
-		hybridAlpha:      hybridAlpha,
-		initializeSchema: config.InitializeSchema,
+		client:             config.Client,
+		embeddingClient:    embeddingClient,
+		documentBatcher:    config.DocumentBatcher,
+		className:          config.ClassName,
+		metadataProperties: slices.Clone(config.MetadataProperties),
+		distanceMetric:     config.DistanceMetric,
+		hybridAlpha:        hybridAlpha,
+		initializeSchema:   config.InitializeSchema,
 	}
 
 	if err = store.initialize(ctx); err != nil {
@@ -221,16 +281,7 @@ func (s *Store) initialize(ctx context.Context) error {
 		VectorIndexConfig: map[string]any{
 			"distance": string(s.distanceMetric),
 		},
-		Properties: []*models.Property{
-			{
-				Name:     fieldContent,
-				DataType: []string{"text"},
-			},
-			{
-				Name:     fieldMetadata,
-				DataType: []string{"text"},
-			},
-		},
+		Properties: s.classProperties(),
 	}
 
 	if err = s.client.Schema().ClassCreator().WithClass(class).Do(ctx); err != nil {
@@ -238,6 +289,28 @@ func (s *Store) initialize(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// classProperties declares the storage fields plus every filterable metadata
+// key. A declared text property pins field tokenization so a filter compares
+// the whole value case-sensitively; content keeps Weaviate's default word
+// tokenization, which is what hybrid search needs.
+func (s *Store) classProperties() []*models.Property {
+	properties := []*models.Property{
+		{Name: fieldContent, DataType: []string{"text"}},
+		{Name: fieldMetadata, DataType: []string{"text"}},
+	}
+	for _, declared := range s.metadataProperties {
+		property := &models.Property{
+			Name:     declared.Name,
+			DataType: []string{declared.DataType},
+		}
+		if declared.DataType == MetadataDataText {
+			property.Tokenization = metadataTextTokenization
+		}
+		properties = append(properties, property)
+	}
+	return properties
 }
 
 func (s *Store) buildObjects(docs []*document.Document, vectors [][]float64) ([]*models.Object, error) {
@@ -249,19 +322,44 @@ func (s *Store) buildObjects(docs []*document.Document, vectors [][]float64) ([]
 			return nil, fmt.Errorf("weaviate: marshal metadata for document %s: %w", doc.ID, err)
 		}
 
+		properties := map[string]any{
+			fieldContent:  doc.Text,
+			fieldMetadata: string(metaBytes),
+		}
+		// The blob round-trips every key losslessly; a declared key is
+		// written again as its own property because that is the only shape a
+		// where filter can select on.
+		if err := s.addDeclaredProperties(properties, doc); err != nil {
+			return nil, err
+		}
+
 		obj := &models.Object{
-			Class:  s.className,
-			ID:     strfmt.UUID(doc.ID),
-			Vector: models.C11yVector(embedding.Float32Vector(vectors[i])),
-			Properties: map[string]any{
-				fieldContent:  doc.Text,
-				fieldMetadata: string(metaBytes),
-			},
+			Class:      s.className,
+			ID:         strfmt.UUID(doc.ID),
+			Vector:     models.C11yVector(embedding.Float32Vector(vectors[i])),
+			Properties: properties,
 		}
 		objects = append(objects, obj)
 	}
 
 	return objects, nil
+}
+
+// addDeclaredProperties copies each declared metadata key onto the object. A
+// key the document does not carry is left unset, which Weaviate reads as null
+// and IsNull matches — the same answer filter.Match gives for an absent key.
+func (s *Store) addDeclaredProperties(properties map[string]any, doc *document.Document) error {
+	for _, declared := range s.metadataProperties {
+		value, present, err := doc.Metadata.Decode[any](declared.Name)
+		if err != nil {
+			return fmt.Errorf("weaviate: decode metadata %q for document %s: %w",
+				declared.Name, doc.ID, err)
+		}
+		if present && value != nil {
+			properties[declared.Name] = value
+		}
+	}
+	return nil
 }
 
 func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
@@ -407,7 +505,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	}
 
 	if req.Options.Filter != nil {
-		visitor := newVisitor()
+		visitor := newVisitor(s.metadataProperties)
 		if acceptErr := req.Options.Filter.Accept(visitor); acceptErr != nil {
 			return nil, fmt.Errorf("weaviate: convert filter: %w", acceptErr)
 		}
@@ -534,7 +632,7 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		return fmt.Errorf("weaviate.Store.DeleteWhere: %w", err)
 	}
 
-	visitor := newVisitor()
+	visitor := newVisitor(s.metadataProperties)
 	if err = expr.Accept(visitor); err != nil {
 		return fmt.Errorf("weaviate: convert filter: %w", err)
 	}

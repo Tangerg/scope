@@ -14,24 +14,83 @@ import (
 // visitor compiles Scope filter expressions into Weaviate where filters.
 // A visitor can be reused; each call to Visit replaces the previous result.
 type visitor struct {
-	result *filters.WhereBuilder
+	result   *filters.WhereBuilder
+	declared map[string]struct{}
 }
 
 var _ filter.Visitor = (*visitor)(nil)
 
-func newVisitor() *visitor {
-	return &visitor{}
+// newVisitor binds the metadata keys declared on the class. A Weaviate where
+// filter may only name a declared property, so a filter on any other key is
+// refused rather than compiled into a path the class has no field for.
+func newVisitor(declared []MetadataProperty) *visitor {
+	names := make(map[string]struct{}, len(declared))
+	for _, property := range declared {
+		names[property.Name] = struct{}{}
+	}
+	return &visitor{declared: names}
 }
 
 // Visit compiles the complete expression tree rooted at expr.
 func (v *visitor) Visit(expr filter.Predicate) error {
 	v.result = nil
+	if err := v.checkDeclaredPaths(expr); err != nil {
+		return err
+	}
 	result, err := compileFilter(expr)
 	if err != nil {
 		return err
 	}
 	v.result = result
 	return nil
+}
+
+// checkDeclaredPaths refuses a filter that selects on a key the class does not
+// declare.
+//
+// Weaviate classes are typed and a where filter may only name a declared
+// property. Compiling an undeclared key produced a path with no matching
+// field, which is not a narrower query — it is a query the server cannot
+// answer. Checking the whole tree up front keeps the refusal a property of the
+// filter rather than of whichever leaf the compiler happened to reach first.
+func (v *visitor) checkDeclaredPaths(expr filter.Expr) error {
+	switch node := expr.(type) {
+	case *filter.UnaryExpr:
+		if node == nil {
+			return nil
+		}
+		return v.checkDeclaredPaths(node.Right())
+	case *filter.BinaryExpr:
+		if node == nil {
+			return nil
+		}
+		if node.Operator().IsLogicalOperator() {
+			if err := v.checkDeclaredPaths(node.Left()); err != nil {
+				return err
+			}
+			return v.checkDeclaredPaths(node.Right())
+		}
+		path, err := node.Path()
+		if err != nil {
+			return fmt.Errorf("weaviate.filter: left operand at %s: %w", node.Start(), err)
+		}
+		if len(path) == 0 {
+			return fmt.Errorf("weaviate.filter: empty key path at %s", node.Start())
+		}
+		if len(path) > 1 {
+			return fmt.Errorf(
+				"weaviate.filter: nested key %q at %s cannot be filtered; declare a flat MetadataProperty instead",
+				strings.Join(path, "."), node.Start())
+		}
+		if _, ok := v.declared[path[0]]; !ok {
+			return fmt.Errorf(
+				"weaviate.filter: metadata key %q at %s is not declared in MetadataProperties, so the class has no property to filter on",
+				path[0], node.Start())
+		}
+		return nil
+	default:
+		return nil
+	}
 }
 
 // Failed compilation clears the prior value so a reused compiler cannot leak a stale filter.

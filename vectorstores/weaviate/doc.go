@@ -29,6 +29,27 @@
 // object it sent. A rejected object returns an error while the objects accepted
 // in the same batch remain stored.
 //
+// Metadata filtering needs declared properties. Weaviate classes are typed and
+// a where filter may only name a declared property, so
+// [StoreConfig.MetadataProperties] enumerates the keys filters may select on.
+// Each becomes a class property under InitializeSchema and is written alongside
+// the document; the complete metadata map is also stored as JSON so every key
+// round-trips losslessly whether or not it is filterable. A filter naming an
+// undeclared key is refused, because a path with no matching field is not a
+// narrower query but one the server cannot answer.
+//
+// A declared text property pins field tokenization, which "treats the entire
+// value of the property as a single token" and "preserves both case and
+// symbols". Weaviate's default word tokenization splits on non-alphanumeric
+// characters and lowercases each token, which would make equality a token
+// match rather than the whole-value, case-sensitive comparison a filter asks
+// for. The content property keeps word tokenization, which is what hybrid
+// search needs.
+//
+// A nested metadata key cannot be filtered: it would need an object property
+// with declared nestedProperties, and dotted-path filtering on those leaves is
+// a Weaviate v1.38 preview feature.
+//
 // See https://weaviate.io/developers/weaviate for the full API
 // surface.
 package weaviate

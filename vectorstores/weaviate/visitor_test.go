@@ -10,8 +10,24 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/storetest"
 )
 
+// testProperties declares every key the shared suite and the tests below
+// select on. A Weaviate where filter may only name a declared property, so a
+// compiler test has to say which keys the class carries.
+func testProperties() []MetadataProperty {
+	names := []string{
+		"author", "year", "published", "n", "a", "b", "c", "d",
+		"tags", "years", "flags", "title", "visible_to", "profile", "score",
+		"count", "status",
+	}
+	properties := make([]MetadataProperty, 0, len(names))
+	for _, name := range names {
+		properties = append(properties, MetadataProperty{Name: name, DataType: MetadataDataText})
+	}
+	return properties
+}
+
 func compileTestFilter(predicate filter.Predicate) (*filters.WhereBuilder, error) {
-	visitor := newVisitor()
+	visitor := newVisitor(testProperties())
 	if err := predicate.Accept(visitor); err != nil {
 		return nil, err
 	}
@@ -24,9 +40,31 @@ func TestVisitor_Conformance(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		v := newVisitor()
+		v := newVisitor(testProperties())
 		return expr.Accept(v)
-	})
+	},
+		storetest.Options{
+			// A nested metadata key would need an object property with
+			// declared nestedProperties, and dotted-path filtering on those
+			// leaves is a Weaviate v1.38 preview feature.
+			Unsupported: []string{"indexed_key", "nested_index"},
+		},
+	)
+}
+
+// A where filter may only name a declared property, so a filter on any other
+// key is refused rather than compiled into a path with no matching field.
+func TestVisitor_RefusesUndeclaredKey(t *testing.T) {
+	t.Parallel()
+
+	expr, err := filter.Parse("unlisted == 'x'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = compileTestFilter(expr)
+	if err == nil || !strings.Contains(err.Error(), "not declared in MetadataProperties") {
+		t.Fatalf("compile = %v, want an undeclared-key error", err)
+	}
 }
 
 func TestVisitor_IsNull(t *testing.T) {
