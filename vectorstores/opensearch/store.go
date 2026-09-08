@@ -78,7 +78,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	return store, nil
 }
 
-// initialize resolves dimensions and creates the index when needed.
+// initialize creates the index when needed.
 func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 	exists, err := s.indexExists(ctx)
 	if err != nil {

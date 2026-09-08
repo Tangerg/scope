@@ -51,8 +51,9 @@ type StoreConfig struct {
 	// DocumentBatcher batches documents before upsert. Required.
 	DocumentBatcher vectorstore.Batcher
 
-	// Dimensions sets the vector width for a new collection. When zero and
-	// InitializeSchema is true, the store probes EmbeddingModel.
+	// Dimensions sets the vector width for a new collection, and is required
+	// when InitializeSchema is true: the width is part of the field definition,
+	// and nothing here can read it off a collection that does not exist yet.
 	Dimensions int
 
 	// InitializeSchema, when true, creates the collection with the
@@ -142,7 +143,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	return store, nil
 }
 
-// initialize resolves dimensionality and creates the collection when
+// initialize creates the collection when
 // requested.
 func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 	if !initSchema {

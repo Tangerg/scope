@@ -109,8 +109,10 @@ type StoreConfig struct {
 	// DocumentBatcher batches documents before insertion. Required.
 	DocumentBatcher vectorstore.Batcher
 
-	// Dimensions sets the VECTOR column width. When zero and
-	// InitializeSchema is true, the store probes EmbeddingModel.
+	// Dimensions sets the VECTOR column width, and is required when
+	// InitializeSchema is true: the width is part of the column type, and
+	// nothing here can read it off a table that does not exist yet. It is also
+	// what TO_VECTOR is told at query time.
 	Dimensions int
 
 	// DistanceMetric selects the distance function. Optional:
@@ -237,7 +239,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	return store, nil
 }
 
-// initialize resolves dimensionality and provisions the table.
+// initialize provisions the table.
 func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 	if !initSchema {
 		return nil

@@ -281,7 +281,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	return store, nil
 }
 
-// initialize resolves dimensionality and creates the Atlas vector
+// initialize creates the Atlas vector
 // index when requested.
 func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 	if !initSchema {

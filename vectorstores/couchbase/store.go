@@ -120,8 +120,10 @@ type StoreConfig struct {
 	// DocumentBatcher batches documents before upsert. Required.
 	DocumentBatcher vectorstore.Batcher
 
-	// Dimensions sets the vector width registered with the search index. When
-	// zero and InitializeSchema is true, the store probes EmbeddingModel.
+	// Dimensions sets the vector width registered with the search index, and is
+	// required when InitializeSchema is true: the width is part of the index
+	// definition, and nothing here can read it off an index that does not exist
+	// yet.
 	Dimensions int
 
 	// Similarity selects the vector similarity function. Optional:
@@ -250,7 +252,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	return store, nil
 }
 
-// initialize resolves dimensions and creates the search index when
+// initialize creates the search index when
 // requested.
 func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 	if !initSchema {
