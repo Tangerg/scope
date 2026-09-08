@@ -292,7 +292,10 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 
 	docs = make([]*vectorstore.SearchResult, 0, len(resp.Hits.Hits))
 	for _, hit := range resp.Hits.Hits {
-		score := s.spaceType.score(float64(hit.Score))
+		score, scoreErr := s.spaceType.score(float64(hit.Score))
+		if scoreErr != nil {
+			return nil, scoreErr
+		}
 		if score < req.Options.MinScore {
 			continue
 		}

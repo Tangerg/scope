@@ -56,9 +56,9 @@ func (s SpaceType) Valid() bool {
 
 func (s SpaceType) String() string { return string(s) }
 
-func (s SpaceType) score(raw float64) vectorstore.Score {
+func (s SpaceType) score(raw float64) (vectorstore.Score, error) {
 	if s != SpaceTypeIP {
-		return vectorstore.ScoreFromValue(raw)
+		return vectorstore.ScoreFromValue(raw), nil
 	}
 
 	// OpenSearch encodes positive inner products as product+1 and non-positive
@@ -71,9 +71,15 @@ func (s SpaceType) score(raw float64) vectorstore.Score {
 	case raw > 0:
 		product = 1 - 1/raw
 	default:
-		return vectorstore.ScoreFromValue(raw)
+		// Both branches of that encoding are strictly positive, so a
+		// non-positive score did not come from it. Reading it as a Core score
+		// would be inventing a ranking out of a number this store cannot
+		// explain — the recovery above is only as good as the formula it
+		// inverts, and this is where a changed formula shows up.
+		return 0, fmt.Errorf(
+			"opensearch: inner-product score %v is outside the positive range OpenSearch documents for that space", raw)
 	}
-	return vectorstore.ScoreFromInnerProduct(product)
+	return vectorstore.ScoreFromInnerProduct(product), nil
 }
 
 // Engine identifies the ANN implementation stored in an OpenSearch index
