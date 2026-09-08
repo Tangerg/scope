@@ -9,9 +9,114 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-func TestCrashAfterSubtreeCancellationCheckpoint(t *testing.T) {
-	store := NewMemoryTreeDurability()
-	gate := newTreeDurabilityCommitGate(t, store, crashCommitPoint{
+func runCrashBeforeChildCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+	runCrashChildCommit(t, store, crashCommitBefore)
+}
+
+func runCrashAfterChildCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+	runCrashChildCommit(t, store, crashCommitAfter)
+}
+
+func runCrashChildCommit(t *testing.T, store TreeDurabilityConformanceDriver, phase crashCommitPhase) {
+	t.Helper()
+	durability := store.TreeDurability()
+	gate := newTreeDurabilityCommitGate(t, durability, crashCommitPoint{
+		kind: crashCommitCheckpointChild, phase: phase,
+	})
+	deployment := newCrashTreeDeployment(t)
+	recorder := &ObservationRecorder{}
+	engine := newCrashEngine(t, gate, recorder)
+	original := startCrashTree(t, engine, deployment)
+	observation := gate.await(t)
+	childID := crashTreeChildID(t, observation.prospective, original.ID())
+	if _, found := engine.Process(childID); found {
+		t.Fatal("child was published before its checkpoint acknowledgment")
+	}
+	for _, event := range recorder.Events() {
+		if event.ProcessID() == childID {
+			t.Fatal("unacknowledged child published an observation")
+		}
+	}
+	wantHead := observation.previousDigest
+	wantProcesses := 1
+	if phase == crashCommitAfter {
+		wantHead = observation.prospective.Digest()
+		wantProcesses = 2
+	}
+	head := assertCrashHead(t, store, original.ID(), wantHead)
+	if len(head.ProcessSnapshots()) != wantProcesses {
+		t.Fatalf("child boundary processes=%d want=%d", len(head.ProcessSnapshots()), wantProcesses)
+	}
+	restoredEngine := newCrashEngine(t, durability, nil)
+	root := restoreCrashTree(t, restoredEngine, deployment, head)
+	waitForConformanceStatus(t, root, agent.StatusWaiting)
+	child, found := restoredEngine.Process(childID)
+	if !found {
+		t.Fatal("restoration changed the child identity")
+	}
+	waitForConformanceStatus(t, child, agent.StatusWaiting)
+	head, found, err := store.LoadTree(t.Context(), original.ID())
+	if err != nil || !found || len(head.ProcessSnapshots()) != 2 {
+		t.Fatalf("restored child tree exists=%t processes=%d error=%v", found, len(head.ProcessSnapshots()), err)
+	}
+	wantBudget := agent.Budget{
+		Steps: crashTreeChildStepBudget, Effects: crashTreeChildEffectBudget, Signals: crashTreeChildSignalBudget,
+	}
+	rootSnapshot := conformanceSnapshotByID(head.ProcessSnapshots(), root.ID())
+	childSnapshot := conformanceSnapshotByID(head.ProcessSnapshots(), childID)
+	var allocation struct {
+		ReservedBudget agent.Budget `json:"reserved_child_budget"`
+	}
+	if decodeErr := json.Unmarshal(rootSnapshot.JSON(), &allocation); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	if rootSnapshot.Budget() != original.Budget() || childSnapshot.Budget() != wantBudget ||
+		allocation.ReservedBudget != wantBudget {
+		t.Fatalf("restoration changed child allocation: parent=%+v child=%+v reserved=%+v",
+			rootSnapshot.Budget(), childSnapshot.Budget(), allocation.ReservedBudget)
+	}
+	waitID, waiting := child.WaitID()
+	if !waiting {
+		t.Fatal("restored child lost its input wait")
+	}
+	signalID, err := agent.ParseSignalID("signal:child-publication-answer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(crashTreeOutput{Completed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := agent.NewSignalRequest(signalID, waitID, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted, err := child.DeliverSignals(t.Context(), request); err != nil || !accepted {
+		t.Fatalf("restored child input accepted=%t error=%v", accepted, err)
+	}
+	rootResult := awaitCrashProcess(t, root)
+	childResult := awaitCrashProcess(t, child)
+	for _, result := range []agent.Result{rootResult, childResult} {
+		output, present := result.Output()
+		decoded, err := output.Decode[crashTreeOutput]()
+		if result.Status() != agent.StatusCompleted || !present || err != nil || !decoded.Completed {
+			t.Fatalf("tree continuation status=%s output=%+v error=%v", result.Status(), decoded, err)
+		}
+	}
+	wantRootUsage := agent.Usage{CommittedSteps: 4, PreparedEffects: 2, AcceptedSignals: 3}
+	wantChildUsage := agent.Usage{CommittedSteps: 3, PreparedEffects: 1, AcceptedSignals: 2}
+	if rootResult.Usage() != wantRootUsage || childResult.Usage() != wantChildUsage {
+		t.Fatalf("recovered consumption root=%+v child=%+v", rootResult.Usage(), childResult.Usage())
+	}
+	gate.abort()
+	awaitCrashRuntimeError(t, original, errSimulatedHostCrash)
+	closeCrashEngine(t, restoredEngine)
+	closeCrashEngine(t, engine)
+}
+
+func runCrashAfterSubtreeCancellationCheckpoint(t *testing.T, store TreeDurabilityConformanceDriver) {
+	durability := store.TreeDurability()
+	gate := newTreeDurabilityCommitGate(t, durability, crashCommitPoint{
 		kind: crashCommitCheckpointTerminal, phase: crashCommitAfter,
 	})
 	deployment := newCrashTreeDeployment(t)
@@ -36,7 +141,7 @@ func TestCrashAfterSubtreeCancellationCheckpoint(t *testing.T) {
 	if root.Status() != agent.StatusWaiting || child.Status() != agent.StatusWaiting {
 		t.Fatal("cancellation was published before checkpoint acknowledgment")
 	}
-	restoredEngine := newCrashEngine(t, store, nil)
+	restoredEngine := newCrashEngine(t, durability, nil)
 	restoredRoot := restoreCrashTree(t, restoredEngine, deployment, head)
 	if result := awaitCrashProcess(t, restoredRoot); result.Status() != agent.StatusCompleted {
 		t.Fatalf("restored parent status=%s", result.Status())
@@ -95,7 +200,7 @@ func (c crashTreePhase) valid() bool {
 
 const (
 	crashTreeDeploymentName        = "agenttest.durability_crash_tree"
-	crashTreeDeploymentDescription = "Creates a waiting child tree for cancellation recovery."
+	crashTreeDeploymentDescription = "Exercises child publication, input, and cancellation recovery."
 	crashTreeImplementationSeed    = "agenttest durability crash tree implementation"
 	crashTreeConfigurationSeed     = "agenttest durability crash tree configuration"
 	crashTreeChildKey              = "worker"
@@ -103,9 +208,9 @@ const (
 	crashTreeChildWaitKey          = "external_input"
 	crashTreeCancellationReason    = "cancel waiting child"
 	crashTreeWaitPayloadKind       = "external_input"
-	crashTreeChildStepBudget       = 2
+	crashTreeChildStepBudget       = 3
 	crashTreeChildEffectBudget     = 1
-	crashTreeChildSignalBudget     = 1
+	crashTreeChildSignalBudget     = 2
 	crashTreeDirectChildDepth      = 1
 )
 

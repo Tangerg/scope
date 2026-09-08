@@ -18,6 +18,8 @@ const (
 	crashCommitActivation
 	crashCommitEffectPending
 	crashCommitEffectSettled
+	crashCommitEffectResolved
+	crashCommitCheckpointChild
 	crashCommitCheckpointInput
 	crashCommitCheckpointParked
 	crashCommitCheckpointTerminal
@@ -108,6 +110,8 @@ func (t *treeDurabilityCommitGate) CommitEffect(
 		kind = crashCommitEffectPending
 	case agent.EffectBoundarySettled:
 		kind = crashCommitEffectSettled
+	case agent.EffectBoundaryResolved:
+		kind = crashCommitEffectResolved
 	}
 	observation := crashCommitObservation{
 		rootID:         boundary.TreeSnapshot().RootID(),
@@ -128,6 +132,8 @@ func (t *treeDurabilityCommitGate) CommitCheckpoint(
 	switch checkpoint.Kind() {
 	case agent.TreeCheckpointStart:
 		kind = crashCommitRootStart
+	case agent.TreeCheckpointChild:
+		kind = crashCommitCheckpointChild
 	case agent.TreeCheckpointInput:
 		kind = crashCommitCheckpointInput
 	case agent.TreeCheckpointParked:
@@ -240,9 +246,14 @@ func runTreeDurabilityCrashConformance(t *testing.T, factory func() TreeDurabili
 		{name: "pending after commit before dispatch", run: runCrashAfterPendingCommit},
 		{name: "after dispatch before settled commit", run: runCrashBeforeSettledCommit},
 		{name: "settled after commit before memory apply", run: runCrashAfterSettledCommit},
+		{name: "resolved before commit", run: runCrashBeforeResolvedCommit},
+		{name: "resolved after commit before acknowledgment", run: runCrashAfterResolvedCommit},
+		{name: "child before commit", run: runCrashBeforeChildCommit},
+		{name: "child after commit before publication", run: runCrashAfterChildCommit},
 		{name: "parked after commit before Event publication", run: runCrashAfterParkedCommit},
 		{name: "terminal after commit before Result publication", run: runCrashAfterTerminalCommit},
 		{name: "activation after CAS before Process publication", run: runCrashAfterActivationCommit},
+		{name: "subtree cancellation after commit before publication", run: runCrashAfterSubtreeCancellationCheckpoint},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) { test.run(t, factory()) })
@@ -698,6 +709,13 @@ func assertCrashEventAbsent(
 func resolveCrashUnknown(t *testing.T, process *agent.Process) {
 	t.Helper()
 	effectID := waitForConformanceUnknownEffect(t, process)
+	if err := process.ResolveUnknownEffect(t.Context(), crashResolution(t, effectID)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func crashResolution(t *testing.T, effectID agent.EffectID) agent.Settlement {
+	t.Helper()
 	payload, err := json.Marshal(conformanceOutput{Value: crashInputValue})
 	if err != nil {
 		t.Fatal(err)
@@ -708,9 +726,7 @@ func resolveCrashUnknown(t *testing.T, process *agent.Process) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := process.ResolveUnknownEffect(t.Context(), settlement); err != nil {
-		t.Fatal(err)
-	}
+	return settlement
 }
 
 func finishCrashProcess(t *testing.T, process *agent.Process) {

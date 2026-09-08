@@ -84,6 +84,9 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 					}
 				}
 			}
+			if releaseErr := engine.ReleaseTree(ctx, root.ID()); releaseErr != nil {
+				t.Fatal(releaseErr)
+			}
 			if closeErr := engine.Close(); closeErr != nil {
 				t.Fatal(closeErr)
 			}

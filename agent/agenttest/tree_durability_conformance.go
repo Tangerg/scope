@@ -25,6 +25,8 @@ type TreeDurabilityConformanceDriver interface {
 
 // RunTreeDurabilityConformance injects failures on both sides of storage commits
 // because a lost response must not cause duplicate dispatch or false publication.
+// Scenarios include explicit Unknown resolution, child publication, subsequent
+// input consumption, budget preservation, and subtree cancellation recovery.
 // Each factory call must return an empty isolated store so prior head ownership
 // cannot mask a missing compare-and-swap or idempotency check.
 func RunTreeDurabilityConformance(
