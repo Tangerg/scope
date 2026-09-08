@@ -11,6 +11,9 @@ import (
 // containing the exact Tool manifest and options that the model would receive;
 // implementations may inspect it but return only the complete replacement
 // message sequence, so they cannot change model options or Tool authority.
+// The settlement carries a replacement only when those messages changed.
+// Once consumed, WorkingContext owns the replacement and the mailbox retains
+// only the Signal's content digest and runtime routing facts.
 //
 // ReduceModelContext must return a definite outcome. A non-nil error means the
 // main model was not called and is settled as a Host failure. Implementations

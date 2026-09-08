@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"reflect"
 	"slices"
 
 	"github.com/samber/lo"
@@ -284,12 +285,12 @@ func (d *Dispatcher) dispatchModel(
 		return modelFailureSettlement(request.ID(), fmt.Errorf("invalid model response: %w", validateErr))
 	}
 	d.observeModel(ctx, invocation, response)
+	result := &modelCallResult{Response: response.Clone()}
+	if d.contextReducer != nil && !reflect.DeepEqual(call.Request.Messages, modelRequest.Messages) {
+		result.ReplacementMessages = cloneMessages(modelRequest.Messages)
+	}
 	payload, err := encodeProtocol(signalEnvelope{
-		Operation: operationModelCall,
-		ModelResult: &modelCallResult{
-			Response:          response.Clone(),
-			EffectiveMessages: cloneMessages(modelRequest.Messages),
-		},
+		Operation: operationModelCall, ModelResult: result,
 	})
 	if err != nil {
 		return agent.Settlement{}, err

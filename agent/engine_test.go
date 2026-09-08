@@ -92,7 +92,7 @@ func TestStepCannotConsumeSignalsThatArriveDuringItsExecution(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if wire.Mailbox.SignalCursor != 0 || len(wire.Mailbox.Signals) != 1 || wire.Mailbox.Signals[0].Signal.ID() != id {
+			if wire.Mailbox.SignalCursor != 0 || len(wire.Mailbox.Signals) != 1 || wire.Mailbox.Signals[0].ID != id {
 				t.Fatalf("later input was consumed: %+v", wire.Mailbox)
 			}
 			if consumed == 1 && wire.CommittedSteps != 0 {

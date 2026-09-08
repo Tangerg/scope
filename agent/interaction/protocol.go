@@ -58,10 +58,10 @@ type signalEnvelope struct {
 }
 
 type modelCallResult struct {
-	Response          *chat.Response `json:"response,omitempty"`
-	EffectiveMessages []chat.Message `json:"effective_messages,omitempty"`
-	Error             string         `json:"error,omitempty"`
-	HostError         string         `json:"host_error,omitempty"`
+	Response            *chat.Response `json:"response,omitempty"`
+	ReplacementMessages []chat.Message `json:"replacement_messages,omitempty"`
+	Error               string         `json:"error,omitempty"`
+	HostError           string         `json:"host_error,omitempty"`
 }
 
 type steerInput struct {
@@ -286,16 +286,16 @@ func (s signalEnvelope) validateModelResult() error {
 		if err := result.Response.Validate(); err != nil {
 			return fmt.Errorf("interaction: model_result response: %w", err)
 		}
-		if len(result.EffectiveMessages) == 0 {
-			return errors.New("interaction: successful model_result requires effective messages")
+		if result.ReplacementMessages != nil && len(result.ReplacementMessages) == 0 {
+			return errors.New("interaction: replacement messages must not be empty")
 		}
-		for index := range result.EffectiveMessages {
-			if err := result.EffectiveMessages[index].Validate(); err != nil {
-				return fmt.Errorf("interaction: model_result effective message %d: %w", index, err)
+		for index := range result.ReplacementMessages {
+			if err := result.ReplacementMessages[index].Validate(); err != nil {
+				return fmt.Errorf("interaction: model_result replacement message %d: %w", index, err)
 			}
 		}
-	} else if len(result.EffectiveMessages) != 0 {
-		return errors.New("interaction: failed model_result cannot carry effective messages")
+	} else if result.ReplacementMessages != nil {
+		return errors.New("interaction: failed model_result cannot carry replacement messages")
 	}
 	return nil
 }

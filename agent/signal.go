@@ -45,10 +45,6 @@ func (s Signal) Payload() json.RawMessage { return bytes.Clone(s.payload) }
 
 func (s Signal) Valid() bool { return s.id.Valid() && len(s.payload) > 0 }
 
-func (s Signal) sameContent(other Signal) bool {
-	return s.id == other.id && s.waitID == other.waitID && bytes.Equal(s.payload, other.payload)
-}
-
 func (s Signal) MarshalJSON() ([]byte, error) {
 	if !s.Valid() {
 		return nil, ErrInvalidSignal

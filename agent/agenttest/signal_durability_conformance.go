@@ -161,7 +161,8 @@ func assertDurableSignal(t *testing.T, snapshot agent.TreeSnapshot, id agent.Sig
 	var wire struct {
 		Mailbox struct {
 			Signals []struct {
-				Signal agent.Signal `json:"signal"`
+				ID      agent.SignalID  `json:"id"`
+				Payload json.RawMessage `json:"payload"`
 			} `json:"signals"`
 		} `json:"mailbox"`
 	}
@@ -176,9 +177,9 @@ func assertDurableSignal(t *testing.T, snapshot agent.TreeSnapshot, id agent.Sig
 		t.Fatalf("durable input count=%d want=%d", len(wire.Mailbox.Signals), wantCount)
 	}
 	if present {
-		signal := wire.Mailbox.Signals[0].Signal
-		if signal.ID() != id || string(signal.Payload()) != `{"value":"accepted"}` {
-			t.Fatalf("durable input=%s %s", signal.ID(), signal.Payload())
+		signal := wire.Mailbox.Signals[0]
+		if signal.ID != id || string(signal.Payload) != `{"value":"accepted"}` {
+			t.Fatalf("durable input=%s %s", signal.ID, signal.Payload)
 		}
 	}
 }

@@ -106,6 +106,10 @@
 // so a failed Step never permanently swallows input.
 // Consumption is bounded by the Signal window delivered to that Step; input
 // admitted while the Step runs belongs to a later window.
+// Once consumed, a mailbox record keeps its identity, addressed wait, arrival
+// order, and normalized payload digest. The payload itself is released with
+// candidate adoption. Recovery retains exact pending inputs and validates wait
+// history from these facts; consumed content is no longer a transcript.
 //
 // A wait identity is minted by the Engine; an Execution cannot generate an
 // external one. The Execution declares a logical wait through a [Transition];

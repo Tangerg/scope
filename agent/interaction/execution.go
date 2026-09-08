@@ -130,16 +130,14 @@ func (e *execution) acceptModel(signals []agent.Signal) (agent.Transition, error
 			envelope.ModelResult.Error,
 		)
 	}
-	effective := e.state.WorkingContext.Clone()
-	effective.Messages = cloneMessages(envelope.ModelResult.EffectiveMessages)
-	if effectiveErr := effective.Validate(); effectiveErr != nil {
-		return agent.Transition{}, fmt.Errorf(
-			"%w: effective model context: %w",
-			ErrInvalidExecutionState,
-			effectiveErr,
-		)
+	if replacement := envelope.ModelResult.ReplacementMessages; replacement != nil {
+		effective := e.state.WorkingContext.Clone()
+		effective.Messages = cloneMessages(replacement)
+		if effectiveErr := effective.Validate(); effectiveErr != nil {
+			return agent.Transition{}, fmt.Errorf("%w: replacement model context: %w", ErrInvalidExecutionState, effectiveErr)
+		}
+		e.state.WorkingContext = effective
 	}
-	e.state.WorkingContext = effective
 	response := envelope.ModelResult.Response.Clone()
 	calls, _, err := responseToolCalls(response)
 	if err != nil {

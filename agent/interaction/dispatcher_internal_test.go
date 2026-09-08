@@ -63,7 +63,7 @@ func TestModelHostFailureSignalModesAreExclusive(t *testing.T) {
 	}
 	response := chat.Response{}
 	modelHost.ModelResult.Response = &response
-	modelHost.ModelResult.EffectiveMessages = []chat.Message{
+	modelHost.ModelResult.ReplacementMessages = []chat.Message{
 		chat.NewUserMessage(chat.NewTextPart("must not accompany host failure")),
 	}
 	if err := modelHost.validate(); err == nil {

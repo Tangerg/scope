@@ -84,7 +84,7 @@ func TestSignalBatchDeduplicatesBeforeChargingFullMailbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	wire, err := snapshot.wire()
-	if err != nil || len(wire.Mailbox.Signals) != 2 || wire.Mailbox.Signals[1].Signal.ID() != firstID {
+	if err != nil || len(wire.Mailbox.Signals) != 2 || wire.Mailbox.Signals[1].ID != firstID {
 		t.Fatalf("mailbox = %+v, error = %v", wire.Mailbox, err)
 	}
 	if killErr := process.Kill(t.Context(), "inspection complete"); killErr != nil {
