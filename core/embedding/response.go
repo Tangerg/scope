@@ -234,6 +234,23 @@ func (r *Response) ValidateFor(request *Request) error {
 		return fmt.Errorf("%w: got %d outputs for %d input texts",
 			ErrInvalidResponse, len(r.Outputs), len(request.Texts))
 	}
+	// A requested size is a promise about the vectors, not a hint. OpenAI
+	// documents its dimensions parameter as "the number of dimensions the
+	// resulting output embeddings should have" and Google documents
+	// outputDimensionality as a reduced dimension where "excessive values in
+	// the output embedding are truncated from the end" — both mean the vectors
+	// come back at exactly that size. A model that does not support the
+	// parameter would otherwise return its full-width vectors and the caller
+	// would find out from whatever it fed them to, if at all. Validate has
+	// already established that every output shares one size, so one comparison
+	// answers for all of them.
+	if request.Options.Dimensions != nil {
+		want := *request.Options.Dimensions
+		if got := int64(len(r.Outputs[0].Embedding)); got != want {
+			return fmt.Errorf("%w: outputs have %d dimensions, but the request asked for %d",
+				ErrInvalidResponse, got, want)
+		}
+	}
 	return nil
 }
 
