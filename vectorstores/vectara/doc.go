@@ -31,5 +31,13 @@
 // issues per-id DELETEs against `/v2/corpora/<corpus_key>/documents/
 // <doc_id>`.
 //
+// A missing `page_key` is the only evidence the listing is complete, so a page
+// holding fewer documents than the requested limit — or none at all — does not
+// end the walk. The full id set is collected before the first DELETE, because a
+// page key belongs to the listing that produced it and deleting mid-walk would
+// resume through a corpus that has already changed. Deletion itself is not
+// atomic: a failure leaves the earlier documents deleted and names the id that
+// failed, and repeating the call finishes the rest.
+//
 // See https://docs.vectara.com/docs/rest-api/.
 package vectara

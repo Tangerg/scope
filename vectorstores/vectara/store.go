@@ -265,13 +265,39 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		return errors.New("vectara: refusing to delete on empty filter")
 	}
 
-	listPath := fmt.Sprintf("/%s/corpora/%s/documents?metadata_filter=%s&limit=100",
-		DefaultAPIVersion, url.PathEscape(s.corpusKey), url.QueryEscape(filterFragment))
+	ids, err := s.matchingDocumentIDs(ctx, filterFragment)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		deletePath := fmt.Sprintf("/%s/corpora/%s/documents/%s",
+			DefaultAPIVersion, url.PathEscape(s.corpusKey), url.PathEscape(id))
+		if _, err := s.sendJSON(ctx, http.MethodDelete, deletePath, nil); err != nil {
+			return fmt.Errorf("vectara: delete %s: %w", id, err)
+		}
+	}
+	return nil
+}
 
+// listPageSize is the maximum a Vectara list endpoint accepts.
+const listPageSize = 100
+
+// matchingDocumentIDs lists every document the filter selects.
+//
+// Only a missing page key establishes that the listing is complete: a page can
+// come back short of the requested limit, or empty, while further pages remain.
+// The whole set is collected before DeleteWhere removes anything, because a
+// page key belongs to the listing that produced it — walking and deleting
+// together would resume paging through a document set that no longer exists.
+func (s *Store) matchingDocumentIDs(ctx context.Context, filterFragment string) ([]string, error) {
+	listPath := fmt.Sprintf("/%s/corpora/%s/documents?metadata_filter=%s&limit=%d",
+		DefaultAPIVersion, url.PathEscape(s.corpusKey), url.QueryEscape(filterFragment), listPageSize)
+
+	var ids []string
 	for {
 		raw, err := s.sendJSON(ctx, http.MethodGet, listPath, nil)
 		if err != nil {
-			return fmt.Errorf("vectara: list documents: %w", err)
+			return nil, fmt.Errorf("vectara: list documents: %w", err)
 		}
 		var parsed struct {
 			Documents []struct {
@@ -282,24 +308,20 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 			} `json:"metadata"`
 		}
 		if err := json.Unmarshal(raw, &parsed); err != nil {
-			return fmt.Errorf("vectara: decode list response: %w", err)
+			return nil, fmt.Errorf("vectara: decode list response: %w", err)
 		}
-		if len(parsed.Documents) == 0 {
-			return nil
-		}
-		for _, doc := range parsed.Documents {
-			delPath := fmt.Sprintf("/%s/corpora/%s/documents/%s",
-				DefaultAPIVersion, url.PathEscape(s.corpusKey), url.PathEscape(doc.ID))
-			if _, err := s.sendJSON(ctx, http.MethodDelete, delPath, nil); err != nil {
-				return fmt.Errorf("vectara: delete %s: %w", doc.ID, err)
+		for index, doc := range parsed.Documents {
+			if doc.ID == "" {
+				return nil, fmt.Errorf("vectara: listed document %d has no id", index)
 			}
+			ids = append(ids, doc.ID)
 		}
 		if parsed.Metadata.PageKey == "" {
-			return nil
+			return ids, nil
 		}
-		listPath = fmt.Sprintf("/%s/corpora/%s/documents?metadata_filter=%s&limit=100&page_key=%s",
-			DefaultAPIVersion, url.PathEscape(s.corpusKey),
-			url.QueryEscape(filterFragment), url.QueryEscape(parsed.Metadata.PageKey))
+		listPath = fmt.Sprintf("/%s/corpora/%s/documents?metadata_filter=%s&limit=%d&page_key=%s",
+			DefaultAPIVersion, url.PathEscape(s.corpusKey), url.QueryEscape(filterFragment),
+			listPageSize, url.QueryEscape(parsed.Metadata.PageKey))
 	}
 }
 
