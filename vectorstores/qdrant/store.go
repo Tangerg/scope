@@ -279,6 +279,17 @@ func validateCollectionSchema(info *qdrant.CollectionInfo, dimensions int, dista
 	return nil
 }
 
+// buildDeletePoints waits for the deletion to be applied. Qdrant otherwise
+// acknowledges an update once it reaches the write-ahead log, which would let a
+// Search issued after a successful delete still return the removed points.
+func (s *Store) buildDeletePoints(selector *qdrant.PointsSelector) *qdrant.DeletePoints {
+	return &qdrant.DeletePoints{
+		CollectionName: s.collectionName,
+		Wait:           new(true),
+		Points:         selector,
+	}
+}
+
 func (s *Store) buildUpsertPoints(ctx context.Context, request *vectorstore.IndexRequest) (*qdrant.UpsertPoints, error) {
 	upsertPoints := &qdrant.UpsertPoints{
 		CollectionName: s.collectionName,
@@ -533,6 +544,10 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	return &vectorstore.SearchResponse{Results: docs}, nil
 }
 
+// DeleteWhere removes every point matching expr. The request waits for the
+// deletion to be applied, because Qdrant otherwise answers as soon as the
+// operation reaches the write-ahead log and a following Search would still
+// return the removed points. Implements [vectorstore.FilterDeleter].
 func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
 	if expr == nil {
 		return vectorstore.ErrMissingFilter
@@ -546,10 +561,7 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		return fmt.Errorf("qdrant: convert filter: %w", err)
 	}
 
-	_, err = s.client.Delete(ctx, &qdrant.DeletePoints{
-		CollectionName: s.collectionName,
-		Points:         qdrant.NewPointsSelectorFilter(visitor.snapshot()),
-	})
+	_, err = s.client.Delete(ctx, s.buildDeletePoints(qdrant.NewPointsSelectorFilter(visitor.snapshot())))
 	if err != nil {
 		return fmt.Errorf("qdrant: delete points from collection %s: %w", s.collectionName, err)
 	}
@@ -558,7 +570,8 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 }
 
 // DeleteIDs removes points by their canonical uint64 or UUID identifiers. An
-// empty slice is a no-op; unknown ids are ignored (idempotent).
+// empty slice is a no-op; unknown ids are ignored (idempotent). Like
+// DeleteWhere, the request waits for the deletion to be applied.
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	if len(ids) == 0 {
 		return nil
@@ -572,10 +585,7 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 		}
 	}
 
-	_, err = s.client.Delete(ctx, &qdrant.DeletePoints{
-		CollectionName: s.collectionName,
-		Points:         qdrant.NewPointsSelector(pointIDs...),
-	})
+	_, err = s.client.Delete(ctx, s.buildDeletePoints(qdrant.NewPointsSelector(pointIDs...)))
 	if err != nil {
 		return fmt.Errorf("qdrant: delete points by ids from collection %s: %w", s.collectionName, err)
 	}

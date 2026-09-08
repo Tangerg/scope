@@ -20,5 +20,10 @@
 // schema and are configured out of band — the store does not create
 // or modify them.
 //
+// Write visibility. Qdrant acknowledges an update as soon as it reaches the
+// write-ahead log unless the request asks to wait. Every store write — index
+// and both delete paths — waits for the change to be applied, so a Search
+// issued after a write observes it.
+//
 // See https://qdrant.tech/documentation/ for the full API surface.
 package qdrant
