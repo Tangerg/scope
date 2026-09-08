@@ -509,7 +509,7 @@ violations expensive because strategy authors read sibling packages as
 examples. Two rules with current consequences:
 
 - An observation-only tap and an input driver have distinct names.
-  `interaction.ExecutionObserver` receives execution facts without control
+  `interaction.ModelObserver` and `interaction.ToolObserver` receive execution facts without control
   authority; `planning.Sensor` supplies world state to the decision procedure.
 - One atomic capability has one semantic owner and canonical contract. The two
   roles above are different capabilities, so their naming collision does not

@@ -111,7 +111,7 @@ func (s *signalMailbox) enqueueRecord(status Status, record signalRecord, source
 		}
 		wait.answered = true
 		s.waits[waitID] = wait
-	} else if source != signalSourceExternal || (status != StatusRunning && status != StatusPaused) {
+	} else if source != signalSourceExternal || (status != StatusRunning && status != StatusPaused && status != StatusWaiting) {
 		return false, ErrSignalRejected
 	}
 	s.appendRecord(record)

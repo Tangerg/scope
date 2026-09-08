@@ -14,7 +14,7 @@ import (
 
 func TestRecorderPreservesHostFailureAsUnknownToolOutcome(t *testing.T) {
 	recorder := &trajectory.Recorder{}
-	process := startRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{
+	process, engine := startRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{
 		failure: interaction.HostFailure(errors.New("tool boundary unavailable")),
 	}, 2)
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
@@ -22,11 +22,25 @@ func TestRecorderPreservesHostFailureAsUnknownToolOutcome(t *testing.T) {
 	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()
 	var unknown []agent.EffectID
+	var owner *agent.Process
 	for len(unknown) == 0 {
-		var err error
-		unknown, err = process.UnknownEffectIDs(ctx)
-		if err != nil {
-			t.Fatal(err)
+		snapshot, captureErr := engine.CaptureTree(ctx, process.ID())
+		if captureErr != nil {
+			t.Fatal(captureErr)
+		}
+		for _, captured := range snapshot.ProcessSnapshots() {
+			candidate, found := engine.Process(captured.ProcessID())
+			if !found {
+				t.Fatal("captured Process is missing")
+			}
+			ids, queryErr := candidate.UnknownEffectIDs(ctx)
+			if queryErr != nil {
+				t.Fatal(queryErr)
+			}
+			if len(ids) != 0 {
+				unknown, owner = ids, candidate
+				break
+			}
 		}
 		if process.Status().Terminal() {
 			t.Fatalf("host failure lost the unresolved Tool Effect: %s", process.Status())
@@ -47,7 +61,14 @@ func TestRecorderPreservesHostFailureAsUnknownToolOutcome(t *testing.T) {
 	if err != nil || result.Status() != agent.StatusKilled {
 		t.Fatalf("terminated Process status=%s error=%v", result.Status(), err)
 	}
-	unresolved := result.Termination().UnresolvedEffectIDs()
+	if owner == nil || owner.ID() == process.ID() || len(result.Termination().UnresolvedEffectIDs()) != 0 {
+		t.Fatal("unknown Effect must remain owned by its Tool child")
+	}
+	toolResult, err := owner.Await(ctx)
+	if err != nil || toolResult.Status() != agent.StatusCanceled {
+		t.Fatalf("Tool status=%s error=%v", toolResult.Status(), err)
+	}
+	unresolved := toolResult.Termination().UnresolvedEffectIDs()
 	if len(unresolved) != 1 || len(unknown) != 1 || unresolved[0] != unknown[0] {
 		t.Fatalf("terminal unresolved Effects=%v, want %v", unresolved, unknown)
 	}

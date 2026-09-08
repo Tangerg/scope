@@ -115,9 +115,9 @@ func TestRecorderCapturesInteractionModelAndToolFacts(t *testing.T) {
 	}
 }
 
-func runRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observer interaction.ExecutionObserver, weather tool.Tool) agent.Result {
+func runRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observer interaction.ToolObserver, weather tool.Tool) agent.Result {
 	t.Helper()
-	process := startRecordedInteraction(t, recorder, observer, weather, 2)
+	process, _ := startRecordedInteraction(t, recorder, observer, weather, 2)
 	result, err := process.Await(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -125,17 +125,24 @@ func runRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observe
 	return result
 }
 
-func startRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observer interaction.ExecutionObserver, weather tool.Tool, maxModelCalls uint32) *agent.Process {
+func startRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observer interaction.ToolObserver, weather tool.Tool, maxModelCalls uint32) (*agent.Process, *agent.Engine) {
 	t.Helper()
+	toolSet, err := interaction.NewToolSet(interaction.ToolSetConfig{
+		Name: "test.trajectory.tools", Description: "Record independently settled Tool calls.", Tools: []tool.Tool{weather}, Observer: observer,
+		ImplementationDigest: agent.ComputeDigest([]byte("trajectory-tool-implementation")), ConfigurationDigest: agent.ComputeDigest([]byte("trajectory-tool-configuration")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
 		Name: "test.trajectory_interaction", Description: "Exercise trajectory observation boundaries.",
-		MaxModelCalls: maxModelCalls,
+		MaxModelCalls: maxModelCalls, Tools: toolSet, ToolBudget: agent.Budget{Steps: 8, Effects: 4, Signals: 8},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-		Client: &fixtureInteractionClient{}, Tools: []tool.Tool{weather}, Observer: observer,
+		Client: &fixtureInteractionClient{}, Observer: recorder,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -148,7 +155,7 @@ func startRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, obser
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{EventListeners: []agent.EventListener{recorder}})
+	engine, err := agent.NewEngine(agent.EngineConfig{EventListeners: []agent.EventListener{recorder}, DeploymentResolver: trajectoryDeploymentResolver{toolSet.Deployment().DeploymentRef(): toolSet.Deployment()}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +182,7 @@ func startRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, obser
 			t.Error(closeErr)
 		}
 	})
-	return process
+	return process, engine
 }
 
 func TestBehaviorDigestExcludesTimingAndProviderAccounting(t *testing.T) {
@@ -487,4 +494,14 @@ func runTrajectory(t *testing.T) trajectory.Trajectory {
 		t.Fatal(err)
 	}
 	return recorded
+}
+
+type trajectoryDeploymentResolver map[agent.DeploymentRef]agent.Deployment
+
+func (t trajectoryDeploymentResolver) Resolve(reference agent.DeploymentRef) (agent.Deployment, error) {
+	deployment, found := t[reference]
+	if !found {
+		return agent.Deployment{}, errors.New("trajectory Tool deployment is not bound")
+	}
+	return deployment, nil
 }

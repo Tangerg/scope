@@ -67,13 +67,14 @@ func measureInteractionContext(t *testing.T, rounds uint32, mode string) (int, [
 	if err != nil {
 		t.Fatal(err)
 	}
+	toolSet := testToolSet(t, interaction.ToolSetConfig{Tools: []tool.Tool{executable}})
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: "interaction.context-storage", Description: "Check retained model context.", MaxModelCalls: rounds + 1,
+		Name: "interaction.context-storage", Description: "Check retained model context.", MaxModelCalls: rounds + 1, Tools: toolSet, ToolBudget: agent.Budget{Steps: 8, Effects: 4, Signals: 8},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := interaction.DispatcherConfig{Client: model, Tools: []tool.Tool{executable}}
+	config := interaction.DispatcherConfig{Client: model}
 	if mode != "absent" {
 		config.ModelContextReducer = storageContextReducer{changed: mode == "changed"}
 	}
@@ -90,7 +91,7 @@ func measureInteractionContext(t *testing.T, rounds uint32, mode string) (int, [
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{})
+	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: toolInteractionDeployment(deployment, toolSet).resolver})
 	if err != nil {
 		t.Fatal(err)
 	}

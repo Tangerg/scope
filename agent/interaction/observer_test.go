@@ -11,16 +11,17 @@ import (
 func TestExecutionObserverFailuresAreCountedAndIsolated(t *testing.T) {
 	dispatcher := &Dispatcher{observer: panickingExecutionObserver{}}
 	dispatcher.observeModel(t.Context(), ModelInvocation{}, &chat.Response{})
-	dispatcher.observeToolStarted(t.Context(), ToolInvocation{})
-	dispatcher.observeToolSettled(t.Context(), ToolInvocation{}, ToolSettlement{})
+	tools := &toolDispatcher{observer: panickingExecutionObserver{}}
+	tools.observeToolStarted(t.Context(), ToolInvocation{})
+	tools.observeToolSettled(t.Context(), ToolInvocation{}, ToolSettlement{})
 
-	counts := dispatcher.ObservationFailures()
-	if counts.ModelResponsePanics() != 1 ||
+	counts := tools.observationFailures.snapshot()
+	if dispatcher.ObservationFailures().ModelResponsePanics() != 1 ||
 		counts.ToolStartedPanics() != 1 ||
 		counts.ToolSettledPanics() != 1 {
 		t.Fatalf(
 			"observer failures = model %d, tool started %d, tool settled %d, want 1 each",
-			counts.ModelResponsePanics(),
+			dispatcher.ObservationFailures().ModelResponsePanics(),
 			counts.ToolStartedPanics(),
 			counts.ToolSettledPanics(),
 		)

@@ -239,8 +239,11 @@ func (p *processState) admitSignals(signals []Signal, source signalSource) (bool
 		}
 		if status == StatusWaiting {
 			waitID, _ := signal.WaitID()
-			if source == signalSourceExternal && waitID != p.currentWaitID {
-				return false, ErrSignalRejected
+			if source == signalSourceExternal {
+				wait := p.mailbox.waits[p.currentWaitID]
+				if waitID != p.currentWaitID && (waitID.Valid() || wait.externallyAddressable) {
+					return false, ErrSignalRejected
+				}
 			}
 			if waitID == p.currentWaitID {
 				status = StatusRunning

@@ -29,7 +29,7 @@ func TestStreamingOutputDoesNotDependOnDeltaListeners(t *testing.T) {
 		streamTextChunk("lo", chat.FinishReasonStop),
 	))
 	input := interactionInput(t, "stream")
-	result, err := engine.Run(context.Background(), deployment, input)
+	result, err := engine.Run(context.Background(), deployment.Deployment, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestStreamingUsesBoundedBestEffortDeltaQueue(t *testing.T) {
 		}
 	})
 	deployment := newStreamingDeployment(t, streamer)
-	result, err := engine.Run(context.Background(), deployment, interactionInput(t, "bounded"))
+	result, err := engine.Run(context.Background(), deployment.Deployment, interactionInput(t, "bounded"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestRestoringCompletedInteractionDoesNotReplayDeltas(t *testing.T) {
 		t.Fatal(err)
 	}
 	deployment := newStreamingDeployment(t, responseStream(streamTextChunk("done", chat.FinishReasonStop)))
-	process, err := firstEngine.Start(context.Background(), deployment, interactionInput(t, "restore"))
+	process, err := firstEngine.Start(context.Background(), deployment.Deployment, interactionInput(t, "restore"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestRestoringCompletedInteractionDoesNotReplayDeltas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := restoredEngine.RestoreTree(context.Background(), deployment, snapshot)
+	restored, err := restoredEngine.RestoreTree(context.Background(), deployment.Deployment, snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestRestoringCompletedInteractionDoesNotReplayDeltas(t *testing.T) {
 	}
 }
 
-func newStreamingDeployment(t *testing.T, streamer chat.Streamer) agent.Deployment {
+func newStreamingDeployment(t *testing.T, streamer chat.Streamer) interactionDeployment {
 	t.Helper()
 	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return nil, errors.New("synchronous model path must not be used")
@@ -196,7 +196,7 @@ func newStreamingDeployment(t *testing.T, streamer chat.Streamer) agent.Deployme
 	if err != nil {
 		t.Fatal(err)
 	}
-	return deployment
+	return toolInteractionDeployment(deployment, interaction.ToolSet{})
 }
 
 func interactionInput(t *testing.T, text string) agent.Input {

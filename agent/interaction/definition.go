@@ -25,9 +25,24 @@ type DefinitionConfig struct {
 	// MaxModelCalls bounds model Effects in one Interaction. It must be positive.
 	MaxModelCalls uint32
 
+	// Tools is the frozen ordinary Tool authority. Its Deployment must be
+	// available through Engine's exact DeploymentResolver.
+	Tools ToolSet
+
+	// ToolBudget is allocated from the parent for each ordinary Tool child.
+	// It is required when Tools is present and also bounds input continuations.
+	ToolBudget agent.Budget
+
+	// ToolCapabilities is the attenuated authority granted to each Tool child.
+	ToolCapabilities agent.CapabilitySet
+
+	// MaxConcurrentToolCalls bounds active calls declared safe to overlap.
+	// Zero means one; calls without a concurrency declaration execute alone.
+	MaxConcurrentToolCalls int
+
 	// Delegates is the frozen model-visible manifest of exact child
 	// Deployments. Names must be unique within this slice and must not collide
-	// with ordinary Tools bound by the Dispatcher.
+	// with ordinary Tools in ToolSet.
 	Delegates []Delegate
 
 	// CompletionValidator optionally verifies a proposed final semantic output
@@ -40,21 +55,35 @@ type DefinitionConfig struct {
 
 // Definition is an immutable managed model/Tool-loop definition. It contains
 // no model client or executable Tool; those external capabilities belong to
-// the Deployment-bound Dispatcher.
+// the model Dispatcher and ToolSet child Deployment.
 type Definition struct {
-	descriptor          agent.Descriptor
-	maxModelCalls       uint32
-	delegates           []Delegate
-	delegateByName      map[string]Delegate
-	completionValidator CompletionValidator
+	descriptor             agent.Descriptor
+	maxModelCalls          uint32
+	delegates              []Delegate
+	delegateByName         map[string]Delegate
+	completionValidator    CompletionValidator
+	tools                  toolManifest
+	toolBudget             agent.Budget
+	toolCapabilities       agent.CapabilitySet
+	maxConcurrentToolCalls int
 }
 
 // NewDefinition freezes the managed contract, delegates, completion policy,
 // and model-call limit for one interaction loop. The provider client and
-// executable tools remain Dispatcher-owned external capabilities.
+// executable Tools remain bound to their external dispatch boundaries.
 func NewDefinition(config DefinitionConfig) (*Definition, error) {
 	if config.MaxModelCalls == 0 {
 		return nil, fmt.Errorf("%w: MaxModelCalls must be positive", ErrInvalidDefinitionConfig)
+	}
+	if config.MaxConcurrentToolCalls < 0 || !config.ToolCapabilities.Valid() {
+		return nil, fmt.Errorf("%w: invalid Tool scheduling policy", ErrInvalidDefinitionConfig)
+	}
+	if config.Tools.Valid() && !config.ToolBudget.Valid() {
+		return nil, fmt.Errorf("%w: ToolBudget is required with Tools", ErrInvalidDefinitionConfig)
+	}
+	if !config.Tools.Valid() && (config.Tools.dispatcher != nil || config.ToolBudget != (agent.Budget{}) ||
+		len(config.ToolCapabilities.Values()) != 0 || config.MaxConcurrentToolCalls != 0) {
+		return nil, fmt.Errorf("%w: Tool policy requires a valid ToolSet", ErrInvalidDefinitionConfig)
 	}
 	inputSchema, err := agent.SchemaFor[Input]()
 	if err != nil {
@@ -80,6 +109,9 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 			return nil, fmt.Errorf("%w: Delegates[%d]: %w", ErrInvalidDefinitionConfig, index, ErrInvalidDelegate)
 		}
 		name := delegate.definition.Name
+		if _, duplicate := config.Tools.manifest.entries[name]; duplicate {
+			return nil, fmt.Errorf("%w: Delegate name %q collides with a Tool", ErrInvalidDefinitionConfig, name)
+		}
 		if _, duplicate := byName[name]; duplicate {
 			return nil, fmt.Errorf("%w: duplicate Delegate name %q", ErrInvalidDefinitionConfig, name)
 		}
@@ -91,6 +123,9 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 		descriptor: descriptor, maxModelCalls: config.MaxModelCalls,
 		delegates: delegates, delegateByName: byName,
 		completionValidator: config.CompletionValidator,
+		tools:               config.Tools.manifest, toolBudget: config.ToolBudget,
+		toolCapabilities:       config.ToolCapabilities,
+		maxConcurrentToolCalls: max(1, config.MaxConcurrentToolCalls),
 	}, nil
 }
 

@@ -28,7 +28,7 @@ type checkpointFixture struct {
 	prefixCalls *atomic.Int32
 	waiting     *inputRequestTool
 	model       *checkpointModel
-	deployment  agent.Deployment
+	deployment  interactionDeployment
 }
 
 func newCheckpointFixture(t *testing.T) checkpointFixture {
@@ -58,76 +58,63 @@ func newCheckpointFixture(t *testing.T) checkpointFixture {
 
 func captureWaitingCheckpoint(
 	t *testing.T,
-	deployment agent.Deployment,
+	deployment interactionDeployment,
 ) (agent.TreeSnapshot, interaction.PendingToolInput) {
 	t.Helper()
-	firstEngine, err := agent.NewEngine(agent.EngineConfig{})
+	firstEngine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
-	process, err := firstEngine.Start(context.Background(), deployment, interactionInput(t, "checkpoint"))
+	process, err := firstEngine.Start(context.Background(), deployment.Deployment, interactionInput(t, "checkpoint"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForStatus(t, process, agent.StatusWaiting)
-	waitID, ok := process.WaitID()
-	if !ok {
-		t.Fatal("waiting Process has no WaitID")
-	}
-	livePending, found, err := interaction.PendingToolInputFromProcess(context.Background(), process)
-	if err != nil || !found || livePending.WaitID() != waitID {
-		t.Fatalf("PendingToolInputFromProcess found = %t, WaitID = %s, error = %v", found, livePending.WaitID().String(), err)
-	}
-	snapshot, err := process.Snapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	tree, err := firstEngine.CaptureTree(context.Background(), process.ID())
-	if err != nil {
-		t.Fatal(err)
-	}
+	tree, pending := captureToolInput(t, firstEngine, process)
 	if killErr := process.Kill(context.Background(), "replace with restored Process"); killErr != nil {
 		t.Fatal(killErr)
 	}
-	if _, awaitErr := process.Await(context.Background()); awaitErr != nil {
-		t.Fatal(awaitErr)
+	for _, captured := range tree.ProcessSnapshots() {
+		owned, found := firstEngine.Process(captured.ProcessID())
+		if !found {
+			t.Fatal("captured Process is missing")
+		}
+		if _, awaitErr := owned.Await(t.Context()); awaitErr != nil {
+			t.Fatal(awaitErr)
+		}
 	}
 	if closeErr := firstEngine.Close(); closeErr != nil {
 		t.Fatal(closeErr)
 	}
-	pending, found, err := interaction.PendingToolInputFromSnapshot(snapshot)
-	if err != nil || !found {
-		t.Fatalf("PendingToolInputFromSnapshot found = %t, error = %v", found, err)
-	}
-	if pending.WaitID() != waitID || string(pending.Prompt()) != `{"question":"What is your name?"}` {
-		t.Fatalf("pending input = WaitID %s, prompt %s", pending.WaitID().String(), pending.Prompt())
+	if string(pending.Prompt()) != `{"question":"What is your name?"}` {
+		t.Fatalf("pending prompt=%s", pending.Prompt())
 	}
 	return tree, pending
 }
 
 func restoreWaitingCheckpoint(
 	t *testing.T,
-	deployment agent.Deployment,
+	deployment interactionDeployment,
 	tree agent.TreeSnapshot,
 	pending interaction.PendingToolInput,
 	waiting *inputRequestTool,
 ) (*agent.Process, agent.Result) {
 	t.Helper()
-	restoredEngine, err := agent.NewEngine(agent.EngineConfig{})
+	restoredEngine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := restoredEngine.RestoreTree(context.Background(), deployment, tree)
+	restored, err := restoredEngine.RestoreTree(context.Background(), deployment.Deployment, tree)
 	if err != nil {
 		t.Fatal(err)
 	}
-	answer := validCheckpointAnswer(t, restored, pending)
-	accepted, err := restored.DeliverSignals(context.Background(), answer)
+	toolProcess := pendingToolProcess(t, restoredEngine, pending)
+	answer := validCheckpointAnswer(t, toolProcess, pending)
+	accepted, err := toolProcess.DeliverSignals(context.Background(), answer)
 	if err != nil || !accepted {
 		t.Fatalf("DeliverSignals accepted = %t, error = %v", accepted, err)
 	}
 	<-waiting.continuationStarted
-	accepted, err = restored.DeliverSignals(context.Background(), answer)
+	accepted, err = toolProcess.DeliverSignals(context.Background(), answer)
 	if err != nil || accepted {
 		t.Fatalf("duplicate DeliverSignals accepted = %t, error = %v", accepted, err)
 	}
@@ -139,7 +126,7 @@ func restoreWaitingCheckpoint(
 	if closeErr := restoredEngine.Close(); closeErr != nil {
 		t.Fatal(closeErr)
 	}
-	return restored, result
+	return toolProcess, result
 }
 
 func validCheckpointAnswer(

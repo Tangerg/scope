@@ -183,18 +183,19 @@ func TestMailboxRoutesWaitAnswersAndHandlesEarlyArrival(t *testing.T) {
 	}
 }
 
-func TestMailboxRejectsUnaddressedWaitingAndAddressedPausedSignals(t *testing.T) {
+func TestMailboxQueuesUnaddressedWaitingAndRejectsAddressedPausedSignals(t *testing.T) {
 	mailbox := newSignalMailbox()
 	unaddressed := mustMailboxSignal(t, "signal:plain", WaitID{}, json.RawMessage(`{}`))
-	if _, err := mailbox.enqueue(StatusWaiting, unaddressed, signalSourceExternal); !errors.Is(err, ErrSignalRejected) {
-		t.Fatalf("unaddressed Waiting error = %v", err)
+	if accepted, err := mailbox.enqueue(StatusWaiting, unaddressed, signalSourceExternal); err != nil || !accepted {
+		t.Fatalf("unaddressed Waiting admission=%t error=%v", accepted, err)
 	}
 	waitID, _ := ParseWaitID("wait:1")
 	addressed := mustMailboxSignal(t, "signal:answer", waitID, json.RawMessage(`{}`))
 	if _, err := mailbox.enqueue(StatusPaused, addressed, signalSourceExternal); !errors.Is(err, ErrSignalRejected) {
 		t.Fatalf("addressed Paused error = %v", err)
 	}
-	if accepted, err := mailbox.enqueue(StatusPaused, unaddressed, signalSourceExternal); err != nil || !accepted {
+	paused := mustMailboxSignal(t, "signal:paused", WaitID{}, json.RawMessage(`{}`))
+	if accepted, err := mailbox.enqueue(StatusPaused, paused, signalSourceExternal); err != nil || !accepted {
 		t.Fatalf("unaddressed Paused enqueue = %t, %v", accepted, err)
 	}
 }

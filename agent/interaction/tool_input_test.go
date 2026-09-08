@@ -84,13 +84,13 @@ func testNumericToolInputRestore(t *testing.T, facade bool, response string) {
 		return toolCallResponse(chat.ToolCall{ID: "confirm", Name: "confirm_number", Arguments: `{}`}), nil
 	})
 	deployment := newDeployment(t, model, []tool.Tool{executable}, 2)
-	engine, err := agent.NewEngine(agent.EngineConfig{})
+	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	process, err := engine.Start(ctx, deployment, interactionInput(t, "confirm"))
+	process, err := engine.Start(ctx, deployment.Deployment, interactionInput(t, "confirm"))
 	t.Cleanup(func() {
 		cleanup, stop := context.WithTimeout(context.Background(), 5*time.Second)
 		defer stop()
@@ -106,11 +106,7 @@ func testNumericToolInputRestore(t *testing.T, facade bool, response string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForStatus(t, process, agent.StatusWaiting)
-	tree, err := engine.CaptureTree(ctx, process.ID())
-	if err != nil {
-		t.Fatal(err)
-	}
+	tree, pending := captureToolInput(t, engine, process)
 	tree, err = agent.ParseTreeSnapshot(tree.JSON())
 	if err != nil {
 		t.Fatal(err)
@@ -124,14 +120,11 @@ func testNumericToolInputRestore(t *testing.T, facade bool, response string) {
 	if releaseErr := engine.ReleaseTree(ctx, process.ID()); releaseErr != nil {
 		t.Fatal(releaseErr)
 	}
-	process, err = engine.RestoreTree(ctx, deployment, tree)
+	process, err = engine.RestoreTree(ctx, deployment.Deployment, tree)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pending, found, err := interaction.PendingToolInputFromProcess(ctx, process)
-	if err != nil || !found {
-		t.Fatalf("pending found=%t error=%v", found, err)
-	}
+	toolProcess := pendingToolProcess(t, engine, pending)
 	if string(pending.Prompt()) != value || string(pending.ResponseSchema()) != schema {
 		t.Fatalf("restored prompt=%s schema=%s", pending.Prompt(), pending.ResponseSchema())
 	}
@@ -151,7 +144,7 @@ func testNumericToolInputRestore(t *testing.T, facade bool, response string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if accepted, deliveryErr := process.DeliverSignals(ctx, signal); deliveryErr != nil || !accepted {
+	if accepted, deliveryErr := toolProcess.DeliverSignals(ctx, signal); deliveryErr != nil || !accepted {
 		t.Fatalf("response accepted=%t error=%v", accepted, deliveryErr)
 	}
 	result, err := process.Await(ctx)

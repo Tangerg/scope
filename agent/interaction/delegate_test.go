@@ -56,12 +56,12 @@ func TestManagedDelegatePreservesMixedToolCallOrder(t *testing.T) {
 	model := &mixedDelegateModel{}
 	root := delegateInteraction(t, model, []tool.Tool{echo}, []interaction.Delegate{delegate})
 	engine, err := agent.NewEngine(agent.EngineConfig{
-		DeploymentResolver: delegateResolver{child.DeploymentRef(): child}, Capabilities: capabilities,
+		DeploymentResolver: root.resolveWith(child), Capabilities: capabilities,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := engine.Run(context.Background(), root, interactionInput(t, "mix Tool and Delegate calls"))
+	result, err := engine.Run(context.Background(), root.Deployment, interactionInput(t, "mix Tool and Delegate calls"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,11 +77,11 @@ func TestManagedDelegatePreservesMixedToolCallOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := len(tree.ProcessSnapshots()); got != 3 {
-		t.Fatalf("Process tree size = %d, want 3", got)
+	if got := len(tree.ProcessSnapshots()); got != 5 {
+		t.Fatalf("Process tree size = %d, want 5", got)
 	}
 	for _, snapshot := range tree.ProcessSnapshots() {
-		if snapshot.Relation().Depth() == 1 &&
+		if snapshot.DeploymentRef() == child.DeploymentRef() &&
 			(snapshot.Budget() != budget || !snapshot.Capabilities().Allows(capabilities)) {
 			t.Fatalf("child allocation = %#v, %#v", snapshot.Budget(), snapshot.Capabilities())
 		}
@@ -140,13 +140,6 @@ func TestDelegateRejectsNonObjectInputAndToolNameCollision(t *testing.T) {
 	}); !errors.Is(newDefinitionErr, interaction.ErrInvalidDefinitionConfig) {
 		t.Fatalf("duplicate Delegate error = %v", newDefinitionErr)
 	}
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: "interaction.delegate_collision", Description: "Reject an ambiguous model capability manifest.",
-		MaxModelCalls: 2, Delegates: []interaction.Delegate{delegate},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	colliding, err := tool.NewFunc(tool.FuncConfig{
 		Name: "same_name", Description: "Return a value locally.",
 	}, func(_ context.Context, input delegateRequest) (delegateResponse, error) {
@@ -155,14 +148,14 @@ func TestDelegateRejectsNonObjectInputAndToolNameCollision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, _ := chatclient.New(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
-		return textResponse("unused"), nil
-	}), chatclient.Config{})
-	if _, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-		Client: client, Tools: []tool.Tool{colliding},
-	}); !errors.Is(err, interaction.ErrInvalidDispatcherConfig) {
-		t.Fatalf("name collision error = %v", err)
+	toolSet := testToolSet(t, interaction.ToolSetConfig{Tools: []tool.Tool{colliding}})
+	if _, err := interaction.NewDefinition(interaction.DefinitionConfig{
+		Name: "interaction.collision", Description: "Reject duplicate model-visible authority.", MaxModelCalls: 2,
+		Delegates: []interaction.Delegate{delegate}, Tools: toolSet, ToolBudget: agent.Budget{Steps: 8, Effects: 4, Signals: 8},
+	}); !errors.Is(err, interaction.ErrInvalidDefinitionConfig) {
+		t.Fatalf("name collision error=%v", err)
 	}
+
 }
 
 func TestManagedDelegateReturnsArgumentAndStartFailuresToModel(t *testing.T) {
@@ -183,7 +176,7 @@ func TestManagedDelegateReturnsArgumentAndStartFailuresToModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := engine.Run(context.Background(), root, interactionInput(t, "exercise Delegate failures"))
+	result, err := engine.Run(context.Background(), root.Deployment, interactionInput(t, "exercise Delegate failures"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +222,7 @@ func newDelegateRestoreFixture(t *testing.T) delegateRestoreFixture {
 	model := &restorableDelegateModel{}
 	rootDeployment := delegateInteraction(t, model, nil, []interaction.Delegate{delegate})
 	resolver := delegateResolver{child.DeploymentRef(): child}
-	return delegateRestoreFixture{child: child, root: rootDeployment, resolver: resolver, model: model}
+	return delegateRestoreFixture{child: child, root: rootDeployment.Deployment, resolver: resolver, model: model}
 }
 
 func captureWaitingDelegateTree(
@@ -243,6 +236,10 @@ func captureWaitingDelegateTree(
 		t.Fatal(err)
 	}
 	tree, childID := awaitWaitingDelegateTree(t, engine, root.ID())
+	pending, err := interaction.PendingToolInputs(tree)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("Delegate tree exposes Tool input: %v %v", pending, err)
+	}
 	rootSnapshot := rootProcessSnapshot(tree)
 	assertActiveDelegateChild(t, rootSnapshot, childID)
 	terminateOriginalDelegateTree(t, engine, root, childID)
@@ -263,14 +260,6 @@ func assertActiveDelegateChild(t *testing.T, rootSnapshot agent.ProcessSnapshot,
 	activeChildren, found, err := interaction.ActiveDelegateChildrenFromSnapshot(rootSnapshot)
 	if err != nil || !found || len(activeChildren) != 1 {
 		t.Fatalf("active Delegate children = %#v, found = %t, error = %v", activeChildren, found, err)
-	}
-	if pending, snapshotFound, pendingToolInputFromSnapshotErr := interaction.PendingToolInputFromSnapshot(rootSnapshot); pendingToolInputFromSnapshotErr != nil || snapshotFound {
-		t.Fatalf(
-			"Delegate-waiting root pending Tool input = %#v, found = %t, error = %v",
-			pending,
-			snapshotFound,
-			pendingToolInputFromSnapshotErr,
-		)
 	}
 	activeChild := activeChildren[0]
 	if !activeChild.Valid() || activeChild.ModelCallSequence() != 1 ||
@@ -469,51 +458,19 @@ func (m *mixedDelegateModel) Calls() int {
 	return m.calls
 }
 
-func delegateInteraction(
-	t *testing.T,
-	model chat.Model,
-	tools []tool.Tool,
-	delegates []interaction.Delegate,
-) agent.Deployment {
+func delegateInteraction(t *testing.T, model chat.Model, tools []tool.Tool, delegates []interaction.Delegate) interactionDeployment {
 	return delegateInteractionWithValidator(t, model, tools, delegates, nil, 3)
 }
 
-func delegateInteractionWithValidator(
-	t *testing.T,
-	model chat.Model,
-	tools []tool.Tool,
-	delegates []interaction.Delegate,
-	validator interaction.CompletionValidator,
-	maxModelCalls uint32,
-) agent.Deployment {
+func delegateInteractionWithValidator(t *testing.T, model chat.Model, tools []tool.Tool, delegates []interaction.Delegate, validator interaction.CompletionValidator, maxModelCalls uint32) interactionDeployment {
 	t.Helper()
 	client, err := chatclient.New(model, chatclient.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: "interaction.delegate_root", Description: "Exercise exact managed worker delegation.",
-		MaxModelCalls: maxModelCalls, Delegates: delegates,
-		CompletionValidator: validator,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-		Client: client, Tools: tools,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("delegate-root-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("delegate-root-configuration")),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return deployment
+	return configuredInteraction(t, interaction.DefinitionConfig{
+		Name: "interaction.delegate_root", Description: "Exercise exact managed worker delegation.", MaxModelCalls: maxModelCalls, Delegates: delegates, CompletionValidator: validator,
+	}, interaction.DispatcherConfig{Client: client}, interaction.ToolSetConfig{Tools: tools})
 }
 
 func delegateWorkflow[I, O any](t *testing.T, name string, transform workflow.TransformFunc[I, O]) agent.Deployment {

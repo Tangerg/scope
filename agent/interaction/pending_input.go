@@ -2,9 +2,7 @@ package interaction
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -17,10 +15,14 @@ var ErrInvalidPendingToolInput = errors.New("interaction: invalid pending tool i
 // It deliberately excludes Tool continuation state and all application UI,
 // persistence, approval, or actor concepts.
 type PendingToolInput struct {
+	processID      agent.ProcessID
 	waitID         agent.WaitID
 	prompt         json.RawMessage
 	responseSchema agent.Schema
 }
+
+// ProcessID returns the Tool child that must receive the response.
+func (p PendingToolInput) ProcessID() agent.ProcessID { return p.processID }
 
 // WaitID returns the Engine-minted identity required to address the response.
 func (p PendingToolInput) WaitID() agent.WaitID { return p.waitID }
@@ -34,7 +36,7 @@ func (p PendingToolInput) ResponseSchema() json.RawMessage {
 }
 
 func (p PendingToolInput) Valid() bool {
-	return p.waitID.Valid() && len(p.prompt) > 0 && p.responseSchema.Valid()
+	return p.processID.Valid() && p.waitID.Valid() && len(p.prompt) > 0 && p.responseSchema.Valid()
 }
 
 // ResponseSignal validates response locally against ResponseSchema and returns
@@ -53,64 +55,31 @@ func (p PendingToolInput) ResponseSignal(
 	return NewToolInputResponseSignal(id, p.waitID, response)
 }
 
-// PendingToolInputFromProcess captures process and interprets its committed
-// state only when it is an Interaction currently waiting for Tool input.
-func PendingToolInputFromProcess(
-	ctx context.Context,
-	process *agent.Process,
-) (PendingToolInput, bool, error) {
-	if process == nil {
-		return PendingToolInput{}, false, ErrInvalidPendingToolInput
-	}
-	snapshot, err := process.Snapshot(ctx)
-	if err != nil {
-		return PendingToolInput{}, false, err
-	}
-	return PendingToolInputFromSnapshot(snapshot)
-}
-
-// PendingToolInputFromSnapshot interprets only Interaction-owned state. A
-// valid non-Waiting or non-Interaction snapshot returns found=false.
-func PendingToolInputFromSnapshot(snapshot agent.ProcessSnapshot) (PendingToolInput, bool, error) {
+// PendingToolInputs reads every current Tool input wait in a captured tree.
+// The returned order follows the snapshot's Process order. The caller selects
+// a wait explicitly and sends its ResponseSignal to that wait's ProcessID.
+func PendingToolInputs(snapshot agent.TreeSnapshot) ([]PendingToolInput, error) {
 	if !snapshot.Valid() {
-		return PendingToolInput{}, false, ErrInvalidPendingToolInput
+		return nil, ErrInvalidPendingToolInput
 	}
-	if snapshot.Status() != agent.StatusWaiting {
-		return PendingToolInput{}, false, nil
-	}
-	stateEnvelope := snapshot.CommittedExecutionState()
-	if stateEnvelope.Kind() != executionStateKind {
-		return PendingToolInput{}, false, nil
-	}
-	var state executionState
-	if err := jsonv2.Unmarshal(stateEnvelope.Payload(), &state, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return PendingToolInput{}, false, fmt.Errorf("%w: decode state: %w", ErrInvalidPendingToolInput, err)
-	}
-	outerWaitID, ok := snapshot.WaitID()
-	switch state.Phase {
-	case phaseWaitingDelegates:
-		if _, err := state.activeDelegateCalls(); err != nil {
-			return PendingToolInput{}, false, fmt.Errorf("%w: %w", ErrInvalidPendingToolInput, err)
+	var pending []PendingToolInput
+	for _, process := range snapshot.ProcessSnapshots() {
+		if process.Status() != agent.StatusWaiting || process.CommittedExecutionState().Kind() != toolExecutionStateKind {
+			continue
 		}
-		if state.WaitID == nil || !ok || outerWaitID != *state.WaitID {
-			return PendingToolInput{}, false, ErrInvalidPendingToolInput
+		state, err := decodeToolState(process.CommittedExecutionState())
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrInvalidPendingToolInput, err)
 		}
-		return PendingToolInput{}, false, nil
-	case phaseWaitingInput:
-	default:
-		return PendingToolInput{}, false, ErrInvalidPendingToolInput
+		waitID, addressed := process.WaitID()
+		if state.Phase != toolWaitingInput || !addressed || state.WaitID == nil || waitID != *state.WaitID {
+			return nil, ErrInvalidPendingToolInput
+		}
+		request, err := state.Checkpoint.InputRequest.inputRequest()
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrInvalidPendingToolInput, err)
+		}
+		pending = append(pending, PendingToolInput{processID: process.ProcessID(), waitID: waitID, prompt: request.Prompt(), responseSchema: request.responseSchema})
 	}
-	if err := state.validatePendingToolInput(); err != nil {
-		return PendingToolInput{}, false, fmt.Errorf("%w: %w", ErrInvalidPendingToolInput, err)
-	}
-	if state.WaitID == nil || !ok || outerWaitID != *state.WaitID || state.ToolCheckpoint == nil {
-		return PendingToolInput{}, false, ErrInvalidPendingToolInput
-	}
-	request, err := state.ToolCheckpoint.InputRequest.inputRequest()
-	if err != nil {
-		return PendingToolInput{}, false, fmt.Errorf("%w: %w", ErrInvalidPendingToolInput, err)
-	}
-	return PendingToolInput{
-		waitID: outerWaitID, prompt: request.Prompt(), responseSchema: request.responseSchema,
-	}, true, nil
+	return pending, nil
 }

@@ -95,9 +95,11 @@ func (p *Process) WaitID() (WaitID, bool) {
 }
 
 // DeliverSignals submits one or more immutable Strategy inputs as an ordered,
-// atomic batch. Running input is consumed at the next Strategy-safe Step
-// boundary; Waiting input must first address the current WaitID, otherwise it
-// returns ErrSignalRejected. The complete batch is accepted in order or the
+// atomic batch. Unaddressed input queues for the next Strategy-safe Step,
+// including while Paused or waiting for child completion. It never resumes
+// either state by itself. An externally addressable wait requires an answer.
+// An addressed answer while Waiting must name the current WaitID; any other
+// external wait answer returns ErrSignalRejected. The batch is accepted or the
 // mailbox remains unchanged. Reusing a SignalID with different normalized
 // payload bytes or a different WaitID returns ErrSignalConflict. If any SignalID
 // repeats with identical content, accepted is false with nil error and the

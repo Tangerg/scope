@@ -124,7 +124,8 @@
 // waits. Snapshots whose wait facts contradict that history are rejected.
 // Child completions remain queued while their parent is Paused or waiting on
 // another WaitID. Only an answer to the current WaitID releases Waiting;
-// an explicit pause still requires Resume.
+// an explicit pause still requires Resume. Unaddressed Strategy input can also
+// queue while Paused or waiting for children without releasing either state.
 //
 // Each strategy declares its own safe consumption boundary and proves it with
 // contract tests.

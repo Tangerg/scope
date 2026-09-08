@@ -13,14 +13,6 @@ import (
 )
 
 func TestDefinitionConformance(t *testing.T) {
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name:          "interaction.conformance",
-		Description:   "Verify the Interaction Definition and Execution contract.",
-		MaxModelCalls: 2,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	input, err := agent.EncodeInput(interaction.Input{
 		Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("hello"))},
 	})
@@ -38,13 +30,22 @@ func TestDefinitionConformance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	toolSet := testToolSet(t, interaction.ToolSetConfig{Tools: []tool.Tool{add}})
+	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
+		Name:          "interaction.conformance",
+		Description:   "Verify the Interaction Definition and Execution contract.",
+		MaxModelCalls: 2, Tools: toolSet, ToolBudget: agent.Budget{Steps: 8, Effects: 4, Signals: 8},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	model := &scriptedModel{}
 	client, err := chatclient.New(model, chatclient.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-		Client: client, Tools: []tool.Tool{add},
+		Client: client,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -53,8 +54,8 @@ func TestDefinitionConformance(t *testing.T) {
 		Definition: definition, Dispatcher: dispatcher,
 		ImplementationDigest: agent.ComputeDigest([]byte("interaction-conformance")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte("tool-loop")),
-	}, agent.EngineConfig{}, input)
-	if result.Usage().PreparedEffects != 3 || model.Calls() != 2 {
+	}, agent.EngineConfig{DeploymentResolver: delegateResolver{toolSet.Deployment().DeploymentRef(): toolSet.Deployment()}}, input)
+	if result.Usage().PreparedEffects != 4 || model.Calls() != 2 {
 		t.Fatalf("tool-loop usage=%+v model calls=%d", result.Usage(), model.Calls())
 	}
 }

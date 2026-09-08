@@ -14,8 +14,8 @@ func TestFailedDirectResultCannotEnterProtocolOrRestore(t *testing.T) {
 		ID: "failed", Name: "direct", IsError: true, Output: chat.NewTextToolOutput("failure"),
 	}
 	payload, err := encodeProtocol(signalEnvelope{
-		Operation:  operationToolBatch,
-		ToolResult: &toolBatchResult{Results: []chat.ToolResult{result}, Direct: true},
+		Operation:  operationToolCall,
+		ToolResult: &toolCallResult{Result: &result, Direct: true},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +71,7 @@ func TestModelHostFailureSignalModesAreExclusive(t *testing.T) {
 	}
 }
 
-func TestToolBatchPauseCountDoesNotWrap(t *testing.T) {
+func TestToolInputPauseCountDoesNotWrap(t *testing.T) {
 	request, err := NewToolInputRequest(
 		json.RawMessage(`"provide another value"`),
 		json.RawMessage(`{"type":"string"}`),
@@ -80,11 +80,12 @@ func TestToolBatchPauseCountDoesNotWrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dispatch := toolBatchDispatch{pauseCount: math.MaxUint32}
-	if _, err := dispatch.pause(0, request); err == nil {
-		t.Fatal("exhausted Tool input pause count wrapped instead of failing")
+	call := toolCall{
+		ModelCallSequence: 1, Call: chat.ToolCall{ID: "call", Name: "input", Arguments: `{}`},
+		Checkpoint:    &toolCheckpoint{PauseCount: math.MaxUint32, InputRequest: wireInputRequest(request)},
+		InputResponse: json.RawMessage(`"answer"`),
 	}
-	if dispatch.pauseCount != math.MaxUint32 {
-		t.Fatalf("pause count changed to %d", dispatch.pauseCount)
+	if _, err := newToolEffect(call); err == nil {
+		t.Fatal("exhausted Tool input pause count admitted another call")
 	}
 }

@@ -191,26 +191,8 @@ func runContextReductionInteraction(
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: "interaction.context-reducer", Description: "Exercise model-context reduction.",
-		MaxModelCalls: 3,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-		Client: client, Tools: tools, ModelContextReducer: reducer,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("context-reducer-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("context-reducer-configuration")),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	deployment := configuredInteraction(t, interaction.DefinitionConfig{
+		Name: "interaction.context-reducer", Description: "Exercise model-context reduction.", MaxModelCalls: 3,
+	}, interaction.DispatcherConfig{Client: client, ModelContextReducer: reducer}, interaction.ToolSetConfig{Tools: tools})
 	return runInteraction(t, deployment, "original context")
 }

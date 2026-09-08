@@ -88,15 +88,15 @@ type ToolInvocation struct {
 // Relation returns the Process tree location that owns the Tool call.
 func (t ToolInvocation) Relation() agent.ProcessRelation { return t.relation }
 
-// DeploymentRef returns the exact Interaction binding that owns the Tool call.
+// DeploymentRef returns the exact ToolSet binding that owns the Tool call.
 func (t ToolInvocation) DeploymentRef() agent.DeploymentRef {
 	return t.deploymentRef
 }
 
-// EffectID returns the stable Tool-batch Effect identity.
+// EffectID returns the stable identity of this individual Tool Effect.
 func (t ToolInvocation) EffectID() agent.EffectID { return t.effectID }
 
-// StepSequence returns the one-based Process Step that declared the Tool batch.
+// StepSequence returns the one-based Tool child Step that declared this attempt.
 func (t ToolInvocation) StepSequence() uint64 { return t.stepSequence }
 
 // ModelCallSequence returns the one-based model call that requested the Tool.

@@ -30,7 +30,7 @@ func TestDelegateAtModelLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := engine.Run(t.Context(), root, interactionInput(t, "delegate once"))
+	result, err := engine.Run(t.Context(), root.Deployment, interactionInput(t, "delegate once"))
 	if err != nil {
 		t.Fatal(err)
 	}

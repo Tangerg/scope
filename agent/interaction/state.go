@@ -14,9 +14,9 @@ type phase string
 const (
 	phaseReadyModel               phase = "ready_model"
 	phaseAwaitingModel            phase = "awaiting_model"
-	phaseAwaitingTools            phase = "awaiting_tools"
-	phaseAwaitingInputWaitOpen    phase = "awaiting_input_wait_open"
-	phaseWaitingInput             phase = "waiting_input"
+	phaseAwaitingToolStarts       phase = "awaiting_tool_starts"
+	phaseAwaitingToolWaitOpen     phase = "awaiting_tool_wait_open"
+	phaseWaitingTools             phase = "waiting_tools"
 	phaseAwaitingDelegateStarts   phase = "awaiting_delegate_starts"
 	phaseAwaitingDelegateWaitOpen phase = "awaiting_delegate_wait_open"
 	phaseWaitingDelegates         phase = "waiting_delegates"
@@ -25,8 +25,8 @@ const (
 
 func (p phase) valid() bool {
 	switch p {
-	case phaseReadyModel, phaseAwaitingModel, phaseAwaitingTools,
-		phaseAwaitingInputWaitOpen, phaseWaitingInput, phaseAwaitingDelegateStarts,
+	case phaseReadyModel, phaseAwaitingModel, phaseAwaitingToolStarts,
+		phaseAwaitingToolWaitOpen, phaseWaitingTools, phaseAwaitingDelegateStarts,
 		phaseAwaitingDelegateWaitOpen, phaseWaitingDelegates, phaseCompleted:
 		return true
 	default:
@@ -47,7 +47,7 @@ type executionState struct {
 	ActiveToolCallEndIndex   uint32                `json:"active_tool_call_end_index,omitempty"`
 	SettledToolResults       []chat.ToolResult     `json:"settled_tool_results,omitempty"`
 	DirectToolResultEligible bool                  `json:"direct_tool_result_eligible,omitempty"`
-	ToolCheckpoint           *toolCheckpoint       `json:"tool_checkpoint,omitempty"`
+	ToolSegment              *toolSegmentState     `json:"tool_segment,omitempty"`
 	DelegateSegment          *delegateSegmentState `json:"delegate_segment,omitempty"`
 	WaitID                   *agent.WaitID         `json:"wait_id,omitempty"`
 	PendingSteer             *steerBatch           `json:"pending_steer,omitempty"`
@@ -119,7 +119,7 @@ func (e executionState) validatePhaseState(definition *Definition) error {
 		return e.validateReadyModelState()
 	case phaseAwaitingModel:
 		return e.validateAwaitingModelState()
-	case phaseAwaitingTools, phaseAwaitingInputWaitOpen, phaseWaitingInput,
+	case phaseAwaitingToolStarts, phaseAwaitingToolWaitOpen, phaseWaitingTools,
 		phaseAwaitingDelegateStarts, phaseAwaitingDelegateWaitOpen, phaseWaitingDelegates:
 		return e.validateActiveCallState(definition)
 	case phaseCompleted:
@@ -158,7 +158,7 @@ func (e executionState) validateActiveCallState(definition *Definition) error {
 	if delegateSegment {
 		return e.validateDelegateCallState(active)
 	}
-	return e.validateToolCallState(active)
+	return e.validateToolCallState(active, definition)
 }
 
 func (e executionState) delegatePhase() bool {
@@ -167,7 +167,7 @@ func (e executionState) delegatePhase() bool {
 }
 
 func (e executionState) validateDelegateCallState(active []chat.ToolCall) error {
-	if e.ToolCheckpoint != nil || e.DelegateSegment == nil {
+	if e.ToolSegment != nil || e.DelegateSegment == nil {
 		return fmt.Errorf("%w: Delegate phase has inconsistent batch state", ErrInvalidExecutionState)
 	}
 	if err := e.DelegateSegment.validate(e.Phase, active); err != nil {
@@ -190,38 +190,19 @@ func (e executionState) validateDelegateCallState(active []chat.ToolCall) error 
 	return nil
 }
 
-func (e executionState) validateToolCallState(active []chat.ToolCall) error {
-	if e.DelegateSegment != nil {
-		return fmt.Errorf("%w: Tool phase contains Delegate state", ErrInvalidExecutionState)
+func (e executionState) validateToolCallState(active []chat.ToolCall, definition *Definition) error {
+	if e.DelegateSegment != nil || e.ToolSegment == nil {
+		return fmt.Errorf("%w: Tool phase has inconsistent child state", ErrInvalidExecutionState)
 	}
-	switch e.Phase {
-	case phaseAwaitingTools:
-		if e.WaitID != nil {
-			return fmt.Errorf("%w: awaiting_tools contains a WaitID", ErrInvalidExecutionState)
+	if err := e.ToolSegment.validate(e.Phase, active, e.ModelCallCount, definition); err != nil {
+		return err
+	}
+	if e.Phase == phaseWaitingTools {
+		if e.WaitID == nil || !e.WaitID.Valid() {
+			return fmt.Errorf("%w: waiting Tools require an Engine WaitID", ErrInvalidExecutionState)
 		}
-		if e.ToolCheckpoint != nil {
-			if err := e.ToolCheckpoint.validate(active); err != nil {
-				return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
-			}
-		}
-	case phaseAwaitingInputWaitOpen, phaseWaitingInput:
-		return e.validateInputWaitingState(active)
-	}
-	return nil
-}
-
-func (e executionState) validateInputWaitingState(active []chat.ToolCall) error {
-	if e.ToolCheckpoint == nil {
-		return fmt.Errorf("%w: input waiting phase requires a Tool checkpoint", ErrInvalidExecutionState)
-	}
-	if err := e.ToolCheckpoint.validate(active); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
-	}
-	if e.Phase == phaseAwaitingInputWaitOpen && e.WaitID != nil {
-		return fmt.Errorf("%w: awaiting_input_wait_open already has a WaitID", ErrInvalidExecutionState)
-	}
-	if e.Phase == phaseWaitingInput && (e.WaitID == nil || !e.WaitID.Valid()) {
-		return fmt.Errorf("%w: waiting_input requires an Engine WaitID", ErrInvalidExecutionState)
+	} else if e.WaitID != nil {
+		return fmt.Errorf("%w: Tool start or wait opening already has a WaitID", ErrInvalidExecutionState)
 	}
 	return nil
 }
@@ -311,7 +292,7 @@ func (e executionState) validateCurrentBatchArtifacts(definition *Definition) er
 
 func (e executionState) hasPendingBatch() bool {
 	return e.PendingModelResponse != nil || e.NextToolCallIndex != 0 || e.ActiveToolCallEndIndex != 0 ||
-		len(e.SettledToolResults) != 0 || e.DirectToolResultEligible || e.ToolCheckpoint != nil ||
+		len(e.SettledToolResults) != 0 || e.DirectToolResultEligible || e.ToolSegment != nil ||
 		e.DelegateSegment != nil
 }
 
@@ -336,7 +317,7 @@ func (e executionState) validatePendingBatch() ([]chat.ToolCall, error) {
 	if err := validateToolResults(calls[:e.NextToolCallIndex], e.SettledToolResults); err != nil {
 		return nil, err
 	}
-	if !e.DirectToolResultEligible && e.NextToolCallIndex == 0 && e.Phase == phaseAwaitingTools {
+	if !e.DirectToolResultEligible && e.NextToolCallIndex == 0 && e.Phase == phaseAwaitingToolStarts {
 		return nil, fmt.Errorf("%w: fresh Tool batch lost its direct-result candidate", ErrInvalidExecutionState)
 	}
 	return calls, nil
@@ -378,32 +359,12 @@ func (d delegateSegmentState) validate(current phase, calls []chat.ToolCall) err
 	return nil
 }
 
-func (e executionState) validatePendingToolInput() error {
-	if e.Phase != phaseWaitingInput || e.WorkingContext == nil || e.ModelCallCount == 0 ||
-		e.PendingModelResponse == nil || e.FinalOutput != nil || e.DelegateSegment != nil ||
-		e.ToolCheckpoint == nil || e.WaitID == nil || !e.WaitID.Valid() {
-		return ErrInvalidExecutionState
-	}
-	if err := e.WorkingContext.Validate(); err != nil || len(e.WorkingContext.Tools) != 0 {
-		return ErrInvalidExecutionState
-	}
-	calls, _, err := responseToolCalls(e.PendingModelResponse)
-	if err != nil || e.NextToolCallIndex != uint32(len(e.SettledToolResults)) ||
-		e.NextToolCallIndex >= e.ActiveToolCallEndIndex || uint64(e.ActiveToolCallEndIndex) > uint64(len(calls)) {
-		return ErrInvalidExecutionState
-	}
-	if err := validateToolResults(calls[:e.NextToolCallIndex], e.SettledToolResults); err != nil {
-		return err
-	}
-	return e.ToolCheckpoint.validate(calls[e.NextToolCallIndex:e.ActiveToolCallEndIndex])
-}
-
 func (e executionState) activeDelegateCalls() ([]chat.ToolCall, error) {
 	if e.Phase != phaseAwaitingDelegateStarts &&
 		e.Phase != phaseAwaitingDelegateWaitOpen &&
 		e.Phase != phaseWaitingDelegates ||
 		e.WorkingContext == nil || e.ModelCallCount == 0 ||
-		e.FinalOutput != nil || e.ToolCheckpoint != nil || e.DelegateSegment == nil {
+		e.FinalOutput != nil || e.ToolSegment != nil || e.DelegateSegment == nil {
 		return nil, ErrInvalidExecutionState
 	}
 	if err := e.WorkingContext.Validate(); err != nil || len(e.WorkingContext.Tools) != 0 {
