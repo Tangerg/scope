@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -163,20 +164,34 @@ func (c *Chat) prepareRequest(req *corechat.Request) (*preparedChatRequest, erro
 	if options.OutputFormat != nil && options.OutputFormat.Type == corechat.OutputFormatJSON {
 		return nil, fmt.Errorf("%w: bedrock Converse does not support %q", corechat.ErrUnsupportedOutputFormat, options.OutputFormat.Type)
 	}
+	inference, err := mapInferenceOptions(options)
+	if err != nil {
+		return nil, err
+	}
 	return &preparedChatRequest{
 		model:        options.Model,
 		system:       system,
 		messages:     messages,
-		inference:    mapInferenceOptions(options),
+		inference:    inference,
 		tools:        tools,
 		outputFormat: options.OutputFormat,
 		native:       native,
 	}, nil
 }
 
-func mapInferenceOptions(options corechat.Options) *types.InferenceConfiguration {
+// mapInferenceOptions narrows Core's inference options onto Converse's fields.
+//
+// MaxTokens is an int32 while Core carries an int64 that it only checks for
+// being positive, so a caller may hand over a value the field cannot hold. A
+// bare conversion wraps it to a negative token limit and sends that, which is
+// why the bound is checked here rather than left to the provider to reject.
+func mapInferenceOptions(options corechat.Options) (*types.InferenceConfiguration, error) {
 	configuration := &types.InferenceConfiguration{StopSequences: slices.Clone(options.Stop)}
 	if options.MaxOutputTokens != nil {
+		if *options.MaxOutputTokens > math.MaxInt32 {
+			return nil, fmt.Errorf("bedrock: options.max_output_tokens %d exceeds the int32 Converse accepts",
+				*options.MaxOutputTokens)
+		}
 		value := int32(*options.MaxOutputTokens)
 		configuration.MaxTokens = &value
 	}
@@ -188,7 +203,7 @@ func mapInferenceOptions(options corechat.Options) *types.InferenceConfiguration
 		value := float32(*options.TopP)
 		configuration.TopP = &value
 	}
-	return configuration
+	return configuration, nil
 }
 
 func mapProtocolMessages(messages []corechat.Message) ([]types.SystemContentBlock, []types.Message, error) {
