@@ -118,10 +118,36 @@ func (i *ImageModel) buildAPIRequest(req *image.Request) (string, *generateReque
 	return endpoint, apiReq, nil
 }
 
+// checkFinishReason decides whether the envelope holds the requested image.
+//
+// A filtered generation still answers 200 with base64 bytes, and those bytes
+// are the classifier's stand-in — Stability's own guidance is to treat the
+// generation as failed. This is the reason the adapter forces JSON mode: the
+// finish reason is only echoed back there, so ignoring it would make asking
+// for it pointless and would hand the caller a blank image as a result. An
+// unrecognized reason is refused too, because a value this adapter cannot
+// classify is not evidence of success.
+func checkFinishReason(reason string) error {
+	switch reason {
+	case "", finishReasonSuccess:
+		return nil
+	case finishReasonContentFiltered:
+		return fmt.Errorf(
+			"stability: generation filtered by the content moderation system (finish_reason %s)",
+			reason,
+		)
+	default:
+		return fmt.Errorf("stability: unrecognized finish_reason %q", reason)
+	}
+}
+
 func (i *ImageModel) buildResponse(body []byte, hdr http.Header, outputFormat string) (*image.Response, error) {
 	envelope, err := DecodeJSON(body)
 	if err != nil {
 		return nil, err
+	}
+	if reasonErr := checkFinishReason(envelope.FinishReason); reasonErr != nil {
+		return nil, reasonErr
 	}
 
 	data, err := base64.StdEncoding.DecodeString(envelope.Image)

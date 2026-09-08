@@ -22,6 +22,14 @@ const (
 	ResponseModeJSON = "application/json"
 )
 
+// Stability reports the outcome of a generation in finish_reason. The request
+// still answers 200 with image bytes when the safety classifier fires, and
+// those bytes are the filtered stand-in rather than the requested image.
+const (
+	finishReasonSuccess         = "SUCCESS"
+	finishReasonContentFiltered = "CONTENT_FILTERED"
+)
+
 // These are the provider values this adapter recognizes.
 const (
 	ModelCore                = "stable-image-core"
