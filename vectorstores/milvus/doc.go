@@ -21,5 +21,9 @@
 // `author == "Alice" and (year > 2020 or tag in ["a","b"])`. The
 // result feeds the `expr` parameter of the search call.
 //
+// Upsert acknowledgment. Milvus answers an upsert with the number of rows it
+// accepted; Index requires that count to match what it sent rather than
+// treating a short write as a complete one.
+//
 // See https://milvus.io/docs for the full API surface.
 package milvus

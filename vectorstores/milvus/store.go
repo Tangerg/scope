@@ -9,6 +9,7 @@ import (
 	"github.com/milvus-io/milvus/client/v2/entity"
 	"github.com/milvus-io/milvus/client/v2/index"
 	"github.com/milvus-io/milvus/client/v2/milvusclient"
+	"google.golang.org/grpc"
 
 	"github.com/samber/lo"
 
@@ -106,11 +107,26 @@ var (
 	_ vectorstore.IDDeleter     = (*Store)(nil)
 )
 
+// collectionClient is the narrow Milvus surface the store depends on. It stays
+// unexported because the store receives an already-connected client; it exists
+// so the store's requirements are visible and its acknowledgment handling is
+// checkable. *milvusclient.Client satisfies it.
+type collectionClient interface {
+	HasCollection(context.Context, milvusclient.HasCollectionOption, ...grpc.CallOption) (bool, error)
+	CreateCollection(context.Context, milvusclient.CreateCollectionOption, ...grpc.CallOption) error
+	CreateIndex(context.Context, milvusclient.CreateIndexOption, ...grpc.CallOption) (*milvusclient.CreateIndexTask, error)
+	LoadCollection(context.Context, milvusclient.LoadCollectionOption, ...grpc.CallOption) (milvusclient.LoadTask, error)
+	Upsert(context.Context, milvusclient.UpsertOption, ...grpc.CallOption) (milvusclient.UpsertResult, error)
+	Search(context.Context, milvusclient.SearchOption, ...grpc.CallOption) ([]milvusclient.ResultSet, error)
+	Delete(context.Context, milvusclient.DeleteOption, ...grpc.CallOption) (milvusclient.DeleteResult, error)
+	Close(context.Context) error
+}
+
 // Store implements [vectorstore.Store] against a Milvus collection. Milvus
 // requires a loaded collection before search, which is why the collection is
 // resolved once at construction rather than per query.
 type Store struct {
-	client           *milvusclient.Client
+	client           collectionClient
 	embeddingClient  embeddingclient.Client
 	documentBatcher  vectorstore.Batcher
 	collectionName   string
@@ -267,10 +283,16 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 			return err
 		}
 
-		_, err = s.client.Upsert(ctx, milvusclient.NewColumnBasedInsertOption(s.collectionName, cols...))
+		// UpsertCount is Milvus' acknowledgment of the batch. Accepting a short
+		// count would report a partial write as a complete one.
+		upserted, err := s.client.Upsert(ctx, milvusclient.NewColumnBasedInsertOption(s.collectionName, cols...))
 		if err != nil {
 			return fmt.Errorf("milvus: upsert %d documents to collection %s: %w",
 				len(docs), s.collectionName, err)
+		}
+		if upserted.UpsertCount != int64(len(docs)) {
+			return fmt.Errorf("milvus: upsert to collection %s acknowledged %d of %d documents",
+				s.collectionName, upserted.UpsertCount, len(docs))
 		}
 	}
 
