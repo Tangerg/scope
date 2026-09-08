@@ -29,14 +29,14 @@ func normalizeText(data []byte) (text string, hadBOM, hadCRLF bool) {
 	return string(data), hadBOM, hadCRLF
 }
 
-// restoreFormat re-applies CRLF and BOM to text if the original file
-// had them. The LLM always speaks LF + no-BOM; restoration happens
-// here so round-trips don't silently flip Windows line endings.
+// restoreFormat preserves the original file's CRLF and BOM without duplicating
+// formatting already present in replacement text.
 func restoreFormat(text string, hadBOM, hadCRLF bool) []byte {
 	if hadCRLF {
+		text = strings.ReplaceAll(text, "\r\n", "\n")
 		text = strings.ReplaceAll(text, "\n", "\r\n")
 	}
-	if hadBOM {
+	if hadBOM && !strings.HasPrefix(text, utf8BOM) {
 		return append([]byte(utf8BOM), text...)
 	}
 	return []byte(text)

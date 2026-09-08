@@ -177,6 +177,27 @@ func TestLocalExecutor_Write_PreservesBOM(t *testing.T) {
 	}
 }
 
+func TestLocalExecutorWriteDoesNotDuplicateExistingFormat(t *testing.T) {
+	for _, content := range []string{"new\nstuff\n", "new\r\nstuff\r\n", utf8BOM + "new\r\nstuff\r\n"} {
+		t.Run(content, func(t *testing.T) {
+			dir := t.TempDir()
+			path := writeTemp(t, dir, "a.txt", utf8BOM+"old\r\n")
+			result, err := mustLocalExecutor(t, dir).Write(t.Context(), WriteRequest{Path: path, Content: content})
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := utf8BOM + "new\r\nstuff\r\n"
+			if string(data) != want || result.BytesWritten != len(want) {
+				t.Fatalf("written = %q (%d bytes), want %q (%d bytes)", data, result.BytesWritten, want, len(want))
+			}
+		})
+	}
+}
+
 func TestLocalExecutor_Write_NULRejected(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "x.txt")
