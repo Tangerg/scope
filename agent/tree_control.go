@@ -45,6 +45,9 @@ func (t *treeRuntime) applyProcessCommand(process *processState, command process
 		return
 	}
 	process.applyCommand(t.context, command)
+	if command.kind == commandCapture || command.kind == commandQueryUnknownEffectIDs {
+		return
+	}
 	if process.pendingControl.hasTerminalIntent() || process.pendingControl.pauseReason != "" {
 		t.invalidateStep(process)
 	}

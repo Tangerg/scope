@@ -52,6 +52,13 @@
 // result and its error are discarded whole and the Execution is rebuilt from
 // committed Execution state.
 //
+// The owner services continuously ready control requests, job completions, and
+// runnable Processes in bounded scheduling turns. Queries do not wake execution.
+// Pending commits and held freezes still block work that cannot cross those
+// boundaries; a checkpoint still requires a safe tree cut. This is a scheduling
+// guarantee, not a wall-clock deadline: implementations must honor their bounded
+// execution contracts, and the Host owns storage deadlines.
+//
 // Before adopting initial or candidate state, the Engine captures Snapshot and
 // successfully restores it through that Deployment's Definition. An
 // unrestorable candidate cannot advance signal consumption or dispatch Effects.

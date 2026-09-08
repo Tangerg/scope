@@ -281,8 +281,15 @@ func (t *treeRuntime) watchHostTermination(rootContext context.Context) func() b
 }
 
 func (t *treeRuntime) advanceReadyWork() bool {
-	return t.tryFreezeCancellation() || t.tryCommand() || t.tryCompletion() ||
-		t.advanceOne() || t.tryStartCheckpoint()
+	// Service every eligible lane once so a continuously ready lane cannot
+	// prevent another from making progress. Each operation rechecks its barriers
+	// because an earlier operation can acquire a freeze or start a commit.
+	advanced := t.tryFreezeCancellation()
+	advanced = t.tryControl() || advanced
+	advanced = t.tryCommand() || advanced
+	advanced = t.tryCompletion() || advanced
+	advanced = t.advanceOne() || advanced
+	return t.tryStartCheckpoint() || advanced
 }
 
 func (t *treeRuntime) waitForWork() {
@@ -341,19 +348,25 @@ func (t *treeRuntime) tryFreezeCancellation() bool {
 	}
 }
 
-func (t *treeRuntime) tryCommand() bool {
+func (t *treeRuntime) tryControl() bool {
 	if t.commit != nil {
 		return false
-	}
-	commands := t.commands
-	if t.freeze != nil {
-		commands = nil
 	}
 	select {
 	case command := <-t.controls:
 		t.applyCommand(command)
 		return true
-	case command := <-commands:
+	default:
+		return false
+	}
+}
+
+func (t *treeRuntime) tryCommand() bool {
+	if t.commit != nil || t.freeze != nil {
+		return false
+	}
+	select {
+	case command := <-t.commands:
 		t.applyCommand(command)
 		return true
 	default:
