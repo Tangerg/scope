@@ -29,6 +29,9 @@ func TestVisitor_Conformance(t *testing.T) {
 				"or", "not", "nested_logical", "null_test", "not_null_test",
 				"like", "collection_membership", "indexed_key", "nested_index",
 			},
+			// This compiler writes a metadata key into the query language as text,
+			// so a key that language cannot name is refused rather than approximated.
+			InterpolatesKeyPaths: true,
 		},
 	)
 }

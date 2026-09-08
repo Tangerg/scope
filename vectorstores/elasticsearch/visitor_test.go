@@ -15,7 +15,13 @@ func TestVisitor_Conformance(t *testing.T) {
 		}
 		v := newVisitor("metadata")
 		return expr.Accept(v)
-	})
+	},
+		storetest.Options{
+			// This compiler writes a metadata key into the query language as text,
+			// so a key that language cannot name is refused rather than approximated.
+			InterpolatesKeyPaths: true,
+		},
+	)
 }
 
 func TestVisitor_NullTest(t *testing.T) {

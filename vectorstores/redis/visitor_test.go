@@ -43,6 +43,9 @@ func TestVisitor_Conformance(t *testing.T) {
 			// errors with "IN is not supported on field type". This is
 			// a real capability gap, not a visitor bug.
 			Unsupported: []string{"in_numbers", "collection_membership", "null_test", "not_null_test"},
+			// This compiler writes a metadata key into the query language as text,
+			// so a key that language cannot name is refused rather than approximated.
+			InterpolatesKeyPaths: true,
 		},
 	)
 }

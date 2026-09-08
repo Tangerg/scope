@@ -28,7 +28,12 @@ func TestVisitor_Conformance(t *testing.T) {
 			}
 			return predicate.Accept(newVisitor())
 		},
-		storetest.Options{Unsupported: []string{"indexed_key", "nested_index", "null_test", "not_null_test"}},
+		storetest.Options{
+			Unsupported: []string{"indexed_key", "nested_index", "null_test", "not_null_test"},
+			// This compiler writes a metadata key into the query language as text,
+			// so a key that language cannot name is refused rather than approximated.
+			InterpolatesKeyPaths: true,
+		},
 	)
 }
 

@@ -49,5 +49,14 @@
 // sub-field's ignore_above cutoff never applies. An index created before this
 // mapping needs a reindex for filters to compare exactly.
 //
+// Filterable keys. A metadata key is written into the Lucene query as text,
+// and query_string cannot quote a field name, so a filter can only name a
+// key that is a plain identifier. An indexed key is a string literal in the
+// filter DSL, so without that limit metadata['a:1 OR b'] compiled to
+// metadata.a:1 OR b and the caller's key became a term boundary and a
+// boolean operator. A document whose metadata key is anything at all still
+// stores and reads back fine; this is only about which keys a filter can
+// name.
+//
 // See https://www.elastic.co/docs/reference for the full API.
 package elasticsearch

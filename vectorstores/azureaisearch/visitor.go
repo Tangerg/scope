@@ -86,7 +86,7 @@ func (v *visitor) visitBinaryExpr(expr *filter.BinaryExpr) error {
 // The negated IS NOT NULL arrives as NOT(...) and is rendered by
 // visitUnaryExpr, so no separate handling is needed here.
 func (v *visitor) visitNullTestExpr(expr *filter.BinaryExpr) error {
-	field, err := fieldName(expr.Left())
+	field, err := fieldName(expr)
 	if err != nil {
 		return err
 	}
@@ -96,7 +96,7 @@ func (v *visitor) visitNullTestExpr(expr *filter.BinaryExpr) error {
 }
 
 func (v *visitor) visitHasExpr(expr *filter.BinaryExpr) error {
-	field, err := fieldName(expr.Left())
+	field, err := fieldName(expr)
 	if err != nil {
 		return err
 	}
@@ -145,7 +145,7 @@ func (v *visitor) visitLogicalExpr(expr *filter.BinaryExpr) error {
 }
 
 func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
-	field, err := fieldName(expr.Left())
+	field, err := fieldName(expr)
 	if err != nil {
 		return err
 	}
@@ -170,7 +170,7 @@ func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 }
 
 func (v *visitor) visitInExpr(expr *filter.BinaryExpr) error {
-	field, err := fieldName(expr.Left())
+	field, err := fieldName(expr)
 	if err != nil {
 		return err
 	}
@@ -220,23 +220,24 @@ func (v *visitor) visitLikeExpr(expr *filter.BinaryExpr) error {
 // fieldName extracts the (flat) field identifier — Azure AI Search
 // doesn't support nested-property paths in $filter, so the left
 // operand must reduce to a single bare identifier.
-func fieldName(expr filter.Expr) (string, error) {
-	switch node := expr.(type) {
-	case *filter.Ident:
-		return node.Name(), nil
-	case *filter.IndexExpr:
-		keys, err := node.Path()
-		if err != nil {
-			return "", err
-		}
-		if len(keys) != 1 {
-			return "", fmt.Errorf("azureaisearch: nested paths are not supported; got %s",
-				strings.Join(keys, "."))
-		}
-		return keys[0], nil
-	default:
-		return "", fmt.Errorf("unsupported left operand %T", node)
+// fieldName reads the filtered field as an OData identifier.
+//
+// It asks for IdentifierPath rather than Path because the name is pasted into
+// the filter expression and OData has no way to quote a field name. An indexed
+// key is a string literal, so without the check a caller's key became filter
+// syntax — profile['a eq 1 or b'] would have compiled to
+// a eq 1 or b eq 'x'. A store can still hold a document whose metadata key is
+// anything at all; this is only about which keys it can name in a filter.
+func fieldName(expr *filter.BinaryExpr) (string, error) {
+	keys, err := expr.IdentifierPath()
+	if err != nil {
+		return "", fmt.Errorf("azureaisearch: %w", err)
 	}
+	if len(keys) != 1 {
+		return "", fmt.Errorf("azureaisearch: nested paths are not supported; got %s",
+			strings.Join(keys, "."))
+	}
+	return keys[0], nil
 }
 
 func odataOpFor(kind filter.Operator) (string, error) {

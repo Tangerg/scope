@@ -64,5 +64,12 @@
 // that "will be null if it was never set, or if it was explicitly set to null"
 // — the same two states the filter AST reads as nil.
 //
+// Filterable keys. A metadata key is written into the query language as
+// text, and that language cannot quote a field name, so a filter can only
+// name a key that is a plain identifier. An indexed key is a string literal
+// in the filter DSL, so without that limit a caller's key was read as
+// syntax. A document whose metadata key is anything at all still stores and
+// reads back fine; this is only about which keys a filter can name.
+//
 // See https://learn.microsoft.com/azure/search/vector-search-overview.
 package azureaisearch

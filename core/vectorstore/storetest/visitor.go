@@ -19,6 +19,24 @@ type Options struct {
 	// verifies that each one returns an error; capability gaps must never turn
 	// into silent approximations or unexecuted tests.
 	Unsupported []string
+
+	// InterpolatesKeyPaths declares that this compiler writes a metadata key
+	// into the query language as text rather than binding it as a value.
+	//
+	// It decides which way the suite reads a key the target language cannot
+	// name. An indexed key is a string literal, so the caller chooses its
+	// bytes; a compiler that pastes them into query text has the caller's key
+	// read as syntax — profile['a:1 OR b'] compiled to Lucene as
+	// profile.a:1 OR b, and the same shape reached Typesense's filter_by,
+	// Vespa's YQL, an OData filter and a RediSearch tag clause. None of those
+	// languages can quote a field name, so such a key has to be refused, and
+	// the suite requires it.
+	//
+	// A compiler that binds the key instead — a SQL map subscript, a BSON
+	// field name, a JSON object key — is not exposed, and the suite requires
+	// the opposite: it must keep accepting any key, because refusing one would
+	// take away a document it can otherwise filter perfectly well.
+	InterpolatesKeyPaths bool
 }
 
 // VisitorConformance runs the standard expression-coverage suite
@@ -108,6 +126,34 @@ func VisitorConformance(t *testing.T, build BuildFn, options ...Options) {
 				// wrap errors with their own prefixes still pass the
 				// suite as long as they error at all.
 				t.Logf("err = %v (hint %q not in error — fine if vendor wraps)", err, tc.hint)
+			}
+		})
+	}
+
+	// A key the target language cannot name: refused by a compiler that writes
+	// keys as text, accepted by one that binds them. Both directions are
+	// asserted, so neither an injection nor a needless refusal can appear
+	// without this suite noticing.
+	unnameable := []struct {
+		name string
+		src  string
+	}{
+		{"query_syntax", `profile['a:1 OR b'] == 'x'`},
+		{"spaces", `profile['a b'] == 'x'`},
+		{"quote", `profile['a"b'] == 'x'`},
+		{"brace", `profile['a}|@b'] == 'x'`},
+	}
+	for _, tc := range unnameable {
+		t.Run("UnnameableKey_"+tc.name, func(t *testing.T) {
+			err := build(tc.src)
+			if opt.InterpolatesKeyPaths {
+				if err == nil {
+					t.Fatalf("expected %q to be refused: this compiler writes keys into query text", tc.src)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected %q to compile: this compiler binds keys as values, got %v", tc.src, err)
 			}
 		})
 	}

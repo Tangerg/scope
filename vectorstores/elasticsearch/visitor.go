@@ -247,7 +247,7 @@ func (v *visitor) visitLikeExpr(expr *filter.BinaryExpr) error {
 // fieldPath assembles the dotted Elasticsearch field path for the
 // metadata key on the left side of a comparison.
 func (v *visitor) fieldPath(expr *filter.BinaryExpr) (string, error) {
-	keys, err := expr.Path()
+	keys, err := expr.IdentifierPath()
 	if err != nil {
 		return "", err
 	}

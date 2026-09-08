@@ -25,6 +25,9 @@ func TestVisitor_Conformance(t *testing.T) {
 			// that is not set / equals null or NaN", and its suggested
 			// workaround is a magic sentinel value this store will not invent.
 			Unsupported: []string{"null_test", "not_null_test"},
+			// This compiler writes a metadata key into the query language as text,
+			// so a key that language cannot name is refused rather than approximated.
+			InterpolatesKeyPaths: true,
 		},
 	)
 }

@@ -202,7 +202,7 @@ func (v *visitor) visitLikeExpr(expr *filter.BinaryExpr) error {
 }
 
 func (v *visitor) fieldPath(expr *filter.BinaryExpr) (string, error) {
-	keys, err := expr.Path()
+	keys, err := expr.IdentifierPath()
 	if err != nil {
 		return "", err
 	}

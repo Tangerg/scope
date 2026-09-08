@@ -49,5 +49,12 @@
 // suggests a magic sentinel value as a workaround, which this store will not
 // invent on a caller's behalf.
 //
+// Filterable keys. A metadata key is written into the query language as
+// text, and that language cannot quote a field name, so a filter can only
+// name a key that is a plain identifier. An indexed key is a string literal
+// in the filter DSL, so without that limit a caller's key was read as
+// syntax. A document whose metadata key is anything at all still stores and
+// reads back fine; this is only about which keys a filter can name.
+//
 // See https://docs.vespa.ai/en/nearest-neighbor-search.html.
 package vespa

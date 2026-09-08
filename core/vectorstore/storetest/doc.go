@@ -44,6 +44,17 @@
 //	title            — string-pattern (LIKE)
 //	metadata['author'], metadata['a']['b'] — keyed access
 //
+// # Key paths
+//
+// An indexed key is a string literal, so the caller chooses its bytes. A
+// compiler that writes a metadata key into the query language as text has those
+// bytes read as syntax; one that binds the key as a value does not.
+// [Options.InterpolatesKeyPaths] declares which kind a compiler is, and the
+// suite asserts the matching direction: an interpolating compiler must refuse a
+// key the language cannot name, and a binding compiler must keep accepting any
+// key. Neither an injection nor a needless refusal can appear without failing
+// here.
+//
 // # Capability gaps
 //
 // A backend that genuinely doesn't support a shape (redis can't IN on

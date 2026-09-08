@@ -48,6 +48,9 @@ func TestVisitor_Conformance(t *testing.T) {
 			// declared nestedProperties, and dotted-path filtering on those
 			// leaves is a Weaviate v1.38 preview feature.
 			Unsupported: []string{"indexed_key", "nested_index"},
+			// This compiler writes a metadata key into the query language as text,
+			// so a key that language cannot name is refused rather than approximated.
+			InterpolatesKeyPaths: true,
 		},
 	)
 }

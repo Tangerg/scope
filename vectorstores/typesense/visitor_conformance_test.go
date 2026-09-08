@@ -26,6 +26,9 @@ func TestVisitor_Conformance(t *testing.T) {
 			// which this store will not fabricate. filter_by also has no
 			// pattern-match operator.
 			Unsupported: []string{"like", "null_test", "not_null_test"},
+			// This compiler writes a metadata key into the query language as text,
+			// so a key that language cannot name is refused rather than approximated.
+			InterpolatesKeyPaths: true,
 		},
 	)
 }
