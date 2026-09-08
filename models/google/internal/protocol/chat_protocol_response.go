@@ -434,9 +434,12 @@ func normalizeProtocolFinishReason(reason genai.FinishReason, hasToolCalls bool)
 		genai.FinishReasonImageSafety, genai.FinishReasonImageProhibitedContent,
 		genai.FinishReasonImageRecitation:
 		return corechat.FinishReasonContentFilter
-	// MALFORMED_FUNCTION_CALL, UNEXPECTED_TOOL_CALL, TOO_MANY_TOOL_CALLS,
-	// LANGUAGE, and NO_IMAGE are generation faults or capability limits with no
-	// portable match.
+	// MALFORMED_FUNCTION_CALL, UNEXPECTED_TOOL_CALL, TOO_MANY_TOOL_CALLS, and
+	// NO_IMAGE are generation faults, and LANGUAGE is a capability limit
+	// ("stopped because of using an unsupported language", not a policy
+	// withholding), so none has a portable match. OTHER and IMAGE_OTHER are
+	// unspecified by Gemini itself, which is what Core's Other already means.
+	// Every one of them keeps its provider value under native_finish_reason.
 	default:
 		return corechat.FinishReasonOther
 	}
