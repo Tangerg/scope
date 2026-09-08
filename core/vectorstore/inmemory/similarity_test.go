@@ -199,7 +199,7 @@ func TestStoreSearchPreservesCosineAcrossEmbeddingScales(t *testing.T) {
 				}
 				return embedding.NewResponse(outputs, nil)
 			})
-			store, err := inmemory.NewStore(inmemory.StoreConfig{EmbeddingModel: model})
+			store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{EmbeddingModel: model})
 			if err != nil {
 				t.Fatal(err)
 			}

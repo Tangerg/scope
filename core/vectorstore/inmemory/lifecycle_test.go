@@ -67,7 +67,7 @@ func TestStoreClearKeepsTheStoreUsable(t *testing.T) {
 }
 
 func TestNewStoreRejectsAMissingEmbeddingModel(t *testing.T) {
-	if _, err := inmemory.NewStore(inmemory.StoreConfig{}); !errors.Is(err, inmemory.ErrMissingEmbeddingModel) {
+	if _, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{}); !errors.Is(err, inmemory.ErrMissingEmbeddingModel) {
 		t.Fatalf("NewStore error = %v, want ErrMissingEmbeddingModel", err)
 	}
 	if err := (inmemory.StoreConfig{}).Validate(); !errors.Is(err, inmemory.ErrMissingEmbeddingModel) {
@@ -82,7 +82,7 @@ func TestNewStoreAcceptsACustomSimilarity(t *testing.T) {
 	inverted := func(left, right []float64) vectorstore.Score {
 		return 1 - inmemory.CosineSimilarity(left, right)
 	}
-	store, err := inmemory.NewStore(inmemory.StoreConfig{
+	store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{
 		EmbeddingModel: fakeEmbeddingModel{},
 		Similarity:     inverted,
 	})
@@ -114,7 +114,7 @@ func TestStoreRejectsInvalidScoresBeforeSelection(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			badCoordinate := vectorFor("bad")[0]
-			store, err := inmemory.NewStore(inmemory.StoreConfig{
+			store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{
 				EmbeddingModel: fakeEmbeddingModel{},
 				Similarity: func(left, right []float64) vectorstore.Score {
 					if left[0] == badCoordinate || right[0] == badCoordinate {
@@ -151,7 +151,7 @@ func (f failingEmbeddingModel) Call(context.Context, *embedding.Request) (*embed
 // silently producing an empty corpus or an empty result page.
 func TestIndexAndSearchReportEmbeddingFailures(t *testing.T) {
 	boom := errors.New("boom")
-	store, err := inmemory.NewStore(inmemory.StoreConfig{EmbeddingModel: failingEmbeddingModel{err: boom}})
+	store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{EmbeddingModel: failingEmbeddingModel{err: boom}})
 	if err != nil {
 		t.Fatal(err)
 	}

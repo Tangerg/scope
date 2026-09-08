@@ -77,7 +77,11 @@ type Store struct {
 // the shared conformance suite and callers' tests have a store with no
 // external service, not as a production index: search is a linear scan over
 // in-process state that is lost when the process exits.
-func NewStore(config StoreConfig) (*Store, error) {
+//
+// The context is unused — there is no service to reach — and taken anyway so
+// this store is a drop-in for a backend one, every [vectorstore.Store]
+// implementation being constructed the same way.
+func NewStore(_ context.Context, config StoreConfig) (*Store, error) {
 	config.applyDefaults()
 	if err := config.Validate(); err != nil {
 		return nil, err

@@ -11,8 +11,10 @@ import (
 	"testing"
 )
 
-// Every store in both families is constructed the same way:
-// NewStore(ctx, StoreConfig).
+// Every store is constructed the same way: NewStore(ctx, StoreConfig). That
+// includes Core's in-memory reference implementation, so it is a drop-in for a
+// backend one rather than a store whose call site has to be rewritten when a
+// caller moves off it.
 //
 // The shape is not cosmetic. A store that took no context could not read the
 // backend it was pointed at, and several of them used to declare a fact about
@@ -29,7 +31,7 @@ import (
 func TestStoresShareOneConstructionShape(t *testing.T) {
 	t.Parallel()
 
-	for _, family := range []string{"vectorstores", "historystores"} {
+	for _, family := range []string{"vectorstores", "historystores", "core/vectorstore/inmemory"} {
 		t.Run(family, func(t *testing.T) {
 			t.Parallel()
 			assertStoreConstructionShape(t, family)

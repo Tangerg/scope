@@ -46,7 +46,7 @@ func vectorFor(text string) []float64 {
 
 func newStore(t *testing.T) *inmemory.Store {
 	t.Helper()
-	store, err := inmemory.NewStore(inmemory.StoreConfig{EmbeddingModel: fakeEmbeddingModel{}})
+	store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{EmbeddingModel: fakeEmbeddingModel{}})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -355,12 +355,12 @@ func TestStore_SearchMinScoreFilters(t *testing.T) {
 }
 
 func TestStore_RejectsMissingEmbeddingModel(t *testing.T) {
-	if _, err := inmemory.NewStore(inmemory.StoreConfig{}); !errors.Is(err, inmemory.ErrMissingEmbeddingModel) {
+	if _, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{}); !errors.Is(err, inmemory.ErrMissingEmbeddingModel) {
 		t.Fatalf("NewStore error = %v, want ErrMissingEmbeddingModel", err)
 	}
 
 	var model *nilEmbeddingModel
-	if _, err := inmemory.NewStore(inmemory.StoreConfig{EmbeddingModel: model}); !errors.Is(err, inmemory.ErrMissingEmbeddingModel) {
+	if _, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{EmbeddingModel: model}); !errors.Is(err, inmemory.ErrMissingEmbeddingModel) {
 		t.Fatalf("NewStore typed nil error = %v, want ErrMissingEmbeddingModel", err)
 	}
 }
