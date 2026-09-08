@@ -45,6 +45,15 @@
 // was never written — an unindexed field is simply absent from the inverted
 // index — so an IS NULL filter fails rather than being approximated.
 //
+// Existing index. InitializeSchema creates the index when it is missing, and
+// verifies it when it is not. Existence was previously taken for agreement:
+// search converts RediSearch's distance into a Score using the configured
+// metric, so an index built with L2 while the config says COSINE returned
+// scores that were wrong rather than absent — nothing failed, the ranking was
+// silently mis-scaled. FT.INFO now supplies the vector attribute's metric and
+// dimension, and a mismatch fails construction with [ErrIncompatibleIndex],
+// where the misconfiguration is.
+//
 // See https://redis.io/docs/latest/develop/interact/search-and-query/
 // for the RediSearch reference.
 package redis

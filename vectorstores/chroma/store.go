@@ -187,7 +187,40 @@ func (s *Store) initialize(ctx context.Context, initializeSchema bool) error {
 	}
 
 	s.collection = col
-	return nil
+	return s.checkCollectionSpace()
+}
+
+// checkCollectionSpace verifies that the collection ranks by the distance this
+// store scores against.
+//
+// Existence is not agreement, and here the create option does not make it so:
+// GetOrCreateCollection returns an existing collection as it is and ignores the
+// space this store asked for, so InitializeSchema guarantees the collection
+// exists, never that it matches. Search converts Chroma's distance into a Score
+// using the metric from this store's own config, so a collection built with l2
+// while the config says cosine returns scores that are wrong rather than
+// missing: nothing fails, the ranking is silently mis-scaled.
+func (s *Store) checkCollectionSpace() error {
+	metadata := s.collection.Metadata()
+	if metadata == nil {
+		// Chroma omits the key when the collection uses its default, which is
+		// l2. Reading the omission as l2 keeps a default-built collection
+		// usable instead of refusing it for saying nothing.
+		return s.compareSpace(string(DistanceL2))
+	}
+	space, ok := metadata.GetString(v2.HNSWSpace)
+	if !ok {
+		return s.compareSpace(string(DistanceL2))
+	}
+	return s.compareSpace(space)
+}
+
+func (s *Store) compareSpace(space string) error {
+	if space == string(s.distanceMetric) {
+		return nil
+	}
+	return fmt.Errorf("%w: collection %s ranks by %s, but this store scores by %s",
+		ErrIncompatibleCollection, s.collectionName, space, s.distanceMetric)
 }
 
 // metadataToMap converts a Chroma DocumentMetadata into a plain map.

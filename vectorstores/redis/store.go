@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	goredis "github.com/redis/go-redis/v9"
 
@@ -110,7 +111,7 @@ func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 		return fmt.Errorf("FT._LIST: %w", err)
 	}
 	if slices.Contains(existing, s.indexName) {
-		return nil
+		return s.checkExistingIndex(ctx)
 	}
 
 	schema, err := s.buildSchema()
@@ -125,6 +126,44 @@ func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 		return fmt.Errorf("FT.CREATE %s: %w", s.indexName, err)
 	}
 	return nil
+}
+
+// ErrIncompatibleIndex reports an existing index whose vector field does not
+// match the configuration this store scores against.
+var ErrIncompatibleIndex = errors.New("redis: existing index is incompatible")
+
+// checkExistingIndex verifies that an index this store did not create agrees
+// with the configuration it scores against.
+//
+// Existence is not agreement. Search converts RediSearch's distance into a
+// Score using the metric from this store's own config, so an index built with
+// L2 while the config says COSINE returns scores that are wrong rather than
+// missing: nothing fails, the ranking is silently mis-scaled. Skipping creation
+// because the name was taken accepted exactly that. The dimension is checked
+// alongside it so a mismatch surfaces at wiring, where the misconfiguration is,
+// rather than as a provider error on the first write.
+func (s *Store) checkExistingIndex(ctx context.Context) error {
+	info, err := s.client.FTInfo(ctx, s.indexName).Result()
+	if err != nil {
+		return fmt.Errorf("redis: FT.INFO %s: %w", s.indexName, err)
+	}
+	for _, attribute := range info.Attributes {
+		if attribute.Attribute != s.embeddingField && attribute.Identifier != s.embeddingField {
+			continue
+		}
+		if !strings.EqualFold(attribute.DistanceMetric, string(s.distanceMetric)) {
+			return fmt.Errorf("%w: index %s ranks %s by %s, but this store scores by %s",
+				ErrIncompatibleIndex, s.indexName, s.embeddingField,
+				attribute.DistanceMetric, s.distanceMetric)
+		}
+		if attribute.Dim != s.dimensions {
+			return fmt.Errorf("%w: index %s holds %s with %d dimensions, but this store is configured for %d",
+				ErrIncompatibleIndex, s.indexName, s.embeddingField, attribute.Dim, s.dimensions)
+		}
+		return nil
+	}
+	return fmt.Errorf("%w: index %s has no vector attribute %s",
+		ErrIncompatibleIndex, s.indexName, s.embeddingField)
 }
 
 func (s *Store) buildSchema() ([]*goredis.FieldSchema, error) {

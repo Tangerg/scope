@@ -32,5 +32,15 @@
 // GetCollection or GetOrCreateCollection, and Close releases that collection
 // rather than the caller's client. The client stays the caller's to close.
 //
+// Existing collection. The space is verified on both paths, because the create
+// option does not settle it: GetOrCreateCollection returns an existing
+// collection as it is and ignores the space asked for, so InitializeSchema
+// guarantees the collection exists and never that it matches. Search converts
+// Chroma's distance into a Score using the configured metric, so a collection
+// built with l2 while the config says cosine returned scores that were wrong
+// rather than absent. A mismatch now fails construction with
+// [ErrIncompatibleCollection]; an omitted hnsw:space reads as Chroma's own
+// default of l2.
+//
 // See https://docs.trychroma.com/ for the full API surface.
 package chroma

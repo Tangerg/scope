@@ -59,6 +59,15 @@
 // more than it deletes while deleting nothing is refused instead of repeated,
 // since it cannot progress.
 //
+// Existing class. InitializeSchema creates the class when it is missing, and
+// verifies it when it is not. Existence was previously taken for agreement:
+// search converts Weaviate's distance into a Score using the configured
+// metric, so a class built with l2-squared while the config says cosine
+// returned scores that were wrong rather than absent. A mismatch now fails
+// construction with [ErrIncompatibleClass]. Only the distance is compared —
+// a class whose vectorizer is none declares no vector width, so there is no
+// dimension on it to disagree with.
+//
 // See https://weaviate.io/developers/weaviate for the full API
 // surface.
 package weaviate

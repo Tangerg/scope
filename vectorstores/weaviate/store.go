@@ -271,7 +271,7 @@ func (s *Store) initialize(ctx context.Context) error {
 		return fmt.Errorf("weaviate: check class existence: %w", err)
 	}
 	if exists {
-		return nil
+		return s.checkExistingClass(ctx)
 	}
 
 	class := &models.Class{
@@ -295,6 +295,50 @@ func (s *Store) initialize(ctx context.Context) error {
 // key. A declared text property pins field tokenization so a filter compares
 // the whole value case-sensitively; content keeps Weaviate's default word
 // tokenization, which is what hybrid search needs.
+// checkExistingClass verifies that a class this store did not create ranks by
+// the distance this store scores against.
+//
+// Existence is not agreement. Search converts Weaviate's distance into a Score
+// using the metric from this store's own config, so a class built with l2
+// squared while the config says cosine returns scores that are wrong rather
+// than missing: nothing fails, the ranking is silently mis-scaled. Returning
+// early because the class was already there accepted exactly that.
+//
+// Only the distance is checked. Weaviate stores no vector width on a class
+// whose vectorizer is none — the length comes with each object — so there is
+// no declared dimension here to disagree with.
+func (s *Store) checkExistingClass(ctx context.Context) error {
+	class, err := s.client.Schema().ClassGetter().
+		WithClassName(s.className).
+		Do(ctx)
+	if err != nil {
+		return fmt.Errorf("weaviate: get class %s: %w", s.className, err)
+	}
+	return s.compareClassDistance(class)
+}
+
+// compareClassDistance is the decision checkExistingClass makes, separated from
+// the schema fetch so it can be asserted without a live Weaviate.
+func (s *Store) compareClassDistance(class *models.Class) error {
+	config, ok := class.VectorIndexConfig.(map[string]any)
+	if !ok {
+		return fmt.Errorf("%w: class %s reports vector index config as %T, not an object",
+			ErrIncompatibleClass, s.className, class.VectorIndexConfig)
+	}
+	distance, ok := config["distance"].(string)
+	if !ok {
+		// Weaviate omits the key when the class uses its default, which is
+		// cosine. Reading the omission as cosine keeps a default-built class
+		// usable instead of refusing it for saying nothing.
+		distance = string(DistanceCosine)
+	}
+	if distance != string(s.distanceMetric) {
+		return fmt.Errorf("%w: class %s ranks by %s, but this store scores by %s",
+			ErrIncompatibleClass, s.className, distance, s.distanceMetric)
+	}
+	return nil
+}
+
 func (s *Store) classProperties() []*models.Property {
 	properties := []*models.Property{
 		{Name: fieldContent, DataType: []string{"text"}},
