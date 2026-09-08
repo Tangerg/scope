@@ -135,6 +135,10 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 		}
 		if streamErr := stream.Err(); streamErr != nil {
 			yield(nil, streamErr)
+			return
+		}
+		if !state.terminated() {
+			yield(nil, fmt.Errorf("bedrock: stream: %w: missing terminal response", corechat.ErrInvalidResponse))
 		}
 	}
 }

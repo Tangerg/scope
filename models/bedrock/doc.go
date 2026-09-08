@@ -18,5 +18,17 @@
 // AWS auth is handled by the standard aws-sdk-go-v2 chain (env vars,
 // shared config, IRSA, instance role); no custom APIKey is required.
 //
+// Stop reasons. Converse reports two truncations — max_tokens for the budget
+// the caller set and model_context_window_exceeded for the model's own window
+// filling first — and both report as a truncation. Guardrail and content
+// filtering report as a policy outcome; malformed model output and malformed
+// tool use have no portable match and keep their native value in the output
+// metadata.
+//
+// Stream termination. A messageStop event is the only claim that the message is
+// whole. An event stream can end cleanly mid-message without the SDK reporting
+// an error, so a stream that stops without one fails with
+// [chat.ErrInvalidResponse] rather than passing off a partial answer.
+//
 // See https://docs.aws.amazon.com/bedrock/ for the full reference.
 package bedrock

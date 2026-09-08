@@ -21,11 +21,18 @@ const (
 
 type protocolResponseMapper struct {
 	hasToolCalls bool
+	finished     bool
 }
 
 func newProtocolResponseMapper() *protocolResponseMapper {
 	return new(protocolResponseMapper)
 }
+
+// terminated reports whether a chunk marked the generation done. mapResponse
+// already refuses a nonterminal unary response; a stream has to ask the same
+// question, because a body that ends between chunks is indistinguishable from
+// a finished answer to whoever is reading the deltas.
+func (p *protocolResponseMapper) terminated() bool { return p.finished }
 
 func (p *protocolResponseMapper) mapResponse(requestModel string, response nativeChatResponse) (*corechat.Response, error) {
 	if !response.Done {
@@ -74,6 +81,10 @@ func (p *protocolResponseMapper) mapDelta(requestModel string, response nativeCh
 		}
 	}
 	if response.Done {
+		if p.finished {
+			return nil, errors.New("ollama: stream marked the generation done twice")
+		}
+		p.finished = true
 		mapped.FinishReason = normalizeProtocolDoneReason(response.DoneReason, p.hasToolCalls)
 		if response.DoneReason != "" {
 			mapped.OutputMetadata = &corechat.OutputMetadata{}

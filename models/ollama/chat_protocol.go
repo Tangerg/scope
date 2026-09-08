@@ -94,8 +94,14 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 			}
 			return nil
 		})
-		if err != nil && !consumerStopped {
-			yield(nil, err)
+		if err != nil {
+			if !consumerStopped {
+				yield(nil, err)
+			}
+			return
+		}
+		if !mapper.terminated() {
+			yield(nil, fmt.Errorf("ollama: stream: %w: missing terminal response", corechat.ErrInvalidResponse))
 		}
 	}
 }

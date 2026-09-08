@@ -1,6 +1,7 @@
 package mistral
 
 import (
+	"errors"
 	"fmt"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -13,12 +14,19 @@ type chatStreamTool struct {
 }
 
 type chatStreamState struct {
-	tools map[int]chatStreamTool
+	tools    map[int]chatStreamTool
+	finished bool
 }
 
 func newChatStreamState() *chatStreamState {
 	return &chatStreamState{tools: make(map[int]chatStreamTool)}
 }
+
+// terminated reports whether a chunk carried a finish reason. A stream that
+// stops without one delivered a partial answer, and neither the closing
+// [DONE] marker nor a clean end of body distinguishes that from a complete
+// one, so the caller must be told rather than handed the fragment.
+func (c *chatStreamState) terminated() bool { return c.finished }
 
 func (c *chatStreamState) mapChunk(chunk chatCompletionChunk) (*corechat.ResponseDelta, error) {
 	response := &corechat.ResponseDelta{
@@ -48,6 +56,12 @@ func (c *chatStreamState) mapChunk(chunk chatCompletionChunk) (*corechat.Respons
 		parts = append(parts, toolParts...)
 		response.Parts = parts
 		response.FinishReason = normalizeMistralFinishReason(wireChoice.FinishReason)
+		if response.FinishReason != "" {
+			if c.finished {
+				return nil, errors.New("mistral: stream emitted more than one finish reason")
+			}
+			c.finished = true
+		}
 		if response.FinishReason == corechat.FinishReasonOther {
 			response.OutputMetadata = &corechat.OutputMetadata{}
 			if err := response.OutputMetadata.Extra.Set(nativeFinishReasonKey, wireChoice.FinishReason); err != nil {

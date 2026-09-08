@@ -1,6 +1,7 @@
 package bedrock
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
@@ -14,13 +15,20 @@ type protocolToolIdentity struct {
 }
 
 type protocolChunkAccumulator struct {
-	model string
-	tools map[int32]protocolToolIdentity
+	model    string
+	tools    map[int32]protocolToolIdentity
+	finished bool
 }
 
 func newProtocolChunkAccumulator(model string) *protocolChunkAccumulator {
 	return &protocolChunkAccumulator{model: model, tools: make(map[int32]protocolToolIdentity)}
 }
+
+// terminated reports whether a messageStop event arrived. stream.Err answers
+// whether the event stream failed, which is a different question: an event
+// stream can end cleanly in the middle of a message, and the deltas already
+// yielded then describe a partial answer that nothing else marks as partial.
+func (p *protocolChunkAccumulator) terminated() bool { return p.finished }
 
 func (p *protocolChunkAccumulator) add(event types.ConverseStreamOutput) (*corechat.ResponseDelta, bool, error) {
 	response := &corechat.ResponseDelta{Metadata: &corechat.ResponseMetadata{Model: p.model}}
@@ -41,6 +49,10 @@ func (p *protocolChunkAccumulator) add(event types.ConverseStreamOutput) (*corec
 		}
 		response.Parts = []corechat.PartDelta{part}
 	case *types.ConverseStreamOutputMemberMessageStop:
+		if p.finished {
+			return nil, false, errors.New("bedrock: stream emitted more than one messageStop event")
+		}
+		p.finished = true
 		response.FinishReason = mapProtocolStopReason(typed.Value.StopReason)
 		if response.FinishReason == corechat.FinishReasonOther {
 			response.OutputMetadata = &corechat.OutputMetadata{}

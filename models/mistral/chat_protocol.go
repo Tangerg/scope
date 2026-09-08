@@ -186,7 +186,7 @@ func (c *Chat) Stream(ctx context.Context, request *corechat.Request) iter.Seq2[
 			}
 			data := bytes.TrimSpace(event.Data)
 			if bytes.Equal(data, []byte(mistralStreamDone)) {
-				return
+				break
 			}
 			var chunk chatCompletionChunk
 			if err := json.Unmarshal(data, &chunk); err != nil {
@@ -201,6 +201,9 @@ func (c *Chat) Stream(ctx context.Context, request *corechat.Request) iter.Seq2[
 			if !yield(response, nil) {
 				return
 			}
+		}
+		if !state.terminated() {
+			yield(nil, fmt.Errorf("mistral: stream: %w: missing terminal response", corechat.ErrInvalidResponse))
 		}
 	}
 }
