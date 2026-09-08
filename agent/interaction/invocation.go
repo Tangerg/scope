@@ -126,9 +126,7 @@ func (t ToolInvocation) ModelResult(output chat.ToolOutput, cause error) (result
 			return chat.ToolResult{ID: call.ID, Name: call.Name, Output: output.Clone()}, true
 		}
 	}
-	if errors.Is(cause, ErrHostFailure) ||
-		errors.Is(cause, context.Canceled) ||
-		errors.Is(cause, context.DeadlineExceeded) {
+	if isHostOrContextError(cause) {
 		return chat.ToolResult{}, false
 	}
 	if _, inputRequired := errors.AsType[*ToolInputRequiredError](cause); inputRequired {

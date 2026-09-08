@@ -579,6 +579,9 @@ func (d *Dispatcher) callTool(
 		}
 	}()
 	output, err := binding.executable.Call(ctx, prepared.invocation)
+	if isHostOrContextError(err) {
+		return chat.ToolResult{}, nil, nil, err
+	}
 	if err != nil {
 		if inputRequired, ok := errors.AsType[*ToolInputRequiredError](err); ok {
 			request, valid := inputRequired.inputRequest()

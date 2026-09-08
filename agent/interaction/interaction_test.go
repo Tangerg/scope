@@ -3,6 +3,7 @@ package interaction_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -123,6 +124,12 @@ func TestManagedInteractionTerminatesOnModelHostFailure(t *testing.T) {
 }
 
 func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
+	inputRequired := interaction.RequireToolInput(
+		json.RawMessage(`"continue?"`), json.RawMessage(`{"type":"boolean"}`), json.RawMessage(`{}`),
+	)
+	if !errors.Is(inputRequired, interaction.ErrToolInputRequired) {
+		t.Fatal(inputRequired)
+	}
 	for _, testCase := range []struct {
 		name   string
 		cause  error
@@ -131,6 +138,9 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 		{name: "host failure", cause: interaction.HostFailure(errors.New("tool boundary unavailable"))},
 		{name: "cancellation", cause: context.Canceled},
 		{name: "deadline", cause: context.DeadlineExceeded},
+		{name: "host failure with input request", cause: interaction.HostFailure(inputRequired)},
+		{name: "cancellation with input request", cause: errors.Join(inputRequired, context.Canceled)},
+		{name: "deadline with input request", cause: errors.Join(context.DeadlineExceeded, inputRequired)},
 		{name: "panic", panics: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

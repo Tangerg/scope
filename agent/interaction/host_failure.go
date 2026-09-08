@@ -1,6 +1,9 @@
 package interaction
 
-import "errors"
+import (
+	"context"
+	"errors"
+)
 
 // ErrHostFailure separates host infrastructure failure from model or tool behavior.
 var ErrHostFailure = errors.New("interaction: host failure")
@@ -25,4 +28,10 @@ func HostFailure(cause error) error {
 		return cause
 	}
 	return hostFailureError{cause: cause}
+}
+
+func isHostOrContextError(cause error) bool {
+	return errors.Is(cause, ErrHostFailure) ||
+		errors.Is(cause, context.Canceled) ||
+		errors.Is(cause, context.DeadlineExceeded)
 }

@@ -98,7 +98,9 @@ type ToolInputRequiredError struct {
 
 // RequireToolInput validates the request and returns an error matching
 // ErrToolInputRequired. A Tool returns this before external side effects, or after
-// storing enough ContinuationState to prove safe re-entry.
+// storing enough ContinuationState to prove safe re-entry. A HostFailure,
+// cancellation, or deadline in the same error chain takes precedence: the Effect
+// remains unknown instead of committing an input checkpoint.
 func RequireToolInput(
 	prompt json.RawMessage,
 	responseSchema json.RawMessage,
@@ -111,10 +113,7 @@ func RequireToolInput(
 	return &ToolInputRequiredError{request: request}
 }
 
-func (t *ToolInputRequiredError) Error() string {
-	if t == nil {
-		return ErrToolInputRequired.Error()
-	}
+func (*ToolInputRequiredError) Error() string {
 	return ErrToolInputRequired.Error()
 }
 
