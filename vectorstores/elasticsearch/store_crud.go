@@ -209,6 +209,11 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	return &vectorstore.SearchResponse{Results: docs}, nil
 }
 
+// DeleteWhere removes every matching document with a single delete_by_query.
+// Elasticsearch reports per-document failures, version conflicts, and query
+// timeouts inside a successful response, so the store treats an incomplete
+// deletion as an error. Documents already deleted stay deleted; the caller
+// repeats the operation to converge. Implements [vectorstore.FilterDeleter].
 func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
 	if expr == nil {
 		return vectorstore.ErrMissingFilter
@@ -241,15 +246,48 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 	if err != nil {
 		return fmt.Errorf("elasticsearch: delete_by_query %s: %w", s.indexName, err)
 	}
-	defer resp.Body.Close()
-	if resp.IsError() {
-		respBody, readErr := readErrorResponse(resp.Body)
+	return s.parseDeleteByQueryResponse(resp)
+}
+
+func (s *Store) parseDeleteByQueryResponse(response *esapi.Response) (err error) {
+	defer func() {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("elasticsearch: close delete_by_query response: %w", closeErr))
+		}
+	}()
+	if response.IsError() {
+		body, readErr := readErrorResponse(response.Body)
 		if readErr != nil {
 			return fmt.Errorf("elasticsearch: read delete_by_query error response for %s with status %d: %w",
-				s.indexName, resp.StatusCode, readErr)
+				s.indexName, response.StatusCode, readErr)
 		}
 		return fmt.Errorf("elasticsearch: delete_by_query %s: status=%d body=%s",
-			s.indexName, resp.StatusCode, string(respBody))
+			s.indexName, response.StatusCode, string(body))
+	}
+
+	var parsed deleteByQueryResponse
+	if err := json.NewDecoder(response.Body).Decode(&parsed); err != nil {
+		return fmt.Errorf("elasticsearch: decode delete_by_query response for %s: %w", s.indexName, err)
+	}
+	if failure := parsed.firstFailure(); failure != nil {
+		reason := failure.Cause.Reason
+		if reason == "" {
+			reason = "provider returned no reason"
+		}
+		return fmt.Errorf("elasticsearch: delete_by_query %s failed for document %q with status %d: %s",
+			s.indexName, failure.ID, failure.Status, reason)
+	}
+	if parsed.VersionConflicts != 0 {
+		return fmt.Errorf("elasticsearch: delete_by_query %s left %d document(s) on version conflict",
+			s.indexName, parsed.VersionConflicts)
+	}
+	if parsed.TimedOut {
+		return fmt.Errorf("elasticsearch: delete_by_query %s timed out after deleting %d of %d document(s)",
+			s.indexName, parsed.Deleted, parsed.Total)
+	}
+	if parsed.Deleted != parsed.Total {
+		return fmt.Errorf("elasticsearch: delete_by_query %s deleted %d of %d matched document(s)",
+			s.indexName, parsed.Deleted, parsed.Total)
 	}
 	return nil
 }
@@ -359,6 +397,30 @@ type searchHit struct {
 	ID     string         `json:"_id"`
 	Score  float64        `json:"_score"`
 	Source map[string]any `json:"_source"`
+}
+
+// deleteByQueryResponse carries the completeness facts Elasticsearch reports
+// inside a 200 response. Total counts matched candidates and Deleted counts
+// applied deletions, so the two diverge whenever documents were skipped.
+type deleteByQueryResponse struct {
+	TimedOut         bool                   `json:"timed_out"`
+	Total            int64                  `json:"total"`
+	Deleted          int64                  `json:"deleted"`
+	VersionConflicts int64                  `json:"version_conflicts"`
+	Failures         []deleteByQueryFailure `json:"failures"`
+}
+
+type deleteByQueryFailure struct {
+	ID     string      `json:"id"`
+	Status int         `json:"status"`
+	Cause  bulkFailure `json:"cause"`
+}
+
+func (d deleteByQueryResponse) firstFailure() *deleteByQueryFailure {
+	if len(d.Failures) == 0 {
+		return nil
+	}
+	return &d.Failures[0]
 }
 
 type bulkResponse struct {

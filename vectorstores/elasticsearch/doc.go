@@ -30,7 +30,10 @@
 // fields are addressed under `metadata.<key>` paths;
 // LIKE wildcards (% / _) map to Lucene wildcards (* / ?).
 //
-// Delete uses _delete_by_query with the same Lucene filter.
+// Delete uses _delete_by_query with the same Lucene filter. Elasticsearch
+// reports version conflicts, per-document failures, and query timeouts inside a
+// successful response, so an incomplete deletion returns an error while the
+// documents it already removed stay removed.
 //
 // See https://www.elastic.co/docs/reference for the full API.
 package elasticsearch
