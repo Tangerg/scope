@@ -44,5 +44,10 @@
 // enumerates ids via a YQL search and then issues per-id deletes
 // against the Document API (`DELETE /document/v1/<ns>/<schema>/docid/<id>`).
 //
+// Null tests are refused. The query language reference states that "there is
+// no way to query for a field that is not set / equals null or NaN" and
+// suggests a magic sentinel value as a workaround, which this store will not
+// invent on a caller's behalf.
+//
 // See https://docs.vespa.ai/en/nearest-neighbor-search.html.
 package vespa

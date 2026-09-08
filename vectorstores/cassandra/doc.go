@@ -37,6 +37,11 @@
 // applied. The returned error names the id that failed, and the operation is
 // safe to repeat because both statements are idempotent per row.
 //
+// Filter limits come from CQL, not from this store: a WHERE clause supports
+// neither OR nor a standalone NOT, has no IS NULL and no LIKE on a metadata
+// column, and reaches a metadata key only as a declared column — so an indexed
+// or nested key cannot be filtered either.
+//
 // See https://cassandra.apache.org/doc/latest/cassandra/vector-search/
 // for the official reference.
 package cassandra

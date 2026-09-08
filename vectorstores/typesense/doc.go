@@ -43,5 +43,10 @@
 // inner-product distance read as a cosine one produces plausible scores in the
 // right range that rank results wrongly, which no later call can detect.
 //
+// Null tests are refused. Typesense has no native filter for a null or missing
+// value; the sanctioned pattern is a companion boolean field written at index
+// time, which this store will not fabricate. filter_by likewise has no
+// pattern-match operator, so LIKE is refused too.
+//
 // See https://typesense.org/docs/latest/api/vector-search.html.
 package typesense
