@@ -50,6 +50,28 @@ func (f *fakeChatModel) Call(_ context.Context, req *chat.Request) (*chat.Respon
 
 func (f *fakeChatModel) lastRequest() *chat.Request { return f.request }
 
+func TestRewriteTransformerAcceptsRootFieldTemplate(t *testing.T) {
+	prompt, err := chatclient.ParseTemplate(`{{with .Target}}Search {{.}} for {{$.Query}}{{end}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := newFakeChatModel(t, "rewritten question")
+	transformer, err := rag.NewRewriteTransformer(rag.RewriteTransformerConfig{
+		Model: model, TargetSearchSystem: "index", PromptTemplate: prompt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	query, err := rag.NewQuery("original question")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := transformer.Transform(t.Context(), query)
+	if err != nil || result.Text() != "rewritten question" || model.captured != "Search index for original question" || model.calls != 1 {
+		t.Fatalf("result=%q error=%v prompt=%q calls=%d", result.Text(), err, model.captured, model.calls)
+	}
+}
+
 func TestContextualAugmenter_RendersDocsAsContext(t *testing.T) {
 	aug, err := rag.NewContextualAugmenter(rag.ContextualAugmenterConfig{})
 	if err != nil {

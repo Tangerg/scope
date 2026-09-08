@@ -65,6 +65,38 @@ func TestTemplateRequireUsesParsedTopLevelFields(t *testing.T) {
 	}
 }
 
+func TestTemplateRequireRecognizesRootFields(t *testing.T) {
+	for _, source := range []string{
+		`{{$.Query}}`,
+		`{{with .Target}}{{$.Query}}{{end}}`,
+		`{{printf "%s" $.Query}}`,
+	} {
+		t.Run(source, func(t *testing.T) {
+			template, err := ParseTemplate(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if requireErr := template.Require("Query"); requireErr != nil {
+				t.Fatal(requireErr)
+			}
+			rendered, err := template.Render(map[string]string{"Query": "question", "Target": "index"})
+			if err != nil || rendered != "question" {
+				t.Fatalf("Render = %q, %v", rendered, err)
+			}
+		})
+	}
+	template, err := ParseTemplate(`{{$.User.Name}}{{$item := .User}}{{$item.Name}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requireErr := template.Require("User"); requireErr != nil {
+		t.Fatal(requireErr)
+	}
+	if requireErr := template.Require("Name"); !errors.Is(requireErr, ErrInvalidTemplate) {
+		t.Fatalf("Require nested field = %v, want ErrInvalidTemplate", requireErr)
+	}
+}
+
 func TestTemplateBuildsValidatedSystemAndUserMessages(t *testing.T) {
 	template, err := ParseTemplate("Hello {{.Name}}")
 	if err != nil {

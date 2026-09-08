@@ -20,6 +20,7 @@ var ErrInvalidTemplate = errors.New("chatclient: invalid template")
 // Template is an immutable, parsed prompt template safe for concurrent use.
 // Parsing fails on missing map keys instead of emitting placeholder text;
 // Require inspects the complete parse tree, including pipelines and branches.
+// Root field references such as $.Query are recognized alongside .Query.
 // Message projections validate the rendered protocol value and preserve media
 // order without retaining per-render variables in Template.
 type Template struct {
@@ -150,6 +151,10 @@ func collectTemplateFields(node parse.Node, fields map[string]struct{}) {
 	case *parse.FieldNode:
 		if len(value.Ident) > 0 {
 			fields[value.Ident[0]] = struct{}{}
+		}
+	case *parse.VariableNode:
+		if len(value.Ident) > 1 && value.Ident[0] == "$" {
+			fields[value.Ident[1]] = struct{}{}
 		}
 	case *parse.ChainNode:
 		collectTemplateFields(value.Node, fields)
