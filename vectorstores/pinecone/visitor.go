@@ -85,7 +85,24 @@ func (v *visitor) visitBinaryExpr(expr *filter.BinaryExpr) error {
 		In:         v.visitInExpr,
 		Has:        v.visitHasExpr,
 		Like:       v.visitLikeExpr,
+		NullTest:   v.visitNullTestExpr,
 	})
+}
+
+// visitNullTestExpr emits Pinecone's $exists.
+//
+// Pinecone metadata holds strings, numbers, booleans and string lists, so a
+// key is either present with a value or absent — there is no stored null. That
+// makes $exists: false exactly the filter AST's IS NULL, which treats an absent
+// key as the value nil.
+func (v *visitor) visitNullTestExpr(expr *filter.BinaryExpr) error {
+	fieldKey, err := v.extractFieldKey(expr.Left())
+	if err != nil {
+		return fmt.Errorf("pinecone: extract field key from 'IS NULL' at %s: %w",
+			expr.Start().String(), err)
+	}
+	v.condition = map[string]any{fieldKey: map[string]any{"$exists": false}}
+	return nil
 }
 
 func (v *visitor) visitHasExpr(expr *filter.BinaryExpr) error {
@@ -228,6 +245,15 @@ func (v *visitor) buildNegatedExpr(expr filter.Expr) (map[string]any, error) {
 			return v.buildListMembershipExpr(node, "$nin")
 		case node.Operator().Is(filter.OpHas):
 			return v.buildNegatedCollectionMembershipExpr(node)
+		case node.Operator().IsNullOperator():
+			// IS has no inverse operator to swap in, but its negation is
+			// simply the other side of $exists.
+			fieldKey, err := v.extractFieldKey(node.Left())
+			if err != nil {
+				return nil, fmt.Errorf("extract field key from 'IS NULL' at %s: %w",
+					node.Start().String(), err)
+			}
+			return map[string]any{fieldKey: map[string]any{"$exists": true}}, nil
 		default:
 			return nil, fmt.Errorf("cannot negate operator %s", node.Operator().Name())
 		}

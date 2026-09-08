@@ -98,3 +98,37 @@ func TestVisitor_RejectsIntegerThatStructPBCannotRepresent(t *testing.T) {
 		t.Fatal("Pinecone silently rounded a large integer")
 	}
 }
+
+// Pinecone metadata holds strings, numbers, booleans and string lists, so a key
+// is either present with a value or absent — there is no stored null. $exists
+// is therefore exactly the AST's IS NULL, which reads an absent key as nil.
+func TestNullTestUsesExists(t *testing.T) {
+	t.Parallel()
+
+	for _, sample := range []struct {
+		source string
+		exists bool
+	}{
+		{source: `author is null`, exists: false},
+		{source: `author is not null`, exists: true},
+	} {
+		t.Run(sample.source, func(t *testing.T) {
+			expression, err := filter.Parse(sample.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			visitor := newVisitor()
+			if acceptErr := expression.Accept(visitor); acceptErr != nil {
+				t.Fatalf("compile %q: %v", sample.source, acceptErr)
+			}
+			compiled := visitor.snapshot().AsMap()
+			clause, ok := compiled["author"].(map[string]any)
+			if !ok {
+				t.Fatalf("compiled %q = %#v, want an author clause", sample.source, compiled)
+			}
+			if got := clause["$exists"]; got != sample.exists {
+				t.Fatalf("compiled %q = %#v, want $exists %t", sample.source, clause, sample.exists)
+			}
+		})
+	}
+}

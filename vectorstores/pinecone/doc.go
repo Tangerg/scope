@@ -31,5 +31,10 @@
 // indexes reject a metadata filter, and that rejection surfaces as an error
 // instead of an empty match set; compose deletion from DeleteIDs there.
 //
+// Null tests map to $exists. Pinecone metadata holds strings, numbers,
+// booleans and string lists, so a key is either present with a value or
+// absent and there is no stored null — which makes $exists: false exactly the
+// filter AST's IS NULL, and $exists: true its negation.
+//
 // See https://docs.pinecone.io/ for the full API surface.
 package pinecone
