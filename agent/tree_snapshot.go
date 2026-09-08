@@ -388,6 +388,9 @@ func (t *treeRuntime) acquireTreeFreeze(
 	ctx context.Context,
 ) (*treeFreeze, TreeSnapshot, error) {
 	ctx = requireContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, TreeSnapshot{}, err
+	}
 	if snapshot, err, stopped := t.captureStoppedTree(); stopped {
 		return nil, snapshot, err
 	}

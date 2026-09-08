@@ -12,6 +12,25 @@ import (
 	"time"
 )
 
+func TestCaptureTreeRejectsAlreadyCanceledContext(t *testing.T) {
+	engine, _ := NewEngine(EngineConfig{})
+	input, _ := EncodeInput(childTestInput{Mode: "leaf"})
+	root, err := engine.Start(t.Context(), newChildTestDeployment(t), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = awaitResult(t, root)
+	<-root.handle.runtime.Load().done
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if snapshot, err := engine.CaptureTree(ctx, root.ID()); !errors.Is(err, context.Canceled) || snapshot.Valid() {
+		t.Errorf("CaptureTree returned valid=%v, error=%v for canceled context", snapshot.Valid(), err)
+	}
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestParseTreeSnapshotRejectsInvalidWire(t *testing.T) {
 	tree := completedTreeSnapshot(t)
 	var fields map[string]json.RawMessage

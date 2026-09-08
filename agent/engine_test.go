@@ -1357,3 +1357,33 @@ func singleProcessTreeSnapshot(t *testing.T, snapshot ProcessSnapshot) TreeSnaps
 	}
 	return tree
 }
+
+func TestCanceledControlDoesNotEnterTheRuntime(t *testing.T) {
+	release := make(chan struct{})
+	dispatcher := &engineTestDispatcher{
+		policy: ReplayPolicyNever, started: make(chan struct{}, 1), block: release,
+	}
+	deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)
+	engine, _ := NewEngine(EngineConfig{})
+	input, _ := EncodeInput(engineTestInput{Value: "complete normally"})
+	process, err := engine.Start(t.Context(), deployment, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-dispatcher.started
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	for range 64 {
+		if err := process.Kill(ctx, "must not be admitted"); !errors.Is(err, context.Canceled) {
+			t.Errorf("Kill error=%v, want context.Canceled", err)
+		}
+	}
+	close(release)
+	result := awaitResult(t, process)
+	if result.Status() != StatusCompleted {
+		t.Errorf("already canceled control changed result to %s", result.Status())
+	}
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+}

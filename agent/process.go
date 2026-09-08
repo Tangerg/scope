@@ -27,7 +27,8 @@ const treeCommandBufferCapacity = 32
 // owner. Identity and allocation are immutable; [Engine.InspectTree] owns live inspection.
 // Control methods submit requests to the owning tree runtime. Except for
 // RequestCancellation, ctx bounds both submission and response waiting. Once
-// the tree runtime receives a command, canceling ctx does not revoke it.
+// a command enters the runtime queue, canceling ctx does not revoke it. A context
+// already canceled before submission never admits a command.
 type Process struct {
 	handle *processHandleState
 }
@@ -185,6 +186,9 @@ func (p *Process) request(ctx context.Context, command processCommand) (processR
 		return processResponse{}, ErrProcessNotRunning
 	}
 	ctx = requireContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return processResponse{}, err
+	}
 	runtime := p.handle.runtime.Load()
 	if runtime == nil {
 		return processResponse{}, p.handle.closedRequestError()
