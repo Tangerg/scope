@@ -21,5 +21,14 @@
 // deliver. finish_reason model_length is the model's own context filling
 // rather than the caller's budget, and both report as a truncation.
 //
+// Finish reasons. Mistral's own client types the field as stop, length,
+// model_length, error or an unrecognized string. error and an unrecognized
+// value both map to [chat.FinishReasonOther] — a known terminal state with
+// no portable match — and the provider's own word for it rides along on the
+// output, so an errored generation stays distinguishable from a provider
+// limit. error used to reach Other through a default branch, which files a
+// documented value under "not classified", and the synchronous path dropped
+// the native value the streaming path already kept.
+//
 // See https://docs.mistral.ai/ for the full API reference.
 package mistral

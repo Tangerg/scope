@@ -44,7 +44,12 @@ func mapChatCompletion(completion *chatCompletionResponse) (*corechat.Response, 
 		return nil, fmt.Errorf("mistral: output message tool calls: %w", err)
 	}
 	parts = append(parts, toolParts...)
-	response.Output = &corechat.Output{FinishReason: normalizeMistralFinishReason(wireChoice.FinishReason)}
+	finish := normalizeMistralFinishReason(wireChoice.FinishReason)
+	nativeFinish, err := mapMistralNativeFinishReason(wireChoice.FinishReason, finish)
+	if err != nil {
+		return nil, err
+	}
+	response.Output = &corechat.Output{FinishReason: finish, Metadata: nativeFinish}
 	if response.Output.FinishReason == corechat.FinishReasonOther {
 		response.Output.Metadata = &corechat.OutputMetadata{}
 		if err := response.Output.Metadata.Extra.Set(nativeFinishReasonKey, wireChoice.FinishReason); err != nil {
@@ -313,6 +318,17 @@ func mapMistralUsage(usage chatUsage) corechat.Usage {
 	return mapped
 }
 
+// normalizeMistralFinishReason maps the five values Mistral's client declares —
+// stop, length, model_length, error and tool_calls — and answers anything else
+// with Other, because that client types the field as those literals or an
+// unrecognized string, so a value outside the set is something this adapter has
+// not seen rather than something it failed to classify.
+//
+// error and an unrecognized value both land on Other, which is what Core
+// reserves for a known terminal state with no portable match. Neither is
+// silently lost: mapMistralNativeFinishReason keeps the provider's own word for
+// it on the output, the way this adapter's siblings do, so a caller can tell an
+// errored generation from a provider iteration limit.
 func normalizeMistralFinishReason(reason finishReason) corechat.FinishReason {
 	switch reason {
 	case "":
@@ -323,7 +339,26 @@ func normalizeMistralFinishReason(reason finishReason) corechat.FinishReason {
 		return corechat.FinishReasonLength
 	case finishReasonToolCalls:
 		return corechat.FinishReasonToolCalls
+	case finishReasonError:
+		return corechat.FinishReasonOther
 	default:
 		return corechat.FinishReasonOther
 	}
+}
+
+// mapMistralNativeFinishReason records the provider's own finish reason
+// whenever the portable one is Other, so the distinction Other erases stays
+// available.
+func mapMistralNativeFinishReason(
+	reason finishReason,
+	mapped corechat.FinishReason,
+) (*corechat.OutputMetadata, error) {
+	if mapped != corechat.FinishReasonOther {
+		return nil, nil
+	}
+	outputMetadata := &corechat.OutputMetadata{}
+	if err := outputMetadata.Extra.Set(nativeFinishReasonKey, string(reason)); err != nil {
+		return nil, fmt.Errorf("mistral: record native finish reason: %w", err)
+	}
+	return outputMetadata, nil
 }

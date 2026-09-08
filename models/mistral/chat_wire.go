@@ -50,6 +50,12 @@ const (
 	finishReasonLength      finishReason = "length"
 	finishReasonModelLength finishReason = "model_length"
 	finishReasonToolCalls   finishReason = "tool_calls"
+	// finishReasonError is the fifth value Mistral's own client declares
+	// alongside the four above. It has no portable Core match, and reaching it
+	// through a default branch would have filed it under "not classified" —
+	// which is the one thing [corechat.FinishReasonOther] is documented not to
+	// mean.
+	finishReasonError finishReason = "error"
 )
 
 type responseFormat struct {
