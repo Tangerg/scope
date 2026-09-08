@@ -49,17 +49,22 @@ func (s SimilarityMetric) Valid() bool {
 
 func (s SimilarityMetric) String() string { return string(s) }
 
+// score maps @search.score, which is never the raw metric value: Azure applies
+// a transformation so the score falls monotonically as the match worsens.
 func (s SimilarityMetric) score(raw float64) vectorstore.Score {
 	switch s {
 	case SimilarityCosine:
-		// Azure emits 1/(1+cosine_distance). Recover cosine similarity,
-		// then apply Scope's [-1,1] to [0,1] normalization.
+		// Documented exactly: "@search.score is defined as
+		// 1 / (1 + cosine_distance)", giving 0.333 to 1.00. Invert it to
+		// recover the cosine, then apply the [-1, 1] to [0, 1] mapping.
 		cosineDistance := 1/raw - 1
 		return vectorstore.ScoreFromCosineSimilarity(1 - cosineDistance)
-	case SimilarityDot, SimilarityEuclidean:
-		// Azure documents both native vector scores as [0,1].
-		return vectorstore.ScoreFromValue(raw)
 	default:
+		// Azure states the transformation and the range for cosine only, so
+		// there is no published formula to invert for dotProduct or euclidean.
+		// Clamping keeps the ranking Azure already applied and refuses to
+		// invent a conversion; a value outside [0, 1] would flatten onto the
+		// bound rather than be silently rescaled by a guess.
 		return vectorstore.ScoreFromValue(raw)
 	}
 }

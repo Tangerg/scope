@@ -46,5 +46,11 @@
 // Vector profiles belong to the pre-provisioned index's vector field. Queries
 // select that field and use its profile without a second store-level setting.
 //
+// Scoring. @search.score is never the raw metric value; Azure transforms it so
+// it falls monotonically as the match worsens. The cosine transformation and
+// its 0.333 to 1.00 range are documented, so the store inverts them to recover
+// the cosine. Azure publishes neither for dotProduct or euclidean, so those
+// scores pass through clamped rather than through a formula the store guessed.
+//
 // See https://learn.microsoft.com/azure/search/vector-search-overview.
 package azureaisearch
