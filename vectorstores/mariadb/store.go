@@ -238,25 +238,56 @@ func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 		}
 	}
 
-	stmt := fmt.Sprintf(
+	if _, err := s.db.ExecContext(ctx, s.createTableStatement()); err != nil {
+		return fmt.Errorf("create table %s: %w", s.fullTable, err)
+	}
+	return nil
+}
+
+// createTableStatement renders the DDL that backs this store's searches.
+//
+// DISTANCE is what binds the index to the search. MariaDB builds a vector index
+// for one distance function, defaults it to euclidean, and uses the index only
+// when the ORDER BY names that same function: "if the vector index was not
+// built for the cosine function, the index is not used and a full table scan is
+// performed instead". Omitting the option therefore built a euclidean index
+// under this store's default cosine metric, and every search silently degraded
+// to brute force while still returning the right rows. One value now drives
+// both the index and the query, so they cannot disagree.
+// searchStatement renders the nearest-neighbor query.
+//
+// MariaDB uses the vector index only for "ORDER BY ... the literal
+// VEC_DISTANCE_*(column, vector) call (or its alias) sorted ascending, together
+// with a LIMIT", so the distance stays a bare aliased call and the alias is
+// what ORDER BY names. MinScore is applied to the rows this returns rather than
+// folded into the SQL, because a threshold in the WHERE clause is a range
+// predicate the index cannot drive.
+func (s *Store) searchStatement(wherePart string) string {
+	return fmt.Sprintf(
+		`SELECT %s, %s, %s, vec_distance_%s(%s, VEC_FromText(?)) AS distance `+
+			`FROM %s WHERE 1=1%s ORDER BY distance ASC LIMIT ?`,
+		s.idColumn, s.contentColumn, s.metadataColumn,
+		s.distanceMetric, s.embeddingColumn,
+		s.fullTable, wherePart,
+	)
+}
+
+func (s *Store) createTableStatement() string {
+	return fmt.Sprintf(
 		`CREATE TABLE IF NOT EXISTS %s (
 			%s VARCHAR(64) NOT NULL PRIMARY KEY,
 			%s TEXT,
 			%s JSON,
 			%s VECTOR(%d) NOT NULL,
-			VECTOR INDEX %s_idx (%s)
+			VECTOR INDEX %s_idx (%s) DISTANCE=%s
 		) ENGINE=InnoDB`,
 		s.fullTable,
 		s.idColumn,
 		s.contentColumn,
 		s.metadataColumn,
 		s.embeddingColumn, s.dimensions,
-		s.tableName, s.embeddingColumn,
+		s.tableName, s.embeddingColumn, s.distanceMetric,
 	)
-	if _, err := s.db.ExecContext(ctx, stmt); err != nil {
-		return fmt.Errorf("create table %s: %w", s.fullTable, err)
-	}
-	return nil
 }
 
 // Index embeds documents and upserts them into the vector table.
@@ -358,13 +389,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		wherePart = " AND " + wherePredicate
 	}
 
-	stmt := fmt.Sprintf(
-		`SELECT %s, %s, %s, vec_distance_%s(%s, VEC_FromText(?)) AS distance `+
-			`FROM %s WHERE 1=1%s ORDER BY distance ASC LIMIT ?`,
-		s.idColumn, s.contentColumn, s.metadataColumn,
-		s.distanceMetric, s.embeddingColumn,
-		s.fullTable, wherePart,
-	)
+	stmt := s.searchStatement(wherePart)
 
 	args := []any{vecText}
 	args = append(args, whereArgs...)

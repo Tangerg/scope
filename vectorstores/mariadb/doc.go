@@ -7,8 +7,12 @@
 // the VECTOR INDEX HNSW backing only became stable in 11.7).
 //
 // Distance metrics: [DistanceCosine] (uses `vec_distance_cosine`) /
-// [DistanceEuclidean] (uses `vec_distance_euclidean`). Both are
-// honored by the HNSW index when present.
+// [DistanceEuclidean] (uses `vec_distance_euclidean`). A MariaDB vector index
+// is built for one distance function and serves only queries that name that
+// same function, so [StoreConfig.InitializeSchema] states the configured metric
+// as the index's DISTANCE option. A table provisioned elsewhere must declare
+// the matching DISTANCE, or searches fall back to a full table scan and still
+// return correct rows — a degradation nothing surfaces.
 //
 // Vector binding. MariaDB accepts vectors through the `VEC_FromText`
 // function — the store renders `[v1,v2,...]` as a literal and lets
