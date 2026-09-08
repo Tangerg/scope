@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 
 	"github.com/pinecone-io/go-pinecone/v4/pinecone"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -16,6 +17,19 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
+)
+
+// Documented Pinecone operation limits. A request past either of them is
+// rejected by the service, so the store either splits the work or refuses
+// locally instead of sending one that cannot succeed.
+const (
+	// MaxTopK is the largest number of results one query may return.
+	MaxTopK = 10_000
+
+	// MaxVectorsPerUpsert is the largest number of records one upsert may
+	// carry. Pinecone also caps the request at 2 MB, which the store cannot
+	// predict from the record count alone; that limit surfaces as an error.
+	MaxVectorsPerUpsert = 1_000
 )
 
 // Provider is the stable backend name for host-side attribution.
@@ -232,14 +246,19 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 			return err
 		}
 
-		// UpsertedCount is Pinecone's acknowledgment of the batch. Accepting a
-		// short count would report a partial write as a complete one.
-		upserted, err := s.index.UpsertVectors(ctx, points)
-		if err != nil {
-			return fmt.Errorf("pinecone: upsert %d vectors: %w", len(points), err)
-		}
-		if uint64(upserted) != uint64(len(points)) {
-			return fmt.Errorf("pinecone: upsert acknowledged %d of %d vectors", upserted, len(points))
+		// Pinecone caps one upsert at MaxVectorsPerUpsert, so the caller's
+		// batch is split rather than sent as a request certain to be rejected.
+		for chunk := range slices.Chunk(points, MaxVectorsPerUpsert) {
+			// UpsertedCount is Pinecone's acknowledgment of the batch.
+			// Accepting a short count would report a partial write as a
+			// complete one.
+			upserted, err := s.index.UpsertVectors(ctx, chunk)
+			if err != nil {
+				return fmt.Errorf("pinecone: upsert %d vectors: %w", len(chunk), err)
+			}
+			if uint64(upserted) != uint64(len(chunk)) {
+				return fmt.Errorf("pinecone: upsert acknowledged %d of %d vectors", upserted, len(chunk))
+			}
 		}
 	}
 
@@ -303,6 +322,10 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		return nil, fmt.Errorf("pinecone: embed query: %w", err)
 	}
 
+	if limit := req.Options.ResultLimit(); limit > MaxTopK {
+		return nil, fmt.Errorf("pinecone.Store.Search: TopK %d exceeds the %d results a query can return",
+			limit, MaxTopK)
+	}
 	queryReq := &pinecone.QueryByVectorValuesRequest{
 		Vector:          embedding.Float32Vector(vector),
 		TopK:            uint32(req.Options.ResultLimit()),

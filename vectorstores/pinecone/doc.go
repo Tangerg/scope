@@ -36,5 +36,12 @@
 // absent and there is no stored null — which makes $exists: false exactly the
 // filter AST's IS NULL, and $exists: true its negation.
 //
+// Operation limits. A query returns at most [MaxTopK] results and one upsert
+// carries at most [MaxVectorsPerUpsert] records. Index splits a larger batch
+// rather than sending a request certain to be rejected; Search refuses a
+// larger TopK locally, because that one cannot be split. Pinecone also caps an
+// upsert request at 2 MB, which a record count cannot predict, so that limit
+// surfaces as a provider error.
+//
 // See https://docs.pinecone.io/ for the full API surface.
 package pinecone

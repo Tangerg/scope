@@ -2,6 +2,8 @@ package pinecone
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -92,4 +94,54 @@ func TestIndexRequiresFullUpsertAcknowledgment(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Pinecone caps one upsert at 1,000 records, so a larger batch is split rather
+// than sent as a request certain to be rejected. Each chunk still has to be
+// acknowledged in full.
+func TestIndexSplitsBatchesAtTheUpsertLimit(t *testing.T) {
+	t.Parallel()
+
+	documents := make([]*document.Document, MaxVectorsPerUpsert+1)
+	for index := range documents {
+		documents[index] = &document.Document{
+			ID:   fmt.Sprintf("id-%d", index),
+			Text: fmt.Sprintf("text %d", index),
+		}
+	}
+
+	index := &chunkCountingIndex{}
+	err := upsertStore(t, index).Index(t.Context(), &vectorstore.IndexRequest{Documents: documents})
+	if err != nil {
+		t.Fatalf("Index() = %v, want nil", err)
+	}
+	if want := []int{MaxVectorsPerUpsert, 1}; !slices.Equal(index.sizes, want) {
+		t.Fatalf("upsert sizes = %v, want %v", index.sizes, want)
+	}
+}
+
+// A TopK past what a query can return cannot be served, so it fails locally
+// rather than as an opaque provider rejection.
+func TestSearchRejectsTopKBeyondTheQueryLimit(t *testing.T) {
+	t.Parallel()
+
+	store := upsertStore(t, &chunkCountingIndex{})
+	_, err := store.Search(t.Context(), &vectorstore.SearchRequest{
+		Query:   "query",
+		Options: vectorstore.SearchOptions{TopK: MaxTopK + 1},
+	})
+	if err == nil || !strings.Contains(err.Error(), "exceeds the 10000 results") {
+		t.Fatalf("Search() = %v, want a TopK ceiling error", err)
+	}
+}
+
+// chunkCountingIndex records the size of every upsert it receives.
+type chunkCountingIndex struct {
+	indexConnection
+	sizes []int
+}
+
+func (c *chunkCountingIndex) UpsertVectors(_ context.Context, in []*pinecone.Vector) (uint32, error) {
+	c.sizes = append(c.sizes, len(in))
+	return uint32(len(in)), nil
 }
