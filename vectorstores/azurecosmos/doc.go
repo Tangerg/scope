@@ -1,6 +1,6 @@
 // Package azurecosmos exposes Azure Cosmos DB for NoSQL's
 // VectorDistance() function through the Core vector-store capability interfaces. Documents are
-// regular Cosmos items (`{id, content, metadata, embedding}`) and
+// regular Cosmos items (`{id, partition_key, content, metadata, embedding}`) and
 // retrieval runs a parameterised SQL query that orders rows by
 // VectorDistance.
 //
@@ -21,9 +21,13 @@
 // shape. LIKE maps to `CONTAINS(c.metadata.key, @p)` — the leading
 // / trailing `%` markers are stripped.
 //
-// Cross-partition queries are enabled by passing the canonical empty
-// partition key to NewQueryItemsPager. Single-doc writes use the
-// document's id as partition key (matches the default `/id` config).
+// A Store binds one logical partition through [StoreConfig.PartitionKey].
+// The container's partition-key path must match /<PartitionKeyField>, which
+// defaults to /partition_key. Writes include that value in every document;
+// searches and filtered deletion use the same partition. The Go SDK cannot
+// execute TOP/ORDER BY vector queries across partitions. Different partitions
+// require separate Store values. The document ID always uses Cosmos' required
+// "id" property, and configurable storage fields must be distinct.
 //
 // See https://learn.microsoft.com/azure/cosmos-db/nosql/vector-search.
 package azurecosmos

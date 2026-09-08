@@ -23,12 +23,11 @@ const Provider = "AzureCosmosDB"
 
 // Exported defaults keep constructor behavior visible and overridable.
 const (
-	DefaultIDField        = "id"
-	DefaultContentField   = "content"
-	DefaultMetadataField  = "metadata"
-	DefaultEmbeddingField = "embedding"
-	DefaultPartitionKey   = "/id"
-	docAlias              = "c"
+	DefaultContentField      = "content"
+	DefaultMetadataField     = "metadata"
+	DefaultEmbeddingField    = "embedding"
+	DefaultPartitionKeyField = "partition_key"
+	docAlias                 = "c"
 )
 
 // DistanceFunction names the function passed to VectorDistance().
@@ -79,14 +78,18 @@ type StoreConfig struct {
 	// Portal / ARM / Terraform). Required.
 	Container *azcosmos.ContainerClient
 
-	// PartitionKeyPath is the container's partition-key path,
-	// recorded so the store can compute partition keys for upsert
-	// and delete. Optional: defaults to [DefaultPartitionKey] ("/id").
-	PartitionKeyPath string
+	// PartitionKey is the non-empty string value of the logical partition
+	// owned by this store. Index, Search, and DeleteWhere use this same value.
+	// The Go SDK cannot execute ranked vector queries across partitions.
+	PartitionKey string
 
-	// IDField / ContentField / MetadataField / EmbeddingField
-	// override the JSON property names on the stored documents.
-	IDField        string
+	// PartitionKeyField is the top-level JSON field containing PartitionKey.
+	// The container must be provisioned with /<PartitionKeyField> as its
+	// partition-key path. Zero uses [DefaultPartitionKeyField].
+	PartitionKeyField string
+
+	// ContentField / MetadataField / EmbeddingField override the JSON
+	// property names on stored documents. Cosmos requires the ID field "id".
 	ContentField   string
 	MetadataField  string
 	EmbeddingField string
@@ -113,6 +116,9 @@ func (s StoreConfig) Validate() error {
 	if lo.IsNil(s.DocumentBatcher) {
 		return errors.New("azurecosmos: DocumentBatcher is required")
 	}
+	if s.PartitionKey == "" {
+		return errors.New("azurecosmos: PartitionKey is required")
+	}
 	if !s.DistanceFunction.Valid() {
 		return fmt.Errorf("azurecosmos: unsupported DistanceFunction %q", s.DistanceFunction)
 	}
@@ -120,25 +126,31 @@ func (s StoreConfig) Validate() error {
 }
 
 func (s StoreConfig) validateIdentifiers() error {
-	if err := identifier(s.IDField).validate("IDField"); err != nil {
-		return err
+	fields := []struct{ name, value string }{
+		{"ContentField", s.ContentField},
+		{"MetadataField", s.MetadataField},
+		{"EmbeddingField", s.EmbeddingField},
+		{"PartitionKeyField", s.PartitionKeyField},
 	}
-	if err := identifier(s.ContentField).validate("ContentField"); err != nil {
-		return err
+	seen := map[string]string{"id": "document ID"}
+	for _, field := range fields {
+		if err := identifier(field.value).validate(field.name); err != nil {
+			return err
+		}
+		if previous, duplicate := seen[field.value]; duplicate {
+			return fmt.Errorf("azurecosmos: %s conflicts with %s at JSON field %q", field.name, previous, field.value)
+		}
+		seen[field.value] = field.name
 	}
-	if err := identifier(s.MetadataField).validate("MetadataField"); err != nil {
-		return err
-	}
-	return identifier(s.EmbeddingField).validate("EmbeddingField")
+	return nil
 }
 
 // applyDefaults fills zero fields with documented defaults.
 func (s *StoreConfig) applyDefaults() {
-	s.IDField = cmp.Or(s.IDField, DefaultIDField)
 	s.ContentField = cmp.Or(s.ContentField, DefaultContentField)
 	s.MetadataField = cmp.Or(s.MetadataField, DefaultMetadataField)
 	s.EmbeddingField = cmp.Or(s.EmbeddingField, DefaultEmbeddingField)
-	s.PartitionKeyPath = cmp.Or(s.PartitionKeyPath, DefaultPartitionKey)
+	s.PartitionKeyField = cmp.Or(s.PartitionKeyField, DefaultPartitionKeyField)
 	s.DistanceFunction = cmp.Or(s.DistanceFunction, DistanceCosine)
 }
 
@@ -148,19 +160,20 @@ var (
 	_ vectorstore.FilterDeleter = (*Store)(nil)
 )
 
-// Store implements vector-store capabilities with Azure Cosmos DB for NoSQL.
+// Store implements vector-store capabilities within one Azure Cosmos DB
+// logical partition.
 // The container must have a vector policy matching
 // [StoreConfig.DistanceFunction] and the embedding model's dimensions.
 type Store struct {
-	container        *azcosmos.ContainerClient
-	idField          string
-	contentField     string
-	metadataField    string
-	embeddingField   string
-	partitionKeyPath string
-	embeddingClient  embeddingclient.Client
-	documentBatcher  vectorstore.Batcher
-	distanceFunction DistanceFunction
+	container         *azcosmos.ContainerClient
+	contentField      string
+	metadataField     string
+	embeddingField    string
+	partitionKey      string
+	partitionKeyField string
+	embeddingClient   embeddingclient.Client
+	documentBatcher   vectorstore.Batcher
+	distanceFunction  DistanceFunction
 }
 
 // NewStore needs no context because construction performs no I/O; the
@@ -178,19 +191,19 @@ func NewStore(config StoreConfig) (*Store, error) {
 	}
 
 	return &Store{
-		container:        config.Container,
-		idField:          config.IDField,
-		contentField:     config.ContentField,
-		metadataField:    config.MetadataField,
-		embeddingField:   config.EmbeddingField,
-		partitionKeyPath: config.PartitionKeyPath,
-		embeddingClient:  embeddingClient,
-		documentBatcher:  config.DocumentBatcher,
-		distanceFunction: config.DistanceFunction,
+		container:         config.Container,
+		contentField:      config.ContentField,
+		metadataField:     config.MetadataField,
+		embeddingField:    config.EmbeddingField,
+		partitionKey:      config.PartitionKey,
+		partitionKeyField: config.PartitionKeyField,
+		embeddingClient:   embeddingClient,
+		documentBatcher:   config.DocumentBatcher,
+		distanceFunction:  config.DistanceFunction,
 	}, nil
 }
 
-// Index embeds documents and upserts them.
+// Index embeds documents and upserts them into the store's bound partition.
 func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
 	if validateErr := request.Validate(); validateErr != nil {
 		return fmt.Errorf("azurecosmos.Store.Index: %w", validateErr)
@@ -220,16 +233,17 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 				return fmt.Errorf("azurecosmos: decode metadata for %s: %w", id, err)
 			}
 			payload := map[string]any{
-				s.idField:        id,
-				s.contentField:   doc.Text,
-				s.metadataField:  lo.CoalesceMapOrEmpty(metadataValues),
-				s.embeddingField: embedding.Float32Vector(vectors[i]),
+				"id":                id,
+				s.partitionKeyField: s.partitionKey,
+				s.contentField:      doc.Text,
+				s.metadataField:     lo.CoalesceMapOrEmpty(metadataValues),
+				s.embeddingField:    embedding.Float32Vector(vectors[i]),
 			}
 			body, err := json.Marshal(payload)
 			if err != nil {
 				return fmt.Errorf("azurecosmos: marshal item %s: %w", id, err)
 			}
-			if _, err := s.container.UpsertItem(ctx, azcosmos.NewPartitionKeyString(id), body, nil); err != nil {
+			if _, err := s.container.UpsertItem(ctx, azcosmos.NewPartitionKeyString(s.partitionKey), body, nil); err != nil {
 				return fmt.Errorf("azurecosmos: upsert %s: %w", id, err)
 			}
 		}
@@ -237,7 +251,7 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 	return nil
 }
 
-// Search runs a VectorDistance-ordered query.
+// Search runs a VectorDistance-ordered query within the store's bound partition.
 func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
 	var docs []*vectorstore.SearchResult
 	if err = req.Validate(); err != nil {
@@ -273,8 +287,8 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		s.embeddingField, s.distanceFunction)
 
 	query := fmt.Sprintf(
-		"SELECT TOP @topK c.%s AS _id, c.%s AS _content, c.%s AS _metadata, %s AS _vector_score FROM c%s ORDER BY %s",
-		s.idField, s.contentField, s.metadataField, distanceCall, whereClause, distanceCall,
+		"SELECT TOP @topK c.id AS _id, c.%s AS _content, c.%s AS _metadata, %s AS _vector_score FROM c%s ORDER BY %s",
+		s.contentField, s.metadataField, distanceCall, whereClause, distanceCall,
 	)
 
 	queryParams := []azcosmos.QueryParameter{
@@ -285,8 +299,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		queryParams = append(queryParams, azcosmos.QueryParameter{Name: p.Name, Value: p.Value})
 	}
 
-	// Cross-partition query: pass the canonical empty partition key.
-	pager := s.container.NewQueryItemsPager(query, azcosmos.NewPartitionKey(), &azcosmos.QueryOptions{
+	pager := s.container.NewQueryItemsPager(query, azcosmos.NewPartitionKeyString(s.partitionKey), &azcosmos.QueryOptions{
 		QueryParameters: queryParams,
 	})
 
@@ -309,6 +322,8 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	return &vectorstore.SearchResponse{Results: docs}, nil
 }
 
+// DeleteWhere removes matching documents in the bound partition. It completes
+// enumeration before deletion so mutation cannot invalidate query continuation.
 func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
 	if expr == nil {
 		return vectorstore.ErrMissingFilter
@@ -325,16 +340,19 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		return errors.New("azurecosmos: refusing to delete on empty filter")
 	}
 
-	query := fmt.Sprintf("SELECT c.%s AS _id FROM c WHERE %s", s.idField, predicate)
+	query := fmt.Sprintf("SELECT c.id AS _id FROM c WHERE %s", predicate)
 	queryParams := make([]azcosmos.QueryParameter, 0, len(params))
 	for _, p := range params {
 		queryParams = append(queryParams, azcosmos.QueryParameter{Name: p.Name, Value: p.Value})
 	}
 
-	pager := s.container.NewQueryItemsPager(query, azcosmos.NewPartitionKey(), &azcosmos.QueryOptions{
+	pager := s.container.NewQueryItemsPager(query, azcosmos.NewPartitionKeyString(s.partitionKey), &azcosmos.QueryOptions{
 		QueryParameters: queryParams,
 	})
 
+	// Complete enumeration before deleting so writes cannot invalidate the
+	// continuation used to select the remaining matches.
+	var ids []string
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
 		if err != nil {
@@ -347,9 +365,12 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 			if err := json.Unmarshal(item, &holder); err != nil {
 				return fmt.Errorf("azurecosmos: decode id: %w", err)
 			}
-			if _, err := s.container.DeleteItem(ctx, azcosmos.NewPartitionKeyString(holder.ID), holder.ID, nil); err != nil {
-				return fmt.Errorf("azurecosmos: delete %s: %w", holder.ID, err)
-			}
+			ids = append(ids, holder.ID)
+		}
+	}
+	for _, id := range ids {
+		if _, err := s.container.DeleteItem(ctx, azcosmos.NewPartitionKeyString(s.partitionKey), id, nil); err != nil {
+			return fmt.Errorf("azurecosmos: delete %s: %w", id, err)
 		}
 	}
 	return nil
