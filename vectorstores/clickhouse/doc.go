@@ -30,6 +30,20 @@
 // a *MergeTree engine and the ALTER DELETE privilege, and it removes rows from
 // query results without physically deleting them until a later merge.
 //
+// Absent keys and numbers. A Map(String, String) subscript answers an absent
+// key with the empty string, so a comparison could not tell "not there" from
+// "empty", and the old numeric conversion turned anything it could not parse
+// into zero — which let a range match a row that has no such key. Each
+// comparison, IN and LIKE leaf now asks mapContains first and carries the
+// truth value the filter AST assigns an absent key, so the leaf is total and
+// negation composes.
+//
+// Numeric comparisons convert with toDecimal128OrNull rather than a float:
+// Float64's 53-bit mantissa cannot hold every int64, so an id past 2^53 would
+// compare equal to its neighbor. A present but non-numeric value becomes NULL
+// and drops the row; the AST reports that case as an error, so there is no
+// decided answer for the server to disagree with.
+//
 // See https://clickhouse.com/docs/en/engines/table-engines/
 // mergetree-family/annindexes for the official reference.
 package clickhouse

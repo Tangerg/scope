@@ -3,6 +3,7 @@ package clickhouse
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -18,7 +19,8 @@ var _ filter.Visitor = (*visitor)(nil)
 // Output shape:
 //
 //	author == "Alice"           →  metadata['author'] = ?
-//	year >= 2020                →  toFloat64OrZero(metadata['year']) >= ?
+//	year >= 2020                →  (mapContains(metadata, 'year') AND
+//	                                toDecimal128OrNull(metadata['year'], 18) >= ?)
 //	tag IN ("a", "b")           →  metadata['tag'] IN (?, ?)
 //	NOT (author == "Alice")     →  NOT (metadata['author'] = ?)
 type visitor struct {
@@ -117,6 +119,35 @@ func (v *visitor) visitLogicalExpr(expr *filter.BinaryExpr) error {
 	return nil
 }
 
+// appendAbsentGuard opens a leaf predicate with the truth value the filter AST
+// assigns an absent metadata key, so the leaf is never NULL and never leans on
+// a Map's type default.
+//
+// A Map(String, String) subscript answers an absent key with the empty string,
+// which decided string comparisons correctly by accident but made
+// `metadata['k'] == ”` true for a key that is not there — the AST reads that
+// as nil, which is not equal to the empty string. The numeric path now yields
+// NULL for an absent key instead of inventing a zero, and NULL stays NULL
+// under NOT, which would drop the rows a negated filter should keep.
+// mapContains asks the question directly. The caller closes the parenthesis
+// opened here.
+func (v *visitor) appendAbsentGuard(key string, absentMatches bool) {
+	v.sql.WriteByte('(')
+	if absentMatches {
+		v.sql.WriteString("NOT ")
+	}
+	v.sql.WriteString("mapContains(")
+	v.sql.WriteString(v.metadataColumn)
+	v.sql.WriteString(", ")
+	v.sql.WriteString(quoteSQLString(key))
+	v.sql.WriteString(")")
+	if absentMatches {
+		v.sql.WriteString(" OR ")
+	} else {
+		v.sql.WriteString(" AND ")
+	}
+}
+
 func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 	jsonPath, err := buildKeyPath(expr)
 	if err != nil {
@@ -130,11 +161,13 @@ func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 	if err != nil {
 		return err
 	}
+	v.appendAbsentGuard(jsonPath, expr.Operator() == filter.OpNotEqual)
 	v.appendMapAccess(jsonPath, value, expr.Operator())
 	v.sql.WriteByte(' ')
 	v.sql.WriteString(op)
 	v.sql.WriteByte(' ')
 	v.appendValuePlaceholder(value)
+	v.sql.WriteByte(')')
 	return nil
 }
 
@@ -158,6 +191,7 @@ func (v *visitor) visitInExpr(expr *filter.BinaryExpr) error {
 		}
 		values = append(values, val)
 	}
+	v.appendAbsentGuard(jsonPath, false)
 	v.appendMapAccess(jsonPath, values[0], filter.OpEqual)
 	v.sql.WriteString(" IN (")
 	for i, val := range values {
@@ -166,7 +200,7 @@ func (v *visitor) visitInExpr(expr *filter.BinaryExpr) error {
 		}
 		v.appendValuePlaceholder(val)
 	}
-	v.sql.WriteByte(')')
+	v.sql.WriteString("))")
 	return nil
 }
 
@@ -183,9 +217,11 @@ func (v *visitor) visitLikeExpr(expr *filter.BinaryExpr) error {
 	if !ok {
 		return fmt.Errorf("clickhouse: LIKE requires a string pattern, got %T", value)
 	}
+	v.appendAbsentGuard(jsonPath, false)
 	v.appendMapAccess(jsonPath, "", filter.OpEqual)
 	v.sql.WriteString(" LIKE ")
 	v.appendValuePlaceholder(pattern)
+	v.sql.WriteByte(')')
 	return nil
 }
 
@@ -210,17 +246,32 @@ func (v *visitor) visitNullTestExpr(expr *filter.BinaryExpr) error {
 	return nil
 }
 
-// appendMapAccess writes `metadata['key']`, wrapping the access in
-// `toFloat64OrZero(...)` when the comparison value implies numeric
-// semantics.
+// metadataNumericScale leaves twenty integer digits inside Decimal128's
+// documented 38, which covers every integer the filter AST can carry.
+const metadataNumericScale = 18
+
+// appendMapAccess writes `metadata['key']`, converting the access to an exact
+// decimal when the comparison value implies numeric semantics.
+//
+// toFloat64OrZero was wrong twice over. Float64's 53-bit mantissa cannot hold
+// every int64, so an id past 2^53 compared equal to its neighbor; and OrZero
+// turns a value it cannot parse into 0, so `metadata['missing'] > -1` matched a
+// row that has no such key — a Map(String, String) subscript yields the empty
+// string for an absent key. toDecimal128OrNull is exact and yields NULL for
+// both cases, which the leaf guard then resolves to the truth value the AST
+// assigns an absent key. A present but non-numeric value also becomes NULL and
+// drops the row; the AST reports that case as an error instead, so there is no
+// decided answer for the server to disagree with.
 func (v *visitor) appendMapAccess(key string, value any, op filter.Operator) {
 	switch value.(type) {
 	case float64, int64, uint64, int:
-		v.sql.WriteString("toFloat64OrZero(")
+		v.sql.WriteString("toDecimal128OrNull(")
 		v.sql.WriteString(v.metadataColumn)
 		v.sql.WriteString("[")
 		v.sql.WriteString(quoteSQLString(key))
-		v.sql.WriteString("])")
+		v.sql.WriteString("], ")
+		v.sql.WriteString(strconv.Itoa(metadataNumericScale))
+		v.sql.WriteString(")")
 	default:
 		if op.IsOrderingOperator() {
 			v.sql.WriteString("toFloat64OrZero(")
