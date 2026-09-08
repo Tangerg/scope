@@ -107,6 +107,10 @@ func (a *AudioTTSModel) buildAPIRequest(req *tts.Request) (string, *speakParams,
 			return "", nil, fmt.Errorf("deepgram: speech: unsupported output format %q", effectiveOptions.OutputFormat)
 		}
 	}
+	// Deepgram documents the speed range as 0.7 to 1.5 for the Aura-2 voices
+	// this endpoint serves, and narrows the recommendation to 0.9 to 1.5 for
+	// Spanish. The wider documented bound is the one enforced; a per-language
+	// recommendation is guidance for the caller, not a limit of the API.
 	if effectiveOptions.Speed != 0 {
 		if effectiveOptions.Speed < 0.7 || effectiveOptions.Speed > 1.5 {
 			return "", nil, errors.New("deepgram: speech: speed must be between 0.7 and 1.5")

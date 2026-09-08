@@ -104,6 +104,9 @@ func (a *AudioTTSModel) buildAPIRequest(req *tts.Request) (voiceID, outputFormat
 	body.Text = req.Text
 	body.ModelID = effectiveOptions.Model
 
+	// ElevenLabs documents the speed range as 0.7 to 1.2 and clamps a value
+	// outside it to the nearest limit rather than reporting one, so refusing
+	// here is the only way a caller who asked for 2.0 learns they got 1.2.
 	if effectiveOptions.Speed != 0 {
 		if effectiveOptions.Speed < 0.7 || effectiveOptions.Speed > 1.2 {
 			return "", "", nil, fmt.Errorf("elevenlabs: speech speed must be between 0.7 and 1.2, got %g", effectiveOptions.Speed)

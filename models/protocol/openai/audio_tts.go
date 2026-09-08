@@ -101,6 +101,11 @@ func (a *AudioTTSModel) buildAPITTSRequest(req *tts.Request) (*openai.AudioSpeec
 	if effectiveOptions.Voice != "" {
 		params.Voice = openai.AudioSpeechNewParamsVoiceUnion{OfString: param.NewOpt(effectiveOptions.Voice)}
 	}
+	// OpenAI documents the range as 0.25 to 4.0 and validates the parameter
+	// itself, so the value goes as given: a local bound here would only
+	// duplicate a check the API already reports on. That is the opposite of
+	// the sibling adapters whose providers clamp silently, where refusing
+	// locally is the only way the mismatch surfaces.
 	if effectiveOptions.Speed != 0 {
 		params.Speed = openai.Float(effectiveOptions.Speed)
 	}
