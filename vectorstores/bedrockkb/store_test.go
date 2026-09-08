@@ -16,7 +16,7 @@ func TestVectorSearchConfigKeepsRequestPolicyAuthoritative(t *testing.T) {
 	config, err := store.vectorSearchConfig(&vectorstore.SearchRequest{
 		Query:   "query",
 		Options: vectorstore.SearchOptions{TopK: 7, Filter: filter.EQ("tenant", "one")},
-	})
+	}, 7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestVectorSearchConfigMapsHybridMode(t *testing.T) {
 	store := &Store{}
 	config, err := store.vectorSearchConfig(&vectorstore.SearchRequest{
 		Query: "query", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid},
-	})
+	}, vectorstore.DefaultTopK)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestVectorSearchConfigReturnsFilterCompilationError(t *testing.T) {
 	_, err := store.vectorSearchConfig(&vectorstore.SearchRequest{
 		Query:   "query",
 		Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.Like("name", "%suffix")},
-	})
+	}, 1)
 	if err == nil {
 		t.Fatal("vectorSearchConfig() error = nil, want unsupported suffix pattern")
 	}

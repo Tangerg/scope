@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockagentruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockagentruntime/types"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
@@ -18,13 +20,24 @@ import (
 // Provider is the stable backend name for host-side attribution.
 const Provider = "BedrockKnowledgeBase"
 
+// RetrieveClient is the Bedrock runtime surface the store uses. A
+// [bedrockagentruntime.Client] satisfies it. Naming the single operation keeps
+// the store's pagination observable without a live knowledge base.
+type RetrieveClient interface {
+	Retrieve(
+		ctx context.Context,
+		input *bedrockagentruntime.RetrieveInput,
+		optFns ...func(*bedrockagentruntime.Options),
+	) (*bedrockagentruntime.RetrieveOutput, error)
+}
+
 // StoreConfig contains configuration options for the AWS Bedrock
 // Knowledge Base vector store. Bedrock manages document ingestion
 // out of band (S3 data source + StartIngestionJob), so this store exposes only
 // retrieval.
 type StoreConfig struct {
 	// Client is the bedrockagentruntime client. Required.
-	Client *bedrockagentruntime.Client
+	Client RetrieveClient
 
 	// KnowledgeBaseID identifies the knowledge base to query.
 	// Required.
@@ -38,7 +51,7 @@ type StoreConfig struct {
 }
 
 func (s StoreConfig) Validate() error {
-	if s.Client == nil {
+	if lo.IsNil(s.Client) {
 		return errors.New("bedrockkb: Client is required")
 	}
 	if s.KnowledgeBaseID == "" {
@@ -52,7 +65,7 @@ var _ vectorstore.Searcher = (*Store)(nil)
 // Store is a searchable Bedrock Knowledge Base. Ingestion and deletion are
 // intentionally absent because the runtime API cannot perform them.
 type Store struct {
-	client                      *bedrockagentruntime.Client
+	client                      RetrieveClient
 	knowledgeBaseID             string
 	rerankingConfiguration      *types.VectorSearchRerankingConfiguration
 	implicitFilterConfiguration *types.ImplicitFilterConfiguration
@@ -89,28 +102,14 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		}
 	}()
 
-	vectorCfg, err := s.vectorSearchConfig(req)
+	var results []types.KnowledgeBaseRetrievalResult
+	results, err = s.retrieve(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	retrievalCfg := &types.KnowledgeBaseRetrievalConfiguration{
-		VectorSearchConfiguration: vectorCfg,
-	}
 
-	input := &bedrockagentruntime.RetrieveInput{
-		KnowledgeBaseId:        aws.String(s.knowledgeBaseID),
-		RetrievalQuery:         &types.KnowledgeBaseQuery{Text: aws.String(req.Query)},
-		RetrievalConfiguration: retrievalCfg,
-	}
-
-	var resp *bedrockagentruntime.RetrieveOutput
-	resp, err = s.client.Retrieve(ctx, input)
-	if err != nil {
-		return nil, fmt.Errorf("bedrockkb: retrieve: %w", err)
-	}
-
-	docs = make([]*vectorstore.SearchResult, 0, len(resp.RetrievalResults))
-	for _, r := range resp.RetrievalResults {
+	docs = make([]*vectorstore.SearchResult, 0, len(results))
+	for _, r := range results {
 		match, err := toMatch(r)
 		if err != nil {
 			return nil, err
@@ -123,17 +122,72 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	return &vectorstore.SearchResponse{Results: docs}, nil
 }
 
-// vectorSearchConfig builds the per-call vector search configuration,
-// layering caller-supplied overrides on top of the request defaults.
+// maxResultsPerPage is Bedrock's documented ceiling for
+// KnowledgeBaseVectorSearchConfiguration.NumberOfResults. A request for more
+// results than this is not a caller error, it is a request for more than one
+// page.
+const maxResultsPerPage = 100
 
-func (s *Store) vectorSearchConfig(req *vectorstore.SearchRequest) (*types.KnowledgeBaseVectorSearchConfiguration, error) {
-	topK := int32(req.Options.ResultLimit())
+// retrieve collects the requested number of results, following Bedrock's
+// nextToken until it has them or the knowledge base runs out.
+//
+// One Retrieve response is not the whole answer twice over: NumberOfResults
+// caps at maxResultsPerPage, and Bedrock returns a nextToken whenever there are
+// "more results than can fit in the response", so even a page below that cap
+// can come back short. Only a missing token establishes that no further results
+// exist. NumberOfResults stays the same on every call because the token
+// continues the query the first call started.
+func (s *Store) retrieve(
+	ctx context.Context,
+	req *vectorstore.SearchRequest,
+) ([]types.KnowledgeBaseRetrievalResult, error) {
+	limit := req.Options.ResultLimit()
+	vectorCfg, err := s.vectorSearchConfig(req, min(limit, maxResultsPerPage))
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]types.KnowledgeBaseRetrievalResult, 0, limit)
+	var token *string
+	for {
+		output, retrieveErr := s.client.Retrieve(ctx, &bedrockagentruntime.RetrieveInput{
+			KnowledgeBaseId: aws.String(s.knowledgeBaseID),
+			RetrievalQuery:  &types.KnowledgeBaseQuery{Text: aws.String(req.Query)},
+			RetrievalConfiguration: &types.KnowledgeBaseRetrievalConfiguration{
+				VectorSearchConfiguration: vectorCfg,
+			},
+			NextToken: token,
+		})
+		if retrieveErr != nil {
+			return nil, fmt.Errorf("bedrockkb: retrieve: %w", retrieveErr)
+		}
+		results = append(results, output.RetrievalResults...)
+		if len(results) >= limit {
+			return results[:limit], nil
+		}
+		if output.NextToken == nil || *output.NextToken == "" {
+			return results, nil
+		}
+		if len(output.RetrievalResults) == 0 {
+			return nil, errors.New("bedrockkb: retrieve returned an empty page with a continuation token")
+		}
+		token = output.NextToken
+	}
+}
+
+// vectorSearchConfig builds the per-call vector search configuration, layering
+// caller-supplied overrides on top of the request defaults.
+func (s *Store) vectorSearchConfig(
+	req *vectorstore.SearchRequest,
+	resultsPerPage int,
+) (*types.KnowledgeBaseVectorSearchConfiguration, error) {
+	perPage := int32(resultsPerPage)
 	searchType := types.SearchTypeSemantic
 	if req.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
 		searchType = types.SearchTypeHybrid
 	}
 	config := &types.KnowledgeBaseVectorSearchConfiguration{
-		NumberOfResults:             &topK,
+		NumberOfResults:             &perPage,
 		OverrideSearchType:          searchType,
 		RerankingConfiguration:      s.rerankingConfiguration,
 		ImplicitFilterConfiguration: s.implicitFilterConfiguration,

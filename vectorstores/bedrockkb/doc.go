@@ -20,6 +20,12 @@
 // hybrid search type. Provider-specific reranking and implicit filtering stay
 // in [StoreConfig].
 //
+// Result completeness. NumberOfResults caps at 100 and Bedrock answers with a
+// continuation token whenever more results exist than fit in one response, so a
+// single call is not the whole answer even when it asks for fewer than the cap.
+// Search follows the token until TopK results are collected or the knowledge
+// base is exhausted; TopK above 100 is served by paging rather than rejected.
+//
 // Filter visitor produces [types.RetrievalFilter] — Bedrock's typed
 // filter shape (Equals / NotEquals / GreaterThan / LessThan /
 // GreaterThanOrEquals / LessThanOrEquals / StringContains / In /
