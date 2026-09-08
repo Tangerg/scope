@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3vectors"
@@ -22,6 +23,22 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
+)
+
+// Documented S3 Vectors operation limits. A request past any of them is
+// rejected by the service, so the store either splits the work or refuses
+// locally instead of sending one that cannot succeed.
+const (
+	// MaxTopK is the largest number of results one query may rank.
+	MaxTopK = 10_000
+
+	// MaxResultsPerQueryPage is the largest number of hits one QueryVectors
+	// response carries; the rest arrive under a continuation token.
+	MaxResultsPerQueryPage = 100
+
+	// MaxVectorsPerWrite is the largest number of vectors one PutVectors or
+	// DeleteVectors call may carry.
+	MaxVectorsPerWrite = 500
 )
 
 // Provider is the stable backend name for host-side attribution.
@@ -168,9 +185,10 @@ func NewStore(config StoreConfig) (*Store, error) {
 	}, nil
 }
 
-// Index embeds documents and PUTs them. S3 Vectors caps each
-// PutVectors batch at 500 vectors, so the document batcher should
-// produce shards smaller than that.
+// Index embeds documents and PUTs them, splitting each batch at
+// [MaxVectorsPerWrite]. Leaving that to the caller's batcher would make a
+// documented provider limit their problem, and a larger shard is a request
+// certain to be rejected.
 func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
 	if validateErr := request.Validate(); validateErr != nil {
 		return fmt.Errorf("s3vectors.Store.Index: %w", validateErr)
@@ -217,12 +235,14 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 			})
 		}
 
-		if _, err := s.client.PutVectors(ctx, &s3vectors.PutVectorsInput{
-			VectorBucketName: aws.String(s.vectorBucketName),
-			IndexName:        aws.String(s.indexName),
-			Vectors:          records,
-		}); err != nil {
-			return fmt.Errorf("s3vectors: PutVectors: %w", err)
+		for chunk := range slices.Chunk(records, MaxVectorsPerWrite) {
+			if _, err := s.client.PutVectors(ctx, &s3vectors.PutVectorsInput{
+				VectorBucketName: aws.String(s.vectorBucketName),
+				IndexName:        aws.String(s.indexName),
+				Vectors:          chunk,
+			}); err != nil {
+				return fmt.Errorf("s3vectors: PutVectors: %w", err)
+			}
 		}
 	}
 	return nil
@@ -250,11 +270,17 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	}
 	queryVec := embedding.Float32Vector(vector)
 
+	limit := req.Options.ResultLimit()
+	if limit > MaxTopK {
+		return nil, fmt.Errorf("s3vectors.Store.Search: TopK %d exceeds the %d results a query can return",
+			limit, MaxTopK)
+	}
+
 	input := &s3vectors.QueryVectorsInput{
 		VectorBucketName: aws.String(s.vectorBucketName),
 		IndexName:        aws.String(s.indexName),
 		QueryVector:      &types.VectorDataMemberFloat32{Value: queryVec},
-		TopK:             aws.Int32(int32(req.Options.ResultLimit())),
+		TopK:             aws.Int32(int32(limit)),
 		ReturnDistance:   true,
 		ReturnMetadata:   true,
 	}
@@ -269,22 +295,36 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		}
 	}
 
-	resp, err := s.client.QueryVectors(ctx, input)
-	if err != nil {
-		return nil, fmt.Errorf("s3vectors: QueryVectors: %w", err)
-	}
-
-	docs = make([]*vectorstore.SearchResult, 0, len(resp.Vectors))
-	for _, hit := range resp.Vectors {
-		match, err := s.toMatch(hit, req.Options.MinScore)
-		if err != nil {
-			return nil, err
+	// A QueryVectors response carries at most MaxResultsPerQueryPage hits and
+	// a continuation token for the rest, so one call answers a TopK above that
+	// only in part. Only an empty token establishes that the ranked run is
+	// complete.
+	docs = make([]*vectorstore.SearchResult, 0, limit)
+	for {
+		resp, queryErr := s.client.QueryVectors(ctx, input)
+		if queryErr != nil {
+			return nil, fmt.Errorf("s3vectors: QueryVectors: %w", queryErr)
 		}
-		if match != nil {
-			docs = append(docs, match)
+		for _, hit := range resp.Vectors {
+			match, matchErr := s.toMatch(hit, req.Options.MinScore)
+			if matchErr != nil {
+				return nil, matchErr
+			}
+			if match != nil {
+				docs = append(docs, match)
+			}
 		}
+		if resp.NextToken == nil || *resp.NextToken == "" {
+			return &vectorstore.SearchResponse{Results: docs}, nil
+		}
+		if len(resp.Vectors) == 0 {
+			return nil, errors.New("s3vectors: QueryVectors returned an empty page with a continuation token")
+		}
+		if len(docs) >= limit {
+			return &vectorstore.SearchResponse{Results: docs[:limit]}, nil
+		}
+		input.NextToken = resp.NextToken
 	}
-	return &vectorstore.SearchResponse{Results: docs}, nil
 }
 
 // DeleteWhere removes every document matching expr. S3 Vectors has no
@@ -365,12 +405,14 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 			return fmt.Errorf("s3vectors: delete id[%d] must not be empty", index)
 		}
 	}
-	if _, err := s.client.DeleteVectors(ctx, &s3vectors.DeleteVectorsInput{
-		VectorBucketName: aws.String(s.vectorBucketName),
-		IndexName:        aws.String(s.indexName),
-		Keys:             ids,
-	}); err != nil {
-		return fmt.Errorf("s3vectors: DeleteVectors: %w", err)
+	for chunk := range slices.Chunk(ids, MaxVectorsPerWrite) {
+		if _, err := s.client.DeleteVectors(ctx, &s3vectors.DeleteVectorsInput{
+			VectorBucketName: aws.String(s.vectorBucketName),
+			IndexName:        aws.String(s.indexName),
+			Keys:             chunk,
+		}); err != nil {
+			return fmt.Errorf("s3vectors: DeleteVectors: %w", err)
+		}
 	}
 	return nil
 }

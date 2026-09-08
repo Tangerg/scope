@@ -46,5 +46,13 @@
 // ListVectors and decides membership with filter.Match, so the same filter
 // that Search rejects will delete correctly.
 //
+// Operation limits. A query ranks at most [MaxTopK] results and one
+// QueryVectors response carries at most [MaxResultsPerQueryPage] of them, so
+// Search follows the continuation token until the ranked run is complete
+// rather than treating one page as the answer. PutVectors and DeleteVectors
+// each carry at most [MaxVectorsPerWrite] vectors, so Index and DeleteIDs
+// split at that bound instead of leaving a documented provider limit to the
+// caller's batcher.
+//
 // See https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors.html.
 package s3vectors
