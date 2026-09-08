@@ -40,12 +40,12 @@ func toFilter(t *testing.T, src string) *qdrantclient.Filter {
 	return v.snapshot()
 }
 
-func isNullKey(cond *qdrantclient.Condition) string {
-	in, ok := cond.GetConditionOneOf().(*qdrantclient.Condition_IsNull)
-	if !ok || in.IsNull == nil {
+func isEmptyKey(cond *qdrantclient.Condition) string {
+	in, ok := cond.GetConditionOneOf().(*qdrantclient.Condition_IsEmpty)
+	if !ok || in.IsEmpty == nil {
 		return ""
 	}
-	return in.IsNull.GetKey()
+	return in.IsEmpty.GetKey()
 }
 
 func TestVisitor_IsNull(t *testing.T) {
@@ -57,15 +57,15 @@ func TestVisitor_IsNull(t *testing.T) {
 	if len(f.GetMustNot()) != 0 {
 		t.Fatalf("expected 0 MustNot conditions, got %d", len(f.GetMustNot()))
 	}
-	if key := isNullKey(f.GetMust()[0]); key != "author" {
-		t.Fatalf("expected IsNull condition on key %q, got %q", "author", key)
+	if key := isEmptyKey(f.GetMust()[0]); key != "author" {
+		t.Fatalf("expected IsEmpty condition on key %q, got %q", "author", key)
 	}
 }
 
 func TestVisitor_IsNotNull(t *testing.T) {
 	f := toFilter(t, "author is not null")
 
-	// IS NOT NULL = NOT(author IS NULL): the IsNull condition is wrapped in
+	// IS NOT NULL = NOT(author IS NULL): the IsEmpty condition is wrapped in
 	// a nested filter under MustNot.
 	if len(f.GetMustNot()) != 1 {
 		t.Fatalf("expected 1 MustNot condition, got %d", len(f.GetMustNot()))
@@ -83,8 +83,8 @@ func TestVisitor_IsNotNull(t *testing.T) {
 	if len(inner) != 1 {
 		t.Fatalf("expected 1 condition inside nested filter, got %d", len(inner))
 	}
-	if key := isNullKey(inner[0]); key != "author" {
-		t.Fatalf("expected nested IsNull condition on key %q, got %q", "author", key)
+	if key := isEmptyKey(inner[0]); key != "author" {
+		t.Fatalf("expected nested IsEmpty condition on key %q, got %q", "author", key)
 	}
 }
 

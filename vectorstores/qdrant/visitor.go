@@ -95,6 +95,19 @@ func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 	return v.visitOrderingExpr(expr)
 }
 
+// visitNullTestExpr emits is_empty, not is_null.
+//
+// Qdrant separates the two: is_null "will match all records where the field
+// exists and has NULL value", while is_empty matches records where the field
+// "either does not exist, or has null or [] value". The filter AST treats an
+// absent key and an explicit null as the same value, and an absent key is the
+// ordinary case for metadata, so is_null would answer nothing for the
+// documents the test is usually asked about.
+//
+// is_empty is the closest condition Qdrant offers and is wider in one respect:
+// it also matches a key holding an empty array, which the AST reports as
+// non-null. Qdrant has no condition that separates that case, so the
+// difference is stated rather than papered over.
 func (v *visitor) visitNullTestExpr(expr *filter.BinaryExpr) error {
 	fieldKey, err := v.extractFieldKey(expr.Left())
 	if err != nil {
@@ -102,7 +115,7 @@ func (v *visitor) visitNullTestExpr(expr *filter.BinaryExpr) error {
 			expr.Start().String(), err)
 	}
 
-	v.filter.Must = append(v.filter.Must, qdrant.NewIsNull(fieldKey))
+	v.filter.Must = append(v.filter.Must, qdrant.NewIsEmpty(fieldKey))
 	return nil
 }
 

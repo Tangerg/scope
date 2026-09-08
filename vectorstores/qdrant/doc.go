@@ -25,5 +25,15 @@
 // and both delete paths — waits for the change to be applied, so a Search
 // issued after a write observes it.
 //
+// Null tests emit is_empty rather than is_null. Qdrant separates the two:
+// is_null matches records where the field "exists and has NULL value", while
+// is_empty matches records where it "either does not exist, or has null or []
+// value". The filter AST treats an absent key and an explicit null alike, and
+// an absent key is the ordinary case for metadata, so is_null would answer
+// nothing for the documents an IS NULL test is usually asked about. is_empty
+// is wider in one respect — it also matches a key holding an empty array,
+// which the AST reports as non-null — and Qdrant offers no condition that
+// separates that case.
+//
 // See https://qdrant.tech/documentation/ for the full API surface.
 package qdrant
