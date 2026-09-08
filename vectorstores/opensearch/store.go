@@ -281,6 +281,9 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	if resp == nil {
 		return nil, fmt.Errorf("opensearch: nil response for %s", s.indexName)
 	}
+	if err := s.checkSearchCompleteness(resp); err != nil {
+		return nil, err
+	}
 
 	docs = make([]*vectorstore.SearchResult, 0, len(resp.Hits.Hits))
 	for _, hit := range resp.Hits.Hits {
@@ -328,11 +331,10 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 	if err != nil {
 		return fmt.Errorf("opensearch: delete_by_query %s: %w", s.indexName, err)
 	}
-	if resp != nil && len(resp.Failures) > 0 {
-		return fmt.Errorf("opensearch: delete_by_query %s reported %d failures",
-			s.indexName, len(resp.Failures))
+	if resp == nil {
+		return fmt.Errorf("opensearch: nil delete_by_query response for %s", s.indexName)
 	}
-	return nil
+	return s.checkDeleteByQueryCompleteness(resp)
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {

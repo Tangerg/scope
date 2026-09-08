@@ -193,6 +193,9 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	if err = json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
 		return nil, fmt.Errorf("elasticsearch: decode search response: %w", err)
 	}
+	if err := s.checkSearchCompleteness(parsed); err != nil {
+		return nil, err
+	}
 
 	docs = make([]*vectorstore.SearchResult, 0, len(parsed.Hits.Hits))
 	for _, hit := range parsed.Hits.Hits {
@@ -387,10 +390,50 @@ func (s *Store) Close() error { return nil }
 
 // These response models intentionally cover only fields consumed by Store;
 // decoding remains forward-compatible without exposing Elasticsearch DTOs.
+// TimedOut and Shards are consumed because Elasticsearch answers a partially
+// executed search with 200 and reports the shortfall only in the body.
 type searchResponse struct {
-	Hits struct {
+	TimedOut bool         `json:"timed_out"`
+	Shards   searchShards `json:"_shards"`
+	Hits     struct {
 		Hits []searchHit `json:"hits"`
 	} `json:"hits"`
+}
+
+// searchShards omits skipped shards on purpose: skipping is a normal
+// pre-filtering outcome, while a failed shard means its documents were never
+// searched.
+type searchShards struct {
+	Total    int             `json:"total"`
+	Failed   int             `json:"failed"`
+	Failures []searchFailure `json:"failures"`
+}
+
+type searchFailure struct {
+	Index  string       `json:"index"`
+	Shard  int          `json:"shard"`
+	Reason *bulkFailure `json:"reason"`
+}
+
+// checkSearchCompleteness rejects a result assembled from fewer shards than the
+// query targeted. Returning those hits would present a partial index as the
+// whole one, and the caller cannot tell the difference from a small result.
+func (s *Store) checkSearchCompleteness(response searchResponse) error {
+	if response.Shards.Failed > 0 {
+		reason := "provider returned no reason"
+		if len(response.Shards.Failures) > 0 {
+			failure := response.Shards.Failures[0]
+			if failure.Reason != nil && failure.Reason.Reason != "" {
+				reason = failure.Reason.Reason
+			}
+		}
+		return fmt.Errorf("elasticsearch: search %s failed on %d of %d shard(s): %s",
+			s.indexName, response.Shards.Failed, response.Shards.Total, reason)
+	}
+	if response.TimedOut {
+		return fmt.Errorf("elasticsearch: search %s timed out and returned partial hits", s.indexName)
+	}
+	return nil
 }
 
 type searchHit struct {

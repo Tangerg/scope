@@ -30,6 +30,10 @@
 // fields are addressed under `metadata.<key>` paths;
 // LIKE wildcards (% / _) map to Lucene wildcards (* / ?).
 //
+// Search rejects a result that lost a targeted shard or timed out, because
+// Elasticsearch answers with 200 and the surviving hits and a caller cannot
+// otherwise tell a partial index from a small result.
+//
 // Delete uses _delete_by_query with the same Lucene filter. Elasticsearch
 // reports version conflicts, per-document failures, and query timeouts inside a
 // successful response, so an incomplete deletion returns an error while the
