@@ -14,6 +14,15 @@ func TestValidateCollectionSchema(t *testing.T) {
 	if err := validateCollectionSchema(valid, 3, qdrantclient.Distance_Cosine); err != nil {
 		t.Fatalf("validate compatible collection: %v", err)
 	}
+	// Dimensions are only required to create a collection, so a store attaching
+	// to one provisioned out of band declares none. The metric is still
+	// compared, because that is the half a caller cannot detect downstream.
+	if err := validateCollectionSchema(valid, 0, qdrantclient.Distance_Cosine); err != nil {
+		t.Fatalf("validate compatible collection without declared dimensions: %v", err)
+	}
+	if err := validateCollectionSchema(valid, 0, qdrantclient.Distance_Dot); !errors.Is(err, ErrIncompatibleCollection) {
+		t.Fatalf("validateCollectionSchema() error = %v, want the metric compared without declared dimensions", err)
+	}
 
 	tests := map[string]struct {
 		info       *qdrantclient.CollectionInfo
@@ -21,7 +30,7 @@ func TestValidateCollectionSchema(t *testing.T) {
 		distance   qdrantclient.Distance
 	}{
 		"missing config":    {info: &qdrantclient.CollectionInfo{}, dimensions: 3, distance: qdrantclient.Distance_Cosine},
-		"invalid dimension": {info: valid, dimensions: 0, distance: qdrantclient.Distance_Cosine},
+		"invalid dimension": {info: valid, dimensions: -1, distance: qdrantclient.Distance_Cosine},
 		"dimension mismatch": {
 			info: collectionInfo(qdrantclient.Distance_Cosine, 4), dimensions: 3, distance: qdrantclient.Distance_Cosine,
 		},

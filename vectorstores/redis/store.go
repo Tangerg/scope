@@ -94,24 +94,30 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	return store, nil
 }
 
-// initialize resolves the vector dimensionality and creates the
-// RediSearch index when requested.
+// initialize confirms the index agrees with this store's configuration, and
+// creates it when initSchema permits.
+//
+// The check is not conditional on initSchema. That flag answers "may I create
+// a missing index", which is a different question from "is the index I found
+// the one I was configured for" — and the second question matters most for an
+// index provisioned out of band, which is exactly the case the flag turns off.
+// Skipping it there left the configured metric unverified, and a wrong metric
+// returns scores that are wrong rather than absent.
 func (s *Store) initialize(ctx context.Context, initSchema bool) error {
-	if !initSchema {
-		return nil
-	}
-	if s.dimensions <= 0 {
-		return errors.New("redis: Dimensions must be > 0")
-	}
-
-	// FT._LIST returns existing index names — skip creation when ours
-	// is already there.
+	// FT._LIST returns existing index names.
 	existing, err := s.client.FT_List(ctx).Result()
 	if err != nil {
 		return fmt.Errorf("FT._LIST: %w", err)
 	}
 	if slices.Contains(existing, s.indexName) {
 		return s.checkExistingIndex(ctx)
+	}
+	if !initSchema {
+		return fmt.Errorf("%w: index %s does not exist and InitializeSchema is disabled",
+			ErrIncompatibleIndex, s.indexName)
+	}
+	if s.dimensions <= 0 {
+		return errors.New("redis: Dimensions must be > 0")
 	}
 
 	schema, err := s.buildSchema()
@@ -139,9 +145,12 @@ var ErrIncompatibleIndex = errors.New("redis: existing index is incompatible")
 // Score using the metric from this store's own config, so an index built with
 // L2 while the config says COSINE returns scores that are wrong rather than
 // missing: nothing fails, the ranking is silently mis-scaled. Skipping creation
-// because the name was taken accepted exactly that. The dimension is checked
-// alongside it so a mismatch surfaces at wiring, where the misconfiguration is,
-// rather than as a provider error on the first write.
+// because the name was taken accepted exactly that.
+//
+// The dimension is compared only when the caller declared one. Dimensions are
+// required to create an index and optional to attach to one, so demanding a
+// value here would make an out-of-band index unusable without repeating a fact
+// the index already holds. A wrong width fails on the first write regardless.
 func (s *Store) checkExistingIndex(ctx context.Context) error {
 	info, err := s.client.FTInfo(ctx, s.indexName).Result()
 	if err != nil {
@@ -156,7 +165,7 @@ func (s *Store) checkExistingIndex(ctx context.Context) error {
 				ErrIncompatibleIndex, s.indexName, s.embeddingField,
 				attribute.DistanceMetric, s.distanceMetric)
 		}
-		if attribute.Dim != s.dimensions {
+		if s.dimensions > 0 && attribute.Dim != s.dimensions {
 			return fmt.Errorf("%w: index %s holds %s with %d dimensions, but this store is configured for %d",
 				ErrIncompatibleIndex, s.indexName, s.embeddingField, attribute.Dim, s.dimensions)
 		}

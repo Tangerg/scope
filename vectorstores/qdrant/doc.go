@@ -8,6 +8,17 @@
 // Vector similarity functions: cosine / dot / euclid / manhattan.
 // The chosen value is bound to the collection at creation time.
 //
+// Existing collection. The collection is verified whenever it is found,
+// whatever [StoreConfig.InitializeSchema] says, because that flag answers
+// whether a missing collection may be created and not whether the one found is
+// the right one — and the second question matters most for a collection
+// provisioned out of band. A configured metric that disagrees with the
+// collection's returns scores that are wrong rather than absent, so it fails
+// construction with [ErrIncompatibleCollection], as does a collection that is
+// neither found nor creatable. [StoreConfig.Dimensions] is compared only when
+// declared, since it is required to create a collection and optional to attach
+// to one.
+//
 // Filter visitor produces Qdrant's structured filter syntax —
 // `{"must": [{"key": "author", "match": {"value": "Alice"}}]}`,
 // `{"should": [...]}`, `{"must_not": [...]}` for NOT,

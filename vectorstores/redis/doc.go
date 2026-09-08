@@ -45,8 +45,12 @@
 // was never written — an unindexed field is simply absent from the inverted
 // index — so an IS NULL filter fails rather than being approximated.
 //
-// Existing index. InitializeSchema creates the index when it is missing, and
-// verifies it when it is not. Existence was previously taken for agreement:
+// Existing index. The index is verified whenever it is found, whatever
+// InitializeSchema says, because that flag answers whether a missing index may
+// be created and not whether the one found is the right one — and the second
+// question matters most for an index provisioned out of band. An index that is
+// neither found nor creatable fails construction rather than every later
+// request. Existence was previously taken for agreement:
 // search converts RediSearch's distance into a Score using the configured
 // metric, so an index built with L2 while the config says COSINE returned
 // scores that were wrong rather than absent — nothing failed, the ranking was

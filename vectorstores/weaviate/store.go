@@ -259,11 +259,16 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	return store, nil
 }
 
+// initialize confirms the class agrees with this store's configuration, and
+// creates it when [StoreConfig.InitializeSchema] permits.
+//
+// The check is not conditional on that flag. InitializeSchema answers "may I
+// create a missing class", which is a different question from "is the class I
+// found the one I was configured for" — and the second question matters most
+// for a class provisioned out of band, which is exactly the case the flag
+// turns off. Skipping it there left the configured distance unverified, and a
+// wrong distance returns scores that are wrong rather than absent.
 func (s *Store) initialize(ctx context.Context) error {
-	if !s.initializeSchema {
-		return nil
-	}
-
 	exists, err := s.client.Schema().ClassExistenceChecker().
 		WithClassName(s.className).
 		Do(ctx)
@@ -272,6 +277,10 @@ func (s *Store) initialize(ctx context.Context) error {
 	}
 	if exists {
 		return s.checkExistingClass(ctx)
+	}
+	if !s.initializeSchema {
+		return fmt.Errorf("%w: class %s does not exist and InitializeSchema is disabled",
+			ErrIncompatibleClass, s.className)
 	}
 
 	class := &models.Class{

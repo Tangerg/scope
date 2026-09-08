@@ -216,11 +216,17 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	return store, nil
 }
 
+// initialize confirms the collection agrees with this store's configuration,
+// and creates it when [StoreConfig.InitializeSchema] permits.
+//
+// The check is not conditional on that flag. InitializeSchema answers "may I
+// create a missing collection", which is a different question from "is the
+// collection I found the one I was configured for" — and the second question
+// matters most for a collection provisioned out of band, which is exactly the
+// case the flag turns off. Skipping it there left the configured metric
+// unverified, and a wrong metric returns scores that are wrong rather than
+// absent.
 func (s *Store) initialize(ctx context.Context) error {
-	if !s.initializeSchema {
-		return nil
-	}
-
 	exists, err := s.client.CollectionExists(ctx, s.collectionName)
 	if err != nil {
 		return fmt.Errorf("qdrant: check collection existence: %w", err)
@@ -240,6 +246,10 @@ func (s *Store) initialize(ctx context.Context) error {
 		}
 		return nil
 	}
+	if !s.initializeSchema {
+		return fmt.Errorf("%w: collection %s does not exist and InitializeSchema is disabled",
+			ErrIncompatibleCollection, s.collectionName)
+	}
 
 	err = s.client.CreateCollection(ctx, &qdrant.CreateCollection{
 		CollectionName: s.collectionName,
@@ -255,9 +265,13 @@ func (s *Store) initialize(ctx context.Context) error {
 	return nil
 }
 
+// validateCollectionSchema compares a live collection against this store's
+// configuration. dimensions of zero means the caller declared none, which is
+// allowed when the collection is provisioned out of band; the metric is
+// checked either way, because it is the half that fails silently.
 func validateCollectionSchema(info *qdrant.CollectionInfo, dimensions int, distance qdrant.Distance) error {
-	if dimensions <= 0 {
-		return fmt.Errorf("%w: embedding dimensions must be positive, got %d", ErrIncompatibleCollection, dimensions)
+	if dimensions < 0 {
+		return fmt.Errorf("%w: embedding dimensions must not be negative, got %d", ErrIncompatibleCollection, dimensions)
 	}
 
 	vectors := info.GetConfig().GetParams().GetVectorsConfig()
@@ -268,7 +282,7 @@ func validateCollectionSchema(info *qdrant.CollectionInfo, dimensions int, dista
 		}
 		return fmt.Errorf("%w: unnamed dense-vector configuration is missing", ErrIncompatibleCollection)
 	}
-	if params.GetSize() != uint64(dimensions) {
+	if dimensions > 0 && params.GetSize() != uint64(dimensions) {
 		return fmt.Errorf("%w: vector dimensions are %d, embedding model produces %d",
 			ErrIncompatibleCollection, params.GetSize(), dimensions)
 	}

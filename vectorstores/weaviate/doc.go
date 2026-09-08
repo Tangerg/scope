@@ -59,8 +59,12 @@
 // more than it deletes while deleting nothing is refused instead of repeated,
 // since it cannot progress.
 //
-// Existing class. InitializeSchema creates the class when it is missing, and
-// verifies it when it is not. Existence was previously taken for agreement:
+// Existing class. The class is verified whenever it is found, whatever
+// InitializeSchema says, because that flag answers whether a missing class may
+// be created and not whether the one found is the right one — and the second
+// question matters most for a class provisioned out of band. A class that is
+// neither found nor creatable fails construction rather than every later
+// request. Existence was previously taken for agreement:
 // search converts Weaviate's distance into a Score using the configured
 // metric, so a class built with l2-squared while the config says cosine
 // returned scores that were wrong rather than absent. A mismatch now fails

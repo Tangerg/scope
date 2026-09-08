@@ -213,8 +213,10 @@ type StoreConfig struct {
 	// DocumentBatcher batches documents before upsert. Required.
 	DocumentBatcher vectorstore.Batcher
 
-	// Dimensions sets the vector width registered with a new index. When zero
-	// and InitializeSchema is true, the store probes EmbeddingModel.
+	// Dimensions sets the vector width registered with a new index, and is
+	// required when InitializeSchema is true: the width is part of the vector
+	// field definition, and nothing here can read it off an index that does not
+	// exist yet.
 	Dimensions int
 
 	// DistanceMetric selects the vector similarity function.

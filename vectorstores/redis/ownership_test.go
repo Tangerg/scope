@@ -17,8 +17,12 @@ func (ownershipBatcher) Batch(_ context.Context, documents []*document.Document)
 }
 
 func TestNewStoreOwnsMetadataFields(t *testing.T) {
-	client := goredis.NewClient(&goredis.Options{Addr: "localhost:6379"})
-	t.Cleanup(func() { _ = client.Close() })
+	// Construction reads the index it is pointed at, so this answers from a
+	// scripted client rather than whatever happens to listen on localhost.
+	client := &searchIndexClient{
+		names:      []string{DefaultIndexName},
+		attributes: []goredis.FTAttribute{vectorAttribute("COSINE", 2)},
+	}
 
 	fields := []MetadataField{{Name: "tenant", Type: FieldTag}}
 	store, err := NewStore(t.Context(), StoreConfig{
