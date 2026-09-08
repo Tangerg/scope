@@ -3,7 +3,6 @@ package openai
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/openai/openai-go/v3/responses"
@@ -96,23 +95,16 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 		}
 		return r.deltaResponse(corechat.NewReasoningDelta("", signature))
 	case responses.ResponseCompletedEvent:
-		hasToolCall := slices.ContainsFunc(typed.Response.Output, func(item responses.ResponseOutputItemUnion) bool {
-			return item.Type == responsesItemTypeFunctionCall
-		})
-		response := &corechat.ResponseDelta{
-			FinishReason: responsesFinishReason(&typed.Response, hasToolCall),
-			Metadata: &corechat.ResponseMetadata{
-				ID: r.responseID, Model: r.model, Usage: responsesUsage(typed.Response.Usage),
-				CreatedAt: r.createdAt,
-			},
-		}
-		if err := response.Metadata.Extra.Set(ResponsesResponseExtensionKey, typed.Response); err != nil {
-			return nil, false, fmt.Errorf("openai responses: preserve completed response: %w", err)
-		}
-		if err := response.Validate(); err != nil {
-			return nil, false, err
-		}
-		return response, true, nil
+		delta, err := responsesTerminalDelta(&typed.Response)
+		return delta, err == nil, err
+	case responses.ResponseIncompleteEvent:
+		delta, err := responsesTerminalDelta(&typed.Response)
+		return delta, err == nil, err
+	case responses.ResponseFailedEvent:
+		delta, err := responsesTerminalDelta(&typed.Response)
+		return delta, err == nil, err
+	case responses.ResponseErrorEvent:
+		return nil, false, fmt.Errorf("openai responses: %s: %s", typed.Code, typed.Message)
 	default:
 		return nil, false, nil
 	}

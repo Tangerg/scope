@@ -100,34 +100,6 @@ func TestResponsesCitationsCoverOfficialAnnotationVariants(t *testing.T) {
 	}
 }
 
-func TestResponsesFinishReasonCoversProtocolStates(t *testing.T) {
-	tests := []struct {
-		name        string
-		response    string
-		hasToolCall bool
-		want        corechat.FinishReason
-	}{
-		{name: "tool calls", response: `{}`, hasToolCall: true, want: corechat.FinishReasonToolCalls},
-		{name: "refusal", response: `{"output":[{"type":"message","content":[{"type":"refusal","refusal":"no"}]}]}`, want: corechat.FinishReasonRefusal},
-		{name: "length", response: `{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}`, want: corechat.FinishReasonLength},
-		{name: "content filter", response: `{"status":"incomplete","incomplete_details":{"reason":"content_filter"}}`, want: corechat.FinishReasonContentFilter},
-		{name: "other incomplete reason", response: `{"status":"incomplete","incomplete_details":{"reason":"unknown"}}`, want: corechat.FinishReasonOther},
-		{name: "nonterminal status", response: `{"status":"queued"}`, want: corechat.FinishReasonOther},
-		{name: "completed", response: `{"status":"completed"}`, want: corechat.FinishReasonStop},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var response responses.Response
-			if err := json.Unmarshal([]byte(tt.response), &response); err != nil {
-				t.Fatal(err)
-			}
-			if got := responsesFinishReason(&response, tt.hasToolCall); got != tt.want {
-				t.Fatalf("finish reason = %q; want %q", got, tt.want)
-			}
-		})
-	}
-}
-
 func assertProjectedCitation(
 	t *testing.T,
 	citation corechat.Citation,

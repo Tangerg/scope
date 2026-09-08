@@ -1,7 +1,6 @@
 package openai
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,43 +11,28 @@ import (
 )
 
 func mapResponsesResponse(response *responses.Response) (*corechat.Response, error) {
-	if response == nil {
-		return nil, errors.New("openai responses: nil response")
-	}
-	parts, hasToolCalls, hasRefusal, err := responsesOutputParts(response.Output)
+	terminal, err := responsesTerminalDelta(response)
 	if err != nil {
 		return nil, err
 	}
-	output := &corechat.Output{FinishReason: responsesFinishReason(response, hasToolCalls)}
-	if hasRefusal {
-		output.FinishReason = corechat.FinishReasonRefusal
+	parts, err := responsesOutputParts(response.Output)
+	if err != nil {
+		return nil, err
 	}
+	output := &corechat.Output{FinishReason: terminal.FinishReason}
 	if len(parts) != 0 {
 		message := corechat.NewAssistantMessage(parts...)
 		output.Message = &message
 	}
-	mapped := &corechat.Response{
-		Output: output,
-		Metadata: &corechat.ResponseMetadata{
-			ID: response.ID, Model: string(response.Model), Usage: responsesUsage(response.Usage),
-		},
-	}
-	if response.CreatedAt > 0 {
-		mapped.Metadata.CreatedAt = time.Unix(int64(response.CreatedAt), 0).UTC()
-	}
-	if err := mapped.Metadata.Extra.Set(ResponsesResponseExtensionKey, response); err != nil {
-		return nil, fmt.Errorf("openai responses: preserve native response: %w", err)
-	}
+	mapped := &corechat.Response{Output: output, Metadata: terminal.Metadata}
 	if err := mapped.Validate(); err != nil {
 		return nil, fmt.Errorf("openai responses: response: %w", err)
 	}
 	return mapped, nil
 }
 
-func responsesOutputParts(output []responses.ResponseOutputItemUnion) ([]corechat.Part, bool, bool, error) {
+func responsesOutputParts(output []responses.ResponseOutputItemUnion) ([]corechat.Part, error) {
 	parts := make([]corechat.Part, 0, len(output))
-	hasToolCall := false
-	hasRefusal := false
 	for index := range output {
 		item := output[index]
 		switch item.Type {
@@ -65,7 +49,7 @@ func responsesOutputParts(output []responses.ResponseOutputItemUnion) ([]corecha
 					for annotationIndex := range content.Annotations {
 						citation, include, mapErr := responsesCitation(content.Annotations[annotationIndex])
 						if mapErr != nil {
-							return nil, false, false, fmt.Errorf("openai responses: output[%d].content[%d].annotations[%d]: %w", index, contentIndex, annotationIndex, mapErr)
+							return nil, fmt.Errorf("openai responses: output[%d].content[%d].annotations[%d]: %w", index, contentIndex, annotationIndex, mapErr)
 						}
 						if include {
 							part.Citations = append(part.Citations, citation)
@@ -75,7 +59,6 @@ func responsesOutputParts(output []responses.ResponseOutputItemUnion) ([]corecha
 				case responsesContentTypeRefusal:
 					if content.Refusal != "" {
 						parts = append(parts, corechat.NewRefusalPart(content.Refusal))
-						hasRefusal = true
 					}
 				}
 			}
@@ -84,7 +67,7 @@ func responsesOutputParts(output []responses.ResponseOutputItemUnion) ([]corecha
 			text := joinResponsesReasoning(reasoning)
 			signature, encodeErr := encodeResponsesReasoningFrame(reasoning.ToParam())
 			if encodeErr != nil {
-				return nil, false, false, fmt.Errorf("openai responses: output[%d] reasoning: %w", index, encodeErr)
+				return nil, fmt.Errorf("openai responses: output[%d] reasoning: %w", index, encodeErr)
 			}
 			parts = append(parts, corechat.NewReasoningPart(text, signature))
 		case responsesItemTypeFunctionCall:
@@ -94,13 +77,12 @@ func responsesOutputParts(output []responses.ResponseOutputItemUnion) ([]corecha
 				id = call.ID
 			}
 			if id == "" || call.Name == "" {
-				return nil, false, false, fmt.Errorf("openai responses: output[%d] function call lacks ID or name", index)
+				return nil, fmt.Errorf("openai responses: output[%d] function call lacks ID or name", index)
 			}
 			parts = append(parts, corechat.NewToolCallPart(corechat.ToolCall{ID: id, Name: call.Name, Arguments: call.Arguments}))
-			hasToolCall = true
 		}
 	}
-	return parts, hasToolCall, hasRefusal, nil
+	return parts, nil
 }
 
 func responsesCitation(annotation responses.ResponseOutputTextAnnotationUnion) (corechat.Citation, bool, error) {
@@ -145,34 +127,63 @@ func joinResponsesReasoning(reasoning responses.ResponseReasoningItem) string {
 	return text.String()
 }
 
-func responsesFinishReason(response *responses.Response, hasToolCall bool) corechat.FinishReason {
-	if hasToolCall {
-		return corechat.FinishReasonToolCalls
+func responsesTerminalDelta(response *responses.Response) (*corechat.ResponseDelta, error) {
+	if response == nil {
+		return nil, fmt.Errorf("%w: openai responses: nil response", corechat.ErrInvalidResponse)
 	}
-	for itemIndex := range response.Output {
-		if response.Output[itemIndex].Type != responsesItemTypeMessage {
-			continue
+	finishReason, err := responsesFinishReason(response)
+	if err != nil {
+		return nil, err
+	}
+	metadata := &corechat.ResponseMetadata{
+		ID: response.ID, Model: string(response.Model), Usage: responsesUsage(response.Usage),
+	}
+	if response.CreatedAt > 0 {
+		metadata.CreatedAt = time.Unix(int64(response.CreatedAt), 0).UTC()
+	}
+	if err := metadata.Extra.Set(ResponsesResponseExtensionKey, response); err != nil {
+		return nil, fmt.Errorf("openai responses: preserve native response: %w", err)
+	}
+	delta := &corechat.ResponseDelta{FinishReason: finishReason, Metadata: metadata}
+	if err := delta.Validate(); err != nil {
+		return nil, err
+	}
+	return delta, nil
+}
+
+func responsesFinishReason(response *responses.Response) (corechat.FinishReason, error) {
+	switch response.Status {
+	case responses.ResponseStatusFailed:
+		return "", fmt.Errorf("openai responses: failed: %s: %s", response.Error.Code, response.Error.Message)
+	case responses.ResponseStatusCancelled:
+		return "", fmt.Errorf("openai responses: response was canceled")
+	case responses.ResponseStatusIncomplete:
+		switch response.IncompleteDetails.Reason {
+		case responsesIncompleteMaxTokens:
+			return corechat.FinishReasonLength, nil
+		case responsesIncompleteFiltered:
+			return corechat.FinishReasonContentFilter, nil
+		default:
+			return corechat.FinishReasonOther, nil
 		}
-		for contentIndex := range response.Output[itemIndex].AsMessage().Content {
-			if response.Output[itemIndex].AsMessage().Content[contentIndex].Type == responsesContentTypeRefusal {
-				return corechat.FinishReasonRefusal
+	case responses.ResponseStatusCompleted:
+	default:
+		return "", fmt.Errorf("%w: openai responses: nonterminal or unknown status %q", corechat.ErrInvalidResponse, response.Status)
+	}
+	finishReason := corechat.FinishReasonStop
+	for _, item := range response.Output {
+		switch item.Type {
+		case responsesItemTypeFunctionCall:
+			finishReason = corechat.FinishReasonToolCalls
+		case responsesItemTypeMessage:
+			for _, content := range item.AsMessage().Content {
+				if content.Type == responsesContentTypeRefusal {
+					return corechat.FinishReasonRefusal, nil
+				}
 			}
 		}
 	}
-	if response.Status == responses.ResponseStatusIncomplete {
-		switch response.IncompleteDetails.Reason {
-		case responsesIncompleteMaxTokens:
-			return corechat.FinishReasonLength
-		case responsesIncompleteFiltered:
-			return corechat.FinishReasonContentFilter
-		default:
-			return corechat.FinishReasonOther
-		}
-	}
-	if response.Status != responses.ResponseStatusCompleted {
-		return corechat.FinishReasonOther
-	}
-	return corechat.FinishReasonStop
+	return finishReason, nil
 }
 
 func responsesUsage(usage responses.ResponseUsage) corechat.Usage {

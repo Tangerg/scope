@@ -123,12 +123,14 @@ func (r *Responses) Stream(ctx context.Context, req *corechat.Request) iter.Seq2
 				yield(nil, mapErr)
 				return
 			}
-			if include && !yield(response, nil) {
+			if include && (!yield(response, nil) || response.FinishReason != "") {
 				return
 			}
 		}
 		if streamErr := stream.Err(); streamErr != nil {
 			yield(nil, r.api.wrapError(streamErr))
+			return
 		}
+		yield(nil, fmt.Errorf("%w: openai responses: stream ended without a terminal response", corechat.ErrInvalidResponse))
 	}
 }

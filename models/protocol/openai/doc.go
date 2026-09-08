@@ -27,6 +27,10 @@
 // extensions scoped to the endpoint provider. Raw response details use that
 // same namespace, so compatible endpoints never leak OpenAI provider metadata.
 //
+// Responses Call and Stream share terminal-state mapping: incomplete generation
+// preserves its stop reason, failed generation returns an error, and a stream
+// ending before a terminal response returns chat.ErrInvalidResponse.
+//
 // Provider packages with an OpenAI-compatible endpoint reuse the protocol
 // through [NewCompatibleChatCompletions] and select one typed [Dialect]. This
 // keeps provider-only fields such as reasoning_content out of OpenAI's native
