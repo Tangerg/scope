@@ -2,6 +2,7 @@ package storetest
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -37,6 +38,35 @@ type Options struct {
 	// the opposite: it must keep accepting any key, because refusing one would
 	// take away a document it can otherwise filter perfectly well.
 	InterpolatesKeyPaths bool
+
+	// CompileText compiles a filter and returns the query text it produced.
+	//
+	// Set it when the compiler's whole output is text, because then a number
+	// has to be written as a numeral and the digits are the only thing standing
+	// between the caller's filter and a different one. Six compilers derived
+	// those digits from a Go scalar and decided integer-ness with
+	// float64(int64(value)) == value — an out-of-range float-to-int conversion
+	// Go leaves implementation-defined — so at 2^63 arm64 emitted
+	// 9223372036854775807 while amd64 emitted the right digits. Every existing
+	// test passed: nothing compared the digits to anything.
+	//
+	// Leave it nil when the compiler binds values as arguments or builds a
+	// provider structure. There is no numeral to get wrong then, and rendering
+	// one for the suite's benefit would assert something the store never sends.
+	CompileText func(source string) (string, error)
+
+	// NumericDomainIsFloat64 declares that the provider's numeric fields are
+	// doubles, so a numeral only has to denote the same double.
+	//
+	// RediSearch is the case: its NUMERIC range bounds are doubles, which is
+	// why that store refuses an integer past 2^53 outright. An integer that a
+	// double does hold exactly — 2^63, being a power of two — then comes out as
+	// the shortest decimal that reads back as the same double, which is
+	// 9223372036854776000 rather than 9223372036854775808. Demanding the
+	// literal's digits there would demand precision the field cannot keep, so
+	// the suite asks only that the numeral read back as the same double, which
+	// still catches a digit lost or invented along the way.
+	NumericDomainIsFloat64 bool
 }
 
 // VisitorConformance runs the standard expression-coverage suite
@@ -157,4 +187,98 @@ func VisitorConformance(t *testing.T, build BuildFn, options ...Options) {
 			}
 		})
 	}
+
+	if opt.CompileText != nil {
+		runNumeralCases(t, opt.CompileText, opt.NumericDomainIsFloat64)
+	}
+}
+
+// runNumeralCases requires a compiler that emits text to emit the literal's
+// exact digits.
+//
+// The assertion is provider-independent because the digits are: whatever syntax
+// surrounds it, a numeral that reads as a different number is a different
+// filter. Each case is a value a re-derived numeral gets wrong — a magnitude no
+// float64 holds, the int64 boundary where Go's out-of-range conversion is
+// implementation-defined, and an integral float whose canonical form is
+// exponential while no provider grammar here documents exponents.
+func runNumeralCases(t *testing.T, compile func(string) (string, error), float64Domain bool) {
+	t.Helper()
+
+	cases := []struct {
+		name   string
+		src    string
+		digits string
+	}{
+		{name: "past_int64", src: `n == 18446744073709551615`, digits: "18446744073709551615"},
+		{name: "int64_boundary", src: `n == 9223372036854775808`, digits: "9223372036854775808"},
+		{name: "float_int64_boundary", src: `n == 9223372036854775808.0`, digits: "9223372036854776000"},
+		{name: "integral_float", src: `n == 1000000.0`, digits: "1000000"},
+		{name: "fraction", src: `n == 0.8`, digits: "0.8"},
+	}
+	for _, tc := range cases {
+		t.Run("Numeral_"+tc.name, func(t *testing.T) {
+			text, err := compile(tc.src)
+			if err != nil {
+				// A compiler may refuse a magnitude it cannot carry — redis
+				// refuses an integer RediSearch cannot hold exactly — but it
+				// must refuse rather than round.
+				t.Skipf("compiler refused %q: %v", tc.src, err)
+			}
+			if strings.Contains(text, tc.digits) {
+				return
+			}
+			if float64Domain {
+				assertSameFloat64(t, tc.src, text, tc.digits)
+				return
+			}
+			t.Fatalf("compiled %q to %q, want the digits %s", tc.src, text, tc.digits)
+		})
+	}
+}
+
+// assertSameFloat64 accepts any numeral in the emitted text that reads back as
+// the same double as the expected digits. A provider whose numeric field is a
+// double cannot tell the two apart, so requiring one spelling would require
+// precision the field does not keep — but a numeral that reads as a different
+// double is a different filter on any provider.
+func assertSameFloat64(t *testing.T, source, text, digits string) {
+	t.Helper()
+
+	want, err := strconv.ParseFloat(digits, 64)
+	if err != nil {
+		t.Fatalf("test case digits %q are not a number: %v", digits, err)
+	}
+	for _, candidate := range numeralsIn(text) {
+		if got, err := strconv.ParseFloat(candidate, 64); err == nil && got == want {
+			return
+		}
+	}
+	t.Fatalf("compiled %q to %q, want a numeral reading back as %v", source, text, want)
+}
+
+// numeralsIn pulls the numeral-shaped runs out of query text. The surrounding
+// syntax is the provider's, so the scan stays deliberately loose: it only has
+// to find the candidates, and ParseFloat decides which of them is a number.
+func numeralsIn(text string) []string {
+	var numerals []string
+	var current strings.Builder
+	flush := func() {
+		if current.Len() > 0 {
+			numerals = append(numerals, current.String())
+			current.Reset()
+		}
+	}
+	for _, character := range text {
+		switch {
+		case character >= '0' && character <= '9',
+			character == '.', character == '-', character == '+',
+			character == 'e', character == 'E':
+			current.WriteRune(character)
+		default:
+			flush()
+		}
+	}
+	flush()
+	return numerals
 }

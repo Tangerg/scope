@@ -20,6 +20,7 @@ func TestVisitor_Conformance(t *testing.T) {
 			// This compiler writes a metadata key into the query language as text,
 			// so a key that language cannot name is refused rather than approximated.
 			InterpolatesKeyPaths: true,
+			CompileText:          compileFilterText,
 		},
 	)
 }
@@ -71,4 +72,20 @@ func TestVisitor_CollectionMembershipUsesExactFieldQuery(t *testing.T) {
 	if got, want := visitor.snapshot(), `metadata.visible_to:"user-42"`; got != want {
 		t.Fatalf("Result() = %q, want %q", got, want)
 	}
+}
+
+// compileFilterText drives the compiler and returns the query text it produced,
+// so the shared suite can require the exact digits of a numeric literal. This
+// compiler's whole output is text, which is what makes those digits the only
+// thing between a caller's filter and a different one.
+func compileFilterText(source string) (string, error) {
+	expr, err := filter.Parse(source)
+	if err != nil {
+		return "", err
+	}
+	compiler := newVisitor("metadata")
+	if err := expr.Accept(compiler); err != nil {
+		return "", err
+	}
+	return compiler.snapshot(), nil
 }

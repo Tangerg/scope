@@ -20,7 +20,11 @@ func TestVisitor_Conformance(t *testing.T) {
 		}
 		v := newVisitor("metadata")
 		return expr.Accept(v)
-	})
+	},
+		storetest.Options{
+			CompileText: compileFilterText,
+		},
+	)
 }
 
 // build is the test driver — parse src, visit, return (sql, err).
@@ -98,4 +102,20 @@ func TestVisitor_CollectionMembership(t *testing.T) {
 	if sql != want {
 		t.Fatalf("sql = %q, want %q", sql, want)
 	}
+}
+
+// compileFilterText drives the compiler and returns the query text it produced,
+// so the shared suite can require the exact digits of a numeric literal. This
+// compiler's whole output is text, which is what makes those digits the only
+// thing between a caller's filter and a different one.
+func compileFilterText(source string) (string, error) {
+	expr, err := filter.Parse(source)
+	if err != nil {
+		return "", err
+	}
+	compiler := newVisitor("metadata")
+	if err := expr.Accept(compiler); err != nil {
+		return "", err
+	}
+	return compiler.snapshot(), nil
 }

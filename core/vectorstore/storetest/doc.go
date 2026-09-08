@@ -55,6 +55,18 @@
 // key. Neither an injection nor a needless refusal can appear without failing
 // here.
 //
+// # Numerals
+//
+// A compiler whose whole output is text has to write a number as a numeral, and
+// the digits are the only thing between the caller's filter and a different
+// one. Set [Options.CompileText] and the suite requires the literal's exact
+// digits — the check that was missing when six compilers derived them from a Go
+// scalar through an implementation-defined conversion, so 2^63 came out as
+// 9223372036854775807 on arm64 and correctly on amd64 with every test passing.
+// [Options.NumericDomainIsFloat64] relaxes it to same-double equivalence for a
+// provider whose numeric field is a double, because demanding one spelling
+// there would demand precision the field does not keep.
+//
 // # Capability gaps
 //
 // A backend that genuinely doesn't support a shape (redis can't IN on

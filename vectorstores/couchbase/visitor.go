@@ -103,7 +103,11 @@ func (v *visitor) visitHasExpr(expr *filter.BinaryExpr) error {
 	v.sql.WriteString("ANY element IN ")
 	v.sql.WriteString(field)
 	v.sql.WriteString(" SATISFIES element = ")
-	v.sql.WriteString(jsonValue(value))
+	literal, literalErr := jsonValue(value)
+	if literalErr != nil {
+		return literalErr
+	}
+	v.sql.WriteString(literal)
 	v.sql.WriteString(" END")
 	return nil
 }
@@ -179,7 +183,11 @@ func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 	v.sql.WriteByte(' ')
 	v.sql.WriteString(op)
 	v.sql.WriteByte(' ')
-	v.sql.WriteString(jsonValue(value))
+	literal, literalErr := jsonValue(value)
+	if literalErr != nil {
+		return literalErr
+	}
+	v.sql.WriteString(literal)
 	v.sql.WriteByte(')')
 	return nil
 }
@@ -212,7 +220,11 @@ func (v *visitor) visitInExpr(expr *filter.BinaryExpr) error {
 	v.appendAbsentGuard(field, false)
 	v.sql.WriteString(field)
 	v.sql.WriteString(" IN ")
-	v.sql.WriteString(jsonValue(values))
+	literal, literalErr := jsonValue(values)
+	if literalErr != nil {
+		return literalErr
+	}
+	v.sql.WriteString(literal)
 	v.sql.WriteByte(')')
 	return nil
 }
@@ -237,7 +249,11 @@ func (v *visitor) visitLikeExpr(expr *filter.BinaryExpr) error {
 	v.appendAbsentGuard(field, false)
 	v.sql.WriteString(field)
 	v.sql.WriteString(" LIKE ")
-	v.sql.WriteString(jsonValue(pattern))
+	literal, literalErr := jsonValue(pattern)
+	if literalErr != nil {
+		return literalErr
+	}
+	v.sql.WriteString(literal)
 	v.sql.WriteByte(')')
 	return nil
 }
@@ -302,10 +318,21 @@ func sqlOpFor(kind filter.Operator) (string, error) {
 	}
 }
 
-func jsonValue(v any) string {
-	b, err := json.Marshal(v)
+// jsonValue renders a filter value as the JSON literal SQL++ reads.
+//
+// Encoding to JSON is exactly right here rather than convenient: SQL++ is a
+// JSON query language, so a JSON number is the exact numeral and a JSON string
+// carries JSON's own escaping.
+//
+// A marshal failure is reported instead of falling back to "null". That
+// fallback was worse than an obviously broken value: null is a valid SQL++
+// literal, so `field = null` compiled cleanly and evaluated to unknown, which
+// drops the row. A failure to encode the caller's value became a filter that
+// silently matches nothing.
+func jsonValue(v any) (string, error) {
+	encoded, err := json.Marshal(v)
 	if err != nil {
-		return "null"
+		return "", fmt.Errorf("couchbase: encode filter value of type %T: %w", v, err)
 	}
-	return string(b)
+	return string(encoded), nil
 }

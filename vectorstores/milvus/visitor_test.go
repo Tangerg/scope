@@ -23,6 +23,7 @@ func TestVisitor_Conformance(t *testing.T) {
 			// test whether a JSON key is present, so a null test is refused
 			// rather than approximated.
 			Unsupported: []string{"null_test", "not_null_test"},
+			CompileText: compileFilterText,
 		},
 	)
 }
@@ -61,4 +62,20 @@ func TestVisitor_QuotesCompleteStringLiteral(t *testing.T) {
 	if got, want := visitor.snapshot(), "value == "+strconv.Quote(value); got != want {
 		t.Fatalf("Result() = %q, want %q", got, want)
 	}
+}
+
+// compileFilterText drives the compiler and returns the query text it produced,
+// so the shared suite can require the exact digits of a numeric literal. This
+// compiler's whole output is text, which is what makes those digits the only
+// thing between a caller's filter and a different one.
+func compileFilterText(source string) (string, error) {
+	expr, err := filter.Parse(source)
+	if err != nil {
+		return "", err
+	}
+	compiler := newVisitor()
+	if err := expr.Accept(compiler); err != nil {
+		return "", err
+	}
+	return compiler.snapshot(), nil
 }
