@@ -246,9 +246,6 @@ func (v *visitor) fieldPath(expr *filter.BinaryExpr) (string, error) {
 	if len(keys) == 0 {
 		return "", errors.New("empty key path on left operand")
 	}
-	if v.metadataPrefix == "" {
-		return strings.Join(keys, "."), nil
-	}
 	return v.metadataPrefix + "." + strings.Join(keys, "."), nil
 }
 

@@ -100,25 +100,3 @@ func TestToDocumentRejectsMalformedConfiguredMetadata(t *testing.T) {
 		t.Fatalf("toDocument error = %v", err)
 	}
 }
-
-func TestToDocumentExtractsFlattenedMetadata(t *testing.T) {
-	store := &Store{contentField: "content", embeddingField: "embedding"}
-	document, err := store.toDocument(searchHit{
-		ID: "doc-1",
-		Source: map[string]any{
-			"content":   "hello",
-			"embedding": []any{0.1, 0.2},
-			"tenant":    "acme",
-		},
-	})
-	if err != nil {
-		t.Fatalf("toDocument: %v", err)
-	}
-	values, err := document.Metadata.Values()
-	if err != nil {
-		t.Fatalf("metadata Values: %v", err)
-	}
-	if len(values) != 1 || values["tenant"] != "acme" {
-		t.Fatalf("metadata = %#v", values)
-	}
-}

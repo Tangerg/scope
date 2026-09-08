@@ -100,13 +100,7 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 			docBody := map[string]any{
 				s.contentField:   doc.Text,
 				s.embeddingField: embedding.Float32Vector(vectors[index]),
-			}
-			if s.metadataField != "" {
-				docBody[s.metadataField] = doc.Metadata
-			} else {
-				for k, v := range doc.Metadata {
-					docBody[k] = v
-				}
+				s.metadataField:  doc.Metadata,
 			}
 			docLine, encErr := json.Marshal(docBody)
 			if encErr != nil {
@@ -340,29 +334,13 @@ func (s *Store) toDocument(hit searchHit) (*document.Document, error) {
 }
 
 func (s *Store) metadataValues(hit searchHit) (map[string]any, error) {
-	if s.metadataField != "" {
-		raw := hit.Source[s.metadataField]
-		if raw == nil {
-			return nil, nil
-		}
-		values, ok := raw.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("elasticsearch: search hit %s field %q must be an object, got %T", hit.ID, s.metadataField, raw)
-		}
-		return values, nil
-	}
-
-	// Metadata was flattened onto the root — strip the reserved fields and
-	// surface the rest.
-	values := make(map[string]any, len(hit.Source))
-	for key, value := range hit.Source {
-		if key == s.contentField || key == s.embeddingField {
-			continue
-		}
-		values[key] = value
-	}
-	if len(values) == 0 {
+	raw := hit.Source[s.metadataField]
+	if raw == nil {
 		return nil, nil
+	}
+	values, ok := raw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("elasticsearch: search hit %s field %q must be an object, got %T", hit.ID, s.metadataField, raw)
 	}
 	return values, nil
 }

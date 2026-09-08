@@ -106,9 +106,8 @@ type StoreConfig struct {
 	ContentField string
 
 	// MetadataField is the object field that stores metadata.
-	// Optional: defaults to [DefaultMetadataField]. Set to "" to
-	// flatten metadata onto the document root (filters then
-	// reference bare field names).
+	// Optional: defaults to [DefaultMetadataField]. It must differ from
+	// ContentField and EmbeddingField.
 	MetadataField string
 
 	// EmbeddingModel produces vectors for the documents. Required.
@@ -117,8 +116,8 @@ type StoreConfig struct {
 	// DocumentBatcher batches documents before bulk upsert. Required.
 	DocumentBatcher vectorstore.Batcher
 
-	// Dimensions sets the dense_vector width for a newly created index. When
-	// zero, the store probes EmbeddingModel only if it must create the index.
+	// Dimensions sets the dense_vector width for a newly created index. It
+	// must be positive when creating an index; an existing index does not need it.
 	Dimensions int
 
 	// Similarity selects the similarity metric used at index time.
@@ -153,6 +152,9 @@ func (s StoreConfig) Validate() error {
 	if !s.Similarity.Valid() {
 		return fmt.Errorf("elasticsearch: unsupported Similarity %q", s.Similarity)
 	}
+	if s.ContentField == s.EmbeddingField || s.ContentField == s.MetadataField || s.EmbeddingField == s.MetadataField {
+		return errors.New("elasticsearch: ContentField, EmbeddingField, and MetadataField must be distinct")
+	}
 	return nil
 }
 
@@ -161,9 +163,7 @@ func (s *StoreConfig) applyDefaults() {
 	s.IndexName = cmp.Or(s.IndexName, DefaultIndexName)
 	s.EmbeddingField = cmp.Or(s.EmbeddingField, DefaultEmbeddingField)
 	s.ContentField = cmp.Or(s.ContentField, DefaultContentField)
-	if s.MetadataField == "" {
-		s.MetadataField = DefaultMetadataField
-	}
+	s.MetadataField = cmp.Or(s.MetadataField, DefaultMetadataField)
 	s.Similarity = cmp.Or(s.Similarity, DefaultSimilarity)
 	if s.NumCandidatesMultiplier <= 0 {
 		s.NumCandidatesMultiplier = defaultNumCandidatesMul
@@ -282,9 +282,7 @@ func (s *Store) createIndex(ctx context.Context) error {
 			Similarity: string(s.similarity),
 			Index:      true,
 		},
-	}
-	if s.metadataField != "" {
-		properties[s.metadataField] = objectFieldMapping{Type: mappingTypeObject, Dynamic: true}
+		s.metadataField: objectFieldMapping{Type: mappingTypeObject, Dynamic: true},
 	}
 	body, err := encodeJSONRequest(createIndexRequest{
 		Mappings: indexMappings{Properties: properties},
