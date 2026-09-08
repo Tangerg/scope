@@ -44,12 +44,11 @@ type MessageCollection interface {
 		filter any,
 		opts ...options.Lister[options.DeleteManyOptions],
 	) (*mongo.DeleteResult, error)
-	Distinct(
+	Aggregate(
 		ctx context.Context,
-		fieldName string,
-		filter any,
-		opts ...options.Lister[options.DistinctOptions],
-	) *mongo.DistinctResult
+		pipeline any,
+		opts ...options.Lister[options.AggregateOptions],
+	) (*mongo.Cursor, error)
 	Indexes() mongo.IndexView
 }
 
@@ -246,20 +245,40 @@ func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID
 
 // Conversations returns distinct conversation IDs in lexical order. It is a
 // deliberate cross-conversation scan for operational tasks.
+//
+// The distinct command is not used, even though this is exactly a distinct
+// query, because MongoDB documents three limits on it that all have the same
+// remedy. On a sharded cluster "the distinct command may return orphaned
+// documents", which here means conversation ids the owning shard no longer
+// holds. Its result is one document, so "results must not be larger than the
+// maximum BSON size" caps how many conversations a store may hold. And in a
+// transaction it is unavailable on a sharded collection outright. For each of
+// them MongoDB says to "use the aggregation pipeline with the $group stage
+// instead", which also streams through a cursor rather than one document.
 func (s *Store) Conversations(ctx context.Context) (ids []history.ConversationID, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	var storedIDs []string
-	if err = s.collection.Distinct(ctx, fieldConversationID, bson.D{}).Decode(&storedIDs); err != nil {
-		return nil, fmt.Errorf("mongodb: list conversations: query distinct IDs: %w", err)
+	pipeline := mongo.Pipeline{
+		bson.D{{Key: "$group", Value: bson.D{{Key: fieldID, Value: "$" + fieldConversationID}}}},
 	}
-	ids = make([]history.ConversationID, 0, len(storedIDs))
-	for _, id := range storedIDs {
-		conversationID := history.ConversationID(id)
-		if err := conversationID.Validate(); err != nil {
-			return nil, fmt.Errorf("mongodb: list conversations: invalid stored ID %q: %w", id, err)
+	cursor, err := s.collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, fmt.Errorf("mongodb: list conversations: group distinct IDs: %w", err)
+	}
+	var groups []struct {
+		ID string `bson:"_id"`
+	}
+	if err = cursor.All(ctx, &groups); err != nil {
+		return nil, fmt.Errorf("mongodb: list conversations: decode groups: %w", err)
+	}
+
+	ids = make([]history.ConversationID, 0, len(groups))
+	for _, group := range groups {
+		conversationID := history.ConversationID(group.ID)
+		if err = conversationID.Validate(); err != nil {
+			return nil, fmt.Errorf("mongodb: list conversations: invalid stored ID %q: %w", group.ID, err)
 		}
 		ids = append(ids, conversationID)
 	}

@@ -16,6 +16,16 @@
 // clock regression. Concurrent calls and writes from distinct Store instances
 // have no defined relative order.
 //
+// Enumeration groups rather than using the distinct command, even though
+// listing conversations is exactly a distinct query. MongoDB documents three
+// limits on distinct that all share one remedy: on a sharded cluster it "may
+// return orphaned documents", which here would be conversation ids the owning
+// shard no longer holds; its single result document is bounded by the maximum
+// BSON size, which would cap how many conversations a store may hold; and on a
+// sharded collection inside a transaction it is unavailable. For each, MongoDB
+// says to "use the aggregation pipeline with the $group stage instead", which
+// also streams through a cursor.
+//
 // Write acknowledgment. The collection must use an acknowledged write concern.
 // Under w: 0 MongoDB sends no reply, so the driver reports success for messages
 // it never learned the fate of; Write and Clear reject that result instead of
