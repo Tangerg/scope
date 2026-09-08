@@ -24,6 +24,16 @@
 //   - [SimilarityDotProduct]  — inner product
 //   - [SimilarityEuclidean]   — Euclidean distance
 //
+// Scores. Apache Cassandra documents the similarity_cosine,
+// similarity_dot_product and similarity_euclidean signatures but not the
+// range of what they return, so the store takes the value as a relevance
+// score already on Core's scale and clamps it. That is an assumption about
+// an undocumented property rather than a mapping: if a server reports a
+// value outside the range, the clamp keeps Cassandra's ordering only below
+// the bound. similarity_dot_product also assumes L2-normalized vectors —
+// Cassandra does not normalize for it — so a non-normalized embedding makes
+// the value meaningless before it ever reaches a score.
+//
 // Vector binding caveat. gocql v1.x has no first-class
 // `vector<float, N>` codec, so the store inlines vectors as CQL
 // literals (`[v1, v2, ...]`) into the SQL. Cassandra accepts that

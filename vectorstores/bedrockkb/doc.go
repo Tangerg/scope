@@ -40,5 +40,13 @@
 // stringContains, none of which asks whether a key is present, so an IS NULL
 // filter fails rather than being approximated.
 //
+// Scores. The Retrieve API documents the result score only as "the level of
+// relevance of the result to the query" with type Double, and gives no
+// range, so the store takes the value as a relevance score already on
+// Core's scale and clamps it. That is an assumption about an undocumented
+// property rather than a mapping: the knowledge base owns the vector store,
+// the embedding model and the search type, and none of them is visible here
+// to derive a scale from.
+//
 // See https://docs.aws.amazon.com/bedrock/latest/userguide/knowledge-base.html.
 package bedrockkb
