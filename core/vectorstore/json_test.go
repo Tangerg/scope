@@ -71,8 +71,8 @@ func TestJSONRoundTripsVectorstoreModels(t *testing.T) {
 	if decodedRequest.Query != "cat" || decodedRequest.Options.TopK != 3 || decodedRequest.Options.MinScore != 0.5 || decodedRequest.Options.Mode != vectorstore.SearchModeSemantic {
 		t.Fatalf("decoded search request = %#v", decodedRequest)
 	}
-	if decodedRequest.Options.Filter != nil {
-		t.Fatal("wire search request unexpectedly retained the non-wire filter AST")
+	if !searchRequest.Options.Filter.Equal(decodedRequest.Options.Filter) {
+		t.Fatalf("decoded filter = %v, want %v", decodedRequest.Options.Filter, searchRequest.Options.Filter)
 	}
 
 	response := &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{{Document: doc, Score: 0.9}}}
@@ -80,6 +80,57 @@ func TestJSONRoundTripsVectorstoreModels(t *testing.T) {
 	roundTripJSON(t, response, &decodedResponse)
 	if len(decodedResponse.Results) != 1 || decodedResponse.Results[0].Document.ID != doc.ID || decodedResponse.Results[0].Score != 0.9 {
 		t.Fatalf("decoded search response = %#v", decodedResponse)
+	}
+}
+
+func TestSearchOptionsJSONPreservesFilterPolicy(t *testing.T) {
+	expression, err := filter.Parse(`tenant == 'alpha' AND (year >= 2024 OR tags HAS 'shared')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := vectorstore.SearchOptions{TopK: 3, MinScore: 0.5, Filter: expression}
+	data, err := json.Marshal(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire struct {
+		Filter string `json:"filter"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		t.Fatal(err)
+	}
+	if wire.Filter != expression.String() {
+		t.Fatalf("wire filter = %q, want %q", wire.Filter, expression.String())
+	}
+	var decoded vectorstore.SearchOptions
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !expression.Equal(decoded.Filter) || decoded.TopK != 3 || decoded.MinScore != 0.5 {
+		t.Fatalf("decoded options = %#v", decoded)
+	}
+
+	for _, data := range []string{
+		`{"filter":""}`, `{"filter":"tenant =="}`, `{"filter":{}}`, `{"filter":42}`,
+	} {
+		t.Run(data, func(t *testing.T) {
+			decoded := options
+			if err := json.Unmarshal([]byte(data), &decoded); !errors.Is(err, vectorstore.ErrInvalidOptions) {
+				t.Fatalf("decode error = %v, want ErrInvalidOptions", err)
+			}
+			if decoded.Filter != options.Filter || decoded.TopK != options.TopK || decoded.MinScore != options.MinScore {
+				t.Fatalf("failed decode changed options: %#v", decoded)
+			}
+		})
+	}
+	for _, data := range []string{`{}`, `{"filter":null}`} {
+		decoded := options
+		if err := json.Unmarshal([]byte(data), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		if decoded.Filter != nil {
+			t.Fatalf("absent filter retained previous policy: %v", decoded.Filter)
+		}
 	}
 }
 

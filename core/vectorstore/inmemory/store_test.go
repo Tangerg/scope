@@ -2,6 +2,7 @@ package inmemory_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -112,6 +113,35 @@ func TestStore_IndexRejectsEmptyID(t *testing.T) {
 	req := docs
 	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: req}); err == nil {
 		t.Fatal("Index should reject empty ID")
+	}
+}
+
+func TestSearchRequestJSONPreservesMetadataFiltering(t *testing.T) {
+	store := newStore(t)
+	docs := []*document.Document{
+		mustDoc(t, "alpha", "shared text", map[string]any{"tenant": "alpha"}),
+		mustDoc(t, "beta", "shared text", map[string]any{"tenant": "beta"}),
+	}
+	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+		t.Fatal(err)
+	}
+	request := &vectorstore.SearchRequest{
+		Query: "shared text", Options: vectorstore.SearchOptions{Filter: filter.EQ("tenant", "alpha")},
+	}
+	data, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored vectorstore.SearchRequest
+	if decodeErr := json.Unmarshal(data, &restored); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	response, err := store.Search(t.Context(), &restored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Results) != 1 || response.Results[0].Document.ID != "alpha" {
+		t.Fatalf("restored search results = %#v, want only alpha", response.Documents())
 	}
 }
 

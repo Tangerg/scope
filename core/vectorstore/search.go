@@ -55,10 +55,19 @@ func (s SearchMode) String() string {
 // the zero-value mode; hybrid combines semantic and lexical evidence.
 type SearchOptions struct {
 	// TopK limits the result count. Zero uses DefaultTopK.
-	TopK     int              `json:"top_k,omitempty"`
-	MinScore Score            `json:"min_score,omitempty"`
-	Filter   filter.Predicate `json:"-"`
-	Mode     SearchMode       `json:"mode,omitempty"`
+	TopK     int   `json:"top_k,omitempty"`
+	MinScore Score `json:"min_score,omitempty"`
+	// Filter is encoded as its canonical filter DSL string. An omitted or null
+	// JSON filter means no predicate; a present string must parse successfully.
+	Filter filter.Predicate `json:"filter,omitempty"`
+	Mode   SearchMode       `json:"mode,omitempty"`
+}
+
+type searchOptionsWire struct {
+	TopK     int        `json:"top_k,omitempty"`
+	MinScore Score      `json:"min_score,omitempty"`
+	Filter   *string    `json:"filter,omitempty"`
+	Mode     SearchMode `json:"mode,omitempty"`
 }
 
 func (s SearchOptions) Validate() error {
@@ -115,20 +124,29 @@ func (s SearchOptions) MarshalJSON() ([]byte, error) {
 	if err := s.Validate(); err != nil {
 		return nil, err
 	}
-	type wireSearchOptions SearchOptions
-	return json.Marshal(wireSearchOptions(s))
+	wire := searchOptionsWire{TopK: s.TopK, MinScore: s.MinScore, Mode: s.Mode}
+	if s.Filter != nil {
+		wire.Filter = new(s.Filter.String())
+	}
+	return json.Marshal(wire)
 }
 
 func (s *SearchOptions) UnmarshalJSON(data []byte) error {
 	if s == nil {
 		return fmt.Errorf("%w: search options receiver is nil", ErrInvalidOptions)
 	}
-	type wireSearchOptions SearchOptions
-	var decoded wireSearchOptions
+	var decoded searchOptionsWire
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return fmt.Errorf("%w: decode search options: %w", ErrInvalidOptions, err)
 	}
-	candidate := SearchOptions(decoded)
+	candidate := SearchOptions{TopK: decoded.TopK, MinScore: decoded.MinScore, Mode: decoded.Mode}
+	if decoded.Filter != nil {
+		predicate, err := filter.Parse(*decoded.Filter)
+		if err != nil {
+			return fmt.Errorf("%w: filter: %w", ErrInvalidOptions, err)
+		}
+		candidate.Filter = predicate
+	}
 	if err := candidate.Validate(); err != nil {
 		return err
 	}

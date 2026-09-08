@@ -24,7 +24,8 @@
 //
 // Metadata filtering uses the filter mini-language: build predicates with
 // typed constructors or parse them from text with filter.Parse. See
-// [github.com/Tangerg/scope/core/vectorstore/filter].
+// [github.com/Tangerg/scope/core/vectorstore/filter]. SearchOptions JSON stores
+// the canonical DSL string so serializing a request preserves its predicate.
 //
 // Quick start:
 //
