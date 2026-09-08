@@ -25,5 +25,11 @@
 // accepted; Index requires that count to match what it sent rather than
 // treating a short write as a complete one.
 //
+// Scoring. The three metrics report three different quantities, so each has its
+// own mapping. COSINE is a similarity in [-1, 1]. L2 is the squared distance —
+// Milvus stops before the square root — which still ranks correctly. IP is the
+// raw inner product with no normalization, so it is unbounded unless the caller
+// supplies unit vectors and cannot share the cosine mapping.
+//
 // See https://milvus.io/docs for the full API surface.
 package milvus

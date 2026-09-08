@@ -369,12 +369,25 @@ func (s *Store) buildDocumentsFromResults(rs milvusclient.ResultSet, minScore ve
 	return docs, nil
 }
 
+// normalizeScore maps what Milvus returns for the collection's metric.
+//
+// The three metrics report three different things. COSINE is a cosine
+// similarity in [-1, 1]. L2 is the squared distance — Milvus stops before the
+// square root — which is monotone in the distance, so ranking survives even
+// though the score is not comparable with another provider's. IP is the raw
+// inner product with no normalization at all: it is unbounded unless the
+// caller happens to supply unit vectors, so it cannot share the cosine
+// mapping, which would clamp every product at or above 1 to a score of 1 and
+// every product at or below -1 to 0, collapsing distinct results onto the same
+// score and making MinScore meaningless.
 func (s *Store) normalizeScore(raw float64) vectorstore.Score {
 	switch s.metricType {
 	case entity.L2:
 		return vectorstore.ScoreFromDistance(raw)
-	case entity.IP, entity.COSINE:
+	case entity.COSINE:
 		return vectorstore.ScoreFromCosineSimilarity(raw)
+	case entity.IP:
+		return vectorstore.ScoreFromInnerProduct(raw)
 	default:
 		return vectorstore.ScoreFromValue(raw)
 	}
