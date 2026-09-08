@@ -162,6 +162,14 @@ func (e *execution) acceptModel(signals []agent.Signal) (agent.Transition, error
 	if response.Output.FinishReason == chat.FinishReasonLength {
 		return e.rejectTruncatedToolCalls(consumedSignals, response, calls)
 	}
+	if response.Output.FinishReason != chat.FinishReasonToolCalls {
+		return e.fail(
+			consumedSignals,
+			agent.FailureKindExternal,
+			"interaction.model.tool_calls_not_completed",
+			fmt.Sprintf("model output ended with %q; tool calls were not executed", response.Output.FinishReason),
+		)
+	}
 
 	e.state.PendingModelResponse = response
 	e.state.NextToolCallIndex = 0

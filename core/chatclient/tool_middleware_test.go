@@ -125,6 +125,7 @@ func TestToolMiddlewareRejectsEntireInvalidBatchBeforeExecution(t *testing.T) {
 	for _, second := range []chat.ToolCall{
 		{ID: "second", Name: "missing", Arguments: `{"value":"second"}`},
 		{ID: "second", Name: "write", Arguments: `{"value":123}`},
+		{ID: "first", Name: "write", Arguments: `{"value":"second"}`},
 	} {
 		t.Run(second.Name, func(t *testing.T) {
 			executions := 0
@@ -175,6 +176,32 @@ func TestToolMiddlewareExecutesOnlyOneBatch(t *testing.T) {
 	}
 	if calls != 2 || executions != 1 || response.Output.FinishReason != chat.FinishReasonToolCalls {
 		t.Fatalf("model calls = %d, tool executions = %d, response = %#v", calls, executions, response)
+	}
+}
+
+func TestToolMiddlewarePreservesNonToolCompletionWithoutExecution(t *testing.T) {
+	for _, reason := range []chat.FinishReason{chat.FinishReasonStop, chat.FinishReasonLength, chat.FinishReasonContentFilter, chat.FinishReasonRefusal, chat.FinishReasonOther} {
+		t.Run(reason.String(), func(t *testing.T) {
+			executions := 0
+			middleware, err := NewToolMiddleware(middlewareTool{name: "write", call: func(context.Context, tool.Invocation) (chat.ToolOutput, error) {
+				executions++
+				return chat.NewTextToolOutput("changed"), nil
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			original := toolCallResponse(chat.ToolCall{ID: "call-1", Name: "write", Arguments: `{"value":"first"}`})
+			original.Output.FinishReason = reason
+			modelCalls := 0
+			model := middleware(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+				modelCalls++
+				return original, nil
+			}))
+			response, err := model.Call(t.Context(), textRequest("write"))
+			if err != nil || response != original || executions != 0 || modelCalls != 1 {
+				t.Fatalf("response preserved=%v error=%v executions=%d model calls=%d", response == original, err, executions, modelCalls)
+			}
+		})
 	}
 }
 

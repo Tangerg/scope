@@ -322,6 +322,9 @@ func (e executionState) validatePendingBatch() ([]chat.ToolCall, error) {
 	if err := e.PendingModelResponse.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: pending response: %w", ErrInvalidExecutionState, err)
 	}
+	if e.PendingModelResponse.Output.FinishReason != chat.FinishReasonToolCalls {
+		return nil, fmt.Errorf("%w: pending response must finish with tool_calls", ErrInvalidExecutionState)
+	}
 	calls, _, err := responseToolCalls(e.PendingModelResponse)
 	if err != nil || len(calls) == 0 || uint64(len(calls)) > uint64(^uint32(0)) {
 		return nil, fmt.Errorf("%w: pending response has no bounded unambiguous tool calls", ErrInvalidExecutionState)

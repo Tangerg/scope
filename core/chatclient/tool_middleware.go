@@ -25,6 +25,7 @@ type toolMiddleware struct {
 // before executing any Tool. The accepted batch executes serially, followed by
 // one model call. Runtime failures do not roll back completed Tools. Further
 // rounds and execution policy remain outside this boundary.
+// Only FinishReasonToolCalls authorizes execution; other outcomes pass through.
 func NewToolMiddleware(executables ...tool.Tool) (chat.CallMiddleware, error) {
 	if len(executables) == 0 {
 		return nil, fmt.Errorf("%w: at least one Tool is required", ErrInvalidToolMiddleware)
@@ -107,7 +108,12 @@ type preparedToolBatch []preparedToolCall
 
 func (t *toolMiddleware) prepare(calls []chat.ToolCall) (preparedToolBatch, error) {
 	batch := make(preparedToolBatch, len(calls))
+	seenIDs := make(map[string]struct{}, len(calls))
 	for index, call := range calls {
+		if _, duplicate := seenIDs[call.ID]; duplicate {
+			return nil, fmt.Errorf("%w: duplicate tool call ID %q", ErrInvalidToolMiddleware, call.ID)
+		}
+		seenIDs[call.ID] = struct{}{}
 		binding, exists := t.bindings[call.Name]
 		if !exists {
 			return nil, fmt.Errorf("chatclient: execute tool call[%d]: tool %q is not bound", index, call.Name)
@@ -150,7 +156,7 @@ func toolCalls(response *chat.Response) ([]chat.ToolCall, error) {
 	if err := response.Validate(); err != nil {
 		return nil, fmt.Errorf("chatclient: tool middleware received an invalid response: %w", err)
 	}
-	if response.Output == nil || response.Output.Message == nil {
+	if response.Output == nil || response.Output.FinishReason != chat.FinishReasonToolCalls || response.Output.Message == nil {
 		return nil, nil
 	}
 	var calls []chat.ToolCall

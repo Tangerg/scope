@@ -63,6 +63,35 @@ func FuzzExecutionStateRestore(f *testing.F) {
 	})
 }
 
+func TestRestoreRejectsNonToolCompletionInPendingBatch(t *testing.T) {
+	definition := fuzzInteractionDefinition(t)
+	for _, seed := range fuzzInteractionStates(t, definition) {
+		var state executionState
+		if err := json.Unmarshal(seed.Payload(), &state); err != nil {
+			t.Fatal(err)
+		}
+		if state.PendingModelResponse == nil {
+			continue
+		}
+		for _, reason := range []chat.FinishReason{chat.FinishReasonStop, chat.FinishReasonLength, chat.FinishReasonContentFilter, chat.FinishReasonRefusal, chat.FinishReasonOther} {
+			t.Run(string(state.Phase)+"/"+reason.String(), func(t *testing.T) {
+				state.PendingModelResponse.Output.FinishReason = reason
+				payload, err := json.Marshal(state)
+				if err != nil {
+					t.Fatal(err)
+				}
+				captured, err := agent.NewExecutionState(executionStateKind, payload)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := definition.Restore(captured); !errors.Is(err, ErrInvalidExecutionState) {
+					t.Fatalf("Restore error = %v, want ErrInvalidExecutionState", err)
+				}
+			})
+		}
+	}
+}
+
 func fuzzInteractionDefinition(f testing.TB) *Definition {
 	f.Helper()
 	inputSchema, err := agent.SchemaFor[fuzzDelegateInput]()

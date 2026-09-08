@@ -11,6 +11,11 @@
 // records. Direct model calls remain available through package chatclient
 // without constructing an Interaction or Engine.
 //
+// Only FinishReasonToolCalls admits Tool and Delegate execution. Length-truncated
+// calls receive model-visible feedback for another bounded model attempt; calls
+// accompanying other finish reasons fail the Process without execution. Restored
+// pending batches must satisfy the same admission rule.
+//
 // An ordinary Tool error produces a model-visible ToolResult. Host failures,
 // cancellation, deadlines, and panics that produce no definite ToolResult leave
 // the Tool Effect unknown. The Engine retains that identity across tree capture

@@ -115,6 +115,38 @@ func TestLengthTruncatedToolCallsNeverReachCapabilitiesOrExecution(t *testing.T)
 	}
 }
 
+func TestNonToolCompletionNeverReachesCapabilitiesOrExecution(t *testing.T) {
+	for _, reason := range []chat.FinishReason{chat.FinishReasonStop, chat.FinishReasonContentFilter, chat.FinishReasonRefusal, chat.FinishReasonOther} {
+		t.Run(reason.String(), func(t *testing.T) {
+			var calls, capabilities, modelCalls atomic.Int32
+			executable := &trustBoundaryTool{name: "inspect", calls: &calls, capabilities: &capabilities}
+			model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+				if modelCalls.Add(1) != 1 {
+					return textResponse("done"), nil
+				}
+				response := toolCallResponse(chat.ToolCall{ID: "call-1", Name: "inspect", Arguments: `{}`})
+				response.Output.FinishReason = reason
+				return response, nil
+			})
+			process, engine := startConcurrentInteraction(t, model, []tool.Tool{executable}, 2)
+			result, err := process.Await(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := engine.Close(); err != nil {
+				t.Fatal(err)
+			}
+			failure, present := result.Termination().Failure()
+			if result.Status() != agent.StatusFailed || !present || failure.Kind() != agent.FailureKindExternal || failure.Code() != "interaction.model.tool_calls_not_completed" {
+				t.Fatalf("status=%s failure=%v", result.Status(), failure)
+			}
+			if calls.Load() != 0 || capabilities.Load() != 0 || modelCalls.Load() != 1 {
+				t.Fatalf("tool calls=%d capabilities=%d model calls=%d", calls.Load(), capabilities.Load(), modelCalls.Load())
+			}
+		})
+	}
+}
+
 func TestAuthorizationUsesManagedInvocationWithoutLeakingPolicyCause(t *testing.T) {
 	const policySecret = "workspace internal role billing-admin"
 	var calls atomic.Int32
