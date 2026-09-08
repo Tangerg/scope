@@ -341,8 +341,8 @@ func (s *Store) toDocument(hit searchHit) (*document.Document, error) {
 
 func (s *Store) metadataValues(hit searchHit) (map[string]any, error) {
 	if s.metadataField != "" {
-		raw, present := hit.Source[s.metadataField]
-		if !present {
+		raw := hit.Source[s.metadataField]
+		if raw == nil {
 			return nil, nil
 		}
 		values, ok := raw.(map[string]any)

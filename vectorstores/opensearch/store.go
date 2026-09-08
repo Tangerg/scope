@@ -408,8 +408,8 @@ func (s *Store) toDocument(hit opensearchapi.SearchHit) (*document.Document, err
 }
 
 func (s *Store) metadataValues(id string, source map[string]any) (map[string]any, error) {
-	raw, present := source[s.metadataField]
-	if !present {
+	raw := source[s.metadataField]
+	if raw == nil {
 		return nil, nil
 	}
 	values, ok := raw.(map[string]any)

@@ -6,7 +6,24 @@ import (
 	"testing"
 
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+
+	"github.com/Tangerg/scope/core/metadata"
 )
+
+func TestToDocumentAcceptsIndexedNilMetadata(t *testing.T) {
+	store := &Store{contentField: "content", metadataField: "metadata"}
+	source, err := json.Marshal(map[string]any{"content": "hello", "metadata": metadata.Map(nil)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := store.toDocument(opensearchapi.SearchHit{ID: "doc-1", Source: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.ID != "doc-1" || document.Text != "hello" || document.Metadata != nil {
+		t.Fatalf("document = %+v", document)
+	}
+}
 
 func TestStoreConfigRejectsFieldCollisions(t *testing.T) {
 	config := StoreConfig{ContentField: "payload", EmbeddingField: "payload"}
