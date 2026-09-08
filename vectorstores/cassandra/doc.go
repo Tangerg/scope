@@ -1,8 +1,17 @@
 // Package cassandra exposes Apache Cassandra 5.0+ vector support
 // through the Core vector-store capability interfaces. Documents live in a regular CQL table with
-// a `vector<float, N>` column; metadata keys must be declared as
+// a `vector<float, N>` column; filterable metadata keys must be declared as
 // typed columns (Cassandra has no JSON-path operator), each indexed
 // via a Storage Attached Index (SAI).
+//
+// Metadata model. A document's metadata of record is the JSON in
+// [StoreConfig.MetadataColumn], which carries no SAI index. The declared typed
+// columns are the filterable projection of that record. CQL reaches a metadata
+// key only as a declared column, so writing only those columns dropped every
+// other key with no error and no way to get it back, and reading them back
+// returned a document without those keys. Reading the record instead makes the
+// round trip exact and keeps undeclared keys; declaring a column is what makes
+// a key filterable, not what makes it stored.
 //
 // Requirements: Apache Cassandra 5.0+ or compatible (DataStax Astra
 // DB / DataStax Enterprise). Vector + SAI both arrived together in
@@ -25,7 +34,7 @@
 // or standalone `NOT`; the visitor rejects them with a clear error.
 // `IN` is fine and binds as a typed slice. Every filterable
 // metadata key must exist as a typed column on the table, declared
-// via [MetadataColumn] entries with their CQL type (text / int /
+// via [StoreConfig.MetadataColumns] entries with their CQL type (text / int /
 // boolean / double / …).
 //
 // Filter-based DELETE. Cassandra forbids deleting by a non-PK

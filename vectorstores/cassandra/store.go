@@ -16,7 +16,6 @@ import (
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -96,6 +95,16 @@ type StoreConfig struct {
 	ContentColumn   string
 	EmbeddingColumn string
 
+	// MetadataColumn is the text column that holds a document's metadata as
+	// JSON. It carries no SAI index because it is the record rather than a
+	// filterable projection of it.
+	//
+	// CQL reaches a metadata key only as a declared column, so writing only
+	// the columns in MetadataColumns dropped every other key with no error and
+	// no way to get it back. This column keeps the document whole; the typed
+	// columns below stay the filterable projection of it.
+	MetadataColumn string
+
 	// MetadataColumns enumerates the filterable metadata keys. Each
 	// becomes a typed column on the table and (under
 	// InitializeSchema) an SAI index. The optional [DocumentMetadata]
@@ -164,6 +173,23 @@ func (s StoreConfig) validateIdentifiers() error {
 	if err := identifier(s.EmbeddingColumn).validate("EmbeddingColumn"); err != nil {
 		return err
 	}
+	if err := identifier(s.MetadataColumn).validate("MetadataColumn"); err != nil {
+		return err
+	}
+	// Every one of these is a column on the same table, so a reused name would
+	// have two writers and the CREATE TABLE would not even be valid CQL.
+	reserved := map[string]string{
+		s.IDColumn:        "IDColumn",
+		s.ContentColumn:   "ContentColumn",
+		s.EmbeddingColumn: "EmbeddingColumn",
+		s.MetadataColumn:  "MetadataColumn",
+	}
+	if len(reserved) != 4 {
+		return fmt.Errorf(
+			"cassandra: IDColumn %q, ContentColumn %q, EmbeddingColumn %q and MetadataColumn %q must name four distinct columns",
+			s.IDColumn, s.ContentColumn, s.EmbeddingColumn, s.MetadataColumn)
+	}
+	declared := make(map[string]struct{}, len(s.MetadataColumns))
 	for _, m := range s.MetadataColumns {
 		if m.Name == "" {
 			return errors.New("cassandra: MetadataColumn.Name must not be empty")
@@ -174,6 +200,13 @@ func (s StoreConfig) validateIdentifiers() error {
 		if m.CQLType == "" {
 			return fmt.Errorf("cassandra: MetadataColumn %q must have a CQLType", m.Name)
 		}
+		if owner, taken := reserved[m.Name]; taken {
+			return fmt.Errorf("cassandra: MetadataColumns entry %q collides with %s", m.Name, owner)
+		}
+		if _, duplicate := declared[m.Name]; duplicate {
+			return fmt.Errorf("cassandra: MetadataColumns contains duplicate column %q", m.Name)
+		}
+		declared[m.Name] = struct{}{}
 	}
 	return nil
 }
@@ -188,6 +221,7 @@ var (
 // applyDefaults fills zero fields with documented defaults.
 func (s *StoreConfig) applyDefaults() {
 	s.KeyspaceName = cmp.Or(s.KeyspaceName, DefaultKeyspaceName)
+	s.MetadataColumn = cmp.Or(s.MetadataColumn, DefaultMetadataColumn)
 	s.TableName = cmp.Or(s.TableName, DefaultTableName)
 	s.IDColumn = cmp.Or(s.IDColumn, DefaultIDColumn)
 	s.ContentColumn = cmp.Or(s.ContentColumn, DefaultContentColumn)
@@ -208,6 +242,7 @@ type Store struct {
 	idColumn        string
 	contentColumn   string
 	embeddingColumn string
+	metadataColumn  string
 	metadataColumns []MetadataColumn
 	embeddingClient embeddingclient.Client
 	documentBatcher vectorstore.Batcher
@@ -238,6 +273,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		idColumn:        config.IDColumn,
 		contentColumn:   config.ContentColumn,
 		embeddingColumn: config.EmbeddingColumn,
+		metadataColumn:  config.MetadataColumn,
 		metadataColumns: slices.Clone(config.MetadataColumns),
 		embeddingClient: embeddingClient,
 		documentBatcher: config.DocumentBatcher,
@@ -261,6 +297,17 @@ func (s *Store) initialize(ctx context.Context, initSchema bool, replication str
 		return errors.New("cassandra: Dimensions must be > 0")
 	}
 
+	for _, stmt := range s.schemaStatements(replication) {
+		if err := s.session.Query(stmt).WithContext(ctx).Exec(); err != nil {
+			return fmt.Errorf("execute %q: %w", firstLine(stmt), err)
+		}
+	}
+	return nil
+}
+
+// schemaStatements is the schema this store generates, named so the shape it
+// promises can be asserted without a session.
+func (s *Store) schemaStatements(replication string) []string {
 	stmts := []string{
 		fmt.Sprintf("CREATE KEYSPACE IF NOT EXISTS %s WITH REPLICATION = %s",
 			s.keyspaceName, replication),
@@ -273,6 +320,9 @@ func (s *Store) initialize(ctx context.Context, initSchema bool, replication str
 	cols.WriteString(" text, ")
 	cols.WriteString(s.embeddingColumn)
 	fmt.Fprintf(&cols, " vector<float, %d>", s.dimensions)
+	cols.WriteString(", ")
+	cols.WriteString(s.metadataColumn)
+	cols.WriteString(" text")
 	for _, m := range s.metadataColumns {
 		cols.WriteString(", ")
 		cols.WriteString(m.Name)
@@ -300,12 +350,7 @@ func (s *Store) initialize(ctx context.Context, initSchema bool, replication str
 		))
 	}
 
-	for _, stmt := range stmts {
-		if err := s.session.Query(stmt).WithContext(ctx).Exec(); err != nil {
-			return fmt.Errorf("execute %q: %w", firstLine(stmt), err)
-		}
-	}
-	return nil
+	return stmts
 }
 
 func firstLine(s string) string {
@@ -355,10 +400,16 @@ func (s *Store) insertOne(ctx context.Context, id string, doc *document.Document
 	if err != nil {
 		return fmt.Errorf("cassandra: marshal vector for %s: %w", id, err)
 	}
-	columns := []string{s.idColumn, s.contentColumn, s.embeddingColumn}
-	placeholders := []string{"?", "?", string(vectorJSON)}
-	args := []any{id, doc.Text}
+	metadataJSON, err := json.Marshal(doc.Metadata)
+	if err != nil {
+		return fmt.Errorf("cassandra: marshal metadata for %s: %w", id, err)
+	}
+	columns := []string{s.idColumn, s.contentColumn, s.embeddingColumn, s.metadataColumn}
+	placeholders := []string{"?", "?", string(vectorJSON), "?"}
+	args := []any{id, doc.Text, string(metadataJSON)}
 
+	// The typed columns are the filterable projection. The record above is what
+	// a search reads back, so a key without a declared column is no longer lost.
 	for _, m := range s.metadataColumns {
 		val, ok, err := doc.Metadata.Decode[any](m.Name)
 		if err != nil {
@@ -417,18 +468,9 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		wherePart = " WHERE " + wherePredicate
 	}
 
-	columns := []string{
-		s.idColumn,
-		s.contentColumn,
-		fmt.Sprintf("similarity_%s(%s, %s) AS score", s.similarity, s.embeddingColumn, vecLiteral),
-	}
-	for _, m := range s.metadataColumns {
-		columns = append(columns, m.Name)
-	}
-
 	stmt := fmt.Sprintf(
 		"SELECT %s FROM %s%s ORDER BY %s ANN OF %s LIMIT %d",
-		strings.Join(columns, ", "), s.fullTable, wherePart,
+		strings.Join(s.selectColumns(vecLiteral), ", "), s.fullTable, wherePart,
 		s.embeddingColumn, vecLiteral, req.Options.ResultLimit(),
 	)
 
@@ -466,7 +508,7 @@ const (
 	scanDocumentIDIndex = iota
 	scanContentIndex
 	scanScoreIndex
-	scanMetadataOffset
+	scanMetadataIndex
 )
 
 func (q *queryIterator) scan(destinations ...any) bool {
@@ -481,14 +523,22 @@ func (q *queryIterator) close() error {
 	return q.value.Close()
 }
 
-// gocql.Scan needs one pointer for every selected column, including the
-// configuration-dependent metadata tail.
-func (s *Store) scanDestinations() []any {
-	destinations := []any{new(string), new(string), new(float32)}
-	for range s.metadataColumns {
-		destinations = append(destinations, new(any))
+// selectColumns is everything a search result is read from, in the order
+// scanDestinations expects. The typed metadata columns are absent on purpose:
+// they exist so a filter can select on them, and the record column is what a
+// result reads its metadata back from.
+func (s *Store) selectColumns(vecLiteral string) []string {
+	return []string{
+		s.idColumn,
+		s.contentColumn,
+		fmt.Sprintf("similarity_%s(%s, %s) AS score", s.similarity, s.embeddingColumn, vecLiteral),
+		s.metadataColumn,
 	}
-	return destinations
+}
+
+// gocql.Scan needs one pointer for every selected column.
+func (s *Store) scanDestinations() []any {
+	return []any{new(string), new(string), new(float32), new(string)}
 }
 
 func (s *Store) searchResultFromScan(destinations []any, minScore vectorstore.Score) (*vectorstore.SearchResult, error) {
@@ -506,20 +556,13 @@ func (s *Store) searchResultFromScan(destinations []any, minScore vectorstore.Sc
 	}
 
 	doc := &document.Document{ID: id, Text: text}
-	if len(s.metadataColumns) > 0 {
-		meta := make(map[string]any, len(s.metadataColumns))
-		for index, column := range s.metadataColumns {
-			value := *(destinations[scanMetadataOffset+index].(*any))
-			if value != nil {
-				meta[column.Name] = value
-			}
-		}
-		if len(meta) > 0 {
-			var err error
-			doc.Metadata, err = metadata.FromValues(meta)
-			if err != nil {
-				return nil, fmt.Errorf("cassandra: convert metadata: %w", err)
-			}
+	// Metadata comes from the record rather than from the typed columns. CQL
+	// reaches a key only as a declared column, so reading the projection back
+	// returned a document without every key that had no column — including the
+	// keys this store had itself refused to write.
+	if raw := *destinations[scanMetadataIndex].(*string); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &doc.Metadata); err != nil {
+			return nil, fmt.Errorf("cassandra: decode metadata for %q: %w", id, err)
 		}
 	}
 	return &vectorstore.SearchResult{Document: doc, Score: score}, nil
