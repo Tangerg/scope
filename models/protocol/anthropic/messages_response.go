@@ -145,10 +145,19 @@ func normalizeProtocolStopReason(reason anthropicsdk.StopReason) corechat.Finish
 		return ""
 	case anthropicsdk.StopReasonEndTurn, anthropicsdk.StopReasonStopSequence:
 		return corechat.FinishReasonStop
-	// Both limits truncate. max_tokens is the budget the caller set;
-	// model_context_window_exceeded is the model's own window filling first,
-	// which Anthropic tells clients to "treat as truncated" all the same.
-	case anthropicsdk.StopReasonMaxTokens, anthropicsdk.StopReasonModelContextWindowExceeded:
+	// All three leave a half-finished output that the caller continues to
+	// finish, which is what FinishReasonLength groups by. max_tokens is the
+	// budget the caller set; model_context_window_exceeded is the model's own
+	// window filling first, which Anthropic tells clients to "treat as
+	// truncated" all the same; and of pause_turn Anthropic says "we paused a
+	// long-running turn. You may provide the response back as-is in a
+	// subsequent request to let the model continue" — incomplete, with
+	// continuation as the remedy. Answering Other for a paused turn would hide
+	// it from every caller that decides whether to continue by reading the
+	// finish reason. The exact reason stays on the output either way.
+	case anthropicsdk.StopReasonMaxTokens,
+		anthropicsdk.StopReasonModelContextWindowExceeded,
+		anthropicsdk.StopReasonPauseTurn:
 		return corechat.FinishReasonLength
 	case anthropicsdk.StopReasonToolUse:
 		return corechat.FinishReasonToolCalls

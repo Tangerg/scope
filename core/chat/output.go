@@ -20,11 +20,16 @@ const (
 	// FinishReasonStop means the model reached a natural stop condition,
 	// including one of the caller's stop sequences. The output is complete.
 	FinishReasonStop FinishReason = "stop"
-	// FinishReasonLength means a limit truncated the output, so it is
-	// incomplete and continuing is the caller's remedy. The limit may be the
-	// caller's own token budget or one the provider imposed, such as a context
-	// window that filled before that budget was reached; both leave the same
-	// half-finished output, so both map here.
+	// FinishReasonLength means the output is incomplete and continuing is the
+	// caller's remedy. It groups by the state the caller is left in rather than
+	// by the cause: the caller's own token budget, a provider limit such as a
+	// context window that filled first, or a provider pausing a long-running
+	// turn and inviting the caller to send the response back to resume all
+	// leave the same half-finished output, so all of them map here. An adapter
+	// that files one of them under [FinishReasonOther] instead hides it from
+	// every caller that decides whether to continue by reading this field; the
+	// provider's own reason belongs in [OutputMetadata.Extra] alongside, not
+	// in place of, this one.
 	FinishReasonLength FinishReason = "length"
 	// FinishReasonToolCalls means the model stopped to request tool execution.
 	FinishReasonToolCalls FinishReason = "tool_calls"

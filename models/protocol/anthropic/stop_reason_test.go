@@ -8,9 +8,19 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
-// Anthropic reports two truncations and tells clients to treat both the same
-// way. Classifying the context-window case as other would hide it from every
-// caller that checks for a truncated answer.
+// Anthropic reports three stop reasons that leave the caller holding a
+// half-finished output, and Core's FinishReasonLength groups by that state
+// rather than by the cause. Two are truncations Anthropic tells clients to
+// treat alike. The third is pause_turn, of which Anthropic says "we paused a
+// long-running turn. You may provide the response back as-is in a subsequent
+// request to let the model continue" — incomplete, with continuation as the
+// remedy, which is the same position a truncation leaves the caller in.
+//
+// pause_turn used to reach Other, not by argument but because the default
+// branch caught it and this table recorded the result. Other hides it from
+// every caller that decides whether to continue by reading the finish reason,
+// and the rest of a paused turn would be lost without a sound. The exact
+// reason is on the output either way, under the native stop reason key.
 func TestStopReasonClassifiesEveryTruncationAsLength(t *testing.T) {
 	t.Parallel()
 
@@ -25,7 +35,7 @@ func TestStopReasonClassifiesEveryTruncationAsLength(t *testing.T) {
 		{reason: anthropicsdk.StopReasonModelContextWindowExceeded, want: corechat.FinishReasonLength},
 		{reason: anthropicsdk.StopReasonToolUse, want: corechat.FinishReasonToolCalls},
 		{reason: anthropicsdk.StopReasonRefusal, want: corechat.FinishReasonRefusal},
-		{reason: anthropicsdk.StopReasonPauseTurn, want: corechat.FinishReasonOther},
+		{reason: anthropicsdk.StopReasonPauseTurn, want: corechat.FinishReasonLength},
 		{reason: "invented_by_a_future_model", want: corechat.FinishReasonOther},
 	} {
 		t.Run(string(sample.reason), func(t *testing.T) {
