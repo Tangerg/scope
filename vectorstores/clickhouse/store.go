@@ -473,32 +473,26 @@ func (s *Store) buildFilter(expr filter.Predicate) (string, []any, error) {
 
 func (s *Store) Close() error { return nil }
 
-// metadataAsStringMap stringifies metadata values so they fit the
-// `Map(String, String)` column. Complex values get JSON-encoded.
+// metadataAsStringMap carries each metadata value into the
+// `Map(String, String)` column as its JSON text.
 //
-// A marshal failure is reported instead of falling back to fmt.Sprint. Go's %v
-// rendering of a map or slice is not JSON, so the fallback wrote a value no
-// reader can decode while reporting the write as faithful.
+// [metadata.Map] is a map of JSON values, so the JSON text is the exact value
+// and a Map(String, String) holds it verbatim. Going through Values() and
+// stringifying the decoded scalars instead cost the type: a document indexed
+// with year 2020 came back with the string "2020", so Decode[int] failed on a
+// document this store had accepted, and a nil value became "" — the same text
+// as an empty string, which the filter AST reads as a different value. This
+// pair is a bijection, so a document reads back as it was written.
+//
+// A string value therefore arrives quoted, which is why the filter visitor
+// compares against the JSON encoding of a literal rather than its bare text.
 func metadataAsStringMap(m metadata.Map) (map[string]string, error) {
-	values, err := m.Values()
-	if err != nil {
-		return nil, err
+	if err := m.Validate(); err != nil {
+		return nil, fmt.Errorf("clickhouse: encode metadata: %w", err)
 	}
-	out := make(map[string]string, len(values))
-	for k, v := range values {
-		switch val := v.(type) {
-		case string:
-			out[k] = val
-		case nil:
-			out[k] = ""
-		default:
-			encoded, marshalErr := json.Marshal(val)
-			if marshalErr != nil {
-				return nil, fmt.Errorf("clickhouse: encode metadata value of type %T for key %s: %w",
-					val, k, marshalErr)
-			}
-			out[k] = string(encoded)
-		}
+	out := make(map[string]string, len(m))
+	for key, raw := range m {
+		out[key] = string(raw)
 	}
 	return out, nil
 }
@@ -507,9 +501,12 @@ func stringMapToMetadata(m map[string]string) (metadata.Map, error) {
 	if len(m) == 0 {
 		return nil, nil
 	}
-	out := make(map[string]any, len(m))
-	for k, v := range m {
-		out[k] = v
+	out := make(metadata.Map, len(m))
+	for key, text := range m {
+		out[key] = json.RawMessage(text)
 	}
-	return metadata.FromValues(out)
+	if err := out.Validate(); err != nil {
+		return nil, fmt.Errorf("clickhouse: decode metadata: %w", err)
+	}
+	return out, nil
 }

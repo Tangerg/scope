@@ -51,7 +51,7 @@ func TestDeletesIssueLightweightStatements(t *testing.T) {
 		{
 			name: "by filter",
 			call: func(store *Store) error { return store.DeleteWhere(t.Context(), expression) },
-			want: `DELETE FROM scope.vector_store WHERE (mapContains(metadata, 'tenant') AND metadata['tenant'] = ?)`,
+			want: `DELETE FROM scope.vector_store WHERE (mapContains(metadata, 'tenant') AND metadata['tenant'] != 'null' AND metadata['tenant'] = ?)`,
 		},
 		{
 			name: "by ids",
@@ -94,8 +94,11 @@ func TestDeleteWhereBindsFilterValues(t *testing.T) {
 	if got := connection.args[0]; len(got) != 2 {
 		t.Fatalf("bound arguments = %v, want two", got)
 	}
-	if got := connection.args[0][0]; got != "acme" {
-		t.Fatalf("bound arguments[0] = %v, want %q", got, "acme")
+	// Metadata is stored as JSON text, so a string value carries its quotes.
+	// Binding the bare text would compare `acme` against the stored `"acme"`
+	// and select nothing.
+	if got := connection.args[0][0]; got != `"acme"` {
+		t.Fatalf("bound arguments[0] = %v, want %q", got, `"acme"`)
 	}
 }
 
