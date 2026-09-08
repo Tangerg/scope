@@ -23,5 +23,13 @@
 // the original document text under a reserved metadata key; retrieval
 // reverses the mapping back into [document.Document.Text].
 //
+// Upsert acknowledgment. Pinecone answers an upsert with the number of vectors
+// it accepted; Index requires that count to match what it sent rather than
+// treating a short write as a complete one.
+//
+// Filtered deletion is a pod-based index capability. Serverless and starter
+// indexes reject a metadata filter, and that rejection surfaces as an error
+// instead of an empty match set; compose deletion from DeleteIDs there.
+//
 // See https://docs.pinecone.io/ for the full API surface.
 package pinecone

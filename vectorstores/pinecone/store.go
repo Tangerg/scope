@@ -123,11 +123,23 @@ var (
 	_ vectorstore.IDDeleter     = (*Store)(nil)
 )
 
+// indexConnection is the narrow Pinecone data-plane surface the store depends
+// on. It stays unexported because the store opens the connection itself; it
+// exists so the store's requirements are visible and its acknowledgment
+// handling is checkable. *pinecone.IndexConnection satisfies it.
+type indexConnection interface {
+	UpsertVectors(context.Context, []*pinecone.Vector) (uint32, error)
+	QueryByVectorValues(context.Context, *pinecone.QueryByVectorValuesRequest) (*pinecone.QueryVectorsResponse, error)
+	DeleteVectorsByFilter(context.Context, *pinecone.MetadataFilter) error
+	DeleteVectorsById(context.Context, []string) error
+	Close() error
+}
+
 // Store implements [vectorstore.Store] against a Pinecone index. Pinecone owns
 // index creation and dimensionality, so this type validates against the index
 // it is pointed at rather than provisioning one.
 type Store struct {
-	index           *pinecone.IndexConnection
+	index           indexConnection
 	embeddingClient embeddingclient.Client
 	documentBatcher vectorstore.Batcher
 	distanceMetric  DistanceMetric
@@ -220,9 +232,14 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 			return err
 		}
 
-		_, err = s.index.UpsertVectors(ctx, points)
+		// UpsertedCount is Pinecone's acknowledgment of the batch. Accepting a
+		// short count would report a partial write as a complete one.
+		upserted, err := s.index.UpsertVectors(ctx, points)
 		if err != nil {
 			return fmt.Errorf("pinecone: upsert %d vectors: %w", len(points), err)
+		}
+		if uint64(upserted) != uint64(len(points)) {
+			return fmt.Errorf("pinecone: upsert acknowledged %d of %d vectors", upserted, len(points))
 		}
 	}
 
@@ -317,6 +334,11 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	return &vectorstore.SearchResponse{Results: docs}, nil
 }
 
+// DeleteWhere removes every vector matching expr. Pinecone implements
+// metadata-filtered deletion on pod-based indexes only; serverless and starter
+// indexes reject the request, and the error is reported rather than treated as
+// an empty match set. Compose deletion from [Store.DeleteIDs] on those indexes.
+// Implements [vectorstore.FilterDeleter].
 func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
 	if expr == nil {
 		return vectorstore.ErrMissingFilter
