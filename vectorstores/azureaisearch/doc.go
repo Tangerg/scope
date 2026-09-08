@@ -31,9 +31,17 @@
 //
 // Filter visitor produces OData `$filter` syntax — metadata fields
 // must exist as TOP-LEVEL index fields (Azure AI Search doesn't
-// support nested-property paths in $filter). LIKE maps to
-// `search.ismatch('pattern', 'field')`; IN maps to
+// support nested-property paths in $filter). IN maps to
 // `search.in(field, 'v1,v2,...', ',')`.
+//
+// LIKE is refused. Azure's $filter offers no string function to build a
+// pattern match on — its only Boolean functions are geo.intersects, search.in,
+// search.ismatch, and search.ismatchscoring — and the last two run an analyzed
+// full-text query rather than matching a whole value. search.ismatch('Alice')
+// matches an author of "Alice Smith" or "alice", and Azure's own example notes
+// that searching "waterfront" also matches "water" and "front". Refusing keeps
+// one filter from meaning tokenized, case-insensitive, substring matching here
+// and whole-value, case-sensitive matching on every other store.
 //
 // Index and DeleteWhere share the document action endpoint and its
 // 1000-action request limit. Each document's response must acknowledge its

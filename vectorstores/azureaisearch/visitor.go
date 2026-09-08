@@ -180,48 +180,17 @@ func (v *visitor) visitInExpr(expr *filter.BinaryExpr) error {
 // search.ismatch. The full Lucene wildcard syntax `*` / `?` is what
 // AI Search expects; SQL's `%` / `_` are forwarded accordingly.
 func (v *visitor) visitLikeExpr(expr *filter.BinaryExpr) error {
-	field, err := fieldName(expr.Left())
-	if err != nil {
-		return err
-	}
-	value, err := expr.Value()
-	if err != nil {
-		return err
-	}
-	pattern, ok := value.(string)
-	if !ok {
-		return fmt.Errorf("azureaisearch: LIKE requires a string pattern, got %T", value)
-	}
-	v.sql.WriteString("search.ismatch('")
-	v.sql.WriteString(azureWildcardPattern(pattern))
-	v.sql.WriteString("', '")
-	v.sql.WriteString(field)
-	v.sql.WriteString("')")
-	return nil
-}
-
-// azureWildcardPattern translates SQL LIKE wildcards and escapes literal
-// Lucene query-string metacharacters before embedding the result in an OData
-// string literal.
-func azureWildcardPattern(pattern string) string {
-	var out strings.Builder
-	out.Grow(len(pattern))
-	for _, char := range pattern {
-		switch char {
-		case '%':
-			out.WriteByte('*')
-		case '_':
-			out.WriteByte('?')
-		case '\'':
-			out.WriteString("''")
-		case '+', '-', '!', '(', ')', '{', '}', '[', ']', '^', '"', '~', '*', '?', ':', '\\', '/':
-			out.WriteByte('\\')
-			out.WriteRune(char)
-		default:
-			out.WriteRune(char)
-		}
-	}
-	return out.String()
+	// Azure's $filter has no string function to build a pattern match on: the
+	// only Boolean functions are geo.intersects, search.in, search.ismatch and
+	// search.ismatchscoring. The last two run a full-text query, which answers
+	// a different question — the field is analyzed, so search.ismatch('Alice')
+	// matches a document whose author is "Alice Smith" or "alice", and Azure's
+	// own example notes that a search for "waterfront" also matches "water"
+	// and "front". Substituting it would make one filter mean tokenized,
+	// case-insensitive, substring matching here and whole-value,
+	// case-sensitive matching everywhere else.
+	return fmt.Errorf("azureaisearch: LIKE operator is not supported in Azure AI Search $filter at %s",
+		expr.Start().String())
 }
 
 // fieldName extracts the (flat) field identifier — Azure AI Search
