@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -141,7 +142,7 @@ func responsesTerminalDelta(response *responses.Response) (*corechat.ResponseDel
 	if response.CreatedAt > 0 {
 		metadata.CreatedAt = time.Unix(int64(response.CreatedAt), 0).UTC()
 	}
-	if err := metadata.Extra.Set(ResponsesResponseExtensionKey, response); err != nil {
+	if err := metadata.Extra.Set(ResponsesResponseExtensionKey, json.RawMessage(response.RawJSON())); err != nil {
 		return nil, fmt.Errorf("openai responses: preserve native response: %w", err)
 	}
 	delta := &corechat.ResponseDelta{FinishReason: finishReason, Metadata: metadata}

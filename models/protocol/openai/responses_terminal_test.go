@@ -1,9 +1,11 @@
 package openai_test
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -11,6 +13,7 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/modeltest"
+	"github.com/Tangerg/scope/models/protocol/openai"
 )
 
 func TestResponsesTerminalStatesMatchAcrossCallAndStream(t *testing.T) {
@@ -29,7 +32,7 @@ func TestResponsesTerminalStatesMatchAcrossCallAndStream(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			body := fmt.Sprintf(`{"id":"resp_terminal","model":"gpt-5","created_at":1700000000,"status":%q,%s"output":[%s],"usage":{"input_tokens":7,"output_tokens":3}}`, test.status, test.detail, test.output)
+			body := fmt.Sprintf(`{"id":"resp_terminal","model":"gpt-5","created_at":1700000000,"provider_detail":{"job_id":"job-1"},"status":%q,%s"output":[%s],"usage":{"input_tokens":7,"output_tokens":3}}`, test.status, test.detail, test.output)
 			request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("hello")))
 			if err != nil {
 				t.Fatal(err)
@@ -70,6 +73,14 @@ func TestResponsesTerminalStatesMatchAcrossCallAndStream(t *testing.T) {
 			for _, metadata := range []*chat.ResponseMetadata{response.Metadata, terminal.Metadata} {
 				if metadata.ID != "resp_terminal" || metadata.Model != "gpt-5" || metadata.CreatedAt.Unix() != 1700000000 || metadata.Usage.InputTokens != 7 || metadata.Usage.OutputTokens != 3 {
 					t.Fatalf("terminal identity = %q/%q at %v, usage = %+v", metadata.ID, metadata.Model, metadata.CreatedAt, metadata.Usage)
+				}
+				var wantNative any
+				if decodeErr := json.Unmarshal([]byte(body), &wantNative); decodeErr != nil {
+					t.Fatal(decodeErr)
+				}
+				native, found, decodeErr := metadata.Extra.Decode[any](openai.ResponsesResponseExtensionKey)
+				if decodeErr != nil || !found || !reflect.DeepEqual(native, wantNative) {
+					t.Fatalf("native response lost wire data: found = %v, error = %v, response = %+v", found, decodeErr, native)
 				}
 			}
 		})
