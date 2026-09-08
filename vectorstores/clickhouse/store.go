@@ -475,6 +475,10 @@ func (s *Store) Close() error { return nil }
 
 // metadataAsStringMap stringifies metadata values so they fit the
 // `Map(String, String)` column. Complex values get JSON-encoded.
+//
+// A marshal failure is reported instead of falling back to fmt.Sprint. Go's %v
+// rendering of a map or slice is not JSON, so the fallback wrote a value no
+// reader can decode while reporting the write as faithful.
 func metadataAsStringMap(m metadata.Map) (map[string]string, error) {
 	values, err := m.Values()
 	if err != nil {
@@ -488,11 +492,12 @@ func metadataAsStringMap(m metadata.Map) (map[string]string, error) {
 		case nil:
 			out[k] = ""
 		default:
-			if b, err := json.Marshal(val); err == nil {
-				out[k] = string(b)
-			} else {
-				out[k] = fmt.Sprint(val)
+			encoded, marshalErr := json.Marshal(val)
+			if marshalErr != nil {
+				return nil, fmt.Errorf("clickhouse: encode metadata value of type %T for key %s: %w",
+					val, k, marshalErr)
 			}
+			out[k] = string(encoded)
 		}
 	}
 	return out, nil
