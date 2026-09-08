@@ -44,7 +44,19 @@ func NewChat(config ChatConfig) (*Chat, error) {
 	if err != nil {
 		return nil, err
 	}
-	protocol, err := openai.NewCompatibleChatCompletions(openai.ChatCompletionsConfig{APIKey: endpoint.apiKey, DefaultOptions: config.DefaultOptions, BaseURL: endpoint.baseURL, HTTPClient: endpoint.httpClient}, openai.Dialect{Provider: protocolProvider, TokenLimitField: openai.TokenLimitMaxTokens})
+	protocol, err := openai.NewCompatibleChatCompletions(openai.ChatCompletionsConfig{APIKey: endpoint.apiKey, DefaultOptions: config.DefaultOptions, BaseURL: endpoint.baseURL, HTTPClient: endpoint.httpClient}, openai.Dialect{
+		Provider: protocolProvider,
+		// Azure documents that reasoning models "will only work with the
+		// max_completion_tokens parameter when using the Chat Completions
+		// API", and lists max_tokens among the parameters those models do
+		// not support. This adapter targets the current v1 endpoint with no
+		// dated api-version, which is the surface where the replacement is
+		// the documented field — so max_tokens was the one field a caller's
+		// MaxOutputTokens could not survive on a GPT-5 or o-series
+		// deployment. models/openai speaks the same protocol and already
+		// sends the replacement.
+		TokenLimitField: openai.TokenLimitMaxCompletionTokens,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("azureopenai: construct chat: %w", err)
 	}
