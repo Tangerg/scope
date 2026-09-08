@@ -138,6 +138,28 @@ func (v *visitor) visitLogicalExpr(expr *filter.BinaryExpr) error {
 	return nil
 }
 
+// appendAbsentGuard opens a leaf predicate with the truth value the filter AST
+// assigns an absent metadata key, so the leaf is never MISSING.
+//
+// SQL++ says that "if either operand in a comparison is MISSING, the result is
+// MISSING", which drops the document for any operator and stays MISSING under
+// NOT — dropping the documents a negated filter is supposed to keep. The AST is
+// two-valued: an absent key evaluates as nil and filter.Match decides every
+// comparison against it, false for ==, ordering, LIKE and IN, true for !=.
+//
+// IS VALUED is the test that separates the two cases: it is false for both
+// MISSING and NULL, which is exactly how the AST reads an absent key. The
+// caller closes the parenthesis opened here.
+func (v *visitor) appendAbsentGuard(field string, absentMatches bool) {
+	v.sql.WriteByte('(')
+	v.sql.WriteString(field)
+	if absentMatches {
+		v.sql.WriteString(" IS NOT VALUED OR ")
+	} else {
+		v.sql.WriteString(" IS VALUED AND ")
+	}
+}
+
 func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 	field, err := v.fieldPath(expr)
 	if err != nil {
@@ -152,11 +174,13 @@ func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 		return err
 	}
 
+	v.appendAbsentGuard(field, expr.Operator() == filter.OpNotEqual)
 	v.sql.WriteString(field)
 	v.sql.WriteByte(' ')
 	v.sql.WriteString(op)
 	v.sql.WriteByte(' ')
 	v.sql.WriteString(jsonValue(value))
+	v.sql.WriteByte(')')
 	return nil
 }
 
@@ -185,9 +209,11 @@ func (v *visitor) visitInExpr(expr *filter.BinaryExpr) error {
 		values = append(values, val)
 	}
 
+	v.appendAbsentGuard(field, false)
 	v.sql.WriteString(field)
 	v.sql.WriteString(" IN ")
 	v.sql.WriteString(jsonValue(values))
+	v.sql.WriteByte(')')
 	return nil
 }
 
@@ -208,18 +234,23 @@ func (v *visitor) visitLikeExpr(expr *filter.BinaryExpr) error {
 			value, expr.Start().String())
 	}
 
+	v.appendAbsentGuard(field, false)
 	v.sql.WriteString(field)
 	v.sql.WriteString(" LIKE ")
 	v.sql.WriteString(jsonValue(pattern))
+	v.sql.WriteByte(')')
 	return nil
 }
 
-// visitNullTestExpr emits `(<path> IS NULL)`. In SQL++ a path that
-// resolves to JSON null is IS NULL; an absent key resolves to MISSING,
-// which IS NULL also matches in the FTS/N1QL evaluation used here,
-// mirroring the inmemory reference semantics. The negated IS NOT NULL
-// arrives as NOT(<path> IS NULL) and is rendered by visitUnaryExpr, so
-// no separate handling is needed here. No bound parameter is required.
+// visitNullTestExpr emits `(<path> IS NOT VALUED)`.
+//
+// SQL++ separates the states: "IS NULL: Field has value of NULL" and "IS
+// MISSING: No value for field found". An absent key is MISSING, so IS NULL
+// does not match it — and an absent key is the ordinary case for metadata.
+// IS NOT VALUED is false for a real value and true for both NULL and MISSING,
+// which is how the AST reads an absent key. The negated IS NOT NULL arrives as
+// NOT(...) and is rendered by visitUnaryExpr, so no separate handling is
+// needed here. No bound parameter is required.
 func (v *visitor) visitNullTestExpr(expr *filter.BinaryExpr) error {
 	field, err := v.fieldPath(expr)
 	if err != nil {
@@ -227,7 +258,7 @@ func (v *visitor) visitNullTestExpr(expr *filter.BinaryExpr) error {
 	}
 	v.sql.WriteString("(")
 	v.sql.WriteString(field)
-	v.sql.WriteString(" IS NULL)")
+	v.sql.WriteString(" IS NOT VALUED)")
 	return nil
 }
 

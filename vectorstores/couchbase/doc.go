@@ -32,6 +32,15 @@
 // that iterates, checks the stream, and closes the result. A statement that
 // failed mid-stream is an error even though its first response succeeded.
 //
+// Absent keys. SQL++ says "if either operand in a comparison is MISSING, the
+// result is MISSING", which drops the document for any operator and stays
+// MISSING under NOT. The filter AST is two-valued — an absent key evaluates as
+// nil and every comparison against it is decided — so each leaf carries the
+// truth value the AST assigns: `<path> IS NOT VALUED OR ...` for !=,
+// `<path> IS VALUED AND ...` for the rest. IS NULL tests emit IS NOT VALUED,
+// because SQL++ IS NULL requires an explicit NULL and does not match a MISSING
+// path, which is what an absent metadata key is.
+//
 // See https://docs.couchbase.com/server/current/vector-search/
 // vector-search.html for the official reference.
 package couchbase
