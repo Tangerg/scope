@@ -16,5 +16,11 @@
 // field on the query call. Metadata fields are addressed at the top
 // level (no `metadata.` prefix); Chroma stores metadata flat.
 //
+// Write and delete evidence. Chroma answers an upsert with a status alone, so
+// a batch is either accepted whole or reported as an error — there is no
+// per-item result to reconcile. A delete carrying neither ids nor a where
+// clause selects the entire collection, so DeleteWhere refuses a filter that
+// compiles to nothing rather than sending an unfiltered request.
+//
 // See https://docs.trychroma.com/ for the full API surface.
 package chroma

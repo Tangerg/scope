@@ -2,6 +2,7 @@ package chroma
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	v2 "github.com/amikos-tech/chroma-go/pkg/api/v2"
@@ -467,12 +468,16 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		return fmt.Errorf("chroma: convert filter: %w", err)
 	}
 
-	var opts []v2.CollectionDeleteOption
-	if result := visitor.snapshot(); result != nil {
-		opts = append(opts, v2.WithWhere(result))
+	// A Chroma delete carrying neither ids nor a where clause selects the whole
+	// collection, so the store refuses it here. Leaving the refusal to the
+	// client library would make the blast radius of a filter that compiles to
+	// nothing depend on a dependency's validation.
+	where := visitor.snapshot()
+	if where == nil {
+		return errors.New("chroma: refusing to delete on empty filter")
 	}
 
-	if err = s.collection.Delete(ctx, opts...); err != nil {
+	if err = s.collection.Delete(ctx, v2.WithWhere(where)); err != nil {
 		return fmt.Errorf("chroma: delete documents from collection %s: %w",
 			s.collectionName, err)
 	}
