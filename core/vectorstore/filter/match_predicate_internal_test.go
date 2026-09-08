@@ -1,21 +1,19 @@
-package inmemory
+package filter
 
 import (
 	"math"
 	"testing"
-
-	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
 func TestEvaluatorUsesCompleteMetadataPath(t *testing.T) {
-	predicate, err := filter.Parse(`profile['name'] == 'scope'`)
+	predicate, err := Parse(`profile['name'] == 'scope'`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	metadata := map[string]any{
 		"profile": map[string]any{"name": "scope"},
 	}
-	matched, err := matchesFilter(predicate, metadata)
+	matched, err := Match(predicate, metadata)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,8 +23,8 @@ func TestEvaluatorUsesCompleteMetadataPath(t *testing.T) {
 }
 
 func TestEvaluatorComparesLargeIntegersExactly(t *testing.T) {
-	predicate := filter.EQ("sequence", uint64(math.MaxUint64))
-	matched, err := matchesFilter(predicate, map[string]any{
+	predicate := EQ("sequence", uint64(math.MaxUint64))
+	matched, err := Match(predicate, map[string]any{
 		"sequence": uint64(math.MaxUint64 - 1),
 	})
 	if err != nil {
@@ -48,11 +46,11 @@ func TestEvaluatorTreatsMissingFieldsAsNonMatches(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			predicate, err := filter.Parse(tt.source)
+			predicate, err := Parse(tt.source)
 			if err != nil {
 				t.Fatal(err)
 			}
-			matched, err := matchesFilter(predicate, map[string]any{"other": true})
+			matched, err := Match(predicate, map[string]any{"other": true})
 			if err != nil {
 				t.Fatalf("missing field returned error: %v", err)
 			}
@@ -71,22 +69,22 @@ func TestEvaluatorCollectionMembership(t *testing.T) {
 	}
 	for _, test := range []struct {
 		name      string
-		predicate filter.Predicate
+		predicate Predicate
 		want      bool
 	}{
-		{name: "present string", predicate: filter.Has("tags", "go"), want: true},
-		{name: "absent string", predicate: filter.Has("tags", "rust")},
-		{name: "typed numeric slice", predicate: filter.Has("priorities", 2), want: true},
-		{name: "missing field", predicate: filter.Has("missing", "go")},
-		{name: "scalar does not masquerade as collection", predicate: filter.Has("scalar", "go")},
+		{name: "present string", predicate: Has("tags", "go"), want: true},
+		{name: "absent string", predicate: Has("tags", "rust")},
+		{name: "typed numeric slice", predicate: Has("priorities", 2), want: true},
+		{name: "missing field", predicate: Has("missing", "go")},
+		{name: "scalar does not masquerade as collection", predicate: Has("scalar", "go")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := matchesFilter(test.predicate, metadata)
+			got, err := Match(test.predicate, metadata)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if got != test.want {
-				t.Fatalf("matchesFilter() = %t, want %t", got, test.want)
+				t.Fatalf("Match() = %t, want %t", got, test.want)
 			}
 		})
 	}

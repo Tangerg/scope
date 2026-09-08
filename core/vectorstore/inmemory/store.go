@@ -182,7 +182,7 @@ func (s *Store) searchCandidates(query []float64, options vectorstore.SearchOpti
 			if decodeErr != nil {
 				return nil, fmt.Errorf("inmemory: search: metadata: %w", decodeErr)
 			}
-			match, ferr := matchesFilter(options.Filter, metadataValues)
+			match, ferr := filter.Match(options.Filter, metadataValues)
 			if ferr != nil {
 				return nil, fmt.Errorf("inmemory: search: filter: %w", ferr)
 			}
@@ -220,7 +220,7 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		if err != nil {
 			return fmt.Errorf("inmemory: delete by filter: metadata: %w", err)
 		}
-		match, err := matchesFilter(expr, metadataValues)
+		match, err := filter.Match(expr, metadataValues)
 		if err != nil {
 			return fmt.Errorf("inmemory: delete by filter: filter: %w", err)
 		}

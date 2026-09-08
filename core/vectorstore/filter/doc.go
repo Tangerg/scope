@@ -23,4 +23,9 @@
 // Provider compilers and interpreters can share the complete-tree [Visitor]
 // contract through [Predicate.Accept]. Selectors, literals, lists, and operator
 // nodes own their validation, conversion, dispatch, and formatting behavior.
+//
+// [Match] is the one client-side evaluation of a predicate. A store whose
+// provider cannot express a filter — or cannot enumerate matches exhaustively —
+// evaluates it here instead of reimplementing the semantics, so provider-side
+// translation and local evaluation cannot drift apart.
 package filter

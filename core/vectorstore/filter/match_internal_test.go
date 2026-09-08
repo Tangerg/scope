@@ -1,25 +1,23 @@
-package inmemory
+package filter
 
 import (
 	"math"
 	"strings"
 	"testing"
-
-	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-func mustParse(t *testing.T, source string) filter.Predicate {
+func mustParse(t *testing.T, source string) Predicate {
 	t.Helper()
-	predicate, err := filter.Parse(source)
+	predicate, err := Parse(source)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return predicate
 }
 
-func mustMatch(t *testing.T, predicate filter.Predicate, metadata map[string]any) bool {
+func mustMatch(t *testing.T, predicate Predicate, metadata map[string]any) bool {
 	t.Helper()
-	matched, err := matchesFilter(predicate, metadata)
+	matched, err := Match(predicate, metadata)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +95,7 @@ func TestEvaluatorReportsMalformedPredicates(t *testing.T) {
 		"nested":   map[string]any{"list": []any{int64(1)}},
 	}
 	cases := map[string]struct {
-		predicate filter.Predicate
+		predicate Predicate
 		wantText  string
 	}{
 		"ordering on string": {
@@ -115,7 +113,7 @@ func TestEvaluatorReportsMalformedPredicates(t *testing.T) {
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, err := matchesFilter(testCase.predicate, metadata)
+			_, err := Match(testCase.predicate, metadata)
 			if err == nil {
 				t.Fatal("malformed predicate evaluated without error")
 			}
@@ -201,7 +199,7 @@ func TestEvaluatorTreatsNaNAsUnordered(t *testing.T) {
 // TestEvaluatorRejectsNumericStringCoercion documents the deliberate refusal to
 // coerce: "12" < "9" is a caller mistake, not a numeric comparison.
 func TestEvaluatorRejectsNumericStringCoercion(t *testing.T) {
-	if _, err := matchesFilter(mustParse(t, `n < 9`), map[string]any{"n": "12"}); err == nil {
+	if _, err := Match(mustParse(t, `n < 9`), map[string]any{"n": "12"}); err == nil {
 		t.Fatal("numeric string was silently coerced")
 	}
 }
@@ -211,10 +209,10 @@ func TestEvaluatorRejectsNumericStringCoercion(t *testing.T) {
 // simply absent.
 func TestEvaluatorArrayIndexBounds(t *testing.T) {
 	metadata := map[string]any{"list": []any{int64(1), int64(2)}}
-	if !mustMatch(t, filter.EQ(filter.Index("list", 1), 2), metadata) {
+	if !mustMatch(t, EQ(Index("list", 1), 2), metadata) {
 		t.Fatal("integer index did not address the array")
 	}
-	if !mustMatch(t, filter.IsNull(filter.Index("list", 5)), metadata) {
+	if !mustMatch(t, IsNull(Index("list", 5)), metadata) {
 		t.Fatal("out-of-range index was not treated as absent")
 	}
 	for name, index := range map[string]float64{
@@ -223,7 +221,7 @@ func TestEvaluatorArrayIndexBounds(t *testing.T) {
 		"too large":  1 << 63,
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := matchesFilter(filter.EQ(filter.Index("list", index), 2), metadata); err == nil {
+			if _, err := Match(EQ(Index("list", index), 2), metadata); err == nil {
 				t.Fatalf("index %v was accepted", index)
 			}
 		})
@@ -247,7 +245,7 @@ func TestEvaluatorHasRequiresACollection(t *testing.T) {
 	if mustMatch(t, mustParse(t, `scalar has 'x'`), map[string]any{"scalar": "x"}) {
 		t.Fatal("HAS matched a scalar field")
 	}
-	if !mustMatch(t, filter.Has("numbers", 2), map[string]any{"numbers": []any{int64(1), int64(2)}}) {
+	if !mustMatch(t, Has("numbers", 2), map[string]any{"numbers": []any{int64(1), int64(2)}}) {
 		t.Fatal("HAS did not match a numeric element")
 	}
 }
@@ -288,13 +286,13 @@ func TestLikeMatchPatterns(t *testing.T) {
 // that a provider compiler would have rejected.
 func TestEvaluatorInRequiresAList(t *testing.T) {
 	metadata := map[string]any{"category": "tech"}
-	if !mustMatch(t, filter.In("category", []string{"tech", "news"}), metadata) {
+	if !mustMatch(t, In("category", []string{"tech", "news"}), metadata) {
 		t.Fatal("IN did not match a listed value")
 	}
-	if mustMatch(t, filter.In("category", []string{"news"}), metadata) {
+	if mustMatch(t, In("category", []string{"news"}), metadata) {
 		t.Fatal("IN matched an unlisted value")
 	}
-	if mustMatch(t, filter.In("missing", []string{"tech"}), metadata) {
+	if mustMatch(t, In("missing", []string{"tech"}), metadata) {
 		t.Fatal("IN matched an absent field")
 	}
 }
