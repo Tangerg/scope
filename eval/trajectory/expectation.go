@@ -15,7 +15,8 @@ type ToolSequence struct {
 }
 
 // ToolArguments is one exact semantic JSON argument assertion. Its empty value
-// matches a Tool call that supplied no argument text.
+// matches a Tool call that supplied no argument text. Non-empty values must be
+// strict RFC 7493 JSON; number spelling and precision remain intact.
 type ToolArguments string
 
 func (t ToolArguments) Validate() error {

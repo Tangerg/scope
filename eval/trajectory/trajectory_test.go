@@ -277,6 +277,34 @@ func TestEvaluatorHonorsCancellationAndRejectsInvalidExpectations(t *testing.T) 
 	}
 }
 
+func TestToolArgumentsRejectAmbiguousJSON(t *testing.T) {
+	processID, err := agent.ParseProcessID("process:arguments")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{
+		`{"city":"Paris","city":"Berlin"}`,
+		`{"city":"Paris","\u0063ity":"Berlin"}`,
+		`{"city":"\ud800"}`,
+		"{\"city\":\"\xff\"}",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			arguments := trajectory.ToolArguments(raw)
+			if validateErr := arguments.Validate(); !errors.Is(validateErr, trajectory.ErrInvalidSample) {
+				t.Fatalf("ToolArguments.Validate = %v, want ErrInvalidSample", validateErr)
+			}
+			call := trajectory.ToolCall{
+				ProcessID: processID, StepSequence: 1, ModelCall: 1,
+				Call:    chat.ToolCall{ID: "call-1", Name: "weather", Arguments: raw},
+				Outcome: trajectory.ToolOutcomeUnknown,
+			}
+			if validateErr := call.Validate(); !errors.Is(validateErr, trajectory.ErrInvalidTrajectory) {
+				t.Fatalf("ToolCall.Validate = %v, want ErrInvalidTrajectory", validateErr)
+			}
+		})
+	}
+}
+
 func TestTrajectoryJSONRoundTripPreservesCanonicalBehavior(t *testing.T) {
 	recorded := runTrajectory(t)
 	encoded, err := json.Marshal(recorded)

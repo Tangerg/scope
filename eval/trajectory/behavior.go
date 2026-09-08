@@ -1,13 +1,11 @@
 package trajectory
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
+	"encoding/json/jsontext"
 	"fmt"
-	"io"
 	"strings"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -184,22 +182,9 @@ func canonicalArguments(arguments string) (json.RawMessage, error) {
 	if strings.TrimSpace(arguments) == "" {
 		return nil, nil
 	}
-	decoder := json.NewDecoder(bytes.NewBufferString(arguments))
-	decoder.UseNumber()
-	var value any
-	if err := decoder.Decode(&value); err != nil {
+	value := jsontext.Value(arguments)
+	if err := value.Format(jsontext.ReorderRawObjects(true)); err != nil {
 		return nil, err
 	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return nil, errors.New("arguments contain more than one JSON value")
-		}
-		return nil, err
-	}
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return nil, err
-	}
-	return encoded, nil
+	return json.RawMessage(value), nil
 }
