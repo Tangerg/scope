@@ -216,3 +216,20 @@ func ExampleNewStore() {
 	fmt.Println(store != nil)
 	// Output: true
 }
+
+// Metadata reaches the caller as raw JSON so a stored integer beyond the exact
+// float64 range survives; decoding through map[string]any would round it.
+func TestDecodeRowPreservesLargeIntegerMetadata(t *testing.T) {
+	t.Parallel()
+
+	store := &Store{distanceFunction: DistanceCosine}
+	result, err := store.decodeRow(json.RawMessage(
+		`{"_id":"one","_content":"hello","_vector_score":0.5,"_metadata":{"ordinal":9007199254740993}}`,
+	), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(result.Document.Metadata["ordinal"]); got != "9007199254740993" {
+		t.Fatalf("ordinal = %s, want 9007199254740993", got)
+	}
+}

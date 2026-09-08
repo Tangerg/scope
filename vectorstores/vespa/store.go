@@ -351,8 +351,11 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 			return nil
 		}
 		for _, hit := range hits {
-			id, _ := hit.Fields[s.idField].(string)
-			if id == "" {
+			id, present, err := hit.Fields.Decode[string](s.idField)
+			if err != nil {
+				return fmt.Errorf("vespa: enumerate ids: decode field %q: %w", s.idField, err)
+			}
+			if !present || id == "" {
 				return fmt.Errorf("vespa: enumerate ids: search hit is missing string field %q", s.idField)
 			}
 			path := fmt.Sprintf("/document/v1/%s/%s/docid/%s",
@@ -367,9 +370,9 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 // queryHit is one Vespa search hit. Relevance is absent for queries that
 // project fields without ranking, so only ranked callers require it.
 type queryHit struct {
-	ID        string         `json:"id"`
-	Relevance *float64       `json:"relevance"`
-	Fields    map[string]any `json:"fields"`
+	ID        string       `json:"id"`
+	Relevance *float64     `json:"relevance"`
+	Fields    metadata.Map `json:"fields"`
 }
 
 type queryResponse struct {
@@ -449,9 +452,13 @@ func (s *Store) buildFilter(expr filter.Predicate) (string, error) {
 	return v.snapshot(), nil
 }
 
-func (s *Store) toDocument(rawID string, fields map[string]any) (*document.Document, error) {
+func (s *Store) toDocument(rawID string, fields metadata.Map) (*document.Document, error) {
 	doc := &document.Document{}
-	if id, ok := fields[s.idField].(string); ok {
+	id, present, err := fields.Decode[string](s.idField)
+	if err != nil {
+		return nil, fmt.Errorf("vespa: decode field %q: %w", s.idField, err)
+	}
+	if present && id != "" {
 		doc.ID = id
 	} else {
 		// Fall back to the Vespa-native id like "id:namespace:schema::docid".
@@ -464,26 +471,27 @@ func (s *Store) toDocument(rawID string, fields map[string]any) (*document.Docum
 	if doc.ID == "" {
 		return nil, errors.New("vespa: search hit has no stable document ID")
 	}
-	text, ok := fields[s.contentField].(string)
-	if !ok || text == "" {
+	text, present, err := fields.Decode[string](s.contentField)
+	if err != nil {
+		return nil, fmt.Errorf("vespa: decode field %q: %w", s.contentField, err)
+	}
+	if !present || text == "" {
 		return nil, fmt.Errorf("vespa: document %q is missing string field %q", doc.ID, s.contentField)
 	}
 	doc.Text = text
 
-	meta := make(map[string]any, len(fields))
-	for k, v := range fields {
-		switch k {
+	// Carry the remaining fields as raw JSON so a stored integer beyond the
+	// exact float64 range reaches the caller unchanged.
+	meta := make(metadata.Map, len(fields))
+	for key, value := range fields {
+		switch key {
 		case s.idField, s.contentField, s.embeddingField:
 			continue
 		}
-		meta[k] = v
+		meta[key] = value
 	}
 	if len(meta) > 0 {
-		var err error
-		doc.Metadata, err = metadata.FromValues(meta)
-		if err != nil {
-			return nil, fmt.Errorf("vespa: convert metadata: %w", err)
-		}
+		doc.Metadata = meta
 	}
 	return doc, nil
 }

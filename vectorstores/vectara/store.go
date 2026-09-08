@@ -212,12 +212,14 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		return nil, fmt.Errorf("vectara: query: %w", err)
 	}
 
+	// Metadata stays raw so a stored integer beyond the exact float64 range
+	// reaches the caller unchanged.
 	var parsed struct {
 		SearchResults []struct {
-			Text       string         `json:"text"`
-			Score      *float64       `json:"score"`
-			DocumentID string         `json:"document_id"`
-			Metadata   map[string]any `json:"document_metadata"`
+			Text       string       `json:"text"`
+			Score      *float64     `json:"score"`
+			DocumentID string       `json:"document_id"`
+			Metadata   metadata.Map `json:"document_metadata"`
 		} `json:"search_results"`
 	}
 	if err := json.Unmarshal(raw, &parsed); err != nil {
@@ -239,12 +241,8 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		if hit.Text == "" {
 			return nil, fmt.Errorf("vectara: search result %d is missing text", i)
 		}
-		metadata, err := metadata.FromValues(hit.Metadata)
-		if err != nil {
-			return nil, fmt.Errorf("vectara: convert metadata: %w", err)
-		}
 		docs = append(docs, &vectorstore.SearchResult{
-			Document: &document.Document{ID: hit.DocumentID, Text: hit.Text, Metadata: metadata},
+			Document: &document.Document{ID: hit.DocumentID, Text: hit.Text, Metadata: hit.Metadata},
 			Score:    score,
 		})
 	}

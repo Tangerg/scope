@@ -55,7 +55,7 @@ func TestToDocumentAcceptsIndexedNilMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var source map[string]any
+	var source metadata.Map
 	if decodeErr := json.Unmarshal(encoded, &source); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
@@ -72,10 +72,10 @@ func TestToDocumentDecodesConfiguredMetadataObject(t *testing.T) {
 	store := &Store{contentField: "content", embeddingField: "embedding", metadataField: "metadata"}
 	document, err := store.toDocument(searchHit{
 		ID: "doc-1",
-		Source: map[string]any{
-			"content":   "hello",
-			"embedding": []any{0.1, 0.2},
-			"metadata":  map[string]any{"tenant": "acme"},
+		Source: metadata.Map{
+			"content":   json.RawMessage(`"hello"`),
+			"embedding": json.RawMessage(`[0.1,0.2]`),
+			"metadata":  json.RawMessage(`{"tenant":"acme"}`),
 		},
 	})
 	if err != nil {
@@ -94,9 +94,31 @@ func TestToDocumentRejectsMalformedConfiguredMetadata(t *testing.T) {
 	store := &Store{contentField: "content", metadataField: "metadata"}
 	_, err := store.toDocument(searchHit{
 		ID:     "doc-1",
-		Source: map[string]any{"content": "hello", "metadata": "not-an-object"},
+		Source: metadata.Map{
+			"content":  json.RawMessage(`"hello"`),
+			"metadata": json.RawMessage(`"not-an-object"`),
+		},
 	})
 	if err == nil || !strings.Contains(err.Error(), `field "metadata" must be an object`) {
 		t.Fatalf("toDocument error = %v", err)
+	}
+}
+
+// Metadata reaches the caller as raw JSON so a stored integer beyond the exact
+// float64 range survives; decoding through map[string]any would round it.
+func TestToDocumentPreservesLargeIntegerMetadata(t *testing.T) {
+	store := &Store{contentField: "content", metadataField: "metadata"}
+	var source metadata.Map
+	if err := json.Unmarshal(
+		[]byte(`{"content":"hello","metadata":{"ordinal":9007199254740993}}`), &source,
+	); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := store.toDocument(searchHit{ID: "doc-1", Source: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(doc.Metadata["ordinal"]); got != "9007199254740993" {
+		t.Fatalf("ordinal = %s, want 9007199254740993", got)
 	}
 }

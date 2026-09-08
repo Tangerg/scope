@@ -357,31 +357,34 @@ func (s *Store) toDocument(hit searchHit) (*document.Document, error) {
 	}
 
 	// Pull the document text from the configured content field.
-	content, ok := hit.Source[s.contentField].(string)
-	if !ok || content == "" {
+	content, present, err := hit.Source.Decode[string](s.contentField)
+	if err != nil {
+		return nil, fmt.Errorf("elasticsearch: search hit %s field %q: %w", hit.ID, s.contentField, err)
+	}
+	if !present || content == "" {
 		return nil, fmt.Errorf("elasticsearch: search hit %s is missing string field %q", hit.ID, s.contentField)
 	}
 	doc.Text = content
 
-	metadataValues, err := s.metadataValues(hit)
+	doc.Metadata, err = s.hitMetadata(hit)
 	if err != nil {
 		return nil, err
-	}
-	doc.Metadata, err = metadata.FromValues(metadataValues)
-	if err != nil {
-		return nil, fmt.Errorf("elasticsearch: convert metadata: %w", err)
 	}
 	return doc, nil
 }
 
-func (s *Store) metadataValues(hit searchHit) (map[string]any, error) {
-	raw := hit.Source[s.metadataField]
-	if raw == nil {
+// hitMetadata decodes the stored metadata object without routing it through
+// map[string]any, which would render every JSON number as a float64 and lose
+// integers the caller stored exactly.
+func (s *Store) hitMetadata(hit searchHit) (metadata.Map, error) {
+	raw, present := hit.Source[s.metadataField]
+	if !present || len(raw) == 0 || string(raw) == "null" {
 		return nil, nil
 	}
-	values, ok := raw.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("elasticsearch: search hit %s field %q must be an object, got %T", hit.ID, s.metadataField, raw)
+	var values metadata.Map
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return nil, fmt.Errorf("elasticsearch: search hit %s field %q must be an object: %w",
+			hit.ID, s.metadataField, err)
 	}
 	return values, nil
 }
@@ -436,10 +439,13 @@ func (s *Store) checkSearchCompleteness(response searchResponse) error {
 	return nil
 }
 
+// Source stays raw so stored numbers keep the exact spelling Elasticsearch
+// returned; decoding through map[string]any would collapse every integer into
+// a float64.
 type searchHit struct {
-	ID     string         `json:"_id"`
-	Score  float64        `json:"_score"`
-	Source map[string]any `json:"_source"`
+	ID     string       `json:"_id"`
+	Score  float64      `json:"_score"`
+	Source metadata.Map `json:"_source"`
 }
 
 // deleteByQueryResponse carries the completeness facts Elasticsearch reports

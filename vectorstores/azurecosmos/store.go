@@ -391,11 +391,13 @@ func (s *Store) buildFilter(expr filter.Predicate) (string, []NamedParam, error)
 // decodeRow turns a Cosmos JSON row into a Document and applies Scope's
 // normalized score threshold.
 func (s *Store) decodeRow(raw json.RawMessage, minScore vectorstore.Score) (*vectorstore.SearchResult, error) {
+	// Metadata stays raw so a stored integer beyond the exact float64 range
+	// reaches the caller unchanged.
 	var row struct {
-		ID          string         `json:"_id"`
-		Content     string         `json:"_content"`
-		Metadata    map[string]any `json:"_metadata"`
-		VectorScore *float64       `json:"_vector_score"`
+		ID          string       `json:"_id"`
+		Content     string       `json:"_content"`
+		Metadata    metadata.Map `json:"_metadata"`
+		VectorScore *float64     `json:"_vector_score"`
 	}
 	if err := json.Unmarshal(raw, &row); err != nil {
 		return nil, fmt.Errorf("azurecosmos: decode row: %w", err)
@@ -414,12 +416,8 @@ func (s *Store) decodeRow(raw json.RawMessage, minScore vectorstore.Score) (*vec
 	if row.Content == "" {
 		return nil, errors.New("azurecosmos: result is missing _content")
 	}
-	metadata, err := metadata.FromValues(row.Metadata)
-	if err != nil {
-		return nil, fmt.Errorf("azurecosmos: convert metadata: %w", err)
-	}
 	return &vectorstore.SearchResult{
-		Document: &document.Document{ID: row.ID, Text: row.Content, Metadata: metadata},
+		Document: &document.Document{ID: row.ID, Text: row.Content, Metadata: row.Metadata},
 		Score:    score,
 	}, nil
 }
