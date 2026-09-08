@@ -62,7 +62,12 @@ type api struct {
 	interactionsHTTP *resty.Client
 }
 
-func newAPI(config ClientConfig) (*api, error) {
+// newAPI takes a context because construction reaches the network: on the
+// Vertex AI backend with application default credentials, genai.NewClient
+// resolves them and then asks the resolved credential for its quota project,
+// which is a metadata-server call the context governs. A background context
+// there would leave a caller unable to bound or cancel its own wiring.
+func newAPI(ctx context.Context, config ClientConfig) (*api, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -87,7 +92,7 @@ func newAPI(config ClientConfig) (*api, error) {
 		clientCfg.HTTPOptions.BaseURL = config.BaseURL
 	}
 
-	client, err := genai.NewClient(context.Background(), clientCfg)
+	client, err := genai.NewClient(ctx, clientCfg)
 	if err != nil {
 		return nil, err
 	}

@@ -3,6 +3,7 @@
 package arch_test
 
 import (
+	"context"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -26,9 +27,13 @@ type configValidator interface {
 func TestProviderConstructorsCompile(t *testing.T) {
 	t.Parallel()
 
+	// Both constructors take a context because construction reaches the
+	// network: on the Vertex AI backend with application default credentials,
+	// building the client resolves them and then asks the resolved credential
+	// for its quota project over the metadata server.
 	var (
-		_ func(google.ChatConfig) (*google.Chat, error)     = google.NewChat
-		_ func(vertexai.ChatConfig) (*vertexai.Chat, error) = vertexai.NewChat
+		_ func(context.Context, google.ChatConfig) (*google.Chat, error)     = google.NewChat
+		_ func(context.Context, vertexai.ChatConfig) (*vertexai.Chat, error) = vertexai.NewChat
 	)
 }
 

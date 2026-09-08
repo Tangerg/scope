@@ -1,6 +1,8 @@
 package vertexai
 
 import (
+	"context"
+
 	"github.com/Tangerg/scope/core/transcription"
 	"github.com/Tangerg/scope/models/google/internal/protocol"
 )
@@ -31,6 +33,6 @@ var _ transcription.Model = (*AudioTranscriptionModel)(nil)
 type AudioTranscriptionModel = callModel[transcription.Request, transcription.Response]
 
 // NewAudioTranscriptionModel rejects an invalid provider binding before the first transcription call.
-func NewAudioTranscriptionModel(config AudioTranscriptionModelConfig) (*AudioTranscriptionModel, error) {
-	return newCallModel[transcription.Request, transcription.Response](protocol.NewAudioTranscriptionModel(config.protocol()))
+func NewAudioTranscriptionModel(ctx context.Context, config AudioTranscriptionModelConfig) (*AudioTranscriptionModel, error) {
+	return newCallModel[transcription.Request, transcription.Response](protocol.NewAudioTranscriptionModel(ctx, config.protocol()))
 }

@@ -38,8 +38,8 @@ var (
 type Chat protocol.Chat
 
 // NewChat rejects an invalid provider binding before the first chat call.
-func NewChat(config ChatConfig) (*Chat, error) {
-	adapter, err := protocol.NewChat(config.protocol())
+func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
+	adapter, err := protocol.NewChat(ctx, config.protocol())
 	if err != nil {
 		return nil, err
 	}

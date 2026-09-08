@@ -38,8 +38,8 @@ var (
 type AudioTTSModel protocol.AudioTTSModel
 
 // NewAudioTTSModel rejects an invalid provider binding before the first speech call.
-func NewAudioTTSModel(config AudioTTSModelConfig) (*AudioTTSModel, error) {
-	adapter, err := protocol.NewAudioTTSModel(config.protocol())
+func NewAudioTTSModel(ctx context.Context, config AudioTTSModelConfig) (*AudioTTSModel, error) {
+	adapter, err := protocol.NewAudioTTSModel(ctx, config.protocol())
 	if err != nil {
 		return nil, err
 	}

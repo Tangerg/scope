@@ -29,7 +29,7 @@ func TestEmbeddingModel_Integration(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			m, err := vertexai.NewEmbeddingModel(vertexai.EmbeddingModelConfig{
+			m, err := vertexai.NewEmbeddingModel(t.Context(), vertexai.EmbeddingModelConfig{
 				Client: vertexai.ClientConfig{
 					Project: project, Location: location,
 				},

@@ -85,8 +85,8 @@ func (c ChatConfig) protocol() protocol.ChatConfig {
 type Chat struct{ protocol *protocol.Chat }
 
 // NewChat rejects an invalid provider binding before the first chat call.
-func NewChat(config ChatConfig) (*Chat, error) {
-	model, err := protocol.NewChat(config.protocol())
+func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
+	model, err := protocol.NewChat(ctx, config.protocol())
 	if err != nil {
 		return nil, err
 	}
@@ -164,8 +164,8 @@ type EmbeddingModel struct {
 }
 
 // NewEmbeddingModel rejects an invalid provider binding before the first embedding call.
-func NewEmbeddingModel(config EmbeddingModelConfig) (*EmbeddingModel, error) {
-	model, err := protocol.NewEmbeddingModel(config.protocol())
+func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*EmbeddingModel, error) {
+	model, err := protocol.NewEmbeddingModel(ctx, config.protocol())
 	if err != nil {
 		return nil, err
 	}
@@ -201,8 +201,8 @@ func (a AudioTTSModelConfig) protocol() protocol.AudioTTSModelConfig {
 type AudioTTSModel struct{ protocol *protocol.AudioTTSModel }
 
 // NewAudioTTSModel rejects an invalid provider binding before the first speech call.
-func NewAudioTTSModel(config AudioTTSModelConfig) (*AudioTTSModel, error) {
-	model, err := protocol.NewAudioTTSModel(config.protocol())
+func NewAudioTTSModel(ctx context.Context, config AudioTTSModelConfig) (*AudioTTSModel, error) {
+	model, err := protocol.NewAudioTTSModel(ctx, config.protocol())
 	if err != nil {
 		return nil, err
 	}
@@ -251,8 +251,8 @@ type AudioTranscriptionModel struct {
 }
 
 // NewAudioTranscriptionModel rejects an invalid provider binding before the first transcription call.
-func NewAudioTranscriptionModel(config AudioTranscriptionModelConfig) (*AudioTranscriptionModel, error) {
-	model, err := protocol.NewAudioTranscriptionModel(config.protocol())
+func NewAudioTranscriptionModel(ctx context.Context, config AudioTranscriptionModelConfig) (*AudioTranscriptionModel, error) {
+	model, err := protocol.NewAudioTranscriptionModel(ctx, config.protocol())
 	if err != nil {
 		return nil, err
 	}
@@ -316,8 +316,8 @@ type ImageSafetySetting struct {
 type ImageModel struct{ protocol *protocol.ImageModel }
 
 // NewImageModel rejects an invalid provider binding before the first image call.
-func NewImageModel(config ImageModelConfig) (*ImageModel, error) {
-	model, err := protocol.NewImageModel(config.protocol())
+func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, error) {
+	model, err := protocol.NewImageModel(ctx, config.protocol())
 	if err != nil {
 		return nil, err
 	}
@@ -353,8 +353,8 @@ func (t TextEstimatorConfig) protocol() protocol.TextEstimatorConfig {
 type TextEstimator struct{ protocol *protocol.TextEstimator }
 
 // NewTextEstimator rejects an invalid provider/model binding before estimation begins.
-func NewTextEstimator(config TextEstimatorConfig) (*TextEstimator, error) {
-	estimator, err := protocol.NewTextEstimator(config.protocol())
+func NewTextEstimator(ctx context.Context, config TextEstimatorConfig) (*TextEstimator, error) {
+	estimator, err := protocol.NewTextEstimator(ctx, config.protocol())
 	if err != nil {
 		return nil, err
 	}

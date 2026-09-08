@@ -26,7 +26,7 @@ func TestEmbeddingModel_Call_Mock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := protocol.NewEmbeddingModel(protocol.EmbeddingModelConfig{
+	m, err := protocol.NewEmbeddingModel(t.Context(), protocol.EmbeddingModelConfig{
 		Provider:       "google",
 		Client:         protocol.ClientConfig{APIKey: "test-key", BaseURL: srv.URL},
 		DefaultOptions: opts,

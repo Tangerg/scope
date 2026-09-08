@@ -84,12 +84,12 @@ type ImageModel struct {
 }
 
 // NewImageModel rejects an invalid provider binding before the first image call.
-func NewImageModel(config ImageModelConfig) (*ImageModel, error) {
+func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 
-	api, err := newAPI(config.Client)
+	api, err := newAPI(ctx, config.Client)
 	if err != nil {
 		return nil, err
 	}

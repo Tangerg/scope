@@ -56,7 +56,7 @@ type ImageModel struct {
 }
 
 // NewImageModel rejects an invalid provider binding before the first image call.
-func NewImageModel(config ImageModelConfig) (*ImageModel, error) {
+func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -70,7 +70,7 @@ func NewImageModel(config ImageModelConfig) (*ImageModel, error) {
 			BaseURL:    config.Client.BaseURL,
 		},
 	}
-	client, err := genai.NewClient(context.Background(), clientConfig)
+	client, err := genai.NewClient(ctx, clientConfig)
 	if err != nil {
 		return nil, fmt.Errorf("vertexai: create Gen AI client: %w", err)
 	}

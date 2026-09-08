@@ -1,6 +1,8 @@
 package vertexai
 
 import (
+	"context"
+
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/models/google/internal/protocol"
 )
@@ -31,6 +33,6 @@ var _ embedding.Model = (*EmbeddingModel)(nil)
 type EmbeddingModel = callModel[embedding.Request, embedding.Response]
 
 // NewEmbeddingModel rejects an invalid provider binding before the first embedding call.
-func NewEmbeddingModel(config EmbeddingModelConfig) (*EmbeddingModel, error) {
-	return newCallModel[embedding.Request, embedding.Response](protocol.NewEmbeddingModel(config.protocol()))
+func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*EmbeddingModel, error) {
+	return newCallModel[embedding.Request, embedding.Response](protocol.NewEmbeddingModel(ctx, config.protocol()))
 }

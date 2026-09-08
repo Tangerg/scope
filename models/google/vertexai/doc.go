@@ -16,5 +16,11 @@
 // Model availability and regions change independently on Vertex AI. Select an
 // explicit model id and location from the current Vertex model documentation.
 //
+// Constructors take a context because construction reaches the network. On the
+// Vertex AI backend with application default credentials, building the client
+// resolves them and then asks the resolved credential for its quota project,
+// which is a metadata-server call the context governs — so a caller can bound
+// or cancel its own wiring instead of a background context deciding for it.
+//
 // See https://cloud.google.com/vertex-ai/generative-ai/docs.
 package vertexai

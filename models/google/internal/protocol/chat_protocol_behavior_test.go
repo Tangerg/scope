@@ -42,7 +42,7 @@ func TestChat_BehaviorConformance(t *testing.T) {
 
 func newGoogleBehaviorChat(t *testing.T, baseURL string) *protocol.Chat {
 	t.Helper()
-	adapter, err := protocol.NewChat(protocol.ChatConfig{
+	adapter, err := protocol.NewChat(t.Context(), protocol.ChatConfig{
 		Provider:       "google",
 		Client:         protocol.ClientConfig{APIKey: "test-key", BaseURL: baseURL},
 		DefaultOptions: corechat.Options{Model: "gemini-3-pro"},

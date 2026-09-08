@@ -13,7 +13,7 @@ import (
 func TestConstructorsRejectAnAbsentCredential(t *testing.T) {
 	cases := map[string]func() error{
 		"NewChat": func() error {
-			_, err := google.NewChat(google.ChatConfig{})
+			_, err := google.NewChat(t.Context(), google.ChatConfig{})
 			return err
 		},
 		"NewChatCompletions": func() error {
@@ -21,19 +21,19 @@ func TestConstructorsRejectAnAbsentCredential(t *testing.T) {
 			return err
 		},
 		"NewEmbeddingModel": func() error {
-			_, err := google.NewEmbeddingModel(google.EmbeddingModelConfig{})
+			_, err := google.NewEmbeddingModel(t.Context(), google.EmbeddingModelConfig{})
 			return err
 		},
 		"NewAudioTTSModel": func() error {
-			_, err := google.NewAudioTTSModel(google.AudioTTSModelConfig{})
+			_, err := google.NewAudioTTSModel(t.Context(), google.AudioTTSModelConfig{})
 			return err
 		},
 		"NewAudioTranscriptionModel": func() error {
-			_, err := google.NewAudioTranscriptionModel(google.AudioTranscriptionModelConfig{})
+			_, err := google.NewAudioTranscriptionModel(t.Context(), google.AudioTranscriptionModelConfig{})
 			return err
 		},
 		"NewImageModel": func() error {
-			_, err := google.NewImageModel(google.ImageModelConfig{})
+			_, err := google.NewImageModel(t.Context(), google.ImageModelConfig{})
 			return err
 		},
 	}

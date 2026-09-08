@@ -27,7 +27,7 @@ func TestAudioTranscriptionModel_Call_Mock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := protocol.NewAudioTranscriptionModel(protocol.AudioTranscriptionModelConfig{
+	m, err := protocol.NewAudioTranscriptionModel(t.Context(), protocol.AudioTranscriptionModelConfig{
 		Provider:       "google",
 		Client:         protocol.ClientConfig{APIKey: "test-key", BaseURL: srv.URL},
 		DefaultOptions: opts,

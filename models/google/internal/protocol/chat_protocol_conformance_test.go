@@ -29,7 +29,7 @@ func newProtocolChatModel(t *testing.T) (corechat.Model, corechat.Streamer) {
 	t.Helper()
 	server := newProtocolChatServer(t)
 	t.Cleanup(server.Close)
-	adapter, err := protocol.NewChat(protocol.ChatConfig{
+	adapter, err := protocol.NewChat(t.Context(), protocol.ChatConfig{
 		Provider:       "google",
 		Client:         protocol.ClientConfig{APIKey: "test-key", BaseURL: server.URL},
 		DefaultOptions: corechat.Options{Model: "default-must-be-overridden"},
@@ -123,7 +123,7 @@ func TestChatRejectsMultipleProviderCandidates(t *testing.T) {
 		]
 	}`)
 	t.Cleanup(server.Close)
-	model, err := protocol.NewChat(protocol.ChatConfig{
+	model, err := protocol.NewChat(t.Context(), protocol.ChatConfig{
 		Provider: "google", Client: protocol.ClientConfig{APIKey: "test-key", BaseURL: server.URL},
 		DefaultOptions: corechat.Options{Model: "gemini-3-pro"},
 	})
