@@ -354,7 +354,7 @@ func assertProtocolResponse(t *testing.T, response *corechat.Response) {
 		t.Fatalf("response = %#v", response)
 	}
 	result := response.Output
-	if result.Message == nil || len(result.Message.Parts) != 4 || result.FinishReason != corechat.FinishReasonStop {
+	if result.Message == nil || len(result.Message.Parts) != 4 || result.FinishReason != corechat.FinishReasonToolCalls {
 		t.Fatalf("result = %#v", result)
 	}
 	if result.Message.Parts[0].Kind != corechat.PartReasoning || result.Message.Parts[0].Text != "inspect colors" ||

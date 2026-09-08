@@ -46,7 +46,7 @@ func assertProtocolChatCall(t *testing.T, response *corechat.Response) {
 		t.Fatalf("identity = %q/%q", response.Metadata.ID, response.Metadata.Model)
 	}
 	result := response.Output
-	if result.Message == nil || len(result.Message.Parts) != 3 || result.FinishReason != corechat.FinishReasonStop {
+	if result.Message == nil || len(result.Message.Parts) != 3 || result.FinishReason != corechat.FinishReasonToolCalls {
 		t.Fatalf("result = %#v", result)
 	}
 	reasoning := result.Message.Parts[0]
@@ -102,7 +102,7 @@ func assertProtocolChatAggregated(t *testing.T, response *corechat.Response) {
 		t.Fatalf("aggregated response = %#v", response)
 	}
 	result := response.Output
-	if result.Message == nil || len(result.Message.Parts) != 3 || result.FinishReason != corechat.FinishReasonStop {
+	if result.Message == nil || len(result.Message.Parts) != 3 || result.FinishReason != corechat.FinishReasonToolCalls {
 		t.Fatalf("aggregated result = %#v", result)
 	}
 	call := result.Message.Parts[2].ToolCall

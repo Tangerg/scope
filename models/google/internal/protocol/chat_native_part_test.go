@@ -133,3 +133,62 @@ func TestProtocolMapsCitationMetadata(t *testing.T) {
 		t.Fatalf("citations = %#v", citations)
 	}
 }
+
+func TestProtocolToolCompletionPreservesProviderOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		reason genai.FinishReason
+		want   corechat.FinishReason
+	}{
+		{genai.FinishReasonStop, corechat.FinishReasonToolCalls},
+		{genai.FinishReasonMaxTokens, corechat.FinishReasonLength},
+		{genai.FinishReasonSafety, corechat.FinishReasonContentFilter},
+		{genai.FinishReasonMalformedFunctionCall, corechat.FinishReasonOther},
+		{genai.FinishReasonUnexpectedToolCall, corechat.FinishReasonOther},
+	} {
+		t.Run(string(tc.reason), func(t *testing.T) {
+			content := &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{{FunctionCall: &genai.FunctionCall{Name: "inspect", Args: map[string]any{}}}}}
+			response, err := newProtocolResponseMapper("google").mapResponse("gemini", &genai.GenerateContentResponse{Candidates: []*genai.Candidate{{Content: content, FinishReason: tc.reason}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if response.Output.FinishReason != tc.want {
+				t.Fatalf("Call finish = %s, want %s", response.Output.FinishReason, tc.want)
+			}
+			mapper := newProtocolResponseMapper("google")
+			first, err := mapper.mapDelta("gemini", &genai.GenerateContentResponse{Candidates: []*genai.Candidate{{Content: content}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if first.FinishReason != "" {
+				t.Fatal("unfinished tool chunk received a finish reason")
+			}
+			terminal, err := mapper.mapDelta("gemini", &genai.GenerateContentResponse{Candidates: []*genai.Candidate{{FinishReason: tc.reason}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			terminal, err = mapper.complete(terminal)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var accumulator corechat.ResponseAccumulator
+			for _, delta := range []*corechat.ResponseDelta{first, terminal} {
+				if addErr := accumulator.Add(delta); addErr != nil {
+					t.Fatal(addErr)
+				}
+			}
+			streamed, err := accumulator.Response()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if streamed.Output.FinishReason != tc.want {
+				t.Fatalf("Stream finish = %s, want %s", streamed.Output.FinishReason, tc.want)
+			}
+			for _, output := range []*corechat.Output{response.Output, streamed.Output} {
+				native, found, err := output.Metadata.Extra.Decode[genai.FinishReason]("google/native_finish_reason")
+				if err != nil || !found || native != tc.reason {
+					t.Fatalf("native reason = %s, found %v, error %v", native, found, err)
+				}
+			}
+		})
+	}
+}

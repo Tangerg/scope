@@ -19,7 +19,9 @@ const (
 	protocolMetricsKey          = "ollama/metrics"
 )
 
-type protocolResponseMapper struct{}
+type protocolResponseMapper struct {
+	hasToolCalls bool
+}
 
 func newProtocolResponseMapper() *protocolResponseMapper {
 	return new(protocolResponseMapper)
@@ -72,7 +74,7 @@ func (p *protocolResponseMapper) mapDelta(requestModel string, response nativeCh
 		}
 	}
 	if response.Done {
-		mapped.FinishReason = normalizeProtocolDoneReason(response.DoneReason)
+		mapped.FinishReason = normalizeProtocolDoneReason(response.DoneReason, p.hasToolCalls)
 		if response.DoneReason != "" {
 			mapped.OutputMetadata = &corechat.OutputMetadata{}
 			if err := mapped.OutputMetadata.Extra.Set(protocolNativeDoneReasonKey, response.DoneReason); err != nil {
@@ -128,7 +130,7 @@ func mapProtocolResponseMetadata(requestModel string, response nativeChatRespons
 }
 
 func (p *protocolResponseMapper) mapOutput(response nativeChatResponse) (*corechat.Output, error) {
-	output := &corechat.Output{FinishReason: normalizeProtocolDoneReason(response.DoneReason)}
+	output := &corechat.Output{}
 	if response.DoneReason != "" {
 		output.Metadata = &corechat.OutputMetadata{}
 		if err := output.Metadata.Extra.Set(protocolNativeDoneReasonKey, response.DoneReason); err != nil {
@@ -139,6 +141,7 @@ func (p *protocolResponseMapper) mapOutput(response nativeChatResponse) (*corech
 	if err != nil {
 		return nil, err
 	}
+	output.FinishReason = normalizeProtocolDoneReason(response.DoneReason, p.hasToolCalls)
 	if len(parts) > 0 {
 		output.Message = &corechat.Message{Role: corechat.RoleAssistant, Parts: parts}
 	}
@@ -178,15 +181,17 @@ func (p *protocolResponseMapper) mapParts(message nativeMessage) ([]corechat.Par
 			Name:      toolCall.Function.Name,
 			Arguments: string(arguments),
 		}))
+		p.hasToolCalls = true
 	}
 	return parts, nil
 }
 
-func normalizeProtocolDoneReason(reason string) corechat.FinishReason {
+func normalizeProtocolDoneReason(reason string, hasToolCalls bool) corechat.FinishReason {
 	switch reason {
-	case "":
-		return corechat.FinishReasonStop
-	case "stop":
+	case "", "stop":
+		if hasToolCalls {
+			return corechat.FinishReasonToolCalls
+		}
 		return corechat.FinishReasonStop
 	case "length":
 		return corechat.FinishReasonLength

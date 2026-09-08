@@ -22,6 +22,7 @@ type protocolResponseMapper struct {
 	provider     string
 	lastPartKind corechat.PartKind
 	finish       corechat.FinishReason
+	hasToolCalls bool
 }
 
 func newProtocolResponseMapper(provider string) *protocolResponseMapper {
@@ -47,6 +48,7 @@ func (p *protocolResponseMapper) mapResponse(requestModel string, response *gena
 	if err != nil {
 		return nil, fmt.Errorf("google: output: %w", err)
 	}
+	output.FinishReason = normalizeProtocolFinishReason(candidate.FinishReason, p.hasToolCalls)
 	mapped := &corechat.Response{Output: output, Metadata: metadata}
 	if err := mapped.Validate(); err != nil {
 		return nil, fmt.Errorf("google: mapped response: %w", err)
@@ -74,6 +76,7 @@ func (p *protocolResponseMapper) mapDelta(requestModel string, response *genai.G
 		if err := p.mapCandidateDelta(candidate, mapped); err != nil {
 			return nil, fmt.Errorf("google: stream output: %w", err)
 		}
+		mapped.FinishReason = normalizeProtocolFinishReason(candidate.FinishReason, p.hasToolCalls)
 		if mapped.FinishReason != "" {
 			if p.finish != "" {
 				return nil, errors.New("google: stream emitted more than one finish reason")
@@ -148,8 +151,7 @@ func (p *protocolResponseMapper) mapMetadata(requestModel string, response *gena
 
 func (p *protocolResponseMapper) mapCandidate(candidate *genai.Candidate) (*corechat.Output, error) {
 	output := &corechat.Output{
-		FinishReason: normalizeProtocolFinishReason(candidate.FinishReason),
-		Metadata:     &corechat.OutputMetadata{},
+		Metadata: &corechat.OutputMetadata{},
 	}
 	if candidate.FinishReason != "" {
 		if err := output.Metadata.Extra.Set(protocolKey(p.provider, "native_finish_reason"), candidate.FinishReason); err != nil {
@@ -182,6 +184,7 @@ func (p *protocolResponseMapper) mapCandidate(candidate *genai.Candidate) (*core
 		}
 		if include {
 			parts = append(parts, mapped)
+			p.hasToolCalls = p.hasToolCalls || mapped.Kind == corechat.PartToolCall
 		}
 	}
 	p.partOffset = offset + len(candidate.Content.Parts)
@@ -240,7 +243,6 @@ func mapProtocolCandidatePart(provider string, partIndex int, part *genai.Part) 
 }
 
 func (p *protocolResponseMapper) mapCandidateDelta(candidate *genai.Candidate, response *corechat.ResponseDelta) error {
-	response.FinishReason = normalizeProtocolFinishReason(candidate.FinishReason)
 	response.OutputMetadata = &corechat.OutputMetadata{}
 	if candidate.FinishReason != "" {
 		if err := response.OutputMetadata.Extra.Set(protocolKey(p.provider, "native_finish_reason"), candidate.FinishReason); err != nil {
@@ -272,6 +274,7 @@ func (p *protocolResponseMapper) mapCandidateDelta(candidate *genai.Candidate, r
 		if include {
 			response.Parts = append(response.Parts, delta)
 			p.lastPartKind = kind
+			p.hasToolCalls = p.hasToolCalls || kind == corechat.PartToolCall
 		}
 	}
 	p.partOffset = offset + len(candidate.Content.Parts)
@@ -383,11 +386,14 @@ func protocolJSON(value any) (string, error) {
 	return string(encoded), nil
 }
 
-func normalizeProtocolFinishReason(reason genai.FinishReason) corechat.FinishReason {
+func normalizeProtocolFinishReason(reason genai.FinishReason, hasToolCalls bool) corechat.FinishReason {
 	switch reason {
 	case "", genai.FinishReasonUnspecified:
 		return ""
 	case genai.FinishReasonStop:
+		if hasToolCalls {
+			return corechat.FinishReasonToolCalls
+		}
 		return corechat.FinishReasonStop
 	case genai.FinishReasonMaxTokens:
 		return corechat.FinishReasonLength
@@ -395,8 +401,6 @@ func normalizeProtocolFinishReason(reason genai.FinishReason) corechat.FinishRea
 		genai.FinishReasonProhibitedContent, genai.FinishReasonSPII,
 		genai.FinishReasonImageSafety, genai.FinishReasonImageProhibitedContent:
 		return corechat.FinishReasonContentFilter
-	case genai.FinishReasonMalformedFunctionCall, genai.FinishReasonUnexpectedToolCall:
-		return corechat.FinishReasonToolCalls
 	default:
 		return corechat.FinishReasonOther
 	}
