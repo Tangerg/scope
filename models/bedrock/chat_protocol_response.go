@@ -126,12 +126,18 @@ func mapProtocolStopReason(reason types.StopReason) corechat.FinishReason {
 	switch reason {
 	case types.StopReasonEndTurn, types.StopReasonStopSequence:
 		return corechat.FinishReasonStop
-	case types.StopReasonMaxTokens:
+	// Converse reports two truncations: max_tokens is the budget the caller
+	// set, model_context_window_exceeded is the model's own window filling
+	// first. Both leave a half-finished output, so both are length.
+	case types.StopReasonMaxTokens, types.StopReasonModelContextWindowExceeded:
 		return corechat.FinishReasonLength
 	case types.StopReasonToolUse:
 		return corechat.FinishReasonToolCalls
 	case types.StopReasonContentFiltered, types.StopReasonGuardrailIntervened:
 		return corechat.FinishReasonContentFilter
+	// malformed_model_output and malformed_tool_use are generation faults with
+	// no portable match, so they stay other rather than borrowing a reason
+	// callers would act on.
 	default:
 		return corechat.FinishReasonOther
 	}
