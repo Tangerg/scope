@@ -33,6 +33,9 @@ func (p *protocolResponseMapper) mapResponse(requestModel string, response *gena
 	if response == nil {
 		return nil, errors.New("google: nil response")
 	}
+	if err := protocolPromptBlockError(response); err != nil {
+		return nil, err
+	}
 	if len(response.Candidates) != 1 {
 		return nil, fmt.Errorf("google: response has %d candidates; Core supports one output", len(response.Candidates))
 	}
@@ -59,6 +62,9 @@ func (p *protocolResponseMapper) mapResponse(requestModel string, response *gena
 func (p *protocolResponseMapper) mapDelta(requestModel string, response *genai.GenerateContentResponse) (*corechat.ResponseDelta, error) {
 	if response == nil {
 		return nil, errors.New("google: nil stream response")
+	}
+	if err := protocolPromptBlockError(response); err != nil {
+		return nil, err
 	}
 	if len(response.Candidates) > 1 {
 		return nil, fmt.Errorf("google: stream response has %d candidates; Core supports one output", len(response.Candidates))
@@ -104,6 +110,27 @@ func (p *protocolResponseMapper) complete(delta *corechat.ResponseDelta) (*corec
 		return nil, fmt.Errorf("google: terminal stream response: %w", err)
 	}
 	return delta, nil
+}
+
+// protocolPromptBlockError reports a prompt Gemini refused to answer.
+//
+// Gemini returns no candidates at all only when something was wrong with the
+// prompt, and it explains that case in promptFeedback.blockReason rather than
+// in the candidate list. Checking the count first would turn a documented
+// refusal into a complaint about response shape and drop the reason the
+// provider supplied, so both mapping paths ask this question before they
+// count candidates.
+func protocolPromptBlockError(response *genai.GenerateContentResponse) error {
+	feedback := response.PromptFeedback
+	if feedback == nil || feedback.BlockReason == "" ||
+		feedback.BlockReason == genai.BlockedReasonUnspecified {
+		return nil
+	}
+	if feedback.BlockReasonMessage != "" {
+		return fmt.Errorf("google: prompt blocked (%s): %s",
+			feedback.BlockReason, feedback.BlockReasonMessage)
+	}
+	return fmt.Errorf("google: prompt blocked (%s)", feedback.BlockReason)
 }
 
 func (p *protocolResponseMapper) candidate(candidate *genai.Candidate) (*genai.Candidate, error) {
@@ -397,10 +424,19 @@ func normalizeProtocolFinishReason(reason genai.FinishReason, hasToolCalls bool)
 		return corechat.FinishReasonStop
 	case genai.FinishReasonMaxTokens:
 		return corechat.FinishReasonLength
+	// Every reason where Gemini policy withheld the content belongs together,
+	// recitation included: it stops generation for using an unauthorized
+	// source, which is a policy outcome a caller acts on and not a fault with
+	// no portable match.
 	case genai.FinishReasonSafety, genai.FinishReasonBlocklist,
 		genai.FinishReasonProhibitedContent, genai.FinishReasonSPII,
-		genai.FinishReasonImageSafety, genai.FinishReasonImageProhibitedContent:
+		genai.FinishReasonRecitation,
+		genai.FinishReasonImageSafety, genai.FinishReasonImageProhibitedContent,
+		genai.FinishReasonImageRecitation:
 		return corechat.FinishReasonContentFilter
+	// MALFORMED_FUNCTION_CALL, UNEXPECTED_TOOL_CALL, TOO_MANY_TOOL_CALLS,
+	// LANGUAGE, and NO_IMAGE are generation faults or capability limits with no
+	// portable match.
 	default:
 		return corechat.FinishReasonOther
 	}
