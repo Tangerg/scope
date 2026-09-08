@@ -11,6 +11,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/samber/lo"
@@ -108,15 +109,11 @@ type StoreConfig struct {
 	APIVersion string
 
 	// IDField / ContentField / EmbeddingField name the well-known
-	// fields on each document. Optional defaults apply.
+	// fields on each document. Optional defaults apply. These fields must
+	// differ and cannot use protocol annotation names beginning with @.
 	IDField        string
 	ContentField   string
 	EmbeddingField string
-
-	// VectorProfileName is the index's vector search profile name.
-	// Optional. Pure-vector queries don't require it, but the
-	// the framework defaults match a profile called "default-profile".
-	VectorProfileName string
 
 	// EmbeddingModel produces vectors for the documents. Required.
 	EmbeddingModel embedding.Model
@@ -164,6 +161,17 @@ func (s StoreConfig) Validate() error {
 	if s.MaxResponseBytes < 0 {
 		return errors.New("azureaisearch: MaxResponseBytes must not be negative")
 	}
+	fields := []string{s.IDField, s.ContentField, s.EmbeddingField}
+	seen := make(map[string]struct{}, len(fields))
+	for _, field := range fields {
+		if strings.HasPrefix(field, "@") {
+			return fmt.Errorf("azureaisearch: storage field %q is reserved for protocol annotations", field)
+		}
+		if _, duplicate := seen[field]; duplicate {
+			return errors.New("azureaisearch: IDField, ContentField, and EmbeddingField must be distinct")
+		}
+		seen[field] = struct{}{}
+	}
 	return nil
 }
 
@@ -194,7 +202,6 @@ type Store struct {
 	idField          string
 	contentField     string
 	embeddingField   string
-	vectorProfile    string
 	embeddingClient  embeddingclient.Client
 	documentBatcher  vectorstore.Batcher
 	similarityMetric SimilarityMetric
@@ -224,7 +231,6 @@ func NewStore(config StoreConfig) (*Store, error) {
 		idField:          config.IDField,
 		contentField:     config.ContentField,
 		embeddingField:   config.EmbeddingField,
-		vectorProfile:    config.VectorProfileName,
 		embeddingClient:  embeddingClient,
 		documentBatcher:  config.DocumentBatcher,
 		similarityMetric: config.SimilarityMetric,
@@ -233,11 +239,18 @@ func NewStore(config StoreConfig) (*Store, error) {
 	}, nil
 }
 
-// Index embeds documents and uploads them via the
-// /indexes/<index>/docs/index endpoint.
+// Index validates metadata ownership across the full request, embeds documents,
+// and uploads them through acknowledged batches of at most 1000 actions.
 func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
 	if validateErr := request.Validate(); validateErr != nil {
 		return fmt.Errorf("azureaisearch.Store.Index: %w", validateErr)
+	}
+	for index, item := range request.Documents {
+		for field := range item.Metadata {
+			if s.reservedField(field) {
+				return fmt.Errorf("%w: azureaisearch: documents[%d] metadata field %q is reserved", vectorstore.ErrInvalidDocument, index, field)
+			}
+		}
 	}
 
 	var batches []*vectorstore.IndexRequest
@@ -276,9 +289,7 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 			actions = append(actions, payload)
 		}
 
-		body := map[string]any{"value": actions}
-		path := fmt.Sprintf("/indexes/%s/docs/index", url.PathEscape(s.indexName))
-		if _, err := s.sendJSON(ctx, http.MethodPost, path, body); err != nil {
+		if err := s.writeActions(ctx, actions); err != nil {
 			return fmt.Errorf("azureaisearch: index documents: %w", err)
 		}
 	}
@@ -415,22 +426,56 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		return nil
 	}
 
-	for start := 0; start < len(ids); start += maximumDocumentsPerBatch {
-		end := min(start+maximumDocumentsPerBatch, len(ids))
-		actions := make([]map[string]any, 0, end-start)
-		for _, id := range ids[start:end] {
-			actions = append(actions, map[string]any{
-				"@search.action": "delete",
-				s.idField:        id,
-			})
+	actions := make([]map[string]any, len(ids))
+	for index, id := range ids {
+		actions[index] = map[string]any{"@search.action": "delete", s.idField: id}
+	}
+	if err := s.writeActions(ctx, actions); err != nil {
+		return fmt.Errorf("azureaisearch: delete documents: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) writeActions(ctx context.Context, actions []map[string]any) error {
+	path := fmt.Sprintf("/indexes/%s/docs/index", url.PathEscape(s.indexName))
+	for batch := range slices.Chunk(actions, maximumDocumentsPerBatch) {
+		raw, err := s.sendJSON(ctx, http.MethodPost, path, map[string]any{"value": batch})
+		if err != nil {
+			return err
 		}
-		body := map[string]any{"value": actions}
-		path := fmt.Sprintf("/indexes/%s/docs/index", url.PathEscape(s.indexName))
-		if _, err := s.sendJSON(ctx, http.MethodPost, path, body); err != nil {
-			return fmt.Errorf("azureaisearch: delete batch: %w", err)
+		var response struct {
+			Value []struct {
+				Key          string `json:"key"`
+				Status       bool   `json:"status"`
+				StatusCode   int    `json:"statusCode"`
+				ErrorMessage string `json:"errorMessage"`
+			} `json:"value"`
+		}
+		if err := json.Unmarshal(raw, &response); err != nil {
+			return fmt.Errorf("decode write response: %w", err)
+		}
+		if len(response.Value) != len(batch) {
+			return fmt.Errorf("write response contains %d results for %d actions", len(response.Value), len(batch))
+		}
+		pending := make(map[string]struct{}, len(batch))
+		for _, action := range batch {
+			pending[action[s.idField].(string)] = struct{}{}
+		}
+		for _, result := range response.Value {
+			if _, expected := pending[result.Key]; !expected {
+				return fmt.Errorf("write response contains unknown or repeated key %q", result.Key)
+			}
+			delete(pending, result.Key)
+			if !result.Status {
+				return fmt.Errorf("document %q: status=%d: %s", result.Key, result.StatusCode, result.ErrorMessage)
+			}
 		}
 	}
 	return nil
+}
+
+func (s *Store) reservedField(field string) bool {
+	return field == s.idField || field == s.contentField || field == s.embeddingField || strings.HasPrefix(field, "@")
 }
 
 func (s *Store) buildFilter(expr filter.Predicate) (string, error) {
@@ -469,10 +514,7 @@ func (s *Store) toMatch(row map[string]any, mode vectorstore.SearchMode) (*vecto
 	// embedding vector itself.
 	meta := make(map[string]any, len(row))
 	for k, v := range row {
-		switch k {
-		case s.idField, s.contentField, s.embeddingField,
-			"@search.score", "@search.rerankerScore", "@search.highlights",
-			"@search.captions":
+		if s.reservedField(k) {
 			continue
 		}
 		meta[k] = v

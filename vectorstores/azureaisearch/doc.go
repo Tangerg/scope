@@ -32,9 +32,16 @@
 // `search.ismatch('pattern', 'field')`; IN maps to
 // `search.in(field, 'v1,v2,...', ',')`.
 //
-// Delete uses the `mergeOrUpload` action surface — the store
-// enumerates ids that match the filter via paged search, then
-// issues a delete batch (1000 ids per request, the service cap).
+// Index and DeleteWhere share the document action endpoint and its
+// 1000-action request limit. Each document's response must acknowledge its
+// action; HTTP success alone does not establish that every action succeeded.
+// Partial failures return an error while successful actions remain applied.
+// Metadata cannot use the configured ID, content, or embedding fields, or
+// protocol annotation names beginning with @. The entire Index request is
+// checked for these conflicts before embedding or sending any batch.
+//
+// Vector profiles belong to the pre-provisioned index's vector field. Queries
+// select that field and use its profile without a second store-level setting.
 //
 // See https://learn.microsoft.com/azure/search/vector-search-overview.
 package azureaisearch
