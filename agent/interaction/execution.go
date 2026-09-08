@@ -114,11 +114,7 @@ func (e *execution) acceptModel(signals []agent.Signal) (agent.Transition, error
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if addSteerErr := e.addSteer(steer); addSteerErr != nil {
-		return agent.Transition{}, addSteerErr
-	}
 	if envelope.ModelResult.HostError != "" {
-		e.state.PendingSteer = nil
 		return e.fail(
 			consumedSignals,
 			agent.FailureKindExternal,
@@ -127,7 +123,6 @@ func (e *execution) acceptModel(signals []agent.Signal) (agent.Transition, error
 		)
 	}
 	if envelope.ModelResult.Error != "" {
-		e.state.PendingSteer = nil
 		return e.fail(
 			consumedSignals,
 			agent.FailureKindExternal,
@@ -144,31 +139,29 @@ func (e *execution) acceptModel(signals []agent.Signal) (agent.Transition, error
 			effectiveErr,
 		)
 	}
-	if len(effective.Tools) != 0 {
-		return agent.Transition{}, fmt.Errorf(
-			"%w: effective model context retained executable Tool definitions",
-			ErrInvalidExecutionState,
-		)
-	}
 	e.state.WorkingContext = effective
 	response := envelope.ModelResult.Response.Clone()
 	calls, _, err := responseToolCalls(response)
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if len(calls) == 0 {
-		return e.acceptFinalModelResponse(consumedSignals, response)
-	}
-	if response.Output.FinishReason == chat.FinishReasonLength {
-		return e.rejectTruncatedToolCalls(consumedSignals, response, calls)
-	}
-	if response.Output.FinishReason != chat.FinishReasonToolCalls {
+	if len(calls) > 0 && response.Output.FinishReason != chat.FinishReasonToolCalls &&
+		response.Output.FinishReason != chat.FinishReasonLength {
 		return e.fail(
 			consumedSignals,
 			agent.FailureKindExternal,
 			"interaction.model.tool_calls_not_completed",
 			fmt.Sprintf("model output ended with %q; tool calls were not executed", response.Output.FinishReason),
 		)
+	}
+	if addSteerErr := e.addSteer(steer); addSteerErr != nil {
+		return agent.Transition{}, addSteerErr
+	}
+	if len(calls) == 0 {
+		return e.acceptFinalModelResponse(consumedSignals, response)
+	}
+	if response.Output.FinishReason == chat.FinishReasonLength {
+		return e.rejectTruncatedToolCalls(consumedSignals, response, calls)
 	}
 
 	e.state.PendingModelResponse = response

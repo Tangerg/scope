@@ -118,6 +118,55 @@ func TestSteerRequiresUserMessages(t *testing.T) {
 	}
 }
 
+func TestSteerDoesNotMaskRejectedModelToolCalls(t *testing.T) {
+	started := make(chan struct{})
+	release := newToolRelease()
+	var calls, capabilities, modelCalls atomic.Int32
+	executable := &trustBoundaryTool{name: "inspect", calls: &calls, capabilities: &capabilities}
+	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		if modelCalls.Add(1) != 1 {
+			return nil, errors.New("unexpected model retry")
+		}
+		close(started)
+		<-release.done
+		response := toolCallResponse(chat.ToolCall{ID: "call-1", Name: "inspect", Arguments: `{}`})
+		response.Output.FinishReason = chat.FinishReasonRefusal
+		return response, nil
+	})
+	process, engine := startConcurrentInteraction(t, model, []tool.Tool{executable}, 1)
+	t.Cleanup(func() {
+		release.Release()
+		if err := engine.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	<-started
+	id, err := agent.ParseSignalID("signal:steer-before-refusal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	steer, err := interaction.NewSteerSignal(id, chat.NewUserMessage(chat.NewTextPart("inspect another item")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted, deliverErr := process.DeliverSignals(t.Context(), steer); deliverErr != nil || !accepted {
+		t.Fatalf("DeliverSignals = %t, %v", accepted, deliverErr)
+	}
+	release.Release()
+	result, err := process.Await(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure, present := result.Termination().Failure()
+	if result.Status() != agent.StatusFailed || !present || failure.Kind() != agent.FailureKindExternal ||
+		failure.Code() != "interaction.model.tool_calls_not_completed" {
+		t.Fatalf("termination = %#v", result.Termination())
+	}
+	if calls.Load() != 0 || capabilities.Load() != 0 || modelCalls.Load() != 1 {
+		t.Fatalf("Tool calls = %d, capabilities = %d, model calls = %d", calls.Load(), capabilities.Load(), modelCalls.Load())
+	}
+}
+
 type steeredModel struct {
 	mu           sync.Mutex
 	calls        int
