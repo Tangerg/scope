@@ -62,6 +62,11 @@ func VisitorConformance(t *testing.T, build BuildFn, options ...Options) {
 		{"indexed_key", `profile['author'] == 'Alice'`},
 		{"nested_index", `profile['a']['b'] == 'x'`},
 		{"nested_logical", `(a == 1 and b == 2) or (c == 3 and not (d == 4))`},
+		// IS is in the operator set, so a compiler owes it an answer.
+		// Omitting these let twelve adapters ship without handling a null
+		// test at all, which nothing else noticed.
+		{"null_test", `author is null`},
+		{"not_null_test", `author is not null`},
 	}
 	for _, tc := range success {
 		t.Run("Success_"+tc.name, func(t *testing.T) {

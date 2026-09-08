@@ -15,6 +15,14 @@ type BinaryHandlers struct {
 	In         func(*BinaryExpr) error
 	Has        func(*BinaryExpr) error
 	Like       func(*BinaryExpr) error
+
+	// NullTest handles [OpIs]. Leaving it out of this struct meant a compiler
+	// written against Dispatch could not answer for the operator at all, and
+	// the ones that do answer had to test IsNullOperator before dispatching —
+	// two ways to reach one operator, with the second invisible at the type
+	// level. A nil handler still means unsupported, which is now a decision a
+	// compiler states rather than an omission nobody sees.
+	NullTest func(*BinaryExpr) error
 }
 
 // BinaryExpr combines two expressions with a comparison, logical, matching,
@@ -172,6 +180,8 @@ func (b *BinaryExpr) Dispatch(handlers BinaryHandlers) error {
 		handler = handlers.Has
 	case b.operator.Is(OpLike):
 		handler = handlers.Like
+	case b.operator.IsNullOperator():
+		handler = handlers.NullTest
 	default:
 		return fmt.Errorf("filter: unsupported binary operator %q at %s", b.operator, b.Start())
 	}
