@@ -66,6 +66,8 @@ func validateSteerSignalIDs(ids []agent.SignalID) error {
 // running conversation. Going through the mailbox is what makes steering
 // deduplicated, ordered, and snapshot-visible, so a resumed Process sees the
 // same guidance the original one did.
+// Steering admitted before a Tool input wait remains pending until the Tool
+// batch settles, including admission during the Step that enters Waiting.
 func NewSteerSignal(id agent.SignalID, messages ...chat.Message) (agent.SignalRequest, error) {
 	if err := validateSteeringMessages(messages); err != nil {
 		return agent.SignalRequest{}, err

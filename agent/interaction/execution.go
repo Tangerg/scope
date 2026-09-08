@@ -351,8 +351,8 @@ func (e *execution) acceptInputResponse(signals []agent.Signal) (agent.Transitio
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if !steer.empty() {
-		return agent.Transition{}, fmt.Errorf("%w: steer cannot address an input wait", ErrInvalidExecutionState)
+	if addSteerErr := e.addSteer(steer); addSteerErr != nil {
+		return agent.Transition{}, addSteerErr
 	}
 	inputSignal, ok := signalForOperation(signals, operationInputResponse)
 	if !ok {
