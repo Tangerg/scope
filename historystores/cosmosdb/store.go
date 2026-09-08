@@ -234,15 +234,19 @@ func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID
 	// Deleting while paging the same query can skip items (the
 	// continuation token is computed against the mutating result set),
 	// so each round re-runs the query from scratch and deletes one
-	// page, until the query comes back empty.
+	// non-empty page, until the query is exhausted. Empty pages can
+	// carry continuation tokens and do not establish absence.
 	for {
 		pager := s.container.NewQueryItemsPager(query, partitionKey, queryOptions)
-		if !pager.More() {
-			return nil
-		}
-		response, err := pager.NextPage(ctx)
-		if err != nil {
-			return fmt.Errorf("cosmosdb: clear: query document IDs: %w", err)
+		var response azcosmos.QueryItemsResponse
+		for pager.More() {
+			response, err = pager.NextPage(ctx)
+			if err != nil {
+				return fmt.Errorf("cosmosdb: clear: query document IDs: %w", err)
+			}
+			if len(response.Items) > 0 {
+				break
+			}
 		}
 		if len(response.Items) == 0 {
 			return nil
