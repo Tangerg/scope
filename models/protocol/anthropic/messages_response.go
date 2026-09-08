@@ -145,7 +145,10 @@ func normalizeProtocolStopReason(reason anthropicsdk.StopReason) corechat.Finish
 		return ""
 	case anthropicsdk.StopReasonEndTurn, anthropicsdk.StopReasonStopSequence:
 		return corechat.FinishReasonStop
-	case anthropicsdk.StopReasonMaxTokens:
+	// Both limits truncate. max_tokens is the budget the caller set;
+	// model_context_window_exceeded is the model's own window filling first,
+	// which Anthropic tells clients to "treat as truncated" all the same.
+	case anthropicsdk.StopReasonMaxTokens, anthropicsdk.StopReasonModelContextWindowExceeded:
 		return corechat.FinishReasonLength
 	case anthropicsdk.StopReasonToolUse:
 		return corechat.FinishReasonToolCalls
