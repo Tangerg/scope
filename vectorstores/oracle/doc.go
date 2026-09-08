@@ -15,6 +15,24 @@
 //   - [DistanceDot]       — dot product (Oracle returns the raw IP;
 //     the store maps it into [0, 1] via (1 + ip) / 2)
 //
+// Searches are exact, and deliberately so. Oracle separates exact from
+// approximate purely by syntax — `FETCH FIRST n ROWS ONLY` compares the query
+// vector against every row, `FETCH APPROX FIRST n ROWS ONLY` permits a vector
+// index — and this store issues the former, so every result is a true nearest
+// neighbor. [StoreConfig.InitializeSchema] correspondingly creates the table
+// and no vector index: an HNSW index needs the CDB-level `vector_memory_size`
+// raised from its default of 0 and is unavailable on RAC, so provisioning one
+// would fail the bootstrap on ordinary deployments rather than accelerate it.
+//
+// An operator who wants approximate search owns both halves. The index's
+// DISTANCE must be the metric configured here, because "if you use a different
+// distance function than the one used to create the index, an exact match is
+// triggered because you cannot use the index in this case" — Oracle defaults
+// both the index and `VECTOR_DISTANCE()` to COSINE, which is also
+// [DefaultDistanceMetric]. Note that the index still will not be used until the
+// query asks for it, and this store's query does not; Oracle reports none of
+// this, silently falling back to a full scan.
+//
 // Vector binding. The store renders `[v1,v2,...]` as text and wraps
 // each call in `TO_VECTOR(:1, <dim>, FLOAT32)`. Oracle's positional
 // `:N` placeholders mean the filter visitor's placeholders are
