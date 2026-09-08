@@ -70,6 +70,8 @@ type document struct {
 // Write creates one document per message. Random document IDs prevent
 // concurrent writers from overwriting each other; seq preserves argument order
 // within one call. Retried calls append fresh documents and are not idempotent.
+// Messages are written separately, so an error can leave earlier messages
+// stored. The returned error identifies the failing message index.
 func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (err error) {
 	if err = ctx.Err(); err != nil {
 		return err

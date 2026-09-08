@@ -91,6 +91,8 @@ func (s *Store) initIndex(ctx context.Context) error {
 // Write inserts every message under conversationID via InsertMany. A reserved
 // sequence range preserves argument order and remains monotonic if the local
 // clock moves backward.
+// InsertMany is ordered but is not a multi-document transaction: an error can
+// leave earlier messages stored. The returned error preserves the driver cause.
 func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (err error) {
 	if err = ctx.Err(); err != nil {
 		return err
