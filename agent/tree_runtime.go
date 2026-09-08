@@ -32,18 +32,18 @@ type treeRuntime struct {
 
 	// Everything below is owner-line state. Keeping it lock-free makes commit,
 	// scheduling, freeze, and checkpoint order a single explicit state machine.
-	processes         map[ProcessID]*processState
-	childWaits        map[WaitID]*childWaitRegistration
-	processQueue      []ProcessID
-	queued            map[ProcessID]struct{}
-	jobs              map[ProcessID]*processJob
-	commit            *treeCommit
-	commitDone        chan treeCommitCompletion
-	fault             error
-	checkpointPending map[ProcessID]checkpointPublication
-	freeze            *activeTreeFreeze
-	done              chan struct{}
-	finalInspection   treeInspectionResponse
+	processes           map[ProcessID]*processState
+	childWaits          map[WaitID]*childWaitRegistration
+	processQueue        []ProcessID
+	queued              map[ProcessID]struct{}
+	jobs                map[ProcessID]*processJob
+	commit              *treeCommit
+	commitDone          chan treeCommitCompletion
+	fault               error
+	pendingPublications map[ProcessID]pendingProcessPublication
+	freeze              *activeTreeFreeze
+	done                chan struct{}
+	finalInspection     treeInspectionResponse
 }
 
 type treeCommandKind uint8
@@ -151,7 +151,7 @@ type treeCommitCompletion struct {
 	err    error
 }
 
-type checkpointPublication struct {
+type pendingProcessPublication struct {
 	events   []Event
 	terminal bool
 }
@@ -187,20 +187,20 @@ func newTreeRuntime(
 	processes ...*processState,
 ) *treeRuntime {
 	runtime := &treeRuntime{
-		engine:            engine,
-		rootID:            rootID,
-		context:           context.WithoutCancel(requireContext(ctx)),
-		commands:          make(chan treeCommand, treeCommandBufferCapacity),
-		controls:          make(chan treeCommand, treeCommandBufferCapacity),
-		completions:       make(chan treeJobCompletion),
-		inspections:       make(chan chan treeInspectionResponse, treeCommandBufferCapacity),
-		processes:         make(map[ProcessID]*processState, len(processes)),
-		childWaits:        make(map[WaitID]*childWaitRegistration),
-		queued:            make(map[ProcessID]struct{}, len(processes)),
-		jobs:              make(map[ProcessID]*processJob, len(processes)),
-		commitDone:        make(chan treeCommitCompletion),
-		checkpointPending: make(map[ProcessID]checkpointPublication),
-		done:              make(chan struct{}),
+		engine:              engine,
+		rootID:              rootID,
+		context:             context.WithoutCancel(requireContext(ctx)),
+		commands:            make(chan treeCommand, treeCommandBufferCapacity),
+		controls:            make(chan treeCommand, treeCommandBufferCapacity),
+		completions:         make(chan treeJobCompletion),
+		inspections:         make(chan chan treeInspectionResponse, treeCommandBufferCapacity),
+		processes:           make(map[ProcessID]*processState, len(processes)),
+		childWaits:          make(map[WaitID]*childWaitRegistration),
+		queued:              make(map[ProcessID]struct{}, len(processes)),
+		jobs:                make(map[ProcessID]*processJob, len(processes)),
+		commitDone:          make(chan treeCommitCompletion),
+		pendingPublications: make(map[ProcessID]pendingProcessPublication),
+		done:                make(chan struct{}),
 	}
 	for _, process := range processes {
 		runtime.addProcess(process)
@@ -517,7 +517,7 @@ func (t *treeRuntime) setProcessJob(processID ProcessID, job *processJob) {
 
 func (t *treeRuntime) canStop() bool {
 	if t.freeze != nil || t.commit != nil || len(t.jobs) != 0 ||
-		len(t.checkpointPending) != 0 {
+		len(t.pendingPublications) != 0 {
 		return false
 	}
 	if t.fault != nil {

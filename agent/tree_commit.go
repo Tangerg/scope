@@ -189,21 +189,16 @@ func (t *treeRuntime) applyFailedTreeCommit(commit *treeCommit, commitErr error)
 func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 	if commit.snapshot.Valid() {
 		t.advanceHead(commit.snapshot)
-		t.publishCheckpoint()
+		t.publishAcknowledgedChanges()
 	}
 	process := t.processes[commit.processID]
+	for _, event := range commit.events {
+		process.publishPreparedEvent(t.context, event)
+	}
 	switch commit.kind {
-	case treeCommitEffectPending:
-		t.enqueueProcess(commit.processID)
-	case treeCommitEffectSettled:
-		for _, event := range commit.events {
-			process.publishPreparedEvent(t.context, event)
-		}
+	case treeCommitEffectPending, treeCommitEffectSettled:
 		t.enqueueProcess(commit.processID)
 	case treeCommitEffectResolved:
-		for _, event := range commit.events {
-			process.publishPreparedEvent(t.context, event)
-		}
 		if commit.response != nil {
 			commit.response <- processResponse{}
 		}
@@ -216,9 +211,6 @@ func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 		t.enqueueProcess(commit.processID)
 	case treeCommitCheckpoint:
 	case treeCommitSignals:
-		for _, event := range commit.events {
-			process.publishPreparedEvent(t.context, event)
-		}
 		commit.response <- processResponse{accepted: true}
 		t.enqueueProcess(commit.processID)
 	}
@@ -281,7 +273,11 @@ func (t *treeRuntime) tryStartCheckpoint() bool {
 		return true
 	}
 	if snapshot.Digest() == t.head.digest() {
-		return false
+		// Control changes can return to the acknowledged state without changing
+		// its recovery cut. Publishing those facts must not require another write.
+		pending := len(t.pendingPublications) != 0
+		t.publishAcknowledgedChanges()
+		return pending
 	}
 	if err := t.startCheckpointCommit(kind, snapshot); err != nil {
 		t.failDurability(err, ProcessID{}, EffectID{})
@@ -313,7 +309,7 @@ func (t *treeRuntime) stageTerminal(process *processState) {
 		return
 	}
 	processID := process.handle.processID
-	publication := t.checkpointPending[processID]
+	publication := t.pendingPublications[processID]
 	if publication.terminal {
 		return
 	}
@@ -326,24 +322,24 @@ func (t *treeRuntime) stageTerminal(process *processState) {
 		publication.events = append(publication.events, event)
 	}
 	publication.terminal = true
-	t.checkpointPending[processID] = publication
+	t.pendingPublications[processID] = publication
 }
 
-func (t *treeRuntime) stageCheckpointEvent(event Event) {
-	if !event.Valid() || event.Relation().RootID() != t.rootID ||
+func (t *treeRuntime) stageCommittedEvent(event Event) {
+	if !event.Valid() || event.Phase() != EventPhaseCommitted || event.Relation().RootID() != t.rootID ||
 		t.processes[event.ProcessID()] == nil {
-		panic("agent: invalid checkpoint Event")
+		panic("agent: invalid committed Event")
 	}
 	processID := event.ProcessID()
-	publication := t.checkpointPending[processID]
+	publication := t.pendingPublications[processID]
 	publication.events = append(publication.events, event)
-	t.checkpointPending[processID] = publication
+	t.pendingPublications[processID] = publication
 }
 
-func (t *treeRuntime) publishCheckpoint() {
+func (t *treeRuntime) publishAcknowledgedChanges() {
 	for _, process := range t.processesInCanonicalOrder() {
 		processID := process.handle.processID
-		publication, pending := t.checkpointPending[processID]
+		publication, pending := t.pendingPublications[processID]
 		if !pending {
 			continue
 		}
@@ -351,12 +347,12 @@ func (t *treeRuntime) publishCheckpoint() {
 			process.publishPreparedEvent(t.context, event)
 		}
 		if !publication.terminal {
-			delete(t.checkpointPending, processID)
+			delete(t.pendingPublications, processID)
 			continue
 		}
 		process.handle.publishResult(process.result())
 		process.handle.finishBookkeeping()
-		delete(t.checkpointPending, processID)
+		delete(t.pendingPublications, processID)
 	}
 }
 
@@ -411,7 +407,7 @@ func (t *treeRuntime) failDurability(
 			t.abandonChildStartJob(t.processes[candidateID], job)
 		}
 	}
-	clear(t.checkpointPending)
+	clear(t.pendingPublications)
 	clear(t.queued)
 	t.processQueue = nil
 	for _, process := range t.processesInCanonicalOrder() {

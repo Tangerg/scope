@@ -5,7 +5,7 @@ func (p *processState) capture() (ProcessSnapshot, error) {
 		ProcessID:     p.handle.processID,
 		Relation:      p.handle.relation.wire(),
 		DeploymentRef: p.deployment.DeploymentRef(), StartedAt: p.startedAt,
-		Status: p.status, CommittedSteps: p.committedSteps, ProcessEventSequence: p.processEventSequence,
+		Status: p.status, CommittedSteps: p.committedSteps,
 		Limits: p.limits, TreeLimits: p.treeLimits,
 		Budget: p.budget, ReservedBudget: p.reservedBudget,
 		Capabilities: p.capabilities, Usage: p.usage,

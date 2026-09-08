@@ -198,6 +198,9 @@
 // [ProcessSnapshot] is a single-Process diagnostic value and is not a recovery
 // unit. Events and [Delta] values record attempts and observations only; they
 // never substitute for an acknowledged TreeSnapshot.
+// Committed events wait for durable acknowledgment. Event sequences describe
+// publication within one runtime activation and restart when a nonterminal
+// Process is restored; they do not change snapshot contents or trigger commits.
 //
 // # Strategies
 //

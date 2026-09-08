@@ -101,7 +101,7 @@ func (p *processState) applyPendingControl(ctx context.Context) bool {
 	p.pauseReason = p.pendingControl.pauseReason
 	p.pendingControl.pauseReason = ""
 	p.publishEphemeralStatus()
-	p.publishEventAfterCheckpoint(
+	p.publishEventAfterCommit(
 		ctx, EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload(),
 	)
 	return true
@@ -177,7 +177,7 @@ func (p *processState) deliverChildrenCompleted(ctx context.Context, signal Sign
 	if accepted {
 		p.publishEphemeralStatus()
 		for _, event := range p.prepareSignalEvents([]Signal{signal}) {
-			p.publishPreparedEvent(ctx, event)
+			p.publishPreparedEventAfterCommit(ctx, event)
 		}
 	}
 	return accepted || p.mailbox.contains(signal.ID())
@@ -308,7 +308,7 @@ func (p *processState) resume(ctx context.Context, command processCommand) {
 	p.pauseReason = ""
 	p.pendingControl.pauseReason = ""
 	p.publishEphemeralStatus()
-	p.publishEvent(ctx, EventProcessResumed, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
+	p.publishEventAfterCommit(ctx, EventProcessResumed, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
 	command.reply(processResponse{})
 }
 

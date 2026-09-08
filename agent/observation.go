@@ -15,8 +15,10 @@ const defaultDeltaBuffer = 256
 // return in bounded time and must not query or control the observed tree.
 type EventListener interface {
 	// OnEvent receives one committed or attempted Framework fact in increasing
-	// ProcessSequence for its Process in this Engine instance. Different tree
-	// runtimes may call the listener concurrently. It runs synchronously on the
+	// ProcessSequence for its Process within one tree runtime activation. A
+	// restored nonterminal Process starts with EventProcessRestored; durable
+	// activations also carry distinct TreeIncarnationIDs. Different tree runtimes
+	// may call the listener concurrently. It runs synchronously on the
 	// observed tree's owner, so it must return in bounded time without querying or
 	// controlling that tree (including Engine.InspectTree). It has no veto or
 	// acknowledgment authority.

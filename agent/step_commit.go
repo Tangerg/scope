@@ -317,9 +317,9 @@ func (p *preparedStepFinalization) commit(ctx context.Context) {
 	}
 	process.publishEphemeralStatus()
 	payload, _ := json.Marshal(stepCommittedEventPayload{ProcessStatus: process.status})
-	process.publishEvent(ctx, EventStepCommitted, EventPhaseCommitted, process.committedSteps, EffectID{}, payload)
+	process.publishEventAfterCommit(ctx, EventStepCommitted, EventPhaseCommitted, process.committedSteps, EffectID{}, payload)
 	if process.status == StatusPaused {
-		process.publishEventAfterCheckpoint(
+		process.publishEventAfterCommit(
 			ctx, EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload(),
 		)
 	}

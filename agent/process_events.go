@@ -22,7 +22,7 @@ func (p *processState) publishEvent(
 	p.publishPreparedEvent(ctx, event)
 }
 
-func (p *processState) publishEventAfterCheckpoint(
+func (p *processState) publishEventAfterCommit(
 	ctx context.Context,
 	name string,
 	phase EventPhase,
@@ -34,11 +34,15 @@ func (p *processState) publishEventAfterCheckpoint(
 	if !ok {
 		return
 	}
+	p.publishPreparedEventAfterCommit(ctx, event)
+}
+
+func (p *processState) publishPreparedEventAfterCommit(ctx context.Context, event Event) {
 	if p.runtime == nil || p.engine.durability == nil {
 		p.publishPreparedEvent(ctx, event)
 		return
 	}
-	p.runtime.stageCheckpointEvent(event)
+	p.runtime.stageCommittedEvent(event)
 }
 
 func (p *processState) prepareEvent(
@@ -72,11 +76,17 @@ func (p *processState) prepareEvent(
 	if err != nil {
 		return Event{}, false
 	}
-	p.processEventSequence = nextSequence
 	return event, true
 }
 
 func (p *processState) publishPreparedEvent(ctx context.Context, event Event) {
+	if p.processEventSequence == math.MaxUint64 {
+		return
+	}
+	// Prepared facts may wait for a durable acknowledgment while newer attempts
+	// are observed. Only publication establishes their listener-visible order.
+	p.processEventSequence++
+	event.processSequence = p.processEventSequence
 	p.engine.observation.publishEvent(context.WithoutCancel(ctx), event)
 }
 

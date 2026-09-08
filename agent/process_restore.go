@@ -59,7 +59,7 @@ func restoreProcessState(
 	process := &processState{
 		engine: engine, handle: handle, deployment: deployment, execution: execution,
 		startedAt: wire.StartedAt, status: wire.Status, committedSteps: wire.CommittedSteps,
-		processEventSequence: wire.ProcessEventSequence, committedExecutionState: wire.CommittedExecutionState, mailbox: mailbox, restored: true,
+		committedExecutionState: wire.CommittedExecutionState, mailbox: mailbox, restored: true,
 		pauseReason: wire.PauseReason, limits: wire.Limits, treeLimits: wire.TreeLimits,
 		budget: wire.Budget, reservedBudget: wire.ReservedBudget,
 		capabilities: wire.Capabilities, usage: wire.Usage,

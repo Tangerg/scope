@@ -231,7 +231,6 @@ type processSnapshotWire struct {
 	FinishedAt              *time.Time          `json:"finished_at,omitempty"`
 	Status                  Status              `json:"status"`
 	CommittedSteps          uint64              `json:"committed_steps"`
-	ProcessEventSequence    uint64              `json:"process_event_sequence"`
 	Limits                  Limits              `json:"limits"`
 	TreeLimits              TreeLimits          `json:"tree_limits"`
 	Budget                  Budget              `json:"budget"`
