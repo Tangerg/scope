@@ -17,7 +17,14 @@ func TestVisitor_Conformance(t *testing.T) {
 		}
 		v := newVisitor()
 		return expr.Accept(v)
-	})
+	},
+		storetest.Options{
+			// Milvus' expression syntax documents no IS NULL and no way to
+			// test whether a JSON key is present, so a null test is refused
+			// rather than approximated.
+			Unsupported: []string{"null_test", "not_null_test"},
+		},
+	)
 }
 
 func TestVisitor_PreservesLargeIntegerText(t *testing.T) {

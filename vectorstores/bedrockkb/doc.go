@@ -35,5 +35,10 @@
 // ids; the store uses `DocumentId` or the result's `Location` (e.g. the S3 URI
 // of the source object). A result without either stable identity is rejected.
 //
+// Null tests are refused. Bedrock's RetrievalFilter offers equals, notEquals,
+// the four ordering members, in, notIn, startsWith, listContains and
+// stringContains, none of which asks whether a key is present, so an IS NULL
+// filter fails rather than being approximated.
+//
 // See https://docs.aws.amazon.com/bedrock/latest/userguide/knowledge-base.html.
 package bedrockkb

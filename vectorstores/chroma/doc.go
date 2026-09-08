@@ -22,5 +22,10 @@
 // clause selects the entire collection, so DeleteWhere refuses a filter that
 // compiles to nothing rather than sending an unfiltered request.
 //
+// Null tests are refused. Chroma's where clause offers $eq, $ne, $gt, $gte,
+// $lt, $lte, $in, $nin, $contains and $not_contains, none of which asks
+// whether a key is present, so an IS NULL filter fails rather than being
+// approximated.
+//
 // See https://docs.trychroma.com/ for the full API surface.
 package chroma

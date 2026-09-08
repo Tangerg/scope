@@ -48,8 +48,8 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		if err != nil {
 			return fmt.Errorf("redis: FT.SEARCH %s: %w", s.indexName, err)
 		}
-		if err := checkSearchCompleteness(s.indexName, result); err != nil {
-			return err
+		if completenessErr := checkSearchCompleteness(s.indexName, result); completenessErr != nil {
+			return completenessErr
 		}
 		if len(result.Docs) == 0 {
 			return nil

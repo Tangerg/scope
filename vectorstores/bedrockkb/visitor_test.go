@@ -28,7 +28,7 @@ func TestVisitor_Conformance(t *testing.T) {
 			}
 			return predicate.Accept(newVisitor())
 		},
-		storetest.Options{Unsupported: []string{"indexed_key", "nested_index"}},
+		storetest.Options{Unsupported: []string{"indexed_key", "nested_index", "null_test", "not_null_test"}},
 	)
 }
 

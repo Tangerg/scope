@@ -31,5 +31,10 @@
 // raw inner product with no normalization, so it is unbounded unless the caller
 // supplies unit vectors and cannot share the cosine mapping.
 //
+// Null tests are refused. Milvus' expression syntax documents no IS NULL and
+// no way to test whether a JSON key is present — its JSON operators are
+// JSON_CONTAINS and its variants — so an IS NULL filter fails rather than
+// being approximated by a value comparison that would answer differently.
+//
 // See https://milvus.io/docs for the full API surface.
 package milvus

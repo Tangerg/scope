@@ -30,6 +30,10 @@
 // warned result, and deletion re-queries until a page comes back empty rather
 // than reading a short page as an exhausted match set.
 //
+// Null tests are refused. A RediSearch index has no predicate for a field that
+// was never written — an unindexed field is simply absent from the inverted
+// index — so an IS NULL filter fails rather than being approximated.
+//
 // See https://redis.io/docs/latest/develop/interact/search-and-query/
 // for the RediSearch reference.
 package redis

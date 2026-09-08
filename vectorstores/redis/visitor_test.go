@@ -42,7 +42,7 @@ func TestVisitor_Conformance(t *testing.T) {
 			// Redis doesn't support IN on NUMERIC fields — the visitor
 			// errors with "IN is not supported on field type". This is
 			// a real capability gap, not a visitor bug.
-			Unsupported: []string{"in_numbers", "collection_membership"},
+			Unsupported: []string{"in_numbers", "collection_membership", "null_test", "not_null_test"},
 		},
 	)
 }
