@@ -18,6 +18,17 @@
 // fast via [ErrUnknownMetadataField] (rather than reaching Redis
 // and silently producing zero hits).
 //
+// A document's metadata of record is the JSON in
+// [StoreConfig.MetadataJSONField], which is not part of the index schema. The
+// declared fields are the index projection of that record: RediSearch indexes a
+// HASH field's text as its declared type, so a declared field has to hold the
+// value in the form the index expects and cannot also carry the value's type.
+// Reading metadata back from those fields turned a number into a float64 and
+// everything else into a string, and an undeclared key had no field to read at
+// all, so a search returned a document that differed from the one that was
+// written. Reading the record instead makes the round trip exact and keeps
+// undeclared keys, and the projection no longer has to be reversible.
+//
 // Query path. The filter visitor emits RediSearch syntax — TAG
 // `@f:{v}`, NUMERIC `@f:[low high]`, TEXT `@f:(v)`. Vector retrieval
 // runs FT.SEARCH with the hybrid syntax

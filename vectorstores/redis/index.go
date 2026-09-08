@@ -40,10 +40,20 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 			if valuesErr != nil {
 				return fmt.Errorf("redis: decode metadata for %s: %w", id, valuesErr)
 			}
-			fields := map[string]any{
-				s.contentField:   doc.Text,
-				s.embeddingField: float32sToBytes(embedding.Float32Vector(vectors[i])),
+			metadataJSON, marshalErr := json.Marshal(doc.Metadata)
+			if marshalErr != nil {
+				return fmt.Errorf("redis: encode metadata for %s: %w", id, marshalErr)
 			}
+			fields := map[string]any{
+				s.contentField:      doc.Text,
+				s.embeddingField:    float32sToBytes(embedding.Float32Vector(vectors[i])),
+				s.metadataJSONField: string(metadataJSON),
+			}
+			// The declared fields are the index projection: RediSearch indexes a
+			// HASH field's text as its declared type, so each one has to hold the
+			// value in the form the index expects. The JSON field above is the
+			// record a search reads back, which is why that projection no longer
+			// has to be reversible.
 			for k, v := range metadataValues {
 				field, formatErr := formatMetadataValue(v)
 				if formatErr != nil {

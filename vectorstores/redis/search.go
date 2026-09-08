@@ -2,6 +2,7 @@ package redis
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -11,7 +12,6 @@ import (
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -49,19 +49,11 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		filterQuery, req.Options.ResultLimit(), s.embeddingField, vectorParamName, distanceFieldName,
 	)
 
-	returnFields := []goredis.FTSearchReturn{
-		{FieldName: s.contentField},
-		{FieldName: distanceFieldName},
-	}
-	for _, f := range s.metadataFields {
-		returnFields = append(returnFields, goredis.FTSearchReturn{FieldName: f.Name})
-	}
-
 	opts := &goredis.FTSearchOptions{
 		Params: map[string]any{
 			vectorParamName: queryVec,
 		},
-		Return:         returnFields,
+		Return:         s.returnFields(),
 		LimitOffset:    0,
 		Limit:          req.Options.ResultLimit(),
 		DialectVersion: redisSearchDialectVersion,
@@ -96,6 +88,22 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	return &vectorstore.SearchResponse{Results: docs}, nil
 }
 
+// returnFields is everything a search result is read from. RETURN limits the
+// reply to the fields it lists, so a field missing here reads back as an absent
+// field rather than as an error — which is why the list is named and pinned
+// rather than assembled at the call site.
+//
+// The declared metadata fields are absent on purpose: they exist so RediSearch
+// can index and filter on them, and the metadata field is what a result reads
+// its metadata back from, so the projection never has to come over the wire.
+func (s *Store) returnFields() []goredis.FTSearchReturn {
+	return []goredis.FTSearchReturn{
+		{FieldName: s.contentField},
+		{FieldName: distanceFieldName},
+		{FieldName: s.metadataJSONField},
+	}
+}
+
 func (s *Store) scoreFromFields(fields map[string]string) (vectorstore.Score, error) {
 	raw, ok := fields[distanceFieldName]
 	if !ok {
@@ -122,32 +130,15 @@ func (s *Store) toDocument(hit goredis.Document) (*document.Document, error) {
 		Text: text,
 	}
 
-	if len(s.metadataFields) > 0 {
-		meta := make(map[string]any, len(s.metadataFields))
-		for _, f := range s.metadataFields {
-			if v, ok := hit.Fields[f.Name]; ok {
-				meta[f.Name] = parseMetadataValue(v, f.Type)
-			}
-		}
-		if len(meta) > 0 {
-			var err error
-			doc.Metadata, err = metadata.FromValues(meta)
-			if err != nil {
-				return nil, fmt.Errorf("redis: convert metadata: %w", err)
-			}
+	// Metadata comes from the JSON field rather than from the declared index
+	// fields. A declared field holds the value in the form its RediSearch type
+	// expects, so reading it back turned a number into a float64 and everything
+	// else into a string, and an undeclared key had no field to read at all —
+	// a search returned a document that differed from the one that was written.
+	if raw, ok := hit.Fields[s.metadataJSONField]; ok && raw != "" {
+		if err := json.Unmarshal([]byte(raw), &doc.Metadata); err != nil {
+			return nil, fmt.Errorf("redis: decode metadata for %q: %w", id, err)
 		}
 	}
 	return doc, nil
-}
-
-// parseMetadataValue reverses formatMetadataValue based on the schema
-// type — numeric fields come back as float64, everything else stays
-// a string.
-func parseMetadataValue(raw string, t MetadataFieldType) any {
-	if t == FieldNumeric {
-		if n, err := strconv.ParseFloat(raw, 64); err == nil {
-			return n
-		}
-	}
-	return raw
 }

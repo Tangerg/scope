@@ -26,21 +26,22 @@ const redisSearchDialectVersion = 2
 // stores documents as Redis HASHes and queries them through RediSearch
 // vector + metadata indexes.
 type Store struct {
-	client          goredis.UniversalClient
-	indexName       string
-	keyPrefix       string
-	contentField    string
-	embeddingField  string
-	metadataFields  []MetadataField
-	fieldTypes      map[string]MetadataFieldType
-	embeddingClient embeddingclient.Client
-	documentBatcher vectorstore.Batcher
-	dimensions      int
-	distanceMetric  DistanceMetric
-	indexAlgorithm  IndexAlgorithm
-	hnswM           int
-	hnswEFConstruct int
-	hnswEFRuntime   int
+	client            goredis.UniversalClient
+	indexName         string
+	keyPrefix         string
+	contentField      string
+	embeddingField    string
+	metadataJSONField string
+	metadataFields    []MetadataField
+	fieldTypes        map[string]MetadataFieldType
+	embeddingClient   embeddingclient.Client
+	documentBatcher   vectorstore.Batcher
+	dimensions        int
+	distanceMetric    DistanceMetric
+	indexAlgorithm    IndexAlgorithm
+	hnswM             int
+	hnswEFConstruct   int
+	hnswEFRuntime     int
 }
 
 // NewStore performs schema setup during construction, which is why it takes
@@ -68,21 +69,22 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	}
 
 	store := &Store{
-		client:          config.Client,
-		indexName:       config.IndexName,
-		keyPrefix:       config.KeyPrefix,
-		contentField:    config.ContentField,
-		embeddingField:  config.EmbeddingField,
-		metadataFields:  metadataFields,
-		fieldTypes:      fieldTypes,
-		embeddingClient: embeddingClient,
-		documentBatcher: config.DocumentBatcher,
-		dimensions:      config.Dimensions,
-		distanceMetric:  config.DistanceMetric,
-		indexAlgorithm:  config.IndexAlgorithm,
-		hnswM:           config.HNSWM,
-		hnswEFConstruct: config.HNSWEFConstruct,
-		hnswEFRuntime:   config.HNSWEFRuntime,
+		client:            config.Client,
+		indexName:         config.IndexName,
+		keyPrefix:         config.KeyPrefix,
+		contentField:      config.ContentField,
+		embeddingField:    config.EmbeddingField,
+		metadataJSONField: config.MetadataJSONField,
+		metadataFields:    metadataFields,
+		fieldTypes:        fieldTypes,
+		embeddingClient:   embeddingClient,
+		documentBatcher:   config.DocumentBatcher,
+		dimensions:        config.Dimensions,
+		distanceMetric:    config.DistanceMetric,
+		indexAlgorithm:    config.IndexAlgorithm,
+		hnswM:             config.HNSWM,
+		hnswEFConstruct:   config.HNSWEFConstruct,
+		hnswEFRuntime:     config.HNSWEFRuntime,
 	}
 
 	if err = store.initialize(ctx, config.InitializeSchema); err != nil {

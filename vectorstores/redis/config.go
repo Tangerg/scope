@@ -19,18 +19,19 @@ const Provider = "Redis"
 
 // Exported defaults keep constructor behavior visible and overridable.
 const (
-	DefaultIndexName       = "scope-vector-index"
-	DefaultKeyPrefix       = "embedding:"
-	DefaultContentField    = "content"
-	DefaultEmbeddingField  = "embedding"
-	DefaultMetadataPrefix  = "" // empty: metadata keys land at top level of the HASH
-	DefaultDistanceMetric  = DistanceCosine
-	DefaultIndexAlgorithm  = AlgorithmHNSW
-	DefaultHNSWM           = 16
-	DefaultHNSWEFConstruct = 200
-	DefaultHNSWEFRuntime   = 10
-	distanceFieldName      = "__vector_distance"
-	vectorParamName        = "scope_query_vec"
+	DefaultIndexName         = "scope-vector-index"
+	DefaultKeyPrefix         = "embedding:"
+	DefaultContentField      = "content"
+	DefaultEmbeddingField    = "embedding"
+	DefaultMetadataJSONField = "metadata_json"
+	DefaultMetadataPrefix    = "" // empty: metadata keys land at top level of the HASH
+	DefaultDistanceMetric    = DistanceCosine
+	DefaultIndexAlgorithm    = AlgorithmHNSW
+	DefaultHNSWM             = 16
+	DefaultHNSWEFConstruct   = 200
+	DefaultHNSWEFRuntime     = 10
+	distanceFieldName        = "__vector_distance"
+	vectorParamName          = "scope_query_vec"
 )
 
 // DistanceMetric selects the similarity function used by the
@@ -186,6 +187,20 @@ type StoreConfig struct {
 	// FLOAT32 vector. Optional: defaults to [DefaultEmbeddingField].
 	EmbeddingField string
 
+	// MetadataJSONField is the HASH field that holds the document's metadata
+	// as JSON. Optional: defaults to [DefaultMetadataJSONField].
+	//
+	// It is deliberately absent from the index schema. RediSearch indexes a
+	// HASH field's text as its declared type, so a declared field has to hold
+	// the value in the form the index expects — which is why the declared
+	// fields below cannot also be the metadata of record. A number written to
+	// a NUMERIC field reads back as a float64 and everything else as a string,
+	// and an undeclared key has no field to read at all, so reconstructing
+	// metadata from the index returned a document that differs from the one
+	// that was written. This field is the record; the declared fields are the
+	// index projection of it.
+	MetadataJSONField string
+
 	// MetadataFields enumerates every metadata key the index should
 	// understand. Only declared fields can appear in a filter
 	// expression — the store rejects unknown identifiers up-front to
@@ -247,6 +262,18 @@ func (s StoreConfig) Validate() error {
 		(s.HNSWM <= 0 || s.HNSWEFConstruct <= 0 || s.HNSWEFRuntime <= 0) {
 		return errors.New("redis: HNSW parameters must all be > 0")
 	}
+	// Metadata keys land in the same HASH as these fields, so a name reused
+	// here would have two writers and the last one would win.
+	reserved := map[string]string{
+		s.ContentField:      "ContentField",
+		s.EmbeddingField:    "EmbeddingField",
+		s.MetadataJSONField: "MetadataJSONField",
+	}
+	if len(reserved) != 3 {
+		return fmt.Errorf(
+			"redis: ContentField %q, EmbeddingField %q and MetadataJSONField %q must name three distinct HASH fields",
+			s.ContentField, s.EmbeddingField, s.MetadataJSONField)
+	}
 	fieldNames := make(map[string]struct{}, len(s.MetadataFields))
 	for index, field := range s.MetadataFields {
 		if err := field.Validate(); err != nil {
@@ -254,6 +281,9 @@ func (s StoreConfig) Validate() error {
 		}
 		if _, duplicate := fieldNames[field.Name]; duplicate {
 			return fmt.Errorf("redis: MetadataFields contains duplicate field %q", field.Name)
+		}
+		if owner, taken := reserved[field.Name]; taken {
+			return fmt.Errorf("redis: MetadataFields[%d] %q collides with %s", index, field.Name, owner)
 		}
 		fieldNames[field.Name] = struct{}{}
 	}
@@ -266,6 +296,7 @@ func (s *StoreConfig) applyDefaults() {
 	s.KeyPrefix = cmp.Or(s.KeyPrefix, DefaultKeyPrefix)
 	s.ContentField = cmp.Or(s.ContentField, DefaultContentField)
 	s.EmbeddingField = cmp.Or(s.EmbeddingField, DefaultEmbeddingField)
+	s.MetadataJSONField = cmp.Or(s.MetadataJSONField, DefaultMetadataJSONField)
 	s.DistanceMetric = cmp.Or(s.DistanceMetric, DefaultDistanceMetric)
 	s.IndexAlgorithm = cmp.Or(s.IndexAlgorithm, DefaultIndexAlgorithm)
 	if s.IndexAlgorithm == AlgorithmHNSW {
