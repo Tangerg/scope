@@ -41,6 +41,15 @@
 // because SQL++ IS NULL requires an explicit NULL and does not match a MISSING
 // path, which is what an absent metadata key is.
 //
+// Scores. Couchbase publishes no formula for the Search Service relevance
+// score, for any of its similarity metrics, and the score is not confined to
+// Core's range: the documented example response for a vector query returns
+// 3.4028234663852886e+38 — float32's maximum — next to 0.42046520427629075.
+// The store maps the score rather than clamping it, and claims only the
+// ordering Couchbase ranked by, which is all the documentation supports.
+// Clamping had made an exact match and a mediocre one the same number and
+// left MinScore unable to tell them apart.
+//
 // See https://docs.couchbase.com/server/current/vector-search/
 // vector-search.html for the official reference.
 package couchbase

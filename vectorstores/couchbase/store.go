@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/couchbase/gocb/v2"
 	"github.com/samber/lo"
@@ -459,7 +460,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		if !ok {
 			return fmt.Errorf("couchbase: result is missing numeric %s", resultScoreField)
 		}
-		score := vectorstore.ScoreFromValue(rawScore)
+		score := scoreFromRelevance(rawScore)
 		if score < req.Options.MinScore {
 			return nil
 		}
@@ -562,6 +563,35 @@ func (s *Store) buildFilter(expr filter.Predicate) (string, error) {
 		return "", fmt.Errorf("couchbase: convert filter: %w", err)
 	}
 	return v.snapshot(), nil
+}
+
+// scoreFromRelevance maps a Search Service relevance score into Core's range
+// while preserving the order Couchbase ranked by.
+//
+// Couchbase does not publish how the score is computed for any of its
+// similarity metrics, and the score is not confined to Core's range: the
+// documented example response for a vector query returns 3.4028234663852886e+38
+// — float32's maximum — alongside 0.42046520427629075 and
+// 0.0004977600796416127. Handing those to ScoreFromValue clamped every score
+// above 1 to exactly 1, so an exact match and a mediocre one became the same
+// number, the ranking above 1 disappeared, and MinScore stopped discriminating
+// there.
+//
+// This maps the score instead. Only the ordering is claimed, which is all the
+// documentation supports: raw/(1+raw) is strictly increasing over the
+// non-negative scores Search reports, sends 0 to 0 and the float32 ceiling to
+// 1, and reads a negative score — possible on a dot_product field with vectors
+// that are not unit length — as no similarity at all. It deliberately does not
+// use a Core constructor: those name a documented provider semantic, and there
+// is no published formula here to name.
+func scoreFromRelevance(raw float64) vectorstore.Score {
+	if raw <= 0 || math.IsNaN(raw) {
+		return vectorstore.ScoreFromValue(0)
+	}
+	if math.IsInf(raw, 1) {
+		return vectorstore.ScoreFromValue(1)
+	}
+	return vectorstore.ScoreFromValue(raw / (1 + raw))
 }
 
 func (s *Store) toDocument(raw map[string]any) (*document.Document, error) {
