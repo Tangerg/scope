@@ -445,36 +445,64 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		knnFragment, indexFullName, whereExtra, req.Options.ResultLimit(),
 	)
 
-	rows, err := s.scope.Query(stmt, &gocb.QueryOptions{Context: ctx})
-	if err != nil {
-		return nil, fmt.Errorf("couchbase: query: %w", err)
-	}
-	defer rows.Close()
-
 	docs = make([]*vectorstore.SearchResult, 0, req.Options.ResultLimit())
-	for rows.Next() {
+	if err = s.runStatement(ctx, stmt, func(result *gocb.QueryResult) error {
 		var raw map[string]any
-		if err := rows.Row(&raw); err != nil {
-			return nil, fmt.Errorf("couchbase: decode row: %w", err)
+		if rowErr := result.Row(&raw); rowErr != nil {
+			return fmt.Errorf("couchbase: decode row: %w", rowErr)
 		}
-		doc, err := s.toDocument(raw)
-		if err != nil {
-			return nil, err
+		doc, docErr := s.toDocument(raw)
+		if docErr != nil {
+			return docErr
 		}
 		rawScore, ok := raw[resultScoreField].(float64)
 		if !ok {
-			return nil, fmt.Errorf("couchbase: result is missing numeric %s", resultScoreField)
+			return fmt.Errorf("couchbase: result is missing numeric %s", resultScoreField)
 		}
 		score := vectorstore.ScoreFromValue(rawScore)
 		if score < req.Options.MinScore {
-			continue
+			return nil
 		}
 		docs = append(docs, &vectorstore.SearchResult{Document: doc, Score: score})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("couchbase: read rows: %w", err)
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 	return &vectorstore.SearchResponse{Results: docs}, nil
+}
+
+// runStatement executes one N1QL statement and accounts for its complete
+// result. gocb surfaces failures raised while the result streams through Err
+// and Close rather than from Query itself, so a statement whose first response
+// succeeded can still have failed; an unclosed result also leaks its stream.
+// Routing both reads and mutations through one owner keeps that accounting from
+// being implemented on only some of the paths. A nil row function consumes a
+// statement that returns no rows.
+func (s *Store) runStatement(
+	ctx context.Context,
+	stmt string,
+	row func(*gocb.QueryResult) error,
+) (err error) {
+	result, queryErr := s.scope.Query(stmt, &gocb.QueryOptions{Context: ctx})
+	if queryErr != nil {
+		return fmt.Errorf("couchbase: query: %w", queryErr)
+	}
+	defer func() {
+		if closeErr := result.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("couchbase: close result: %w", closeErr))
+		}
+	}()
+	if row != nil {
+		for result.Next() {
+			if rowErr := row(result); rowErr != nil {
+				return rowErr
+			}
+		}
+	}
+	if streamErr := result.Err(); streamErr != nil {
+		return fmt.Errorf("couchbase: read rows: %w", streamErr)
+	}
+	return nil
 }
 
 func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
@@ -497,7 +525,7 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		`DELETE FROM `+"`%s`"+`.`+"`%s`"+`.`+"`%s`"+` WHERE %s`,
 		s.bucketName, s.scopeName, s.collectionName, predicate,
 	)
-	if _, err := s.scope.Query(stmt, &gocb.QueryOptions{Context: ctx}); err != nil {
+	if err := s.runStatement(ctx, stmt, nil); err != nil {
 		return fmt.Errorf("couchbase: delete: %w", err)
 	}
 	return nil

@@ -26,6 +26,12 @@
 // under [StoreConfig.InitializeSchema] = true, mirroring the JSON
 // template the framework ships.
 //
+// Statement results. gocb reports a failure raised while a query result streams
+// through Err and Close, not from the initial call, so every statement the
+// store runs — searches and filtered deletion alike — goes through one owner
+// that iterates, checks the stream, and closes the result. A statement that
+// failed mid-stream is an error even though its first response succeeded.
+//
 // See https://docs.couchbase.com/server/current/vector-search/
 // vector-search.html for the official reference.
 package couchbase
