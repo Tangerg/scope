@@ -163,10 +163,19 @@ func (m *ModerationModel) buildModerationResponse(resp *openai.ModerationNewResp
 	return moderation.NewResponse(outputs, meta)
 }
 
-func (m *ModerationModel) Call(ctx context.Context, req *moderation.Request) (*moderation.Response, error) {
-	if err := req.Validate(); err != nil {
+func (m *ModerationModel) Call(ctx context.Context, req *moderation.Request) (response *moderation.Response, err error) {
+	if err = req.Validate(); err != nil {
 		return nil, err
 	}
+	// The moderation results carry no index, so their order is the only thing
+	// tying a verdict to an input. Counting the reply against the request is
+	// what keeps each verdict attached to the text it judged.
+	defer func() {
+		if err == nil {
+			err = response.ValidateFor(req)
+		}
+	}()
+
 	apiReq, err := m.buildAPIModerationRequest(req)
 	if err != nil {
 		return nil, err

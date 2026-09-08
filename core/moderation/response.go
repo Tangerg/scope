@@ -257,6 +257,29 @@ func (r *Response) Validate() error {
 	return nil
 }
 
+// ValidateFor checks a provider result against the request it answers.
+//
+// Outputs declares one entry per input in the same order, and here the
+// correspondence decides what a caller allows and blocks: a result short of
+// the inputs leaves the last text unmoderated while every earlier verdict still
+// looks well formed, and there is no field on an Output tying it back to a
+// text. Validate cannot see it, because the input count is not part of the
+// response, so this is the check that keeps a moderation verdict attached to
+// the text it judged.
+func (r *Response) ValidateFor(request *Request) error {
+	if err := request.Validate(); err != nil {
+		return err
+	}
+	if err := r.Validate(); err != nil {
+		return err
+	}
+	if len(r.Outputs) != len(request.Texts) {
+		return fmt.Errorf("%w: got %d outputs for %d inputs",
+			ErrInvalidResponse, len(r.Outputs), len(request.Texts))
+	}
+	return nil
+}
+
 func (r *Response) First() *Output {
 	if r == nil || len(r.Outputs) == 0 {
 		return nil
