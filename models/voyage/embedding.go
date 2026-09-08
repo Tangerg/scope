@@ -106,29 +106,17 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequ
 	return apiReq, nil
 }
 
+// buildResponse assembles one output per input text. Sizing the slice from the
+// request rather than the reply is what makes every mismatch a local error: an
+// index the request cannot hold and a repeated index are refused as they
+// arrive, and an input the provider never answered stays nil and fails when the
+// Response is built, naming the text that went unanswered.
 func (e *EmbeddingModel) buildResponse(apiResp *embeddingResponse, expectedResults int) (*embedding.Response, error) {
-	if len(apiResp.Data) == 0 {
-		return nil, errors.New("voyage: embedding response has no data")
-	}
-	if len(apiResp.Data) != expectedResults {
-		return nil, fmt.Errorf("voyage: embedding response returned %d outputs for %d inputs", len(apiResp.Data), expectedResults)
-	}
-
-	outputs := make([]*embedding.Output, len(apiResp.Data))
-	seen := make([]bool, len(apiResp.Data))
+	outputs := make([]*embedding.Output, expectedResults)
 	for _, item := range apiResp.Data {
-		if item.Index < 0 || item.Index >= int64(len(outputs)) {
-			return nil, fmt.Errorf("voyage: embedding response index %d is out of range", item.Index)
+		if err := embedding.PlaceOutput(outputs, int(item.Index), item.Embedding, nil); err != nil {
+			return nil, fmt.Errorf("voyage: embedding response: %w", err)
 		}
-		if seen[item.Index] {
-			return nil, fmt.Errorf("voyage: embedding response repeats index %d", item.Index)
-		}
-		output, err := embedding.NewOutput(item.Embedding, nil)
-		if err != nil {
-			return nil, err
-		}
-		outputs[item.Index] = output
-		seen[item.Index] = true
 	}
 
 	meta := &embedding.ResponseMetadata{
@@ -141,10 +129,16 @@ func (e *EmbeddingModel) buildResponse(apiResp *embeddingResponse, expectedResul
 	return embedding.NewResponse(outputs, meta)
 }
 
-func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*embedding.Response, error) {
-	if err := req.Validate(); err != nil {
+func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (response *embedding.Response, err error) {
+	if err = req.Validate(); err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err == nil {
+			err = response.ValidateFor(req)
+		}
+	}()
+
 	apiReq, err := e.buildAPIRequest(req)
 	if err != nil {
 		return nil, err

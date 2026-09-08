@@ -93,16 +93,15 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (string, []*gen
 	return effectiveOptions.Model, contents, config, nil
 }
 
+// buildResponse assembles one output per input text. embed_content answers in
+// input order without tagging each embedding, so arrival order is the position,
+// and sizing the slice from the request is what turns every mismatch into a
+// local error: an extra embedding has nowhere to go, and an input the provider
+// never answered stays nil and fails when the Response is built, naming the
+// text that went unanswered.
 func (e *EmbeddingModel) buildResponse(modelName string, apiResp *genai.EmbedContentResponse, expectedResults int) (*embedding.Response, error) {
-	if len(apiResp.Embeddings) == 0 {
-		return nil, errors.New("google: embed_content response has no embeddings")
-	}
-	if len(apiResp.Embeddings) != expectedResults {
-		return nil, fmt.Errorf("google: embed_content response returned %d outputs for %d inputs", len(apiResp.Embeddings), expectedResults)
-	}
-
-	outputs := make([]*embedding.Output, 0, len(apiResp.Embeddings))
-	for _, item := range apiResp.Embeddings {
+	outputs := make([]*embedding.Output, expectedResults)
+	for index, item := range apiResp.Embeddings {
 		values := make([]float64, len(item.Values))
 		for i, value := range item.Values {
 			values[i] = float64(value)
@@ -118,11 +117,9 @@ func (e *EmbeddingModel) buildResponse(modelName string, apiResp *genai.EmbedCon
 			}
 		}
 
-		output, err := embedding.NewOutput(values, outputMetadata)
-		if err != nil {
-			return nil, err
+		if err := embedding.PlaceOutput(outputs, index, values, outputMetadata); err != nil {
+			return nil, fmt.Errorf("google: embed_content response: %w", err)
 		}
-		outputs = append(outputs, output)
 	}
 
 	meta := &embedding.ResponseMetadata{
@@ -143,10 +140,16 @@ func (e *EmbeddingModel) buildResponse(modelName string, apiResp *genai.EmbedCon
 	return embedding.NewResponse(outputs, meta)
 }
 
-func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*embedding.Response, error) {
-	if err := req.Validate(); err != nil {
+func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (response *embedding.Response, err error) {
+	if err = req.Validate(); err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err == nil {
+			err = response.ValidateFor(req)
+		}
+	}()
+
 	modelName, contents, config, err := e.buildAPIRequest(req)
 	if err != nil {
 		return nil, err

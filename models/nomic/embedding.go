@@ -82,21 +82,18 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequ
 	return apiReq, nil
 }
 
+// buildResponse assembles one output per input text. This provider answers in
+// input order without tagging each embedding, so arrival order is the position,
+// and sizing the slice from the request is what turns every mismatch into a
+// local error: an extra embedding has nowhere to go, and an input the provider
+// never answered stays nil and fails when the Response is built, naming the
+// text that went unanswered.
 func (e *EmbeddingModel) buildResponse(apiResp *embeddingResponse, expectedResults int) (*embedding.Response, error) {
-	if len(apiResp.Embeddings) == 0 {
-		return nil, errors.New("nomic: embedding response has no data")
-	}
-	if len(apiResp.Embeddings) != expectedResults {
-		return nil, fmt.Errorf("nomic: embedding response returned %d outputs for %d inputs", len(apiResp.Embeddings), expectedResults)
-	}
-
-	outputs := make([]*embedding.Output, 0, len(apiResp.Embeddings))
-	for _, vec := range apiResp.Embeddings {
-		output, err := embedding.NewOutput(vec, nil)
-		if err != nil {
-			return nil, err
+	outputs := make([]*embedding.Output, expectedResults)
+	for index, vec := range apiResp.Embeddings {
+		if err := embedding.PlaceOutput(outputs, index, vec, nil); err != nil {
+			return nil, fmt.Errorf("nomic: embedding response: %w", err)
 		}
-		outputs = append(outputs, output)
 	}
 
 	meta := &embedding.ResponseMetadata{
@@ -109,10 +106,16 @@ func (e *EmbeddingModel) buildResponse(apiResp *embeddingResponse, expectedResul
 	return embedding.NewResponse(outputs, meta)
 }
 
-func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*embedding.Response, error) {
-	if err := req.Validate(); err != nil {
+func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (response *embedding.Response, err error) {
+	if err = req.Validate(); err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err == nil {
+			err = response.ValidateFor(req)
+		}
+	}()
+
 	apiReq, err := e.buildAPIRequest(req)
 	if err != nil {
 		return nil, err

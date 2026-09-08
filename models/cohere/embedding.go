@@ -98,21 +98,22 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*cohere.V2Embe
 	return apiReq, nil
 }
 
+// buildResponse assembles one output per input text. This provider answers in
+// input order without tagging each embedding, so arrival order is the position,
+// and sizing the slice from the request is what turns every mismatch into a
+// local error: an extra embedding has nowhere to go, and an input the provider
+// never answered stays nil and fails when the Response is built, naming the
+// text that went unanswered.
 func (e *EmbeddingModel) buildResponse(apiResp *cohere.EmbedByTypeResponse, expectedResults int) (*embedding.Response, error) {
-	if apiResp.Embeddings == nil || len(apiResp.Embeddings.Float) == 0 {
+	if apiResp.Embeddings == nil {
 		return nil, errors.New("cohere: embed response has no float embeddings")
 	}
-	if len(apiResp.Embeddings.Float) != expectedResults {
-		return nil, fmt.Errorf("cohere: embed response returned %d outputs for %d inputs", len(apiResp.Embeddings.Float), expectedResults)
-	}
 
-	outputs := make([]*embedding.Output, 0, len(apiResp.Embeddings.Float))
-	for _, vec := range apiResp.Embeddings.Float {
-		output, err := embedding.NewOutput(vec, nil)
-		if err != nil {
-			return nil, err
+	outputs := make([]*embedding.Output, expectedResults)
+	for index, vec := range apiResp.Embeddings.Float {
+		if err := embedding.PlaceOutput(outputs, index, vec, nil); err != nil {
+			return nil, fmt.Errorf("cohere: embed response: %w", err)
 		}
-		outputs = append(outputs, output)
 	}
 
 	meta := &embedding.ResponseMetadata{}
@@ -127,10 +128,16 @@ func (e *EmbeddingModel) buildResponse(apiResp *cohere.EmbedByTypeResponse, expe
 	return embedding.NewResponse(outputs, meta)
 }
 
-func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*embedding.Response, error) {
-	if err := req.Validate(); err != nil {
+func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (response *embedding.Response, err error) {
+	if err = req.Validate(); err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err == nil {
+			err = response.ValidateFor(req)
+		}
+	}()
+
 	apiReq, err := e.buildAPIRequest(req)
 	if err != nil {
 		return nil, err
