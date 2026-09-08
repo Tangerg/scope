@@ -73,7 +73,7 @@ func TestSteerQueuedDuringChildWaitSurvivesRestore(t *testing.T) {
 				}
 				runtime.Gosched()
 			}
-			waitForStatus(t, root, agent.StatusWaiting)
+			waitForStatus(t, engine, root, agent.StatusWaiting)
 			id, err := agent.ParseSignalID("signal:queued-child-wait")
 			if err != nil {
 				t.Fatal(err)
@@ -89,7 +89,7 @@ func TestSteerQueuedDuringChildWaitSurvivesRestore(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if root.Status() != agent.StatusWaiting || modelCalls.Load() != 1 || waiting.continuationCalls.Load() != 0 {
+			if inspectProcessSnapshot(t, engine, root).Status() != agent.StatusWaiting || modelCalls.Load() != 1 || waiting.continuationCalls.Load() != 0 {
 				t.Fatal("queued Strategy input released the child wait")
 			}
 			restoredEngine, err := agent.NewEngine(config)

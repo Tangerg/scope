@@ -166,6 +166,14 @@
 // settle, removes the tree from lookup, and leaves existing handles' results
 // and runtime errors readable.
 //
+// [Engine.InspectTree] is the sole live inspection entry. It composes existing
+// [ProcessSnapshot] values with current job, commit, and freeze facts, and stays
+// available while storage acknowledgment or a tree freeze blocks execution.
+// Snapshots own lifecycle, usage, wait authority, and Unknown settlements;
+// runtime work may be newer than a durable snapshot. Reports describe one
+// owner turn, never drive execution, and add nothing to the recovery schema.
+// Synchronous [EventListener] callbacks must not query or control their tree.
+//
 // A durable writer can stop without terminating the logical execution. Storage
 // failures and ownership conflicts reach [Process.Await] as a [RuntimeError]
 // with no Result. The error preserves the original cause, the last acknowledged

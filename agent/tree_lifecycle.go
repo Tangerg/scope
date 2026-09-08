@@ -28,8 +28,7 @@ func (t *treeRuntime) finishIfTerminal(process *processState) {
 		t.context, EventProcessFinished, EventPhaseCommitted, 0, EffectID{},
 		terminalEventPayload(process),
 	)
-	snapshot, err := process.capture()
-	process.controller.complete(process.result(), snapshot, err)
+	process.controller.complete(process.result())
 	t.processFinished(process)
 	process.controller.markTreeSettled()
 }

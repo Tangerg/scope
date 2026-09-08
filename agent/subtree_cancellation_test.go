@@ -35,14 +35,14 @@ func TestProcessCancellationPreservesUnsatisfiedSiblingWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForProcessStatus(t, root, StatusWaiting)
+	waitForStatus(t, root, StatusWaiting)
 	children := processesByChildKey(t, engine, root.ID())
 	target, sibling := children["target"], children["sibling"]
 	if target == nil || sibling == nil {
 		t.Fatal("waiting tree is missing target or sibling")
 	}
-	waitForProcessStatus(t, target, StatusWaiting)
-	waitForProcessStatus(t, sibling, StatusPaused)
+	waitForStatus(t, target, StatusWaiting)
+	waitForStatus(t, sibling, StatusPaused)
 	if cancelErr := target.RequestCancellation(t.Context(), "discard one branch"); cancelErr != nil {
 		t.Fatal(cancelErr)
 	}
@@ -53,8 +53,8 @@ func TestProcessCancellationPreservesUnsatisfiedSiblingWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if root.Status() != StatusWaiting || sibling.Status() != StatusPaused {
-		t.Fatalf("unsatisfied parent=%s, sibling=%s", root.Status(), sibling.Status())
+	if inspectProcessSnapshot(t, root).Status() != StatusWaiting || inspectProcessSnapshot(t, sibling).Status() != StatusPaused {
+		t.Fatalf("unsatisfied parent=%s, sibling=%s", inspectProcessSnapshot(t, root).Status(), inspectProcessSnapshot(t, sibling).Status())
 	}
 	restoredEngine, err := NewEngine(EngineConfig{})
 	if err != nil {
@@ -65,7 +65,7 @@ func TestProcessCancellationPreservesUnsatisfiedSiblingWait(t *testing.T) {
 		t.Fatal(err)
 	}
 	restoredSibling, found := restoredEngine.Process(sibling.ID())
-	if !found || restoredRoot.Status() != StatusWaiting || restoredSibling.Status() != StatusPaused {
+	if !found || inspectProcessSnapshot(t, restoredRoot).Status() != StatusWaiting || inspectProcessSnapshot(t, restoredSibling).Status() != StatusPaused {
 		t.Fatal("restoration changed the surviving wait")
 	}
 	for _, pair := range [][2]*Process{{root, sibling}, {restoredRoot, restoredSibling}} {
@@ -99,8 +99,8 @@ func TestSubtreeCancellationPublishesOnlyAfterCheckpointAcknowledgment(t *testin
 		}
 		<-durability.entered
 		for _, process := range []*Process{root, target, descendant} {
-			if process.Status() != StatusWaiting {
-				t.Fatalf("Process %s published %s before acknowledgment", process.ID(), process.Status())
+			if inspectProcessSnapshot(t, process).Status() != StatusWaiting {
+				t.Fatalf("Process %s published %s before acknowledgment", process.ID(), inspectProcessSnapshot(t, process).Status())
 			}
 		}
 		release()
@@ -147,21 +147,21 @@ func startWaitingSubtreeInEngine(
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForProcessStatus(t, root, StatusWaiting)
+	waitForStatus(t, root, StatusWaiting)
 	targets := directChildIDs(t, engine, root.ID())
 	if len(targets) != 1 {
 		t.Fatalf("target count = %d, want 1", len(targets))
 	}
 	targetID, _ := ParseProcessID(targets[0])
 	target, _ := engine.Process(targetID)
-	waitForProcessStatus(t, target, StatusWaiting)
+	waitForStatus(t, target, StatusWaiting)
 	descendants := directChildIDs(t, engine, target.ID())
 	if len(descendants) != 1 {
 		t.Fatalf("descendant count = %d, want 1", len(descendants))
 	}
 	descendantID, _ := ParseProcessID(descendants[0])
 	descendant, _ := engine.Process(descendantID)
-	waitForProcessStatus(t, descendant, StatusWaiting)
+	waitForStatus(t, descendant, StatusWaiting)
 	return root, target, descendant
 }
 

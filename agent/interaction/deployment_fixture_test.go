@@ -35,8 +35,8 @@ func captureToolInput(t *testing.T, engine *agent.Engine, root *agent.Process) (
 		if len(pending) == 1 {
 			return snapshot, pending[0]
 		}
-		if len(pending) > 1 || root.Status().Terminal() {
-			t.Fatalf("Tool waits=%d root status=%s", len(pending), root.Status())
+		if len(pending) > 1 || inspectProcessSnapshot(t, engine, root).Status().Terminal() {
+			t.Fatalf("Tool waits=%d root status=%s", len(pending), inspectProcessSnapshot(t, engine, root).Status())
 		}
 		runtime.Gosched()
 	}
@@ -107,4 +107,19 @@ func toolInteractionDeployment(deployment agent.Deployment, toolSet interaction.
 		fixture.resolver[child.DeploymentRef()] = child
 	}
 	return fixture
+}
+
+func inspectProcessSnapshot(t *testing.T, engine *agent.Engine, process *agent.Process) agent.ProcessSnapshot {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	inspection, err := engine.InspectTree(ctx, process.Relation().RootID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, found := inspection.Process(process.ID())
+	if !found {
+		t.Fatal("Process is missing from the inspected tree")
+	}
+	return report.Snapshot
 }

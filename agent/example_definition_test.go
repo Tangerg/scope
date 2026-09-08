@@ -198,10 +198,20 @@ func ExampleDefinition() {
 	if err != nil {
 		panic(err)
 	}
+	inspection, err := engine.InspectTree(context.Background(), result.ProcessID())
+	if err != nil {
+		panic(err)
+	}
+	report, found := inspection.Process(result.ProcessID())
+	if !found {
+		panic("completed Process is absent from its tree")
+	}
 	if err := engine.ReleaseTree(context.Background(), result.ProcessID()); err != nil {
 		panic(err)
 	}
 	fmt.Println(result.Status(), value.Value, dispatcher.attempts.Load())
+	fmt.Println("inspected:", report.Snapshot.Status(), report.Snapshot.Usage().PreparedEffects)
 	// Output:
 	// completed hello 1
+	// inspected: completed 1
 }

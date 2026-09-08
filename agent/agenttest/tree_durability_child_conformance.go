@@ -49,12 +49,12 @@ func runCrashChildCommit(t *testing.T, store TreeDurabilityConformanceDriver, ph
 	}
 	restoredEngine := newCrashEngine(t, durability, nil)
 	root := restoreCrashTree(t, restoredEngine, deployment, head)
-	waitForConformanceStatus(t, root, agent.StatusWaiting)
+	waitForConformanceStatus(t, restoredEngine, root, agent.StatusWaiting)
 	child, found := restoredEngine.Process(childID)
 	if !found {
 		t.Fatal("restoration changed the child identity")
 	}
-	waitForConformanceStatus(t, child, agent.StatusWaiting)
+	waitForConformanceStatus(t, restoredEngine, child, agent.StatusWaiting)
 	head, found, err := store.LoadTree(t.Context(), original.ID())
 	if err != nil || !found || len(head.ProcessSnapshots()) != 2 {
 		t.Fatalf("restored child tree exists=%t processes=%d error=%v", found, len(head.ProcessSnapshots()), err)
@@ -75,7 +75,7 @@ func runCrashChildCommit(t *testing.T, store TreeDurabilityConformanceDriver, ph
 		t.Fatalf("restoration changed child allocation: parent=%+v child=%+v reserved=%+v",
 			rootSnapshot.Budget(), childSnapshot.Budget(), allocation.ReservedBudget)
 	}
-	waitID, waiting := child.WaitID()
+	waitID, waiting := inspectConformanceProcess(t, restoredEngine, child).WaitID()
 	if !waiting {
 		t.Fatal("restored child lost its input wait")
 	}
@@ -122,7 +122,7 @@ func runCrashAfterSubtreeCancellationCheckpoint(t *testing.T, store TreeDurabili
 	deployment := newCrashTreeDeployment(t)
 	engine := newCrashEngine(t, gate, nil)
 	root := startCrashTree(t, engine, deployment)
-	waitForConformanceStatus(t, root, agent.StatusWaiting)
+	waitForConformanceStatus(t, engine, root, agent.StatusWaiting)
 	head, found, err := store.LoadTree(t.Context(), root.ID())
 	if err != nil || !found {
 		t.Fatalf("waiting tree head exists=%t error=%v", found, err)
@@ -132,13 +132,13 @@ func runCrashAfterSubtreeCancellationCheckpoint(t *testing.T, store TreeDurabili
 	if !found {
 		t.Fatal("waiting child was not published")
 	}
-	waitForConformanceStatus(t, child, agent.StatusWaiting)
+	waitForConformanceStatus(t, engine, child, agent.StatusWaiting)
 	if err := child.RequestCancellation(t.Context(), crashTreeCancellationReason); err != nil {
 		t.Fatal(err)
 	}
 	observation := gate.await(t)
 	head = assertCrashHead(t, store, root.ID(), observation.prospective.Digest())
-	if root.Status() != agent.StatusWaiting || child.Status() != agent.StatusWaiting {
+	if inspectConformanceProcess(t, engine, root).Status() != agent.StatusWaiting || inspectConformanceProcess(t, engine, child).Status() != agent.StatusWaiting {
 		t.Fatal("cancellation was published before checkpoint acknowledgment")
 	}
 	restoredEngine := newCrashEngine(t, durability, nil)

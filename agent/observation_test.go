@@ -334,8 +334,8 @@ func TestStepPausePublishesCommittedProcessPausedFact(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-paused
-	if process.Status() != StatusPaused {
-		t.Fatalf("Process status = %s, want Paused", process.Status())
+	if inspectProcessSnapshot(t, process).Status() != StatusPaused {
+		t.Fatalf("Process status = %s, want Paused", inspectProcessSnapshot(t, process).Status())
 	}
 	var committedIndex, pausedIndex = -1, -1
 	for index, event := range events {

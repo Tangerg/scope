@@ -136,7 +136,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForProcessStatus(t, root, StatusWaiting)
+	waitForStatus(t, root, StatusWaiting)
 	childIDs := directChildIDs(t, engine, root.ID())
 	if len(childIDs) != 3 {
 		t.Fatalf("child count = %d, want 3", len(childIDs))
@@ -144,7 +144,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 	for _, encoded := range childIDs {
 		id, _ := ParseProcessID(encoded)
 		child, _ := engine.Process(id)
-		waitForProcessStatus(t, child, StatusPaused)
+		waitForStatus(t, child, StatusPaused)
 	}
 	tree, err := engine.CaptureTree(context.Background(), root.ID())
 	if err != nil {
@@ -277,7 +277,7 @@ func TestTerminalTreeSnapshotClosesUnconsumedChildWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForProcessStatus(t, root, StatusWaiting)
+	waitForStatus(t, root, StatusWaiting)
 	if killErr := root.Kill(context.Background(), "capture terminal tree"); killErr != nil {
 		t.Fatal(killErr)
 	}
@@ -317,7 +317,7 @@ func testTreeCaptureWaitsForInflightChildEffectsToSettle(t *testing.T) {
 	for range 3 {
 		<-dispatcher.started
 	}
-	waitForProcessStatus(t, root, StatusWaiting)
+	waitForStatus(t, root, StatusWaiting)
 	type captureResult struct {
 		snapshot TreeSnapshot
 		err      error
@@ -474,10 +474,7 @@ func TestTreeRestoreValidatesTerminalOutputAgainstExactDeployment(t *testing.T) 
 		t.Fatal(err)
 	}
 	_ = mustAwait(t, root)
-	snapshot, err := root.Snapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	snapshot := inspectProcessSnapshot(t, root)
 	wire, _ := snapshot.wire()
 	invalidOutput, _ := EncodeOutput(struct {
 		Unexpected bool `json:"unexpected"`

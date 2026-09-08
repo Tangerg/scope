@@ -46,7 +46,7 @@ func TestSignalBatchDeduplicatesBeforeChargingFullMailbox(t *testing.T) {
 	if accepted, deliveryErr := process.DeliverSignals(t.Context(), first); deliveryErr != nil || !accepted {
 		t.Fatalf("first delivery = %t, %v", accepted, deliveryErr)
 	}
-	before := process.Usage()
+	before := inspectProcessSnapshot(t, process).Usage()
 	secondID, _ := ParseSignalID("signal:second-input")
 	second, err := NewSignalRequest(secondID, WaitID{}, []byte(`{"value":"second"}`))
 	if err != nil {
@@ -56,7 +56,7 @@ func TestSignalBatchDeduplicatesBeforeChargingFullMailbox(t *testing.T) {
 		if accepted, deliveryErr := process.DeliverSignals(t.Context(), requests...); deliveryErr != nil || accepted {
 			t.Fatalf("duplicate batch = %t, %v", accepted, deliveryErr)
 		}
-		if usage := process.Usage(); usage != before {
+		if usage := inspectProcessSnapshot(t, process).Usage(); usage != before {
 			t.Fatalf("duplicate charged usage: before=%+v after=%+v", before, usage)
 		}
 	}
@@ -72,17 +72,14 @@ func TestSignalBatchDeduplicatesBeforeChargingFullMailbox(t *testing.T) {
 		if accepted, deliveryErr := process.DeliverSignals(t.Context(), requests...); accepted || !errors.Is(deliveryErr, ErrSignalConflict) {
 			t.Fatalf("conflicting batch = %t, %v", accepted, deliveryErr)
 		}
-		if process.Usage() != before {
+		if inspectProcessSnapshot(t, process).Usage() != before {
 			t.Fatal("conflicting batch changed usage")
 		}
 	}
 	if accepted, deliveryErr := process.DeliverSignals(t.Context(), second); accepted || !errors.Is(deliveryErr, ErrResourceLimitExceeded) {
 		t.Fatalf("new signal at capacity = %t, %v", accepted, deliveryErr)
 	}
-	snapshot, err := process.Snapshot(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
+	snapshot := inspectProcessSnapshot(t, process)
 	wire, err := snapshot.wire()
 	if err != nil || len(wire.Mailbox.Signals) != 2 || wire.Mailbox.Signals[1].ID != firstID {
 		t.Fatalf("mailbox = %+v, error = %v", wire.Mailbox, err)

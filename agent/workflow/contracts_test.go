@@ -118,8 +118,13 @@ func resumePausedChildren(
 		if !found {
 			t.Fatalf("restored child %s was not registered", childID)
 		}
-		if child.Status() != agent.StatusPaused {
-			t.Fatalf("restored child %s status = %s", childID, child.Status())
+		inspection, err := engine.InspectTree(t.Context(), child.Relation().RootID())
+		if err != nil {
+			t.Fatal(err)
+		}
+		report, present := inspection.Process(childID)
+		if !present || report.Snapshot.Status() != agent.StatusPaused {
+			t.Fatalf("restored child %s status = %s", childID, report.Snapshot.Status())
 		}
 		if resumeErr := child.Resume(context.Background()); resumeErr != nil {
 			t.Fatal(resumeErr)

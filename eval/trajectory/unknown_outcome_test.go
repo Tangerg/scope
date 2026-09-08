@@ -24,26 +24,25 @@ func TestRecorderPreservesHostFailureAsUnknownToolOutcome(t *testing.T) {
 	var unknown []agent.EffectID
 	var owner *agent.Process
 	for len(unknown) == 0 {
-		snapshot, captureErr := engine.CaptureTree(ctx, process.ID())
+		inspection, captureErr := engine.InspectTree(ctx, process.ID())
 		if captureErr != nil {
 			t.Fatal(captureErr)
 		}
-		for _, captured := range snapshot.ProcessSnapshots() {
+		for _, report := range inspection.Processes {
+			captured := report.Snapshot
 			candidate, found := engine.Process(captured.ProcessID())
 			if !found {
 				t.Fatal("captured Process is missing")
 			}
-			ids, queryErr := candidate.UnknownEffectIDs(ctx)
-			if queryErr != nil {
-				t.Fatal(queryErr)
-			}
+			ids := captured.UnknownEffectIDs()
 			if len(ids) != 0 {
 				unknown, owner = ids, candidate
 				break
 			}
 		}
-		if process.Status().Terminal() {
-			t.Fatalf("host failure lost the unresolved Tool Effect: %s", process.Status())
+		rootReport, found := inspection.Process(process.ID())
+		if !found || rootReport.Snapshot.Status().Terminal() {
+			t.Fatalf("host failure lost the unresolved Tool Effect: %s", rootReport.Snapshot.Status())
 		}
 		if len(unknown) != 0 {
 			break

@@ -354,8 +354,7 @@ func (t *treeRuntime) publishCheckpoint() {
 			delete(t.checkpointPending, processID)
 			continue
 		}
-		snapshot, err := process.capture()
-		process.controller.complete(process.result(), snapshot, err)
+		process.controller.complete(process.result())
 		process.controller.markTreeSettled()
 		delete(t.checkpointPending, processID)
 	}

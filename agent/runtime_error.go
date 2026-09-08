@@ -18,6 +18,15 @@ type RuntimeError struct {
 	cause               error
 }
 
+func (r *RuntimeError) clone() *RuntimeError {
+	if r == nil {
+		return nil
+	}
+	owned := *r
+	owned.unresolvedEffectIDs = slices.Clone(r.unresolvedEffectIDs)
+	return &owned
+}
+
 func (r *RuntimeError) Error() string {
 	return fmt.Sprintf("agent: runtime for Process %s stopped: %v", r.processID, r.cause)
 }

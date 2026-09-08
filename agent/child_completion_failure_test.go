@@ -30,17 +30,14 @@ func TestChildCompletionPreservesParentSchedulingAcrossRestore(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			waitForProcessStatus(t, root, test.status)
-			waitID, _ := root.WaitID()
+			waitForStatus(t, root, test.status)
+			waitID, _ := inspectProcessSnapshot(t, root).WaitID()
 			dispatcher.ReleaseAll()
 			awaitChildren(t, engine, directChildIDs(t, engine, root.ID()))
-			if root.Status().Terminal() {
+			if inspectProcessSnapshot(t, root).Status().Terminal() {
 				t.Fatalf("child completion terminated parent: %+v", mustAwait(t, root).Termination())
 			}
-			snapshot, err := root.Snapshot(t.Context())
-			if err != nil {
-				t.Fatal(err)
-			}
+			snapshot := inspectProcessSnapshot(t, root)
 			if snapshot.Status() != test.status {
 				t.Fatalf("child completion changed parent status to %s, want %s", snapshot.Status(), test.status)
 			}
@@ -65,8 +62,8 @@ func TestChildCompletionPreservesParentSchedulingAcrossRestore(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, process := range []*Process{root, restored} {
-				if process.Status() != test.status {
-					t.Fatalf("parent status before resume = %s, want %s", process.Status(), test.status)
+				if inspectProcessSnapshot(t, process).Status() != test.status {
+					t.Fatalf("parent status before resume = %s, want %s", inspectProcessSnapshot(t, process).Status(), test.status)
 				}
 				if test.status == StatusPaused {
 					if resumeErr := process.Resume(t.Context()); resumeErr != nil {
@@ -145,7 +142,7 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 	if result.Status() != StatusFailed || !present || failure.Code() != "engine.child.completion.encoding_failed" {
 		t.Fatalf("parent result = %s, failure = %+v", result.Status(), failure)
 	}
-	if snapshot, err := (&Process{controller: controller}).Snapshot(t.Context()); err != nil || !snapshot.Valid() {
+	if snapshot, err := runtime.processes[controller.processID].capture(); err != nil || !snapshot.Valid() {
 		t.Fatalf("terminal snapshot = %v, error = %v", snapshot.Valid(), err)
 	}
 }

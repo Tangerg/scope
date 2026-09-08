@@ -53,8 +53,8 @@ func runSignalAdmissionConformance(t *testing.T, factory func() TreeDurabilityCo
 			before := waitForConformanceHeadStatus(t, driver, process.ID(), agent.StatusPaused)
 			// A reader can see the stored pause before its acknowledgment has
 			// returned to the Engine. Establish both sides before taking usage.
-			waitForConformanceStatus(t, process, agent.StatusPaused)
-			usage := process.Usage()
+			waitForConformanceStatus(t, engine, process, agent.StatusPaused)
+			usage := inspectConformanceProcess(t, engine, process).Usage()
 			id, err := agent.ParseSignalID("signal:durable-input")
 			if err != nil {
 				t.Fatal(err)
@@ -74,7 +74,7 @@ func runSignalAdmissionConformance(t *testing.T, factory func() TreeDurabilityCo
 				t.Fatalf("delivery acknowledged before durability returned: %+v", response)
 			default:
 			}
-			if process.Usage() != usage {
+			if inspectConformanceProcess(t, engine, process).Usage() != usage {
 				t.Fatal("unacknowledged input changed published resource usage")
 			}
 			assertCrashEventAbsent(t, recorder, agent.EventSignalAccepted)
@@ -125,8 +125,8 @@ func runSignalAdmissionConformance(t *testing.T, factory func() TreeDurabilityCo
 			if err != nil || accepted == hasInput {
 				t.Fatalf("retry after recovery accepted=%t previously committed=%t error=%v", accepted, hasInput, err)
 			}
-			if restored.Usage().AcceptedSignals != usage.AcceptedSignals+1 {
-				t.Fatalf("recovered input charged more than once: %+v", restored.Usage())
+			if inspectConformanceProcess(t, restoredEngine, restored).Usage().AcceptedSignals != usage.AcceptedSignals+1 {
+				t.Fatalf("recovered input charged more than once: %+v", inspectConformanceProcess(t, restoredEngine, restored).Usage())
 			}
 			conflict, err := agent.NewSignalRequest(id, agent.WaitID{}, []byte(`{"value":"conflict"}`))
 			if err != nil {

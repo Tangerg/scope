@@ -84,10 +84,7 @@ func TestStepCannotConsumeSignalsThatArriveDuringItsExecution(t *testing.T) {
 			if result.Status() != wantStatus {
 				t.Fatalf("status = %s, want %s", result.Status(), wantStatus)
 			}
-			snapshot, err := process.Snapshot(t.Context())
-			if err != nil {
-				t.Fatal(err)
-			}
+			snapshot := inspectProcessSnapshot(t, process)
 			wire, err := snapshot.wire()
 			if err != nil {
 				t.Fatal(err)
@@ -474,7 +471,7 @@ func TestEngineMintsWaitIDAndRequiresAddressedAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForStatus(t, process, StatusWaiting)
-	waitID, ok := process.WaitID()
+	waitID, ok := inspectProcessSnapshot(t, process).WaitID()
 	if !ok {
 		t.Fatal("Waiting Process did not expose Engine-minted WaitID")
 	}
@@ -553,9 +550,9 @@ func TestUnknownSettlementRequiresExplicitResolutionAndSurvivesRestore(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	unknown, err := restored.UnknownEffectIDs(context.Background())
-	if err != nil || len(unknown) != 1 || unknown[0] != effectID {
-		t.Fatalf("unknown Effects=%v err=%v", unknown, err)
+	unknown := inspectProcessSnapshot(t, restored).UnknownEffectIDs()
+	if len(unknown) != 1 || unknown[0] != effectID {
+		t.Fatalf("unknown Effects=%v", unknown)
 	}
 	if dispatcher.calls.Load() != 1 {
 		t.Fatalf("ReplayPolicyNever dispatcher calls=%d, want 1", dispatcher.calls.Load())
@@ -602,9 +599,9 @@ func TestPartialEffectBatchPreservesSettlementsAndDeclarationOrder(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	unknown, err := restored.UnknownEffectIDs(context.Background())
-	if err != nil || len(unknown) != 1 || unknown[0] != wire.Prepared.Effects[1].ID {
-		t.Fatalf("unknown Effects=%v err=%v", unknown, err)
+	unknown := inspectProcessSnapshot(t, restored).UnknownEffectIDs()
+	if len(unknown) != 1 || unknown[0] != wire.Prepared.Effects[1].ID {
+		t.Fatalf("unknown Effects=%v", unknown)
 	}
 	if dispatcher.calls.Load() != 2 {
 		t.Fatalf("dispatcher calls=%d, want 2", dispatcher.calls.Load())
@@ -643,7 +640,7 @@ func TestPausedProcessCapturesRestoresAndResumesAtSafeBoundary(t *testing.T) {
 	if pauseErr := process.Pause(context.Background(), "operator inspection"); pauseErr != nil {
 		t.Fatal(pauseErr)
 	}
-	if process.Status() == StatusPaused {
+	if inspectProcessSnapshot(t, process).Status() == StatusPaused {
 		t.Fatal("Pause became visible before the in-flight Effect settled")
 	}
 	close(release)
@@ -657,8 +654,8 @@ func TestPausedProcessCapturesRestoresAndResumesAtSafeBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restored.Status() != StatusPaused {
-		t.Fatalf("restored status=%s", restored.Status())
+	if inspectProcessSnapshot(t, restored).Status() != StatusPaused {
+		t.Fatalf("restored status=%s", inspectProcessSnapshot(t, restored).Status())
 	}
 	if err := restored.Resume(context.Background()); err != nil {
 		t.Fatal(err)
@@ -683,7 +680,7 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForStatus(t, process, StatusWaiting)
-	waitID, _ := process.WaitID()
+	waitID, _ := inspectProcessSnapshot(t, process).WaitID()
 	tree, err := engine.CaptureTree(context.Background(), process.ID())
 	if err != nil {
 		t.Fatal(err)
@@ -698,19 +695,19 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restoredWaitID, ok := restored.WaitID()
+	restoredWaitID, ok := inspectProcessSnapshot(t, restored).WaitID()
 	if !ok || restoredWaitID != waitID {
 		t.Fatalf("restored WaitID=%s want=%s", restoredWaitID, waitID)
 	}
 	answerID, _ := ParseSignalID("signal:restored-answer")
 	answer, _ := NewSignalRequest(answerID, restoredWaitID, json.RawMessage(`{"kind":"answer","value":"restored"}`))
 	for _, continued := range []*Process{process, restored} {
-		before := continued.Usage()
+		before := inspectProcessSnapshot(t, continued).Usage()
 		if accepted, err := continued.DeliverSignals(t.Context(), answer, answer); err != nil || accepted {
 			t.Fatalf("duplicate batch accepted=%t error=%v", accepted, err)
 		}
-		if currentWait, ok := continued.WaitID(); !ok || currentWait != waitID || continued.Usage() != before {
-			t.Fatalf("rejected batch changed wait or usage: wait=%s usage=%+v", currentWait, continued.Usage())
+		if currentWait, ok := inspectProcessSnapshot(t, continued).WaitID(); !ok || currentWait != waitID || inspectProcessSnapshot(t, continued).Usage() != before {
+			t.Fatalf("rejected batch changed wait or usage: wait=%s usage=%+v", currentWait, inspectProcessSnapshot(t, continued).Usage())
 		}
 		if accepted, err := continued.DeliverSignals(t.Context(), answer); err != nil || !accepted {
 			t.Fatalf("accepted=%t err=%v", accepted, err)
@@ -722,7 +719,7 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 			!present || string(output.JSON()) != `{"value":"restored"}` {
 			t.Fatalf("continued result status=%s usage=%+v output=%s", result.Status(), result.Usage(), output.JSON())
 		}
-		if _, waiting := continued.WaitID(); waiting {
+		if _, waiting := inspectProcessSnapshot(t, continued).WaitID(); waiting {
 			t.Fatal("completed Process retained its current wait")
 		}
 	}
@@ -819,9 +816,9 @@ func TestRestoreDistinguishesPlannedFromPendingEffect(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		unknown, err := restored.UnknownEffectIDs(context.Background())
-		if err != nil || len(unknown) != 1 {
-			t.Fatalf("unknown Effects = %v, error = %v", unknown, err)
+		unknown := inspectProcessSnapshot(t, restored).UnknownEffectIDs()
+		if len(unknown) != 1 {
+			t.Fatalf("unknown Effects = %v", unknown)
 		}
 		if calls := dispatcher.calls.Load(); calls != 0 {
 			t.Fatalf("pending never-replay dispatch calls = %d, want 0", calls)
@@ -876,7 +873,7 @@ func TestRequestCancellationReturnsAfterSubmissionAndSurvivesContextCancellation
 		t.Fatal(err)
 	}
 	cancelRequest()
-	if process.Status().Terminal() {
+	if inspectProcessSnapshot(t, process).Status().Terminal() {
 		t.Fatal("cancellation became terminal before the in-flight Effect settled")
 	}
 
@@ -903,8 +900,8 @@ func TestRequestCancellationRejectsAnAlreadyCanceledSubmissionContext(t *testing
 	if err := process.RequestCancellation(requestCtx, "must not enter the queue"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("RequestCancellation error=%v, want context.Canceled", err)
 	}
-	if process.Status() != StatusWaiting {
-		t.Fatalf("status=%s, want waiting", process.Status())
+	if inspectProcessSnapshot(t, process).Status() != StatusWaiting {
+		t.Fatalf("status=%s, want waiting", inspectProcessSnapshot(t, process).Status())
 	}
 
 	if err := process.Kill(context.Background(), "test cleanup"); err != nil {
@@ -932,7 +929,7 @@ func TestKillWaitsForInflightEffectSettlement(t *testing.T) {
 	if err := process.Kill(context.Background(), "operator requested stop"); err != nil {
 		t.Fatal(err)
 	}
-	if process.Status().Terminal() {
+	if inspectProcessSnapshot(t, process).Status().Terminal() {
 		t.Fatal("Kill abandoned an in-flight Effect")
 	}
 	close(release)
@@ -956,10 +953,7 @@ func TestStepFailureDiscardsMutatedExecutionAndPreservesCursor(t *testing.T) {
 	if result.Status() != StatusFailed || result.Termination().Cause() != TerminationCauseExecutionFailure {
 		t.Fatalf("termination=%+v", result.Termination())
 	}
-	snapshot, err := process.Snapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	snapshot := inspectProcessSnapshot(t, process)
 	wire, _ := snapshot.wire()
 	state, _ := wireJSON.decode[engineTestState](wire.CommittedExecutionState.Payload())
 	if state.Phase != "ready" || wire.Mailbox.SignalCursor != 0 || wire.Prepared != nil {
@@ -1292,12 +1286,12 @@ func waitForStatus(t testing.TB, process *Process, want Status) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 	for {
-		snapshot, err := process.Snapshot(ctx)
-		if err != nil {
-			t.Fatalf("capture Process while waiting for %s: %v", want, err)
-		}
+		snapshot := inspectProcessSnapshot(t, process)
 		if snapshot.Status() == want {
 			return
+		}
+		if err := ctx.Err(); err != nil {
+			t.Fatalf("Process status=%s, want %s: %v", snapshot.Status(), want, err)
 		}
 		runtime.Gosched()
 	}
@@ -1308,19 +1302,12 @@ func waitForUnknownSettlement(t testing.TB, process *Process) ProcessSnapshot {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 	for {
-		snapshot, err := process.Snapshot(ctx)
-		if err == nil {
-			wire, _ := snapshot.wire()
-			if wire.Prepared != nil {
-				for _, effect := range wire.Prepared.Effects {
-					if effect.Settlement != nil && effect.Settlement.Status() == SettlementStatusUnknown {
-						return snapshot
-					}
-				}
-			}
+		snapshot := inspectProcessSnapshot(t, process)
+		if len(snapshot.UnknownEffectIDs()) != 0 {
+			return snapshot
 		}
 		if err := ctx.Err(); err != nil {
-			t.Fatalf("Process never exposed unknown Effect settlement: %v", err)
+			t.Fatalf("Process did not expose an Unknown settlement: %v", err)
 		}
 		runtime.Gosched()
 	}

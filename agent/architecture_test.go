@@ -9,11 +9,38 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestRuntimeInspectionHasOnePublicOwner(t *testing.T) {
+	process := reflect.TypeFor[*Process]()
+	var methods []string
+	for index := range process.NumMethod() {
+		methods = append(methods, process.Method(index).Name)
+	}
+	want := []string{
+		"Await", "Budget", "Capabilities", "DeliverSignals", "DeploymentRef", "ID",
+		"Kill", "Pause", "Relation", "RequestCancellation", "ResolveUnknownEffect", "Resume", "StartedAt",
+	}
+	if !slices.Equal(methods, want) {
+		t.Fatalf("Process must expose identity, control, and Await; runtime reads belong to Engine.InspectTree: %v", methods)
+	}
+	engine := reflect.TypeFor[*Engine]()
+	var inspectionMethods []string
+	for index := range engine.NumMethod() {
+		method := engine.Method(index)
+		if method.Type.NumOut() > 0 && method.Type.Out(0) == reflect.TypeFor[TreeInspection]() {
+			inspectionMethods = append(inspectionMethods, method.Name)
+		}
+	}
+	if !slices.Equal(inspectionMethods, []string{"InspectTree"}) {
+		t.Fatalf("tree inspection must have one Engine entry: %v", inspectionMethods)
+	}
+}
 
 func TestProcessAdmissionContainsOnlyFrameworkStartContracts(t *testing.T) {
 	typeOf := reflect.TypeFor[ProcessAdmission]()

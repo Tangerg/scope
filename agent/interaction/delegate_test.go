@@ -310,8 +310,8 @@ func completeRestoredDelegateTree(
 	if !found {
 		t.Fatalf("restored child %s was not registered", childID)
 	}
-	if restoredChild.Status() != agent.StatusPaused {
-		t.Fatalf("restored child %s status = %s", childID, restoredChild.Status())
+	if inspectProcessSnapshot(t, restoredEngine, restoredChild).Status() != agent.StatusPaused {
+		t.Fatalf("restored child %s status = %s", childID, inspectProcessSnapshot(t, restoredEngine, restoredChild).Status())
 	}
 	if resumeErr := restoredChild.Resume(context.Background()); resumeErr != nil {
 		t.Fatal(resumeErr)

@@ -76,18 +76,15 @@ func TestRestoreDoesNotChargeExistingChildCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForProcessStatus(t, root, StatusWaiting)
+	waitForStatus(t, root, StatusWaiting)
 	ids := directChildIDs(t, engine, root.ID())
 	if len(ids) != 1 {
 		t.Fatalf("children=%v", ids)
 	}
 	childID, _ := ParseProcessID(ids[0])
 	child, _ := engine.Process(childID)
-	waitForProcessStatus(t, child, StatusWaiting)
-	snapshot, err := child.Snapshot(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	waitForStatus(t, child, StatusWaiting)
+	snapshot := inspectProcessSnapshot(t, child)
 	waitID, _ := snapshot.WaitID()
 	signalID, _ := ParseSignalID("sig:completion-complete-child")
 	request, err := NewSignalRequest(signalID, waitID, []byte(`{"reply":"done"}`))

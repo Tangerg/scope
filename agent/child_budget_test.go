@@ -50,12 +50,12 @@ func TestChildAllocationPreservesPreparedParentWork(t *testing.T) {
 				}
 				ids := directChildIDs(t, engine, root.ID())
 				awaitChildren(t, engine, ids)
-				_, snapshotErr := root.Snapshot(t.Context())
+				snapshot := inspectProcessSnapshot(t, root)
 				if closeErr := engine.Close(); closeErr != nil {
 					t.Fatal(closeErr)
 				}
-				if result.Status() != StatusCompleted || len(ids) != test.wantChildren || snapshotErr != nil {
-					t.Fatalf("parent=%s children=%v snapshot error=%v", result.Status(), ids, snapshotErr)
+				if result.Status() != StatusCompleted || len(ids) != test.wantChildren || !snapshot.Valid() {
+					t.Fatalf("parent=%s children=%v snapshot valid=%t", result.Status(), ids, snapshot.Valid())
 				}
 				output := childTestResult(t, result)
 				if test.wantChildren == 0 {

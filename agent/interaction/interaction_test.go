@@ -208,13 +208,13 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 			if !found {
 				t.Fatal("unknown Tool Process is missing")
 			}
-			unknown, err := toolProcess.UnknownEffectIDs(ctx)
+			unknown := inspectProcessSnapshot(t, engine, toolProcess).UnknownEffectIDs()
 			effectID, _ := settled.EffectID()
-			if err != nil || len(unknown) != 1 || unknown[0] != effectID {
-				t.Fatalf("unknown Effects=%v error=%v", unknown, err)
+			if len(unknown) != 1 || unknown[0] != effectID {
+				t.Fatalf("unknown Effects=%v", unknown)
 			}
-			if process.Status().Terminal() || model.Calls() != 1 {
-				t.Fatalf("status=%s model calls=%d", process.Status(), model.Calls())
+			if inspectProcessSnapshot(t, engine, process).Status().Terminal() || model.Calls() != 1 {
+				t.Fatalf("status=%s model calls=%d", inspectProcessSnapshot(t, engine, process).Status(), model.Calls())
 			}
 			if killErr := process.Kill(ctx, "retain unresolved outcome in terminal result"); killErr != nil {
 				t.Fatal(killErr)

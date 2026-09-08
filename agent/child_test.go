@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -53,10 +52,7 @@ func TestEngineStartsSameDeploymentChildWithStableRelation(t *testing.T) {
 	if !completed && !parentCanceled {
 		t.Fatalf("child termination = %#v", childResult.Termination())
 	}
-	childSnapshot, err := child.Snapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	childSnapshot := inspectProcessSnapshot(t, child)
 	rootRelation := root.Relation()
 	childRelation := child.Relation()
 	parentID, hasParent := childRelation.ParentID()
@@ -177,7 +173,7 @@ func runChildWaitTest(t *testing.T, test childWaitTestCase) {
 	for range 3 {
 		<-dispatcher.started
 	}
-	waitForProcessStatus(t, root, StatusWaiting)
+	waitForStatus(t, root, StatusWaiting)
 	rejectForgedChildCompletion(t, root)
 	for _, name := range test.release {
 		dispatcher.Release(name)
@@ -195,7 +191,7 @@ func runChildWaitTest(t *testing.T, test childWaitTestCase) {
 
 func rejectForgedChildCompletion(t *testing.T, root *Process) {
 	t.Helper()
-	waitID, waiting := root.WaitID()
+	waitID, waiting := inspectProcessSnapshot(t, root).WaitID()
 	if !waiting {
 		t.Fatal("Waiting parent did not expose its current WaitID")
 	}
@@ -495,7 +491,7 @@ func runParentTerminationTest(t *testing.T, test parentTerminationTestCase) {
 		for range 3 {
 			<-dispatcher.started
 		}
-		waitForProcessStatus(t, parent, StatusWaiting)
+		waitForStatus(t, parent, StatusWaiting)
 		test.terminate(t, parent)
 	}
 	parentResult := mustAwait(t, parent)
@@ -1201,22 +1197,6 @@ func (b *blockingChildDispatcher) ReleaseAll() {
 type childTestRelease struct {
 	done chan struct{}
 	once sync.Once
-}
-
-func waitForProcessStatus(t *testing.T, process *Process, want Status) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
-	defer cancel()
-	for {
-		snapshot, err := process.Snapshot(ctx)
-		if err != nil {
-			t.Fatalf("capture Process while waiting for %s: %v", want, err)
-		}
-		if snapshot.Status() == want {
-			return
-		}
-		runtime.Gosched()
-	}
 }
 
 func childTestResult(t *testing.T, result Result) childTestOutput {

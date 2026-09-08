@@ -27,7 +27,7 @@ func runCrashResolvedCommit(t *testing.T, store TreeDurabilityConformanceDriver,
 	deployment, dispatcher := newCrashDeployment(t, conformanceModeEffect, agent.ReplayPolicyNever, step)
 	engine := newCrashEngine(t, gate, nil)
 	original := startCrashProcess(t, engine, deployment)
-	effectID := waitForConformanceUnknownEffect(t, original)
+	effectID := waitForConformanceUnknownEffect(t, engine, original)
 	resolution := crashResolution(t, effectID)
 	resolved := make(chan error, 1)
 	go func() { resolved <- original.ResolveUnknownEffect(t.Context(), resolution) }()
@@ -45,7 +45,7 @@ func runCrashResolvedCommit(t *testing.T, store TreeDurabilityConformanceDriver,
 	restoredEngine := newCrashEngine(t, durability, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
 	if phase == crashCommitBefore {
-		if restoredID := waitForConformanceUnknownEffect(t, restored); restoredID != effectID {
+		if restoredID := waitForConformanceUnknownEffect(t, restoredEngine, restored); restoredID != effectID {
 			t.Fatalf("uncommitted resolution changed Unknown identity: %s", restoredID)
 		}
 		if err := restored.ResolveUnknownEffect(t.Context(), resolution); err != nil {

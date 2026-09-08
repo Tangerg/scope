@@ -168,8 +168,8 @@ func benchmarkRecoverableProcess(
 	wantUsage := Usage{
 		CommittedSteps: 2, PreparedEffects: uint64(sample.effectCount), AcceptedSignals: uint64(sample.historyCount),
 	}
-	if process.Usage() != wantUsage {
-		b.Fatalf("benchmark fixture usage=%+v, want %+v", process.Usage(), wantUsage)
+	if inspectProcessSnapshot(b, process).Usage() != wantUsage {
+		b.Fatalf("benchmark fixture usage=%+v, want %+v", inspectProcessSnapshot(b, process).Usage(), wantUsage)
 	}
 	if len(requests) > 0 {
 		if accepted, err := process.DeliverSignals(b.Context(), requests[0]); err != nil || accepted {

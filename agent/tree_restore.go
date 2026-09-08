@@ -190,7 +190,7 @@ func (e *Engine) startRestoredTree(ctx context.Context, restoration *treeRestora
 	for index := range restoration.processes {
 		entry := &restoration.processes[index]
 		if entry.wire.Status.Terminal() {
-			entry.controller.complete(entry.state.result(), entry.snapshot, nil)
+			entry.controller.complete(entry.state.result())
 		}
 	}
 	for index := len(restoration.processes) - 1; index >= 0; index-- {

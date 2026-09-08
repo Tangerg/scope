@@ -129,7 +129,7 @@ func TestChildCompletionPreservesSettlementCapacity(t *testing.T) {
 				}
 			})
 			<-dispatcher.started
-			before := root.Usage()
+			before := inspectProcessSnapshot(t, root).Usage()
 			ids := directChildIDs(t, engine, root.ID())
 			if len(ids) != 1 {
 				t.Fatalf("children=%v", ids)
@@ -139,8 +139,8 @@ func TestChildCompletionPreservesSettlementCapacity(t *testing.T) {
 			if !found {
 				t.Fatal("child missing")
 			}
-			waitForProcessStatus(t, child, StatusWaiting)
-			waitID, _ := child.WaitID()
+			waitForStatus(t, child, StatusWaiting)
+			waitID, _ := inspectProcessSnapshot(t, child).WaitID()
 			signalID, _ := ParseSignalID("signal:complete-reserved-child")
 			request, err := NewSignalRequest(signalID, waitID, []byte(`{"reply":"done"}`))
 			if err != nil {
@@ -152,10 +152,7 @@ func TestChildCompletionPreservesSettlementCapacity(t *testing.T) {
 			if result, awaitErr := child.Await(t.Context()); awaitErr != nil || result.Status() != StatusCompleted {
 				t.Fatalf("child status=%s error=%v", result.Status(), awaitErr)
 			}
-			if _, snapshotErr := root.Snapshot(t.Context()); snapshotErr != nil {
-				t.Fatal(snapshotErr)
-			}
-			if accepted := root.Usage().AcceptedSignals - before.AcceptedSignals; accepted != test.wantAccepted {
+			if accepted := inspectProcessSnapshot(t, root).Usage().AcceptedSignals - before.AcceptedSignals; accepted != test.wantAccepted {
 				t.Fatalf("accepted child signals=%d, want %d", accepted, test.wantAccepted)
 			}
 			releaseEffect()

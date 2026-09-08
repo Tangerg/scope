@@ -102,9 +102,9 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 			if !exists {
 				t.Fatal("unknown Tool owner was not restored")
 			}
-			unknown, err := owner.UnknownEffectIDs(ctx)
-			if err != nil || len(unknown) != 1 || unknown[0] != gate.unknownRequest.ID() {
-				t.Fatalf("restored unknown identities=%v error=%v", unknown, err)
+			unknown := inspectProcessSnapshot(t, restoredEngine, owner).UnknownEffectIDs()
+			if len(unknown) != 1 || unknown[0] != gate.unknownRequest.ID() {
+				t.Fatalf("restored unknown identities=%v", unknown)
 			}
 			if first.calls.Load() != 1 || uncertain.calls.Load() != 1 || last.calls.Load() != 0 {
 				t.Fatal("recovery replayed an established or unknown Tool attempt")

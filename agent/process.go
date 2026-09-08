@@ -67,33 +67,6 @@ func (p *Process) StartedAt() time.Time {
 	return p.controller.startedAt
 }
 
-// Status returns the latest committed common lifecycle status. In durable mode
-// this is the status in the last acknowledged tree head. A stopped runtime
-// retains that status; Await reports its RuntimeError separately.
-func (p *Process) Status() Status {
-	if p == nil || p.controller == nil {
-		return StatusInvalid
-	}
-	return p.controller.status()
-}
-
-// Usage returns the latest Framework-owned counters.
-func (p *Process) Usage() Usage {
-	if p == nil || p.controller == nil {
-		return Usage{}
-	}
-	return p.controller.usage()
-}
-
-// WaitID returns the current externally addressable wait while Status is
-// Waiting. The payload schema and meaning remain owned by the Strategy.
-func (p *Process) WaitID() (WaitID, bool) {
-	if p == nil || p.controller == nil {
-		return WaitID{}, false
-	}
-	return p.controller.waitID()
-}
-
 // DeliverSignals submits one or more immutable Strategy inputs as an ordered,
 // atomic batch. Unaddressed input queues for the next Strategy-safe Step,
 // including while Paused or waiting for child completion. It never resumes
@@ -119,7 +92,7 @@ func (p *Process) DeliverSignals(ctx context.Context, requests ...SignalRequest)
 // Pause requests a scheduling pause at the next safe Step boundary. An
 // in-flight Effect is allowed to settle before the pause becomes visible.
 // A nil error acknowledges the local control intent, not its durable publication
-// or completion; Status reflects the acknowledged pause in durable mode.
+// or completion; InspectTree reflects the acknowledged pause in durable mode.
 func (p *Process) Pause(ctx context.Context, reason string) error {
 	_, err := p.request(ctx, processCommand{kind: commandPause, reason: reason})
 	return err
@@ -186,30 +159,6 @@ func (p *Process) Kill(ctx context.Context, reason string) error {
 func (p *Process) ResolveUnknownEffect(ctx context.Context, settlement Settlement) error {
 	_, err := p.request(ctx, processCommand{kind: commandResolveUnknownEffect, settlement: settlement})
 	return err
-}
-
-// UnknownEffectIDs returns stable identities whose external outcome requires an
-// explicit ResolveUnknownEffect decision. Payloads remain owned by the Dispatcher.
-// A stopped instance returns its RuntimeError; inspect that error's unresolved
-// identities and the authoritative stored head before deciding how to recover.
-func (p *Process) UnknownEffectIDs(ctx context.Context) ([]EffectID, error) {
-	response, err := p.request(ctx, processCommand{kind: commandQueryUnknownEffectIDs})
-	return response.unknownEffectIDs, err
-}
-
-// Snapshot returns a consistent capture of committed state and any prepared
-// Step. It does not imply that the caller persisted it durably. After a RuntimeError it
-// returns this instance's last acknowledged snapshot; the store may have
-// advanced further if a commit response was lost or another writer took over.
-func (p *Process) Snapshot(ctx context.Context) (ProcessSnapshot, error) {
-	if p == nil || p.controller == nil {
-		return ProcessSnapshot{}, ErrProcessNotRunning
-	}
-	if snapshot, ok, err := p.controller.closedSnapshot(); ok {
-		return snapshot, err
-	}
-	response, err := p.request(ctx, processCommand{kind: commandCapture})
-	return response.snapshot, err
 }
 
 // Await waits for the immutable terminal result and the Engine's immediate
@@ -320,14 +269,10 @@ type processController struct {
 
 	// viewMu protects only the read projection copied from processState; runtime
 	// execution never occurs while this lock is held.
-	viewMu           sync.RWMutex
-	viewStatus       Status
-	viewWaitID       WaitID
-	viewUsage        Usage
-	result           Result
-	completionErr    error
-	retainedSnapshot ProcessSnapshot
-	snapshotErr      error
+	viewMu        sync.RWMutex
+	viewStatus    Status
+	result        Result
+	completionErr error
 }
 
 func newProcessController(
@@ -369,34 +314,16 @@ func (p *processController) status() Status {
 	return p.viewStatus
 }
 
-func (p *processController) waitID() (WaitID, bool) {
-	p.viewMu.RLock()
-	defer p.viewMu.RUnlock()
-	return p.viewWaitID, p.viewStatus == StatusWaiting && p.viewWaitID.Valid()
-}
-
-func (p *processController) usage() Usage {
-	p.viewMu.RLock()
-	defer p.viewMu.RUnlock()
-	return p.viewUsage
-}
-
-func (p *processController) updateView(status Status, waitID WaitID, usage Usage) {
+func (p *processController) updateStatus(status Status) {
 	p.viewMu.Lock()
 	p.viewStatus = status
-	p.viewWaitID = waitID
-	p.viewUsage = usage
 	p.viewMu.Unlock()
 }
 
-func (p *processController) complete(result Result, snapshot ProcessSnapshot, captureErr error) {
+func (p *processController) complete(result Result) {
 	p.viewMu.Lock()
 	p.viewStatus = result.Status()
-	p.viewWaitID = WaitID{}
-	p.viewUsage = result.usage
 	p.result = result
-	p.retainedSnapshot = snapshot
-	p.snapshotErr = captureErr
 	p.viewMu.Unlock()
 	close(p.done)
 }
@@ -414,10 +341,7 @@ func (p *processController) outcome() (Result, error) {
 func (p *processController) stopRuntime(err *RuntimeError, snapshot ProcessSnapshot) {
 	p.viewMu.Lock()
 	p.viewStatus = snapshot.status
-	p.viewWaitID = snapshot.waitID
-	p.viewUsage = snapshot.usage
 	p.completionErr = err
-	p.retainedSnapshot = snapshot
 	p.viewMu.Unlock()
 	close(p.done)
 }
@@ -431,17 +355,6 @@ func (p *processController) closedRequestError() error {
 	return ErrProcessFinished
 }
 
-func (p *processController) closedSnapshot() (ProcessSnapshot, bool, error) {
-	select {
-	case <-p.done:
-		p.viewMu.RLock()
-		defer p.viewMu.RUnlock()
-		return p.retainedSnapshot, true, p.snapshotErr
-	default:
-		return ProcessSnapshot{}, false, nil
-	}
-}
-
 type commandKind uint8
 
 const (
@@ -452,8 +365,6 @@ const (
 	commandCancel
 	commandKill
 	commandResolveUnknownEffect
-	commandQueryUnknownEffectIDs
-	commandCapture
 	commandHostTerminated
 )
 
@@ -468,10 +379,8 @@ type processCommand struct {
 }
 
 type processResponse struct {
-	accepted         bool
-	snapshot         ProcessSnapshot
-	unknownEffectIDs []EffectID
-	err              error
+	accepted bool
+	err      error
 }
 
 func (p processCommand) reply(response processResponse) {

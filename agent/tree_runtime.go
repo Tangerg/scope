@@ -28,6 +28,7 @@ type treeRuntime struct {
 	commands    chan treeCommand
 	controls    chan treeCommand
 	completions chan treeJobCompletion
+	inspections chan chan treeInspectionResponse
 
 	// Everything below is owner-line state. Keeping it lock-free makes commit,
 	// scheduling, freeze, and checkpoint order a single explicit state machine.
@@ -42,6 +43,7 @@ type treeRuntime struct {
 	checkpointPending map[ProcessID]checkpointPublication
 	freeze            *activeTreeFreeze
 	done              chan struct{}
+	finalInspection   treeInspectionResponse
 }
 
 type treeCommandKind uint8
@@ -191,6 +193,7 @@ func newTreeRuntime(
 		commands:          make(chan treeCommand, treeCommandBufferCapacity),
 		controls:          make(chan treeCommand, treeCommandBufferCapacity),
 		completions:       make(chan treeJobCompletion),
+		inspections:       make(chan chan treeInspectionResponse, treeCommandBufferCapacity),
 		processes:         make(map[ProcessID]*processState, len(processes)),
 		childWaits:        make(map[WaitID]*childWaitRegistration),
 		queued:            make(map[ProcessID]struct{}, len(processes)),
@@ -239,19 +242,20 @@ func (t *treeRuntime) addProcess(process *processState) {
 }
 
 func (t *treeRuntime) run(rootContext context.Context) {
-	defer close(t.done)
+	defer t.finishInspection()
 	t.publishInitialProcessEvents()
 	stopHostWatch := t.watchHostTermination(rootContext)
 	defer stopHostWatch()
 
 	for {
-		if t.advanceReadyWork() {
-			continue
-		}
+		advanced := t.advanceReadyWork()
 		if t.finished() {
 			return
 		}
-		t.waitForWork()
+		inspected := t.tryInspection()
+		if !advanced && !inspected {
+			t.waitForWork()
+		}
 	}
 }
 
@@ -284,7 +288,8 @@ func (t *treeRuntime) advanceReadyWork() bool {
 	// Service every eligible lane once so a continuously ready lane cannot
 	// prevent another from making progress. Each operation rechecks its barriers
 	// because an earlier operation can acquire a freeze or start a commit.
-	advanced := t.tryFreezeCancellation()
+	advanced := t.tryCommitCompletion()
+	advanced = t.tryFreezeCancellation() || advanced
 	advanced = t.tryControl() || advanced
 	advanced = t.tryCommand() || advanced
 	advanced = t.tryCompletion() || advanced
@@ -294,13 +299,20 @@ func (t *treeRuntime) advanceReadyWork() bool {
 
 func (t *treeRuntime) waitForWork() {
 	if t.commit != nil {
-		t.applyTreeCommitCompletion(<-t.commitDone)
+		select {
+		case completion := <-t.commitDone:
+			t.applyTreeCommitCompletion(completion)
+		case response := <-t.inspections:
+			t.replyInspection(response)
+		}
 		return
 	}
 	if t.freeze != nil && t.freeze.ready {
 		select {
 		case command := <-t.controls:
 			t.applyCommand(command)
+		case response := <-t.inspections:
+			t.replyInspection(response)
 		case <-t.freeze.acquisition.canceled:
 			t.releaseCurrentFreeze()
 		}
@@ -310,6 +322,8 @@ func (t *treeRuntime) waitForWork() {
 		select {
 		case command := <-t.controls:
 			t.applyCommand(command)
+		case response := <-t.inspections:
+			t.replyInspection(response)
 		case completion := <-t.completions:
 			t.applyCompletion(completion)
 		case <-freezeCanceled:
@@ -320,10 +334,25 @@ func (t *treeRuntime) waitForWork() {
 	select {
 	case command := <-t.controls:
 		t.applyCommand(command)
+	case response := <-t.inspections:
+		t.replyInspection(response)
 	case command := <-t.commands:
 		t.applyCommand(command)
 	case completion := <-t.completions:
 		t.applyCompletion(completion)
+	}
+}
+
+func (t *treeRuntime) tryCommitCompletion() bool {
+	if t.commit == nil {
+		return false
+	}
+	select {
+	case completion := <-t.commitDone:
+		t.applyTreeCommitCompletion(completion)
+		return true
+	default:
+		return false
 	}
 }
 

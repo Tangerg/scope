@@ -15,6 +15,14 @@ const (
 
 var ErrInvalidSnapshot = errors.New("agent: invalid process snapshot")
 
+// WaitKind identifies who may answer the current wait.
+type WaitKind string
+
+const (
+	WaitKindExternal WaitKind = "external"
+	WaitKindChildren WaitKind = "children"
+)
+
 // ProcessSnapshot is an immutable diagnostic capture of one Engine-owned
 // Process. Strategy state and Effect payloads remain opaque. A ProcessSnapshot
 // is not a recovery unit; only a complete TreeSnapshot can be restored.
@@ -26,9 +34,11 @@ type ProcessSnapshot struct {
 	usage                   Usage
 	committedExecutionState ExecutionState
 	waitID                  WaitID
+	waitKind                WaitKind
 	relation                ProcessRelation
 	budget                  Budget
 	capabilities            CapabilitySet
+	unknownEffectIDs        []EffectID
 }
 
 // ParseProcessSnapshot strictly validates one Process snapshot wire value,
@@ -47,6 +57,20 @@ func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 	if len(normalized) > maxSnapshotBytes {
 		return ProcessSnapshot{}, fmt.Errorf("%w: exceeds %d bytes", ErrInvalidSnapshot, maxSnapshotBytes)
 	}
+	var unknownEffectIDs []EffectID
+	if wire.Prepared != nil {
+		unknownEffectIDs = wire.Prepared.Effects.unknownEffectIDs()
+	}
+	var waitKind WaitKind
+	for _, wait := range wire.Mailbox.Waits {
+		if wire.CurrentWaitID != nil && wait.WaitID == *wire.CurrentWaitID {
+			waitKind = WaitKindChildren
+			if wait.ExternallyAddressable {
+				waitKind = WaitKindExternal
+			}
+			break
+		}
+	}
 	return ProcessSnapshot{
 		data:                    normalized,
 		processID:               wire.ProcessID,
@@ -55,9 +79,11 @@ func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 		usage:                   wire.Usage,
 		committedExecutionState: wire.CommittedExecutionState,
 		waitID:                  snapshotWaitID(wire.CurrentWaitID),
+		waitKind:                waitKind,
 		relation:                mustProcessRelation(wire.ProcessID, wire.Relation),
 		budget:                  wire.Budget,
 		capabilities:            wire.Capabilities,
+		unknownEffectIDs:        unknownEffectIDs,
 	}, nil
 }
 
@@ -91,6 +117,15 @@ func (p ProcessSnapshot) Capabilities() CapabilitySet { return p.capabilities }
 // Status returns the captured common lifecycle state.
 func (p ProcessSnapshot) Status() Status { return p.status }
 
+// Usage returns the Framework counters confirmed in this capture.
+func (p ProcessSnapshot) Usage() Usage { return p.usage }
+
+// UnknownEffectIDs returns Effects whose captured settlement requires explicit
+// resolution. RuntimeError separately owns outcomes an instance could not confirm.
+func (p ProcessSnapshot) UnknownEffectIDs() []EffectID {
+	return slices.Clone(p.unknownEffectIDs)
+}
+
 // CommittedExecutionState returns the latest committed opaque Strategy state.
 // A prepared candidate, when present, remains an uncommitted Engine detail.
 // Only the owning Definition or its typed inspection helpers may interpret the
@@ -103,6 +138,15 @@ func (p ProcessSnapshot) CommittedExecutionState() ExecutionState {
 // captured Process is Waiting.
 func (p ProcessSnapshot) WaitID() (WaitID, bool) {
 	return p.waitID, p.status == StatusWaiting && p.waitID.Valid()
+}
+
+// WaitKind distinguishes Host input from Framework child completion while the
+// captured Process is Waiting. It derives from the existing wait authority.
+func (p ProcessSnapshot) WaitKind() (WaitKind, bool) {
+	if p.status != StatusWaiting || !p.waitID.Valid() {
+		return "", false
+	}
+	return p.waitKind, true
 }
 
 func (p ProcessSnapshot) Valid() bool {

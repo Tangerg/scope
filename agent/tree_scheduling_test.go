@@ -12,29 +12,39 @@ const schedulingProgressTurns = 8
 func TestTreeSchedulingMakesProgressUnderContinuousQueries(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	runtime.completions = make(chan treeJobCompletion, 1)
-	responses := make(chan processResponse, treeCommandBufferCapacity)
-	query := newTreeProcessCommand(process.controller.processID, processCommand{
-		kind: commandCapture, response: responses,
-	})
-	for range treeCommandBufferCapacity {
-		runtime.commands <- query
+	responses := make(chan treeInspectionResponse, treeCommandBufferCapacity)
+	commandResponses := make(chan processResponse, treeCommandBufferCapacity)
+	answered, commandsAnswered := 0, 0
+	refill := func() {
+		for len(runtime.inspections) < cap(runtime.inspections) {
+			runtime.inspections <- responses
+		}
+		for len(runtime.commands) < cap(runtime.commands) {
+			runtime.commands <- newTreeProcessCommand(process.controller.processID, processCommand{
+				kind: commandResume, response: commandResponses,
+			})
+		}
 	}
-	answered := 0
+	refill()
 	advance := func() {
 		t.Helper()
 		runtime.advanceReadyWork()
+		runtime.tryInspection()
 		for len(responses) != 0 {
 			response := <-responses
-			if !errors.Is(response.err, ErrProcessFinished) {
-				if response.err != nil || !response.snapshot.Valid() {
-					t.Fatalf("ready query failed: %v", response.err)
-				}
+			if response.err != nil || response.inspection.RootID != runtime.rootID {
+				t.Fatalf("ready query failed: %v", response.err)
 			}
 			answered++
 		}
-		for len(runtime.commands) < cap(runtime.commands) {
-			runtime.commands <- query
+		for len(commandResponses) != 0 {
+			response := <-commandResponses
+			if response.err != nil && !errors.Is(response.err, ErrProcessFinished) && !errors.Is(response.err, ErrProcessNotRunning) {
+				t.Fatal(response.err)
+			}
+			commandsAnswered++
 		}
+		refill()
 	}
 
 	for range schedulingProgressTurns {
@@ -63,8 +73,8 @@ func TestTreeSchedulingMakesProgressUnderContinuousQueries(t *testing.T) {
 	default:
 		t.Fatal("continuous queries starved a completed Step")
 	}
-	if answered == 0 {
-		t.Fatal("ready work starved queries")
+	if answered == 0 || commandsAnswered == 0 {
+		t.Fatal("ready work starved queries or commands")
 	}
 }
 
@@ -119,12 +129,11 @@ func TestTreeSchedulingCommitsParkedStateUnderContinuousQueries(t *testing.T) {
 	process.status = StatusPaused
 	process.pauseReason = "wait for explicit resumption"
 	runtime.popRunnable()
-	response := make(chan processResponse, 1)
+	response := make(chan treeInspectionResponse, 1)
 	for range schedulingProgressTurns {
-		runtime.commands <- newTreeProcessCommand(process.controller.processID, processCommand{
-			kind: commandCapture, response: response,
-		})
+		runtime.inspections <- response
 		runtime.advanceReadyWork()
+		runtime.tryInspection()
 		if reply := <-response; reply.err != nil {
 			t.Fatal(reply.err)
 		}
@@ -147,19 +156,20 @@ func TestTreeSchedulingCommitsParkedStateUnderContinuousQueries(t *testing.T) {
 }
 
 func TestProcessQueriesDoNotWakePausedExecution(t *testing.T) {
-	for _, kind := range []commandKind{commandCapture, commandQueryUnknownEffectIDs} {
-		runtime, process := newChildCompletionTestProcess(t)
-		process.status = StatusPaused
-		process.pauseReason = "wait for explicit resumption"
-		process.updateView()
-		runtime.popRunnable()
-		response := make(chan processResponse, 1)
-		runtime.applyProcessCommand(process, processCommand{kind: kind, response: response})
-		if reply := <-response; reply.err != nil {
-			t.Fatal(reply.err)
-		}
-		if runtime.advanceReadyWork() {
-			t.Fatal("read-only query introduced execution work for a paused Process")
-		}
+	runtime, process := newChildCompletionTestProcess(t)
+	process.status = StatusPaused
+	process.pauseReason = "wait for explicit resumption"
+	process.updateView()
+	runtime.popRunnable()
+	response := make(chan treeInspectionResponse, 1)
+	runtime.inspections <- response
+	if !runtime.tryInspection() {
+		t.Fatal("ready inspection was not served")
+	}
+	if reply := <-response; reply.err != nil {
+		t.Fatal(reply.err)
+	}
+	if runtime.advanceReadyWork() {
+		t.Fatal("read-only query introduced execution work for a paused Process")
 	}
 }

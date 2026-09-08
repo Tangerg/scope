@@ -110,7 +110,7 @@ func TestDeploymentWithoutDispatcherRunsAndRestoresFrameworkEffects(t *testing.T
 		t.Fatal(err)
 	}
 	for _, candidate := range []*Process{process, restored} {
-		waitID, ok := candidate.WaitID()
+		waitID, ok := inspectProcessSnapshot(t, candidate).WaitID()
 		if !ok {
 			t.Fatal("framework wait did not survive restoration")
 		}

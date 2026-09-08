@@ -263,8 +263,8 @@ func TestConcurrentToolInputWaitPreservesCompletedSibling(t *testing.T) {
 	process, engine := startConcurrentInteraction(t, &orderedBatchModel{names: []string{"requesting", "sibling"}}, []tool.Tool{requesting, sibling}, 2)
 	_, pending := captureToolInput(t, engine, process)
 	toolProcess := pendingToolProcess(t, engine, pending)
-	if unknown, err := toolProcess.UnknownEffectIDs(t.Context()); err != nil || len(unknown) != 0 {
-		t.Fatalf("waiting Tool unknown Effects=%v error=%v", unknown, err)
+	if unknown := inspectProcessSnapshot(t, engine, toolProcess).UnknownEffectIDs(); len(unknown) != 0 {
+		t.Fatalf("waiting Tool unknown Effects=%v", unknown)
 	}
 	id, err := agent.ParseSignalID("signal:concurrent-tool-answer")
 	if err != nil {

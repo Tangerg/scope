@@ -139,11 +139,6 @@ func (p *processState) applyCommand(ctx context.Context, command processCommand)
 		p.requestKill(command)
 	case commandResolveUnknownEffect:
 		p.resolveEffect(command)
-	case commandQueryUnknownEffectIDs:
-		command.reply(processResponse{unknownEffectIDs: p.unknownEffectIDs()})
-	case commandCapture:
-		snapshot, err := p.capture()
-		command.reply(processResponse{snapshot: snapshot, err: err})
 	default:
 		command.reply(processResponse{err: ErrProcessNotRunning})
 	}
@@ -359,7 +354,7 @@ func (p *processState) resolveEffect(command processCommand) {
 
 func (p *processState) updateView() {
 	if p.engine.durability == nil {
-		p.controller.updateView(p.status, p.currentWaitID, p.usage)
+		p.controller.updateStatus(p.status)
 	}
 }
 
@@ -367,13 +362,7 @@ func (p *processState) unknownEffectIDs() []EffectID {
 	if p.prepared == nil {
 		return nil
 	}
-	var ids []EffectID
-	for _, effect := range p.prepared.wire.Effects {
-		if effect.unknown() {
-			ids = append(ids, effect.ID)
-		}
-	}
-	return ids
+	return p.prepared.wire.Effects.unknownEffectIDs()
 }
 
 func (p *processState) reservedSettlementSignals() uint64 {

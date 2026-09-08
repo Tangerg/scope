@@ -297,7 +297,7 @@ func runCrashAfterRootStartCommit(t *testing.T, store TreeDurabilityConformanceD
 
 	restoredEngine := newCrashEngine(t, durability, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
-	waitForConformanceStatus(t, restored, agent.StatusPaused)
+	waitForConformanceStatus(t, restoredEngine, restored, agent.StatusPaused)
 	gate.abort()
 	result := awaitCrashStart(t, started)
 	if !errors.Is(result.err, errSimulatedHostCrash) || result.process != nil {
@@ -355,7 +355,7 @@ func runCrashAfterPendingCommit(t *testing.T, store TreeDurabilityConformanceDri
 
 	restoredEngine := newCrashEngine(t, durability, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
-	resolveCrashUnknown(t, restored)
+	resolveCrashUnknown(t, restoredEngine, restored)
 	if result := awaitCrashProcess(t, restored); result.Status() != agent.StatusCompleted {
 		t.Fatalf("resolved result=%s", result.Status())
 	}
@@ -387,7 +387,7 @@ func runCrashBeforeSettledCommit(t *testing.T, store TreeDurabilityConformanceDr
 
 	restoredEngine := newCrashEngine(t, durability, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
-	resolveCrashUnknown(t, restored)
+	resolveCrashUnknown(t, restoredEngine, restored)
 	if result := awaitCrashProcess(t, restored); result.Status() != agent.StatusCompleted {
 		t.Fatalf("resolved result=%s", result.Status())
 	}
@@ -413,7 +413,7 @@ func runCrashAfterSettledCommit(t *testing.T, store TreeDurabilityConformanceDri
 	original := startCrashProcess(t, engine, deployment)
 	observation := gate.await(t)
 	head := assertCrashHead(t, store, observation.rootID, observation.prospective.Digest())
-	if original.Status().Terminal() {
+	if inspectConformanceProcess(t, engine, original).Status().Terminal() {
 		t.Fatal("settled state was applied in memory before its callback returned")
 	}
 
@@ -446,8 +446,8 @@ func runCrashAfterParkedCommit(t *testing.T, store TreeDurabilityConformanceDriv
 
 	restoredEngine := newCrashEngine(t, durability, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
-	if restored.Status() != agent.StatusPaused {
-		t.Fatalf("restored status=%s, want paused", restored.Status())
+	if inspectConformanceProcess(t, restoredEngine, restored).Status() != agent.StatusPaused {
+		t.Fatalf("restored status=%s, want paused", inspectConformanceProcess(t, restoredEngine, restored).Status())
 	}
 	gate.abort()
 	awaitCrashRuntimeError(t, original, errSimulatedHostCrash)
@@ -510,8 +510,8 @@ func runCrashAfterActivationCommit(t *testing.T, store TreeDurabilityConformance
 
 	secondEngine := newCrashEngine(t, durability, nil)
 	second := restoreCrashTree(t, secondEngine, deployment, newHead)
-	if second.Status() != agent.StatusPaused {
-		t.Fatalf("second restore status=%s, want paused", second.Status())
+	if inspectConformanceProcess(t, secondEngine, second).Status() != agent.StatusPaused {
+		t.Fatalf("second restore status=%s, want paused", inspectConformanceProcess(t, secondEngine, second).Status())
 	}
 	gate.abort()
 	first := awaitCrashRestore(t, firstRestore)
@@ -706,9 +706,9 @@ func assertCrashEventAbsent(
 	}
 }
 
-func resolveCrashUnknown(t *testing.T, process *agent.Process) {
+func resolveCrashUnknown(t *testing.T, engine *agent.Engine, process *agent.Process) {
 	t.Helper()
-	effectID := waitForConformanceUnknownEffect(t, process)
+	effectID := waitForConformanceUnknownEffect(t, engine, process)
 	if err := process.ResolveUnknownEffect(t.Context(), crashResolution(t, effectID)); err != nil {
 		t.Fatal(err)
 	}
@@ -734,11 +734,8 @@ func finishCrashProcess(t *testing.T, process *agent.Process) {
 	if process == nil {
 		return
 	}
-	if !process.Status().Terminal() {
-		err := process.Kill(t.Context(), crashCleanupReason)
-		if err != nil && !errors.Is(err, agent.ErrProcessFinished) {
-			t.Fatalf("kill Process %s: %v", process.ID(), err)
-		}
+	if err := process.Kill(t.Context(), crashCleanupReason); err != nil && !errors.Is(err, agent.ErrProcessFinished) {
+		t.Fatalf("kill Process %s: %v", process.ID(), err)
 	}
 	awaitCrashProcess(t, process)
 }

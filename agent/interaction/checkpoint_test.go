@@ -295,14 +295,14 @@ func (c *checkpointModel) Calls() int {
 	return c.calls
 }
 
-func waitForStatus(t *testing.T, process *agent.Process, want agent.Status) {
+func waitForStatus(t *testing.T, engine *agent.Engine, process *agent.Process, want agent.Status) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	for {
-		snapshot, err := process.Snapshot(ctx)
-		if err != nil {
-			t.Fatalf("capture Process while waiting for %s: %v", want, err)
+		snapshot := inspectProcessSnapshot(t, engine, process)
+		if err := ctx.Err(); err != nil {
+			t.Fatalf("inspect Process while waiting for %s: %v", want, err)
 		}
 		if snapshot.Status() == want {
 			return

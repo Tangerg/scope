@@ -87,7 +87,7 @@ func restoreProcessState(
 	if err := process.restorePreparedStep(wire.Prepared); err != nil {
 		return nil, err
 	}
-	controller.updateView(process.status, process.currentWaitID, process.usage)
+	controller.updateStatus(process.status)
 	return process, nil
 }
 

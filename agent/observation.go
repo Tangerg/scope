@@ -12,12 +12,12 @@ const defaultDeltaBuffer = 256
 
 // EventListener observes ordered Framework facts. Panics are isolated from
 // Process execution and never alter committed state. Implementations must
-// return in bounded time and must not re-enter the observed Process.
+// return in bounded time and must not query or control the observed tree.
 type EventListener interface {
 	// OnEvent receives one committed or attempted Framework fact in increasing
 	// ProcessSequence for its Process. Different Processes may call the listener
-	// concurrently. The callback must be bounded, must not re-enter the observed
-	// Process, and has no veto or acknowledgment authority.
+	// concurrently. The callback must be bounded, must not query or control the observed
+	// tree (including Engine.InspectTree), and has no veto or acknowledgment authority.
 	OnEvent(ctx context.Context, event Event)
 }
 
