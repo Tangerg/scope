@@ -35,6 +35,10 @@ const (
 	scoreField             = "score"
 )
 
+// MaxNumCandidates is Atlas's ceiling for the $vectorSearch numCandidates
+// field, and so the largest TopK the store can serve.
+const MaxNumCandidates = 10000
+
 // Similarity selects the vector similarity function written into the
 // Atlas Vector Search index definition.
 type Similarity string
@@ -62,12 +66,36 @@ func (s Similarity) Valid() bool {
 
 func (s Similarity) String() string { return string(s) }
 
+// DocumentCollection is the MongoDB surface the store uses: the batched
+// upsert, the aggregation that runs $vectorSearch, the deletion both delete
+// paths share, and the search-index view schema initialization needs. A
+// [mongo.Collection] satisfies it. Naming only these four keeps the store's own
+// write accounting checkable without an Atlas cluster.
+type DocumentCollection interface {
+	BulkWrite(
+		ctx context.Context,
+		models []mongo.WriteModel,
+		opts ...options.Lister[options.BulkWriteOptions],
+	) (*mongo.BulkWriteResult, error)
+	Aggregate(
+		ctx context.Context,
+		pipeline any,
+		opts ...options.Lister[options.AggregateOptions],
+	) (*mongo.Cursor, error)
+	DeleteMany(
+		ctx context.Context,
+		filter any,
+		opts ...options.Lister[options.DeleteManyOptions],
+	) (*mongo.DeleteResult, error)
+	SearchIndexes() mongo.SearchIndexView
+}
+
 // StoreConfig contains configuration options for the MongoDB Atlas
 // Vector Search store.
 type StoreConfig struct {
 	// Collection is the MongoDB collection that holds the documents.
 	// Required.
-	Collection *mongo.Collection
+	Collection DocumentCollection
 
 	// VectorIndexName is the Atlas Vector Search index name. It must
 	// match an existing index (or one created by InitializeSchema).
@@ -109,8 +137,9 @@ type StoreConfig struct {
 	Similarity Similarity
 
 	// NumCandidates controls the recall/perf tradeoff of the Atlas
-	// $vectorSearch stage. Optional: defaults to
-	// [DefaultNumCandidates] (200).
+	// $vectorSearch stage. It is a floor: a search never considers fewer
+	// candidates than the results it must return. Optional: defaults to
+	// [DefaultNumCandidates] (200), and must not exceed [MaxNumCandidates].
 	NumCandidates int
 
 	// InitializeSchema, when true, creates the Atlas vector-search
@@ -121,7 +150,7 @@ type StoreConfig struct {
 
 func (s StoreConfig) Validate() error {
 	s.applyDefaults()
-	if s.Collection == nil {
+	if lo.IsNil(s.Collection) {
 		return errors.New("mongodb: Collection is required")
 	}
 	if lo.IsNil(s.EmbeddingModel) {
@@ -132,6 +161,9 @@ func (s StoreConfig) Validate() error {
 	}
 	if s.Dimensions < 0 {
 		return errors.New("mongodb: Dimensions must be >= 0")
+	}
+	if s.NumCandidates > MaxNumCandidates {
+		return fmt.Errorf("mongodb: NumCandidates must be <= %d", MaxNumCandidates)
 	}
 	if !s.Similarity.Valid() {
 		return fmt.Errorf("mongodb: unsupported Similarity %q", s.Similarity)
@@ -201,7 +233,7 @@ var (
 
 // Store implements vector-store capabilities with MongoDB Atlas Vector Search.
 type Store struct {
-	collection             *mongo.Collection
+	collection             DocumentCollection
 	vectorIndexName        string
 	embeddingPath          string
 	contentField           string
@@ -349,9 +381,36 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 			)
 		}
 
-		if _, err := s.collection.BulkWrite(ctx, writes); err != nil {
-			return fmt.Errorf("mongodb: BulkWrite: %w", err)
+		result, writeErr := s.collection.BulkWrite(ctx, writes)
+		if writeErr != nil {
+			return fmt.Errorf("mongodb: BulkWrite: %w", writeErr)
 		}
+		if err := checkBulkAcknowledgment(result, len(writes)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkBulkAcknowledgment accounts for every replacement in one batch.
+//
+// The driver reports a replacement that found an existing document under
+// MatchedCount and one that inserted a new document under UpsertedCount, so
+// their sum is the server's count of applied writes and must cover the batch. A
+// nil error alone does not: under an unacknowledged write concern MongoDB
+// answers without a reply at all, and the driver then returns a zero-valued
+// result whose other fields, in its own words, "may not be deterministic".
+func checkBulkAcknowledgment(result *mongo.BulkWriteResult, sent int) error {
+	if result == nil {
+		return errors.New("mongodb: bulk write returned no result")
+	}
+	if !result.Acknowledged {
+		return errors.New(
+			"mongodb: collection writes are unacknowledged (w: 0), so an upsert cannot be confirmed",
+		)
+	}
+	if applied := result.MatchedCount + result.UpsertedCount; applied != int64(sent) {
+		return fmt.Errorf("mongodb: bulk write applied %d of %d documents", applied, sent)
 	}
 	return nil
 }
@@ -379,11 +438,15 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	}
 	queryVec := embedding.Float32Vector(vector)
 
+	candidates, err := s.searchCandidates(req.Options.ResultLimit())
+	if err != nil {
+		return nil, err
+	}
 	vectorSearch := bson.M{
 		"index":         s.vectorIndexName,
 		"path":          s.embeddingPath,
 		"queryVector":   queryVec,
-		"numCandidates": s.numCandidates,
+		"numCandidates": candidates,
 		"limit":         req.Options.ResultLimit(),
 	}
 	if req.Options.Filter != nil {
@@ -467,6 +530,24 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 		return fmt.Errorf("mongodb: DeleteMany by ids: %w", err)
 	}
 	return nil
+}
+
+// searchCandidates resolves how much of the vector index one query explores.
+//
+// numCandidates is not independent of the requested result count: it sizes the
+// priority queue the search fills, so Atlas rejects a value below limit — a
+// queue cannot yield more results than it holds — and caps it at
+// MaxNumCandidates. StoreConfig.NumCandidates therefore sets a recall floor
+// rather than the value sent, and a TopK past the ceiling is refused here
+// instead of becoming a provider validation error.
+func (s *Store) searchCandidates(limit int) (int, error) {
+	if limit > MaxNumCandidates {
+		return 0, fmt.Errorf(
+			"mongodb.Store.Search: TopK %d exceeds the %d candidates $vectorSearch can consider",
+			limit, MaxNumCandidates,
+		)
+	}
+	return min(max(s.numCandidates, limit), MaxNumCandidates), nil
 }
 
 // buildFilter runs the AST through the visitor and returns the

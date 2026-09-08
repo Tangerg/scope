@@ -29,5 +29,17 @@
 //	{$vectorSearch: {...}}, {$addFields: {score: {$meta: "vectorSearchScore"}}},
 //	{$match: {score: {$gte: minScore}}}
 //
+// Candidate pool. numCandidates sizes the priority queue the search fills, so
+// Atlas requires it to be at least the requested result count and at most
+// [MaxNumCandidates]. [StoreConfig.NumCandidates] is a recall floor the store
+// raises to cover TopK; a TopK above the ceiling is refused rather than sent.
+//
+// Upsert acknowledgment. One bulk write reports MatchedCount for the
+// replacements that found an existing document and UpsertedCount for those that
+// inserted one; Index requires their sum to cover the batch. An unacknowledged
+// write concern (w: 0) is rejected rather than reported as success, because
+// MongoDB then answers with no reply at all and the driver's counts carry no
+// information.
+//
 // See https://www.mongodb.com/docs/atlas/atlas-vector-search/.
 package mongodb
