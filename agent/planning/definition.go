@@ -110,7 +110,8 @@ func (d *Definition) Start(input agent.Input) (agent.Execution, error) {
 }
 
 // Restore recreates a Planning Execution solely from its opaque state and this
-// exact Definition.
+// exact Definition. A completed outcome must agree with the observed Goal
+// satisfaction.
 func (d *Definition) Restore(state agent.ExecutionState) (agent.Execution, error) {
 	if !d.valid() {
 		return nil, ErrInvalidDefinitionConfig

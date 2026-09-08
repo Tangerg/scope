@@ -152,7 +152,7 @@ func (e executionState) validateCurrentAction(definition *Definition) error {
 
 func (e executionState) validateCompletion(definition *Definition) error {
 	if e.Phase == phaseCompleted {
-		if e.Outcome == OutcomeAchieved && !definition.goal.SatisfiedBy(e.WorldState) {
+		if (e.Outcome == OutcomeAchieved) != definition.goal.SatisfiedBy(e.WorldState) {
 			return ErrInvalidExecutionState
 		}
 	} else if e.Outcome != "" {
