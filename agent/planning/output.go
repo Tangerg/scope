@@ -82,25 +82,45 @@ type Output struct {
 	PlanningPasses uint32 `json:"planning_passes" jsonschema:"maximum=4294967295"`
 }
 
+// Validate checks completed planning counters and ordered attempt facts. Goal
+// satisfaction and Action membership require the owning Definition.
 func (o Output) Validate() error {
 	if !o.Outcome.Valid() || !o.WorldState.Valid() {
 		return errors.New("planning: invalid output outcome or WorldState")
 	}
-	for index, attempt := range o.Attempts {
-		if err := attempt.Validate(); err != nil {
-			return fmt.Errorf("planning: output attempt %d: %w", index, err)
-		}
+	if err := validateAttempts(o.Attempts); err != nil {
+		return err
 	}
+	attempts := uint64(len(o.Attempts))
+	passes := uint64(o.PlanningPasses)
 	switch o.Outcome {
 	case OutcomeAchieved:
-		return nil
+		if passes != attempts {
+			return errors.New("planning: achieved output requires one planning pass per attempt")
+		}
 	case OutcomeUnreachable:
-		if len(o.Attempts) != 0 || o.PlanningPasses != 1 {
+		if attempts != 0 || passes != 1 {
 			return errors.New("planning: unreachable output requires one initial planning pass and no attempts")
 		}
 	case OutcomeStuck:
-		if len(o.Attempts) == 0 {
-			return errors.New("planning: stuck output requires at least one attempt")
+		if attempts == 0 || passes != attempts && passes != attempts+1 {
+			return errors.New("planning: stuck output requires attempted Actions and at most one final unsuccessful planning pass")
+		}
+	}
+	return nil
+}
+
+func validateAttempts(attempts []Attempt) error {
+	previouslyExcluded := make(map[string]struct{})
+	for index, attempt := range attempts {
+		if err := attempt.Validate(); err != nil {
+			return fmt.Errorf("planning: attempt %d: %w", index, err)
+		}
+		if _, excluded := previouslyExcluded[attempt.ActionName]; excluded {
+			return fmt.Errorf("planning: Action %q was attempted after exclusion", attempt.ActionName)
+		}
+		if attempt.Status != AttemptSucceeded {
+			previouslyExcluded[attempt.ActionName] = struct{}{}
 		}
 	}
 	return nil

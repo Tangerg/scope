@@ -113,19 +113,9 @@ func (e executionState) validate(definition *Definition) error {
 }
 
 func (e executionState) validateAttemptFacts(definition *Definition) error {
-	previouslyExcluded := make(map[string]struct{})
-	for index, attempt := range e.Attempts {
-		if err := attempt.Validate(); err != nil {
-			return fmt.Errorf("%w: attempt %d: %w", ErrInvalidExecutionState, index, err)
-		}
+	for _, attempt := range e.Attempts {
 		if _, found := definition.binding(attempt.ActionName); !found {
 			return fmt.Errorf("%w: attempt references unknown Action %q", ErrInvalidExecutionState, attempt.ActionName)
-		}
-		if _, excluded := previouslyExcluded[attempt.ActionName]; excluded {
-			return fmt.Errorf("%w: Action %q was attempted after exclusion", ErrInvalidExecutionState, attempt.ActionName)
-		}
-		if attempt.Status != AttemptSucceeded {
-			previouslyExcluded[attempt.ActionName] = struct{}{}
 		}
 	}
 	if uint64(len(e.Attempts)) > uint64(definition.maxActionAttempts) {
@@ -162,8 +152,7 @@ func (e executionState) validateCurrentAction(definition *Definition) error {
 
 func (e executionState) validateCompletion(definition *Definition) error {
 	if e.Phase == phaseCompleted {
-		if !e.Outcome.Valid() ||
-			e.Outcome == OutcomeAchieved && !definition.goal.SatisfiedBy(e.WorldState) {
+		if e.Outcome == OutcomeAchieved && !definition.goal.SatisfiedBy(e.WorldState) {
 			return ErrInvalidExecutionState
 		}
 	} else if e.Outcome != "" {
@@ -173,6 +162,15 @@ func (e executionState) validateCompletion(definition *Definition) error {
 }
 
 func (e executionState) validateProgress() error {
+	if e.Phase == phaseCompleted {
+		if err := e.output().Validate(); err != nil {
+			return fmt.Errorf("%w: completion: %w", ErrInvalidExecutionState, err)
+		}
+		return nil
+	}
+	if err := validateAttempts(e.Attempts); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
+	}
 	attempts := uint64(len(e.Attempts))
 	passes := uint64(e.PlanningPasses)
 	switch e.Phase {
@@ -188,21 +186,6 @@ func (e executionState) validateProgress() error {
 	case phaseAwaitingAction, phaseAwaitingChildStart, phaseAwaitingChildWaitOpen, phaseWaitingChild:
 		if passes != attempts+1 {
 			return fmt.Errorf("%w: active Action counters are inconsistent", ErrInvalidExecutionState)
-		}
-	case phaseCompleted:
-		switch e.Outcome {
-		case OutcomeAchieved:
-			if passes != attempts {
-				return fmt.Errorf("%w: achieved counters are inconsistent", ErrInvalidExecutionState)
-			}
-		case OutcomeUnreachable:
-			if attempts != 0 || passes != 1 {
-				return ErrInvalidExecutionState
-			}
-		case OutcomeStuck:
-			if attempts == 0 || passes != attempts && passes != attempts+1 {
-				return fmt.Errorf("%w: stuck counters are inconsistent", ErrInvalidExecutionState)
-			}
 		}
 	}
 	return nil
@@ -282,16 +265,20 @@ func (e *executionState) complete(definition *Definition, outcome Outcome) (Outp
 	if err := candidate.validate(definition); err != nil {
 		return Output{}, err
 	}
-	attempts := slices.Clone(candidate.Attempts)
-	if attempts == nil {
-		attempts = []Attempt{}
-	}
-	output := Output{
-		Outcome: outcome, WorldState: candidate.WorldState,
-		Attempts: attempts, PlanningPasses: candidate.PlanningPasses,
+	output := candidate.output()
+	output.Attempts = slices.Clone(output.Attempts)
+	if output.Attempts == nil {
+		output.Attempts = []Attempt{}
 	}
 	*e = candidate
 	return output, nil
+}
+
+func (e executionState) output() Output {
+	return Output{
+		Outcome: e.Outcome, WorldState: e.WorldState,
+		Attempts: e.Attempts, PlanningPasses: e.PlanningPasses,
+	}
 }
 
 func (e executionState) input() (agent.Input, error) {

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/planning"
 )
 
@@ -162,6 +163,63 @@ func TestProblemValidatesPlannerOutputAgainstItsActions(t *testing.T) {
 	unknownPlan, _ := planning.NewPlan([]planning.PlannedAction{unknown}, 2)
 	if err := problem.ValidatePlan(unknownPlan); !errors.Is(err, planning.ErrInvalidPlan) {
 		t.Fatalf("unknown-Action error = %v", err)
+	}
+}
+
+func TestOutputValidatesCompletedPlanningFacts(t *testing.T) {
+	done := mustCondition(t, "world.done", planning.True)
+	action := mustAction(t, planning.ActionConfig{
+		Name: "action.finish", Description: "Finish the work.", Effects: []planning.Condition{done},
+	})
+	definition := newManagedDefinition(t, managedDeploymentConfig{
+		goal: mustGoal(t, done), bindings: []planning.ActionBinding{mustDispatcherBinding(t, action)},
+	})
+	succeeded := planning.Attempt{ActionName: "action.finish", Status: planning.AttemptSucceeded}
+	failed := planning.Attempt{ActionName: "action.finish", Status: planning.AttemptFailed, Diagnostic: "refused"}
+	unconfirmed := planning.Attempt{ActionName: "action.finish", Status: planning.AttemptUnconfirmed, Diagnostic: "not observed"}
+	for _, test := range []struct {
+		name     string
+		outcome  planning.Outcome
+		attempts []planning.Attempt
+		passes   uint32
+		valid    bool
+	}{
+		{name: "already achieved", outcome: planning.OutcomeAchieved, valid: true},
+		{name: "achieved after action", outcome: planning.OutcomeAchieved, attempts: []planning.Attempt{succeeded}, passes: 1, valid: true},
+		{name: "achieved with missing pass", outcome: planning.OutcomeAchieved, attempts: []planning.Attempt{succeeded}},
+		{name: "achieved with extra pass", outcome: planning.OutcomeAchieved, passes: 1},
+		{name: "unreachable", outcome: planning.OutcomeUnreachable, passes: 1, valid: true},
+		{name: "unreachable after attempt", outcome: planning.OutcomeUnreachable, attempts: []planning.Attempt{failed}, passes: 1},
+		{name: "attempt limit exhausted", outcome: planning.OutcomeStuck, attempts: []planning.Attempt{failed}, passes: 1, valid: true},
+		{name: "replanning exhausted", outcome: planning.OutcomeStuck, attempts: []planning.Attempt{failed}, passes: 2, valid: true},
+		{name: "stuck with missing pass", outcome: planning.OutcomeStuck, attempts: []planning.Attempt{failed}},
+		{name: "stuck with extra passes", outcome: planning.OutcomeStuck, attempts: []planning.Attempt{failed}, passes: 3},
+		{name: "repeated success", outcome: planning.OutcomeAchieved, attempts: []planning.Attempt{succeeded, succeeded}, passes: 2, valid: true},
+		{name: "attempt after failure", outcome: planning.OutcomeAchieved, attempts: []planning.Attempt{failed, succeeded}, passes: 2},
+		{name: "attempt after unconfirmed action", outcome: planning.OutcomeStuck, attempts: []planning.Attempt{unconfirmed, succeeded}, passes: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output := planning.Output{Outcome: test.outcome, Attempts: test.attempts, PlanningPasses: test.passes}
+			if test.outcome == planning.OutcomeAchieved {
+				output.WorldState = mustWorldState(t, done)
+			}
+			if err := output.Validate(); (err == nil) != test.valid {
+				t.Fatalf("Validate = %v, want valid=%t", err, test.valid)
+			}
+			payload := mustJSON(t, struct {
+				Phase string          `json:"phase"`
+				Input json.RawMessage `json:"input"`
+				planning.Output
+			}{Phase: "completed", Input: json.RawMessage(`{}`), Output: output})
+			state, err := agent.NewExecutionState("planning", payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = definition.Restore(state)
+			if (err == nil) != test.valid || err != nil && !errors.Is(err, planning.ErrInvalidExecutionState) {
+				t.Fatalf("Restore = %v, want valid=%t", err, test.valid)
+			}
+		})
 	}
 }
 
