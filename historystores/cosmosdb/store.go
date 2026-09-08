@@ -185,9 +185,9 @@ func (s *Store) Conversations(ctx context.Context) (ids []history.ConversationID
 		return nil, err
 	}
 
-	// Empty partition key + a WHERE-less projection runs cross-partition;
-	// SELECT DISTINCT VALUE is a simple projection the gateway can serve.
-	query := "SELECT DISTINCT VALUE c.conversation_id FROM c"
+	// The Go SDK's gateway supports cross-partition projections, but not
+	// DISTINCT. Uniqueness is established after all pages have been read.
+	query := "SELECT VALUE c.conversation_id FROM c"
 
 	ids = []history.ConversationID{}
 	pager := s.container.NewQueryItemsPager(query, azcosmos.NewPartitionKey(), nil)
@@ -209,7 +209,7 @@ func (s *Store) Conversations(ctx context.Context) (ids []history.ConversationID
 		}
 	}
 	slices.Sort(ids)
-	return ids, nil
+	return slices.Compact(ids), nil
 }
 
 // Clear deletes every document for conversationID. Cosmos has no

@@ -2,9 +2,11 @@ package cosmosdb_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -95,5 +97,68 @@ func TestClearFollowsEmptyPages(t *testing.T) {
 				t.Fatalf("Clear = %v; queries=%d deletes=%d, want nil, 3, 1", clearErr, queries, deletes)
 			}
 		})
+	}
+}
+
+func TestConversationsUsesPageableProjectionAndReturnsUniqueIDs(t *testing.T) {
+	queries := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		if request.Method == http.MethodGet {
+			fmt.Fprint(writer, `{"id":"test","readableLocations":[],"writableLocations":[]}`)
+			return
+		}
+		var query struct {
+			Query string `json:"query"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&query); err != nil {
+			t.Error(err)
+			writer.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if query.Query != "SELECT VALUE c.conversation_id FROM c" {
+			t.Errorf("query = %q, want a pageable cross-partition projection", query.Query)
+			writer.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(writer, `{"code":"BadRequest","message":"unsupported cross-partition query"}`)
+			return
+		}
+		queries++
+		switch queries {
+		case 1:
+			writer.Header().Set("x-ms-continuation", "empty-page")
+			fmt.Fprint(writer, `{"Documents":["z","a","z"],"_count":3}`)
+		case 2:
+			writer.Header().Set("x-ms-continuation", "last-page")
+			fmt.Fprint(writer, `{"Documents":[],"_count":0}`)
+		case 3:
+			fmt.Fprint(writer, `{"Documents":["a","b"],"_count":2}`)
+		default:
+			t.Errorf("unexpected query %d", queries)
+			fmt.Fprint(writer, `{"Documents":[],"_count":0}`)
+		}
+	}))
+	defer server.Close()
+	credential, err := azcosmos.NewKeyCredential("dGVzdA==")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := azcosmos.NewClientWithKey(server.URL, credential, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	container, err := client.NewContainer("test", "history")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := cosmosdb.NewStore(cosmosdb.StoreConfig{Container: container})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := store.Conversations(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []history.ConversationID{"a", "b", "z"}; !slices.Equal(ids, want) || queries != 3 {
+		t.Fatalf("Conversations = %v, queries=%d; want %v, 3", ids, queries, want)
 	}
 }
