@@ -24,6 +24,11 @@
 // "GreaterThan", "valueNumber": 100}`. The result feeds the
 // `WithWhere` builder on the GraphQL Get call.
 //
+// Batch acknowledgment. Weaviate answers a batch whose objects individually
+// failed with a successful call, so Index requires one SUCCESS result per
+// object it sent. A rejected object returns an error while the objects accepted
+// in the same batch remain stored.
+//
 // See https://weaviate.io/developers/weaviate for the full API
 // surface.
 package weaviate

@@ -304,15 +304,39 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 				len(objects), s.className, err)
 		}
 
-		for j := range responses {
-			resp := &responses[j]
-			if resp.Result != nil && resp.Result.Errors != nil {
-				return fmt.Errorf("weaviate: batch insert error for object %s: %v",
-					resp.ID, resp.Result.Errors.Error)
-			}
+		if err := checkBatchAcknowledgments(objects, responses); err != nil {
+			return err
 		}
 	}
 
+	return nil
+}
+
+// checkBatchAcknowledgments requires one successful result per object sent.
+// Weaviate answers a batch whose objects individually failed with a successful
+// HTTP call, so the per-object results are the only evidence the batch applied;
+// a missing or extra result leaves objects unaccounted for, and a FAILED status
+// can arrive without an error payload.
+func checkBatchAcknowledgments(objects []*models.Object, responses []models.ObjectsGetResponse) error {
+	if len(responses) != len(objects) {
+		return fmt.Errorf("weaviate: batch insert returned %d results for %d objects",
+			len(responses), len(objects))
+	}
+	for index := range responses {
+		response := &responses[index]
+		result := response.Result
+		if result == nil {
+			return fmt.Errorf("weaviate: batch insert has no result for object %s", response.ID)
+		}
+		if result.Errors != nil {
+			return fmt.Errorf("weaviate: batch insert error for object %s: %v",
+				response.ID, result.Errors.Error)
+		}
+		if result.Status == nil || *result.Status != models.ObjectsGetResponseAO2ResultStatusSUCCESS {
+			return fmt.Errorf("weaviate: batch insert for object %s reported status %s",
+				response.ID, lo.FromPtrOr(result.Status, "none"))
+		}
+	}
 	return nil
 }
 
