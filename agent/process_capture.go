@@ -96,6 +96,10 @@ func (p *processState) restorePreparedStep(wire *preparedStepWire) error {
 		return nil
 	}
 	prepared := clonePreparedStep(*wire)
+	candidate, err := restoreExecution(p.deployment.Definition(), prepared.CandidateState)
+	if err != nil {
+		return fmt.Errorf("%w: restore prepared Execution: %w", ErrInvalidSnapshot, err)
+	}
 	for index := range prepared.Effects {
 		record := &prepared.Effects[index]
 		if record.Phase != effectPhasePending || record.Effect.Target() != EffectTargetDispatcher {
@@ -116,7 +120,7 @@ func (p *processState) restorePreparedStep(wire *preparedStepWire) error {
 		}
 		p.restoredPending = restoredPendingEffect{id: record.ID, replayPolicy: policy}
 	}
-	p.prepared = &preparedStep{wire: prepared}
+	p.prepared = &preparedStep{wire: prepared, candidate: candidate}
 	return nil
 }
 

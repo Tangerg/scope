@@ -102,7 +102,8 @@ func (p *processState) finalizePrepared(ctx context.Context) error {
 	if err := finalization.prepare(); err != nil {
 		return err
 	}
-	return finalization.commit(ctx)
+	finalization.commit(ctx)
+	return nil
 }
 
 type preparedStepFinalization struct {
@@ -292,19 +293,9 @@ func (p *preparedStepFinalization) prepareTermination(outcome stepOutcome) {
 	p.transition.closedChildWaits = p.mailbox.closeAllWaits()
 }
 
-func (p *preparedStepFinalization) commit(ctx context.Context) error {
-	execution := p.prepared.candidate
-	if execution == nil {
-		var err error
-		execution, err = restoreExecution(
-			p.process.deployment.Definition(), p.prepared.wire.CandidateState,
-		)
-		if err != nil {
-			return err
-		}
-	}
+func (p *preparedStepFinalization) commit(ctx context.Context) {
 	process := p.process
-	process.execution = execution
+	process.execution = p.prepared.candidate
 	process.committedExecutionState = p.prepared.wire.CandidateState
 	process.mailbox = p.mailbox
 	process.committedSteps = p.prepared.wire.StepSequence
@@ -334,7 +325,6 @@ func (p *preparedStepFinalization) commit(ctx context.Context) error {
 		process.runtime.unregisterChildWait(waitID)
 	}
 	p.committed = true
-	return nil
 }
 
 func (p *preparedStepFinalization) rollback() {
