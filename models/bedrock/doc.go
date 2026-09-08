@@ -45,5 +45,13 @@
 // generation; state the model's own parameters through the request
 // extension's AdditionalModelRequestFields.
 //
+// Stream shape. ConverseStream sends its metadata event — the one carrying
+// usage — after messageStop, so the finish reason is held and stamped onto
+// whichever delta turns out to be last. Reporting the end at messageStop put
+// the usage delta after a finished stream, and a [chat.ResponseAccumulator]
+// rejects that: a consumer that already saw the answer end cannot fold
+// anything more into it. Exactly one delta reports the end, and it is the one
+// a consumer sees last.
+//
 // See https://docs.aws.amazon.com/bedrock/ for the full reference.
 package bedrock

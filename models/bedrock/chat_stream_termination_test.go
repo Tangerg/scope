@@ -41,11 +41,43 @@ func TestChunkAccumulatorTracksTerminalEvent(t *testing.T) {
 	if err != nil || !include {
 		t.Fatalf("add(messageStop) = (%v, %t), want (nil, true)", err, include)
 	}
-	if response.FinishReason != corechat.FinishReasonStop {
-		t.Fatalf("FinishReason = %q, want %q", response.FinishReason, corechat.FinishReasonStop)
+	// messageStop no longer carries the reason. ConverseStream sends its
+	// usage-carrying metadata event afterwards, so reporting the end here put a
+	// delta after a finished stream — which a corechat.ResponseAccumulator
+	// rejects. complete stamps the reason onto whichever delta is last.
+	if response.FinishReason != "" {
+		t.Fatalf("FinishReason = %q on the messageStop delta, want it held for the terminal delta",
+			response.FinishReason)
 	}
 	if !accumulator.terminated() {
 		t.Fatal("terminated() = false after messageStop, want true")
+	}
+
+	terminal, err := accumulator.complete(response)
+	if err != nil {
+		t.Fatalf("complete() = %v, want nil", err)
+	}
+	if terminal.FinishReason != corechat.FinishReasonStop {
+		t.Fatalf("FinishReason = %q, want %q", terminal.FinishReason, corechat.FinishReasonStop)
+	}
+}
+
+// A stream that ends without a messageStop event has no terminal delta to
+// stamp, so completing it reports a partial answer rather than presenting one
+// as whole.
+func TestCompleteRefusesAStreamThatNeverFinished(t *testing.T) {
+	t.Parallel()
+
+	accumulator := newProtocolChunkAccumulator("model")
+	delta, _, err := accumulator.add(textDeltaEvent("half"))
+	if err != nil {
+		t.Fatalf("add(text) = %v, want nil", err)
+	}
+	if _, err := accumulator.complete(delta); err == nil {
+		t.Fatal("complete() = nil error, want a missing-terminal error")
+	}
+	if _, err := accumulator.complete(nil); err == nil {
+		t.Fatal("complete(nil) = nil error, want a missing-terminal error")
 	}
 }
 

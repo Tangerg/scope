@@ -82,11 +82,20 @@ func (a *api) converse(ctx context.Context, params *bedrockruntime.ConverseInput
 	return a.client.Converse(ctx, params, opts...)
 }
 
-func (a *api) converseStream(ctx context.Context, params *bedrockruntime.ConverseStreamInput, opts ...func(*bedrockruntime.Options)) (*bedrockruntime.ConverseStreamOutput, error) {
+// converseStream returns the event stream rather than the output envelope,
+// because that is all a caller does with the output: the envelope carries the
+// stream and nothing else a caller reads. It also keeps the surface one the SDK
+// can be tested against — an output's stream field is unexported with no
+// setter, while an event stream exposes its Reader for exactly that purpose.
+func (a *api) converseStream(ctx context.Context, params *bedrockruntime.ConverseStreamInput, opts ...func(*bedrockruntime.Options)) (*bedrockruntime.ConverseStreamEventStream, error) {
 	if params == nil {
 		return nil, errors.New("bedrock: request must not be nil")
 	}
-	return a.client.ConverseStream(ctx, params, opts...)
+	output, err := a.client.ConverseStream(ctx, params, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return output.GetStream(), nil
 }
 
 func (a *api) invokeModel(ctx context.Context, params *bedrockruntime.InvokeModelInput, opts ...func(*bedrockruntime.Options)) (*bedrockruntime.InvokeModelOutput, error) {

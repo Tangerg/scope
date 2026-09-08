@@ -15,9 +15,11 @@ type protocolToolIdentity struct {
 }
 
 type protocolChunkAccumulator struct {
-	model    string
-	tools    map[int32]protocolToolIdentity
-	finished bool
+	model          string
+	tools          map[int32]protocolToolIdentity
+	finished       bool
+	finish         corechat.FinishReason
+	finishMetadata *corechat.OutputMetadata
 }
 
 func newProtocolChunkAccumulator(model string) *protocolChunkAccumulator {
@@ -53,10 +55,17 @@ func (p *protocolChunkAccumulator) add(event types.ConverseStreamOutput) (*corec
 			return nil, false, errors.New("bedrock: stream emitted more than one messageStop event")
 		}
 		p.finished = true
-		response.FinishReason = mapProtocolStopReason(typed.Value.StopReason)
-		if response.FinishReason == corechat.FinishReasonOther {
-			response.OutputMetadata = &corechat.OutputMetadata{}
-			if err := response.OutputMetadata.Extra.Set(chatNativeFinishReasonKey, string(typed.Value.StopReason)); err != nil {
+		// The finish reason is held rather than stamped here, because
+		// ConverseStream sends its metadata event — the one carrying usage —
+		// after messageStop. Putting the reason on the messageStop delta made
+		// the usage delta arrive after a finished stream, which is a state a
+		// [corechat.ResponseAccumulator] rejects: a consumer that already saw
+		// the answer end cannot fold anything more into it. complete stamps the
+		// reason onto whichever delta turns out to be last.
+		p.finish = mapProtocolStopReason(typed.Value.StopReason)
+		if p.finish == corechat.FinishReasonOther {
+			p.finishMetadata = &corechat.OutputMetadata{}
+			if err := p.finishMetadata.Extra.Set(chatNativeFinishReasonKey, string(typed.Value.StopReason)); err != nil {
 				return nil, false, err
 			}
 		}
@@ -73,6 +82,22 @@ func (p *protocolChunkAccumulator) add(event types.ConverseStreamOutput) (*corec
 		return nil, false, fmt.Errorf("bedrock: stream response: %w", err)
 	}
 	return response, true, nil
+}
+
+// complete stamps the held finish reason onto the last delta of the stream, so
+// exactly one delta reports the end and it is the one a consumer sees last.
+func (p *protocolChunkAccumulator) complete(delta *corechat.ResponseDelta) (*corechat.ResponseDelta, error) {
+	if delta == nil || !p.finished {
+		return nil, fmt.Errorf("bedrock: stream: %w: missing terminal response", corechat.ErrInvalidResponse)
+	}
+	delta.FinishReason = p.finish
+	if p.finishMetadata != nil {
+		delta.OutputMetadata = p.finishMetadata
+	}
+	if err := delta.Validate(); err != nil {
+		return nil, fmt.Errorf("bedrock: terminal stream response: %w", err)
+	}
+	return delta, nil
 }
 
 func (p *protocolChunkAccumulator) mapDelta(delta types.ContentBlockDeltaEvent) (corechat.PartDelta, bool, error) {

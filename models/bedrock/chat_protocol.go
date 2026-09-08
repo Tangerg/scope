@@ -6,6 +6,8 @@ import (
 	"iter"
 	"net/http"
 
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
@@ -70,9 +72,29 @@ var (
 	_ corechat.Streamer = (*Chat)(nil)
 )
 
+// converseAPI is the Converse surface Chat uses.
+//
+// Naming the two calls it makes keeps the chat path off the rest of the runtime
+// client — invokeModel belongs to the embedding path and Chat never touches it
+// — and lets the shared Model and Streamer suites drive this adapter's own
+// mapping without an AWS endpoint. The event stream reader the SDK exposes for
+// exactly that purpose supplies the streaming half.
+type converseAPI interface {
+	converse(
+		ctx context.Context,
+		params *bedrockruntime.ConverseInput,
+		opts ...func(*bedrockruntime.Options),
+	) (*bedrockruntime.ConverseOutput, error)
+	converseStream(
+		ctx context.Context,
+		params *bedrockruntime.ConverseStreamInput,
+		opts ...func(*bedrockruntime.Options),
+	) (*bedrockruntime.ConverseStreamEventStream, error)
+}
+
 // Chat implements Core chat through Bedrock's provider-neutral Converse API.
 type Chat struct {
-	api      *api
+	api      converseAPI
 	defaults corechat.Options
 }
 
@@ -114,22 +136,40 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 			yield(nil, err)
 			return
 		}
-		output, err := c.api.converseStream(ctx, input)
+		stream, err := c.api.converseStream(ctx, input)
 		if err != nil {
 			yield(nil, err)
 			return
 		}
-		stream := output.GetStream()
 		defer stream.Close()
 
+		// The last delta is held back so the finish reason can be stamped on
+		// it. ConverseStream sends its usage-carrying metadata event after
+		// messageStop, so reporting the end at messageStop put a delta after a
+		// finished stream — which a [corechat.ResponseAccumulator] rejects.
 		state := newProtocolChunkAccumulator(model)
+		var terminal *corechat.ResponseDelta
 		for event := range stream.Events() {
 			response, include, mapErr := state.add(event)
 			if mapErr != nil {
 				yield(nil, mapErr)
 				return
 			}
-			if include && !yield(response, nil) {
+			if !include {
+				continue
+			}
+			if terminal != nil {
+				if !yield(terminal, nil) {
+					return
+				}
+				terminal = response
+				continue
+			}
+			if state.terminated() {
+				terminal = response
+				continue
+			}
+			if !yield(response, nil) {
 				return
 			}
 		}
@@ -137,8 +177,11 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 			yield(nil, streamErr)
 			return
 		}
-		if !state.terminated() {
-			yield(nil, fmt.Errorf("bedrock: stream: %w: missing terminal response", corechat.ErrInvalidResponse))
+		terminal, err = state.complete(terminal)
+		if err != nil {
+			yield(nil, err)
+			return
 		}
+		yield(terminal, nil)
 	}
 }
