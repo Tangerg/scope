@@ -9,28 +9,38 @@ import (
 	"net/url"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
 )
 
 func TestDialBoundsAgentCardResolution(t *testing.T) {
-	started := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		close(started)
-		<-r.Context().Done()
-	}))
-	t.Cleanup(server.Close)
+	synctest.Test(t, func(t *testing.T) {
+		transport := &cardTimeoutTransport{}
+		const timeout = 20 * time.Millisecond
+		start := time.Now()
+		_, _, err := dial(t.Context(), Endpoint{
+			CardURL: "https://agent.example", CardTimeout: timeout,
+			HTTPClient: &http.Client{Transport: transport},
+		})
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("dial error = %v, want context deadline exceeded", err)
+		}
+		if !transport.started || time.Since(start) != timeout || t.Context().Err() != nil {
+			t.Fatalf("resolution started=%t elapsed=%s parent error=%v", transport.started, time.Since(start), t.Context().Err())
+		}
+	})
+}
 
-	_, _, err := dial(t.Context(), Endpoint{CardURL: server.URL, CardTimeout: 20 * time.Millisecond})
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("dial error = %v, want context deadline exceeded", err)
-	}
-	select {
-	case <-started:
-	default:
-		t.Fatal("Agent Card request did not start")
-	}
+type cardTimeoutTransport struct {
+	started bool
+}
+
+func (c *cardTimeoutTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	c.started = true
+	<-request.Context().Done()
+	return nil, request.Context().Err()
 }
 
 func TestDialRejectsInvalidCardConfiguration(t *testing.T) {
