@@ -53,6 +53,12 @@
 //
 // Vector profiles belong to the pre-provisioned index's vector field. Queries
 // select that field and use its profile without a second store-level setting.
+// Because the transformation below is metric-specific, [NewStore] reads the
+// index definition and follows the vector field to its profile, the profile to
+// its algorithm, and the algorithm to its metric, refusing a configured value
+// that disagrees with [ErrIncompatibleIndex]. The same read catches a vector
+// field that is absent or names no profile, which would answer every query
+// with nothing.
 //
 // Scoring. @search.score is never the raw metric value; Azure transforms it so
 // it falls monotonically as the match worsens. The cosine transformation and

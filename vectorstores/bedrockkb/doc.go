@@ -8,6 +8,14 @@
 // SharePoint, Salesforce, etc.), and an aws-sdk-go-v2
 // bedrockagentruntime client.
 //
+// Construction performs no I/O, unlike its siblings in this family. The only
+// Bedrock surface this store depends on is Retrieve, which cannot describe a
+// knowledge base without running a paid query, and confirming one exists would
+// mean taking a second control-plane client the store has no other use for. A
+// wrong [StoreConfig.KnowledgeBaseID] therefore surfaces as Bedrock's own
+// error on the first search. [NewStore] still takes a context, because every
+// vector store here is constructed the same way.
+//
 // Document lifecycle. Bedrock ingests via the configured data source
 // + StartIngestionJob — there's no runtime upsert / delete. The store exposes
 // no fake mutation methods. Manage documents via the data source instead

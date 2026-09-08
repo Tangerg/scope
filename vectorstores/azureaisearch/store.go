@@ -28,6 +28,11 @@ import (
 // Search vector field.
 type SimilarityMetric string
 
+// ErrIncompatibleIndex reports an index that cannot serve this store: the
+// configured vector field is missing or unsearchable, or the algorithm behind
+// it was configured with a different similarity metric.
+var ErrIncompatibleIndex = errors.New("azureaisearch: index is incompatible")
+
 // The metric is a closed vocabulary because score direction and threshold
 // semantics depend on it: the same raw number means "near" under one metric and
 // "far" under another, so an unrecognized value must be rejected rather than
@@ -214,10 +219,11 @@ type Store struct {
 	maxResponseBytes int64
 }
 
-// NewStore needs no context because construction performs no I/O; the index is
-// provisioned outside this package, so the store only validates configuration
-// and assembles state.
-func NewStore(config StoreConfig) (*Store, error) {
+// NewStore confirms the index agrees with the configured metric during
+// construction, which is why it takes a context: a store returned with the
+// wrong metric would go on returning scores that are wrong rather than absent,
+// and the misconfiguration is at wiring.
+func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	config.applyDefaults()
 	if err := config.Validate(); err != nil {
 		return nil, err
@@ -228,7 +234,7 @@ func NewStore(config StoreConfig) (*Store, error) {
 		return nil, fmt.Errorf("azureaisearch: create embedding client: %w", err)
 	}
 
-	return &Store{
+	store := &Store{
 		endpoint:         strings.TrimRight(config.Endpoint, "/"),
 		apiKey:           config.APIKey,
 		indexName:        config.IndexName,
@@ -241,7 +247,108 @@ func NewStore(config StoreConfig) (*Store, error) {
 		similarityMetric: config.SimilarityMetric,
 		httpClient:       config.HTTPClient,
 		maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes),
-	}, nil
+	}
+	if err = store.verifyIndexMetric(ctx); err != nil {
+		return nil, err
+	}
+	return store, nil
+}
+
+// indexSchema is the part of an index definition this store has to agree with.
+// A vector field names a profile, the profile names an algorithm, and only the
+// algorithm carries the metric, so the metric is three hops from the field.
+type indexSchema struct {
+	Fields []struct {
+		Name                string `json:"name"`
+		VectorSearchProfile string `json:"vectorSearchProfile"`
+	} `json:"fields"`
+	VectorSearch struct {
+		Profiles []struct {
+			Name      string `json:"name"`
+			Algorithm string `json:"algorithm"`
+		} `json:"profiles"`
+		Algorithms []struct {
+			Name           string `json:"name"`
+			HNSWParameters struct {
+				Metric SimilarityMetric `json:"metric"`
+			} `json:"hnswParameters"`
+			ExhaustiveKNNParameters struct {
+				Metric SimilarityMetric `json:"metric"`
+			} `json:"exhaustiveKnnParameters"`
+		} `json:"algorithms"`
+	} `json:"vectorSearch"`
+}
+
+func (s *Store) verifyIndexMetric(ctx context.Context) error {
+	raw, err := s.sendJSON(ctx, http.MethodGet, "/indexes/"+url.PathEscape(s.indexName), nil)
+	if err != nil {
+		return fmt.Errorf("azureaisearch: read index %s: %w", s.indexName, err)
+	}
+	var schema indexSchema
+	if err = json.Unmarshal(raw, &schema); err != nil {
+		return fmt.Errorf("azureaisearch: decode index %s: %w", s.indexName, err)
+	}
+	return validateIndexMetric(&schema, s.embeddingField, s.similarityMetric)
+}
+
+// validateIndexMetric refuses a store whose configured metric is not the one
+// the vector field's algorithm was configured with.
+//
+// @search.score is metric-specific, so a wrong value does not fail: the store
+// applies the wrong transformation and returns plausible scores that are wrong,
+// with MinScore filtering by a threshold in the wrong scale. Nothing
+// downstream can notice.
+//
+// Dimensions are deliberately not compared. This store declares none, and
+// Azure rejects a vector of the wrong width on upload.
+func validateIndexMetric(schema *indexSchema, embeddingField string, want SimilarityMetric) error {
+	profileName := ""
+	found := false
+	for _, field := range schema.Fields {
+		if field.Name == embeddingField {
+			profileName = field.VectorSearchProfile
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("%w: the index declares no field named %q", ErrIncompatibleIndex, embeddingField)
+	}
+	if profileName == "" {
+		return fmt.Errorf("%w: field %q names no vectorSearchProfile, so it is not searchable as a vector",
+			ErrIncompatibleIndex, embeddingField)
+	}
+
+	algorithmName := ""
+	for _, profile := range schema.VectorSearch.Profiles {
+		if profile.Name == profileName {
+			algorithmName = profile.Algorithm
+			break
+		}
+	}
+	if algorithmName == "" {
+		return fmt.Errorf("%w: vectorSearchProfile %q on field %q resolves to no algorithm",
+			ErrIncompatibleIndex, profileName, embeddingField)
+	}
+
+	for _, algorithm := range schema.VectorSearch.Algorithms {
+		if algorithm.Name != algorithmName {
+			continue
+		}
+		// Exactly one parameter block is populated, chosen by the algorithm's
+		// kind; reading whichever carries a metric avoids depending on a kind
+		// string this store has no other use for.
+		metric := cmp.Or(algorithm.HNSWParameters.Metric, algorithm.ExhaustiveKNNParameters.Metric)
+		if metric == "" {
+			return fmt.Errorf("%w: algorithm %q declares no metric", ErrIncompatibleIndex, algorithmName)
+		}
+		if metric != want {
+			return fmt.Errorf("%w: field %q searches through algorithm %q with metric %q, but the store is configured for %q",
+				ErrIncompatibleIndex, embeddingField, algorithmName, metric, want)
+		}
+		return nil
+	}
+	return fmt.Errorf("%w: the index declares no algorithm named %q", ErrIncompatibleIndex, algorithmName)
 }
 
 // Index validates metadata ownership across the full request, embeds documents,

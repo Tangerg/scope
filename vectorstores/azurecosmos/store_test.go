@@ -1,6 +1,7 @@
 package azurecosmos
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -34,11 +35,30 @@ func (t testBatcher) Batch(ctx context.Context, documents []*document.Document) 
 	return [][]*document.Document{documents}, nil
 }
 
+// agreeingContainerBody is the container definition NewStore now reads to
+// confirm the configured distance function and partition-key path, written so
+// the test server can answer the construction GET without every test having to
+// know about it.
+func agreeingContainerBody(partitionKeyField string, function DistanceFunction) string {
+	return fmt.Sprintf(`{
+		"id": "vectors",
+		"partitionKey": {"kind": "Hash", "paths": ["/%s"]},
+		"vectorEmbeddingPolicy": {"vectorEmbeddings": [
+			{"path": "/%s", "dataType": "float32", "distanceFunction": "%s", "dimensions": 2}
+		]}
+	}`, partitionKeyField, DefaultEmbeddingField, function)
+}
+
 func newTestStore(t *testing.T, partitionKeyField string, handler http.HandlerFunc) *Store {
 	t.Helper()
+	resolvedPartitionKeyField := cmp.Or(partitionKeyField, DefaultPartitionKeyField)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		if request.Method == http.MethodGet {
+			if strings.Contains(request.URL.Path, "/colls/") {
+				fmt.Fprint(writer, agreeingContainerBody(resolvedPartitionKeyField, DistanceCosine))
+				return
+			}
 			fmt.Fprint(writer, `{"id":"test","readableLocations":[],"writableLocations":[]}`)
 			return
 		}
@@ -57,7 +77,7 @@ func newTestStore(t *testing.T, partitionKeyField string, handler http.HandlerFu
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := NewStore(StoreConfig{
+	store, err := NewStore(t.Context(), StoreConfig{
 		Container: container, EmbeddingModel: testEmbeddingModel{}, DocumentBatcher: testBatcher{},
 		PartitionKey: "library", PartitionKeyField: partitionKeyField,
 	})
@@ -182,7 +202,7 @@ func TestStoreConfigRejectsAmbiguousStorageFields(t *testing.T) {
 			if err := config.Validate(); err == nil {
 				t.Fatal("Validate accepted invalid storage configuration")
 			}
-			if _, err := NewStore(config); err == nil {
+			if _, err := NewStore(t.Context(), config); err == nil {
 				t.Fatal("NewStore accepted invalid storage configuration")
 			}
 		})
@@ -190,20 +210,13 @@ func TestStoreConfigRejectsAmbiguousStorageFields(t *testing.T) {
 }
 
 func ExampleNewStore() {
-	credential, err := azcosmos.NewKeyCredential("dGVzdA==")
-	if err != nil {
-		panic(err)
-	}
-	client, err := azcosmos.NewClientWithKey("https://example.documents.azure.com", credential, nil)
-	if err != nil {
-		panic(err)
-	}
-	container, err := client.NewContainer("knowledge", "documents")
-	if err != nil {
-		panic(err)
-	}
-	// The host provisions this container with partition-key path /tenant.
-	store, err := NewStore(StoreConfig{
+	// The host provisions this container with partition-key path /tenant and a
+	// vector embedding policy; NewStore reads both and refuses a container that
+	// disagrees, which is why it needs a context and a reachable account.
+	container, closeAccount := exampleContainer("tenant")
+	defer closeAccount()
+
+	store, err := NewStore(context.Background(), StoreConfig{
 		Container:         container,
 		PartitionKeyField: "tenant",
 		PartitionKey:      "library",
@@ -232,4 +245,31 @@ func TestDecodeRowPreservesLargeIntegerMetadata(t *testing.T) {
 	if got := string(result.Document.Metadata["ordinal"]); got != "9007199254740993" {
 		t.Fatalf("ordinal = %s, want 9007199254740993", got)
 	}
+}
+
+// exampleContainer stands in for a provisioned Cosmos container so
+// ExampleNewStore can run. A real caller reaches a live account through
+// azcosmos.NewClientWithKey and skips this entirely.
+func exampleContainer(partitionKeyField string) (*azcosmos.ContainerClient, func()) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		if strings.Contains(request.URL.Path, "/colls/") {
+			fmt.Fprint(writer, agreeingContainerBody(partitionKeyField, DistanceCosine))
+			return
+		}
+		fmt.Fprint(writer, `{"id":"knowledge","readableLocations":[],"writableLocations":[]}`)
+	}))
+	credential, err := azcosmos.NewKeyCredential("dGVzdA==")
+	if err != nil {
+		panic(err)
+	}
+	client, err := azcosmos.NewClientWithKey(server.URL, credential, nil)
+	if err != nil {
+		panic(err)
+	}
+	container, err := client.NewContainer("knowledge", "documents")
+	if err != nil {
+		panic(err)
+	}
+	return container, server.Close
 }

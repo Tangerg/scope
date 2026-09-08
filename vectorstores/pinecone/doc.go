@@ -8,9 +8,14 @@
 // allow lazy index creation from the data plane). The store uses
 // the official pinecone-io/go-pinecone v4 client.
 //
-// Vector similarity. Pinecone configures cosine / dotproduct /
-// euclidean at index-creation time; the store reads but does not
-// override.
+// Vector similarity. Pinecone configures cosine / dotproduct / euclidean at
+// index-creation time; the store reads but does not override. Because the
+// metric decides what a raw score means, [NewStore] reads the index's own
+// metric from the control plane and refuses a configured value that disagrees
+// with [ErrIncompatibleIndex] — a mismatch would otherwise return scores that
+// are wrong rather than absent, with MinScore filtering by the wrong
+// direction. Dimensionality is not compared: this store declares none, and
+// Pinecone rejects a wrong-width vector on the first request.
 //
 // Filter visitor produces Pinecone's metadata-filter syntax —
 // `{"author": {"$eq": "Alice"}}`, `{"$and": [...]}`,

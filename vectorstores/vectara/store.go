@@ -34,6 +34,10 @@ const (
 	DefaultMaxResponseBytes = int64(16 * 1024 * 1024)
 )
 
+// ErrUnavailableCorpus reports a corpus that exists but is not serving,
+// because an administrator disabled it.
+var ErrUnavailableCorpus = errors.New("vectara: corpus is unavailable")
+
 // StoreConfig contains configuration options for the Vectara vector
 // store. Vectara is a managed RAG service that handles embedding,
 // chunking, and retrieval internally — the store sends raw text to
@@ -114,15 +118,17 @@ type Store struct {
 	maxResponseBytes int64
 }
 
-// NewStore needs no context because construction performs no I/O; the corpus is
-// provisioned outside this package, so the store only validates configuration
-// and assembles state.
-func NewStore(config StoreConfig) (*Store, error) {
+// NewStore confirms the corpus is there and serving during construction, which
+// is why it takes a context. Vectara owns embedding and scoring, so there is no
+// metric to agree on; what a caller can still get wrong is the corpus key or a
+// corpus an administrator has disabled, and both belong at wiring rather than
+// on the first upload.
+func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	config.applyDefaults()
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	return &Store{
+	store := &Store{
 		endpoint:         strings.TrimRight(config.Endpoint, "/"),
 		apiKey:           config.APIKey,
 		corpusKey:        config.CorpusKey,
@@ -130,7 +136,37 @@ func NewStore(config StoreConfig) (*Store, error) {
 		documentBatcher:  config.DocumentBatcher,
 		httpClient:       config.HTTPClient,
 		maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes),
-	}, nil
+	}
+	if err := store.verifyCorpus(ctx); err != nil {
+		return nil, err
+	}
+	return store, nil
+}
+
+// verifyCorpus reads the corpus this store is bound to.
+//
+// A disabled corpus is the case worth naming: Vectara's own reason for
+// exposing the flag is that an administrator may "respond to a security
+// incident by disabling a corpus", so a store that keeps operating against one
+// is working against an explicit decision. A wrong key surfaces here too, as
+// the read's own error, instead of as a failure on the first document.
+func (s *Store) verifyCorpus(ctx context.Context) error {
+	path := fmt.Sprintf("/%s/corpora/%s", DefaultAPIVersion, url.PathEscape(s.corpusKey))
+	raw, err := s.sendJSON(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return fmt.Errorf("vectara: read corpus %s: %w", s.corpusKey, err)
+	}
+	var corpus struct {
+		Key     string `json:"key"`
+		Enabled *bool  `json:"enabled"`
+	}
+	if err = json.Unmarshal(raw, &corpus); err != nil {
+		return fmt.Errorf("vectara: decode corpus %s: %w", s.corpusKey, err)
+	}
+	if corpus.Enabled != nil && !*corpus.Enabled {
+		return fmt.Errorf("%w: corpus %s is disabled", ErrUnavailableCorpus, s.corpusKey)
+	}
+	return nil
 }
 
 // Index uploads documents to the corpus via Vectara's index API. The

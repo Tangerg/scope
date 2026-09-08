@@ -11,6 +11,13 @@
 //
 // Authentication. API key via the `x-api-key` header.
 //
+// Corpus availability. [NewStore] reads `/v2/corpora/<corpus_key>` so a wrong
+// key fails at wiring rather than on the first upload, and refuses a corpus an
+// administrator has disabled with [ErrUnavailableCorpus] — the flag exists so
+// a corpus can be taken out of service deliberately, and a store that kept
+// operating against one would be working around that decision. There is no
+// metric to agree on here, because Vectara owns embedding and scoring.
+//
 // Search shape. The store hits Vectara's v2 query endpoint —
 // `POST /v2/corpora/<corpus_key>/query` — with the user's raw query
 // and a `metadata_filter` string derived from the filter visitor.

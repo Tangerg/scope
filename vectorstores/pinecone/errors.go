@@ -12,4 +12,9 @@ var (
 	ErrMissingDocumentBatcher = errors.New("pinecone: DocumentBatcher is required")
 
 	ErrMissingDistanceMetric = errors.New("pinecone: DistanceMetric is required")
+
+	// ErrIncompatibleIndex reports an index that is not the one the store was
+	// configured for: either nothing is served at IndexHost, or the index
+	// there was created with a different distance metric.
+	ErrIncompatibleIndex = errors.New("pinecone: index is incompatible")
 )

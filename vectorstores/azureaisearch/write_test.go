@@ -28,11 +28,30 @@ func (w writeTestBatcher) Batch(ctx context.Context, documents []*document.Docum
 	return batches, nil
 }
 
+// agreeingIndexBody is the index definition NewStore now reads to confirm the
+// configured metric, written so the test server can answer the construction
+// GET without every write test having to know about it.
+func agreeingIndexBody(metric SimilarityMetric) string {
+	return fmt.Sprintf(`{
+		"fields": [{"name": %q, "vectorSearchProfile": "default-profile"}],
+		"vectorSearch": {
+			"profiles": [{"name": "default-profile", "algorithm": "default-hnsw"}],
+			"algorithms": [{"name": "default-hnsw", "kind": "hnsw", "hnswParameters": {"metric": %q}}]
+		}
+	}`, DefaultEmbeddingField, metric)
+}
+
 func newWriteTestStore(t *testing.T, handler http.HandlerFunc, batcher writeTestBatcher) *Store {
 	t.Helper()
-	server := httptest.NewServer(handler)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodGet {
+			fmt.Fprint(writer, agreeingIndexBody(SimilarityCosine))
+			return
+		}
+		handler(writer, request)
+	}))
 	t.Cleanup(server.Close)
-	store, err := NewStore(StoreConfig{
+	store, err := NewStore(t.Context(), StoreConfig{
 		Endpoint: server.URL, APIKey: "test", IndexName: "documents", HTTPClient: server.Client(),
 		SimilarityMetric: SimilarityCosine, DocumentBatcher: batcher,
 		EmbeddingModel: embedding.ModelFunc(func(ctx context.Context, request *embedding.Request) (*embedding.Response, error) {
@@ -170,7 +189,7 @@ func TestStoreConfigRejectsOverlappingWriteFields(t *testing.T) {
 			if err := config.Validate(); err == nil {
 				t.Fatal("Validate accepted overlapping write fields")
 			}
-			if _, err := NewStore(config); err == nil {
+			if _, err := NewStore(t.Context(), config); err == nil {
 				t.Fatal("NewStore accepted overlapping write fields")
 			}
 		})

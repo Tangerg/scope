@@ -21,6 +21,16 @@
 // shape. LIKE maps to `CONTAINS(c.metadata.key, @p)` — the leading
 // / trailing `%` markers are stripped.
 //
+// Container agreement. [NewStore] reads the container and refuses one it
+// cannot serve with [ErrIncompatibleContainer]: the partition-key path has to
+// be /<PartitionKeyField>, and the vector embedding policy has to declare
+// /<EmbeddingField> with the configured [StoreConfig.DistanceFunction].
+// VectorDistance() answers with a raw number and nothing that identifies the
+// function behind it, so a disagreement there would rescale every score rather
+// than fail, leaving MinScore to filter by a threshold in the wrong scale.
+// Dimensions are not compared: this store declares none, and Cosmos rejects a
+// vector of the wrong width on write.
+//
 // A Store binds one logical partition through [StoreConfig.PartitionKey].
 // The container's partition-key path must match /<PartitionKeyField>, which
 // defaults to /partition_key. Writes include that value in every document;

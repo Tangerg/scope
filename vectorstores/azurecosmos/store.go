@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 	"github.com/samber/lo"
@@ -30,9 +31,15 @@ const (
 	docAlias                 = "c"
 )
 
-// DistanceFunction names the function passed to VectorDistance().
-// The chosen value must match the container's vector embedding
-// policy.
+// ErrIncompatibleContainer reports a container that cannot serve this store:
+// it is partitioned on another path, declares no vector embedding at the
+// configured field, or declares one with a different distance function.
+var ErrIncompatibleContainer = errors.New("azurecosmos: container is incompatible")
+
+// DistanceFunction names the function passed to VectorDistance(). The value is
+// the container's own, read from its vector embedding policy at construction,
+// because VectorDistance answers with a raw number and nothing that says which
+// function produced it.
 type DistanceFunction string
 
 // The metric is a closed vocabulary because score direction and threshold
@@ -176,10 +183,11 @@ type Store struct {
 	distanceFunction  DistanceFunction
 }
 
-// NewStore needs no context because construction performs no I/O; the
-// container is provisioned outside this package, so the store only validates
-// configuration and assembles state.
-func NewStore(config StoreConfig) (*Store, error) {
+// NewStore confirms the container agrees with the configured distance function
+// and partition-key path during construction, which is why it takes a context:
+// a store returned with the wrong function would go on returning scores that
+// are wrong rather than absent, and the misconfiguration is at wiring.
+func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	config.applyDefaults()
 	if err := config.Validate(); err != nil {
 		return nil, err
@@ -188,6 +196,15 @@ func NewStore(config StoreConfig) (*Store, error) {
 	embeddingClient, err := embeddingclient.New(config.EmbeddingModel)
 	if err != nil {
 		return nil, fmt.Errorf("azurecosmos: create embedding client: %w", err)
+	}
+
+	container, err := config.Container.Read(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("azurecosmos: read container %s: %w", config.Container.ID(), err)
+	}
+	if err = validateContainer(container.ContainerProperties,
+		config.EmbeddingField, config.PartitionKeyField, config.DistanceFunction); err != nil {
+		return nil, err
 	}
 
 	return &Store{
@@ -201,6 +218,55 @@ func NewStore(config StoreConfig) (*Store, error) {
 		documentBatcher:   config.DocumentBatcher,
 		distanceFunction:  config.DistanceFunction,
 	}, nil
+}
+
+// validateContainer refuses a container that cannot serve this store.
+//
+// The distance function is the silent half: VectorDistance() returns a raw
+// number and nothing that says which function produced it, so a wrong value
+// makes the store apply the wrong transformation and return plausible scores
+// that are wrong, with MinScore filtering by a threshold in the wrong scale.
+//
+// The partition-key path is checked from the same read because it is the one
+// other thing the store assumes about a container it did not create: every
+// item is written with the key under PartitionKeyField, and a container
+// partitioned on some other path would file all of them under an absent key.
+//
+// Dimensions are deliberately not compared. This store declares none, and
+// Cosmos rejects a vector of the wrong width on write.
+func validateContainer(
+	properties *azcosmos.ContainerProperties,
+	embeddingField string,
+	partitionKeyField string,
+	want DistanceFunction,
+) error {
+	if properties == nil {
+		return fmt.Errorf("%w: the container returned no properties", ErrIncompatibleContainer)
+	}
+
+	wantPath := "/" + partitionKeyField
+	if paths := properties.PartitionKeyDefinition.Paths; !slices.Contains(paths, wantPath) {
+		return fmt.Errorf("%w: container %s is partitioned on %v, but the store writes its key at %s",
+			ErrIncompatibleContainer, properties.ID, paths, wantPath)
+	}
+
+	if properties.VectorEmbeddingPolicy == nil {
+		return fmt.Errorf("%w: container %s declares no vector embedding policy, so VectorDistance has nothing to search",
+			ErrIncompatibleContainer, properties.ID)
+	}
+	wantVectorPath := "/" + embeddingField
+	for _, embedded := range properties.VectorEmbeddingPolicy.VectorEmbeddings {
+		if embedded.Path != wantVectorPath {
+			continue
+		}
+		if DistanceFunction(embedded.DistanceFunction) != want {
+			return fmt.Errorf("%w: container %s declares %s with distance function %q, but the store is configured for %q",
+				ErrIncompatibleContainer, properties.ID, wantVectorPath, embedded.DistanceFunction, want)
+		}
+		return nil
+	}
+	return fmt.Errorf("%w: container %s declares no vector embedding at %s",
+		ErrIncompatibleContainer, properties.ID, wantVectorPath)
 }
 
 // Index embeds documents and upserts them into the store's bound partition.

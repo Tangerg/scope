@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"net/url"
 	"slices"
+	"strings"
 
 	"github.com/pinecone-io/go-pinecone/v4/pinecone"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -43,7 +45,9 @@ const (
 )
 
 // DistanceMetric records the similarity metric configured on the existing
-// Pinecone index. The data-plane connection does not expose index metadata.
+// Pinecone index. The data-plane connection does not expose index metadata, so
+// the value is declared here and checked against the control plane at
+// construction.
 type DistanceMetric string
 
 // The metric is a closed vocabulary because score direction and threshold
@@ -103,8 +107,10 @@ type StoreConfig struct {
 	// Required: must be provided.
 	DocumentBatcher vectorstore.Batcher
 
-	// DistanceMetric must match the metric used when the index was created.
-	// Required because Pinecone returns metric-specific raw scores.
+	// DistanceMetric is the metric the index was created with. Required
+	// because Pinecone returns metric-specific raw scores. NewStore reads the
+	// index's own metric and refuses a mismatch with [ErrIncompatibleIndex],
+	// so this states a fact rather than carrying an unchecked obligation.
 	DistanceMetric DistanceMetric
 }
 
@@ -159,10 +165,11 @@ type Store struct {
 	distanceMetric  DistanceMetric
 }
 
-// NewStore needs no context because construction performs no I/O; the index is
-// provisioned outside this package, so the store only validates configuration
-// and assembles state.
-func NewStore(config StoreConfig) (*Store, error) {
+// NewStore confirms the index agrees with the configured metric during
+// construction, which is why it takes a context: a store returned with the
+// wrong metric would go on returning scores that are wrong rather than absent,
+// and the misconfiguration is at wiring.
+func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -170,6 +177,14 @@ func NewStore(config StoreConfig) (*Store, error) {
 	embeddingClient, err := embeddingclient.New(config.EmbeddingModel)
 	if err != nil {
 		return nil, fmt.Errorf("pinecone: create embedding client: %w", err)
+	}
+
+	indexes, err := config.Client.ListIndexes(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("pinecone: list indexes: %w", err)
+	}
+	if err = validateIndexMetric(indexes, config.IndexHost, config.DistanceMetric); err != nil {
+		return nil, err
 	}
 
 	idx, err := config.Client.Index(pinecone.NewIndexConnParams{
@@ -186,6 +201,55 @@ func NewStore(config StoreConfig) (*Store, error) {
 		documentBatcher: config.DocumentBatcher,
 		distanceMetric:  config.DistanceMetric,
 	}, nil
+}
+
+// validateIndexMetric refuses a store whose configured metric is not the one
+// the index was created with.
+//
+// The metric decides what a raw Pinecone score means, so getting it wrong does
+// not fail: cosine reads an unbounded inner product as a similarity, euclidean
+// reads a similarity as a distance, and MinScore then filters by the wrong
+// direction. The result is plausible ranked output that is wrong, which is the
+// one failure a caller cannot detect downstream.
+//
+// Dimensionality is deliberately not compared. This store declares no
+// dimension of its own, and a vector of the wrong width is rejected by
+// Pinecone on the first upsert or query — that half already fails loudly.
+func validateIndexMetric(indexes []*pinecone.Index, host string, want DistanceMetric) error {
+	wantHost, err := normalizeIndexHost(host)
+	if err != nil {
+		return err
+	}
+	for _, index := range indexes {
+		indexHost, hostErr := normalizeIndexHost(index.Host)
+		if hostErr != nil {
+			continue
+		}
+		if indexHost != wantHost {
+			continue
+		}
+		if DistanceMetric(index.Metric) != want {
+			return fmt.Errorf("%w: index %s at %s was created with metric %q, but the store is configured for %q",
+				ErrIncompatibleIndex, index.Name, host, index.Metric, want)
+		}
+		return nil
+	}
+	return fmt.Errorf("%w: no index in this project is served at %s", ErrIncompatibleIndex, host)
+}
+
+// normalizeIndexHost reduces a host to the form Pinecone reports it in.
+// StoreConfig.IndexHost accepts a bare host or a URL, because the SDK's own
+// connection helper adds the scheme when one is missing, while ListIndexes
+// answers with the bare host.
+func normalizeIndexHost(host string) (string, error) {
+	if !strings.Contains(host, "://") {
+		host = "https://" + host
+	}
+	parsed, err := url.Parse(host)
+	if err != nil || parsed.Host == "" {
+		return "", fmt.Errorf("pinecone: IndexHost %q is not a valid host or URL", host)
+	}
+	return parsed.Host, nil
 }
 
 func (s *Store) buildVectors(docs []*document.Document, vectors [][]float64) ([]*pinecone.Vector, error) {

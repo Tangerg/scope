@@ -53,6 +53,7 @@ const (
 // requirements stay visible and a caller can supply a decorated or recorded
 // implementation. *s3vectors.Client satisfies it.
 type VectorClient interface {
+	GetIndex(context.Context, *s3vectors.GetIndexInput, ...func(*s3vectors.Options)) (*s3vectors.GetIndexOutput, error)
 	PutVectors(context.Context, *s3vectors.PutVectorsInput, ...func(*s3vectors.Options)) (*s3vectors.PutVectorsOutput, error)
 	QueryVectors(context.Context, *s3vectors.QueryVectorsInput, ...func(*s3vectors.Options)) (*s3vectors.QueryVectorsOutput, error)
 	ListVectors(context.Context, *s3vectors.ListVectorsInput, ...func(*s3vectors.Options)) (*s3vectors.ListVectorsOutput, error)
@@ -85,9 +86,14 @@ type StoreConfig struct {
 	DistanceMetric DistanceMetric
 }
 
-// DistanceMetric mirrors the metric registered with the S3 Vectors
-// index. The store doesn't enforce consistency — picking the wrong
-// value here just produces miscalibrated scores.
+// ErrIncompatibleIndex reports an index that is not the one the store was
+// configured for: it was registered with a different distance metric.
+var ErrIncompatibleIndex = errors.New("s3vectors: index is incompatible")
+
+// DistanceMetric is the metric registered with the S3 Vectors index. The
+// query response carries a raw distance and nothing that identifies the metric
+// behind it, so the value is declared here and checked against the index at
+// construction.
 type DistanceMetric string
 
 // The metric is a closed vocabulary because score direction and threshold
@@ -161,10 +167,11 @@ type Store struct {
 	distanceMetric   DistanceMetric
 }
 
-// NewStore needs no context because construction performs no I/O; the vector
-// bucket is provisioned outside this package, so the store only validates
-// configuration and assembles state.
-func NewStore(config StoreConfig) (*Store, error) {
+// NewStore confirms the index agrees with the configured metric during
+// construction, which is why it takes a context: a store returned with the
+// wrong metric would go on returning scores that are wrong rather than absent,
+// and the misconfiguration is at wiring.
+func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	config.applyDefaults()
 	if err := config.Validate(); err != nil {
 		return nil, err
@@ -175,6 +182,18 @@ func NewStore(config StoreConfig) (*Store, error) {
 		return nil, fmt.Errorf("s3vectors: create embedding client: %w", err)
 	}
 
+	index, err := config.Client.GetIndex(ctx, &s3vectors.GetIndexInput{
+		VectorBucketName: aws.String(config.VectorBucketName),
+		IndexName:        aws.String(config.IndexName),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("s3vectors: describe index %s in bucket %s: %w",
+			config.IndexName, config.VectorBucketName, err)
+	}
+	if err = validateIndexMetric(index.Index, config.IndexName, config.DistanceMetric); err != nil {
+		return nil, err
+	}
+
 	return &Store{
 		client:           config.Client,
 		vectorBucketName: config.VectorBucketName,
@@ -183,6 +202,28 @@ func NewStore(config StoreConfig) (*Store, error) {
 		documentBatcher:  config.DocumentBatcher,
 		distanceMetric:   config.DistanceMetric,
 	}, nil
+}
+
+// validateIndexMetric refuses a store whose configured metric is not the one
+// the index was registered with.
+//
+// QueryVectors answers with a raw distance and nothing that says which metric
+// produced it, so a wrong value does not fail: cosine distance read as
+// Euclidean, or the reverse, yields plausible scores in the wrong scale and
+// MinScore then filters the wrong rows. Nothing downstream can notice.
+//
+// Dimensionality is deliberately not compared. This store declares no
+// dimension of its own, and a vector of the wrong width is rejected by S3
+// Vectors on the first write — that half already fails loudly.
+func validateIndexMetric(index *types.Index, name string, want DistanceMetric) error {
+	if index == nil {
+		return fmt.Errorf("%w: index %s returned no attributes", ErrIncompatibleIndex, name)
+	}
+	if DistanceMetric(index.DistanceMetric) != want {
+		return fmt.Errorf("%w: index %s was created with metric %q, but the store is configured for %q",
+			ErrIncompatibleIndex, name, index.DistanceMetric, want)
+	}
+	return nil
 }
 
 // Index embeds documents and PUTs them, splitting each batch at

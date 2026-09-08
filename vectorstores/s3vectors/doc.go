@@ -10,11 +10,15 @@
 // does NOT create indexes — index dimensionality / metric / metadata
 // schema are declared at index creation.
 //
-// Distance metrics. S3 Vectors indexes are registered with one of
-// `cosine` or `euclidean` at creation. [StoreConfig.DistanceMetric]
-// must match the index's registered metric — the store uses it to
-// map QueryVectors' raw distance into a higher-is-better score in
-// [0, 1].
+// Distance metrics. S3 Vectors indexes are registered with one of `cosine` or
+// `euclidean` at creation, and [StoreConfig.DistanceMetric] is what maps
+// QueryVectors' raw distance into a higher-is-better score in [0, 1]. Because
+// the response carries the distance and nothing that identifies the metric
+// behind it, [NewStore] reads the index's registered metric and refuses a
+// configured value that disagrees with [ErrIncompatibleIndex] — a mismatch
+// would otherwise rescale every score and leave MinScore filtering by a
+// threshold in the wrong scale. Dimensionality is not compared: this store
+// declares none, and S3 Vectors rejects a wrong-width vector on write.
 //
 // Filter visitor produces S3 Vectors' Mongo-flavored JSON filter
 // document — `{"author": {"$eq": "Alice"}}`,

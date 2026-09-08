@@ -71,10 +71,17 @@ type Store struct {
 	implicitFilterConfiguration *types.ImplicitFilterConfiguration
 }
 
-// NewStore needs no context because construction performs no I/O; the
-// knowledge base is provisioned outside this package, so the store only
-// validates configuration and assembles state.
-func NewStore(config StoreConfig) (*Store, error) {
+// NewStore performs no I/O: the knowledge base is provisioned out of band and
+// the only surface this store depends on is Retrieve, which cannot describe a
+// knowledge base without running a paid query. Confirming one exists would
+// mean taking a second, control-plane client the store has no other use for,
+// so a wrong KnowledgeBaseID surfaces as Bedrock's own error on the first
+// search.
+//
+// The context is still taken, because every store in this family is
+// constructed the same way and a caller should not have to remember which
+// backend happens to be checkable.
+func NewStore(_ context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
