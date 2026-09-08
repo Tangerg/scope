@@ -182,8 +182,12 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 	return nil
 }
 
-// drainBatch consumes every queued statement's tag so the underlying
-// connection isn't left in an inconsistent state on close.
+// drainBatch consumes every queued statement's tag.
+//
+// Close would drain too — pgx reads and executes every remaining queued query
+// before returning its first error — so this is not what keeps the connection
+// consistent. It is what separates "a statement failed" from "closing the
+// batch failed", which the two distinct errors below report.
 func drainBatch(br pgx.BatchResults, n int) error {
 	for range n {
 		if _, err := br.Exec(); err != nil {
