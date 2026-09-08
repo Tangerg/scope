@@ -28,7 +28,7 @@ type delegateResponse struct {
 }
 
 func TestManagedDelegatePreservesMixedToolCallOrder(t *testing.T) {
-	child := delegateWorkflow(t, "interaction.delegate_worker", func(input delegateRequest) (delegateResponse, error) {
+	child := delegateWorkflow(t, "interaction.delegate_worker", func(_ context.Context, input delegateRequest) (delegateResponse, error) {
 		return delegateResponse{Value: strings.ToUpper(input.Value)}, nil
 	})
 	budget, err := agent.NewBudget(agent.BudgetConfig{Steps: 50, Effects: 50, Signals: 50})
@@ -92,7 +92,7 @@ func TestManagedDelegatePreservesMixedToolCallOrder(t *testing.T) {
 }
 
 func TestDelegateRejectsNonObjectInputAndToolNameCollision(t *testing.T) {
-	primitive := delegateWorkflow(t, "interaction.primitive_worker", func(value int) (int, error) {
+	primitive := delegateWorkflow(t, "interaction.primitive_worker", func(_ context.Context, value int) (int, error) {
 		return value, nil
 	})
 	budget, _ := agent.NewBudget(agent.BudgetConfig{Steps: 10, Effects: 10, Signals: 10})
@@ -103,7 +103,7 @@ func TestDelegateRejectsNonObjectInputAndToolNameCollision(t *testing.T) {
 		t.Fatalf("primitive Delegate error = %v", err)
 	}
 
-	child := delegateWorkflow(t, "interaction.collision_worker", func(input delegateRequest) (delegateResponse, error) {
+	child := delegateWorkflow(t, "interaction.collision_worker", func(_ context.Context, input delegateRequest) (delegateResponse, error) {
 		return delegateResponse(input), nil
 	})
 	for name, config := range map[string]interaction.DelegateConfig{
@@ -166,7 +166,7 @@ func TestDelegateRejectsNonObjectInputAndToolNameCollision(t *testing.T) {
 }
 
 func TestManagedDelegateReturnsArgumentAndStartFailuresToModel(t *testing.T) {
-	child := delegateWorkflow(t, "interaction.unavailable_worker", func(input delegateRequest) (delegateResponse, error) {
+	child := delegateWorkflow(t, "interaction.unavailable_worker", func(_ context.Context, input delegateRequest) (delegateResponse, error) {
 		return delegateResponse(input), nil
 	})
 	budget, _ := agent.NewBudget(agent.BudgetConfig{Steps: 10, Effects: 10, Signals: 10})

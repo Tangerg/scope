@@ -1,6 +1,7 @@
 package workflow_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -11,7 +12,7 @@ import (
 
 func TestFanoutRestoreRejectsInvalidWindowState(t *testing.T) {
 	child := mustDeployment(t, mustDefinition(t, "test.workflow.window_child",
-		mustTransform(t, "identity", func(input forkInput) (numberOutput, error) {
+		mustTransform(t, "identity", func(_ context.Context, input forkInput) (numberOutput, error) {
 			return numberOutput(input), nil
 		}),
 	), "window-child")

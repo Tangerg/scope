@@ -123,7 +123,7 @@ func newOrchestratorWorkers() (agent.Deployment, deploymentResolver, error) {
 	worker, err := transformDeployment(
 		"example.orchestrator_workers.worker",
 		"Execute one decomposed task and return a typed finding.",
-		func(task workerTask) (workerResult, error) {
+		func(_ context.Context, task workerTask) (workerResult, error) {
 			if task.ID == "" || task.Objective == "" || task.Instruction == "" {
 				return workerResult{}, errors.New("worker task is incomplete")
 			}
@@ -161,8 +161,8 @@ func newOrchestratorWorkers() (agent.Deployment, deploymentResolver, error) {
 	if err != nil {
 		return agent.Deployment{}, nil, err
 	}
-	parsePlan, err := workflow.Transform("parse_plan", func(output interaction.Output) ([]workerTask, error) {
-		plan, decodeModelJSONErr := decodeModelJSON[workPlan](output)
+	parsePlan, err := workflow.Transform("parse_plan", func(ctx context.Context, output interaction.Output) ([]workerTask, error) {
+		plan, decodeModelJSONErr := decodeModelJSON[workPlan](ctx, output)
 		if decodeModelJSONErr != nil {
 			return nil, decodeModelJSONErr
 		}
@@ -266,7 +266,7 @@ func transformDeployment[I, O any](
 	})
 }
 
-func interactionInput[T any](value T) (interaction.Input, error) {
+func interactionInput[T any](_ context.Context, value T) (interaction.Input, error) {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return interaction.Input{}, err
@@ -276,7 +276,7 @@ func interactionInput[T any](value T) (interaction.Input, error) {
 	}, nil
 }
 
-func decodeModelJSON[T any](output interaction.Output) (T, error) {
+func decodeModelJSON[T any](_ context.Context, output interaction.Output) (T, error) {
 	var zero T
 	if output.Source != interaction.CompletionSourceModelResponse || output.ModelResponse == nil {
 		return zero, errors.New("interaction did not return a model response")

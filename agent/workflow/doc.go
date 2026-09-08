@@ -5,4 +5,9 @@
 // Use this package when each delegated operation needs its own Process
 // identity, snapshot, budget, capabilities, cancellation, and tree recovery.
 // Ordinary in-process control flow belongs outside the Agent Framework.
+//
+// Transform, Switch, Fork, and Loop callbacks run inside a discardable Step.
+// They must be bounded, deterministic, side-effect-free, and cooperate with
+// context cancellation during CPU work. Context carries cancellation, never
+// hidden domain input. A canceled candidate cannot advance committed state.
 package workflow

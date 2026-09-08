@@ -12,7 +12,7 @@ import (
 
 func TestMapUsesManagedChildrenAndPreservesItemOrder(t *testing.T) {
 	child := mustDeployment(t, mustDefinition(t, "test.workflow.map_child",
-		mustTransform(t, "double", func(input forkInput) (numberOutput, error) {
+		mustTransform(t, "double", func(_ context.Context, input forkInput) (numberOutput, error) {
 			return numberOutput{Value: input.Value * 2}, nil
 		}),
 	), "map-child")
@@ -49,7 +49,7 @@ func TestMapUsesManagedChildrenAndPreservesItemOrder(t *testing.T) {
 
 func TestMapEmptyInputProducesNonNilEmptyOutput(t *testing.T) {
 	child := mustDeployment(t, mustDefinition(t, "test.workflow.empty_map_child",
-		mustTransform(t, "identity", func(input forkInput) (numberOutput, error) {
+		mustTransform(t, "identity", func(_ context.Context, input forkInput) (numberOutput, error) {
 			return numberOutput(input), nil
 		}),
 	), "empty-map-child")
@@ -78,7 +78,7 @@ func TestMapEmptyInputProducesNonNilEmptyOutput(t *testing.T) {
 
 func TestMapRejectsInputAboveMaxItemsBeforeStartingChildren(t *testing.T) {
 	child := mustDeployment(t, mustDefinition(t, "test.workflow.limited_map_child",
-		mustTransform(t, "identity", func(input forkInput) (numberOutput, error) {
+		mustTransform(t, "identity", func(_ context.Context, input forkInput) (numberOutput, error) {
 			return numberOutput(input), nil
 		}),
 	), "limited-map-child")
@@ -107,12 +107,12 @@ func TestMapRejectsInputAboveMaxItemsBeforeStartingChildren(t *testing.T) {
 
 func TestMapRequiresExplicitLimitsAndMatchingChildContract(t *testing.T) {
 	child := mustDeployment(t, mustDefinition(t, "test.workflow.valid_map_child",
-		mustTransform(t, "identity", func(input forkInput) (numberOutput, error) {
+		mustTransform(t, "identity", func(_ context.Context, input forkInput) (numberOutput, error) {
 			return numberOutput(input), nil
 		}),
 	), "valid-map-child")
 	wrong := mustDeployment(t, mustDefinition(t, "test.workflow.wrong_map_child",
-		mustTransform(t, "wrong", func(textValue) (numberOutput, error) {
+		mustTransform(t, "wrong", func(context.Context, textValue) (numberOutput, error) {
 			return numberOutput{}, nil
 		}),
 	), "wrong-map-child")

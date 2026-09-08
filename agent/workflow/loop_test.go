@@ -15,7 +15,7 @@ type loopValue struct {
 
 func TestLoopRunsAtLeastOnceAndReportsSatisfiedOrExhausted(t *testing.T) {
 	body := mustDeployment(t, mustDefinition(t, "test.workflow.loop_body",
-		mustTransform(t, "increment", func(input loopValue) (loopValue, error) {
+		mustTransform(t, "increment", func(_ context.Context, input loopValue) (loopValue, error) {
 			return loopValue{Value: input.Value + 1}, nil
 		}),
 	), "loop-body")
@@ -35,7 +35,7 @@ func TestLoopRunsAtLeastOnceAndReportsSatisfiedOrExhausted(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			stage, err := workflow.Loop(workflow.LoopConfig[loopValue]{
 				ID: "improve", Body: body, Budget: mustBudget(t), MaxIterations: test.maximum,
-				Predicate: func(value loopValue) (bool, error) { return value.Value >= test.threshold, nil },
+				Predicate: func(_ context.Context, value loopValue) (bool, error) { return value.Value >= test.threshold, nil },
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -76,13 +76,13 @@ func TestLoopRunsAtLeastOnceAndReportsSatisfiedOrExhausted(t *testing.T) {
 
 func TestLoopAttributesBodyFailure(t *testing.T) {
 	body := mustDeployment(t, mustDefinition(t, "test.workflow.failing_loop_body",
-		mustTransform(t, "fail", func(loopValue) (loopValue, error) {
+		mustTransform(t, "fail", func(context.Context, loopValue) (loopValue, error) {
 			return loopValue{}, errors.New("deliberate Loop body failure")
 		}),
 	), "failing-loop-body")
 	stage, err := workflow.Loop(workflow.LoopConfig[loopValue]{
 		ID: "improve", Body: body, Budget: mustBudget(t), MaxIterations: 2,
-		Predicate: func(loopValue) (bool, error) { return false, nil },
+		Predicate: func(context.Context, loopValue) (bool, error) { return false, nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -107,14 +107,14 @@ func TestLoopAttributesBodyFailure(t *testing.T) {
 
 func TestLoopRequiresExplicitBoundPredicateAndExactBodyContract(t *testing.T) {
 	validBody := mustDeployment(t, mustDefinition(t, "test.workflow.valid_loop_body",
-		mustTransform(t, "identity", func(input loopValue) (loopValue, error) { return input, nil }),
+		mustTransform(t, "identity", func(_ context.Context, input loopValue) (loopValue, error) { return input, nil }),
 	), "valid-loop-body")
 	wrongBody := mustDeployment(t, mustDefinition(t, "test.workflow.wrong_loop_body",
-		mustTransform(t, "wrong", func(textValue) (textValue, error) { return textValue{}, nil }),
+		mustTransform(t, "wrong", func(context.Context, textValue) (textValue, error) { return textValue{}, nil }),
 	), "wrong-loop-body")
 	valid := workflow.LoopConfig[loopValue]{
 		ID: "improve", Body: validBody, Budget: mustBudget(t), MaxIterations: 2,
-		Predicate: func(loopValue) (bool, error) { return true, nil },
+		Predicate: func(context.Context, loopValue) (bool, error) { return true, nil },
 	}
 	for name, config := range map[string]workflow.LoopConfig[loopValue]{
 		"zero maximum": {ID: valid.ID, Body: valid.Body, Budget: valid.Budget, Predicate: valid.Predicate},

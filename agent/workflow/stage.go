@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -30,13 +31,12 @@ const (
 	StageKindLoop StageKind = "loop"
 )
 
-// TransformFunc is the pure reduction a Transform stage applies. It takes no
-// context and returns no stream because a transform runs inside a Step, where
-// external I/O is forbidden; work that needs the outside world belongs in a
-// Call stage that starts a child Process.
-type TransformFunc[I, O any] func(input I) (O, error)
+// TransformFunc is a bounded, deterministic, side-effect-free reduction. It
+// must honor ctx cancellation during CPU work. External work belongs in a Call
+// stage that starts a child Process; ctx is not a source of domain input.
+type TransformFunc[I, O any] func(ctx context.Context, input I) (O, error)
 
-type transformStage func(json.RawMessage) (json.RawMessage, error)
+type transformStage func(context.Context, json.RawMessage) (json.RawMessage, error)
 
 type childBinding struct {
 	deploymentRef agent.DeploymentRef
@@ -90,7 +90,7 @@ func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error
 	if err != nil {
 		return Stage{}, fmt.Errorf("%w: transform %q output schema: %w", ErrInvalidStage, id, err)
 	}
-	apply := func(raw json.RawMessage) (json.RawMessage, error) {
+	apply := func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		input, err := agent.ParseInput(raw)
 		if err != nil {
 			return nil, fmt.Errorf("transform %q input: %w", id, err)
@@ -102,7 +102,7 @@ func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error
 		if err != nil {
 			return nil, fmt.Errorf("transform %q decode input: %w", id, err)
 		}
-		output, err := transform(decoded)
+		output, err := transform(ctx, decoded)
 		if err != nil {
 			return nil, fmt.Errorf("transform %q: %w", id, err)
 		}

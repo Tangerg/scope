@@ -15,7 +15,7 @@ import (
 )
 
 func TestCompletionValidatorUsesOrderedTypedDelegateArtifacts(t *testing.T) {
-	child := delegateWorkflow(t, "interaction.artifact_worker", func(input delegateRequest) (delegateResponse, error) {
+	child := delegateWorkflow(t, "interaction.artifact_worker", func(_ context.Context, input delegateRequest) (delegateResponse, error) {
 		return delegateResponse{Value: "artifact:" + input.Value}, nil
 	})
 	budget, _ := agent.NewBudget(agent.BudgetConfig{Steps: 20, Effects: 20, Signals: 20})

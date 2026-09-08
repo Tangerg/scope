@@ -38,7 +38,7 @@ func newRestorableForkFixture(t *testing.T) restorableForkFixture {
 	}
 	stage, err := workflow.Fork(workflow.ForkConfig[forkInput, branchOutput, forkOutput]{
 		ID: "workers", Branches: branches, WindowSize: 2,
-		Reduce: func(values []branchOutput) (forkOutput, error) {
+		Reduce: func(_ context.Context, values []branchOutput) (forkOutput, error) {
 			result := forkOutput{Branches: make([]string, len(values))}
 			for index, value := range values {
 				result.Branches[index] = value.Branch
@@ -221,7 +221,7 @@ func TestWorkflowCancellationPropagatesToPausedChild(t *testing.T) {
 
 func TestCallCannotEscalateBudgetOrCapabilities(t *testing.T) {
 	child := mustDeployment(t, mustDefinition(t, "test.workflow.guarded_child",
-		mustTransform(t, "identity", func(input numberInput) (numberInput, error) { return input, nil }),
+		mustTransform(t, "identity", func(_ context.Context, input numberInput) (numberInput, error) { return input, nil }),
 	), "guarded-child")
 	capability, _ := agent.ParseCapability("test.guarded")
 	capabilities, _ := agent.NewCapabilitySet(capability)

@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -84,10 +85,10 @@ func (s Stage) fanoutOutputSchema() agent.Schema {
 	}
 }
 
-func (s Stage) fanoutComplete(outputs []json.RawMessage) (json.RawMessage, error) {
+func (s Stage) fanoutComplete(ctx context.Context, outputs []json.RawMessage) (json.RawMessage, error) {
 	switch s.kind {
 	case StageKindFork:
-		return s.fork.reduce(outputs)
+		return s.fork.reduce(ctx, outputs)
 	case StageKindMap:
 		return s.mapper.collect(outputs)
 	default:

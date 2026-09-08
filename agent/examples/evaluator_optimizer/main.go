@@ -211,7 +211,7 @@ func newOptimizerDeployment(threshold float64) (agent.Deployment, error) {
 		struct {
 			Threshold float64 `json:"threshold"`
 		}{Threshold: threshold},
-		func(state optimizationState) (optimizationState, error) {
+		func(_ context.Context, state optimizationState) (optimizationState, error) {
 			if err := validateSettledState(state, threshold); err != nil {
 				return optimizationState{}, err
 			}
@@ -234,7 +234,7 @@ func newEvaluatorDeployment(scores []float64, threshold float64) (agent.Deployme
 			Scores    []float64 `json:"scores"`
 			Threshold float64   `json:"threshold"`
 		}{Scores: scores, Threshold: threshold},
-		func(state optimizationState) (optimizationState, error) {
+		func(_ context.Context, state optimizationState) (optimizationState, error) {
 			if validatePendingStateErr := validatePendingState(state, threshold); validatePendingStateErr != nil {
 				return optimizationState{}, validatePendingStateErr
 			}
@@ -312,7 +312,7 @@ func newOptimizationRoot(
 	threshold float64,
 	maxIterations uint32,
 ) (agent.Deployment, error) {
-	initialize, err := workflow.Transform("initialize", func(request optimizationRequest) (optimizationState, error) {
+	initialize, err := workflow.Transform("initialize", func(_ context.Context, request optimizationRequest) (optimizationState, error) {
 		objective := strings.TrimSpace(request.Objective)
 		if objective == "" || objective != request.Objective {
 			return optimizationState{}, errors.New("objective must be non-empty and trimmed")
@@ -331,7 +331,7 @@ func newOptimizationRoot(
 	refine, err := workflow.Loop(workflow.LoopConfig[optimizationState]{
 		ID: "refine", Body: iteration, Budget: iterationBudget,
 		MaxIterations: maxIterations,
-		Predicate: func(state optimizationState) (bool, error) {
+		Predicate: func(_ context.Context, state optimizationState) (bool, error) {
 			if validateSettledStateErr := validateSettledState(state, threshold); validateSettledStateErr != nil {
 				return false, validateSettledStateErr
 			}
@@ -341,7 +341,7 @@ func newOptimizationRoot(
 	if err != nil {
 		return agent.Deployment{}, err
 	}
-	finalize, err := workflow.Transform("finalize", func(
+	finalize, err := workflow.Transform("finalize", func(_ context.Context,
 		result workflow.LoopResult[optimizationState],
 	) (optimizationReport, error) {
 		state := result.Value

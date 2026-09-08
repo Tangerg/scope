@@ -10,7 +10,9 @@ import (
 )
 
 func TestDelegateAtModelLimit(t *testing.T) {
-	child := delegateWorkflow(t, "fixture.worker", func(in delegateRequest) (delegateResponse, error) { return delegateResponse(in), nil })
+	child := delegateWorkflow(t, "fixture.worker", func(_ context.Context, in delegateRequest) (delegateResponse, error) {
+		return delegateResponse(in), nil
+	})
 	budget, err := agent.NewBudget(agent.BudgetConfig{Steps: 20, Effects: 20, Signals: 20})
 	if err != nil {
 		t.Fatal(err)

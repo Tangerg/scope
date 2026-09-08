@@ -115,7 +115,7 @@ func FuzzWorkflowExecutionStateRestore(f *testing.F) {
 
 func stateTestDefinition(t testing.TB) *Definition {
 	t.Helper()
-	stage, err := Transform("identity", func(input stateFixture) (stateFixture, error) { return input, nil })
+	stage, err := Transform("identity", func(_ context.Context, input stateFixture) (stateFixture, error) { return input, nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func protocolTestDefinitions(t testing.TB) (*Definition, *Definition) {
 		ID:         "fanout",
 		Branches:   []ForkBranch{{ID: "only", Deployment: child, Budget: budget}},
 		WindowSize: 1,
-		Reduce: func(values []stateFixture) (stateFixture, error) {
+		Reduce: func(_ context.Context, values []stateFixture) (stateFixture, error) {
 			return values[0], nil
 		},
 	})
