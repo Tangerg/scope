@@ -35,4 +35,10 @@
 // through [NewCompatibleChatCompletions] and select one typed [Dialect]. This
 // keeps provider-only fields such as reasoning_content out of OpenAI's native
 // behavior while sharing the standard wire mapping.
+// Moderation categories are named one field at a time, because the SDK types
+// them as a struct rather than a map. A category OpenAI adds would arrive as
+// a field nobody reads and a flagged input would come back unflagged for it,
+// so a test reads the JSON names off ModerationCategories by reflection and
+// requires the response to report exactly that set — silence is the failure
+// mode here, and it is the one place silence is the whole problem.
 package openai
