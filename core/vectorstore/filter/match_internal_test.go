@@ -75,6 +75,23 @@ func TestEvaluatorOperatorSemantics(t *testing.T) {
 		"ordering absent field": {source: `missing > 1`, want: false},
 		"like absent field":     {source: `missing like '%'`, want: false},
 		"has absent field":      {source: `missing has 'x'`, want: false},
+
+		// An absent key evaluates as the value nil, not as SQL's UNKNOWN, so
+		// every comparison against it is decided rather than dropped. These
+		// are the cases a SQL compiler gets wrong by default, because a
+		// NULL-propagating predicate excludes the row whatever the operator.
+		"equal absent field":       {source: `missing == 'x'`, want: false},
+		"not equal absent field":   {source: `missing != 'x'`, want: true},
+		"in absent field":          {source: `missing in ('x','y')`, want: false},
+		"not in absent field":      {source: `missing not in ('x','y')`, want: true},
+		"negated equal absent":     {source: `not (missing == 'x')`, want: true},
+		"negated not equal absent": {source: `not (missing != 'x')`, want: false},
+		"negated ordering absent":  {source: `not (missing > 1)`, want: true},
+		"negated like absent":      {source: `not (missing like '%')`, want: true},
+		"negated has absent":       {source: `not (missing has 'x')`, want: true},
+		"is not null absent field": {source: `missing is not null`, want: false},
+		"explicit null not equal":  {source: `absent != 'x'`, want: true},
+		"explicit null equal":      {source: `absent == 'x'`, want: false},
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
