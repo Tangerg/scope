@@ -14,5 +14,11 @@
 // directly against the native API. Reranking returns indices into the
 // caller-owned document batch rather than provider-owned document copies.
 //
+// Rerank scores. Jina's OpenAPI schema describes relevance_score as a number
+// with "Higher is more relevant" and declares no minimum, maximum or
+// normalization, so this package does not claim one: the value is passed to
+// [rerank.Score], whose contract is [0, 1], and a score outside that range
+// fails the call by name rather than being rescaled onto the bound.
+//
 // See https://jina.ai/embeddings/ for the full reference.
 package jina
