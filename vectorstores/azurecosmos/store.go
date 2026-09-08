@@ -107,10 +107,10 @@ func (s StoreConfig) Validate() error {
 	if s.Container == nil {
 		return errors.New("azurecosmos: Container is required")
 	}
-	if s.EmbeddingModel == nil {
+	if lo.IsNil(s.EmbeddingModel) {
 		return errors.New("azurecosmos: EmbeddingModel is required")
 	}
-	if s.DocumentBatcher == nil {
+	if lo.IsNil(s.DocumentBatcher) {
 		return errors.New("azurecosmos: DocumentBatcher is required")
 	}
 	if !s.DistanceFunction.Valid() {

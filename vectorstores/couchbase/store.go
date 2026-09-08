@@ -144,10 +144,10 @@ func (s StoreConfig) Validate() error {
 	if s.BucketName == "" {
 		return errors.New("couchbase: BucketName is required")
 	}
-	if s.EmbeddingModel == nil {
+	if lo.IsNil(s.EmbeddingModel) {
 		return errors.New("couchbase: EmbeddingModel is required")
 	}
-	if s.DocumentBatcher == nil {
+	if lo.IsNil(s.DocumentBatcher) {
 		return errors.New("couchbase: DocumentBatcher is required")
 	}
 	if s.Dimensions < 0 {

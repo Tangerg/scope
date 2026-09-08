@@ -73,7 +73,11 @@ func TestStoreConfigRejectsInvalidHybridAlpha(t *testing.T) {
 	alpha := float32(1.01)
 	config := StoreConfig{
 		Client: new(weaviateclient.Client), ClassName: "Documents",
-		EmbeddingModel: embedding.ModelFunc(nil), DocumentBatcher: testBatcher{}, HybridAlpha: &alpha,
+		EmbeddingModel: embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
+			t.Fatal("configuration validation invoked the embedding model")
+			return nil, nil
+		}),
+		DocumentBatcher: testBatcher{}, HybridAlpha: &alpha,
 	}
 	if err := config.Validate(); err == nil {
 		t.Fatal("Validate() error = nil")

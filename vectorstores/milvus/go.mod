@@ -5,6 +5,7 @@ go 1.27.0
 require (
 	github.com/Tangerg/scope/core v0.15.0
 	github.com/milvus-io/milvus/client/v2 v2.6.5
+	github.com/samber/lo v1.53.0
 )
 
 require (
@@ -47,7 +48,6 @@ require (
 	github.com/prometheus/common v0.70.1 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
 	github.com/rogpeppe/go-internal v1.16.0 // indirect
-	github.com/samber/lo v1.53.0 // indirect
 	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
 	github.com/shoenig/go-m1cpu v0.2.2 // indirect
 	github.com/sirupsen/logrus v1.10.2 // indirect

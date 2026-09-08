@@ -74,7 +74,7 @@ func (s StoreConfig) Validate() error {
 	if s.CorpusKey == "" {
 		return errors.New("vectara: CorpusKey is required")
 	}
-	if s.DocumentBatcher == nil {
+	if lo.IsNil(s.DocumentBatcher) {
 		return errors.New("vectara: DocumentBatcher is required")
 	}
 	if s.MaxResponseBytes < 0 {

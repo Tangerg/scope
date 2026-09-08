@@ -5,6 +5,7 @@ go 1.27.0
 require (
 	github.com/Tangerg/scope/core v0.15.0
 	github.com/elastic/go-elasticsearch/v8 v8.19.7
+	github.com/samber/lo v1.53.0
 )
 
 require (
@@ -12,7 +13,6 @@ require (
 	github.com/elastic/elastic-transport-go/v8 v8.11.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/samber/lo v1.53.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel v1.46.0 // indirect
 	go.opentelemetry.io/otel/metric v1.46.0 // indirect

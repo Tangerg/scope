@@ -11,6 +11,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
@@ -122,10 +124,10 @@ func (s StoreConfig) Validate() error {
 	if s.Collection == nil {
 		return errors.New("mongodb: Collection is required")
 	}
-	if s.EmbeddingModel == nil {
+	if lo.IsNil(s.EmbeddingModel) {
 		return errors.New("mongodb: EmbeddingModel is required")
 	}
-	if s.DocumentBatcher == nil {
+	if lo.IsNil(s.DocumentBatcher) {
 		return errors.New("mongodb: DocumentBatcher is required")
 	}
 	if s.Dimensions < 0 {

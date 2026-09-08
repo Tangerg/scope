@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
@@ -125,10 +127,10 @@ func (s StoreConfig) Validate() error {
 	if s.DB == nil {
 		return errors.New("oracle: DB is required")
 	}
-	if s.EmbeddingModel == nil {
+	if lo.IsNil(s.EmbeddingModel) {
 		return errors.New("oracle: EmbeddingModel is required")
 	}
-	if s.DocumentBatcher == nil {
+	if lo.IsNil(s.DocumentBatcher) {
 		return errors.New("oracle: DocumentBatcher is required")
 	}
 	if s.Dimensions < 0 {

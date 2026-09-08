@@ -8,6 +8,8 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
@@ -226,10 +228,10 @@ func (s StoreConfig) Validate() error {
 	if s.Client == nil {
 		return errors.New("redis: Client is required")
 	}
-	if s.EmbeddingModel == nil {
+	if lo.IsNil(s.EmbeddingModel) {
 		return errors.New("redis: EmbeddingModel is required")
 	}
-	if s.DocumentBatcher == nil {
+	if lo.IsNil(s.DocumentBatcher) {
 		return errors.New("redis: DocumentBatcher is required")
 	}
 	if s.Dimensions < 0 {

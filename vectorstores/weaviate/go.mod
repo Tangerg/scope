@@ -6,6 +6,7 @@ require (
 	github.com/Tangerg/scope/core v0.15.0
 	github.com/go-openapi/strfmt v0.27.0
 	github.com/google/uuid v1.6.0
+	github.com/samber/lo v1.53.0
 	github.com/weaviate/weaviate v1.39.2
 	github.com/weaviate/weaviate-go-client/v5 v5.7.3
 )
@@ -38,7 +39,6 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/oklog/ulid/v2 v2.1.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/samber/lo v1.53.0 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect

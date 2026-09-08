@@ -14,6 +14,8 @@ import (
 	s3vdoc "github.com/aws/aws-sdk-go-v2/service/s3vectors/document"
 	"github.com/aws/aws-sdk-go-v2/service/s3vectors/types"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
@@ -100,10 +102,10 @@ func (s StoreConfig) Validate() error {
 	if s.IndexName == "" {
 		return errors.New("s3vectors: IndexName is required")
 	}
-	if s.EmbeddingModel == nil {
+	if lo.IsNil(s.EmbeddingModel) {
 		return errors.New("s3vectors: EmbeddingModel is required")
 	}
-	if s.DocumentBatcher == nil {
+	if lo.IsNil(s.DocumentBatcher) {
 		return errors.New("s3vectors: DocumentBatcher is required")
 	}
 	if s.Dimensions <= 0 {

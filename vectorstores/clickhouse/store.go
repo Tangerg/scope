@@ -10,6 +10,8 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
@@ -105,10 +107,10 @@ func (s StoreConfig) Validate() error {
 	if s.Conn == nil {
 		return errors.New("clickhouse: Conn is required")
 	}
-	if s.EmbeddingModel == nil {
+	if lo.IsNil(s.EmbeddingModel) {
 		return errors.New("clickhouse: EmbeddingModel is required")
 	}
-	if s.DocumentBatcher == nil {
+	if lo.IsNil(s.DocumentBatcher) {
 		return errors.New("clickhouse: DocumentBatcher is required")
 	}
 	if s.Dimensions < 0 {

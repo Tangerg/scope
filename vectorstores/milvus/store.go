@@ -10,6 +10,8 @@ import (
 	"github.com/milvus-io/milvus/client/v2/index"
 	"github.com/milvus-io/milvus/client/v2/milvusclient"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
@@ -73,10 +75,10 @@ func (s StoreConfig) Validate() error {
 	if s.CollectionName == "" {
 		return ErrMissingCollectionName
 	}
-	if s.EmbeddingModel == nil {
+	if lo.IsNil(s.EmbeddingModel) {
 		return ErrMissingEmbeddingModel
 	}
-	if s.DocumentBatcher == nil {
+	if lo.IsNil(s.DocumentBatcher) {
 		return ErrMissingDocumentBatcher
 	}
 	if s.InitializeSchema && s.Dimensions <= 0 {

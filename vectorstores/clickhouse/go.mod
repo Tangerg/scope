@@ -5,6 +5,7 @@ go 1.27.0
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.48.0
 	github.com/Tangerg/scope/core v0.15.0
+	github.com/samber/lo v1.53.0
 )
 
 require (
@@ -16,7 +17,6 @@ require (
 	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/paulmach/orb v0.13.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.29 // indirect
-	github.com/samber/lo v1.53.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	go.opentelemetry.io/otel v1.46.0 // indirect

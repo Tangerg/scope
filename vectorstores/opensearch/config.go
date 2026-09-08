@@ -7,6 +7,8 @@ import (
 
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
@@ -154,10 +156,10 @@ func (s StoreConfig) Validate() error {
 	if s.Client == nil {
 		return errors.New("opensearch: client is required")
 	}
-	if s.EmbeddingModel == nil {
+	if lo.IsNil(s.EmbeddingModel) {
 		return errors.New("opensearch: embedding model is required")
 	}
-	if s.DocumentBatcher == nil {
+	if lo.IsNil(s.DocumentBatcher) {
 		return errors.New("opensearch: document batcher is required")
 	}
 	if s.Dimensions < 0 {

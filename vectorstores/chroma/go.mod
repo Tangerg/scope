@@ -5,6 +5,7 @@ go 1.27.0
 require (
 	github.com/Tangerg/scope/core v0.15.0
 	github.com/amikos-tech/chroma-go v0.4.1
+	github.com/samber/lo v1.53.0
 )
 
 require (
@@ -23,7 +24,6 @@ require (
 	github.com/leodido/go-urn v1.5.0 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/samber/lo v1.53.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
 	golang.org/x/crypto v0.55.0 // indirect

@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
@@ -107,10 +109,10 @@ func (s StoreConfig) Validate() error {
 	if s.RankingProfile == "" {
 		return errors.New("vespa: RankingProfile is required")
 	}
-	if s.EmbeddingModel == nil {
+	if lo.IsNil(s.EmbeddingModel) {
 		return errors.New("vespa: EmbeddingModel is required")
 	}
-	if s.DocumentBatcher == nil {
+	if lo.IsNil(s.DocumentBatcher) {
 		return errors.New("vespa: DocumentBatcher is required")
 	}
 	if s.MaxResponseBytes < 0 {

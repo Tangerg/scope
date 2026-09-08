@@ -15,6 +15,8 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
@@ -118,10 +120,10 @@ func (s StoreConfig) Validate() error {
 	if s.ClassName == "" {
 		return ErrMissingClassName
 	}
-	if s.EmbeddingModel == nil {
+	if lo.IsNil(s.EmbeddingModel) {
 		return ErrMissingEmbeddingModel
 	}
-	if s.DocumentBatcher == nil {
+	if lo.IsNil(s.DocumentBatcher) {
 		return ErrMissingDocumentBatcher
 	}
 	if !s.DistanceMetric.Valid() {

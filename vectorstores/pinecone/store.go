@@ -8,6 +8,8 @@ import (
 	"github.com/pinecone-io/go-pinecone/v4/pinecone"
 	"google.golang.org/protobuf/types/known/structpb"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
@@ -99,10 +101,10 @@ func (s StoreConfig) Validate() error {
 	if s.IndexHost == "" {
 		return ErrMissingIndexHost
 	}
-	if s.EmbeddingModel == nil {
+	if lo.IsNil(s.EmbeddingModel) {
 		return ErrMissingEmbeddingModel
 	}
-	if s.DocumentBatcher == nil {
+	if lo.IsNil(s.DocumentBatcher) {
 		return ErrMissingDocumentBatcher
 	}
 	if s.DistanceMetric == "" {

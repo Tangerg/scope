@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/qdrant/go-client/qdrant"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
@@ -152,10 +154,10 @@ func (s StoreConfig) Validate() error {
 	if _, err := s.DistanceMetric.qdrant(); err != nil {
 		return err
 	}
-	if s.EmbeddingModel == nil {
+	if lo.IsNil(s.EmbeddingModel) {
 		return ErrMissingEmbeddingModel
 	}
-	if s.DocumentBatcher == nil {
+	if lo.IsNil(s.DocumentBatcher) {
 		return ErrMissingDocumentBatcher
 	}
 	if s.InitializeSchema && s.Dimensions <= 0 {

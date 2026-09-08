@@ -7,6 +7,8 @@ import (
 	v2 "github.com/amikos-tech/chroma-go/pkg/api/v2"
 	chromaEmbed "github.com/amikos-tech/chroma-go/pkg/embeddings"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
@@ -98,10 +100,10 @@ func (s StoreConfig) Validate() error {
 	if s.CollectionName == "" {
 		return ErrMissingCollectionName
 	}
-	if s.EmbeddingModel == nil {
+	if lo.IsNil(s.EmbeddingModel) {
 		return ErrMissingEmbeddingModel
 	}
-	if s.DocumentBatcher == nil {
+	if lo.IsNil(s.DocumentBatcher) {
 		return ErrMissingDocumentBatcher
 	}
 	if !s.DistanceMetric.Valid() {

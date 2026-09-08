@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
@@ -108,10 +110,10 @@ func (s StoreConfig) Validate() error {
 	if s.DB == nil {
 		return errors.New("tidb: DB is required")
 	}
-	if s.EmbeddingModel == nil {
+	if lo.IsNil(s.EmbeddingModel) {
 		return errors.New("tidb: EmbeddingModel is required")
 	}
-	if s.DocumentBatcher == nil {
+	if lo.IsNil(s.DocumentBatcher) {
 		return errors.New("tidb: DocumentBatcher is required")
 	}
 	if s.Dimensions < 0 {

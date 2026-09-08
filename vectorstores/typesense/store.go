@@ -69,10 +69,10 @@ func (s StoreConfig) Validate() error {
 	if s.Client == nil {
 		return errors.New("typesense: Client is required")
 	}
-	if s.EmbeddingModel == nil {
+	if lo.IsNil(s.EmbeddingModel) {
 		return errors.New("typesense: EmbeddingModel is required")
 	}
-	if s.DocumentBatcher == nil {
+	if lo.IsNil(s.DocumentBatcher) {
 		return errors.New("typesense: DocumentBatcher is required")
 	}
 	if s.Dimensions < 0 {

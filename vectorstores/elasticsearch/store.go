@@ -10,6 +10,8 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v8"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
 	"github.com/Tangerg/scope/core/vectorstore"
@@ -139,10 +141,10 @@ func (s StoreConfig) Validate() error {
 	if s.Client == nil {
 		return errors.New("elasticsearch: Client is required")
 	}
-	if s.EmbeddingModel == nil {
+	if lo.IsNil(s.EmbeddingModel) {
 		return errors.New("elasticsearch: EmbeddingModel is required")
 	}
-	if s.DocumentBatcher == nil {
+	if lo.IsNil(s.DocumentBatcher) {
 		return errors.New("elasticsearch: DocumentBatcher is required")
 	}
 	if s.Dimensions < 0 {
