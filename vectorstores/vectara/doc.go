@@ -14,7 +14,14 @@
 // Search shape. The store hits Vectara's v2 query endpoint —
 // `POST /v2/corpora/<corpus_key>/query` — with the user's raw query
 // and a `metadata_filter` string derived from the filter visitor.
-// Scores come from Vectara directly (higher = more similar).
+// Scores come from Vectara on the scale it documents for this query: -1 to 1,
+// where 1 is a perfect match and -1 has nothing to do with the query. The
+// store maps that onto Core's range, so a Vectara 0.5 reports as 0.75 rather
+// than 0.5 and the negative half keeps its order instead of flattening onto
+// zero. A score outside the scale is reported: Vectara documents a reranked
+// score as unbounded, a reranker is corpus configuration this store does not
+// set, and squeezing such a score onto the bound would hide that behind a
+// plausible number.
 //
 // Filter visitor produces Vectara's metadata-filter SQL-like syntax
 // — `doc.author = 'Alice'`, `doc.year >= 2020`, `doc.tag IN ('a',

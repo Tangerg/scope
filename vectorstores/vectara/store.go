@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -231,7 +232,10 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		if hit.Score == nil {
 			return nil, errors.New("vectara: search result is missing score")
 		}
-		score := vectorstore.ScoreFromValue(*hit.Score)
+		score, scoreErr := relevanceScore(*hit.Score)
+		if scoreErr != nil {
+			return nil, scoreErr
+		}
 		if score < req.Options.MinScore {
 			continue
 		}
@@ -323,6 +327,41 @@ func (s *Store) matchingDocumentIDs(ctx context.Context, filterFragment string) 
 			DefaultAPIVersion, url.PathEscape(s.corpusKey), url.QueryEscape(filterFragment),
 			listPageSize, url.QueryEscape(parsed.Metadata.PageKey))
 	}
+}
+
+// vectaraMinimumScore and vectaraMaximumScore are the scale Vectara documents
+// for the query this store sends: "results from Vectara are scored on a scale
+// from -1 to 1, with 1 being a perfect match and -1 having absolutely nothing
+// to do with the query".
+const (
+	vectaraMinimumScore = -1.0
+	vectaraMaximumScore = 1.0
+)
+
+// relevanceScore maps a Vectara relevance score onto Core's range.
+//
+// The score is not already a Core score, which is what passing it through
+// ScoreFromValue assumed. On Vectara's documented -1 to 1 scale a result
+// scoring 0.5 is three quarters of the way to a perfect match, and reporting
+// 0.5 understated it; every negative score, which Vectara defines as having
+// nothing to do with the query, collapsed onto 0 and lost its order. Mapping a
+// [-1, 1] similarity into [0, 1] is what ScoreFromCosineSimilarity does — the
+// arithmetic is the bounded-similarity mapping, not a claim that Vectara
+// returns a cosine.
+//
+// A score outside that scale is reported rather than rescaled. Vectara
+// documents reranked scores as running from negative to positive infinity,
+// typically between about -10 and 10, and a reranker is corpus configuration
+// this store does not set — so an out-of-range score means the scale this
+// store maps no longer applies, and squeezing it onto the bound would hide
+// that behind a plausible number.
+func relevanceScore(raw float64) (vectorstore.Score, error) {
+	if math.IsNaN(raw) || raw < vectaraMinimumScore || raw > vectaraMaximumScore {
+		return 0, fmt.Errorf(
+			"vectara: relevance score %v is outside the documented [%v, %v] scale; a corpus reranker reports an unbounded score this store cannot map",
+			raw, vectaraMinimumScore, vectaraMaximumScore)
+	}
+	return vectorstore.ScoreFromCosineSimilarity(raw), nil
 }
 
 func (s *Store) buildFilter(expr filter.Predicate) (string, error) {
