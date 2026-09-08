@@ -29,5 +29,12 @@
 // require separate Store values. The document ID always uses Cosmos' required
 // "id" property, and configurable storage fields must be distinct.
 //
+// Completeness. The SDK pager decides when a query is exhausted, so neither
+// search nor filtered deletion infers the end from a page's length. Filtered
+// deletion enumerates every matching id before removing the first one, because
+// a continuation belongs to the query that produced it. Neither Index nor
+// DeleteWhere is atomic: both issue one item operation at a time, so a failure
+// leaves the earlier ones applied and names the id that failed.
+//
 // See https://learn.microsoft.com/azure/cosmos-db/nosql/vector-search.
 package azurecosmos

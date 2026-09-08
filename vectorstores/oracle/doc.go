@@ -25,6 +25,11 @@
 // the predicate runs against typed numbers, not text. String
 // comparisons drop the RETURNING clause.
 //
+// Partial writes. Index prepares one MERGE and runs it per document without
+// wrapping the batch in a transaction, so a failure leaves the rows already
+// written in place. The returned error names the id that failed, and repeating
+// the call is safe because the statement is idempotent per row.
+//
 // See https://docs.oracle.com/en/database/oracle/oracle-database/23/
 // vecse/index.html for the official reference.
 package oracle

@@ -32,6 +32,11 @@
 // predicate. The store works around it by SELECT-ing matching ids
 // first then issuing per-row DELETEs.
 //
+// Partial writes. Neither Index nor DeleteWhere is atomic: both walk their rows
+// one statement at a time, so a failure leaves the statements already executed
+// applied. The returned error names the id that failed, and the operation is
+// safe to repeat because both statements are idempotent per row.
+//
 // See https://cassandra.apache.org/doc/latest/cassandra/vector-search/
 // for the official reference.
 package cassandra

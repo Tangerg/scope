@@ -24,6 +24,12 @@
 // filter visitor produces a Cypher predicate plus a `$pN`-keyed
 // parameter map (Cypher uses named parameters).
 //
+// TopK is a candidate budget, not a result count. The procedure takes no
+// predicate, so it returns the k nearest nodes first and the metadata filter
+// then removes some of them: a selective filter yields fewer than TopK results,
+// possibly none, however many matching nodes the graph holds. Raise TopK to
+// widen the pool a filter draws from.
+//
 // LIKE maps onto Cypher's `=~` (regex). Note that NOT in Cypher
 // must precede an expression — the visitor emits `NOT (<expr>)`.
 //

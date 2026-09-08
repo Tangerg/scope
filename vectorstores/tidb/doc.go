@@ -26,6 +26,11 @@
 // `JSON_VALUE(metadata, '$.k')`, wrapping numeric / ordering
 // comparisons in `CAST(... AS DOUBLE)`.
 //
+// Partial writes. Index prepares one upsert and runs it per document without
+// wrapping the batch in a transaction, so a failure leaves the rows already
+// written in place. The returned error names the id that failed, and repeating
+// the call is safe because the statement is idempotent per row.
+//
 // See https://docs.pingcap.com/tidb/stable/vector-search-overview/
 // for the official reference.
 package tidb
