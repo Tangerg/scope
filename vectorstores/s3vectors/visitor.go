@@ -63,6 +63,8 @@ func (v *visitor) translateBinary(expr *filter.BinaryExpr) (map[string]any, erro
 		return v.translateIn(expr)
 	case expr.Operator().Is(filter.OpHas):
 		return v.translateHas(expr)
+	case expr.Operator().IsNullOperator():
+		return v.translateNullTest(expr)
 	case expr.Operator().IsEqualityOperator() || expr.Operator().IsOrderingOperator():
 		return v.translateComparison(expr)
 	default:
@@ -148,6 +150,19 @@ func (v *visitor) translateIn(expr *filter.BinaryExpr) (map[string]any, error) {
 		values = append(values, val)
 	}
 	return map[string]any{key: map[string]any{"$in": values}}, nil
+}
+
+// translateNullTest emits $exists, which S3 Vectors documents as checking
+// whether the key is present "regardless of the value that's stored". Its
+// filterable metadata holds strings, numbers, booleans and lists and cannot
+// hold null, so an absent key is the only null-ish state — making
+// $exists: false exactly the filter AST's IS NULL.
+func (v *visitor) translateNullTest(expr *filter.BinaryExpr) (map[string]any, error) {
+	key, err := keyName(expr.Left())
+	if err != nil {
+		return nil, fmt.Errorf("s3vectors: extract field key from 'IS NULL': %w", err)
+	}
+	return map[string]any{key: map[string]any{"$exists": false}}, nil
 }
 
 func keyName(expr filter.Expr) (string, error) {

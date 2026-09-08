@@ -60,5 +60,9 @@
 // the cosine. Azure publishes neither for dotProduct or euclidean, so those
 // scores pass through clamped rather than through a formula the store guessed.
 //
+// Null tests emit `<field> eq null`, which OData documents as matching a field
+// that "will be null if it was never set, or if it was explicitly set to null"
+// — the same two states the filter AST reads as nil.
+//
 // See https://learn.microsoft.com/azure/search/vector-search-overview.
 package azureaisearch

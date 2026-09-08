@@ -36,5 +36,15 @@
 // Filtered deletion needs s3vectors:GetVectors alongside
 // s3vectors:ListVectors, because membership reads each vector's metadata.
 //
+// Null tests emit $exists, which S3 Vectors documents as checking whether the
+// key is present "regardless of the value that's stored". Filterable metadata
+// holds strings, numbers, booleans and lists and cannot hold null, so an
+// absent key is the only null-ish state.
+//
+// LIKE is refused by the query filter, whose documented operator set has no
+// pattern match. Filtered deletion is unaffected: it enumerates with
+// ListVectors and decides membership with filter.Match, so the same filter
+// that Search rejects will delete correctly.
+//
 // See https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors.html.
 package s3vectors

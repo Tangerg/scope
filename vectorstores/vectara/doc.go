@@ -39,5 +39,10 @@
 // atomic: a failure leaves the earlier documents deleted and names the id that
 // failed, and repeating the call finishes the rest.
 //
+// Null tests emit `IS NULL`, which Vectara documents as checking "whether or
+// not a value is NULL (empty or missing)" — the same pair of states the filter
+// AST reads as nil. HAS is refused because filterable metadata fields are
+// scalar.
+//
 // See https://docs.vectara.com/docs/rest-api/.
 package vectara

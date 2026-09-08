@@ -85,11 +85,34 @@ func (v *visitor) visitBinaryExpr(expr *filter.BinaryExpr) error {
 		return v.visitHasExpr(expr)
 	case expr.Operator().Is(filter.OpLike):
 		return v.visitLikeExpr(expr)
+	case expr.Operator().IsNullOperator():
+		return v.visitNullTestExpr(expr)
 	case expr.Operator().IsEqualityOperator() || expr.Operator().IsOrderingOperator():
 		return v.visitComparisonExpr(expr)
 	default:
 		return fmt.Errorf("azurecosmos: unsupported binary operator '%s'", expr.Operator().String())
 	}
+}
+
+// visitNullTestExpr emits `(NOT IS_DEFINED(<path>) OR IS_NULL(<path>))`.
+//
+// IS_NULL alone is not enough: the documented example evaluates
+// IS_NULL({quantity: 25, vendor: null}.size) to false, so an absent property
+// is not null to Cosmos — while it is nil to the filter AST, and absent is the
+// ordinary case for metadata. IS_DEFINED separates the two states, so the
+// disjunction covers exactly the ones the AST reads as nil. The negated IS NOT
+// NULL arrives as NOT(...) and is rendered by visitUnaryExpr.
+func (v *visitor) visitNullTestExpr(expr *filter.BinaryExpr) error {
+	field, err := v.fieldPath(expr)
+	if err != nil {
+		return err
+	}
+	v.sql.WriteString("(NOT IS_DEFINED(")
+	v.sql.WriteString(field)
+	v.sql.WriteString(") OR IS_NULL(")
+	v.sql.WriteString(field)
+	v.sql.WriteString("))")
+	return nil
 }
 
 func (v *visitor) visitHasExpr(expr *filter.BinaryExpr) error {

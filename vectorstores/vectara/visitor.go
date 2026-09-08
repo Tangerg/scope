@@ -77,6 +77,8 @@ func (v *visitor) visitBinaryExpr(expr *filter.BinaryExpr) error {
 			expr.Start().String())
 	case expr.Operator().Is(filter.OpLike):
 		return v.visitLikeExpr(expr)
+	case expr.Operator().IsNullOperator():
+		return v.visitNullTestExpr(expr)
 	case expr.Operator().IsEqualityOperator() || expr.Operator().IsOrderingOperator():
 		return v.visitComparisonExpr(expr)
 	default:
@@ -110,6 +112,21 @@ func (v *visitor) visitLogicalExpr(expr *filter.BinaryExpr) error {
 		return err
 	}
 	v.sql.WriteString(")")
+	return nil
+}
+
+// visitNullTestExpr emits `<path> IS NULL`. Vectara documents its null
+// operators as checking "whether or not a value is NULL (empty or missing)",
+// which is the same pair of states the filter AST reads as nil. The negated
+// IS NOT NULL arrives as NOT(...) and is rendered by visitUnaryExpr.
+func (v *visitor) visitNullTestExpr(expr *filter.BinaryExpr) error {
+	field, err := v.fieldPath(expr)
+	if err != nil {
+		return err
+	}
+	v.sql.WriteString("(")
+	v.sql.WriteString(field)
+	v.sql.WriteString(" IS NULL)")
 	return nil
 }
 

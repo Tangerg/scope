@@ -36,5 +36,11 @@
 // DeleteWhere is atomic: both issue one item operation at a time, so a failure
 // leaves the earlier ones applied and names the id that failed.
 //
+// Null tests emit `NOT IS_DEFINED(<path>) OR IS_NULL(<path>)`. IS_NULL alone
+// is not enough: the documented example evaluates IS_NULL on an absent
+// property to false, while the filter AST reads an absent key as nil and
+// absent is the ordinary case for metadata. IS_DEFINED separates the states so
+// the disjunction covers exactly the ones the AST calls null.
+//
 // See https://learn.microsoft.com/azure/cosmos-db/nosql/vector-search.
 package azurecosmos

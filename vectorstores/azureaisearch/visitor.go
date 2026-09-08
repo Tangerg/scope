@@ -71,11 +71,28 @@ func (v *visitor) visitBinaryExpr(expr *filter.BinaryExpr) error {
 		return v.visitHasExpr(expr)
 	case expr.Operator().Is(filter.OpLike):
 		return v.visitLikeExpr(expr)
+	case expr.Operator().IsNullOperator():
+		return v.visitNullTestExpr(expr)
 	case expr.Operator().IsEqualityOperator() || expr.Operator().IsOrderingOperator():
 		return v.visitComparisonExpr(expr)
 	default:
 		return fmt.Errorf("azureaisearch: unsupported binary operator '%s'", expr.Operator().String())
 	}
+}
+
+// visitNullTestExpr emits `<field> eq null`, which OData documents as
+// matching a field that "will be null if it was never set, or if it was
+// explicitly set to null" — the same two states the filter AST reads as nil.
+// The negated IS NOT NULL arrives as NOT(...) and is rendered by
+// visitUnaryExpr, so no separate handling is needed here.
+func (v *visitor) visitNullTestExpr(expr *filter.BinaryExpr) error {
+	field, err := fieldName(expr.Left())
+	if err != nil {
+		return err
+	}
+	v.sql.WriteString(field)
+	v.sql.WriteString(" eq null")
+	return nil
 }
 
 func (v *visitor) visitHasExpr(expr *filter.BinaryExpr) error {
