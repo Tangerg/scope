@@ -1,7 +1,11 @@
 // Package storetest contains provider-independent contract tests for
 // vector-store implementations and their filter visitors.
 //
-// [Run] verifies the exact capability set and validation boundary of a store.
+// [Run] verifies the exact capability set and validation boundary of a store,
+// comparing the set the store declares against the set [CapabilitiesOf]
+// detects. Exact means both directions: a capability the store implements but
+// does not declare fails just as a declared one it does not implement does,
+// which is what keeps a no-op [vectorstore.Closer] from passing as cleanup.
 // [VisitorConformance] exercises the common filter AST shapes, while
 // [VisitorLifecycle] verifies that a visitor can be safely reused.
 //

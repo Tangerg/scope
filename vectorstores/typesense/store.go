@@ -452,5 +452,3 @@ func formatVectorQuery(vec []float32, topK int, alpha *float32) string {
 	b.WriteByte(')')
 	return b.String()
 }
-
-func (s *Store) Close() error { return nil }

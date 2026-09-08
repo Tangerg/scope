@@ -651,5 +651,3 @@ func (s *Store) buildFilter(expr filter.Predicate) (string, []any, error) {
 	predicate, args := v.snapshot()
 	return predicate, args, nil
 }
-
-func (s *Store) Close() error { return nil }

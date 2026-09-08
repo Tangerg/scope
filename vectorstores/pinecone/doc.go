@@ -43,5 +43,10 @@
 // upsert request at 2 MB, which a record count cannot predict, so that limit
 // surfaces as a provider error.
 //
+// Lifecycle. The store implements [vectorstore.Closer] because it creates a
+// resource of its own: construction opens an index connection through
+// Client.Index, and Close releases that connection rather than the caller's
+// client. The client stays the caller's to close.
+//
 // See https://docs.pinecone.io/ for the full API surface.
 package pinecone

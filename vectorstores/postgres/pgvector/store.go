@@ -262,5 +262,3 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	}
 	return s.engine.DeleteIDs(ctx, ids)
 }
-
-func (s *Store) Close() error { return s.engine.Close() }

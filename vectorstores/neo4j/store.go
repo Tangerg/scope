@@ -556,5 +556,3 @@ func (s *Store) buildPredicate(expr filter.Predicate) (string, map[string]any, e
 	predicate, params := v.snapshot()
 	return predicate, params, nil
 }
-
-func (s *Store) Close() error { return nil }

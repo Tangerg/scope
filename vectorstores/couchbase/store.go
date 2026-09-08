@@ -583,5 +583,3 @@ func (s *Store) toDocument(raw map[string]any) (*document.Document, error) {
 	}
 	return doc, nil
 }
-
-func (s *Store) Close() error { return nil }

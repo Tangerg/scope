@@ -593,10 +593,6 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	return nil
 }
 
-func (s *Store) Close() error {
-	return s.client.Close()
-}
-
 func parsePointID(id string) (*qdrant.PointId, error) {
 	if number, err := strconv.ParseUint(id, 10, 64); err == nil && strconv.FormatUint(number, 10) == id {
 		return qdrant.NewIDNum(number), nil

@@ -27,5 +27,10 @@
 // whether a key is present, so an IS NULL filter fails rather than being
 // approximated.
 //
+// Lifecycle. The store implements [vectorstore.Closer] because it creates a
+// resource of its own: construction resolves the collection through
+// GetCollection or GetOrCreateCollection, and Close releases that collection
+// rather than the caller's client. The client stays the caller's to close.
+//
 // See https://docs.trychroma.com/ for the full API surface.
 package chroma

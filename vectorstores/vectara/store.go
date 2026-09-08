@@ -373,5 +373,3 @@ func (s *Store) sendJSON(ctx context.Context, method, path string, body any) ([]
 	}
 	return respBody, nil
 }
-
-func (s *Store) Close() error { return nil }

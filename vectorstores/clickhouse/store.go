@@ -471,8 +471,6 @@ func (s *Store) buildFilter(expr filter.Predicate) (string, []any, error) {
 	return predicate, args, nil
 }
 
-func (s *Store) Close() error { return nil }
-
 // metadataAsStringMap carries each metadata value into the
 // `Map(String, String)` column as its JSON text.
 //

@@ -524,8 +524,6 @@ func renumberPlaceholders(fragment string, offset int) string {
 	return b.String()
 }
 
-func (s *Store) Close() error { return nil }
-
 func marshalMetadata(m metadata.Map) ([]byte, error) {
 	if m == nil {
 		return []byte("{}"), nil

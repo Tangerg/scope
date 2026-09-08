@@ -178,5 +178,3 @@ func (s *Store) vectorArgs() *goredis.FTVectorArgs {
 	}
 	return args
 }
-
-func (s *Store) Close() error { return nil }

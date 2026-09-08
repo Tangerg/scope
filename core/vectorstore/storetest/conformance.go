@@ -17,6 +17,13 @@ type Capabilities struct {
 	HybridSearch  bool
 	IDDeleter     bool
 	FilterDeleter bool
+
+	// Closer is true only for a store that created a resource of its own. A
+	// store handed its client, session or pool releases nothing, so a false
+	// flag forbids a Close method rather than permitting a no-op one: a no-op
+	// Close claims there was something to release and that calling it released
+	// it, which leaves a caller unable to tell the two kinds of store apart.
+	Closer bool
 }
 
 // Run verifies the backend's exact capability set and the common operations
@@ -33,10 +40,12 @@ func Run(t *testing.T, store any, expected Capabilities) {
 	idDeleter, hasIDDeleter := store.(vectorstore.IDDeleter)
 	filterDeleter, hasFilterDeleter := store.(vectorstore.FilterDeleter)
 
-	assertCapability(t, "Indexer", hasIndexer, expected.Indexer)
-	assertCapability(t, "Searcher", hasSearcher, expected.Searcher)
-	assertCapability(t, "IDDeleter", hasIDDeleter, expected.IDDeleter)
-	assertCapability(t, "FilterDeleter", hasFilterDeleter, expected.FilterDeleter)
+	actual := CapabilitiesOf(store)
+	assertCapability(t, "Indexer", actual.Indexer, expected.Indexer)
+	assertCapability(t, "Searcher", actual.Searcher, expected.Searcher)
+	assertCapability(t, "IDDeleter", actual.IDDeleter, expected.IDDeleter)
+	assertCapability(t, "FilterDeleter", actual.FilterDeleter, expected.FilterDeleter)
+	assertCapability(t, "Closer", actual.Closer, expected.Closer)
 
 	ctx := t.Context()
 	if expected.Indexer && hasIndexer {
@@ -93,6 +102,27 @@ func Run(t *testing.T, store any, expected Capabilities) {
 				t.Fatalf("DeleteWhere(nil) error = %v, want %v", err, vectorstore.ErrMissingFilter)
 			}
 		})
+	}
+}
+
+// CapabilitiesOf reports the capability set a store actually implements.
+//
+// [Run] compares it against the set the store declares. It is separate from
+// that comparison so the interface detection can be exercised on its own:
+// HybridSearch is absent because no interface expresses it — it is a search
+// semantic that [Run] probes by calling Search.
+func CapabilitiesOf(store any) Capabilities {
+	_, indexer := store.(vectorstore.Indexer)
+	_, searcher := store.(vectorstore.Searcher)
+	_, idDeleter := store.(vectorstore.IDDeleter)
+	_, filterDeleter := store.(vectorstore.FilterDeleter)
+	_, closer := store.(vectorstore.Closer)
+	return Capabilities{
+		Indexer:       indexer,
+		Searcher:      searcher,
+		IDDeleter:     idDeleter,
+		FilterDeleter: filterDeleter,
+		Closer:        closer,
 	}
 }
 

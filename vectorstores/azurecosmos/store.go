@@ -421,5 +421,3 @@ func (s *Store) decodeRow(raw json.RawMessage, minScore vectorstore.Score) (*vec
 		Score:    score,
 	}, nil
 }
-
-func (s *Store) Close() error { return nil }

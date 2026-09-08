@@ -253,5 +253,3 @@ func toMatch(r types.KnowledgeBaseRetrievalResult) (*vectorstore.SearchResult, e
 	}
 	return &vectorstore.SearchResult{Document: doc, Score: score}, nil
 }
-
-func (s *Store) Close() error { return nil }

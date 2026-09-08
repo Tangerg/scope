@@ -727,11 +727,6 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	return nil
 }
 
-func (s *Store) Close() error {
-	// Weaviate HTTP client does not require explicit closing.
-	return nil
-}
-
 func validateObjectID(id string) error {
 	if err := uuid.Validate(id); err != nil {
 		return fmt.Errorf("%w %q: must be a UUID", ErrInvalidObjectID, id)

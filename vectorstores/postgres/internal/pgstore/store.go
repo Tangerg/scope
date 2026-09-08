@@ -342,8 +342,6 @@ func (s *Store) buildWhereClause(expr filter.Predicate) (string, []any, error) {
 	return " WHERE " + fragment, args, nil
 }
 
-func (s *Store) Close() error { return nil }
-
 // marshalMetadata serializes the document metadata into the JSON bytes
 // stored in the jsonb column. nil maps round-trip as JSON null.
 func marshalMetadata(m metadata.Map) ([]byte, error) {

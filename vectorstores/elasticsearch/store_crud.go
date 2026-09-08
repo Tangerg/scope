@@ -389,8 +389,6 @@ func (s *Store) hitMetadata(hit searchHit) (metadata.Map, error) {
 	return values, nil
 }
 
-func (s *Store) Close() error { return nil }
-
 // These response models intentionally cover only fields consumed by Store;
 // decoding remains forward-compatible without exposing Elasticsearch DTOs.
 // TimedOut and Shards are consumed because Elasticsearch answers a partially

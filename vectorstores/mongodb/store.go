@@ -618,5 +618,3 @@ func (s *Store) metadataValues(raw bson.M) (map[string]any, error) {
 		return nil, fmt.Errorf("mongodb: result field %q must be a document, got %T", s.metadataField, value)
 	}
 }
-
-func (s *Store) Close() error { return nil }

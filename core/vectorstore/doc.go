@@ -1,10 +1,11 @@
 // Package vectorstore defines provider-neutral semantic indexing and search.
-// Five independent interfaces split the surface by capability:
+// Six independent interfaces split the surface by capability:
 //
 //   - [Indexer] indexes documents.
 //   - [Searcher] finds similar documents by query + metadata filter.
 //   - [IDDeleter] removes documents by identifier.
 //   - [FilterDeleter] removes documents matching a metadata filter.
+//   - [Closer] releases the resources a store created for itself.
 //   - [Batcher] supplies an order-preserving ingestion partition policy.
 //
 // There is deliberately no aggregate Store interface: consumers depend only

@@ -484,5 +484,3 @@ func decodeVectorMetadata(key string, raw s3vdoc.Interface) (string, map[string]
 	delete(values, contentMetaKey)
 	return text, values, nil
 }
-
-func (s *Store) Close() error { return nil }

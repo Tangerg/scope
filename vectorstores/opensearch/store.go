@@ -425,5 +425,3 @@ func (s *Store) metadataValues(id string, source map[string]any) (map[string]any
 	}
 	return values, nil
 }
-
-func (s *Store) Close() error { return nil }
