@@ -3,6 +3,7 @@ package cosmosdb_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -21,7 +22,7 @@ func TestNewStoreRequiresContainer(t *testing.T) {
 	if err := config.Validate(); err == nil {
 		t.Fatal("StoreConfig.Validate should reject a nil Container")
 	}
-	_, err := cosmosdb.NewStore(config)
+	_, err := cosmosdb.NewStore(t.Context(), config)
 	if err == nil {
 		t.Fatal("expected error when Container is nil")
 	}
@@ -37,7 +38,7 @@ func TestClearFollowsEmptyPages(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				writer.Header().Set("Content-Type", "application/json")
 				if request.Method == http.MethodGet {
-					fmt.Fprint(writer, `{"id":"test","readableLocations":[],"writableLocations":[]}`)
+					fmt.Fprint(writer, getResponseBody(request))
 					return
 				}
 				if request.Method == http.MethodDelete {
@@ -84,7 +85,7 @@ func TestClearFollowsEmptyPages(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			store, err := cosmosdb.NewStore(cosmosdb.StoreConfig{Container: container})
+			store, err := cosmosdb.NewStore(t.Context(), cosmosdb.StoreConfig{Container: container})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -105,7 +106,7 @@ func TestConversationsUsesPageableProjectionAndReturnsUniqueIDs(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		if request.Method == http.MethodGet {
-			fmt.Fprint(writer, `{"id":"test","readableLocations":[],"writableLocations":[]}`)
+			fmt.Fprint(writer, getResponseBody(request))
 			return
 		}
 		var query struct {
@@ -150,7 +151,7 @@ func TestConversationsUsesPageableProjectionAndReturnsUniqueIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := cosmosdb.NewStore(cosmosdb.StoreConfig{Container: container})
+	store, err := cosmosdb.NewStore(t.Context(), cosmosdb.StoreConfig{Container: container})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,5 +161,51 @@ func TestConversationsUsesPageableProjectionAndReturnsUniqueIDs(t *testing.T) {
 	}
 	if want := []history.ConversationID{"a", "b", "z"}; !slices.Equal(ids, want) || queries != 3 {
 		t.Fatalf("Conversations = %v, queries=%d; want %v, 3", ids, queries, want)
+	}
+}
+
+// getResponseBody answers the two GETs construction makes: the account
+// metadata the SDK reads first, then the container definition NewStore reads to
+// confirm the partition-key path.
+func getResponseBody(request *http.Request) string {
+	if strings.Contains(request.URL.Path, "/colls/") {
+		return `{"id":"history","partitionKey":{"kind":"Hash","paths":["` + cosmosdb.PartitionKeyPath + `"]}}`
+	}
+	return `{"id":"test","readableLocations":[],"writableLocations":[]}`
+}
+
+// The partition-key requirement used to be an obligation the config stated in
+// capitals and nothing checked. Cosmos does reject the first write itself, but
+// that arrives far from the wiring that chose the container.
+func TestNewStoreRefusesAContainerPartitionedElsewhere(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		if strings.Contains(request.URL.Path, "/colls/") {
+			fmt.Fprint(writer, `{"id":"history","partitionKey":{"kind":"Hash","paths":["/tenant"]}}`)
+			return
+		}
+		fmt.Fprint(writer, `{"id":"test","readableLocations":[],"writableLocations":[]}`)
+	}))
+	defer server.Close()
+
+	credential, err := azcosmos.NewKeyCredential("dGVzdA==")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := azcosmos.NewClientWithKey(server.URL, credential, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	container, err := client.NewContainer("test", "history")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = cosmosdb.NewStore(t.Context(), cosmosdb.StoreConfig{Container: container})
+	if !errors.Is(err, cosmosdb.ErrIncompatibleContainer) {
+		t.Fatalf("NewStore() = %v, want ErrIncompatibleContainer", err)
+	}
+	if !strings.Contains(err.Error(), cosmosdb.PartitionKeyPath) {
+		t.Fatalf("NewStore() = %v, want an error naming %s", err, cosmosdb.PartitionKeyPath)
 	}
 }

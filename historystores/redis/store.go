@@ -72,10 +72,15 @@ type Store struct {
 	ttl       time.Duration
 }
 
-// NewStore needs no context because construction performs no I/O; the
-// backing resource is provisioned outside this package, so the store only
-// validates configuration and assembles state.
-func NewStore(config StoreConfig) (*Store, error) {
+// NewStore performs no I/O. A Redis list needs no schema, and the only thing
+// this store assumes about the server — that its keys are namespaced under
+// KeyPrefix — is a fact about the store's own writes rather than something to
+// confirm.
+//
+// The context is still taken, because every store in this family is
+// constructed the same way and a caller should not have to remember which
+// backend happens to be checkable.
+func NewStore(_ context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}

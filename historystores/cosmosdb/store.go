@@ -21,8 +21,9 @@ import (
 // client or connection, so a store cannot be built against a service the
 // caller did not choose.
 type StoreConfig struct {
-	// Container is the live Cosmos container handle. Required. The
-	// container's partition key MUST be `/conversation_id`.
+	// Container is the live Cosmos container handle. Required. It must be
+	// partitioned on [PartitionKeyPath], which [NewStore] reads and refuses
+	// with [ErrIncompatibleContainer] rather than leaving as an obligation.
 	Container *azcosmos.ContainerClient
 }
 
@@ -47,10 +48,19 @@ type Store struct {
 	sequence  *history.Sequence
 }
 
-// NewStore needs no context because construction performs no I/O; the
-// backing resource is provisioned outside this package, so the store only
-// validates configuration and assembles state.
-func NewStore(config StoreConfig) (*Store, error) {
+// PartitionKeyPath is the partition-key path this store requires. Every
+// document carries its conversation id there, and every read and delete is
+// scoped to one partition by it.
+const PartitionKeyPath = "/conversation_id"
+
+// ErrIncompatibleContainer reports a container partitioned on another path.
+var ErrIncompatibleContainer = errors.New("cosmosdb: container is incompatible")
+
+// NewStore confirms the container is partitioned the way this store writes,
+// which is why it takes a context. The requirement used to be an obligation
+// stated in the config and checked nowhere; Cosmos rejects the first write
+// itself, but that is a failure far from the wiring that chose the container.
+func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -58,7 +68,28 @@ func NewStore(config StoreConfig) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	container, err := config.Container.Read(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("cosmosdb: read container %s: %w", config.Container.ID(), err)
+	}
+	if err = validatePartitionKey(container.ContainerProperties); err != nil {
+		return nil, err
+	}
+
 	return &Store{container: config.Container, sequence: sequence}, nil
+}
+
+// validatePartitionKey refuses a container this store cannot address.
+func validatePartitionKey(properties *azcosmos.ContainerProperties) error {
+	if properties == nil {
+		return fmt.Errorf("%w: the container returned no properties", ErrIncompatibleContainer)
+	}
+	if paths := properties.PartitionKeyDefinition.Paths; !slices.Contains(paths, PartitionKeyPath) {
+		return fmt.Errorf("%w: container %s is partitioned on %v, but every document carries its conversation id at %s",
+			ErrIncompatibleContainer, properties.ID, paths, PartitionKeyPath)
+	}
+	return nil
 }
 
 // document is the wire shape stored in Cosmos. The struct tags match

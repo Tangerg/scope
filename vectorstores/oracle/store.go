@@ -514,6 +514,10 @@ func renumberPlaceholders(fragment string, offset int) string {
 			for j < len(fragment) && fragment[j] >= '0' && fragment[j] <= '9' {
 				j++
 			}
+			// The scan above already established fragment[i+1:j] is a
+			// non-empty run of ASCII digits, and the visitor numbers one
+			// placeholder per bound argument, so the only way Atoi could fail
+			// is a digit run wider than an int — unreachable for this input.
 			n, _ := strconv.Atoi(fragment[i+1 : j])
 			b.WriteByte(':')
 			b.WriteString(strconv.Itoa(n + offset - 1))

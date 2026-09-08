@@ -11,23 +11,36 @@ import (
 	"testing"
 )
 
-// Every vector store is constructed the same way: NewStore(ctx, StoreConfig).
+// Every store in both families is constructed the same way:
+// NewStore(ctx, StoreConfig).
 //
 // The shape is not cosmetic. A store that took no context could not read the
-// backend it was pointed at, and four of them used to declare the live
-// index's distance metric as an unchecked obligation on the caller — a wrong
-// value there returns scores that are wrong rather than absent, which is the
-// one failure nothing downstream can notice. Adding the check meant adding the
+// backend it was pointed at, and several of them used to declare a fact about
+// the live backend — a vector index's distance metric, a Cosmos container's
+// partition-key path — as an unchecked obligation on the caller. A wrong
+// metric returns scores that are wrong rather than absent, which is the one
+// failure nothing downstream can notice. Adding the check meant adding the
 // context, so a store reintroducing the context-free form is also giving up
 // the ability to confirm its own configuration.
 //
 // A caller should not have to remember which backend happens to be checkable
 // either, so the parameter is required even where construction has nothing to
 // read.
-func TestVectorStoresShareOneConstructionShape(t *testing.T) {
+func TestStoresShareOneConstructionShape(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join(repositoryRoot(t), "vectorstores")
+	for _, family := range []string{"vectorstores", "historystores"} {
+		t.Run(family, func(t *testing.T) {
+			t.Parallel()
+			assertStoreConstructionShape(t, family)
+		})
+	}
+}
+
+func assertStoreConstructionShape(t *testing.T, family string) {
+	t.Helper()
+
+	root := filepath.Join(repositoryRoot(t), family)
 	fileSet := token.NewFileSet()
 	found := 0
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -59,10 +72,10 @@ func TestVectorStoresShareOneConstructionShape(t *testing.T) {
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("walk vectorstores: %v", err)
+		t.Fatalf("walk %s: %v", family, err)
 	}
 	if found == 0 {
-		t.Fatal("found no NewStore declarations under vectorstores")
+		t.Fatalf("found no NewStore declarations under %s", family)
 	}
 }
 

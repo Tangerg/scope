@@ -132,7 +132,7 @@ func TestConversationsEnumeratesARingPerShard(t *testing.T) {
 	ring := goredis.NewRing(&goredis.RingOptions{Addrs: map[string]string{}})
 	t.Cleanup(func() { _ = ring.Close() })
 
-	store, err := NewStore(StoreConfig{Client: ring})
+	store, err := NewStore(t.Context(), StoreConfig{Client: ring})
 	if err != nil {
 		t.Fatalf("NewStore() = %v, want nil", err)
 	}
@@ -166,7 +166,7 @@ func TestConversationsScansASingleClientDirectly(t *testing.T) {
 		{DefaultKeyPrefix + "alpha"},
 	}}}
 
-	store, err := NewStore(StoreConfig{Client: client})
+	store, err := NewStore(t.Context(), StoreConfig{Client: client})
 	if err != nil {
 		t.Fatalf("NewStore() = %v, want nil", err)
 	}
