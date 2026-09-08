@@ -16,6 +16,15 @@
 // calls and writes from distinct Store instances have no defined relative
 // order.
 //
+// Write acknowledgment. The session must not use consistency ANY. At every
+// other level a successful write reached at least one replica, but at ANY
+// Cassandra may instead have the coordinator "store a hint" and replay it
+// later — the call returns nil for a message no replica holds, which no read
+// can see and which is gone if the hint expires. [NewStore] refuses that
+// session with [ErrUnacknowledgedWrites]. ANY is also the zero value of
+// gocql.Consistency, so a session whose consistency was never configured is
+// refused for the same reason.
+//
 // Example:
 //
 //	cluster := gocql.NewCluster("127.0.0.1")

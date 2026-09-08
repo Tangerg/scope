@@ -75,12 +75,39 @@ type Store struct {
 	createCQL string
 }
 
+// ErrUnacknowledgedWrites reports a session whose consistency level lets
+// Cassandra accept a write without any replica holding it.
+var ErrUnacknowledgedWrites = errors.New("cassandra: session consistency does not acknowledge a durable write")
+
+// requireDurableConsistency refuses a session configured at ANY.
+//
+// At every other level a successful write reached at least one replica. At ANY,
+// Cassandra documents that "a single replica may respond, or the coordinator
+// may store a hint. If a hint is stored, the coordinator will later attempt to
+// replay the hint and deliver the mutation to the replicas" — so the call
+// returns nil for a message no replica holds, which no read can see and which
+// is gone if the hint expires before delivery. That is a stored conversation
+// reported to a caller who has not got one.
+//
+// The level is read off a batch rather than the session, because that is the
+// only exported path to it; building one performs no I/O and NewBatch copies
+// the session's own value.
+func requireDurableConsistency(session *gocql.Session) error {
+	if consistency := session.NewBatch(gocql.UnloggedBatch).GetConsistency(); consistency == gocql.Any {
+		return fmt.Errorf("%w: consistency is %s", ErrUnacknowledgedWrites, consistency)
+	}
+	return nil
+}
+
 // NewStore performs schema setup during construction, which is why it takes
 // a context: a store returned before its keyspace table exists would fail on
 // the first index rather than at wiring, where the misconfiguration actually
 // is.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
+		return nil, err
+	}
+	if err := requireDurableConsistency(config.Session); err != nil {
 		return nil, err
 	}
 	if config.Keyspace == "" {
