@@ -11,18 +11,35 @@ import (
 // non-empty value; ResponseDelta uses the empty value before termination.
 type FinishReason string
 
+// A provider's native reason maps to exactly one of these. Callers act on the
+// distinction — retrying, continuing, or surfacing a policy outcome — so an
+// adapter classifies by what happened to the output, not by how the provider
+// spelled it. The native value belongs in
+// [OutputMetadata.Extra] either way.
 const (
-	// FinishReasonStop means the model reached a natural stop condition.
+	// FinishReasonStop means the model reached a natural stop condition,
+	// including one of the caller's stop sequences. The output is complete.
 	FinishReasonStop FinishReason = "stop"
-	// FinishReasonLength means a configured or provider limit ended generation.
+	// FinishReasonLength means a limit truncated the output, so it is
+	// incomplete and continuing is the caller's remedy. The limit may be the
+	// caller's own token budget or one the provider imposed, such as a context
+	// window that filled before that budget was reached; both leave the same
+	// half-finished output, so both map here.
 	FinishReasonLength FinishReason = "length"
 	// FinishReasonToolCalls means the model stopped to request tool execution.
 	FinishReasonToolCalls FinishReason = "tool_calls"
-	// FinishReasonContentFilter means provider policy stopped generation.
+	// FinishReasonContentFilter means provider policy withheld or cut short the
+	// content — safety, blocklists, prohibited content, recitation, and the
+	// like. It covers policy acting on what was generated, whereas
+	// [FinishReasonRefusal] is the model itself declining the request.
 	FinishReasonContentFilter FinishReason = "content_filter"
 	// FinishReasonRefusal means the model declined the request.
 	FinishReasonRefusal FinishReason = "refusal"
-	// FinishReasonOther preserves a known terminal state with no portable match.
+	// FinishReasonOther preserves a known terminal state with no portable
+	// match, such as a malformed tool call or a provider-side iteration limit.
+	// It is not a default for reasons an adapter has not classified: mapping a
+	// truncation or a policy stop here hides it from every caller that checks
+	// the two reasons above.
 	FinishReasonOther FinishReason = "other"
 )
 
