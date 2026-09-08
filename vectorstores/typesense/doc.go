@@ -20,6 +20,12 @@
 // fields + dimensionality if missing. Existing collections are
 // trusted as-is.
 //
+// Import acknowledgment. Typesense answers the document import endpoint with
+// HTTP 200 even when individual documents were rejected, so the store requires
+// one successful per-document result for every document it sent. A rejected
+// document returns an error while accepted documents in the same batch remain
+// stored.
+//
 // Filter visitor produces Typesense `filter_by` syntax — `metadata.k:=
 // v`, `metadata.year:>= 2020`, `metadata.tag:= [a,b]` (IN form). The
 // metadata field is a nested object so keys are addressed under the

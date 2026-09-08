@@ -220,8 +220,32 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 		params := &api.ImportDocumentsParams{
 			Action: new(api.Upsert),
 		}
-		if _, err := s.client.Collection(s.collectionName).Documents().Import(ctx, payload, params); err != nil {
+		results, err := s.client.Collection(s.collectionName).Documents().Import(ctx, payload, params)
+		if err != nil {
 			return fmt.Errorf("typesense: import documents: %w", err)
+		}
+		if err := checkImportResults(results, docs); err != nil {
+			return fmt.Errorf("typesense: import documents: %w", err)
+		}
+	}
+	return nil
+}
+
+// checkImportResults reads the per-document outcomes because Typesense answers
+// an import with HTTP 200 even when individual documents were rejected. The
+// service emits one result per input document in request order, so a missing,
+// extra, or unsuccessful entry means the batch was not fully applied.
+func checkImportResults(results []*api.ImportDocumentResponse, documents []*document.Document) error {
+	if len(results) != len(documents) {
+		return fmt.Errorf("import returned %d results for %d documents", len(results), len(documents))
+	}
+	for index, doc := range documents {
+		result := results[index]
+		if result == nil {
+			return fmt.Errorf("documents[%d] %q has no import result", index, doc.ID)
+		}
+		if !result.Success {
+			return fmt.Errorf("documents[%d] %q: %s", index, doc.ID, result.Error)
 		}
 	}
 	return nil
