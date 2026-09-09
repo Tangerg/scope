@@ -70,9 +70,28 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*Cha
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
+	// Anthropic publishes a field-by-field support table for this endpoint, and
+	// several entries a Core option maps onto say "Ignored". Sending one and
+	// letting Anthropic discard it is, to the caller, the same as this adapter
+	// never mapping it, so each is refused instead. Temperature is the same
+	// problem in another shape: the table caps it at 1 and says "values greater
+	// than 1 are capped at 1", which alters the request rather than rejecting
+	// it. response_format is also ignored, so JSON output goes through the
+	// shared prompt fallback rather than a parameter the endpoint drops.
+	maximumTemperature := 1.0
 	return openaiprotocol.NewCompatibleChatCompletions(ctx,
 		openaiprotocol.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLOpenAI), HTTPClient: config.HTTPClient},
-		openaiprotocol.Dialect{Provider: "anthropic", TokenLimitField: openaiprotocol.TokenLimitMaxTokens},
+		openaiprotocol.Dialect{
+			Provider:        "anthropic",
+			TokenLimitField: openaiprotocol.TokenLimitMaxTokens,
+			IgnoredOptions: []openaiprotocol.ChatOption{
+				openaiprotocol.ChatOptionFrequencyPenalty,
+				openaiprotocol.ChatOptionPresencePenalty,
+				openaiprotocol.ChatOptionReasoningEffort,
+			},
+			MaxTemperature:     &maximumTemperature,
+			NativeOutputFormat: func(corechat.OutputFormatType) bool { return false },
+		},
 	)
 }
 

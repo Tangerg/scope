@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	openaisdk "github.com/openai/openai-go/v3"
@@ -94,6 +95,18 @@ type Dialect struct {
 	// arbitrary OpenAI request object when their documented request surface is
 	// narrower than OpenAI's.
 	DisableRawRequestExtension bool
+	// IgnoredOptions names the Core options this endpoint accepts on the wire
+	// and then discards. A compatible provider that publishes such a list --
+	// Anthropic's marks reasoning_effort, presence_penalty and
+	// frequency_penalty "Ignored" -- makes a populated option vanish between
+	// Call and the model, which reads exactly like the adapter dropping it.
+	// Naming them here refuses the option instead, so the caller learns at the
+	// call that this endpoint cannot honor it.
+	IgnoredOptions []ChatOption
+	// MaxTemperature bounds Options.Temperature when the provider narrows
+	// OpenAI's range and silently clamps rather than refusing. Nil accepts
+	// whatever Core accepts.
+	MaxTemperature *float64
 
 	request  requestDialect
 	response responseDialect
@@ -107,6 +120,20 @@ func (d Dialect) Validate() error {
 		return fmt.Errorf("token limit field %q is invalid", d.TokenLimitField)
 	}
 	return nil
+}
+
+// ChatOption names one Core chat option by the OpenAI request field it travels
+// as. It exists so a dialect can declare which of them its provider discards.
+type ChatOption string
+
+const (
+	ChatOptionFrequencyPenalty ChatOption = "frequency_penalty"
+	ChatOptionPresencePenalty  ChatOption = "presence_penalty"
+	ChatOptionReasoningEffort  ChatOption = "reasoning_effort"
+)
+
+func (d Dialect) ignores(option ChatOption) bool {
+	return slices.Contains(d.IgnoredOptions, option)
 }
 
 // TokenLimitField identifies the provider's wire field for Core's neutral

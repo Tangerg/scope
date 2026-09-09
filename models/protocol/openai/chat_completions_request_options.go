@@ -40,13 +40,22 @@ func (c *ChatCompletions) applyOptions(options corechat.Options, toolChoice *cor
 	}
 	params.Model = openaisdk.ChatModel(options.Model)
 	if options.FrequencyPenalty != nil {
+		if c.dialect.ignores(ChatOptionFrequencyPenalty) {
+			return newIgnoredOptionError(c.dialect.Provider, ChatOptionFrequencyPenalty)
+		}
 		params.FrequencyPenalty = openaisdk.Float(*options.FrequencyPenalty)
 	}
 	if err := c.applyTokenLimit(options.MaxOutputTokens, params); err != nil {
 		return err
 	}
 	if options.PresencePenalty != nil {
+		if c.dialect.ignores(ChatOptionPresencePenalty) {
+			return newIgnoredOptionError(c.dialect.Provider, ChatOptionPresencePenalty)
+		}
 		params.PresencePenalty = openaisdk.Float(*options.PresencePenalty)
+	}
+	if options.ReasoningEffort != "" && c.dialect.ignores(ChatOptionReasoningEffort) {
+		return newIgnoredOptionError(c.dialect.Provider, ChatOptionReasoningEffort)
 	}
 	reasoningEffort, err := mapReasoningEffort(options.ReasoningEffort)
 	if err != nil {
@@ -57,6 +66,10 @@ func (c *ChatCompletions) applyOptions(options corechat.Options, toolChoice *cor
 		params.Stop.OfStringArray = slices.Clone(options.Stop)
 	}
 	if options.Temperature != nil {
+		if limit := c.dialect.MaxTemperature; limit != nil && *options.Temperature > *limit {
+			return fmt.Errorf("openai: %s caps temperature at %g and clamps a larger value silently, so %v is refused",
+				c.dialect.Provider, *limit, *options.Temperature)
+		}
 		params.Temperature = openaisdk.Float(*options.Temperature)
 	}
 	if options.TopP != nil {
@@ -79,6 +92,13 @@ func (c *ChatCompletions) applyOptions(options corechat.Options, toolChoice *cor
 		}
 	}
 	return nil
+}
+
+// newIgnoredOptionError reports an option the provider documents as discarded.
+// Sending it and letting the provider drop it is indistinguishable, to the
+// caller, from this adapter never having mapped it.
+func newIgnoredOptionError(provider string, option ChatOption) error {
+	return fmt.Errorf("openai: %s ignores %s, so setting it would have no effect", provider, option)
 }
 
 func (c *ChatCompletions) applyTokenLimit(limit *int64, params *openaisdk.ChatCompletionNewParams) error {
