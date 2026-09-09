@@ -196,6 +196,33 @@ func (p *Process) Await(ctx context.Context) (Result, error) {
 	}
 }
 
+// Join waits for this Process and every descendant to finish their owned work
+// and required acknowledgments in this runtime. It does not cancel execution
+// or release registry entries. Canceling ctx stops only this wait.
+// Ordinary execution failure and terminal Unknown settlements do not prevent
+// a successful join; Await reports the Process result. A runtime failure in
+// this subtree returns a RuntimeError after its local jobs have returned, even
+// when this Process published its result before a descendant failed.
+// Join makes no claim that a remote operation or a previous writer has stopped.
+// Strategies wait without blocking a Dispatcher through WaitForChildren.
+func (p *Process) Join(ctx context.Context) error {
+	if p == nil || p.handle == nil {
+		return ErrProcessNotRunning
+	}
+	ctx = requireContext(ctx)
+	if runtime := p.handle.runtime.Load(); runtime != nil {
+		if err := runtime.engine.observation.checkListenerReentrancy(ctx, p.handle.relation.RootID(), "Join"); err != nil {
+			return err
+		}
+	}
+	select {
+	case <-p.handle.joined:
+		return p.handle.joinError()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (p *Process) request(ctx context.Context, command processCommand) (processResponse, error) {
 	if p == nil || p.handle == nil {
 		return processResponse{}, ErrProcessNotRunning

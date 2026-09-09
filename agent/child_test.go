@@ -612,7 +612,8 @@ func TestEngineRejectsWaitingOnDescendantThatIsNotDirectChild(t *testing.T) {
 	waitID, _ := ParseWaitID("wait:ancestor-rejected")
 	waitKey, _ := ParseWaitKey("descendant")
 	_, _, err = root.handle.runtime.Load().registerChildWait(root.ID(), waitID, ChildWaitSpec{
-		Key: waitKey, Children: []ProcessID{grandchildID}, Condition: AllChildren(),
+		Boundary: ChildWaitBoundaryResult,
+		Key:      waitKey, Children: []ProcessID{grandchildID}, Condition: AllChildren(),
 	})
 	if !errors.Is(err, ErrInvalidChildWait) {
 		t.Fatalf("ancestor wait error = %v, want %v", err, ErrInvalidChildWait)
@@ -996,7 +997,7 @@ func (c *childTestExecution) openChildWait(
 		condition, _ = ChildQuorum(2)
 	}
 	key, _ := ParseWaitKey("children")
-	effect, err := WaitForChildren(ChildWaitSpec{Key: key, Children: children, Condition: condition})
+	effect, err := WaitForChildren(ChildWaitSpec{Boundary: ChildWaitBoundaryResult, Key: key, Children: children, Condition: condition})
 	if err != nil {
 		return Transition{}, err
 	}
@@ -1079,7 +1080,7 @@ func (c *childTestExecution) completeChildren(signals []Signal, consumedSignals 
 	if len(signals) == 0 {
 		return Transition{}, errors.New("children-completed Signal is required")
 	}
-	completed, err := ParseChildrenCompleted(signals[len(signals)-1])
+	completed, err := ParseChildWaitSatisfied(signals[len(signals)-1])
 	if err != nil {
 		return Transition{}, err
 	}

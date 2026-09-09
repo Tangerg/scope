@@ -125,7 +125,7 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 	}
 	runtime.childWaits[waitID] = &childWaitRegistration{
 		parent: parentID, waitID: waitID,
-		spec: ChildWaitSpec{Key: waitKey, Children: children, Condition: AllChildren()},
+		spec: ChildWaitSpec{Boundary: ChildWaitBoundaryResult, Key: waitKey, Children: children, Condition: AllChildren()},
 	}
 	runtime.propagateProcessTermination(last)
 	if !parent.pendingControl.failure.Valid() {
@@ -139,7 +139,7 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 	}
 	result := mustAwait(t, &Process{handle: handle})
 	failure, present := result.Termination().Failure()
-	if result.Status() != StatusFailed || !present || failure.Code() != "engine.child.completion.encoding_failed" {
+	if result.Status() != StatusFailed || !present || failure.Code() != "engine.child.wait.satisfaction.encoding_failed" {
 		t.Fatalf("parent result = %s, failure = %+v", result.Status(), failure)
 	}
 	if snapshot, err := runtime.processes[handle.processID].capture(); err != nil || !snapshot.Valid() {
@@ -149,7 +149,7 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 
 func TestPendingFailureRetainsUnknownExternalEffect(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
-	parent.recordFailure(FailureKindExecution, "engine.child.completion.encoding_failed", errors.New("completion exceeds signal budget"))
+	parent.recordFailure(FailureKindExecution, "engine.child.wait.satisfaction.encoding_failed", errors.New("completion exceeds signal budget"))
 	if parent.status.Terminal() {
 		t.Fatal("asynchronous failure terminated a Process before settlement")
 	}

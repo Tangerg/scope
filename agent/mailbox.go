@@ -83,11 +83,11 @@ type signalSource uint8
 
 const (
 	signalSourceExternal signalSource = iota + 1
-	signalSourceChildCompletion
+	signalSourceChildWait
 )
 
 func (s *signalMailbox) enqueue(status Status, signal Signal, source signalSource) (bool, error) {
-	if !signal.Valid() || (source != signalSourceExternal && source != signalSourceChildCompletion) {
+	if !signal.Valid() || (source != signalSourceExternal && source != signalSourceChildWait) {
 		return false, fmt.Errorf("%w: %w", ErrSignalRejected, ErrInvalidSignal)
 	}
 	return s.enqueueRecord(status, newSignalRecord(signal, false), source)
@@ -104,7 +104,7 @@ func (s *signalMailbox) enqueueRecord(status Status, record signalRecord, source
 	if waitID.Valid() {
 		wait, exists := s.waits[waitID]
 		acceptsAnswer := status == StatusRunning || status == StatusWaiting ||
-			status == StatusPaused && source == signalSourceChildCompletion
+			status == StatusPaused && source == signalSourceChildWait
 		if !exists || wait.externallyAddressable != (source == signalSourceExternal) || wait.closed || wait.answered ||
 			!acceptsAnswer {
 			return false, ErrSignalRejected
@@ -312,7 +312,7 @@ func restoreSignalMailbox(wire mailboxWire, status Status) (signalMailbox, error
 		} else {
 			source := signalSourceExternal
 			if record.waitID.Valid() && !waits[record.waitID].ExternallyAddressable {
-				source = signalSourceChildCompletion
+				source = signalSourceChildWait
 			}
 			accepted, err := mailbox.enqueueRecord(StatusRunning, record, source)
 			if err != nil || !accepted {

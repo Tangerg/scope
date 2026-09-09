@@ -98,7 +98,8 @@ func (e *execution) acceptFanoutStarts(signals []agent.Signal) (agent.Transition
 		return agent.Transition{}, err
 	}
 	effect, err := agent.WaitForChildren(agent.ChildWaitSpec{
-		Key: waitKey, Children: childIDs, Condition: agent.AllChildren(),
+		Boundary: agent.ChildWaitBoundaryDrained,
+		Key:      waitKey, Children: childIDs, Condition: agent.AllChildren(),
 	})
 	if err != nil {
 		return agent.Transition{}, err
@@ -115,7 +116,7 @@ func (e *execution) acceptFanoutWaitOpen(signals []agent.Signal) (agent.Transiti
 	wantKey, keyErr := e.fanoutWaitKey()
 	spec := opened.Spec()
 	wantChildren := e.fanoutStartedChildren()
-	if err != nil || keyErr != nil || spec.Key != wantKey || spec.Condition != agent.AllChildren() ||
+	if err != nil || keyErr != nil || spec.Key != wantKey || spec.Boundary != agent.ChildWaitBoundaryDrained || spec.Condition != agent.AllChildren() ||
 		!slices.Equal(spec.Children, wantChildren) {
 		return agent.Transition{}, fmt.Errorf("%w: fan-out child wait does not match Stage %q", ErrInvalidProtocol, e.stage().id)
 	}
@@ -129,9 +130,9 @@ func (e *execution) acceptFanoutCompletion(ctx context.Context, signals []agent.
 	if len(signals) == 0 || e.state.WaitID == nil {
 		return agent.Transition{}, fmt.Errorf("%w: fan-out completion requires one active child wait Signal", ErrInvalidProtocol)
 	}
-	completed, err := agent.ParseChildrenCompleted(signals[0])
+	completed, err := agent.ParseChildWaitSatisfied(signals[0])
 	wantKey, keyErr := e.fanoutWaitKey()
-	if err != nil || keyErr != nil || completed.WaitID() != *e.state.WaitID || completed.Key() != wantKey {
+	if err != nil || keyErr != nil || completed.WaitID() != *e.state.WaitID || completed.Key() != wantKey || completed.Boundary() != agent.ChildWaitBoundaryDrained {
 		return agent.Transition{}, fmt.Errorf("%w: fan-out completion does not match Stage %q", ErrInvalidProtocol, e.stage().id)
 	}
 	outcomes := completed.Outcomes()

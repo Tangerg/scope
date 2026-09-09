@@ -239,7 +239,7 @@ func (p *preparedStepFinalization) enqueueImmediateChildSignals() error {
 		) {
 			return ErrResourceLimitExceeded
 		}
-		accepted, err := p.mailbox.enqueue(StatusRunning, signal, signalSourceChildCompletion)
+		accepted, err := p.mailbox.enqueue(StatusRunning, signal, signalSourceChildWait)
 		if err != nil || !accepted {
 			return errors.Join(err, errors.New("immediate child completion Signal was not accepted"))
 		}

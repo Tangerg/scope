@@ -232,7 +232,8 @@ func (e *execution) acceptChildStart(signals []agent.Signal) (agent.Transition, 
 		return agent.Transition{}, err
 	}
 	effect, err := agent.WaitForChildren(agent.ChildWaitSpec{
-		Key: waitKey, Children: []agent.ProcessID{childID}, Condition: agent.AllChildren(),
+		Boundary: agent.ChildWaitBoundaryDrained,
+		Key:      waitKey, Children: []agent.ProcessID{childID}, Condition: agent.AllChildren(),
 	})
 	if err != nil {
 		return agent.Transition{}, err
@@ -252,7 +253,7 @@ func (e *execution) acceptChildWaitOpen(signals []agent.Signal) (agent.Transitio
 	}
 	wantKey, err := planningChildWaitKey(*e.state.ChildKey, *e.state.ChildProcessID)
 	spec := opened.Spec()
-	if err != nil || spec.Key != wantKey || len(spec.Children) != 1 ||
+	if err != nil || spec.Key != wantKey || spec.Boundary != agent.ChildWaitBoundaryDrained || len(spec.Children) != 1 ||
 		spec.Children[0] != *e.state.ChildProcessID || spec.Condition != agent.AllChildren() {
 		return agent.Transition{}, fmt.Errorf("%w: child wait opening mismatch", ErrInvalidProtocol)
 	}
@@ -266,8 +267,8 @@ func (e *execution) acceptChildCompletion(signals []agent.Signal) (agent.Transit
 	if len(signals) != 1 || e.state.ChildKey == nil || e.state.ChildProcessID == nil || e.state.WaitID == nil {
 		return agent.Transition{}, errors.New("planning: child completion requires one active child wait Signal")
 	}
-	completed, err := agent.ParseChildrenCompleted(signals[0])
-	if err != nil || completed.WaitID() != *e.state.WaitID {
+	completed, err := agent.ParseChildWaitSatisfied(signals[0])
+	if err != nil || completed.WaitID() != *e.state.WaitID || completed.Boundary() != agent.ChildWaitBoundaryDrained {
 		return agent.Transition{}, fmt.Errorf("%w: child completion mismatch", ErrInvalidProtocol)
 	}
 	wantWaitKey, err := planningChildWaitKey(*e.state.ChildKey, *e.state.ChildProcessID)

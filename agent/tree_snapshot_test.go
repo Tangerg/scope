@@ -176,6 +176,22 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 	if err != nil || parsed.RootID() != tree.RootID() || len(parsed.ProcessSnapshots()) != 4 {
 		t.Fatalf("parsed tree = %#v, error = %v", parsed, err)
 	}
+	for _, boundary := range []ChildWaitBoundary{"", "unknown", ChildWaitBoundaryDrained} {
+		t.Run("child wait rejects changed boundary "+string(boundary), func(t *testing.T) {
+			candidate, decodeErr := tree.wire()
+			if decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+			candidate.ChildWaits[0].Spec.Boundary = boundary
+			encoded, encodeErr := json.Marshal(candidate)
+			if encodeErr != nil {
+				t.Fatal(encodeErr)
+			}
+			if _, parseErr := ParseTreeSnapshot(encoded); !errors.Is(parseErr, ErrInvalidTreeSnapshot) {
+				t.Fatalf("changed child wait boundary error=%v", parseErr)
+			}
+		})
+	}
 	t.Run("child wait registration belongs to its parent", func(t *testing.T) {
 		candidate, decodeErr := tree.wire()
 		if decodeErr != nil {

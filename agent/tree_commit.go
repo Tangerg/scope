@@ -260,13 +260,23 @@ func (t *treeRuntime) publishChildOutcome(pending *pendingChildOutcome) error {
 
 func (t *treeRuntime) tryStartCheckpoint() bool {
 	if t.engine.durability == nil || t.fault != nil || t.commit != nil ||
-		t.freeze != nil || len(t.jobs) != 0 || len(t.processQueue) != 0 {
+		t.freeze != nil {
 		return false
 	}
-	kind, safe := t.checkpointKind()
-	if !safe {
-		return false
+	if len(t.jobs) != 0 || len(t.processQueue) != 0 {
+		ready := false
+		for processID := range t.pendingPublications {
+			process := t.processes[processID]
+			if process.status.Terminal() || process.status == StatusWaiting || process.status == StatusPaused {
+				ready = true
+				break
+			}
+		}
+		if !ready {
+			return false
+		}
 	}
+	kind := t.checkpointKind()
 	snapshot, err := t.captureTree()
 	if err != nil {
 		t.failDurability(err, ProcessID{}, EffectID{})
@@ -285,7 +295,7 @@ func (t *treeRuntime) tryStartCheckpoint() bool {
 	return true
 }
 
-func (t *treeRuntime) checkpointKind() (TreeCheckpointKind, bool) {
+func (t *treeRuntime) checkpointKind() TreeCheckpointKind {
 	allTerminal := true
 	for _, process := range t.processes {
 		if process.status.Terminal() {
@@ -296,12 +306,12 @@ func (t *treeRuntime) checkpointKind() (TreeCheckpointKind, bool) {
 			process.prepared != nil && process.prepared.hasUnknownSettlement() {
 			continue
 		}
-		return TreeCheckpointInvalid, false
+		return TreeCheckpointProgress
 	}
 	if allTerminal {
-		return TreeCheckpointTerminal, true
+		return TreeCheckpointTerminal
 	}
-	return TreeCheckpointParked, true
+	return TreeCheckpointParked
 }
 
 func (t *treeRuntime) stageTerminal(process *processState) {

@@ -41,26 +41,30 @@ func (t *treeRuntime) propagateProcessTermination(process *processState) {
 		}
 	}
 	t.stopProcessTree(process)
+	t.notifyChildWaits(processID, ChildWaitBoundaryResult)
+}
+
+func (t *treeRuntime) notifyChildWaits(processID ProcessID, boundary ChildWaitBoundary) {
 	for _, registration := range orderedChildWaitRegistrations(t.childWaits) {
-		if !containsProcessID(registration.spec.Children, processID) {
+		if registration.spec.Boundary != boundary || !containsProcessID(registration.spec.Children, processID) {
 			continue
 		}
 		parent := t.processes[registration.parent]
 		if parent == nil || parent.status.Terminal() || parent.pendingControl.hasTerminalIntent() ||
-			parent.mailbox.contains(deriveChildCompletionSignalID(registration.waitID)) {
+			parent.mailbox.contains(deriveChildWaitSignalID(registration.waitID)) {
 			continue
 		}
 		outcomes, satisfied := t.childWaitOutcomes(registration)
 		if !satisfied {
 			continue
 		}
-		signal, err := encodeChildrenCompleted(registration.waitID, registration.spec.Key, outcomes)
+		signal, err := encodeChildWaitSatisfied(registration.waitID, registration.spec.Key, boundary, outcomes)
 		if err != nil {
-			parent.recordFailure(FailureKindExecution, "engine.child.completion.encoding_failed", err)
+			parent.recordFailure(FailureKindExecution, "engine.child.wait.satisfaction.encoding_failed", err)
 			t.stopProcessTree(parent)
 			continue
 		}
-		if parent.deliverChildrenCompleted(t.context, signal) {
+		if parent.deliverChildWaitSatisfied(t.context, signal) {
 			t.enqueueProcess(parent.handle.processID)
 		} else if parent.pendingControl.hasTerminalIntent() {
 			t.stopProcessTree(parent)
@@ -99,7 +103,11 @@ func (t *treeRuntime) childWaitOutcomes(
 		if child == nil {
 			return nil, false
 		}
-		if child.status.Terminal() {
+		ready := child.status.Terminal()
+		if registration.spec.Boundary == ChildWaitBoundaryDrained {
+			ready = child.handle.joinDone() && child.handle.joinError() == nil
+		}
+		if ready {
 			key, _ := child.handle.relation.ChildKey()
 			outcomes = append(outcomes, ChildOutcome{key: key, result: child.result()})
 		}
@@ -139,7 +147,7 @@ func (t *treeRuntime) registerChildWait(
 	if !satisfied {
 		return Signal{}, false, nil
 	}
-	signal, err := encodeChildrenCompleted(waitID, spec.Key, outcomes)
+	signal, err := encodeChildWaitSatisfied(waitID, spec.Key, spec.Boundary, outcomes)
 	if err != nil {
 		delete(t.childWaits, waitID)
 		return Signal{}, false, err

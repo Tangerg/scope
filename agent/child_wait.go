@@ -11,8 +11,8 @@ import (
 var ErrInvalidChildWait = errors.New("agent: invalid child wait")
 
 // ChildWaitCondition identifies when a set of child Processes releases its
-// parent. It describes completion count only; it does not imply cancellation
-// of unfinished children or reinterpret child terminal statuses.
+// parent. It counts children at the requested boundary; it does not cancel
+// unfinished children or reinterpret child terminal statuses.
 type ChildWaitCondition struct {
 	kind   childWaitKind
 	quorum uint32
@@ -26,13 +26,13 @@ const (
 	childWaitQuorum childWaitKind = "quorum"
 )
 
-// AllChildren waits until every named child is terminal.
+// AllChildren waits until every named child reaches the requested boundary.
 func AllChildren() ChildWaitCondition { return ChildWaitCondition{kind: childWaitAll} }
 
-// AnyChild waits until at least one named child is terminal.
+// AnyChild waits until at least one named child reaches the requested boundary.
 func AnyChild() ChildWaitCondition { return ChildWaitCondition{kind: childWaitAny} }
 
-// ChildQuorum waits until count named children are terminal.
+// ChildQuorum waits until count named children reach the requested boundary.
 func ChildQuorum(count uint32) (ChildWaitCondition, error) {
 	condition := ChildWaitCondition{kind: childWaitQuorum, quorum: count}
 	if count == 0 {
@@ -66,19 +66,42 @@ func (c ChildWaitCondition) required(total int) (uint32, error) {
 	}
 }
 
+// ChildWaitBoundary selects the lifecycle fact counted by a child wait.
+type ChildWaitBoundary string
+
+const (
+	ChildWaitBoundaryResult  ChildWaitBoundary = "terminal_result"
+	ChildWaitBoundaryDrained ChildWaitBoundary = "subtree_drained"
+)
+
+func (c ChildWaitBoundary) Valid() bool {
+	return c == ChildWaitBoundaryResult || c == ChildWaitBoundaryDrained
+}
+
+func (c ChildWaitBoundary) String() string {
+	if !c.Valid() {
+		return invalidEnumName
+	}
+	return string(c)
+}
+
 // ChildWaitSpec names one stable logical wait, its direct children in result
-// order, and the completion predicate.
+// order, lifecycle boundary, and count predicate.
 type ChildWaitSpec struct {
 	// Key is the Execution-owned logical identity of this wait request.
 	Key WaitKey
 	// Children lists direct child identities in result order.
 	Children []ProcessID
-	// Condition declares how many listed children must become terminal.
+	// Boundary explicitly selects terminal results or joined subtrees. A joined
+	// subtree has completed its owned local work and required acknowledgments in
+	// this runtime, as defined by Process.Join; remote uncertainty may remain.
+	Boundary ChildWaitBoundary
+	// Condition declares how many listed children must reach Boundary.
 	Condition ChildWaitCondition
 }
 
 func (c ChildWaitSpec) Valid() bool {
-	if !c.Key.Valid() {
+	if !c.Key.Valid() || !c.Boundary.Valid() {
 		return false
 	}
 	if _, err := c.Condition.required(len(c.Children)); err != nil {
@@ -170,28 +193,32 @@ func (c ChildOutcome) Result() Result { return c.result }
 
 func (c ChildOutcome) Valid() bool { return c.key.Valid() && c.result.Valid() }
 
-// ChildrenCompleted is one condition-satisfying, request-ordered child result
-// set. For any or quorum it includes every child already terminal at the atomic
-// satisfaction check, without canceling or omitting based on status.
-type ChildrenCompleted struct {
+// ChildWaitSatisfied is one condition-satisfying, request-ordered child result
+// set. For any or quorum it includes every child at the requested boundary at
+// the atomic satisfaction check, without canceling or omitting based on status.
+type ChildWaitSatisfied struct {
 	waitID   WaitID
 	key      WaitKey
+	boundary ChildWaitBoundary
 	outcomes []ChildOutcome
 }
 
 // WaitID returns the addressed wait identity.
-func (c ChildrenCompleted) WaitID() WaitID { return c.waitID }
+func (c ChildWaitSatisfied) WaitID() WaitID { return c.waitID }
 
 // Key returns the logical wait key declared by the Execution.
-func (c ChildrenCompleted) Key() WaitKey { return c.key }
+func (c ChildWaitSatisfied) Key() WaitKey { return c.key }
+
+// Boundary identifies the lifecycle fact established by this wait.
+func (c ChildWaitSatisfied) Boundary() ChildWaitBoundary { return c.boundary }
 
 // Outcomes returns terminal children in the original ChildWaitSpec order.
-func (c ChildrenCompleted) Outcomes() []ChildOutcome {
+func (c ChildWaitSatisfied) Outcomes() []ChildOutcome {
 	return slices.Clone(c.outcomes)
 }
 
-func (c ChildrenCompleted) Valid() bool {
-	if !c.waitID.Valid() || !c.key.Valid() || len(c.outcomes) == 0 {
+func (c ChildWaitSatisfied) Valid() bool {
+	if !c.waitID.Valid() || !c.key.Valid() || !c.boundary.Valid() || len(c.outcomes) == 0 {
 		return false
 	}
 	seen := make(map[ProcessID]struct{}, len(c.outcomes))
@@ -207,30 +234,30 @@ func (c ChildrenCompleted) Valid() bool {
 	return true
 }
 
-// ParseChildrenCompleted decodes an Engine-generated, WaitID-addressed child
-// completion Signal.
-func ParseChildrenCompleted(signal Signal) (ChildrenCompleted, error) {
+// ParseChildWaitSatisfied decodes an Engine-generated, WaitID-addressed child
+// wait-satisfaction Signal.
+func ParseChildWaitSatisfied(signal Signal) (ChildWaitSatisfied, error) {
 	waitID, addressed := signal.WaitID()
 	if !signal.Valid() || !addressed {
-		return ChildrenCompleted{}, ErrInvalidChildWait
+		return ChildWaitSatisfied{}, ErrInvalidChildWait
 	}
-	wire, err := wireJSON.decode[childrenCompletedWire](signal.Payload())
+	wire, err := wireJSON.decode[childWaitSatisfiedWire](signal.Payload())
 	if err != nil {
-		return ChildrenCompleted{}, fmt.Errorf("%w: decode completion Signal: %w", ErrInvalidChildWait, err)
+		return ChildWaitSatisfied{}, fmt.Errorf("%w: decode completion Signal: %w", ErrInvalidChildWait, err)
 	}
-	if wire.Operation != childSignalChildrenCompleted || !wire.Key.Valid() || len(wire.Outcomes) == 0 {
-		return ChildrenCompleted{}, ErrInvalidChildWait
+	if wire.Operation != childSignalWaitSatisfied || !wire.Key.Valid() || len(wire.Outcomes) == 0 {
+		return ChildWaitSatisfied{}, ErrInvalidChildWait
 	}
-	completed := ChildrenCompleted{waitID: waitID, key: wire.Key}
+	completed := ChildWaitSatisfied{waitID: waitID, key: wire.Key, boundary: wire.Boundary}
 	for _, encoded := range wire.Outcomes {
 		outcome, err := encoded.value()
 		if err != nil {
-			return ChildrenCompleted{}, err
+			return ChildWaitSatisfied{}, err
 		}
 		completed.outcomes = append(completed.outcomes, outcome)
 	}
 	if !completed.Valid() {
-		return ChildrenCompleted{}, ErrInvalidChildWait
+		return ChildWaitSatisfied{}, ErrInvalidChildWait
 	}
 	return completed, nil
 }
@@ -238,8 +265,8 @@ func ParseChildrenCompleted(signal Signal) (ChildrenCompleted, error) {
 type childSignalOperation string
 
 const (
-	childSignalWaitOpened        childSignalOperation = "child_wait_opened"
-	childSignalChildrenCompleted childSignalOperation = "children_completed"
+	childSignalWaitOpened    childSignalOperation = "child_wait_opened"
+	childSignalWaitSatisfied childSignalOperation = "child_wait_satisfied"
 )
 
 type childWaitConditionWire struct {
@@ -250,6 +277,7 @@ type childWaitConditionWire struct {
 type childWaitSpecWire struct {
 	Key       WaitKey                `json:"key"`
 	Children  []ProcessID            `json:"children"`
+	Boundary  ChildWaitBoundary      `json:"boundary"`
 	Condition childWaitConditionWire `json:"condition"`
 }
 
@@ -263,9 +291,10 @@ type childWaitOpenedWire struct {
 	Spec      childWaitSpecWire    `json:"spec"`
 }
 
-type childrenCompletedWire struct {
+type childWaitSatisfiedWire struct {
 	Operation childSignalOperation `json:"operation"`
 	Key       WaitKey              `json:"key"`
+	Boundary  ChildWaitBoundary    `json:"boundary"`
 	Outcomes  []childOutcomeWire   `json:"outcomes"`
 }
 
@@ -286,6 +315,7 @@ type resultWire struct {
 func childWaitSpecWireFromValue(spec ChildWaitSpec) childWaitSpecWire {
 	return childWaitSpecWire{
 		Key: spec.Key, Children: slices.Clone(spec.Children),
+		Boundary:  spec.Boundary,
 		Condition: childWaitConditionWire{Kind: spec.Condition.kind, Quorum: spec.Condition.quorum},
 	}
 }
@@ -293,6 +323,7 @@ func childWaitSpecWireFromValue(spec ChildWaitSpec) childWaitSpecWire {
 func (c childWaitSpecWire) value() (ChildWaitSpec, error) {
 	spec := ChildWaitSpec{
 		Key: c.Key, Children: slices.Clone(c.Children),
+		Boundary:  c.Boundary,
 		Condition: ChildWaitCondition{kind: c.Condition.Kind, quorum: c.Condition.Quorum},
 	}
 	if !spec.Valid() {
@@ -367,18 +398,20 @@ func (r resultWire) value() (Result, error) {
 	return result, nil
 }
 
-func encodeChildrenCompleted(
+func encodeChildWaitSatisfied(
 	waitID WaitID,
 	key WaitKey,
+	boundary ChildWaitBoundary,
 	outcomes []ChildOutcome,
 ) (Signal, error) {
-	completed := ChildrenCompleted{waitID: waitID, key: key, outcomes: slices.Clone(outcomes)}
+	completed := ChildWaitSatisfied{waitID: waitID, key: key, boundary: boundary, outcomes: slices.Clone(outcomes)}
 	if !completed.Valid() {
 		return Signal{}, ErrInvalidChildWait
 	}
-	wire := childrenCompletedWire{
-		Operation: childSignalChildrenCompleted,
+	wire := childWaitSatisfiedWire{
+		Operation: childSignalWaitSatisfied,
 		Key:       key,
+		Boundary:  boundary,
 		Outcomes:  make([]childOutcomeWire, len(outcomes)),
 	}
 	for index, outcome := range outcomes {
@@ -390,11 +423,11 @@ func encodeChildrenCompleted(
 	if err != nil {
 		return Signal{}, err
 	}
-	return newSignal(deriveChildCompletionSignalID(waitID), waitID, payload)
+	return newSignal(deriveChildWaitSignalID(waitID), waitID, payload)
 }
 
-func deriveChildCompletionSignalID(waitID WaitID) SignalID {
-	digest := digestBytes([]byte("children-completed\x00" + waitID.String()))
+func deriveChildWaitSignalID(waitID WaitID) SignalID {
+	digest := digestBytes([]byte("child-wait-satisfied\x00" + waitID.String()))
 	id, err := ParseSignalID(signalIDPrefix + digest.hex())
 	if err != nil {
 		panic(err)

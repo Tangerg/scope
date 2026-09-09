@@ -232,7 +232,7 @@ func (e *execution) acceptToolWaitOpen(signals []agent.Signal) (agent.Transition
 }
 
 func (e *execution) acceptToolCompletions(signals []agent.Signal) (agent.Transition, error) {
-	completed, steer, consumed, err := collectChildrenCompleted(signals)
+	completed, steer, consumed, err := collectChildWaitSatisfied(signals)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -300,7 +300,7 @@ func (e *execution) toolWaitSpec() (agent.ChildWaitSpec, error) {
 	if err != nil {
 		return agent.ChildWaitSpec{}, err
 	}
-	spec := agent.ChildWaitSpec{Key: key, Children: e.toolChildren(), Condition: agent.AnyChild()}
+	spec := agent.ChildWaitSpec{Boundary: agent.ChildWaitBoundaryDrained, Key: key, Children: e.toolChildren(), Condition: agent.AnyChild()}
 	if !spec.Valid() {
 		return agent.ChildWaitSpec{}, ErrInvalidExecutionState
 	}

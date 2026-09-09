@@ -182,6 +182,7 @@ func childWaitOpenedTestSignal(t testing.TB) agent.Signal {
 		"spec":{
 			"key":"interaction.delegate.wait.test",
 			"children":["process:delegate-wait-child"],
+			"boundary":"subtree_drained",
 			"condition":{"kind":"all"}
 		}
 	}`)

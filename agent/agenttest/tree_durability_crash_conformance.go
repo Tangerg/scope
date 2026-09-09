@@ -22,6 +22,7 @@ const (
 	crashCommitCheckpointChild
 	crashCommitCheckpointInput
 	crashCommitCheckpointParked
+	crashCommitCheckpointCancellation
 	crashCommitCheckpointTerminal
 )
 
@@ -140,6 +141,14 @@ func (t *treeDurabilityCommitGate) CommitCheckpoint(
 		kind = crashCommitCheckpointParked
 	case agent.TreeCheckpointTerminal:
 		kind = crashCommitCheckpointTerminal
+	}
+	if t.point.kind == crashCommitCheckpointCancellation {
+		for _, process := range checkpoint.TreeSnapshot().ProcessSnapshots() {
+			if process.Status() == agent.StatusCanceled {
+				kind = crashCommitCheckpointCancellation
+				break
+			}
+		}
 	}
 	observation := crashCommitObservation{
 		rootID:         checkpoint.TreeSnapshot().RootID(),

@@ -117,7 +117,7 @@ func runCrashChildCommit(t *testing.T, store TreeDurabilityConformanceDriver, ph
 func runCrashAfterSubtreeCancellationCheckpoint(t *testing.T, store TreeDurabilityConformanceDriver) {
 	durability := store.TreeDurability()
 	gate := newTreeDurabilityCommitGate(t, durability, crashCommitPoint{
-		kind: crashCommitCheckpointTerminal, phase: crashCommitAfter,
+		kind: crashCommitCheckpointCancellation, phase: crashCommitAfter,
 	})
 	deployment := newCrashTreeDeployment(t)
 	engine := newCrashEngine(t, gate, nil)
@@ -370,7 +370,8 @@ func (c *crashTreeExecution) openRootChildWait(signals []agent.Signal) (agent.Tr
 		return agent.Transition{}, err
 	}
 	effect, err := agent.WaitForChildren(agent.ChildWaitSpec{
-		Key: key, Children: []agent.ProcessID{childID}, Condition: agent.AllChildren(),
+		Boundary: agent.ChildWaitBoundaryResult,
+		Key:      key, Children: []agent.ProcessID{childID}, Condition: agent.AllChildren(),
 	})
 	if err != nil {
 		return agent.Transition{}, err
@@ -397,7 +398,7 @@ func (c *crashTreeExecution) completeRoot(signals []agent.Signal) (agent.Transit
 	if len(signals) != 1 {
 		return agent.Transition{}, errors.New("agenttest: child completion is missing")
 	}
-	if _, err := agent.ParseChildrenCompleted(signals[0]); err != nil {
+	if _, err := agent.ParseChildWaitSatisfied(signals[0]); err != nil {
 		return agent.Transition{}, err
 	}
 	c.state.Phase = crashTreePhaseFinished

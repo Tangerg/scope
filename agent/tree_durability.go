@@ -160,13 +160,14 @@ const (
 	TreeCheckpointStart    TreeCheckpointKind = "start"
 	TreeCheckpointChild    TreeCheckpointKind = "child"
 	TreeCheckpointInput    TreeCheckpointKind = "input"
+	TreeCheckpointProgress TreeCheckpointKind = "progress"
 	TreeCheckpointParked   TreeCheckpointKind = "parked"
 	TreeCheckpointTerminal TreeCheckpointKind = "terminal"
 )
 
 func (t TreeCheckpointKind) Valid() bool {
 	switch t {
-	case TreeCheckpointStart, TreeCheckpointChild, TreeCheckpointInput, TreeCheckpointParked, TreeCheckpointTerminal:
+	case TreeCheckpointStart, TreeCheckpointChild, TreeCheckpointInput, TreeCheckpointProgress, TreeCheckpointParked, TreeCheckpointTerminal:
 		return true
 	default:
 		return false
@@ -182,7 +183,7 @@ func (t TreeCheckpointKind) String() string {
 
 // TreeCheckpoint keeps child publication, input acceptance, and execution
 // progress on the same head so recovery cannot observe partially accepted work.
-// Input and child cuts can coexist with sibling jobs because those jobs expose
+// Input, child, and progress cuts can coexist with sibling jobs because those jobs expose
 // only committed Execution state or already recorded Effect intent.
 type TreeCheckpoint struct {
 	kind               TreeCheckpointKind
@@ -234,6 +235,7 @@ func (t TreeCheckpoint) matchesSafeCut() bool {
 		return true
 	}
 	allTerminal := true
+	parked := true
 	for _, snapshot := range t.treeSnapshot.ProcessSnapshots() {
 		if snapshot.Status().Terminal() {
 			continue
@@ -243,19 +245,16 @@ func (t TreeCheckpoint) matchesSafeCut() bool {
 			continue
 		}
 		wire, err := snapshot.wire()
-		if err != nil || wire.Prepared == nil {
+		if err != nil {
 			return false
 		}
-		unknown := false
-		for _, effect := range wire.Prepared.Effects {
-			unknown = unknown || effect.unknown()
-		}
-		if !unknown {
-			return false
+		if wire.Prepared == nil || len(wire.Prepared.Effects.unknownEffectIDs()) == 0 {
+			parked = false
 		}
 	}
 	return t.kind == TreeCheckpointTerminal && allTerminal ||
-		t.kind == TreeCheckpointParked && !allTerminal
+		t.kind == TreeCheckpointParked && !allTerminal && parked ||
+		t.kind == TreeCheckpointProgress && !parked
 }
 
 // TreeActivation changes writer identity and recovery state together so the

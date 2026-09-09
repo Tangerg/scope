@@ -29,7 +29,9 @@ type TreeSnapshot struct {
 
 // ParseTreeSnapshot validates the current wire shape and domain constraints of
 // one complete Process tree. Unknown members are rejected. Every active child
-// wait must have a registration belonging to its Process.
+// wait must have a registration belonging to its Process and matching its
+// opening Signal. Pending satisfaction Signals must agree with that boundary
+// and the terminal results in the captured tree.
 func ParseTreeSnapshot(data json.RawMessage) (TreeSnapshot, error) {
 	if len(data) == 0 || len(data) > maxTreeSnapshotBytes {
 		return TreeSnapshot{}, fmt.Errorf(
@@ -285,6 +287,9 @@ func (t *treeSnapshotValidation) validateChildWaits() error {
 		waitRecord, exists := findWaitRecord(parent.Mailbox, encoded.WaitID)
 		if !exists || waitRecord.ExternallyAddressable || waitRecord.Closed || waitRecord.WaitKey != spec.Key {
 			return fmt.Errorf("%w: child wait is absent from parent mailbox", ErrInvalidTreeSnapshot)
+		}
+		if err := t.validateChildWaitSignals(parent.Mailbox, encoded.WaitID, spec); err != nil {
+			return err
 		}
 		for _, childID := range spec.Children {
 			child, exists := t.processes[childID]

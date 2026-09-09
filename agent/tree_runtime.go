@@ -301,6 +301,7 @@ func (t *treeRuntime) advanceReadyWork() bool {
 	advanced = t.tryCommand() || advanced
 	advanced = t.tryCompletion() || advanced
 	advanced = t.advanceOne() || advanced
+	advanced = t.publishJoins() || advanced
 	return t.tryStartCheckpoint() || advanced
 }
 

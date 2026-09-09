@@ -187,9 +187,16 @@ func ExampleDefinition() {
 	if err != nil {
 		panic(err)
 	}
-	result, err := engine.Run(ctx, deployment, input)
+	process, err := engine.Start(ctx, deployment, input)
 	if err != nil {
 		panic(err)
+	}
+	result, err := process.Await(ctx)
+	if err != nil {
+		panic(err)
+	}
+	if joinErr := process.Join(ctx); joinErr != nil {
+		panic(joinErr)
 	}
 	output, ok := result.Output()
 	if !ok {

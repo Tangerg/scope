@@ -21,7 +21,7 @@ func TestRuntimeInspectionHasOnePublicOwner(t *testing.T) {
 		methods = append(methods, process.Method(index).Name)
 	}
 	want := []string{
-		"Await", "Budget", "Capabilities", "DeliverSignals", "DeploymentRef", "ID",
+		"Await", "Budget", "Capabilities", "DeliverSignals", "DeploymentRef", "ID", "Join",
 		"Kill", "Pause", "Relation", "RequestCancellation", "ResolveUnknownEffect", "Resume", "StartedAt",
 	}
 	if !slices.Equal(methods, want) {

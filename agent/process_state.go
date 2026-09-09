@@ -164,13 +164,13 @@ func (p *processState) recordParentTermination(parent Termination) {
 	}
 }
 
-func (p *processState) deliverChildrenCompleted(ctx context.Context, signal Signal) bool {
-	accepted, err := p.admitSignals([]Signal{signal}, signalSourceChildCompletion)
+func (p *processState) deliverChildWaitSatisfied(ctx context.Context, signal Signal) bool {
+	accepted, err := p.admitSignals([]Signal{signal}, signalSourceChildWait)
 	if err != nil {
 		if errors.Is(err, ErrResourceLimitExceeded) {
-			p.recordFailure(FailureKindExecution, "engine.limit.child_completion_signal", err)
+			p.recordFailure(FailureKindExecution, "engine.limit.child_wait_signal", err)
 		} else {
-			p.recordFailure(FailureKindContract, "engine.child.completion.invalid", err)
+			p.recordFailure(FailureKindContract, "engine.child.wait.satisfaction.invalid", err)
 		}
 		return false
 	}

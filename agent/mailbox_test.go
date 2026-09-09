@@ -269,7 +269,7 @@ func TestMailboxCommitReportsOnlyConsumedChildWaits(t *testing.T) {
 		t.Fatal(err)
 	}
 	answer := mustMailboxSignal(t, "signal:answer", waitID, json.RawMessage(`{}`))
-	if _, err := mailbox.enqueue(StatusRunning, answer, signalSourceChildCompletion); err != nil {
+	if _, err := mailbox.enqueue(StatusRunning, answer, signalSourceChildWait); err != nil {
 		t.Fatal(err)
 	}
 	candidate := mailbox.clone()
@@ -309,7 +309,7 @@ func TestMailboxRestoresWaitLifecycleAtEveryBoundary(t *testing.T) {
 		t.Run(strconv.FormatBool(external), func(t *testing.T) {
 			mailbox := newSignalMailbox()
 			key, _ := ParseWaitKey("reusable")
-			source := signalSourceChildCompletion
+			source := signalSourceChildWait
 			if external {
 				source = signalSourceExternal
 			}

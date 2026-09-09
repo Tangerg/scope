@@ -22,10 +22,11 @@ type processHandleState struct {
 	runtime            atomic.Pointer[treeRuntime]
 
 	// Await joins outcome publication and immediate parent/child bookkeeping.
-	// The tree runtime separately joins descendant jobs before it stops.
+	// Join additionally waits for owned descendant work and acknowledgments.
 	outcomePublished chan struct{}
 	bookkeepingDone  chan struct{}
 	bookkeepingOnce  sync.Once
+	joined           chan struct{}
 
 	// mu protects the acknowledged status and retained instance outcome.
 	// It is never held while running execution code or invoking listeners.
@@ -33,6 +34,7 @@ type processHandleState struct {
 	acknowledgedStatus Status
 	result             Result
 	runtimeErr         *RuntimeError
+	joinErr            *RuntimeError
 }
 
 func newProcessHandleState(
@@ -48,7 +50,7 @@ func newProcessHandleState(
 		processID: relation.ProcessID(), deploymentRef: deploymentRef, relation: relation,
 		budget: budget, capabilities: capabilities, treeLimits: treeLimits, startedAt: startedAt,
 		outcomePublished: make(chan struct{}),
-		bookkeepingDone:  make(chan struct{}), acknowledgedStatus: status,
+		bookkeepingDone:  make(chan struct{}), joined: make(chan struct{}), acknowledgedStatus: status,
 	}
 }
 
@@ -74,6 +76,31 @@ func (p *processHandleState) publishResult(result Result) {
 
 func (p *processHandleState) finishBookkeeping() {
 	p.bookkeepingOnce.Do(func() { close(p.bookkeepingDone) })
+}
+
+func (p *processHandleState) finishJoin(err *RuntimeError) {
+	p.mu.Lock()
+	p.joinErr = err
+	p.mu.Unlock()
+	close(p.joined)
+}
+
+func (p *processHandleState) joinError() error {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.joinErr != nil {
+		return p.joinErr.clone()
+	}
+	return nil
+}
+
+func (p *processHandleState) joinDone() bool {
+	select {
+	case <-p.joined:
+		return true
+	default:
+		return false
+	}
 }
 
 func (p *processHandleState) outcome() (Result, error) {

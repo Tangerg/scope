@@ -134,7 +134,8 @@ func (e *execution) acceptDelegateStarts(signals []agent.Signal) (agent.Transiti
 		return agent.Transition{}, err
 	}
 	effect, err := agent.WaitForChildren(agent.ChildWaitSpec{
-		Key: waitKey, Children: children, Condition: agent.AllChildren(),
+		Boundary: agent.ChildWaitBoundaryDrained,
+		Key:      waitKey, Children: children, Condition: agent.AllChildren(),
 	})
 	if err != nil {
 		return agent.Transition{}, err
@@ -156,7 +157,7 @@ func (e *execution) acceptDelegateWaitOpen(signals []agent.Signal) (agent.Transi
 		return agent.Transition{}, err
 	}
 	got := opened.Spec()
-	if got.Key != want.Key || got.Condition != want.Condition || !slices.Equal(got.Children, want.Children) {
+	if got.Key != want.Key || got.Boundary != want.Boundary || got.Condition != want.Condition || !slices.Equal(got.Children, want.Children) {
 		return agent.Transition{}, fmt.Errorf("%w: Delegate child-wait opening mismatch", ErrInvalidExecutionState)
 	}
 	waitID := opened.WaitID()
@@ -166,7 +167,7 @@ func (e *execution) acceptDelegateWaitOpen(signals []agent.Signal) (agent.Transi
 }
 
 func (e *execution) acceptDelegates(signals []agent.Signal) (agent.Transition, error) {
-	completed, steer, consumedSignals, err := collectChildrenCompleted(signals)
+	completed, steer, consumedSignals, err := collectChildWaitSatisfied(signals)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -177,7 +178,7 @@ func (e *execution) acceptDelegates(signals []agent.Signal) (agent.Transition, e
 		return agent.Transition{}, fmt.Errorf("%w: Delegate child completion addressed the wrong wait", ErrInvalidExecutionState)
 	}
 	want, err := e.delegateWaitSpec()
-	if err != nil || completed.Key() != want.Key {
+	if err != nil || completed.Key() != want.Key || completed.Boundary() != want.Boundary {
 		return agent.Transition{}, fmt.Errorf("%w: Delegate child completion wait mismatch", ErrInvalidExecutionState)
 	}
 	calls, err := e.activeCallSegment()
@@ -263,7 +264,8 @@ func (e *execution) delegateWaitSpec() (agent.ChildWaitSpec, error) {
 		return agent.ChildWaitSpec{}, err
 	}
 	spec := agent.ChildWaitSpec{
-		Key: key, Children: e.delegateChildren(), Condition: agent.AllChildren(),
+		Boundary: agent.ChildWaitBoundaryDrained,
+		Key:      key, Children: e.delegateChildren(), Condition: agent.AllChildren(),
 	}
 	if !spec.Valid() {
 		return agent.ChildWaitSpec{}, ErrInvalidExecutionState
@@ -314,7 +316,7 @@ func collectChildWaitOpened(signals []agent.Signal) (agent.ChildWaitOpened, stee
 			continue
 		}
 		if found {
-			if _, completionErr := agent.ParseChildrenCompleted(signal); completionErr == nil {
+			if _, completionErr := agent.ParseChildWaitSatisfied(signal); completionErr == nil {
 				break
 			}
 		}
@@ -326,24 +328,24 @@ func collectChildWaitOpened(signals []agent.Signal) (agent.ChildWaitOpened, stee
 	return opened, steer, consumed, nil
 }
 
-func collectChildrenCompleted(signals []agent.Signal) (agent.ChildrenCompleted, steerBatch, uint32, error) {
-	var completed agent.ChildrenCompleted
+func collectChildWaitSatisfied(signals []agent.Signal) (agent.ChildWaitSatisfied, steerBatch, uint32, error) {
+	var completed agent.ChildWaitSatisfied
 	var found bool
 	var steer steerBatch
 	for _, signal := range signals {
 		if recognized, err := appendSteerSignal(&steer, signal); err != nil {
-			return agent.ChildrenCompleted{}, steerBatch{}, 0, err
+			return agent.ChildWaitSatisfied{}, steerBatch{}, 0, err
 		} else if recognized {
 			continue
 		}
-		value, err := agent.ParseChildrenCompleted(signal)
+		value, err := agent.ParseChildWaitSatisfied(signal)
 		if err != nil || found {
-			return agent.ChildrenCompleted{}, steerBatch{}, 0, fmt.Errorf("%w: invalid or duplicate Delegate completion Signal", ErrInvalidExecutionState)
+			return agent.ChildWaitSatisfied{}, steerBatch{}, 0, fmt.Errorf("%w: invalid or duplicate Delegate completion Signal", ErrInvalidExecutionState)
 		}
 		completed, found = value, true
 	}
 	if !found {
-		return agent.ChildrenCompleted{}, steerBatch{}, 0, fmt.Errorf("%w: Delegate completion Signal is missing", ErrInvalidExecutionState)
+		return agent.ChildWaitSatisfied{}, steerBatch{}, 0, fmt.Errorf("%w: Delegate completion Signal is missing", ErrInvalidExecutionState)
 	}
 	return completed, steer, uint32(len(signals)), nil
 }

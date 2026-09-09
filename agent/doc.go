@@ -63,6 +63,9 @@
 // boundaries; a checkpoint still requires a safe tree cut. This is a scheduling
 // guarantee, not a wall-clock deadline: implementations must honor their bounded
 // execution contracts, and the Host owns storage deadlines.
+// A progress checkpoint can acknowledge one Process while unrelated sibling
+// jobs run. Their cut retains committed state and any prepared Effect frontier;
+// their return cannot change that cut until the single commit owner resumes.
 //
 // Before adopting initial or candidate state, the Engine captures Snapshot and
 // successfully restores it through that Deployment's Definition. An
@@ -147,6 +150,12 @@
 // another WaitID. Only an answer to the current WaitID releases Waiting;
 // an explicit pause still requires Resume. Unaddressed Strategy input can also
 // queue while Paused or waiting for children without releasing either state.
+// [WaitForChildren] requires an explicit [ChildWaitBoundary]. The result boundary
+// counts terminal children. The drained boundary counts children whose entire
+// subtree satisfies [Process.Join]. All, any, and quorum count those facts in
+// request order; none selects successful business outcomes or cancels losers.
+// [ChildWaitSatisfied] carries the chosen boundary with the terminal results.
+// Wait registration is nonblocking even when a child already reached its boundary.
 //
 // Each strategy declares its own safe consumption boundary and proves it with
 // contract tests.
@@ -175,7 +184,12 @@
 // to return. The owner still collects started external work. Initialization
 // outcome and durability acknowledgments are not canceled. A late successful
 // child initialization joins the tree under terminal intent before any Step.
-// [Process.Await] establishes the Process result, not descendant drain.
+// [Process.Await] establishes the Process result and immediate bookkeeping.
+// [Process.Join] additionally waits for owned descendant calls and required
+// acknowledgments in this runtime. It leaves unrelated siblings running and
+// does not release the tree. A runtime failure in the subtree makes Join fail
+// after its local calls return, even if this Process already published a result.
+// Terminal Unknown settlements remain evidence of remote uncertainty after Join.
 //
 // A child-completion delivery failure is recorded as pending termination.
 // Accepted external effects settle first, and any unknown identities remain

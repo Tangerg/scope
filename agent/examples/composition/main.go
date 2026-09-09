@@ -431,7 +431,8 @@ func (c *compositionExecution) waitForChildren(signals []agent.Signal) (agent.Tr
 		return agent.Transition{}, err
 	}
 	waitEffect, err := agent.WaitForChildren(agent.ChildWaitSpec{
-		Key: waitKey, Children: children, Condition: agent.AllChildren(),
+		Boundary: agent.ChildWaitBoundaryDrained,
+		Key:      waitKey, Children: children, Condition: agent.AllChildren(),
 	})
 	if err != nil {
 		return agent.Transition{}, err
@@ -447,7 +448,7 @@ func (c *compositionExecution) complete(
 	if len(signals) == 0 {
 		return agent.Transition{}, errors.New("composition child results are missing")
 	}
-	completed, err := agent.ParseChildrenCompleted(signals[0])
+	completed, err := agent.ParseChildWaitSatisfied(signals[0])
 	if err != nil {
 		return agent.Transition{}, err
 	}

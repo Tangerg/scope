@@ -83,7 +83,7 @@ func TestProcessCancellationPreservesUnsatisfiedSiblingWait(t *testing.T) {
 
 func TestSubtreeCancellationPublishesOnlyAfterCheckpointAcknowledgment(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		durability := &blockingTerminalCheckpointDurability{
+		durability := &blockingCancellationCheckpointDurability{
 			recordingTreeDurability: &recordingTreeDurability{},
 			entered:                 make(chan struct{}), release: make(chan struct{}),
 		}
@@ -118,6 +118,30 @@ func TestSubtreeCancellationPublishesOnlyAfterCheckpointAcknowledgment(t *testin
 		}
 		mustCloseEngine(t, engine)
 	})
+}
+
+type blockingCancellationCheckpointDurability struct {
+	*recordingTreeDurability
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+	err     error
+}
+
+func (b *blockingCancellationCheckpointDurability) CommitCheckpoint(ctx context.Context, checkpoint TreeCheckpoint) error {
+	for _, process := range checkpoint.TreeSnapshot().ProcessSnapshots() {
+		if process.Status() == StatusCanceled {
+			b.once.Do(func() {
+				close(b.entered)
+				<-b.release
+			})
+			if b.err != nil {
+				return b.err
+			}
+			break
+		}
+	}
+	return b.recordingTreeDurability.CommitCheckpoint(ctx, checkpoint)
 }
 
 func assertCanceledSubtree(t *testing.T, target, descendant *Process) {
