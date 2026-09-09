@@ -30,32 +30,49 @@ func TestDefinitionConformance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	toolSet := testToolSet(t, interaction.ToolSetConfig{Tools: []tool.Tool{add}})
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name:          "interaction.conformance",
-		Description:   "Verify the Interaction Definition and Execution contract.",
-		MaxModelCalls: 2, Tools: toolSet, ToolBudget: agent.Budget{Steps: 8, Effects: 4, Signals: 8},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	model := &scriptedModel{}
-	client, err := chatclient.New(model, chatclient.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-		Client: client,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	result := conformancetest.Run(t, agent.DeploymentConfig{
-		Definition: definition, Dispatcher: dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("interaction-conformance")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("tool-loop")),
-	}, agent.EngineConfig{DeploymentResolver: delegateResolver{toolSet.Deployment().DeploymentRef(): toolSet.Deployment()}}, input)
-	if result.Usage().PreparedEffects != 4 || model.Calls() != 2 {
-		t.Fatalf("tool-loop usage=%+v model calls=%d", result.Usage(), model.Calls())
+	for _, test := range []struct {
+		source     interaction.CompletionSource
+		executable tool.Tool
+		modelCalls int
+		effects    uint64
+	}{
+		{interaction.CompletionSourceModelResponse, add, 2, 4},
+		{interaction.CompletionSourceDirectToolResults, directTool{Tool: add}, 1, 3},
+	} {
+		t.Run(string(test.source), func(t *testing.T) {
+			toolSet := testToolSet(t, interaction.ToolSetConfig{Tools: []tool.Tool{test.executable}})
+			definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
+				Name:          "interaction.conformance",
+				Description:   "Verify the Interaction Definition and Execution contract.",
+				MaxModelCalls: 2, Tools: toolSet, ToolBudget: agent.Budget{Steps: 8, Effects: 4, Signals: 8},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			model := &scriptedModel{}
+			client, err := chatclient.New(model, chatclient.Config{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
+				Client: client,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result := conformancetest.Run(t, agent.DeploymentConfig{
+				Definition: definition, Dispatcher: dispatcher,
+				ImplementationDigest: agent.ComputeDigest([]byte("interaction-conformance")),
+				ConfigurationDigest:  agent.ComputeDigest([]byte(test.source)),
+			}, agent.EngineConfig{DeploymentResolver: delegateResolver{toolSet.Deployment().DeploymentRef(): toolSet.Deployment()}}, input)
+			if result.Usage().PreparedEffects != test.effects || model.Calls() != test.modelCalls {
+				t.Fatalf("tool-loop usage=%+v model calls=%d, want effects=%d calls=%d", result.Usage(), model.Calls(), test.effects, test.modelCalls)
+			}
+			erased, present := result.Output()
+			output, err := erased.Decode[interaction.Output]()
+			if !present || err != nil || output.Source != test.source {
+				t.Fatalf("output=%+v present=%t error=%v, want source=%s", output, present, err, test.source)
+			}
+		})
 	}
 }
