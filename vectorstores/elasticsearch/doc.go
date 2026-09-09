@@ -7,6 +7,13 @@
 // top-level query. The store uses the `knn` query (not
 // `script_score`) for retrieval — that's GA since 8.4.
 //
+// The v8 client is deliberate, not a stale pin. Elastic's clients are forward
+// compatible only — they "support communicating with greater or equal minor
+// versions of Elasticsearch" — and every 8.x Go client enables REST API
+// compatibility by default, so v8 reaches a 9.x server while v9 sends
+// compatible-with=9 and cannot serve an 8.x one. Moving to v9 would narrow
+// which servers this store works against and gain nothing.
+//
 // Similarity functions: [SimilarityCosine] / [SimilarityL2] /
 // [SimilarityDotProduct]. The chosen value is recorded in the
 // dense_vector mapping at index creation time and cannot be changed
