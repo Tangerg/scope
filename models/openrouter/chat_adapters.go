@@ -70,6 +70,9 @@ func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
 	if err != nil {
 		return nil, fmt.Errorf("openrouter: configure reasoning dialect: %w", err)
 	}
+	// The shared reasoning dialect defaults to max_tokens, which OpenRouter's
+	// reference calls "deprecated, use max_completion_tokens".
+	dialect.TokenLimitField = openai.TokenLimitMaxCompletionTokens
 	protocol, err := openai.NewCompatibleChatCompletions(ctx, openai.ChatCompletionsConfig{
 		APIKey: config.APIKey, DefaultOptions: config.DefaultOptions,
 		BaseURL: cmp.Or(config.BaseURL, BaseURL), HTTPClient: config.HTTPClient,
