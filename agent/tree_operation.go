@@ -18,6 +18,9 @@ func (e *Engine) acquireTreeOperation(
 ) (*treeOperation, error) {
 	ctx = requireContext(ctx)
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		e.treeOperationsMu.Lock()
 		active := e.treeOperations[rootID]
 		if active == nil {

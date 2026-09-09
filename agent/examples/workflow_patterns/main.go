@@ -198,7 +198,7 @@ func newPatternChildren() (patternChildren, error) {
 		"example.workflow_patterns.normalize",
 		"Normalize one request for the following prompt-chain stage.",
 		struct{}{},
-		func(request patternRequest) (chainState, error) {
+		func(_ context.Context, request patternRequest) (chainState, error) {
 			text := strings.ToUpper(strings.TrimSpace(request.Text))
 			if text == "" {
 				return chainState{}, errors.New("request text must not be empty")
@@ -213,7 +213,7 @@ func newPatternChildren() (patternChildren, error) {
 		"example.workflow_patterns.summarize",
 		"Summarize the normalized result from the previous prompt-chain stage.",
 		struct{}{},
-		func(state chainState) (chainState, error) {
+		func(_ context.Context, state chainState) (chainState, error) {
 			if state.Normalized == "" || state.Summary != "" {
 				return chainState{}, errors.New("summarizer received an invalid chain state")
 			}
@@ -274,7 +274,7 @@ func newPatternStages(children patternChildren, budget agent.Budget) ([]workflow
 	}
 	route, err := workflow.Switch(workflow.SwitchConfig[chainState]{
 		ID: "route",
-		Select: func(state chainState) (string, error) {
+		Select: func(_ context.Context, state chainState) (string, error) {
 			if state.Normalized == "" || state.Summary == "" {
 				return "", errors.New("router received an incomplete chain state")
 			}
@@ -298,7 +298,7 @@ func newPatternStages(children patternChildren, budget agent.Budget) ([]workflow
 			{ID: "risks", Deployment: children.risks, Budget: budget},
 		},
 		WindowSize: sectionWindowSize,
-		Reduce: func(findings []finding) (findingBundle, error) {
+		Reduce: func(_ context.Context, findings []finding) (findingBundle, error) {
 			if len(findings) != sectionWorkerCount || findings[0].Normalized != findings[1].Normalized ||
 				findings[0].Summary != findings[1].Summary || findings[0].Route != findings[1].Route {
 				return findingBundle{}, errors.New("parallel sections returned inconsistent context")
@@ -356,7 +356,7 @@ func newPatternRoot(
 		return agent.Deployment{}, err
 	}
 	root, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: workflow.Dispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte("workflow-patterns-root")),
 		ConfigurationDigest:  agent.ComputeDigest(configurationJSON),
 	})
@@ -392,7 +392,7 @@ func routeDeployment(route string) (agent.Deployment, error) {
 		struct {
 			Route string `json:"route"`
 		}{Route: route},
-		func(state chainState) (routedState, error) {
+		func(_ context.Context, state chainState) (routedState, error) {
 			if state.Normalized == "" || state.Summary == "" {
 				return routedState{}, errors.New("route worker received an incomplete chain state")
 			}
@@ -411,7 +411,7 @@ func findingDeployment(section string) (agent.Deployment, error) {
 		struct {
 			Section string `json:"section"`
 		}{Section: section},
-		func(state routedState) (finding, error) {
+		func(_ context.Context, state routedState) (finding, error) {
 			if state.Route == "" || state.Summary == "" {
 				return finding{}, errors.New("section worker received incomplete routed state")
 			}
@@ -433,7 +433,7 @@ func ballotDeployment(name, choice string) (agent.Deployment, error) {
 		struct {
 			Choice string `json:"choice"`
 		}{Choice: choice},
-		func(bundle findingBundle) (ballot, error) {
+		func(_ context.Context, bundle findingBundle) (ballot, error) {
 			if len(bundle.Findings) != 2 || bundle.Findings[0].Content == "" || bundle.Findings[1].Content == "" {
 				return ballot{}, errors.New("voter requires both parallel sections")
 			}
@@ -447,7 +447,7 @@ func ballotDeployment(name, choice string) (agent.Deployment, error) {
 	)
 }
 
-func reduceBallots(ballots []ballot) (patternReport, error) {
+func reduceBallots(_ context.Context, ballots []ballot) (patternReport, error) {
 	if len(ballots) == 0 {
 		return patternReport{}, errors.New("parallel vote returned no ballots")
 	}
@@ -500,7 +500,7 @@ func transformDeployment[I, O any](
 		return agent.Deployment{}, fmt.Errorf("encode %s configuration: %w", name, err)
 	}
 	return agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: workflow.Dispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte(name + "-transform")),
 		ConfigurationDigest:  agent.ComputeDigest(configurationJSON),
 	})

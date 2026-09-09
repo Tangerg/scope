@@ -16,7 +16,7 @@ func (e *execution) startDelegateSegment(
 	consumedSignals uint32,
 	calls []chat.ToolCall,
 ) (agent.Transition, bool, error) {
-	start := e.state.NextToolCallIndex
+	start := e.state.nextToolCallIndex()
 	end := start
 	for end < uint32(len(calls)) {
 		if _, delegated := e.definition.delegate(calls[end].Name); !delegated {
@@ -66,7 +66,6 @@ func (e *execution) startDelegateSegment(
 			return agent.Transition{}, false, err
 		}
 		e.state.SettledToolResults = append(e.state.SettledToolResults, results...)
-		e.state.NextToolCallIndex = end
 		e.state.ActiveToolCallEndIndex = 0
 		e.state.DelegateSegment = nil
 		return agent.Transition{}, false, nil
@@ -126,7 +125,6 @@ func (e *execution) acceptDelegateStarts(signals []agent.Signal) (agent.Transiti
 			return agent.Transition{}, delegateSegmentResultsErr
 		}
 		e.state.SettledToolResults = append(e.state.SettledToolResults, results...)
-		e.state.NextToolCallIndex = e.state.ActiveToolCallEndIndex
 		e.state.ActiveToolCallEndIndex = 0
 		e.state.DelegateSegment = nil
 		return e.advanceToolCallBatch(consumedSignals)
@@ -228,7 +226,7 @@ func (e *execution) acceptDelegates(signals []agent.Signal) (agent.Transition, e
 		}
 		artifacts = append(artifacts, artifactRecord{
 			ModelCallSequence: e.state.ModelCallCount,
-			ToolCallIndex:     e.state.NextToolCallIndex + uint32(index),
+			ToolCallIndex:     e.state.nextToolCallIndex() + uint32(index),
 			ToolCallID:        calls[index].ID, DelegateName: calls[index].Name, Output: output,
 		})
 	}
@@ -237,7 +235,6 @@ func (e *execution) acceptDelegates(signals []agent.Signal) (agent.Transition, e
 	}
 	e.state.SettledToolResults = append(e.state.SettledToolResults, results...)
 	e.state.ArtifactRecords = append(e.state.ArtifactRecords, artifacts...)
-	e.state.NextToolCallIndex = e.state.ActiveToolCallEndIndex
 	e.state.ActiveToolCallEndIndex = 0
 	e.state.DelegateSegment = nil
 	e.state.WaitID = nil

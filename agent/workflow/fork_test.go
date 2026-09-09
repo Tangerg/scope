@@ -45,7 +45,7 @@ func testForkUsesBoundedWindowsAndDeclarationOrder(t *testing.T) {
 	}
 	stage, err := workflow.Fork(workflow.ForkConfig[forkInput, branchOutput, forkOutput]{
 		ID: "workers", Branches: branches, WindowSize: 2,
-		Reduce: func(values []branchOutput) (forkOutput, error) {
+		Reduce: func(_ context.Context, values []branchOutput) (forkOutput, error) {
 			result := forkOutput{Branches: make([]string, len(values))}
 			for index, value := range values {
 				result.Branches[index] = value.Branch
@@ -112,7 +112,7 @@ func TestForkAttributesLowestFailingBranch(t *testing.T) {
 	for _, id := range []string{"first", "second"} {
 		branchID := id
 		child := mustDeployment(t, mustDefinition(t, "test.workflow.fork_failure_"+id,
-			mustTransform(t, "fail", func(forkInput) (branchOutput, error) {
+			mustTransform(t, "fail", func(context.Context, forkInput) (branchOutput, error) {
 				return branchOutput{}, fmt.Errorf("%s failed", branchID)
 			}),
 		), "fork-failure-"+id)
@@ -121,7 +121,7 @@ func TestForkAttributesLowestFailingBranch(t *testing.T) {
 	}
 	stage, err := workflow.Fork(workflow.ForkConfig[forkInput, branchOutput, forkOutput]{
 		ID: "workers", Branches: branches, WindowSize: 2,
-		Reduce: func([]branchOutput) (forkOutput, error) { return forkOutput{}, nil },
+		Reduce: func(context.Context, []branchOutput) (forkOutput, error) { return forkOutput{}, nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -145,20 +145,20 @@ func TestForkAttributesLowestFailingBranch(t *testing.T) {
 
 func TestForkRequiresExplicitValidWindowAndContracts(t *testing.T) {
 	child := mustDeployment(t, mustDefinition(t, "test.workflow.fork_valid",
-		mustTransform(t, "valid", func(input forkInput) (branchOutput, error) {
+		mustTransform(t, "valid", func(_ context.Context, input forkInput) (branchOutput, error) {
 			return branchOutput{Branch: "valid", Value: input.Value}, nil
 		}),
 	), "fork-valid")
 	validBranch := workflow.ForkBranch{ID: "valid", Deployment: child, Budget: mustBudget(t)}
 	for name, config := range map[string]workflow.ForkConfig[forkInput, branchOutput, forkOutput]{
-		"empty": {ID: "workers", WindowSize: 1, Reduce: func([]branchOutput) (forkOutput, error) { return forkOutput{}, nil }},
+		"empty": {ID: "workers", WindowSize: 1, Reduce: func(context.Context, []branchOutput) (forkOutput, error) { return forkOutput{}, nil }},
 		"zero window size": {
 			ID: "workers", Branches: []workflow.ForkBranch{validBranch},
-			Reduce: func([]branchOutput) (forkOutput, error) { return forkOutput{}, nil },
+			Reduce: func(context.Context, []branchOutput) (forkOutput, error) { return forkOutput{}, nil },
 		},
 		"oversized window": {
 			ID: "workers", Branches: []workflow.ForkBranch{validBranch}, WindowSize: 2,
-			Reduce: func([]branchOutput) (forkOutput, error) { return forkOutput{}, nil },
+			Reduce: func(context.Context, []branchOutput) (forkOutput, error) { return forkOutput{}, nil },
 		},
 		"nil reducer": {ID: "workers", Branches: []workflow.ForkBranch{validBranch}, WindowSize: 1},
 	} {

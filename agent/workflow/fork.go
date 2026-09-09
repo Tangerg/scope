@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -9,8 +10,9 @@ import (
 )
 
 // ForkReducer combines branch outputs in declaration order. It must be
-// bounded, deterministic, side-effect-free, and must not retain the slice.
-type ForkReducer[B, O any] func(branchOutputs []B) (O, error)
+// bounded, deterministic, side-effect-free, honor ctx cancellation, and never
+// retain the slice. Context is not a source of domain input.
+type ForkReducer[B, O any] func(ctx context.Context, branchOutputs []B) (O, error)
 
 // ForkBranch declares one exact managed child Deployment.
 type ForkBranch struct {
@@ -53,7 +55,7 @@ type forkStage struct {
 	branches     []forkBranch
 	windowSize   uint32
 	branchSchema agent.Schema
-	reduce       func([]json.RawMessage) (json.RawMessage, error)
+	reduce       func(context.Context, []json.RawMessage) (json.RawMessage, error)
 }
 
 func (f forkStage) valid() bool {
@@ -123,12 +125,12 @@ func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
 	decoder := fanoutOutputDecoder{
 		stageName: "Fork", stageID: config.ID, memberName: "branch", schema: branchSchema,
 	}
-	reduce := func(raw []json.RawMessage) (json.RawMessage, error) {
+	reduce := func(ctx context.Context, raw []json.RawMessage) (json.RawMessage, error) {
 		values, err := decoder.decode[B](raw)
 		if err != nil {
 			return nil, err
 		}
-		result, err := reducer(values)
+		result, err := reducer(ctx, values)
 		if err != nil {
 			return nil, fmt.Errorf("Fork %q reducer: %w", config.ID, err)
 		}

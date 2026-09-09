@@ -5,8 +5,68 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 	"testing"
 )
+
+func TestMailboxConsumptionDropsPayloadOnlyFromAdoptedCandidate(t *testing.T) {
+	mailbox := newSignalMailbox()
+	payload, err := json.Marshal(strings.Repeat("context", 10_000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	signal := mustMailboxSignal(t, "signal:large", WaitID{}, payload)
+	if accepted, enqueueErr := mailbox.enqueue(StatusRunning, signal, signalSourceExternal); enqueueErr != nil || !accepted {
+		t.Fatalf("admission=%t error=%v", accepted, enqueueErr)
+	}
+	candidate := mailbox.clone()
+	if _, commitErr := candidate.commit(1); commitErr != nil {
+		t.Fatal(commitErr)
+	}
+	if pending := mailbox.pending(); len(pending) != 1 || !bytes.Equal(pending[0].Payload(), payload) {
+		t.Fatal("candidate consumption changed the authoritative pending input")
+	}
+	encoded, err := json.Marshal(candidate.snapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) >= 512 || bytes.Contains(encoded, []byte("context")) {
+		t.Fatalf("consumed mailbox retained payload: %d bytes", len(encoded))
+	}
+	var wire mailboxWire
+	if decodeErr := json.Unmarshal(encoded, &wire); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	restored, err := restoreSignalMailbox(wire, StatusRunning)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted, retryErr := restored.enqueue(StatusRunning, signal, signalSourceExternal); retryErr != nil || accepted {
+		t.Fatalf("identical retry after compaction=%t error=%v", accepted, retryErr)
+	}
+}
+
+func TestMailboxRestoreEnforcesPayloadConsumptionBoundary(t *testing.T) {
+	signal := mustMailboxSignal(t, "signal:payload", WaitID{}, json.RawMessage(`{"value":"accepted"}`))
+	for _, test := range []struct {
+		name   string
+		cursor uint64
+		mutate func(*signalRecordWire)
+	}{
+		{name: "pending payload missing", mutate: func(record *signalRecordWire) { record.Payload = nil }},
+		{name: "pending payload changed", mutate: func(record *signalRecordWire) { record.Payload = json.RawMessage(`{"value":"changed"}`) }},
+		{name: "digest missing", mutate: func(record *signalRecordWire) { record.PayloadDigest = Digest{} }},
+		{name: "consumed payload retained", cursor: 1, mutate: func(*signalRecordWire) {}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			record := mailboxRecordWire(1, signal)
+			test.mutate(&record)
+			if _, err := restoreSignalMailbox(mailboxWire{Signals: []signalRecordWire{record}, SignalCursor: test.cursor}, StatusRunning); err == nil {
+				t.Fatal("restored an inconsistent payload retention boundary")
+			}
+		})
+	}
+}
 
 func TestSignalRequestAndMailboxOwnPayloadAndDeduplicate(t *testing.T) {
 	id, _ := ParseSignalID("signal:1")
@@ -123,18 +183,19 @@ func TestMailboxRoutesWaitAnswersAndHandlesEarlyArrival(t *testing.T) {
 	}
 }
 
-func TestMailboxRejectsUnaddressedWaitingAndAddressedPausedSignals(t *testing.T) {
+func TestMailboxQueuesUnaddressedWaitingAndRejectsAddressedPausedSignals(t *testing.T) {
 	mailbox := newSignalMailbox()
 	unaddressed := mustMailboxSignal(t, "signal:plain", WaitID{}, json.RawMessage(`{}`))
-	if _, err := mailbox.enqueue(StatusWaiting, unaddressed, signalSourceExternal); !errors.Is(err, ErrSignalRejected) {
-		t.Fatalf("unaddressed Waiting error = %v", err)
+	if accepted, err := mailbox.enqueue(StatusWaiting, unaddressed, signalSourceExternal); err != nil || !accepted {
+		t.Fatalf("unaddressed Waiting admission=%t error=%v", accepted, err)
 	}
 	waitID, _ := ParseWaitID("wait:1")
 	addressed := mustMailboxSignal(t, "signal:answer", waitID, json.RawMessage(`{}`))
 	if _, err := mailbox.enqueue(StatusPaused, addressed, signalSourceExternal); !errors.Is(err, ErrSignalRejected) {
 		t.Fatalf("addressed Paused error = %v", err)
 	}
-	if accepted, err := mailbox.enqueue(StatusPaused, unaddressed, signalSourceExternal); err != nil || !accepted {
+	paused := mustMailboxSignal(t, "signal:paused", WaitID{}, json.RawMessage(`{}`))
+	if accepted, err := mailbox.enqueue(StatusPaused, paused, signalSourceExternal); err != nil || !accepted {
 		t.Fatalf("unaddressed Paused enqueue = %t, %v", accepted, err)
 	}
 }
@@ -234,8 +295,8 @@ func TestMailboxRestoreRejectsInvalidWire(t *testing.T) {
 	signal := mustMailboxSignal(t, "signal:1", WaitID{}, json.RawMessage(`{}`))
 	for _, wire := range []mailboxWire{
 		{SignalCursor: 1},
-		{Signals: []signalRecordWire{{ArrivalSequence: 2, Signal: signal}}},
-		{Signals: []signalRecordWire{{ArrivalSequence: 1, Signal: signal}, {ArrivalSequence: 2, Signal: signal}}},
+		{Signals: []signalRecordWire{mailboxRecordWire(2, signal)}},
+		{Signals: []signalRecordWire{mailboxRecordWire(1, signal), mailboxRecordWire(2, signal)}},
 	} {
 		if _, err := restoreSignalMailbox(wire, StatusRunning); err == nil {
 			t.Fatalf("restoreSignalMailbox(%+v) unexpectedly succeeded", wire)
@@ -323,4 +384,10 @@ func mustMailboxSignal(t testing.TB, value string, waitID WaitID, payload json.R
 		t.Fatal(err)
 	}
 	return signal
+}
+
+func mailboxRecordWire(sequence uint64, signal Signal) signalRecordWire {
+	record := newSignalRecord(signal, false)
+	record.arrivalSequence = sequence
+	return record.snapshot()
 }

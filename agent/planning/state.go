@@ -43,7 +43,6 @@ type executionState struct {
 	ChildKey          *agent.ChildKey  `json:"child_key,omitempty"`
 	ChildProcessID    *agent.ProcessID `json:"child_process_id,omitempty"`
 	WaitID            *agent.WaitID    `json:"wait_id,omitempty"`
-	Outcome           Outcome          `json:"outcome,omitempty"`
 }
 
 type phaseField uint8
@@ -103,13 +102,10 @@ func (e executionState) validate(definition *Definition) error {
 	if err := e.validateCurrentAction(definition); err != nil {
 		return err
 	}
-	if err := e.validateProgress(); err != nil {
+	if err := e.validateProgress(definition); err != nil {
 		return err
 	}
-	if err := e.validatePhase(); err != nil {
-		return err
-	}
-	return e.validateCompletion(definition)
+	return e.validatePhase()
 }
 
 func (e executionState) validateAttemptFacts(definition *Definition) error {
@@ -150,20 +146,9 @@ func (e executionState) validateCurrentAction(definition *Definition) error {
 	return nil
 }
 
-func (e executionState) validateCompletion(definition *Definition) error {
+func (e executionState) validateProgress(definition *Definition) error {
 	if e.Phase == phaseCompleted {
-		if (e.Outcome == OutcomeAchieved) != definition.goal.SatisfiedBy(e.WorldState) {
-			return ErrInvalidExecutionState
-		}
-	} else if e.Outcome != "" {
-		return ErrInvalidExecutionState
-	}
-	return nil
-}
-
-func (e executionState) validateProgress() error {
-	if e.Phase == phaseCompleted {
-		if err := e.output().Validate(); err != nil {
+		if err := e.output(definition).Validate(); err != nil {
 			return fmt.Errorf("%w: completion: %w", ErrInvalidExecutionState, err)
 		}
 		return nil
@@ -256,16 +241,15 @@ func (e *executionState) clearChild() {
 	e.WaitID = nil
 }
 
-func (e *executionState) complete(definition *Definition, outcome Outcome) (Output, error) {
+func (e *executionState) complete(definition *Definition) (Output, error) {
 	candidate := *e
 	candidate.Phase = phaseCompleted
 	candidate.CurrentActionName = ""
 	candidate.clearChild()
-	candidate.Outcome = outcome
 	if err := candidate.validate(definition); err != nil {
 		return Output{}, err
 	}
-	output := candidate.output()
+	output := candidate.output(definition)
 	output.Attempts = slices.Clone(output.Attempts)
 	if output.Attempts == nil {
 		output.Attempts = []Attempt{}
@@ -274,9 +258,16 @@ func (e *executionState) complete(definition *Definition, outcome Outcome) (Outp
 	return output, nil
 }
 
-func (e executionState) output() Output {
+func (e executionState) output(definition *Definition) Output {
+	outcome := OutcomeStuck
+	switch {
+	case definition.goal.SatisfiedBy(e.WorldState):
+		outcome = OutcomeAchieved
+	case len(e.Attempts) == 0:
+		outcome = OutcomeUnreachable
+	}
 	return Output{
-		Outcome: e.Outcome, WorldState: e.WorldState,
+		Outcome: outcome, WorldState: e.WorldState,
 		Attempts: e.Attempts, PlanningPasses: e.PlanningPasses,
 	}
 }

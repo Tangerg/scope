@@ -44,16 +44,18 @@ const (
 
 var ErrInvalidEvent = errors.New("agent: invalid event")
 
-// EventPhase distinguishes an attempted external operation from a fact that the
-// Engine has committed into authoritative Process state.
+// EventPhase distinguishes runtime observations from facts supported by
+// authoritative Process state. Durable trees publish committed facts only after
+// TreeDurability acknowledges the resulting tree state. Attempt facts do not
+// assert a committed Process state change.
 type EventPhase string
 
 const (
 	// EventPhaseInvalid is the invalid zero value.
 	EventPhaseInvalid EventPhase = ""
-	// EventPhaseAttempt identifies work observed before authoritative commit.
+	// EventPhaseAttempt identifies runtime work without a state commit guarantee.
 	EventPhaseAttempt EventPhase = "attempt"
-	// EventPhaseCommitted identifies a fact published after authoritative commit.
+	// EventPhaseCommitted identifies a fact whose resulting state is acknowledged.
 	EventPhaseCommitted EventPhase = "committed"
 )
 
@@ -148,7 +150,9 @@ func newEvent(spec eventSpec) (Event, error) {
 	}, nil
 }
 
-// ProcessSequence returns the Process-local publication order.
+// ProcessSequence returns the Process-local publication order within one tree
+// runtime activation, starting at one. Restoration starts a new sequence;
+// publication progress is observation state and is not part of a TreeSnapshot.
 func (e Event) ProcessSequence() uint64 { return e.processSequence }
 
 // ProcessID returns the Process whose fact is described.

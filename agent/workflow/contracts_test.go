@@ -38,7 +38,7 @@ func newRestorableForkFixture(t *testing.T) restorableForkFixture {
 	}
 	stage, err := workflow.Fork(workflow.ForkConfig[forkInput, branchOutput, forkOutput]{
 		ID: "workers", Branches: branches, WindowSize: 2,
-		Reduce: func(values []branchOutput) (forkOutput, error) {
+		Reduce: func(_ context.Context, values []branchOutput) (forkOutput, error) {
 			result := forkOutput{Branches: make([]string, len(values))}
 			for index, value := range values {
 				result.Branches[index] = value.Branch
@@ -118,8 +118,13 @@ func resumePausedChildren(
 		if !found {
 			t.Fatalf("restored child %s was not registered", childID)
 		}
-		if child.Status() != agent.StatusPaused {
-			t.Fatalf("restored child %s status = %s", childID, child.Status())
+		inspection, err := engine.InspectTree(t.Context(), child.Relation().RootID())
+		if err != nil {
+			t.Fatal(err)
+		}
+		report, present := inspection.Process(childID)
+		if !present || report.Snapshot.Status() != agent.StatusPaused {
+			t.Fatalf("restored child %s status = %s", childID, report.Snapshot.Status())
 		}
 		if resumeErr := child.Resume(context.Background()); resumeErr != nil {
 			t.Fatal(resumeErr)
@@ -221,7 +226,7 @@ func TestWorkflowCancellationPropagatesToPausedChild(t *testing.T) {
 
 func TestCallCannotEscalateBudgetOrCapabilities(t *testing.T) {
 	child := mustDeployment(t, mustDefinition(t, "test.workflow.guarded_child",
-		mustTransform(t, "identity", func(input numberInput) (numberInput, error) { return input, nil }),
+		mustTransform(t, "identity", func(_ context.Context, input numberInput) (numberInput, error) { return input, nil }),
 	), "guarded-child")
 	capability, _ := agent.ParseCapability("test.guarded")
 	capabilities, _ := agent.NewCapabilitySet(capability)
@@ -272,17 +277,6 @@ func TestCallCannotEscalateBudgetOrCapabilities(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
-	}
-}
-
-func TestWorkflowDispatcherRejectsEveryEffectProtocol(t *testing.T) {
-	settlement, err := (workflow.Dispatcher{}).Dispatch(context.Background(), agent.EffectRequest{}, nil)
-	if !errors.Is(err, workflow.ErrInvalidProtocol) || settlement.Valid() {
-		t.Fatalf("Dispatch = %#v, %v", settlement, err)
-	}
-	effect, _ := agent.NewDispatcherEffect(json.RawMessage(`{"operation":"unexpected"}`))
-	if policy := (workflow.Dispatcher{}).ReplayPolicy(effect); policy != agent.ReplayPolicyNever {
-		t.Fatalf("ReplayPolicy = %s", policy)
 	}
 }
 
@@ -350,7 +344,7 @@ func newPausingBranchDeployment(t *testing.T, branch string) agent.Deployment {
 	}
 	definition := &pausingBranchDefinition{descriptor: descriptor, branch: branch}
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: workflow.Dispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte("pausing-branch-implementation")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte("pausing-branch-" + branch)),
 	})

@@ -12,7 +12,7 @@ import (
 
 func TestTransformAndCallRunAsManagedChildProcess(t *testing.T) {
 	child := mustDeployment(t, mustDefinition(t, "test.workflow.child",
-		mustTransform(t, "double", func(input numberInput) (numberOutput, error) {
+		mustTransform(t, "double", func(_ context.Context, input numberInput) (numberOutput, error) {
 			return numberOutput{Value: input.Value * 2}, nil
 		}),
 	), "child")
@@ -23,11 +23,11 @@ func TestTransformAndCallRunAsManagedChildProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	parent := mustDeployment(t, mustDefinition(t, "test.workflow.parent",
-		mustTransform(t, "increment", func(input numberInput) (numberInput, error) {
+		mustTransform(t, "increment", func(_ context.Context, input numberInput) (numberInput, error) {
 			return numberInput{Value: input.Value + 1}, nil
 		}),
 		call,
-		mustTransform(t, "render", func(output numberOutput) (textValue, error) {
+		mustTransform(t, "render", func(_ context.Context, output numberOutput) (textValue, error) {
 			return textValue{Text: strconv.Itoa(output.Value)}, nil
 		}),
 	), "parent")
@@ -66,7 +66,7 @@ func TestTransformAndCallRunAsManagedChildProcess(t *testing.T) {
 
 func TestCallPropagatesChildFailure(t *testing.T) {
 	child := mustDeployment(t, mustDefinition(t, "test.workflow.failing_child",
-		mustTransform(t, "fail", func(input numberInput) (numberOutput, error) {
+		mustTransform(t, "fail", func(_ context.Context, input numberInput) (numberOutput, error) {
 			return numberOutput{}, errors.New("deliberate child failure")
 		}),
 	), "failing-child")
@@ -102,7 +102,7 @@ func TestCallPropagatesChildFailure(t *testing.T) {
 
 func TestCallRejectsInvalidChildAllocation(t *testing.T) {
 	child := mustDeployment(t, mustDefinition(t, "test.workflow.call_target",
-		mustTransform(t, "identity", func(input numberInput) (numberInput, error) { return input, nil }),
+		mustTransform(t, "identity", func(_ context.Context, input numberInput) (numberInput, error) { return input, nil }),
 	), "call-target")
 	_, err := workflow.Call(workflow.CallConfig{ID: "child", Deployment: child})
 	if !errors.Is(err, workflow.ErrInvalidStage) {
@@ -113,7 +113,7 @@ func TestCallRejectsInvalidChildAllocation(t *testing.T) {
 func mustDeployment(t *testing.T, definition agent.Definition, identity string) agent.Deployment {
 	t.Helper()
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: workflow.Dispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte(identity + "-implementation")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte(identity + "-configuration")),
 	})

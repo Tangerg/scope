@@ -104,7 +104,7 @@ func newManagedWorkflow() (agent.Deployment, deploymentResolver, error) {
 	normalizer, err := transformDeployment(
 		"example.workflow.normalizer",
 		"Normalize one review request.",
-		func(input request) (normalizedRequest, error) {
+		func(_ context.Context, input request) (normalizedRequest, error) {
 			return normalizedRequest{Text: strings.TrimSpace(input.Text)}, nil
 		},
 	)
@@ -138,7 +138,7 @@ func newManagedWorkflow() (agent.Deployment, deploymentResolver, error) {
 			{ID: "safety", Deployment: safety, Budget: budget},
 		},
 		WindowSize: reviewerCount,
-		Reduce: func(reviews []review) (reviewReport, error) {
+		Reduce: func(_ context.Context, reviews []review) (reviewReport, error) {
 			if len(reviews) != reviewerCount || reviews[0].Request != reviews[1].Request {
 				return reviewReport{}, errors.New("review branches returned inconsistent results")
 			}
@@ -156,7 +156,7 @@ func newManagedWorkflow() (agent.Deployment, deploymentResolver, error) {
 		return agent.Deployment{}, nil, err
 	}
 	root, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: workflow.Dispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte("example-workflow-review-implementation")),
 		ConfigurationDigest: agent.ComputeDigest([]byte(
 			"example-workflow-review:" + normalizer.DeploymentRef().Digest().String() + ":" +
@@ -177,7 +177,7 @@ func reviewerDeployment(reviewer string) (agent.Deployment, error) {
 	return transformDeployment(
 		"example.workflow.reviewer_"+reviewer,
 		"Return one deterministic "+reviewer+" review.",
-		func(input normalizedRequest) (review, error) {
+		func(_ context.Context, input normalizedRequest) (review, error) {
 			return review{Request: input.Text, Reviewer: reviewer, Verdict: "ready"}, nil
 		},
 	)
@@ -199,7 +199,7 @@ func transformDeployment[I, O any](
 		return agent.Deployment{}, err
 	}
 	return agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: workflow.Dispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte(name + "-implementation")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte(name + "-configuration")),
 	})

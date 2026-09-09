@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/interaction"
@@ -239,66 +237,52 @@ func TestUndeclaredToolIsAnExclusiveBatchBarrier(t *testing.T) {
 	}
 }
 
-func TestDispatcherRejectsNegativeToolConcurrencyLimit(t *testing.T) {
-	client, err := chatclient.New(&orderedBatchModel{names: []string{"unused"}}, chatclient.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: "interaction.invalid_concurrency", Description: "Reject an invalid Tool concurrency limit.",
-		MaxModelCalls: 1,
+func TestDefinitionRejectsNegativeToolConcurrencyLimit(t *testing.T) {
+	_, err := interaction.NewDefinition(interaction.DefinitionConfig{
+		Name: "interaction.invalid_concurrency", Description: "Reject an invalid Tool concurrency limit.", MaxModelCalls: 1, MaxConcurrentToolCalls: -1,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-		Client: client, MaxConcurrentToolCalls: -1,
-	})
-	if !errors.Is(err, interaction.ErrInvalidDispatcherConfig) {
-		t.Fatalf("error = %v, want ErrInvalidDispatcherConfig", err)
+	if !errors.Is(err, interaction.ErrInvalidDefinitionConfig) {
+		t.Fatalf("error=%v", err)
 	}
 }
 
-func TestParallelToolInputRequestMakesBatchOutcomeUnknown(t *testing.T) {
+func TestConcurrentToolInputWaitPreservesCompletedSibling(t *testing.T) {
 	var siblingCalls atomic.Int32
-	requesting := &scheduledTool{
-		name: "requesting",
-		call: func(context.Context, string) (string, error) {
-			return "", interaction.RequireToolInput(
-				json.RawMessage(`"continue?"`),
-				json.RawMessage(`{"type":"boolean"}`),
-				json.RawMessage(`{"stage":1}`),
-			)
-		},
+	var requestingCalls atomic.Int32
+	requesting := &scheduledTool{name: "requesting", call: func(ctx context.Context, _ string) (string, error) {
+		requestingCalls.Add(1)
+		if _, resumed := interaction.ToolInputContinuationFromContext(ctx); resumed {
+			return "requesting result", nil
+		}
+		return "", interaction.RequireToolInput(json.RawMessage(`"continue?"`), json.RawMessage(`{"type":"boolean"}`), json.RawMessage(`{"stage":1}`))
+	}}
+	sibling := &scheduledTool{name: "sibling", call: func(context.Context, string) (string, error) {
+		siblingCalls.Add(1)
+		return "sibling result", nil
+	}}
+	process, engine := startConcurrentInteraction(t, &orderedBatchModel{names: []string{"requesting", "sibling"}}, []tool.Tool{requesting, sibling}, 2)
+	_, pending := captureToolInput(t, engine, process)
+	toolProcess := pendingToolProcess(t, engine, pending)
+	if unknown := inspectProcessSnapshot(t, engine, toolProcess).UnknownEffectIDs(); len(unknown) != 0 {
+		t.Fatalf("waiting Tool unknown Effects=%v", unknown)
 	}
-	sibling := &scheduledTool{
-		name: "sibling",
-		call: func(context.Context, string) (string, error) {
-			siblingCalls.Add(1)
-			return "sibling result", nil
-		},
-	}
-	process, engine := startConcurrentInteraction(
-		t,
-		&orderedBatchModel{names: []string{"requesting", "sibling"}},
-		[]tool.Tool{requesting, sibling},
-		2,
-	)
-	unknown := waitForUnknownEffects(t, process)
-	if len(unknown) != 1 {
-		t.Fatalf("unknown EffectIDs = %v, want one", unknown)
-	}
-	if siblingCalls.Load() != 1 {
-		t.Fatalf("sibling calls = %d, want 1", siblingCalls.Load())
-	}
-	if process.Status() == agent.StatusWaiting {
-		t.Fatal("unsafe parallel input request was exposed as a resumable checkpoint")
-	}
-	if err := process.Kill(context.Background(), "parallel Tool violated its declaration"); err != nil {
+	id, err := agent.ParseSignalID("signal:concurrent-tool-answer")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := process.Await(context.Background()); err != nil {
+	response, err := pending.ResponseSignal(id, json.RawMessage(`true`))
+	if err != nil {
 		t.Fatal(err)
+	}
+	if accepted, deliverErr := toolProcess.DeliverSignals(t.Context(), response); deliverErr != nil || !accepted {
+		t.Fatalf("answer=%t %v", accepted, deliverErr)
+	}
+	result, err := process.Await(t.Context())
+	if err != nil || result.Status() != agent.StatusCompleted {
+		t.Fatalf("result=%s error=%v", result.Status(), err)
+	}
+	if requestingCalls.Load() != 2 || siblingCalls.Load() != 1 {
+		t.Fatalf("requesting/sibling calls=%d/%d", requestingCalls.Load(), siblingCalls.Load())
 	}
 	if err := engine.Close(); err != nil {
 		t.Fatal(err)
@@ -387,32 +371,14 @@ func startConcurrentInteraction(
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: "interaction.concurrent", Description: "Verify bounded Tool concurrency.",
-		MaxModelCalls: 3,
-	})
+	deployment := configuredInteraction(t, interaction.DefinitionConfig{
+		Name: "interaction.concurrent", Description: "Verify bounded Tool concurrency.", MaxModelCalls: 3, MaxConcurrentToolCalls: maxConcurrent,
+	}, interaction.DispatcherConfig{Client: client}, interaction.ToolSetConfig{Tools: tools})
+	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
-	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-		Client: client, Tools: tools, MaxConcurrentToolCalls: maxConcurrent,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("interaction-concurrency-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("interaction-concurrency-configuration")),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	engine, err := agent.NewEngine(agent.EngineConfig{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	process, err := engine.Start(context.Background(), deployment, interactionInput(t, "run tools"))
+	process, err := engine.Start(context.Background(), deployment.Deployment, interactionInput(t, "run tools"))
 	if err != nil {
 		_ = engine.Close()
 		t.Fatal(err)
@@ -437,21 +403,3 @@ func toolBatchResponse(calls ...chat.ToolCall) *chat.Response {
 		Message: new(chat.NewAssistantMessage(parts...)), FinishReason: chat.FinishReasonToolCalls,
 	}}
 }
-
-func waitForUnknownEffects(t *testing.T, process *agent.Process) []agent.EffectID {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
-	defer cancel()
-	for {
-		ids, err := process.UnknownEffectIDs(ctx)
-		if err == nil && len(ids) > 0 {
-			return ids
-		}
-		if err := ctx.Err(); err != nil {
-			t.Fatalf("Process never exposed an unknown Tool Effect: %v", err)
-		}
-		runtime.Gosched()
-	}
-}
-
-var _ interaction.ConcurrentTool = (*scheduledTool)(nil)

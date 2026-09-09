@@ -150,10 +150,9 @@ type observerInstruments struct {
 	durabilitySnapshotBytes   metric.Int64Histogram
 }
 
-// NewObserver attaches to the kernel's listener boundary rather than living
-// inside it, which is what keeps OpenTelemetry out of the agent module's
-// dependency graph. Observation is best-effort: a telemetry failure records an
-// event and never changes execution.
+// NewObserver validates providers and creates the observation instruments.
+// Instrument construction failures wrap ErrInvalidObserverConfig. Export
+// failures remain with the configured providers and never change Agent state.
 func NewObserver(config ObserverConfig) (*Observer, error) {
 	if config.TracerProvider != nil && lo.IsNil(config.TracerProvider) {
 		return nil, fmt.Errorf("%w: tracer provider is typed nil", ErrInvalidObserverConfig)

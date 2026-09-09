@@ -53,7 +53,7 @@ func (t *treeRuntime) advanceHead(snapshot TreeSnapshot) {
 	t.head = &treeHead{snapshot: snapshot, advanced: make(chan struct{})}
 	for _, snapshot := range snapshot.ProcessSnapshots() {
 		if process := t.processes[snapshot.ProcessID()]; process != nil {
-			process.controller.updateView(snapshot.status, snapshot.waitID, snapshot.usage)
+			process.handle.updateStatus(snapshot.status)
 		}
 	}
 	previous.finish(nil)

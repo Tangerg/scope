@@ -291,10 +291,7 @@ func completedEngineTestSnapshot(t testing.TB) ProcessSnapshot {
 	if err != nil || result.Status() != StatusCompleted {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
-	snapshot, err := process.Snapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	snapshot := inspectProcessSnapshot(t, process)
 	if err := engine.Close(); err != nil {
 		t.Fatal(err)
 	}

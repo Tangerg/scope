@@ -16,7 +16,9 @@ type DeploymentConfig struct {
 	// Definition owns the Strategy contract and creates per-Process execution.
 	Definition Definition
 
-	// Dispatcher interprets only Effects emitted by this Definition.
+	// Dispatcher interprets this Definition's external Effects. Nil binds a
+	// Definition that uses only Framework Effects; a dispatcher-targeted Effect
+	// then fails admission before any Effect in its Step can execute.
 	Dispatcher Dispatcher
 
 	// ImplementationDigest identifies the exact executable Definition artifact.
@@ -27,7 +29,7 @@ type DeploymentConfig struct {
 	ConfigurationDigest Digest
 }
 
-// Deployment is an immutable binding of one Definition, its Strategy-owned
+// Deployment is an immutable binding of one Definition, its optional external
 // Dispatcher, and an exact value reference used by Process snapshots.
 type Deployment struct {
 	reference  DeploymentRef
@@ -44,8 +46,8 @@ func NewDeployment(config DeploymentConfig) (Deployment, error) {
 	if lo.IsNil(config.Definition) {
 		return Deployment{}, fmt.Errorf("%w: definition is required", ErrInvalidDeployment)
 	}
-	if lo.IsNil(config.Dispatcher) {
-		return Deployment{}, fmt.Errorf("%w: dispatcher is required", ErrInvalidDeployment)
+	if config.Dispatcher != nil && lo.IsNil(config.Dispatcher) {
+		return Deployment{}, fmt.Errorf("%w: dispatcher is typed nil", ErrInvalidDeployment)
 	}
 	descriptor := config.Definition.Descriptor()
 	reference, err := newDeploymentRef(descriptor, config.ImplementationDigest, config.ConfigurationDigest)
@@ -71,8 +73,15 @@ func (d Deployment) Definition() Definition { return d.definition }
 
 func (d Deployment) Valid() bool {
 	return d.reference.Valid() && d.descriptor.Valid() &&
-		!lo.IsNil(d.definition) && !lo.IsNil(d.dispatcher) &&
+		!lo.IsNil(d.definition) && (d.dispatcher == nil || !lo.IsNil(d.dispatcher)) &&
 		d.definition.Descriptor().Digest() == d.descriptor.Digest()
 }
 
 func (d Deployment) effectDispatcher() Dispatcher { return d.dispatcher }
+
+func (d Deployment) validateEffect(effect Effect) error {
+	if effect.Target() == EffectTargetDispatcher && d.dispatcher == nil {
+		return fmt.Errorf("%w: dispatcher Effect requires a bound dispatcher", ErrInvalidEffect)
+	}
+	return nil
+}

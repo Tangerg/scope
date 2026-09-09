@@ -43,18 +43,19 @@ func TestReleaseTreeRemovesRegistryAndPreservesTerminalHandles(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, handle := range handles {
-		if _, found := engine.Process(handle.ID()); found || handle.controller.runtime.Load() != nil {
+		if _, found := engine.Process(handle.ID()); found || handle.handle.runtime.Load() != nil {
 			t.Fatalf("released Process %s retains its tree", handle.ID())
 		}
 		if result := mustAwait(t, handle); result.Status() != StatusCompleted {
 			t.Fatalf("released handle status = %s", result.Status())
 		}
-		if snapshot, err := handle.Snapshot(t.Context()); err != nil || !snapshot.Valid() {
-			t.Fatalf("released handle snapshot = %v, error = %v", snapshot.Valid(), err)
-		}
+
 		if err := handle.Kill(t.Context(), "already finished"); !errors.Is(err, ErrProcessFinished) {
 			t.Fatalf("released handle Kill error = %v", err)
 		}
+	}
+	if _, err := engine.InspectTree(t.Context(), root.ID()); !errors.Is(err, ErrInvalidProcessRelation) {
+		t.Fatalf("released tree inspection error = %v", err)
 	}
 	if _, err := engine.CaptureTree(t.Context(), root.ID()); !errors.Is(err, ErrInvalidProcessRelation) {
 		t.Fatalf("released tree capture error = %v", err)
@@ -81,7 +82,7 @@ func TestReleaseTreeCancellationLeavesWaitingTreeUsable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForProcessStatus(t, root, StatusWaiting)
+	waitForStatus(t, root, StatusWaiting)
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 	defer cancel()
 	if err := engine.ReleaseTree(ctx, root.ID()); !errors.Is(err, context.DeadlineExceeded) {

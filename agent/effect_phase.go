@@ -31,6 +31,16 @@ func (e effectPhase) String() string { return string(e) }
 // occupies the frontier until adjudication, just as a pending Effect does.
 type preparedEffects []preparedEffectWire
 
+func (p preparedEffects) unknownEffectIDs() []EffectID {
+	var ids []EffectID
+	for _, effect := range p {
+		if effect.unknown() {
+			ids = append(ids, effect.ID)
+		}
+	}
+	return ids
+}
+
 func (p preparedEffects) next() (int, error) {
 	next := len(p)
 	for index, record := range p {

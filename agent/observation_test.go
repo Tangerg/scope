@@ -334,8 +334,8 @@ func TestStepPausePublishesCommittedProcessPausedFact(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-paused
-	if process.Status() != StatusPaused {
-		t.Fatalf("Process status = %s, want Paused", process.Status())
+	if inspectProcessSnapshot(t, process).Status() != StatusPaused {
+		t.Fatalf("Process status = %s, want Paused", inspectProcessSnapshot(t, process).Status())
 	}
 	var committedIndex, pausedIndex = -1, -1
 	for index, event := range events {
@@ -363,7 +363,7 @@ func TestStepPausePublishesCommittedProcessPausedFact(t *testing.T) {
 	}
 }
 
-func TestProcessEventSequenceAdvancesOnlyForConstructedEvents(t *testing.T) {
+func TestProcessEventSequenceAdvancesOnlyAtPublication(t *testing.T) {
 	deployment := newChildTestDeployment(t)
 	processID, _ := ParseProcessID("process:event-sequence")
 	relation := rootProcessRelation(processID)
@@ -377,7 +377,7 @@ func TestProcessEventSequenceAdvancesOnlyForConstructedEvents(t *testing.T) {
 	t.Cleanup(func() { _ = engine.Close() })
 	process := &processState{
 		engine: engine,
-		controller: &processController{
+		handle: &processHandleState{
 			processID: processID, relation: relation, deploymentRef: deployment.DeploymentRef(),
 		},
 		deployment: deployment,
@@ -399,13 +399,25 @@ func TestProcessEventSequenceAdvancesOnlyForConstructedEvents(t *testing.T) {
 	if process.processEventSequence != 8 || len(events) != 1 || events[0].ProcessSequence() != 8 {
 		t.Fatalf("valid Event sequence = %d, events = %#v", process.processEventSequence, events)
 	}
+	paused, ok := process.prepareEvent(EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
+	if !ok {
+		t.Fatal("could not prepare pause Event")
+	}
+	if process.processEventSequence != 8 {
+		t.Error("preparing an unpublished Event advanced publication order")
+	}
+	process.publishEvent(context.Background(), EventStepStarted, EventPhaseAttempt, 1, EffectID{}, emptyEventPayload())
+	process.publishPreparedEvent(context.Background(), paused)
+	if len(events) != 3 || events[1].ProcessSequence() != 9 || events[2].ProcessSequence() != 10 {
+		t.Fatalf("delayed committed Event broke publication order: %v", events)
+	}
 
 	process.processEventSequence = math.MaxUint64
 	process.publishEvent(
 		context.Background(), EventProcessResumed, EventPhaseCommitted,
 		0, EffectID{}, emptyEventPayload(),
 	)
-	if process.processEventSequence != math.MaxUint64 || len(events) != 1 {
+	if process.processEventSequence != math.MaxUint64 || len(events) != 3 {
 		t.Fatalf("exhausted Event sequence wrapped to %d or published %d facts", process.processEventSequence, len(events))
 	}
 }

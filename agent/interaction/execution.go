@@ -44,12 +44,12 @@ func (e *execution) Step(_ context.Context, signals []agent.Signal) (agent.Trans
 		return e.requestModel(consumedSignals, appliedSteerSignalIDs)
 	case phaseAwaitingModel:
 		return e.acceptModel(signals)
-	case phaseAwaitingTools:
-		return e.acceptTools(signals)
-	case phaseAwaitingInputWaitOpen:
-		return e.acceptInputWaitOpen(signals)
-	case phaseWaitingInput:
-		return e.acceptInputResponse(signals)
+	case phaseAwaitingToolStarts:
+		return e.acceptToolStarts(signals)
+	case phaseAwaitingToolWaitOpen:
+		return e.acceptToolWaitOpen(signals)
+	case phaseWaitingTools:
+		return e.acceptToolCompletions(signals)
 	case phaseAwaitingDelegateStarts:
 		return e.acceptDelegateStarts(signals)
 	case phaseAwaitingDelegateWaitOpen:
@@ -130,16 +130,14 @@ func (e *execution) acceptModel(signals []agent.Signal) (agent.Transition, error
 			envelope.ModelResult.Error,
 		)
 	}
-	effective := e.state.WorkingContext.Clone()
-	effective.Messages = cloneMessages(envelope.ModelResult.EffectiveMessages)
-	if effectiveErr := effective.Validate(); effectiveErr != nil {
-		return agent.Transition{}, fmt.Errorf(
-			"%w: effective model context: %w",
-			ErrInvalidExecutionState,
-			effectiveErr,
-		)
+	if replacement := envelope.ModelResult.ReplacementMessages; replacement != nil {
+		effective := e.state.WorkingContext.Clone()
+		effective.Messages = cloneMessages(replacement)
+		if effectiveErr := effective.Validate(); effectiveErr != nil {
+			return agent.Transition{}, fmt.Errorf("%w: replacement model context: %w", ErrInvalidExecutionState, effectiveErr)
+		}
+		e.state.WorkingContext = effective
 	}
-	e.state.WorkingContext = effective
 	response := envelope.ModelResult.Response.Clone()
 	calls, _, err := responseToolCalls(response)
 	if err != nil {
@@ -165,7 +163,6 @@ func (e *execution) acceptModel(signals []agent.Signal) (agent.Transition, error
 	}
 
 	e.state.PendingModelResponse = response
-	e.state.NextToolCallIndex = 0
 	e.state.ActiveToolCallEndIndex = 0
 	e.state.SettledToolResults = nil
 	e.state.DirectToolResultEligible = true
@@ -238,165 +235,6 @@ func (e *execution) rejectTruncatedToolCalls(
 	return e.requestModel(consumedSignals, appliedSteerSignalIDs)
 }
 
-func (e *execution) acceptTools(signals []agent.Signal) (agent.Transition, error) {
-	envelope, steer, consumedSignals, err := collectExpectedSignal(signals, operationToolBatch)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	if addSteerErr := e.addSteer(steer); addSteerErr != nil {
-		return agent.Transition{}, addSteerErr
-	}
-	calls, err := e.activeCallSegment()
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	results := envelope.ToolResult.Results
-	if checkpoint := envelope.ToolResult.Checkpoint; checkpoint != nil {
-		if validateErr := checkpoint.validate(calls); validateErr != nil {
-			return agent.Transition{}, validateErr
-		}
-		return e.requestInputWait(consumedSignals, checkpoint)
-	}
-	if validateToolResultsErr := validateToolResults(calls, results); validateToolResultsErr != nil {
-		return agent.Transition{}, validateToolResultsErr
-	}
-	advertisedToolNames, err := mergeAdvertisedToolNames(
-		e.state.AdvertisedToolNames,
-		envelope.ToolResult.AdvertisedToolNames,
-	)
-	if err != nil {
-		return agent.Transition{}, fmt.Errorf("%w: advertised Tools: %w", ErrInvalidExecutionState, err)
-	}
-	e.state.AdvertisedToolNames = advertisedToolNames
-	e.state.SettledToolResults = append(e.state.SettledToolResults, results...)
-	e.state.NextToolCallIndex = e.state.ActiveToolCallEndIndex
-	e.state.DirectToolResultEligible = e.state.DirectToolResultEligible && envelope.ToolResult.Direct
-	e.state.ToolCheckpoint = nil
-	e.state.WaitID = nil
-	return e.advanceToolCallBatch(consumedSignals)
-}
-
-func (e *execution) requestInputWait(
-	consumedSignals uint32,
-	checkpoint *toolCheckpoint,
-) (agent.Transition, error) {
-	if checkpoint == nil {
-		return agent.Transition{}, fmt.Errorf("%w: missing Tool checkpoint", ErrInvalidExecutionState)
-	}
-	calls, err := e.activeCallSegment()
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	if validateErr := checkpoint.validate(calls); validateErr != nil {
-		return agent.Transition{}, validateErr
-	}
-	waitOpened := checkpoint.InputRequest
-	payload, err := encodeProtocol(signalEnvelope{
-		Operation:  operationWaitOpened,
-		WaitOpened: &waitOpened,
-	})
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	waitKey, err := checkpointWaitKey(e.state.ModelCallCount, calls[checkpoint.NextToolCallIndex].ID, checkpoint.PauseCount)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	effect, err := agent.RequestWait(waitKey, payload)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	cloned := checkpoint.clone()
-	e.state.ToolCheckpoint = &cloned
-	e.state.WaitID = nil
-	e.state.Phase = phaseAwaitingInputWaitOpen
-	return agent.Continue(consumedSignals, effect)
-}
-
-func (e *execution) acceptInputWaitOpen(signals []agent.Signal) (agent.Transition, error) {
-	envelope, steer, consumedSignals, err := collectExpectedSignal(signals, operationWaitOpened)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	if addSteerErr := e.addSteer(steer); addSteerErr != nil {
-		return agent.Transition{}, addSteerErr
-	}
-	var waitID agent.WaitID
-	var ok bool
-	for _, signal := range signals {
-		decoded, decodeErr := decodeSignal(signal.Payload())
-		if decodeErr == nil && decoded.Operation == operationWaitOpened {
-			waitID, ok = signal.WaitID()
-			break
-		}
-	}
-	if !ok {
-		return agent.Transition{}, fmt.Errorf("%w: Engine did not attach a WaitID", ErrInvalidExecutionState)
-	}
-	want, err := e.state.ToolCheckpoint.InputRequest.inputRequest()
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	got, err := envelope.WaitOpened.inputRequest()
-	if err != nil || !sameInputRequest(want, got) {
-		return agent.Transition{}, fmt.Errorf("%w: wait-opened payload does not match Tool checkpoint", ErrInvalidExecutionState)
-	}
-	e.state.WaitID = &waitID
-	e.state.Phase = phaseWaitingInput
-	return agent.Wait(consumedSignals, waitID)
-}
-
-func (e *execution) acceptInputResponse(signals []agent.Signal) (agent.Transition, error) {
-	envelope, steer, consumedSignals, err := collectExpectedSignal(signals, operationInputResponse)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	if addSteerErr := e.addSteer(steer); addSteerErr != nil {
-		return agent.Transition{}, addSteerErr
-	}
-	inputSignal, ok := signalForOperation(signals, operationInputResponse)
-	if !ok {
-		return agent.Transition{}, fmt.Errorf("%w: input-response Signal is missing", ErrInvalidExecutionState)
-	}
-	waitID, addressed := inputSignal.WaitID()
-	if !addressed || e.state.WaitID == nil || waitID != *e.state.WaitID {
-		return agent.Transition{}, fmt.Errorf("%w: input response addressed the wrong wait", ErrInvalidExecutionState)
-	}
-	request, err := e.state.ToolCheckpoint.InputRequest.inputRequest()
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	response, err := request.validateResponse(envelope.InputResponse)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	calls, err := e.activeCallSegment()
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	effectEnvelope, err := newToolBatchEffect(
-		e.state.ModelCallCount,
-		e.state.NextToolCallIndex,
-		calls,
-		e.state.ToolCheckpoint,
-		response,
-	)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	payload, err := encodeProtocol(effectEnvelope)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	effect, err := agent.NewDispatcherEffect(payload)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	e.state.WaitID = nil
-	e.state.Phase = phaseAwaitingTools
-	return agent.Continue(consumedSignals, effect)
-}
-
 func (e *execution) complete(consumedSignals uint32, output Output) (agent.Transition, error) {
 	if err := output.Validate(); err != nil {
 		return agent.Transition{}, err
@@ -409,7 +247,8 @@ func (e *execution) complete(consumedSignals uint32, output Output) (agent.Trans
 	e.clearToolCallBatch()
 	e.state.WaitID = nil
 	e.state.PendingSteer = nil
-	e.state.FinalOutput = &output
+	e.state.FinalModelResponse = output.ModelResponse
+	e.state.FinalToolResults = output.DirectToolResults
 	return agent.Complete(consumedSignals, encoded)
 }
 
@@ -468,24 +307,30 @@ func (e *execution) advanceToolCallBatch(consumedSignals uint32) (agent.Transiti
 	for {
 		calls, assistant, err := responseToolCalls(e.state.PendingModelResponse)
 		if err != nil || uint64(len(calls)) > uint64(^uint32(0)) ||
-			uint64(e.state.NextToolCallIndex) > uint64(len(calls)) {
+			uint64(e.state.nextToolCallIndex()) > uint64(len(calls)) {
 			return agent.Transition{}, fmt.Errorf("%w: invalid pending ToolCall batch", ErrInvalidExecutionState)
 		}
-		if e.state.NextToolCallIndex == uint32(len(calls)) {
+		if e.state.nextToolCallIndex() == uint32(len(calls)) {
 			return e.finishToolCallBatch(consumedSignals, assistant)
 		}
-		if _, delegated := e.definition.delegate(calls[e.state.NextToolCallIndex].Name); delegated {
+		if _, delegated := e.definition.delegate(calls[e.state.nextToolCallIndex()].Name); delegated {
 			e.state.DirectToolResultEligible = false
-			transition, started, err := e.startDelegateSegment(consumedSignals, calls)
-			if err != nil {
-				return agent.Transition{}, err
+			transition, started, startErr := e.startDelegateSegment(consumedSignals, calls)
+			if startErr != nil {
+				return agent.Transition{}, startErr
 			}
 			if started {
 				return transition, nil
 			}
 			continue
 		}
-		return e.requestToolCallSegment(consumedSignals, calls)
+		transition, started, err := e.startToolSegment(consumedSignals, calls)
+		if err != nil {
+			return agent.Transition{}, err
+		}
+		if started {
+			return transition, nil
+		}
 	}
 }
 
@@ -518,56 +363,21 @@ func (e *execution) finishToolCallBatch(
 	return e.requestModel(consumedSignals, appliedSteerSignalIDs)
 }
 
-func (e *execution) requestToolCallSegment(
-	consumedSignals uint32,
-	calls []chat.ToolCall,
-) (agent.Transition, error) {
-	end := e.state.NextToolCallIndex + 1
-	for end < uint32(len(calls)) {
-		if _, delegated := e.definition.delegate(calls[end].Name); delegated {
-			break
-		}
-		end++
-	}
-	envelope, err := newToolBatchEffect(
-		e.state.ModelCallCount,
-		e.state.NextToolCallIndex,
-		calls[e.state.NextToolCallIndex:end],
-		nil,
-		nil,
-	)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	payload, err := encodeProtocol(envelope)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	effect, err := agent.NewDispatcherEffect(payload)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	e.state.ActiveToolCallEndIndex = end
-	e.state.Phase = phaseAwaitingTools
-	return agent.Continue(consumedSignals, effect)
-}
-
 func (e *execution) activeCallSegment() ([]chat.ToolCall, error) {
 	calls, _, err := responseToolCalls(e.state.PendingModelResponse)
-	if err != nil || e.state.NextToolCallIndex >= e.state.ActiveToolCallEndIndex ||
+	if err != nil || e.state.nextToolCallIndex() >= e.state.ActiveToolCallEndIndex ||
 		uint64(e.state.ActiveToolCallEndIndex) > uint64(len(calls)) {
 		return nil, fmt.Errorf("%w: invalid active ToolCall segment", ErrInvalidExecutionState)
 	}
-	return calls[e.state.NextToolCallIndex:e.state.ActiveToolCallEndIndex], nil
+	return calls[e.state.nextToolCallIndex():e.state.ActiveToolCallEndIndex], nil
 }
 
 func (e *execution) clearToolCallBatch() {
 	e.state.PendingModelResponse = nil
-	e.state.NextToolCallIndex = 0
 	e.state.ActiveToolCallEndIndex = 0
 	e.state.SettledToolResults = nil
 	e.state.DirectToolResultEligible = false
-	e.state.ToolCheckpoint = nil
+	e.state.ToolSegment = nil
 	e.state.DelegateSegment = nil
 }
 
@@ -668,16 +478,6 @@ func collectExpectedSignal(
 		return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: %q settlement Signal is missing", ErrInvalidExecutionState, expected)
 	}
 	return result, steer, uint32(len(signals)), nil
-}
-
-func signalForOperation(signals []agent.Signal, expected operation) (agent.Signal, bool) {
-	for _, signal := range signals {
-		envelope, err := decodeSignal(signal.Payload())
-		if err == nil && envelope.Operation == expected {
-			return signal, true
-		}
-	}
-	return agent.Signal{}, false
 }
 
 func checkpointWaitKey(modelCallCount uint32, toolCallID string, pauseCount uint32) (agent.WaitKey, error) {

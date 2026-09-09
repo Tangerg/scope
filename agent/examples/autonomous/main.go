@@ -34,17 +34,25 @@ func run(ctx context.Context, output io.Writer) error {
 	if err != nil {
 		return err
 	}
+	toolSet, err := interaction.NewToolSet(interaction.ToolSetConfig{
+		Name: "example.autonomous_tools", Description: "Execute each requested Tool through its own child Process.", Tools: []tool.Tool{additionTool{}},
+		ImplementationDigest: agent.ComputeDigest([]byte("example.autonomous_tools.implementation")),
+		ConfigurationDigest:  agent.ComputeDigest([]byte("example.autonomous_tools.configuration")),
+	})
+	if err != nil {
+		return err
+	}
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
 		Name:          "example.autonomous_calculator",
 		Description:   "Use available Tools until the requested calculation is complete.",
 		MaxModelCalls: calculatorFinalAnswerCall,
+		Tools:         toolSet, ToolBudget: agent.Budget{Steps: 8, Effects: 4, Signals: 8},
 	})
 	if err != nil {
 		return err
 	}
 	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
 		Client: client,
-		Tools:  []tool.Tool{additionTool{}},
 	})
 	if err != nil {
 		return err
@@ -58,7 +66,7 @@ func run(ctx context.Context, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{})
+	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deploymentResolver{toolSet.Deployment().DeploymentRef(): toolSet.Deployment()}})
 	if err != nil {
 		return err
 	}
@@ -139,4 +147,14 @@ func (c *calculatorModel) Call(_ context.Context, request *chat.Request) (*chat.
 	default:
 		return nil, errors.New("interaction did not stop after receiving the Tool result")
 	}
+}
+
+type deploymentResolver map[agent.DeploymentRef]agent.Deployment
+
+func (d deploymentResolver) Resolve(reference agent.DeploymentRef) (agent.Deployment, error) {
+	deployment, found := d[reference]
+	if !found {
+		return agent.Deployment{}, fmt.Errorf("deployment %s is not bound", reference.Name())
+	}
+	return deployment, nil
 }

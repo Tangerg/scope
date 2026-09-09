@@ -17,7 +17,7 @@ func (fixtureMutatingObserver) OnToolSettled(_ context.Context, _ ToolInvocation
 }
 func TestObserverResultIsolation(t *testing.T) {
 	result := chat.ToolResult{ID: "call", Name: "tool", Output: chat.ToolOutput{Content: []chat.Part{chat.NewTextPart("original")}, Details: []byte(`{"value":1}`)}}
-	dispatcher := &Dispatcher{observer: fixtureMutatingObserver{}}
+	dispatcher := &toolDispatcher{observer: fixtureMutatingObserver{}}
 	dispatcher.observeToolSettled(t.Context(), ToolInvocation{}, ToolSettlement{Result: &result})
 	if result.Output.Content[0].Text != "original" || string(result.Output.Details) != `{"value":1}` {
 		t.Fatalf("observer mutated owned result: text=%q details=%s", result.Output.Content[0].Text, result.Output.Details)

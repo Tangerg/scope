@@ -1,11 +1,8 @@
 package interaction
 
 import (
-	"context"
 	"fmt"
-	"sync"
 
-	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
@@ -22,25 +19,18 @@ type toolConcurrencyPlan struct {
 	key        string
 }
 
-type toolCallOutcome struct {
-	result              chat.ToolResult
-	advertisedToolNames []string
-	required            *ToolInputRequest
-	err                 error
-}
-
-func (d *Dispatcher) planToolConcurrency(calls []preparedToolCall) ([]toolConcurrencyPlan, error) {
+func (t toolManifest) planCalls(calls []chat.ToolCall) ([]toolConcurrencyPlan, error) {
 	plans := make([]toolConcurrencyPlan, len(calls))
-	for index := range calls {
-		call := calls[index]
-		if call.binding == nil || call.rejection != nil || call.binding.concurrent == nil {
+	for index, call := range calls {
+		entry, found := t.entries[call.Name]
+		if !found {
 			continue
 		}
-		key, concurrent, err := concurrencyDeclaration(call.binding.concurrent, call.invocation)
+		plan, err := entry.plan(call)
 		if err != nil {
-			return nil, fmt.Errorf("interaction: tool call %q concurrency: %w", call.call.ID, err)
+			return nil, fmt.Errorf("interaction: tool call %q concurrency: %w", call.ID, err)
 		}
-		plans[index] = toolConcurrencyPlan{concurrent: concurrent, key: key}
+		plans[index] = plan
 	}
 	return plans, nil
 }
@@ -83,45 +73,4 @@ func concurrentBatchEnd(plans []toolConcurrencyPlan, start int) int {
 		end++
 	}
 	return end
-}
-
-func (d *Dispatcher) callToolBatch(
-	ctx context.Context,
-	request agent.EffectRequest,
-	modelCallSequence uint32,
-	firstToolCallIndex uint32,
-	calls []preparedToolCall,
-) []toolCallOutcome {
-	outcomes := make([]toolCallOutcome, len(calls))
-	if len(calls) == 1 {
-		outcomes[0].result, outcomes[0].advertisedToolNames,
-			outcomes[0].required, outcomes[0].err = d.callTool(
-			ctx, request, modelCallSequence, firstToolCallIndex, calls[0],
-		)
-		return outcomes
-	}
-
-	limit := min(d.maxConcurrentToolCalls, len(calls))
-	jobs := make(chan int, len(calls))
-	var group sync.WaitGroup
-	for range limit {
-		group.Go(func() {
-			for index := range jobs {
-				outcomes[index].result, outcomes[index].advertisedToolNames,
-					outcomes[index].required, outcomes[index].err = d.callTool(
-					ctx,
-					request,
-					modelCallSequence,
-					firstToolCallIndex+uint32(index),
-					calls[index],
-				)
-			}
-		})
-	}
-	for index := range calls {
-		jobs <- index
-	}
-	close(jobs)
-	group.Wait()
-	return outcomes
 }

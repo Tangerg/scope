@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"encoding/json"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -9,113 +8,106 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 )
 
-func TestProcessAdmissionContainsOnlyFrameworkStartContracts(t *testing.T) {
-	typeOf := reflect.TypeFor[ProcessAdmission]()
-	want := []struct {
-		name   string
-		typeOf reflect.Type
-	}{
-		{name: "relation", typeOf: reflect.TypeFor[ProcessRelation]()},
-		{name: "deploymentRef", typeOf: reflect.TypeFor[DeploymentRef]()},
-		{name: "descriptor", typeOf: reflect.TypeFor[Descriptor]()},
-		{name: "budget", typeOf: reflect.TypeFor[Budget]()},
-		{name: "capabilities", typeOf: reflect.TypeFor[CapabilitySet]()},
+func TestRuntimeInspectionHasOnePublicOwner(t *testing.T) {
+	process := reflect.TypeFor[*Process]()
+	var methods []string
+	for index := range process.NumMethod() {
+		methods = append(methods, process.Method(index).Name)
 	}
-	if typeOf.NumField() != len(want) {
-		t.Fatalf("ProcessAdmission fields = %d, want %d", typeOf.NumField(), len(want))
+	want := []string{
+		"Await", "Budget", "Capabilities", "DeliverSignals", "DeploymentRef", "ID",
+		"Kill", "Pause", "Relation", "RequestCancellation", "ResolveUnknownEffect", "Resume", "StartedAt",
 	}
-	for index, expected := range want {
-		field := typeOf.Field(index)
-		if field.IsExported() || field.Name != expected.name || field.Type != expected.typeOf {
-			t.Fatalf("ProcessAdmission field %d = %s %v", index, field.Name, field.Type)
+	if !slices.Equal(methods, want) {
+		t.Fatalf("Process must expose identity, control, and Await; runtime reads belong to Engine.InspectTree: %v", methods)
+	}
+	engine := reflect.TypeFor[*Engine]()
+	var inspectionMethods []string
+	for index := range engine.NumMethod() {
+		method := engine.Method(index)
+		if method.Type.NumOut() > 0 && method.Type.Out(0) == reflect.TypeFor[TreeInspection]() {
+			inspectionMethods = append(inspectionMethods, method.Name)
 		}
+	}
+	if !slices.Equal(inspectionMethods, []string{"InspectTree"}) {
+		t.Fatalf("tree inspection must have one Engine entry: %v", inspectionMethods)
 	}
 }
 
-func TestPreparedWaitingSubtreeCancellationOwnsOnlyFrameworkState(t *testing.T) {
-	typeOf := reflect.TypeFor[PreparedWaitingSubtreeCancellation]()
-	want := []struct {
-		name   string
-		typeOf reflect.Type
-	}{
-		{name: "engine", typeOf: reflect.TypeFor[*Engine]()},
-		{name: "source", typeOf: reflect.TypeFor[*quiescedTree]()},
-		{name: "sourceTreeDigest", typeOf: reflect.TypeFor[Digest]()},
-		{name: "resultingSnapshot", typeOf: reflect.TypeFor[TreeSnapshot]()},
-		{name: "canceledProcessIDs", typeOf: reflect.TypeFor[[]ProcessID]()},
-		{name: "pausedProcessIDs", typeOf: reflect.TypeFor[[]ProcessID]()},
-		{name: "projection", typeOf: reflect.TypeFor[*treeStateProjection]()},
-		{name: "resolution", typeOf: reflect.TypeFor[*waitingSubtreeCancellationResolution]()},
-	}
-	if typeOf.NumField() != len(want) {
-		t.Fatalf("PreparedWaitingSubtreeCancellation fields = %d, want %d", typeOf.NumField(), len(want))
-	}
-	for index, expected := range want {
-		field := typeOf.Field(index)
-		if field.IsExported() || field.Name != expected.name || field.Type != expected.typeOf {
-			t.Fatalf(
-				"PreparedWaitingSubtreeCancellation field %d = %s %v",
-				index, field.Name, field.Type,
-			)
-		}
+func TestAdmissionAndObservationFactsAreImmutable(t *testing.T) {
+	for _, fact := range []reflect.Type{
+		reflect.TypeFor[ProcessAdmission](),
+		reflect.TypeFor[ProcessStartOutcome](),
+		reflect.TypeFor[Event](),
+	} {
+		t.Run(fact.Name(), func(t *testing.T) {
+			for index := range fact.NumField() {
+				if field := fact.Field(index); field.IsExported() {
+					t.Errorf("immutable boundary fact exposes mutable field %s", field.Name)
+				}
+			}
+		})
 	}
 }
 
-func TestWaitingSubtreeCancellationResolutionContainsOnlyFrameworkState(t *testing.T) {
-	typeOf := reflect.TypeFor[waitingSubtreeCancellationResolution]()
-	want := []struct {
-		name   string
-		typeOf reflect.Type
-	}{
-		{name: "mu", typeOf: reflect.TypeFor[sync.Mutex]()},
-		{name: "resolved", typeOf: reflect.TypeFor[bool]()},
-	}
-	if typeOf.NumField() != len(want) {
-		t.Fatalf("waitingSubtreeCancellationResolution fields = %d, want %d", typeOf.NumField(), len(want))
-	}
-	for index, expected := range want {
-		field := typeOf.Field(index)
-		if field.IsExported() || field.Name != expected.name || field.Type != expected.typeOf {
-			t.Fatalf(
-				"waitingSubtreeCancellationResolution field %d = %s %v",
-				index, field.Name, field.Type,
-			)
-		}
+func TestBoundaryValuesDoNotCarryRuntimeAuthority(t *testing.T) {
+	for _, value := range []reflect.Type{
+		reflect.TypeFor[ProcessAdmission](),
+		reflect.TypeFor[ProcessStartOutcome](),
+		reflect.TypeFor[Event](),
+		reflect.TypeFor[TreeInspection](),
+		reflect.TypeFor[ProcessInspection](),
+	} {
+		t.Run(value.Name(), func(t *testing.T) {
+			assertNoRuntimeAuthority(t, value, make(map[reflect.Type]bool))
+		})
 	}
 }
 
-func TestEventContainsOnlyFrameworkObservationContracts(t *testing.T) {
-	typeOf := reflect.TypeFor[Event]()
-	want := []struct {
-		name   string
-		typeOf reflect.Type
-	}{
-		{name: "processSequence", typeOf: reflect.TypeFor[uint64]()},
-		{name: "processID", typeOf: reflect.TypeFor[ProcessID]()},
-		{name: "deploymentRef", typeOf: reflect.TypeFor[DeploymentRef]()},
-		{name: "relation", typeOf: reflect.TypeFor[ProcessRelation]()},
-		{name: "incarnationID", typeOf: reflect.TypeFor[TreeIncarnationID]()},
-		{name: "stepSequence", typeOf: reflect.TypeFor[uint64]()},
-		{name: "effectID", typeOf: reflect.TypeFor[EffectID]()},
-		{name: "name", typeOf: reflect.TypeFor[string]()},
-		{name: "phase", typeOf: reflect.TypeFor[EventPhase]()},
-		{name: "occurredAt", typeOf: reflect.TypeFor[time.Time]()},
-		{name: "payload", typeOf: reflect.TypeFor[json.RawMessage]()},
+func assertNoRuntimeAuthority(t *testing.T, value reflect.Type, seen map[reflect.Type]bool) {
+	t.Helper()
+	if seen[value] {
+		return
 	}
-	if typeOf.NumField() != len(want) {
-		t.Fatalf("Event fields = %d, want %d", typeOf.NumField(), len(want))
+	seen[value] = true
+	switch value {
+	case reflect.TypeFor[Engine](), reflect.TypeFor[Process](), reflect.TypeFor[Deployment](),
+		reflect.TypeFor[Definition](), reflect.TypeFor[Execution](), reflect.TypeFor[Dispatcher](),
+		reflect.TypeFor[DeploymentResolver](), reflect.TypeFor[TreeDurability]():
+		t.Errorf("boundary value carries runtime authority through %v", value)
+		return
 	}
-	for index, expected := range want {
-		field := typeOf.Field(index)
-		if field.IsExported() || field.Name != expected.name || field.Type != expected.typeOf {
-			t.Fatalf("Event field %d = %s %v", index, field.Name, field.Type)
+	switch value.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Chan:
+		assertNoRuntimeAuthority(t, value.Elem(), seen)
+	case reflect.Map:
+		assertNoRuntimeAuthority(t, value.Key(), seen)
+		assertNoRuntimeAuthority(t, value.Elem(), seen)
+	case reflect.Struct:
+		for index := range value.NumField() {
+			assertNoRuntimeAuthority(t, value.Field(index).Type, seen)
+		}
+	case reflect.Func:
+		for index := range value.NumIn() {
+			assertNoRuntimeAuthority(t, value.In(index), seen)
+		}
+		for index := range value.NumOut() {
+			assertNoRuntimeAuthority(t, value.Out(index), seen)
+		}
+	}
+	if value.PkgPath() == reflect.TypeFor[Event]().PkgPath() {
+		methods := value
+		if value.Kind() != reflect.Interface {
+			methods = reflect.PointerTo(value)
+		}
+		for index := range methods.NumMethod() {
+			assertNoRuntimeAuthority(t, methods.Method(index).Type, seen)
 		}
 	}
 }

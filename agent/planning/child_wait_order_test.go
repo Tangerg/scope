@@ -51,7 +51,7 @@ func (f fixtureGatedExecution) Step(ctx context.Context, signals []agent.Signal)
 	return f.Execution.Step(ctx, signals)
 }
 func TestPlanningAlreadyCompletedChild(t *testing.T) {
-	stage, err := workflow.Transform("identity", func(v struct{}) (struct{}, error) { return v, nil })
+	stage, err := workflow.Transform("identity", func(_ context.Context, v struct{}) (struct{}, error) { return v, nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestPlanningAlreadyCompletedChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	child, err := agent.NewDeployment(agent.DeploymentConfig{Definition: childDef, Dispatcher: workflow.Dispatcher{}, ImplementationDigest: agent.ComputeDigest([]byte("child")), ConfigurationDigest: agent.ComputeDigest([]byte("config"))})
+	child, err := agent.NewDeployment(agent.DeploymentConfig{Definition: childDef, ImplementationDigest: agent.ComputeDigest([]byte("child")), ConfigurationDigest: agent.ComputeDigest([]byte("config"))})
 	if err != nil {
 		t.Fatal(err)
 	}

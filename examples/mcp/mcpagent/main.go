@@ -104,17 +104,25 @@ func run(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("create chat client: %w", err)
 	}
+	toolSet, err := interaction.NewToolSet(interaction.ToolSetConfig{
+		Name: "example.mcp_tools", Description: "Execute each requested Tool through its own child Process.", Tools: availableTools,
+		ImplementationDigest: agent.ComputeDigest([]byte("example.mcp_tools.implementation")),
+		ConfigurationDigest:  agent.ComputeDigest([]byte("example.mcp_tools.configuration")),
+	})
+	if err != nil {
+		return err
+	}
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
 		Name:          "example.mcp_briefing",
 		Description:   "Ask the model for a topic brief using a remote MCP search tool.",
 		MaxModelCalls: briefingModelCallLimit,
+		Tools:         toolSet, ToolBudget: agent.Budget{Steps: 8, Effects: 4, Signals: 8},
 	})
 	if err != nil {
 		return fmt.Errorf("create interaction definition: %w", err)
 	}
 	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
 		Client: chatClient,
-		Tools:  availableTools,
 	})
 	if err != nil {
 		return fmt.Errorf("create interaction dispatcher: %w", err)
@@ -128,7 +136,7 @@ func run(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("create agent deployment: %w", err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{})
+	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deploymentResolver{toolSet.Deployment().DeploymentRef(): toolSet.Deployment()}})
 	if err != nil {
 		return fmt.Errorf("create agent engine: %w", err)
 	}
@@ -280,4 +288,14 @@ func responseWithText(text string) (*chat.Response, error) {
 func responseWithToolCall(name, arguments string) (*chat.Response, error) {
 	message := chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: stubToolCallID, Name: name, Arguments: arguments}))
 	return chat.NewResponse(&chat.Output{Message: &message, FinishReason: chat.FinishReasonToolCalls}, nil)
+}
+
+type deploymentResolver map[agent.DeploymentRef]agent.Deployment
+
+func (d deploymentResolver) Resolve(reference agent.DeploymentRef) (agent.Deployment, error) {
+	deployment, found := d[reference]
+	if !found {
+		return agent.Deployment{}, fmt.Errorf("deployment %s is not bound", reference.Name())
+	}
+	return deployment, nil
 }

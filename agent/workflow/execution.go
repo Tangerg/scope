@@ -15,28 +15,31 @@ type execution struct {
 	state      executionState
 }
 
-func (e *execution) Step(_ context.Context, signals []agent.Signal) (agent.Transition, error) {
+func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if e == nil || !e.definition.valid() {
 		return agent.Transition{}, ErrInvalidExecutionState
+	}
+	if err := ctx.Err(); err != nil {
+		return agent.Transition{}, err
 	}
 	if err := e.state.validate(e.definition); err != nil {
 		return agent.Transition{}, err
 	}
 	switch e.state.Phase {
 	case phaseReady:
-		return e.advance(signals)
+		return e.advance(ctx, signals)
 	case phaseAwaitingChildStart:
 		return e.acceptChildStart(signals)
 	case phaseAwaitingChildWaitOpen:
 		return e.acceptChildWaitOpen(signals)
 	case phaseWaitingChild:
-		return e.acceptChildCompletion(signals)
+		return e.acceptChildCompletion(ctx, signals)
 	case phaseAwaitingFanoutStarts:
 		return e.acceptFanoutStarts(signals)
 	case phaseAwaitingFanoutWaitOpen:
 		return e.acceptFanoutWaitOpen(signals)
 	case phaseWaitingFanout:
-		return e.acceptFanoutCompletion(signals)
+		return e.acceptFanoutCompletion(ctx, signals)
 	case phaseCompleted:
 		return agent.Transition{}, fmt.Errorf("%w: completed Execution cannot advance", ErrInvalidProtocol)
 	default:
@@ -54,14 +57,14 @@ func (e *execution) Snapshot() (agent.ExecutionState, error) {
 	return encodeExecutionState(e.state)
 }
 
-func (e *execution) advance(signals []agent.Signal) (agent.Transition, error) {
+func (e *execution) advance(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if len(signals) != 0 {
 		return agent.Transition{}, fmt.Errorf("%w: Stage %q does not accept unsolicited Signals", ErrInvalidProtocol, e.stage().id)
 	}
 	stage := e.stage()
 	switch stage.kind {
 	case StageKindTransform:
-		value, err := stage.transform(e.state.CurrentValue)
+		value, err := stage.transform(ctx, e.state.CurrentValue)
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -70,7 +73,7 @@ func (e *execution) advance(signals []agent.Signal) (agent.Transition, error) {
 	case StageKindCall:
 		return e.startSingleChild(0, stage.call)
 	case StageKindSwitch:
-		selected, err := stage.switcher.selectCase(e.state.CurrentValue)
+		selected, err := stage.switcher.selectCase(ctx, e.state.CurrentValue)
 		if err != nil {
 			if _, ok := errors.AsType[unknownSwitchCaseError](err); ok {
 				return e.failContract(
@@ -102,7 +105,7 @@ func (e *execution) advance(signals []agent.Signal) (agent.Transition, error) {
 		if count > 0 {
 			return e.startFanoutWindow(0)
 		}
-		value, err := stage.fanoutComplete([]json.RawMessage{})
+		value, err := stage.fanoutComplete(ctx, []json.RawMessage{})
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -220,7 +223,7 @@ func (e *execution) acceptChildWaitOpen(signals []agent.Signal) (agent.Transitio
 	return agent.Wait(1, waitID)
 }
 
-func (e *execution) acceptChildCompletion(signals []agent.Signal) (agent.Transition, error) {
+func (e *execution) acceptChildCompletion(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if len(signals) == 0 || e.state.ChildProcessID == nil || e.state.WaitID == nil {
 		return agent.Transition{}, fmt.Errorf("%w: child completion requires one active child wait Signal", ErrInvalidProtocol)
 	}
@@ -257,7 +260,7 @@ func (e *execution) acceptChildCompletion(signals []agent.Signal) (agent.Transit
 		return e.failContract(1, e.stage().failureCode("output_invalid"), "Child Process Output violated the Stage contract")
 	}
 	if e.stage().kind == StageKindLoop {
-		return e.finishLoopIteration(1, output)
+		return e.finishLoopIteration(ctx, 1, output)
 	}
 	e.state.CurrentValue = output.JSON()
 	e.clearSingleChild()
@@ -329,11 +332,12 @@ func (e *execution) singleChildOutputSchema() agent.Schema {
 }
 
 func (e *execution) finishLoopIteration(
+	ctx context.Context,
 	consumedSignals uint32,
 	output agent.Output,
 ) (agent.Transition, error) {
 	stage := e.stage()
-	satisfied, err := stage.loop.predicate(output.JSON())
+	satisfied, err := stage.loop.predicate(ctx, output.JSON())
 	if err != nil {
 		return agent.Transition{}, err
 	}

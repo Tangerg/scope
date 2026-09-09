@@ -8,17 +8,20 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-// ExecutionObserver receives exact, provider-neutral Interaction facts at
-// model and Tool call boundaries. It is observational: callbacks cannot
-// alter execution, panics are isolated, and implementations must return in
-// bounded time. A Dispatcher may invoke it concurrently for explicitly
-// concurrent Tool calls.
-type ExecutionObserver interface {
+// ModelObserver receives provider-neutral model responses. Callbacks are
+// observational, must return in bounded time, and have their panics isolated.
+type ModelObserver interface {
 	// OnModelResponse receives the complete provider-neutral response after the
 	// model boundary settles and before later Interaction work is observed. The
 	// response is detached and may be mutated by the observer. Panics are
 	// isolated and the callback has no control authority.
 	OnModelResponse(ctx context.Context, invocation ModelInvocation, response *chat.Response)
+}
+
+// ToolObserver receives exact Tool-call facts. Callbacks are observational,
+// must return in bounded time, and have their panics isolated. Tool children
+// may invoke them concurrently when their calls may overlap.
+type ToolObserver interface {
 	// OnToolStarted marks the actual external Tool-call boundary; it is not
 	// emitted for calls rejected before execution. Concurrently authorized Tool
 	// calls may invoke this method in parallel.
@@ -30,8 +33,8 @@ type ExecutionObserver interface {
 }
 
 // ToolSettlement is the observed outcome of one Tool call attempt. Result is
-// the value produced for the model; it enters Execution state only after the
-// complete batch settles. InputRequired instead means the Tool
+// the value produced for the model; it enters the Tool child state only after
+// that Effect settles. InputRequired instead means the Tool
 // returned a continuation request; the Engine has not yet committed its wait.
 // Failure diagnoses an attempt that produced no ordinary ToolResult. Unknown
 // means its external outcome remains unestablished, including host failures,
@@ -47,9 +50,9 @@ type ToolSettlement struct {
 	Unknown bool
 }
 
-// ObservationFailureCounts is an immutable snapshot of ExecutionObserver
-// panics isolated by one Dispatcher. Counts are monotonic and saturate at
-// math.MaxUint64.
+// ObservationFailureCounts is an immutable snapshot of observer panics
+// isolated by one model Dispatcher or ToolSet. Counts are monotonic and
+// saturate at math.MaxUint64.
 type ObservationFailureCounts struct {
 	modelResponsePanics uint64
 	toolStartedPanics   uint64
@@ -102,21 +105,21 @@ func (d *Dispatcher) observeModel(ctx context.Context, invocation ModelInvocatio
 	d.observer.OnModelResponse(ctx, invocation, response.Clone())
 }
 
-func (d *Dispatcher) observeToolStarted(ctx context.Context, invocation ToolInvocation) {
-	if d.observer == nil {
+func (t *toolDispatcher) observeToolStarted(ctx context.Context, invocation ToolInvocation) {
+	if t.observer == nil {
 		return
 	}
-	defer recordObserverPanic(&d.observationFailures.toolStartedPanics)
-	d.observer.OnToolStarted(ctx, invocation)
+	defer recordObserverPanic(&t.observationFailures.toolStartedPanics)
+	t.observer.OnToolStarted(ctx, invocation)
 }
 
-func (d *Dispatcher) observeToolSettled(ctx context.Context, invocation ToolInvocation, settlement ToolSettlement) {
-	if d.observer == nil {
+func (t *toolDispatcher) observeToolSettled(ctx context.Context, invocation ToolInvocation, settlement ToolSettlement) {
+	if t.observer == nil {
 		return
 	}
 	if settlement.Result != nil {
 		settlement.Result = new(settlement.Result.Clone())
 	}
-	defer recordObserverPanic(&d.observationFailures.toolSettledPanics)
-	d.observer.OnToolSettled(ctx, invocation, settlement)
+	defer recordObserverPanic(&t.observationFailures.toolSettledPanics)
+	t.observer.OnToolSettled(ctx, invocation, settlement)
 }

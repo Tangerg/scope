@@ -6,10 +6,10 @@ import (
 )
 
 type restoredTreeProcess struct {
-	snapshot   ProcessSnapshot
-	controller *processController
-	state      *processState
-	wire       processSnapshotWire
+	snapshot ProcessSnapshot
+	handle   *processHandleState
+	state    *processState
+	wire     processSnapshotWire
 }
 
 // RestoreTree recreates a complete Process tree from one strict TreeSnapshot.
@@ -132,7 +132,7 @@ func (t *treeRestoration) prepareProcesses() error {
 		if err != nil {
 			return err
 		}
-		controller, state, processWire, err := prepareRestoredProcess(
+		handle, state, processWire, err := prepareRestoredProcess(
 			t.engine, deployment, processSnapshot,
 		)
 		if err != nil {
@@ -142,7 +142,7 @@ func (t *treeRestoration) prepareProcesses() error {
 			)
 		}
 		t.processes = append(t.processes, restoredTreeProcess{
-			snapshot: processSnapshot, controller: controller, state: state, wire: processWire,
+			snapshot: processSnapshot, handle: handle, state: state, wire: processWire,
 		})
 	}
 	return nil
@@ -190,7 +190,7 @@ func (e *Engine) startRestoredTree(ctx context.Context, restoration *treeRestora
 	for index := range restoration.processes {
 		entry := &restoration.processes[index]
 		if entry.wire.Status.Terminal() {
-			entry.controller.complete(entry.state.result(), entry.snapshot, nil)
+			entry.handle.publishResult(entry.state.result())
 		}
 	}
 	for index := len(restoration.processes) - 1; index >= 0; index-- {
@@ -198,12 +198,12 @@ func (e *Engine) startRestoredTree(ctx context.Context, restoration *treeRestora
 		if !entry.wire.Status.Terminal() {
 			continue
 		}
-		restoration.runtime.processFinished(entry.state)
-		entry.controller.markTreeSettled()
+		restoration.runtime.propagateProcessTermination(entry.state)
+		entry.handle.finishBookkeeping()
 	}
 	go restoration.runtime.run(requireContext(ctx))
 	root := restoredProcessByID(restoration.processes, restoration.wire.RootID)
-	return &Process{controller: root.controller}
+	return &Process{handle: root.handle}
 }
 
 func (e *Engine) reserveRestoredTree(restoration *treeRestoration) error {
@@ -220,17 +220,17 @@ func (e *Engine) reserveRestoredTree(restoration *treeRestoration) error {
 		return ErrProcessAlreadyExists
 	}
 	for _, process := range restoration.processes {
-		if _, exists := e.processes[process.controller.processID]; exists {
+		if _, exists := e.processes[process.handle.processID]; exists {
 			return ErrProcessAlreadyExists
 		}
-		if _, exists := e.startReservations[process.controller.processID]; exists {
+		if _, exists := e.startReservations[process.handle.processID]; exists {
 			return ErrProcessAlreadyExists
 		}
-		if e.restoredProcessReserved(process.controller.processID) {
+		if e.restoredProcessReserved(process.handle.processID) {
 			return ErrProcessAlreadyExists
 		}
-		if parentID, child := process.controller.relation.ParentID(); child {
-			key, _ := process.controller.relation.ChildKey()
+		if parentID, child := process.handle.relation.ParentID(); child {
+			key, _ := process.handle.relation.ChildKey()
 			identity := childIdentity{parent: parentID, key: key}
 			if _, exists := e.children[identity]; exists {
 				return ErrInvalidChildStart
@@ -256,7 +256,7 @@ func (e *Engine) reserveRestoredTree(restoration *treeRestoration) error {
 func (e *Engine) restoredProcessReserved(processID ProcessID) bool {
 	for _, restoration := range e.treeRestoreReservations {
 		for _, process := range restoration.processes {
-			if process.controller.processID == processID {
+			if process.handle.processID == processID {
 				return true
 			}
 		}
@@ -268,11 +268,11 @@ func (e *Engine) restoredProcessReserved(processID ProcessID) bool {
 func (e *Engine) restoredChildReserved(identity childIdentity) bool {
 	for _, restoration := range e.treeRestoreReservations {
 		for _, process := range restoration.processes {
-			parentID, child := process.controller.relation.ParentID()
+			parentID, child := process.handle.relation.ParentID()
 			if !child {
 				continue
 			}
-			key, _ := process.controller.relation.ChildKey()
+			key, _ := process.handle.relation.ChildKey()
 			if identity == (childIdentity{parent: parentID, key: key}) {
 				return true
 			}
@@ -296,20 +296,20 @@ func (e *Engine) publishRestoredTree(restoration *treeRestoration) {
 	if e.closeDone != nil || e.treeRestoreReservations[rootID] != restoration {
 		panic("agent: invalid restored tree reservation")
 	}
-	runtime := restoration.processes[0].controller.runtime.Load()
+	runtime := restoration.processes[0].handle.runtime.Load()
 	if runtime == nil || runtime.rootID != rootID || e.trees[rootID] != nil {
 		panic("agent: invalid restored tree runtime")
 	}
 	for _, process := range restoration.processes {
-		controller := process.controller
-		if e.processes[controller.processID] != nil ||
-			e.startReservations[controller.processID].relation.Valid() {
+		handle := process.handle
+		if e.processes[handle.processID] != nil ||
+			e.startReservations[handle.processID].relation.Valid() {
 			panic("agent: restored Process reservation changed")
 		}
-		e.processes[controller.processID] = controller
-		if parentID, child := controller.relation.ParentID(); child {
-			key, _ := controller.relation.ChildKey()
-			e.children[childIdentity{parent: parentID, key: key}] = controller.processID
+		e.processes[handle.processID] = handle
+		if parentID, child := handle.relation.ParentID(); child {
+			key, _ := handle.relation.ChildKey()
+			e.children[childIdentity{parent: parentID, key: key}] = handle.processID
 		}
 	}
 	e.trees[rootID] = runtime
@@ -327,7 +327,7 @@ func snapshotByID(snapshots []ProcessSnapshot, id ProcessID) ProcessSnapshot {
 
 func restoredProcessByID(processes []restoredTreeProcess, id ProcessID) restoredTreeProcess {
 	for _, process := range processes {
-		if process.controller.processID == id {
+		if process.handle.processID == id {
 			return process
 		}
 	}

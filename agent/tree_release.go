@@ -5,7 +5,7 @@ import "context"
 // ReleaseTree waits for the complete root tree to settle and removes its
 // in-memory registry entries and execution state. It does not cancel work or
 // delete Host persistence. Capture any required TreeSnapshot before releasing.
-// Existing Process handles retain their Result or RuntimeError and last snapshot;
+// Existing Process handles retain their Result or RuntimeError;
 // Engine.Process and tree operations no longer find the released identities.
 // Canceling ctx before settlement leaves the tree registered and usable.
 func (e *Engine) ReleaseTree(ctx context.Context, rootID ProcessID) error {
@@ -40,15 +40,15 @@ func (e *Engine) ReleaseTree(ctx context.Context, rootID ProcessID) error {
 	if e.trees[rootID] != runtime {
 		return ErrInvalidProcessRelation
 	}
-	for processID, controller := range e.processes {
-		if controller.relation.RootID() != rootID {
+	for processID, handle := range e.processes {
+		if handle.relation.RootID() != rootID {
 			continue
 		}
-		if parentID, child := controller.relation.ParentID(); child {
-			key, _ := controller.relation.ChildKey()
+		if parentID, child := handle.relation.ParentID(); child {
+			key, _ := handle.relation.ChildKey()
 			delete(e.children, childIdentity{parent: parentID, key: key})
 		}
-		controller.runtime.Store(nil)
+		handle.runtime.Store(nil)
 		delete(e.processes, processID)
 	}
 	delete(e.trees, rootID)

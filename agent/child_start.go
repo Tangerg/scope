@@ -57,13 +57,13 @@ func (p *processState) prepareChildStart(
 	effectID EffectID,
 	spec ChildSpec,
 ) childStartPreparation {
-	if !spec.Valid() || !p.controller.relation.Valid() {
+	if !spec.Valid() || !p.handle.relation.Valid() {
 		return childStartPreparation{result: failedChildStart(
 			spec, FailureKindContract, childRequestInvalidCode, ErrInvalidChildStart,
 		)}
 	}
 	childID := deriveChildProcessID(effectID)
-	relation := childProcessRelation(childID, p.controller.relation, spec.Key)
+	relation := childProcessRelation(childID, p.handle.relation, spec.Key)
 	requestDigest, err := childSpecDigest(spec)
 	if err != nil {
 		return childStartPreparation{result: failedChildStart(
@@ -72,7 +72,7 @@ func (p *processState) prepareChildStart(
 	}
 	if existing, exists := p.engine.Process(childID); exists {
 		if existing.Relation() == relation && existing.DeploymentRef() == spec.DeploymentRef &&
-			existing.controller.childRequestDigest == requestDigest {
+			existing.handle.childRequestDigest == requestDigest {
 			return childStartPreparation{result: ChildStartResult{
 				key: spec.Key, processID: childID, deploymentRef: spec.DeploymentRef,
 			}}

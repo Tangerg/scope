@@ -25,7 +25,7 @@ func TestManagedInteractionCompletesFromModelResponse(t *testing.T) {
 		return textResponse("done"), nil
 	})
 	deployment := newDeployment(t, model, nil, 2)
-	engine, err := agent.NewEngine(agent.EngineConfig{})
+	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestManagedInteractionCompletesFromModelResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := engine.Run(context.Background(), deployment, input)
+	result, err := engine.Run(context.Background(), deployment.Deployment, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestManagedInteractionExecutesToolLoopInModelOrder(t *testing.T) {
 
 	model := &scriptedModel{}
 	deployment := newDeployment(t, model, []tool.Tool{add}, 3)
-	engine, err := agent.NewEngine(agent.EngineConfig{})
+	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestManagedInteractionExecutesToolLoopInModelOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := engine.Run(context.Background(), deployment, input)
+	result, err := engine.Run(context.Background(), deployment.Deployment, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,33 +157,16 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 				t.Fatal(err)
 			}
 			model := &singleToolCallModel{call: chat.ToolCall{ID: "call_unknown", Name: "failing", Arguments: `{}`}}
-			definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-				Name: "interaction.unknown_tool", Description: "Preserve unknown Tool outcomes.", MaxModelCalls: 2,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
 			observer := &toolSettlementObserver{settlements: make(chan interaction.ToolSettlement, 1)}
-			dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-				Client: model, Tools: []tool.Tool{failing}, Observer: observer,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-				Definition: definition, Dispatcher: dispatcher,
-				ImplementationDigest: agent.ComputeDigest([]byte("unknown-tool-implementation")),
-				ConfigurationDigest:  agent.ComputeDigest([]byte(testCase.name)),
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
+			deployment := configuredInteraction(t, interaction.DefinitionConfig{
+				Name: "interaction.unknown_tool", Description: "Preserve unknown Tool outcomes.", MaxModelCalls: 2,
+			}, interaction.DispatcherConfig{Client: model}, interaction.ToolSetConfig{Tools: []tool.Tool{failing}, Observer: observer})
 			events := &agenttest.ObservationRecorder{}
-			engine, err := agent.NewEngine(agent.EngineConfig{EventListeners: []agent.EventListener{events}})
+			engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver, EventListeners: []agent.EventListener{events}})
 			if err != nil {
 				t.Fatal(err)
 			}
-			process, err := engine.Start(t.Context(), deployment, interactionInput(t, "preserve the unknown result"))
+			process, err := engine.Start(t.Context(), deployment.Deployment, interactionInput(t, "preserve the unknown result"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -203,8 +186,8 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 			defer cancel()
 			settled, err := events.AwaitEvent(ctx, func(event agent.Event) bool {
-				sequence, present := event.StepSequence()
-				return event.Name() == agent.EventEffectFinished && present && sequence == 2
+				fact, present := event.EffectFinished()
+				return event.Name() == agent.EventEffectFinished && present && fact.SettlementStatus() == agent.SettlementStatusUnknown
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -221,20 +204,29 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 			case <-ctx.Done():
 				t.Fatal(ctx.Err())
 			}
-			unknown, err := process.UnknownEffectIDs(ctx)
-			effectID, _ := settled.EffectID()
-			if err != nil || len(unknown) != 1 || unknown[0] != effectID {
-				t.Fatalf("unknown Effects=%v error=%v", unknown, err)
+			toolProcess, found := engine.Process(settled.Relation().ProcessID())
+			if !found {
+				t.Fatal("unknown Tool Process is missing")
 			}
-			if process.Status().Terminal() || model.Calls() != 1 {
-				t.Fatalf("status=%s model calls=%d", process.Status(), model.Calls())
+			unknown := inspectProcessSnapshot(t, engine, toolProcess).UnknownEffectIDs()
+			effectID, _ := settled.EffectID()
+			if len(unknown) != 1 || unknown[0] != effectID {
+				t.Fatalf("unknown Effects=%v", unknown)
+			}
+			if inspectProcessSnapshot(t, engine, process).Status().Terminal() || model.Calls() != 1 {
+				t.Fatalf("status=%s model calls=%d", inspectProcessSnapshot(t, engine, process).Status(), model.Calls())
 			}
 			if killErr := process.Kill(ctx, "retain unresolved outcome in terminal result"); killErr != nil {
 				t.Fatal(killErr)
 			}
 			result, err := process.Await(ctx)
-			if err != nil || result.Status() != agent.StatusKilled || len(result.Termination().UnresolvedEffectIDs()) != 1 {
-				t.Fatalf("termination=%+v error=%v", result.Termination(), err)
+			if err != nil || result.Status() != agent.StatusKilled || len(result.Termination().UnresolvedEffectIDs()) != 0 {
+				t.Fatalf("root termination=%+v error=%v", result.Termination(), err)
+			}
+			toolResult, err := toolProcess.Await(ctx)
+			unresolved := toolResult.Termination().UnresolvedEffectIDs()
+			if err != nil || toolResult.Status() != agent.StatusCanceled || toolResult.Termination().Cause() != agent.TerminationCauseParentCancellation || len(unresolved) != 1 || unresolved[0] != effectID {
+				t.Fatalf("Tool termination=%+v error=%v", toolResult.Termination(), err)
 			}
 		})
 	}
@@ -251,13 +243,13 @@ func (t *toolSettlementObserver) OnToolSettled(_ context.Context, _ interaction.
 	t.settlements <- settlement
 }
 
-func runInteraction(t *testing.T, deployment agent.Deployment, prompt string) agent.Result {
+func runInteraction(t *testing.T, deployment interactionDeployment, prompt string) agent.Result {
 	t.Helper()
-	engine, err := agent.NewEngine(agent.EngineConfig{})
+	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := engine.Run(context.Background(), deployment, interactionInput(t, prompt))
+	result, err := engine.Run(context.Background(), deployment.Deployment, interactionInput(t, prompt))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,11 +335,11 @@ func TestDirectResultToolCompletesWithoutAnotherModelCall(t *testing.T) {
 	}
 	model := &singleToolCallModel{call: chat.ToolCall{ID: "call_direct", Name: "echo", Arguments: `{"value":"direct"}`}}
 	deployment := newDeployment(t, model, []tool.Tool{directTool{Tool: echo}}, 2)
-	engine, err := agent.NewEngine(agent.EngineConfig{})
+	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := engine.Run(context.Background(), deployment, interactionInput(t, "direct"))
+	result, err := engine.Run(context.Background(), deployment.Deployment, interactionInput(t, "direct"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,11 +375,11 @@ func TestModelCallLimitProducesStableFailure(t *testing.T) {
 	}
 	model := &singleToolCallModel{call: chat.ToolCall{ID: "call_limit", Name: "next", Arguments: `{}`}}
 	deployment := newDeployment(t, model, []tool.Tool{next}, 1)
-	engine, err := agent.NewEngine(agent.EngineConfig{})
+	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := engine.Run(context.Background(), deployment, interactionInput(t, "loop"))
+	result, err := engine.Run(context.Background(), deployment.Deployment, interactionInput(t, "loop"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -465,34 +457,15 @@ func (s *scriptedModel) Calls() int {
 	return s.calls
 }
 
-func newDeployment(t *testing.T, model chat.Model, tools []tool.Tool, maxModelCalls uint32) agent.Deployment {
+func newDeployment(t *testing.T, model chat.Model, tools []tool.Tool, maxModelCalls uint32) interactionDeployment {
 	t.Helper()
 	client, err := chatclient.New(model, chatclient.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name:          "interaction.test",
-		Description:   "Run a model-directed interaction for contract testing.",
-		MaxModelCalls: maxModelCalls,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{Client: client, Tools: tools})
-	if err != nil {
-		t.Fatal(err)
-	}
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition:           definition,
-		Dispatcher:           dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("interaction-test-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("interaction-test-configuration")),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return deployment
+	return configuredInteraction(t, interaction.DefinitionConfig{
+		Name: "interaction.test", Description: "Run a model-directed interaction for contract testing.", MaxModelCalls: maxModelCalls,
+	}, interaction.DispatcherConfig{Client: client}, interaction.ToolSetConfig{Tools: tools})
 }
 
 func textResponse(text string) *chat.Response {

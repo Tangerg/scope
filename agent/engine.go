@@ -23,20 +23,30 @@ var (
 // EngineConfig keeps scheduling and authority policy outside Deployments so a
 // strategy cannot change Engine-wide constraints through its behavior binding.
 type EngineConfig struct {
-	// A nil port permits ephemeral execution without requiring storage. A port
-	// makes publication wait for an acknowledged, recoverable tree.
+	// TreeDurability makes publication wait for acknowledgment of a recoverable
+	// tree. Nil selects ephemeral execution without storage acknowledgment.
 	TreeDurability TreeDurability
 
+	// ProcessStartOutcomeAcknowledger optionally accepts initialization outcomes
+	// before publication. Its acknowledgment is separate from TreeDurability;
+	// nil omits this Host acceptance step.
 	ProcessStartOutcomeAcknowledger ProcessStartOutcomeAcknowledger
 
 	// Exact local bindings prevent restoration from silently selecting different
 	// behavior. Same-Deployment recursion needs no resolver.
 	DeploymentResolver DeploymentResolver
 
+	// ProcessAdmitter optionally applies Host policy before root or child
+	// initialization. Nil admits every start that satisfies Engine constraints.
 	ProcessAdmitter ProcessAdmitter
 
+	// EventListeners receive synchronous Framework facts. An empty slice disables
+	// delivery. Callbacks must be bounded and must not query or control their tree.
 	EventListeners []EventListener
 
+	// DeltaListeners receive queued, best-effort Strategy increments. An empty
+	// slice disables delivery. Callbacks run serially and must return so Engine
+	// shutdown can drain the queue and join its delivery worker.
 	DeltaListeners []DeltaListener
 
 	// A bounded queue prevents slow listeners from retaining unlimited Deltas.
@@ -47,6 +57,8 @@ type EngineConfig struct {
 	// complete per-Process resource bounds.
 	Limits Limits
 
+	// TreeLimits bounds descendant count, depth, and active children. Zero fields
+	// inherit DefaultTreeLimits independently of per-Process Limits.
 	TreeLimits TreeLimits
 
 	// Children receive only subsets of root authority so composition cannot
@@ -77,7 +89,7 @@ type Engine struct {
 	// Registry and reservation changes share this lock so publication cannot
 	// expose a Process whose admission still appears unreserved.
 	mu                      sync.RWMutex
-	processes               map[ProcessID]*processController
+	processes               map[ProcessID]*processHandleState
 	trees                   map[ProcessID]*treeRuntime
 	startReservations       map[ProcessID]processStartReservation
 	treeRestoreReservations map[ProcessID]*treeRestoration
@@ -160,7 +172,7 @@ func NewEngine(config EngineConfig) (*Engine, error) {
 		treeLimits:               treeLimits,
 		capabilities:             config.Capabilities,
 		treeOperations:           make(map[ProcessID]*treeOperation),
-		processes:                make(map[ProcessID]*processController),
+		processes:                make(map[ProcessID]*processHandleState),
 		trees:                    make(map[ProcessID]*treeRuntime),
 		startReservations:        make(map[ProcessID]processStartReservation),
 		treeRestoreReservations:  make(map[ProcessID]*treeRestoration),
@@ -215,12 +227,12 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Input) 
 		e.discardProcessStartReservation(id)
 		return nil, err
 	}
-	controller := newProcessController(
+	handle := newProcessHandleState(
 		relation, deployment.DeploymentRef(), budget, e.capabilities,
 		e.treeLimits,
 		startedAt, StatusRunning,
 	)
-	process := newProcessState(e, controller, deployment, execution, state, startedAt, e.limits)
+	process := newProcessState(e, handle, deployment, execution, state, startedAt, e.limits)
 	runtime := newTreeRuntime(e, relation.RootID(), ctx, process)
 	if e.durability != nil {
 		incarnation, incarnationErr := newTreeIncarnationID()
@@ -245,9 +257,9 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Input) 
 		}
 		runtime.establishDurableHead(incarnation, baseSnapshot)
 	}
-	e.publishReservedProcess(controller)
+	e.publishReservedProcess(handle)
 	go runtime.run(ctx)
-	return &Process{controller: controller}, nil
+	return &Process{handle: handle}, nil
 }
 
 // Run keeps waiting after cancellation because accepted Effects must settle
@@ -265,17 +277,19 @@ func (e *Engine) Process(id ProcessID) (*Process, bool) {
 		return nil, false
 	}
 	e.mu.RLock()
-	controller, exists := e.processes[id]
+	handle, exists := e.processes[id]
 	e.mu.RUnlock()
 	if !exists {
 		return nil, false
 	}
-	return &Process{controller: controller}, true
+	return &Process{handle: handle}, true
 }
 
-// Close waits for owned work before stopping observation workers so lifecycle
-// completion cannot lose its final events. Concurrent callers join the same
-// closure; existing handles retain results and RuntimeErrors for later reads.
+// Close rejects active Processes, pending starts or restorations, and trees
+// that still own asynchronous work or a freeze. Once closing begins, it joins
+// remaining outcome bookkeeping before stopping observation workers.
+// Concurrent callers join the same closure; existing handles retain results
+// and RuntimeErrors for later reads.
 func (e *Engine) Close() error {
 	if e == nil {
 		return nil
@@ -291,27 +305,27 @@ func (e *Engine) Close() error {
 		e.mu.Unlock()
 		return fmt.Errorf("%w: Process publication is pending", ErrEngineHasActiveProcesses)
 	}
-	var unpublished []*processController
-	for _, controller := range e.processes {
+	var pendingBookkeeping []*processHandleState
+	for _, handle := range e.processes {
 		select {
-		case <-controller.done:
+		case <-handle.outcomePublished:
 		default:
-			if !controller.status().Terminal() {
+			if !handle.status().Terminal() {
 				e.mu.Unlock()
 				return fmt.Errorf(
 					"%w: Process %s is still running",
-					ErrEngineHasActiveProcesses, controller.processID,
+					ErrEngineHasActiveProcesses, handle.processID,
 				)
 			}
 		}
 		select {
-		case <-controller.treeSettled:
+		case <-handle.bookkeepingDone:
 		default:
-			unpublished = append(unpublished, controller)
+			pendingBookkeeping = append(pendingBookkeeping, handle)
 		}
 	}
 	for rootID, runtime := range e.trees {
-		if runtime.inflight.Load() != 0 || runtime.freezeHeld.Load() {
+		if runtime.inFlightWork.Load() != 0 || runtime.freezeActive.Load() {
 			e.mu.Unlock()
 			return fmt.Errorf(
 				"%w: tree %s still owns active work",
@@ -319,20 +333,20 @@ func (e *Engine) Close() error {
 			)
 		}
 	}
-	if len(unpublished) != 0 && e.durability != nil {
+	if len(pendingBookkeeping) != 0 && e.durability != nil {
 		e.mu.Unlock()
 		return fmt.Errorf(
-			"%w: Process %s has unpublished durable tree state",
-			ErrEngineHasActiveProcesses, unpublished[0].processID,
+			"%w: Process %s has an unpublished outcome or pending parent/child bookkeeping",
+			ErrEngineHasActiveProcesses, pendingBookkeeping[0].processID,
 		)
 	}
 	done := make(chan struct{})
 	e.closeDone = done
 	e.mu.Unlock()
-	// Admission is closed before joining publication, whose listeners may
-	// inspect the registry and therefore need e.mu to remain available.
-	for _, controller := range unpublished {
-		<-controller.treeSettled
+	// Close admission before joining publication and parent/child bookkeeping,
+	// whose listeners may inspect the registry and therefore need e.mu.
+	for _, handle := range pendingBookkeeping {
+		<-handle.bookkeepingDone
 	}
 	e.observation.close()
 	close(done)

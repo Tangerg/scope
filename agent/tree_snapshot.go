@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sync"
 )
 
 const maxTreeSnapshotBytes = 512 << 20
@@ -329,109 +328,48 @@ func (e *Engine) CaptureTree(ctx context.Context, rootID ProcessID) (TreeSnapsho
 		return TreeSnapshot{}, ErrTreeCaptureUnavailable
 	}
 	ctx = requireContext(ctx)
-	source, err := e.quiesceOwnedTree(ctx, rootID, treeFreezeModeSnapshot)
+	operation, err := e.acquireTreeOperation(ctx, rootID)
 	if err != nil {
 		return TreeSnapshot{}, err
 	}
-	defer source.release()
-	return source.snapshot, nil
+	defer operation.release()
+	runtime, err := e.runtimeForTree(rootID)
+	if err != nil {
+		return TreeSnapshot{}, err
+	}
+	freeze, snapshot, err := runtime.acquireTreeFreeze(ctx)
+	if err != nil {
+		return TreeSnapshot{}, err
+	}
+	if freeze != nil {
+		if releaseErr := freeze.release(); releaseErr != nil {
+			return TreeSnapshot{}, releaseErr
+		}
+	}
+	return snapshot, nil
 }
 
-// treeFreeze is an unforgeable, one-shot authority over a tree-level safe
-// boundary. State remains private to treeRuntime; this value can only ask that
-// owner to apply an exact projection or resume the source tree.
+// treeFreeze identifies the active snapshot barrier. Only CaptureTree receives
+// it, and releasing it lets the same tree owner resume scheduling.
 type treeFreeze struct {
-	runtime  *treeRuntime
-	mu       sync.Mutex
-	resolved bool
+	runtime *treeRuntime
 }
 
 func (t *treeFreeze) release() error {
-	return t.resolve(treeCommandReleaseFreeze, nil)
-}
-
-func (t *treeFreeze) apply(projection *treeStateProjection) error {
-	return t.resolve(treeCommandApplyFreeze, projection)
-}
-
-func (t *treeFreeze) resolve(kind treeCommandKind, projection *treeStateProjection) error {
-	if t == nil || t.runtime == nil {
-		return ErrEngineQuiescenceUnavailable
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.resolved {
-		return nil
-	}
 	response := make(chan error, 1)
 	select {
 	case t.runtime.controls <- treeCommand{
-		kind: kind, freeze: t, projection: projection, response: response,
+		kind: treeCommandReleaseFreeze, freeze: t, response: response,
 	}:
 	case <-t.runtime.done:
 		return ErrEngineQuiescenceUnavailable
 	}
 	select {
 	case err := <-response:
-		if err == nil {
-			t.resolved = true
-		}
 		return err
 	case <-t.runtime.done:
 		return ErrEngineQuiescenceUnavailable
 	}
-}
-
-// quiescedTree owns the root-scoped operation and its Strategy-safe barrier as
-// one private capability. Releasing it is idempotent and always releases the
-// barrier before admitting the next operation on the same tree.
-type quiescedTree struct {
-	operation        *treeOperation
-	freeze           *treeFreeze
-	snapshot         TreeSnapshot
-	acknowledgedHead *treeHead
-	releaseOnce      sync.Once
-}
-
-func (e *Engine) quiesceOwnedTree(
-	ctx context.Context,
-	rootID ProcessID,
-	mode treeFreezeMode,
-) (*quiescedTree, error) {
-	operation, err := e.acquireTreeOperation(ctx, rootID)
-	if err != nil {
-		return nil, err
-	}
-	runtime, err := e.runtimeForTree(rootID)
-	if err != nil {
-		operation.release()
-		return nil, err
-	}
-	freeze, snapshot, err := runtime.acquireTreeFreeze(ctx, mode)
-	if err != nil {
-		operation.release()
-		return nil, err
-	}
-	return &quiescedTree{
-		operation: operation, freeze: freeze, snapshot: snapshot,
-		acknowledgedHead: runtime.head,
-	}, nil
-}
-
-func (q *quiescedTree) release() {
-	if q == nil {
-		return
-	}
-	q.releaseOnce.Do(func() {
-		_ = q.freeze.release()
-		q.operation.release()
-	})
-}
-
-func (q *quiescedTree) valid(engine *Engine, rootID ProcessID) bool {
-	return q != nil && q.operation != nil && q.freeze != nil && q.snapshot.Valid() &&
-		q.operation.engine == engine && q.operation.rootID == rootID &&
-		q.snapshot.RootID() == rootID
 }
 
 func (e *Engine) runtimeForTree(rootID ProcessID) (*treeRuntime, error) {
@@ -448,24 +386,25 @@ func (e *Engine) runtimeForTree(rootID ProcessID) (*treeRuntime, error) {
 
 func (t *treeRuntime) acquireTreeFreeze(
 	ctx context.Context,
-	mode treeFreezeMode,
 ) (*treeFreeze, TreeSnapshot, error) {
 	ctx = requireContext(ctx)
-	if freeze, snapshot, err, done := t.finishedTreeFreeze(); done {
-		return freeze, snapshot, err
+	if err := ctx.Err(); err != nil {
+		return nil, TreeSnapshot{}, err
+	}
+	if snapshot, err, stopped := t.captureStoppedTree(); stopped {
+		return nil, snapshot, err
 	}
 	acquisition := &treeFreezeAcquisition{
 		response: make(chan treeFreezeAcquisitionResult, 1),
 		canceled: make(chan struct{}),
-		mode:     mode,
 	}
 	select {
 	case t.controls <- treeCommand{
 		kind: treeCommandAcquireFreeze, acquisition: acquisition,
 	}:
 	case <-t.done:
-		freeze, snapshot, err, _ := t.finishedTreeFreeze()
-		return freeze, snapshot, err
+		snapshot, err, _ := t.captureStoppedTree()
+		return nil, snapshot, err
 	case <-ctx.Done():
 		return nil, TreeSnapshot{}, ctx.Err()
 	}
@@ -473,23 +412,20 @@ func (t *treeRuntime) acquireTreeFreeze(
 	case result := <-acquisition.response:
 		return result.freeze, result.snapshot, result.err
 	case <-t.done:
-		freeze, snapshot, err, _ := t.finishedTreeFreeze()
-		return freeze, snapshot, err
+		snapshot, err, _ := t.captureStoppedTree()
+		return nil, snapshot, err
 	case <-ctx.Done():
 		close(acquisition.canceled)
 		return nil, TreeSnapshot{}, ctx.Err()
 	}
 }
 
-func (t *treeRuntime) finishedTreeFreeze() (*treeFreeze, TreeSnapshot, error, bool) {
+func (t *treeRuntime) captureStoppedTree() (TreeSnapshot, error, bool) {
 	select {
 	case <-t.done:
 		snapshot, err := t.captureTree()
-		if err != nil {
-			return nil, TreeSnapshot{}, err, true
-		}
-		return &treeFreeze{runtime: t, resolved: true}, snapshot, nil, true
+		return snapshot, err, true
 	default:
-		return nil, TreeSnapshot{}, nil, false
+		return TreeSnapshot{}, nil, false
 	}
 }

@@ -4,71 +4,161 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"sync"
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
 )
 
-type administrativeCommitGate struct {
-	store       *MemoryTreeDurability
-	source      agent.Digest
-	prospective agent.TreeSnapshot
-
-	reached  chan struct{}
-	decision chan error
-	resolve  sync.Once
+func runCrashBeforeChildCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+	runCrashChildCommit(t, store, crashCommitBefore)
 }
 
-func newAdministrativeCommitGate(
-	t *testing.T,
-	store *MemoryTreeDurability,
-	source agent.Digest,
-	prospective agent.TreeSnapshot,
-) *administrativeCommitGate {
+func runCrashAfterChildCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+	runCrashChildCommit(t, store, crashCommitAfter)
+}
+
+func runCrashChildCommit(t *testing.T, store TreeDurabilityConformanceDriver, phase crashCommitPhase) {
 	t.Helper()
-	if store == nil || !source.Valid() || !prospective.Valid() ||
-		source == prospective.Digest() {
-		t.Fatal("invalid administrative crash gate")
+	durability := store.TreeDurability()
+	gate := newTreeDurabilityCommitGate(t, durability, crashCommitPoint{
+		kind: crashCommitCheckpointChild, phase: phase,
+	})
+	deployment := newCrashTreeDeployment(t)
+	recorder := &ObservationRecorder{}
+	engine := newCrashEngine(t, gate, recorder)
+	original := startCrashTree(t, engine, deployment)
+	observation := gate.await(t)
+	childID := crashTreeChildID(t, observation.prospective, original.ID())
+	if _, found := engine.Process(childID); found {
+		t.Fatal("child was published before its checkpoint acknowledgment")
 	}
-	gate := &administrativeCommitGate{
-		store: store, source: source, prospective: prospective,
-		reached: make(chan struct{}), decision: make(chan error, 1),
+	for _, event := range recorder.Events() {
+		if event.ProcessID() == childID {
+			t.Fatal("unacknowledged child published an observation")
+		}
 	}
-	t.Cleanup(func() { gate.abort() })
-	return gate
+	wantHead := observation.previousDigest
+	wantProcesses := 1
+	if phase == crashCommitAfter {
+		wantHead = observation.prospective.Digest()
+		wantProcesses = 2
+	}
+	head := assertCrashHead(t, store, original.ID(), wantHead)
+	if len(head.ProcessSnapshots()) != wantProcesses {
+		t.Fatalf("child boundary processes=%d want=%d", len(head.ProcessSnapshots()), wantProcesses)
+	}
+	restoredEngine := newCrashEngine(t, durability, nil)
+	root := restoreCrashTree(t, restoredEngine, deployment, head)
+	waitForConformanceStatus(t, restoredEngine, root, agent.StatusWaiting)
+	child, found := restoredEngine.Process(childID)
+	if !found {
+		t.Fatal("restoration changed the child identity")
+	}
+	waitForConformanceStatus(t, restoredEngine, child, agent.StatusWaiting)
+	head, found, err := store.LoadTree(t.Context(), original.ID())
+	if err != nil || !found || len(head.ProcessSnapshots()) != 2 {
+		t.Fatalf("restored child tree exists=%t processes=%d error=%v", found, len(head.ProcessSnapshots()), err)
+	}
+	wantBudget := agent.Budget{
+		Steps: crashTreeChildStepBudget, Effects: crashTreeChildEffectBudget, Signals: crashTreeChildSignalBudget,
+	}
+	rootSnapshot := conformanceSnapshotByID(head.ProcessSnapshots(), root.ID())
+	childSnapshot := conformanceSnapshotByID(head.ProcessSnapshots(), childID)
+	var allocation struct {
+		ReservedBudget agent.Budget `json:"reserved_child_budget"`
+	}
+	if decodeErr := json.Unmarshal(rootSnapshot.JSON(), &allocation); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	if rootSnapshot.Budget() != original.Budget() || childSnapshot.Budget() != wantBudget ||
+		allocation.ReservedBudget != wantBudget {
+		t.Fatalf("restoration changed child allocation: parent=%+v child=%+v reserved=%+v",
+			rootSnapshot.Budget(), childSnapshot.Budget(), allocation.ReservedBudget)
+	}
+	waitID, waiting := inspectConformanceProcess(t, restoredEngine, child).WaitID()
+	if !waiting {
+		t.Fatal("restored child lost its input wait")
+	}
+	signalID, err := agent.ParseSignalID("signal:child-publication-answer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(crashTreeOutput{Completed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := agent.NewSignalRequest(signalID, waitID, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted, err := child.DeliverSignals(t.Context(), request); err != nil || !accepted {
+		t.Fatalf("restored child input accepted=%t error=%v", accepted, err)
+	}
+	rootResult := awaitCrashProcess(t, root)
+	childResult := awaitCrashProcess(t, child)
+	for _, result := range []agent.Result{rootResult, childResult} {
+		output, present := result.Output()
+		decoded, err := output.Decode[crashTreeOutput]()
+		if result.Status() != agent.StatusCompleted || !present || err != nil || !decoded.Completed {
+			t.Fatalf("tree continuation status=%s output=%+v error=%v", result.Status(), decoded, err)
+		}
+	}
+	wantRootUsage := agent.Usage{CommittedSteps: 4, PreparedEffects: 2, AcceptedSignals: 3}
+	wantChildUsage := agent.Usage{CommittedSteps: 3, PreparedEffects: 1, AcceptedSignals: 2}
+	if rootResult.Usage() != wantRootUsage || childResult.Usage() != wantChildUsage {
+		t.Fatalf("recovered consumption root=%+v child=%+v", rootResult.Usage(), childResult.Usage())
+	}
+	gate.abort()
+	awaitCrashRuntimeError(t, original, errSimulatedHostCrash)
+	closeCrashEngine(t, restoredEngine)
+	closeCrashEngine(t, engine)
 }
 
-func (a *administrativeCommitGate) commit() error {
-	a.store.mu.Lock()
-	head, exists := a.store.heads[a.prospective.RootID()]
-	incarnationID, durable := a.prospective.IncarnationID()
-	headIncarnationID, _ := head.IncarnationID()
-	if !exists || !durable || headIncarnationID != incarnationID ||
-		head.Digest() != a.source {
-		a.store.mu.Unlock()
-		return treeIncarnationConflict()
+func runCrashAfterSubtreeCancellationCheckpoint(t *testing.T, store TreeDurabilityConformanceDriver) {
+	durability := store.TreeDurability()
+	gate := newTreeDurabilityCommitGate(t, durability, crashCommitPoint{
+		kind: crashCommitCheckpointTerminal, phase: crashCommitAfter,
+	})
+	deployment := newCrashTreeDeployment(t)
+	engine := newCrashEngine(t, gate, nil)
+	root := startCrashTree(t, engine, deployment)
+	waitForConformanceStatus(t, engine, root, agent.StatusWaiting)
+	head, found, err := store.LoadTree(t.Context(), root.ID())
+	if err != nil || !found {
+		t.Fatalf("waiting tree head exists=%t error=%v", found, err)
 	}
-	a.store.heads[a.prospective.RootID()] = a.prospective
-	a.store.mu.Unlock()
-	close(a.reached)
-	return <-a.decision
-}
-
-func (a *administrativeCommitGate) await(t *testing.T) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), conformanceStatusTimeout)
-	defer cancel()
-	select {
-	case <-a.reached:
-	case <-ctx.Done():
-		t.Fatalf("administrative commit gate was not reached: %v", ctx.Err())
+	childID := crashTreeChildID(t, head, root.ID())
+	child, found := engine.Process(childID)
+	if !found {
+		t.Fatal("waiting child was not published")
 	}
-}
-
-func (a *administrativeCommitGate) abort() {
-	a.resolve.Do(func() { a.decision <- errSimulatedHostCrash })
+	waitForConformanceStatus(t, engine, child, agent.StatusWaiting)
+	if err := child.RequestCancellation(t.Context(), crashTreeCancellationReason); err != nil {
+		t.Fatal(err)
+	}
+	observation := gate.await(t)
+	head = assertCrashHead(t, store, root.ID(), observation.prospective.Digest())
+	if inspectConformanceProcess(t, engine, root).Status() != agent.StatusWaiting || inspectConformanceProcess(t, engine, child).Status() != agent.StatusWaiting {
+		t.Fatal("cancellation was published before checkpoint acknowledgment")
+	}
+	restoredEngine := newCrashEngine(t, durability, nil)
+	restoredRoot := restoreCrashTree(t, restoredEngine, deployment, head)
+	if result := awaitCrashProcess(t, restoredRoot); result.Status() != agent.StatusCompleted {
+		t.Fatalf("restored parent status=%s", result.Status())
+	}
+	restoredChild, found := restoredEngine.Process(child.ID())
+	if !found {
+		t.Fatal("restored tree lost canceled child")
+	}
+	result := awaitCrashProcess(t, restoredChild)
+	if result.Status() != agent.StatusCanceled || result.Termination().Cause() != agent.TerminationCauseHostCancellation {
+		t.Fatalf("restored child termination=%+v", result.Termination())
+	}
+	gate.abort()
+	awaitCrashRuntimeError(t, root, errSimulatedHostCrash)
+	awaitCrashRuntimeError(t, child, errSimulatedHostCrash)
+	closeCrashEngine(t, restoredEngine)
+	closeCrashEngine(t, engine)
 }
 
 type crashTreeRole string
@@ -110,17 +200,17 @@ func (c crashTreePhase) valid() bool {
 
 const (
 	crashTreeDeploymentName        = "agenttest.durability_crash_tree"
-	crashTreeDeploymentDescription = "Creates a waiting child tree for administrative crash recovery."
+	crashTreeDeploymentDescription = "Exercises child publication, input, and cancellation recovery."
 	crashTreeImplementationSeed    = "agenttest durability crash tree implementation"
 	crashTreeConfigurationSeed     = "agenttest durability crash tree configuration"
 	crashTreeChildKey              = "worker"
 	crashTreeRootWaitKey           = "child_completion"
 	crashTreeChildWaitKey          = "external_input"
-	crashTreeCancellationReason    = "cancel waiting child after product decision"
+	crashTreeCancellationReason    = "cancel waiting child"
 	crashTreeWaitPayloadKind       = "external_input"
-	crashTreeChildStepBudget       = 2
+	crashTreeChildStepBudget       = 3
 	crashTreeChildEffectBudget     = 1
-	crashTreeChildSignalBudget     = 1
+	crashTreeChildSignalBudget     = 2
 	crashTreeDirectChildDepth      = 1
 )
 
@@ -374,92 +464,6 @@ func (c *crashTreeExecution) Snapshot() (agent.ExecutionState, error) {
 	return agent.NewExecutionState(c.definition.descriptor.Name(), payload)
 }
 
-type crashTreeDispatcher struct{}
-
-func (crashTreeDispatcher) Dispatch(
-	context.Context,
-	agent.EffectRequest,
-	agent.DeltaEmitter,
-) (agent.Settlement, error) {
-	return agent.Settlement{}, errors.New("agenttest: crash tree has no Dispatcher Effects")
-}
-
-func (crashTreeDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
-	return agent.ReplayPolicyNever
-}
-
-func TestCrashAfterAdministrativeCommit(t *testing.T) {
-	store := NewMemoryTreeDurability()
-	parkedGate := newTreeDurabilityCommitGate(t, store, crashCommitPoint{
-		kind: crashCommitCheckpointParked, phase: crashCommitAfter,
-	})
-	deployment := newCrashTreeDeployment(t)
-	engine := newCrashEngine(t, parkedGate, nil)
-	root := startCrashTree(t, engine, deployment)
-	parked := parkedGate.await(t)
-	parkedGate.continueCommit()
-	waitForConformanceStatus(t, root, agent.StatusWaiting)
-	childID := crashTreeChildID(t, parked.prospective, root.ID())
-	child, found := engine.Process(childID)
-	if !found {
-		t.Fatal("waiting child was not published")
-	}
-	waitForConformanceStatus(t, child, agent.StatusWaiting)
-
-	prepared, err := engine.PrepareWaitingSubtreeCancellation(
-		t.Context(), root.ID(), child.ID(), crashTreeCancellationReason,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	adminGate := newAdministrativeCommitGate(
-		t, store, prepared.SourceTreeDigest(), prepared.ResultingSnapshot(),
-	)
-	commitResult := make(chan error, 1)
-	go func() { commitResult <- adminGate.commit() }()
-	adminGate.await(t)
-	head := assertCrashHead(
-		t, store, root.ID(), prepared.ResultingSnapshot().Digest(),
-	)
-	if root.Status() != agent.StatusWaiting || child.Status() != agent.StatusWaiting {
-		t.Fatal("administrative state was applied in memory before Apply")
-	}
-
-	restoredEngine := newCrashEngine(t, store, nil)
-	restoredRoot := restoreCrashTree(t, restoredEngine, deployment, head)
-	if restoredRoot.Status() != agent.StatusPaused {
-		t.Fatalf("restored root status=%s, want paused", restoredRoot.Status())
-	}
-	restoredChild, found := restoredEngine.Process(child.ID())
-	if !found || restoredChild.Status() != agent.StatusCanceled {
-		t.Fatalf(
-			"restored child found=%t status=%s, want canceled",
-			found, restoredChild.Status(),
-		)
-	}
-	adminGate.abort()
-	if err := awaitAdministrativeCommit(t, commitResult); !errors.Is(err, errSimulatedHostCrash) {
-		t.Fatalf("administrative commit result=%v", err)
-	}
-	if err := prepared.Discard(); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := restoredRoot.Resume(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if result := awaitCrashProcess(t, restoredRoot); result.Status() != agent.StatusCompleted {
-		t.Fatalf("restored root result=%s", result.Status())
-	}
-	closeCrashEngine(t, restoredEngine)
-	if err := root.Kill(t.Context(), crashCleanupReason); err != nil {
-		t.Fatal(err)
-	}
-	awaitCrashRuntimeError(t, root, agent.ErrTreeIncarnationConflict)
-	awaitCrashRuntimeError(t, child, agent.ErrTreeIncarnationConflict)
-	closeCrashEngine(t, engine)
-}
-
 func newCrashTreeDeployment(t *testing.T) agent.Deployment {
 	t.Helper()
 	inputSchema, err := agent.SchemaFor[crashTreeInput]()
@@ -479,7 +483,7 @@ func newCrashTreeDeployment(t *testing.T) agent.Deployment {
 	}
 	definition := &crashTreeDefinition{descriptor: descriptor}
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: crashTreeDispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte(crashTreeImplementationSeed)),
 		ConfigurationDigest:  agent.ComputeDigest([]byte(crashTreeConfigurationSeed)),
 	})
@@ -521,17 +525,4 @@ func crashTreeChildID(
 	}
 	t.Fatal("parked tree has no direct child")
 	return agent.ProcessID{}
-}
-
-func awaitAdministrativeCommit(t *testing.T, result <-chan error) error {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), conformanceStatusTimeout)
-	defer cancel()
-	select {
-	case err := <-result:
-		return err
-	case <-ctx.Done():
-		t.Fatalf("administrative commit did not return: %v", ctx.Err())
-		return fmt.Errorf("agenttest: administrative commit wait: %w", ctx.Err())
-	}
 }

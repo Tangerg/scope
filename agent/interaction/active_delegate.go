@@ -80,7 +80,7 @@ func ActiveDelegateChildrenFromSnapshot(
 		call := activeCalls[index]
 		child := ActiveDelegateChild{
 			modelCallSequence: state.ModelCallCount,
-			toolCallIndex:     state.NextToolCallIndex + uint32(index),
+			toolCallIndex:     state.nextToolCallIndex() + uint32(index),
 			toolCall:          call,
 			childKey:          *invocation.ChildKey,
 			processID:         *invocation.ChildProcessID,

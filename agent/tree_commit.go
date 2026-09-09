@@ -19,10 +19,10 @@ func effectRequestFor(
 	record preparedEffectWire,
 ) EffectRequest {
 	return newEffectRequest(
-		process.controller.processID,
+		process.handle.processID,
 		process.runtime.incarnation,
-		process.controller.deploymentRef,
-		process.controller.relation,
+		process.handle.deploymentRef,
+		process.handle.relation,
 		process.prepared.wire.StepSequence,
 		batchIndex,
 		record.ID,
@@ -47,7 +47,7 @@ func (t *treeRuntime) startPendingEffectCommit(
 		return err
 	}
 	commit := &treeCommit{
-		kind: treeCommitEffectPending, processID: process.controller.processID,
+		kind: treeCommitEffectPending, processID: process.handle.processID,
 		effectID: record.ID, snapshot: snapshot,
 	}
 	t.startEffectCommit(commit, boundary)
@@ -107,7 +107,7 @@ func (t *treeRuntime) startUnknownResolutionCommit(
 			return err
 		}
 		commit := &treeCommit{
-			kind: treeCommitEffectResolved, processID: process.controller.processID,
+			kind: treeCommitEffectResolved, processID: process.handle.processID,
 			effectID: record.ID, snapshot: snapshot,
 			response: command.response, events: events,
 		}
@@ -137,7 +137,7 @@ func (t *treeRuntime) startSignalCommit(process *processState, command processCo
 		return err
 	}
 	return t.startCheckpoint(&treeCommit{
-		kind: treeCommitSignals, processID: process.controller.processID,
+		kind: treeCommitSignals, processID: process.handle.processID,
 		snapshot: snapshot, response: command.response, events: events,
 	}, TreeCheckpointInput)
 }
@@ -164,7 +164,7 @@ func (t *treeRuntime) applyTreeCommitCompletion(completion treeCommitCompletion)
 		return
 	}
 	t.commit = nil
-	t.inflight.Add(-1)
+	t.inFlightWork.Add(-1)
 	if completion.err != nil {
 		t.applyFailedTreeCommit(commit, completion.err)
 		return
@@ -189,38 +189,30 @@ func (t *treeRuntime) applyFailedTreeCommit(commit *treeCommit, commitErr error)
 func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 	if commit.snapshot.Valid() {
 		t.advanceHead(commit.snapshot)
-		t.publishCheckpoint()
+		t.publishAcknowledgedChanges()
 	}
 	process := t.processes[commit.processID]
+	for _, event := range commit.events {
+		process.publishPreparedEvent(t.context, event)
+	}
 	switch commit.kind {
-	case treeCommitEffectPending:
-		t.markRunnable(commit.processID)
-	case treeCommitEffectSettled:
-		for _, event := range commit.events {
-			process.publishPreparedEvent(t.context, event)
-		}
-		t.markRunnable(commit.processID)
+	case treeCommitEffectPending, treeCommitEffectSettled:
+		t.enqueueProcess(commit.processID)
 	case treeCommitEffectResolved:
-		for _, event := range commit.events {
-			process.publishPreparedEvent(t.context, event)
-		}
 		if commit.response != nil {
 			commit.response <- processResponse{}
 		}
-		t.markRunnable(commit.processID)
+		t.enqueueProcess(commit.processID)
 	case treeCommitChildOutcome:
 		if err := t.publishChildOutcome(commit.child); err != nil {
 			t.failDurability(err, commit.processID, commit.effectID)
 			return
 		}
-		t.markRunnable(commit.processID)
+		t.enqueueProcess(commit.processID)
 	case treeCommitCheckpoint:
 	case treeCommitSignals:
-		for _, event := range commit.events {
-			process.publishPreparedEvent(t.context, event)
-		}
 		commit.response <- processResponse{accepted: true}
-		t.markRunnable(commit.processID)
+		t.enqueueProcess(commit.processID)
 	}
 }
 
@@ -231,9 +223,9 @@ func (t *treeRuntime) discardProspectiveChild(pending *pendingChildOutcome) {
 	}
 	delete(t.processes, pending.plan.childID)
 	delete(t.queued, pending.plan.childID)
-	for index, processID := range t.runnable {
+	for index, processID := range t.processQueue {
 		if processID == pending.plan.childID {
-			t.runnable = append(t.runnable[:index], t.runnable[index+1:]...)
+			t.processQueue = append(t.processQueue[:index], t.processQueue[index+1:]...)
 			break
 		}
 	}
@@ -252,7 +244,7 @@ func (t *treeRuntime) publishChildOutcome(pending *pendingChildOutcome) error {
 		if child == nil {
 			return errors.New("started child is missing from prospective tree")
 		}
-		pending.plan.engine.publishReservedProcess(child.controller)
+		pending.plan.engine.publishReservedProcess(child.handle)
 	}
 	parent := t.processes[pending.parentID]
 	if pending.event.ProcessID().Valid() {
@@ -268,7 +260,7 @@ func (t *treeRuntime) publishChildOutcome(pending *pendingChildOutcome) error {
 
 func (t *treeRuntime) tryStartCheckpoint() bool {
 	if t.engine.durability == nil || t.fault != nil || t.commit != nil ||
-		t.freeze != nil || len(t.jobs) != 0 || len(t.runnable) != 0 {
+		t.freeze != nil || len(t.jobs) != 0 || len(t.processQueue) != 0 {
 		return false
 	}
 	kind, safe := t.checkpointKind()
@@ -281,7 +273,11 @@ func (t *treeRuntime) tryStartCheckpoint() bool {
 		return true
 	}
 	if snapshot.Digest() == t.head.digest() {
-		return false
+		// Control changes can return to the acknowledged state without changing
+		// its recovery cut. Publishing those facts must not require another write.
+		pending := len(t.pendingPublications) != 0
+		t.publishAcknowledgedChanges()
+		return pending
 	}
 	if err := t.startCheckpointCommit(kind, snapshot); err != nil {
 		t.failDurability(err, ProcessID{}, EffectID{})
@@ -312,8 +308,8 @@ func (t *treeRuntime) stageTerminal(process *processState) {
 	if process == nil || !process.status.Terminal() {
 		return
 	}
-	processID := process.controller.processID
-	publication := t.checkpointPending[processID]
+	processID := process.handle.processID
+	publication := t.pendingPublications[processID]
 	if publication.terminal {
 		return
 	}
@@ -321,29 +317,29 @@ func (t *treeRuntime) stageTerminal(process *processState) {
 	event, prepared := process.prepareEvent(
 		EventProcessFinished, EventPhaseCommitted, 0, EffectID{}, payload,
 	)
-	t.processFinished(process)
+	t.propagateProcessTermination(process)
 	if prepared {
 		publication.events = append(publication.events, event)
 	}
 	publication.terminal = true
-	t.checkpointPending[processID] = publication
+	t.pendingPublications[processID] = publication
 }
 
-func (t *treeRuntime) stageCheckpointEvent(event Event) {
-	if !event.Valid() || event.Relation().RootID() != t.rootID ||
+func (t *treeRuntime) stageCommittedEvent(event Event) {
+	if !event.Valid() || event.Phase() != EventPhaseCommitted || event.Relation().RootID() != t.rootID ||
 		t.processes[event.ProcessID()] == nil {
-		panic("agent: invalid checkpoint Event")
+		panic("agent: invalid committed Event")
 	}
 	processID := event.ProcessID()
-	publication := t.checkpointPending[processID]
+	publication := t.pendingPublications[processID]
 	publication.events = append(publication.events, event)
-	t.checkpointPending[processID] = publication
+	t.pendingPublications[processID] = publication
 }
 
-func (t *treeRuntime) publishCheckpoint() {
+func (t *treeRuntime) publishAcknowledgedChanges() {
 	for _, process := range t.processesInCanonicalOrder() {
-		processID := process.controller.processID
-		publication, pending := t.checkpointPending[processID]
+		processID := process.handle.processID
+		publication, pending := t.pendingPublications[processID]
 		if !pending {
 			continue
 		}
@@ -351,13 +347,12 @@ func (t *treeRuntime) publishCheckpoint() {
 			process.publishPreparedEvent(t.context, event)
 		}
 		if !publication.terminal {
-			delete(t.checkpointPending, processID)
+			delete(t.pendingPublications, processID)
 			continue
 		}
-		snapshot, err := process.capture()
-		process.controller.complete(process.result(), snapshot, err)
-		process.controller.markTreeSettled()
-		delete(t.checkpointPending, processID)
+		process.handle.publishResult(process.result())
+		process.handle.finishBookkeeping()
+		delete(t.pendingPublications, processID)
 	}
 }
 
@@ -412,16 +407,16 @@ func (t *treeRuntime) failDurability(
 			t.abandonChildStartJob(t.processes[candidateID], job)
 		}
 	}
-	clear(t.checkpointPending)
+	clear(t.pendingPublications)
 	clear(t.queued)
-	t.runnable = nil
+	t.processQueue = nil
 	for _, process := range t.processesInCanonicalOrder() {
 		select {
-		case <-process.controller.done:
+		case <-process.handle.outcomePublished:
 			continue
 		default:
 		}
-		processID := process.controller.processID
+		processID := process.handle.processID
 		var acknowledged ProcessSnapshot
 		for _, snapshot := range t.head.snapshot.ProcessSnapshots() {
 			if snapshot.ProcessID() == processID {
@@ -441,11 +436,11 @@ func (t *treeRuntime) failDurability(
 			FailureKind: failure.Kind(), FailureCode: failure.Code(),
 		})
 		process.publishEvent(t.context, EventRuntimeStopped, EventPhaseAttempt, 0, EffectID{}, payload)
-		process.controller.stopRuntime(&RuntimeError{
+		process.handle.publishRuntimeFailure(&RuntimeError{
 			processID: processID, incarnationID: t.incarnation, headDigest: t.head.digest(),
 			unresolvedEffectIDs: canonicalEffectIDs(unresolvedByProcess[processID]), cause: cause,
 		}, acknowledged)
-		process.controller.markTreeSettled()
+		process.handle.finishBookkeeping()
 	}
 	if t.freeze != nil {
 		acquisition := t.freeze.acquisition
@@ -461,14 +456,14 @@ func (t *treeRuntime) processesInCanonicalOrder() []*processState {
 	}
 	slices.SortFunc(processes, func(left, right *processState) int {
 		if order := cmp.Compare(
-			left.controller.relation.Depth(),
-			right.controller.relation.Depth(),
+			left.handle.relation.Depth(),
+			right.handle.relation.Depth(),
 		); order != 0 {
 			return order
 		}
 		return cmp.Compare(
-			left.controller.processID.String(),
-			right.controller.processID.String(),
+			left.handle.processID.String(),
+			right.handle.processID.String(),
 		)
 	})
 	return processes
@@ -505,5 +500,5 @@ func (t *treeRuntime) setTreeCommit(commit *treeCommit) {
 		panic("agent: invalid concurrent tree commit")
 	}
 	t.commit = commit
-	t.inflight.Add(1)
+	t.inFlightWork.Add(1)
 }

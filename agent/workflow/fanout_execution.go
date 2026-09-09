@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -124,7 +125,7 @@ func (e *execution) acceptFanoutWaitOpen(signals []agent.Signal) (agent.Transiti
 	return agent.Wait(1, waitID)
 }
 
-func (e *execution) acceptFanoutCompletion(signals []agent.Signal) (agent.Transition, error) {
+func (e *execution) acceptFanoutCompletion(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if len(signals) == 0 || e.state.WaitID == nil {
 		return agent.Transition{}, fmt.Errorf("%w: fan-out completion requires one active child wait Signal", ErrInvalidProtocol)
 	}
@@ -174,7 +175,7 @@ func (e *execution) acceptFanoutCompletion(signals []agent.Signal) (agent.Transi
 	if e.state.fanoutWindowStart() < count {
 		return e.startFanoutWindow(1)
 	}
-	value, err := e.stage().fanoutComplete(e.state.CompletedFanoutOutputs)
+	value, err := e.stage().fanoutComplete(ctx, e.state.CompletedFanoutOutputs)
 	if err != nil {
 		return agent.Transition{}, err
 	}

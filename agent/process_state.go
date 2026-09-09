@@ -12,7 +12,7 @@ type processState struct {
 	// These references establish ownership and remain fixed while the runtime
 	// owner goroutine mutates the execution fields below.
 	engine     *Engine
-	controller *processController
+	handle     *processHandleState
 	deployment Deployment
 	execution  Execution
 
@@ -74,7 +74,7 @@ type pendingControl struct {
 
 func newProcessState(
 	engine *Engine,
-	controller *processController,
+	handle *processHandleState,
 	deployment Deployment,
 	execution Execution,
 	state ExecutionState,
@@ -82,10 +82,10 @@ func newProcessState(
 	limits Limits,
 ) *processState {
 	return &processState{
-		engine: engine, controller: controller, deployment: deployment, execution: execution,
+		engine: engine, handle: handle, deployment: deployment, execution: execution,
 		startedAt: startedAt, status: StatusRunning, committedExecutionState: state,
 		mailbox: newSignalMailbox(), limits: limits, treeLimits: engine.treeLimits,
-		budget: controller.budget, capabilities: controller.capabilities,
+		budget: handle.budget, capabilities: handle.capabilities,
 	}
 }
 
@@ -100,8 +100,8 @@ func (p *processState) applyPendingControl(ctx context.Context) bool {
 	p.status = StatusPaused
 	p.pauseReason = p.pendingControl.pauseReason
 	p.pendingControl.pauseReason = ""
-	p.updateView()
-	p.publishEventAfterCheckpoint(
+	p.publishEphemeralStatus()
+	p.publishEventAfterCommit(
 		ctx, EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload(),
 	)
 	return true
@@ -139,13 +139,8 @@ func (p *processState) applyCommand(ctx context.Context, command processCommand)
 		p.requestKill(command)
 	case commandResolveUnknownEffect:
 		p.resolveEffect(command)
-	case commandQueryUnknownEffectIDs:
-		command.reply(processResponse{unknownEffectIDs: p.unknownEffectIDs()})
-	case commandCapture:
-		snapshot, err := p.capture()
-		command.reply(processResponse{snapshot: snapshot, err: err})
 	default:
-		command.reply(processResponse{err: ErrProcessNotRunning})
+		command.reply(processResponse{err: ErrInvalidProcessControl})
 	}
 }
 
@@ -180,9 +175,9 @@ func (p *processState) deliverChildrenCompleted(ctx context.Context, signal Sign
 		return false
 	}
 	if accepted {
-		p.updateView()
+		p.publishEphemeralStatus()
 		for _, event := range p.prepareSignalEvents([]Signal{signal}) {
-			p.publishPreparedEvent(ctx, event)
+			p.publishPreparedEventAfterCommit(ctx, event)
 		}
 	}
 	return accepted || p.mailbox.contains(signal.ID())
@@ -211,11 +206,11 @@ func (p *processState) deliverBatch(ctx context.Context, command processCommand)
 	if p.engine.durability != nil {
 		if err := p.runtime.startSignalCommit(p, command, events); err != nil {
 			command.reply(processResponse{err: err})
-			p.runtime.failDurability(err, p.controller.processID, EffectID{})
+			p.runtime.failDurability(err, p.handle.processID, EffectID{})
 		}
 		return
 	}
-	p.updateView()
+	p.publishEphemeralStatus()
 	for _, event := range events {
 		p.publishPreparedEvent(ctx, event)
 	}
@@ -239,8 +234,11 @@ func (p *processState) admitSignals(signals []Signal, source signalSource) (bool
 		}
 		if status == StatusWaiting {
 			waitID, _ := signal.WaitID()
-			if source == signalSourceExternal && waitID != p.currentWaitID {
-				return false, ErrSignalRejected
+			if source == signalSourceExternal {
+				wait := p.mailbox.waits[p.currentWaitID]
+				if waitID != p.currentWaitID && (waitID.Valid() || wait.externallyAddressable) {
+					return false, ErrSignalRejected
+				}
 			}
 			if waitID == p.currentWaitID {
 				status = StatusRunning
@@ -301,14 +299,16 @@ func (p *processState) requestPause(command processCommand) {
 
 func (p *processState) resume(ctx context.Context, command processCommand) {
 	if p.status != StatusPaused {
-		command.reply(processResponse{err: ErrProcessNotRunning})
+		command.reply(processResponse{err: fmt.Errorf(
+			"%w: Resume requires Paused status, got %s", ErrInvalidProcessControl, p.status,
+		)})
 		return
 	}
 	p.status = StatusRunning
 	p.pauseReason = ""
 	p.pendingControl.pauseReason = ""
-	p.updateView()
-	p.publishEvent(ctx, EventProcessResumed, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
+	p.publishEphemeralStatus()
+	p.publishEventAfterCommit(ctx, EventProcessResumed, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
 	command.reply(processResponse{})
 }
 
@@ -354,9 +354,9 @@ func (p *processState) resolveEffect(command processCommand) {
 	command.reply(processResponse{err: ErrEffectNotPending})
 }
 
-func (p *processState) updateView() {
+func (p *processState) publishEphemeralStatus() {
 	if p.engine.durability == nil {
-		p.controller.updateView(p.status, p.currentWaitID, p.usage)
+		p.handle.updateStatus(p.status)
 	}
 }
 
@@ -364,13 +364,7 @@ func (p *processState) unknownEffectIDs() []EffectID {
 	if p.prepared == nil {
 		return nil
 	}
-	var ids []EffectID
-	for _, effect := range p.prepared.wire.Effects {
-		if effect.unknown() {
-			ids = append(ids, effect.ID)
-		}
-	}
-	return ids
+	return p.prepared.wire.Effects.unknownEffectIDs()
 }
 
 func (p *processState) reservedSettlementSignals() uint64 {

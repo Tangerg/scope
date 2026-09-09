@@ -1,6 +1,7 @@
 package workflow_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -21,13 +22,13 @@ type textValue struct {
 }
 
 func TestDefinitionRequiresUniqueConnectedStages(t *testing.T) {
-	first := mustTransform(t, "first", func(input numberInput) (numberOutput, error) {
+	first := mustTransform(t, "first", func(_ context.Context, input numberInput) (numberOutput, error) {
 		return numberOutput(input), nil
 	})
-	duplicate := mustTransform(t, "first", func(input numberOutput) (numberOutput, error) {
+	duplicate := mustTransform(t, "first", func(_ context.Context, input numberOutput) (numberOutput, error) {
 		return input, nil
 	})
-	disconnected := mustTransform(t, "text", func(input textValue) (textValue, error) {
+	disconnected := mustTransform(t, "text", func(_ context.Context, input textValue) (textValue, error) {
 		return input, nil
 	})
 
@@ -49,13 +50,13 @@ func TestDefinitionRequiresUniqueConnectedStages(t *testing.T) {
 }
 
 func TestStageConstructorsExposeAccurateImmutableContracts(t *testing.T) {
-	transform := mustTransform(t, "increment", func(input numberInput) (numberOutput, error) {
+	transform := mustTransform(t, "increment", func(_ context.Context, input numberInput) (numberOutput, error) {
 		return numberOutput{Value: input.Value + 1}, nil
 	})
 	if !transform.Valid() {
 		t.Fatalf("Transform Stage = %#v", transform)
 	}
-	if _, err := workflow.Transform("Invalid ID", func(input numberInput) (numberOutput, error) {
+	if _, err := workflow.Transform("Invalid ID", func(_ context.Context, input numberInput) (numberOutput, error) {
 		return numberOutput(input), nil
 	}); !errors.Is(err, workflow.ErrInvalidStage) {
 		t.Fatalf("invalid Transform error = %v", err)

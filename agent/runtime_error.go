@@ -10,12 +10,22 @@ import (
 // authoritative tree head in another Engine. This error does not terminate the
 // durable execution or authorize replay of an uncertain Effect.
 // Engine constructs these errors; the zero value carries no runtime identity.
+// Process methods and tree reports return independent RuntimeError values;
+// Unwrap preserves the original cause.
 type RuntimeError struct {
 	processID           ProcessID
 	incarnationID       TreeIncarnationID
 	headDigest          Digest
 	unresolvedEffectIDs []EffectID
 	cause               error
+}
+
+func (r *RuntimeError) clone() *RuntimeError {
+	if r == nil {
+		return nil
+	}
+	owned := *r
+	return &owned
 }
 
 func (r *RuntimeError) Error() string {

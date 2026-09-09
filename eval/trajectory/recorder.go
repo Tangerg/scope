@@ -252,6 +252,7 @@ func recordedTools(
 }
 
 var (
-	_ agent.EventListener           = (*Recorder)(nil)
-	_ interaction.ExecutionObserver = (*Recorder)(nil)
+	_ agent.EventListener       = (*Recorder)(nil)
+	_ interaction.ModelObserver = (*Recorder)(nil)
+	_ interaction.ToolObserver  = (*Recorder)(nil)
 )

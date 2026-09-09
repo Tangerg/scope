@@ -1,6 +1,7 @@
 package workflow_test
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -8,7 +9,7 @@ import (
 )
 
 func ExampleTransform() {
-	stage, err := workflow.Transform("normalize", func(input string) (string, error) {
+	stage, err := workflow.Transform("normalize", func(_ context.Context, input string) (string, error) {
 		return strings.ToUpper(input), nil
 	})
 	if err != nil {

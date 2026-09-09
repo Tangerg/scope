@@ -25,6 +25,8 @@ type TreeDurabilityConformanceDriver interface {
 
 // RunTreeDurabilityConformance injects failures on both sides of storage commits
 // because a lost response must not cause duplicate dispatch or false publication.
+// Scenarios include explicit Unknown resolution, child publication, subsequent
+// input consumption, budget preservation, and subtree cancellation recovery.
 // Each factory call must return an empty isolated store so prior head ownership
 // cannot mask a missing compare-and-swap or idempotency check.
 func RunTreeDurabilityConformance(
@@ -74,7 +76,7 @@ func runEffectBoundaryConformance(
 	if err != nil {
 		t.Fatal(err)
 	}
-	effectID := waitForConformanceUnknownEffect(t, process)
+	effectID := waitForConformanceUnknownEffect(t, engine, process)
 	payload, err := json.Marshal(conformanceOutput{Value: "committed"})
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +134,7 @@ func runConcurrentRestoreConformance(
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForConformanceStatus(t, original, agent.StatusPaused)
+	waitForConformanceStatus(t, originalEngine, original, agent.StatusPaused)
 	head := waitForConformanceHeadStatus(t, driver, original.ID(), agent.StatusPaused)
 	probe.assertCheckpoints(t, agent.TreeCheckpointStart, agent.TreeCheckpointParked)
 
@@ -545,6 +547,7 @@ func (conformanceDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
 
 func waitForConformanceUnknownEffect(
 	t *testing.T,
+	engine *agent.Engine,
 	process *agent.Process,
 ) agent.EffectID {
 	t.Helper()
@@ -555,8 +558,8 @@ func waitForConformanceUnknownEffect(
 	for {
 		select {
 		case <-ticker.C:
-			effectIDs, err := process.UnknownEffectIDs(context.Background())
-			if err == nil && len(effectIDs) == 1 {
+			effectIDs := inspectConformanceProcess(t, engine, process).UnknownEffectIDs()
+			if len(effectIDs) == 1 {
 				return effectIDs[0]
 			}
 		case <-deadline.C:
@@ -579,6 +582,7 @@ func conformanceSnapshotByID(
 
 func waitForConformanceStatus(
 	t *testing.T,
+	engine *agent.Engine,
 	process *agent.Process,
 	want agent.Status,
 ) {
@@ -590,11 +594,11 @@ func waitForConformanceStatus(
 	for {
 		select {
 		case <-ticker.C:
-			if process.Status() == want {
+			if inspectConformanceProcess(t, engine, process).Status() == want {
 				return
 			}
 		case <-deadline.C:
-			t.Fatalf("Process status=%s, want %s", process.Status(), want)
+			t.Fatalf("Process status=%s, want %s", inspectConformanceProcess(t, engine, process).Status(), want)
 		}
 	}
 }
@@ -626,4 +630,19 @@ func waitForConformanceHeadStatus(
 			t.Fatalf("authoritative root status did not become %s: last error=%v", want, lastError)
 		}
 	}
+}
+
+func inspectConformanceProcess(t *testing.T, engine *agent.Engine, process *agent.Process) agent.ProcessSnapshot {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), conformanceStatusTimeout)
+	defer cancel()
+	inspection, err := engine.InspectTree(ctx, process.Relation().RootID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, found := inspection.Process(process.ID())
+	if !found {
+		t.Fatal("Process is missing from its runtime inspection")
+	}
+	return report.Snapshot
 }

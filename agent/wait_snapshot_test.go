@@ -77,7 +77,7 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 			name: "unconsumed answer already closed its wait", tree: waiting,
 			mutate: func(wire *processSnapshotWire) {
 				signal, _ := answer.signal()
-				wire.Mailbox.Signals = append(wire.Mailbox.Signals, signalRecordWire{ArrivalSequence: 2, Signal: signal})
+				wire.Mailbox.Signals = append(wire.Mailbox.Signals, mailboxRecordWire(2, signal))
 				wire.Mailbox.Waits[0].Answered = true
 				wire.Mailbox.Waits[0].Closed = true
 				wire.Usage.AcceptedSignals++
@@ -101,7 +101,7 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 			name: "answered current wait", tree: waiting,
 			mutate: func(wire *processSnapshotWire) {
 				signal, _ := answer.signal()
-				wire.Mailbox.Signals = append(wire.Mailbox.Signals, signalRecordWire{ArrivalSequence: 2, Signal: signal})
+				wire.Mailbox.Signals = append(wire.Mailbox.Signals, mailboxRecordWire(2, signal))
 				wire.Mailbox.Waits[0].Answered = true
 				wire.Usage.AcceptedSignals++
 			},
@@ -112,7 +112,7 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 				secondID, _ := ParseSignalID("signal:second-answer")
 				request, _ := NewSignalRequest(secondID, waitID, answer.Payload())
 				signal, _ := request.signal()
-				wire.Mailbox.Signals = append(wire.Mailbox.Signals, signalRecordWire{ArrivalSequence: 3, Signal: signal})
+				wire.Mailbox.Signals = append(wire.Mailbox.Signals, mailboxRecordWire(3, signal))
 				wire.Usage.AcceptedSignals++
 			},
 		},

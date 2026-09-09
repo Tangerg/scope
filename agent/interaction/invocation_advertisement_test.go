@@ -64,7 +64,7 @@ func TestInvocationAttributionAndDeferredToolAdvertisement(t *testing.T) {
 	if len(models) != 3 || len(tools) != 2 {
 		t.Fatalf("model/tool invocations = %d/%d, want 3/2", len(models), len(tools))
 	}
-	wantModelSteps := []uint64{1, 3, 5}
+	wantModelSteps := []uint64{1, 5, 9}
 	for index, invocation := range models {
 		assertRootInvocation(t, invocation.Relation(), invocation.DeploymentRef(), result.ProcessID(), deployment.DeploymentRef())
 		if invocation.ModelCallSequence() != uint32(index+1) || invocation.StepSequence() != wantModelSteps[index] {
@@ -76,9 +76,15 @@ func TestInvocationAttributionAndDeferredToolAdvertisement(t *testing.T) {
 	}
 	wantToolNames := []string{"discover", "lookup"}
 	for index, invocation := range tools {
-		assertRootInvocation(t, invocation.Relation(), invocation.DeploymentRef(), result.ProcessID(), deployment.DeploymentRef())
+		parentID, child := invocation.Relation().ParentID()
+		if !child || parentID != result.ProcessID() || invocation.Relation().Depth() != 1 || invocation.Relation().RootID() != result.ProcessID() {
+			t.Fatalf("Tool relation=%#v", invocation.Relation())
+		}
+		if _, bound := deployment.resolver[invocation.DeploymentRef()]; !bound {
+			t.Fatal("Tool invocation references a different deployment")
+		}
 		if invocation.ModelCallSequence() != uint32(index+1) || invocation.ToolCallIndex() != 0 ||
-			invocation.StepSequence() != uint64(2+index*2) || invocation.ToolCall().Name != wantToolNames[index] {
+			invocation.StepSequence() != 1 || invocation.ToolCall().Name != wantToolNames[index] {
 			t.Fatalf("tool invocation %d = %#v", index, invocation)
 		}
 	}
@@ -296,11 +302,8 @@ func TestToolInputCheckpointKeepsOnlyCompletedToolAdvertisements(t *testing.T) {
 	}}
 	deployment := newDeferredDeployment(t, model, []tool.Tool{prefix, waiting}, deferred, 0)
 	process, engine := startDeferredInteraction(t, deployment)
-	waitForStatus(t, process, agent.StatusWaiting)
-	pending, found, err := interaction.PendingToolInputFromProcess(context.Background(), process)
-	if err != nil || !found {
-		t.Fatalf("pending Tool input found = %t, error = %v", found, err)
-	}
+	_, pending := captureToolInput(t, engine, process)
+	toolProcess := pendingToolProcess(t, engine, pending)
 	signalID, err := agent.ParseSignalID("signal:advertisement-checkpoint")
 	if err != nil {
 		t.Fatal(err)
@@ -309,7 +312,7 @@ func TestToolInputCheckpointKeepsOnlyCompletedToolAdvertisements(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if accepted, deliverSignalErr := process.DeliverSignals(context.Background(), signal); deliverSignalErr != nil || !accepted {
+	if accepted, deliverSignalErr := toolProcess.DeliverSignals(context.Background(), signal); deliverSignalErr != nil || !accepted {
 		t.Fatalf("DeliverSignals accepted = %t, error = %v", accepted, deliverSignalErr)
 	}
 	result, err := process.Await(context.Background())
@@ -407,9 +410,9 @@ func TestParallelAdvertisementsCommitInModelToolCallOrder(t *testing.T) {
 			byName["first"].ToolCallIndex(), byName["second"].ToolCallIndex(),
 		)
 	}
-	if byName["first"].EffectID() != byName["second"].EffectID() {
+	if byName["first"].EffectID() == byName["second"].EffectID() {
 		t.Fatalf(
-			"parallel Tool EffectIDs = %s/%s, want one batch identity",
+			"parallel Tool EffectIDs = %s/%s, want independent call identities",
 			byName["first"].EffectID().String(), byName["second"].EffectID().String(),
 		)
 	}
@@ -440,33 +443,24 @@ func TestDelegateChildKeyIsDeterministicAndSequenceScoped(t *testing.T) {
 	}
 }
 
-func TestDispatcherRejectsDuplicateAndTypedNilDeferredTools(t *testing.T) {
-	client, err := chatclient.New(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
-		return textResponse("unused"), nil
-	}), chatclient.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: "interaction.deferred_validation", Description: "Validate deferred Tool bindings.",
-		MaxModelCalls: 1,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestToolSetRejectsDuplicateAndTypedNilDeferredTools(t *testing.T) {
 	duplicate := &callbackTool{name: "duplicate", call: successfulCallback}
 	var typedNil *callbackTool
 	tests := []struct {
 		name   string
-		config interaction.DispatcherConfig
+		config interaction.ToolSetConfig
 	}{
-		{name: "initial and deferred", config: interaction.DispatcherConfig{Client: client, Tools: []tool.Tool{duplicate}, DeferredTools: []tool.Tool{duplicate}}},
-		{name: "two deferred", config: interaction.DispatcherConfig{Client: client, DeferredTools: []tool.Tool{duplicate, duplicate}}},
-		{name: "typed nil", config: interaction.DispatcherConfig{Client: client, DeferredTools: []tool.Tool{typedNil}}},
+		{name: "initial and deferred", config: interaction.ToolSetConfig{Tools: []tool.Tool{duplicate}, DeferredTools: []tool.Tool{duplicate}}},
+		{name: "two deferred", config: interaction.ToolSetConfig{DeferredTools: []tool.Tool{duplicate, duplicate}}},
+		{name: "typed nil", config: interaction.ToolSetConfig{DeferredTools: []tool.Tool{typedNil}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := interaction.NewDispatcher(definition, test.config); !errors.Is(err, interaction.ErrInvalidDispatcherConfig) {
+			test.config.Name = "interaction.invalid-tools"
+			test.config.Description = "Validate duplicate and typed-nil Tool bindings."
+			test.config.ImplementationDigest = agent.ComputeDigest([]byte("tool-validation-implementation"))
+			test.config.ConfigurationDigest = agent.ComputeDigest([]byte("tool-validation-configuration"))
+			if _, err := interaction.NewToolSet(test.config); !errors.Is(err, interaction.ErrInvalidToolSet) {
 				t.Fatalf("error = %v", err)
 			}
 		})
@@ -577,50 +571,24 @@ func (c *callbackTool) Call(ctx context.Context, invocation tool.Invocation) (ch
 
 func successfulCallback(context.Context, string) (string, error) { return "done", nil }
 
-func newDeferredDeployment(
-	t *testing.T,
-	model chat.Model,
-	initial []tool.Tool,
-	deferred []tool.Tool,
-	maxConcurrent int,
-) agent.Deployment {
+func newDeferredDeployment(t *testing.T, model chat.Model, initial []tool.Tool, deferred []tool.Tool, maxConcurrent int) interactionDeployment {
 	t.Helper()
 	client, err := chatclient.New(model, chatclient.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: "interaction.deferred", Description: "Verify recoverable deferred Tool advertisement.",
-		MaxModelCalls: 4,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-		Client: client, Tools: initial, DeferredTools: deferred,
-		MaxConcurrentToolCalls: maxConcurrent,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("interaction-deferred-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("interaction-deferred-configuration")),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return deployment
+	return configuredInteraction(t, interaction.DefinitionConfig{
+		Name: "interaction.deferred", Description: "Verify recoverable deferred Tool advertisement.", MaxModelCalls: 4, MaxConcurrentToolCalls: maxConcurrent,
+	}, interaction.DispatcherConfig{Client: client}, interaction.ToolSetConfig{Tools: initial, DeferredTools: deferred})
 }
 
-func startDeferredInteraction(t *testing.T, deployment agent.Deployment) (*agent.Process, *agent.Engine) {
+func startDeferredInteraction(t *testing.T, deployment interactionDeployment) (*agent.Process, *agent.Engine) {
 	t.Helper()
-	engine, err := agent.NewEngine(agent.EngineConfig{})
+	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
-	process, err := engine.Start(context.Background(), deployment, interactionInput(t, "test deferred Tools"))
+	process, err := engine.Start(context.Background(), deployment.Deployment, interactionInput(t, "test deferred Tools"))
 	if err != nil {
 		_ = engine.Close()
 		t.Fatal(err)

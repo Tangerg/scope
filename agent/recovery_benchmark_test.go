@@ -168,8 +168,8 @@ func benchmarkRecoverableProcess(
 	wantUsage := Usage{
 		CommittedSteps: 2, PreparedEffects: uint64(sample.effectCount), AcceptedSignals: uint64(sample.historyCount),
 	}
-	if process.Usage() != wantUsage {
-		b.Fatalf("benchmark fixture usage=%+v, want %+v", process.Usage(), wantUsage)
+	if inspectProcessSnapshot(b, process).Usage() != wantUsage {
+		b.Fatalf("benchmark fixture usage=%+v, want %+v", inspectProcessSnapshot(b, process).Usage(), wantUsage)
 	}
 	if len(requests) > 0 {
 		if accepted, err := process.DeliverSignals(b.Context(), requests[0]); err != nil || accepted {
@@ -208,6 +208,7 @@ func stopRecoveryBenchmarkProcess(b *testing.B, process *Process) {
 type treeRecoveryBenchmarkDefinition struct {
 	descriptor  Descriptor
 	effectCount int
+	children    []ChildSpec
 }
 
 func (t *treeRecoveryBenchmarkDefinition) Descriptor() Descriptor { return t.descriptor }
@@ -238,6 +239,17 @@ type treeRecoveryBenchmarkExecution struct {
 
 func (t *treeRecoveryBenchmarkExecution) Step(_ context.Context, signals []Signal) (Transition, error) {
 	t.state.Sequence++
+	if t.state.Sequence == 1 && len(t.definition.children) != 0 {
+		effects := make([]Effect, len(t.definition.children))
+		for index, child := range t.definition.children {
+			effect, err := StartChild(child)
+			if err != nil {
+				return Transition{}, err
+			}
+			effects[index] = effect
+		}
+		return Continue(0, effects...)
+	}
 	if t.state.Sequence != 3 || t.definition.effectCount == 0 {
 		return Pause(uint32(len(signals)), "benchmark boundary")
 	}

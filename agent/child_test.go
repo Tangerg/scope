@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -53,10 +52,7 @@ func TestEngineStartsSameDeploymentChildWithStableRelation(t *testing.T) {
 	if !completed && !parentCanceled {
 		t.Fatalf("child termination = %#v", childResult.Termination())
 	}
-	childSnapshot, err := child.Snapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	childSnapshot := inspectProcessSnapshot(t, child)
 	rootRelation := root.Relation()
 	childRelation := child.Relation()
 	parentID, hasParent := childRelation.ParentID()
@@ -177,7 +173,7 @@ func runChildWaitTest(t *testing.T, test childWaitTestCase) {
 	for range 3 {
 		<-dispatcher.started
 	}
-	waitForProcessStatus(t, root, StatusWaiting)
+	waitForStatus(t, root, StatusWaiting)
 	rejectForgedChildCompletion(t, root)
 	for _, name := range test.release {
 		dispatcher.Release(name)
@@ -195,7 +191,7 @@ func runChildWaitTest(t *testing.T, test childWaitTestCase) {
 
 func rejectForgedChildCompletion(t *testing.T, root *Process) {
 	t.Helper()
-	waitID, waiting := root.WaitID()
+	waitID, waiting := inspectProcessSnapshot(t, root).WaitID()
 	if !waiting {
 		t.Fatal("Waiting parent did not expose its current WaitID")
 	}
@@ -373,10 +369,10 @@ func TestTreeProcessLimitBoundsRecursiveBinaryExpansion(t *testing.T) {
 	engine.mu.RLock()
 	processCount := 0
 	var deepest uint32
-	for _, controller := range engine.processes {
-		if controller.relation.RootID() == root.ID() {
+	for _, handle := range engine.processes {
+		if handle.relation.RootID() == root.ID() {
 			processCount++
-			deepest = max(deepest, controller.relation.Depth())
+			deepest = max(deepest, handle.relation.Depth())
 		}
 	}
 	engine.mu.RUnlock()
@@ -495,7 +491,7 @@ func runParentTerminationTest(t *testing.T, test parentTerminationTestCase) {
 		for range 3 {
 			<-dispatcher.started
 		}
-		waitForProcessStatus(t, parent, StatusWaiting)
+		waitForStatus(t, parent, StatusWaiting)
 		test.terminate(t, parent)
 	}
 	parentResult := mustAwait(t, parent)
@@ -615,7 +611,7 @@ func TestEngineRejectsWaitingOnDescendantThatIsNotDirectChild(t *testing.T) {
 	grandchildID, _ := ParseProcessID(childOutput.ChildIDs[0])
 	waitID, _ := ParseWaitID("wait:ancestor-rejected")
 	waitKey, _ := ParseWaitKey("descendant")
-	_, _, err = root.controller.runtime.Load().registerChildWait(root.ID(), waitID, ChildWaitSpec{
+	_, _, err = root.handle.runtime.Load().registerChildWait(root.ID(), waitID, ChildWaitSpec{
 		Key: waitKey, Children: []ProcessID{grandchildID}, Condition: AllChildren(),
 	})
 	if !errors.Is(err, ErrInvalidChildWait) {
@@ -1203,22 +1199,6 @@ type childTestRelease struct {
 	once sync.Once
 }
 
-func waitForProcessStatus(t *testing.T, process *Process, want Status) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
-	defer cancel()
-	for {
-		snapshot, err := process.Snapshot(ctx)
-		if err != nil {
-			t.Fatalf("capture Process while waiting for %s: %v", want, err)
-		}
-		if snapshot.Status() == want {
-			return
-		}
-		runtime.Gosched()
-	}
-}
-
 func childTestResult(t *testing.T, result Result) childTestOutput {
 	t.Helper()
 	if result.Status() != StatusCompleted {
@@ -1264,10 +1244,10 @@ func directChildIDs(t *testing.T, engine *Engine, parentID ProcessID) []string {
 	engine.mu.RLock()
 	defer engine.mu.RUnlock()
 	var ids []string
-	for _, controller := range engine.processes {
-		actualParent, child := controller.relation.ParentID()
+	for _, handle := range engine.processes {
+		actualParent, child := handle.relation.ParentID()
 		if child && actualParent == parentID {
-			ids = append(ids, controller.processID.String())
+			ids = append(ids, handle.processID.String())
 		}
 	}
 	slices.Sort(ids)

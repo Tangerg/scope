@@ -1,6 +1,7 @@
 package workflow_test
 
 import (
+	"context"
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -9,7 +10,7 @@ import (
 )
 
 func TestDefinitionConformance(t *testing.T) {
-	transform := mustTransform(t, "increment", func(input numberInput) (numberOutput, error) {
+	transform := mustTransform(t, "increment", func(_ context.Context, input numberInput) (numberOutput, error) {
 		return numberOutput{Value: input.Value + 1}, nil
 	})
 	child := mustDeployment(t, mustDefinition(t, "workflow.conformance.child", transform), "conformance-child")
@@ -25,7 +26,7 @@ func TestDefinitionConformance(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := conformancetest.Run(t, agent.DeploymentConfig{
-		Definition: definition, Dispatcher: workflow.Dispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte("workflow-conformance")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte("child-call")),
 	}, agent.EngineConfig{

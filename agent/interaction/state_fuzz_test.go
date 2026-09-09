@@ -92,6 +92,53 @@ func TestRestoreRejectsNonToolCompletionInPendingBatch(t *testing.T) {
 	}
 }
 
+func TestRestoreRequiresOneCompletedResult(t *testing.T) {
+	definition := fuzzInteractionDefinition(t)
+	message := chat.NewAssistantMessage(chat.NewTextPart("done"))
+	response := &chat.Response{Output: &chat.Output{
+		Message: &message, FinishReason: chat.FinishReasonStop,
+	}}
+	results := []chat.ToolResult{{ID: "call", Name: "direct", Output: chat.NewTextToolOutput("done")}}
+	for _, test := range []struct {
+		name     string
+		response *chat.Response
+		results  []chat.ToolResult
+		calls    uint32
+		valid    bool
+	}{
+		{name: "model", response: response, calls: 2, valid: true},
+		{name: "direct tools", results: results, calls: 1, valid: true},
+		{name: "missing result", calls: 1},
+		{name: "competing results", response: response, results: results, calls: 1},
+		{name: "no model call", response: response},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			state, err := encodeState(executionState{
+				Phase: phaseCompleted, ModelCallCount: test.calls,
+				WorkingContext:     &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}},
+				FinalModelResponse: test.response, FinalToolResults: test.results,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			restored, err := definition.Restore(state)
+			if !test.valid {
+				if !errors.Is(err, ErrInvalidExecutionState) {
+					t.Fatalf("Restore = %v, want ErrInvalidExecutionState", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			captured, err := restored.Snapshot()
+			if err != nil || !bytes.Equal(state.Payload(), captured.Payload()) {
+				t.Fatalf("completed result changed after restoration: %v", err)
+			}
+		})
+	}
+}
+
 func fuzzInteractionDefinition(f testing.TB) *Definition {
 	f.Helper()
 	inputSchema, err := agent.SchemaFor[fuzzDelegateInput]()

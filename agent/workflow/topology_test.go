@@ -2,6 +2,7 @@ package workflow_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"slices"
 	"testing"
@@ -30,21 +31,21 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 	numberChild := mustTopologyDeployment(
 		t,
 		"test.topology.number",
-		func(input numberInput) (numberOutput, error) {
+		func(_ context.Context, input numberInput) (numberOutput, error) {
 			return numberOutput(input), nil
 		},
 	)
 	alternateNumberChild := mustTopologyDeployment(
 		t,
 		"test.topology.alternate_number",
-		func(input numberInput) (numberOutput, error) {
+		func(_ context.Context, input numberInput) (numberOutput, error) {
 			return numberOutput(input), nil
 		},
 	)
 	identityChild := mustTopologyDeployment(
 		t,
 		"test.topology.identity",
-		func(input numberInput) (numberInput, error) { return input, nil },
+		func(_ context.Context, input numberInput) (numberInput, error) { return input, nil },
 	)
 	budget := mustBudget(t)
 	capability, err := agent.ParseCapability("test.topology.execute")
@@ -56,7 +57,7 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	transform := mustTransform(t, "transform", func(input numberInput) (numberOutput, error) {
+	transform := mustTransform(t, "transform", func(_ context.Context, input numberInput) (numberOutput, error) {
 		return numberOutput(input), nil
 	})
 	call, err := workflow.Call(workflow.CallConfig{
@@ -67,7 +68,7 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 	}
 	switcher, err := workflow.Switch(workflow.SwitchConfig[numberInput]{
 		ID:     "switch",
-		Select: func(numberInput) (string, error) { return "primary", nil },
+		Select: func(context.Context, numberInput) (string, error) { return "primary", nil },
 		Cases: []workflow.SwitchCase{
 			{ID: "primary", Deployment: numberChild, Budget: budget, Capabilities: capabilities},
 			{ID: "fallback", Deployment: alternateNumberChild, Budget: budget, Capabilities: capabilities},
@@ -83,7 +84,7 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 			{ID: "right", Deployment: alternateNumberChild, Budget: budget, Capabilities: capabilities},
 		},
 		WindowSize: 1,
-		Reduce:     func(outputs []numberOutput) (numberOutput, error) { return outputs[0], nil },
+		Reduce:     func(_ context.Context, outputs []numberOutput) (numberOutput, error) { return outputs[0], nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +98,7 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 	}
 	loop, err := workflow.Loop(workflow.LoopConfig[numberInput]{
 		ID: "loop", Body: identityChild, Budget: budget, Capabilities: capabilities, MaxIterations: 3,
-		Predicate: func(numberInput) (bool, error) { return true, nil },
+		Predicate: func(context.Context, numberInput) (bool, error) { return true, nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -197,11 +198,11 @@ func TestDefinitionTopologyOwnsProjectionSlices(t *testing.T) {
 	child := mustTopologyDeployment(
 		t,
 		"test.topology.ownership_child",
-		func(input numberInput) (numberOutput, error) { return numberOutput(input), nil },
+		func(_ context.Context, input numberInput) (numberOutput, error) { return numberOutput(input), nil },
 	)
 	stage, err := workflow.Switch(workflow.SwitchConfig[numberInput]{
 		ID:     "route",
-		Select: func(numberInput) (string, error) { return "first", nil },
+		Select: func(context.Context, numberInput) (string, error) { return "first", nil },
 		Cases: []workflow.SwitchCase{
 			{ID: "first", Deployment: child, Budget: mustBudget(t)},
 			{ID: "second", Deployment: child, Budget: mustBudget(t)},
@@ -240,7 +241,7 @@ func mustTopologyDeployment[I, O any](
 	}
 	definition := mustDefinition(t, name, stage)
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: workflow.Dispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte(name + ":implementation")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte(name + ":configuration")),
 	})

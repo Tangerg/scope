@@ -79,10 +79,7 @@ func TestWaitingSignalBatchMustFirstAddressCurrentWait(t *testing.T) {
 				awaitResult(t, process)
 			})
 			waitForStatus(t, process, StatusWaiting)
-			before, err := process.Snapshot(t.Context())
-			if err != nil {
-				t.Fatal(err)
-			}
+			before := inspectProcessSnapshot(t, process)
 			wire, err := before.wire()
 			if err != nil {
 				t.Fatal(err)
@@ -105,15 +102,12 @@ func TestWaitingSignalBatchMustFirstAddressCurrentWait(t *testing.T) {
 			if includeCurrent {
 				requests = append(requests, answer)
 			}
-			usage := process.Usage()
+			usage := inspectProcessSnapshot(t, process).Usage()
 			if accepted, deliveryErr := process.DeliverSignals(t.Context(), requests...); accepted || !errors.Is(deliveryErr, ErrSignalRejected) {
 				t.Fatalf("non-current wait batch = %t, %v; want false, ErrSignalRejected", accepted, deliveryErr)
 			}
-			after, err := process.Snapshot(t.Context())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(before.JSON(), after.JSON()) || process.Usage() != usage {
+			after := inspectProcessSnapshot(t, process)
+			if !bytes.Equal(before.JSON(), after.JSON()) || inspectProcessSnapshot(t, process).Usage() != usage {
 				t.Fatal("rejected batch changed the snapshot or usage")
 			}
 			if accepted, deliveryErr := process.DeliverSignals(t.Context(), answer, otherAnswer); !accepted || deliveryErr != nil {
@@ -122,8 +116,8 @@ func TestWaitingSignalBatchMustFirstAddressCurrentWait(t *testing.T) {
 			result := awaitResult(t, process)
 			output, _ := result.Output()
 			value, err := output.Decode[engineTestOutput]()
-			if result.Status() != StatusCompleted || err != nil || value.Value != "approved" || process.Usage().AcceptedSignals != 4 {
-				t.Fatalf("result = %s, %+v, %v; usage = %+v", result.Status(), value, err, process.Usage())
+			if result.Status() != StatusCompleted || err != nil || value.Value != "approved" || inspectProcessSnapshot(t, process).Usage().AcceptedSignals != 4 {
+				t.Fatalf("result = %s, %+v, %v; usage = %+v", result.Status(), value, err, inspectProcessSnapshot(t, process).Usage())
 			}
 		})
 	}

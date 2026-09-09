@@ -22,26 +22,28 @@ type treeRuntime struct {
 	// External readers need scheduling liveness without acquiring execution
 	// state. Atomics expose that view while commands and completions preserve
 	// one mutation owner.
-	inflight    atomic.Int64
-	freezeHeld  atomic.Bool
-	context     context.Context
-	commands    chan treeCommand
-	controls    chan treeCommand
-	completions chan treeJobCompletion
+	inFlightWork atomic.Int64
+	freezeActive atomic.Bool
+	context      context.Context
+	commands     chan treeCommand
+	controls     chan treeCommand
+	completions  chan treeJobCompletion
+	inspections  chan chan treeInspectionResponse
 
 	// Everything below is owner-line state. Keeping it lock-free makes commit,
 	// scheduling, freeze, and checkpoint order a single explicit state machine.
-	processes         map[ProcessID]*processState
-	childWaits        map[WaitID]*childWaitRegistration
-	runnable          []ProcessID
-	queued            map[ProcessID]struct{}
-	jobs              map[ProcessID]*processJob
-	commit            *treeCommit
-	commitDone        chan treeCommitCompletion
-	fault             error
-	checkpointPending map[ProcessID]checkpointPublication
-	freeze            *activeTreeFreeze
-	done              chan struct{}
+	processes           map[ProcessID]*processState
+	childWaits          map[WaitID]*childWaitRegistration
+	processQueue        []ProcessID
+	queued              map[ProcessID]struct{}
+	jobs                map[ProcessID]*processJob
+	commit              *treeCommit
+	commitDone          chan treeCommitCompletion
+	fault               error
+	pendingPublications map[ProcessID]pendingProcessPublication
+	freeze              *activeTreeFreeze
+	done                chan struct{}
+	finalInspection     treeInspectionResponse
 }
 
 type treeCommandKind uint8
@@ -51,7 +53,6 @@ const (
 	treeCommandProcess
 	treeCommandAcquireFreeze
 	treeCommandReleaseFreeze
-	treeCommandApplyFreeze
 )
 
 type treeCommand struct {
@@ -60,7 +61,6 @@ type treeCommand struct {
 	process     processCommand
 	freeze      *treeFreeze
 	acquisition *treeFreezeAcquisition
-	projection  *treeStateProjection
 	response    chan error
 }
 
@@ -71,16 +71,7 @@ func newTreeProcessCommand(processID ProcessID, command processCommand) treeComm
 type treeFreezeAcquisition struct {
 	response chan treeFreezeAcquisitionResult
 	canceled chan struct{}
-	mode     treeFreezeMode
 }
-
-type treeFreezeMode uint8
-
-const (
-	treeFreezeModeInvalid treeFreezeMode = iota
-	treeFreezeModeSnapshot
-	treeFreezeModeExclusive
-)
 
 type treeFreezeAcquisitionResult struct {
 	freeze   *treeFreeze
@@ -92,13 +83,6 @@ type activeTreeFreeze struct {
 	acquisition *treeFreezeAcquisition
 	freeze      *treeFreeze
 	ready       bool
-}
-
-type treeStateProjection struct {
-	changes         []*preparedProcessStateChange
-	childWaits      []*childWaitRegistration
-	sourceDigest    Digest
-	resultingDigest Digest
 }
 
 type processAttempt uint64
@@ -167,7 +151,7 @@ type treeCommitCompletion struct {
 	err    error
 }
 
-type checkpointPublication struct {
+type pendingProcessPublication struct {
 	events   []Event
 	terminal bool
 }
@@ -203,19 +187,20 @@ func newTreeRuntime(
 	processes ...*processState,
 ) *treeRuntime {
 	runtime := &treeRuntime{
-		engine:            engine,
-		rootID:            rootID,
-		context:           context.WithoutCancel(requireContext(ctx)),
-		commands:          make(chan treeCommand, treeCommandBufferCapacity),
-		controls:          make(chan treeCommand, treeCommandBufferCapacity),
-		completions:       make(chan treeJobCompletion),
-		processes:         make(map[ProcessID]*processState, len(processes)),
-		childWaits:        make(map[WaitID]*childWaitRegistration),
-		queued:            make(map[ProcessID]struct{}, len(processes)),
-		jobs:              make(map[ProcessID]*processJob, len(processes)),
-		commitDone:        make(chan treeCommitCompletion),
-		checkpointPending: make(map[ProcessID]checkpointPublication),
-		done:              make(chan struct{}),
+		engine:              engine,
+		rootID:              rootID,
+		context:             context.WithoutCancel(requireContext(ctx)),
+		commands:            make(chan treeCommand, treeCommandBufferCapacity),
+		controls:            make(chan treeCommand, treeCommandBufferCapacity),
+		completions:         make(chan treeJobCompletion),
+		inspections:         make(chan chan treeInspectionResponse, treeCommandBufferCapacity),
+		processes:           make(map[ProcessID]*processState, len(processes)),
+		childWaits:          make(map[WaitID]*childWaitRegistration),
+		queued:              make(map[ProcessID]struct{}, len(processes)),
+		jobs:                make(map[ProcessID]*processJob, len(processes)),
+		commitDone:          make(chan treeCommitCompletion),
+		pendingPublications: make(map[ProcessID]pendingProcessPublication),
+		done:                make(chan struct{}),
 	}
 	for _, process := range processes {
 		runtime.addProcess(process)
@@ -240,37 +225,45 @@ func (t *treeRuntime) establishDurableHead(
 }
 
 func (t *treeRuntime) addProcess(process *processState) {
-	if t == nil || process == nil || process.controller == nil ||
-		process.controller.relation.RootID() != t.rootID {
+	if t == nil || process == nil || process.handle == nil ||
+		process.handle.relation.RootID() != t.rootID {
 		panic("agent: invalid tree Process")
 	}
-	processID := process.controller.processID
+	processID := process.handle.processID
 	if t.processes[processID] != nil {
 		panic("agent: duplicate tree Process")
 	}
 	process.runtime = t
-	process.controller.runtime.Store(t)
+	process.handle.runtime.Store(t)
 	t.processes[processID] = process
 	if !process.status.Terminal() {
-		t.markRunnable(processID)
+		t.enqueueProcess(processID)
 	}
 }
 
 func (t *treeRuntime) run(rootContext context.Context) {
-	defer close(t.done)
+	defer t.finishRun()
 	t.publishInitialProcessEvents()
 	stopHostWatch := t.watchHostTermination(rootContext)
 	defer stopHostWatch()
 
 	for {
-		if t.advanceReadyWork() {
-			continue
-		}
-		if t.finished() {
+		advanced := t.advanceReadyWork()
+		if t.canStop() {
 			return
 		}
-		t.waitForWork()
+		inspected := t.tryInspection()
+		if !advanced && !inspected {
+			t.waitForWork()
+		}
 	}
+}
+
+func (t *treeRuntime) finishRun() {
+	inspection, err := t.buildInspection()
+	inspection.Stopped = true
+	t.finalInspection = treeInspectionResponse{inspection: inspection, err: err}
+	close(t.done)
 }
 
 func (t *treeRuntime) publishInitialProcessEvents() {
@@ -299,42 +292,66 @@ func (t *treeRuntime) watchHostTermination(rootContext context.Context) func() b
 }
 
 func (t *treeRuntime) advanceReadyWork() bool {
-	return t.tryFreezeCancellation() || t.tryCommand() || t.tryCompletion() ||
-		t.advanceOne() || t.tryStartCheckpoint()
+	// Service every eligible lane once so a continuously ready lane cannot
+	// prevent another from making progress. Each operation rechecks its barriers
+	// because an earlier operation can acquire a freeze or start a commit.
+	advanced := t.tryCommitCompletion()
+	advanced = t.tryFreezeCancellation() || advanced
+	advanced = t.tryControl() || advanced
+	advanced = t.tryCommand() || advanced
+	advanced = t.tryCompletion() || advanced
+	advanced = t.advanceOne() || advanced
+	return t.tryStartCheckpoint() || advanced
 }
 
 func (t *treeRuntime) waitForWork() {
+	// Nil channels disable blocked lanes without duplicating event dispatch.
+	// These are local selections; only the owner changes the actual barriers.
+	commitDone := t.commitDone
+	controls := t.controls
+	commands := t.commands
+	completions := t.completions
+	freezeCanceled := t.freezeCanceled()
 	if t.commit != nil {
-		t.applyTreeCommitCompletion(<-t.commitDone)
-		return
-	}
-	if t.freeze != nil && t.freeze.ready {
-		select {
-		case command := <-t.controls:
-			t.applyCommand(command)
-		case <-t.freeze.acquisition.canceled:
-			t.releaseCurrentFreeze()
+		controls = nil
+		commands = nil
+		completions = nil
+		freezeCanceled = nil
+	} else {
+		commitDone = nil
+		if t.freeze != nil {
+			commands = nil
+			if t.freeze.ready {
+				completions = nil
+			}
 		}
-		return
-	}
-	if freezeCanceled := t.freezeCanceled(); freezeCanceled != nil {
-		select {
-		case command := <-t.controls:
-			t.applyCommand(command)
-		case completion := <-t.completions:
-			t.applyCompletion(completion)
-		case <-freezeCanceled:
-			t.releaseCurrentFreeze()
-		}
-		return
 	}
 	select {
-	case command := <-t.controls:
+	case completion := <-commitDone:
+		t.applyTreeCommitCompletion(completion)
+	case command := <-controls:
 		t.applyCommand(command)
-	case command := <-t.commands:
+	case response := <-t.inspections:
+		t.replyInspection(response)
+	case command := <-commands:
 		t.applyCommand(command)
-	case completion := <-t.completions:
+	case completion := <-completions:
 		t.applyCompletion(completion)
+	case <-freezeCanceled:
+		t.releaseCurrentFreeze()
+	}
+}
+
+func (t *treeRuntime) tryCommitCompletion() bool {
+	if t.commit == nil {
+		return false
+	}
+	select {
+	case completion := <-t.commitDone:
+		t.applyTreeCommitCompletion(completion)
+		return true
+	default:
+		return false
 	}
 }
 
@@ -359,19 +376,25 @@ func (t *treeRuntime) tryFreezeCancellation() bool {
 	}
 }
 
-func (t *treeRuntime) tryCommand() bool {
+func (t *treeRuntime) tryControl() bool {
 	if t.commit != nil {
 		return false
-	}
-	commands := t.commands
-	if t.freeze != nil {
-		commands = nil
 	}
 	select {
 	case command := <-t.controls:
 		t.applyCommand(command)
 		return true
-	case command := <-commands:
+	default:
+		return false
+	}
+}
+
+func (t *treeRuntime) tryCommand() bool {
+	if t.commit != nil || t.freeze != nil {
+		return false
+	}
+	select {
+	case command := <-t.commands:
 		t.applyCommand(command)
 		return true
 	default:
@@ -392,7 +415,7 @@ func (t *treeRuntime) tryCompletion() bool {
 	}
 }
 
-func (t *treeRuntime) markRunnable(processID ProcessID) {
+func (t *treeRuntime) enqueueProcess(processID ProcessID) {
 	process := t.processes[processID]
 	if t.fault != nil || process == nil || process.status.Terminal() || t.jobs[processID] != nil {
 		return
@@ -401,13 +424,13 @@ func (t *treeRuntime) markRunnable(processID ProcessID) {
 		return
 	}
 	t.queued[processID] = struct{}{}
-	t.runnable = append(t.runnable, processID)
+	t.processQueue = append(t.processQueue, processID)
 }
 
-func (t *treeRuntime) popRunnable() *processState {
-	for len(t.runnable) > 0 {
-		processID := t.runnable[0]
-		t.runnable = t.runnable[1:]
+func (t *treeRuntime) dequeueProcess() *processState {
+	for len(t.processQueue) > 0 {
+		processID := t.processQueue[0]
+		t.processQueue = t.processQueue[1:]
 		delete(t.queued, processID)
 		process := t.processes[processID]
 		if process != nil && !process.status.Terminal() && t.jobs[processID] == nil {
@@ -421,7 +444,7 @@ func (t *treeRuntime) advanceOne() bool {
 	if t.commit != nil || t.fault != nil || t.freeze != nil {
 		return false
 	}
-	process := t.popRunnable()
+	process := t.dequeueProcess()
 	if process == nil {
 		return false
 	}
@@ -466,7 +489,7 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 	}
 	t.finishIfTerminal(process)
 	if !process.status.Terminal() {
-		t.markRunnable(process.controller.processID)
+		t.enqueueProcess(process.handle.processID)
 	}
 }
 
@@ -489,12 +512,12 @@ func (t *treeRuntime) setProcessJob(processID ProcessID, job *processJob) {
 		panic("agent: invalid concurrent Process job")
 	}
 	t.jobs[processID] = job
-	t.inflight.Add(1)
+	t.inFlightWork.Add(1)
 }
 
-func (t *treeRuntime) finished() bool {
+func (t *treeRuntime) canStop() bool {
 	if t.freeze != nil || t.commit != nil || len(t.jobs) != 0 ||
-		len(t.checkpointPending) != 0 {
+		len(t.pendingPublications) != 0 {
 		return false
 	}
 	if t.fault != nil {

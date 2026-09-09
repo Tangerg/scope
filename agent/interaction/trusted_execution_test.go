@@ -62,8 +62,9 @@ func TestToolBatchValidatesEveryProposalBeforeCapabilitiesAndExecution(t *testin
 	if result.Status() != agent.StatusCompleted {
 		t.Fatalf("status = %s", result.Status())
 	}
-	if validCapabilities.Load() != 1 || validCalls.Load() != 1 {
-		t.Fatalf("valid capability/calls = %d/%d, want 1/1", validCapabilities.Load(), validCalls.Load())
+	// Pure scheduling declarations may be checked again during state admission.
+	if validCapabilities.Load() == 0 || validCalls.Load() != 1 {
+		t.Fatalf("valid capability/calls = %d/%d, want a checked declaration and exactly one execution", validCapabilities.Load(), validCalls.Load())
 	}
 	if invalidCapabilities.Load() != 0 || invalidCalls.Load() != 0 {
 		t.Fatalf("invalid capability/calls = %d/%d, want 0/0", invalidCapabilities.Load(), invalidCalls.Load())

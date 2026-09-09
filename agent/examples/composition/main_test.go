@@ -122,7 +122,15 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 	}
 	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()
-	for root.Status() != agent.StatusWaiting {
+	for {
+		inspection, inspectErr := engine.InspectTree(ctx, root.ID())
+		if inspectErr != nil {
+			t.Fatal(inspectErr)
+		}
+		report, found := inspection.Process(root.ID())
+		if found && report.Snapshot.Status() == agent.StatusWaiting {
+			break
+		}
 		select {
 		case <-ctx.Done():
 			t.Fatalf("composition did not wait for the unknown child: %v", ctx.Err())
@@ -166,13 +174,19 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 	if !found {
 		t.Fatal("restoration lost the model child identity")
 	}
-	unknown, err := child.UnknownEffectIDs(ctx)
-	effectID, present := unknownEvent.EffectID()
-	if err != nil || !present || len(unknown) != 1 || unknown[0] != effectID {
-		t.Fatalf("unknown Effects=%v original=%s error=%v", unknown, effectID, err)
+	inspection, err := restoredEngine.InspectTree(ctx, restored.ID())
+	if err != nil {
+		t.Fatal(err)
 	}
-	if restored.Status() != agent.StatusWaiting || dispatcher.calls.Load() != 1 {
-		t.Fatalf("root status=%s dispatches=%d", restored.Status(), dispatcher.calls.Load())
+	childReport, childFound := inspection.Process(child.ID())
+	rootReport, rootFound := inspection.Process(restored.ID())
+	unknown := childReport.Snapshot.UnknownEffectIDs()
+	effectID, present := unknownEvent.EffectID()
+	if !childFound || !present || len(unknown) != 1 || unknown[0] != effectID {
+		t.Fatalf("unknown Effects=%v original=%s", unknown, effectID)
+	}
+	if !rootFound || rootReport.Snapshot.Status() != agent.StatusWaiting || dispatcher.calls.Load() != 1 {
+		t.Fatalf("root status=%s dispatches=%d", rootReport.Snapshot.Status(), dispatcher.calls.Load())
 	}
 	// The external boundary supplies the recovered result; the Host never decodes
 	// the Interaction payload or edits either Strategy's execution state.
@@ -200,9 +214,13 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 	if len(finalTree.ProcessSnapshots()) != 3 || dispatcher.calls.Load() != 1 {
 		t.Fatalf("final Processes=%d dispatches=%d", len(finalTree.ProcessSnapshots()), dispatcher.calls.Load())
 	}
+	inspection, err = restoredEngine.InspectTree(ctx, restored.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, original := range tree.ProcessSnapshots() {
-		process, found := restoredEngine.Process(original.ProcessID())
-		if !found || process.Status() != agent.StatusCompleted {
+		report, found := inspection.Process(original.ProcessID())
+		if !found || report.Snapshot.Status() != agent.StatusCompleted {
 			t.Fatalf("original Process %s was lost or did not complete", original.ProcessID())
 		}
 	}
@@ -278,7 +296,7 @@ func TestCompositionRestoresEverySignalBoundary(t *testing.T) {
 	}
 	definition := &recordingDefinition{Definition: base.Definition()}
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: rejectingDispatcher{},
+		Definition:           definition,
 		ImplementationDigest: base.DeploymentRef().ImplementationDigest(),
 		ConfigurationDigest:  base.DeploymentRef().ConfigurationDigest(),
 	})
@@ -420,7 +438,7 @@ func TestCompositionPreservesChildFailures(t *testing.T) {
 			}
 			if !failStart {
 				model, err = agent.NewDeployment(agent.DeploymentConfig{
-					Definition: failingDefinition{Definition: model.Definition()}, Dispatcher: rejectingDispatcher{},
+					Definition:           failingDefinition{Definition: model.Definition()},
 					ImplementationDigest: agent.ComputeDigest([]byte("failing-composition-child")),
 					ConfigurationDigest:  model.DeploymentRef().ConfigurationDigest(),
 				})

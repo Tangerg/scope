@@ -13,10 +13,6 @@ func (t *treeRuntime) applyCommand(command treeCommand) {
 		err := t.releaseFreeze(command.freeze)
 		command.response <- err
 		return
-	case treeCommandApplyFreeze:
-		err := t.applyFreeze(command.freeze, command.projection)
-		command.response <- err
-		return
 	case treeCommandProcess:
 	default:
 		if command.response != nil {
@@ -34,14 +30,14 @@ func (t *treeRuntime) applyCommand(command treeCommand) {
 
 func (t *treeRuntime) applyProcessCommand(process *processState, command processCommand) {
 	if t.fault != nil {
-		command.reply(processResponse{err: process.controller.closedRequestError()})
+		command.reply(processResponse{err: process.handle.closedRequestError()})
 		return
 	}
 	if command.kind == commandHostTerminated {
 		if !process.status.Terminal() {
 			process.recordHostTermination(command.hostErr)
 			t.invalidateStep(process)
-			t.markRunnable(process.controller.processID)
+			t.enqueueProcess(process.handle.processID)
 		}
 		return
 	}
@@ -54,7 +50,7 @@ func (t *treeRuntime) applyProcessCommand(process *processState, command process
 	}
 	t.finishIfTerminal(process)
 	if !process.status.Terminal() {
-		t.markRunnable(process.controller.processID)
+		t.enqueueProcess(process.handle.processID)
 	}
 }
 
@@ -69,16 +65,14 @@ func (t *treeRuntime) resolveUnknownEffect(process *processState, command proces
 	if err := t.startUnknownResolutionCommit(process, command); err != nil {
 		command.reply(processResponse{err: err})
 		if !errors.Is(err, ErrEffectNotPending) {
-			t.failDurability(err, process.controller.processID, command.settlement.EffectID())
+			t.failDurability(err, process.handle.processID, command.settlement.EffectID())
 		}
 	}
 	return true
 }
 
 func (t *treeRuntime) acquireFreeze(acquisition *treeFreezeAcquisition) {
-	if acquisition == nil || acquisition.response == nil || acquisition.canceled == nil ||
-		(acquisition.mode != treeFreezeModeSnapshot && acquisition.mode != treeFreezeModeExclusive) ||
-		t.freeze != nil {
+	if acquisition == nil || acquisition.response == nil || acquisition.canceled == nil || t.freeze != nil {
 		if acquisition != nil && acquisition.response != nil {
 			acquisition.response <- treeFreezeAcquisitionResult{err: ErrEngineQuiescenceUnavailable}
 		}
@@ -90,12 +84,7 @@ func (t *treeRuntime) acquireFreeze(acquisition *treeFreezeAcquisition) {
 	}
 	freeze := &treeFreeze{runtime: t}
 	t.freeze = &activeTreeFreeze{acquisition: acquisition, freeze: freeze}
-	t.freezeHeld.Store(true)
-	if acquisition.mode == treeFreezeModeExclusive {
-		for _, process := range t.processes {
-			t.invalidateStep(process)
-		}
-	}
+	t.freezeActive.Store(true)
 	t.completeFreeze()
 }
 
@@ -119,9 +108,6 @@ func (t *treeRuntime) completeFreeze() {
 func (t *treeRuntime) freezeBlockedByJob() bool {
 	if t.freeze == nil {
 		return false
-	}
-	if t.freeze.acquisition.mode == treeFreezeModeExclusive {
-		return len(t.jobs) != 0
 	}
 	allTerminal := true
 	for _, process := range t.processes {
@@ -174,55 +160,16 @@ func (t *treeRuntime) releaseFreeze(freeze *treeFreeze) error {
 // stale or foreign authority is rejected rather than silently accepted.
 func (t *treeRuntime) releaseCurrentFreeze() {
 	t.freeze = nil
-	t.freezeHeld.Store(false)
+	t.freezeActive.Store(false)
 	for _, process := range t.processes {
 		if !process.status.Terminal() {
-			t.markRunnable(process.controller.processID)
+			t.enqueueProcess(process.handle.processID)
 		}
 	}
-}
-
-func (t *treeRuntime) applyFreeze(
-	freeze *treeFreeze,
-	projection *treeStateProjection,
-) error {
-	if t.freeze == nil || !t.freeze.ready || freeze == nil || t.freeze.freeze != freeze ||
-		projection == nil {
-		return ErrInvalidPreparedWaitingSubtreeCancellation
-	}
-	if t.engine.durability != nil && t.head.digest() != projection.sourceDigest {
-		return ErrTreeIncarnationConflict
-	}
-	for _, change := range projection.changes {
-		process := t.processes[change.processID]
-		if err := change.validateSource(process); err != nil {
-			return err
-		}
-	}
-	for _, change := range projection.changes {
-		process := t.processes[change.processID]
-		change.apply(t.context, process)
-	}
-	t.childWaits = make(map[WaitID]*childWaitRegistration, len(projection.childWaits))
-	for _, registration := range projection.childWaits {
-		t.childWaits[registration.waitID] = registration
-	}
-	for _, change := range projection.changes {
-		t.finishIfTerminal(t.processes[change.processID])
-	}
-	if t.engine.durability != nil {
-		result, err := t.captureTree()
-		if err != nil || result.Digest() != projection.resultingDigest {
-			return ErrInvalidPreparedWaitingSubtreeCancellation
-		}
-		t.advanceHead(result)
-		t.publishCheckpoint()
-	}
-	return t.releaseFreeze(freeze)
 }
 
 func (t *treeRuntime) invalidateStep(process *processState) {
-	job := t.jobs[process.controller.processID]
+	job := t.jobs[process.handle.processID]
 	if job == nil || job.kind != processJobStep || job.stale {
 		return
 	}

@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -8,8 +9,9 @@ import (
 )
 
 // LoopPredicate is a bounded, deterministic, side-effect-free completion test
-// evaluated after each successful body child Process.
-type LoopPredicate[T any] func(value T) (bool, error)
+// evaluated after each successful body child Process. It must honor ctx
+// cancellation; context is not a source of domain input.
+type LoopPredicate[T any] func(ctx context.Context, value T) (bool, error)
 
 // LoopResult is the exact semantic output of a Loop Stage. Satisfied is false
 // when MaxIterations was exhausted; that outcome is still a valid completion.
@@ -49,7 +51,7 @@ type loopStage struct {
 	binding       childBinding
 	maxIterations uint32
 	valueSchema   agent.Schema
-	predicate     func(json.RawMessage) (bool, error)
+	predicate     func(context.Context, json.RawMessage) (bool, error)
 	result        func(json.RawMessage, uint32, bool) (json.RawMessage, error)
 }
 
@@ -79,7 +81,7 @@ func Loop[T any](config LoopConfig[T]) (Stage, error) {
 		return Stage{}, fmt.Errorf("%w: Loop %q body must have an exact T-to-T contract", ErrInvalidStage, config.ID)
 	}
 	predicate := config.Predicate
-	evaluate := func(raw json.RawMessage) (bool, error) {
+	evaluate := func(ctx context.Context, raw json.RawMessage) (bool, error) {
 		output, err := agent.ParseOutput(raw)
 		if err != nil {
 			return false, err
@@ -91,7 +93,7 @@ func Loop[T any](config LoopConfig[T]) (Stage, error) {
 		if err != nil {
 			return false, err
 		}
-		satisfied, err := predicate(value)
+		satisfied, err := predicate(ctx, value)
 		if err != nil {
 			return false, fmt.Errorf("Loop %q predicate: %w", config.ID, err)
 		}

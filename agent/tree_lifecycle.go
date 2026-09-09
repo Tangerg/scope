@@ -20,7 +20,7 @@ func (t *treeRuntime) finishIfTerminal(process *processState) {
 		return
 	}
 	select {
-	case <-process.controller.done:
+	case <-process.handle.outcomePublished:
 		return
 	default:
 	}
@@ -28,25 +28,24 @@ func (t *treeRuntime) finishIfTerminal(process *processState) {
 		t.context, EventProcessFinished, EventPhaseCommitted, 0, EffectID{},
 		terminalEventPayload(process),
 	)
-	snapshot, err := process.capture()
-	process.controller.complete(process.result(), snapshot, err)
-	t.processFinished(process)
-	process.controller.markTreeSettled()
+	process.handle.publishResult(process.result())
+	t.propagateProcessTermination(process)
+	process.handle.finishBookkeeping()
 }
 
-func (t *treeRuntime) processFinished(process *processState) {
-	processID := process.controller.processID
+func (t *treeRuntime) propagateProcessTermination(process *processState) {
+	processID := process.handle.processID
 	for waitID, registration := range t.childWaits {
 		if registration.parent == processID {
 			delete(t.childWaits, waitID)
 		}
 	}
 	for _, child := range t.processes {
-		parentID, isChild := child.controller.relation.ParentID()
+		parentID, isChild := child.handle.relation.ParentID()
 		if isChild && parentID == processID && !child.status.Terminal() {
 			child.recordParentTermination(process.termination)
 			t.invalidateStep(child)
-			t.markRunnable(child.controller.processID)
+			t.enqueueProcess(child.handle.processID)
 		}
 	}
 	for _, registration := range orderedChildWaitRegistrations(t.childWaits) {
@@ -66,14 +65,14 @@ func (t *treeRuntime) processFinished(process *processState) {
 		if err != nil {
 			parent.recordFailure(FailureKindExecution, "engine.child.completion.encoding_failed", err)
 			t.invalidateStep(parent)
-			t.markRunnable(parent.controller.processID)
+			t.enqueueProcess(parent.handle.processID)
 			continue
 		}
 		if parent.deliverChildrenCompleted(t.context, signal) {
-			t.markRunnable(parent.controller.processID)
+			t.enqueueProcess(parent.handle.processID)
 		} else if parent.pendingControl.hasTerminalIntent() {
 			t.invalidateStep(parent)
-			t.markRunnable(parent.controller.processID)
+			t.enqueueProcess(parent.handle.processID)
 		}
 	}
 }
@@ -110,7 +109,7 @@ func (t *treeRuntime) childWaitOutcomes(
 			return nil, false
 		}
 		if child.status.Terminal() {
-			key, _ := child.controller.relation.ChildKey()
+			key, _ := child.handle.relation.ChildKey()
 			outcomes = append(outcomes, ChildOutcome{key: key, result: child.result()})
 		}
 	}
@@ -134,7 +133,7 @@ func (t *treeRuntime) registerChildWait(
 		if child == nil {
 			return Signal{}, false, ErrInvalidChildWait
 		}
-		actualParent, isChild := child.controller.relation.ParentID()
+		actualParent, isChild := child.handle.relation.ParentID()
 		if !isChild || actualParent != parentID {
 			return Signal{}, false, ErrInvalidChildWait
 		}

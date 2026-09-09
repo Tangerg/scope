@@ -118,7 +118,7 @@ func newUppercaseDeployment() (agent.Deployment, error) {
 		return agent.Deployment{}, err
 	}
 	return agent.NewDeployment(agent.DeploymentConfig{
-		Definition: &uppercaseDefinition{descriptor: descriptor}, Dispatcher: rejectingDispatcher{},
+		Definition:           &uppercaseDefinition{descriptor: descriptor},
 		ImplementationDigest: agent.ComputeDigest([]byte("example-uppercase-implementation")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte("example-uppercase-configuration")),
 	})
@@ -235,7 +235,7 @@ func newCompositionDeployment(local, model agent.DeploymentRef) (agent.Deploymen
 	}
 	definition := &compositionDefinition{descriptor: descriptor, local: local, model: model}
 	return agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: rejectingDispatcher{},
+		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte("example-composition-implementation")),
 		ConfigurationDigest: agent.ComputeDigest([]byte(
 			"example-composition:" + local.Digest().String() + ":" + model.Digest().String(),
@@ -526,20 +526,6 @@ func (compositionModel) Call(_ context.Context, request *chat.Request) (*chat.Re
 	return &chat.Response{Output: &chat.Output{
 		Message: &message, FinishReason: chat.FinishReasonStop,
 	}}, nil
-}
-
-type rejectingDispatcher struct{}
-
-func (rejectingDispatcher) Dispatch(
-	context.Context,
-	agent.EffectRequest,
-	agent.DeltaEmitter,
-) (agent.Settlement, error) {
-	return agent.Settlement{}, errors.New("definition emitted an unexpected dispatcher Effect")
-}
-
-func (rejectingDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
-	return agent.ReplayPolicyNever
 }
 
 type deploymentResolver map[agent.DeploymentRef]agent.Deployment

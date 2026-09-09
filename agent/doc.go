@@ -39,6 +39,11 @@
 // unbounded loop, or start an unowned goroutine. An external operation can
 // only be declared as an [Effect] and executed outside the Step.
 //
+// These are cooperation contracts for implementations sharing one Go process.
+// Capability checks mediate declared Effects; they do not sandbox arbitrary I/O.
+// Cancellation and kill still depend on in-flight code returning and external
+// operations settling. They cannot forcibly terminate a goroutine.
+//
 // Three scales explain the kernel: the root tree is the consistency, commit,
 // and recovery unit; a Process is the lifecycle and strategy-state isolation
 // unit; a Step is the concurrency unit. Adding Processes to a tree adds
@@ -51,6 +56,13 @@
 // When a kill, pause, cancel, or a new incarnation expires an attempt, the
 // result and its error are discarded whole and the Execution is rebuilt from
 // committed Execution state.
+//
+// The owner services continuously ready control requests, job completions, and
+// queued Processes in bounded scheduling turns. Queries do not wake execution.
+// Pending commits and held freezes still block work that cannot cross those
+// boundaries; a checkpoint still requires a safe tree cut. This is a scheduling
+// guarantee, not a wall-clock deadline: implementations must honor their bounded
+// execution contracts, and the Host owns storage deadlines.
 //
 // Before adopting initial or candidate state, the Engine captures Snapshot and
 // successfully restores it through that Deployment's Definition. An
@@ -66,8 +78,10 @@
 // Engine derives a stable effect identity from the Process identity, step
 // sequence, and effect index, then freezes the payload. It interprets only its
 // own closed set of framework effects — child and wait operations — and hands a
-// strategy effect whole to the dispatcher its [Deployment] bound. A dispatcher
-// never mutates an Execution; it produces deltas and one settlement Signal.
+// strategy effect whole to the dispatcher its [Deployment] bound. A Deployment
+// without a dispatcher admits only framework Effects, including during recovery.
+// A dispatcher never mutates an Execution; it produces deltas and one settlement
+// Signal.
 //
 // Each effect advances through planned, pending, and settled in declaration
 // order, one at a time:
@@ -104,6 +118,10 @@
 // so a failed Step never permanently swallows input.
 // Consumption is bounded by the Signal window delivered to that Step; input
 // admitted while the Step runs belongs to a later window.
+// Once consumed, a mailbox record keeps its identity, addressed wait, arrival
+// order, and normalized payload digest. The payload itself is released with
+// candidate adoption. Recovery retains exact pending inputs and validates wait
+// history from these facts; consumed content is no longer a transcript.
 //
 // A wait identity is minted by the Engine; an Execution cannot generate an
 // external one. The Execution declares a logical wait through a [Transition];
@@ -118,7 +136,8 @@
 // waits. Snapshots whose wait facts contradict that history are rejected.
 // Child completions remain queued while their parent is Paused or waiting on
 // another WaitID. Only an answer to the current WaitID releases Waiting;
-// an explicit pause still requires Resume.
+// an explicit pause still requires Resume. Unaddressed Strategy input can also
+// queue while Paused or waiting for children without releasing either state.
 //
 // Each strategy declares its own safe consumption boundary and proves it with
 // contract tests.
@@ -138,6 +157,10 @@
 // overwrite it. An effect's own cancellation first reaches the strategy as a
 // settlement Signal — a local failure is never promoted to a Process terminal
 // state on its own.
+// [Process.RequestCancellation] also terminates active descendants through
+// their owned lifecycle. The surviving parent receives the ordinary completion
+// Signal and its Strategy chooses the next transition. Cancellation uses the
+// same checkpoint acknowledgment as every other terminal transition.
 //
 // A child-completion delivery failure is recorded as pending termination.
 // Accepted external effects settle first, and any unknown identities remain
@@ -147,6 +170,18 @@
 // the Host calls [Engine.ReleaseTree]. Release waits for all descendant work to
 // settle, removes the tree from lookup, and leaves existing handles' results
 // and runtime errors readable.
+//
+// Signal identities, wait history, and descendants remain retained for that
+// lifetime. Finite budgets and snapshot limits bound one execution; the kernel
+// does not prune facts needed for deduplication or extend a tree indefinitely.
+//
+// [Engine.InspectTree] is the sole live inspection entry. It composes existing
+// [ProcessSnapshot] values with current job, commit, and freeze facts, and stays
+// available while storage acknowledgment or a tree freeze blocks execution.
+// Snapshots own lifecycle, usage, wait authority, and Unknown settlements;
+// runtime work may be newer than a durable snapshot. Reports describe one
+// owner turn, never drive execution, and add nothing to the recovery schema.
+// Synchronous [EventListener] callbacks must not query or control their tree.
 //
 // A durable writer can stop without terminating the logical execution. Storage
 // failures and ownership conflicts reach [Process.Await] as a [RuntimeError]
@@ -172,6 +207,9 @@
 // [ProcessSnapshot] is a single-Process diagnostic value and is not a recovery
 // unit. Events and [Delta] values record attempts and observations only; they
 // never substitute for an acknowledged TreeSnapshot.
+// Committed events wait for durable acknowledgment. Event sequences describe
+// publication within one runtime activation and restart when a nonterminal
+// Process is restored; they do not change snapshot contents or trigger commits.
 //
 // # Strategies
 //
@@ -183,8 +221,8 @@
 // Processes rather than by nesting a second Execution.
 //
 // The Engine never imports or type-switches a concrete strategy. A new
-// strategy is admitted by implementing the waist plus its own dispatcher,
-// codec, and safe consumption boundary.
+// strategy is admitted by implementing the waist, state codec, and safe
+// consumption boundary, and binding a dispatcher when it declares external Effects.
 //
 // # Boundaries
 //
@@ -194,9 +232,14 @@
 // recovery protocol.
 //
 // The host owns product identity, transports, stores and transactions,
-// permissions and billing, deployment catalogs and routing, provider and model selection, when a checkpoint
-// commits, and the retention of its own facts. A host depends only on this
-// neutral lifecycle contract and never parses a strategy's snapshot payload.
+// permissions and billing, deployment catalogs and routing, provider and model
+// selection, storage acknowledgment, and retention of its own facts. A host
+// depends only on this neutral lifecycle contract and never parses a strategy's
+// snapshot payload.
+//
+// Production database adapters and their storage-specific integration tests
+// belong to the consuming application or an independently owned adapter. The
+// agenttest package supplies shared durability and Definition conformance suites.
 //
 // Chat, tools, embeddings, history, and telemetry stay in their own modules.
 // Agent reuses them and duplicates none of them.

@@ -3,13 +3,23 @@
 //
 // A Definition owns the serializable working context, bounded model/Tool state
 // machine, exact managed Delegate bindings, typed Delegate Artifacts, and an
-// optional pure completion validator. A Dispatcher owns chatclient and ordinary
-// executable Tool I/O. Delegate child Processes are requested only by the
-// Execution through Framework Effects. Both components are bound into one agent
-// Deployment; neither owns a Process lifecycle, product conversation history,
-// persistence, an application artifact store, pricing, approval policy, or UI
-// records. Direct model calls remain available through package chatclient
-// without constructing an Interaction or Engine.
+// optional pure completion validator. A Dispatcher owns model I/O. A ToolSet
+// binds ordinary executable Tools to a separate Deployment; the Engine must
+// resolve that exact child binding. Definition allocates an explicit budget to
+// each Tool child and schedules calls within their declared concurrency bounds.
+// Each call owns one Effect, its result, and any input continuation. Completed
+// siblings retain their settlements when another call remains unknown or waits
+// for input. Model context receives the complete results in original call order.
+//
+// Interaction requests ordinary Tool and Delegate children only through
+// Framework Effects. Engine owns their Process lifecycles. Product conversation
+// history, persistence, application artifact stores, pricing, approval policy,
+// and UI remain outside this Strategy. Direct model calls remain available
+// through package chatclient without constructing an Interaction or Engine.
+//
+// [PendingToolInputs] reads current Tool waits from one TreeSnapshot. A response
+// is sent to the returned PendingToolInput.ProcessID, because that child owns
+// its WaitID and continuation independently of its parent and siblings.
 //
 // Only FinishReasonToolCalls admits Tool and Delegate execution. Length-truncated
 // calls receive model-visible feedback for another bounded model attempt; calls

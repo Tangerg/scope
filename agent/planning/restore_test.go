@@ -37,41 +37,48 @@ func TestRestoreValidatesPlanningFacts(t *testing.T) {
 		{
 			name: "unreachable completion",
 			payload: json.RawMessage(`{"phase":"completed","input":{},"world_state":{"conditions":[]},
-				"planning_passes":1,"outcome":"unreachable"}`),
+				"planning_passes":1}`),
 			valid: true,
 		},
 		{
-			name: "active execution has an outcome",
+			name: "unknown state member",
 			payload: json.RawMessage(`{"phase":"ready_sense","input":{},"world_state":{"conditions":[]},
-				"planning_passes":0,"outcome":"achieved"}`),
+				"planning_passes":0,"unexpected":true}`),
 		},
 		{
-			name:    "completed execution lacks an outcome",
+			name:    "unreachable completion requires a planning pass",
 			payload: json.RawMessage(`{"phase":"completed","input":{},"world_state":{"conditions":[]},"planning_passes":0}`),
 		},
 		{
-			name: "achieved outcome contradicts the goal",
+			name: "unreachable completion has excess planning passes",
 			payload: json.RawMessage(`{"phase":"completed","input":{},"world_state":{"conditions":[]},
-				"planning_passes":0,"outcome":"achieved"}`),
+				"planning_passes":2}`),
 		},
 		{
 			name: "already achieved completion",
 			payload: json.RawMessage(`{"phase":"completed","input":{},
 				"world_state":{"conditions":[{"key":"world.done","truth":"true"}]},
-				"planning_passes":0,"outcome":"achieved"}`),
+				"planning_passes":0}`),
 			valid: true,
 		},
 		{
-			name: "unreachable outcome contradicts the goal",
+			name: "achieved completion has an unaccounted planning pass",
 			payload: json.RawMessage(`{"phase":"completed","input":{},
 				"world_state":{"conditions":[{"key":"world.done","truth":"true"}]},
-				"planning_passes":1,"outcome":"unreachable"}`),
+				"planning_passes":1}`),
 		},
 		{
-			name: "stuck outcome contradicts the goal",
+			name: "achieved completion after an attempt",
 			payload: json.RawMessage(`{"phase":"completed","input":{},
 				"world_state":{"conditions":[{"key":"world.done","truth":"true"}]},
-				"planning_passes":1,"outcome":"stuck", "attempts":[{"action_name":"finish","status":"succeeded"}]}`),
+				"planning_passes":1,"attempts":[{"action_name":"finish","status":"succeeded"}]}`),
+			valid: true,
+		},
+		{
+			name: "stuck completion after an excluded attempt",
+			payload: json.RawMessage(`{"phase":"completed","input":{},"world_state":{"conditions":[]},
+				"planning_passes":2,"attempts":[{"action_name":"finish","status":"failed","diagnostic":"refused"}]}`),
+			valid: true,
 		},
 		{
 			name: "confirmation has no planning pass",
@@ -87,7 +94,7 @@ func TestRestoreValidatesPlanningFacts(t *testing.T) {
 		{
 			name: "attempt follows exclusion",
 			payload: json.RawMessage(`{"phase":"completed","input":{},"world_state":{"conditions":[]},
-				"planning_passes":2,"outcome":"stuck","attempts":[
+				"planning_passes":2,"attempts":[
 				{"action_name":"finish","status":"unconfirmed","diagnostic":"prediction failed"},
 				{"action_name":"finish","status":"succeeded"}]}`),
 		},

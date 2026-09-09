@@ -345,12 +345,12 @@ func TestDurableEffectCommitFailuresStopTheTreeAtTheCorrectBoundary(t *testing.T
 			if test.kind == EffectBoundarySettled {
 				head = recorder.effectBoundaries()[0].TreeSnapshot()
 			}
-			if runtimeErr.HeadDigest() != head.Digest() || process.Status() != StatusRunning {
-				t.Fatalf("runtime failure changed acknowledged state: digest=%s status=%s", runtimeErr.HeadDigest(), process.Status())
+			if runtimeErr.HeadDigest() != head.Digest() || inspectProcessSnapshot(t, process).Status() != StatusRunning {
+				t.Fatalf("runtime failure changed acknowledged state: digest=%s status=%s", runtimeErr.HeadDigest(), inspectProcessSnapshot(t, process).Status())
 			}
-			snapshot, err := process.Snapshot(t.Context())
-			if err != nil || string(snapshot.JSON()) != string(head.ProcessSnapshots()[0].JSON()) {
-				t.Fatalf("stopped runtime snapshot does not match acknowledged head: %v", err)
+			snapshot := inspectProcessSnapshot(t, process)
+			if string(snapshot.JSON()) != string(head.ProcessSnapshots()[0].JSON()) {
+				t.Fatal("stopped runtime snapshot does not match acknowledged head")
 			}
 			if got := dispatcher.calls.Load(); got != test.wantDispatches {
 				t.Fatalf("dispatch calls=%d, want %d", got, test.wantDispatches)
@@ -412,13 +412,13 @@ func TestTreeDurabilityFaultPreservesEveryConcurrentEffectForReconciliation(t *t
 			started = append(started, name)
 		case <-time.After(2 * time.Second):
 			var termination Termination
-			if root.Status().Terminal() {
+			if inspectProcessSnapshot(t, root).Status().Terminal() {
 				result, _ := root.Await(context.Background())
 				termination = result.Termination()
 			}
 			t.Fatalf(
 				"started Dispatcher Effects=%v root_status=%s termination=%+v outcomes=%d boundaries=%d checkpoints=%d",
-				started, root.Status(), termination, len(recorder.treeCheckpoints()),
+				started, inspectProcessSnapshot(t, root).Status(), termination, len(recorder.treeCheckpoints()),
 				len(recorder.effectBoundaries()), len(recorder.treeCheckpoints()),
 			)
 		}
@@ -807,8 +807,8 @@ func TestEngineCloseRejectsUnpublishedTerminalCheckpoint(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("terminal checkpoint did not start")
 	}
-	if process.Status() != StatusRunning {
-		t.Fatalf("Process status=%s before terminal checkpoint", process.Status())
+	if inspectProcessSnapshot(t, process).Status() != StatusRunning {
+		t.Fatalf("Process status=%s before terminal checkpoint", inspectProcessSnapshot(t, process).Status())
 	}
 	if err := engine.Close(); !errors.Is(err, ErrEngineHasActiveProcesses) {
 		t.Fatalf("Close during terminal checkpoint error=%v", err)

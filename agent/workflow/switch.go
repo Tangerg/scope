@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -8,8 +9,9 @@ import (
 )
 
 // SwitchSelector is a bounded, deterministic, side-effect-free case selector.
-// It returns the exact SwitchCase ID to invoke for the current value.
-type SwitchSelector[I any] func(input I) (caseID string, err error)
+// It must honor ctx cancellation and returns the exact SwitchCase ID to invoke
+// for the current value. Context is not a source of domain input.
+type SwitchSelector[I any] func(ctx context.Context, input I) (caseID string, err error)
 
 // SwitchCase declares one exact child Deployment for a selected case.
 type SwitchCase struct {
@@ -44,7 +46,7 @@ type switchCase struct {
 }
 
 type switchStage struct {
-	selectCase func(json.RawMessage) (string, error)
+	selectCase func(context.Context, json.RawMessage) (string, error)
 	cases      []switchCase
 }
 
@@ -109,7 +111,7 @@ func Switch[I any](config SwitchConfig[I]) (Stage, error) {
 		})
 	}
 	selector := config.Select
-	selectCase := func(raw json.RawMessage) (string, error) {
+	selectCase := func(ctx context.Context, raw json.RawMessage) (string, error) {
 		input, err := agent.ParseInput(raw)
 		if err != nil {
 			return "", err
@@ -121,7 +123,7 @@ func Switch[I any](config SwitchConfig[I]) (Stage, error) {
 		if err != nil {
 			return "", err
 		}
-		selected, err := selector(decoded)
+		selected, err := selector(ctx, decoded)
 		if err != nil {
 			return "", fmt.Errorf("Switch %q selector: %w", config.ID, err)
 		}
