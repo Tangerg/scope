@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strconv"
 	"time"
@@ -52,6 +53,14 @@ type Store struct {
 // document carries its conversation id there, and every read and delete is
 // scoped to one partition by it.
 const PartitionKeyPath = "/conversation_id"
+
+// MaxMessagesPerWrite is Cosmos's documented ceiling on a transactional
+// batch: "There's a current limit of 100 operations per transactional batch."
+// One Write is one batch, so this is also the largest batch [Store.Write]
+// accepts. Splitting a larger one across batches would trade the atomicity
+// that makes the write reportable for a silent partial conversation, so the
+// choice to accept that is left to the caller, who can make it per Write.
+const MaxMessagesPerWrite = 100
 
 // ErrIncompatibleContainer reports a container partitioned on another path.
 var ErrIncompatibleContainer = errors.New("cosmosdb: container is incompatible")
@@ -118,34 +127,68 @@ func (s *Store) Write(ctx context.Context, conversationID history.ConversationID
 		return nil
 	}
 
+	if len(messages) > MaxMessagesPerWrite {
+		return fmt.Errorf("cosmosdb: write: %d messages exceed the %d operations one transactional batch may carry",
+			len(messages), MaxMessagesPerWrite)
+	}
+
 	encoded, err := encodeMessages(messages)
 	if err != nil {
 		return fmt.Errorf("cosmosdb: write: encode messages: %w", err)
 	}
 	partitionKey := azcosmos.NewPartitionKeyString(conversationID.String())
-	now := time.Now().UTC()
 	sequenceBase := s.sequence.Reserve(len(encoded))
-	createdAt := now.Format(time.RFC3339Nano)
+	createdAt := time.Now().UTC().Format(time.RFC3339Nano)
 
+	// Every message in one Write shares the conversation id, which is the
+	// partition key, so the whole batch satisfies Cosmos's rule that "all
+	// operations within a TransactionalBatch must operate on items within the
+	// same partition key" -- and with it the guarantee that "if any operation
+	// fails, the entire transaction is rolled back".
+	batch := s.container.NewTransactionalBatch(partitionKey)
 	for index, raw := range encoded {
-		messageSequence := sequenceBase + int64(index)
-		storedDocument := document{
+		body, marshalErr := json.Marshal(document{
 			ID:             rand.Text(),
 			ConversationID: conversationID.String(),
-			Sequence:       formatSequence(messageSequence),
+			Sequence:       formatSequence(sequenceBase + int64(index)),
 			Message:        string(raw),
 			CreatedAt:      createdAt,
-		}
-		body, marshalErr := json.Marshal(storedDocument)
+		})
 		if marshalErr != nil {
-			err = fmt.Errorf("cosmosdb: write: marshal message %d: %w", index, marshalErr)
-			return err
+			return fmt.Errorf("cosmosdb: write: marshal message %d: %w", index, marshalErr)
 		}
-		if _, err = s.container.CreateItem(ctx, partitionKey, body, nil); err != nil {
-			return fmt.Errorf("cosmosdb: write: create message %d: %w", index, err)
-		}
+		batch.CreateItem(body, nil)
 	}
-	return nil
+
+	response, err := s.container.ExecuteTransactionalBatch(ctx, batch, nil)
+	if err != nil {
+		return fmt.Errorf("cosmosdb: write: execute batch: %w", err)
+	}
+	return writeOutcome(&response, len(encoded))
+}
+
+// writeOutcome reads what the batch actually did. Cosmos answers a rolled-back
+// batch over a successful HTTP call, so Success is the only evidence the
+// transaction committed; taking the call as the answer would report a
+// conversation nothing stored.
+func writeOutcome(response *azcosmos.TransactionalBatchResponse, operations int) error {
+	if response.Success {
+		if got := len(response.OperationResults); got != operations {
+			return fmt.Errorf("cosmosdb: write: batch reported %d results for %d messages", got, operations)
+		}
+		return nil
+	}
+	// "The cause of the batch failure is the first operation with status code
+	// different from http.StatusFailedDependency" -- every other operation
+	// carries 424 to say it was rolled back rather than that it failed.
+	for index, result := range response.OperationResults {
+		if result.StatusCode == http.StatusFailedDependency {
+			continue
+		}
+		return fmt.Errorf("cosmosdb: write: batch rolled back, message %d returned status %d",
+			index, result.StatusCode)
+	}
+	return fmt.Errorf("cosmosdb: write: batch of %d message(s) rolled back without naming a cause", operations)
 }
 
 // Read returns every message stored under conversationID in

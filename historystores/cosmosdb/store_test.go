@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 
+	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/history"
 	"github.com/Tangerg/scope/historystores/cosmosdb"
 )
@@ -35,12 +37,7 @@ func TestClearFollowsEmptyPages(t *testing.T) {
 	for _, failContinuation := range []bool{false, true} {
 		t.Run(fmt.Sprintf("continuation_error=%t", failContinuation), func(t *testing.T) {
 			queries, deletes := 0, 0
-			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-				writer.Header().Set("Content-Type", "application/json")
-				if request.Method == http.MethodGet {
-					fmt.Fprint(writer, getResponseBody(request))
-					return
-				}
+			store := newTestStore(t, func(writer http.ResponseWriter, request *http.Request) {
 				if request.Method == http.MethodDelete {
 					deletes++
 					if request.URL.Path != "/dbs/test/colls/history/docs/message" {
@@ -71,24 +68,7 @@ func TestClearFollowsEmptyPages(t *testing.T) {
 					}
 					fmt.Fprint(writer, `{"Documents":[],"_count":0}`)
 				}
-			}))
-			defer server.Close()
-			credential, err := azcosmos.NewKeyCredential("dGVzdA==")
-			if err != nil {
-				t.Fatal(err)
-			}
-			client, err := azcosmos.NewClientWithKey(server.URL, credential, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			container, err := client.NewContainer("test", "history")
-			if err != nil {
-				t.Fatal(err)
-			}
-			store, err := cosmosdb.NewStore(t.Context(), cosmosdb.StoreConfig{Container: container})
-			if err != nil {
-				t.Fatal(err)
-			}
+			})
 			clearErr := store.Clear(context.Background(), history.ConversationID("conversation"))
 			if failContinuation {
 				if clearErr == nil || queries != 2 || deletes != 0 {
@@ -103,12 +83,7 @@ func TestClearFollowsEmptyPages(t *testing.T) {
 
 func TestConversationsUsesPageableProjectionAndReturnsUniqueIDs(t *testing.T) {
 	queries := 0
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Type", "application/json")
-		if request.Method == http.MethodGet {
-			fmt.Fprint(writer, getResponseBody(request))
-			return
-		}
+	store := newTestStore(t, func(writer http.ResponseWriter, request *http.Request) {
 		var query struct {
 			Query string `json:"query"`
 		}
@@ -137,8 +112,31 @@ func TestConversationsUsesPageableProjectionAndReturnsUniqueIDs(t *testing.T) {
 			t.Errorf("unexpected query %d", queries)
 			fmt.Fprint(writer, `{"Documents":[],"_count":0}`)
 		}
+	})
+	ids, err := store.Conversations(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []history.ConversationID{"a", "b", "z"}; !slices.Equal(ids, want) || queries != 3 {
+		t.Fatalf("Conversations = %v, queries=%d; want %v, 3", ids, queries, want)
+	}
+}
+
+// newTestStore wires a store against a fake service that answers construction
+// itself, leaving handler to serve only the operation under test.
+func newTestStore(t *testing.T, handler http.HandlerFunc) *cosmosdb.Store {
+	t.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		if request.Method == http.MethodGet {
+			fmt.Fprint(writer, getResponseBody(request))
+			return
+		}
+		handler(writer, request)
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close)
+
 	credential, err := azcosmos.NewKeyCredential("dGVzdA==")
 	if err != nil {
 		t.Fatal(err)
@@ -155,12 +153,92 @@ func TestConversationsUsesPageableProjectionAndReturnsUniqueIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ids, err := store.Conversations(context.Background())
-	if err != nil {
-		t.Fatal(err)
+	return store
+}
+
+// Write used to create one item per message, which Cosmos applies one at a
+// time: a failure partway left a conversation holding a prefix of the batch
+// under an error that named only the message it stopped on. Every message in
+// one Write shares the conversation id, which is the partition key, so the
+// whole batch meets Cosmos's rule for a transactional batch and earns "if any
+// operation fails, the entire transaction is rolled back".
+func TestWriteSendsOneTransactionalBatch(t *testing.T) {
+	var operations []struct {
+		OperationType string          `json:"operationType"`
+		ResourceBody  json.RawMessage `json:"resourceBody"`
 	}
-	if want := []history.ConversationID{"a", "b", "z"}; !slices.Equal(ids, want) || queries != 3 {
-		t.Fatalf("Conversations = %v, queries=%d; want %v, 3", ids, queries, want)
+	posts := 0
+	store := newTestStore(t, func(writer http.ResponseWriter, request *http.Request) {
+		posts++
+		if got := request.Header.Get("x-ms-cosmos-is-batch-request"); got != "True" {
+			t.Errorf("batch header = %q, want True", got)
+		}
+		if err := json.NewDecoder(request.Body).Decode(&operations); err != nil {
+			t.Error(err)
+		}
+		fmt.Fprint(writer, `[{"statusCode":201},{"statusCode":201}]`)
+	})
+
+	messages := []chat.Message{
+		chat.NewUserMessage(chat.NewTextPart("first")),
+		chat.NewUserMessage(chat.NewTextPart("second")),
+	}
+	if err := store.Write(t.Context(), history.ConversationID("conversation"), messages...); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if posts != 1 {
+		t.Fatalf("requests = %d, want the whole write in one batch", posts)
+	}
+	if len(operations) != len(messages) {
+		t.Fatalf("operations = %d, want %d", len(operations), len(messages))
+	}
+	for index, operation := range operations {
+		if operation.OperationType != "Create" {
+			t.Errorf("operations[%d] type = %q, want Create", index, operation.OperationType)
+		}
+	}
+}
+
+// A rolled-back batch arrives as HTTP 207, which the SDK reports with a nil
+// error and Success false. Reading the call as the answer would return nil for
+// a conversation Cosmos stored nothing of.
+func TestWriteReportsARolledBackBatch(t *testing.T) {
+	store := newTestStore(t, func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusMultiStatus)
+		// 424 is "failed dependency": rolled back rather than at fault. The
+		// cause is the first operation carrying anything else.
+		fmt.Fprint(writer, `[{"statusCode":424},{"statusCode":409}]`)
+	})
+
+	err := store.Write(t.Context(), history.ConversationID("conversation"),
+		chat.NewUserMessage(chat.NewTextPart("first")),
+		chat.NewUserMessage(chat.NewTextPart("second")))
+	if err == nil {
+		t.Fatal("Write() = nil error, want the rolled-back batch reported")
+	}
+	if !strings.Contains(err.Error(), "409") {
+		t.Fatalf("Write() = %v, want an error naming the operation that failed", err)
+	}
+}
+
+// Cosmos caps a transactional batch at 100 operations. Splitting a larger
+// write across batches would give up the atomicity that makes it reportable,
+// so the choice is handed back rather than made quietly.
+func TestWriteRefusesMoreMessagesThanOneBatchCarries(t *testing.T) {
+	store := newTestStore(t, func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("Write reached the service with an oversized batch")
+	})
+
+	messages := make([]chat.Message, cosmosdb.MaxMessagesPerWrite+1)
+	for index := range messages {
+		messages[index] = chat.NewUserMessage(chat.NewTextPart("message"))
+	}
+	err := store.Write(t.Context(), history.ConversationID("conversation"), messages...)
+	if err == nil {
+		t.Fatal("Write() = nil error, want the oversized batch refused")
+	}
+	if !strings.Contains(err.Error(), strconv.Itoa(cosmosdb.MaxMessagesPerWrite)) {
+		t.Fatalf("Write() = %v, want an error naming the limit", err)
 	}
 }
 
