@@ -47,6 +47,7 @@ type responseDialect interface {
 type CompatibleRequest struct {
 	model       string
 	temperature *float64
+	topP        *float64
 	stream      bool
 	extraFields map[string]any
 }
@@ -61,6 +62,17 @@ func (c *CompatibleRequest) Temperature() (float64, bool) {
 		return 0, false
 	}
 	return *c.temperature, true
+}
+
+// TopP returns the effective nucleus-sampling value when one was supplied. It
+// is exposed for the same reason as Temperature: a provider that overrides or
+// bounds it can only say so about the value that will actually be sent, which
+// is the merged one rather than the request's own.
+func (c *CompatibleRequest) TopP() (float64, bool) {
+	if c.topP == nil {
+		return 0, false
+	}
+	return *c.topP, true
 }
 
 // Stream reports whether the request will use the streaming endpoint.
@@ -103,9 +115,11 @@ type Dialect struct {
 	// Naming them here refuses the option instead, so the caller learns at the
 	// call that this endpoint cannot honor it.
 	IgnoredOptions []ChatOption
-	// MaxTemperature bounds Options.Temperature when the provider narrows
-	// OpenAI's range and silently clamps rather than refusing. Nil accepts
-	// whatever Core accepts.
+	// MaxTemperature bounds Options.Temperature for a provider that documents a
+	// narrower range than OpenAI's. Refusing beats sending an out-of-range
+	// value, whose fate the provider decides: Anthropic's table says it is
+	// "capped at 1", which alters the request silently, while others answer an
+	// error further from the caller. Nil accepts whatever Core accepts.
 	MaxTemperature *float64
 
 	request  requestDialect

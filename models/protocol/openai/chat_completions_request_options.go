@@ -67,7 +67,7 @@ func (c *ChatCompletions) applyOptions(options corechat.Options, toolChoice *cor
 	}
 	if options.Temperature != nil {
 		if limit := c.dialect.MaxTemperature; limit != nil && *options.Temperature > *limit {
-			return fmt.Errorf("openai: %s caps temperature at %g and clamps a larger value silently, so %v is refused",
+			return fmt.Errorf("openai: %s documents a temperature range up to %g, so %v is refused rather than sent out of range",
 				c.dialect.Provider, *limit, *options.Temperature)
 		}
 		params.Temperature = openaisdk.Float(*options.Temperature)
@@ -133,6 +133,9 @@ func (c *ChatCompletions) prepareRequest(req *corechat.Request, stream bool, par
 	}
 	if params.Temperature.Valid() {
 		compatible.temperature = &params.Temperature.Value
+	}
+	if params.TopP.Valid() {
+		compatible.topP = &params.TopP.Value
 	}
 	if err := c.dialect.PrepareRequest(req, compatible); err != nil {
 		return fmt.Errorf("openai: compatible request dialect: %w", err)
