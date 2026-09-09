@@ -31,6 +31,15 @@
 // it never learned the fate of; Write and Clear reject that result instead of
 // passing the silence on as a stored conversation.
 //
+// Write atomicity. One Write is one ordered insertMany, which is not atomic
+// across documents: MongoDB "stops after an error" with "documents that
+// precede the invalid document in the documents array" already "written to the
+// collection". Rolling them back would need a distributed transaction, which a
+// standalone deployment does not offer, so a failed Write can leave a prefix of
+// its messages stored. The error says which prefix — or says the extent is
+// unknown, for a write-concern error or a lost connection, which establish
+// nothing about how far the insert got.
+//
 // Example:
 //
 //	col := client.Database("scope").Collection("chat_history")

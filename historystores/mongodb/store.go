@@ -155,12 +155,34 @@ func (s *Store) Write(ctx context.Context, conversationID history.ConversationID
 
 	result, err := s.collection.InsertMany(ctx, docs)
 	if err != nil {
-		return fmt.Errorf("mongodb: write: insert messages: %w", err)
+		return fmt.Errorf("mongodb: write: insert messages: %s: %w", storedBeforeFailure(err, len(docs)), err)
 	}
 	if result == nil || !result.Acknowledged {
 		return errUnacknowledged("write")
 	}
 	return nil
+}
+
+// storedBeforeFailure names the part of a rejected batch MongoDB kept.
+//
+// insertMany is not atomic across documents, and the driver always sends it
+// ordered: MongoDB "stops after an error" with "documents that precede the
+// invalid document in the documents array" already "written to the
+// collection". Undoing them would need a distributed transaction, which is
+// unavailable on a standalone deployment, so this is the external atomicity
+// limit [history.Writer] allows a store to have — and what it still requires
+// is that the error not conceal the prefix.
+func storedBeforeFailure(err error, messages int) string {
+	var bulk mongo.BulkWriteException
+	if errors.As(err, &bulk) && len(bulk.WriteErrors) > 0 {
+		// Ordered inserts stop at the first rejection, so its index is also
+		// the count of messages that landed ahead of it. The driver rebases
+		// the index onto the caller's slice when it splits large batches.
+		return fmt.Sprintf("stored the first %d of %d message(s)", bulk.WriteErrors[0].Index, messages)
+	}
+	// A write-concern error or a lost connection says nothing about how far
+	// the insert got, and guessing would be worse than saying so.
+	return fmt.Sprintf("stored an unknown part of %d message(s)", messages)
 }
 
 // errUnacknowledged reports a write concern under which no MongoDB write can be

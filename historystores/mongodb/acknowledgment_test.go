@@ -2,6 +2,7 @@ package mongodb
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -17,9 +18,10 @@ import (
 // interface stays nil so a call to any other operation fails the test.
 type scriptedCollection struct {
 	MessageCollection
-	inserted *mongo.InsertManyResult
-	deleted  *mongo.DeleteResult
-	calls    int
+	inserted    *mongo.InsertManyResult
+	insertError error
+	deleted     *mongo.DeleteResult
+	calls       int
 }
 
 func (s *scriptedCollection) InsertMany(
@@ -28,7 +30,7 @@ func (s *scriptedCollection) InsertMany(
 	_ ...options.Lister[options.InsertManyOptions],
 ) (*mongo.InsertManyResult, error) {
 	s.calls++
-	return s.inserted, nil
+	return s.inserted, s.insertError
 }
 
 func (s *scriptedCollection) DeleteMany(
@@ -94,6 +96,59 @@ func TestWriteRejectsUnacknowledgedResult(t *testing.T) {
 			}
 			if err == nil || !strings.Contains(err.Error(), sample.want) {
 				t.Fatalf("Write() = %v, want an error containing %q", err, sample.want)
+			}
+		})
+	}
+}
+
+// insertMany is ordered and not atomic across documents, so a rejected batch
+// leaves the documents before the rejected one stored. Returning the driver's
+// error alone reads as "nothing was written", which is the one thing
+// [history.Writer] says a Write error must not do.
+func TestWriteNamesThePrefixARejectedBatchLeftBehind(t *testing.T) {
+	t.Parallel()
+
+	for _, sample := range []struct {
+		name        string
+		insertError error
+		want        string
+	}{
+		{
+			name: "third message rejected",
+			insertError: mongo.BulkWriteException{
+				WriteErrors: []mongo.BulkWriteError{{WriteError: mongo.WriteError{Index: 2, Code: 11000}}},
+			},
+			want: "stored the first 2 of 4 message(s)",
+		},
+		{
+			// A write-concern error establishes nothing about how far the
+			// insert got, so the error says that rather than guessing.
+			name:        "write concern error",
+			insertError: mongo.BulkWriteException{WriteConcernError: &mongo.WriteConcernError{Code: 64}},
+			want:        "stored an unknown part of 4 message(s)",
+		},
+		{
+			name:        "connection lost",
+			insertError: errors.New("connection(localhost:27017) socket was unexpectedly closed"),
+			want:        "stored an unknown part of 4 message(s)",
+		},
+	} {
+		t.Run(sample.name, func(t *testing.T) {
+			collection := &scriptedCollection{insertError: sample.insertError}
+			store := storeFor(t, collection)
+			messages := make([]chat.Message, 4)
+			for index := range messages {
+				messages[index] = chat.NewUserMessage(chat.NewTextPart("hello"))
+			}
+			err := store.Write(t.Context(), history.ConversationID("conversation"), messages...)
+			if err == nil || !strings.Contains(err.Error(), sample.want) {
+				t.Fatalf("Write() = %v, want an error containing %q", err, sample.want)
+			}
+			// The prefix is added alongside the provider's error, not in
+			// place of it, so the chain still reaches what MongoDB said.
+			var bulk mongo.BulkWriteException
+			if !errors.As(err, &bulk) && !errors.Is(err, sample.insertError) {
+				t.Fatalf("Write() = %v, want the provider failure still in the chain", err)
 			}
 		})
 	}
