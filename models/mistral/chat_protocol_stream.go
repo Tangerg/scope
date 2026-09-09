@@ -3,6 +3,8 @@ package mistral
 import (
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 )
@@ -61,6 +63,9 @@ func (c *chatStreamState) mapChunk(chunk chatCompletionChunk) (*corechat.Respons
 				return nil, errors.New("mistral: stream emitted more than one finish reason")
 			}
 			c.finished = true
+			if err := c.requireIdentifiedTools(); err != nil {
+				return nil, err
+			}
 		}
 		if response.FinishReason == corechat.FinishReasonOther {
 			response.OutputMetadata = &corechat.OutputMetadata{}
@@ -73,6 +78,26 @@ func (c *chatStreamState) mapChunk(chunk chatCompletionChunk) (*corechat.Respons
 		return nil, fmt.Errorf("mistral: mapped stream chunk: %w", err)
 	}
 	return response, nil
+}
+
+// requireIdentifiedTools refuses a terminal chunk while a tool call is still
+// held back. A Core tool-call delta cannot carry arguments without an id and a
+// name, so an index is buffered until Mistral sends both. A buffer still held
+// when the finish reason arrives belongs to a call the stream described and
+// never identified, and yielding the terminal chunk would hand back something
+// that looks whole while missing that call, its arguments discarded. The check
+// runs before the chunk is yielded, because afterwards the caller has already
+// been told the response is complete.
+func (c *chatStreamState) requireIdentifiedTools() error {
+	for _, index := range slices.Sorted(maps.Keys(c.tools)) {
+		tool := c.tools[index]
+		if tool.id != "" && tool.name != "" {
+			continue
+		}
+		return fmt.Errorf("mistral: stream: %w: tool call %d ended with id=%q name=%q and %d buffered argument byte(s), so the call cannot be reported",
+			corechat.ErrInvalidResponse, index, tool.id, tool.name, len(tool.pendingArguments))
+	}
+	return nil
 }
 
 func (c *chatStreamState) mapToolDeltas(calls []chatToolCall) ([]corechat.PartDelta, error) {

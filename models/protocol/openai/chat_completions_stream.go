@@ -2,6 +2,8 @@ package openai
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	openaisdk "github.com/openai/openai-go/v3"
@@ -74,6 +76,20 @@ func (o *openAIStreamState) finished() bool {
 func (o *openAIStreamState) complete(delta *corechat.ResponseDelta) (*corechat.ResponseDelta, error) {
 	if delta == nil || o.finish == "" {
 		return nil, fmt.Errorf("openai: stream: %w: missing terminal response", corechat.ErrInvalidResponse)
+	}
+	// A Core tool-call delta cannot carry arguments without an id and a name,
+	// so an index is held back until both arrive -- OpenAI sends them on the
+	// first delta at that index. An index still held at the end is a call the
+	// stream described and never identified, and letting the terminal response
+	// through would hand back something that looks whole while missing a tool
+	// call, with its buffered arguments discarded.
+	for _, index := range slices.Sorted(maps.Keys(o.tools)) {
+		tool := o.tools[index]
+		if tool.id != "" && tool.name != "" {
+			continue
+		}
+		return nil, fmt.Errorf("openai: stream: %w: tool_calls[%d] ended with id=%q name=%q and %d buffered argument byte(s), so the call cannot be reported",
+			corechat.ErrInvalidResponse, index, tool.id, tool.name, len(tool.pendingArguments))
 	}
 	delta.FinishReason = o.finish
 	if err := delta.Validate(); err != nil {

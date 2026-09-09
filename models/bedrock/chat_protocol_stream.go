@@ -38,8 +38,16 @@ func (p *protocolChunkAccumulator) add(event types.ConverseStreamOutput) (*corec
 	switch typed := event.(type) {
 	case *types.ConverseStreamOutputMemberContentBlockStart:
 		tool, ok := typed.Value.Start.(*types.ContentBlockStartMemberToolUse)
-		if !ok || typed.Value.ContentBlockIndex == nil || tool.Value.ToolUseId == nil || tool.Value.Name == nil {
+		if !ok {
+			// toolUse is the only start payload Converse defines; any other
+			// content block opens without one.
 			return nil, false, nil
+		}
+		// A toolUse block that opens without an index, id, or name cannot be
+		// recorded, so its input deltas would either report an unknown block
+		// or, with no deltas at all, vanish along with the call.
+		if typed.Value.ContentBlockIndex == nil || tool.Value.ToolUseId == nil || tool.Value.Name == nil {
+			return nil, false, errors.New("bedrock: toolUse content block opened without an index, id, or name")
 		}
 		identity := protocolToolIdentity{id: *tool.Value.ToolUseId, name: *tool.Value.Name}
 		p.tools[*typed.Value.ContentBlockIndex] = identity

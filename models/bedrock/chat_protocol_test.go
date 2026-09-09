@@ -146,6 +146,57 @@ func TestProtocolChunkAccumulatorRetainsToolIdentity(t *testing.T) {
 	}
 }
 
+// A toolUse block start is the only place Converse names a tool call, so one
+// that opens without an index, id, or name leaves nothing to attach its input
+// deltas to. Ignoring it used to be indistinguishable from ignoring the start
+// of a text block: with input deltas the stream then failed on an "unknown
+// content block", and with none the call disappeared entirely.
+func TestProtocolChunkAccumulatorRejectsAnUnidentifiedToolBlockStart(t *testing.T) {
+	index := int32(0)
+	tests := map[string]types.ContentBlockStartEvent{
+		"no index": {
+			Start: &types.ContentBlockStartMemberToolUse{Value: types.ToolUseBlockStart{
+				ToolUseId: aws.String("call-1"), Name: aws.String("weather"),
+			}},
+		},
+		"no id": {
+			ContentBlockIndex: &index,
+			Start: &types.ContentBlockStartMemberToolUse{Value: types.ToolUseBlockStart{
+				Name: aws.String("weather"),
+			}},
+		},
+		"no name": {
+			ContentBlockIndex: &index,
+			Start: &types.ContentBlockStartMemberToolUse{Value: types.ToolUseBlockStart{
+				ToolUseId: aws.String("call-1"),
+			}},
+		},
+	}
+
+	for name, event := range tests {
+		t.Run(name, func(t *testing.T) {
+			accumulator := newProtocolChunkAccumulator("model")
+			_, _, err := accumulator.add(&types.ConverseStreamOutputMemberContentBlockStart{Value: event})
+			if err == nil {
+				t.Fatal("add() = nil error, want the unidentified toolUse block reported")
+			}
+		})
+	}
+}
+
+// A start payload that is not toolUse still opens an ordinary content block,
+// so it is passed over rather than reported.
+func TestProtocolChunkAccumulatorIgnoresANonToolBlockStart(t *testing.T) {
+	accumulator := newProtocolChunkAccumulator("model")
+	index := int32(0)
+	delta, include, err := accumulator.add(&types.ConverseStreamOutputMemberContentBlockStart{
+		Value: types.ContentBlockStartEvent{ContentBlockIndex: &index},
+	})
+	if err != nil || include || delta != nil {
+		t.Fatalf("add() = %#v, %v, %v; want it passed over", delta, include, err)
+	}
+}
+
 func TestProtocolChunkAccumulatorPreservesReasoningKind(t *testing.T) {
 	accumulator := newProtocolChunkAccumulator("model")
 	index := int32(0)

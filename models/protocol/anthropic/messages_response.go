@@ -3,6 +3,8 @@ package anthropic
 import (
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 
 	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
 
@@ -355,6 +357,20 @@ func (p *protocolStreamState) finished() bool {
 func (p *protocolStreamState) complete(delta *corechat.ResponseDelta) (*corechat.ResponseDelta, error) {
 	if delta == nil || p.finish == "" {
 		return nil, fmt.Errorf("anthropic: stream: %w: missing terminal response", corechat.ErrInvalidResponse)
+	}
+	// A Core tool-call delta cannot carry arguments without an id and a name,
+	// so input_json_delta for a block whose content_block_start never arrived
+	// is buffered instead of emitted. A buffer still held at the end is a tool
+	// call the stream described and never identified; letting the terminal
+	// response through would return something that looks whole while missing
+	// the call, its arguments discarded.
+	for _, index := range slices.Sorted(maps.Keys(p.tools)) {
+		tool := p.tools[index]
+		if tool.id != "" && tool.name != "" {
+			continue
+		}
+		return nil, fmt.Errorf("anthropic: stream: %w: content block %d ended with id=%q name=%q and %d buffered argument byte(s), so the tool call cannot be reported",
+			corechat.ErrInvalidResponse, index, tool.id, tool.name, len(tool.pendingArguments))
 	}
 	delta.FinishReason = p.finish
 	if err := delta.Validate(); err != nil {
