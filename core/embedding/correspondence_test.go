@@ -73,6 +73,39 @@ func TestValidateForRequiresOneOutputPerInput(t *testing.T) {
 	}
 }
 
+func TestValidateForRejectsMalformedValuesWithMatchingCounts(t *testing.T) {
+	validRequest := &embedding.Request{Texts: []string{"input"}}
+	validResponse := &embedding.Response{Outputs: outputs(t, []float64{1})}
+	for _, test := range []struct {
+		name     string
+		request  *embedding.Request
+		response *embedding.Response
+		want     error
+	}{
+		{"empty input", &embedding.Request{Texts: []string{""}}, validResponse, embedding.ErrInvalidRequest},
+		{"empty vector", validRequest, &embedding.Response{Outputs: []*embedding.Output{{}}}, embedding.ErrInvalidResponse},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := test.response.ValidateFor(test.request); !errors.Is(err, test.want) {
+				t.Fatalf("ValidateFor = %v, want %v", err, test.want)
+			}
+		})
+	}
+}
+
+func TestPlaceOutputRejectsInvalidVectorWithoutClaimingPosition(t *testing.T) {
+	placed := make([]*embedding.Output, 1)
+	if err := embedding.PlaceOutput(placed, 0, nil, nil); !errors.Is(err, embedding.ErrInvalidResponse) {
+		t.Fatalf("PlaceOutput = %v, want ErrInvalidResponse", err)
+	}
+	if placed[0] != nil {
+		t.Fatal("rejected vector claimed an output position")
+	}
+	if err := embedding.PlaceOutput(placed, 0, []float64{1}, nil); err != nil {
+		t.Fatalf("valid replacement: %v", err)
+	}
+}
+
 // A provider that tags each embedding with its own index may answer out of
 // order. Appending in arrival order would pair texts with the wrong vectors,
 // so placement is by index.

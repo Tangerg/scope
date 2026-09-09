@@ -34,6 +34,13 @@ func TestRun(t *testing.T) {
 	})
 }
 
+func TestVisitorConformanceAgreesWithCanonicalParser(t *testing.T) {
+	storetest.VisitorConformance(t, func(source string) error {
+		_, err := filter.Parse(source)
+		return err
+	})
+}
+
 type validatingCapabilities struct{ allCapabilities }
 
 func (validatingCapabilities) Index(_ context.Context, request *vectorstore.IndexRequest) error {
