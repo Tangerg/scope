@@ -53,6 +53,12 @@ func NewRerankModel(_ context.Context, config RerankModelConfig) (*RerankModel, 
 	return &RerankModel{api: api, defaultOptions: config.DefaultOptions.Clone()}, nil
 }
 
+// MaxDocumentsPerRerankRequest is the documented ceiling for one rerank call:
+// "the number of documents cannot exceed 1,000". Unlike Cohere's, which is
+// phrased as a recommendation, this one is stated as a limit, so a larger
+// request is refused rather than sent to be rejected.
+const MaxDocumentsPerRerankRequest = 1000
+
 func (r *RerankModel) buildAPIRequest(request *rerank.Request) (*rerankRequest, error) {
 	effective, err := r.defaultOptions.Resolve(request.Options)
 	if err != nil {
@@ -61,6 +67,10 @@ func (r *RerankModel) buildAPIRequest(request *rerank.Request) (*rerankRequest, 
 	extension, _, err := effective.Extensions.Decode[RerankRequestOptions](RerankRequestExtensionKey)
 	if err != nil {
 		return nil, fmt.Errorf("voyage: decode rerank extension: %w", err)
+	}
+	if len(request.Documents) > MaxDocumentsPerRerankRequest {
+		return nil, fmt.Errorf("voyage: rerank accepts at most %d documents, got %d",
+			MaxDocumentsPerRerankRequest, len(request.Documents))
 	}
 	apiRequest := &rerankRequest{
 		Model: effective.Model, Query: request.Query, Documents: request.Documents,

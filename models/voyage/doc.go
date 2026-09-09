@@ -18,6 +18,12 @@
 // request as well, by model rather than uniformly, which a text count cannot
 // predict; that one surfaces as a provider error.
 //
+// Rerank limits. "The number of documents cannot exceed 1,000", which
+// [MaxDocumentsPerRerankRequest] names and the model refuses above. Rerank
+// truncation defaults to true as well, so "the query and documents will be
+// truncated to fit within the context length limit, before processed by the
+// reranker model"; setting it false raises an error instead.
+//
 // Over-long input is truncated by default: truncation defaults to true, so "an
 // over-length input texts will be truncated to fit within the context length,
 // before vectorized by the embedding model" and nothing reports it. Set

@@ -13,6 +13,15 @@
 // token limit is embedded from a prefix and nothing reports it. Set truncate
 // to NONE through the request extension to get an error instead.
 //
+// Rerank limits are advisory, not enforced here. Cohere writes "we recommend
+// against sending more than 1,000 documents in a single request", which is a
+// recommendation rather than a ceiling, so refusing above it would reject work
+// Cohere would have done. Long documents are a different matter: they "will
+// automatically be truncated to the value of max_tokens_per_doc", which
+// "defaults to 4096", so a document past that is reranked from a prefix and
+// nothing reports it. [RerankRequestOptions] carries the parameter under
+// Cohere's own name.
+//
 // Rerank scores reach [rerank.Score] unchanged because Cohere documents the
 // range they arrive in: "Relevance scores are normalized to be in the range
 // [0, 1]". Cohere also warns against reading them as ratios — a 0.9 is not

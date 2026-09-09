@@ -13,10 +13,11 @@ import (
 )
 
 // RerankRequestOptions contains Cohere controls that do not alter Core's
-// reranking result semantics.
+// reranking result semantics. Each field is keyed by the name Cohere's own
+// reference uses, so a caller reading those docs sets the key they read.
 type RerankRequestOptions struct {
-	MaxTokensPerDocument *int `json:"max_tokens_per_document,omitempty"`
-	Priority             *int `json:"priority,omitempty"`
+	MaxTokensPerDoc *int `json:"max_tokens_per_doc,omitempty"`
+	Priority        *int `json:"priority,omitempty"`
 }
 
 // RerankModelConfig binds provider access and defaults shared by every reranking call.
@@ -70,7 +71,7 @@ func (r *RerankModel) buildAPIRequest(request *rerank.Request) (*cohere.V2Rerank
 		Model:           effective.Model,
 		Query:           request.Query,
 		Documents:       request.Documents,
-		MaxTokensPerDoc: extension.MaxTokensPerDocument,
+		MaxTokensPerDoc: extension.MaxTokensPerDoc,
 		Priority:        extension.Priority,
 	}
 	if effective.TopK == 0 {
