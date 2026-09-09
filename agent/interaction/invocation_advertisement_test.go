@@ -53,7 +53,7 @@ func TestInvocationAttributionAndDeferredToolAdvertisement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	if result.Status() != agent.StatusCompleted {
@@ -192,7 +192,7 @@ func TestAdvertiseToolsRejectsUnavailableAndInvalidNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	if result.Status() != agent.StatusCompleted {
@@ -237,7 +237,7 @@ func TestUnsuccessfulToolCallDiscardsStagedAdvertisements(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := engine.Close(); err != nil {
+			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 				t.Fatal(err)
 			}
 			if result.Status() != agent.StatusCompleted {
@@ -319,7 +319,7 @@ func TestToolInputCheckpointKeepsOnlyCompletedToolAdvertisements(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	if result.Status() != agent.StatusCompleted {
@@ -392,7 +392,7 @@ func TestParallelAdvertisementsCommitInModelToolCallOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	if result.Status() != agent.StatusCompleted {
@@ -590,7 +590,7 @@ func startDeferredInteraction(t *testing.T, deployment interactionDeployment) (*
 	}
 	process, err := engine.Start(context.Background(), deployment.Deployment, interactionInput(t, "test deferred Tools"))
 	if err != nil {
-		_ = engine.Close()
+		_ = engine.Close(context.WithoutCancel(t.Context()))
 		t.Fatal(err)
 	}
 	return process, engine

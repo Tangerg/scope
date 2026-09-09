@@ -118,7 +118,7 @@ func execute(
 		return optimizationReport{}, executionEvidence{}, err
 	}
 	defer func() {
-		err = errors.Join(err, engine.Close())
+		err = errors.Join(err, engine.Close(context.WithoutCancel(ctx)))
 	}()
 
 	input, err := agent.EncodeInput(request)

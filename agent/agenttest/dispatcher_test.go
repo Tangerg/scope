@@ -102,7 +102,7 @@ func TestScriptedDispatcherRunsThroughPublicEngineBoundary(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	if dispatcher.Remaining() != 0 || len(dispatcher.Requests()) != 1 {

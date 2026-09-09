@@ -160,6 +160,7 @@ func (c *countingDispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPolic
 // Engine contracts as built-in strategies. TestExternalPackageCanComposeAndRunDefinition
 // checks this implementation with agenttest.RunDefinitionConformance.
 func ExampleDefinition() {
+	ctx := context.Background()
 	definition, err := newEchoDefinition()
 	if err != nil {
 		panic(err)
@@ -178,7 +179,7 @@ func ExampleDefinition() {
 		panic(err)
 	}
 	defer func() {
-		if closeErr := engine.Close(); closeErr != nil {
+		if closeErr := engine.Close(ctx); closeErr != nil {
 			panic(closeErr)
 		}
 	}()
@@ -186,7 +187,7 @@ func ExampleDefinition() {
 	if err != nil {
 		panic(err)
 	}
-	result, err := engine.Run(context.Background(), deployment, input)
+	result, err := engine.Run(ctx, deployment, input)
 	if err != nil {
 		panic(err)
 	}
@@ -198,7 +199,7 @@ func ExampleDefinition() {
 	if err != nil {
 		panic(err)
 	}
-	inspection, err := engine.InspectTree(context.Background(), result.ProcessID())
+	inspection, err := engine.InspectTree(ctx, result.ProcessID())
 	if err != nil {
 		panic(err)
 	}

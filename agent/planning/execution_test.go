@@ -294,7 +294,7 @@ func TestManagedPlanningUnknownActionRequiresExplicitResolution(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if closeErr := engine.Close(); closeErr != nil && !errors.Is(closeErr, agent.ErrEngineHasActiveProcesses) {
+		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil && !errors.Is(closeErr, agent.ErrEngineHasActiveProcesses) {
 			t.Errorf("Close: %v", closeErr)
 		}
 	})
@@ -591,7 +591,7 @@ func runManaged(t testing.TB, config agent.EngineConfig, deployment agent.Deploy
 		t.Fatal(err)
 	}
 	defer func() {
-		if closeErr := engine.Close(); closeErr != nil {
+		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 			t.Errorf("Close: %v", closeErr)
 		}
 	}()

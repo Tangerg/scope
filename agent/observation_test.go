@@ -358,7 +358,7 @@ func TestStepPausePublishesCommittedProcessPausedFact(t *testing.T) {
 	if _, err := process.Await(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -374,7 +374,7 @@ func TestProcessEventSequenceAdvancesOnlyAtPublication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = engine.Close() })
+	t.Cleanup(func() { _ = engine.Close(context.WithoutCancel(t.Context())) })
 	process := &processState{
 		engine: engine,
 		handle: &processHandleState{

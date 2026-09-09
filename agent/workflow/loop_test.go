@@ -67,7 +67,7 @@ func TestLoopRunsAtLeastOnceAndReportsSatisfiedOrExhausted(t *testing.T) {
 			if got := len(tree.ProcessSnapshots()); got != int(test.wantIterations)+1 {
 				t.Fatalf("Loop tree Process count = %d, want %d", got, test.wantIterations+1)
 			}
-			if err := engine.Close(); err != nil {
+			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -100,7 +100,7 @@ func TestLoopAttributesBodyFailure(t *testing.T) {
 	if result.Status() != agent.StatusFailed || !present || failure.Code() != "workflow.loop.child_failed" {
 		t.Fatalf("Loop termination = %#v", result.Termination())
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }

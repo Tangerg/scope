@@ -150,7 +150,7 @@ func closeSignalConformanceProcess(t *testing.T, engine *agent.Engine, process *
 	if _, err := process.Await(ctx); err != nil && !errors.Is(err, errSimulatedHostCrash) && !errors.Is(err, agent.ErrTreeIncarnationConflict) {
 		t.Error(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Error(err)
 	}
 }

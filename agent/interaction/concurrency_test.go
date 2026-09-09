@@ -60,7 +60,7 @@ func TestConcurrentToolsRespectLimitAndCommitInModelOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	if result.Status() != agent.StatusCompleted {
@@ -112,7 +112,7 @@ func TestConcurrentToolsWithSameKeyDoNotOverlap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	if result.Status() != agent.StatusCompleted {
@@ -161,7 +161,7 @@ func TestZeroToolConcurrencyLimitKeepsDeclaredToolsSerial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	if result.Status() != agent.StatusCompleted {
@@ -229,7 +229,7 @@ func TestUndeclaredToolIsAnExclusiveBatchBarrier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	if result.Status() != agent.StatusCompleted {
@@ -284,7 +284,7 @@ func TestConcurrentToolInputWaitPreservesCompletedSibling(t *testing.T) {
 	if requestingCalls.Load() != 2 || siblingCalls.Load() != 1 {
 		t.Fatalf("requesting/sibling calls=%d/%d", requestingCalls.Load(), siblingCalls.Load())
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -380,7 +380,7 @@ func startConcurrentInteraction(
 	}
 	process, err := engine.Start(context.Background(), deployment.Deployment, interactionInput(t, "run tools"))
 	if err != nil {
-		_ = engine.Close()
+		_ = engine.Close(context.WithoutCancel(t.Context()))
 		t.Fatal(err)
 	}
 	return process, engine

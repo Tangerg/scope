@@ -66,7 +66,7 @@ func benchmarkSignalCommit(
 		b.Fatal(err)
 	}
 	defer func() {
-		if closeErr := engine.Close(); closeErr != nil {
+		if closeErr := engine.Close(context.WithoutCancel(b.Context())); closeErr != nil {
 			b.Error(closeErr)
 		}
 	}()
@@ -135,7 +135,7 @@ func benchmarkSignalCommitTree(b *testing.B, processCount int) (Deployment, Engi
 		b.Fatal(err)
 	}
 	b.Cleanup(func() {
-		if closeErr := engine.Close(); closeErr != nil {
+		if closeErr := engine.Close(context.WithoutCancel(b.Context())); closeErr != nil {
 			b.Error(closeErr)
 		}
 	})

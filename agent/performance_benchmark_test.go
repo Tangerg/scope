@@ -99,7 +99,7 @@ func benchmarkCompletedTree(b *testing.B, sample treeSnapshotBenchmarkCase) Tree
 	if got := uint32(len(snapshot.ProcessSnapshots())); got != sample.processCount {
 		b.Fatalf("tree Process count=%d, want %d", got, sample.processCount)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(b.Context())); err != nil {
 		b.Fatal(err)
 	}
 	return snapshot
@@ -264,7 +264,7 @@ func BenchmarkTreeRuntimeFastSiblingLatency(b *testing.B) {
 		if _, err := root.Await(context.Background()); err != nil {
 			b.Fatal(err)
 		}
-		if err := engine.Close(); err != nil {
+		if err := engine.Close(context.WithoutCancel(b.Context())); err != nil {
 			b.Fatal(err)
 		}
 		b.StartTimer()

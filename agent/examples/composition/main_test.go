@@ -101,7 +101,7 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if closeErr := engine.Close(); closeErr != nil {
+		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 			t.Error(closeErr)
 		}
 	})
@@ -153,7 +153,7 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 	if releaseErr := engine.ReleaseTree(ctx, root.ID()); releaseErr != nil {
 		t.Fatal(releaseErr)
 	}
-	if closeErr := engine.Close(); closeErr != nil {
+	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
 
@@ -162,7 +162,7 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if closeErr := restoredEngine.Close(); closeErr != nil {
+		if closeErr := restoredEngine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 			t.Error(closeErr)
 		}
 	})
@@ -310,7 +310,7 @@ func TestCompositionRestoresEverySignalBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if closeErr := engine.Close(); closeErr != nil {
+		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 			t.Error(closeErr)
 		}
 	})
@@ -459,7 +459,7 @@ func TestCompositionPreservesChildFailures(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() {
-				if closeErr := engine.Close(); closeErr != nil {
+				if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 					t.Error(closeErr)
 				}
 			})

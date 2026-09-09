@@ -103,7 +103,7 @@ func runEffectBoundaryConformance(
 		t.Fatalf("authoritative root status=%s", root.Status())
 	}
 	probe.assertEffectLifecycle(t)
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -152,12 +152,12 @@ func runConcurrentRestoreConformance(
 	if _, err := winner.process.Await(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := winner.engine.Close(); err != nil {
+	if err := winner.engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	_ = original.Kill(context.Background(), "stale writer cleanup")
 	_, _ = original.Await(context.Background())
-	if err := originalEngine.Close(); err != nil {
+	if err := originalEngine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -195,7 +195,7 @@ func collectConformanceRestoreResults(
 		}
 		conflicts++
 		if result.engine != nil {
-			_ = result.engine.Close()
+			_ = result.engine.Close(context.WithoutCancel(t.Context()))
 		}
 	}
 	return winner, conflicts
@@ -250,10 +250,10 @@ func runDelayedCommitConformance(
 	stale, err := original.Await(context.Background())
 	assertCrashRuntimeError(t, original, crashAwaitResult{result: stale, err: err}, agent.ErrTreeIncarnationConflict)
 	assertCrashHead(t, driver, original.ID(), winningHead.Digest())
-	if err := restoredEngine.Close(); err != nil {
+	if err := restoredEngine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if err := originalEngine.Close(); err != nil {
+	if err := originalEngine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }

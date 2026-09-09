@@ -35,7 +35,7 @@ func TestEngineStartsChildFromAnotherStrategyThroughExactResolver(t *testing.T) 
 		t.Fatalf("resolved child binding = %#v, relation = %#v", child.DeploymentRef(), child.Relation())
 	}
 	_ = mustAwait(t, child)
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -58,7 +58,7 @@ func TestEngineRejectsResolverBindingMismatch(t *testing.T) {
 		len(output.FailureCodes) != 1 || output.FailureCodes[0] != "engine.child.deployment_unavailable" {
 		t.Fatalf("mismatched resolver output = %#v", output)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -83,7 +83,7 @@ func TestEngineContainsDeploymentResolverPanic(t *testing.T) {
 		len(output.FailureCodes) != 1 || output.FailureCodes[0] != "engine.child.deployment_unavailable" {
 		t.Fatalf("panicking resolver output = %#v", output)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -117,7 +117,7 @@ func TestEngineBypassesResolverForSameDeploymentChild(t *testing.T) {
 	if got := calls.Load(); got != 0 {
 		t.Fatalf("same-Deployment resolver calls = %d, want 0", got)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }

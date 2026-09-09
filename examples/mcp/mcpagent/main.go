@@ -141,7 +141,7 @@ func run(ctx context.Context) (err error) {
 		return fmt.Errorf("create agent engine: %w", err)
 	}
 	defer func() {
-		if closeErr := engine.Close(); closeErr != nil {
+		if closeErr := engine.Close(context.WithoutCancel(ctx)); closeErr != nil {
 			err = errors.Join(err, fmt.Errorf("close agent engine: %w", closeErr))
 		}
 	}()

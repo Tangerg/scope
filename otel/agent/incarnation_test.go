@@ -138,7 +138,7 @@ func TestObserverIsolatesOverlappingDurableIncarnations(t *testing.T) {
 			if err := engine.ReleaseTree(t.Context(), original.ID()); err != nil {
 				t.Fatal(err)
 			}
-			if err := engine.Close(); err != nil {
+			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 				t.Fatal(err)
 			}
 		}

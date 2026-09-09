@@ -30,7 +30,7 @@ func TestManagedInteractionCompletesFromModelResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if closeErr := engine.Close(); closeErr != nil {
+		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 			t.Errorf("Close: %v", closeErr)
 		}
 	})
@@ -84,7 +84,7 @@ func TestManagedInteractionExecutesToolLoopInModelOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if closeErr := engine.Close(); closeErr != nil {
+		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 			t.Errorf("Close: %v", closeErr)
 		}
 	})
@@ -179,7 +179,7 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 				if releaseErr := engine.ReleaseTree(ctx, process.ID()); releaseErr != nil {
 					t.Error(releaseErr)
 				}
-				if closeErr := engine.Close(); closeErr != nil {
+				if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 					t.Error(closeErr)
 				}
 			})
@@ -253,7 +253,7 @@ func runInteraction(t *testing.T, deployment interactionDeployment, prompt strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	return result
@@ -343,7 +343,7 @@ func TestDirectResultToolCompletesWithoutAnotherModelCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if closeErr := engine.Close(); closeErr != nil {
+	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
 	if result.Status() != agent.StatusCompleted || model.Calls() != 1 {
@@ -383,7 +383,7 @@ func TestModelCallLimitProducesStableFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	if result.Status() != agent.StatusFailed || model.Calls() != 1 {

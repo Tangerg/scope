@@ -187,6 +187,11 @@
 // callable, but callbacks must avoid cyclic waits and return in bounded time.
 // Engine.Close requires completed publication and bookkeeping in both durable
 // and ephemeral mode; Await establishes that completion for each Process.
+// Close(ctx) closes admission once and joins Engine-owned observation shutdown;
+// canceling ctx ends only that caller's wait. DeltaListener callbacks must not
+// call Close or FlushDeltas on their Engine because both join Delta delivery.
+// Forwarding an active callback context makes those calls fail with
+// ErrListenerReentrancy.
 //
 // A durable writer can stop without terminating the logical execution. Storage
 // failures and ownership conflicts reach [Process.Await] as a [RuntimeError]

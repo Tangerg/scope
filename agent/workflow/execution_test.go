@@ -59,7 +59,7 @@ func TestTransformAndCallRunAsManagedChildProcess(t *testing.T) {
 	if output.Text != "6" {
 		t.Fatalf("Workflow output = %#v", output)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -95,7 +95,7 @@ func TestCallPropagatesChildFailure(t *testing.T) {
 	if !present || failure.Code() != "workflow.call.child_failed" {
 		t.Fatalf("Workflow failure = %#v", failure)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }

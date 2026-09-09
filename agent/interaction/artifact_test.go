@@ -40,7 +40,7 @@ func TestCompletionValidatorUsesOrderedTypedDelegateArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if closeErr := engine.Close(); closeErr != nil {
+	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
 	if result.Status() != agent.StatusCompleted || model.Calls() != 3 {
@@ -150,7 +150,7 @@ func TestCompletionValidatorRetryHonorsModelCallLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	failure, present := result.Termination().Failure()
@@ -212,7 +212,7 @@ func TestCompletionValidatorCanRejectDirectToolResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	if result.Status() != agent.StatusCompleted || model.Calls() != 2 {
@@ -236,7 +236,7 @@ func TestCompletionValidatorRejectsInvalidDecision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	failure, present := result.Termination().Failure()
@@ -302,7 +302,7 @@ func TestCompletionValidatorFailureClassification(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := engine.Close(); err != nil {
+			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 				t.Fatal(err)
 			}
 			failure, present := result.Termination().Failure()

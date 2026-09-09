@@ -26,7 +26,7 @@ func TestCaptureTreeRejectsAlreadyCanceledContext(t *testing.T) {
 	if snapshot, err := engine.CaptureTree(ctx, root.ID()); !errors.Is(err, context.Canceled) || snapshot.Valid() {
 		t.Errorf("CaptureTree returned valid=%v, error=%v for canceled context", snapshot.Valid(), err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -267,7 +267,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 		t.Fatal("tree restore duplicated or lost a child")
 	}
 	assertNoChildWaitRegistrations(t, restoredEngine)
-	if err := restoredEngine.Close(); err != nil {
+	if err := restoredEngine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 
@@ -280,7 +280,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 	}
 	_ = mustAwait(t, root)
 	assertNoChildWaitRegistrations(t, engine)
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -311,7 +311,7 @@ func TestTerminalTreeSnapshotClosesUnconsumedChildWait(t *testing.T) {
 		t.Fatalf("terminal TreeSnapshot is not self-consistent: %v", err)
 	}
 	assertNoChildWaitRegistrations(t, engine)
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -378,11 +378,11 @@ func testTreeCaptureWaitsForInflightChildEffectsToSettle(t *testing.T) {
 	if restoredResult := mustAwait(t, restored); restoredResult.Status() != StatusCompleted {
 		t.Fatalf("restored status = %s", restoredResult.Status())
 	}
-	if err := restoredEngine.Close(); err != nil {
+	if err := restoredEngine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	_ = mustAwait(t, root)
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -409,7 +409,7 @@ func TestTreeRestoreResolvesEveryExactDeployment(t *testing.T) {
 	if _, restoreTreeErr := withoutResolver.RestoreTree(context.Background(), parentDeployment, tree); !errors.Is(restoreTreeErr, ErrInvalidTreeSnapshot) {
 		t.Fatalf("missing resolver error = %v", restoreTreeErr)
 	}
-	if closeErr := withoutResolver.Close(); closeErr != nil {
+	if closeErr := withoutResolver.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
 	restoredEngine, _ := NewEngine(EngineConfig{DeploymentResolver: resolver})
@@ -426,10 +426,10 @@ func TestTreeRestoreResolvesEveryExactDeployment(t *testing.T) {
 		t.Fatal("cross-Strategy child binding was not restored exactly")
 	}
 	_ = mustAwait(t, restoredChild)
-	if err := restoredEngine.Close(); err != nil {
+	if err := restoredEngine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -479,7 +479,7 @@ func TestDurableChildOutcomeCommitsWholeProspectiveTree(t *testing.T) {
 		t.Fatal("committed child was not published")
 	}
 	_ = mustAwait(t, child)
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -513,10 +513,10 @@ func TestTreeRestoreValidatesTerminalOutputAgainstExactDeployment(t *testing.T) 
 	if _, err := restoredEngine.RestoreTree(context.Background(), deployment, tree); !errors.Is(err, ErrInvalidTreeSnapshot) {
 		t.Fatalf("schema mismatch error = %v", err)
 	}
-	if err := restoredEngine.Close(); err != nil {
+	if err := restoredEngine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -564,7 +564,7 @@ func completedTreeSnapshot(t testing.TB) TreeSnapshot {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	return tree

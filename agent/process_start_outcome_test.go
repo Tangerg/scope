@@ -90,7 +90,7 @@ func TestProcessStartOutcomesConcludeAcceptedRootAndChildAdmissions(t *testing.T
 				!childStarted || childStartedAt != child.StartedAt() {
 				t.Fatalf("child outcome = %#v", childOutcome)
 			}
-			if err := engine.Close(); err != nil {
+			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -144,7 +144,7 @@ func TestProcessStartOutcomeReportsPostAdmissionInitializationFailure(t *testing
 				t.Fatal("aborted Process was published")
 			}
 			assertNoPendingProcessStarts(t, engine)
-			if err := engine.Close(); err != nil {
+			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -196,7 +196,7 @@ func TestProcessStartOutcomeReportsChildInitializationFailure(t *testing.T) {
 		t.Fatal("aborted child was published")
 	}
 	assertNoPendingProcessStarts(t, engine)
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -221,7 +221,7 @@ func TestRejectingStartedProcessOutcomePreventsPublication(t *testing.T) {
 		t.Fatalf("Start process=%v error=%v", process, err)
 	}
 	assertNoPendingProcessStarts(t, engine)
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -250,7 +250,7 @@ func TestRejectingAbortedProcessOutcomePreservesBothFailures(t *testing.T) {
 		t.Fatalf("Start process=%v error=%v", process, err)
 	}
 	assertNoPendingProcessStarts(t, engine)
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -302,7 +302,7 @@ func TestRejectingStartedChildOutcomePreventsChildPublication(t *testing.T) {
 				t.Fatal("unacknowledged child was published")
 			}
 			assertNoPendingProcessStarts(t, engine)
-			if err := engine.Close(); err != nil {
+			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -331,7 +331,7 @@ func TestProcessStartOutcomeAcknowledgerPanicAndTypedNilAreContained(t *testing.
 		t.Fatalf("panicking acknowledger process=%v error=%v", process, err)
 	}
 	assertNoPendingProcessStarts(t, engine)
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -364,7 +364,7 @@ func TestEngineCannotCloseWhileProcessStartOutcomeIsPending(t *testing.T) {
 		result <- startResult{process: process, err: startErr}
 	}()
 	<-acknowledging
-	if err := engine.Close(); !errors.Is(err, ErrEngineHasActiveProcesses) {
+	if err := engine.Close(context.WithoutCancel(t.Context())); !errors.Is(err, ErrEngineHasActiveProcesses) {
 		t.Fatalf("Close error = %v, want %v", err, ErrEngineHasActiveProcesses)
 	}
 	close(release)
@@ -373,7 +373,7 @@ func TestEngineCannotCloseWhileProcessStartOutcomeIsPending(t *testing.T) {
 		t.Fatal(started.err)
 	}
 	_ = mustAwait(t, started.process)
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -405,7 +405,7 @@ func TestRejectedAdmissionProducesNoProcessStartOutcome(t *testing.T) {
 		t.Fatalf("outcomes = %d, want 0", outcomeCount)
 	}
 	assertNoPendingProcessStarts(t, engine)
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }

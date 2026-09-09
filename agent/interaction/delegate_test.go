@@ -86,7 +86,7 @@ func TestManagedDelegatePreservesMixedToolCallOrder(t *testing.T) {
 			t.Fatalf("child allocation = %#v, %#v", snapshot.Budget(), snapshot.Capabilities())
 		}
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -190,7 +190,7 @@ func TestManagedDelegateReturnsArgumentAndStartFailuresToModel(t *testing.T) {
 	if len(tree.ProcessSnapshots()) != 1 {
 		t.Fatalf("failed Delegate starts created %d Processes", len(tree.ProcessSnapshots()))
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -289,7 +289,7 @@ func terminateOriginalDelegateTree(
 	if childResult, awaitErr := originalChild.Await(context.Background()); awaitErr != nil || childResult.Status() != agent.StatusCanceled {
 		t.Fatalf("original child result = %#v, %v", childResult.Termination(), awaitErr)
 	}
-	if closeErr := engine.Close(); closeErr != nil {
+	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
 }
@@ -327,7 +327,7 @@ func completeRestoredDelegateTree(
 	if len(finalTree.ProcessSnapshots()) != 2 {
 		t.Fatalf("restored tree created duplicate children: %d Processes", len(finalTree.ProcessSnapshots()))
 	}
-	if err := restoredEngine.Close(); err != nil {
+	if err := restoredEngine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }

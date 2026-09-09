@@ -108,7 +108,7 @@ func TestChildCompletionPreservesSettlementCapacity(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() {
-				if closeErr := engine.Close(); closeErr != nil {
+				if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 					t.Error(closeErr)
 				}
 			})

@@ -192,7 +192,7 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 			if !errors.Is(awaitErr, durability.failure) {
 				t.Fatal("mutating a report changed the retained Await error")
 			}
-			if closeErr := engine.Close(); closeErr != nil {
+			if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 				t.Fatal(closeErr)
 			}
 			afterClose := requireTreeInspection(t, engine, root.ID())

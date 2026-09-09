@@ -76,7 +76,7 @@ func TestTreeRuntimeDoesNotLetSlowStepStarveSibling(t *testing.T) {
 	if _, err := root.Await(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }

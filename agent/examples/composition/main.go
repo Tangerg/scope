@@ -57,7 +57,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	defer func() { err = errors.Join(err, engine.Close()) }()
+	defer func() { err = errors.Join(err, engine.Close(context.WithoutCancel(ctx))) }()
 
 	embeddedInput, err := localDeployment.Descriptor().EncodeInput(textInput{Text: "embedded"})
 	if err != nil {

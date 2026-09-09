@@ -67,7 +67,7 @@ func TestEngineStartsSameDeploymentChildWithStableRelation(t *testing.T) {
 	if childSnapshot.Relation() != childRelation {
 		t.Fatalf("captured child relation = %#v, want %#v", childSnapshot.Relation(), childRelation)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -85,7 +85,7 @@ func TestChildEffectPreservesStartContextValuesWithoutRequestCancellation(t *tes
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if closeErr := engine.Close(); closeErr != nil {
+		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 			t.Error(closeErr)
 		}
 	})
@@ -133,7 +133,7 @@ func TestEngineRejectsDuplicateChildKeyInOneParent(t *testing.T) {
 	if _, err := child.Await(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -184,7 +184,7 @@ func runChildWaitTest(t *testing.T, test childWaitTestCase) {
 	}
 	dispatcher.ReleaseAll()
 	awaitChildren(t, engine, output.ChildIDs)
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -238,7 +238,7 @@ func TestEngineSupportsBoundedSameDefinitionRecursion(t *testing.T) {
 	if result, err := process.Await(context.Background()); err != nil || result.Status() != StatusCompleted {
 		t.Fatalf("recursive leaf result = %#v, error = %v", result, err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -379,7 +379,7 @@ func TestTreeProcessLimitBoundsRecursiveBinaryExpansion(t *testing.T) {
 	if processCount != 15 || deepest > 8 {
 		t.Fatalf("bounded tree Process count = %d, deepest = %d", processCount, deepest)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -406,7 +406,7 @@ func TestEngineAttenuatesChildBudgetAndCapabilities(t *testing.T) {
 			t.Fatalf("child capabilities = %#v, budget = %#v", child.Capabilities(), child.Budget())
 		}
 		_ = mustAwait(t, child)
-		if err := engine.Close(); err != nil {
+		if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -433,7 +433,7 @@ func TestEngineAttenuatesChildBudgetAndCapabilities(t *testing.T) {
 			if output.Failures != 1 || !slices.Contains(output.FailureCodes, test.code) {
 				t.Fatalf("attenuation output = %#v", output)
 			}
-			if err := engine.Close(); err != nil {
+			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -526,7 +526,7 @@ func assertTerminatedChildren(t *testing.T, engine *Engine, childIDs []string, w
 
 func mustCloseEngine(t *testing.T, engine *Engine) {
 	t.Helper()
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -564,7 +564,7 @@ func TestParentDeadlinePropagatesAsParentDeadline(t *testing.T) {
 				t.Fatalf("child termination = %#v", result.Termination())
 			}
 		}
-		if err := engine.Close(); err != nil {
+		if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -588,7 +588,7 @@ func TestChildFailureRemainsExplicitStrategyInput(t *testing.T) {
 	if !ok || failure.Code() != "test.child.failed" {
 		t.Fatalf("parent failure = %#v", failure)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -617,7 +617,7 @@ func TestEngineRejectsWaitingOnDescendantThatIsNotDirectChild(t *testing.T) {
 	if !errors.Is(err, ErrInvalidChildWait) {
 		t.Fatalf("ancestor wait error = %v, want %v", err, ErrInvalidChildWait)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }

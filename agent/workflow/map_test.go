@@ -42,7 +42,7 @@ func TestMapUsesManagedChildrenAndPreservesItemOrder(t *testing.T) {
 	if !slices.Equal(output, []numberOutput{{Value: 6}, {Value: 2}, {Value: 4}}) {
 		t.Fatalf("Map output = %#v", output)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -71,7 +71,7 @@ func TestMapEmptyInputProducesNonNilEmptyOutput(t *testing.T) {
 	if output == nil || len(output) != 0 {
 		t.Fatalf("empty Map output = %#v", output)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -100,7 +100,7 @@ func TestMapRejectsInputAboveMaxItemsBeforeStartingChildren(t *testing.T) {
 	if result.Status() != agent.StatusFailed || !present || failure.Code() != "workflow.map.max_items_exceeded" {
 		t.Fatalf("Map termination = %#v", result.Termination())
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }

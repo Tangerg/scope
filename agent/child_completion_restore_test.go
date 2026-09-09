@@ -108,7 +108,7 @@ func TestRestoreDoesNotChargeExistingChildCompletion(t *testing.T) {
 	if err != nil || original.Status() != StatusCompleted {
 		t.Fatalf("original=%s err=%v", original.Status(), err)
 	}
-	if closeErr := engine.Close(); closeErr != nil {
+	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
 	restoredEngine, err := NewEngine(EngineConfig{Limits: limits})
@@ -123,7 +123,7 @@ func TestRestoreDoesNotChargeExistingChildCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if closeErr := restoredEngine.Close(); closeErr != nil {
+	if closeErr := restoredEngine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
 	if result.Status() != StatusCompleted {

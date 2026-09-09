@@ -84,7 +84,7 @@ func TestCommittedEventsWaitForDurabilityAcknowledgment(t *testing.T) {
 				if releaseErr := engine.ReleaseTree(t.Context(), root.ID()); releaseErr != nil {
 					t.Fatal(releaseErr)
 				}
-				if err := engine.Close(); err != nil {
+				if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 					t.Fatal(err)
 				}
 				wantCheckpoints := []TreeCheckpointKind{TreeCheckpointStart}
@@ -205,7 +205,7 @@ func TestChildEventsDescribeAcknowledgedTreeState(t *testing.T) {
 		if releaseErr := engine.ReleaseTree(t.Context(), root.ID()); releaseErr != nil {
 			t.Fatal(releaseErr)
 		}
-		if err := engine.Close(); err != nil {
+		if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 			t.Fatal(err)
 		}
 		if acceptedSignals == 0 {
@@ -246,7 +246,7 @@ func TestRestoredProcessStartsANewPublicationSequence(t *testing.T) {
 	if releaseErr := engine.ReleaseTree(t.Context(), root.ID()); releaseErr != nil {
 		t.Fatal(releaseErr)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	events := listener.snapshot()[previousEvents:]
@@ -309,7 +309,7 @@ func TestEquivalentPausedStatePublishesWithoutAnotherCommit(t *testing.T) {
 		if releaseErr := engine.ReleaseTree(t.Context(), root.ID()); releaseErr != nil {
 			t.Fatal(releaseErr)
 		}
-		if err := engine.Close(); err != nil {
+		if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 			t.Fatal(err)
 		}
 	})

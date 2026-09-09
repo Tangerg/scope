@@ -742,7 +742,7 @@ func finishCrashProcess(t *testing.T, process *agent.Process) {
 
 func closeCrashEngine(t *testing.T, engine *agent.Engine) {
 	t.Helper()
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }

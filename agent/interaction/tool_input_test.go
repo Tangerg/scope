@@ -99,7 +99,7 @@ func testNumericToolInputRestore(t *testing.T, facade bool, response string) {
 				t.Error(awaitErr)
 			}
 		}
-		if closeErr := engine.Close(); closeErr != nil {
+		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 			t.Error(closeErr)
 		}
 	})

@@ -30,7 +30,7 @@ func TestDispatcherCallsInheritTheirEffectSpan(t *testing.T) {
 	if err != nil || result.Status() != agent.StatusCompleted {
 		t.Fatalf("Run = %s, %v", result.Status(), err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	entry.End()

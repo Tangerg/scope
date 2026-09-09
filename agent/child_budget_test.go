@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -51,7 +52,7 @@ func TestChildAllocationPreservesPreparedParentWork(t *testing.T) {
 				ids := directChildIDs(t, engine, root.ID())
 				awaitChildren(t, engine, ids)
 				snapshot := inspectProcessSnapshot(t, root)
-				if closeErr := engine.Close(); closeErr != nil {
+				if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 					t.Fatal(closeErr)
 				}
 				if result.Status() != StatusCompleted || len(ids) != test.wantChildren || !snapshot.Valid() {

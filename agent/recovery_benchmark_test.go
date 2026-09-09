@@ -84,7 +84,7 @@ func BenchmarkTreeRecoveryBoundary(b *testing.B) {
 						b.Fatalf("RestoreTree error=%v", err)
 					}
 					stopRecoveryBenchmarkProcess(b, restored)
-					if err := restoredEngine.Close(); err != nil {
+					if err := restoredEngine.Close(context.WithoutCancel(b.Context())); err != nil {
 						b.Fatal(err)
 					}
 					b.StartTimer()
@@ -125,7 +125,7 @@ func benchmarkRecoverableProcess(
 		b.Fatal(err)
 	}
 	b.Cleanup(func() {
-		if closeErr := engine.Close(); closeErr != nil {
+		if closeErr := engine.Close(context.WithoutCancel(b.Context())); closeErr != nil {
 			b.Error(closeErr)
 		}
 	})

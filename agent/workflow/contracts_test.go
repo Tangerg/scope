@@ -79,7 +79,7 @@ func captureWaitingForkTree(
 	if releaseErr := engine.ReleaseTree(context.Background(), root.ID()); releaseErr != nil {
 		t.Fatal(releaseErr)
 	}
-	if closeErr := engine.Close(); closeErr != nil {
+	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
 	return snapshot, initialChildren
@@ -171,7 +171,7 @@ func assertRestoredForkResult(t *testing.T, engine *agent.Engine, root *agent.Pr
 	if len(finalTree.ProcessSnapshots()) != 4 {
 		t.Fatalf("restored final tree size = %d", len(finalTree.ProcessSnapshots()))
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -219,7 +219,7 @@ func TestWorkflowCancellationPropagatesToPausedChild(t *testing.T) {
 			}
 		}
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -273,7 +273,7 @@ func TestCallCannotEscalateBudgetOrCapabilities(t *testing.T) {
 				!strings.Contains(failure.Message(), test.wantCause) {
 				t.Fatalf("guard failure = %#v", failure)
 			}
-			if err := engine.Close(); err != nil {
+			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 				t.Fatal(err)
 			}
 		})

@@ -17,7 +17,7 @@ func TestEngineStartRejectsNilContextBeforePublication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = engine.Close() })
+	t.Cleanup(func() { _ = engine.Close(context.WithoutCancel(t.Context())) })
 	input, err := EncodeInput(childTestInput{Mode: "leaf"})
 	if err != nil {
 		t.Fatal(err)
@@ -489,7 +489,7 @@ func TestEngineRunsEffectToValidatedOutput(t *testing.T) {
 	if err != nil || value.Value != "hello:done" {
 		t.Fatalf("output=%+v err=%v", value, err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -706,7 +706,7 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
 	limits := Limits{MaxSteps: 3, MaxEffects: 1, MaxSignals: 2, MaxPendingSignals: 2}
 	engine, _ := NewEngine(EngineConfig{Limits: limits})
-	t.Cleanup(func() { _ = engine.Close() })
+	t.Cleanup(func() { _ = engine.Close(context.WithoutCancel(t.Context())) })
 	input, _ := EncodeInput(engineTestInput{Value: "question"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
@@ -723,7 +723,7 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 		Limits:         limits,
 		EventListeners: []EventListener{listener},
 	})
-	t.Cleanup(func() { _ = restoredEngine.Close() })
+	t.Cleanup(func() { _ = restoredEngine.Close(context.WithoutCancel(t.Context())) })
 	restored, err := restoredEngine.RestoreTree(context.Background(), deployment, tree)
 	if err != nil {
 		t.Fatal(err)
@@ -820,7 +820,7 @@ func TestRestoreDistinguishesPlannedFromPendingEffect(t *testing.T) {
 		if calls := dispatcher.calls.Load(); calls != 1 {
 			t.Fatalf("planned Effect dispatch calls = %d, want 1", calls)
 		}
-		if err := engine.Close(); err != nil {
+		if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -860,7 +860,7 @@ func TestRestoreDistinguishesPlannedFromPendingEffect(t *testing.T) {
 			t.Fatal(err)
 		}
 		_ = awaitResult(t, restored)
-		if err := engine.Close(); err != nil {
+		if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -1113,7 +1113,7 @@ func TestDeltaBufferDropsAreObservableAndListenerPanicIsIsolated(t *testing.T) {
 		t.Fatalf("usage=%+v dropped fact=%d", result.Usage(), dropped.Count())
 	}
 	close(deltas.release)
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -1150,7 +1150,7 @@ func TestFlushDeltasWaitsForAcceptedListenerDelivery(t *testing.T) {
 	if err := <-flushed; err != nil {
 		t.Fatalf("FlushDeltas: %v", err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -1168,7 +1168,7 @@ func TestEventLifecycleCarriesExactBindingAndAttemptDurations(t *testing.T) {
 	if err != nil || result.Status() != StatusCompleted {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	events := listener.snapshot()
@@ -1259,7 +1259,7 @@ func TestFrameworkEffectPublishesTheSameLifecycleContract(t *testing.T) {
 	childID, _ := ParseProcessID(output.ChildIDs[0])
 	child, _ := engine.Process(childID)
 	_ = mustAwait(t, child)
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	var started, finished bool
@@ -1383,7 +1383,7 @@ func TestCanceledControlDoesNotEnterTheRuntime(t *testing.T) {
 	if result.Status() != StatusCompleted {
 		t.Errorf("already canceled control changed result to %s", result.Status())
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }

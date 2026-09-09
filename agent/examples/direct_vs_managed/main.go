@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,7 +22,7 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, output io.Writer) error {
+func run(ctx context.Context, output io.Writer) (err error) {
 	directClient, err := chatclient.New(echoModel{prefix: "direct"}, chatclient.Config{})
 	if err != nil {
 		return err
@@ -63,7 +64,7 @@ func run(ctx context.Context, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer engine.Close()
+	defer func() { err = errors.Join(err, engine.Close(context.WithoutCancel(ctx))) }()
 	input, err := deployment.Descriptor().EncodeInput(interaction.Input{Messages: request.Messages})
 	if err != nil {
 		return err

@@ -72,7 +72,7 @@ func TestExternalPackageCanComposeAndRunDefinition(t *testing.T) {
 	if err != nil || value.Value != "done" {
 		t.Fatalf("output=%+v err=%v", value, err)
 	}
-	if closeErr := engine.Close(); closeErr != nil {
+	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
 	if decorator.attempts.Load() != 1 || decorator.ReplayPolicy(expectedEffect) != agent.ReplayPolicyNever {

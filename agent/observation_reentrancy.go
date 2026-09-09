@@ -7,11 +7,12 @@ import (
 	"sync/atomic"
 )
 
-// ErrListenerReentrancy reports a tree operation, Process control, or Await
-// using the context of an active synchronous [EventListener] for that Engine
-// and root. Derived contexts retain this restriction until the callback returns.
-// A callback that replaces its context still must obey the listener contract.
-var ErrListenerReentrancy = errors.New("agent: listener called its own tree")
+// ErrListenerReentrancy reports an operation that would wait for the active
+// listener carrying its context: an EventListener's tree owner or a
+// DeltaListener's delivery worker. Derived contexts retain this restriction
+// until the callback returns. Replacing the context does not remove the
+// listener's obligation to avoid waiting for itself.
+var ErrListenerReentrancy = errors.New("agent: operation would wait for its active listener")
 
 // The Engine's observation bus distinguishes independent restorations of the
 // same root. Different keys also preserve active ancestors through nested
@@ -19,6 +20,18 @@ var ErrListenerReentrancy = errors.New("agent: listener called its own tree")
 type observedTreeKey struct {
 	bus    *observationBus
 	rootID ProcessID
+}
+
+type observedDeltaKey struct {
+	bus *observationBus
+}
+
+func (o *observationBus) checkDeltaListenerReentrancy(ctx context.Context, operation string) error {
+	active, ok := ctx.Value(observedDeltaKey{bus: o}).(*atomic.Bool)
+	if !ok || !active.Load() {
+		return nil
+	}
+	return fmt.Errorf("%w: %s would wait for its active Delta listener", ErrListenerReentrancy, operation)
 }
 
 func (o *observationBus) checkListenerReentrancy(ctx context.Context, rootID ProcessID, operation string) error {

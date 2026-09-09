@@ -27,7 +27,7 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, output io.Writer) error {
+func run(ctx context.Context, output io.Writer) (err error) {
 	root, resolver, err := newManagedWorkflow()
 	if err != nil {
 		return err
@@ -41,7 +41,7 @@ func run(ctx context.Context, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer engine.Close()
+	defer func() { err = errors.Join(err, engine.Close(context.WithoutCancel(ctx))) }()
 
 	input, err := root.Descriptor().EncodeInput(request{Text: "  ship managed workflow  "})
 	if err != nil {

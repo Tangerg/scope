@@ -119,7 +119,7 @@ func TestSteerQueuedDuringChildWaitSurvivesRestore(t *testing.T) {
 			if err != nil || result.Status() != agent.StatusCompleted || modelCalls.Load() != 2 || waiting.initialCalls.Load() != 1 || waiting.continuationCalls.Load() != 1 {
 				t.Fatalf("restored status=%s error=%v model/tool calls=%d/%d/%d", result.Status(), err, modelCalls.Load(), waiting.initialCalls.Load(), waiting.continuationCalls.Load())
 			}
-			if closeErr := restoredEngine.Close(); closeErr != nil {
+			if closeErr := restoredEngine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 				t.Fatal(closeErr)
 			}
 			if killErr := root.Kill(t.Context(), "release old waiting tree"); killErr != nil {
@@ -135,7 +135,7 @@ func TestSteerQueuedDuringChildWaitSurvivesRestore(t *testing.T) {
 					t.Fatal(awaitErr)
 				}
 			}
-			if closeErr := engine.Close(); closeErr != nil {
+			if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 				t.Fatal(closeErr)
 			}
 		})
@@ -193,7 +193,7 @@ func TestSteerAdmittedDuringWaitStepSurvivesToolInput(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		gate.release.Release()
-		if closeErr := engine.Close(); closeErr != nil {
+		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 			t.Error(closeErr)
 		}
 	})

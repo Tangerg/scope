@@ -46,7 +46,7 @@ func TestSteerDuringModelCallIsVisibleOnlyToNextModelCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if closeErr := engine.Close(); closeErr != nil {
+	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
 	if result.Status() != agent.StatusCompleted || model.Calls() != 2 {
@@ -99,7 +99,7 @@ func TestSteerDuringToolBatchWaitsForWholeBatchSettlement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	if result.Status() != agent.StatusCompleted || model.Calls() != 2 || blocking.calls.Load() != 1 {
@@ -136,7 +136,7 @@ func TestSteerDoesNotMaskRejectedModelToolCalls(t *testing.T) {
 	process, engine := startConcurrentInteraction(t, model, []tool.Tool{executable}, 1)
 	t.Cleanup(func() {
 		release.Release()
-		if err := engine.Close(); err != nil {
+		if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 			t.Error(err)
 		}
 	})

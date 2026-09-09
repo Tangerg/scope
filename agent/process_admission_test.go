@@ -75,7 +75,7 @@ func TestProcessAdmitterReceivesRootAndChildResourceContracts(t *testing.T) {
 		len(childAdmission.Capabilities().Values()) != 0 {
 		t.Fatalf("child admission = %#v", childAdmission)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -113,7 +113,7 @@ func TestProcessAdmitterRejectsBeforeDefinitionStarts(t *testing.T) {
 	if processCount != 0 {
 		t.Fatalf("published Processes = %d, want 0", processCount)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -155,7 +155,7 @@ func TestProcessAdmitterRejectsChildWithoutPublishingIt(t *testing.T) {
 	if processCount != 1 {
 		t.Fatalf("published Processes = %d, want only parent", processCount)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -185,7 +185,7 @@ func TestProcessAdmitterCannotOverrideCapabilityAttenuation(t *testing.T) {
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("admitter calls = %d, want root only", got)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -207,7 +207,7 @@ func TestProcessAdmitterPanicAndTypedNilAreRejected(t *testing.T) {
 		!errors.Is(err, ErrProcessAdmissionRejected) {
 		t.Fatalf("panicking admitter process=%v error=%v", process, err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -228,7 +228,7 @@ func TestRestoreDoesNotReadmitPreviouslyAdmittedProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if closeErr := first.Close(); closeErr != nil {
+	if closeErr := first.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
 	var admissionCalls atomic.Uint32
@@ -262,7 +262,7 @@ func TestRestoreDoesNotReadmitPreviouslyAdmittedProcess(t *testing.T) {
 	if result := mustAwait(t, restored); result.Status() != StatusCompleted {
 		t.Fatalf("restored status = %s", result.Status())
 	}
-	if err := restoredEngine.Close(); err != nil {
+	if err := restoredEngine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -289,7 +289,7 @@ func TestProcessAdmitterReceivesStartContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = mustAwait(t, process)
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }

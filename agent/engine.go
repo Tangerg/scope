@@ -109,9 +109,23 @@ func (e *Engine) ObservationFailures() ObservationFailureCounts {
 
 // FlushDeltas provides the ordering barrier needed before publishing a final
 // value that must not overtake accepted streaming observations. Dropped Deltas
-// remain lost because flushing cannot strengthen best-effort delivery.
+// remain lost because flushing cannot strengthen best-effort delivery. Closing
+// the Engine prevents new flush barriers, even when no listeners are configured.
 func (e *Engine) FlushDeltas(ctx context.Context) error {
 	if e == nil {
+		return ErrEngineClosed
+	}
+	ctx = requireContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := e.observation.checkDeltaListenerReentrancy(ctx, "FlushDeltas"); err != nil {
+		return err
+	}
+	e.mu.RLock()
+	closing := e.closeDone != nil
+	e.mu.RUnlock()
+	if closing {
 		return ErrEngineClosed
 	}
 	return e.observation.flushDeltas(ctx)
@@ -289,30 +303,48 @@ func (e *Engine) Process(id ProcessID) (*Process, bool) {
 // publication or parent/child bookkeeping is incomplete, and trees that still
 // own asynchronous work or a freeze. Await joins a Process's bookkeeping;
 // callers must establish this completion before closing the Engine.
-// Once closing begins, it drains accepted Delta delivery and stops observation workers.
+// Once closing begins, the Engine drains accepted Delta delivery and stops
+// observation workers. Canceling ctx stops only this caller's wait; it does not
+// interrupt that owned shutdown. A later Close joins the same shutdown.
 // Concurrent callers join the same closure; existing handles retain results
 // and RuntimeErrors for later reads.
-func (e *Engine) Close() error {
+func (e *Engine) Close(ctx context.Context) error {
 	if e == nil {
 		return nil
 	}
-	e.mu.Lock()
-	if e.closeDone != nil {
-		done := e.closeDone
-		e.mu.Unlock()
-		<-done
+	ctx = requireContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := e.observation.checkDeltaListenerReentrancy(ctx, "Close"); err != nil {
+		return err
+	}
+	done, err := e.startClose()
+	if err != nil {
+		return err
+	}
+	select {
+	case <-done:
 		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (e *Engine) startClose() (<-chan struct{}, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closeDone != nil {
+		return e.closeDone, nil
 	}
 	if len(e.startReservations) != 0 || len(e.treeRestoreReservations) != 0 {
-		e.mu.Unlock()
-		return fmt.Errorf("%w: Process publication is pending", ErrEngineHasActiveProcesses)
+		return nil, fmt.Errorf("%w: Process publication is pending", ErrEngineHasActiveProcesses)
 	}
 	for _, handle := range e.processes {
 		select {
 		case <-handle.bookkeepingDone:
 		default:
-			e.mu.Unlock()
-			return fmt.Errorf(
+			return nil, fmt.Errorf(
 				"%w: Process %s has an unpublished outcome or pending parent/child bookkeeping",
 				ErrEngineHasActiveProcesses, handle.processID,
 			)
@@ -320,8 +352,7 @@ func (e *Engine) Close() error {
 	}
 	for rootID, runtime := range e.trees {
 		if runtime.inFlightWork.Load() != 0 || runtime.freezeActive.Load() {
-			e.mu.Unlock()
-			return fmt.Errorf(
+			return nil, fmt.Errorf(
 				"%w: tree %s still owns active work",
 				ErrEngineHasActiveProcesses, rootID,
 			)
@@ -329,10 +360,13 @@ func (e *Engine) Close() error {
 	}
 	done := make(chan struct{})
 	e.closeDone = done
-	e.mu.Unlock()
-	e.observation.close()
-	close(done)
-	return nil
+	// The Engine owns shutdown independently of any caller's wait. Observation
+	// delivery must be joined after releasing the registry lock used by listeners.
+	go func() {
+		e.observation.close()
+		close(done)
+	}()
+	return done, nil
 }
 
 func newProcessID() (ProcessID, error) {

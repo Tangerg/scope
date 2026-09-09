@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -59,7 +60,7 @@ func TestRestoreRejectsUnrestorableCandidateBeforeExternalWork(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() {
-				if closeErr := engine.Close(); closeErr != nil {
+				if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 					t.Error(closeErr)
 				}
 			})
@@ -171,7 +172,7 @@ func TestRestorePreparedOutputUsesDeploymentSchema(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() {
-				if closeErr := engine.Close(); closeErr != nil {
+				if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 					t.Error(closeErr)
 				}
 			})

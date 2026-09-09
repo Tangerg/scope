@@ -34,7 +34,7 @@ func TestDelegateAtModelLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	failure, _ := result.Termination().Failure()

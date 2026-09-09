@@ -46,7 +46,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 		return err
 	}
 	defer func() {
-		err = errors.Join(err, engine.Close())
+		err = errors.Join(err, engine.Close(context.WithoutCancel(ctx)))
 	}()
 
 	input, err := agent.EncodeInput(orchestrationGoal{Objective: "ship agent"})

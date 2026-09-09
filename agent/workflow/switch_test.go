@@ -59,7 +59,7 @@ func TestSwitchRunsOnlyTheSelectedManagedChild(t *testing.T) {
 			if output.Value != test.want {
 				t.Fatalf("Switch output = %#v", output)
 			}
-			if err := engine.Close(); err != nil {
+			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -90,7 +90,7 @@ func TestSwitchRejectsUndeclaredSelection(t *testing.T) {
 	if result.Status() != agent.StatusFailed || !present || failure.Code() != "workflow.switch.case_unknown" {
 		t.Fatalf("Switch termination = %#v", result.Termination())
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }

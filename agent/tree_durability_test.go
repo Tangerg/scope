@@ -229,10 +229,10 @@ func TestRestoreTreeRejectsLocalRegistrationBeforeActivation(t *testing.T) {
 	_ = awaitResult(t, restored)
 	_ = original.Kill(context.Background(), "test cleanup")
 	_ = awaitResult(t, original)
-	if err := destination.Close(); err != nil {
+	if err := destination.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if err := source.Close(); err != nil {
+	if err := source.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -376,7 +376,7 @@ func TestDurableEffectCommitFailuresStopTheTreeAtTheCorrectBoundary(t *testing.T
 				t.Fatal(err)
 			}
 			awaitRuntimeError(t, process, test.cause)
-			if err := engine.Close(); err != nil {
+			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -537,7 +537,7 @@ func closeEngineEventually(t *testing.T, engine *Engine) {
 	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()
 	for {
-		if err := engine.Close(); err == nil {
+		if err := engine.Close(context.WithoutCancel(t.Context())); err == nil {
 			break
 		} else if !errors.Is(err, ErrEngineHasActiveProcesses) {
 			t.Fatal(err)
@@ -649,7 +649,7 @@ func runPendingEffectRecoveryCase(
 		_ = process.Kill(context.Background(), "test cleanup")
 		_ = awaitResult(t, process)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -711,7 +711,7 @@ func TestRestorePendingEffectRejectsInvalidReplayPolicyBeforeActivation(t *testi
 	if got := len(durability.treeActivations()); got != 0 {
 		t.Fatalf("invalid replay policy reached activation; count=%d", got)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -737,7 +737,7 @@ func durablePendingTreeSnapshot(
 	if len(boundaries) == 0 || boundaries[0].Kind() != EffectBoundaryPending {
 		t.Fatalf("pending boundary is missing: %v", boundaries)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	return boundaries[0].TreeSnapshot(), deployment, boundaries[0].Request().ID()
@@ -810,14 +810,14 @@ func TestEngineCloseRejectsUnpublishedTerminalCheckpoint(t *testing.T) {
 	if inspectProcessSnapshot(t, process).Status() != StatusRunning {
 		t.Fatalf("Process status=%s before terminal checkpoint", inspectProcessSnapshot(t, process).Status())
 	}
-	if err := engine.Close(); !errors.Is(err, ErrEngineHasActiveProcesses) {
+	if err := engine.Close(context.WithoutCancel(t.Context())); !errors.Is(err, ErrEngineHasActiveProcesses) {
 		t.Fatalf("Close during terminal checkpoint error=%v", err)
 	}
 	close(durability.release)
 	if result := awaitResult(t, process); result.Status() != StatusCompleted {
 		t.Fatalf("result status=%s", result.Status())
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -950,7 +950,7 @@ func TestDurableStartSeparatesInitializationAcceptanceFromCheckpoint(t *testing.
 				t.Fatalf("invalid initial checkpoint: %+v", checkpoints[0])
 			}
 			assertNoPendingProcessStarts(t, engine)
-			if err := engine.Close(); err != nil {
+			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 				t.Fatal(err)
 			}
 		})

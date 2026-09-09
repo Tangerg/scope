@@ -29,7 +29,7 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, output io.Writer) error {
+func run(ctx context.Context, output io.Writer) (err error) {
 	client, err := chatclient.New(&calculatorModel{}, chatclient.Config{})
 	if err != nil {
 		return err
@@ -70,7 +70,7 @@ func run(ctx context.Context, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer engine.Close()
+	defer func() { err = errors.Join(err, engine.Close(context.WithoutCancel(ctx))) }()
 	input, err := agent.EncodeInput(interaction.Input{Messages: []chat.Message{
 		chat.NewUserMessage(chat.NewTextPart("What is 20 + 22?")),
 	}})

@@ -57,7 +57,7 @@ func TestRestoredPlanningEffectsCannotDropBindingCapabilities(t *testing.T) {
 			if _, runErr := source.Run(t.Context(), deployment, input); !errors.Is(runErr, interrupted.cause) {
 				t.Fatalf("source Run = %v, want interrupted Action boundary", runErr)
 			}
-			if closeErr := source.Close(); closeErr != nil {
+			if closeErr := source.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 				t.Fatal(closeErr)
 			}
 			var wire map[string]any
@@ -99,7 +99,7 @@ func TestRestoredPlanningEffectsCannotDropBindingCapabilities(t *testing.T) {
 				if releaseErr := engine.ReleaseTree(ctx, process.ID()); releaseErr != nil {
 					t.Error(releaseErr)
 				}
-				if closeErr := engine.Close(); closeErr != nil {
+				if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 					t.Error(closeErr)
 				}
 			})

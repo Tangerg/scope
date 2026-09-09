@@ -84,7 +84,7 @@ func TestWorkflowCallbacksReceiveProcessCancellation(t *testing.T) {
 					result.Termination().Cause() != agent.TerminationCauseHostCancellation {
 					t.Fatalf("callback cancellation result=%+v, error=%v", result, err)
 				}
-				if err := engine.Close(); err != nil {
+				if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 					t.Fatal(err)
 				}
 			})

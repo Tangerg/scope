@@ -56,7 +56,7 @@ func TestToolBatchValidatesEveryProposalBeforeCapabilitiesAndExecution(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	if result.Status() != agent.StatusCompleted {
@@ -105,7 +105,7 @@ func TestLengthTruncatedToolCallsNeverReachCapabilitiesOrExecution(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	if result.Status() != agent.StatusCompleted {
@@ -134,7 +134,7 @@ func TestNonToolCompletionNeverReachesCapabilitiesOrExecution(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := engine.Close(); err != nil {
+			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 				t.Fatal(err)
 			}
 			failure, present := result.Termination().Failure()
@@ -194,7 +194,7 @@ func TestAuthorizationUsesManagedInvocationWithoutLeakingPolicyCause(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	if result.Status() != agent.StatusCompleted || authorizations.Load() != 1 || calls.Load() != 0 {

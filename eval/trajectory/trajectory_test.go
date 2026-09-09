@@ -178,7 +178,7 @@ func startRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, obser
 		if releaseErr := engine.ReleaseTree(ctx, process.ID()); releaseErr != nil {
 			t.Error(releaseErr)
 		}
-		if closeErr := engine.Close(); closeErr != nil {
+		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 			t.Error(closeErr)
 		}
 	})
@@ -480,7 +480,7 @@ func runTrajectory(t *testing.T) trajectory.Trajectory {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = engine.Close() })
+	t.Cleanup(func() { _ = engine.Close(context.WithoutCancel(t.Context())) })
 	input, err := agent.EncodeInput(fixtureInput{Value: "done"})
 	if err != nil {
 		t.Fatal(err)

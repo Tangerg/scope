@@ -53,7 +53,7 @@ func TestObservedTreeDurabilityRecordsAcknowledgedBoundaries(t *testing.T) {
 	if err != nil || result.Status() != agent.StatusCompleted {
 		t.Fatalf("result=%s error=%v", result.Status(), err)
 	}
-	if closeErr := engine.Close(); closeErr != nil {
+	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
 	spans := harness.recorder.Ended()
@@ -196,7 +196,7 @@ func ExampleObserver_WrapTreeDurability() {
 	if err != nil {
 		panic(err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.Background()); err != nil {
 		panic(err)
 	}
 	fmt.Println("durability observation configured")

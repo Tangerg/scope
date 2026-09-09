@@ -87,7 +87,7 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 			if releaseErr := engine.ReleaseTree(ctx, root.ID()); releaseErr != nil {
 				t.Fatal(releaseErr)
 			}
-			if closeErr := engine.Close(); closeErr != nil {
+			if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 				t.Fatal(closeErr)
 			}
 			restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: store, DeploymentResolver: deployment.resolver})
@@ -123,7 +123,7 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 			if first.calls.Load() != 1 || uncertain.calls.Load() != 1 || last.calls.Load() != 1 || modelCalls.Load() != 2 {
 				t.Fatalf("final tool/model calls=%d/%d/%d/%d", first.calls.Load(), uncertain.calls.Load(), last.calls.Load(), modelCalls.Load())
 			}
-			if closeErr := restoredEngine.Close(); closeErr != nil {
+			if closeErr := restoredEngine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 				t.Fatal(closeErr)
 			}
 		})

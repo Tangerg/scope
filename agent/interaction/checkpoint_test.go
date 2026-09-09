@@ -82,7 +82,7 @@ func captureWaitingCheckpoint(
 			t.Fatal(awaitErr)
 		}
 	}
-	if closeErr := firstEngine.Close(); closeErr != nil {
+	if closeErr := firstEngine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
 	if string(pending.Prompt()) != `{"question":"What is your name?"}` {
@@ -123,7 +123,7 @@ func restoreWaitingCheckpoint(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if closeErr := restoredEngine.Close(); closeErr != nil {
+	if closeErr := restoredEngine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
 	return toolProcess, result

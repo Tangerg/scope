@@ -101,7 +101,7 @@ func testForkUsesBoundedWindowsAndDeclarationOrder(t *testing.T) {
 	if strings.Join(output.Branches, ",") != "first,second,third" || output.Total != 21 {
 		t.Fatalf("Fork output = %#v", output)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -138,7 +138,7 @@ func TestForkAttributesLowestFailingBranch(t *testing.T) {
 		!strings.Contains(failure.Message(), "branch first") {
 		t.Fatalf("Fork failure = %#v", failure)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }

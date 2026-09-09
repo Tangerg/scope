@@ -94,7 +94,7 @@ func runObservedProcess(t *testing.T, observer *agentotel.Observer) agent.Result
 	if err != nil || result.Status() != agent.StatusCompleted {
 		t.Fatalf("result status = %s, error = %v", result.Status(), err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	return result
@@ -216,7 +216,7 @@ func TestObserverRecordsStableProcessFailureAttribution(t *testing.T) {
 	if err != nil || result.Status() != agent.StatusFailed {
 		t.Fatalf("result = %s, error = %v", result.Status(), err)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 
@@ -287,7 +287,7 @@ func TestObserverRecordsStepAndEffectFactErrors(t *testing.T) {
 			if err != nil || result.Status() != test.wantStatus {
 				t.Fatalf("result = %s, error = %v", result.Status(), err)
 			}
-			if err := engine.Close(); err != nil {
+			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 				t.Fatal(err)
 			}
 
@@ -329,7 +329,7 @@ func TestObserverDistinguishesRestoredProcessActivation(t *testing.T) {
 	if _, awaitErr := original.Await(context.Background()); awaitErr != nil {
 		t.Fatal(awaitErr)
 	}
-	if closeErr := source.Close(); closeErr != nil {
+	if closeErr := source.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
 
@@ -360,7 +360,7 @@ func TestObserverDistinguishesRestoredProcessActivation(t *testing.T) {
 	if result, awaitErr := restored.Await(context.Background()); awaitErr != nil || result.Status() != agent.StatusCompleted {
 		t.Fatalf("restored result = %s termination=%+v, error = %v", result.Status(), result.Termination(), awaitErr)
 	}
-	if err := restoredEngine.Close(); err != nil {
+	if err := restoredEngine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 
@@ -411,7 +411,7 @@ func captureObserverEvents(t *testing.T) []agent.Event {
 	if result, runErr := engine.Run(context.Background(), testDeployment(t), input); runErr != nil || !result.Valid() {
 		t.Fatalf("result = %#v, error = %v", result, runErr)
 	}
-	if closeErr := engine.Close(); closeErr != nil {
+	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
 	return events
@@ -762,7 +762,7 @@ func captureProcessStartedEvent(t *testing.T) agent.Event {
 	if result, runErr := engine.Run(context.Background(), testDeployment(t), input); runErr != nil || !result.Valid() {
 		t.Fatalf("capture run result = %#v, error = %v", result, runErr)
 	}
-	if err := engine.Close(); err != nil {
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 	if !started.Valid() {

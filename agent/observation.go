@@ -39,11 +39,15 @@ func (e EventListenerFunc) OnEvent(ctx context.Context, event Event) {
 }
 
 // DeltaListener observes best-effort Strategy streaming increments. Panics are
-// isolated; slow listeners may cause bounded queue drops.
+// isolated; slow listeners may cause bounded queue drops. Implementations must
+// return in bounded time without closing or flushing their Engine.
 type DeltaListener interface {
 	// OnDelta receives an accepted best-effort increment in queue order. Delivery
 	// is sequential per listener but may lag Process execution; slow callbacks can
 	// cause later increments to be dropped. The callback cannot affect execution.
+	// Close and FlushDeltas using this context, or a derived context, return
+	// [ErrListenerReentrancy] while this invocation is active because both would
+	// wait for the worker delivering this callback.
 	OnDelta(ctx context.Context, delta Delta)
 }
 
@@ -154,7 +158,7 @@ func (o *observationBus) deliverDeltas() {
 			continue
 		}
 		for _, listener := range o.deltas {
-			if callDeltaListener(observation.ctx, listener, observation.delta) {
+			if o.callDeltaListener(observation.ctx, listener, observation.delta) {
 				incrementObservationFailure(&o.deltaListenerPanics)
 			}
 		}
@@ -165,7 +169,6 @@ func (o *observationBus) flushDeltas(ctx context.Context) error {
 	if o.deltaQueue == nil {
 		return nil
 	}
-	ctx = requireContext(ctx)
 	barrier := make(chan struct{})
 	o.deltaMu.RLock()
 	if o.deltaClosed {
@@ -187,12 +190,16 @@ func (o *observationBus) flushDeltas(ctx context.Context) error {
 	}
 }
 
-func callDeltaListener(ctx context.Context, listener DeltaListener, delta Delta) (panicked bool) {
+func (o *observationBus) callDeltaListener(ctx context.Context, listener DeltaListener, delta Delta) (panicked bool) {
 	defer func() {
 		if recover() != nil {
 			panicked = true
 		}
 	}()
+	active := new(atomic.Bool)
+	active.Store(true)
+	defer active.Store(false)
+	ctx = context.WithValue(ctx, observedDeltaKey{bus: o}, active)
 	listener.OnDelta(ctx, delta)
 	return false
 }
