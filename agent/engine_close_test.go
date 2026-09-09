@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"testing/synctest"
 )
@@ -44,7 +45,7 @@ func TestConcurrentEngineCloseWaitsForObserverCompletion(t *testing.T) {
 	})
 }
 
-func TestEngineCloseAllowsRegistryReadsDuringTerminalPublication(t *testing.T) {
+func TestEngineCloseRejectsIncompleteTerminalPublication(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		entered, release := make(chan struct{}), make(chan struct{})
 		engine, err := NewEngine(EngineConfig{EventListeners: []EventListener{
@@ -67,23 +68,53 @@ func TestEngineCloseAllowsRegistryReadsDuringTerminalPublication(t *testing.T) {
 			t.Fatal(err)
 		}
 		<-entered
-		closed := make(chan error, 1)
-		go func() { closed <- engine.Close() }()
-		synctest.Wait()
-		// A terminal listener may inspect the registry before it returns.
-		// Close cannot hold that registry while waiting for the publication.
+		if err := engine.Close(); !errors.Is(err, ErrEngineHasActiveProcesses) {
+			t.Errorf("Close during terminal publication = %v, want ErrEngineHasActiveProcesses", err)
+		}
 		if registered, found := engine.Process(process.ID()); !found || registered.ID() != process.ID() {
 			t.Error("terminal Process disappeared during Close")
 		}
-		if len(closed) != 0 {
-			t.Error("Close returned before terminal publication completed")
-		}
 		close(release)
-		if closeErr := <-closed; closeErr != nil {
-			t.Fatalf("Close = %v", closeErr)
-		}
 		if result, awaitErr := process.Await(t.Context()); awaitErr != nil || result.Status() != StatusCompleted {
 			t.Fatalf("Await = %s, %v", result.Status(), awaitErr)
 		}
+		if err := engine.Close(); err != nil {
+			t.Fatal(err)
+		}
 	})
+}
+
+func TestTerminalListenerCannotCloseItsOwnEngine(t *testing.T) {
+	for _, durable := range []bool{false, true} {
+		synctest.Test(t, func(t *testing.T) {
+			var engine *Engine
+			result := make(chan error, 1)
+			config := EngineConfig{EventListeners: []EventListener{
+				EventListenerFunc(func(_ context.Context, event Event) {
+					if event.Name() == EventProcessFinished {
+						result <- engine.Close()
+					}
+				}),
+			}}
+			if durable {
+				config.TreeDurability = &recordingTreeDurability{}
+			}
+			var err error
+			engine, err = NewEngine(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			input, err := EncodeInput(childTestInput{Mode: "leaf"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := engine.Run(t.Context(), newChildTestDeployment(t), input); err != nil {
+				t.Fatal(err)
+			}
+			if err := <-result; !errors.Is(err, ErrEngineHasActiveProcesses) {
+				t.Fatalf("listener Close with durable=%t: %v, want ErrEngineHasActiveProcesses", durable, err)
+			}
+			mustCloseEngine(t, engine)
+		})
+	}
 }

@@ -134,6 +134,9 @@ func (p *Process) RequestCancellation(ctx context.Context, reason string) error 
 	if runtime == nil {
 		return p.handle.closedRequestError()
 	}
+	if err := runtime.engine.observation.checkListenerReentrancy(ctx, p.handle.relation.RootID(), "RequestCancellation"); err != nil {
+		return err
+	}
 	select {
 	case runtime.commands <- newTreeProcessCommand(
 		p.handle.processID,
@@ -173,6 +176,11 @@ func (p *Process) Await(ctx context.Context) (Result, error) {
 		return Result{}, ErrProcessNotRunning
 	}
 	ctx = requireContext(ctx)
+	if runtime := p.handle.runtime.Load(); runtime != nil {
+		if err := runtime.engine.observation.checkListenerReentrancy(ctx, p.handle.relation.RootID(), "Await"); err != nil {
+			return Result{}, err
+		}
+	}
 	select {
 	case <-p.handle.bookkeepingDone:
 		return p.handle.outcome()
@@ -189,12 +197,12 @@ func (p *Process) request(ctx context.Context, command processCommand) (processR
 	if err := ctx.Err(); err != nil {
 		return processResponse{}, err
 	}
-	if err := checkListenerReentrancy(ctx, p.handle.relation.RootID(), "process control"); err != nil {
-		return processResponse{}, err
-	}
 	runtime := p.handle.runtime.Load()
 	if runtime == nil {
 		return processResponse{}, p.handle.closedRequestError()
+	}
+	if err := runtime.engine.observation.checkListenerReentrancy(ctx, p.handle.relation.RootID(), "process control"); err != nil {
+		return processResponse{}, err
 	}
 	command.response = make(chan processResponse, 1)
 	select {

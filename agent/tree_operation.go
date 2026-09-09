@@ -17,6 +17,12 @@ func (e *Engine) acquireTreeOperation(
 	rootID ProcessID,
 ) (*treeOperation, error) {
 	ctx = requireContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := e.observation.checkListenerReentrancy(ctx, rootID, "tree operation"); err != nil {
+		return nil, err
+	}
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err

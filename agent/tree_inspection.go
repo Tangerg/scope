@@ -96,6 +96,9 @@ func (e *Engine) InspectTree(ctx context.Context, rootID ProcessID) (TreeInspect
 	if err := ctx.Err(); err != nil {
 		return TreeInspection{}, err
 	}
+	if err := e.observation.checkListenerReentrancy(ctx, rootID, "InspectTree"); err != nil {
+		return TreeInspection{}, err
+	}
 	runtime, err := e.runtimeForTree(rootID)
 	if err != nil {
 		return TreeInspection{}, err
@@ -109,9 +112,6 @@ type treeInspectionResponse struct {
 }
 
 func (t *treeRuntime) inspect(ctx context.Context) (TreeInspection, error) {
-	if err := checkListenerReentrancy(ctx, t.rootID, "InspectTree"); err != nil {
-		return TreeInspection{}, err
-	}
 	select {
 	case <-t.done:
 		return t.finalInspection.inspection.clone(), t.finalInspection.err

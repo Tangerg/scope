@@ -285,9 +285,11 @@ func (e *Engine) Process(id ProcessID) (*Process, bool) {
 	return &Process{handle: handle}, true
 }
 
-// Close rejects active Processes, pending starts or restorations, and trees
-// that still own asynchronous work or a freeze. Once closing begins, it joins
-// remaining outcome bookkeeping before stopping observation workers.
+// Close rejects pending starts or restorations, Processes whose result
+// publication or parent/child bookkeeping is incomplete, and trees that still
+// own asynchronous work or a freeze. Await joins a Process's bookkeeping;
+// callers must establish this completion before closing the Engine.
+// Once closing begins, it drains accepted Delta delivery and stops observation workers.
 // Concurrent callers join the same closure; existing handles retain results
 // and RuntimeErrors for later reads.
 func (e *Engine) Close() error {
@@ -305,23 +307,15 @@ func (e *Engine) Close() error {
 		e.mu.Unlock()
 		return fmt.Errorf("%w: Process publication is pending", ErrEngineHasActiveProcesses)
 	}
-	var pendingBookkeeping []*processHandleState
 	for _, handle := range e.processes {
-		select {
-		case <-handle.outcomePublished:
-		default:
-			if !handle.status().Terminal() {
-				e.mu.Unlock()
-				return fmt.Errorf(
-					"%w: Process %s is still running",
-					ErrEngineHasActiveProcesses, handle.processID,
-				)
-			}
-		}
 		select {
 		case <-handle.bookkeepingDone:
 		default:
-			pendingBookkeeping = append(pendingBookkeeping, handle)
+			e.mu.Unlock()
+			return fmt.Errorf(
+				"%w: Process %s has an unpublished outcome or pending parent/child bookkeeping",
+				ErrEngineHasActiveProcesses, handle.processID,
+			)
 		}
 	}
 	for rootID, runtime := range e.trees {
@@ -333,21 +327,9 @@ func (e *Engine) Close() error {
 			)
 		}
 	}
-	if len(pendingBookkeeping) != 0 && e.durability != nil {
-		e.mu.Unlock()
-		return fmt.Errorf(
-			"%w: Process %s has an unpublished outcome or pending parent/child bookkeeping",
-			ErrEngineHasActiveProcesses, pendingBookkeeping[0].processID,
-		)
-	}
 	done := make(chan struct{})
 	e.closeDone = done
 	e.mu.Unlock()
-	// Close admission before joining publication and parent/child bookkeeping,
-	// whose listeners may inspect the registry and therefore need e.mu.
-	for _, handle := range pendingBookkeeping {
-		<-handle.bookkeepingDone
-	}
 	e.observation.close()
 	close(done)
 	return nil

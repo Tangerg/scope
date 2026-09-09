@@ -4,44 +4,27 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 )
 
-// ErrListenerReentrancy reports a query or control call made from inside a
-// synchronous [EventListener] callback against the tree that callback is
-// observing.
-//
-// The callback runs on that tree's own owner, and every query and control path
-// waits for a turn from the same owner, so the call would wait for work the
-// owner cannot start until the callback returns. Nothing breaks the wait: event
-// publication deliberately hands the listener a context stripped of
-// cancellation so publication order survives a canceled caller, which is
-// exactly the context whose Done channel those paths would otherwise fall back
-// on. Without this the violation is a permanent hang with no diagnostic.
-//
-// [EventListener] already states the obligation. This turns breaking it into an
-// error the listener can act on, for the ordinary case of a listener that
-// forwards the context it was handed.
+// ErrListenerReentrancy reports a tree operation, Process control, or Await
+// using the context of an active synchronous [EventListener] for that Engine
+// and root. Derived contexts retain this restriction until the callback returns.
+// A callback that replaces its context still must obey the listener contract.
 var ErrListenerReentrancy = errors.New("agent: listener called its own tree")
 
-// observedTreeKey carries the root of the tree whose owner is currently inside
-// a listener callback. Only that tree is refused: another tree has its own
-// owner and is not blocked by this callback.
-type observedTreeKey struct{}
-
-// withObservedTree marks the context handed to a synchronous listener.
-func withObservedTree(ctx context.Context, rootID ProcessID) context.Context {
-	if !rootID.Valid() {
-		return ctx
-	}
-	return context.WithValue(ctx, observedTreeKey{}, rootID)
+// The Engine's observation bus distinguishes independent restorations of the
+// same root. Different keys also preserve active ancestors through nested
+// callbacks without retaining a separate call-chain representation.
+type observedTreeKey struct {
+	bus    *observationBus
+	rootID ProcessID
 }
 
-// checkListenerReentrancy refuses a call whose context says its own tree's
-// owner is busy delivering an event to a listener.
-func checkListenerReentrancy(ctx context.Context, rootID ProcessID, operation string) error {
-	observed, ok := ctx.Value(observedTreeKey{}).(ProcessID)
-	if !ok || observed != rootID {
+func (o *observationBus) checkListenerReentrancy(ctx context.Context, rootID ProcessID, operation string) error {
+	active, ok := ctx.Value(observedTreeKey{bus: o, rootID: rootID}).(*atomic.Bool)
+	if !ok || !active.Load() {
 		return nil
 	}
-	return fmt.Errorf("%w: %s on tree %s would wait for the owner delivering the event", ErrListenerReentrancy, operation, rootID)
+	return fmt.Errorf("%w: %s on tree %s is unavailable while its listener is active", ErrListenerReentrancy, operation, rootID)
 }

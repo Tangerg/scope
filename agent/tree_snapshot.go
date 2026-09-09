@@ -391,9 +391,6 @@ func (t *treeRuntime) acquireTreeFreeze(
 	if err := ctx.Err(); err != nil {
 		return nil, TreeSnapshot{}, err
 	}
-	if err := checkListenerReentrancy(ctx, t.rootID, "CaptureTree"); err != nil {
-		return nil, TreeSnapshot{}, err
-	}
 	if snapshot, err, stopped := t.captureStoppedTree(); stopped {
 		return nil, snapshot, err
 	}

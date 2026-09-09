@@ -181,12 +181,12 @@
 // Snapshots own lifecycle, usage, wait authority, and Unknown settlements;
 // runtime work may be newer than a durable snapshot. Reports describe one
 // owner turn, never drive execution, and add nothing to the recovery schema.
-// Synchronous [EventListener] callbacks must not query or control their tree.
-// A callback that forwards the context it was handed is told so with
-// [ErrListenerReentrancy] instead of waiting for a turn its own callback is
-// holding: publication strips cancellation to keep listener-visible order, so
-// nothing else would end that wait. Another tree has its own owner and stays
-// reachable.
+// Synchronous [EventListener] callbacks must not query, control, or Await their
+// tree. Calls that forward the callback context receive [ErrListenerReentrancy]
+// while that invocation is active. Different tree owners remain independently
+// callable, but callbacks must avoid cyclic waits and return in bounded time.
+// Engine.Close requires completed publication and bookkeeping in both durable
+// and ephemeral mode; Await establishes that completion for each Process.
 //
 // A durable writer can stop without terminating the logical execution. Storage
 // failures and ownership conflicts reach [Process.Await] as a [RuntimeError]

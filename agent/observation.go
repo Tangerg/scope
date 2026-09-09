@@ -20,10 +20,12 @@ type EventListener interface {
 	// activations also carry distinct TreeIncarnationIDs. Different tree runtimes
 	// may call the listener concurrently. It runs synchronously on the
 	// observed tree's owner, so it must return in bounded time without querying or
-	// controlling that tree (including Engine.InspectTree). A call that forwards
-	// this context to that tree is refused with [ErrListenerReentrancy] rather
-	// than left waiting for a turn this callback is holding. It has no veto or
-	// acknowledgment authority.
+	// controlling that tree, or calling Process.Await on it. Calls using this
+	// context, or a derived context, return [ErrListenerReentrancy] while the
+	// callback is active. The restriction ends when this invocation returns,
+	// including after a panic. Calls to other trees must still return in bounded
+	// time; distinct owners do not prevent cyclic waits between callbacks.
+	// The listener has no veto or acknowledgment authority.
 	OnEvent(ctx context.Context, event Event)
 }
 
@@ -105,24 +107,23 @@ func newObservationBus(events []EventListener, deltas []DeltaListener, capacity 
 }
 
 func (o *observationBus) publishEvent(ctx context.Context, event Event) {
-	// Mark the tree whose owner is delivering this event, so a listener that
-	// forwards this context into a query or control call on that tree gets
-	// [ErrListenerReentrancy] rather than the permanent wait it would
-	// otherwise sit in.
-	ctx = withObservedTree(ctx, event.relation.RootID())
 	for _, listener := range o.events {
-		if callEventListener(ctx, listener, event) {
+		if o.callEventListener(ctx, listener, event) {
 			incrementObservationFailure(&o.eventListenerPanics)
 		}
 	}
 }
 
-func callEventListener(ctx context.Context, listener EventListener, event Event) (panicked bool) {
+func (o *observationBus) callEventListener(ctx context.Context, listener EventListener, event Event) (panicked bool) {
 	defer func() {
 		if recover() != nil {
 			panicked = true
 		}
 	}()
+	active := new(atomic.Bool)
+	active.Store(true)
+	defer active.Store(false)
+	ctx = context.WithValue(ctx, observedTreeKey{bus: o, rootID: event.relation.RootID()}, active)
 	listener.OnEvent(ctx, event)
 	return false
 }
