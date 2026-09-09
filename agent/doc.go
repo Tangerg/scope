@@ -273,6 +273,17 @@
 //
 // # Boundaries
 //
+// A long-lived Host can run successive bounded root trees. The successive
+// episodes example under Engine.Start establishes a completed, joined predecessor,
+// seals input routing, reconciles SignalReceipts, and binds explicit successor
+// state, Deployment, limits, and authority. Its Host transaction links the
+// successor identity with the initial tree checkpoint; a lost start response is
+// reconciled by restoring that identity. Calling Start with equal Input alone
+// does not provide idempotent successor admission. Retained unconsumed inputs
+// keep their predecessor address, and unresolved descendant Effects prevent the
+// example's safe boundary. Production Hosts implement the transaction and
+// retention policy in their own durable storage.
+//
 // The framework owns definition validation, deployment freezing, the Process
 // state machine, signal ordering and deduplication, effect identity and
 // settlement, budgets, the lifecycle, framework events, and the snapshot and

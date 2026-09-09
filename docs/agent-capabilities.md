@@ -2,7 +2,7 @@
 
 Scope's `agent` module is a general agent and harness framework. It must support model-directed agents, planners, workflows, reactive coordinators, and compositions that the framework authors have not anticipated. This design explains the execution guarantees those agents share, where their behavior can vary, and how to prove that a new capability composes without creating another runtime.
 
-**Status: design proposal.** The [Agent package contract](../agent/doc.go) and checked examples describe implemented behavior. Requirements and candidate extensions below describe the intended architecture; they do not announce new APIs or guarantees. Each implementation change still needs its own contract, impact review, and executable acceptance cases.
+The [Agent package contract](../agent/doc.go) and checked examples own the implemented APIs and guarantees. This document explains those contracts and defines the criteria for stronger guarantees such as atomic delivery across recipients or transfer of live work. Candidate extensions still require their own contract, impact review, and executable acceptance cases.
 
 This document addresses framework and strategy authors. It owns the architectural reasoning across Agent, capability adapters, and the embedding application. It follows [Scope's design philosophy](../DESIGN_PHILOSOPHY.md); package GoDoc remains the sole module entry point and API authority.
 
@@ -204,7 +204,7 @@ Debate, review, auctions, group discussion, and task routing can share runtime o
 
 A coordinator can own shared logical state and serialize updates through its Execution. Independent Processes do not share mutable Execution objects. If state belongs in an external store, access goes through explicit Effects with the store's concurrency and acknowledgment semantics.
 
-Reusable storage or transport adapters may belong in a separately owned capability package. The embedding application chooses and configures them; it should not have to reimplement Agent effect settlement. Cross-tree interaction retains the guarantees of its transport and storage contracts without implying cross-tree atomic recovery.
+Reusable storage or transport adapters may belong in a separately owned capability package. The embedding application chooses and configures them; it should not have to reimplement Agent effect settlement. The [shared-state coordination test](../agent/shared_state_coordination_test.go) runs competing conditional updates through independent Processes and an external store. A revision conflict is a business observation; recovery preserves the acknowledged observation even after the store advances again. Cross-tree interaction retains the guarantees of its transport and storage contracts without implying cross-tree atomic recovery.
 
 ## Complete the lifecycle contract
 
@@ -265,6 +265,8 @@ A general harness should support long-lived agent behavior through explicit exec
 
 Use an episode to mean a bounded application operation, not a proposed kernel type. At a safe boundary, a strategy can produce the domain state needed for a subsequent episode. The application or a reusable orchestration capability owns the transition between episodes.
 
+The [checked successive-episodes example](../agent/example_continuation_test.go) establishes this initial boundary through public contracts. It requires a completed root, successful Join, a fully terminal authoritative tree, and no unresolved Effect in any descendant. The Host seals input routing and retains admitted but unconsumed input at its original recipient. It transfers explicit domain Output into a successor's Input and makes a new limits and authority decision.
+
 A reusable continuation contract must specify:
 
 - The completed episode and immutable identity of the requested successor
@@ -276,11 +278,13 @@ A reusable continuation contract must specify:
 
 Restarting the same tree is recovery; starting a successor is a new logical execution. `Engine.Start` does not become idempotent because the Input is unchanged. A Host that starts successors needs an authoritative admission protocol, not an in-memory check followed by an unrelated start.
 
+The example's Host transaction freezes one successor request per predecessor and fences incomplete initialization attempts. ProcessAdmitter checks that attempt's identity, binding, and allocation. The start checkpoint and successor identity become visible atomically. After a lost start acknowledgment, lookup finds the original successor and restoration resumes its committed tree. Tests cover loss before initialization, a late fenced initialization, and loss after tree creation; each publishes one successor and reserves one new allocation. The in-memory teaching store models this transaction for checked examples; production database implementations remain Host-owned.
+
 The safe boundary also needs an input cutover. Input can enter the old mailbox after the final Step receives its Signal window, so the final Output cannot automatically contain every accepted input. The continuation protocol must establish when ingress stops routing new deliveries to the old episode, resolve outstanding admissions, and account for each accepted but unconsumed input before extracting successor state. Inputs still outside the old mailbox retain their ingress owner. Old admissions retain their recipient binding until their consumption or other explicit disposition is established.
 
-An orchestration capability may own these routing and successor-admission facts. It must obtain consumption and termination facts through public contracts; it cannot take over the old Process's mailbox, Effect journal, or lifecycle. If those contracts cannot establish the required cutover, the proposed boundary is not yet safe.
+ProcessSnapshot.SignalReceipts supplies the consumption facts needed for this cutover without transferring mailbox or journal ownership. The cutover test admits input after the final Step's Signal window, leaves its ingress acknowledgment pending, creates the successor, and then delivers the old acknowledgment. The input remains retained at the predecessor under its original identity and payload. A delivery bound before sealing but never admitted stays with ingress; a new delivery cannot bind to the sealed episode. Reusing an old delivery identity against the successor remains a conflict.
 
-The initial continuation design should require an explicit safe boundary. Transferring live children or pending external work between trees introduces ownership and recovery semantics that cannot be inferred from a product session ID. That stronger operation remains a separate design gate.
+The initial continuation contract requires this explicit safe boundary. A completed competition with an unresolved losing descendant is rejected even after local Join succeeds. Transferring live children or unresolved external work between trees introduces ownership and recovery semantics that cannot be inferred from a product session ID. That stronger operation remains a separate design gate.
 
 ## Criteria for adding a kernel operation
 
@@ -345,16 +349,16 @@ For each construction, test the relevant lifecycle boundaries:
 
 Use exact expectations for identities, outputs, accepted and consumed inputs, settlements, allocations, and terminal causes. Do not require identical wall-clock scheduling after a restart. Preserve committed facts and the strategy's declared ordering rules; test unconstrained races as unconstrained races.
 
-Existing evidence starts with [external Definition conformance](../agent/external_api_test.go), [cross-strategy child binding](../agent/child_cross_strategy_test.go), [subtree cancellation](../agent/subtree_cancellation_test.go), [wait authority](../agent/wait_authority_test.go), and [tree durability](../agent/tree_durability_test.go). These tests establish parts of the foundation; the acceptance matrix does not claim complete implementation coverage.
+Existing evidence starts with [external Definition conformance](../agent/external_api_test.go), [cross-strategy child binding](../agent/child_cross_strategy_test.go), [subtree cancellation](../agent/subtree_cancellation_test.go), [wait authority](../agent/wait_authority_test.go), and [tree durability](../agent/tree_durability_test.go). The [coordination](../agent/coordination/first_success_test.go), [message recovery](../agent/messaging/delivery_test.go), and [episode cutover](../agent/continuation_cutover_test.go) suites exercise the added constructions. The matrix remains the acceptance criteria for further strategy policies; it does not imply that each named domain protocol is a packaged strategy.
 
 ## Deliver changes as complete semantic slices
 
-Implementation should establish one coherent guarantee at a time, with its public contract, state rules, and tests changing together. The sequence below favors the owner defects that affect every composition before adding broader orchestration APIs.
+Implementation establishes one coherent guarantee at a time, with its public contract, state rules, and tests changing together. The implemented guarantees form five semantic slices:
 
-1. **Complete cancellation propagation.** Connect active work to runtime-owned cancellation, preserve settlement and storage acknowledgment, and test late completion and Unknown handling.
-2. **Specify result and drain boundaries.** Define the observable contract needed for selective replacement and resource reuse. Prove whether a public composition suffices before changing Process lifecycle APIs.
-3. **Validate reusable coordination.** Implement bounded input gates, deadline participation, and success selection through the canonical protocol. Package them only around a coherent reusable operation.
-4. **Validate reliable communication.** Exercise the narrow delivery adapter across acknowledgment loss and recovery. Add a native operation only if the required atomicity or authority cannot be maintained by that adapter.
-5. **Define safe episode continuation.** Establish explicit state transfer and idempotent successor admission before supporting transfer of active work.
+1. **Cancellation and settlement.** The runtime cancels owned attempts, collects started work, preserves actual settlements, and retains required storage acknowledgment.
+2. **Results and drain.** Await publishes one result; Join establishes scoped local completion. Child waits select the result or drained boundary explicitly through one protocol.
+3. **Bounded coordination.** InputGate, Deadline, and FirstSuccess compose independent progress sources through ordinary Definitions and child Effects.
+4. **Reliable communication.** Message Effects retain a concrete recipient and stable Signal identity. Public mailbox receipts support reconciliation across acknowledgment loss and receiver completion.
+5. **Safe episode continuation.** Checked Host composition seals ingress, retains old input obligations, transfers explicit domain state, and atomically admits one successor under a new allocation.
 
 Each slice must work end to end for its stated scope, including recovery, cancellation, and drain. Implemented contracts move into GoDoc and checked examples, while this document retains the architectural decisions and criteria for further extension.
