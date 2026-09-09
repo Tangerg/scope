@@ -9,6 +9,13 @@ import (
 	"github.com/Tangerg/scope/core/embedding"
 )
 
+// MaxTextsPerEmbedRequest is the documented ceiling for one embed call: "the
+// maximum length of the list is 1,000". A larger request is refused here rather
+// than sent to be rejected. Voyage also caps the total token count per request,
+// by model rather than uniformly, which a text count cannot predict; that limit
+// surfaces as a provider error.
+const MaxTextsPerEmbedRequest = 1000
+
 // EmbeddingModelConfig binds provider access and defaults shared by every embedding call.
 type EmbeddingModelConfig struct {
 	APIKey         string
@@ -88,6 +95,11 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequ
 	}
 
 	apiReq.Model = effectiveOptions.Model
+	if len(req.Texts) > MaxTextsPerEmbedRequest {
+		return nil, fmt.Errorf("voyage: embed accepts at most %d texts per call, got %d",
+			MaxTextsPerEmbedRequest, len(req.Texts))
+	}
+
 	apiReq.Input = req.Texts
 
 	if effectiveOptions.Dimensions != nil {

@@ -14,6 +14,12 @@
 // including a boolean set through the request extension — no portable effort
 // can express "do not think", so that stays the extension's job.
 //
+// Embedding input is truncated by default. /api/embed's truncate parameter
+// "defaults to true", so a text past the model's context window is embedded
+// from a prefix and nothing reports it; setting it false makes Ollama return an
+// error instead. The knob reaches the wire through the native request
+// extension.
+//
 // See https://github.com/ollama/ollama/blob/main/docs/api.md for the API
 // reference.
 package ollama

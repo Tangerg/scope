@@ -11,6 +11,13 @@ import (
 	"github.com/Tangerg/scope/core/embedding"
 )
 
+// MaxTextsPerEmbedRequest is the documented ceiling for one embed call:
+// "Maximum number of texts per call is 96". A larger request is refused here
+// rather than sent to be rejected, and it cannot be split without turning one
+// caller-visible call into several with their own partial-failure and usage
+// accounting.
+const MaxTextsPerEmbedRequest = 96
+
 // EmbeddingModelConfig binds provider access and defaults shared by every embedding call.
 type EmbeddingModelConfig struct {
 	APIKey         string
@@ -73,6 +80,11 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*cohere.V2Embe
 		return nil, err
 	}
 	apiReq := &apiRequest
+
+	if len(req.Texts) > MaxTextsPerEmbedRequest {
+		return nil, fmt.Errorf("cohere: embed accepts at most %d texts per call, got %d",
+			MaxTextsPerEmbedRequest, len(req.Texts))
+	}
 
 	apiReq.Model = effectiveOptions.Model
 	apiReq.Texts = req.Texts
