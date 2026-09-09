@@ -278,7 +278,7 @@ func validateProcessSnapshot(wire processSnapshotWire) error {
 	if err := validateSnapshotLifecycle(wire, mailbox); err != nil {
 		return err
 	}
-	if err := validatePendingControlWire(wire.PendingControl); err != nil {
+	if _, err := pendingControlFromWire(wire.PendingControl); err != nil {
 		return fmt.Errorf("%w: pending control: %w", ErrInvalidSnapshot, err)
 	}
 	return nil
@@ -468,14 +468,6 @@ func validatePreparedWaitEffect(record preparedEffectWire, name string) error {
 		return fmt.Errorf("%s has an incomplete or unknown settlement", name)
 	}
 	return nil
-}
-
-// validatePendingControlWire admits a wire pending control without keeping the
-// value it would become. It defers to [pendingControlFromWire] so the rules
-// stay in one place rather than being restated here and drifting.
-func validatePendingControlWire(control pendingControlWire) error {
-	_, err := pendingControlFromWire(control)
-	return err
 }
 
 func emptyPendingControl(control pendingControlWire) bool { return control == pendingControlWire{} }

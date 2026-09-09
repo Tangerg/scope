@@ -132,12 +132,6 @@ func (p *processState) restorePreparedStep(wire *preparedStepWire) error {
 	return nil
 }
 
-// pendingControlFromWire is the only place a wire pending control becomes a
-// domain value, so it is also the only place the rules are enforced: the intent
-// constructors own them, and running them once both admits the wire and yields
-// the value. Validating first and then constructing again meant the second
-// construction's error had nowhere to go, which read as a rule kept in two
-// places with one of them ignored.
 func pendingControlFromWire(wire pendingControlWire) (pendingControl, error) {
 	if wire.Failure != nil && !wire.Failure.Valid() {
 		return pendingControl{}, ErrInvalidFailure
