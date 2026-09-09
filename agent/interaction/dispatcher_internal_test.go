@@ -31,10 +31,8 @@ func TestFailedDirectResultCannotEnterProtocolOrRestore(t *testing.T) {
 	}
 	state := executionState{
 		Phase: phaseCompleted, ModelCallCount: 1,
-		WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}},
-		FinalOutput: &Output{
-			Source: CompletionSourceDirectToolResults, ModelCalls: 1, DirectToolResults: []chat.ToolResult{result},
-		},
+		WorkingContext:   &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}},
+		FinalToolResults: []chat.ToolResult{result},
 	}
 	encoded, err := encodeState(state)
 	if err != nil {
@@ -43,7 +41,7 @@ func TestFailedDirectResultCannotEnterProtocolOrRestore(t *testing.T) {
 	if _, restoreErr := definition.Restore(encoded); !errors.Is(restoreErr, ErrInvalidExecutionState) {
 		t.Fatalf("Restore = %v, want ErrInvalidExecutionState", restoreErr)
 	}
-	state.FinalOutput.DirectToolResults[0].IsError = false
+	state.FinalToolResults[0].IsError = false
 	encoded, err = encodeState(state)
 	if err != nil {
 		t.Fatal(err)

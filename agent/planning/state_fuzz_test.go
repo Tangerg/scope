@@ -66,7 +66,7 @@ func FuzzExecutionStateRestore(f *testing.F) {
 	f.Add([]byte(initial.Payload()))
 	f.Add([]byte(awaiting.Payload()))
 	f.Add([]byte(`{"phase":"completed","input":{},"world_state":{"conditions":[]},"planning_passes":1}`))
-	f.Add([]byte(`{"phase":"ready_sense","input":{},"world_state":{"conditions":[]},"planning_passes":0,"outcome":"achieved"}`))
+	f.Add([]byte(`{"phase":"ready_sense","input":{},"world_state":{"conditions":[]},"planning_passes":1}`))
 	f.Fuzz(func(t *testing.T, payload []byte) {
 		state, err := agent.NewExecutionState(executionStateKind, payload)
 		if err != nil {

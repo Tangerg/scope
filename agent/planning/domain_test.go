@@ -7,7 +7,6 @@ import (
 	"slices"
 	"testing"
 
-	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/planning"
 )
 
@@ -168,12 +167,6 @@ func TestProblemValidatesPlannerOutputAgainstItsActions(t *testing.T) {
 
 func TestOutputValidatesCompletedPlanningFacts(t *testing.T) {
 	done := mustCondition(t, "world.done", planning.True)
-	action := mustAction(t, planning.ActionConfig{
-		Name: "action.finish", Description: "Finish the work.", Effects: []planning.Condition{done},
-	})
-	definition := newManagedDefinition(t, managedDeploymentConfig{
-		goal: mustGoal(t, done), bindings: []planning.ActionBinding{mustDispatcherBinding(t, action)},
-	})
 	succeeded := planning.Attempt{ActionName: "action.finish", Status: planning.AttemptSucceeded}
 	failed := planning.Attempt{ActionName: "action.finish", Status: planning.AttemptFailed, Diagnostic: "refused"}
 	unconfirmed := planning.Attempt{ActionName: "action.finish", Status: planning.AttemptUnconfirmed, Diagnostic: "not observed"}
@@ -205,19 +198,6 @@ func TestOutputValidatesCompletedPlanningFacts(t *testing.T) {
 			}
 			if err := output.Validate(); (err == nil) != test.valid {
 				t.Fatalf("Validate = %v, want valid=%t", err, test.valid)
-			}
-			payload := mustJSON(t, struct {
-				Phase string          `json:"phase"`
-				Input json.RawMessage `json:"input"`
-				planning.Output
-			}{Phase: "completed", Input: json.RawMessage(`{}`), Output: output})
-			state, err := agent.NewExecutionState("planning", payload)
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = definition.Restore(state)
-			if (err == nil) != test.valid || err != nil && !errors.Is(err, planning.ErrInvalidExecutionState) {
-				t.Fatalf("Restore = %v, want valid=%t", err, test.valid)
 			}
 		})
 	}

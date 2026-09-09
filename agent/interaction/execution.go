@@ -163,7 +163,6 @@ func (e *execution) acceptModel(signals []agent.Signal) (agent.Transition, error
 	}
 
 	e.state.PendingModelResponse = response
-	e.state.NextToolCallIndex = 0
 	e.state.ActiveToolCallEndIndex = 0
 	e.state.SettledToolResults = nil
 	e.state.DirectToolResultEligible = true
@@ -248,7 +247,8 @@ func (e *execution) complete(consumedSignals uint32, output Output) (agent.Trans
 	e.clearToolCallBatch()
 	e.state.WaitID = nil
 	e.state.PendingSteer = nil
-	e.state.FinalOutput = &output
+	e.state.FinalModelResponse = output.ModelResponse
+	e.state.FinalToolResults = output.DirectToolResults
 	return agent.Complete(consumedSignals, encoded)
 }
 
@@ -307,13 +307,13 @@ func (e *execution) advanceToolCallBatch(consumedSignals uint32) (agent.Transiti
 	for {
 		calls, assistant, err := responseToolCalls(e.state.PendingModelResponse)
 		if err != nil || uint64(len(calls)) > uint64(^uint32(0)) ||
-			uint64(e.state.NextToolCallIndex) > uint64(len(calls)) {
+			uint64(e.state.nextToolCallIndex()) > uint64(len(calls)) {
 			return agent.Transition{}, fmt.Errorf("%w: invalid pending ToolCall batch", ErrInvalidExecutionState)
 		}
-		if e.state.NextToolCallIndex == uint32(len(calls)) {
+		if e.state.nextToolCallIndex() == uint32(len(calls)) {
 			return e.finishToolCallBatch(consumedSignals, assistant)
 		}
-		if _, delegated := e.definition.delegate(calls[e.state.NextToolCallIndex].Name); delegated {
+		if _, delegated := e.definition.delegate(calls[e.state.nextToolCallIndex()].Name); delegated {
 			e.state.DirectToolResultEligible = false
 			transition, started, startErr := e.startDelegateSegment(consumedSignals, calls)
 			if startErr != nil {
@@ -365,16 +365,15 @@ func (e *execution) finishToolCallBatch(
 
 func (e *execution) activeCallSegment() ([]chat.ToolCall, error) {
 	calls, _, err := responseToolCalls(e.state.PendingModelResponse)
-	if err != nil || e.state.NextToolCallIndex >= e.state.ActiveToolCallEndIndex ||
+	if err != nil || e.state.nextToolCallIndex() >= e.state.ActiveToolCallEndIndex ||
 		uint64(e.state.ActiveToolCallEndIndex) > uint64(len(calls)) {
 		return nil, fmt.Errorf("%w: invalid active ToolCall segment", ErrInvalidExecutionState)
 	}
-	return calls[e.state.NextToolCallIndex:e.state.ActiveToolCallEndIndex], nil
+	return calls[e.state.nextToolCallIndex():e.state.ActiveToolCallEndIndex], nil
 }
 
 func (e *execution) clearToolCallBatch() {
 	e.state.PendingModelResponse = nil
-	e.state.NextToolCallIndex = 0
 	e.state.ActiveToolCallEndIndex = 0
 	e.state.SettledToolResults = nil
 	e.state.DirectToolResultEligible = false

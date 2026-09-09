@@ -43,7 +43,6 @@ type executionState struct {
 	ModelCallCount           uint32                `json:"model_call_count"`
 	AdvertisedToolNames      []string              `json:"advertised_tool_names,omitempty"`
 	PendingModelResponse     *chat.Response        `json:"pending_model_response,omitempty"`
-	NextToolCallIndex        uint32                `json:"next_tool_call_index,omitempty"`
 	ActiveToolCallEndIndex   uint32                `json:"active_tool_call_end_index,omitempty"`
 	SettledToolResults       []chat.ToolResult     `json:"settled_tool_results,omitempty"`
 	DirectToolResultEligible bool                  `json:"direct_tool_result_eligible,omitempty"`
@@ -52,7 +51,8 @@ type executionState struct {
 	WaitID                   *agent.WaitID         `json:"wait_id,omitempty"`
 	PendingSteer             *steerBatch           `json:"pending_steer,omitempty"`
 	ArtifactRecords          []artifactRecord      `json:"artifact_records,omitempty"`
-	FinalOutput              *Output               `json:"final_output,omitempty"`
+	FinalModelResponse       *chat.Response        `json:"final_model_response,omitempty"`
+	FinalToolResults         []chat.ToolResult     `json:"final_tool_results,omitempty"`
 }
 
 type artifactRecord struct {
@@ -129,14 +129,14 @@ func (e executionState) validatePhaseState(definition *Definition) error {
 }
 
 func (e executionState) validateReadyModelState() error {
-	if e.hasPendingBatch() || e.WaitID != nil || e.PendingSteer != nil || e.FinalOutput != nil {
+	if e.hasPendingBatch() || e.WaitID != nil || e.PendingSteer != nil || e.hasFinalOutput() {
 		return fmt.Errorf("%w: ready_model has inconsistent pending response or limit", ErrInvalidExecutionState)
 	}
 	return nil
 }
 
 func (e executionState) validateAwaitingModelState() error {
-	if e.hasPendingBatch() || e.WaitID != nil || e.PendingSteer != nil || e.FinalOutput != nil || e.ModelCallCount == 0 {
+	if e.hasPendingBatch() || e.WaitID != nil || e.PendingSteer != nil || e.hasFinalOutput() || e.ModelCallCount == 0 {
 		return fmt.Errorf("%w: awaiting_model has inconsistent pending response or limit", ErrInvalidExecutionState)
 	}
 	return nil
@@ -147,7 +147,7 @@ func (e executionState) validateActiveCallState(definition *Definition) error {
 	if err != nil {
 		return err
 	}
-	active := calls[e.NextToolCallIndex:e.ActiveToolCallEndIndex]
+	active := calls[e.nextToolCallIndex():e.ActiveToolCallEndIndex]
 	delegateSegment := e.delegatePhase()
 	for _, call := range active {
 		_, delegated := definition.delegate(call.Name)
@@ -207,15 +207,34 @@ func (e executionState) validateToolCallState(active []chat.ToolCall, definition
 	return nil
 }
 
+func (e executionState) nextToolCallIndex() uint32 {
+	return uint32(len(e.SettledToolResults))
+}
+
+func (e executionState) hasFinalOutput() bool {
+	return e.FinalModelResponse != nil || len(e.FinalToolResults) != 0
+}
+
+func (e executionState) output() Output {
+	output := Output{
+		ModelCalls: e.ModelCallCount, ModelResponse: e.FinalModelResponse,
+		DirectToolResults: e.FinalToolResults,
+	}
+	switch {
+	case e.FinalModelResponse != nil:
+		output.Source = CompletionSourceModelResponse
+	case len(e.FinalToolResults) != 0:
+		output.Source = CompletionSourceDirectToolResults
+	}
+	return output
+}
+
 func (e executionState) validateCompletedState() error {
-	if e.hasPendingBatch() || e.WaitID != nil || e.PendingSteer != nil || e.FinalOutput == nil || e.ModelCallCount == 0 {
+	if e.hasPendingBatch() || e.WaitID != nil || e.PendingSteer != nil {
 		return fmt.Errorf("%w: completed state requires only its final Output", ErrInvalidExecutionState)
 	}
-	if err := e.FinalOutput.Validate(); err != nil {
+	if err := e.output().Validate(); err != nil {
 		return fmt.Errorf("%w: final Output: %w", ErrInvalidExecutionState, err)
-	}
-	if e.FinalOutput.ModelCalls != e.ModelCallCount {
-		return fmt.Errorf("%w: final Output model-call count does not match state", ErrInvalidExecutionState)
 	}
 	return nil
 }
@@ -268,11 +287,9 @@ func (e executionState) validateCurrentBatchArtifacts(definition *Definition) er
 		if artifact.ModelCallSequence != e.ModelCallCount {
 			continue
 		}
-		if artifact.ToolCallIndex >= e.NextToolCallIndex || uint64(artifact.ToolCallIndex) >= uint64(len(calls)) {
+		if uint64(artifact.ToolCallIndex) >= uint64(len(calls)) ||
+			uint64(artifact.ToolCallIndex) >= uint64(len(e.SettledToolResults)) {
 			return fmt.Errorf("%w: current-round artifact is not settled", ErrInvalidExecutionState)
-		}
-		if uint64(artifact.ToolCallIndex) >= uint64(len(e.SettledToolResults)) {
-			return fmt.Errorf("%w: current-round artifact has no settled result", ErrInvalidExecutionState)
 		}
 		call := calls[artifact.ToolCallIndex]
 		if call.ID != artifact.ToolCallID || call.Name != artifact.DelegateName {
@@ -291,13 +308,13 @@ func (e executionState) validateCurrentBatchArtifacts(definition *Definition) er
 }
 
 func (e executionState) hasPendingBatch() bool {
-	return e.PendingModelResponse != nil || e.NextToolCallIndex != 0 || e.ActiveToolCallEndIndex != 0 ||
+	return e.PendingModelResponse != nil || e.ActiveToolCallEndIndex != 0 ||
 		len(e.SettledToolResults) != 0 || e.DirectToolResultEligible || e.ToolSegment != nil ||
 		e.DelegateSegment != nil
 }
 
 func (e executionState) validatePendingBatch() ([]chat.ToolCall, error) {
-	if e.PendingModelResponse == nil || e.FinalOutput != nil || e.ModelCallCount == 0 {
+	if e.PendingModelResponse == nil || e.hasFinalOutput() || e.ModelCallCount == 0 {
 		return nil, fmt.Errorf("%w: active call phase requires a model response", ErrInvalidExecutionState)
 	}
 	if err := e.PendingModelResponse.Validate(); err != nil {
@@ -310,14 +327,13 @@ func (e executionState) validatePendingBatch() ([]chat.ToolCall, error) {
 	if err != nil || len(calls) == 0 || uint64(len(calls)) > uint64(^uint32(0)) {
 		return nil, fmt.Errorf("%w: pending response has no bounded unambiguous tool calls", ErrInvalidExecutionState)
 	}
-	if e.NextToolCallIndex != uint32(len(e.SettledToolResults)) ||
-		e.NextToolCallIndex >= e.ActiveToolCallEndIndex || uint64(e.ActiveToolCallEndIndex) > uint64(len(calls)) {
+	if uint64(len(e.SettledToolResults)) >= uint64(e.ActiveToolCallEndIndex) || uint64(e.ActiveToolCallEndIndex) > uint64(len(calls)) {
 		return nil, fmt.Errorf("%w: ToolCall cursor is inconsistent", ErrInvalidExecutionState)
 	}
-	if err := validateToolResults(calls[:e.NextToolCallIndex], e.SettledToolResults); err != nil {
+	if err := validateToolResults(calls[:e.nextToolCallIndex()], e.SettledToolResults); err != nil {
 		return nil, err
 	}
-	if !e.DirectToolResultEligible && e.NextToolCallIndex == 0 && e.Phase == phaseAwaitingToolStarts {
+	if !e.DirectToolResultEligible && e.nextToolCallIndex() == 0 && e.Phase == phaseAwaitingToolStarts {
 		return nil, fmt.Errorf("%w: fresh Tool batch lost its direct-result candidate", ErrInvalidExecutionState)
 	}
 	return calls, nil
@@ -364,7 +380,7 @@ func (e executionState) activeDelegateCalls() ([]chat.ToolCall, error) {
 		e.Phase != phaseAwaitingDelegateWaitOpen &&
 		e.Phase != phaseWaitingDelegates ||
 		e.WorkingContext == nil || e.ModelCallCount == 0 ||
-		e.FinalOutput != nil || e.ToolSegment != nil || e.DelegateSegment == nil {
+		e.hasFinalOutput() || e.ToolSegment != nil || e.DelegateSegment == nil {
 		return nil, ErrInvalidExecutionState
 	}
 	if err := e.WorkingContext.Validate(); err != nil || len(e.WorkingContext.Tools) != 0 {
@@ -379,7 +395,7 @@ func (e executionState) activeDelegateCalls() ([]chat.ToolCall, error) {
 	if err != nil {
 		return nil, err
 	}
-	active := calls[e.NextToolCallIndex:e.ActiveToolCallEndIndex]
+	active := calls[e.nextToolCallIndex():e.ActiveToolCallEndIndex]
 	if err := e.DelegateSegment.validate(e.Phase, active); err != nil {
 		return nil, err
 	}

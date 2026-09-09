@@ -102,10 +102,10 @@ func (e *execution) acceptSense(
 		e.state.confirmAction(binding.action)
 	}
 	if e.definition.goal.SatisfiedBy(e.state.WorldState) {
-		return e.complete(consumedSignals, OutcomeAchieved)
+		return e.complete(consumedSignals)
 	}
 	if uint64(len(e.state.Attempts)) >= uint64(e.definition.maxActionAttempts) {
-		return e.complete(consumedSignals, OutcomeStuck)
+		return e.complete(consumedSignals)
 	}
 	if e.state.PlanningPasses == math.MaxUint32 {
 		return e.fail(
@@ -123,11 +123,7 @@ func (e *execution) acceptSense(
 	}
 	if !found {
 		e.state.PlanningPasses++
-		outcome := OutcomeUnreachable
-		if len(e.state.Attempts) > 0 {
-			outcome = OutcomeStuck
-		}
-		return e.complete(consumedSignals, outcome)
+		return e.complete(consumedSignals)
 	}
 	if err := problem.ValidatePlan(plan); err != nil {
 		return e.fail(consumedSignals, agent.FailureKindContract, "planning.planner.contract", err.Error())
@@ -291,8 +287,8 @@ func (e *execution) acceptChildCompletion(signals []agent.Signal) (agent.Transit
 	return e.requestSense(uint32(len(signals)))
 }
 
-func (e *execution) complete(consumedSignals uint32, outcome Outcome) (agent.Transition, error) {
-	output, err := e.state.complete(e.definition, outcome)
+func (e *execution) complete(consumedSignals uint32) (agent.Transition, error) {
+	output, err := e.state.complete(e.definition)
 	if err != nil {
 		return agent.Transition{}, err
 	}

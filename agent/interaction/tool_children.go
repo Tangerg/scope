@@ -77,11 +77,10 @@ func (t toolSegmentState) validate(current phase, calls []chat.ToolCall, modelSe
 }
 
 func (e *execution) startToolSegment(consumed uint32, calls []chat.ToolCall) (agent.Transition, bool, error) {
-	start := e.state.NextToolCallIndex
+	start := e.state.nextToolCallIndex()
 	if _, found := e.definition.tools.entries[calls[start].Name]; !found {
 		e.state.SettledToolResults = append(e.state.SettledToolResults, rejectedToolResult(calls[start], fmt.Sprintf("tool %q is not available", calls[start].Name)))
 		e.state.DirectToolResultEligible = false
-		e.state.NextToolCallIndex++
 		return agent.Transition{}, false, nil
 	}
 	end := start + 1
@@ -120,7 +119,7 @@ func (e *execution) scheduleToolChildren(consumed uint32) (agent.Transition, err
 			return agent.Transition{}, keyErr
 		}
 		input, inputErr := agent.EncodeInput(toolCall{
-			ModelCallSequence: e.state.ModelCallCount, ToolCallIndex: e.state.NextToolCallIndex + index, Call: call,
+			ModelCallSequence: e.state.ModelCallCount, ToolCallIndex: e.state.nextToolCallIndex() + index, Call: call,
 		})
 		if inputErr != nil {
 			return agent.Transition{}, inputErr
@@ -155,7 +154,6 @@ func (e *execution) scheduleToolChildren(consumed uint32) (agent.Transition, err
 		}
 		e.state.DirectToolResultEligible = e.state.DirectToolResultEligible && invocation.Result.Direct
 	}
-	e.state.NextToolCallIndex = e.state.ActiveToolCallEndIndex
 	e.state.ActiveToolCallEndIndex = 0
 	e.state.ToolSegment = nil
 	return e.advanceToolCallBatch(consumed)
@@ -298,7 +296,7 @@ func (e *execution) toolWaitSpec() (agent.ChildWaitSpec, error) {
 			completed++
 		}
 	}
-	key, err := agent.ParseWaitKey(fmt.Sprintf("tools:%d:%d:%d", e.state.ModelCallCount, e.state.NextToolCallIndex, completed))
+	key, err := agent.ParseWaitKey(fmt.Sprintf("tools:%d:%d:%d", e.state.ModelCallCount, e.state.nextToolCallIndex(), completed))
 	if err != nil {
 		return agent.ChildWaitSpec{}, err
 	}
