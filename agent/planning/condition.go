@@ -63,5 +63,5 @@ type conditionWire struct {
 	Truth Truth  `json:"truth" jsonschema:"enum=false,enum=true"`
 }
 
-// JSONSchemaModel returns the typed JSON wire model owned by Condition.
-func (Condition) JSONSchemaModel() any { return conditionWire{} }
+// JSONSchemaAlias returns the typed JSON wire model owned by Condition.
+func (Condition) JSONSchemaAlias() any { return conditionWire{} }

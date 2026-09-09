@@ -54,6 +54,8 @@ func (i identity) MarshalText() ([]byte, error) {
 	return []byte(i.value), nil
 }
 
+func (identity) JSONSchemaAlias() any { return "" }
+
 func (i *identity) UnmarshalText(text []byte) error {
 	if i == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidIdentity)

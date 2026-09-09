@@ -84,3 +84,5 @@ type signalWire struct {
 	WaitID  *WaitID         `json:"wait_id,omitempty"`
 	Payload json.RawMessage `json:"payload"`
 }
+
+func (Signal) JSONSchemaAlias() any { return signalWire{} }

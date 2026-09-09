@@ -389,3 +389,5 @@ type terminationWire struct {
 	Failure             *Failure         `json:"failure,omitempty"`
 	UnresolvedEffectIDs []EffectID       `json:"unresolved_effect_ids,omitempty"`
 }
+
+func (Termination) JSONSchemaAlias() any { return terminationWire{} }

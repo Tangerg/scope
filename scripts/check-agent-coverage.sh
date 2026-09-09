@@ -8,6 +8,7 @@ cd "$(dirname "$0")/../agent"
 coverage_budget=(
   ". 76.5"
   "./agenttest 76.8"
+  "./coordination 78.0"
   "./examples/autonomous 67.8"
   "./examples/composition 71.3"
   "./examples/direct_vs_managed 67.4"

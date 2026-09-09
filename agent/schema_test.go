@@ -33,6 +33,29 @@ func TestSchemaForValidatesTypedWireValues(t *testing.T) {
 	}
 }
 
+func TestSchemaForChildSpecUsesItsPublicWireContract(t *testing.T) {
+	key, err := ParseChildKey("candidate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := EncodeInput(childTestInput{Mode: "leaf"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := childTestSpec(key, newChildTestDeployment(t).DeploymentRef(), input)
+	schema, err := SchemaFor[ChildSpec]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := EncodeInput(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validationErr := schema.ValidateInput(encoded); validationErr != nil {
+		t.Fatalf("a canonical child request cannot cross a typed strategy input: %v; schema=%s", validationErr, schema.JSON())
+	}
+}
+
 func TestSchemaForMatchesEncodingJSONWireTypes(t *testing.T) {
 	schema, err := SchemaFor[jsonWireFixture]()
 	if err != nil {

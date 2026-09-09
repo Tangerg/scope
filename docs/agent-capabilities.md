@@ -151,7 +151,7 @@ A missing convenience API does not by itself prove a missing runtime capability.
 
 ### Bounded reactive coordination
 
-A coordinator can represent independent sources of progress as owned child executions. An input gate waits for one external input and completes with that input as Output. A worker runs the requested operation. A timer child completes after an explicit deadline through an external timing adapter.
+A coordinator can represent independent sources of progress as owned child executions. The [coordination package](../agent/coordination/doc.go) provides an InputGate that completes with the original admitted Signal, and a Deadline backed by a cancellable Timer Dispatcher. Its checked example composes these Definitions with an independent workflow worker and FirstSuccess under one ownership scope.
 
 ```mermaid
 flowchart TB
@@ -168,7 +168,7 @@ Slow work belongs in worker children when the coordinator must remain responsive
 
 This construction guarantees a decision after a selected child becomes terminal. It does not guarantee that the first raw input admitted anywhere in the tree wins. An input gate needs a Step after admission before it becomes terminal. `AnyChild` reports terminal outcomes in request order; it is not an earliest-event arbitration primitive. See [child waiting](../agent/child_wait.go).
 
-Timer composition also requires an honest external contract. The deadline must survive restoration, and replay must not restart an entire relative delay. A settled Unknown requires the existing adjudication path. A sleeping goroutine alone does not establish durable timing or cancellation.
+Deadline records an absolute instant. Timer may replay that same read-only request under the original Effect identity; restoration never restarts a relative delay. Cancellation releases the timer and returns a definite interrupted result. A settled Unknown still requires the existing adjudication path. Recovery tests retain the original deadline, wait address, input identity, and resource charges.
 
 Repeated gates consume child and Signal allocations. The construction fits bounded coordination episodes. Its resource cost and input-routing contract must be part of any reusable abstraction built from it.
 
@@ -176,7 +176,7 @@ Replacing a gate also changes the input address. The router must retain the dest
 
 ### First successful result and scoped competition
 
-A strategy can wait for any child, inspect business outcomes, and continue waiting on unfinished children until its success predicate holds. It retains the failure facts needed for its decision. A count of terminal children does not imply successful results or consensus.
+FirstSuccess waits for any candidate child, applies an explicit pure success predicate to completed results, and continues waiting on unfinished children until that predicate holds. It retains failed starts and observed outcomes in request order. Its result explicitly represents all-failed completion with no winner. A count of terminal children does not imply successful results or consensus.
 
 The strategy must define the result when every candidate fails and how it selects among multiple outcomes visible in one Signal window. It must also handle a child that is already terminal when the wait is registered, using the runtime's existing wait protocol.
 

@@ -16,6 +16,7 @@ const moduleImportPath = "github.com/Tangerg/scope/agent"
 var allowedPackageDependencies = map[string]map[string]struct{}{
 	".":                        {},
 	"agenttest":                {".": {}},
+	"coordination":             {".": {}},
 	"interaction":              {".": {}},
 	"planning":                 {".": {}},
 	"planning/goap":            {"planning": {}},

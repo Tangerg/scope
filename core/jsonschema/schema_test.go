@@ -24,7 +24,54 @@ type richFixtureModel struct {
 	Value int `json:"value" jsonschema:"minimum=1"`
 }
 
-func (richFixture) JSONSchemaModel() any { return richFixtureModel{} }
+func (richFixture) JSONSchemaAlias() any { return richFixtureModel{} }
+
+type nestedRichFixture struct{}
+
+type nestedRichFixtureModel struct {
+	Value richFixture `json:"value"`
+	Wire  wireFixture `json:"wire"`
+}
+
+func (nestedRichFixture) JSONSchemaAlias() any { return nestedRichFixtureModel{} }
+
+func TestForRetainsDefinitionsInsideNestedWireModels(t *testing.T) {
+	type result struct {
+		Nested nestedRichFixture `json:"nested"`
+	}
+	schema, err := jsonschema.For[result]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Validate([]byte(`{"nested":{"value":{"value":1},"wire":{"metadata":{},"signature":null}}}`)); err != nil {
+		t.Fatalf("nested wire model rejected its public representation: %v", err)
+	}
+	if err := schema.Validate([]byte(`{"nested":{"value":{"value":0},"wire":{"metadata":{},"signature":null}}}`)); err == nil {
+		t.Fatal("nested wire model lost its value constraint")
+	}
+}
+
+type recursiveRichFixture struct{}
+
+type recursiveRichFixtureModel struct {
+	Value int                   `json:"value" jsonschema:"minimum=1"`
+	Next  *recursiveRichFixture `json:"next,omitempty"`
+}
+
+func (recursiveRichFixture) JSONSchemaAlias() any { return recursiveRichFixtureModel{} }
+
+func TestForRetainsRecursiveWireModelReferences(t *testing.T) {
+	schema, err := jsonschema.For[recursiveRichFixture]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Validate([]byte(`{"value":1,"next":{"value":2,"next":{"value":3}}}`)); err != nil {
+		t.Fatalf("recursive wire model rejected valid content: %v", err)
+	}
+	if err := schema.Validate([]byte(`{"value":1,"next":{"value":2,"next":{"value":0}}}`)); err == nil {
+		t.Fatal("recursive wire model lost its nested constraint")
+	}
+}
 
 func TestForMatchesEncodingJSONAndOwnsDocument(t *testing.T) {
 	schema, err := jsonschema.For[wireFixture]()

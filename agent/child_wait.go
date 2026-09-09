@@ -193,6 +193,31 @@ func (c ChildOutcome) Result() Result { return c.result }
 
 func (c ChildOutcome) Valid() bool { return c.key.Valid() && c.result.Valid() }
 
+func (c ChildOutcome) MarshalJSON() ([]byte, error) {
+	if !c.Valid() {
+		return nil, ErrInvalidChildWait
+	}
+	return json.Marshal(childOutcomeWire{Key: c.key, Result: resultWireFromValue(c.result)})
+}
+
+func (c *ChildOutcome) UnmarshalJSON(data []byte) error {
+	if c == nil {
+		return ErrInvalidChildWait
+	}
+	wire, err := wireJSON.decode[childOutcomeWire](data)
+	if err != nil {
+		return fmt.Errorf("%w: decode child outcome: %w", ErrInvalidChildWait, err)
+	}
+	value, err := wire.value()
+	if err != nil {
+		return err
+	}
+	*c = value
+	return nil
+}
+
+func (ChildOutcome) JSONSchemaAlias() any { return childOutcomeWire{} }
+
 // ChildWaitSatisfied is one condition-satisfying, request-ordered child result
 // set. For any or quorum it includes every child at the requested boundary at
 // the atomic satisfaction check, without canceling or omitting based on status.

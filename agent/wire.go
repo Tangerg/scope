@@ -56,6 +56,8 @@ func (i Input) JSON() json.RawMessage { return bytes.Clone(i.data) }
 
 func (i Input) Valid() bool { return len(i.data) > 0 }
 
+func (Input) JSONSchemaAlias() any { return json.RawMessage{} }
+
 func (i Input) MarshalJSON() ([]byte, error) {
 	if !i.Valid() {
 		return nil, ErrInvalidInput
@@ -113,6 +115,8 @@ func (o Output) Decode[T any]() (T, error) {
 func (o Output) JSON() json.RawMessage { return bytes.Clone(o.data) }
 
 func (o Output) Valid() bool { return len(o.data) > 0 }
+
+func (Output) JSONSchemaAlias() any { return json.RawMessage{} }
 
 func (o Output) MarshalJSON() ([]byte, error) {
 	if !o.Valid() {

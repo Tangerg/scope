@@ -26,12 +26,13 @@ var ErrInvalid = errors.New("jsonschema: invalid schema")
 
 // Modeler is implemented by rich values whose encoding/json representation is
 // described by a separate typed model. Implementations must return the same
-// non-nil model type on every call.
+// non-nil model type on every call and use a value receiver. The native reflector
+// keeps nested and recursive model references in the same schema definition set.
 type Modeler interface {
-	// JSONSchemaModel returns a non-nil typed value whose encoding/json wire shape
+	// JSONSchemaAlias returns a non-nil typed value whose encoding/json wire shape
 	// exactly matches the receiver's custom encoding. The concrete model type is
 	// part of the schema contract and must remain stable across calls.
-	JSONSchemaModel() any
+	JSONSchemaAlias() any
 }
 
 // Schema is an immutable, compiled JSON Schema. Its zero value is invalid and
@@ -107,33 +108,17 @@ func reflectType(typeOf reflect.Type) (definition *reflection.Schema, err error)
 }
 
 func reflectWireType(typeOf reflect.Type) *reflection.Schema {
+	modeler := reflect.TypeFor[Modeler]()
+	if !typeOf.Implements(modeler) && reflect.PointerTo(typeOf).Implements(modeler) {
+		panic(fmt.Sprintf("%v.JSONSchemaAlias requires a value receiver", typeOf))
+	}
 	if typeOf == reflect.TypeFor[[]byte]() {
 		return &reflection.Schema{OneOf: []*reflection.Schema{
 			{Type: "null"},
 			{Type: "string", ContentEncoding: "base64"},
 		}}
 	}
-	modelType, modeled := schemaModelType(typeOf)
-	if !modeled {
-		return nil
-	}
-	definition, err := reflectType(modelType)
-	if err != nil {
-		panic(err)
-	}
-	return definition
-}
-
-func schemaModelType(typeOf reflect.Type) (reflect.Type, bool) {
-	modeler, modeled := reflect.TypeAssert[Modeler](reflect.New(typeOf))
-	if !modeled {
-		return nil, false
-	}
-	model := modeler.JSONSchemaModel()
-	if model == nil {
-		panic(fmt.Sprintf("%v.JSONSchemaModel returned nil", typeOf))
-	}
-	return reflect.TypeOf(model), true
+	return nil
 }
 
 func qualifiedTypeName(typeOf reflect.Type) string {

@@ -138,7 +138,17 @@ func TestValidateRejectsUndecodableValues(t *testing.T) {
 
 type brokenModeler struct{}
 
-func (brokenModeler) JSONSchemaModel() any { return nil }
+type pointerModeler struct{}
+
+func (*pointerModeler) JSONSchemaAlias() any { return "" }
+
+func TestForRejectsPointerOnlyWireModelMethods(t *testing.T) {
+	if _, err := jsonschema.For[pointerModeler](); !errors.Is(err, jsonschema.ErrInvalid) {
+		t.Fatalf("pointer-only schema model must not silently become an empty object: %v", err)
+	}
+}
+
+func (brokenModeler) JSONSchemaAlias() any { return nil }
 
 type brokenModelerHolder struct {
 	Value brokenModeler `json:"value"`
@@ -155,7 +165,7 @@ func TestForRejectsAModelerReturningNil(t *testing.T) {
 
 type underivableModeler struct{}
 
-func (underivableModeler) JSONSchemaModel() any { return make(chan int) }
+func (underivableModeler) JSONSchemaAlias() any { return make(chan int) }
 
 type underivableModelerHolder struct {
 	Value underivableModeler `json:"value"`

@@ -51,6 +51,8 @@ func (d Digest) Valid() bool {
 	return err == nil
 }
 
+func (Digest) JSONSchemaAlias() any { return "" }
+
 func (d Digest) MarshalText() ([]byte, error) {
 	if !d.Valid() {
 		return nil, ErrInvalidDigest

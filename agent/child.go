@@ -91,6 +91,22 @@ func (c ChildStartResult) Valid() bool {
 		(c.processID.Valid() != c.failure.Valid())
 }
 
+func (c ChildStartResult) MarshalJSON() ([]byte, error) { return encodeChildStartResult(c) }
+
+func (c *ChildStartResult) UnmarshalJSON(data []byte) error {
+	if c == nil {
+		return ErrInvalidChildStart
+	}
+	value, err := decodeChildStartResult(data)
+	if err != nil {
+		return err
+	}
+	*c = value
+	return nil
+}
+
+func (ChildStartResult) JSONSchemaAlias() any { return childStartResultWire{} }
+
 // ParseChildStartResult decodes a Framework-owned child-start settlement
 // Signal. The Signal must not address a wait.
 func ParseChildStartResult(signal Signal) (ChildStartResult, error) {

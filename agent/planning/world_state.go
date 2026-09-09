@@ -139,5 +139,5 @@ type worldStateWire struct {
 	Conditions []Condition `json:"conditions"`
 }
 
-// JSONSchemaModel returns the typed JSON wire model owned by WorldState.
-func (WorldState) JSONSchemaModel() any { return worldStateWire{} }
+// JSONSchemaAlias returns the typed JSON wire model owned by WorldState.
+func (WorldState) JSONSchemaAlias() any { return worldStateWire{} }

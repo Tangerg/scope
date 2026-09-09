@@ -121,6 +121,8 @@ type deploymentRefWire struct {
 	Digest Digest `json:"digest"`
 }
 
+func (DeploymentRef) JSONSchemaAlias() any { return deploymentRefWire{} }
+
 func (d DeploymentRef) identityWire() deploymentIdentityWire {
 	return deploymentIdentityWire{
 		Name:                 d.name,

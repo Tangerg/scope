@@ -34,6 +34,8 @@ func (c Capability) MarshalText() ([]byte, error) {
 	return []byte(c.name), nil
 }
 
+func (Capability) JSONSchemaAlias() any { return "" }
+
 func (c *Capability) UnmarshalText(text []byte) error {
 	if c == nil {
 		return ErrInvalidCapability
@@ -47,7 +49,7 @@ func (c *Capability) UnmarshalText(text []byte) error {
 }
 
 // CapabilitySet is an immutable, sorted set of authority names. Its zero value
-// is the valid empty set.
+// is the valid empty set, encoded as an empty JSON array. JSON null is invalid.
 type CapabilitySet struct{ values []Capability }
 
 // NewCapabilitySet builds the frozen grant a Process runs under. It is a set
@@ -107,8 +109,13 @@ func (c CapabilitySet) MarshalJSON() ([]byte, error) {
 	if !c.Valid() {
 		return nil, ErrInvalidCapability
 	}
+	if len(c.values) == 0 {
+		return []byte("[]"), nil
+	}
 	return json.Marshal(c.values)
 }
+
+func (CapabilitySet) JSONSchemaAlias() any { return []Capability{} }
 
 func (c *CapabilitySet) UnmarshalJSON(data []byte) error {
 	if c == nil {
@@ -117,6 +124,9 @@ func (c *CapabilitySet) UnmarshalJSON(data []byte) error {
 	values, err := wireJSON.decode[[]Capability](data)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidCapability, err)
+	}
+	if values == nil {
+		return ErrInvalidCapability
 	}
 	value, err := NewCapabilitySet(values...)
 	if err != nil || len(value.values) != len(values) {

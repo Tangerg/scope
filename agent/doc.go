@@ -252,12 +252,14 @@
 //
 // # Strategies
 //
-// Three strategies run on this one kernel. The interaction package implements
+// Distinct strategies run on this one kernel. The interaction package implements
 // ReAct-style model and tool loops with working context, delegates, and
 // artifacts. The planning package, with planning/goap, implements goal-driven
 // search over immutable actions. The workflow package implements ordered
 // deterministic stages over a closed vocabulary, composing through real child
 // Processes rather than by nesting a second Execution.
+// The coordination package composes bounded input gates, absolute deadlines,
+// and first-success competition through the same child and wait contracts.
 //
 // The Engine never imports or type-switches a concrete strategy. A new
 // strategy is admitted by implementing the waist, state codec, and safe
