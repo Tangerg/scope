@@ -189,6 +189,9 @@ func (p *Process) request(ctx context.Context, command processCommand) (processR
 	if err := ctx.Err(); err != nil {
 		return processResponse{}, err
 	}
+	if err := checkListenerReentrancy(ctx, p.handle.relation.RootID(), "process control"); err != nil {
+		return processResponse{}, err
+	}
 	runtime := p.handle.runtime.Load()
 	if runtime == nil {
 		return processResponse{}, p.handle.closedRequestError()

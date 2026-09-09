@@ -132,22 +132,52 @@ func (p *processState) restorePreparedStep(wire *preparedStepWire) error {
 	return nil
 }
 
+// pendingControlFromWire is the only place a wire pending control becomes a
+// domain value, so it is also the only place the rules are enforced: the intent
+// constructors own them, and running them once both admits the wire and yields
+// the value. Validating first and then constructing again meant the second
+// construction's error had nowhere to go, which read as a rule kept in two
+// places with one of them ignored.
 func pendingControlFromWire(wire pendingControlWire) (pendingControl, error) {
-	if err := validatePendingControlWire(wire); err != nil {
-		return pendingControl{}, err
+	if wire.Failure != nil && !wire.Failure.Valid() {
+		return pendingControl{}, ErrInvalidFailure
 	}
-	control := pendingControl{pauseReason: wire.PauseReason}
+	var control pendingControl
 	if wire.Failure != nil {
 		control.failure = *wire.Failure
 	}
 	if wire.KillReason != "" {
-		control.kill, _ = newKillIntent(wire.KillReason)
+		kill, err := newKillIntent(wire.KillReason)
+		if err != nil {
+			return pendingControl{}, err
+		}
+		control.kill = kill
+	}
+	if (wire.DeadlineOwner == "") != (wire.DeadlineReason == "") {
+		return pendingControl{}, errInvalidTermination
 	}
 	if wire.DeadlineOwner != "" {
-		control.deadline, _ = newDeadlineIntent(wire.DeadlineOwner, wire.DeadlineReason)
+		deadline, err := newDeadlineIntent(wire.DeadlineOwner, wire.DeadlineReason)
+		if err != nil {
+			return pendingControl{}, err
+		}
+		control.deadline = deadline
+	}
+	if (wire.CancellationOwner == "") != (wire.CancellationReason == "") {
+		return pendingControl{}, errInvalidTermination
 	}
 	if wire.CancellationOwner != "" {
-		control.cancellation, _ = newCancellationIntent(wire.CancellationOwner, wire.CancellationReason)
+		cancellation, err := newCancellationIntent(wire.CancellationOwner, wire.CancellationReason)
+		if err != nil {
+			return pendingControl{}, err
+		}
+		control.cancellation = cancellation
+	}
+	if wire.PauseReason != "" {
+		if err := validateTerminationReason(wire.PauseReason); err != nil {
+			return pendingControl{}, err
+		}
+		control.pauseReason = wire.PauseReason
 	}
 	return control, nil
 }

@@ -470,37 +470,12 @@ func validatePreparedWaitEffect(record preparedEffectWire, name string) error {
 	return nil
 }
 
+// validatePendingControlWire admits a wire pending control without keeping the
+// value it would become. It defers to [pendingControlFromWire] so the rules
+// stay in one place rather than being restated here and drifting.
 func validatePendingControlWire(control pendingControlWire) error {
-	if control.Failure != nil && !control.Failure.Valid() {
-		return ErrInvalidFailure
-	}
-	if control.KillReason != "" {
-		if _, err := newKillIntent(control.KillReason); err != nil {
-			return err
-		}
-	}
-	if (control.DeadlineOwner == "") != (control.DeadlineReason == "") {
-		return errInvalidTermination
-	}
-	if control.DeadlineOwner != "" {
-		if _, err := newDeadlineIntent(control.DeadlineOwner, control.DeadlineReason); err != nil {
-			return err
-		}
-	}
-	if (control.CancellationOwner == "") != (control.CancellationReason == "") {
-		return errInvalidTermination
-	}
-	if control.CancellationOwner != "" {
-		if _, err := newCancellationIntent(control.CancellationOwner, control.CancellationReason); err != nil {
-			return err
-		}
-	}
-	if control.PauseReason != "" {
-		if err := validateTerminationReason(control.PauseReason); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := pendingControlFromWire(control)
+	return err
 }
 
 func emptyPendingControl(control pendingControlWire) bool { return control == pendingControlWire{} }

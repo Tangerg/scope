@@ -109,6 +109,9 @@ type treeInspectionResponse struct {
 }
 
 func (t *treeRuntime) inspect(ctx context.Context) (TreeInspection, error) {
+	if err := checkListenerReentrancy(ctx, t.rootID, "InspectTree"); err != nil {
+		return TreeInspection{}, err
+	}
 	select {
 	case <-t.done:
 		return t.finalInspection.inspection.clone(), t.finalInspection.err

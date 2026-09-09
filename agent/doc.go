@@ -182,6 +182,11 @@
 // runtime work may be newer than a durable snapshot. Reports describe one
 // owner turn, never drive execution, and add nothing to the recovery schema.
 // Synchronous [EventListener] callbacks must not query or control their tree.
+// A callback that forwards the context it was handed is told so with
+// [ErrListenerReentrancy] instead of waiting for a turn its own callback is
+// holding: publication strips cancellation to keep listener-visible order, so
+// nothing else would end that wait. Another tree has its own owner and stays
+// reachable.
 //
 // A durable writer can stop without terminating the logical execution. Storage
 // failures and ownership conflicts reach [Process.Await] as a [RuntimeError]

@@ -16,6 +16,9 @@ func (e *Engine) ReleaseTree(ctx context.Context, rootID ProcessID) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := checkListenerReentrancy(ctx, rootID, "ReleaseTree"); err != nil {
+		return err
+	}
 	runtime, err := e.runtimeForTree(rootID)
 	if err != nil {
 		return err
