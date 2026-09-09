@@ -2,11 +2,64 @@ package etl_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/etl"
 )
+
+func TestSplitter_ReplacesLineageWhenSplittingUnidentifiedChunks(t *testing.T) {
+	splitter, err := etl.NewSplitter(etl.SplitterConfig{
+		SplitFunc: func(_ context.Context, text string) ([]string, error) {
+			return strings.Fields(text), nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err := document.NewDocument("one two", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent.ID = "original"
+	chunks, err := splitter.Split(t.Context(), []*document.Document{parent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 2 {
+		t.Fatalf("first split returned %d chunks, want 2", len(chunks))
+	}
+	for index, chunk := range chunks {
+		if chunk.ID != "" {
+			t.Fatalf("chunk %d has an unexpected ID %q", index, chunk.ID)
+		}
+	}
+	resplit, err := splitter.Split(t.Context(), chunks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resplit) != 2 {
+		t.Fatalf("second split returned %d chunks, want 2", len(resplit))
+	}
+	for index, chunk := range resplit {
+		if chunk.Text != chunks[index].Text {
+			t.Errorf("chunk %d text = %q, want %q", index, chunk.Text, chunks[index].Text)
+		}
+		if _, exists := chunk.Metadata[etl.MetadataKeyParentID]; exists {
+			t.Errorf("chunk %d inherited its grandparent as its parent", index)
+		}
+		if value, found, decodeErr := chunk.Metadata.Decode[int](etl.MetadataKeyChunkIndex); decodeErr != nil || !found || value != 0 {
+			t.Errorf("chunk %d index = %d, %t, %v, want 0", index, value, found, decodeErr)
+		}
+		if value, found, decodeErr := chunk.Metadata.Decode[int](etl.MetadataKeyChunkTotal); decodeErr != nil || !found || value != 1 {
+			t.Errorf("chunk %d total = %d, %t, %v, want 1", index, value, found, decodeErr)
+		}
+		if value, found, decodeErr := chunks[index].Metadata.Decode[string](etl.MetadataKeyParentID); decodeErr != nil || !found || value != "original" {
+			t.Errorf("source chunk %d parent changed: %q, %t, %v", index, value, found, decodeErr)
+		}
+	}
+}
 
 func TestSplitter_StampsChunkLineage(t *testing.T) {
 	splitter, err := etl.NewSplitter(etl.SplitterConfig{

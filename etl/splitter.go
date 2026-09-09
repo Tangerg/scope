@@ -140,6 +140,8 @@ func (s *Splitter) splitDocument(ctx context.Context, doc *document.Document) ([
 		if chunk.Metadata == nil {
 			chunk.Metadata = metadata.Map{}
 		}
+		// Inherited lineage describes an earlier split, not this source.
+		delete(chunk.Metadata, MetadataKeyParentID)
 		if err := chunk.Metadata.Set(MetadataKeyChunkIndex, index); err != nil {
 			return nil, err
 		}
