@@ -104,6 +104,15 @@
 // A prepared batch has one execution frontier: definitely settled Effects
 // precede at most one pending or unknown Effect, followed only by planned
 // Effects. Runtime scheduling and snapshot admission enforce this same order.
+// Terminal intent stops the remaining batch without adopting candidate state
+// or advancing input consumption. The terminal snapshot retains the started
+// prefix's actual settlements and the unstarted planned tail. PreparedEffects
+// usage and published child allocations remain charged; unused Step and
+// settlement-Signal reservations are released. Restoring this terminal evidence
+// neither executes the candidate nor replays its Effects.
+// A restored pending external attempt becomes Unknown when termination forbids
+// replay. An interrupted child start whose child is absent from the authoritative
+// cut becomes a failed publication; its Host admission may already have run.
 //
 // # Signals and waiting
 //
@@ -161,6 +170,12 @@
 // their owned lifecycle. The surviving parent receives the ordinary completion
 // Signal and its Strategy chooses the next transition. Cancellation uses the
 // same checkpoint acknowledgment as every other terminal transition.
+// Once applied, terminal intent cancels active Step, Dispatch, and child-admission
+// contexts throughout the owned subtree without waiting for an ancestor's work
+// to return. The owner still collects started external work. Initialization
+// outcome and durability acknowledgments are not canceled. A late successful
+// child initialization joins the tree under terminal intent before any Step.
+// [Process.Await] establishes the Process result, not descendant drain.
 //
 // A child-completion delivery failure is recorded as pending termination.
 // Accepted external effects settle first, and any unknown identities remain

@@ -70,6 +70,8 @@ func (p ProcessStartOutcome) Valid() bool {
 // Implementations must be bounded, concurrency-safe, idempotent by admission
 // identity, and must not re-enter Engine or Process, because initialization waits
 // for this call. Restore produces no outcome because it does not initialize.
+// ctx retains Host values but excludes cancellation so an accepted admission
+// can finish its acknowledgment even when its parent is terminating.
 type ProcessStartOutcomeAcknowledger interface {
 	// AcknowledgeProcessStartOutcome must return before publication so a Host
 	// can reject initialization without exposing a usable Process.

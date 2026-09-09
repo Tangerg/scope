@@ -36,8 +36,7 @@ func (t *treeRuntime) applyProcessCommand(process *processState, command process
 	if command.kind == commandHostTerminated {
 		if !process.status.Terminal() {
 			process.recordHostTermination(command.hostErr)
-			t.invalidateStep(process)
-			t.enqueueProcess(process.handle.processID)
+			t.stopProcessTree(process)
 		}
 		return
 	}
@@ -45,7 +44,9 @@ func (t *treeRuntime) applyProcessCommand(process *processState, command process
 		return
 	}
 	process.applyCommand(t.context, command)
-	if process.pendingControl.hasTerminalIntent() || process.pendingControl.pauseReason != "" {
+	if process.pendingControl.hasTerminalIntent() {
+		t.stopProcessTree(process)
+	} else if process.pendingControl.pauseReason != "" {
 		t.invalidateStep(process)
 	}
 	t.finishIfTerminal(process)
@@ -55,7 +56,7 @@ func (t *treeRuntime) applyProcessCommand(process *processState, command process
 }
 
 func (t *treeRuntime) resolveUnknownEffect(process *processState, command processCommand) bool {
-	if process.pendingControl.hasTerminalIntent() {
+	if process.status.Terminal() || process.pendingControl.hasTerminalIntent() {
 		command.reply(processResponse{err: ErrProcessFinished})
 		return true
 	}
@@ -175,4 +176,31 @@ func (t *treeRuntime) invalidateStep(process *processState) {
 	}
 	job.stale = true
 	job.cancel()
+}
+
+// Stopping owned work cannot wait for an ancestor's external call to return.
+// Terminal intermediate Processes still own descendants that may be draining.
+func (t *treeRuntime) stopProcessTree(process *processState) {
+	termination := process.effectiveTermination()
+	if !process.status.Terminal() {
+		if job := t.jobs[process.handle.processID]; job != nil {
+			if job.kind == processJobStep {
+				job.stale = true
+			}
+			if job.cancel != nil {
+				job.cancel()
+			}
+		}
+		t.enqueueProcess(process.handle.processID)
+	}
+	for _, child := range t.processes {
+		parentID, isChild := child.handle.relation.ParentID()
+		if !isChild || parentID != process.handle.processID {
+			continue
+		}
+		if !child.status.Terminal() {
+			child.recordParentTermination(termination)
+		}
+		t.stopProcessTree(child)
+	}
 }

@@ -13,7 +13,7 @@ type ReplayPolicy string
 const (
 	// ReplayPolicyInvalid is the invalid zero value.
 	ReplayPolicyInvalid ReplayPolicy = ""
-	// ReplayPolicyNever forbids automatic replay after an unknown settlement.
+	// ReplayPolicyNever forbids automatic replay of a restored pending Effect.
 	ReplayPolicyNever ReplayPolicy = "never"
 	// ReplayPolicySameIdentity permits replay only with the original EffectID.
 	ReplayPolicySameIdentity ReplayPolicy = "same_identity"
@@ -125,10 +125,15 @@ type Dispatcher interface {
 	// Dispatch performs one frozen Strategy Effect outside Execution.Step.
 	// Settlement must address request.ID; a non-nil error means the external
 	// outcome is unknown, not definitely failed. emit is valid only during this
-	// call. Implementations honor ctx and may be called concurrently.
+	// call. The runtime cancels ctx when it applies terminal intent to this
+	// Process or an ancestor. It still collects the returned settlement; ctx
+	// cancellation alone proves no external outcome. Host context values are
+	// preserved. Implementations honor ctx and may be called concurrently.
 	Dispatch(ctx context.Context, request EffectRequest, emit DeltaEmitter) (Settlement, error)
 	// ReplayPolicy declares, without I/O or mutable side effects, whether this
-	// exact Effect can be repeated under its original EffectID after an unknown
-	// settlement. The answer must be deterministic for equivalent Effects.
+	// exact Effect can be repeated under its original EffectID when restoring
+	// a pending attempt. A settled Unknown requires explicit adjudication, and
+	// terminal intent forbids replay. The answer is deterministic for equivalent
+	// Effects.
 	ReplayPolicy(effect Effect) ReplayPolicy
 }

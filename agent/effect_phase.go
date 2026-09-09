@@ -76,6 +76,16 @@ func (p *preparedEffectWire) begin() error {
 	return nil
 }
 
+// A pending boundary grants dispatch permission before I/O starts. Only the
+// owning incarnation can revoke an unused permission; recovery cannot prove it
+// was unused and must retain an uncertain outcome instead.
+func (p *preparedEffectWire) revokeDispatch() {
+	if p.Phase != effectPhasePending {
+		panic("agent: only a pending dispatch permission can be revoked")
+	}
+	p.Phase = effectPhasePlanned
+}
+
 func (p *preparedEffectWire) settle(settlement Settlement) error {
 	if p == nil || p.Phase != effectPhasePending || p.Settlement != nil ||
 		!settlement.Valid() || settlement.EffectID() != p.ID {

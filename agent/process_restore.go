@@ -101,23 +101,39 @@ func (p *processState) restorePreparedStep(wire *preparedStepWire) error {
 			return fmt.Errorf("%w: prepared output schema: %w", ErrInvalidSnapshot, err)
 		}
 	}
-	candidate, err := restoreExecution(p.deployment.Definition(), prepared.CandidateState)
-	if err != nil {
-		return fmt.Errorf("%w: restore prepared Execution: %w", ErrInvalidSnapshot, err)
+	var candidate Execution
+	if !p.status.Terminal() {
+		var err error
+		candidate, err = restoreExecution(p.deployment.Definition(), prepared.CandidateState)
+		if err != nil {
+			return fmt.Errorf("%w: restore prepared Execution: %w", ErrInvalidSnapshot, err)
+		}
 	}
 	for index := range prepared.Effects {
 		record := &prepared.Effects[index]
 		if err := p.deployment.validateEffect(record.Effect); err != nil {
 			return fmt.Errorf("%w: prepared Effect: %w", ErrInvalidSnapshot, err)
 		}
-		if record.Phase != effectPhasePending || record.Effect.Target() != EffectTargetDispatcher {
+		if record.Phase != effectPhasePending {
 			continue
 		}
-		policy, err := dispatcherReplayPolicy(p.deployment.effectDispatcher(), record.Effect)
-		if err != nil {
-			return fmt.Errorf("%w: restore pending Effect: %w", ErrInvalidSnapshot, err)
+		policy := ReplayPolicyNever
+		if record.Effect.Target() == EffectTargetFramework {
+			operation, err := decodeFrameworkEffectOperation(record.Effect.Payload())
+			if err != nil {
+				return fmt.Errorf("%w: restore pending framework Effect: %w", ErrInvalidSnapshot, err)
+			}
+			if operation != frameworkEffectStartChild {
+				continue
+			}
+		} else if !p.pendingControl.hasTerminalIntent() {
+			var err error
+			policy, err = dispatcherReplayPolicy(p.deployment.effectDispatcher(), record.Effect)
+			if err != nil {
+				return fmt.Errorf("%w: restore pending Effect: %w", ErrInvalidSnapshot, err)
+			}
 		}
-		if p.engine.durability == nil && policy == ReplayPolicyNever {
+		if record.Effect.Target() == EffectTargetDispatcher && p.engine.durability == nil && policy == ReplayPolicyNever {
 			if err := record.settleUnknown(); err != nil {
 				return fmt.Errorf("%w: restore pending Effect: %w", ErrInvalidSnapshot, err)
 			}

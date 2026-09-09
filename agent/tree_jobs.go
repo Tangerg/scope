@@ -23,6 +23,7 @@ func (t *treeRuntime) startStep(process *processState) {
 	execution := process.execution
 	process.execution = nil
 	signals := process.mailbox.pending()
+	// Host context values must not become unrecorded inputs to a pure Step.
 	stepCtx, cancel := context.WithCancel(context.Background())
 	t.setProcessJob(process.handle.processID, &processJob{
 		kind: processJobStep, attempt: attempt, cancel: cancel, startedAt: time.Now(),
@@ -77,6 +78,7 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int) {
 		return
 	}
 	if record.Effect.Target() == EffectTargetFramework {
+		process.restoredPending = restoredPendingEffect{}
 		startedAt := process.publishEffectStarted(
 			t.context, process.prepared.wire.StepSequence, record.ID, EffectTargetFramework,
 		)
@@ -105,6 +107,25 @@ func (t *treeRuntime) recoverPendingEffect(
 ) {
 	decision := process.restoredPending
 	process.restoredPending = restoredPendingEffect{}
+	if record.Effect.Target() == EffectTargetFramework {
+		// The authoritative cut contains no published child. Admission may have
+		// run, so retain a failed start instead of claiming it never began.
+		spec, err := decodeChildStartEffect(record.Effect.Payload())
+		if err == nil {
+			result := failedChildStart(spec, FailureKindExecution, childStartInterruptedCode,
+				errors.New("child publication interrupted by parent termination"))
+			err = settleChildStartRecord(record, record.ID, result)
+		}
+		if err != nil {
+			t.failPreparedEffect(process, childSettlementInvalidCode, err)
+			return
+		}
+		t.enqueueProcess(process.handle.processID)
+		return
+	}
+	if process.pendingControl.hasTerminalIntent() {
+		decision.replayPolicy = ReplayPolicyNever
+	}
 	switch decision.replayPolicy {
 	case ReplayPolicySameIdentity:
 		t.startDispatch(process, batchIndex, *record)
@@ -175,13 +196,14 @@ func (t *treeRuntime) startChild(
 		t.enqueueProcess(process.handle.processID)
 		return
 	}
+	startCtx, cancel := context.WithCancel(t.context)
 	job := &processJob{
 		kind: processJobChildStart, attempt: attempt, effectID: record.ID,
-		childStart: preparation.plan, startedAt: startedAt,
+		childStart: preparation.plan, startedAt: startedAt, cancel: cancel,
 	}
 	t.setProcessJob(process.handle.processID, job)
 	go func() {
-		result := preparation.plan.execute(t.context)
+		result := preparation.plan.execute(startCtx)
 		t.completions <- treeJobCompletion{
 			processID:  process.handle.processID,
 			attempt:    attempt,
@@ -204,9 +226,11 @@ func (t *treeRuntime) startDispatch(
 	startedAt := process.publishEffectStarted(
 		t.context, process.prepared.wire.StepSequence, record.ID, EffectTargetDispatcher,
 	)
+	dispatchCtx, cancel := context.WithCancel(t.context)
 	job := &processJob{
 		kind:      processJobDispatch,
 		attempt:   attempt,
+		cancel:    cancel,
 		effectID:  record.ID,
 		startedAt: startedAt,
 	}
@@ -230,7 +254,7 @@ func (t *treeRuntime) startDispatch(
 	}
 	go func() {
 		settlement, err := dispatchEffect(
-			t.context,
+			dispatchCtx,
 			process.deployment.effectDispatcher(),
 			request,
 			emit,
@@ -372,6 +396,10 @@ func (t *treeRuntime) applyChildOutcome(pending *pendingChildOutcome) error {
 			pending.result.state, pending.result.startedAt, pending.plan.limits,
 		)
 		t.addProcess(child)
+		if parent.pendingControl.hasTerminalIntent() || parent.status.Terminal() {
+			child.recordParentTermination(parent.effectiveTermination())
+			t.stopProcessTree(child)
+		}
 	} else {
 		pending.plan.engine.discardProcessStartReservation(pending.plan.childID)
 		parent.releaseProvisionalChildBudget(pending.plan.spec.Budget)

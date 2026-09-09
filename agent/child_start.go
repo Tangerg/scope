@@ -16,6 +16,7 @@ const (
 	childBudgetInvalidCode              = "engine.child.budget_invalid"
 	childTreeLimitCode                  = "engine.child.tree_limit"
 	childStartUnavailableCode           = "engine.child.start.unavailable"
+	childStartInterruptedCode           = "engine.child.start.interrupted"
 	childDeploymentUnavailableCode      = "engine.child.deployment_unavailable"
 	childInputInvalidCode               = "engine.child.input.invalid"
 	childAdmissionRejectedCode          = "engine.child.admission.rejected"

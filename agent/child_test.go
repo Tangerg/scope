@@ -72,7 +72,7 @@ func TestEngineStartsSameDeploymentChildWithStableRelation(t *testing.T) {
 	}
 }
 
-func TestChildEffectPreservesStartContextValuesWithoutRequestCancellation(t *testing.T) {
+func TestChildEffectPreservesStartContextValuesWithOwnedCancellation(t *testing.T) {
 	type contextKey struct{}
 	const wantValue = "root-request"
 	dispatcher := contextCheckingChildDispatcher{
@@ -1137,8 +1137,8 @@ func (c contextCheckingChildDispatcher) Dispatch(
 	if got := ctx.Value(c.key); got != c.want {
 		return Settlement{}, fmt.Errorf("child context value = %v, want %v", got, c.want)
 	}
-	if ctx.Done() != nil {
-		return Settlement{}, errors.New("child context retained request cancellation")
+	if ctx.Done() == nil {
+		return Settlement{}, errors.New("child context has no owned cancellation path")
 	}
 	return NewSettlement(request.ID(), SettlementStatusSucceeded, json.RawMessage(`{}`))
 }

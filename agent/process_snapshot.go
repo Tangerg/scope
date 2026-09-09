@@ -26,6 +26,9 @@ const (
 // ProcessSnapshot is an immutable diagnostic capture of one Engine-owned
 // Process. Strategy state and Effect payloads remain opaque. A ProcessSnapshot
 // is not a recovery unit; only a complete TreeSnapshot can be restored.
+// An interrupted terminal Process retains its prepared batch as evidence:
+// settled operations keep their actual results, planned operations never run,
+// and the candidate state and input cursor were not adopted.
 // Parsing validates the captured state, not storage acknowledgment.
 // [Engine.InspectTree] identifies the acknowledged head of its durable captures.
 type ProcessSnapshot struct {
@@ -46,7 +49,8 @@ type ProcessSnapshot struct {
 // ParseProcessSnapshot strictly validates one Process snapshot wire value,
 // including single-answer wait history and an open, unanswered current wait
 // when the Process is Waiting. Prepared Effects must fit the captured Process
-// capability grant.
+// capability grant. Terminal prepared batches contain no pending attempt and
+// their unknown identities must exactly match the Termination.
 func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 	wire, err := decodeProcessSnapshot(data)
 	if err != nil {
@@ -124,6 +128,8 @@ func (p ProcessSnapshot) Usage() Usage { return p.usage }
 
 // UnknownEffectIDs returns Effects whose captured settlement requires explicit
 // resolution. RuntimeError separately owns outcomes an instance could not confirm.
+// A terminal capture retains unresolved evidence; its Process cannot resume or
+// accept further resolution commands.
 func (p ProcessSnapshot) UnknownEffectIDs() []EffectID {
 	return slices.Clone(p.unknownEffectIDs)
 }
@@ -319,8 +325,8 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 	var reserved uint64
 	var preparedSteps uint64
 	if p.Prepared != nil {
-		if p.Status != StatusRunning || p.Termination != nil || p.FinishedAt != nil {
-			return fmt.Errorf("%w: prepared Step requires a nonterminal Running Process", ErrInvalidSnapshot)
+		if p.Status != StatusRunning && !p.Status.Terminal() || p.Status == StatusCompleted {
+			return fmt.Errorf("%w: prepared Step requires Running or interrupted terminal status", ErrInvalidSnapshot)
 		}
 		const maxUint64 = ^uint64(0)
 		if !resourceQuantitiesFit(maxUint64, p.CommittedSteps, 1) {
@@ -335,13 +341,18 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 			if !p.Capabilities.Allows(record.Effect.RequiredCapabilities()) {
 				return fmt.Errorf("%w: prepared Effect capability denied: %w", ErrInvalidSnapshot, ErrInvalidCapability)
 			}
+			if p.Status.Terminal() && record.Phase == effectPhasePending {
+				return fmt.Errorf("%w: terminal Process cannot retain pending Effects", ErrInvalidSnapshot)
+			}
 		}
-		remainingPending -= uint64(p.Prepared.Transition.ConsumedSignals())
-		reserved = uint64(len(p.Prepared.Effects))
-		if p.Usage.PreparedEffects < reserved {
+		if p.Usage.PreparedEffects < uint64(len(p.Prepared.Effects)) {
 			return fmt.Errorf("%w: prepared Effect identities exceed recorded usage", ErrInvalidSnapshot)
 		}
-		preparedSteps = 1
+		if !p.Status.Terminal() {
+			remainingPending -= uint64(p.Prepared.Transition.ConsumedSignals())
+			reserved = uint64(len(p.Prepared.Effects))
+			preparedSteps = 1
+		}
 	}
 	if !resourceQuantitiesFit(p.Limits.MaxPendingSignals, mailbox.pendingCount()) ||
 		!resourceQuantitiesFit(p.Limits.MaxPendingSignals, remainingPending, reserved) ||
@@ -387,8 +398,17 @@ func validateSnapshotLifecycle(wire processSnapshotWire, mailbox signalMailbox) 
 	} else if wire.PauseReason != "" {
 		return fmt.Errorf("%w: pause reason requires Paused status", ErrInvalidSnapshot)
 	}
-	if terminal && (wire.Prepared != nil || !emptyPendingControl(wire.PendingControl)) {
-		return fmt.Errorf("%w: terminal Process cannot retain prepared or control state", ErrInvalidSnapshot)
+	if terminal {
+		if !emptyPendingControl(wire.PendingControl) {
+			return fmt.Errorf("%w: terminal Process cannot retain control state", ErrInvalidSnapshot)
+		}
+		var unresolved []EffectID
+		if wire.Prepared != nil {
+			unresolved = wire.Prepared.Effects.unknownEffectIDs()
+		}
+		if !slices.Equal(wire.Termination.UnresolvedEffectIDs(), unresolved) {
+			return fmt.Errorf("%w: termination and interrupted Effects disagree", ErrInvalidSnapshot)
+		}
 	}
 	return nil
 }

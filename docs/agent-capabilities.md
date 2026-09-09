@@ -1,0 +1,358 @@
+# Building a general agent and harness framework
+
+Scope's `agent` module is a general agent and harness framework. It must support model-directed agents, planners, workflows, reactive coordinators, and compositions that the framework authors have not anticipated. This design explains the execution guarantees those agents share, where their behavior can vary, and how to prove that a new capability composes without creating another runtime.
+
+**Status: design proposal.** The [Agent package contract](../agent/doc.go) and checked examples describe implemented behavior. Requirements and candidate extensions below describe the intended architecture; they do not announce new APIs or guarantees. Each implementation change still needs its own contract, impact review, and executable acceptance cases.
+
+This document addresses framework and strategy authors. It owns the architectural reasoning across Agent, capability adapters, and the embedding application. It follows [Scope's design philosophy](../DESIGN_PHILOSOPHY.md); package GoDoc remains the sole module entry point and API authority.
+
+## Generality means preserving guarantees under composition
+
+A harness manages the execution around an agent's decisions: admitting input, scheduling work, delivering results, bounding resources, processing control requests, and recovering interrupted execution. A strategy decides which work to request and how to interpret its results. Neither definition requires a model call, a conversation, or a particular multi-agent topology.
+
+The central requirement is:
+
+> A new strategy uses public contracts to obtain managed execution, input delivery, effect settlement, resource ownership, and recovery. The resulting capability can itself participate in another strategy without losing those guarantees.
+
+A framework meets this requirement through observable properties:
+
+1. **Behavior is open.** An independently authored strategy can implement a new decision procedure without editing an Engine strategy switch.
+2. **Composition preserves contracts.** Nested operations retain their input and output validation, authority, budgets, control behavior, and recovery identities.
+3. **Ownership remains singular.** A composition does not create a competing scheduler, mailbox, effect journal, or lifecycle authority.
+4. **Recovery preserves decisions.** A restart reconstructs every fact needed to continue, including ambiguous external outcomes.
+5. **Policy stays explicit.** Selection, business success, retries, and stopping criteria belong to the strategy that chooses them.
+6. **Public contracts are sufficient.** Official and third-party strategies use the same interfaces and conformance requirements.
+
+Arbitrary callbacks or opaque payloads establish extensibility of representation. They do not establish these execution properties. A callback that starts an unmanaged goroutine can express behavior while losing cancellation, accounting, and recovery.
+
+The design must also keep composition usable. Requiring every application to reconstruct the same coordination state machine is evidence for a reusable higher-level capability. Such a capability can belong to Scope while compiling to the existing runtime.
+
+## Lessons from extensible systems
+
+The Famicom and Dougong illustrate two complementary requirements: an extension boundary must admit new behavior, and composed behavior must retain common ownership rules.
+
+### Famicom: a stable interface can admit active extensions
+
+Famicom cartridges contain program data and can contain additional circuitry. Mappers change how cartridge memory appears in the console's address spaces. MMC3 also implements an interrupt counter; the cartridge connector exposes the signals that make such behavior possible. These are hardware facts, not proposed Scope APIs. See the NESdev references for [mappers](https://www.nesdev.org/wiki/Mapper), [MMC3](https://www.nesdev.org/wiki/MMC3), and the [cartridge connector](https://www.nesdev.org/wiki/Cartridge_connector).
+
+The useful architectural correspondence is:
+
+| Hardware role | Scope correspondence | Design consequence |
+| --- | --- | --- |
+| Console | Engine and its execution protocol | Common execution rules do not enumerate application behavior |
+| Cartridge | An exact Deployment binding | Behavior includes implementation and configuration, not only a name |
+| Program | Definition and Execution | A strategy owns its decisions and serializable state |
+| Mapper adaptation | Strategy protocol translation and external Dispatcher adaptation | Extensions interpret their own domain operations through an explicit boundary |
+| Bus signals | Effects, Signals, transitions, and lifecycle contracts | The boundary defines when an interaction takes effect and what it means |
+
+This correspondence does not require a `Mapper` interface. The responsibilities already have owners in Scope. Adding the analogy's nouns would not supply missing execution semantics.
+
+An extension can add domain behavior, but it cannot privately redefine the meaning of committed input, cancellation, or an uncertain effect. Mutable state that affects a strategy's continuation belongs in its Execution state. State owned by an external system must be observed through explicit operations and identified results.
+
+### Dougong: higher-level capabilities expand through public primitives
+
+Dougong distinguishes stable Services, dynamic ExtensionPoint contributions, transient Events, and structured Lifetimes. These concepts have different temporal and ownership semantics. Its architecture requires advanced capabilities to use the same public primitives as ordinary plugins. See the [Dougong architecture](https://github.com/Tangerg/dougong/blob/6f63cbc6f5903adb83d58fbd713a76aec5514864/docs/en/reference/architecture.md).
+
+Three concrete designs inform Scope:
+
+- **Preserve information before applying policy.** Dougong exposes the complete contribution set. Its Planet player selects a source for each query without putting media-selection policy in Core. Agent should likewise preserve relevant results and failure facts while strategies decide which results satisfy their goals.
+- **Compile orchestration to one authority.** Dougong Platform translates a change into one Core ChangeSet. An Agent composition should declare work through the canonical execution protocol, with the existing runtime owning its effects and commits.
+- **Compose resource ownership with behavior.** Dougong Lifetime cancels owned work before joining it, then releases resources. An Agent strategy should not need a second cancellation registry to control work already owned by its runtime.
+
+The implementations make these boundaries concrete: [source selection and playback ownership](https://github.com/Tangerg/dougong/blob/6f63cbc6f5903adb83d58fbd713a76aec5514864/packages/examples/src/09-planet.ts), [Platform-to-Core compilation](https://github.com/Tangerg/dougong/blob/6f63cbc6f5903adb83d58fbd713a76aec5514864/packages/platform/src/core-change.ts), and [Lifetime disposal](https://github.com/Tangerg/dougong/blob/6f63cbc6f5903adb83d58fbd713a76aec5514864/packages/core/src/lifetime.ts).
+
+Scope must preserve the differences between the systems. A Dougong Event is transient; an Agent Signal participates in recovery. Releasing a live resource cannot erase durable deduplication facts. Neither an in-memory graph transaction nor an Agent tree commit can undo an external side effect merely because local execution failed.
+
+## One owner for each responsibility
+
+The existing Definition, Execution, Deployment, Dispatcher, Process, and Engine separation remains the architectural foundation. Generality comes from completing their contracts and composing them, without introducing a second plugin system or execution hierarchy.
+
+| Owner | Responsibility | Variation it admits |
+| --- | --- | --- |
+| Definition | Immutable strategy behavior, input contract, creation, and restoration | New strategies and pure decision policies |
+| Execution | One strategy's private state and bounded reductions | Plans, contexts, coordination state, and domain transitions |
+| Deployment | Exact binding of behavior and external interpretation | Explicit implementation and configuration selection |
+| Dispatcher | Execute one declared external operation and report its settlement | Models, tools, sensors, storage, transports, and other adapters |
+| Process | Identity and lifecycle of one managed logical execution | Independent child work with explicit allocations |
+| Root tree runtime | Scheduling, authoritative commits, input facts, effect settlement, and recovery | Heterogeneous Processes using one execution protocol |
+| Reusable composition | A higher-level operation expressed through these contracts | Races, input gates, feedback loops, routing, and coordination |
+| Embedding application | Product identity, deployment selection, transport and persistence integration, and product policy | Sessions, installations, billing, user interfaces, and deployment catalogs |
+
+These are responsibility boundaries, not a requirement for a package or interface per row. A concrete type is sufficient where no substitution boundary exists. Consumer-defined interfaces expose only the methods required at an actual boundary.
+
+The root tree remains the commit and recovery unit. Process parentage records ownership; it does not describe every possible business relationship. A task graph, discussion graph, or dependency graph can be strategy data, while the work that executes it has explicit Process owners.
+
+Ephemeral and durable execution use the same state machine. Crash recovery requires the configured durability port and the embedding application's storage and binding guarantees. In durable mode, input admission and effect boundaries acknowledge their authoritative tree commits; ephemeral execution makes no corresponding storage promise. A composition inherits its execution mode and cannot claim stronger persistence merely because it uses Signals.
+
+Routing a new conversation turn to another agent does not inherently require reparenting an active Process. Changing ownership of in-flight work is a stronger operation that affects budgets, cancellation, and recovery. It needs an independent requirement.
+
+Communication authority must also be explicit. A Process ID identifies a destination; a delivery adapter must separately establish permission to act on that destination. Existing Host-facing Process handles expose control operations; they are not attenuated recipient tokens. Declared capabilities constrain Dispatcher Effects and child grants, but same-process Go code is not a security sandbox.
+
+## An open domain protocol with common execution semantics
+
+The runtime should understand the lifecycle of work without understanding what that work means to a particular agent. New model, tool, planning, and collaboration vocabularies remain in the packages that own them.
+
+The current structural operations are `RequestWait`, `StartChild`, and `WaitForChildren`. A strategy requests other external work through its Deployment-bound Dispatcher. Transitions determine whether the Process continues, waits, pauses, completes, or fails. This is a shared execution protocol, not a registry of agent-specific hooks. See [Effects](../agent/effect.go) and [transitions](../agent/transition.go).
+
+### Decisions and inputs
+
+An Execution reduces committed state and an ordered Signal window into a candidate transition. It performs no external input/output, reads no ambient clock or randomness, and starts no unmanaged work. The runtime adopts valid candidate state through its existing commit boundary. See [Definition and Execution](../agent/definition.go).
+
+Time, random choices, retrieved context, and changes in external state can influence decisions. They enter as explicit input or effect results. A reference to external data must identify the content or revision required for the decision; rereading an unspecified latest value during restoration would change its meaning.
+
+Input admission and input consumption are distinct operations. The mailbox can accept input while a Step runs, but that input belongs to a later window. A failed candidate cannot permanently consume its inputs.
+
+### External effects
+
+An Effect declares an operation; its Dispatcher interprets the operation outside Step. The Engine assigns stable identity and owns the planned, pending, and settled phases. The Dispatcher returns a definite result or an outcome the runtime must treat as unknown. See [Dispatcher](../agent/dispatcher.go).
+
+The prepared batch has one execution frontier. Effects advance in declaration order, and external dispatch does not make a batch of real-world operations atomic. Independent work that needs concurrency can execute in separate child Processes.
+
+An adapter may keep implementation caches and own resources for an active call. It must not keep unrecorded per-Process decision state that recovery requires. A subscription or background task needs an explicit owner, stopping condition, and recovery contract; returning from Dispatch cannot silently detach it.
+
+Replay safety belongs to the exact external operation. `ReplayPolicySameIdentity` permits replay only when the adapter can prove the repeated identity represents the same operation. Recovery of a pending attempt can use that declaration; an already settled Unknown still requires explicit adjudication. Replay permission does not define a framework-wide retry mechanism.
+
+### Signals, results, and observations
+
+The framework must preserve the distinction between reliable decision input, final results, and observations. Signal admission participates in the mailbox and durable tree state. Output is the strategy's final business result. Events and Delta values describe execution and streaming observations; they do not replace committed decision input or recovery state.
+
+Streaming a token to a display can tolerate best-effort Delta delivery. Publishing an intermediate conclusion that another agent acts upon requires a reliable input protocol. The payload may be similar, but the delivery and recovery requirements differ.
+
+Source identity inside a payload is a claim until an authorized boundary validates it. A trusted transport adapter can supply that validation. A future runtime-level source field would need a provenance contract, not only a new string member.
+
+### Exact behavior and state identity
+
+A Deployment binds a Definition and its optional Dispatcher under exact implementation and configuration digests. Recovery resolves that binding rather than selecting whatever implementation currently has the same display name. See [Deployment](../agent/deployment.go).
+
+The Execution snapshot must contain the strategy state needed for continuation. Engine-owned snapshots retain mailbox, wait, effect, and child facts. Mutable globals, live handles, and hidden registration order cannot substitute for either representation.
+
+Adding a strategy therefore requires its state codec, validation, safe Signal-consumption boundaries, and conformance cases. A new strategy does not receive permission to inspect another strategy's private state or mutate the Engine's committed state.
+
+## Compose strategies without flattening their semantics
+
+The built-in strategies demonstrate distinct decision procedures on one execution protocol. They are starting points for composition, not a closed list of Agent paradigms.
+
+| Strategy | Decision procedure | Composition boundary |
+| --- | --- | --- |
+| `interaction` | A model selects Tools, Delegates, or completion | Managed Tool and Delegate children |
+| `planning` | Sense, plan actions, execute, and sense again | Dispatcher-backed or child-backed action bindings |
+| `workflow` | Advance ordered, declared stages | Exact child calls, branches, maps, and bounded loops |
+| Independent Definition | Any bounded deterministic reduction over its state and inputs | The same Framework Effects and optional Dispatcher |
+
+All three built-in families can target heterogeneous child Deployments. Input and output contracts still need to agree. Workflow uses explicit transforms rather than guessing conversions, and model-visible Delegates must satisfy their tool-input contract.
+
+A parent's business interpretation also remains explicit. Planning confirms an action through a subsequent observation rather than treating child Output as WorldState. A planning Process can complete with an achieved, unreachable, or stuck outcome. A caller that requires achievement must inspect that outcome; Process completion alone does not establish business success.
+
+New compositions should reuse these domain contracts. They must not create a second model protocol, structured-output conversion chain, or parallel vocabulary for the same atomic operation. Adapting an existing output to a composition's own domain input is an explicit boundary conversion, not a second implementation of the lower capability.
+
+## Representative constructions before new primitives
+
+A missing convenience API does not by itself prove a missing runtime capability. The following constructions test whether existing primitives can express the required behavior and retain its guarantees. They are design constructions, not claims that every one already has a packaged implementation or complete test coverage.
+
+### Bounded reactive coordination
+
+A coordinator can represent independent sources of progress as owned child executions. An input gate waits for one external input and completes with that input as Output. A worker runs the requested operation. A timer child completes after an explicit deadline through an external timing adapter.
+
+```mermaid
+flowchart TB
+    C[Coordinator: wait for child completion]
+    C --> W[Worker execution]
+    C --> I[One-input gate]
+    C --> T[Deadline execution]
+    H[Authorized input adapter] --> I
+```
+
+The input gate uses `RequestWait`, records the returned WaitID, enters Waiting, and completes after consuming an addressed input. The coordinator uses `WaitForChildren` with `AnyChild`, inspects the reported results, and makes its next decision. A subsequent iteration can retain unfinished children and create replacements for completed gates.
+
+Slow work belongs in worker children when the coordinator must remain responsive. A Process cannot run another Step while its own Dispatch job is in flight. Moving work to a child changes the lifecycle structure explicitly and reuses existing concurrent scheduling.
+
+This construction guarantees a decision after a selected child becomes terminal. It does not guarantee that the first raw input admitted anywhere in the tree wins. An input gate needs a Step after admission before it becomes terminal. `AnyChild` reports terminal outcomes in request order; it is not an earliest-event arbitration primitive. See [child waiting](../agent/child_wait.go).
+
+Timer composition also requires an honest external contract. The deadline must survive restoration, and replay must not restart an entire relative delay. A settled Unknown requires the existing adjudication path. A sleeping goroutine alone does not establish durable timing or cancellation.
+
+Repeated gates consume child and Signal allocations. The construction fits bounded coordination episodes. Its resource cost and input-routing contract must be part of any reusable abstraction built from it.
+
+Replacing a gate also changes the input address. The router must retain the destination chosen for each delivery until admission is resolved; it cannot retry against whichever gate is current. If the coordinator ends or replaces a gate after input admission, the composition must define whether that input was consumed, retained for later work, or explicitly discarded by policy. A gate can carry the original input identity in its Output so the coordinator can track it across iterations.
+
+### First successful result and scoped competition
+
+A strategy can wait for any child, inspect business outcomes, and continue waiting on unfinished children until its success predicate holds. It retains the failure facts needed for its decision. A count of terminal children does not imply successful results or consensus.
+
+The strategy must define the result when every candidate fails and how it selects among multiple outcomes visible in one Signal window. It must also handle a child that is already terminal when the wait is registered, using the runtime's existing wait protocol.
+
+A competition coordinator can own all competing workers. Completing that coordinator triggers termination of its remaining descendants, while an outer parent can continue with its result. This expresses a competition scope without adding a business-specific first-success condition to the Engine.
+
+Completion triggers the termination process; it does not establish that losing external operations have stopped. A composition that reuses an exclusive resource must establish that its previous work has drained before reuse. The lifecycle requirements below define this distinction.
+
+Dynamic cancellation of only some children is a stronger requirement. The parent remains active, retains other children, and needs a recoverable record that the selected cancellation was accepted. That scenario is a valid test of the control boundary, rather than evidence that every competition requires a new primitive.
+
+### Reliable intermediate communication
+
+A Dispatcher can depend on a narrow delivery port assembled from the public Process signal API. It can derive a stable SignalID from the sending EffectID and immutable message identity. The delivery binds that identity to a concrete recipient Process, payload, and optional WaitID. The receiving mailbox then owns deduplication, admission, accounting, and committed consumption.
+
+The adapter must define destination authority, payload validation, terminal-recipient behavior, and acknowledgment handling. A message already admitted when the acknowledgment is lost must retain the same identity on a justified replay. A duplicate with conflicting content remains a conflict. The adapter must account for batch admission rules rather than treating any rejected batch as successful delivery.
+
+Deduplication is local to a Process mailbox. Replaying the same SignalID against a replacement gate or successor episode can admit it again. Reliable routing therefore needs an immutable recipient binding or an authoritative delivery-to-recipient record. Moving an unresolved delivery to a new recipient requires explicit transfer and deduplication semantics; resolving a logical address again is insufficient. See [signal admission](../agent/process.go).
+
+This construction can reuse durable input admission, but the sender's transition and receiver's admission are separate acknowledgments. It does not create an atomic multi-recipient transaction or universal exactly-once external execution. An Unknown send result remains unknown until resolved.
+
+A native send operation would need to justify an additional guarantee, such as one same-tree commit, runtime-attested origin, or a portable authority boundary. Broadcast membership and recipient-selection policy can remain above an atomic delivery operation. Adding a topic registry or a separate message bus is not a prerequisite.
+
+### Domain coordination and shared state
+
+Debate, review, auctions, group discussion, and task routing can share runtime operations while retaining different domain rules. Their strategies own membership, speaker or worker selection, context construction, scoring, and completion predicates. No one of these protocols defines the kernel's vocabulary.
+
+A coordinator can own shared logical state and serialize updates through its Execution. Independent Processes do not share mutable Execution objects. If state belongs in an external store, access goes through explicit Effects with the store's concurrency and acknowledgment semantics.
+
+Reusable storage or transport adapters may belong in a separately owned capability package. The embedding application chooses and configures them; it should not have to reimplement Agent effect settlement. Cross-tree interaction retains the guarantees of its transport and storage contracts without implying cross-tree atomic recovery.
+
+## Complete the lifecycle contract
+
+Execution ownership is incomplete unless cancellation reaches owned work and callers can establish when that work has stopped. These requirements apply to model calls, tools, input gates, timers, nested workflows, and reactive coordinators alike.
+
+### Distinguish control acceptance, results, and drain
+
+The lifecycle has separate observable facts:
+
+| Fact | Meaning | What it does not establish |
+| --- | --- | --- |
+| Control accepted | The owner has accepted the requested control operation at its documented boundary | All work has stopped |
+| Process terminal result | The Process has an acknowledged final result or termination | Every descendant operation has drained |
+| Runtime work drained | The relevant owned calls and descendant work have returned or completed their local cleanup | An unknown remote side effect did not happen |
+| Effects resolved | The relevant external outcomes are known | The external system reversed successful operations |
+
+The existing `RequestCancellation` acknowledges submission. `Process.Await` waits for that Process's terminal result and immediate bookkeeping. `Engine.ReleaseTree` waits for the complete root runtime to stop, then releases its in-memory registration. These operations must not be described as stronger barriers than their contracts state. See [Process control](../agent/process.go) and [tree release](../agent/tree_release.go).
+
+Scoped drain is a design decision still requiring a concrete public contract. A strategy that replaces one active task while retaining its siblings needs a usable way to establish the replaced task's drain boundary. Whole-root release cannot serve that use case. The implementation must first determine whether existing child ownership and waiting can express the required boundary completely.
+
+The same contract must distinguish local drain from remote uncertainty. A canceled HTTP request can return while the remote service still processes an operation. Ending local execution does not justify reporting that operation as failed or reclaiming its identity for different work.
+
+### Propagate cancellation through the owner
+
+The target contract requires the runtime to signal cancellation to the execution attempts it owns. A cooperative Dispatcher must receive that signal through its call context. The runtime then collects the returned settlement before deciding termination and drain.
+
+The tree owner supplies cancellable contexts to Step, Dispatch, and child admission, and propagates terminal intent through the owned subtree. Initialization-outcome and storage acknowledgments keep independent contexts so cancellation cannot abandon required settlement. See [Dispatcher](../agent/dispatcher.go), [Process control](../agent/process.go), and [initialization acknowledgment](../agent/process_start_outcome.go).
+
+The repair must preserve the following properties:
+
+1. Record the control intent through its owner and honor its acknowledgment semantics.
+2. Propagate cancellation to affected active work without making propagation depend on that work first returning.
+3. Collect every started attempt, including late returns, and retain definite or unknown effect outcomes.
+4. Once the owner applies a terminal intent, do not start further external Effects or child starts, including later operations in an already prepared batch.
+5. Keep provably undispatched planned Effects distinct from uncertain external attempts. Cancellation must not manufacture Unknown outcomes for work that never started.
+6. Prevent a stale Step from adopting strategy state. Define how terminating a prepared batch preserves the settlement of its started prefix, input-consumption rules, and allocation accounting.
+7. Publish terminal and drain facts only at their respective committed or runtime boundaries.
+
+An interrupted prepared batch retains its actual settled prefix and unstarted planned tail in the terminal snapshot. Candidate state and input consumption are not adopted. Prepared-effect usage and already published child allocations remain charged; unused Step and settlement-Signal reservations are released. A child start already in progress is collected and any resulting child is terminated before it can run a Step. On recovery, a pending external call remains uncertain; an unpublished child start records failed Framework publication without claiming to undo Host admission. These are part of the [kernel settlement contract](../agent/doc.go), enforced by the same strict snapshot parser used for recovery.
+
+The call context used for interruptible work and the context used to complete required storage acknowledgment have different purposes. Canceling model work must not automatically abandon a pending durable commit. A persistence failure remains a runtime failure with an authoritative recovery path.
+
+These are cooperation guarantees. Scope cannot forcibly stop arbitrary Go code or retract a request already accepted by a remote service. The design must still notify cooperative code and account for its eventual result.
+
+### Preserve structured resource ownership
+
+Every active goroutine, callback registration, stream, and timer needs an owner and a termination path. A composition should use existing Process ownership where it expresses the actual work boundary. Creating another public lifetime type requires evidence that it owns a different lifecycle.
+
+After local work ends, adapters release call-scoped resources. Durable execution facts have a different retention purpose and remain until their recovery and deduplication obligations end. Resource release must not erase an unresolved operation or make an old Signal identity reusable.
+
+## Long-lived agents require explicit execution boundaries
+
+A persistent product identity can initiate multiple logical executions. A logical Process can also survive replacement of its active runtime instance through recovery. These identities solve different problems and must remain distinct.
+
+A general harness should support long-lived agent behavior through explicit execution boundaries. One finite tree cannot silently become an unlimited service: it retains child and wait facts, and its allocations are non-renewable. Increasing limits postpones exhaustion without defining continuation semantics.
+
+Use an episode to mean a bounded application operation, not a proposed kernel type. At a safe boundary, a strategy can produce the domain state needed for a subsequent episode. The application or a reusable orchestration capability owns the transition between episodes.
+
+A reusable continuation contract must specify:
+
+- The completed episode and immutable identity of the requested successor
+- Which domain state crosses the boundary, and the exact behavior binding of the successor
+- Which accepted inputs remain pending, which owner is responsible for them, and how delivery identities remain bound across the change of Process address
+- Whether all local work has drained and how unresolved effects are retained or adjudicated
+- How successor creation is deduplicated when a storage or start acknowledgment is lost
+- The new allocation and authority decision, without silently refunding or duplicating the old budget
+
+Restarting the same tree is recovery; starting a successor is a new logical execution. `Engine.Start` does not become idempotent because the Input is unchanged. A Host that starts successors needs an authoritative admission protocol, not an in-memory check followed by an unrelated start.
+
+The safe boundary also needs an input cutover. Input can enter the old mailbox after the final Step receives its Signal window, so the final Output cannot automatically contain every accepted input. The continuation protocol must establish when ingress stops routing new deliveries to the old episode, resolve outstanding admissions, and account for each accepted but unconsumed input before extracting successor state. Inputs still outside the old mailbox retain their ingress owner. Old admissions retain their recipient binding until their consumption or other explicit disposition is established.
+
+An orchestration capability may own these routing and successor-admission facts. It must obtain consumption and termination facts through public contracts; it cannot take over the old Process's mailbox, Effect journal, or lifecycle. If those contracts cannot establish the required cutover, the proposed boundary is not yet safe.
+
+The initial continuation design should require an explicit safe boundary. Transferring live children or pending external work between trees introduces ownership and recovery semantics that cannot be inferred from a product session ID. That stronger operation remains a separate design gate.
+
+## Criteria for adding a kernel operation
+
+An extension belongs in the kernel when its required invariant can only be maintained by the existing runtime owner. A domain operation belongs above it when it can preserve that invariant through the public protocol.
+
+Evaluate a proposed operation in this order:
+
+1. State the observable guarantee and its actual consumers or runtime invariant. Use substantially different strategy contexts to challenge generality when available; do not invent consumers to meet a quota.
+2. Construct the behavior from existing public contracts, including cancellation, failure, recovery, and resource accounting.
+3. Identify the exact guarantee that the construction loses. Additional syntax or a missing convenience function is insufficient evidence.
+4. Check whether a reusable composition or narrow adapter can preserve that guarantee with one owner.
+5. If only the runtime can enforce it, define one canonical operation and its authority, acknowledgment, and recovery rules.
+6. Review changes to exported APIs, snapshots, schemas, and existing consumers before implementation.
+
+The strongest unresolved candidates are defined by guarantees rather than names:
+
+| Candidate guarantee | Existing construction | Additional condition that could justify kernel work |
+| --- | --- | --- |
+| React to independent progress sources | Input and timer children with child waiting | Atomic arbitration over original input admission at one Process address |
+| Stop selected owned work | Owned competition scopes or an explicit control adapter | Partial child cancellation with canonical, recoverable acceptance and a composable drain boundary |
+| Deliver reliable intermediate input | Dispatcher with a narrow delivery port and stable Signal identity | One same-tree commit or runtime-enforced provenance and target authority |
+| Cancel active external calls | Runtime-owned Process control and cancellable Dispatcher context | Remote outcome reconciliation remains distinct from local cancellation and drain |
+| Continue long-lived behavior | Explicit bounded episodes | A reusable successor admission and state-transfer contract that survives ambiguous starts |
+
+These candidates are not a planned family of new classes. If a current API has the wrong contract, replace that design through the owning layer. Do not retain parallel construction styles, schema versions, aliases, or compatibility paths.
+
+The following policies remain above the kernel unless an independent requirement changes their semantics:
+
+- Speaker selection, prompts, roles, debate rules, scoring, voting, and consensus predicates
+- Model and tool selection, context construction, memory policy, and domain retry decisions
+- Broadcast membership, application topics, product routing, and provider catalogs
+- Product session identity, user interfaces, billing, and deployment distribution
+
+A reusable policy or orchestration type may still belong to Scope. Its placement above the execution kernel does not make it application-only.
+
+## Prove generality with independent strategy constructions
+
+Acceptance should test different decision and interaction patterns rather than variations of one conversation example. The suite must exercise public contracts from external packages and reuse existing conformance infrastructure where applicable.
+
+| Construction | Required observations |
+| --- | --- |
+| Model-directed tool loop with human input | Input reaches the actual wait owner; other owned work retains its results; restoration preserves the continuation |
+| Goal-directed planner calling a workflow | The action's business result and subsequent world observation remain distinct; budgets and authority survive composition |
+| Workflow containing an independent strategy | No built-in strategy type check or private runtime access is required; schema mismatches fail explicitly |
+| First-success competition | Failed results remain available; all-failed and simultaneously visible outcomes follow explicit policy; termination and drain of losers remain distinguishable |
+| Reactive coordinator with worker, input, and deadline | Each source can cause a new decision; terminal ordering and raw-input ordering remain distinct; gate replacement accounts for input admitted before a late acknowledgment |
+| Selective task replacement | Selected work receives cancellation, retained siblings remain usable, and the replacement respects the required drain boundary |
+| Peer review with intermediate messages | A lost delivery acknowledgment does not produce duplicate committed consumption; replay retains its recipient binding; conflicts and Unknown remain visible |
+| Evaluator-driven revision loop | Feedback changes explicit strategy state; bounds terminate non-convergence; discarded candidates cannot advance committed state or duplicate logical effects |
+| Shared-state coordination through an external store | Concurrent updates follow the store's contract; observed revisions enter strategy input; recovery does not guess current state |
+| Long-lived agent using successive episodes | Successor admission survives an ambiguous start; allocations remain explicit; inputs after the final Signal window and late acknowledgments retain their owner and recipient binding |
+
+For each construction, test the relevant lifecycle boundaries:
+
+1. Before input admission, after its acknowledgment, and before committed consumption
+2. Before wait registration, between its opening Signal and entering Waiting, and after a completed gate is replaced
+3. After candidate preparation and before external dispatch
+4. After external work may have happened but before settlement acknowledgment
+5. During control requests, late returns, and local resource cleanup
+6. During tree restoration, budget exhaustion, and dependency-binding rejection
+7. After an episode's final Signal window, during ingress cutover, and when an old admission acknowledgment arrives after successor creation
+
+Use exact expectations for identities, outputs, accepted and consumed inputs, settlements, allocations, and terminal causes. Do not require identical wall-clock scheduling after a restart. Preserve committed facts and the strategy's declared ordering rules; test unconstrained races as unconstrained races.
+
+Existing evidence starts with [external Definition conformance](../agent/external_api_test.go), [cross-strategy child binding](../agent/child_cross_strategy_test.go), [subtree cancellation](../agent/subtree_cancellation_test.go), [wait authority](../agent/wait_authority_test.go), and [tree durability](../agent/tree_durability_test.go). These tests establish parts of the foundation; the acceptance matrix does not claim complete implementation coverage.
+
+## Deliver changes as complete semantic slices
+
+Implementation should establish one coherent guarantee at a time, with its public contract, state rules, and tests changing together. The sequence below favors the owner defects that affect every composition before adding broader orchestration APIs.
+
+1. **Complete cancellation propagation.** Connect active work to runtime-owned cancellation, preserve settlement and storage acknowledgment, and test late completion and Unknown handling.
+2. **Specify result and drain boundaries.** Define the observable contract needed for selective replacement and resource reuse. Prove whether a public composition suffices before changing Process lifecycle APIs.
+3. **Validate reusable coordination.** Implement bounded input gates, deadline participation, and success selection through the canonical protocol. Package them only around a coherent reusable operation.
+4. **Validate reliable communication.** Exercise the narrow delivery adapter across acknowledgment loss and recovery. Add a native operation only if the required atomicity or authority cannot be maintained by that adapter.
+5. **Define safe episode continuation.** Establish explicit state transfer and idempotent successor admission before supporting transfer of active work.
+
+Each slice must work end to end for its stated scope, including recovery, cancellation, and drain. Implemented contracts move into GoDoc and checked examples, while this document retains the architectural decisions and criteria for further extension.

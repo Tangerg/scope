@@ -40,14 +40,7 @@ func (t *treeRuntime) propagateProcessTermination(process *processState) {
 			delete(t.childWaits, waitID)
 		}
 	}
-	for _, child := range t.processes {
-		parentID, isChild := child.handle.relation.ParentID()
-		if isChild && parentID == processID && !child.status.Terminal() {
-			child.recordParentTermination(process.termination)
-			t.invalidateStep(child)
-			t.enqueueProcess(child.handle.processID)
-		}
-	}
+	t.stopProcessTree(process)
 	for _, registration := range orderedChildWaitRegistrations(t.childWaits) {
 		if !containsProcessID(registration.spec.Children, processID) {
 			continue
@@ -64,15 +57,13 @@ func (t *treeRuntime) propagateProcessTermination(process *processState) {
 		signal, err := encodeChildrenCompleted(registration.waitID, registration.spec.Key, outcomes)
 		if err != nil {
 			parent.recordFailure(FailureKindExecution, "engine.child.completion.encoding_failed", err)
-			t.invalidateStep(parent)
-			t.enqueueProcess(parent.handle.processID)
+			t.stopProcessTree(parent)
 			continue
 		}
 		if parent.deliverChildrenCompleted(t.context, signal) {
 			t.enqueueProcess(parent.handle.processID)
 		} else if parent.pendingControl.hasTerminalIntent() {
-			t.invalidateStep(parent)
-			t.enqueueProcess(parent.handle.processID)
+			t.stopProcessTree(parent)
 		}
 	}
 }

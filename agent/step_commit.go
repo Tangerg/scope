@@ -346,6 +346,12 @@ func (p *processState) discardPrepared() {
 	p.discardExecution()
 }
 
+func (p *processState) terminatePrepared() {
+	p.prepared.candidate = nil
+	p.execution = nil
+	p.commitTerminationWithUnresolved(stepOutcome{}, p.unknownEffectIDs())
+}
+
 func (p *processState) discardExecution() {
 	execution, err := restoreExecution(p.deployment.Definition(), p.committedExecutionState)
 	if err == nil {
@@ -411,4 +417,11 @@ func (p *processState) resolveStepTermination(outcome stepOutcome) Termination {
 		termination = terminationForFailure(failure)
 	}
 	return termination
+}
+
+func (p *processState) effectiveTermination() Termination {
+	if p.status.Terminal() {
+		return p.termination
+	}
+	return p.resolveStepTermination(stepOutcome{})
 }

@@ -470,14 +470,26 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 		t.finishIfTerminal(process)
 		return
 	}
+	if process.pendingControl.hasTerminalIntent() {
+		t.stopProcessTree(process)
+		if index < len(process.prepared.wire.Effects) {
+			record := &process.prepared.wire.Effects[index]
+			if record.Phase == effectPhasePending {
+				if process.restoredPending.matches(record.ID) {
+					t.recoverPendingEffect(process, uint32(index), record)
+					return
+				}
+				// Only this incarnation can prove an unused dispatch permission.
+				// A framework wait has no external work to collect or replay.
+				record.revokeDispatch()
+			}
+		}
+		process.terminatePrepared()
+		t.finishIfTerminal(process)
+		return
+	}
 	if index < len(process.prepared.wire.Effects) {
 		if process.prepared.wire.Effects[index].unknown() {
-			if process.pendingControl.hasTerminalIntent() {
-				unresolvedEffectIDs := process.unknownEffectIDs()
-				process.discardPrepared()
-				process.commitTerminationWithUnresolved(stepOutcome{}, unresolvedEffectIDs)
-				t.finishIfTerminal(process)
-			}
 			return
 		}
 		t.startPreparedEffect(process, index)

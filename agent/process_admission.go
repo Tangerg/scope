@@ -48,6 +48,8 @@ func (p ProcessAdmission) Valid() bool {
 // but must not create a Process, mutate the admission, or allocate Framework
 // resources. A prepared Step may replay the same child admission with the same
 // prospective Process identity after recovery.
+// The runtime cancels an active child admission when its parent terminates;
+// an accepted admission still receives its required initialization outcome.
 //
 // Implementations must respect ctx, return in bounded time, be safe for
 // concurrent calls when shared, and must not re-enter the Engine or a Process.

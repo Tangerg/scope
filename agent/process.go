@@ -114,8 +114,11 @@ func (p *Process) Resume(ctx context.Context) error {
 // Process has reached a safe boundary or become terminal. Once submitted, ctx
 // cancellation cannot revoke the request. The first committed cancellation
 // intent maps to StatusCanceled with a host-cancellation cause.
-// Active descendants receive parent termination through the normal child
-// lifecycle. A surviving parent receives the ordinary child-completion Signal
+// Applying the intent cancels owned Step, Dispatch, and child-admission contexts
+// throughout the subtree before waiting for their results. Already started
+// external work still settles; remaining planned Effects do not start. Required
+// initialization and persistence acknowledgments retain independent contexts.
+// A surviving parent receives the ordinary child-completion Signal
 // and its Strategy decides how to continue. Await reports this Process's
 // acknowledged terminal result; every descendant retains its own settlement.
 func (p *Process) RequestCancellation(ctx context.Context, reason string) error {
@@ -151,7 +154,8 @@ func (p *Process) RequestCancellation(ctx context.Context, reason string) error 
 }
 
 // Kill records the Engine control plane's highest-priority terminal intent.
-// It does not silently abandon an in-flight Effect; settlement finishes first.
+// It signals owned work throughout the subtree and collects in-flight Effects
+// before termination. It cannot force a goroutine or a remote operation to stop.
 // A nil error acknowledges the local intent. Await establishes whether the
 // resulting termination committed or this instance stopped with a RuntimeError.
 func (p *Process) Kill(ctx context.Context, reason string) error {
@@ -161,6 +165,8 @@ func (p *Process) Kill(ctx context.Context, reason string) error {
 
 // ResolveUnknownEffect supplies a definite result after an Effect attempt became
 // unknown. The Engine never converts unknown into retry or success implicitly.
+// Terminal intent or a committed terminal result returns ErrProcessFinished;
+// retained interrupted-batch evidence cannot resume a terminated execution.
 func (p *Process) ResolveUnknownEffect(ctx context.Context, settlement Settlement) error {
 	_, err := p.request(ctx, processCommand{kind: commandResolveUnknownEffect, settlement: settlement})
 	return err
@@ -171,6 +177,7 @@ func (p *Process) ResolveUnknownEffect(ctx context.Context, settlement Settlemen
 // wait; Process cancellation is explicit or follows the context passed to Start.
 // A durability failure stops this instance and returns a RuntimeError with no
 // Result. A failed logical execution returns a valid Result and nil error.
+// Descendants may still be settling after this Process's result is ready.
 func (p *Process) Await(ctx context.Context) (Result, error) {
 	if p == nil || p.handle == nil {
 		return Result{}, ErrProcessNotRunning
