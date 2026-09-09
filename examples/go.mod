@@ -3,9 +3,9 @@ module github.com/Tangerg/scope/examples
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/agent v0.15.1-0.20260909093204-9d1847a45910
-	github.com/Tangerg/scope/core v0.15.1-0.20260909095114-403ce784f146
-	github.com/Tangerg/scope/mcp v0.15.0
+	github.com/Tangerg/scope/agent v0.16.0
+	github.com/Tangerg/scope/core v0.16.0
+	github.com/Tangerg/scope/mcp v0.16.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 )
 
@@ -33,5 +33,4 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
-	golang.org/x/tools v0.50.0 // indirect
 )
