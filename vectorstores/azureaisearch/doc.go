@@ -15,9 +15,9 @@
 // Semantic search supplies one vector query. Hybrid search supplies the same
 // vector together with `search` and restricts lexical evidence to the
 // configured content field, leaving fusion to Azure AI Search.
-// Search and filtered deletion consume server-provided continuation parameters
-// before treating a query as complete. Returned metadata retains its JSON
-// representation, including integers outside the exact float64 range.
+// Search consumes server-provided continuation parameters before treating a
+// query as complete. Returned metadata retains its JSON representation,
+// including integers outside the exact float64 range.
 //
 // Vector request shape:
 //
@@ -50,6 +50,22 @@
 // Metadata cannot use the configured ID, content, or embedding fields, or
 // protocol annotation names beginning with @. The entire Index request is
 // checked for these conflicts before embedding or sending any batch.
+//
+// Filtered deletion. Azure identifies a document to delete by its key and
+// offers no delete-by-filter, so DeleteWhere collects keys first. It cannot
+// collect them with skip: Azure's own continuation is the request back with a
+// skip added, a filter-only query scores every match 1.00 in what Azure calls
+// "an arbitrary order", and paged results over a changing index are documented
+// as unstable, with the example returning one document twice — the same event
+// as another being returned never. A key never enumerated is a document never
+// deleted under a call that reported success. The walk instead follows Azure's
+// documented "sort order and range filter as a workaround for skip", ordering
+// by the key and carrying `<key> gt <last>` into each following page, and ends
+// only on an empty page because a short page is not evidence of the last one.
+// That is why [NewStore] also requires the configured ID field to be the
+// index's key with `filterable` and `sortable` set: the walk cannot run
+// without them, and Azure states they "can only be enabled when a field is
+// first added to an index".
 //
 // Vector profiles belong to the pre-provisioned index's vector field. Queries
 // select that field and use its profile without a second store-level setting.

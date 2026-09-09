@@ -29,8 +29,9 @@ import (
 type SimilarityMetric string
 
 // ErrIncompatibleIndex reports an index that cannot serve this store: the
-// configured vector field is missing or unsearchable, or the algorithm behind
-// it was configured with a different similarity metric.
+// configured vector field is missing or unsearchable, the algorithm behind it
+// was configured with a different similarity metric, or the configured ID
+// field is not a key this store can enumerate and delete by.
 var ErrIncompatibleIndex = errors.New("azureaisearch: index is incompatible")
 
 // The metric is a closed vocabulary because score direction and threshold
@@ -78,8 +79,15 @@ func (s SimilarityMetric) score(raw float64) vectorstore.Score {
 const (
 	Provider = "AzureAISearch"
 
-	// Azure AI Search rejects document batches above this service limit.
+	// Azure AI Search rejects document batches above this service limit:
+	// "Supported maximum 1,000 documents per batch of index uploads, merges,
+	// or deletes."
 	maximumDocumentsPerBatch = 1000
+
+	// maximumResultsPerPage is the read-side ceiling, which Azure states
+	// separately from the write-side one: "The default page size is 50, while
+	// the maximum page size is 1,000."
+	maximumResultsPerPage = 1000
 
 	// DefaultAPIVersion targets the GA "2024-07-01" REST surface, the
 	// first stable release that exposes the typed vector-query
@@ -219,10 +227,13 @@ type Store struct {
 	maxResponseBytes int64
 }
 
-// NewStore confirms the index agrees with the configured metric during
-// construction, which is why it takes a context: a store returned with the
-// wrong metric would go on returning scores that are wrong rather than absent,
-// and the misconfiguration is at wiring.
+// NewStore reads the existing index during construction, which is why it takes
+// a context. Both facts it checks there fail quietly at run time: a store built
+// on the wrong metric goes on returning scores that are wrong rather than
+// absent, and an ID field that is not a filterable, sortable key makes
+// DeleteWhere leave documents behind while reporting success. Both are
+// misconfigurations at wiring, and the ID field's attributes cannot be changed
+// once the index exists.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	config.applyDefaults()
 	if err := config.Validate(); err != nil {
@@ -248,7 +259,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		httpClient:       config.HTTPClient,
 		maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes),
 	}
-	if err = store.verifyIndexMetric(ctx); err != nil {
+	if err = store.verifyIndex(ctx); err != nil {
 		return nil, err
 	}
 	return store, nil
@@ -261,6 +272,9 @@ type indexSchema struct {
 	Fields []struct {
 		Name                string `json:"name"`
 		VectorSearchProfile string `json:"vectorSearchProfile"`
+		Key                 bool   `json:"key"`
+		Filterable          bool   `json:"filterable"`
+		Sortable            bool   `json:"sortable"`
 	} `json:"fields"`
 	VectorSearch struct {
 		Profiles []struct {
@@ -279,7 +293,7 @@ type indexSchema struct {
 	} `json:"vectorSearch"`
 }
 
-func (s *Store) verifyIndexMetric(ctx context.Context) error {
+func (s *Store) verifyIndex(ctx context.Context) error {
 	raw, err := s.sendJSON(ctx, http.MethodGet, "/indexes/"+url.PathEscape(s.indexName), nil)
 	if err != nil {
 		return fmt.Errorf("azureaisearch: read index %s: %w", s.indexName, err)
@@ -288,7 +302,47 @@ func (s *Store) verifyIndexMetric(ctx context.Context) error {
 	if err = json.Unmarshal(raw, &schema); err != nil {
 		return fmt.Errorf("azureaisearch: decode index %s: %w", s.indexName, err)
 	}
+	if err = validateIndexIDField(&schema, s.idField); err != nil {
+		return err
+	}
 	return validateIndexMetric(&schema, s.embeddingField, s.similarityMetric)
+}
+
+// validateIndexIDField refuses an index whose ID field cannot carry the two
+// jobs this store gives it: naming a document in a delete action, and walking
+// a filter's full match set.
+//
+// Azure identifies a document to delete by its key, so an ID field that is not
+// the key names nothing. Enumerating the keys to delete is the harder half.
+// Azure's only paging primitive is skip -- "@search.nextPageParameters" is the
+// same request with a skip added -- and for a filter-only query every match
+// scores 1.0, which Azure calls "an arbitrary order". On top of that, "the
+// results of paginated queries aren't guaranteed to be stable if the underlying
+// index is changing"; the worked example returns one document twice, which is
+// the same event as another document being returned never. A key never
+// enumerated is a document never deleted, and DeleteWhere would still report
+// success. Azure's documented remedy is "a sort order and range filter as a
+// workaround for skip", for which "the unique field must have filterable and
+// sortable attribution in the search index".
+//
+// Construction is the only useful moment to say so, because those attributes
+// "can only be enabled when a field is first added to an index".
+func validateIndexIDField(schema *indexSchema, idField string) error {
+	for _, field := range schema.Fields {
+		if field.Name != idField {
+			continue
+		}
+		if !field.Key {
+			return fmt.Errorf("%w: field %q is not the index key, so it cannot name a document to delete",
+				ErrIncompatibleIndex, idField)
+		}
+		if !field.Filterable || !field.Sortable {
+			return fmt.Errorf("%w: key field %q is filterable=%t sortable=%t, and both are required to page through a filter's matches by key",
+				ErrIncompatibleIndex, idField, field.Filterable, field.Sortable)
+		}
+		return nil
+	}
+	return fmt.Errorf("%w: the index declares no field named %q", ErrIncompatibleIndex, idField)
 }
 
 // validateIndexMetric refuses a store whose configured metric is not the one
@@ -490,34 +544,10 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		return errors.New("azureaisearch: refusing to delete on empty filter")
 	}
 
-	// Page through ids matching the filter.
-	const pageSize = 1000
-	ids := make([]string, 0, pageSize)
-	skip := 0
-	for {
-		body := map[string]any{
-			"select": s.idField,
-			"filter": filterStr,
-			"top":    pageSize,
-			"skip":   skip,
-		}
-		rows, err := s.searchDocuments(ctx, body)
-		if err != nil {
-			return fmt.Errorf("azureaisearch: enumerate ids: %w", err)
-		}
-		for _, row := range rows {
-			id, err := s.documentID(row)
-			if err != nil {
-				return err
-			}
-			ids = append(ids, id)
-		}
-		if len(rows) < pageSize {
-			break
-		}
-		skip += len(rows)
+	ids, err := s.enumerateKeys(ctx, filterStr)
+	if err != nil {
+		return err
 	}
-
 	if len(ids) == 0 {
 		return nil
 	}
@@ -532,35 +562,92 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 	return nil
 }
 
-func (s *Store) searchDocuments(ctx context.Context, body any) ([]metadata.Map, error) {
+// enumerateKeys collects every key matching filterStr, following Azure's
+// documented workaround for skip: each page carries its own range filter on
+// the key, so no page's contents depend on where the previous one stopped.
+// [validateIndexIDField] records why skip cannot be used here.
+func (s *Store) enumerateKeys(ctx context.Context, filterStr string) ([]string, error) {
+	var ids []string
+	seen := make(map[string]struct{})
+	pageFilter := filterStr
+	for {
+		// Azure's own skip continuation is deliberately left unread: the range
+		// filter below supersedes it, and following it would reintroduce the
+		// paging this walk exists to avoid.
+		rows, _, err := s.searchPage(ctx, map[string]any{
+			"select":  s.idField,
+			"filter":  pageFilter,
+			"top":     maximumResultsPerPage,
+			"orderby": s.idField + " asc",
+		})
+		if err != nil {
+			return nil, fmt.Errorf("azureaisearch: enumerate keys: %w", err)
+		}
+		// "Pagination ends when the query returns zero results", so a short
+		// page still earns one confirming request: short is not the same as
+		// last when the page size is a ceiling rather than a promise.
+		if len(rows) == 0 {
+			return ids, nil
+		}
+		for _, row := range rows {
+			id, err := s.documentID(row)
+			if err != nil {
+				return nil, err
+			}
+			// A repeat means the range filter did not advance past what
+			// orderby already returned, which would loop forever. Azure
+			// documents ASCII or Unicode string order "depending on the
+			// language", so report the disagreement instead of spinning on it.
+			if _, repeated := seen[id]; repeated {
+				return nil, fmt.Errorf("azureaisearch: key %q was enumerated twice, so ordering by %s does not agree with comparing it",
+					id, s.idField)
+			}
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+		pageFilter = fmt.Sprintf("(%s) and %s gt %s", filterStr, s.idField, quoteODataString(ids[len(ids)-1]))
+	}
+}
+
+// searchPage sends one search request and returns its rows alongside the
+// parameters Azure offers for the next page, empty when there is none.
+func (s *Store) searchPage(ctx context.Context, body any) ([]metadata.Map, map[string]json.RawMessage, error) {
 	path := fmt.Sprintf("/indexes/%s/docs/search", url.PathEscape(s.indexName))
+	raw, err := s.sendJSON(ctx, http.MethodPost, path, body)
+	if err != nil {
+		return nil, nil, err
+	}
+	var page struct {
+		Value          []metadata.Map             `json:"value"`
+		NextParameters map[string]json.RawMessage `json:"@search.nextPageParameters"`
+		NextLink       string                     `json:"@odata.nextLink"`
+	}
+	if err := json.Unmarshal(raw, &page); err != nil {
+		return nil, nil, fmt.Errorf("decode search response: %w", err)
+	}
+	if page.Value == nil {
+		return nil, nil, errors.New("search response is missing its result array")
+	}
+	if len(page.NextParameters) == 0 && page.NextLink != "" {
+		return nil, nil, errors.New("search continuation is missing POST parameters")
+	}
+	return page.Value, page.NextParameters, nil
+}
+
+func (s *Store) searchDocuments(ctx context.Context, body any) ([]metadata.Map, error) {
 	var rows []metadata.Map
 	for {
-		raw, err := s.sendJSON(ctx, http.MethodPost, path, body)
+		page, next, err := s.searchPage(ctx, body)
 		if err != nil {
 			return nil, err
 		}
-		var page struct {
-			Value          []metadata.Map             `json:"value"`
-			NextParameters map[string]json.RawMessage `json:"@search.nextPageParameters"`
-			NextLink       string                     `json:"@odata.nextLink"`
-		}
-		if err := json.Unmarshal(raw, &page); err != nil {
-			return nil, fmt.Errorf("decode search response: %w", err)
-		}
-		if page.Value == nil {
-			return nil, errors.New("search response is missing its result array")
-		}
-		rows = append(rows, page.Value...)
-		if len(page.NextParameters) == 0 {
-			if page.NextLink != "" {
-				return nil, errors.New("search continuation is missing POST parameters")
-			}
+		rows = append(rows, page...)
+		if len(next) == 0 {
 			return rows, nil
 		}
 		// POST continuations carry the complete next request. The configured
 		// index endpoint retains authority over where credentials are sent.
-		body = page.NextParameters
+		body = next
 	}
 }
 

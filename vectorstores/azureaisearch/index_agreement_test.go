@@ -104,6 +104,69 @@ func TestValidateIndexMetric(t *testing.T) {
 	}
 }
 
+// The ID field carries two jobs, and Azure locks in the attributes for both
+// when the field is first added to the index: naming a document in a delete
+// action needs the key, and paging through a filter's matches by key range --
+// Azure's own "workaround for skip" -- needs that key filterable and sortable.
+// Discovering either at delete time would be discovering it too late to fix.
+func TestValidateIndexIDField(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		schema  string
+		wantErr bool
+	}{
+		{
+			name:   "key is filterable and sortable",
+			schema: `{"fields": [{"name": "id", "key": true, "filterable": true, "sortable": true}]}`,
+		},
+		{
+			name:    "field is absent",
+			schema:  `{"fields": [{"name": "other", "key": true}]}`,
+			wantErr: true,
+		},
+		{
+			// The delete action identifies a document by its key, so a
+			// non-key ID field names nothing to delete.
+			name:    "field is not the key",
+			schema:  `{"fields": [{"name": "id", "filterable": true, "sortable": true}]}`,
+			wantErr: true,
+		},
+		{
+			name:    "key is not sortable",
+			schema:  `{"fields": [{"name": "id", "key": true, "filterable": true}]}`,
+			wantErr: true,
+		},
+		{
+			name:    "key is not filterable",
+			schema:  `{"fields": [{"name": "id", "key": true, "sortable": true}]}`,
+			wantErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			var schema indexSchema
+			if err := json.Unmarshal([]byte(test.schema), &schema); err != nil {
+				t.Fatalf("decode schema: %v", err)
+			}
+			err := validateIndexIDField(&schema, "id")
+			if test.wantErr {
+				if !errors.Is(err, ErrIncompatibleIndex) {
+					t.Fatalf("validateIndexIDField() = %v, want ErrIncompatibleIndex", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("validateIndexIDField() = %v, want nil", err)
+			}
+		})
+	}
+}
+
 // The metric vocabulary is Azure's own, spelled as the REST surface spells it:
 // dotProduct is camelCase while the other two are lowercase, so a normalized
 // guess would never match.

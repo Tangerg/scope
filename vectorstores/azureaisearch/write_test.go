@@ -28,17 +28,21 @@ func (w writeTestBatcher) Batch(ctx context.Context, documents []*document.Docum
 	return batches, nil
 }
 
-// agreeingIndexBody is the index definition NewStore now reads to confirm the
-// configured metric, written so the test server can answer the construction
-// GET without every write test having to know about it.
+// agreeingIndexBody is the index definition NewStore reads to confirm the
+// configured metric and the ID field's attributes, written so the test server
+// can answer the construction GET without every write test having to know
+// about it.
 func agreeingIndexBody(metric SimilarityMetric) string {
 	return fmt.Sprintf(`{
-		"fields": [{"name": %q, "vectorSearchProfile": "default-profile"}],
+		"fields": [
+			{"name": %q, "key": true, "filterable": true, "sortable": true},
+			{"name": %q, "vectorSearchProfile": "default-profile"}
+		],
 		"vectorSearch": {
 			"profiles": [{"name": "default-profile", "algorithm": "default-hnsw"}],
 			"algorithms": [{"name": "default-hnsw", "kind": "hnsw", "hnswParameters": {"metric": %q}}]
 		}
-	}`, DefaultEmbeddingField, metric)
+	}`, DefaultIDField, DefaultEmbeddingField, metric)
 }
 
 func newWriteTestStore(t *testing.T, handler http.HandlerFunc, batcher writeTestBatcher) *Store {
@@ -106,9 +110,17 @@ func TestWritesRequireEveryDocumentAcknowledgment(t *testing.T) {
 			{"duplicate key", `{"value":[{"key":"one","status":true,"statusCode":201},{"key":"one","status":true,"statusCode":201}]}`, true},
 		} {
 			t.Run(operation+"/"+test.name, func(t *testing.T) {
+				searches := 0
 				store := newWriteTestStore(t, func(writer http.ResponseWriter, request *http.Request) {
 					writer.Header().Set("Content-Type", "application/json")
 					if strings.HasSuffix(request.URL.Path, "/search") {
+						// The key walk ends on an empty page, so the two keys
+						// are served once rather than on every request.
+						searches++
+						if searches > 1 {
+							fmt.Fprint(writer, `{"value":[]}`)
+							return
+						}
 						fmt.Fprint(writer, `{"value":[{"id":"one"},{"id":"two"}]}`)
 						return
 					}

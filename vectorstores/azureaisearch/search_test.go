@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -104,34 +105,75 @@ func TestSearchPreservesMetadataAcrossServerPages(t *testing.T) {
 	}
 }
 
-func TestDeleteWhereConsumesServerPagesBeforeWriting(t *testing.T) {
-	for _, failContinuation := range []bool{false, true} {
-		t.Run(fmt.Sprintf("continuation_error=%t", failContinuation), func(t *testing.T) {
-			queries, writes := 0, 0
+// DeleteWhere used to enumerate keys with skip, which Azure's own continuation
+// also uses -- "@search.nextPageParameters" is the request back with a skip
+// added. For a filter-only query every match scores 1.0, which Azure calls "an
+// arbitrary order", and paged results over a changing index are documented as
+// unstable: the example returns one document twice, which is the same event as
+// another being returned never. Never enumerated meant never deleted, with
+// DeleteWhere returning nil.
+//
+// The walk now carries its own range filter on the key, so each page states
+// what it wants instead of counting on the last one.
+func TestDeleteWherePagesByKeyRatherThanSkip(t *testing.T) {
+	for _, failSecondPage := range []bool{false, true} {
+		t.Run(fmt.Sprintf("page_error=%t", failSecondPage), func(t *testing.T) {
+			var filters []string
+			writes := 0
 			store := newWriteTestStore(t, func(writer http.ResponseWriter, request *http.Request) {
 				writer.Header().Set("Content-Type", "application/json")
 				if strings.HasSuffix(request.URL.Path, "/search") {
-					queries++
-					if queries == 1 {
-						fmt.Fprint(writer, `{"value":[{"id":"one"}],"@search.nextPageParameters":{"select":"id","filter":"category eq 'test'","top":999,"skip":1}}`)
-					} else if failContinuation {
+					var body struct {
+						Filter  string `json:"filter"`
+						OrderBy string `json:"orderby"`
+						Skip    *int   `json:"skip"`
+					}
+					if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+						t.Error(err)
+					}
+					if body.OrderBy != DefaultIDField+" asc" {
+						t.Errorf("orderby = %q, want the key ascending", body.OrderBy)
+					}
+					if body.Skip != nil {
+						t.Errorf("skip = %d, want the key range instead", *body.Skip)
+					}
+					filters = append(filters, body.Filter)
+					switch {
+					case len(filters) == 1:
+						// A full page would be indistinguishable from the last
+						// one, so the walk must ask again either way.
+						fmt.Fprint(writer, `{"value":[{"id":"one"}]}`)
+					case failSecondPage:
 						writer.WriteHeader(http.StatusBadRequest)
 						fmt.Fprint(writer, `{"error":{"message":"query failed"}}`)
-					} else {
+					case len(filters) == 2:
 						fmt.Fprint(writer, `{"value":[{"id":"two"}]}`)
+					default:
+						fmt.Fprint(writer, `{"value":[]}`)
 					}
 					return
 				}
 				writes++
 				fmt.Fprint(writer, `{"value":[{"key":"one","status":true,"statusCode":200},{"key":"two","status":true,"statusCode":200}]}`)
 			}, writeTestBatcher{})
+
 			deleteErr := store.DeleteWhere(t.Context(), filter.EQ("category", "test"))
-			if failContinuation {
-				if deleteErr == nil || queries != 2 || writes != 0 {
-					t.Fatalf("DeleteWhere = %v, queries=%d writes=%d; want error, 2, 0", deleteErr, queries, writes)
+			if failSecondPage {
+				if deleteErr == nil || writes != 0 {
+					t.Fatalf("DeleteWhere = %v, writes=%d; want an error before any write", deleteErr, writes)
 				}
-			} else if deleteErr != nil || queries != 2 || writes != 1 {
-				t.Fatalf("DeleteWhere = %v, queries=%d writes=%d; want nil, 2, 1", deleteErr, queries, writes)
+				return
+			}
+			if deleteErr != nil || writes != 1 {
+				t.Fatalf("DeleteWhere = %v, writes=%d; want nil, 1", deleteErr, writes)
+			}
+			want := []string{
+				"category eq 'test'",
+				"(category eq 'test') and id gt 'one'",
+				"(category eq 'test') and id gt 'two'",
+			}
+			if !slices.Equal(filters, want) {
+				t.Fatalf("filters = %q, want %q", filters, want)
 			}
 		})
 	}
