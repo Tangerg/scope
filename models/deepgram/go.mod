@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/models/deepgram
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.15.1-0.20260909095114-403ce784f146
+	github.com/Tangerg/scope/core v0.16.0
 	github.com/go-resty/resty/v2 v2.17.2
 )
 

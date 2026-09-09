@@ -4,7 +4,7 @@ go 1.27.0
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos v1.5.0
-	github.com/Tangerg/scope/core v0.15.1-0.20260909095114-403ce784f146
+	github.com/Tangerg/scope/core v0.16.0
 	github.com/samber/lo v1.53.0
 )
 
