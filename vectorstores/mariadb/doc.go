@@ -3,8 +3,10 @@
 // (id / content / metadata JSON / embedding VECTOR) reached through
 // `database/sql` + the go-sql-driver/mysql driver.
 //
-// Requirements: MariaDB 11.6+ (vector support landed in 11.6 GA;
-// the VECTOR INDEX HNSW backing only became stable in 11.7).
+// Requirements: MariaDB Community Server 11.7+, or Enterprise Server 11.4.5-3+
+// — "vectors are available from MariaDB Community Server 11.7 and from MariaDB
+// Enterprise Server 11.4.5-3". 11.7 is a rolling release; 11.8 is the first LTS
+// to include vectors. There is no 11.6 with vector support.
 //
 // Distance metrics: [DistanceCosine] (uses `vec_distance_cosine`) /
 // [DistanceEuclidean] (uses `vec_distance_euclidean`). A MariaDB vector index

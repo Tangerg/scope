@@ -4,8 +4,10 @@
 // the MySQL wire protocol via `database/sql` +
 // go-sql-driver/mysql.
 //
-// Requirements: TiDB 8.4+ (vector type GA) — TiDB Serverless
-// supports it on every recent release. The HNSW vector index needs
+// Requirements: TiDB v8.4.0+, which is where PingCAP sets the floor for
+// self-managed and Dedicated clusters while recommending v8.5.0 or later. The
+// vector data type still carries a beta notice, so it "might be changed without
+// prior notice". The HNSW vector index needs
 // the function-expression form
 // `((VEC_<metric>_DISTANCE(embedding))) USING HNSW` and is only
 // available on TiKV-backed columnar storage in some deployments;

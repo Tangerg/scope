@@ -67,7 +67,7 @@ func (d DistanceMetric) score(distance float64) vectorstore.Score {
 type StoreConfig struct {
 	// DB is the database handle. Required. Use a *sql.DB built from
 	// the github.com/go-sql-driver/mysql driver pointed at a MariaDB
-	// 11.7+ instance with vector support enabled.
+	// 11.7+ instance (or Enterprise Server 11.4.5-3+) with vector support.
 	DB *sql.DB
 
 	// SchemaName is the optional schema (database) prefix. When
@@ -165,7 +165,7 @@ var (
 )
 
 // Store implements vector-store capabilities with the VECTOR column type and
-// vec_distance_* functions introduced in MariaDB 11.6+.
+// vec_distance_* functions introduced in MariaDB Community Server 11.7.
 type Store struct {
 	db              *sql.DB
 	schemaName      string
