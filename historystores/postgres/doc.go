@@ -5,6 +5,27 @@
 // ordered parts, tool results, media, and metadata round-trip with full
 // fidelity. The package reads and writes only the current tagged format.
 //
+// Schema (created by InitializeSchema=true):
+//
+//	CREATE TABLE <schema>.<table> (
+//	    seq             BIGSERIAL    PRIMARY KEY,
+//	    conversation_id TEXT         NOT NULL,
+//	    message         JSONB        NOT NULL,
+//	    created_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
+//	);
+//	CREATE INDEX <index> ON <schema>.<table> (conversation_id, seq);
+//
+// Reads order by `seq`, which PostgreSQL assigns from the table's own
+// sequence. That is why this store needs no [history.Sequence]: no clock takes
+// part in the ordering, so there is no clock regression to guard against.
+// Concurrent calls and writes from distinct Store instances have no defined
+// relative order.
+//
+// Write atomicity. One Write is one pgx batch, and pgx runs "all queries ...
+// in an implicit transaction unless explicit transaction control statements
+// are executed", so a Write applies whole or not at all and a failed one
+// leaves no prefix behind.
+//
 // Example:
 //
 //	pool, _ := pgxpool.New(ctx, "postgres://...")

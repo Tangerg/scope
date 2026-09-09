@@ -16,6 +16,15 @@
 // calls and writes from distinct Store instances have no defined relative
 // order.
 //
+// Write atomicity. A batch confined to one partition is the strongest thing
+// Cassandra offers here, and it is isolation rather than atomicity: "all
+// updates in a BATCH belonging to a given partition key are performed in
+// isolation", while "if the UNLOGGED option is used, a failed batch might
+// leave the batch only partly applied". Asking for LOGGED would not buy the
+// guarantee, because "a LOGGED batch to a single partition will be converted
+// to an UNLOGGED batch as an optimization". A failed Write can therefore leave
+// part of its batch stored, and no reply distinguishes how much.
+//
 // Write acknowledgment. The session must not use consistency ANY. At every
 // other level a successful write reached at least one replica, but at ANY
 // Cassandra may instead have the coordinator "store a hint" and replay it
