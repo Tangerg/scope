@@ -54,6 +54,10 @@ func (c ChatConfig) Validate() error {
 	return nil
 }
 
+// maximumTemperature is the top of the range Moonshot documents for its
+// OpenAI-compatible endpoint.
+var maximumTemperature = 1.0
+
 // NewChat rejects an invalid provider binding before the first chat call.
 func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
 	if err := config.Validate(); err != nil {
@@ -62,6 +66,11 @@ func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
 	dialect := openai.ReasoningContentReplayDialect("moonshot")
 	dialect.PrepareRequest = prepareOpenAIRequest
 	dialect.TokenLimitField = openai.TokenLimitMaxCompletionTokens
+	// Moonshot's migration guide states the narrower range outright: "Kimi API
+	// 的 temperature 参数的取值范围是 [0, 1]，而 OpenAI 的 temperature 参数的
+	// 取值范围是 [0, 2]". Refusing above it beats sending a value the provider
+	// documents as out of range.
+	dialect.MaxTemperature = &maximumTemperature
 	protocol, err := openai.NewCompatibleChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURL), HTTPClient: config.HTTPClient}, dialect)
 	if err != nil {
 		return nil, fmt.Errorf("moonshot: construct OpenAI-compatible chat: %w", err)
