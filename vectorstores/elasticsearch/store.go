@@ -159,7 +159,9 @@ type StoreConfig struct {
 
 	// NumCandidatesMultiplier scales the KNN num_candidates parameter.
 	// num_candidates = ceil(topK * multiplier). Higher = better
-	// recall, slower. Optional: defaults to 1.5.
+	// recall, slower. Optional: defaults to 1.5. Values below 1 are
+	// refused because Elasticsearch requires num_candidates to be at
+	// least k, so such a store could not serve any search.
 	NumCandidatesMultiplier float64
 }
 
@@ -179,6 +181,13 @@ func (s StoreConfig) Validate() error {
 	}
 	if !s.Similarity.Valid() {
 		return fmt.Errorf("elasticsearch: unsupported Similarity %q", s.Similarity)
+	}
+	// "[num_candidates] cannot be less than [k]", and num_candidates is
+	// derived from k by this multiplier alone, so anything under 1 rejects
+	// every search this store would ever send.
+	if s.NumCandidatesMultiplier < 1 {
+		return fmt.Errorf("elasticsearch: NumCandidatesMultiplier %g would ask for fewer candidates than results, which Elasticsearch rejects",
+			s.NumCandidatesMultiplier)
 	}
 	if s.ContentField == s.EmbeddingField || s.ContentField == s.MetadataField || s.EmbeddingField == s.MetadataField {
 		return errors.New("elasticsearch: ContentField, EmbeddingField, and MetadataField must be distinct")
