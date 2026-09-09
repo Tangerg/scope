@@ -35,6 +35,15 @@
 // The result's `relevance` is taken as-is — for the default cosine
 // configuration this is already a [0, 1] similarity score.
 //
+// Result ceiling. Vespa documents that "hits is capped at maxHits, default
+// 400", and applies the cap by trimming the result rather than answering an
+// error — a search for more would come back short with nothing to distinguish
+// a capped result from an exhausted one. Search refuses a TopK above
+// [StoreConfig.MaxHits], which defaults to Vespa's own [DefaultMaxHits]; a
+// deployment whose query profile raised the value says so there, the same way
+// it declares its schema and rank profile. Filtered deletion pages within the
+// same ceiling.
+//
 // Query completeness. Vespa enables soft timeout by default and answers a
 // partially evaluated query with 200 plus a degraded `root.coverage` report.
 // Both search and filtered deletion require full coverage and no reported

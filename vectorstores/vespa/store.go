@@ -43,9 +43,11 @@ const (
 
 	DefaultMaxResponseBytes = int64(16 * 1024 * 1024)
 
-	// Staying within Vespa's default maxHits avoids requiring a query-profile
-	// override merely to enumerate documents for deletion.
-	deletePageSize = 400
+	// DefaultMaxHits is the value Vespa documents for the query profile's
+	// maxHits: "hits is capped at maxHits, default 400". The cap is applied
+	// silently, so a search asking for more would come back short with nothing
+	// to say it had been truncated.
+	DefaultMaxHits = 400
 )
 
 // StoreConfig contains configuration options for the Vespa vector
@@ -97,6 +99,13 @@ type StoreConfig struct {
 	// MaxResponseBytes bounds every buffered HTTP response. Zero selects
 	// [DefaultMaxResponseBytes].
 	MaxResponseBytes int64
+
+	// MaxHits is the query profile's maxHits for this application. Optional:
+	// defaults to Vespa's own [DefaultMaxHits]. It belongs here for the same
+	// reason SchemaName and RankingProfile do — it is a fact about the deployed
+	// application package that this store cannot read, and Vespa caps hits
+	// against it without saying so.
+	MaxHits int
 }
 
 func (s StoreConfig) Validate() error {
@@ -118,6 +127,9 @@ func (s StoreConfig) Validate() error {
 	}
 	if s.MaxResponseBytes < 0 {
 		return errors.New("vespa: MaxResponseBytes must not be negative")
+	}
+	if s.MaxHits < 0 {
+		return errors.New("vespa: MaxHits must not be negative")
 	}
 	return s.validateIdentifiers()
 }
@@ -181,6 +193,7 @@ type Store struct {
 	documentBatcher  vectorstore.Batcher
 	httpClient       *http.Client
 	maxResponseBytes int64
+	maxHits          int
 }
 
 // NewStore performs no I/O. Everything this store depends on — the schema, the
@@ -214,6 +227,7 @@ func NewStore(_ context.Context, config StoreConfig) (*Store, error) {
 		documentBatcher:  config.DocumentBatcher,
 		httpClient:       config.HTTPClient,
 		maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes),
+		maxHits:          cmp.Or(config.MaxHits, DefaultMaxHits),
 	}, nil
 }
 
@@ -294,6 +308,10 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		yql = yql + " and " + filterFragment
 	}
 
+	if limit := req.Options.ResultLimit(); limit > s.maxHits {
+		return nil, fmt.Errorf("vespa: TopK %d exceeds this application's maxHits of %d, which Vespa applies by trimming the result rather than reporting it",
+			limit, s.maxHits)
+	}
 	body := map[string]any{
 		"yql":  yql,
 		"hits": req.Options.ResultLimit(),
@@ -347,7 +365,7 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 			s.idField, s.schemaName, filterFragment)
 		body := map[string]any{
 			"yql":  yql,
-			"hits": deletePageSize,
+			"hits": s.maxHits,
 		}
 		hits, err := s.query(ctx, body)
 		if err != nil {
