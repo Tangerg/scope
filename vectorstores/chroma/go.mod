@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/chroma
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.15.0
+	github.com/Tangerg/scope/core v0.15.1-0.20260909095114-403ce784f146
 	github.com/amikos-tech/chroma-go v0.4.1
 	github.com/samber/lo v1.53.0
 )
@@ -39,7 +39,6 @@ require (
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/power-devops/perfstat v0.0.0-20260805114148-88456608a4f6 // indirect
-	github.com/stretchr/testify v1.12.1 // indirect
 	github.com/testcontainers/testcontainers-go v0.44.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0 // indirect
 	go.opentelemetry.io/otel/trace v1.46.0 // indirect

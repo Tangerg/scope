@@ -1,5 +1,5 @@
-github.com/Tangerg/scope/core v0.15.0 h1:umc6y40Qg9rzaSYs5tX0T/9XEW8zj60N6H/NjnGo4PQ=
-github.com/Tangerg/scope/core v0.15.0/go.mod h1:2gxlTIUXKEnHXFSX/BZrdciKqagk8Rxhvi7oob8nhSM=
+github.com/Tangerg/scope/core v0.15.1-0.20260909095114-403ce784f146 h1:4MN+wBWwrzcFH6JXcKjSy1D+CwMLvMlAu4aOYbCOwzM=
+github.com/Tangerg/scope/core v0.15.1-0.20260909095114-403ce784f146/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
 github.com/dlclark/regexp2 v1.12.0 h1:0j4c5qQmnC6XOWNjP3PIXURXN2gWx76rd3KvgdPkCz8=
 github.com/dlclark/regexp2 v1.12.0/go.mod h1:DHkYz0B9wPfa6wondMfaivmHpzrQ3v9q8cnmRbL6yW8=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=

@@ -1,9 +1,9 @@
 github.com/PuerkitoBio/goquery v1.13.0 h1:mqHbjD7Jmnul4DTR24LKTjo1uUmHUh072kteGV+xpFM=
 github.com/PuerkitoBio/goquery v1.13.0/go.mod h1:Hip5mdBL8K2wEGKJdr27sRaNwIdDajmCwB/ExUPwW+g=
-github.com/Tangerg/scope/core v0.15.0 h1:umc6y40Qg9rzaSYs5tX0T/9XEW8zj60N6H/NjnGo4PQ=
-github.com/Tangerg/scope/core v0.15.0/go.mod h1:2gxlTIUXKEnHXFSX/BZrdciKqagk8Rxhvi7oob8nhSM=
-github.com/Tangerg/scope/etl v0.15.0 h1:WtU6VfcYOwtDMXi+WAylGb7J43C7AT3yae4Y1B38/X8=
-github.com/Tangerg/scope/etl v0.15.0/go.mod h1:Fd++6ieGHxRF71DA2cUHEDDsIoDTX/hPlPFXrxRXy+U=
+github.com/Tangerg/scope/core v0.15.1-0.20260909095114-403ce784f146 h1:4MN+wBWwrzcFH6JXcKjSy1D+CwMLvMlAu4aOYbCOwzM=
+github.com/Tangerg/scope/core v0.15.1-0.20260909095114-403ce784f146/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
+github.com/Tangerg/scope/etl v0.15.1-0.20260909095114-403ce784f146 h1:grIwcntwJf7T7C48erSWFtkUo3YV3dgZnIYORk/wrsk=
+github.com/Tangerg/scope/etl v0.15.1-0.20260909095114-403ce784f146/go.mod h1:QkvDcmA0POF4wjdVbzZM0qbupFKMORA44PBcqrbjzWY=
 github.com/andybalholm/cascadia v1.3.5 h1:RLjq12WJy58dN6eCIQrz0bAGZkztHWsEPFxP53Y7Ms8=
 github.com/andybalholm/cascadia v1.3.5/go.mod h1:BLRmbRjpEtNKieZOCCvYj4RqN+KRA41GBe/5O+G93kM=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=

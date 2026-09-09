@@ -1,5 +1,5 @@
-github.com/Tangerg/scope/core v0.15.0 h1:umc6y40Qg9rzaSYs5tX0T/9XEW8zj60N6H/NjnGo4PQ=
-github.com/Tangerg/scope/core v0.15.0/go.mod h1:2gxlTIUXKEnHXFSX/BZrdciKqagk8Rxhvi7oob8nhSM=
+github.com/Tangerg/scope/core v0.15.1-0.20260909095114-403ce784f146 h1:4MN+wBWwrzcFH6JXcKjSy1D+CwMLvMlAu4aOYbCOwzM=
+github.com/Tangerg/scope/core v0.15.1-0.20260909095114-403ce784f146/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
 github.com/Tangerg/scope/models/assemblyai v0.15.0 h1:nLwOnkaXpUlrJR9je8xXo70pUtAVONBmk+IuilxBHuw=
 github.com/Tangerg/scope/models/assemblyai v0.15.0/go.mod h1:9IuTVW2Khhrcx6P1vaFQUcLntVXnujB8lMnXS1u+lXU=
 github.com/Tangerg/scope/models/blackforestlabs v0.15.0 h1:JXGOmOtUxy7FW/kzIr6/TDSFfRmn78yjIsI9JLd13yY=

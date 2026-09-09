@@ -1,7 +1,7 @@
-github.com/Tangerg/scope/core v0.15.0 h1:umc6y40Qg9rzaSYs5tX0T/9XEW8zj60N6H/NjnGo4PQ=
-github.com/Tangerg/scope/core v0.15.0/go.mod h1:2gxlTIUXKEnHXFSX/BZrdciKqagk8Rxhvi7oob8nhSM=
-github.com/Tangerg/scope/etl v0.15.0 h1:WtU6VfcYOwtDMXi+WAylGb7J43C7AT3yae4Y1B38/X8=
-github.com/Tangerg/scope/etl v0.15.0/go.mod h1:Fd++6ieGHxRF71DA2cUHEDDsIoDTX/hPlPFXrxRXy+U=
+github.com/Tangerg/scope/core v0.15.1-0.20260909095114-403ce784f146 h1:4MN+wBWwrzcFH6JXcKjSy1D+CwMLvMlAu4aOYbCOwzM=
+github.com/Tangerg/scope/core v0.15.1-0.20260909095114-403ce784f146/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
+github.com/Tangerg/scope/etl v0.15.1-0.20260909095114-403ce784f146 h1:grIwcntwJf7T7C48erSWFtkUo3YV3dgZnIYORk/wrsk=
+github.com/Tangerg/scope/etl v0.15.1-0.20260909095114-403ce784f146/go.mod h1:QkvDcmA0POF4wjdVbzZM0qbupFKMORA44PBcqrbjzWY=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/ledongthuc/pdf v0.0.0-20260907135840-6c8c28e0e8a0 h1:7Q+xNAZFmnfYOMweHN3c/PDFUKKfY1pVJ26K++QvVfU=
