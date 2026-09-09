@@ -8,4 +8,4 @@ require (
 	github.com/samber/lo v1.53.0
 )
 
-require golang.org/x/text v0.41.0 // indirect
+require golang.org/x/text v0.42.0 // indirect

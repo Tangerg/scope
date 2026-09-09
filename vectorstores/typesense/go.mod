@@ -13,5 +13,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/oapi-codegen/runtime v1.7.0 // indirect
 	github.com/sony/gobreaker v1.0.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	github.com/stretchr/testify v1.12.1 // indirect
+	golang.org/x/text v0.42.0 // indirect
 )
