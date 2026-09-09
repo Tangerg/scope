@@ -40,7 +40,7 @@ func TestRuntimeInspectionHasOnePublicOwner(t *testing.T) {
 	}
 }
 
-func TestAdmissionAndObservationDoNotCarryRuntimeAuthority(t *testing.T) {
+func TestAdmissionAndObservationFactsAreImmutable(t *testing.T) {
 	for _, fact := range []reflect.Type{
 		reflect.TypeFor[ProcessAdmission](),
 		reflect.TypeFor[ProcessStartOutcome](),
@@ -52,7 +52,20 @@ func TestAdmissionAndObservationDoNotCarryRuntimeAuthority(t *testing.T) {
 					t.Errorf("immutable boundary fact exposes mutable field %s", field.Name)
 				}
 			}
-			assertNoRuntimeAuthority(t, fact, make(map[reflect.Type]bool))
+		})
+	}
+}
+
+func TestBoundaryValuesDoNotCarryRuntimeAuthority(t *testing.T) {
+	for _, value := range []reflect.Type{
+		reflect.TypeFor[ProcessAdmission](),
+		reflect.TypeFor[ProcessStartOutcome](),
+		reflect.TypeFor[Event](),
+		reflect.TypeFor[TreeInspection](),
+		reflect.TypeFor[ProcessInspection](),
+	} {
+		t.Run(value.Name(), func(t *testing.T) {
+			assertNoRuntimeAuthority(t, value, make(map[reflect.Type]bool))
 		})
 	}
 }
@@ -67,7 +80,7 @@ func assertNoRuntimeAuthority(t *testing.T, value reflect.Type, seen map[reflect
 	case reflect.TypeFor[Engine](), reflect.TypeFor[Process](), reflect.TypeFor[Deployment](),
 		reflect.TypeFor[Definition](), reflect.TypeFor[Execution](), reflect.TypeFor[Dispatcher](),
 		reflect.TypeFor[DeploymentResolver](), reflect.TypeFor[TreeDurability]():
-		t.Errorf("immutable boundary fact carries runtime authority through %v", value)
+		t.Errorf("boundary value carries runtime authority through %v", value)
 		return
 	}
 	switch value.Kind() {
@@ -89,8 +102,12 @@ func assertNoRuntimeAuthority(t *testing.T, value reflect.Type, seen map[reflect
 		}
 	}
 	if value.PkgPath() == reflect.TypeFor[Event]().PkgPath() {
-		for index := range value.NumMethod() {
-			assertNoRuntimeAuthority(t, value.Method(index).Type, seen)
+		methods := value
+		if value.Kind() != reflect.Interface {
+			methods = reflect.PointerTo(value)
+		}
+		for index := range methods.NumMethod() {
+			assertNoRuntimeAuthority(t, methods.Method(index).Type, seen)
 		}
 	}
 }
