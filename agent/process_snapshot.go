@@ -44,6 +44,7 @@ type ProcessSnapshot struct {
 	budget                  Budget
 	capabilities            CapabilitySet
 	unknownEffectIDs        []EffectID
+	signalReceipts          []SignalReceipt
 }
 
 // ParseProcessSnapshot strictly validates one Process snapshot wire value,
@@ -90,6 +91,7 @@ func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 		budget:                  wire.Budget,
 		capabilities:            wire.Capabilities,
 		unknownEffectIDs:        unknownEffectIDs,
+		signalReceipts:          snapshotSignalReceipts(wire.Mailbox),
 	}, nil
 }
 
@@ -103,6 +105,13 @@ func newProcessSnapshot(wire processSnapshotWire) (ProcessSnapshot, error) {
 
 // JSON returns an independently owned snapshot representation.
 func (p ProcessSnapshot) JSON() json.RawMessage { return bytes.Clone(p.data) }
+
+// SignalReceipts returns admitted Signal facts in mailbox arrival order. The
+// committed cursor distinguishes consumption from admission, including inputs
+// accepted after a final Step obtained its Signal window. These facts have the
+// same acknowledgment boundary as this snapshot; absence in an older capture
+// does not prove rejection. No mailbox or consumption authority is transferred.
+func (p ProcessSnapshot) SignalReceipts() []SignalReceipt { return slices.Clone(p.signalReceipts) }
 
 // ProcessID returns the captured Process identity.
 func (p ProcessSnapshot) ProcessID() ProcessID { return p.processID }

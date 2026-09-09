@@ -18,6 +18,7 @@ coverage_budget=(
   "./examples/workflow_patterns 70.8"
   "./interaction 75.5"
   "./internal/conformancetest 79.1"
+  "./messaging 86.5"
   "./planning 76.1"
   "./planning/goap 86.1"
   "./workflow 78.4"

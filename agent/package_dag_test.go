@@ -17,6 +17,7 @@ var allowedPackageDependencies = map[string]map[string]struct{}{
 	".":                        {},
 	"agenttest":                {".": {}},
 	"coordination":             {".": {}},
+	"messaging":                {".": {}},
 	"interaction":              {".": {}},
 	"planning":                 {".": {}},
 	"planning/goap":            {"planning": {}},

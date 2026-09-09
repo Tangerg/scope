@@ -128,6 +128,10 @@
 // records and budget charges commit to the authoritative tree head. The
 // consumption cursor advances only when candidate state and transition commit,
 // so a failed Step never permanently swallows input.
+// ProcessSnapshot.SignalReceipts exposes the same admitted identities and
+// committed consumption cursor for delivery reconciliation and input cutover.
+// A terminal Process may retain inputs admitted after its final Signal window.
+// Their original recipient binding and pending payload remain observable.
 // Consumption is bounded by the Signal window delivered to that Step; input
 // admitted while the Step runs belongs to a later window.
 // Once consumed, a mailbox record keeps its identity, addressed wait, arrival
@@ -260,6 +264,8 @@
 // Processes rather than by nesting a second Execution.
 // The coordination package composes bounded input gates, absolute deadlines,
 // and first-success competition through the same child and wait contracts.
+// The messaging package delivers intermediate input through a narrow Host
+// port, retaining the original recipient and Effect-derived Signal identity.
 //
 // The Engine never imports or type-switches a concrete strategy. A new
 // strategy is admitted by implementing the waist, state codec, and safe

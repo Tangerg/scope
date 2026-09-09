@@ -45,6 +45,9 @@ func (t *treeRuntime) propagateProcessTermination(process *processState) {
 }
 
 func (t *treeRuntime) notifyChildWaits(processID ProcessID, boundary ChildWaitBoundary) {
+	if t.fault != nil {
+		return
+	}
 	for _, registration := range orderedChildWaitRegistrations(t.childWaits) {
 		if registration.spec.Boundary != boundary || !containsProcessID(registration.spec.Children, processID) {
 			continue
