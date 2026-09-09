@@ -66,6 +66,19 @@ func (c *Chat) buildRequest(request *corechat.Request, stream bool) (*chatComple
 	if err != nil {
 		return nil, err
 	}
+	// Mistral's reasoning_effort enum is Core's vocabulary without max, so the
+	// portable option reaches the wire instead of being dropped -- Core is
+	// explicit that an adapter "must not accept the effort and send a request
+	// that never carried it". An empty effort leaves whatever the native
+	// extension set, because empty means "the model's default" and a caller who
+	// set reasoning_effort natively has already chosen.
+	if options.ReasoningEffort != "" {
+		effort := ReasoningEffort(options.ReasoningEffort)
+		if validateErr := effort.Validate(); validateErr != nil {
+			return nil, fmt.Errorf("mistral: options.reasoning_effort: %w", validateErr)
+		}
+		extension.ReasoningEffort = effort
+	}
 	return &chatCompletionRequest{
 		Model:              options.Model,
 		Messages:           messages,

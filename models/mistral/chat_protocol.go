@@ -28,18 +28,24 @@ const (
 	maximumTemperature      = 1.5
 )
 
-// ReasoningEffort controls Mistral's native reasoning mode.
+// ReasoningEffort controls Mistral's native reasoning mode. The values are the
+// six its chat endpoint documents as the reasoning_effort enum; empty asks the
+// model for its own default.
 type ReasoningEffort string
 
-// These are the provider values this adapter recognizes.
 const (
-	ReasoningEffortHigh ReasoningEffort = "high"
-	ReasoningEffortNone ReasoningEffort = "none"
+	ReasoningEffortNone    ReasoningEffort = "none"
+	ReasoningEffortMinimal ReasoningEffort = "minimal"
+	ReasoningEffortLow     ReasoningEffort = "low"
+	ReasoningEffortMedium  ReasoningEffort = "medium"
+	ReasoningEffortHigh    ReasoningEffort = "high"
+	ReasoningEffortXHigh   ReasoningEffort = "xhigh"
 )
 
 func (r ReasoningEffort) Validate() error {
 	switch r {
-	case "", ReasoningEffortHigh, ReasoningEffortNone:
+	case "", ReasoningEffortNone, ReasoningEffortMinimal, ReasoningEffortLow,
+		ReasoningEffortMedium, ReasoningEffortHigh, ReasoningEffortXHigh:
 		return nil
 	default:
 		return fmt.Errorf("unsupported reasoning effort %q", r)
