@@ -11,12 +11,13 @@
 //
 // Authentication. API key via the `x-api-key` header.
 //
-// Corpus availability. [NewStore] reads `/v2/corpora/<corpus_key>` so a wrong
-// key fails at wiring rather than on the first upload, and refuses a corpus an
-// administrator has disabled with [ErrUnavailableCorpus] — the flag exists so
-// a corpus can be taken out of service deliberately, and a store that kept
-// operating against one would be working around that decision. There is no
-// metric to agree on here, because Vectara owns embedding and scoring.
+// Construction confirms nothing, unlike its siblings. There is no metric to
+// agree on — Vectara owns embedding and scoring — and the one remaining fact,
+// whether the corpus exists and is enabled, lives behind corpus management,
+// which Vectara scopes to a Personal API key. Indexing and querying are what a
+// serving or serving_and_indexing key is for, so reading the corpus at wiring
+// would make this store demand a more privileged key than its own work needs.
+// A wrong [StoreConfig.CorpusKey] therefore surfaces on the first request.
 //
 // Search shape. The store hits Vectara's v2 query endpoint —
 // `POST /v2/corpora/<corpus_key>/query` — with the user's raw query

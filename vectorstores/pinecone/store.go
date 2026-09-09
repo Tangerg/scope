@@ -2,8 +2,10 @@ package pinecone
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
+	"net/http"
 	"net/url"
 	"slices"
 	"strings"
@@ -179,11 +181,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		return nil, fmt.Errorf("pinecone: create embedding client: %w", err)
 	}
 
-	indexes, err := config.Client.ListIndexes(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("pinecone: list indexes: %w", err)
-	}
-	if err = validateIndexMetric(indexes, config.IndexHost, config.DistanceMetric); err != nil {
+	if err = verifyIndexMetric(ctx, config); err != nil {
 		return nil, err
 	}
 
@@ -201,6 +199,39 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		documentBatcher: config.DocumentBatcher,
 		distanceMetric:  config.DistanceMetric,
 	}, nil
+}
+
+// verifyIndexMetric reads the index's own metric and refuses a configured value
+// that disagrees.
+//
+// The metric lives on the control plane; the data plane never reports it. A key
+// with custom permissions may be denied there, and Pinecone documents that case
+// as ordinary — it is why a caller "must target your index by host when
+// performing data operations", which is exactly the shape of
+// [StoreConfig.IndexHost]. A store built for a host-targeted key cannot then
+// demand control-plane read as the price of construction, so a denial leaves
+// the configured metric unverified rather than failing. Every other failure is
+// reported: a store that cannot tell why it could not look has not established
+// anything.
+func verifyIndexMetric(ctx context.Context, config StoreConfig) error {
+	indexes, err := config.Client.ListIndexes(ctx)
+	if err != nil {
+		if isAuthorizationDenied(err) {
+			return nil
+		}
+		return fmt.Errorf("pinecone: list indexes: %w", err)
+	}
+	return validateIndexMetric(indexes, config.IndexHost, config.DistanceMetric)
+}
+
+// isAuthorizationDenied reports whether Pinecone refused the call for lack of
+// permission rather than for any other reason.
+func isAuthorizationDenied(err error) bool {
+	var pineconeErr *pinecone.PineconeError
+	if !errors.As(err, &pineconeErr) {
+		return false
+	}
+	return pineconeErr.Code == http.StatusUnauthorized || pineconeErr.Code == http.StatusForbidden
 }
 
 // validateIndexMetric refuses a store whose configured metric is not the one

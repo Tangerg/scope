@@ -14,15 +14,13 @@
 // or plain HTTP (self-hosted). Inject credentials by passing a
 // configured [http.Client] via [StoreConfig.HTTPClient].
 //
-// Container readiness. [NewStore] reads `/state/v1/health` and refuses a
-// container that is not "up" with [ErrUnavailableContainer], which covers a
-// query container still initializing while it waits for content nodes as well
-// as an endpoint that is not a Vespa container at all. What it cannot check is
-// the part that lives in the application package: whether
-// [StoreConfig.RankingProfile] actually ranks by closeness, and whether the
-// schema declares the configured fields. Those remain the caller's to get
-// right, and a profile ranking by something else would report scores on a
-// scale this store reads as closeness.
+// Schema agreement is the caller's. [StoreConfig.RankingProfile] must rank by
+// closeness, and the schema must declare the configured fields; both live in an
+// application package this store cannot read, and Vespa's documentation does
+// not establish that a status path answers on the container endpoint this store
+// is configured with. So unlike its siblings, [NewStore] confirms nothing — a
+// profile ranking by something else reports scores on a scale this store reads
+// as closeness, and only the deployment can prevent that.
 //
 // Search shape. The store issues a `nearestNeighbor` YQL search:
 //

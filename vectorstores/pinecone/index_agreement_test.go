@@ -2,6 +2,7 @@ package pinecone
 
 import (
 	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/pinecone-io/go-pinecone/v4/pinecone"
@@ -88,6 +89,39 @@ func TestDistanceMetricMatchesTheSDKVocabulary(t *testing.T) {
 		}
 		if !test.metric.Valid() {
 			t.Errorf("DistanceMetric %q is not accepted by Valid()", test.metric)
+		}
+	}
+}
+
+// Pinecone documents the restricted-key case as ordinary: a key with custom
+// permissions cannot read the control plane, which is why a caller "must target
+// your index by host when performing data operations" -- the shape this store's
+// IndexHost already has. Demanding control-plane read as the price of
+// construction would break that documented pattern, so a denial leaves the
+// metric unverified instead of failing.
+func TestVerifyIndexMetricToleratesAnAuthorizationDenial(t *testing.T) {
+	t.Parallel()
+
+	for _, code := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		if !isAuthorizationDenied(&pinecone.PineconeError{Code: code, Msg: errors.New("denied")}) {
+			t.Errorf("isAuthorizationDenied(%d) = false, want true", code)
+		}
+	}
+}
+
+// Any other failure is reported. A store that cannot tell why it failed to look
+// has established nothing, and saying so beats reporting agreement it never
+// saw.
+func TestVerifyIndexMetricReportsEveryOtherFailure(t *testing.T) {
+	t.Parallel()
+
+	for _, err := range []error{
+		&pinecone.PineconeError{Code: http.StatusInternalServerError, Msg: errors.New("boom")},
+		&pinecone.PineconeError{Code: http.StatusNotFound, Msg: errors.New("gone")},
+		errors.New("dial tcp: connection refused"),
+	} {
+		if isAuthorizationDenied(err) {
+			t.Errorf("isAuthorizationDenied(%v) = true, want false", err)
 		}
 	}
 }

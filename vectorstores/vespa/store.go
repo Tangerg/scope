@@ -46,16 +46,7 @@ const (
 	// Staying within Vespa's default maxHits avoids requiring a query-profile
 	// override merely to enumerate documents for deletion.
 	deletePageSize = 400
-
-	// healthCodeUp is the one status code /state/v1/health reports for a
-	// container that is fully operational; "initializing" and "down" are the
-	// other two it documents.
-	healthCodeUp = "up"
 )
-
-// ErrUnavailableContainer reports a Vespa container that answered its health
-// endpoint without being ready to serve.
-var ErrUnavailableContainer = errors.New("vespa: container is unavailable")
 
 // StoreConfig contains configuration options for the Vespa vector
 // store. Vespa uses an HTTP REST surface; the store assumes the
@@ -192,10 +183,16 @@ type Store struct {
 	maxResponseBytes int64
 }
 
-// NewStore needs no context because construction performs no I/O; the schema is
-// provisioned outside this package, so the store only validates configuration
-// and assembles state.
-func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
+// NewStore performs no I/O. Everything this store depends on — the schema, the
+// fields, the rank profile's distance function — lives in an application
+// package deployed out of band, and Vespa's documentation does not establish
+// that a status path answers on the container endpoint this store is
+// configured with, so there is nothing here it can confirm without guessing.
+//
+// The context is still taken, because every store in this family is
+// constructed the same way and a caller should not have to remember which
+// backend happens to be checkable.
+func NewStore(_ context.Context, config StoreConfig) (*Store, error) {
 	config.applyDefaults()
 	if err := config.Validate(); err != nil {
 		return nil, err
@@ -204,7 +201,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("vespa: create embedding client: %w", err)
 	}
-	store := &Store{
+	return &Store{
 		endpoint:         strings.TrimRight(config.Endpoint, "/"),
 		schemaName:       config.SchemaName,
 		namespace:        config.Namespace,
@@ -217,42 +214,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		documentBatcher:  config.DocumentBatcher,
 		httpClient:       config.HTTPClient,
 		maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes),
-	}
-	if err = store.verifyContainer(ctx); err != nil {
-		return nil, err
-	}
-	return store, nil
-}
-
-// verifyContainer reads the container's own health endpoint.
-//
-// The schema and rank profile live in an application package this store cannot
-// read, so there is nothing here to compare a configured metric against. What
-// the container does report is whether it can answer at all: "up" is fully
-// operational, while "initializing" means a container with the query API is
-// still "waiting for content nodes to start", and a store built against one of
-// those would fail every request for a reason that has nothing to do with the
-// caller's query. A wrong endpoint surfaces here as well, at the wiring that
-// names it.
-func (s *Store) verifyContainer(ctx context.Context) error {
-	raw, err := s.sendJSON(ctx, http.MethodGet, "/state/v1/health", nil)
-	if err != nil {
-		return fmt.Errorf("vespa: read container health at %s: %w", s.endpoint, err)
-	}
-	var health struct {
-		Status struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"status"`
-	}
-	if err = json.Unmarshal(raw, &health); err != nil {
-		return fmt.Errorf("vespa: decode container health: %w", err)
-	}
-	if health.Status.Code != healthCodeUp {
-		return fmt.Errorf("%w: container at %s reports %q: %s",
-			ErrUnavailableContainer, s.endpoint, health.Status.Code, health.Status.Message)
-	}
-	return nil
+	}, nil
 }
 
 // Index embeds documents and writes them through the Vespa Document API.

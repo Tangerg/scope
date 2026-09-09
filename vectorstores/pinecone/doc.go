@@ -14,8 +14,15 @@
 // metric from the control plane and refuses a configured value that disagrees
 // with [ErrIncompatibleIndex] — a mismatch would otherwise return scores that
 // are wrong rather than absent, with MinScore filtering by the wrong
-// direction. Dimensionality is not compared: this store declares none, and
-// Pinecone rejects a wrong-width vector on the first request.
+// direction.
+//
+// A key with custom permissions may be denied the control plane, which Pinecone
+// documents as the reason a caller "must target your index by host when
+// performing data operations" — the shape [StoreConfig.IndexHost] already has.
+// Construction does not demand that permission: an authorization denial leaves
+// the configured metric unverified, while any other failure is reported.
+// Dimensionality is never compared: this store declares none, and Pinecone
+// rejects a wrong-width vector on the first request.
 //
 // Filter visitor produces Pinecone's metadata-filter syntax —
 // `{"author": {"$eq": "Alice"}}`, `{"$and": [...]}`,

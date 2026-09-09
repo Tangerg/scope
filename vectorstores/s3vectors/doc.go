@@ -14,11 +14,16 @@
 // `euclidean` at creation, and [StoreConfig.DistanceMetric] is what maps
 // QueryVectors' raw distance into a higher-is-better score in [0, 1]. Because
 // the response carries the distance and nothing that identifies the metric
-// behind it, [NewStore] reads the index's registered metric and refuses a
-// configured value that disagrees with [ErrIncompatibleIndex] — a mismatch
-// would otherwise rescale every score and leave MinScore filtering by a
-// threshold in the wrong scale. Dimensionality is not compared: this store
-// declares none, and S3 Vectors rejects a wrong-width vector on write.
+// behind it, a mismatch would rescale every score and leave MinScore filtering
+// by a threshold in the wrong scale, so [NewStore] reads the index's registered
+// metric and refuses a configured value that disagrees with
+// [ErrIncompatibleIndex].
+//
+// That read is GetIndex, and s3vectors:GetIndex is its own action: granting
+// PutVectors and QueryVectors does not imply it, so an IAM policy scoped to the
+// data plane alone has to add it at the index ARN. Dimensionality is not
+// compared: this store declares none, and S3 Vectors rejects a wrong-width
+// vector on write.
 //
 // Filter visitor produces S3 Vectors' Mongo-flavored JSON filter
 // document — `{"author": {"$eq": "Alice"}}`,
