@@ -25,6 +25,9 @@
 // classify failures identically. Chat extends that triple with its own protocol
 // errors because its wire additionally models tool calls, parts, and usage.
 // Classify with errors.Is; never match on message text.
+// JSON decoders reject unknown struct members before replacing the receiver,
+// including nested protocol values. Metadata, namespaced extensions, JSON
+// schemas, and tool-defined payloads retain their open data contracts.
 //
 // # Shared values
 //

@@ -150,7 +150,7 @@ func (o *OutputFormat) UnmarshalJSON(data []byte) error {
 	}
 	type wireOutputFormat OutputFormat
 	var decoded wireOutputFormat
-	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidOutputFormat, err)
 	}
 	candidate := OutputFormat(decoded)

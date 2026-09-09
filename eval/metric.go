@@ -2,6 +2,7 @@ package eval
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
 
@@ -130,7 +131,7 @@ func (m *Metric) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidMetric)
 	}
 	var wire metricWire
-	if err := json.Unmarshal(data, &wire); err != nil {
+	if err := jsonv2.Unmarshal(data, &wire, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidMetric, err)
 	}
 	value, err := NewMetric(MetricConfig(wire))

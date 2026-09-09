@@ -3,6 +3,7 @@ package trajectory
 import (
 	"cmp"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
@@ -116,7 +117,7 @@ func (t *Trajectory) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidTrajectory)
 	}
 	var decoded trajectoryWire
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true), json.FormatDurationAsNano(true)); err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidTrajectory, err)
 	}
 	canonical, err := New(Config(decoded))

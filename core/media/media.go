@@ -2,6 +2,7 @@ package media
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"mime"
@@ -208,7 +209,7 @@ func (m *Media) UnmarshalJSON(data []byte) error {
 	}
 	type wireMedia Media
 	var decoded wireMedia
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("media: decode: %w", err)
 	}
 	candidate := Media(decoded)

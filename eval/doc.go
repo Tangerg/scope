@@ -8,6 +8,8 @@
 // ExperimentReport.Compare reports exact aggregate deltas without inventing
 // statistical claims. ProjectionEvaluator adapts aggregate subjects to narrow
 // evaluator inputs.
+// JSON decoding rejects unknown report and metric members, including nested
+// details, while metadata and metric parameters retain their open JSON values.
 //
 // Domain vocabularies live outside the kernel: judge supplies generic
 // model-backed evaluation, text owns generated-text metrics, ranking owns

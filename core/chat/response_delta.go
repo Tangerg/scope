@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
@@ -148,7 +149,7 @@ func (p *PartDelta) UnmarshalJSON(data []byte) error {
 	}
 	type wirePartDelta PartDelta
 	var decoded wirePartDelta
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode part delta: %w", ErrInvalidResponse, err)
 	}
 	candidate := PartDelta(decoded)
@@ -244,7 +245,7 @@ func (r *ResponseDelta) UnmarshalJSON(data []byte) error {
 	}
 	type wireResponseDelta ResponseDelta
 	var decoded wireResponseDelta
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode response delta: %w", ErrInvalidResponse, err)
 	}
 	candidate := ResponseDelta(decoded)

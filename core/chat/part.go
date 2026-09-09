@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
 
@@ -229,7 +230,7 @@ func (p *Part) UnmarshalJSON(data []byte) error {
 	}
 	type wirePart Part
 	var decoded wirePart
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidPart, err)
 	}
 	candidate := Part(decoded)

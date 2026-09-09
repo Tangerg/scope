@@ -2,6 +2,7 @@ package document
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"unicode/utf8"
@@ -51,7 +52,7 @@ func (d *Document) UnmarshalJSON(data []byte) error {
 	}
 	type wireDocument Document
 	var decoded wireDocument
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidDocument, err)
 	}
 	candidate := Document(decoded)

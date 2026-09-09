@@ -2,6 +2,7 @@ package vectorstore
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"math"
 )
@@ -40,7 +41,7 @@ func (s *Score) UnmarshalJSON(data []byte) error {
 	}
 	type wireScore Score
 	var decoded wireScore
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode score: %w", ErrInvalidScore, err)
 	}
 	candidate := Score(decoded)

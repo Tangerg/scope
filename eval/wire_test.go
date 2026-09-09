@@ -3,6 +3,7 @@ package eval_test
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"strings"
 	"testing"
@@ -60,6 +61,24 @@ func TestReportSurvivesJSON(t *testing.T) {
 	}
 	if decoded.Details[0].Feedback != "child" {
 		t.Fatalf("child report round trip = %#v", decoded.Details[0])
+	}
+}
+
+func TestReportJSONRejectsUnknownMembers(t *testing.T) {
+	for name, data := range map[string]string{
+		"report": `{"metric":{"name":"accuracy"},"feedback":"accepted","unexpected":true}`,
+		"metric": `{"metric":{"name":"accuracy","unexpected":true},"feedback":"accepted"}`,
+		"detail": `{"metric":{"name":"accuracy"},"details":[{"metric":{"name":"accuracy"},"feedback":"child","unexpected":true}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			kept := eval.Report{Metric: accuracyMetric(t), Feedback: "kept"}
+			if err := json.Unmarshal([]byte(data), &kept); !errors.Is(err, jsonv2.ErrUnknownName) {
+				t.Fatalf("decode error = %v, want unknown object member", err)
+			}
+			if kept.Feedback != "kept" || len(kept.Details) != 0 || kept.Metric.Namespace() != "quality" {
+				t.Fatalf("rejected decode changed report: %+v", kept)
+			}
+		})
 	}
 }
 

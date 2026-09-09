@@ -3,6 +3,7 @@ package trajectory_test
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"iter"
 	"sync/atomic"
@@ -332,6 +333,17 @@ func TestTrajectoryJSONRoundTripPreservesCanonicalBehavior(t *testing.T) {
 	}
 	if got != want {
 		t.Fatalf("decoded behavior digest = %s, want %s", got, want)
+	}
+	if decoded.Duration() != recorded.Duration() {
+		t.Fatalf("decoded duration = %s, want %s", decoded.Duration(), recorded.Duration())
+	}
+	unknown := []byte(string(encoded[:len(encoded)-1]) + `,"unexpected":true}`)
+	if decodeErr := json.Unmarshal(unknown, &decoded); !errors.Is(decodeErr, jsonv2.ErrUnknownName) {
+		t.Fatalf("decode error = %v, want unknown object member", decodeErr)
+	}
+	retained, marshalErr := json.Marshal(decoded)
+	if marshalErr != nil || string(retained) != string(encoded) {
+		t.Fatalf("rejected decode changed trajectory: %s, error = %v", retained, marshalErr)
 	}
 	if err := json.Unmarshal([]byte(`{}`), &decoded); !errors.Is(err, trajectory.ErrInvalidTrajectory) {
 		t.Fatalf("invalid trajectory JSON error = %v", err)

@@ -2,6 +2,7 @@ package embedding
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"math"
 	"slices"
@@ -61,7 +62,7 @@ func (o *Output) UnmarshalJSON(data []byte) error {
 	}
 	type wireOutput Output
 	var decoded wireOutput
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode output: %w", ErrInvalidResponse, err)
 	}
 	candidate := Output(decoded)
@@ -102,7 +103,7 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 	}
 	type wireUsage Usage
 	var decoded wireUsage
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode usage: %w", ErrInvalidResponse, err)
 	}
 	candidate := Usage(decoded)
@@ -162,7 +163,7 @@ func (r *ResponseMetadata) UnmarshalJSON(data []byte) error {
 	}
 	type wireResponseMetadata ResponseMetadata
 	var decoded wireResponseMetadata
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode response metadata: %w", ErrInvalidResponse, err)
 	}
 	candidate := ResponseMetadata(decoded)
@@ -300,7 +301,7 @@ func (r *Response) UnmarshalJSON(data []byte) error {
 	}
 	type wireResponse Response
 	var decoded wireResponse
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode response: %w", ErrInvalidResponse, err)
 	}
 	candidate := Response(decoded)

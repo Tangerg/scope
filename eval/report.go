@@ -2,6 +2,7 @@ package eval
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"math"
 	"slices"
@@ -105,7 +106,7 @@ func (r *Report) UnmarshalJSON(data []byte) error {
 	}
 	type wireReport Report
 	var decoded wireReport
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidReport, err)
 	}
 	candidate := Report(decoded)

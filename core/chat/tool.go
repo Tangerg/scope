@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
 )
@@ -94,7 +95,7 @@ func (t *ToolOutput) UnmarshalJSON(data []byte) error {
 	}
 	type wireToolOutput ToolOutput
 	var decoded wireToolOutput
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidToolOutput, err)
 	}
 	candidate := ToolOutput(decoded)

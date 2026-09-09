@@ -2,6 +2,7 @@ package image
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"mime"
 	"strings"
@@ -144,7 +145,7 @@ func (o *Options) UnmarshalJSON(data []byte) error {
 	}
 	type wireOptions Options
 	var decoded wireOptions
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode options: %w", ErrInvalidOptions, err)
 	}
 	candidate := Options(decoded)
@@ -200,7 +201,7 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 	}
 	type wireRequest Request
 	var decoded wireRequest
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode request: %w", ErrInvalidRequest, err)
 	}
 	candidate := Request(decoded)

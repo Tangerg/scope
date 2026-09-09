@@ -44,6 +44,13 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 					if result == nil || result.Name != name || result.ID != "call_"+name || result.IsError {
 						return nil, errors.New("Tool result order or identity changed during recovery")
 					}
+					wantText := name
+					if name == "uncertain" {
+						wantText = "resolved"
+					}
+					if len(result.Output.Content) != 1 || result.Output.Content[0].Kind != chat.PartText || result.Output.Content[0].Text != wantText {
+						return nil, fmt.Errorf("Tool %s recovered content = %+v, want %q", name, result.Output.Content, wantText)
+					}
 				}
 				return textResponse("recovered"), nil
 			})
@@ -109,7 +116,7 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 			if first.calls.Load() != 1 || uncertain.calls.Load() != 1 || last.calls.Load() != 0 {
 				t.Fatal("recovery replayed an established or unknown Tool attempt")
 			}
-			resolution, err := agent.NewSettlement(unknown[0], agent.SettlementStatusSucceeded, json.RawMessage(`{"operation":"tool_call","tool_result":{"result":{"id":"call_uncertain","name":"uncertain","output":{"parts":[{"type":"text","text":"resolved"}]}},"direct":false}}`))
+			resolution, err := agent.NewSettlement(unknown[0], agent.SettlementStatusSucceeded, json.RawMessage(`{"operation":"tool_call","tool_result":{"result":{"id":"call_uncertain","name":"uncertain","output":{"content":[{"kind":"text","text":"resolved"}]}},"direct":false}}`))
 			if err != nil {
 				t.Fatal(err)
 			}

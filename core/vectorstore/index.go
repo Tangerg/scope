@@ -3,6 +3,7 @@ package vectorstore
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -87,7 +88,7 @@ func (i *IndexRequest) UnmarshalJSON(data []byte) error {
 	}
 	type wireIndexRequest IndexRequest
 	var decoded wireIndexRequest
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode index request: %w", ErrInvalidRequest, err)
 	}
 	candidate := IndexRequest(decoded)

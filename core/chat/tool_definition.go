@@ -3,6 +3,7 @@ package chat
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"regexp"
@@ -59,7 +60,7 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 	}
 	type wireToolDefinition ToolDefinition
 	var decoded wireToolDefinition
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidToolDefinition, err)
 	}
 	candidate := ToolDefinition(decoded)

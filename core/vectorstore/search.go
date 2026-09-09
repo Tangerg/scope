@@ -3,6 +3,7 @@ package vectorstore
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
@@ -136,7 +137,7 @@ func (s *SearchOptions) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("%w: search options receiver is nil", ErrInvalidOptions)
 	}
 	var decoded searchOptionsWire
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode search options: %w", ErrInvalidOptions, err)
 	}
 	candidate := SearchOptions{TopK: decoded.TopK, MinScore: decoded.MinScore, Mode: decoded.Mode}
@@ -198,7 +199,7 @@ func (s *SearchRequest) UnmarshalJSON(data []byte) error {
 	}
 	type wireSearchRequest SearchRequest
 	var decoded wireSearchRequest
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode search request: %w", ErrInvalidRequest, err)
 	}
 	candidate := SearchRequest(decoded)
@@ -261,7 +262,7 @@ func (s *SearchResult) UnmarshalJSON(data []byte) error {
 	}
 	type wireSearchResult SearchResult
 	var decoded wireSearchResult
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode search result: %w", ErrInvalidResponse, err)
 	}
 	candidate := SearchResult(decoded)
@@ -317,7 +318,7 @@ func (s *SearchResponse) UnmarshalJSON(data []byte) error {
 	}
 	type wireSearchResponse SearchResponse
 	var decoded wireSearchResponse
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode search response: %w", ErrInvalidResponse, err)
 	}
 	candidate := SearchResponse(decoded)

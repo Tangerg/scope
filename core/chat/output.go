@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	"github.com/Tangerg/scope/core/metadata"
@@ -92,7 +93,7 @@ func (o *OutputMetadata) UnmarshalJSON(data []byte) error {
 	}
 	type wireOutputMetadata OutputMetadata
 	var decoded wireOutputMetadata
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode output metadata: %w", ErrInvalidResponse, err)
 	}
 	candidate := OutputMetadata(decoded)
@@ -175,7 +176,7 @@ func (o *Output) UnmarshalJSON(data []byte) error {
 	}
 	type wireOutput Output
 	var decoded wireOutput
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode output: %w", ErrInvalidResponse, err)
 	}
 	candidate := Output(decoded)
