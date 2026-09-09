@@ -26,6 +26,15 @@
 // under [StoreConfig.InitializeSchema] = true, mirroring the JSON
 // template the framework ships.
 //
+// Writes. Couchbase's KV service upserts one document per call, so Index
+// applies a batch document by document and a failure partway leaves the
+// documents before it stored. No durability level is requested, which is
+// Couchbase's own recommendation — "durability is a useful feature but should
+// not be the default for most applications" — so a mutation is acknowledged
+// once the active node holds it, and a node failure before replication can
+// lose it. Both are the provider's shape rather than a choice made here; the
+// error names the document the batch stopped on.
+//
 // Statement results. gocb reports a failure raised while a query result streams
 // through Err and Close, not from the initial call, so every statement the
 // store runs — searches and filtered deletion alike — goes through one owner

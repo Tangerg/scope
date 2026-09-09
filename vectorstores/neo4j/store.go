@@ -330,6 +330,10 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 			})
 		}
 
+		// The count is deliberately not read. Run reads the RUN response
+		// before returning, and the commit that ends the transaction function
+		// discards any pending stream and reports whatever failure it carried,
+		// so both halves of a write already reach this caller as an error.
 		if err := s.write(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
 			_, err := tx.Run(ctx, upsertCypher, map[string]any{
 				"rows":              rows,
