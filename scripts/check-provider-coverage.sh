@@ -32,7 +32,6 @@ coverage_budget=(
   "models/huggingface 36.4"
   "models/hume 59.8"
   "models/jina 72.7"
-  "models/lmnt 52.3"
   "models/luma 67.9"
   "models/minimax 50.0"
   "models/mistral 61.1"

@@ -37,7 +37,6 @@ use (
 	./models/huggingface
 	./models/hume
 	./models/jina
-	./models/lmnt
 	./models/luma
 	./models/minimax
 	./models/mistral
