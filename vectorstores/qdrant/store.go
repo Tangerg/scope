@@ -386,12 +386,36 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 		return err
 	}
 
-	_, err = s.client.Upsert(ctx, upsertPoints)
+	result, err := s.client.Upsert(ctx, upsertPoints)
 	if err != nil {
 		return fmt.Errorf("qdrant: upsert %d points to collection %s: %w",
 			len(upsertPoints.Points), s.collectionName, err)
 	}
+	if err = requireAppliedUpdate(result, "upsert"); err != nil {
+		return fmt.Errorf("qdrant: upsert %d points to collection %s: %w",
+			len(upsertPoints.Points), s.collectionName, err)
+	}
 
+	return nil
+}
+
+// requireAppliedUpdate reads the status of an update that asked to be awaited.
+//
+// Every write here sets Wait, so the only status that means the change is in
+// effect is Completed -- "update is applied and ready for search". The others
+// each describe a write that is not: Acknowledged is "received, but not
+// processed yet", WaitTimeout is a "timeout of awaited operations", and
+// ClockRejected means the update was "rejected due to an outdated clock". The
+// gRPC call succeeds in all four cases, so reading the call rather than the
+// status would report a change Qdrant has not made.
+func requireAppliedUpdate(result *qdrant.UpdateResult, operation string) error {
+	if result == nil {
+		return fmt.Errorf("%s returned no update result", operation)
+	}
+	if status := result.GetStatus(); status != qdrant.UpdateStatus_Completed {
+		return fmt.Errorf("%s reported status %s rather than %s, so the change is not in effect",
+			operation, status, qdrant.UpdateStatus_Completed)
+	}
 	return nil
 }
 
@@ -575,8 +599,11 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		return fmt.Errorf("qdrant: convert filter: %w", err)
 	}
 
-	_, err = s.client.Delete(ctx, s.buildDeletePoints(qdrant.NewPointsSelectorFilter(visitor.snapshot())))
+	result, err := s.client.Delete(ctx, s.buildDeletePoints(qdrant.NewPointsSelectorFilter(visitor.snapshot())))
 	if err != nil {
+		return fmt.Errorf("qdrant: delete points from collection %s: %w", s.collectionName, err)
+	}
+	if err = requireAppliedUpdate(result, "delete"); err != nil {
 		return fmt.Errorf("qdrant: delete points from collection %s: %w", s.collectionName, err)
 	}
 
@@ -599,8 +626,11 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 		}
 	}
 
-	_, err = s.client.Delete(ctx, s.buildDeletePoints(qdrant.NewPointsSelector(pointIDs...)))
+	result, err := s.client.Delete(ctx, s.buildDeletePoints(qdrant.NewPointsSelector(pointIDs...)))
 	if err != nil {
+		return fmt.Errorf("qdrant: delete points by ids from collection %s: %w", s.collectionName, err)
+	}
+	if err = requireAppliedUpdate(result, "delete by ids"); err != nil {
 		return fmt.Errorf("qdrant: delete points by ids from collection %s: %w", s.collectionName, err)
 	}
 

@@ -2,6 +2,7 @@ package qdrant
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/qdrant/go-client/qdrant"
@@ -61,6 +62,51 @@ func TestWriteRequestsWaitForApplication(t *testing.T) {
 		}
 		assertWaits(t, request.Wait)
 	})
+}
+
+// Asking to wait is only half of it: the answer used to be discarded, so a
+// wait that expired or an update Qdrant rejected reported success. The client's
+// own proto names the four outcomes, and only one of them means the change is
+// in effect.
+func TestWriteRequiresTheUpdateToBeApplied(t *testing.T) {
+	t.Parallel()
+
+	accepted := map[qdrant.UpdateStatus]bool{
+		// "Update is applied and ready for search".
+		qdrant.UpdateStatus_Completed: true,
+		// "Update is received, but not processed yet".
+		qdrant.UpdateStatus_Acknowledged: false,
+		// "Timeout of awaited operations" -- the wait this store asks for.
+		qdrant.UpdateStatus_WaitTimeout: false,
+		// "update is rejected due to an outdated clock".
+		qdrant.UpdateStatus_ClockRejected:       false,
+		qdrant.UpdateStatus_UnknownUpdateStatus: false,
+	}
+
+	for status, want := range accepted {
+		t.Run(status.String(), func(t *testing.T) {
+			t.Parallel()
+
+			err := requireAppliedUpdate(&qdrant.UpdateResult{Status: status}, "upsert")
+			if want {
+				if err != nil {
+					t.Fatalf("requireAppliedUpdate(%s) = %v, want nil", status, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("requireAppliedUpdate(%s) = nil, want the unapplied write reported", status)
+			}
+			if !strings.Contains(err.Error(), status.String()) {
+				t.Fatalf("requireAppliedUpdate(%s) = %v, want an error naming the status", status, err)
+			}
+		})
+	}
+
+	// A missing result establishes nothing either.
+	if err := requireAppliedUpdate(nil, "upsert"); err == nil {
+		t.Fatal("requireAppliedUpdate(nil) = nil, want the absent result reported")
+	}
 }
 
 func assertWaits(t *testing.T, wait *bool) {

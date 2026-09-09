@@ -34,7 +34,12 @@
 // Write visibility. Qdrant acknowledges an update as soon as it reaches the
 // write-ahead log unless the request asks to wait. Every store write — index
 // and both delete paths — waits for the change to be applied, so a Search
-// issued after a write observes it.
+// issued after a write observes it, and then reads the status of that wait.
+// Only Completed means "update is applied and ready for search"; Acknowledged
+// is "received, but not processed yet", WaitTimeout is a "timeout of awaited
+// operations", and ClockRejected means the update was "rejected due to an
+// outdated clock". The gRPC call succeeds under all four, so the status rather
+// than the call is what establishes that the write happened.
 //
 // Null tests emit is_empty rather than is_null. Qdrant separates the two:
 // is_null matches records where the field "exists and has NULL value", while
