@@ -153,7 +153,9 @@ type StoreConfig struct {
 	MethodName string
 
 	// InitializeSchema permits NewStore to create a missing index. When false,
-	// a missing index is reported as [ErrIndexMissing].
+	// a missing index is reported as [ErrIndexMissing]. Either way an index
+	// that already exists is checked against these settings and refused with
+	// [ErrIncompatibleIndex] when it disagrees.
 	InitializeSchema bool
 }
 

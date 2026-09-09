@@ -80,6 +80,41 @@ type annMethodMapping struct {
 	SpaceType SpaceType `json:"space_type"`
 }
 
+// storedVectorField is the part of an existing knn_vector mapping this store
+// has to agree with. OpenSearch omits what was left at its default rather
+// than echoing it, so an absent space type is resolved rather than read.
+type storedVectorField struct {
+	Type       string    `json:"type"`
+	Dimensions int       `json:"dimension"`
+	SpaceType  SpaceType `json:"space_type"`
+	ModelID    string    `json:"model_id"`
+	Method     *struct {
+		SpaceType SpaceType `json:"space_type"`
+	} `json:"method"`
+}
+
+// effectiveSpaceType resolves the space a field was built for. It is optional
+// on the field, "can also be specified within the method", and "defaults to
+// l2" when neither carries it. A field trained from a model carries neither,
+// and its space belongs to the model rather than the mapping, so it is
+// reported instead of defaulted.
+func (s storedVectorField) effectiveSpaceType() (SpaceType, error) {
+	if s.SpaceType != "" && s.Method != nil && s.Method.SpaceType != "" && s.SpaceType != s.Method.SpaceType {
+		return "", fmt.Errorf("the field declares space type %q and its method declares %q",
+			s.SpaceType, s.Method.SpaceType)
+	}
+	if s.SpaceType != "" {
+		return s.SpaceType, nil
+	}
+	if s.Method != nil && s.Method.SpaceType != "" {
+		return s.Method.SpaceType, nil
+	}
+	if s.ModelID != "" {
+		return "", fmt.Errorf("it is trained from model %q, whose space type is not in the mapping", s.ModelID)
+	}
+	return SpaceTypeL2, nil
+}
+
 type objectFieldMapping struct {
 	Type    string `json:"type"`
 	Dynamic bool   `json:"dynamic"`

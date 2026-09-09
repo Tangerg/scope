@@ -22,6 +22,17 @@ import (
 const maximumErrorResponseBytes = int64(64 * 1024)
 
 var (
+	// ErrIndexMissing reports an absent index that this store was not asked to
+	// create.
+	ErrIndexMissing = errors.New("opensearch: index not found")
+
+	// ErrIncompatibleIndex reports an existing index whose vector field cannot
+	// serve this store: it is absent, not a knn_vector, or built for a
+	// different space type or width.
+	ErrIncompatibleIndex = errors.New("opensearch: index is incompatible")
+)
+
+var (
 	_ vectorstore.Indexer       = (*Store)(nil)
 	_ vectorstore.Searcher      = (*Store)(nil)
 	_ vectorstore.FilterDeleter = (*Store)(nil)
@@ -78,17 +89,18 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	return store, nil
 }
 
-// initialize creates the index when needed.
+// initialize creates the index when needed, and confirms an existing one
+// agrees with the settings this store would have created it with.
 func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 	exists, err := s.indexExists(ctx)
 	if err != nil {
 		return err
 	}
 	if exists {
-		return nil
+		return s.verifyVectorField(ctx)
 	}
 	if !initSchema {
-		return fmt.Errorf("opensearch: index %q does not exist and schema initialization is disabled", s.indexName)
+		return fmt.Errorf("%w: %q, and InitializeSchema is false", ErrIndexMissing, s.indexName)
 	}
 
 	if s.dimensions <= 0 {
@@ -117,6 +129,76 @@ func (s *Store) indexExists(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("opensearch: check index %q: status=%d body=%s",
 			s.indexName, resp.StatusCode, string(body))
 	}
+}
+
+// verifyVectorField refuses an existing index whose vector field cannot serve
+// this store.
+//
+// The space type is the one that fails quietly. OpenSearch derives _score from
+// the field's own space -- "(2 - d) / 2" for cosinesimil is not "1 / (1 + d)"
+// for l2 -- and innerproduct is the only space whose score runs above 1, which
+// is why [SpaceType.score] inverts that encoding and passes the others
+// through. A store configured for one space against a field built for another
+// therefore either applies the inverse to a number it does not describe, or
+// clamps unbounded inner-product scores onto Core's ceiling so an exact match
+// and a mediocre one become the same value. Neither is visible downstream.
+//
+// The space type is optional in two places and defaulted in a third, so all
+// three are read: the field carries it, "this value can also be specified
+// within the method", and it "defaults to l2" when neither does.
+func (s *Store) verifyVectorField(ctx context.Context) error {
+	response, err := s.client.Indices.Mapping.Get(ctx, &opensearchapi.MappingGetReq{
+		Indices: []string{s.indexName},
+	})
+	if err != nil {
+		return fmt.Errorf("opensearch: read mapping for %q: %w", s.indexName, err)
+	}
+	if response == nil {
+		return fmt.Errorf("opensearch: nil mapping response for %q", s.indexName)
+	}
+
+	// The response is keyed by resolved index name, which differs from the
+	// configured one whenever it names an alias, so the single entry is read
+	// rather than looked up.
+	indices := response.GetIndices()
+	if len(indices) != 1 {
+		return fmt.Errorf("opensearch: mapping for %q resolved to %d indices; point the store at one",
+			s.indexName, len(indices))
+	}
+	for _, index := range indices {
+		var mappings struct {
+			Properties map[string]storedVectorField `json:"properties"`
+		}
+		if err := json.Unmarshal(index.Mappings, &mappings); err != nil {
+			return fmt.Errorf("opensearch: decode mapping for %q: %w", s.indexName, err)
+		}
+		return s.validateVectorField(mappings.Properties[s.embeddingField])
+	}
+	return nil
+}
+
+func (s *Store) validateVectorField(field storedVectorField) error {
+	if field.Type == "" {
+		return fmt.Errorf("%w: index %q declares no field named %q",
+			ErrIncompatibleIndex, s.indexName, s.embeddingField)
+	}
+	if field.Type != mappingTypeVector {
+		return fmt.Errorf("%w: field %q has type %q, want %q",
+			ErrIncompatibleIndex, s.embeddingField, field.Type, mappingTypeVector)
+	}
+	spaceType, err := field.effectiveSpaceType()
+	if err != nil {
+		return fmt.Errorf("%w: field %q: %w", ErrIncompatibleIndex, s.embeddingField, err)
+	}
+	if spaceType != s.spaceType {
+		return fmt.Errorf("%w: field %q is built for space type %q, but the store is configured for %q, and _score means something different under each",
+			ErrIncompatibleIndex, s.embeddingField, spaceType, s.spaceType)
+	}
+	if s.dimensions > 0 && field.Dimensions > 0 && field.Dimensions != s.dimensions {
+		return fmt.Errorf("%w: field %q holds %d dimensions, but the store is configured for %d",
+			ErrIncompatibleIndex, s.embeddingField, field.Dimensions, s.dimensions)
+	}
+	return nil
 }
 
 func (s *Store) createIndex(ctx context.Context) error {

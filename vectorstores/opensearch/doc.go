@@ -17,6 +17,21 @@
 // [EngineFaiss]. The chosen value is baked into the index mapping
 // at creation time and cannot be changed without rebuilding.
 //
+// An index that already exists is checked rather than taken on trust.
+// OpenSearch derives _score from the vector field's own space — "(2 - d) / 2"
+// for cosinesimil is not "1 / (1 + d)" for l2 — and innerproduct is the only
+// space whose score runs above 1. A store configured for one space against a
+// field built for another therefore either applies the inner-product inverse
+// to a number it does not describe, or clamps unbounded inner-product scores
+// onto Core's ceiling so an exact match and a mediocre one become the same
+// value. [NewStore] reads the mapping and refuses a disagreement with
+// [ErrIncompatibleIndex], which also covers a field that is absent, is not a
+// knn_vector, or holds a different width. The space type is read from the
+// field, then from its method — "this value can also be specified within the
+// method" — and otherwise resolved to its documented l2 default; a field
+// trained from a model states none of them, and is reported rather than
+// assumed.
+//
 // Search uses approximate k-NN:
 //
 //	POST <index>/_search

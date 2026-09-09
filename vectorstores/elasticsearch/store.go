@@ -3,6 +3,7 @@ package elasticsearch
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -33,6 +34,21 @@ const (
 	mappingTypeObject         = "object"
 	mappingTypeKeyword        = "keyword"
 	maximumErrorResponseBytes = int64(64 * 1024)
+
+	// elementTypeBit is the one dense_vector element type whose similarity
+	// default differs, so it is the only one this store has to name.
+	elementTypeBit = "bit"
+)
+
+var (
+	// ErrIndexMissing reports an absent index that this store was not asked to
+	// create.
+	ErrIndexMissing = errors.New("elasticsearch: index not found")
+
+	// ErrIncompatibleIndex reports an existing index whose vector field cannot
+	// serve this store: it is absent, not a dense_vector, unindexed, or built
+	// for a different similarity metric or width.
+	ErrIncompatibleIndex = errors.New("elasticsearch: index is incompatible")
 )
 
 type createIndexRequest struct {
@@ -154,7 +170,9 @@ type StoreConfig struct {
 
 	// InitializeSchema, when true, creates the index with the right
 	// mapping if it doesn't already exist. When false and the index
-	// is missing, [NewStore] returns [ErrIndexMissing].
+	// is missing, [NewStore] returns [ErrIndexMissing]. Either way an index
+	// that already exists is checked against these settings and refused with
+	// [ErrIncompatibleIndex] when it disagrees.
 	InitializeSchema bool
 
 	// NumCandidatesMultiplier scales the KNN num_candidates parameter.
@@ -264,17 +282,18 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	return store, nil
 }
 
-// initialize creates the index when requested.
+// initialize creates the index when requested, and confirms an existing one
+// agrees with the settings this store would have created it with.
 func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 	exists, err := s.indexExists(ctx)
 	if err != nil {
 		return err
 	}
 	if exists {
-		return nil
+		return s.verifyVectorField(ctx)
 	}
 	if !initSchema {
-		return errors.New("elasticsearch: index not found and InitializeSchema is false")
+		return fmt.Errorf("%w: %q, and InitializeSchema is false", ErrIndexMissing, s.indexName)
 	}
 
 	if s.dimensions <= 0 {
@@ -308,6 +327,120 @@ func (s *Store) indexExists(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("elasticsearch: check index %q: status=%d body=%s",
 			s.indexName, resp.StatusCode, string(body))
 	}
+}
+
+// storedVectorField is the part of an existing dense_vector mapping this store
+// has to agree with. Every attribute is a pointer or defaulted string because
+// Elasticsearch omits what was left at its default rather than echoing it.
+type storedVectorField struct {
+	Type        string `json:"type"`
+	Dimensions  *int   `json:"dims"`
+	Similarity  string `json:"similarity"`
+	ElementType string `json:"element_type"`
+	Index       *bool  `json:"index"`
+}
+
+// verifyVectorField refuses an existing index whose vector field cannot serve
+// this store.
+//
+// Similarity is the one that fails quietly. Elasticsearch derives _score from
+// the field's own metric -- "(1 + cosine(query, vector)) / 2" is not
+// "1 / (1 + l2_norm(query, vector)^2)" -- so a store configured for one metric
+// against a field built for another returns plausible scores in the wrong
+// scale, with MinScore filtering by a threshold that means something else.
+// max_inner_product is worse: its score is "max_inner_product(query, vector)
+// + 1", which is unbounded above, so Core's range would flatten every strong
+// match onto the same value. This store's vocabulary cannot name that metric,
+// so the comparison rejects it along with any other disagreement.
+//
+// index:false is the other refusal. It "defaults to true", and with it off
+// "you can only use exact brute-force search" -- the knn query every Search
+// sends is not available.
+//
+// None of it can be repaired in place: neither similarity nor dims can be
+// changed after the field is created, so construction is the only useful place
+// to say so.
+// The return is named so the deferred body close can report a failure that
+// would otherwise be dropped, the same way parseDeleteByQueryResponse does.
+func (s *Store) verifyVectorField(ctx context.Context) (err error) {
+	response, err := s.client.Indices.GetMapping(
+		s.client.Indices.GetMapping.WithIndex(s.indexName),
+		s.client.Indices.GetMapping.WithContext(ctx),
+	)
+	if err != nil {
+		return fmt.Errorf("elasticsearch: read mapping for %q: %w", s.indexName, err)
+	}
+	defer func() {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+	}()
+	if response.IsError() {
+		body, readErr := readErrorResponse(response.Body)
+		if readErr != nil {
+			return fmt.Errorf("elasticsearch: read mapping error for %q with status %d: %w",
+				s.indexName, response.StatusCode, readErr)
+		}
+		return fmt.Errorf("elasticsearch: read mapping for %q: status=%d body=%s",
+			s.indexName, response.StatusCode, string(body))
+	}
+
+	// The response is keyed by resolved index name, which differs from the
+	// configured one whenever it names an alias, so the single entry is read
+	// rather than looked up.
+	var mappings map[string]struct {
+		Mappings struct {
+			Properties map[string]storedVectorField `json:"properties"`
+		} `json:"mappings"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&mappings); err != nil {
+		return fmt.Errorf("elasticsearch: decode mapping for %q: %w", s.indexName, err)
+	}
+	if len(mappings) != 1 {
+		return fmt.Errorf("elasticsearch: mapping for %q resolved to %d indices; point the store at one",
+			s.indexName, len(mappings))
+	}
+	for _, mapping := range mappings {
+		return s.validateVectorField(mapping.Mappings.Properties[s.embeddingField])
+	}
+	return nil
+}
+
+func (s *Store) validateVectorField(field storedVectorField) error {
+	if field.Type == "" {
+		return fmt.Errorf("%w: index %q declares no field named %q",
+			ErrIncompatibleIndex, s.indexName, s.embeddingField)
+	}
+	if field.Type != mappingTypeDenseVector {
+		return fmt.Errorf("%w: field %q has type %q, want %q",
+			ErrIncompatibleIndex, s.embeddingField, field.Type, mappingTypeDenseVector)
+	}
+	if field.Index != nil && !*field.Index {
+		return fmt.Errorf("%w: field %q is mapped with index:false, which serves only exact search rather than the knn query",
+			ErrIncompatibleIndex, s.embeddingField)
+	}
+	if similarity := field.effectiveSimilarity(); similarity != s.similarity {
+		return fmt.Errorf("%w: field %q is built for similarity %q, but the store is configured for %q, and _score means something different under each",
+			ErrIncompatibleIndex, s.embeddingField, similarity, s.similarity)
+	}
+	if s.dimensions > 0 && field.Dimensions != nil && *field.Dimensions != s.dimensions {
+		return fmt.Errorf("%w: field %q holds %d dimensions, but the store is configured for %d",
+			ErrIncompatibleIndex, s.embeddingField, *field.Dimensions, s.dimensions)
+	}
+	return nil
+}
+
+// effectiveSimilarity resolves what Elasticsearch left out. Similarity
+// "defaults to l2_norm when element_type: bit, otherwise it defaults to
+// cosine", and element_type itself defaults to float.
+func (s storedVectorField) effectiveSimilarity() SimilarityFunction {
+	if s.Similarity != "" {
+		return SimilarityFunction(s.Similarity)
+	}
+	if s.ElementType == elementTypeBit {
+		return SimilarityL2
+	}
+	return SimilarityCosine
 }
 
 func (s *Store) createIndex(ctx context.Context) error {

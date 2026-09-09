@@ -14,6 +14,18 @@
 // compatible-with=9 and cannot serve an 8.x one. Moving to v9 would narrow
 // which servers this store works against and gain nothing.
 //
+// An index that already exists is checked rather than taken on trust.
+// Elasticsearch derives _score from the vector field's own metric —
+// "(1 + cosine(query, vector)) / 2" is not "1 / (1 + l2_norm(query,
+// vector)^2)" — so a store configured for one metric against a field built for
+// another returns plausible scores in the wrong scale, with MinScore filtering
+// by a threshold that means something else. [NewStore] reads the mapping and
+// refuses a disagreement with [ErrIncompatibleIndex], which also covers a
+// field that is absent, is not a dense_vector, holds a different width, or is
+// mapped index:false and so "can only use exact brute-force search" rather
+// than the knn query every Search sends. Nothing here can be repaired in
+// place: neither similarity nor dims can be changed after the field exists.
+//
 // Similarity functions: [SimilarityCosine] / [SimilarityL2] /
 // [SimilarityDotProduct]. The chosen value is recorded in the
 // dense_vector mapping at index creation time and cannot be changed
