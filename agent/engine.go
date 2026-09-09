@@ -23,20 +23,30 @@ var (
 // EngineConfig keeps scheduling and authority policy outside Deployments so a
 // strategy cannot change Engine-wide constraints through its behavior binding.
 type EngineConfig struct {
-	// A nil port permits ephemeral execution without requiring storage. A port
-	// makes publication wait for an acknowledged, recoverable tree.
+	// TreeDurability makes publication wait for acknowledgment of a recoverable
+	// tree. Nil selects ephemeral execution without storage acknowledgment.
 	TreeDurability TreeDurability
 
+	// ProcessStartOutcomeAcknowledger optionally accepts initialization outcomes
+	// before publication. Its acknowledgment is separate from TreeDurability;
+	// nil omits this Host acceptance step.
 	ProcessStartOutcomeAcknowledger ProcessStartOutcomeAcknowledger
 
 	// Exact local bindings prevent restoration from silently selecting different
 	// behavior. Same-Deployment recursion needs no resolver.
 	DeploymentResolver DeploymentResolver
 
+	// ProcessAdmitter optionally applies Host policy before root or child
+	// initialization. Nil admits every start that satisfies Engine constraints.
 	ProcessAdmitter ProcessAdmitter
 
+	// EventListeners receive synchronous Framework facts. An empty slice disables
+	// delivery. Callbacks must be bounded and must not query or control their tree.
 	EventListeners []EventListener
 
+	// DeltaListeners receive queued, best-effort Strategy increments. An empty
+	// slice disables delivery. Callbacks run serially and must return so Engine
+	// shutdown can drain the queue and join its delivery worker.
 	DeltaListeners []DeltaListener
 
 	// A bounded queue prevents slow listeners from retaining unlimited Deltas.
@@ -47,6 +57,8 @@ type EngineConfig struct {
 	// complete per-Process resource bounds.
 	Limits Limits
 
+	// TreeLimits bounds descendant count, depth, and active children. Zero fields
+	// inherit DefaultTreeLimits independently of per-Process Limits.
 	TreeLimits TreeLimits
 
 	// Children receive only subsets of root authority so composition cannot

@@ -39,6 +39,11 @@
 // unbounded loop, or start an unowned goroutine. An external operation can
 // only be declared as an [Effect] and executed outside the Step.
 //
+// These are cooperation contracts for implementations sharing one Go process.
+// Capability checks mediate declared Effects; they do not sandbox arbitrary I/O.
+// Cancellation and kill still depend on in-flight code returning and external
+// operations settling. They cannot forcibly terminate a goroutine.
+//
 // Three scales explain the kernel: the root tree is the consistency, commit,
 // and recovery unit; a Process is the lifecycle and strategy-state isolation
 // unit; a Step is the concurrency unit. Adding Processes to a tree adds
@@ -166,6 +171,10 @@
 // settle, removes the tree from lookup, and leaves existing handles' results
 // and runtime errors readable.
 //
+// Signal identities, wait history, and descendants remain retained for that
+// lifetime. Finite budgets and snapshot limits bound one execution; the kernel
+// does not prune facts needed for deduplication or extend a tree indefinitely.
+//
 // [Engine.InspectTree] is the sole live inspection entry. It composes existing
 // [ProcessSnapshot] values with current job, commit, and freeze facts, and stays
 // available while storage acknowledgment or a tree freeze blocks execution.
@@ -223,9 +232,14 @@
 // recovery protocol.
 //
 // The host owns product identity, transports, stores and transactions,
-// permissions and billing, deployment catalogs and routing, provider and model selection, when a checkpoint
-// commits, and the retention of its own facts. A host depends only on this
-// neutral lifecycle contract and never parses a strategy's snapshot payload.
+// permissions and billing, deployment catalogs and routing, provider and model
+// selection, storage acknowledgment, and retention of its own facts. A host
+// depends only on this neutral lifecycle contract and never parses a strategy's
+// snapshot payload.
+//
+// Production database adapters and their storage-specific integration tests
+// belong to the consuming application or an independently owned adapter. The
+// agenttest package supplies shared durability and Definition conformance suites.
 //
 // Chat, tools, embeddings, history, and telemetry stay in their own modules.
 // Agent reuses them and duplicates none of them.

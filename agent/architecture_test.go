@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"encoding/json"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -13,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestRuntimeInspectionHasOnePublicOwner(t *testing.T) {
@@ -42,54 +40,57 @@ func TestRuntimeInspectionHasOnePublicOwner(t *testing.T) {
 	}
 }
 
-func TestProcessAdmissionContainsOnlyFrameworkStartContracts(t *testing.T) {
-	typeOf := reflect.TypeFor[ProcessAdmission]()
-	want := []struct {
-		name   string
-		typeOf reflect.Type
-	}{
-		{name: "relation", typeOf: reflect.TypeFor[ProcessRelation]()},
-		{name: "deploymentRef", typeOf: reflect.TypeFor[DeploymentRef]()},
-		{name: "descriptor", typeOf: reflect.TypeFor[Descriptor]()},
-		{name: "budget", typeOf: reflect.TypeFor[Budget]()},
-		{name: "capabilities", typeOf: reflect.TypeFor[CapabilitySet]()},
-	}
-	if typeOf.NumField() != len(want) {
-		t.Fatalf("ProcessAdmission fields = %d, want %d", typeOf.NumField(), len(want))
-	}
-	for index, expected := range want {
-		field := typeOf.Field(index)
-		if field.IsExported() || field.Name != expected.name || field.Type != expected.typeOf {
-			t.Fatalf("ProcessAdmission field %d = %s %v", index, field.Name, field.Type)
-		}
+func TestAdmissionAndObservationDoNotCarryRuntimeAuthority(t *testing.T) {
+	for _, fact := range []reflect.Type{
+		reflect.TypeFor[ProcessAdmission](),
+		reflect.TypeFor[ProcessStartOutcome](),
+		reflect.TypeFor[Event](),
+	} {
+		t.Run(fact.Name(), func(t *testing.T) {
+			for index := range fact.NumField() {
+				if field := fact.Field(index); field.IsExported() {
+					t.Errorf("immutable boundary fact exposes mutable field %s", field.Name)
+				}
+			}
+			assertNoRuntimeAuthority(t, fact, make(map[reflect.Type]bool))
+		})
 	}
 }
 
-func TestEventContainsOnlyFrameworkObservationContracts(t *testing.T) {
-	typeOf := reflect.TypeFor[Event]()
-	want := []struct {
-		name   string
-		typeOf reflect.Type
-	}{
-		{name: "processSequence", typeOf: reflect.TypeFor[uint64]()},
-		{name: "processID", typeOf: reflect.TypeFor[ProcessID]()},
-		{name: "deploymentRef", typeOf: reflect.TypeFor[DeploymentRef]()},
-		{name: "relation", typeOf: reflect.TypeFor[ProcessRelation]()},
-		{name: "incarnationID", typeOf: reflect.TypeFor[TreeIncarnationID]()},
-		{name: "stepSequence", typeOf: reflect.TypeFor[uint64]()},
-		{name: "effectID", typeOf: reflect.TypeFor[EffectID]()},
-		{name: "name", typeOf: reflect.TypeFor[string]()},
-		{name: "phase", typeOf: reflect.TypeFor[EventPhase]()},
-		{name: "occurredAt", typeOf: reflect.TypeFor[time.Time]()},
-		{name: "payload", typeOf: reflect.TypeFor[json.RawMessage]()},
+func assertNoRuntimeAuthority(t *testing.T, value reflect.Type, seen map[reflect.Type]bool) {
+	t.Helper()
+	if seen[value] {
+		return
 	}
-	if typeOf.NumField() != len(want) {
-		t.Fatalf("Event fields = %d, want %d", typeOf.NumField(), len(want))
+	seen[value] = true
+	switch value {
+	case reflect.TypeFor[Engine](), reflect.TypeFor[Process](), reflect.TypeFor[Deployment](),
+		reflect.TypeFor[Definition](), reflect.TypeFor[Execution](), reflect.TypeFor[Dispatcher](),
+		reflect.TypeFor[DeploymentResolver](), reflect.TypeFor[TreeDurability]():
+		t.Errorf("immutable boundary fact carries runtime authority through %v", value)
+		return
 	}
-	for index, expected := range want {
-		field := typeOf.Field(index)
-		if field.IsExported() || field.Name != expected.name || field.Type != expected.typeOf {
-			t.Fatalf("Event field %d = %s %v", index, field.Name, field.Type)
+	switch value.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Chan:
+		assertNoRuntimeAuthority(t, value.Elem(), seen)
+	case reflect.Map:
+		assertNoRuntimeAuthority(t, value.Key(), seen)
+		assertNoRuntimeAuthority(t, value.Elem(), seen)
+	case reflect.Struct:
+		for index := range value.NumField() {
+			assertNoRuntimeAuthority(t, value.Field(index).Type, seen)
+		}
+	case reflect.Func:
+		for index := range value.NumIn() {
+			assertNoRuntimeAuthority(t, value.In(index), seen)
+		}
+		for index := range value.NumOut() {
+			assertNoRuntimeAuthority(t, value.Out(index), seen)
+		}
+	}
+	if value.PkgPath() == reflect.TypeFor[Event]().PkgPath() {
+		for index := range value.NumMethod() {
+			assertNoRuntimeAuthority(t, value.Method(index).Type, seen)
 		}
 	}
 }
