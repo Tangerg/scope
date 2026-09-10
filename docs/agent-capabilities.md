@@ -92,7 +92,7 @@ Communication authority must also be explicit. A Process ID identifies a destina
 
 The runtime should understand the lifecycle of work without understanding what that work means to a particular agent. New model, tool, planning, and collaboration vocabularies remain in the packages that own them.
 
-The current structural operations are `RequestWait`, `StartChild`, and `WaitForChildren`. A strategy requests other external work through its Deployment-bound Dispatcher. Transitions determine whether the Process continues, waits, pauses, completes, or fails. This is a shared execution protocol, not a registry of agent-specific hooks. See [Effects](../agent/effect.go) and [transitions](../agent/transition.go).
+The current structural operations are `RequestWait`, `StartChild`, `WaitForChildren`, `SignalChild`, and `CancelChild`. The last two control an exact direct child through the tree owner. A strategy requests other external work through its Deployment-bound Dispatcher. Transitions determine whether the Process continues, waits, pauses, completes, or fails. This is a shared execution protocol, not a registry of agent-specific hooks. See [Effects](../agent/effect.go), [child controls](../agent/child_control.go), and [transitions](../agent/transition.go).
 
 ### Decisions and inputs
 
@@ -107,6 +107,8 @@ Input admission and input consumption are distinct operations. The mailbox can a
 An Effect declares an operation; its Dispatcher interprets the operation outside Step. The Engine assigns stable identity and owns the planned, pending, and settled phases. The Dispatcher returns a definite result or an outcome the runtime must treat as unknown. See [Dispatcher](../agent/dispatcher.go).
 
 The prepared batch has one execution frontier. Effects advance in declaration order, and external dispatch does not make a batch of real-world operations atomic. Independent work that needs concurrency can execute in separate child Processes.
+
+Direct-child controls have a narrower atomic boundary: the recipient change and the parent's definite control settlement commit in one tree cut. They require no external pending attempt. The recipient cannot consume the new Signal before that cut is acknowledged. This guarantee applies to the declared direct-child operation, not to the whole Effect batch or arbitrary peer communication.
 
 An adapter may keep implementation caches and own resources for an active call. It must not keep unrecorded per-Process decision state that recovery requires. A subscription or background task needs an explicit owner, stopping condition, and recovery contract; returning from Dispatch cannot silently detach it.
 
@@ -124,6 +126,8 @@ Source identity inside a payload is a claim until an authorized boundary validat
 
 A Deployment binds a Definition and its optional Dispatcher under exact implementation and configuration digests. Recovery resolves that binding rather than selecting whatever implementation currently has the same display name. See [Deployment](../agent/deployment.go).
 
+A strategy that composes a child retains the immutable reference, schemas, and grants needed to declare and validate that child. The Engine's resolver owns the executable binding. Retaining another Definition or Dispatcher inside orchestration state would couple resource ownership without adding a composition guarantee.
+
 The Execution snapshot must contain the strategy state needed for continuation. Engine-owned snapshots retain mailbox, wait, effect, and child facts. Mutable globals, live handles, and hidden registration order cannot substitute for either representation.
 
 Adding a strategy therefore requires its state codec, validation, safe Signal-consumption boundaries, and conformance cases. A new strategy does not receive permission to inspect another strategy's private state or mutate the Engine's committed state.
@@ -138,11 +142,14 @@ The built-in strategies under `agent/strategy/` demonstrate distinct decision pr
 | [planning](../agent/strategy/planning/doc.go) | Sense, plan actions, execute, and sense again | Dispatcher-backed or child-backed action bindings |
 | [workflow](../agent/strategy/workflow/doc.go) | Advance ordered, declared stages | Exact child calls, branches, maps, and bounded loops |
 | [coordination](../agent/strategy/coordination/doc.go) | Wait for input or deadlines, or select successful work | Identified Signals and exact child outcomes |
+| [collaboration](../agent/strategy/collaboration/doc.go) | A coordinator chooses work, controls, waiting, and completion over explicit state | Exact coordinator and worker children using ordinary start, control, and drained-wait Effects |
 | Independent Definition | Any bounded deterministic reduction over its state and inputs | The same Framework Effects and optional Dispatcher |
 
 Managed child composition spans these strategy families and can target heterogeneous Deployments. Input and output contracts still need to agree. Workflow uses explicit transforms rather than guessing conversions, and model-visible Delegates must satisfy their tool-input contract. Messaging stays in `agent/messaging` as a delivery capability usable by different strategies.
 
 A parent's business interpretation also remains explicit. Planning confirms an action through a subsequent observation rather than treating child Output as WorldState. A planning Process can complete with an achieved, unreachable, or stuck outcome. A caller that requires achievement must inspect that outcome; Process completion alone does not establish business success.
+
+Failure facts preserve the same separation. Workflow propagates child admission and execution Failures unchanged, including their kind, code, and full diagnostic. Its fan-out drains the active window and chooses the first failure in declaration order. Collaboration presents worker and control failures to its coordinator as decision input, while a failed coordinator fails the collaboration with the original Failure. The parent-child tree retains attribution; wrapping diagnostics must not replace the source classification. See [workflow failure recovery](../agent/strategy/workflow/failure_recovery_test.go) and [coordinator failure recovery](../agent/strategy/collaboration/failure_recovery_test.go).
 
 New compositions should reuse these domain contracts. They must not create a second model protocol, structured-output conversion chain, or parallel vocabulary for the same atomic operation. Adapting an existing output to a composition's own domain input is an explicit boundary conversion, not a second implementation of the lower capability.
 
@@ -175,11 +182,23 @@ Repeated gates consume child and Signal allocations. The construction fits bound
 
 Replacing a gate also changes the input address. The router must retain the destination chosen for each delivery until admission is resolved; it cannot retry against whichever gate is current. If the coordinator ends or replaces a gate after input admission, the composition must define whether that input was consumed, retained for later work, or explicitly discarded by policy. A gate can carry the original input identity in its Output so the coordinator can track it across iterations.
 
+### Bounded collaboration beside background work
+
+The [collaboration strategy](../agent/strategy/collaboration/doc.go) packages repeated coordination. It runs the decision procedure as a child, so independent workers can finish while that procedure is still running. The coordinator may itself use Interaction, Workflow, or an independently authored Definition. Its decision state, task requests, and control receipts use one serializable contract.
+
+A decision can continue with another coordinator turn while workers run, wait for at least one outstanding task to drain, or complete. Results observed during a coordinator call appear in the following turn. If every outstanding task drains while that call is running, its wait decision advances without opening an empty wait. Worker-start failures remain facts and consume the task-attempt bound. Per-turn controls, admitted concurrency, total attempts, and coordinator turns all have explicit finite bounds.
+
+An input gate can be an ordinary configured worker. An authorized Host answers that gate's exact ProcessID and WaitID; its completion wakes the collaboration through the existing child wait. Steering a running Interaction worker uses its canonical `NewSteerSignal` payload through `SignalChild`, and becomes model input only at the recipient's safe boundary. Neither path adds a second mailbox or preempts an in-flight model call.
+
+Completed tasks are immutable. Follow-up work creates a new logical task key and explicitly carries prior output in the new input. Completing the collaboration cancels unfinished descendants, while a drained wait or Join establishes local resource release. Product sessions and transitions between bounded root trees remain separate concerns.
+
+The [checked composition example](../agent/strategy/collaboration/example_test.go) combines a model-backed coordinator, an input gate, and a review worker. The [concurrency tests](../agent/strategy/collaboration/concurrency_test.go) cover results arriving during a model decision and canonical Interaction steering; the [collaboration tests](../agent/strategy/collaboration/collaboration_test.go) cover addressed input, background work, cancellation, drain, and explicit follow-up tasks.
+
 ### First successful result and scoped competition
 
 A strategy can wait for any child, inspect business outcomes, and continue waiting on unfinished children until its success predicate holds. It retains the failure facts needed for its decision. A count of terminal children does not imply successful results or consensus.
 
-[FirstSuccess](../agent/strategy/coordination/first_success.go) implements this composition with an explicit pure success predicate, request-ordered outcomes, and an all-failed result that has no winner.
+[FirstSuccess](../agent/strategy/coordination/first_success.go) implements this composition with an explicit pure success predicate and request-ordered outcomes. An exhausted competition has no winner when no result satisfies that predicate, even if some child Processes completed successfully.
 
 The strategy must define the result when every candidate fails and how it selects among multiple outcomes visible in one Signal window. It must also handle a child that is already terminal when the wait is registered, using the runtime's existing wait protocol.
 
@@ -187,13 +206,13 @@ A competition coordinator can own all competing workers. Completing that coordin
 
 Completion triggers the termination process; it does not establish that losing external operations have stopped. A composition that reuses an exclusive resource must establish that its previous work has drained before reuse. The lifecycle requirements below define this distinction.
 
-Dynamic cancellation of only some children is a stronger requirement. The parent remains active, retains other children, and needs a recoverable record that the selected cancellation was accepted. That scenario is a valid test of the control boundary, rather than evidence that every competition requires a new primitive.
+Dynamic cancellation of selected children uses `CancelChild`. The parent remains active and retains other children; `ChildControlResult` records acceptance or rejection of the exact operation. A successful receipt records cancellation intent, and a subsequent drained wait establishes when the selected subtree has stopped. Canceling an already terminal direct child succeeds without changing its result. [Child-control tests](../agent/child_control_test.go) protect direct ownership and recipient-side evidence; the [control recovery test](../agent/strategy/collaboration/recovery_test.go) restores a committed control before its acknowledgment without admitting the Signal twice.
 
 ### Reliable intermediate communication
 
 The [messaging package](../agent/messaging/doc.go) provides a Dispatcher with a narrow DeliveryPort assembled from the public Process signal API. Message freezes a concrete recipient Process, payload, and optional WaitID. Dispatcher derives a stable SignalID from the sending EffectID and submits one Signal per Effect. The receiving mailbox owns deduplication, admission, accounting, and committed consumption.
 
-The port owns destination authority, payload validation, terminal-recipient behavior, and acknowledgment handling. Its nil error confirms admission of the exact Signal, whether newly admitted or already present. A duplicate with conflicting content remains a conflict. Every error retains uncertainty. A matching authoritative ProcessSnapshot.SignalReceipts entry can reconcile admission after consumption and termination; absence in an old snapshot cannot establish rejection.
+The port owns destination authority, payload validation, terminal-recipient behavior, and acknowledgment handling. Its nil error confirms admission of the exact Signal, whether newly admitted or already present. A duplicate with conflicting content remains a conflict. Every error retains uncertainty. The port uses `SignalReceipt.Matches` on the original recipient's authoritative ProcessSnapshot to reconcile admission after consumption and termination. Internal wait-opening and child-wait settlement Signals cannot prove external delivery, even with matching identity and payload; absence in an old snapshot cannot establish rejection. See [receipt authority tests](../agent/signal_receipt_test.go).
 
 Deduplication is local to a Process mailbox. Replaying the same SignalID against a replacement gate or successor episode can admit it again. Reliable routing therefore needs an immutable recipient binding or an authoritative delivery-to-recipient record. Moving an unresolved delivery to a new recipient requires explicit transfer and deduplication semantics; resolving a logical address again is insufficient. See [signal admission](../agent/process.go).
 
@@ -201,7 +220,7 @@ This construction can reuse durable input admission, but the sender's transition
 
 The [message recovery tests](../agent/messaging/delivery_test.go) restore a sender after the receiver has consumed the input and terminated, then reconcile the same delivery identity without a second admission. They also reject conflicting content and retargeting to a replacement recipient.
 
-A native send operation would need to justify an additional guarantee, such as one same-tree commit, runtime-attested origin, or a portable authority boundary. Broadcast membership and recipient-selection policy can remain above an atomic delivery operation. Adding a topic registry or a separate message bus is not a prerequisite.
+`SignalChild` supplies one tree commit for an exact direct child and checks that ownership at admission. Messaging remains the reusable Host-authorized delivery adapter for peers and independent trees, with separate sender and recipient acknowledgments even when they share a tree. Neither protocol supplies runtime-attested payload origin or atomic broadcast. Those stronger guarantees require their own authority and recovery contracts. Broadcast membership and recipient-selection policy remain above delivery; a topic registry or separate message bus is not a prerequisite.
 
 ### Domain coordination and shared state
 
@@ -304,13 +323,12 @@ Evaluate a proposed operation in this order:
 5. If only the runtime can enforce it, define one canonical operation and its authority, acknowledgment, and recovery rules.
 6. Review changes to exported APIs, snapshots, schemas, and existing consumers before implementation.
 
-The strongest unresolved candidates are defined by guarantees rather than names:
+Stronger extensions remain defined by guarantees rather than names:
 
 | Candidate guarantee | Existing construction | Additional condition that could justify kernel work |
 | --- | --- | --- |
 | React to independent progress sources | Input and timer children with child waiting | Atomic arbitration over original input admission at one Process address |
-| Stop selected owned work | Owned competition scopes or an explicit control adapter | Partial child cancellation with canonical, recoverable acceptance and a composable drain boundary |
-| Deliver reliable intermediate input | Dispatcher with a narrow delivery port and stable Signal identity | One same-tree commit or runtime-enforced provenance and target authority |
+| Deliver reliable intermediate input | Direct-child `SignalChild` with one tree acknowledgment; Host-authorized messaging elsewhere | Atomic delivery across other ownership boundaries, runtime-attested origin, or atomic multi-recipient delivery |
 | Cancel active external calls | Runtime-owned Process control and cancellable Dispatcher context | Remote outcome reconciliation remains distinct from local cancellation and drain |
 | Continue long-lived behavior | Explicit bounded episodes | A reusable successor admission and state-transfer contract that survives ambiguous starts |
 
@@ -334,8 +352,9 @@ Acceptance should test different decision and interaction patterns rather than v
 | Model-directed tool loop with human input | Input reaches the actual wait owner; other owned work retains its results; restoration preserves the continuation |
 | Goal-directed planner calling a workflow | The action's business result and subsequent world observation remain distinct; budgets and authority survive composition |
 | Workflow containing an independent strategy | No built-in strategy type check or private runtime access is required; schema mismatches fail explicitly |
-| First-success competition | Failed results remain available; all-failed and simultaneously visible outcomes follow explicit policy; termination and drain of losers remain distinguishable |
+| First-success competition | Failed results remain available; no accepted winner and simultaneously visible outcomes follow explicit policy; termination and drain of losers remain distinguishable |
 | Reactive coordinator with worker, input, and deadline | Each source can cause a new decision; terminal ordering and raw-input ordering remain distinct; gate replacement accounts for input admitted before a late acknowledgment |
+| Collaboration with a model-backed coordinator | Background completions survive an in-flight decision; steering uses the worker's safe boundary; failures retain their original contracts across recovery |
 | Selective task replacement | Selected work receives cancellation, retained siblings remain usable, and the replacement respects the required drain boundary |
 | Peer review with intermediate messages | A lost delivery acknowledgment does not produce duplicate committed consumption; replay retains its recipient binding; conflicts and Unknown remain visible |
 | Evaluator-driven revision loop | Feedback changes explicit strategy state; bounds terminate non-convergence; discarded candidates cannot advance committed state or duplicate logical effects |
@@ -354,16 +373,18 @@ For each construction, test the relevant lifecycle boundaries:
 
 Use exact expectations for identities, outputs, accepted and consumed inputs, settlements, allocations, and terminal causes. Do not require identical wall-clock scheduling after a restart. Preserve committed facts and the strategy's declared ordering rules; test unconstrained races as unconstrained races.
 
-Existing evidence starts with [external Definition conformance](../agent/external_api_test.go), [cross-strategy child binding](../agent/child_cross_strategy_test.go), [subtree cancellation](../agent/subtree_cancellation_test.go), [wait authority](../agent/wait_authority_test.go), and [tree durability](../agent/tree_durability_test.go). The coordination, messaging, and episode tests linked above exercise their respective constructions. The acceptance matrix also applies to future policies; it does not claim that every domain protocol has a packaged implementation.
+Existing evidence starts with [external Definition conformance](../agent/external_api_test.go), [cross-strategy child binding](../agent/child_cross_strategy_test.go), [subtree cancellation](../agent/subtree_cancellation_test.go), [wait authority](../agent/wait_authority_test.go), and [tree durability](../agent/tree_durability_test.go). The coordination, collaboration, messaging, child-control, and episode tests linked above exercise their respective constructions. The acceptance matrix also applies to future policies; it does not claim that every domain protocol has a packaged implementation.
 
 ## Deliver changes as complete semantic slices
 
-Implementation establishes one coherent guarantee at a time, with its public contract, state rules, and tests changing together. The implemented foundation spans five semantic slices:
+Implementation establishes one coherent guarantee at a time, with its public contract, state rules, and tests changing together. The implemented foundation includes:
 
 1. **Cancellation and settlement.** Active attempts receive cancellation; started work is collected and required acknowledgment is retained.
 2. **Results and drain.** Await, Join, and child-wait boundaries expose their distinct owned lifecycle facts.
 3. **Bounded coordination.** InputGate, Deadline, and FirstSuccess compose ordinary Definitions and Effects.
-4. **Reliable communication.** Frozen Message Effects, a narrow delivery authority, and public mailbox receipts preserve admission evidence across acknowledgment loss.
-5. **Safe episode continuation.** Checked Host composition seals ingress, transfers explicit domain state, and admits one successor under a new allocation and authority decision.
+4. **Direct-child controls.** SignalChild and CancelChild commit recipient changes with definite control receipts under one tree owner.
+5. **Bounded collaboration.** Coordinator decisions compose background tasks, direct-child controls, input gates, and drained waits without another runtime.
+6. **Reliable communication.** Frozen Message Effects, a narrow delivery authority, and authority-preserving mailbox receipts reconcile admission across acknowledgment loss.
+7. **Safe episode continuation.** Checked Host composition seals ingress, transfers explicit domain state, and admits one successor under a new allocation and authority decision.
 
 Each slice must work end to end for its stated scope, including recovery, cancellation, and drain. Implemented contracts move into GoDoc and checked examples, while this document retains the architectural decisions and criteria for further extension.

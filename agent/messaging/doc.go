@@ -13,8 +13,14 @@
 // A duplicate single-Signal admission is successful delivery. Every port error
 // remains unknown, including a terminal recipient after an earlier ambiguous
 // attempt. A port can reconcile against the original recipient's authoritative
-// ProcessSnapshot.SignalReceipts. A matching receipt proves admission even
-// after consumption; a missing receipt in an old snapshot proves nothing.
+// ProcessSnapshot.SignalReceipts, using SignalReceipt.Matches to prove admission
+// even after consumption. Internal wait-opening and child-wait settlement
+// Signals cannot prove external delivery; matching identity and payload alone
+// are insufficient. A missing receipt in an old snapshot proves nothing.
 // Pending Effects may replay under the same identity. Settled Unknown results
 // require explicit adjudication through Process.ResolveUnknownEffect.
+//
+// Strategies controlling their own direct children use agent.SignalChild for
+// one tree acknowledgment. This adapter serves Host-authorized delivery across
+// other ownership boundaries, including independent root trees.
 package messaging

@@ -122,3 +122,8 @@ learning from and what should not be copied.
 The per-project documents in this directory are research notes rather than
 Scope's own contract. They describe the peer projects as of the baseline
 commits above and are not updated as those projects move.
+
+For current Scope behavior and implemented composition boundaries, use the
+[Agent package contract](../../agent/doc.go) and
+[agent architecture](../agent-capabilities.md). The baseline comparison does
+not override those contracts.

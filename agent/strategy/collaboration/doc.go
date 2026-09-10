@@ -4,6 +4,9 @@
 // Model-backed coordinators compose an interaction Strategy with a workflow
 // adapter that renders Turn and decodes Decision. This package owns no model
 // conversion, dispatcher, scheduler, mailbox, persistence, or product session.
+// Construction freezes only child references, descriptors, budgets, and
+// capabilities; the Engine resolves the executable Deployments. The root
+// Descriptor owns the carried-state and final-output schemas.
 //
 // Continue runs another coordinator turn while workers remain active. Wait
 // observes at least one drained task before running the next turn. Every wait
@@ -13,6 +16,9 @@
 // A failed coordinator or exhausted turn bound fails the collaboration.
 // Coordinator admission and execution failures preserve the original Failure
 // kind, code, and diagnostic; the failed turn remains restorable evidence.
+// A rejected worker start counts toward MaxTasks. Admitted tasks count toward
+// MaxConcurrentTasks until their drained outcomes are observed. MaxTurns and
+// MaxControlsPerTurn bound coordinator decisions and each control batch.
 //
 // Controls compile to agent.SignalChild and agent.CancelChild. Signals obey the
 // recipient Strategy's protocol, including interaction steering at its safe

@@ -89,14 +89,15 @@
 // An Effect is the only way an Execution requests work outside a Step. The
 // Engine derives a stable effect identity from the Process identity, step
 // sequence, and effect index, then freezes the payload. It interprets only its
-// own closed set of framework effects — child and wait operations — and hands a
+// own closed set of framework Effects: [RequestWait], [StartChild],
+// [WaitForChildren], [SignalChild], and [CancelChild]. It hands a
 // strategy effect whole to the dispatcher its [Deployment] bound. A Deployment
 // without a dispatcher admits only framework Effects, including during recovery.
 // A dispatcher never mutates an Execution; it produces deltas and one settlement
 // Signal.
 //
-// Each effect advances through planned, pending, and settled in declaration
-// order, one at a time:
+// Dispatcher Effects advance through planned, pending, and settled in
+// declaration order, one at a time:
 //
 //  1. the owner validates candidate state, signal consumption, budget,
 //     capability, and batch identity;
@@ -106,6 +107,10 @@
 //  4. the result is normalized to a definite or an unknown settlement;
 //  5. only after the settled boundary succeeds does the owner install the
 //     settlement, candidate state, mailbox, and Process transition.
+//
+// Direct-child controls need no external pending attempt. Their recipient
+// change and definite settlement share one tree commit; the recipient cannot
+// consume newly delivered input before durable acknowledgment.
 //
 // A planned effect that was never dispatched can never become unknown.
 // Automatic redelivery is allowed only where replaying one effect identity is
@@ -141,6 +146,9 @@
 // so a failed Step never permanently swallows input.
 // ProcessSnapshot.SignalReceipts exposes the same admitted identities and
 // committed consumption cursor for delivery reconciliation and input cutover.
+// [SignalReceipt.Matches] proves external admission, including after
+// consumption. Internal wait-opening and child-wait settlement Signals cannot
+// prove an external delivery even when their identity and payload agree.
 // A terminal Process may retain inputs admitted after its final Signal window.
 // Their original recipient binding and pending payload remain observable.
 // Consumption is bounded by the Signal window delivered to that Step; input
@@ -292,11 +300,16 @@
 // gates, absolute deadlines, and first-success competition through the same
 // child and wait contracts.
 // [github.com/Tangerg/scope/agent/strategy/collaboration] runs bounded coordinator
-// turns beside background workers, composes task controls, and waits for drained
-// results before continuing decisions over explicit working state.
+// turns beside background workers. Decisions choose whether to continue while
+// workers run, wait for drained results, or complete. The Strategy retains
+// explicit working state and immutable child bindings; the Engine resolves and
+// runs the children. Workflow child failures and collaboration coordinator
+// failures preserve their original Failure kind, code, and diagnostic.
 //
-// The messaging package delivers intermediate input through a narrow Host
-// port, retaining the original recipient and Effect-derived Signal identity.
+// [github.com/Tangerg/scope/agent/messaging] delivers intermediate input through
+// a narrow Host-authorized port, retaining the original recipient and
+// Effect-derived Signal identity. Its sender and recipient acknowledge
+// separately; it does not provide the direct-child control's single tree commit.
 //
 // The Engine never imports or type-switches a concrete strategy. A new
 // strategy is admitted by implementing the waist, state codec, and safe
