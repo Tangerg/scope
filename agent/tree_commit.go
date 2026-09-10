@@ -80,7 +80,7 @@ func (t *treeRuntime) startUnknownResolutionCommit(
 	var events []Event
 	if event, ok := t.prepareSettlementEvent(process,
 		record.ID, record.Effect.Target(), command.settlement.Status(),
-		process.startedAt,
+		process.startedAt, nil,
 	); ok {
 		events = append(events, event)
 	}
@@ -247,7 +247,7 @@ func (t *treeRuntime) publishChildOutcome(pending *pendingChildOutcome) error {
 		t.publishPreparedEvent(parent, pending.event)
 	} else {
 		t.publishSettlementEvent(parent, pending.effectID, EffectTargetFramework,
-			pending.childSettlementStatus(), pending.startedAt,
+			pending.childSettlementStatus(), pending.startedAt, nil,
 		)
 	}
 	return nil

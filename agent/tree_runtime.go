@@ -185,6 +185,7 @@ type dispatchJobResult struct {
 	effectID   EffectID
 	settlement Settlement
 	dropped    uint64
+	err        error
 }
 
 func newTreeRuntime(
@@ -474,9 +475,7 @@ func (t *treeRuntime) advanceOne() bool {
 func (t *treeRuntime) advancePrepared(process *processState) {
 	index, record, err := process.prepared.nextEffect()
 	if err != nil {
-		process.discardPrepared()
-		t.failProcess(process, FailureKindContract, "engine.effect.phase.invalid", err)
-		t.finishIfTerminal(process)
+		t.failPreparedEffect(process, "engine.effect.phase.invalid", err)
 		return
 	}
 	if process.pendingControl.hasTerminalIntent() {

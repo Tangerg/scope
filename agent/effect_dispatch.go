@@ -12,48 +12,43 @@ const nullJSON = "null"
 var errInvalidReplayPolicy = errors.New("agent: invalid Dispatcher replay policy")
 
 func (p *preparedEffect) settleFramework() error {
-	var header struct {
-		Operation frameworkEffectOperation `json:"operation"`
+	operation, err := decodeFrameworkEffectOperation(p.Effect.Payload())
+	if err != nil {
+		return err
 	}
-	if err := json.Unmarshal(p.Effect.Payload(), &header); err != nil {
-		return p.settleUnknown()
-	}
-	switch header.Operation {
+	var payload json.RawMessage
+	switch operation {
 	case frameworkEffectWait:
-		_, payload, err := decodeWaitRequest(p.Effect)
+		_, payload, err = decodeWaitRequest(p.Effect)
 		if err != nil {
-			return p.settleUnknown()
+			return err
 		}
-		waitID := deriveWaitID(p.ID)
-		settlement, err := NewSettlement(p.ID, SettlementStatusSucceeded, payload)
-		if err != nil {
-			return p.settleUnknown()
-		}
-		p.WaitID = &waitID
-		return p.settle(settlement)
 	case frameworkEffectStartChild:
 		// Child start crosses admission and initialization boundaries. treeRuntime
 		// intercepts it and commits its fenced job completion atomically.
-		return p.settleUnknown()
+		return fmt.Errorf("%w: child start requires its job outcome", ErrInvalidEffect)
 	case frameworkEffectWaitChildren:
-		spec, err := decodeChildWaitEffect(p.Effect.Payload())
-		if err != nil {
-			return p.settleUnknown()
+		spec, decodeErr := decodeChildWaitEffect(p.Effect.Payload())
+		if decodeErr != nil {
+			return decodeErr
 		}
-		payload, err := encodeChildWaitOpened(spec)
+		payload, err = encodeChildWaitOpened(spec)
 		if err != nil {
-			return p.settleUnknown()
+			return err
 		}
-		waitID := deriveWaitID(p.ID)
-		settlement, err := NewSettlement(p.ID, SettlementStatusSucceeded, payload)
-		if err != nil {
-			return p.settleUnknown()
-		}
-		p.WaitID = &waitID
-		return p.settle(settlement)
 	default:
-		return p.settleUnknown()
+		return fmt.Errorf("%w: unsupported local Framework Effect", ErrInvalidEffect)
 	}
+	settlement, err := NewSettlement(p.ID, SettlementStatusSucceeded, payload)
+	if err != nil {
+		return err
+	}
+	if err := p.settle(settlement); err != nil {
+		return err
+	}
+	waitID := deriveWaitID(p.ID)
+	p.WaitID = &waitID
+	return nil
 }
 
 func (p *preparedEffect) settleChildStart(result ChildStartResult) error {
@@ -98,8 +93,33 @@ func dispatchEffect(
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			settlement = Settlement{}
-			err = fmt.Errorf("dispatcher panicked: %v", recovered)
+			err = dispatcherPanicError{value: recovered}
 		}
 	}()
 	return dispatcher.Dispatch(ctx, request, emit)
+}
+
+type dispatcherPanicError struct{ value any }
+
+func (d dispatcherPanicError) Error() string {
+	return fmt.Sprintf("dispatcher panicked: %v", d.value)
+}
+
+func dispatchFailure(err error) (FailureKind, string) {
+	if err == nil {
+		return FailureKindInvalid, ""
+	}
+	if _, panicked := errors.AsType[dispatcherPanicError](err); panicked {
+		return FailureKindPanic, "engine.dispatch.panicked"
+	}
+	switch {
+	case errors.Is(err, ErrInvalidSettlement):
+		return FailureKindContract, "engine.dispatch.settlement.invalid"
+	case errors.Is(err, context.DeadlineExceeded):
+		return FailureKindExternal, "engine.dispatch.deadline"
+	case errors.Is(err, context.Canceled):
+		return FailureKindExternal, "engine.dispatch.canceled"
+	default:
+		return FailureKindExternal, "engine.dispatch.failed"
+	}
 }

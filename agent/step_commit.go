@@ -282,11 +282,6 @@ func (p *preparedStepFinalization) adopt() {
 	}
 }
 
-func (p *processState) discardPrepared() {
-	p.prepared = nil
-	p.execution = nil
-}
-
 // Asynchronous failures wait for accepted external effects to settle before
 // becoming terminal, just like cancellation and deadline intents.
 func (p *processState) recordFailure(kind FailureKind, code string, err error) {

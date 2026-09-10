@@ -104,8 +104,9 @@ func (t *treeRuntime) publishSettlementEvent(
 	target EffectTarget,
 	status SettlementStatus,
 	startedAt time.Time,
+	cause error,
 ) {
-	event, ok := t.prepareSettlementEvent(process, effectID, target, status, startedAt)
+	event, ok := t.prepareSettlementEvent(process, effectID, target, status, startedAt, cause)
 	if !ok {
 		return
 	}
@@ -118,11 +119,13 @@ func (t *treeRuntime) prepareSettlementEvent(
 	target EffectTarget,
 	status SettlementStatus,
 	startedAt time.Time,
+	cause error,
 ) (Event, bool) {
 	durationMS := time.Since(startedAt).Milliseconds()
+	failureKind, failureCode := dispatchFailure(cause)
 	payload, err := json.Marshal(effectFinishedEventPayload{
 		EffectTarget: target, SettlementStatus: status,
-		DurationMS: &durationMS,
+		DurationMS: &durationMS, FailureKind: failureKind, FailureCode: failureCode,
 	})
 	if err != nil {
 		return Event{}, false

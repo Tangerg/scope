@@ -38,6 +38,8 @@ type effectFinishedEventPayload struct {
 	EffectTarget     EffectTarget     `json:"effect_target"`
 	SettlementStatus SettlementStatus `json:"settlement_status"`
 	DurationMS       *int64           `json:"duration_ms"`
+	FailureKind      FailureKind      `json:"failure_kind,omitempty"`
+	FailureCode      string           `json:"failure_code,omitempty"`
 }
 
 type signalAcceptedEventPayload struct {
@@ -284,9 +286,11 @@ func (e EffectStartedFact) Valid() bool { return e.target.Valid() }
 // EffectFinishedFact is the immutable settlement observation for one Effect
 // attempt. It does not replace the durable Effect boundary.
 type EffectFinishedFact struct {
-	target     EffectTarget
-	settlement SettlementStatus
-	duration   time.Duration
+	target      EffectTarget
+	settlement  SettlementStatus
+	duration    time.Duration
+	failureKind FailureKind
+	failureCode string
 }
 
 func (e EffectFinishedFact) Target() EffectTarget { return e.target }
@@ -295,8 +299,22 @@ func (e EffectFinishedFact) SettlementStatus() SettlementStatus { return e.settl
 
 func (e EffectFinishedFact) Duration() time.Duration { return e.duration }
 
+// Failure classifies a Dispatcher error that made its outcome Unknown. It
+// contains no diagnostic message and does not change the settlement semantics.
+// An Unknown returned directly by the Dispatcher has no error classification.
+func (e EffectFinishedFact) Failure() (FailureKind, string, bool) {
+	return e.failureKind, e.failureCode, e.failureKind.Valid()
+}
+
 func (e EffectFinishedFact) Valid() bool {
-	return e.target.Valid() && e.settlement.Valid() && e.duration >= 0
+	if !e.target.Valid() || !e.settlement.Valid() || e.duration < 0 {
+		return false
+	}
+	if e.failureKind == FailureKindInvalid && e.failureCode == "" {
+		return true
+	}
+	return e.target == EffectTargetDispatcher && e.settlement == SettlementStatusUnknown &&
+		e.failureKind.Valid() && validQualifiedName(e.failureCode) && len(e.failureCode) <= maxFailureCodeBytes
 }
 
 // DeltaDroppedFact reports the number of increments rejected during one Effect
@@ -434,6 +452,7 @@ func decodeEffectFinishedFact(payload json.RawMessage) (EffectFinishedFact, erro
 	}
 	fact := EffectFinishedFact{
 		target: wire.EffectTarget, settlement: wire.SettlementStatus, duration: duration,
+		failureKind: wire.FailureKind, failureCode: wire.FailureCode,
 	}
 	if !fact.Valid() {
 		return EffectFinishedFact{}, errors.New("invalid Effect finished event fact")

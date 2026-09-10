@@ -160,6 +160,10 @@ func FuzzEventJSONRoundTrip(f *testing.F) {
 		{name: EventEffectFinished, phase: EventPhaseAttempt, stepSequence: 1, effectID: effectID, payload: effectFinishedEventPayload{
 			EffectTarget: EffectTargetDispatcher, SettlementStatus: SettlementStatusSucceeded, DurationMS: &durationMS,
 		}},
+		{name: EventEffectFinished, phase: EventPhaseAttempt, stepSequence: 1, effectID: effectID, payload: effectFinishedEventPayload{
+			EffectTarget: EffectTargetDispatcher, SettlementStatus: SettlementStatusUnknown, DurationMS: &durationMS,
+			FailureKind: FailureKindExternal, FailureCode: "engine.dispatch.failed",
+		}},
 		{name: EventDeltaDropped, phase: EventPhaseAttempt, stepSequence: 1, effectID: effectID, payload: deltaDroppedEventPayload{
 			DroppedDeltaCount: 1,
 		}},

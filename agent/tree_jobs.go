@@ -79,8 +79,7 @@ func (t *treeRuntime) startRestore(process *processState) {
 func (t *treeRuntime) startPreparedEffect(process *processState, index int, record *preparedEffect) {
 	if record.Phase == effectPhasePlanned {
 		if err := record.begin(); err != nil {
-			process.discardPrepared()
-			t.failProcess(process, FailureKindContract, "engine.effect.phase.invalid", err)
+			t.failPreparedEffect(process, "engine.effect.phase.invalid", err)
 			return
 		}
 		if record.Effect.Target() == EffectTargetDispatcher && t.engine.durability != nil {
@@ -105,10 +104,12 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int, reco
 			return
 		}
 		if err := record.settleFramework(); err != nil {
+			// Local wait preparation performed no external work.
+			record.revokeDispatch()
 			t.failPreparedEffect(process, "engine.framework_effect.settlement.invalid", err)
 			return
 		}
-		t.publishSettlementEvent(process, record.ID, EffectTargetFramework, record.Settlement.Status(), startedAt)
+		t.publishSettlementEvent(process, record.ID, EffectTargetFramework, record.Settlement.Status(), startedAt, nil)
 		t.enqueueProcess(process.handle.processID)
 		return
 	}
@@ -188,12 +189,8 @@ func (t *treeRuntime) startChild(
 ) {
 	spec, err := decodeChildStartEffect(record.Effect.Payload())
 	if err != nil {
-		if settlementErr := record.settleUnknown(); settlementErr != nil {
-			t.failPreparedEffect(process, "engine.framework_effect.settlement.invalid", settlementErr)
-			return
-		}
-		t.publishSettlementEvent(process, record.ID, EffectTargetFramework, record.Settlement.Status(), startedAt)
-		t.enqueueProcess(process.handle.processID)
+		record.revokeDispatch()
+		t.failPreparedEffect(process, "engine.framework_effect.settlement.invalid", err)
 		return
 	}
 	attempt, ok := t.nextAttempt(process)
@@ -271,12 +268,16 @@ func (t *treeRuntime) startDispatch(
 			emit,
 		)
 		acceptingDeltas.Store(false)
-		if err != nil || !settlement.Valid() || settlement.EffectID() != record.ID {
+		if err == nil && (!settlement.Valid() || settlement.EffectID() != record.ID) {
+			err = ErrInvalidSettlement
+		}
+		if err != nil {
 			pending := record
 			if settleErr := pending.settleUnknown(); settleErr == nil {
 				settlement = *pending.Settlement
 			} else {
 				settlement = Settlement{}
+				err = errors.Join(err, settleErr)
 			}
 		}
 		t.completions <- treeJobCompletion{
@@ -284,6 +285,7 @@ func (t *treeRuntime) startDispatch(
 			attempt:   attempt,
 			kind:      processJobDispatch,
 			dispatch: dispatchJobResult{
+				err:        err,
 				effectID:   record.ID,
 				settlement: settlement,
 				dropped:    dropped.Load(),
@@ -377,7 +379,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 	if t.engine.durability != nil {
 		if event, ok := t.prepareSettlementEvent(parent,
 			job.effectID, EffectTargetFramework,
-			pending.childSettlementStatus(), job.startedAt,
+			pending.childSettlementStatus(), job.startedAt, nil,
 		); ok {
 			pending.event = event
 		}
@@ -446,7 +448,7 @@ func (t *treeRuntime) settleChildStart(
 	if err != nil {
 		return err
 	}
-	t.publishSettlementEvent(parent, effectID, EffectTargetFramework, status, startedAt)
+	t.publishSettlementEvent(parent, effectID, EffectTargetFramework, status, startedAt, nil)
 	return nil
 }
 
@@ -466,8 +468,12 @@ func (t *treeRuntime) applyChildStartSettlement(
 }
 
 func (t *treeRuntime) failPreparedEffect(process *processState, code string, err error) {
-	process.discardPrepared()
-	t.failProcess(process, FailureKindContract, code, err)
+	process.recordFailure(FailureKindContract, code, err)
+	if process.prepared != nil {
+		t.terminatePrepared(process)
+	} else {
+		t.installTermination(process, stepOutcome{})
+	}
 	t.finishIfTerminal(process)
 }
 
@@ -517,8 +523,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 	}
 	settlement := result.settlement
 	if err := record.settle(settlement); err != nil {
-		process.discardPrepared()
-		t.failProcess(process, FailureKindContract, "engine.effect.settlement.invalid", err)
+		t.failPreparedEffect(process, "engine.effect.settlement.invalid", err)
 		return
 	}
 	var events []Event
@@ -544,7 +549,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 	}
 	if t.engine.durability != nil {
 		if event, ok := t.prepareSettlementEvent(process,
-			record.ID, EffectTargetDispatcher, settlement.Status(), job.startedAt,
+			record.ID, EffectTargetDispatcher, settlement.Status(), job.startedAt, result.err,
 		); ok {
 			events = append(events, event)
 		}
@@ -571,6 +576,6 @@ func (t *treeRuntime) applyDispatchCompletion(
 	t.publishSettlementEvent(process, record.ID,
 		EffectTargetDispatcher,
 		settlement.Status(),
-		job.startedAt,
+		job.startedAt, result.err,
 	)
 }
