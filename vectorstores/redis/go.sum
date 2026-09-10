@@ -1,5 +1,5 @@
-github.com/Tangerg/scope/core v0.17.0 h1:vQjBjERo62am2jWRVxkbWEAXCTI60xMW3V4OGZiNs9g=
-github.com/Tangerg/scope/core v0.17.0/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
+github.com/Tangerg/scope/core v0.17.1-0.20260910143008-88957661d87b h1:0aSn68cIlfA1F/eLVqEoL+DMNfG38OlbmZHbUnq7pJU=
+github.com/Tangerg/scope/core v0.17.1-0.20260910143008-88957661d87b/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
 github.com/bsm/ginkgo/v2 v2.12.0 h1:Ny8MWAHyOepLGlLKYmXG4IEkioBysk6GpaRTLC8zwWs=
 github.com/bsm/ginkgo/v2 v2.12.0/go.mod h1:SwYbGRRDovPVboqFv0tPTcG1sN61LM1Z4ARdbAV9g4c=
 github.com/bsm/gomega v1.27.10 h1:yeMWxP2pV2fG3FgAODIY8EiRE3dy0aeFYt4l7wh6yKA=
