@@ -118,7 +118,7 @@ func TestMiddlewarePreservesRetrieverCancellationPolicy(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := wrapped.Retrieve(ctx, query); err != want || !inner.observed {
+	if _, err := wrapped.Retrieve(ctx, query); !errors.Is(err, want) || !inner.observed {
 		t.Fatalf("Retrieve error = %v, retriever observed = %t", err, inner.observed)
 	}
 	assertString(t, attributeMap(rig.spans.Ended()[0].Attributes()), "error.type", "context.canceled")
