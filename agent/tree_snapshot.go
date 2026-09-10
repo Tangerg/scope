@@ -325,6 +325,7 @@ func findWaitRecord(mailbox mailboxWire, id WaitID) (waitRecordWire, bool) {
 // CaptureTree quiesces one complete Engine-owned tree at Strategy-safe
 // boundaries and captures a consistent portable cut. In-flight Effects settle
 // according to their existing contract before a Process joins the barrier.
+// Cancellation remains available while the active work drains.
 func (e *Engine) CaptureTree(ctx context.Context, rootID ProcessID) (TreeSnapshot, error) {
 	if e == nil || !rootID.Valid() {
 		return TreeSnapshot{}, ErrInvalidProcessRelation

@@ -313,19 +313,15 @@ func (t *treeRuntime) waitForWork() {
 	commands := t.commands
 	completions := t.completions
 	freezeCanceled := t.freezeCanceled()
-	if t.commit != nil {
-		controls = nil
+	if t.mutationsBlocked() {
 		commands = nil
 		completions = nil
+	}
+	if t.commit != nil {
+		controls = nil
 		freezeCanceled = nil
 	} else {
 		commitDone = nil
-		if t.freeze != nil {
-			commands = nil
-			if t.freeze.ready {
-				completions = nil
-			}
-		}
 	}
 	select {
 	case completion := <-commitDone:
@@ -391,7 +387,7 @@ func (t *treeRuntime) tryControl() bool {
 }
 
 func (t *treeRuntime) tryCommand() bool {
-	if t.commit != nil || t.freeze != nil {
+	if t.mutationsBlocked() {
 		return false
 	}
 	select {
@@ -404,7 +400,7 @@ func (t *treeRuntime) tryCommand() bool {
 }
 
 func (t *treeRuntime) tryCompletion() bool {
-	if t.commit != nil || t.freeze != nil && t.freeze.ready {
+	if t.mutationsBlocked() {
 		return false
 	}
 	select {
@@ -414,6 +410,12 @@ func (t *treeRuntime) tryCompletion() bool {
 	default:
 		return false
 	}
+}
+
+func (t *treeRuntime) mutationsBlocked() bool {
+	// Freeze acquisition stops new jobs, but active jobs may need a cancellation
+	// command to drain. Only the completed snapshot barrier blocks both lanes.
+	return t.commit != nil || t.freeze != nil && t.freeze.ready
 }
 
 func (t *treeRuntime) enqueueProcess(processID ProcessID) {
