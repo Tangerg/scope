@@ -304,6 +304,11 @@ func (c canceledSource) Load(context.Context, string) (*skills.Skill, error) {
 	return nil, c.failure
 }
 
+func (c canceledSource) OpenResource(context.Context, string, string) (fs.File, error) {
+	c.cancel()
+	return nil, c.failure
+}
+
 type discoveryFS struct {
 	fs.FS
 	phase  string

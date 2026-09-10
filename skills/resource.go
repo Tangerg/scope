@@ -38,7 +38,7 @@ func ReadResource(
 		return nil, false, err
 	}
 	file, err := src.OpenResource(ctx, name, resource)
-	file, err = checkedResourceFile(ctx, operation, name, resource, file, err)
+	file, err = receivedResourceFile(ctx, operation, name, resource, file, err)
 	if err != nil {
 		return nil, false, err
 	}
@@ -83,7 +83,10 @@ func readBounded(ctx context.Context, reader io.Reader, maxBytes int64) ([]byte,
 	return data, false, nil
 }
 
-func checkedResourceFile(
+// receivedResourceFile settles ownership and cancellation after a source call.
+// ResourceSource owns the regular-file invariant; composition does not stat the
+// same open descriptor again.
+func receivedResourceFile(
 	ctx context.Context,
 	operation string,
 	name string,
@@ -97,6 +100,14 @@ func checkedResourceFile(
 	}
 	if lo.IsNil(file) {
 		return nil, fmt.Errorf("skills: %s: %w", operation, ErrNilResourceFile)
+	}
+	return file, nil
+}
+
+func checkedResourceFile(ctx context.Context, operation, name, resource string, file fs.File, err error) (fs.File, error) {
+	file, err = receivedResourceFile(ctx, operation, name, resource, file, err)
+	if err != nil {
+		return nil, err
 	}
 	info, statErr := file.Stat()
 	statErr = errors.Join(resourceIOError("stat", name, resource, statErr), contextError(ctx, operation))

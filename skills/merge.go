@@ -79,11 +79,23 @@ func (m *merged) Load(ctx context.Context, name string) (*Skill, error) {
 	if err := ValidateName(name); err != nil {
 		return nil, err
 	}
-	bundle, err := m.resolve(ctx, name, fmt.Sprintf("load %q", name))
-	if err != nil {
-		return nil, err
-	}
-	return bundle.skill, nil
+	operation := fmt.Sprintf("load %q", name)
+	return m.resolve(ctx, name, operation, func(src ResourceSource) (*Skill, error) {
+		skill, err := src.Load(ctx, name)
+		if ctxErr := contextError(ctx, operation); ctxErr != nil {
+			return nil, errors.Join(err, ctxErr)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if err := skill.Validate(); err != nil {
+			return nil, invalidSkill(name, err)
+		}
+		if skill.Name != name {
+			return nil, invalidSkill(name, fmt.Errorf("%w: loaded %q vs requested %q", ErrNameMismatch, skill.Name, name))
+		}
+		return skill, nil
+	})
 }
 
 // OpenResource opens a resource from the source that owns the winning skill.
@@ -97,63 +109,38 @@ func (m *merged) OpenResource(ctx context.Context, name, resource string) (fs.Fi
 		return nil, err
 	}
 	operation := fmt.Sprintf("open resource %q/%q", name, resource)
-	bundle, err := m.resolve(ctx, name, operation)
-	if err != nil {
-		return nil, err
-	}
-	return bundle.openResource(ctx, resource, operation)
+	return m.resolve(ctx, name, operation, func(src ResourceSource) (fs.File, error) {
+		file, err := src.OpenResource(ctx, name, resource)
+		return receivedResourceFile(ctx, operation, name, resource, file, err)
+	})
 }
 
-// skillBundle keeps the winning skill and its resource source inseparable.
-// This prevents lower-precedence resources from leaking into a higher-
-// precedence skill with the same name.
-type skillBundle struct {
-	source ResourceSource
-	skill  *Skill
-}
-
-func (s *skillBundle) openResource(ctx context.Context, resource, operation string) (fs.File, error) {
-	file, err := s.source.OpenResource(ctx, s.skill.Name, resource)
-	return checkedResourceFile(ctx, operation, s.skill.Name, resource, file, err)
-}
-
-// resolve returns the first complete bundle that owns name. Only
-// not-exist errors fall through; malformed higher-precedence skills remain
-// authoritative rather than being silently shadowed by a lower source.
-func (m *merged) resolve(ctx context.Context, name, operation string) (*skillBundle, error) {
+// resolve only falls through when the skill itself is absent. A missing file
+// never allows a lower-precedence source to supply part of the winning bundle.
+func (m *merged) resolve[T any](ctx context.Context, name, operation string, lookup func(ResourceSource) (T, error)) (T, error) {
+	var zero T
 	if err := contextError(ctx, operation); err != nil {
-		return nil, err
+		return zero, err
 	}
 	var errs []error
 	for _, src := range m.sources {
 		if err := contextError(ctx, operation); err != nil {
-			return nil, err
+			return zero, err
 		}
-		skill, err := src.Load(ctx, name)
-		if ctxErr := contextError(ctx, operation); ctxErr != nil {
-			return nil, errors.Join(err, ctxErr)
-		}
+		value, err := lookup(src)
 		if err == nil {
-			if validateErr := skill.Validate(); validateErr != nil {
-				return nil, invalidSkill(name, validateErr)
-			}
-			if skill.Name != name {
-				return nil, invalidSkill(name, fmt.Errorf(
-					"%w: loaded %q vs requested %q",
-					ErrNameMismatch,
-					skill.Name,
-					name,
-				))
-			}
-			return &skillBundle{source: src, skill: skill}, nil
+			return value, nil
 		}
-		if !errors.Is(err, fs.ErrNotExist) {
-			return nil, err
+		if ctxErr := contextError(ctx, operation); ctxErr != nil {
+			return zero, errors.Join(err, ctxErr)
+		}
+		if !errors.Is(err, ErrSkillNotFound) {
+			return zero, err
 		}
 		errs = append(errs, err)
 	}
 	if len(errs) == 0 {
-		return nil, fmt.Errorf("skills: skill %q: %w", name, fs.ErrNotExist)
+		return zero, fmt.Errorf("skills: skill %q: %w", name, ErrSkillNotFound)
 	}
-	return nil, errors.Join(errs...)
+	return zero, errors.Join(errs...)
 }

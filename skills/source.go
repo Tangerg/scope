@@ -25,8 +25,8 @@ type Source interface {
 	// an empty source.
 	List(ctx context.Context) ([]Summary, error)
 	// Load validates and returns one complete skill by exact name. The caller owns
-	// the returned value; missing skills and malformed bundles are distinct from
-	// context cancellation, which remains identifiable through errors.Is.
+	// the returned value. An absent skill returns ErrSkillNotFound; malformed
+	// bundles, I/O errors, and cancellation must not be classified as absence.
 	Load(ctx context.Context, name string) (*Skill, error)
 }
 
@@ -36,7 +36,11 @@ type ResourceSource interface {
 	Source
 	// OpenResource opens one bundled resource beneath the exact skill root. It
 	// must reject absolute paths, traversal, and symlink escape according to the
-	// source's trust boundary; the caller owns and closes the returned file.
+	// source's trust boundary and return a non-nil regular file on success.
+	// The source validates the owning skill in this same operation. An absent
+	// skill returns ErrSkillNotFound; a missing resource in an existing skill
+	// returns fs.ErrNotExist without ErrSkillNotFound. Failed opens close any
+	// acquired file; successful callers own and close the returned file.
 	OpenResource(ctx context.Context, name, resource string) (fs.File, error)
 }
 

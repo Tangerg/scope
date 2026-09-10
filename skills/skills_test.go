@@ -390,8 +390,8 @@ func TestLoadClassifiesInvalidSkillAndPreservesCause(t *testing.T) {
 	}
 
 	_, err := source.Load(t.Context(), "missing")
-	if !errors.Is(err, fs.ErrNotExist) || errors.Is(err, ErrInvalidSkill) {
-		t.Fatalf("Load missing error = %v, want only fs.ErrNotExist", err)
+	if !errors.Is(err, ErrSkillNotFound) || !errors.Is(err, fs.ErrNotExist) || errors.Is(err, ErrInvalidSkill) {
+		t.Fatalf("Load missing error = %v, want ErrSkillNotFound", err)
 	}
 }
 

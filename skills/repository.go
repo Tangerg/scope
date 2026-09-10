@@ -232,6 +232,9 @@ func (r *Repository) loadSummary(ctx context.Context, name string) (Summary, err
 func (r *Repository) readSkillFile(ctx context.Context, name string, maxBytes int64) ([]byte, error) {
 	file, err := r.fsys.Open(name + "/" + SkillFile)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			err = errors.Join(ErrSkillNotFound, err)
+		}
 		return nil, fmt.Errorf("skills: load %q: %w", name, errors.Join(err, contextError(ctx, "open skill")))
 	}
 	data, truncated, readErr := readBounded(ctx, file, maxBytes)

@@ -1,9 +1,16 @@
 package skills
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+)
 
 var (
-	ErrInvalidSkill       = errors.New("skills: invalid skill")
+	ErrInvalidSkill = errors.New("skills: invalid skill")
+	// ErrSkillNotFound identifies an absent skill, separately from a missing
+	// resource in an existing skill. It also matches fs.ErrNotExist.
+	ErrSkillNotFound      = fmt.Errorf("skills: skill not found: %w", fs.ErrNotExist)
 	ErrNilSkill           = errors.New("skills: skill must not be nil")
 	ErrNilFilesystem      = errors.New("skills: filesystem must not be nil")
 	ErrNilSource          = errors.New("skills: source must not be nil")
