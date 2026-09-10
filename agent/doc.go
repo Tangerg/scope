@@ -113,6 +113,8 @@
 // usage and published child allocations remain charged; unused Step and
 // settlement-Signal reservations are released. Restoring this terminal evidence
 // neither executes the candidate nor replays its Effects.
+// If installing a settled batch fails, the same boundary retains its actual
+// settlements without adopting the candidate or partially installing waits.
 // A restored pending external attempt becomes Unknown when termination forbids
 // replay. An interrupted child start whose child is absent from the authoritative
 // cut becomes a failed publication; its Host admission may already have run.

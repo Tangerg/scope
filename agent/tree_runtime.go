@@ -497,8 +497,8 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 		return
 	}
 	if err := process.finalizePrepared(t.context); err != nil {
-		process.discardPrepared()
-		process.fail(FailureKindContract, "engine.finalize.invalid", err)
+		process.recordFailure(FailureKindContract, "engine.finalize.invalid", err)
+		process.terminatePrepared()
 	}
 	t.finishIfTerminal(process)
 	if !process.status.Terminal() {
