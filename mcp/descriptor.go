@@ -32,14 +32,16 @@ func newDescriptorSnapshot(descriptor sdkmcp.Tool, publicName string) (descripto
 	}
 	snapshot := descriptorSnapshot{remoteName: descriptor.Name, definition: definition}
 	if descriptor.Annotations != nil {
-		snapshot.toolAnnotations = *descriptor.Annotations
-		snapshot.toolAnnotations = snapshot.annotations()
+		snapshot.toolAnnotations = cloneToolAnnotations(*descriptor.Annotations)
 	}
 	return snapshot, nil
 }
 
 func (d descriptorSnapshot) annotations() sdkmcp.ToolAnnotations {
-	annotations := d.toolAnnotations
+	return cloneToolAnnotations(d.toolAnnotations)
+}
+
+func cloneToolAnnotations(annotations sdkmcp.ToolAnnotations) sdkmcp.ToolAnnotations {
 	if annotations.DestructiveHint != nil {
 		annotations.DestructiveHint = new(*annotations.DestructiveHint)
 	}
