@@ -164,8 +164,12 @@ func (f *fakeRetriever) Retrieve(_ context.Context, q rag.Query) (rag.Candidates
 func TestRetrieveValidatesCandidates(t *testing.T) {
 	retriever := &fakeRetriever{docs: rag.Candidates{{}}}
 	query, _ := rag.NewQuery("query")
+	composed, err := rag.Parallel(rag.RetrieverFunc(retriever.Retrieve))
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	if _, err := rag.RetrieverFunc(retriever.Retrieve).Retrieve(t.Context(), query); !errors.Is(err, rag.ErrInvalidCandidate) {
+	if _, err := composed.Retrieve(t.Context(), query); !errors.Is(err, rag.ErrInvalidCandidate) {
 		t.Fatalf("invalid candidate error = %v", err)
 	}
 }

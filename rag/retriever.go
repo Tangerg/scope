@@ -10,8 +10,8 @@ import (
 	"github.com/samber/lo"
 )
 
-// retrieve validates a borrowed query and the result of an external stage.
-// Public callers use Retriever.Retrieve; function adapters share this boundary.
+// retrieve checks an external stage's result. Callers establish query validity
+// at their public entry point before invoking any stage.
 func retrieve(ctx context.Context, query Query, call RetrieverFunc) (Candidates, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -19,14 +19,33 @@ func retrieve(ctx context.Context, query Query, call RetrieverFunc) (Candidates,
 	if call == nil {
 		return nil, ErrNilRetriever
 	}
-	if err := query.Validate(); err != nil {
-		return nil, err
-	}
 	candidates, err := call(ctx, query)
 	if err != nil {
 		return nil, err
 	}
 	if err := candidates.Validate(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return candidates, nil
+}
+
+// composedRetriever owns the public entry boundary. Its pipeline checks each
+// external stage result before passing it onward, so returning that same result
+// does not require another candidate traversal.
+type composedRetriever func(context.Context, Query) (Candidates, error)
+
+func (c composedRetriever) Retrieve(ctx context.Context, query Query) (Candidates, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := query.Validate(); err != nil {
+		return nil, err
+	}
+	candidates, err := c(ctx, query)
+	if err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -49,7 +68,7 @@ func Parallel(retrievers ...Retriever) (Retriever, error) {
 		}
 	}
 
-	return RetrieverFunc(func(ctx context.Context, query Query) (Candidates, error) {
+	return composedRetriever(func(ctx context.Context, query Query) (Candidates, error) {
 		return parallelCandidates(ctx, "rag.Parallel", owned, "retriever",
 			func(ctx context.Context, _ int, retriever Retriever) (Candidates, error) {
 				return retrieve(ctx, query, retriever.Retrieve)
@@ -70,7 +89,7 @@ func WithTransformers(next Retriever, transformers ...Transformer) (Retriever, e
 		}
 	}
 
-	return RetrieverFunc(func(ctx context.Context, query Query) (Candidates, error) {
+	return composedRetriever(func(ctx context.Context, query Query) (Candidates, error) {
 		current := query
 		for i, transformer := range owned {
 			transformed, err := transform(ctx, transformer, current)
@@ -93,7 +112,7 @@ func WithExpander(next Retriever, expander Expander) (Retriever, error) {
 		return nil, ErrNilExpander
 	}
 
-	return RetrieverFunc(func(ctx context.Context, query Query) (Candidates, error) {
+	return composedRetriever(func(ctx context.Context, query Query) (Candidates, error) {
 		queries, err := expand(ctx, expander, query)
 		if err != nil {
 			return nil, fmt.Errorf("rag: expand query: %w", err)
@@ -118,7 +137,7 @@ func WithRefiners(next Retriever, refiners ...Refiner) (Retriever, error) {
 		}
 	}
 
-	return RetrieverFunc(func(ctx context.Context, query Query) (Candidates, error) {
+	return composedRetriever(func(ctx context.Context, query Query) (Candidates, error) {
 		docs, err := retrieve(ctx, query, next.Retrieve)
 		if err != nil {
 			return nil, err
@@ -137,9 +156,6 @@ func transform(ctx context.Context, transformer Transformer, query Query) (Query
 	if err := ctx.Err(); err != nil {
 		return Query{}, err
 	}
-	if err := query.Validate(); err != nil {
-		return Query{}, err
-	}
 	transformed, err := transformer.Transform(ctx, query)
 	if err != nil {
 		return Query{}, err
@@ -155,9 +171,6 @@ func transform(ctx context.Context, transformer Transformer, query Query) (Query
 
 func expand(ctx context.Context, expander Expander, query Query) ([]Query, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := query.Validate(); err != nil {
 		return nil, err
 	}
 	queries, err := expander.Expand(ctx, query)
@@ -185,12 +198,6 @@ func expand(ctx context.Context, expander Expander, query Query) ([]Query, error
 
 func refine(ctx context.Context, refiner Refiner, query Query, candidates Candidates) (Candidates, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := query.Validate(); err != nil {
-		return nil, err
-	}
-	if err := candidates.Validate(); err != nil {
 		return nil, err
 	}
 	refined, err := refiner.Refine(ctx, query, candidates)

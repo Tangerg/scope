@@ -163,12 +163,13 @@ type Retriever interface {
 	Retrieve(ctx context.Context, query Query) (Candidates, error)
 }
 
-// RetrieverFunc adapts a function to Retriever and validates queries, results,
-// and context cancellation at the function boundary.
+// RetrieverFunc adapts a function to Retriever. Like the other stage function
+// adapters, it forwards directly; the function must satisfy the stage contract.
+// Combinators validate results received from external stages.
 type RetrieverFunc func(context.Context, Query) (Candidates, error)
 
 func (r RetrieverFunc) Retrieve(ctx context.Context, query Query) (Candidates, error) {
-	return retrieve(ctx, query, r)
+	return r(ctx, query)
 }
 
 // Refiner narrows candidate documents down to what the LLM should see.

@@ -22,6 +22,11 @@
 //	r, err = rag.WithRefiners(r, top)
 //	docs, err := r.Retrieve(ctx, q)
 //
+// Function adapters forward calls without adding policy. A composed retriever
+// validates its query at entry and each external stage's output before the next
+// stage consumes it. Built-in stages also validate their own public inputs so
+// they can be used directly outside a composition.
+//
 // [IdentityAugmenter] preserves the query when contextual augmentation is
 // deliberately empty. Other optional stages are omitted from composition.
 //
