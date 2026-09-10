@@ -73,7 +73,7 @@ func TestCoordinatorFailuresAndFiniteBoundsStopCollaboration(t *testing.T) {
 				t.Fatal(result.Status())
 			}
 			reason := result.Termination().Reason()
-			want := map[string]string{"start": "coordinator start failed", "execution": "coordinator failure", "turn limit": "turn limit reached", "task limit": "bound exceeded", "reused key": "reused task key"}[mode]
+			want := map[string]string{"start": "deployment unavailable", "execution": "coordinator failure", "turn limit": "turn limit reached", "task limit": "bound exceeded", "reused key": "reused task key"}[mode]
 			if !strings.Contains(reason, want) {
 				t.Fatalf("lost failure cause: %s", reason)
 			}

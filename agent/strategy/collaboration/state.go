@@ -18,12 +18,23 @@ const (
 	phaseOpening      phase = "opening"
 	phaseWaiting      phase = "waiting"
 	phaseCompleted    phase = "completed"
+	phaseFailed       phase = "failed"
 )
 
 type turnExecution struct {
 	Input   Turn                    `json:"input"`
 	Start   *agent.ChildStartResult `json:"start,omitempty"`
 	Outcome *agent.ChildOutcome     `json:"outcome,omitempty"`
+}
+
+func (t turnExecution) failure() (agent.Failure, bool) {
+	if t.Outcome != nil {
+		return t.Outcome.Result().Termination().Failure()
+	}
+	if t.Start != nil {
+		return t.Start.Failure()
+	}
+	return agent.Failure{}, false
 }
 
 type executionState struct {
@@ -208,6 +219,10 @@ func (e executionState) validate(d *Definition) error {
 		if e.Turn.Outcome != nil && e.Mode == Complete && d.config.OutputSchema.ValidateOutput(*e.Output) == nil {
 			return nil
 		}
+	case phaseFailed:
+		if _, failed := e.Turn.failure(); failed && e.Mode == "" {
+			return nil
+		}
 	}
 	return ErrInvalidState
 }
@@ -247,7 +262,7 @@ func (e executionState) validateTurn(d *Definition, ids []agent.ProcessID) error
 			return ErrInvalidState
 		}
 		id, present := e.Turn.Start.ProcessID()
-		if !present || slices.Contains(ids, id) {
+		if !present && e.Phase != phaseFailed || slices.Contains(ids, id) {
 			return ErrInvalidState
 		}
 	}
@@ -255,7 +270,7 @@ func (e executionState) validateTurn(d *Definition, ids []agent.ProcessID) error
 		return ErrInvalidState
 	}
 	if e.Mode == "" {
-		if e.Turn.Outcome != nil || len(e.Tasks) != len(e.Turn.Input.Tasks) ||
+		if e.Turn.Outcome != nil && e.Phase != phaseFailed || len(e.Tasks) != len(e.Turn.Input.Tasks) ||
 			!sameJSON(e.State, e.Turn.Input.State) || !sameJSON(e.Controls, nilIfEmpty(e.Turn.Input.Controls)) {
 			return ErrInvalidState
 		}

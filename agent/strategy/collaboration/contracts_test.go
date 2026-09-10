@@ -97,7 +97,7 @@ func TestConfigurationAndProtocolContracts(t *testing.T) {
 	if _, err := execution.Step(context.Background(), []agent.Signal{signal}); !errors.Is(err, ErrInvalidProtocol) {
 		t.Fatal(err)
 	}
-	for _, phase := range []phase{phaseStartingTurn, phaseApplying, phaseOpening, phaseWaiting, phaseCompleted} {
+	for _, phase := range []phase{phaseStartingTurn, phaseApplying, phaseOpening, phaseWaiting, phaseCompleted, phaseFailed} {
 		execution.state.Phase = phase
 		if _, err := execution.Step(context.Background(), nil); !errors.Is(err, ErrInvalidProtocol) {
 			t.Fatal(err)

@@ -80,10 +80,11 @@ func (e *execution) acceptTurnStart(signals []agent.Signal) (agent.Transition, e
 	if started.Key() != key || started.DeploymentRef() != e.definition.config.Coordinator.Deployment.DeploymentRef() {
 		return agent.Transition{}, ErrInvalidProtocol
 	}
-	if failure, failed := started.Failure(); failed {
-		return agent.Transition{}, fmt.Errorf("collaboration: coordinator start failed: %s", failure.Message())
-	}
 	e.state.Turn.Start = &started
+	if failure, failed := started.Failure(); failed {
+		e.state.Phase = phaseFailed
+		return agent.Fail(1, failure)
+	}
 	return e.openWait(1)
 }
 
@@ -159,6 +160,10 @@ func (e *execution) acceptOutcomes(signals []agent.Signal) (agent.Transition, er
 		return e.startTurn(1)
 	}
 	result := e.state.Turn.Outcome.Result()
+	if failure, failed := result.Termination().Failure(); failed {
+		e.state.Phase = phaseFailed
+		return agent.Fail(1, failure)
+	}
 	output, present := result.Output()
 	if !present || result.Status() != agent.StatusCompleted {
 		return agent.Transition{}, fmt.Errorf("collaboration: coordinator ended with %s: %s", result.Status(), result.Termination().Reason())

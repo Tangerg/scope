@@ -11,6 +11,8 @@
 // those facts appear in its successor's Turn without preempting a decision.
 // Start failures, task failures, and control rejections remain explicit facts.
 // A failed coordinator or exhausted turn bound fails the collaboration.
+// Coordinator admission and execution failures preserve the original Failure
+// kind, code, and diagnostic; the failed turn remains restorable evidence.
 //
 // Controls compile to agent.SignalChild and agent.CancelChild. Signals obey the
 // recipient Strategy's protocol, including interaction steering at its safe
