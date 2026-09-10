@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"testing"
 
@@ -46,6 +47,7 @@ func TestFailureRejectsIncompleteConstruction(t *testing.T) {
 		output chat.ToolOutput
 	}{
 		{},
+		{cause: (*os.PathError)(nil)},
 		{cause: errors.New("failed"), output: chat.ToolOutput{Details: json.RawMessage(`{`)}},
 	} {
 		failure, err := tool.NewFailure(test.cause, test.output)

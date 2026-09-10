@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/chat"
 )
 
@@ -21,7 +23,7 @@ type Failure struct {
 // NewFailure validates and snapshots output so error wrapping cannot lose its
 // text, media, or structured details. cause must be non-nil.
 func NewFailure(cause error, output chat.ToolOutput) (*Failure, error) {
-	if cause == nil {
+	if lo.IsNil(cause) {
 		return nil, fmt.Errorf("%w: cause must not be nil", ErrInvalidFailure)
 	}
 	if err := output.Validate(); err != nil {
