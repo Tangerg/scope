@@ -1,31 +1,9 @@
 package chatclient
 
-import (
-	"errors"
-	"slices"
+import "github.com/Tangerg/scope/core/chat"
 
-	"github.com/samber/lo"
-
-	"github.com/Tangerg/scope/core/chat"
-)
-
-// Config describes construction-time Client behavior. Request-specific
-// values belong in chat.Request.
-//
-// The slices are snapshotted by New, so callers may safely reuse or mutate
-// their input after construction. The first middleware in each
-// slice is the outermost wrapper, matching [chat.Wrap] and [chat.WrapStream].
+// Config supplies synchronous middleware. The first entry is the outermost
+// wrapper. New consumes the slice during construction and does not retain it.
 type Config struct {
-	Streamer         chat.Streamer
-	CallMiddleware   []chat.CallMiddleware
-	StreamMiddleware []chat.StreamMiddleware
-}
-
-func (c Config) snapshot() (Config, error) {
-	if c.Streamer != nil && lo.IsNil(c.Streamer) {
-		return Config{}, errors.New("chatclient: nil streamer")
-	}
-	c.CallMiddleware = slices.Clone(c.CallMiddleware)
-	c.StreamMiddleware = slices.Clone(c.StreamMiddleware)
-	return c, nil
+	CallMiddleware []chat.CallMiddleware
 }

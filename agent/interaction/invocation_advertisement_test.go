@@ -602,7 +602,7 @@ func newDeferredDeployment(t *testing.T, model chat.Model, initial []tool.Tool, 
 	}
 	return configuredInteraction(t, interaction.DefinitionConfig{
 		Name: "interaction.deferred", Description: "Verify recoverable deferred Tool advertisement.", MaxModelCalls: 4, MaxConcurrentToolCalls: maxConcurrent,
-	}, interaction.DispatcherConfig{Client: client}, interaction.ToolSetConfig{Tools: initial, DeferredTools: deferred})
+	}, interaction.DispatcherConfig{Model: client}, interaction.ToolSetConfig{Tools: initial, DeferredTools: deferred})
 }
 
 func startDeferredInteraction(t *testing.T, deployment interactionDeployment) (*agent.Process, *agent.Engine) {

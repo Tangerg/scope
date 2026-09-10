@@ -74,7 +74,7 @@ func measureInteractionContext(t *testing.T, rounds uint32, mode string) (int, [
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := interaction.DispatcherConfig{Client: model}
+	config := interaction.DispatcherConfig{Model: model}
 	if mode != "absent" {
 		config.ModelContextReducer = storageContextReducer{changed: mode == "changed"}
 	}

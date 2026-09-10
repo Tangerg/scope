@@ -57,7 +57,7 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 			deployment := configuredInteraction(t, interaction.DefinitionConfig{
 				Name: "interaction.tool-recovery", Description: "Recover individual Tool effects.",
 				MaxModelCalls: 2, MaxConcurrentToolCalls: concurrency,
-			}, interaction.DispatcherConfig{Client: model}, interaction.ToolSetConfig{Tools: []tool.Tool{first, uncertain, last}})
+			}, interaction.DispatcherConfig{Model: model}, interaction.ToolSetConfig{Tools: []tool.Tool{first, uncertain, last}})
 			engine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: gate, DeploymentResolver: deployment.resolver})
 			if err != nil {
 				t.Fatal(err)

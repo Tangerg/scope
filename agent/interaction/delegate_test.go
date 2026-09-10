@@ -467,7 +467,7 @@ func delegateInteractionWithValidator(t *testing.T, model chat.Model, tools []to
 	}
 	return configuredInteraction(t, interaction.DefinitionConfig{
 		Name: "interaction.delegate_root", Description: "Exercise exact managed worker delegation.", MaxModelCalls: maxModelCalls, Delegates: delegates, CompletionValidator: validator,
-	}, interaction.DispatcherConfig{Client: client}, interaction.ToolSetConfig{Tools: tools})
+	}, interaction.DispatcherConfig{Model: client}, interaction.ToolSetConfig{Tools: tools})
 }
 
 func delegateWorkflow[I, O any](t *testing.T, name string, transform workflow.TransformFunc[I, O]) agent.Deployment {

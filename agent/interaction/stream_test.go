@@ -12,7 +12,6 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/interaction"
 	"github.com/Tangerg/scope/core/chat"
-	"github.com/Tangerg/scope/core/chatclient"
 )
 
 func TestStreamingOutputDoesNotDependOnDeltaListeners(t *testing.T) {
@@ -166,13 +165,6 @@ func TestRestoringCompletedInteractionDoesNotReplayDeltas(t *testing.T) {
 
 func newStreamingDeployment(t *testing.T, streamer chat.Streamer) interactionDeployment {
 	t.Helper()
-	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
-		return nil, errors.New("synchronous model path must not be used")
-	})
-	client, err := chatclient.New(model, chatclient.Config{Streamer: streamer})
-	if err != nil {
-		t.Fatal(err)
-	}
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
 		Name:          "interaction.stream",
 		Description:   "Verify managed streaming Interaction behavior.",
@@ -182,7 +174,7 @@ func newStreamingDeployment(t *testing.T, streamer chat.Streamer) interactionDep
 		t.Fatal(err)
 	}
 	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-		Client: client, ResponseMode: interaction.ModelResponseStream,
+		Streamer: streamer,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -306,4 +298,33 @@ func (e *eventRecorder) Contains(name string) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return slices.Contains(e.names, name)
+}
+
+func TestDispatcherRequiresExactlyOneModelCapability(t *testing.T) {
+	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
+		Name: "capability", Description: "Validate model capabilities.", MaxModelCalls: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		t.Fatal("construction invoked model")
+		return nil, nil
+	})
+	streamer := responseStream(streamTextChunk("done", chat.FinishReasonStop))
+	for name, config := range map[string]interaction.DispatcherConfig{
+		"neither": {}, "both": {Model: model, Streamer: streamer},
+		"nil model": {Model: chat.ModelFunc(nil)}, "nil streamer": {Streamer: chat.StreamerFunc(nil)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := interaction.NewDispatcher(definition, config); !errors.Is(err, interaction.ErrInvalidDispatcherConfig) {
+				t.Fatalf("NewDispatcher error = %v", err)
+			}
+		})
+	}
+	for _, config := range []interaction.DispatcherConfig{{Model: model}, {Streamer: streamer}} {
+		if _, err := interaction.NewDispatcher(definition, config); err != nil {
+			t.Fatal(err)
+		}
+	}
 }

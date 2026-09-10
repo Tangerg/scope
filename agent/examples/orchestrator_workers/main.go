@@ -230,7 +230,7 @@ func interactionDeployment(name, description string, model chat.Model) (agent.De
 	if err != nil {
 		return agent.Deployment{}, err
 	}
-	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{Client: client})
+	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{Model: client})
 	if err != nil {
 		return agent.Deployment{}, err
 	}

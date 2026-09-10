@@ -52,7 +52,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 		return err
 	}
 	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-		Client: client,
+		Model: client,
 	})
 	if err != nil {
 		return err

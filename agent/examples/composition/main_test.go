@@ -241,7 +241,7 @@ func newUncertainModelDeployment(t *testing.T) (agent.Deployment, *lostResponseD
 	if err != nil {
 		t.Fatal(err)
 	}
-	next, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{Client: client})
+	next, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{Model: client})
 	if err != nil {
 		t.Fatal(err)
 	}

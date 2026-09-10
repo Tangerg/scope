@@ -20,7 +20,7 @@ func TestExecutionConstructorsRejectTypedNilObservers(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		config := DispatcherConfig{Client: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		config := DispatcherConfig{Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 			return nil, errors.New("model must not run during construction")
 		})}
 		if _, err := NewDispatcher(definition, config); err != nil {

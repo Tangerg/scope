@@ -373,7 +373,7 @@ func startConcurrentInteraction(
 	}
 	deployment := configuredInteraction(t, interaction.DefinitionConfig{
 		Name: "interaction.concurrent", Description: "Verify bounded Tool concurrency.", MaxModelCalls: 3, MaxConcurrentToolCalls: maxConcurrent,
-	}, interaction.DispatcherConfig{Client: client}, interaction.ToolSetConfig{Tools: tools})
+	}, interaction.DispatcherConfig{Model: client}, interaction.ToolSetConfig{Tools: tools})
 	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)

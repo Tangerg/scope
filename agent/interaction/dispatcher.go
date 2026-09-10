@@ -12,36 +12,12 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-// ModelClient stays consumer-owned so Interaction does not depend on one
-// concrete Core client implementation.
-type ModelClient interface {
-	// Call invokes the configured model for one complete response.
-	Call(ctx context.Context, request *chat.Request) (*chat.Response, error)
-}
-
-// ModelResponseMode selects the single model response lifecycle used by a
-// Dispatcher. Streaming is observational; both modes settle the same complete
-// provider-neutral Response.
-type ModelResponseMode string
-
-// Complete mode receives one response; stream mode accumulates response events
-// before settling the same complete response contract.
-const (
-	ModelResponseComplete ModelResponseMode = ""
-	ModelResponseStream   ModelResponseMode = "stream"
-)
-
-func (m ModelResponseMode) Valid() bool {
-	return m == ModelResponseComplete || m == ModelResponseStream
-}
-
 // DispatcherConfig binds external capabilities for one Deployment.
 type DispatcherConfig struct {
-	// Client is the single model dependency. Stream mode requires the same value
-	// to implement chat.Streamer so call and stream settings cannot diverge.
-	Client ModelClient
-	// ResponseMode selects complete or streaming model responses.
-	ResponseMode ModelResponseMode
+	// Exactly one of Model and Streamer is required. The selected capability
+	// owns the entire response lifecycle; streaming is accumulated before settlement.
+	Model    chat.Model
+	Streamer chat.Streamer
 
 	// Observer receives exact model response facts. Nil disables observation.
 	// It is separate from Engine Events/Deltas, which describe execution mechanics.
@@ -57,9 +33,9 @@ type DispatcherConfig struct {
 
 // Dispatcher executes model calls emitted by an Interaction Execution. Its configuration is immutable after construction;
 // internal observation health counters are concurrency-safe. It may serve
-// Processes concurrently when the supplied Client supports concurrent use.
+// Processes concurrently when the supplied model capability supports concurrent use.
 type Dispatcher struct {
-	client              ModelClient
+	model               chat.Model
 	streamer            chat.Streamer
 	initialDefinitions  []chat.ToolDefinition
 	deferredDefinitions map[string]chat.ToolDefinition
@@ -80,11 +56,14 @@ func (d *Dispatcher) ObservationFailures() ObservationFailureCounts {
 // NewDispatcher binds the model boundary to its immutable Interaction manifest.
 // Ordinary Tools run in the separate Deployment supplied by Definition's ToolSet.
 func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher, error) {
-	if !definition.valid() || lo.IsNil(config.Client) {
-		return nil, fmt.Errorf("%w: Definition and Client are required", ErrInvalidDispatcherConfig)
+	if !definition.valid() {
+		return nil, fmt.Errorf("%w: Definition is required", ErrInvalidDispatcherConfig)
 	}
-	if !config.ResponseMode.Valid() {
-		return nil, fmt.Errorf("%w: invalid ResponseMode %q", ErrInvalidDispatcherConfig, config.ResponseMode)
+	if (config.Model == nil) == (config.Streamer == nil) {
+		return nil, fmt.Errorf("%w: exactly one of Model and Streamer is required", ErrInvalidDispatcherConfig)
+	}
+	if config.Model != nil && lo.IsNil(config.Model) || config.Streamer != nil && lo.IsNil(config.Streamer) {
+		return nil, fmt.Errorf("%w: model capability is typed nil", ErrInvalidDispatcherConfig)
 	}
 	if config.Observer != nil && lo.IsNil(config.Observer) {
 		return nil, fmt.Errorf("%w: Observer is typed nil", ErrInvalidDispatcherConfig)
@@ -92,15 +71,8 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 	if config.ModelContextReducer != nil && lo.IsNil(config.ModelContextReducer) {
 		return nil, fmt.Errorf("%w: ModelContextReducer is typed nil", ErrInvalidDispatcherConfig)
 	}
-	var streamer chat.Streamer
-	if config.ResponseMode == ModelResponseStream {
-		streamer, _ = config.Client.(chat.Streamer)
-		if lo.IsNil(streamer) {
-			return nil, fmt.Errorf("%w: Client does not support streaming", ErrInvalidDispatcherConfig)
-		}
-	}
 	dispatcher := &Dispatcher{
-		client: config.Client, streamer: streamer, observer: config.Observer,
+		model: config.Model, streamer: config.Streamer, observer: config.Observer,
 		contextReducer:      config.ModelContextReducer,
 		initialDefinitions:  cloneDefinitions(definition.tools.initialDefinitions),
 		deferredDefinitions: make(map[string]chat.ToolDefinition),
@@ -129,7 +101,7 @@ func (d *Dispatcher) Dispatch(
 	if ctx == nil {
 		panic(errors.New("interaction: nil Context"))
 	}
-	if d == nil || lo.IsNil(d.client) {
+	if d == nil || (lo.IsNil(d.model) && lo.IsNil(d.streamer)) {
 		return agent.Settlement{}, ErrInvalidDispatcherConfig
 	}
 	envelope, err := decodeEffect(request.Effect().Payload())

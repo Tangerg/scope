@@ -160,7 +160,7 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 			observer := &toolSettlementObserver{settlements: make(chan interaction.ToolSettlement, 1)}
 			deployment := configuredInteraction(t, interaction.DefinitionConfig{
 				Name: "interaction.unknown_tool", Description: "Preserve unknown Tool outcomes.", MaxModelCalls: 2,
-			}, interaction.DispatcherConfig{Client: model}, interaction.ToolSetConfig{Tools: []tool.Tool{failing}, Observer: observer})
+			}, interaction.DispatcherConfig{Model: model}, interaction.ToolSetConfig{Tools: []tool.Tool{failing}, Observer: observer})
 			events := &agenttest.ObservationRecorder{}
 			engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver, EventListeners: []agent.EventListener{events}})
 			if err != nil {
@@ -465,7 +465,7 @@ func newDeployment(t *testing.T, model chat.Model, tools []tool.Tool, maxModelCa
 	}
 	return configuredInteraction(t, interaction.DefinitionConfig{
 		Name: "interaction.test", Description: "Run a model-directed interaction for contract testing.", MaxModelCalls: maxModelCalls,
-	}, interaction.DispatcherConfig{Client: client}, interaction.ToolSetConfig{Tools: tools})
+	}, interaction.DispatcherConfig{Model: client}, interaction.ToolSetConfig{Tools: tools})
 }
 
 func textResponse(text string) *chat.Response {

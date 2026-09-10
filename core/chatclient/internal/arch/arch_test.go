@@ -17,11 +17,14 @@ import (
 )
 
 func TestClientKeepsFocusedCallSurface(t *testing.T) {
-	want := []string{"Call", "Output", "Stream"}
+	want := []string{"Call", "Output"}
 	if methods := declaredMethods(t, "Client"); !slices.Equal(methods, want) {
 		t.Fatalf("Client methods = %v, want %v", methods, want)
 	}
 	assertReceiverMethodsInFile(t, "Client", "client.go")
+	if methods := declaredMethods(t, "StreamClient"); !slices.Equal(methods, []string{"Stream"}) {
+		t.Fatalf("StreamClient methods = %v, want [Stream]", methods)
+	}
 	if methods := reflectedMethods(reflect.TypeFor[chatclient.OutputFormat[string]]()); len(methods) != 0 {
 		t.Fatalf("OutputFormat methods = %v, want opaque format value", methods)
 	}

@@ -173,7 +173,7 @@ func TestSteerAdmittedDuringWaitStepSurvivesToolInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-		Client: model,
+		Model: model,
 	})
 	if err != nil {
 		t.Fatal(err)

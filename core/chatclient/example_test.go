@@ -30,10 +30,7 @@ func Example() {
 	// Output: Hello from the model
 }
 
-func ExampleClient_Stream() {
-	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
-		return textResponse("fallback"), nil
-	})
+func ExampleStreamClient_Stream() {
 	streamer := chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
 		return func(yield func(*chat.ResponseDelta, error) bool) {
 			if !yield(delta("Hello ", ""), nil) {
@@ -42,7 +39,7 @@ func ExampleClient_Stream() {
 			yield(delta("stream", chat.FinishReasonStop), nil)
 		}
 	})
-	client, err := chatclient.New(model, chatclient.Config{Streamer: streamer})
+	client, err := chatclient.NewStreamClient(streamer, chatclient.StreamConfig{})
 	if err != nil {
 		panic(err)
 	}

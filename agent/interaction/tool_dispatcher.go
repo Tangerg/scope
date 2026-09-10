@@ -82,15 +82,14 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
 	if err != nil {
 		return err
 	}
-	definition = definition.Clone()
 	t.tools[definition.Name] = boundTool{
-		executable: binding, definition: definition.Clone(), deferred: deferred,
+		executable: binding, definition: definition, deferred: deferred,
 		direct: direct, concurrent: concurrent,
 	}
 	if deferred {
 		t.deferredToolNames[definition.Name] = struct{}{}
 	} else {
-		t.initialDefinitions = append(t.initialDefinitions, definition.Clone())
+		t.initialDefinitions = append(t.initialDefinitions, definition)
 	}
 	return nil
 }

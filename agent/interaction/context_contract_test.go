@@ -18,7 +18,7 @@ func TestDispatchersRejectNilContextBeforeProtocolValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	model, err := NewDispatcher(definition, DispatcherConfig{
-		Client: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 			t.Error("invalid context reached the model")
 			return nil, errors.New("model must not run")
 		}),

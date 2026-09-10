@@ -34,7 +34,7 @@ func TestToolChildFailuresRetainRestorableParentState(t *testing.T) {
 				t.Fatal(err)
 			}
 			dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-				Client: &singleToolCallModel{call: chat.ToolCall{ID: "finish-call", Name: "finish", Arguments: `{}`}},
+				Model: &singleToolCallModel{call: chat.ToolCall{ID: "finish-call", Name: "finish", Arguments: `{}`}},
 			})
 			if err != nil {
 				t.Fatal(err)

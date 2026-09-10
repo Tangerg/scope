@@ -71,7 +71,7 @@ func TestDispatcherRejectsTypedNilModelContextReducer(t *testing.T) {
 	}
 	var reducer *secondCallContextReducer
 	if _, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-		Client: client, ModelContextReducer: reducer,
+		Model: client, ModelContextReducer: reducer,
 	}); !errors.Is(err, interaction.ErrInvalidDispatcherConfig) {
 		t.Fatalf("error = %v, want ErrInvalidDispatcherConfig", err)
 	}
@@ -193,6 +193,6 @@ func runContextReductionInteraction(
 	}
 	deployment := configuredInteraction(t, interaction.DefinitionConfig{
 		Name: "interaction.context-reducer", Description: "Exercise model-context reduction.", MaxModelCalls: 3,
-	}, interaction.DispatcherConfig{Client: client, ModelContextReducer: reducer}, interaction.ToolSetConfig{Tools: tools})
+	}, interaction.DispatcherConfig{Model: client, ModelContextReducer: reducer}, interaction.ToolSetConfig{Tools: tools})
 	return runInteraction(t, deployment, "original context")
 }

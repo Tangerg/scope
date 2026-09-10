@@ -1,7 +1,6 @@
 package interaction
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
@@ -27,7 +26,7 @@ func ParseModelResponseDelta(payload json.RawMessage) (ModelResponseDelta, error
 	if err := wire.ResponseDelta.Validate(); err != nil {
 		return ModelResponseDelta{}, fmt.Errorf("interaction: model response Delta: %w", err)
 	}
-	return ModelResponseDelta{delta: *wire.ResponseDelta.Clone()}, nil
+	return ModelResponseDelta{delta: wire.ResponseDelta}, nil
 }
 
 // ResponseDelta returns an independently owned transport increment.
@@ -44,12 +43,12 @@ func encodeModelResponseDelta(delta *chat.ResponseDelta) (json.RawMessage, error
 		return nil, errors.New("interaction: cannot encode a nil model response Delta")
 	}
 	payload, err := json.Marshal(modelResponseDeltaWire{
-		ResponseDelta: *delta.Clone(),
+		ResponseDelta: *delta,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("interaction: encode model response Delta: %w", err)
 	}
-	return bytes.Clone(payload), nil
+	return payload, nil
 }
 
 func (d *Dispatcher) callModel(
@@ -58,11 +57,15 @@ func (d *Dispatcher) callModel(
 	emit agent.DeltaEmitter,
 ) (*chat.Response, error) {
 	if d.streamer == nil {
-		return d.client.Call(ctx, request)
+		return d.model.Call(ctx, request)
 	}
 	var accumulator chat.ResponseAccumulator
 	seen := false
-	for delta, err := range d.streamer.Stream(ctx, request) {
+	sequence := d.streamer.Stream(ctx, request)
+	if sequence == nil {
+		return nil, errors.New("model streamer returned a nil sequence")
+	}
+	for delta, err := range sequence {
 		if err != nil {
 			return nil, err
 		}
