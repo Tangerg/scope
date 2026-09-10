@@ -296,8 +296,16 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 		return
 	}
 	if job.stale {
-		if completion.kind == processJobStep {
-			process.discardExecution()
+		// Resumption requires the committed state to be executable. Terminal
+		// intent needs only its saved evidence, so reconstruction is unnecessary.
+		if completion.kind == processJobStep && !process.pendingControl.hasTerminalIntent() {
+			execution, err := restoreExecution(process.deployment.Definition(), process.committedExecutionState)
+			if err != nil {
+				process.fail(failureKindForError(err), "execution.snapshot.unrestorable", err)
+				t.finishIfTerminal(process)
+			} else {
+				process.execution = execution
+			}
 		}
 		if t.freeze == nil {
 			t.enqueueProcess(completion.processID)
@@ -488,7 +496,6 @@ func (t *treeRuntime) applyStepCompletion(
 	sequence := process.committedSteps + 1
 	process.publishEvent(t.context, EventStepFinished, EventPhaseAttempt, sequence, EffectID{}, payload)
 	if result.err != nil {
-		process.discardExecution()
 		code := "execution.step.failed"
 		switch result.stage {
 		case stepJobStageSnapshot:
@@ -500,7 +507,6 @@ func (t *treeRuntime) applyStepCompletion(
 		return
 	}
 	if failure := process.prepareStepResult(t.context, result); failure != nil {
-		process.discardExecution()
 		process.fail(failure.kind, failure.code, failure.cause)
 	}
 }

@@ -343,22 +343,13 @@ func (p *preparedStepFinalization) rollback() {
 
 func (p *processState) discardPrepared() {
 	p.prepared = nil
-	p.discardExecution()
+	p.execution = nil
 }
 
 func (p *processState) terminatePrepared() {
 	p.prepared.candidate = nil
 	p.execution = nil
 	p.commitTerminationWithUnresolved(stepOutcome{}, p.unknownEffectIDs())
-}
-
-func (p *processState) discardExecution() {
-	execution, err := restoreExecution(p.deployment.Definition(), p.committedExecutionState)
-	if err == nil {
-		p.execution = execution
-	} else {
-		p.execution = nil
-	}
 }
 
 // Asynchronous failures wait for accepted external effects to settle before
