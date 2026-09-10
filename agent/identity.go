@@ -56,18 +56,6 @@ func (i identity) MarshalText() ([]byte, error) {
 
 func (identity) JSONSchemaAlias() any { return "" }
 
-func (i *identity) UnmarshalText(text []byte) error {
-	if i == nil {
-		return fmt.Errorf("%w: nil receiver", ErrInvalidIdentity)
-	}
-	value, err := parseIdentity("value", string(text))
-	if err != nil {
-		return err
-	}
-	*i = value
-	return nil
-}
-
 // ProcessID is the stable identity of one Engine-owned Process.
 type ProcessID struct{ identity }
 
@@ -76,12 +64,6 @@ func ParseProcessID(value string) (ProcessID, error) {
 	id, err := parseIdentity("process ID", value)
 	return ProcessID{id}, err
 }
-
-func (p ProcessID) String() string { return p.identity.String() }
-
-func (p ProcessID) Valid() bool { return p.identity.Valid() }
-
-func (p ProcessID) MarshalText() ([]byte, error) { return p.identity.MarshalText() }
 
 func (p *ProcessID) UnmarshalText(text []byte) error {
 	if p == nil {
@@ -105,12 +87,6 @@ func ParseSignalID(value string) (SignalID, error) {
 	return SignalID{id}, err
 }
 
-func (s SignalID) String() string { return s.identity.String() }
-
-func (s SignalID) Valid() bool { return s.identity.Valid() }
-
-func (s SignalID) MarshalText() ([]byte, error) { return s.identity.MarshalText() }
-
 func (s *SignalID) UnmarshalText(text []byte) error {
 	if s == nil {
 		return fmt.Errorf("%w: nil SignalID receiver", ErrInvalidIdentity)
@@ -133,12 +109,6 @@ func ParseWaitID(value string) (WaitID, error) {
 	return WaitID{id}, err
 }
 
-func (w WaitID) String() string { return w.identity.String() }
-
-func (w WaitID) Valid() bool { return w.identity.Valid() }
-
-func (w WaitID) MarshalText() ([]byte, error) { return w.identity.MarshalText() }
-
 func (w *WaitID) UnmarshalText(text []byte) error {
 	if w == nil {
 		return fmt.Errorf("%w: nil WaitID receiver", ErrInvalidIdentity)
@@ -159,12 +129,6 @@ func ParseEffectID(value string) (EffectID, error) {
 	id, err := parseIdentity("effect ID", value)
 	return EffectID{id}, err
 }
-
-func (e EffectID) String() string { return e.identity.String() }
-
-func (e EffectID) Valid() bool { return e.identity.Valid() }
-
-func (e EffectID) MarshalText() ([]byte, error) { return e.identity.MarshalText() }
 
 func (e *EffectID) UnmarshalText(text []byte) error {
 	if e == nil {
@@ -188,12 +152,6 @@ func ParseWaitKey(value string) (WaitKey, error) {
 	return WaitKey{id}, err
 }
 
-func (w WaitKey) String() string { return w.identity.String() }
-
-func (w WaitKey) Valid() bool { return w.identity.Valid() }
-
-func (w WaitKey) MarshalText() ([]byte, error) { return w.identity.MarshalText() }
-
 func (w *WaitKey) UnmarshalText(text []byte) error {
 	if w == nil {
 		return fmt.Errorf("%w: nil WaitKey receiver", ErrInvalidIdentity)
@@ -216,12 +174,6 @@ func ParseChildKey(value string) (ChildKey, error) {
 	id, err := parseIdentity("child key", value)
 	return ChildKey{id}, err
 }
-
-func (c ChildKey) String() string { return c.identity.String() }
-
-func (c ChildKey) Valid() bool { return c.identity.Valid() }
-
-func (c ChildKey) MarshalText() ([]byte, error) { return c.identity.MarshalText() }
 
 func (c *ChildKey) UnmarshalText(text []byte) error {
 	if c == nil {
