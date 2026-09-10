@@ -2,7 +2,6 @@ package fs
 
 import (
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -63,51 +62,15 @@ func TestReadOnlyToolsDeclareNoConflict(t *testing.T) {
 	}
 }
 
-// TestMutatingToolsConflictOnTheirTargetPath is the other half of the contract:
-// two edits to the same file must serialize, and edits to different files must
-// not. The key is the path, so the loop can decide without understanding the
-// tool.
-func TestMutatingToolsConflictOnTheirTargetPath(t *testing.T) {
-	root := t.TempDir()
-	executor := mustLocalExecutor(t, root)
-
-	tools := map[string]toolcontract.Tool{
-		"edit":  mustEditTool(t, executor),
-		"write": mustWriteTool(t, executor),
+// Mutation adapters cannot infer resource identity or concurrency guarantees
+// from an arbitrary Writer or Editor's path strings.
+func TestMutatingToolsDoNotDeclareBackendConcurrency(t *testing.T) {
+	executor := mustLocalExecutor(t, t.TempDir())
+	for _, executable := range []toolcontract.Tool{mustEditTool(t, executor), mustWriteTool(t, executor)} {
+		if _, ok := executable.(concurrencyAware); ok {
+			t.Fatalf("%T declares concurrency without a backend contract", executable)
+		}
 	}
-	for name, executable := range tools {
-		t.Run(name, func(t *testing.T) {
-			aware, ok := executable.(concurrencyAware)
-			if !ok {
-				t.Fatalf("%T does not declare a concurrency key", executable)
-			}
-
-			first, concurrent := aware.ConcurrencyKey(invocationFor(t, executable, arguments(name, "a.txt")))
-			if !concurrent {
-				t.Fatal("a mutating tool declared itself globally exclusive")
-			}
-			if first != "a.txt" {
-				t.Fatalf("conflict key = %q, want the target path", first)
-			}
-
-			same, _ := aware.ConcurrencyKey(invocationFor(t, executable, arguments(name, "a.txt")))
-			if same != first {
-				t.Fatalf("the same path produced two keys: %q and %q", first, same)
-			}
-
-			other, _ := aware.ConcurrencyKey(invocationFor(t, executable, arguments(name, "b.txt")))
-			if other == first {
-				t.Fatalf("distinct paths shared the conflict key %q", other)
-			}
-		})
-	}
-}
-
-func arguments(tool, path string) string {
-	if tool == "edit" {
-		return fmt.Sprintf(`{"path":%q,"old_string":"a","new_string":"b"}`, path)
-	}
-	return fmt.Sprintf(`{"path":%q,"content":"body"}`, path)
 }
 
 // TestGrepLineKindIsAClosedVocabulary keeps the structured grep event readable:

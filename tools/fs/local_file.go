@@ -175,10 +175,11 @@ func (l *LocalExecutor) Edit(ctx context.Context, in EditRequest) (_ EditRespons
 		return EditResponse{}, err
 	}
 
-	mode := defaultFileMode
-	if info, statErr := root.Stat(path); statErr == nil {
-		mode = info.Mode().Perm()
+	info, err := root.Stat(path)
+	if err != nil {
+		return EditResponse{}, fmt.Errorf("fs: stat edited file %q: %w", in.Path, err)
 	}
+	mode := info.Mode().Perm()
 
 	out := restoreFormat(updated, hadBOM, hadCRLF)
 	if err := atomicWriteRootFile(root, path, out, mode); err != nil {
@@ -247,22 +248,16 @@ func (e editOperation) apply(content, path string) (string, int, error) {
 	if e.OldString == "" {
 		return "", 0, errors.New("old_string must not be empty")
 	}
+	if e.OldString == e.NewString {
+		return "", 0, errors.New("new_string must differ from old_string")
+	}
+	if strings.ContainsRune(e.NewString, 0) {
+		return "", 0, ErrBinaryFile
+	}
 	occurrences := strings.Count(content, e.OldString)
 	switch {
 	case occurrences == 0:
-		// Exact match failed — fall back to a whitespace-tolerant match so a
-		// snippet that drifted on indentation / trailing whitespace still edits,
-		// but ONLY when it's unambiguous: a near-match that hits several regions
-		// is refused, never guessed (a wrong edit is worse than a clear failure).
-		start, end, matches := fuzzyEditRegion(content, e.OldString)
-		switch matches {
-		case 0:
-			return "", 0, fmt.Errorf("old_string not found in %s", path)
-		case 1:
-			return content[:start] + e.NewString + content[end:], 1, nil
-		default:
-			return "", 0, fmt.Errorf("old_string not found exactly in %s; %d regions match apart from whitespace — copy it verbatim (or add surrounding lines to disambiguate)", path, matches)
-		}
+		return "", 0, fmt.Errorf("old_string not found in %s", path)
 	case occurrences > 1 && !e.ReplaceAll:
 		return "", 0, fmt.Errorf("old_string matches %d times in %s — set replace_all=true to confirm", occurrences, path)
 	default:

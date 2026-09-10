@@ -2,7 +2,6 @@ package fs
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -11,13 +10,12 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-// EditRequest drives Read → exact-string replace → Write atomically in the
-// executor. Match policy (exact today, fuzzy in future) remains an executor
-// concern.
+// EditRequest drives one atomic exact-text replacement in the executor.
+// Whitespace is significant, including indentation and string literal content.
 type EditRequest struct {
 	Path       string `json:"path" jsonschema:"minLength=1" jsonschema_description:"File path, absolute or relative to the workspace root."`
 	OldString  string `json:"old_string" jsonschema:"required" jsonschema_description:"Exact text to find, copied verbatim from the file (the read tool returns raw text — there is no line-number prefix to strip). Keep it to the few unique lines needed; fails when the match is not unique unless replace_all=true."`
-	NewString  string `json:"new_string" jsonschema:"required" jsonschema_description:"Replacement text. Preserve the surrounding indentation exactly. Must differ from old_string."`
+	NewString  string `json:"new_string" jsonschema:"required" jsonschema_description:"Replacement text. Preserve the surrounding indentation exactly. Must differ from old_string and must not contain NUL bytes."`
 	ReplaceAll bool   `json:"replace_all,omitempty" jsonschema_description:"Replace every occurrence. Default false. Use this for renaming a symbol across the file."`
 }
 
@@ -29,8 +27,7 @@ type EditResponse struct {
 var _ toolcontract.Tool = (*EditTool)(nil)
 
 // EditTool is the thin LLM-facing adapter for [Editor.Edit]. The
-// match-and-replace logic lives in the executor so a backend upgrade
-// can swap match policy without changing the tool.
+// executor owns validation and atomic replacement under the same contract.
 type EditTool struct {
 	executor Editor
 	typed    toolcontract.Func[EditRequest, EditResponse]
@@ -61,18 +58,6 @@ func NewEditTool(executor Editor) (*EditTool, error) {
 
 func (e *EditTool) Definition() chat.ToolDefinition {
 	return e.typed.Definition()
-}
-
-// ConcurrencyKey opts edit into concurrent execution keyed on its target file
-// — the tool loop's optional concurrency contract (a tool reports per call
-// whether it may overlap others and the resource it conflicts on). The loop
-// parallelizes edits to DISTINCT files and serializes edits to the SAME file.
-// An unparseable / empty path yields no key (no known conflict); the call still
-// fails its own validation in Call.
-func (e *EditTool) ConcurrencyKey(invocation toolcontract.Invocation) (key string, concurrent bool) {
-	var req EditRequest
-	_ = json.Unmarshal(invocation.Arguments(), &req)
-	return req.Path, true
 }
 
 func (e *EditTool) Call(ctx context.Context, invocation toolcontract.Invocation) (chat.ToolOutput, error) {

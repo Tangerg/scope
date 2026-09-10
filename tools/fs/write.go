@@ -2,7 +2,6 @@ package fs
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -53,16 +52,6 @@ func NewWriteTool(executor Writer) (*WriteTool, error) {
 
 func (w *WriteTool) Definition() chat.ToolDefinition {
 	return w.typed.Definition()
-}
-
-// ConcurrencyKey opts write into concurrent execution keyed on its target file
-// (the tool loop's optional concurrency contract): distinct-file writes run in
-// parallel, same-file writes serialize. An unparseable / empty path yields no
-// key (no known conflict).
-func (w *WriteTool) ConcurrencyKey(invocation toolcontract.Invocation) (key string, concurrent bool) {
-	var req WriteRequest
-	_ = json.Unmarshal(invocation.Arguments(), &req)
-	return req.Path, true
 }
 
 func (w *WriteTool) Call(ctx context.Context, invocation toolcontract.Invocation) (chat.ToolOutput, error) {
