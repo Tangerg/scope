@@ -62,8 +62,11 @@ func (e executionState) validate(definition *Definition) error {
 		}
 	} else {
 		output, err := agent.ParseOutput(e.CurrentValue)
-		if err != nil || definition.descriptor.ValidateOutput(output) != nil {
-			return fmt.Errorf("%w: final value", ErrInvalidExecutionState)
+		if err != nil {
+			return fmt.Errorf("%w: final value: %w", ErrInvalidExecutionState, err)
+		}
+		if err := definition.descriptor.ValidateOutput(output); err != nil {
+			return fmt.Errorf("%w: final value schema: %w", ErrInvalidExecutionState, err)
 		}
 	}
 	return e.validatePhaseState(definition)
@@ -94,7 +97,7 @@ func (e executionState) validatePhaseState(definition *Definition) error {
 			return ErrInvalidExecutionState
 		}
 		if err := e.validateFanout(definition); err != nil {
-			return ErrInvalidExecutionState
+			return err
 		}
 	case phaseCompleted:
 		if e.StageIndex != uint32(len(definition.stages)) || !e.noProgress() {
@@ -159,7 +162,10 @@ func (e executionState) validateFanoutBoundary(definition *Definition) (Stage, e
 	stage := definition.stages[e.StageIndex]
 	count, err := stage.fanoutCount(e.CurrentValue)
 	windowSize := stage.fanoutWindowSize()
-	if err != nil || windowSize == 0 || uint64(len(e.CompletedFanoutOutputs)) >= uint64(count) {
+	if err != nil {
+		return Stage{}, fmt.Errorf("%w: fan-out count: %w", ErrInvalidExecutionState, err)
+	}
+	if windowSize == 0 || uint64(len(e.CompletedFanoutOutputs)) >= uint64(count) {
 		return Stage{}, ErrInvalidExecutionState
 	}
 	start := e.fanoutWindowStart()
@@ -198,10 +204,10 @@ func (e executionState) validateCompletedFanoutOutputs(stage Stage) error {
 	for _, output := range e.CompletedFanoutOutputs {
 		value, err := agent.ParseOutput(output)
 		if err != nil {
-			return ErrInvalidExecutionState
+			return fmt.Errorf("%w: completed fan-out output: %w", ErrInvalidExecutionState, err)
 		}
 		if err := stage.fanoutOutputSchema().ValidateOutput(value); err != nil {
-			return ErrInvalidExecutionState
+			return fmt.Errorf("%w: completed fan-out output schema: %w", ErrInvalidExecutionState, err)
 		}
 	}
 	return nil

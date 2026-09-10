@@ -2,6 +2,7 @@ package planning_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -187,5 +188,31 @@ func TestRestoreCountsPendingActionTowardAttemptLimit(t *testing.T) {
 				t.Fatalf("valid budget boundary cannot be captured: %v", err)
 			}
 		})
+	}
+}
+
+func TestExecutionPreservesSignalDecodeCause(t *testing.T) {
+	done := mustCondition(t, "world.done", planning.True)
+	action := mustAction(t, planning.ActionConfig{
+		Name: "finish", Description: "Finish pending work.", Effects: []planning.Condition{done},
+	})
+	definition := newManagedDefinition(t, managedDeploymentConfig{
+		goal: mustGoal(t, done), bindings: []planning.ActionBinding{mustDispatcherBinding(t, action)},
+	})
+	state, err := agent.NewExecutionState("planning", json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]},"planning_passes":0}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution, err := definition.Restore(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var signal agent.Signal
+	if decodeErr := json.Unmarshal([]byte(`{"id":"signal","payload":{"unknown":true}}`), &signal); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	_, err = execution.Step(t.Context(), []agent.Signal{signal})
+	if !errors.Is(err, planning.ErrInvalidProtocol) || !errors.Is(err, jsonv2.ErrUnknownName) {
+		t.Fatalf("Step error = %v, want protocol and unknown member causes", err)
 	}
 }

@@ -172,3 +172,15 @@ func protocolTestDefinitions(t testing.TB) (*Definition, *Definition) {
 	}
 	return callDefinition, fanoutDefinition
 }
+
+func TestRestorePreservesOutputSchemaError(t *testing.T) {
+	state, err := agent.NewExecutionState(executionStateKind,
+		json.RawMessage(`{"phase":"completed","stage_index":1,"current_value":{"value":"invalid"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = stateTestDefinition(t).Restore(state)
+	if !errors.Is(err, ErrInvalidExecutionState) || !errors.Is(err, agent.ErrInvalidOutput) {
+		t.Fatalf("Restore error = %v, want invalid state and invalid output", err)
+	}
+}

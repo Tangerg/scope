@@ -93,8 +93,11 @@ func (e executionState) validate(definition *Definition) error {
 		return ErrInvalidExecutionState
 	}
 	input, err := agent.ParseInput(e.Input)
-	if err != nil || definition.descriptor.ValidateInput(input) != nil {
-		return fmt.Errorf("%w: Input", ErrInvalidExecutionState)
+	if err != nil {
+		return fmt.Errorf("%w: Input: %w", ErrInvalidExecutionState, err)
+	}
+	if err := definition.descriptor.ValidateInput(input); err != nil {
+		return fmt.Errorf("%w: input schema: %w", ErrInvalidExecutionState, err)
 	}
 	if err := e.validateAttemptFacts(definition); err != nil {
 		return err
@@ -148,7 +151,10 @@ func (e executionState) validateCurrentAction(definition *Definition) error {
 		return nil
 	}
 	wantKey, err := planningChildKey(e.CurrentActionName, uint32(len(e.Attempts)+1))
-	if err != nil || *e.ChildKey != wantKey {
+	if err != nil {
+		return fmt.Errorf("%w: child key does not match the Action attempt: %w", ErrInvalidExecutionState, err)
+	}
+	if *e.ChildKey != wantKey {
 		return fmt.Errorf("%w: child key does not match the Action attempt", ErrInvalidExecutionState)
 	}
 	return nil

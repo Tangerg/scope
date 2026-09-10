@@ -177,7 +177,13 @@ func (e *execution) acceptChildStart(signals []agent.Signal) (agent.Transition, 
 	key, keyErr := e.childKey()
 	binding, bound := e.singleChildBinding()
 	stage := e.stage()
-	if err != nil || keyErr != nil || !bound || result.Key() != key || result.DeploymentRef() != binding.deploymentRef {
+	if err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: child-start result does not match Stage %q: %w", ErrInvalidProtocol, stage.id, err)
+	}
+	if keyErr != nil {
+		return agent.Transition{}, fmt.Errorf("%w: child-start result does not match Stage %q: %w", ErrInvalidProtocol, stage.id, keyErr)
+	}
+	if !bound || result.Key() != key || result.DeploymentRef() != binding.deploymentRef {
 		return agent.Transition{}, fmt.Errorf("%w: child-start result does not match Stage %q", ErrInvalidProtocol, stage.id)
 	}
 	if failure, failed := result.Failure(); failed {
@@ -214,7 +220,13 @@ func (e *execution) acceptChildWaitOpen(signals []agent.Signal) (agent.Transitio
 	opened, err := agent.ParseChildWaitOpened(signals[0])
 	wantKey, keyErr := e.waitKey()
 	spec := opened.Spec()
-	if err != nil || keyErr != nil || spec.Key != wantKey || spec.Boundary != agent.ChildWaitBoundaryDrained || len(spec.Children) != 1 ||
+	if err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: child wait opening does not match Stage %q: %w", ErrInvalidProtocol, e.stage().id, err)
+	}
+	if keyErr != nil {
+		return agent.Transition{}, fmt.Errorf("%w: child wait opening does not match Stage %q: %w", ErrInvalidProtocol, e.stage().id, keyErr)
+	}
+	if spec.Key != wantKey || spec.Boundary != agent.ChildWaitBoundaryDrained || len(spec.Children) != 1 ||
 		spec.Children[0] != *e.state.ChildProcessID || spec.Condition != agent.AllChildren() {
 		return agent.Transition{}, fmt.Errorf("%w: child wait opening does not match Stage %q", ErrInvalidProtocol, e.stage().id)
 	}
@@ -230,12 +242,21 @@ func (e *execution) acceptChildCompletion(ctx context.Context, signals []agent.S
 	}
 	completed, err := agent.ParseChildWaitSatisfied(signals[0])
 	wantWaitKey, keyErr := e.waitKey()
-	if err != nil || keyErr != nil || completed.WaitID() != *e.state.WaitID || completed.Key() != wantWaitKey || completed.Boundary() != agent.ChildWaitBoundaryDrained {
+	if err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: child completion does not match Stage %q: %w", ErrInvalidProtocol, e.stage().id, err)
+	}
+	if keyErr != nil {
+		return agent.Transition{}, fmt.Errorf("%w: child completion does not match Stage %q: %w", ErrInvalidProtocol, e.stage().id, keyErr)
+	}
+	if completed.WaitID() != *e.state.WaitID || completed.Key() != wantWaitKey || completed.Boundary() != agent.ChildWaitBoundaryDrained {
 		return agent.Transition{}, fmt.Errorf("%w: child completion does not match Stage %q", ErrInvalidProtocol, e.stage().id)
 	}
 	outcomes := completed.Outcomes()
 	wantChildKey, err := e.childKey()
-	if err != nil || len(outcomes) != 1 || outcomes[0].Key() != wantChildKey ||
+	if err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: child outcome does not match Stage %q: %w", ErrInvalidProtocol, e.stage().id, err)
+	}
+	if len(outcomes) != 1 || outcomes[0].Key() != wantChildKey ||
 		outcomes[0].Result().ProcessID() != *e.state.ChildProcessID {
 		return agent.Transition{}, fmt.Errorf("%w: child outcome does not match Stage %q", ErrInvalidProtocol, e.stage().id)
 	}

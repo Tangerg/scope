@@ -64,7 +64,13 @@ func (e *execution) acceptFanoutStarts(signals []agent.Signal) (agent.Transition
 		memberID, identified := e.stage().fanoutMemberID(index)
 		result, err := agent.ParseChildStartResult(signals[offset])
 		key, keyErr := e.fanoutChildKey(index)
-		if err != nil || keyErr != nil || !found || !identified ||
+		if err != nil {
+			return agent.Transition{}, fmt.Errorf("%w: fan-out child start: %w", ErrInvalidProtocol, err)
+		}
+		if keyErr != nil {
+			return agent.Transition{}, fmt.Errorf("%w: fan-out child key: %w", ErrInvalidProtocol, keyErr)
+		}
+		if !found || !identified ||
 			result.Key() != key || result.DeploymentRef() != binding.deploymentRef {
 			return agent.Transition{}, fmt.Errorf(
 				"%w: %s Stage %q member %q start result mismatch",
@@ -116,7 +122,13 @@ func (e *execution) acceptFanoutWaitOpen(signals []agent.Signal) (agent.Transiti
 	wantKey, keyErr := e.fanoutWaitKey()
 	spec := opened.Spec()
 	wantChildren := e.fanoutStartedChildren()
-	if err != nil || keyErr != nil || spec.Key != wantKey || spec.Boundary != agent.ChildWaitBoundaryDrained || spec.Condition != agent.AllChildren() ||
+	if err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: fan-out child wait does not match Stage %q: %w", ErrInvalidProtocol, e.stage().id, err)
+	}
+	if keyErr != nil {
+		return agent.Transition{}, fmt.Errorf("%w: fan-out child wait does not match Stage %q: %w", ErrInvalidProtocol, e.stage().id, keyErr)
+	}
+	if spec.Key != wantKey || spec.Boundary != agent.ChildWaitBoundaryDrained || spec.Condition != agent.AllChildren() ||
 		!slices.Equal(spec.Children, wantChildren) {
 		return agent.Transition{}, fmt.Errorf("%w: fan-out child wait does not match Stage %q", ErrInvalidProtocol, e.stage().id)
 	}
@@ -132,7 +144,13 @@ func (e *execution) acceptFanoutCompletion(ctx context.Context, signals []agent.
 	}
 	completed, err := agent.ParseChildWaitSatisfied(signals[0])
 	wantKey, keyErr := e.fanoutWaitKey()
-	if err != nil || keyErr != nil || completed.WaitID() != *e.state.WaitID || completed.Key() != wantKey || completed.Boundary() != agent.ChildWaitBoundaryDrained {
+	if err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: fan-out completion does not match Stage %q: %w", ErrInvalidProtocol, e.stage().id, err)
+	}
+	if keyErr != nil {
+		return agent.Transition{}, fmt.Errorf("%w: fan-out completion does not match Stage %q: %w", ErrInvalidProtocol, e.stage().id, keyErr)
+	}
+	if completed.WaitID() != *e.state.WaitID || completed.Key() != wantKey || completed.Boundary() != agent.ChildWaitBoundaryDrained {
 		return agent.Transition{}, fmt.Errorf("%w: fan-out completion does not match Stage %q", ErrInvalidProtocol, e.stage().id)
 	}
 	outcomes := completed.Outcomes()
@@ -150,7 +168,10 @@ func (e *execution) acceptFanoutCompletion(ctx context.Context, signals []agent.
 		outcomeIndex++
 		index := e.state.fanoutWindowStart() + uint32(offset)
 		wantChildKey, fanoutChildKeyErr := e.fanoutChildKey(index)
-		if fanoutChildKeyErr != nil || outcome.Key() != wantChildKey || outcome.Result().ProcessID() != *child.ChildProcessID {
+		if fanoutChildKeyErr != nil {
+			return agent.Transition{}, fmt.Errorf("%w: fan-out member outcome mismatch: %w", ErrInvalidProtocol, fanoutChildKeyErr)
+		}
+		if outcome.Key() != wantChildKey || outcome.Result().ProcessID() != *child.ChildProcessID {
 			return agent.Transition{}, fmt.Errorf("%w: fan-out member outcome mismatch", ErrInvalidProtocol)
 		}
 		failure, output, outcomeErr := e.fanoutOutcome(index, outcome.Result())
