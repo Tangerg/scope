@@ -24,8 +24,7 @@ func (t *treeRuntime) finishIfTerminal(process *processState) {
 		return
 	default:
 	}
-	process.publishEvent(
-		t.context, EventProcessFinished, EventPhaseCommitted, 0, EffectID{},
+	t.publishEvent(process, EventProcessFinished, EventPhaseCommitted, 0, EffectID{},
 		terminalEventPayload(process),
 	)
 	process.handle.publishResult(process.result())
@@ -67,7 +66,7 @@ func (t *treeRuntime) notifyChildWaits(processID ProcessID, boundary ChildWaitBo
 			t.stopProcessTree(parent)
 			continue
 		}
-		if parent.deliverChildWaitSatisfied(t.context, signal) {
+		if t.deliverChildWaitSatisfied(parent, signal) {
 			t.enqueueProcess(parent.handle.processID)
 		} else if parent.pendingControl.hasTerminalIntent() {
 			t.stopProcessTree(parent)

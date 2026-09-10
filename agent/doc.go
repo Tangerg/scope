@@ -53,6 +53,10 @@
 // Each root tree has one private commit owner. Pure computation does not
 // occupy the commit owner: a Process has at most one Step job in flight and
 // siblings run in parallel. Only the owner revalidates and adopts a result.
+// Process state owns local admission rules and deterministic transitions;
+// the tree owner coordinates cross-Process waits, external jobs, durable
+// acknowledgment, and publication. Candidate adoption and wait registration
+// succeed together, or all new registrations are rolled back.
 // When a kill, pause, cancel, or a new incarnation expires an attempt, the
 // result and its error are discarded whole and the Execution is rebuilt from
 // committed Execution state.

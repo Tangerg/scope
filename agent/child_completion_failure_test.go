@@ -192,7 +192,7 @@ func newChildCompletionTestProcess(t *testing.T) (*treeRuntime, *processState) {
 	parentID, _ := newProcessID()
 	handle := newProcessHandleState(rootProcessRelation(parentID), deployment.DeploymentRef(),
 		budgetFromLimits(engine.limits), engine.capabilities, engine.treeLimits, now, StatusRunning)
-	parent := newProcessState(engine, handle, deployment, execution, state, now, engine.limits)
+	parent := newProcessState(handle, deployment, execution, state, now, engine.limits)
 	runtime := newTreeRuntime(engine, parentID, t.Context(), parent)
 	return runtime, parent
 }

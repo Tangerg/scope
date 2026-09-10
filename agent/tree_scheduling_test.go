@@ -159,7 +159,7 @@ func TestTreeInspectionDoesNotWakePausedExecution(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	process.status = StatusPaused
 	process.pauseReason = "wait for explicit resumption"
-	process.publishEphemeralStatus()
+	runtime.publishEphemeralStatus(process)
 	runtime.dequeueProcess()
 	response := make(chan treeInspectionResponse, 1)
 	runtime.inspections <- response

@@ -134,7 +134,7 @@ func (t *treeRestoration) prepareProcesses() error {
 			return err
 		}
 		handle, state, processWire, err := prepareRestoredProcess(
-			t.engine, deployment, processSnapshot,
+			t.engine.durability != nil, deployment, processSnapshot,
 		)
 		if err != nil {
 			return fmt.Errorf(

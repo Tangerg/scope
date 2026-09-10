@@ -13,14 +13,14 @@ const (
 	treeIncarnationConflictCode = "engine.tree.incarnation_conflict"
 )
 
-func effectRequestFor(
+func (t *treeRuntime) effectRequestFor(
 	process *processState,
 	batchIndex uint32,
 	record preparedEffectWire,
 ) EffectRequest {
 	return newEffectRequest(
 		process.handle.processID,
-		process.runtime.incarnation,
+		t.incarnation,
 		process.handle.deploymentRef,
 		process.handle.relation,
 		process.prepared.wire.StepSequence,
@@ -35,7 +35,7 @@ func (t *treeRuntime) startPendingEffectCommit(
 	batchIndex uint32,
 	record preparedEffectWire,
 ) error {
-	request := effectRequestFor(process, batchIndex, record)
+	request := t.effectRequestFor(process, batchIndex, record)
 	snapshot, err := t.captureTree()
 	if err != nil {
 		return err
@@ -89,7 +89,7 @@ func (t *treeRuntime) startUnknownResolutionCommit(
 			return ErrEffectNotPending
 		}
 		var events []Event
-		if event, ok := process.prepareSettlementEvent(
+		if event, ok := t.prepareSettlementEvent(process,
 			record.ID, record.Effect.Target(), command.settlement.Status(),
 			process.startedAt,
 		); ok {
@@ -99,7 +99,7 @@ func (t *treeRuntime) startUnknownResolutionCommit(
 		if err != nil {
 			return err
 		}
-		request := effectRequestFor(process, uint32(index), *record)
+		request := t.effectRequestFor(process, uint32(index), *record)
 		boundary, err := newEffectBoundary(
 			EffectBoundaryResolved, request, command.settlement, t.head.digest(), snapshot,
 		)
@@ -193,7 +193,7 @@ func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 	}
 	process := t.processes[commit.processID]
 	for _, event := range commit.events {
-		process.publishPreparedEvent(t.context, event)
+		t.publishPreparedEvent(process, event)
 	}
 	switch commit.kind {
 	case treeCommitEffectPending, treeCommitEffectSettled:
@@ -229,7 +229,7 @@ func (t *treeRuntime) discardProspectiveChild(pending *pendingChildOutcome) {
 			break
 		}
 	}
-	pending.plan.engine.discardProcessStartReservation(pending.plan.childID)
+	t.engine.discardProcessStartReservation(pending.plan.childID)
 	if parent := t.processes[pending.parentID]; parent != nil {
 		parent.releaseCommittedChildBudget(pending.plan.spec.Budget)
 	}
@@ -244,14 +244,13 @@ func (t *treeRuntime) publishChildOutcome(pending *pendingChildOutcome) error {
 		if child == nil {
 			return errors.New("started child is missing from prospective tree")
 		}
-		pending.plan.engine.publishReservedProcess(child.handle)
+		t.engine.publishReservedProcess(child.handle)
 	}
 	parent := t.processes[pending.parentID]
 	if pending.event.ProcessID().Valid() {
-		parent.publishPreparedEvent(t.context, pending.event)
+		t.publishPreparedEvent(parent, pending.event)
 	} else {
-		parent.publishSettlementEvent(
-			t.context, pending.effectID, EffectTargetFramework,
+		t.publishSettlementEvent(parent, pending.effectID, EffectTargetFramework,
 			pending.childSettlementStatus(), pending.startedAt,
 		)
 	}
@@ -324,7 +323,7 @@ func (t *treeRuntime) stageTerminal(process *processState) {
 		return
 	}
 	payload := terminalEventPayload(process)
-	event, prepared := process.prepareEvent(
+	event, prepared := t.prepareEvent(process,
 		EventProcessFinished, EventPhaseCommitted, 0, EffectID{}, payload,
 	)
 	t.propagateProcessTermination(process)
@@ -354,7 +353,7 @@ func (t *treeRuntime) publishAcknowledgedChanges() {
 			continue
 		}
 		for _, event := range publication.events {
-			process.publishPreparedEvent(t.context, event)
+			t.publishPreparedEvent(process, event)
 		}
 		if !publication.terminal {
 			delete(t.pendingPublications, processID)
@@ -445,7 +444,7 @@ func (t *treeRuntime) failDurability(
 		payload, _ := json.Marshal(runtimeStoppedEventPayload{
 			FailureKind: failure.Kind(), FailureCode: failure.Code(),
 		})
-		process.publishEvent(t.context, EventRuntimeStopped, EventPhaseAttempt, 0, EffectID{}, payload)
+		t.publishEvent(process, EventRuntimeStopped, EventPhaseAttempt, 0, EffectID{}, payload)
 		process.handle.publishRuntimeFailure(&RuntimeError{
 			processID: processID, incarnationID: t.incarnation, headDigest: t.head.digest(),
 			unresolvedEffectIDs: canonicalEffectIDs(unresolvedByProcess[processID]), cause: cause,
@@ -488,7 +487,7 @@ func (t *treeRuntime) abandonChildStartJob(
 	}
 	plan := job.childStart
 	job.childStart = nil
-	plan.engine.discardProcessStartReservation(plan.childID)
+	t.engine.discardProcessStartReservation(plan.childID)
 	parent.releaseProvisionalChildBudget(plan.spec.Budget)
 }
 

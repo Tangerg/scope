@@ -246,7 +246,7 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Input) 
 		e.treeLimits,
 		startedAt, StatusRunning,
 	)
-	process := newProcessState(e, handle, deployment, execution, state, startedAt, e.limits)
+	process := newProcessState(handle, deployment, execution, state, startedAt, e.limits)
 	runtime := newTreeRuntime(e, relation.RootID(), ctx, process)
 	if e.durability != nil {
 		incarnation, incarnationErr := newTreeIncarnationID()

@@ -30,7 +30,9 @@ type childStartPreparation struct {
 }
 
 type childStartPlan struct {
-	engine           *Engine
+	admitter         ProcessAdmitter
+	acknowledger     ProcessStartOutcomeAcknowledger
+	resolver         DeploymentResolver
 	parentDeployment Deployment
 	spec             ChildSpec
 	childID          ProcessID
@@ -54,24 +56,25 @@ func (c childStartJobResult) started() bool {
 		c.state.Valid() && !c.startedAt.IsZero()
 }
 
-func (p *processState) prepareChildStart(
+func (t *treeRuntime) prepareChildStart(
+	process *processState,
 	effectID EffectID,
 	spec ChildSpec,
 ) childStartPreparation {
-	if !spec.Valid() || !p.handle.relation.Valid() {
+	if !spec.Valid() || !process.handle.relation.Valid() {
 		return childStartPreparation{result: failedChildStart(
 			spec, FailureKindContract, childRequestInvalidCode, ErrInvalidChildStart,
 		)}
 	}
 	childID := deriveChildProcessID(effectID)
-	relation := childProcessRelation(childID, p.handle.relation, spec.Key)
+	relation := childProcessRelation(childID, process.handle.relation, spec.Key)
 	requestDigest, err := childSpecDigest(spec)
 	if err != nil {
 		return childStartPreparation{result: failedChildStart(
 			spec, FailureKindContract, childRequestInvalidCode, err,
 		)}
 	}
-	if existing, exists := p.engine.Process(childID); exists {
+	if existing, exists := t.engine.Process(childID); exists {
 		if existing.Relation() == relation && existing.DeploymentRef() == spec.DeploymentRef &&
 			existing.handle.childRequestDigest == requestDigest {
 			return childStartPreparation{result: ChildStartResult{
@@ -82,27 +85,27 @@ func (p *processState) prepareChildStart(
 			spec, FailureKindContract, childIdentityConflictCode, ErrInvalidChildStart,
 		)}
 	}
-	if !p.capabilities.Allows(spec.Capabilities) {
+	if !process.capabilities.Allows(spec.Capabilities) {
 		return childStartPreparation{result: failedChildStart(
 			spec, FailureKindContract, childCapabilityEscalationCode, ErrInvalidCapability,
 		)}
 	}
-	if !p.reserveProvisionalChildBudget(spec.Budget) {
+	if !process.reserveProvisionalChildBudget(spec.Budget) {
 		return childStartPreparation{result: failedChildStart(
 			spec, FailureKindExecution, childBudgetExhaustedCode, ErrResourceLimitExceeded,
 		)}
 	}
-	childLimits, err := limitsFromBudget(p.limits, spec.Budget)
+	childLimits, err := limitsFromBudget(process.limits, spec.Budget)
 	if err != nil {
-		p.releaseProvisionalChildBudget(spec.Budget)
+		process.releaseProvisionalChildBudget(spec.Budget)
 		return childStartPreparation{result: failedChildStart(
 			spec, FailureKindExecution, childBudgetInvalidCode, err,
 		)}
 	}
-	if reserveProcessStartErr := p.engine.reserveProcessStart(
-		relation, spec.DeploymentRef, p.treeLimits, requestDigest,
+	if reserveProcessStartErr := t.engine.reserveProcessStart(
+		relation, spec.DeploymentRef, process.treeLimits, requestDigest,
 	); reserveProcessStartErr != nil {
-		p.releaseProvisionalChildBudget(spec.Budget)
+		process.releaseProvisionalChildBudget(spec.Budget)
 		if errors.Is(reserveProcessStartErr, ErrResourceLimitExceeded) {
 			return childStartPreparation{result: failedChildStart(
 				spec, FailureKindExecution, childTreeLimitCode, reserveProcessStartErr,
@@ -118,9 +121,10 @@ func (p *processState) prepareChildStart(
 		)}
 	}
 	return childStartPreparation{plan: &childStartPlan{
-		engine: p.engine, parentDeployment: p.deployment,
+		admitter: t.engine.admitter, acknowledger: t.engine.startOutcomeAcknowledger,
+		resolver: t.engine.resolver, parentDeployment: process.deployment,
 		spec: spec, childID: childID, relation: relation,
-		limits: childLimits, treeLimits: p.treeLimits,
+		limits: childLimits, treeLimits: process.treeLimits,
 		requestDigest: requestDigest,
 	}}
 }
@@ -138,7 +142,7 @@ func (c *childStartPlan) execute(ctx context.Context) childStartJobResult {
 		)}
 	}
 	admission := newProcessAdmission(c.relation, deployment, c.spec.Budget, c.spec.Capabilities)
-	if admissionErr := requestProcessAdmission(ctx, c.engine.admitter, admission); admissionErr != nil {
+	if admissionErr := requestProcessAdmission(ctx, c.admitter, admission); admissionErr != nil {
 		return childStartJobResult{result: failedChildStart(
 			c.spec, FailureKindExternal, childAdmissionRejectedCode, admissionErr,
 		)}
@@ -146,12 +150,12 @@ func (c *childStartPlan) execute(ctx context.Context) childStartJobResult {
 	startedAt := time.Now().Round(0).UTC()
 	execution, state, failure, err := initializeExecution(deployment.Definition(), c.spec.Input)
 	if err != nil {
-		acknowledgeErr := acknowledgeProcessStartOutcome(ctx, c.engine.startOutcomeAcknowledger, abortedProcessOutcome(admission, failure))
+		acknowledgeErr := acknowledgeProcessStartOutcome(ctx, c.acknowledger, abortedProcessOutcome(admission, failure))
 		return childStartJobResult{result: failedChildStart(
 			c.spec, failure.Kind(), failure.Code(), errors.Join(err, acknowledgeErr),
 		)}
 	}
-	if err := acknowledgeProcessStartOutcome(ctx, c.engine.startOutcomeAcknowledger, startedProcessOutcome(admission, startedAt)); err != nil {
+	if err := acknowledgeProcessStartOutcome(ctx, c.acknowledger, startedProcessOutcome(admission, startedAt)); err != nil {
 		return childStartJobResult{result: failedChildStart(
 			c.spec, FailureKindExternal, childStartOutcomeUnacknowledgedCode, err,
 		)}
@@ -221,10 +225,10 @@ func (c *childStartPlan) resolveDeployment() (Deployment, error) {
 	if reference == c.parentDeployment.DeploymentRef() {
 		return c.parentDeployment, nil
 	}
-	if c.engine.resolver == nil {
+	if c.resolver == nil {
 		return Deployment{}, fmt.Errorf("%w: no resolver for %s", ErrInvalidDeployment, reference.Name())
 	}
-	deployment, err := resolveDeployment(c.engine.resolver, reference)
+	deployment, err := resolveDeployment(c.resolver, reference)
 	if err != nil {
 		return Deployment{}, err
 	}

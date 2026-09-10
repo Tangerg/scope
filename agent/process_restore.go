@@ -3,7 +3,7 @@ package agent
 import "fmt"
 
 func prepareRestoredProcess(
-	engine *Engine,
+	durable bool,
 	deployment Deployment,
 	snapshot ProcessSnapshot,
 ) (*processHandleState, *processState, processSnapshotWire, error) {
@@ -41,7 +41,7 @@ func prepareRestoredProcess(
 		relation, wire.DeploymentRef, wire.Budget, wire.Capabilities, wire.TreeLimits,
 		wire.StartedAt, wire.Status,
 	)
-	process, err := restoreProcessState(engine, handle, deployment, execution, mailbox, wire)
+	process, err := restoreProcessState(durable, handle, deployment, execution, mailbox, wire)
 	if err != nil {
 		return nil, nil, processSnapshotWire{}, err
 	}
@@ -49,7 +49,7 @@ func prepareRestoredProcess(
 }
 
 func restoreProcessState(
-	engine *Engine,
+	durable bool,
 	handle *processHandleState,
 	deployment Deployment,
 	execution Execution,
@@ -57,7 +57,7 @@ func restoreProcessState(
 	wire processSnapshotWire,
 ) (*processState, error) {
 	process := &processState{
-		engine: engine, handle: handle, deployment: deployment, execution: execution,
+		handle: handle, deployment: deployment, execution: execution,
 		startedAt: wire.StartedAt, status: wire.Status, committedSteps: wire.CommittedSteps,
 		committedExecutionState: wire.CommittedExecutionState, mailbox: mailbox, restored: true,
 		pauseReason: wire.PauseReason, limits: wire.Limits, treeLimits: wire.TreeLimits,
@@ -84,14 +84,14 @@ func restoreProcessState(
 		return nil, fmt.Errorf("%w: pending control: %w", ErrInvalidSnapshot, err)
 	}
 	process.pendingControl = control
-	if err := process.restorePreparedStep(wire.Prepared); err != nil {
+	if err := process.restorePreparedStep(wire.Prepared, durable); err != nil {
 		return nil, err
 	}
 	handle.updateStatus(process.status)
 	return process, nil
 }
 
-func (p *processState) restorePreparedStep(wire *preparedStepWire) error {
+func (p *processState) restorePreparedStep(wire *preparedStepWire, durable bool) error {
 	if wire == nil {
 		return nil
 	}
@@ -133,7 +133,7 @@ func (p *processState) restorePreparedStep(wire *preparedStepWire) error {
 				return fmt.Errorf("%w: restore pending Effect: %w", ErrInvalidSnapshot, err)
 			}
 		}
-		if record.Effect.Target() == EffectTargetDispatcher && p.engine.durability == nil && policy == ReplayPolicyNever {
+		if record.Effect.Target() == EffectTargetDispatcher && !durable && policy == ReplayPolicyNever {
 			if err := record.settleUnknown(); err != nil {
 				return fmt.Errorf("%w: restore pending Effect: %w", ErrInvalidSnapshot, err)
 			}

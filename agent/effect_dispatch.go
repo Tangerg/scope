@@ -11,48 +11,48 @@ const nullJSON = "null"
 
 var errInvalidReplayPolicy = errors.New("agent: invalid Dispatcher replay policy")
 
-func (p *processState) dispatchFrameworkEffect(ctx context.Context, record *preparedEffectWire) error {
+func (p *preparedEffectWire) settleFramework() error {
 	var header struct {
 		Operation frameworkEffectOperation `json:"operation"`
 	}
-	if err := json.Unmarshal(record.Effect.Payload(), &header); err != nil {
-		return record.settleUnknown()
+	if err := json.Unmarshal(p.Effect.Payload(), &header); err != nil {
+		return p.settleUnknown()
 	}
 	switch header.Operation {
 	case frameworkEffectWait:
-		_, payload, err := decodeWaitRequest(record.Effect)
+		_, payload, err := decodeWaitRequest(p.Effect)
 		if err != nil {
-			return record.settleUnknown()
+			return p.settleUnknown()
 		}
-		waitID := deriveWaitID(record.ID)
-		settlement, err := NewSettlement(record.ID, SettlementStatusSucceeded, payload)
+		waitID := deriveWaitID(p.ID)
+		settlement, err := NewSettlement(p.ID, SettlementStatusSucceeded, payload)
 		if err != nil {
-			return record.settleUnknown()
+			return p.settleUnknown()
 		}
-		record.WaitID = &waitID
-		return record.settle(settlement)
+		p.WaitID = &waitID
+		return p.settle(settlement)
 	case frameworkEffectStartChild:
 		// Child start crosses admission and initialization boundaries. treeRuntime
 		// intercepts it and commits its fenced job completion atomically.
-		return record.settleUnknown()
+		return p.settleUnknown()
 	case frameworkEffectWaitChildren:
-		spec, err := decodeChildWaitEffect(record.Effect.Payload())
+		spec, err := decodeChildWaitEffect(p.Effect.Payload())
 		if err != nil {
-			return record.settleUnknown()
+			return p.settleUnknown()
 		}
 		payload, err := encodeChildWaitOpened(spec)
 		if err != nil {
-			return record.settleUnknown()
+			return p.settleUnknown()
 		}
-		waitID := deriveWaitID(record.ID)
-		settlement, err := NewSettlement(record.ID, SettlementStatusSucceeded, payload)
+		waitID := deriveWaitID(p.ID)
+		settlement, err := NewSettlement(p.ID, SettlementStatusSucceeded, payload)
 		if err != nil {
-			return record.settleUnknown()
+			return p.settleUnknown()
 		}
-		record.WaitID = &waitID
-		return record.settle(settlement)
+		p.WaitID = &waitID
+		return p.settle(settlement)
 	default:
-		return record.settleUnknown()
+		return p.settleUnknown()
 	}
 }
 

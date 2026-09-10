@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -19,7 +20,6 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 		CapabilitySet{}, DefaultTreeLimits(), time.Now(), StatusRunning,
 	)
 	process := &processState{
-		engine:         &Engine{},
 		handle:         handle,
 		status:         StatusRunning,
 		committedSteps: maxUint64 - 1,
@@ -36,7 +36,8 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 	if schedulingFailure == nil {
 		t.Fatal("step scheduling failure is nil")
 	}
-	process.fail(schedulingFailure.kind, schedulingFailure.code, schedulingFailure.cause)
+	runtime := &treeRuntime{engine: &Engine{}}
+	runtime.failProcess(process, schedulingFailure.kind, schedulingFailure.code, schedulingFailure.cause)
 
 	if process.status != StatusFailed {
 		t.Fatalf("status = %s, want %s", process.status, StatusFailed)
@@ -107,7 +108,7 @@ func TestPreparedCompletionDoesNotRetainOutputWhenKillWins(t *testing.T) {
 		process:  &processState{pendingControl: pendingControl{kill: kill}},
 		prepared: &preparedStep{wire: preparedStepWire{Transition: transition}},
 	}
-	if err := finalization.prepareTransition(); err != nil {
+	if err := finalization.prepareTransition(time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if finalization.transition.status != StatusKilled {
@@ -115,5 +116,60 @@ func TestPreparedCompletionDoesNotRetainOutputWhenKillWins(t *testing.T) {
 	}
 	if finalization.transition.finalOutput.Valid() {
 		t.Fatal("superseded completion output survived Kill priority")
+	}
+}
+
+func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
+	runtime, parent := newChildCompletionTestProcess(t)
+	childID := deriveChildProcessID(deriveEffectID(parent.handle.processID, 1, 0))
+	childKey, _ := ParseChildKey("worker")
+	handle := newProcessHandleState(
+		childProcessRelation(childID, parent.handle.relation, childKey),
+		parent.deployment.DeploymentRef(), parent.budget, parent.capabilities,
+		parent.treeLimits, parent.startedAt, StatusRunning,
+	)
+	runtime.addProcess(newProcessState(handle, parent.deployment, parent.execution,
+		parent.committedExecutionState, parent.startedAt, parent.limits))
+	missingID, _ := ParseProcessID("process:missing-child")
+	var specs []ChildWaitSpec
+	var effects []Effect
+	for index, id := range []ProcessID{childID, childID, missingID} {
+		key, _ := ParseWaitKey(fmt.Sprintf("worker-result-%d", index))
+		spec := ChildWaitSpec{Key: key, Children: []ProcessID{id},
+			Boundary: ChildWaitBoundaryResult, Condition: AllChildren()}
+		effect, err := WaitForChildren(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		specs = append(specs, spec)
+		effects = append(effects, effect)
+	}
+	transition, err := Continue(0, effects...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared := &preparedStep{wire: preparedStepWire{Transition: transition}}
+	for index, effect := range effects {
+		record := preparedEffectWire{
+			ID: deriveEffectID(parent.handle.processID, 2, index), Effect: effect, Phase: effectPhasePending,
+		}
+		if err := record.settleFramework(); err != nil {
+			t.Fatal(err)
+		}
+		prepared.wire.Effects = append(prepared.wire.Effects, record)
+	}
+	parent.prepared = prepared
+	if err := runtime.finalizePrepared(parent); !errors.Is(err, ErrInvalidChildWait) {
+		t.Fatalf("invalid child wait finalization error = %v", err)
+	}
+	if parent.prepared != prepared || parent.committedSteps != 0 || parent.mailbox.pendingCount() != 0 {
+		t.Fatal("rejected finalization adopted candidate state")
+	}
+	for index, spec := range specs[:2] {
+		waitID := *prepared.wire.Effects[index].WaitID
+		if _, _, err := runtime.registerChildWait(parent.handle.processID, waitID, spec); err != nil {
+			t.Fatalf("rejected finalization retained registration %d: %v", index, err)
+		}
+		runtime.unregisterChildWait(waitID)
 	}
 }

@@ -233,7 +233,6 @@ func (t *treeRuntime) addProcess(process *processState) {
 	if t.processes[processID] != nil {
 		panic("agent: duplicate tree Process")
 	}
-	process.runtime = t
 	process.handle.runtime.Store(t)
 	t.processes[processID] = process
 	if !process.status.Terminal() {
@@ -272,9 +271,9 @@ func (t *treeRuntime) publishInitialProcessEvents() {
 			continue
 		}
 		if process.restored {
-			process.publishEvent(t.context, EventProcessRestored, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
+			t.publishEvent(process, EventProcessRestored, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
 		} else {
-			process.publishEvent(t.context, EventProcessStarted, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
+			t.publishEvent(process, EventProcessStarted, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
 		}
 	}
 }
@@ -455,7 +454,7 @@ func (t *treeRuntime) advanceOne() bool {
 		t.advancePrepared(process)
 		return true
 	}
-	if process.applyPendingControl(t.context) {
+	if t.applyPendingControl(process) {
 		t.finishIfTerminal(process)
 		return true
 	}
@@ -469,7 +468,7 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 	index, err := process.prepared.wire.Effects.next()
 	if err != nil {
 		process.discardPrepared()
-		process.fail(FailureKindContract, "engine.effect.phase.invalid", err)
+		t.failProcess(process, FailureKindContract, "engine.effect.phase.invalid", err)
 		t.finishIfTerminal(process)
 		return
 	}
@@ -487,7 +486,7 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 				record.revokeDispatch()
 			}
 		}
-		process.terminatePrepared()
+		t.terminatePrepared(process)
 		t.finishIfTerminal(process)
 		return
 	}
@@ -498,13 +497,13 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 		t.startPreparedEffect(process, index)
 		return
 	}
-	if err := process.finalizePrepared(t.context); err != nil {
+	if err := t.finalizePrepared(process); err != nil {
 		if errors.Is(err, ErrResourceLimitExceeded) {
 			process.recordFailure(FailureKindExecution, "engine.limit.child_wait_signal", err)
 		} else {
 			process.recordFailure(FailureKindContract, "engine.finalize.invalid", err)
 		}
-		process.terminatePrepared()
+		t.terminatePrepared(process)
 	}
 	t.finishIfTerminal(process)
 	if !process.status.Terminal() {
@@ -514,7 +513,7 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 
 func (t *treeRuntime) nextAttempt(process *processState) (processAttempt, bool) {
 	if process.attemptSequence == math.MaxUint64 {
-		process.fail(
+		t.failProcess(process,
 			FailureKindContract,
 			"engine.process.attempt_exhausted",
 			errors.New("process attempt sequence is exhausted"),

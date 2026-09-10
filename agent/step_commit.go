@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 	"time"
 )
@@ -24,10 +22,7 @@ func (p *processState) stepSchedulingFailure() *stepPreparationFailure {
 	}
 }
 
-func (p *processState) prepareStepResult(
-	ctx context.Context,
-	result stepJobResult,
-) *stepPreparationFailure {
+func (p *processState) prepareStepResult(result stepJobResult) *stepPreparationFailure {
 	transition := result.transition
 	if !transition.Valid() || uint64(transition.ConsumedSignals()) > result.deliveredSignals {
 		return &stepPreparationFailure{
@@ -93,21 +88,6 @@ func (p *processState) prepareStepResult(
 	}
 	p.prepared = &preparedStep{wire: wire, candidate: result.candidate}
 	p.usage.PreparedEffects += effectCount
-	p.publishEphemeralStatus()
-	p.publishEvent(ctx, EventStepPrepared, EventPhaseAttempt, sequence, EffectID{}, emptyEventPayload())
-	return nil
-}
-
-func (p *processState) finalizePrepared(ctx context.Context) error {
-	finalization, err := newPreparedStepFinalization(p)
-	if err != nil {
-		return err
-	}
-	defer finalization.rollback()
-	if err := finalization.prepare(); err != nil {
-		return err
-	}
-	finalization.commit(ctx)
 	return nil
 }
 
@@ -116,10 +96,9 @@ type preparedStepFinalization struct {
 	prepared              *preparedStep
 	mailbox               signalMailbox
 	consumedChildWaits    []WaitID
-	registeredChildWaits  []WaitID
+	openedChildWaits      []ChildWaitOpened
 	immediateChildSignals []Signal
 	transition            preparedTransitionState
-	committed             bool
 }
 
 type preparedTransitionState struct {
@@ -144,16 +123,13 @@ func newPreparedStepFinalization(process *processState) (*preparedStepFinalizati
 	}, nil
 }
 
-func (p *preparedStepFinalization) prepare() error {
+func (p *preparedStepFinalization) prepareSettlements() error {
 	for _, record := range p.prepared.wire.Effects {
 		if err := p.applySettlement(record); err != nil {
 			return err
 		}
 	}
-	if err := p.enqueueImmediateChildSignals(); err != nil {
-		return err
-	}
-	return p.prepareTransition()
+	return nil
 }
 
 func (p *preparedStepFinalization) applySettlement(record preparedEffectWire) error {
@@ -181,7 +157,7 @@ func (p *preparedStepFinalization) applySettlement(record preparedEffectWire) er
 			}
 			return p.mailbox.openWait(key, signal, true)
 		case frameworkEffectWaitChildren:
-			return p.registerChildWait(record, signal)
+			return p.openChildWait(record, signal)
 		case frameworkEffectStartChild:
 			if waitID.Valid() {
 				return errors.New("child-start Effect unexpectedly contains a WaitID")
@@ -197,28 +173,15 @@ func (p *preparedStepFinalization) applySettlement(record preparedEffectWire) er
 	return nil
 }
 
-func (p *preparedStepFinalization) registerChildWait(record preparedEffectWire, signal Signal) error {
+func (p *preparedStepFinalization) openChildWait(record preparedEffectWire, signal Signal) error {
 	spec, err := decodeChildWaitEffect(record.Effect.Payload())
 	if err != nil || record.WaitID == nil {
 		return errors.New("invalid child-wait Effect")
 	}
-	waitID := *record.WaitID
-	if openErr := p.mailbox.openWait(spec.Key, signal, false); openErr != nil {
-		return openErr
-	}
-	if p.process.runtime == nil {
-		return ErrInvalidChildWait
-	}
-	immediateSignal, immediatelySatisfied, err := p.process.runtime.registerChildWait(
-		p.process.handle.processID, waitID, spec,
-	)
-	if err != nil {
+	if err := p.mailbox.openWait(spec.Key, signal, false); err != nil {
 		return err
 	}
-	p.registeredChildWaits = append(p.registeredChildWaits, waitID)
-	if immediatelySatisfied {
-		p.immediateChildSignals = append(p.immediateChildSignals, immediateSignal)
-	}
+	p.openedChildWaits = append(p.openedChildWaits, ChildWaitOpened{waitID: *record.WaitID, spec: spec})
 	return nil
 }
 
@@ -247,7 +210,7 @@ func (p *preparedStepFinalization) enqueueImmediateChildSignals() error {
 	return nil
 }
 
-func (p *preparedStepFinalization) prepareTransition() error {
+func (p *preparedStepFinalization) prepareTransition(finishedAt time.Time) error {
 	transition := p.prepared.wire.Transition
 	switch transition.Kind() {
 	case TransitionKindContinue:
@@ -259,7 +222,7 @@ func (p *preparedStepFinalization) prepareTransition() error {
 		p.transition.pauseReason, _ = transition.Reason()
 	case TransitionKindComplete:
 		output, _ := transition.Output()
-		p.prepareTermination(completedOutcome())
+		p.prepareTermination(completedOutcome(), finishedAt)
 		if p.transition.status == StatusCompleted {
 			p.transition.finalOutput = output
 		}
@@ -269,7 +232,7 @@ func (p *preparedStepFinalization) prepareTransition() error {
 		if err != nil {
 			return err
 		}
-		p.prepareTermination(outcome)
+		p.prepareTermination(outcome, finishedAt)
 	default:
 		return ErrInvalidTransition
 	}
@@ -291,14 +254,14 @@ func (p *preparedStepFinalization) prepareWaitTransition(transition Transition) 
 	return nil
 }
 
-func (p *preparedStepFinalization) prepareTermination(outcome stepOutcome) {
+func (p *preparedStepFinalization) prepareTermination(outcome stepOutcome, finishedAt time.Time) {
 	p.transition.termination = p.process.resolveStepTermination(outcome)
 	p.transition.status = p.transition.termination.Status()
-	p.transition.finishedAt = time.Now().Round(0).UTC()
+	p.transition.finishedAt = finishedAt
 	p.transition.closedChildWaits = p.mailbox.closeAllWaits()
 }
 
-func (p *preparedStepFinalization) commit(ctx context.Context) {
+func (p *preparedStepFinalization) commit() {
 	process := p.process
 	process.execution = p.prepared.candidate
 	process.committedExecutionState = p.prepared.wire.CandidateState
@@ -315,41 +278,11 @@ func (p *preparedStepFinalization) commit(ctx context.Context) {
 		process.currentWaitID = p.transition.currentWaitID
 		process.pauseReason = p.transition.pauseReason
 	}
-	process.publishEphemeralStatus()
-	payload, _ := json.Marshal(stepCommittedEventPayload{ProcessStatus: process.status})
-	process.publishEventAfterCommit(ctx, EventStepCommitted, EventPhaseCommitted, process.committedSteps, EffectID{}, payload)
-	if process.status == StatusPaused {
-		process.publishEventAfterCommit(
-			ctx, EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload(),
-		)
-	}
-	for _, waitID := range p.consumedChildWaits {
-		process.runtime.unregisterChildWait(waitID)
-	}
-	for _, waitID := range p.transition.closedChildWaits {
-		process.runtime.unregisterChildWait(waitID)
-	}
-	p.committed = true
-}
-
-func (p *preparedStepFinalization) rollback() {
-	if p == nil || p.committed {
-		return
-	}
-	for _, waitID := range p.registeredChildWaits {
-		p.process.runtime.unregisterChildWait(waitID)
-	}
 }
 
 func (p *processState) discardPrepared() {
 	p.prepared = nil
 	p.execution = nil
-}
-
-func (p *processState) terminatePrepared() {
-	p.prepared.candidate = nil
-	p.execution = nil
-	p.commitTerminationWithUnresolved(stepOutcome{}, p.unknownEffectIDs())
 }
 
 // Asynchronous failures wait for accepted external effects to settle before
@@ -359,27 +292,6 @@ func (p *processState) recordFailure(kind FailureKind, code string, err error) {
 		return
 	}
 	p.pendingControl.failure = newEngineFailure(kind, code, err)
-}
-
-func (p *processState) fail(kind FailureKind, code string, err error) {
-	p.recordFailure(kind, code, err)
-	p.commitTermination(stepOutcome{})
-}
-
-func (p *processState) commitTermination(outcome stepOutcome) {
-	p.commitTerminationWithUnresolved(outcome, nil)
-}
-
-func (p *processState) commitTerminationWithUnresolved(
-	outcome stepOutcome,
-	unresolvedEffectIDs []EffectID,
-) {
-	termination := p.resolveStepTermination(outcome)
-	p.installTermination(termination.withUnresolvedEffectIDs(unresolvedEffectIDs), Output{}, time.Now().Round(0).UTC())
-	for _, waitID := range p.mailbox.closeAllWaits() {
-		p.runtime.unregisterChildWait(waitID)
-	}
-	p.publishEphemeralStatus()
 }
 
 func (p *processState) installTermination(termination Termination, output Output, finishedAt time.Time) {

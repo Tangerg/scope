@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -11,7 +10,6 @@ import (
 type processState struct {
 	// These references establish ownership and remain fixed while the runtime
 	// owner goroutine mutates the execution fields below.
-	engine     *Engine
 	handle     *processHandleState
 	deployment Deployment
 	execution  Execution
@@ -46,7 +44,6 @@ type processState struct {
 	// new work, preventing recovered effects from racing fresh execution.
 	restored        bool
 	restoredPending restoredPendingEffect
-	runtime         *treeRuntime
 	attemptSequence uint64
 }
 
@@ -73,7 +70,6 @@ type pendingControl struct {
 }
 
 func newProcessState(
-	engine *Engine,
 	handle *processHandleState,
 	deployment Deployment,
 	execution Execution,
@@ -82,29 +78,11 @@ func newProcessState(
 	limits Limits,
 ) *processState {
 	return &processState{
-		engine: engine, handle: handle, deployment: deployment, execution: execution,
+		handle: handle, deployment: deployment, execution: execution,
 		startedAt: startedAt, status: StatusRunning, committedExecutionState: state,
-		mailbox: newSignalMailbox(), limits: limits, treeLimits: engine.treeLimits,
+		mailbox: newSignalMailbox(), limits: limits, treeLimits: handle.treeLimits,
 		budget: handle.budget, capabilities: handle.capabilities,
 	}
-}
-
-func (p *processState) applyPendingControl(ctx context.Context) bool {
-	if p.pendingControl.hasTerminalIntent() {
-		p.commitTermination(stepOutcome{})
-		return true
-	}
-	if p.pendingControl.pauseReason == "" || p.status != StatusRunning {
-		return false
-	}
-	p.status = StatusPaused
-	p.pauseReason = p.pendingControl.pauseReason
-	p.pendingControl.pauseReason = ""
-	p.publishEphemeralStatus()
-	p.publishEventAfterCommit(
-		ctx, EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload(),
-	)
-	return true
 }
 
 func (p *processState) recordHostTermination(err error) {
@@ -118,29 +96,6 @@ func (p *processState) recordHostTermination(err error) {
 	intent, _ := newCancellationIntent(cancellationOwnerHost, "host context canceled")
 	if !p.pendingControl.cancellation.valid() {
 		p.pendingControl.cancellation = intent
-	}
-}
-
-func (p *processState) applyCommand(ctx context.Context, command processCommand) {
-	if p.status.Terminal() {
-		command.reply(processResponse{err: ErrProcessFinished})
-		return
-	}
-	switch command.kind {
-	case commandDeliverBatch:
-		p.deliverBatch(ctx, command)
-	case commandPause:
-		p.requestPause(command)
-	case commandResume:
-		p.resume(ctx, command)
-	case commandCancel:
-		p.requestCancellation(command.cancellationIntent)
-	case commandKill:
-		p.requestKill(command)
-	case commandResolveUnknownEffect:
-		p.resolveEffect(command)
-	default:
-		command.reply(processResponse{err: ErrInvalidProcessControl})
 	}
 }
 
@@ -162,59 +117,6 @@ func (p *processState) recordParentTermination(parent Termination) {
 	if !p.pendingControl.cancellation.valid() {
 		p.pendingControl.cancellation = intent
 	}
-}
-
-func (p *processState) deliverChildWaitSatisfied(ctx context.Context, signal Signal) bool {
-	accepted, err := p.admitSignals([]Signal{signal}, signalSourceChildWait)
-	if err != nil {
-		if errors.Is(err, ErrResourceLimitExceeded) {
-			p.recordFailure(FailureKindExecution, "engine.limit.child_wait_signal", err)
-		} else {
-			p.recordFailure(FailureKindContract, "engine.child.wait.satisfaction.invalid", err)
-		}
-		return false
-	}
-	if accepted {
-		p.publishEphemeralStatus()
-		for _, event := range p.prepareSignalEvents([]Signal{signal}) {
-			p.publishPreparedEventAfterCommit(ctx, event)
-		}
-	}
-	return accepted || p.mailbox.contains(signal.ID())
-}
-
-func (p *processState) deliverBatch(ctx context.Context, command processCommand) {
-	if len(command.signalRequests) == 0 {
-		command.reply(processResponse{err: ErrInvalidSignalRequest})
-		return
-	}
-	signals := make([]Signal, 0, len(command.signalRequests))
-	for _, request := range command.signalRequests {
-		signal, err := request.signal()
-		if err != nil {
-			command.reply(processResponse{err: err})
-			return
-		}
-		signals = append(signals, signal)
-	}
-	accepted, err := p.admitSignals(signals, signalSourceExternal)
-	if err != nil || !accepted {
-		command.reply(processResponse{err: err})
-		return
-	}
-	events := p.prepareSignalEvents(signals)
-	if p.engine.durability != nil {
-		if err := p.runtime.startSignalCommit(p, command, events); err != nil {
-			command.reply(processResponse{err: err})
-			p.runtime.failDurability(err, p.handle.processID, EffectID{})
-		}
-		return
-	}
-	p.publishEphemeralStatus()
-	for _, event := range events {
-		p.publishPreparedEvent(ctx, event)
-	}
-	command.reply(processResponse{accepted: true})
 }
 
 // Admission validates identity and wait authority before charging resources.
@@ -270,46 +172,37 @@ func (p *processState) admitSignals(signals []Signal, source signalSource) (bool
 	return true, nil
 }
 
-func (p *processState) prepareSignalEvents(signals []Signal) []Event {
-	var events []Event
-	for _, signal := range signals {
-		waitID, _ := signal.WaitID()
-		payload, _ := json.Marshal(signalAcceptedEventPayload{SignalID: signal.ID().String(), WaitID: waitID.String()})
-		if event, ok := p.prepareEvent(EventSignalAccepted, EventPhaseCommitted, 0, EffectID{}, payload); ok {
-			events = append(events, event)
-		}
-	}
-	return events
-}
-
-func (p *processState) requestPause(command processCommand) {
-	if err := validateTerminationReason(command.reason); err != nil {
-		command.reply(processResponse{err: fmt.Errorf("%w: %w", ErrInvalidProcessControl, err)})
-		return
+func (p *processState) requestPause(reason string) error {
+	if err := validateTerminationReason(reason); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidProcessControl, err)
 	}
 	if p.status != StatusRunning {
-		command.reply(processResponse{err: ErrProcessNotRunning})
-		return
+		return ErrProcessNotRunning
 	}
 	if p.pendingControl.pauseReason == "" {
-		p.pendingControl.pauseReason = command.reason
+		p.pendingControl.pauseReason = reason
 	}
-	command.reply(processResponse{})
+	return nil
 }
 
-func (p *processState) resume(ctx context.Context, command processCommand) {
+func (p *processState) applyPendingPause() bool {
+	if p.pendingControl.pauseReason == "" || p.status != StatusRunning {
+		return false
+	}
+	p.status = StatusPaused
+	p.pauseReason = p.pendingControl.pauseReason
+	p.pendingControl.pauseReason = ""
+	return true
+}
+
+func (p *processState) resume() error {
 	if p.status != StatusPaused {
-		command.reply(processResponse{err: fmt.Errorf(
-			"%w: Resume requires Paused status, got %s", ErrInvalidProcessControl, p.status,
-		)})
-		return
+		return fmt.Errorf("%w: Resume requires Paused status, got %s", ErrInvalidProcessControl, p.status)
 	}
 	p.status = StatusRunning
 	p.pauseReason = ""
 	p.pendingControl.pauseReason = ""
-	p.publishEphemeralStatus()
-	p.publishEventAfterCommit(ctx, EventProcessResumed, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
-	command.reply(processResponse{})
+	return nil
 }
 
 func (p *processState) requestCancellation(intent cancellationIntent) {
@@ -318,46 +211,35 @@ func (p *processState) requestCancellation(intent cancellationIntent) {
 	}
 }
 
-func (p *processState) requestKill(command processCommand) {
-	intent, err := newKillIntent(command.reason)
+func (p *processState) requestKill(reason string) error {
+	intent, err := newKillIntent(reason)
 	if err != nil {
-		command.reply(processResponse{err: fmt.Errorf("%w: %w", ErrInvalidProcessControl, err)})
-		return
+		return fmt.Errorf("%w: %w", ErrInvalidProcessControl, err)
 	}
 	if !p.pendingControl.kill.valid() {
 		p.pendingControl.kill = intent
 	}
-	command.reply(processResponse{})
+	return nil
 }
 
-func (p *processState) resolveEffect(command processCommand) {
-	if p.prepared == nil || !command.settlement.Valid() || command.settlement.Status() == SettlementStatusUnknown {
-		command.reply(processResponse{err: ErrEffectNotPending})
-		return
+func (p *processState) resolveEffect(settlement Settlement) error {
+	if p.prepared == nil || !settlement.Valid() || settlement.Status() == SettlementStatusUnknown {
+		return ErrEffectNotPending
 	}
 	for index := range p.prepared.wire.Effects {
 		effect := &p.prepared.wire.Effects[index]
-		if effect.ID != command.settlement.EffectID() {
+		if effect.ID != settlement.EffectID() {
 			continue
 		}
 		if !effect.unknown() {
-			command.reply(processResponse{err: ErrEffectNotPending})
-			return
+			return ErrEffectNotPending
 		}
-		if err := effect.resolveUnknown(command.settlement); err != nil {
-			command.reply(processResponse{err: ErrEffectNotPending})
-			return
+		if err := effect.resolveUnknown(settlement); err != nil {
+			return ErrEffectNotPending
 		}
-		command.reply(processResponse{})
-		return
+		return nil
 	}
-	command.reply(processResponse{err: ErrEffectNotPending})
-}
-
-func (p *processState) publishEphemeralStatus() {
-	if p.engine.durability == nil {
-		p.handle.updateStatus(p.status)
-	}
+	return ErrEffectNotPending
 }
 
 func (p *processState) unknownEffectIDs() []EffectID {

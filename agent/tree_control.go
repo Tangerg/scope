@@ -1,8 +1,6 @@
 package agent
 
-import (
-	"errors"
-)
+import "errors"
 
 func (t *treeRuntime) applyCommand(command treeCommand) {
 	switch command.kind {
@@ -40,10 +38,32 @@ func (t *treeRuntime) applyProcessCommand(process *processState, command process
 		}
 		return
 	}
-	if command.kind == commandResolveUnknownEffect && t.resolveUnknownEffect(process, command) {
+	if process.status.Terminal() {
+		command.reply(processResponse{err: ErrProcessFinished})
 		return
 	}
-	process.applyCommand(t.context, command)
+	switch command.kind {
+	case commandDeliverBatch:
+		t.deliverSignals(process, command)
+	case commandPause:
+		command.reply(processResponse{err: process.requestPause(command.reason)})
+	case commandResume:
+		err := process.resume()
+		if err == nil {
+			t.publishEphemeralStatus(process)
+			t.publishEventAfterCommit(process, EventProcessResumed, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
+		}
+		command.reply(processResponse{err: err})
+	case commandCancel:
+		process.requestCancellation(command.cancellationIntent)
+	case commandKill:
+		command.reply(processResponse{err: process.requestKill(command.reason)})
+	case commandResolveUnknownEffect:
+		t.resolveUnknownEffect(process, command)
+		return
+	default:
+		command.reply(processResponse{err: ErrInvalidProcessControl})
+	}
 	if process.pendingControl.hasTerminalIntent() {
 		t.stopProcessTree(process)
 	} else if process.pendingControl.pauseReason != "" {
@@ -55,13 +75,15 @@ func (t *treeRuntime) applyProcessCommand(process *processState, command process
 	}
 }
 
-func (t *treeRuntime) resolveUnknownEffect(process *processState, command processCommand) bool {
+func (t *treeRuntime) resolveUnknownEffect(process *processState, command processCommand) {
 	if process.status.Terminal() || process.pendingControl.hasTerminalIntent() {
 		command.reply(processResponse{err: ErrProcessFinished})
-		return true
+		return
 	}
 	if t.engine.durability == nil {
-		return false
+		command.reply(processResponse{err: process.resolveEffect(command.settlement)})
+		t.enqueueProcess(process.handle.processID)
+		return
 	}
 	if err := t.startUnknownResolutionCommit(process, command); err != nil {
 		command.reply(processResponse{err: err})
@@ -69,7 +91,6 @@ func (t *treeRuntime) resolveUnknownEffect(process *processState, command proces
 			t.failDurability(err, process.handle.processID, command.settlement.EffectID())
 		}
 	}
-	return true
 }
 
 func (t *treeRuntime) acquireFreeze(acquisition *treeFreezeAcquisition) {
@@ -203,4 +224,70 @@ func (t *treeRuntime) stopProcessTree(process *processState) {
 		}
 		t.stopProcessTree(child)
 	}
+}
+
+func (t *treeRuntime) applyPendingControl(process *processState) bool {
+	if process.pendingControl.hasTerminalIntent() {
+		t.commitTermination(process, stepOutcome{})
+		return true
+	}
+	if !process.applyPendingPause() {
+		return false
+	}
+	t.publishEphemeralStatus(process)
+	t.publishEventAfterCommit(process, EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
+	return true
+}
+
+func (t *treeRuntime) deliverChildWaitSatisfied(process *processState, signal Signal) bool {
+	accepted, err := process.admitSignals([]Signal{signal}, signalSourceChildWait)
+	if err != nil {
+		if errors.Is(err, ErrResourceLimitExceeded) {
+			process.recordFailure(FailureKindExecution, "engine.limit.child_wait_signal", err)
+		} else {
+			process.recordFailure(FailureKindContract, "engine.child.wait.satisfaction.invalid", err)
+		}
+		return false
+	}
+	if accepted {
+		t.publishEphemeralStatus(process)
+		for _, event := range t.prepareSignalEvents(process, []Signal{signal}) {
+			t.publishPreparedEventAfterCommit(process, event)
+		}
+	}
+	return accepted || process.mailbox.contains(signal.ID())
+}
+
+func (t *treeRuntime) deliverSignals(process *processState, command processCommand) {
+	if len(command.signalRequests) == 0 {
+		command.reply(processResponse{err: ErrInvalidSignalRequest})
+		return
+	}
+	signals := make([]Signal, 0, len(command.signalRequests))
+	for _, request := range command.signalRequests {
+		signal, err := request.signal()
+		if err != nil {
+			command.reply(processResponse{err: err})
+			return
+		}
+		signals = append(signals, signal)
+	}
+	accepted, err := process.admitSignals(signals, signalSourceExternal)
+	if err != nil || !accepted {
+		command.reply(processResponse{err: err})
+		return
+	}
+	events := t.prepareSignalEvents(process, signals)
+	if t.engine.durability != nil {
+		if err := t.startSignalCommit(process, command, events); err != nil {
+			command.reply(processResponse{err: err})
+			t.failDurability(err, process.handle.processID, EffectID{})
+		}
+		return
+	}
+	t.publishEphemeralStatus(process)
+	for _, event := range events {
+		t.publishPreparedEvent(process, event)
+	}
+	command.reply(processResponse{accepted: true})
 }
