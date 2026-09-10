@@ -12,22 +12,18 @@ import (
 type phase string
 
 const (
-	phaseReadyModel               phase = "ready_model"
-	phaseAwaitingModel            phase = "awaiting_model"
-	phaseAwaitingToolStarts       phase = "awaiting_tool_starts"
-	phaseAwaitingToolWaitOpen     phase = "awaiting_tool_wait_open"
-	phaseWaitingTools             phase = "waiting_tools"
-	phaseAwaitingDelegateStarts   phase = "awaiting_delegate_starts"
-	phaseAwaitingDelegateWaitOpen phase = "awaiting_delegate_wait_open"
-	phaseWaitingDelegates         phase = "waiting_delegates"
-	phaseCompleted                phase = "completed"
+	phaseReadyModel            phase = "ready_model"
+	phaseAwaitingModel         phase = "awaiting_model"
+	phaseAwaitingChildStarts   phase = "awaiting_child_starts"
+	phaseAwaitingChildWaitOpen phase = "awaiting_child_wait_open"
+	phaseWaitingChildren       phase = "waiting_children"
+	phaseCompleted             phase = "completed"
 )
 
 func (p phase) valid() bool {
 	switch p {
-	case phaseReadyModel, phaseAwaitingModel, phaseAwaitingToolStarts,
-		phaseAwaitingToolWaitOpen, phaseWaitingTools, phaseAwaitingDelegateStarts,
-		phaseAwaitingDelegateWaitOpen, phaseWaitingDelegates, phaseCompleted:
+	case phaseReadyModel, phaseAwaitingModel, phaseAwaitingChildStarts,
+		phaseAwaitingChildWaitOpen, phaseWaitingChildren, phaseCompleted:
 		return true
 	default:
 		return false
@@ -38,21 +34,18 @@ func (p phase) valid() bool {
 // is self-sufficient for the next model call. PendingModelResponse is present
 // only while a model-requested ToolCall batch is being settled.
 type executionState struct {
-	Phase                    phase                 `json:"phase"`
-	WorkingContext           *chat.Request         `json:"working_context"`
-	ModelCallCount           uint32                `json:"model_call_count"`
-	AdvertisedToolNames      []string              `json:"advertised_tool_names,omitempty"`
-	PendingModelResponse     *chat.Response        `json:"pending_model_response,omitempty"`
-	ActiveToolCallEndIndex   uint32                `json:"active_tool_call_end_index,omitempty"`
-	SettledToolResults       []chat.ToolResult     `json:"settled_tool_results,omitempty"`
-	DirectToolResultEligible bool                  `json:"direct_tool_result_eligible,omitempty"`
-	ToolSegment              *toolSegmentState     `json:"tool_segment,omitempty"`
-	DelegateSegment          *delegateSegmentState `json:"delegate_segment,omitempty"`
-	WaitID                   *agent.WaitID         `json:"wait_id,omitempty"`
-	PendingSteer             *steerBatch           `json:"pending_steer,omitempty"`
-	ArtifactRecords          []artifactRecord      `json:"artifact_records,omitempty"`
-	FinalModelResponse       *chat.Response        `json:"final_model_response,omitempty"`
-	FinalToolResults         []chat.ToolResult     `json:"final_tool_results,omitempty"`
+	Phase                    phase             `json:"phase"`
+	WorkingContext           *chat.Request     `json:"working_context"`
+	ModelCallCount           uint32            `json:"model_call_count"`
+	AdvertisedToolNames      []string          `json:"advertised_tool_names,omitempty"`
+	PendingModelResponse     *chat.Response    `json:"pending_model_response,omitempty"`
+	SettledToolResults       []chat.ToolResult `json:"settled_tool_results,omitempty"`
+	DirectToolResultEligible bool              `json:"direct_tool_result_eligible,omitempty"`
+	ChildBatch               *childCallBatch   `json:"child_batch,omitempty"`
+	PendingSteer             *steerBatch       `json:"pending_steer,omitempty"`
+	ArtifactRecords          []artifactRecord  `json:"artifact_records,omitempty"`
+	FinalModelResponse       *chat.Response    `json:"final_model_response,omitempty"`
+	FinalToolResults         []chat.ToolResult `json:"final_tool_results,omitempty"`
 }
 
 type artifactRecord struct {
@@ -61,16 +54,6 @@ type artifactRecord struct {
 	ToolCallID        string       `json:"tool_call_id"`
 	DelegateName      string       `json:"delegate_name"`
 	Output            agent.Output `json:"output"`
-}
-
-type delegateInvocationState struct {
-	ChildKey       *agent.ChildKey  `json:"child_key,omitempty"`
-	ChildProcessID *agent.ProcessID `json:"child_process_id,omitempty"`
-	ToolResult     *chat.ToolResult `json:"tool_result,omitempty"`
-}
-
-type delegateSegmentState struct {
-	Invocations []delegateInvocationState `json:"invocations"`
 }
 
 func (e executionState) Validate(definition *Definition) error {
@@ -119,8 +102,7 @@ func (e executionState) validatePhaseState(definition *Definition) error {
 		return e.validateReadyModelState()
 	case phaseAwaitingModel:
 		return e.validateAwaitingModelState()
-	case phaseAwaitingToolStarts, phaseAwaitingToolWaitOpen, phaseWaitingTools,
-		phaseAwaitingDelegateStarts, phaseAwaitingDelegateWaitOpen, phaseWaitingDelegates:
+	case phaseAwaitingChildStarts, phaseAwaitingChildWaitOpen, phaseWaitingChildren:
 		return e.validateActiveCallState(definition)
 	case phaseCompleted:
 		return e.validateCompletedState()
@@ -129,82 +111,53 @@ func (e executionState) validatePhaseState(definition *Definition) error {
 }
 
 func (e executionState) validateReadyModelState() error {
-	if e.hasPendingBatch() || e.WaitID != nil || e.PendingSteer != nil || e.hasFinalOutput() {
+	if e.hasPendingBatch() || e.PendingSteer != nil || e.hasFinalOutput() {
 		return fmt.Errorf("%w: ready_model has inconsistent pending response or limit", ErrInvalidExecutionState)
 	}
 	return nil
 }
 
 func (e executionState) validateAwaitingModelState() error {
-	if e.hasPendingBatch() || e.WaitID != nil || e.PendingSteer != nil || e.hasFinalOutput() || e.ModelCallCount == 0 {
+	if e.hasPendingBatch() || e.PendingSteer != nil || e.hasFinalOutput() || e.ModelCallCount == 0 {
 		return fmt.Errorf("%w: awaiting_model has inconsistent pending response or limit", ErrInvalidExecutionState)
 	}
 	return nil
 }
 
 func (e executionState) validateActiveCallState(definition *Definition) error {
-	calls, err := e.validatePendingBatch()
+	active, err := e.activeChildCalls()
 	if err != nil {
 		return err
 	}
-	active := calls[e.nextToolCallIndex():e.ActiveToolCallEndIndex]
-	delegateSegment := e.delegatePhase()
-	for _, call := range active {
-		_, delegated := definition.delegate(call.Name)
-		if delegated != delegateSegment {
-			return fmt.Errorf("%w: active call segment mixes Tool and Delegate ownership", ErrInvalidExecutionState)
-		}
-	}
-	if delegateSegment {
-		return e.validateDelegateCallState(active)
-	}
-	return e.validateToolCallState(active, definition)
-}
-
-func (e executionState) delegatePhase() bool {
-	return e.Phase == phaseAwaitingDelegateStarts ||
-		e.Phase == phaseAwaitingDelegateWaitOpen || e.Phase == phaseWaitingDelegates
-}
-
-func (e executionState) validateDelegateCallState(active []chat.ToolCall) error {
-	if e.ToolSegment != nil || e.DelegateSegment == nil {
-		return fmt.Errorf("%w: Delegate phase has inconsistent batch state", ErrInvalidExecutionState)
-	}
-	if err := e.DelegateSegment.validate(e.Phase, active); err != nil {
+	if err := e.ChildBatch.validateBindings(definition, active); err != nil {
 		return err
 	}
-	switch e.Phase {
-	case phaseAwaitingDelegateStarts:
-		if e.WaitID != nil {
-			return fmt.Errorf("%w: awaiting Delegate starts contains a WaitID", ErrInvalidExecutionState)
-		}
-	case phaseAwaitingDelegateWaitOpen:
-		if e.WaitID != nil {
-			return fmt.Errorf("%w: awaiting Delegate wait contains a WaitID", ErrInvalidExecutionState)
-		}
-	case phaseWaitingDelegates:
-		if e.WaitID == nil || !e.WaitID.Valid() {
-			return fmt.Errorf("%w: waiting_delegates requires an Engine WaitID", ErrInvalidExecutionState)
-		}
+	if !e.DirectToolResultEligible && e.nextToolCallIndex() == 0 &&
+		e.Phase == phaseAwaitingChildStarts && e.ChildBatch.Kind == childCallsTool {
+		return fmt.Errorf("%w: fresh Tool batch lost its direct-result candidate", ErrInvalidExecutionState)
 	}
 	return nil
 }
 
-func (e executionState) validateToolCallState(active []chat.ToolCall, definition *Definition) error {
-	if e.DelegateSegment != nil || e.ToolSegment == nil {
-		return fmt.Errorf("%w: Tool phase has inconsistent child state", ErrInvalidExecutionState)
+func (e executionState) activeChildCalls() ([]chat.ToolCall, error) {
+	if e.Phase != phaseAwaitingChildStarts && e.Phase != phaseAwaitingChildWaitOpen && e.Phase != phaseWaitingChildren ||
+		e.WorkingContext == nil || e.WorkingContext.Validate() != nil || len(e.WorkingContext.Tools) != 0 {
+		return nil, ErrInvalidExecutionState
 	}
-	if err := e.ToolSegment.validate(e.Phase, active, e.ModelCallCount, definition); err != nil {
-		return err
-	}
-	if e.Phase == phaseWaitingTools {
-		if e.WaitID == nil || !e.WaitID.Valid() {
-			return fmt.Errorf("%w: waiting Tools require an Engine WaitID", ErrInvalidExecutionState)
+	if e.PendingSteer != nil {
+		if err := e.PendingSteer.validate(); err != nil {
+			return nil, err
 		}
-	} else if e.WaitID != nil {
-		return fmt.Errorf("%w: Tool start or wait opening already has a WaitID", ErrInvalidExecutionState)
 	}
-	return nil
+	calls, err := e.validatePendingBatch()
+	if err != nil {
+		return nil, err
+	}
+	active := calls[e.nextToolCallIndex() : e.nextToolCallIndex()+uint32(len(e.ChildBatch.Invocations))]
+	if err := e.ChildBatch.validate(e.Phase, active, e.ModelCallCount); err != nil {
+		return nil, err
+	}
+	return active, nil
 }
 
 func (e executionState) nextToolCallIndex() uint32 {
@@ -230,7 +183,7 @@ func (e executionState) output() Output {
 }
 
 func (e executionState) validateCompletedState() error {
-	if e.hasPendingBatch() || e.WaitID != nil || e.PendingSteer != nil {
+	if e.hasPendingBatch() || e.PendingSteer != nil {
 		return fmt.Errorf("%w: completed state requires only its final Output", ErrInvalidExecutionState)
 	}
 	if err := e.output().Validate(); err != nil {
@@ -308,9 +261,8 @@ func (e executionState) validateCurrentBatchArtifacts(definition *Definition) er
 }
 
 func (e executionState) hasPendingBatch() bool {
-	return e.PendingModelResponse != nil || e.ActiveToolCallEndIndex != 0 ||
-		len(e.SettledToolResults) != 0 || e.DirectToolResultEligible || e.ToolSegment != nil ||
-		e.DelegateSegment != nil
+	return e.PendingModelResponse != nil || len(e.SettledToolResults) != 0 ||
+		e.DirectToolResultEligible || e.ChildBatch != nil
 }
 
 func (e executionState) validatePendingBatch() ([]chat.ToolCall, error) {
@@ -327,89 +279,14 @@ func (e executionState) validatePendingBatch() ([]chat.ToolCall, error) {
 	if err != nil || len(calls) == 0 || uint64(len(calls)) > uint64(^uint32(0)) {
 		return nil, fmt.Errorf("%w: pending response has no bounded unambiguous tool calls", ErrInvalidExecutionState)
 	}
-	if uint64(len(e.SettledToolResults)) >= uint64(e.ActiveToolCallEndIndex) || uint64(e.ActiveToolCallEndIndex) > uint64(len(calls)) {
+	if e.ChildBatch == nil || len(e.ChildBatch.Invocations) == 0 ||
+		uint64(len(e.SettledToolResults))+uint64(len(e.ChildBatch.Invocations)) > uint64(len(calls)) {
 		return nil, fmt.Errorf("%w: ToolCall cursor is inconsistent", ErrInvalidExecutionState)
 	}
 	if err := validateToolResults(calls[:e.nextToolCallIndex()], e.SettledToolResults); err != nil {
 		return nil, err
 	}
-	if !e.DirectToolResultEligible && e.nextToolCallIndex() == 0 && e.Phase == phaseAwaitingToolStarts {
-		return nil, fmt.Errorf("%w: fresh Tool batch lost its direct-result candidate", ErrInvalidExecutionState)
-	}
 	return calls, nil
-}
-
-func (d delegateSegmentState) validate(current phase, calls []chat.ToolCall) error {
-	if len(d.Invocations) != len(calls) {
-		return fmt.Errorf("%w: Delegate batch length does not match calls", ErrInvalidExecutionState)
-	}
-	pending := 0
-	started := 0
-	for index, invocation := range d.Invocations {
-		if invocation.ChildKey != nil && !invocation.ChildKey.Valid() ||
-			invocation.ChildProcessID != nil && !invocation.ChildProcessID.Valid() {
-			return fmt.Errorf("%w: Delegate call %d has invalid Framework identity", ErrInvalidExecutionState, index)
-		}
-		if invocation.ToolResult != nil {
-			if err := invocation.ToolResult.Validate(); err != nil ||
-				invocation.ToolResult.ID != calls[index].ID || invocation.ToolResult.Name != calls[index].Name ||
-				!invocation.ToolResult.IsError {
-				return fmt.Errorf("%w: Delegate result %d does not match its call", ErrInvalidExecutionState, index)
-			}
-		}
-		switch {
-		case invocation.ChildKey != nil && invocation.ChildProcessID == nil && invocation.ToolResult == nil:
-			pending++
-		case invocation.ChildKey != nil && invocation.ChildProcessID != nil && invocation.ToolResult == nil:
-			started++
-		case invocation.ChildProcessID == nil && invocation.ToolResult != nil:
-		default:
-			return fmt.Errorf("%w: Delegate call %d has contradictory settlement", ErrInvalidExecutionState, index)
-		}
-	}
-	if current == phaseAwaitingDelegateStarts && (pending == 0 || started != 0) ||
-		current != phaseAwaitingDelegateStarts && pending != 0 ||
-		(current == phaseAwaitingDelegateWaitOpen || current == phaseWaitingDelegates) && started == 0 {
-		return fmt.Errorf("%w: Delegate batch phase does not match settlements", ErrInvalidExecutionState)
-	}
-	return nil
-}
-
-func (e executionState) activeDelegateCalls() ([]chat.ToolCall, error) {
-	if e.Phase != phaseAwaitingDelegateStarts &&
-		e.Phase != phaseAwaitingDelegateWaitOpen &&
-		e.Phase != phaseWaitingDelegates ||
-		e.WorkingContext == nil || e.ModelCallCount == 0 ||
-		e.hasFinalOutput() || e.ToolSegment != nil || e.DelegateSegment == nil {
-		return nil, ErrInvalidExecutionState
-	}
-	if err := e.WorkingContext.Validate(); err != nil || len(e.WorkingContext.Tools) != 0 {
-		return nil, ErrInvalidExecutionState
-	}
-	if e.PendingSteer != nil {
-		if err := e.PendingSteer.validate(); err != nil {
-			return nil, err
-		}
-	}
-	calls, err := e.validatePendingBatch()
-	if err != nil {
-		return nil, err
-	}
-	active := calls[e.nextToolCallIndex():e.ActiveToolCallEndIndex]
-	if err := e.DelegateSegment.validate(e.Phase, active); err != nil {
-		return nil, err
-	}
-	switch e.Phase {
-	case phaseAwaitingDelegateStarts, phaseAwaitingDelegateWaitOpen:
-		if e.WaitID != nil {
-			return nil, ErrInvalidExecutionState
-		}
-	case phaseWaitingDelegates:
-		if e.WaitID == nil || !e.WaitID.Valid() {
-			return nil, ErrInvalidExecutionState
-		}
-	}
-	return active, nil
 }
 
 func cloneMessages(messages []chat.Message) []chat.Message {

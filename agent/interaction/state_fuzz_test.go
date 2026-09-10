@@ -35,7 +35,7 @@ func FuzzExecutionStateRestore(f *testing.F) {
 		f.Add([]byte(state.Payload()))
 	}
 	f.Add([]byte(`null`))
-	f.Add([]byte(`{"phase":"waiting_delegates"}`))
+	f.Add([]byte(`{"phase":"waiting_children"}`))
 	f.Fuzz(func(t *testing.T, payload []byte) {
 		state, err := agent.NewExecutionState(executionStateKind, payload)
 		if err != nil {
@@ -197,19 +197,19 @@ func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.Executi
 	artifactOutput, _ := agent.EncodeOutput(fuzzDelegateOutput{Result: "settled"})
 	states := []executionState{
 		{
-			Phase: phaseAwaitingDelegateStarts, WorkingContext: request.Clone(), ModelCallCount: 1,
-			PendingModelResponse: response.Clone(), ActiveToolCallEndIndex: 1,
-			DelegateSegment: &delegateSegmentState{Invocations: []delegateInvocationState{{ChildKey: &key}}},
+			Phase: phaseAwaitingChildStarts, WorkingContext: request.Clone(), ModelCallCount: 1,
+			PendingModelResponse: response.Clone(),
+			ChildBatch:           &childCallBatch{Kind: childCallsDelegate, NextStartIndex: 1, Invocations: []childInvocationState{{ChildKey: &key}}},
 		},
 		{
-			Phase: phaseWaitingDelegates, WorkingContext: request.Clone(), ModelCallCount: 1,
-			PendingModelResponse: response.Clone(), ActiveToolCallEndIndex: 1, WaitID: &waitID,
+			Phase: phaseWaitingChildren, WorkingContext: request.Clone(), ModelCallCount: 1,
+			PendingModelResponse: response.Clone(),
 			PendingSteer: &steerBatch{
 				Messages:  []chat.Message{chat.NewUserMessage(chat.NewTextPart("fuzz steer"))},
 				SignalIDs: []agent.SignalID{steerSignalID},
 			},
-			DelegateSegment: &delegateSegmentState{Invocations: []delegateInvocationState{{
-				ChildKey: &key, ChildProcessID: &processID,
+			ChildBatch: &childCallBatch{Kind: childCallsDelegate, NextStartIndex: 1, WaitID: &waitID, Invocations: []childInvocationState{{
+				ChildKey: &key, ProcessID: &processID,
 			}}},
 		},
 		{

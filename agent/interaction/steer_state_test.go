@@ -135,17 +135,15 @@ func pendingSteerTestState(t testing.TB) executionState {
 		t.Fatal(err)
 	}
 	return executionState{
-		Phase: phaseWaitingDelegates,
+		Phase: phaseWaitingChildren,
 		WorkingContext: &chat.Request{Messages: []chat.Message{
 			chat.NewUserMessage(chat.NewTextPart("initial")),
 		}},
-		ModelCallCount:         1,
-		PendingModelResponse:   response,
-		ActiveToolCallEndIndex: 1,
-		DelegateSegment: &delegateSegmentState{Invocations: []delegateInvocationState{{
-			ChildKey: &key, ChildProcessID: &childID,
+		ModelCallCount:       1,
+		PendingModelResponse: response,
+		ChildBatch: &childCallBatch{Kind: childCallsDelegate, NextStartIndex: 1, WaitID: &waitID, Invocations: []childInvocationState{{
+			ChildKey: &key, ProcessID: &childID,
 		}}},
-		WaitID: &waitID,
 		PendingSteer: &steerBatch{
 			Messages: []chat.Message{
 				chat.NewUserMessage(chat.NewTextPart("first steer")),

@@ -44,18 +44,12 @@ func (e *execution) Step(_ context.Context, signals []agent.Signal) (agent.Trans
 		return e.requestModel(consumedSignals, appliedSteerSignalIDs)
 	case phaseAwaitingModel:
 		return e.acceptModel(signals)
-	case phaseAwaitingToolStarts:
-		return e.acceptToolStarts(signals)
-	case phaseAwaitingToolWaitOpen:
-		return e.acceptToolWaitOpen(signals)
-	case phaseWaitingTools:
-		return e.acceptToolCompletions(signals)
-	case phaseAwaitingDelegateStarts:
-		return e.acceptDelegateStarts(signals)
-	case phaseAwaitingDelegateWaitOpen:
-		return e.acceptDelegateWaitOpen(signals)
-	case phaseWaitingDelegates:
-		return e.acceptDelegates(signals)
+	case phaseAwaitingChildStarts:
+		return e.acceptChildStarts(signals)
+	case phaseAwaitingChildWaitOpen:
+		return e.acceptChildWaitOpen(signals)
+	case phaseWaitingChildren:
+		return e.acceptChildCompletions(signals)
 	case phaseCompleted:
 		return agent.Transition{}, fmt.Errorf("%w: completed execution cannot advance", ErrInvalidExecutionState)
 	default:
@@ -163,7 +157,6 @@ func (e *execution) acceptModel(signals []agent.Signal) (agent.Transition, error
 	}
 
 	e.state.PendingModelResponse = response
-	e.state.ActiveToolCallEndIndex = 0
 	e.state.SettledToolResults = nil
 	e.state.DirectToolResultEligible = true
 	return e.advanceToolCallBatch(consumedSignals)
@@ -245,7 +238,6 @@ func (e *execution) complete(consumedSignals uint32, output Output) (agent.Trans
 	}
 	e.state.Phase = phaseCompleted
 	e.clearToolCallBatch()
-	e.state.WaitID = nil
 	e.state.PendingSteer = nil
 	e.state.FinalModelResponse = output.ModelResponse
 	e.state.FinalToolResults = output.DirectToolResults
@@ -297,7 +289,6 @@ func (e *execution) finishOrRetry(
 	}
 	e.state.WorkingContext = request
 	e.clearToolCallBatch()
-	e.state.WaitID = nil
 	e.state.PendingSteer = nil
 	e.state.Phase = phaseReadyModel
 	return e.requestModel(consumedSignals, nil)
@@ -315,7 +306,7 @@ func (e *execution) advanceToolCallBatch(consumedSignals uint32) (agent.Transiti
 		}
 		if _, delegated := e.definition.delegate(calls[e.state.nextToolCallIndex()].Name); delegated {
 			e.state.DirectToolResultEligible = false
-			transition, started, startErr := e.startDelegateSegment(consumedSignals, calls)
+			transition, started, startErr := e.startDelegateChildren(consumedSignals, calls)
 			if startErr != nil {
 				return agent.Transition{}, startErr
 			}
@@ -324,7 +315,7 @@ func (e *execution) advanceToolCallBatch(consumedSignals uint32) (agent.Transiti
 			}
 			continue
 		}
-		transition, started, err := e.startToolSegment(consumedSignals, calls)
+		transition, started, err := e.startToolChildren(consumedSignals, calls)
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -365,20 +356,22 @@ func (e *execution) finishToolCallBatch(
 
 func (e *execution) activeCallSegment() ([]chat.ToolCall, error) {
 	calls, _, err := responseToolCalls(e.state.PendingModelResponse)
-	if err != nil || e.state.nextToolCallIndex() >= e.state.ActiveToolCallEndIndex ||
-		uint64(e.state.ActiveToolCallEndIndex) > uint64(len(calls)) {
+	if err != nil || e.state.ChildBatch == nil || len(e.state.ChildBatch.Invocations) == 0 {
 		return nil, fmt.Errorf("%w: invalid active ToolCall segment", ErrInvalidExecutionState)
 	}
-	return calls[e.state.nextToolCallIndex():e.state.ActiveToolCallEndIndex], nil
+	start := uint64(e.state.nextToolCallIndex())
+	end := start + uint64(len(e.state.ChildBatch.Invocations))
+	if end > uint64(len(calls)) {
+		return nil, fmt.Errorf("%w: invalid active ToolCall segment", ErrInvalidExecutionState)
+	}
+	return calls[start:end], nil
 }
 
 func (e *execution) clearToolCallBatch() {
 	e.state.PendingModelResponse = nil
-	e.state.ActiveToolCallEndIndex = 0
 	e.state.SettledToolResults = nil
 	e.state.DirectToolResultEligible = false
-	e.state.ToolSegment = nil
-	e.state.DelegateSegment = nil
+	e.state.ChildBatch = nil
 }
 
 func (e *execution) addSteer(batch steerBatch) error {

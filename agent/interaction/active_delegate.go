@@ -62,20 +62,20 @@ func ActiveDelegateChildrenFromSnapshot(
 	if decodeErr := jsonv2.Unmarshal(stateEnvelope.Payload(), &state, jsonv2.RejectUnknownMembers(true)); decodeErr != nil {
 		return nil, false, fmt.Errorf("%w: decode state: %w", ErrInvalidExecutionState, decodeErr)
 	}
-	if state.DelegateSegment == nil {
+	if state.ChildBatch == nil {
 		return nil, false, nil
 	}
-	activeCalls, activeErr := state.activeDelegateCalls()
+	activeCalls, activeErr := state.activeChildCalls()
 	if activeErr != nil {
 		return nil, false, fmt.Errorf("%w: active Delegate children: %w", ErrInvalidExecutionState, activeErr)
 	}
+	if state.ChildBatch.Kind != childCallsDelegate {
+		return nil, false, nil
+	}
 	children = make([]ActiveDelegateChild, 0, len(activeCalls))
-	for index, invocation := range state.DelegateSegment.Invocations {
-		if invocation.ChildProcessID == nil {
+	for index, invocation := range state.ChildBatch.Invocations {
+		if invocation.ProcessID == nil {
 			continue
-		}
-		if invocation.ChildKey == nil || invocation.ToolResult != nil {
-			return nil, false, ErrInvalidExecutionState
 		}
 		call := activeCalls[index]
 		child := ActiveDelegateChild{
@@ -83,12 +83,7 @@ func ActiveDelegateChildrenFromSnapshot(
 			toolCallIndex:     state.nextToolCallIndex() + uint32(index),
 			toolCall:          call,
 			childKey:          *invocation.ChildKey,
-			processID:         *invocation.ChildProcessID,
-		}
-		if !child.Valid() {
-			return nil, false, fmt.Errorf(
-				"%w: Delegate child %d has inconsistent identity", ErrInvalidExecutionState, index,
-			)
+			processID:         *invocation.ProcessID,
 		}
 		children = append(children, child)
 	}

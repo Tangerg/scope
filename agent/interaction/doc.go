@@ -12,7 +12,11 @@
 // for input. Model context receives the complete results in original call order.
 //
 // Interaction requests ordinary Tool and Delegate children only through
-// Framework Effects. Engine owns their Process lifecycles. Product conversation
+// Framework Effects. One child-call batch owns start confirmations, wait
+// identity, boundary validation, and ordered results for both bindings. Tools
+// refill their bounded window after any child drains; Delegates await their
+// entire batch. Execution snapshots retain this single batch and its policy.
+// Engine owns child Process lifecycles. Product conversation
 // history, persistence, application artifact stores, pricing, approval policy,
 // and UI remain outside this Strategy. Direct model calls remain available
 // through package chatclient without constructing an Interaction or Engine.
