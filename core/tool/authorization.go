@@ -65,17 +65,21 @@ type Guard struct {
 // NewGuard snapshots the wrapped tool's definition at construction, so the
 // contract policy evaluates is the contract the model was shown. Resolving it
 // per call would let a mutable inner tool widen its own arguments after
-// approval.
+// approval. Schema compilation and invocation validation remain owned by
+// [Bind]; construction validates only the definition's protocol shape.
 func NewGuard(config GuardConfig) (Guard, error) {
 	if lo.IsNil(config.Authorizer) {
 		return Guard{}, fmt.Errorf("%w: authorizer is nil", ErrInvalidTool)
 	}
-	binding, err := Bind(config.Tool)
-	if err != nil {
-		return Guard{}, fmt.Errorf("tool: authorization guard: %w", err)
+	if lo.IsNil(config.Tool) {
+		return Guard{}, fmt.Errorf("%w: authorization guard tool is nil", ErrInvalidTool)
+	}
+	definition := config.Tool.Definition()
+	if err := definition.Validate(); err != nil {
+		return Guard{}, fmt.Errorf("%w: authorization guard definition: %w", ErrInvalidTool, err)
 	}
 	return Guard{
-		tool: config.Tool, definition: binding.Definition(), authorizer: config.Authorizer,
+		tool: config.Tool, definition: definition.Clone(), authorizer: config.Authorizer,
 	}, nil
 }
 

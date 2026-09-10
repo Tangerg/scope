@@ -2,12 +2,32 @@ package tool_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
+
+func TestGuardFreezesDefinitionAndLeavesCompilationToBinding(t *testing.T) {
+	executable := newStubTool("dynamic")
+	executable.definition.InputSchema = json.RawMessage(`{"type":"object","properties":{"query":{"type":"invalid"}}}`)
+	guard, err := tool.NewGuard(tool.GuardConfig{
+		Tool: executable,
+		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) error {
+			t.Fatal("invalid schema must fail before authorization")
+			return nil
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable.definition.InputSchema = json.RawMessage(`{"type":"object"}`)
+	if _, bindErr := tool.Bind(guard); !errors.Is(bindErr, tool.ErrInvalidTool) {
+		t.Fatalf("Bind accepted frozen invalid schema: %v", bindErr)
+	}
+}
 
 func TestGuardAuthorizesValidatedInvocationBeforeExecution(t *testing.T) {
 	executable := &countingTool{name: "search"}
