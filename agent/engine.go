@@ -100,11 +100,13 @@ type Engine struct {
 	closeDone chan struct{}
 }
 
-func (e *Engine) ObservationFailures() ObservationFailureCounts {
+// ObservationFailures returns consistent panic counts and the latest bounded
+// diagnostic for each listener kind. Listener failures cannot veto execution.
+func (e *Engine) ObservationFailures() ObservationFailures {
 	if e == nil || e.observation == nil {
-		return ObservationFailureCounts{}
+		return ObservationFailures{}
 	}
-	return e.observation.failureCounts()
+	return e.observation.failureSnapshot()
 }
 
 // FlushDeltas provides the ordering barrier needed before publishing a final

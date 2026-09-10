@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"math"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -60,27 +59,12 @@ func (d DeltaListenerFunc) OnDelta(ctx context.Context, delta Delta) {
 	d(ctx, delta)
 }
 
-// ObservationFailureCounts is an immutable snapshot of listener panics
-// isolated by one Engine. Counts are monotonic and saturate at math.MaxUint64.
-type ObservationFailureCounts struct {
-	eventListenerPanics uint64
-	deltaListenerPanics uint64
-}
-
-func (o ObservationFailureCounts) EventListenerPanics() uint64 {
-	return o.eventListenerPanics
-}
-
-func (o ObservationFailureCounts) DeltaListenerPanics() uint64 {
-	return o.deltaListenerPanics
-}
-
 type observationBus struct {
 	events []EventListener
 	deltas []DeltaListener
 
-	eventListenerPanics atomic.Uint64
-	deltaListenerPanics atomic.Uint64
+	failureMu sync.RWMutex
+	failures  ObservationFailures
 
 	deltaMu     sync.RWMutex
 	deltaQueue  chan deltaObservation
@@ -111,17 +95,20 @@ func newObservationBus(events []EventListener, deltas []DeltaListener, capacity 
 }
 
 func (o *observationBus) publishEvent(ctx context.Context, event Event) {
-	for _, listener := range o.events {
-		if o.callEventListener(ctx, listener, event) {
-			incrementObservationFailure(&o.eventListenerPanics)
+	for index, listener := range o.events {
+		if failure := o.callEventListener(ctx, index, listener, event); failure != nil {
+			o.failureMu.Lock()
+			o.failures.eventListenerPanics = saturatingCountAdd(o.failures.eventListenerPanics, 1)
+			o.failures.lastEventPanic = failure
+			o.failureMu.Unlock()
 		}
 	}
 }
 
-func (o *observationBus) callEventListener(ctx context.Context, listener EventListener, event Event) (panicked bool) {
+func (o *observationBus) callEventListener(ctx context.Context, index int, listener EventListener, event Event) (failure *ListenerPanic) {
 	defer func() {
-		if recover() != nil {
-			panicked = true
+		if recovered := recover(); recovered != nil {
+			failure = captureListenerPanic(index, listener, event.ProcessID(), recovered)
 		}
 	}()
 	active := new(atomic.Bool)
@@ -129,7 +116,7 @@ func (o *observationBus) callEventListener(ctx context.Context, listener EventLi
 	defer active.Store(false)
 	ctx = context.WithValue(ctx, observedTreeKey{bus: o, rootID: event.relation.RootID()}, active)
 	listener.OnEvent(ctx, event)
-	return false
+	return nil
 }
 
 func (o *observationBus) offerDelta(ctx context.Context, delta Delta) bool {
@@ -157,9 +144,12 @@ func (o *observationBus) deliverDeltas() {
 			close(observation.barrier)
 			continue
 		}
-		for _, listener := range o.deltas {
-			if o.callDeltaListener(observation.ctx, listener, observation.delta) {
-				incrementObservationFailure(&o.deltaListenerPanics)
+		for index, listener := range o.deltas {
+			if failure := o.callDeltaListener(observation.ctx, index, listener, observation.delta); failure != nil {
+				o.failureMu.Lock()
+				o.failures.deltaListenerPanics = saturatingCountAdd(o.failures.deltaListenerPanics, 1)
+				o.failures.lastDeltaPanic = failure
+				o.failureMu.Unlock()
 			}
 		}
 	}
@@ -190,10 +180,10 @@ func (o *observationBus) flushDeltas(ctx context.Context) error {
 	}
 }
 
-func (o *observationBus) callDeltaListener(ctx context.Context, listener DeltaListener, delta Delta) (panicked bool) {
+func (o *observationBus) callDeltaListener(ctx context.Context, index int, listener DeltaListener, delta Delta) (failure *ListenerPanic) {
 	defer func() {
-		if recover() != nil {
-			panicked = true
+		if recovered := recover(); recovered != nil {
+			failure = captureListenerPanic(index, listener, delta.ProcessID(), recovered)
 		}
 	}()
 	active := new(atomic.Bool)
@@ -201,23 +191,13 @@ func (o *observationBus) callDeltaListener(ctx context.Context, listener DeltaLi
 	defer active.Store(false)
 	ctx = context.WithValue(ctx, observedDeltaKey{bus: o}, active)
 	listener.OnDelta(ctx, delta)
-	return false
+	return nil
 }
 
-func (o *observationBus) failureCounts() ObservationFailureCounts {
-	return ObservationFailureCounts{
-		eventListenerPanics: o.eventListenerPanics.Load(),
-		deltaListenerPanics: o.deltaListenerPanics.Load(),
-	}
-}
-
-func incrementObservationFailure(counter *atomic.Uint64) {
-	for {
-		current := counter.Load()
-		if current == math.MaxUint64 || counter.CompareAndSwap(current, current+1) {
-			return
-		}
-	}
+func (o *observationBus) failureSnapshot() ObservationFailures {
+	o.failureMu.RLock()
+	defer o.failureMu.RUnlock()
+	return o.failures
 }
 
 func (o *observationBus) close() {

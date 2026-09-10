@@ -44,6 +44,15 @@ func TestStreamingOutputDoesNotDependOnDeltaListeners(t *testing.T) {
 			observationFailures.DeltaListenerPanics(),
 		)
 	}
+	eventPanic, hasEventPanic := observationFailures.LastEventPanic()
+	deltaPanic, hasDeltaPanic := observationFailures.LastDeltaPanic()
+	if !hasEventPanic || !hasDeltaPanic || eventPanic.ListenerIndex != 1 || deltaPanic.ListenerIndex != 2 ||
+		eventPanic.Message != "event listener panicked" || deltaPanic.Message != "delta listener panicked" ||
+		eventPanic.ListenerType != "interaction_test.panickingEventListener" || deltaPanic.ListenerType != "interaction_test.panickingDeltaListener" ||
+		eventPanic.ProcessID != result.ProcessID() || deltaPanic.ProcessID != result.ProcessID() ||
+		!strings.Contains(eventPanic.Stack, "panickingEventListener.OnEvent") || !strings.Contains(deltaPanic.Stack, "panickingDeltaListener.OnDelta") {
+		t.Fatalf("listener diagnostics = %#v, %#v", eventPanic, deltaPanic)
+	}
 	if result.Status() != agent.StatusCompleted {
 		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
 	}

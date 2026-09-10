@@ -296,16 +296,18 @@ func TestObservationFailuresAreCountedWithoutAffectingDelivery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	counts := bus.failureCounts()
+	counts := bus.failureSnapshot()
 	if counts.EventListenerPanics() != 1 || counts.DeltaListenerPanics() != 1 {
 		t.Fatalf(
 			"observation failures = event %d, delta %d, want 1 each",
 			counts.EventListenerPanics(), counts.DeltaListenerPanics(),
 		)
 	}
-	bus.eventListenerPanics.Store(math.MaxUint64)
+	bus.failureMu.Lock()
+	bus.failures.eventListenerPanics = math.MaxUint64
+	bus.failureMu.Unlock()
 	bus.publishEvent(t.Context(), Event{})
-	if got := bus.failureCounts().EventListenerPanics(); got != math.MaxUint64 {
+	if got := bus.failureSnapshot().EventListenerPanics(); got != math.MaxUint64 {
 		t.Fatalf("saturated event listener panic count = %d", got)
 	}
 }
