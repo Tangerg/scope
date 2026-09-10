@@ -39,6 +39,35 @@ func TestSHA256GeneratorDeterministic(t *testing.T) {
 	}
 }
 
+func TestSHA256IdentityIgnoresJSONPresentationWithoutRoundingNumbers(t *testing.T) {
+	generator := etl.NewSHA256IDGenerator(nil)
+	identity := func(raw string) string {
+		t.Helper()
+		doc := newDocument(t, "same")
+		doc.Metadata["nested"] = json.RawMessage(raw)
+		id, err := generator.Generate(t.Context(), doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	baseline := identity(`{"a":[{"x":"<","y":9007199254740993}],"b":1.00000000000000001}`)
+	for _, test := range []struct {
+		name, raw string
+		equal     bool
+	}{
+		{name: "presentation", raw: ` { "b":1.00000000000000001, "a":[{"y":9007199254740993,"x":"\u003c"}] } `, equal: true},
+		{name: "integer precision", raw: `{"a":[{"x":"<","y":9007199254740992}],"b":1.00000000000000001}`},
+		{name: "decimal precision", raw: `{"a":[{"x":"<","y":9007199254740993}],"b":1.00000000000000002}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if equal := identity(test.raw) == baseline; equal != test.equal {
+				t.Fatalf("same identity = %t, want %t", equal, test.equal)
+			}
+		})
+	}
+}
+
 func TestSHA256GeneratorUsesDocumentContentButNotExistingID(t *testing.T) {
 	generator := etl.NewSHA256IDGenerator(nil)
 	first := newDocument(t, "hello")

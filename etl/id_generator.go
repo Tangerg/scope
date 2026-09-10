@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -37,8 +38,9 @@ func NewSHA256IDGenerator(salt []byte) SHA256IDGenerator {
 	return SHA256IDGenerator{salt: bytes.Clone(salt)}
 }
 
-// Generate hashes a canonical JSON projection of document and returns the
-// SHA-256 hex digest.
+// Generate hashes a JSON projection with ordered object members, minimal string
+// escaping, and no whitespace. Number spellings are preserved exactly, avoiding
+// precision loss through float64 normalization.
 func (s SHA256IDGenerator) Generate(ctx context.Context, doc *document.Document) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -64,9 +66,15 @@ func (s SHA256IDGenerator) Generate(ctx context.Context, doc *document.Document)
 		Media:    doc.Media,
 		Metadata: doc.Metadata,
 	}
-	if err := json.NewEncoder(hasher).Encode(projection); err != nil {
+	encoded, err := json.Marshal(projection)
+	if err != nil {
 		return "", fmt.Errorf("etl: encode document identity: %w", err)
 	}
+	identity := jsontext.Value(encoded)
+	if err := identity.Format(jsontext.ReorderRawObjects(true)); err != nil {
+		return "", fmt.Errorf("etl: format document identity: %w", err)
+	}
+	_, _ = hasher.Write(identity)
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}

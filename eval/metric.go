@@ -2,6 +2,7 @@ package eval
 
 import (
 	"encoding/json"
+	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
@@ -60,8 +61,9 @@ type MetricConfig struct {
 	Parameters metadata.Map
 }
 
-// NewMetric snapshots structured parameters so later mutation cannot change
-// report comparability.
+// NewMetric snapshots parameters and normalizes object order, whitespace, and
+// string escaping. Number spellings retain their exact precision. Later caller
+// mutation cannot change report comparability.
 func NewMetric(config MetricConfig) (Metric, error) {
 	metric := Metric{
 		namespace:  config.Namespace,
@@ -72,6 +74,13 @@ func NewMetric(config MetricConfig) (Metric, error) {
 	}
 	if err := metric.Validate(); err != nil {
 		return Metric{}, err
+	}
+	for key, raw := range metric.parameters {
+		value := jsontext.Value(raw)
+		if err := value.Format(jsontext.ReorderRawObjects(true)); err != nil {
+			return Metric{}, fmt.Errorf("%w: parameter %q: %w", ErrInvalidMetric, key, err)
+		}
+		metric.parameters[key] = json.RawMessage(value)
 	}
 	return metric, nil
 }

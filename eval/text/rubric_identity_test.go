@@ -1,7 +1,6 @@
 package text_test
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/Tangerg/scope/core/chatclient"
@@ -9,7 +8,7 @@ import (
 	texteval "github.com/Tangerg/scope/eval/text"
 )
 
-func TestComparisonRequiresSameRubric(t *testing.T) {
+func TestComparisonSeparatesDifferentRubrics(t *testing.T) {
 	strict, err := chatclient.ParseTemplate("Strict rubric: only fully relevant answers score above zero. Input={{.Input}} Output={{.Output}}")
 	if err != nil {
 		t.Fatal(err)
@@ -46,7 +45,18 @@ func TestComparisonRequiresSameRubric(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.Compare(c); !errors.Is(err, eval.ErrInvalidComparison) {
-		t.Fatalf("comparison between scoring rubrics error = %v, want ErrInvalidComparison", err)
+	comparison, err := b.Compare(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comparison.Metrics) != 2 || comparison.Metrics[0].Baseline == nil ||
+		comparison.Metrics[0].Candidate != nil || comparison.Metrics[1].Baseline != nil ||
+		comparison.Metrics[1].Candidate == nil {
+		t.Fatalf("different rubrics were paired: %#v", comparison.Metrics)
+	}
+	for _, metric := range comparison.Metrics {
+		if metric.ScoreDelta.Present || metric.MeasurementDelta.Present {
+			t.Fatalf("different rubrics produced numeric deltas: %#v", metric)
+		}
 	}
 }

@@ -12,12 +12,14 @@ type DistributionDelta struct {
 	Mean    float64
 }
 
-// MetricComparison keeps exact aggregate deltas attached to one full metric
-// identity.
+// MetricComparison relates observations of one full metric identity. A nil side
+// means that run produced no reports for the metric, not a zero measurement.
+// Count deltas treat absent observations as zero; numeric deltas require values
+// on both sides. Different calculation rules always occupy distinct entries.
 type MetricComparison struct {
 	Metric           Metric
-	Baseline         MetricSummary
-	Candidate        MetricSummary
+	Baseline         *MetricSummary
+	Candidate        *MetricSummary
 	EvaluatedDelta   int
 	PassedDelta      int
 	FailedDelta      int
@@ -39,9 +41,10 @@ type Comparison struct {
 	Metrics        []MetricComparison
 }
 
-// Compare keeps the baseline authoritative: only reports over the same ordered
-// Dataset and Metric identities are comparable. Exact deltas avoid inventing
-// statistical significance or a synthetic score across unlike units.
+// Compare compares runs over the same ordered Dataset identities. Execution
+// counts remain comparable when evaluation fails. Metrics are matched by full
+// identity in baseline order, followed by candidate-only metrics; an absent
+// side remains explicit instead of preventing comparison of the whole run.
 // A mean difference outside the finite float64 range returns ErrInvalidComparison
 // without exposing a partial comparison.
 func (e ExperimentReport) Compare(candidate ExperimentReport) (Comparison, error) {
@@ -93,9 +96,6 @@ type metricPair struct {
 }
 
 func comparableMetrics(baseline, candidate []MetricSummary) ([]metricPair, error) {
-	if len(baseline) != len(candidate) {
-		return nil, fmt.Errorf("%w: metric count differs: baseline %d, candidate %d", ErrInvalidComparison, len(baseline), len(candidate))
-	}
 	candidateByIdentity := make(map[string]MetricSummary, len(candidate))
 	for index := range candidate {
 		identity, err := candidate[index].Metric.identity()
@@ -107,20 +107,24 @@ func comparableMetrics(baseline, candidate []MetricSummary) ([]metricPair, error
 		}
 		candidateByIdentity[identity] = candidate[index]
 	}
-	pairs := make([]metricPair, len(baseline))
+	pairs := make([]metricPair, 0, len(baseline)+len(candidate))
 	for index := range baseline {
 		baselineIdentity, err := baseline[index].Metric.identity()
 		if err != nil {
 			return nil, fmt.Errorf("%w: baseline metric %d: %w", ErrInvalidComparison, index, err)
 		}
-		candidateMetric, found := candidateByIdentity[baselineIdentity]
-		if !found {
-			return nil, fmt.Errorf(
-				"%w: baseline metric %q is absent from candidate",
-				ErrInvalidComparison, baseline[index].Metric,
-			)
+		candidateMetric := candidateByIdentity[baselineIdentity]
+		pairs = append(pairs, metricPair{baseline: baseline[index], candidate: candidateMetric})
+		delete(candidateByIdentity, baselineIdentity)
+	}
+	for index := range candidate {
+		identity, err := candidate[index].Metric.identity()
+		if err != nil {
+			return nil, err
 		}
-		pairs[index] = metricPair{baseline: baseline[index], candidate: candidateMetric}
+		if remaining, found := candidateByIdentity[identity]; found {
+			pairs = append(pairs, metricPair{candidate: remaining})
+		}
 	}
 	return pairs, nil
 }
@@ -134,16 +138,23 @@ func compareMetric(baseline, candidate MetricSummary) (MetricComparison, error) 
 	if err != nil {
 		return MetricComparison{}, fmt.Errorf("eval: compare metric %q measurements: %w", baseline.Metric, err)
 	}
-	return MetricComparison{
-		Metric:   baseline.Metric,
-		Baseline: baseline, Candidate: candidate,
+	comparison := MetricComparison{
 		EvaluatedDelta:   candidate.Evaluated - baseline.Evaluated,
 		PassedDelta:      candidate.Passed - baseline.Passed,
 		FailedDelta:      candidate.Failed - baseline.Failed,
 		UnjudgedDelta:    candidate.Unjudged - baseline.Unjudged,
 		ScoreDelta:       scoreDelta,
 		MeasurementDelta: measurementDelta,
-	}, nil
+	}
+	if baseline.Evaluated > 0 {
+		comparison.Metric = baseline.Metric
+		comparison.Baseline = &baseline
+	}
+	if candidate.Evaluated > 0 {
+		comparison.Metric = candidate.Metric
+		comparison.Candidate = &candidate
+	}
+	return comparison, nil
 }
 
 func distributionDelta(baseline, candidate Distribution) (DistributionDelta, error) {
