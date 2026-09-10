@@ -143,7 +143,7 @@ func startRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, obser
 		t.Fatal(err)
 	}
 	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-		Client: &fixtureInteractionClient{}, Observer: recorder,
+		Model: &fixtureInteractionClient{}, Observer: recorder,
 	})
 	if err != nil {
 		t.Fatal(err)

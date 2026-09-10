@@ -108,7 +108,7 @@ func (i *instrumentedRetriever) Retrieve(
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(metricAttributes...),
 	)
-	candidates, err := corerag.Retrieve(ctx, i.next, query)
+	candidates, err := corerag.RetrieverFunc(i.next.Retrieve).Retrieve(ctx, query)
 	span.SetAttributes(attribute.Int(documentCountAttribute, len(candidates)))
 	if err != nil {
 		errorType := errorTypeAttribute(err)

@@ -122,7 +122,7 @@ func run(ctx context.Context) (err error) {
 		return fmt.Errorf("create interaction definition: %w", err)
 	}
 	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-		Client: chatClient,
+		Model: chatClient,
 	})
 	if err != nil {
 		return fmt.Errorf("create interaction dispatcher: %w", err)
