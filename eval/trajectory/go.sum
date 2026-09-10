@@ -1,7 +1,7 @@
-github.com/Tangerg/scope/agent v0.16.1-0.20260910070312-917d7a5173f8 h1:cFNsgzn7fB9Oteyvot250XTD4pOgr/pidxqJV5z28z4=
-github.com/Tangerg/scope/agent v0.16.1-0.20260910070312-917d7a5173f8/go.mod h1:87kyM8oXuDUhiaN+PgJJpECjaU42qsc56D2ztP5px+k=
-github.com/Tangerg/scope/core v0.16.0 h1:lJMSNA3+XelDqOWCuK9SNSxtm4E5lhavxQBy2EMXKSg=
-github.com/Tangerg/scope/core v0.16.0/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
+github.com/Tangerg/scope/agent v0.16.1-0.20260910084848-42ad4552d101 h1:Gb3+S4FIslli2oyxgw/9SqWwjHtd4nlW1Uz0NGtKEZE=
+github.com/Tangerg/scope/agent v0.16.1-0.20260910084848-42ad4552d101/go.mod h1:weXuQWsbtClWFrLGCuTF3plfxtvyYhus0HBCqvzHey0=
+github.com/Tangerg/scope/core v0.16.1-0.20260910075601-6c5753207ead h1:BidVTC9Vy6l1ajlss/SXnjyEkbEMPGZwBQE7/NC1NZM=
+github.com/Tangerg/scope/core v0.16.1-0.20260910075601-6c5753207ead/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
 github.com/Tangerg/scope/eval v0.16.0 h1:J6PePqVp3BZN/I4sAgJ5RbavcsnIkM715REXpPd3Lfg=
 github.com/Tangerg/scope/eval v0.16.0/go.mod h1:h2+o5che8Nu90O7Xk8rj+4PuJptL6ASpxKpxBM04xPY=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
