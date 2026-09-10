@@ -120,11 +120,15 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 // definite owner-defined Signal payload. An error means the external outcome
 // is not provable; Engine therefore records an unknown settlement instead of
 // retrying the operation.
+// A nil ctx is invalid and panics before the request is processed.
 func (d *Dispatcher) Dispatch(
 	ctx context.Context,
 	request agent.EffectRequest,
 	emit agent.DeltaEmitter,
 ) (agent.Settlement, error) {
+	if ctx == nil {
+		panic(errors.New("interaction: nil Context"))
+	}
 	if d == nil || lo.IsNil(d.client) {
 		return agent.Settlement{}, ErrInvalidDispatcherConfig
 	}

@@ -202,9 +202,9 @@ func (e *Engine) startRestoredTree(ctx context.Context, restoration *treeRestora
 		restoration.runtime.propagateProcessTermination(entry.state)
 		entry.handle.finishBookkeeping()
 	}
+	root := restoration.runtime.processes[restoration.wire.RootID].handle
 	go restoration.runtime.run(requireContext(ctx))
-	root := restoredProcessByID(restoration.processes, restoration.wire.RootID)
-	return &Process{handle: root.handle}
+	return &Process{handle: root}
 }
 
 func (e *Engine) reserveRestoredTree(restoration *treeRestoration) error {
@@ -324,13 +324,4 @@ func snapshotByID(snapshots []ProcessSnapshot, id ProcessID) ProcessSnapshot {
 		}
 	}
 	return ProcessSnapshot{}
-}
-
-func restoredProcessByID(processes []restoredTreeProcess, id ProcessID) restoredTreeProcess {
-	for _, process := range processes {
-		if process.handle.processID == id {
-			return process
-		}
-	}
-	return restoredTreeProcess{}
 }

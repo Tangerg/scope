@@ -20,9 +20,11 @@ type toolAdvertisementContextKey struct{}
 // the next model call onward. The change commits only if the current Tool call
 // succeeds. It never adds executable authority. Names must be exact deferred
 // Tool names; repeated names are idempotent.
+// A nil ctx is invalid and panics; a context without an active Tool call returns
+// ErrToolAdvertisementUnavailable.
 func AdvertiseTools(ctx context.Context, names ...string) error {
 	if ctx == nil {
-		return ErrToolAdvertisementUnavailable
+		panic(errors.New("interaction: nil Context"))
 	}
 	advertiser, present := ctx.Value(toolAdvertisementContextKey{}).(*toolAdvertiser)
 	if !present || advertiser == nil {

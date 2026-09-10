@@ -11,6 +11,20 @@ import (
 	"github.com/Tangerg/scope/agent/messaging"
 )
 
+func TestDispatcherRejectsNilContextBeforeProtocolValidation(t *testing.T) {
+	dispatcher, err := messaging.NewDispatcher(messaging.DispatcherConfig{Port: &recipientPort{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("nil context became a protocol result")
+		}
+	}()
+	var nilContext context.Context
+	_, _ = dispatcher.Dispatch(nilContext, agent.EffectRequest{}, nil)
+}
+
 func TestMessageValidatesFrozenProtocol(t *testing.T) {
 	var missing *recipientPort
 	if _, err := messaging.NewDispatcher(messaging.DispatcherConfig{Port: missing}); err == nil {

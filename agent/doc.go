@@ -6,6 +6,11 @@
 // snapshots. Strategy payloads stay opaque to the kernel, and persistence
 // stays a caller responsibility.
 //
+// Engine and Process operations require a non-nil context. A nil context is a
+// programming error and panics on a valid receiver; use context.TODO when the
+// caller has not yet chosen a context. A canceled non-nil context follows each
+// operation's cancellation contract.
+//
 // The kernel exists for one purpose: a multi-step agent with children and
 // external side effects must resume after a process restart with a stated
 // meaning for every operation that was in flight. Everything below follows

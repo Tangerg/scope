@@ -39,6 +39,46 @@ func TestEngineStartRejectsNilContextBeforePublication(t *testing.T) {
 	}
 }
 
+func TestProcessRejectsNilContextBeforeControl(t *testing.T) {
+	engine, err := NewEngine(EngineConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { mustCloseEngine(t, engine) })
+	input, err := EncodeInput(childTestInput{Mode: "leaf"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	process, err := engine.Start(t.Context(), newChildTestDeployment(t), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nilContext context.Context
+	for name, call := range map[string]func(){
+		"DeliverSignals":       func() { _, _ = process.DeliverSignals(nilContext) },
+		"Pause":                func() { _ = process.Pause(nilContext, "pause") },
+		"Resume":               func() { _ = process.Resume(nilContext) },
+		"RequestCancellation":  func() { _ = process.RequestCancellation(nilContext, "cancel") },
+		"Kill":                 func() { _ = process.Kill(nilContext, "kill") },
+		"ResolveUnknownEffect": func() { _ = process.ResolveUnknownEffect(nilContext, Settlement{}) },
+		"Await":                func() { _, _ = process.Await(nilContext) },
+		"Join":                 func() { _ = process.Join(nilContext) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				cause, ok := recover().(error)
+				if !ok || !errors.Is(cause, errNilContext) {
+					t.Fatalf("nil-context panic = %v, want %v", cause, errNilContext)
+				}
+			}()
+			call()
+		})
+	}
+	if result := awaitResult(t, process); result.Status() != StatusCompleted {
+		t.Fatalf("invalid context changed Process outcome to %s", result.Status())
+	}
+}
+
 func TestResumeRunningProcessReportsInvalidControl(t *testing.T) {
 	definition := &signalWindowDefinition{
 		engineTestDefinition: newEngineTestDefinition(t, "engine.effect", "effect"),

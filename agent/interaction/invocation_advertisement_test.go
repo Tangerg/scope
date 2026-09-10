@@ -157,6 +157,29 @@ func assertModelToolResultPolicy(t *testing.T, invocation interaction.ToolInvoca
 	}
 }
 
+func TestContextQueriesTreatNilAsAbsent(t *testing.T) {
+	var nilContext context.Context
+	if _, present := interaction.ModelInvocationFromContext(nilContext); present {
+		t.Fatal("nil context has a model invocation")
+	}
+	if _, present := interaction.ToolInvocationFromContext(nilContext); present {
+		t.Fatal("nil context has a Tool invocation")
+	}
+	if _, present := interaction.ToolInputContinuationFromContext(nilContext); present {
+		t.Fatal("nil context has a Tool input continuation")
+	}
+}
+
+func TestAdvertiseToolsRejectsNilContext(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("nil context became unavailable Tool authority")
+		}
+	}()
+	var nilContext context.Context
+	_ = interaction.AdvertiseTools(nilContext, "hidden")
+}
+
 func TestAdvertiseToolsRejectsUnavailableAndInvalidNames(t *testing.T) {
 	if err := interaction.AdvertiseTools(context.Background(), "hidden"); !errors.Is(err, interaction.ErrToolAdvertisementUnavailable) {
 		t.Fatalf("outside invocation error = %v", err)

@@ -150,7 +150,7 @@ func withToolInputContinuation(ctx context.Context, continuation ToolInputContin
 }
 
 // ToolInputContinuationFromContext returns continuation data only for the active
-// resumed Tool call. Ordinary first attempts return false.
+// resumed Tool call. Ordinary first attempts and a nil context return false.
 func ToolInputContinuationFromContext(ctx context.Context) (ToolInputContinuation, bool) {
 	if ctx == nil {
 		return ToolInputContinuation{}, false

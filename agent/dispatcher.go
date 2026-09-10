@@ -113,6 +113,8 @@ type DeltaEmitter func(payload json.RawMessage)
 // concurrency-safe, return in bounded time, not mutate an Execution, and not
 // start unowned goroutines. ReplayPolicy must be a pure, deterministic
 // declaration for the supplied immutable Effect.
+// The Engine always supplies a non-nil context. Direct callers must do the same;
+// a nil context is a programming error, not an unknown external outcome.
 //
 // A transparent decorator preserves the context, complete request identity, emitter,
 // Settlement, and error of its wrapped Dispatcher. Its ReplayPolicy must also

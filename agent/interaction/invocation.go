@@ -64,7 +64,7 @@ func (m ModelInvocation) Valid() bool {
 }
 
 // ModelInvocationFromContext returns the attribution installed only for the
-// duration of an Interaction model call.
+// duration of an Interaction model call. A nil context has no attribution.
 func ModelInvocationFromContext(ctx context.Context) (ModelInvocation, bool) {
 	if ctx == nil {
 		return ModelInvocation{}, false
@@ -156,7 +156,7 @@ func (t ToolInvocation) Valid() bool {
 }
 
 // ToolInvocationFromContext returns the attribution installed only for the
-// duration of the exact Interaction Tool call.
+// duration of the exact Interaction Tool call. A nil context has no attribution.
 func ToolInvocationFromContext(ctx context.Context) (ToolInvocation, bool) {
 	if ctx == nil {
 		return ToolInvocation{}, false

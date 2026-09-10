@@ -327,13 +327,16 @@ func findWaitRecord(mailbox mailboxWire, id WaitID) (waitRecordWire, bool) {
 // according to their existing contract before a Process joins the barrier.
 // Cancellation remains available while the active work drains.
 func (e *Engine) CaptureTree(ctx context.Context, rootID ProcessID) (TreeSnapshot, error) {
-	if e == nil || !rootID.Valid() {
+	if e == nil {
+		return TreeSnapshot{}, ErrInvalidProcessRelation
+	}
+	ctx = requireContext(ctx)
+	if !rootID.Valid() {
 		return TreeSnapshot{}, ErrInvalidProcessRelation
 	}
 	if e.durability != nil {
 		return TreeSnapshot{}, ErrTreeCaptureUnavailable
 	}
-	ctx = requireContext(ctx)
 	operation, err := e.acquireTreeOperation(ctx, rootID)
 	if err != nil {
 		return TreeSnapshot{}, err

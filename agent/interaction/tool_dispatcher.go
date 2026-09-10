@@ -30,6 +30,9 @@ type toolDispatcher struct {
 func (*toolDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy { return agent.ReplayPolicyNever }
 
 func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, _ agent.DeltaEmitter) (agent.Settlement, error) {
+	if ctx == nil {
+		panic(errors.New("interaction: nil Context"))
+	}
 	envelope, err := decodeEffect(request.Effect().Payload())
 	if err != nil {
 		return agent.Settlement{}, err

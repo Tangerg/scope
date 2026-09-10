@@ -25,6 +25,8 @@ const treeCommandBufferCapacity = 32
 // Process is an Engine-issued handle to one managed execution. Its fields and
 // construction remain private so a caller cannot create a second lifecycle
 // owner. Identity and allocation are immutable; [Engine.InspectTree] owns live inspection.
+// The zero value and nil receiver are invalid; methods require an Engine-issued
+// handle and may panic otherwise. A finished Process remains a valid handle.
 // Control methods submit requests to the owning tree runtime. Except for
 // RequestCancellation, ctx bounds both submission and response waiting. Once
 // a command enters the runtime queue, canceling ctx does not revoke it. A context
@@ -35,34 +37,22 @@ type Process struct {
 
 // ID returns the stable Process identity.
 func (p *Process) ID() ProcessID {
-	if p == nil || p.handle == nil {
-		return ProcessID{}
-	}
 	return p.handle.processID
 }
 
 // DeploymentRef returns the exact Definition and dispatcher binding identity.
 func (p *Process) DeploymentRef() DeploymentRef {
-	if p == nil || p.handle == nil {
-		return DeploymentRef{}
-	}
 	return p.handle.deploymentRef
 }
 
 // Relation returns the immutable parent/root/depth location assigned by the
 // Engine. It is a root relation for Processes created through Engine.Start.
 func (p *Process) Relation() ProcessRelation {
-	if p == nil || p.handle == nil {
-		return ProcessRelation{}
-	}
 	return p.handle.relation
 }
 
 // StartedAt returns the lifecycle time committed by its started outcome.
 func (p *Process) StartedAt() time.Time {
-	if p == nil || p.handle == nil {
-		return time.Time{}
-	}
 	return p.handle.startedAt
 }
 
@@ -80,6 +70,7 @@ func (p *Process) StartedAt() time.Time {
 // commit to the authoritative tree head. A caller timeout does not revoke an
 // admitted command; retry the identical batch to reconcile uncertain delivery.
 func (p *Process) DeliverSignals(ctx context.Context, requests ...SignalRequest) (accepted bool, err error) {
+	ctx = requireContext(ctx)
 	if len(requests) == 0 {
 		return false, ErrInvalidSignalRequest
 	}
@@ -122,9 +113,6 @@ func (p *Process) Resume(ctx context.Context) error {
 // and its Strategy decides how to continue. Await reports this Process's
 // acknowledged terminal result; every descendant retains its own settlement.
 func (p *Process) RequestCancellation(ctx context.Context, reason string) error {
-	if p == nil || p.handle == nil {
-		return ErrProcessNotRunning
-	}
 	ctx = requireContext(ctx)
 	intent, err := newCancellationIntent(cancellationOwnerHost, reason)
 	if err != nil {
@@ -179,9 +167,6 @@ func (p *Process) ResolveUnknownEffect(ctx context.Context, settlement Settlemen
 // Result. A failed logical execution returns a valid Result and nil error.
 // Descendants may still be settling after this Process's result is ready.
 func (p *Process) Await(ctx context.Context) (Result, error) {
-	if p == nil || p.handle == nil {
-		return Result{}, ErrProcessNotRunning
-	}
 	ctx = requireContext(ctx)
 	if runtime := p.handle.runtime.Load(); runtime != nil {
 		if err := runtime.engine.observation.checkListenerReentrancy(ctx, p.handle.relation.RootID(), "Await"); err != nil {
@@ -206,9 +191,6 @@ func (p *Process) Await(ctx context.Context) (Result, error) {
 // Join makes no claim that a remote operation or a previous writer has stopped.
 // Strategies wait without blocking a Dispatcher through WaitForChildren.
 func (p *Process) Join(ctx context.Context) error {
-	if p == nil || p.handle == nil {
-		return ErrProcessNotRunning
-	}
 	ctx = requireContext(ctx)
 	if runtime := p.handle.runtime.Load(); runtime != nil {
 		if err := runtime.engine.observation.checkListenerReentrancy(ctx, p.handle.relation.RootID(), "Join"); err != nil {
@@ -224,9 +206,6 @@ func (p *Process) Join(ctx context.Context) error {
 }
 
 func (p *Process) request(ctx context.Context, command processCommand) (processResponse, error) {
-	if p == nil || p.handle == nil {
-		return processResponse{}, ErrProcessNotRunning
-	}
 	ctx = requireContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return processResponse{}, err
@@ -303,17 +282,11 @@ func (r Result) Valid() bool {
 
 // Budget returns the fixed non-renewable allocation assigned to this Process.
 func (p *Process) Budget() Budget {
-	if p == nil || p.handle == nil {
-		return Budget{}
-	}
 	return p.handle.budget
 }
 
 // Capabilities returns the immutable authority set assigned to this Process.
 func (p *Process) Capabilities() CapabilitySet {
-	if p == nil || p.handle == nil {
-		return CapabilitySet{}
-	}
 	return p.handle.capabilities
 }
 

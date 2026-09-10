@@ -13,6 +13,16 @@ import (
 	"github.com/Tangerg/scope/agent/coordination"
 )
 
+func TestTimerRejectsNilContextBeforeProtocolValidation(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("nil context became a protocol result")
+		}
+	}()
+	var nilContext context.Context
+	_, _ = (coordination.Timer{}).Dispatch(nilContext, agent.EffectRequest{}, nil)
+}
+
 func TestDeadlineRestoresTheSameAbsoluteTimerAndEffectIdentity(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		started := time.Now()
