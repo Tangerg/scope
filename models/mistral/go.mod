@@ -3,8 +3,8 @@ module github.com/Tangerg/scope/models/mistral
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.17.0
-	github.com/Tangerg/scope/models/protocol/openai v0.17.0
+	github.com/Tangerg/scope/core v0.18.0
+	github.com/Tangerg/scope/models/protocol/openai v0.18.0
 	github.com/Tangerg/sse v0.0.6
 	github.com/go-resty/resty/v2 v2.17.2
 )
