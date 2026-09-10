@@ -53,7 +53,6 @@ func (v *visitor) snapshot() (string, map[string]any) {
 }
 
 func (v *visitor) Visit(expr filter.Predicate) error {
-	v.err = nil
 	v.sql.Reset()
 	v.params = make(map[string]any)
 	v.err = v.visit(expr)
@@ -61,40 +60,20 @@ func (v *visitor) Visit(expr filter.Predicate) error {
 }
 
 func (v *visitor) visit(expr filter.Expr) error {
-	if expr == nil {
-		return errors.New("neo4j: cannot process nil expression")
-	}
-	if v.err != nil {
-		return v.err
-	}
-
 	switch node := expr.(type) {
 	case *filter.BinaryExpr:
-		return v.visitBinaryExpr(node)
+		return node.Dispatch(filter.BinaryHandlers{
+			Logical:    v.visitLogicalExpr,
+			Comparison: v.visitComparisonExpr,
+			In:         v.visitInExpr,
+			Has:        v.visitHasExpr,
+			Like:       v.visitLikeExpr,
+			NullTest:   v.visitNullTestExpr,
+		})
 	case *filter.UnaryExpr:
 		return v.visitUnaryExpr(node)
 	default:
 		return fmt.Errorf("neo4j: unsupported root expression %T", node)
-	}
-}
-
-func (v *visitor) visitBinaryExpr(expr *filter.BinaryExpr) error {
-	switch {
-	case expr.Operator().IsNullOperator():
-		return v.visitNullTestExpr(expr)
-	case expr.Operator().IsLogicalOperator():
-		return v.visitLogicalExpr(expr)
-	case expr.Operator().Is(filter.OpIn):
-		return v.visitInExpr(expr)
-	case expr.Operator().Is(filter.OpHas):
-		return v.visitHasExpr(expr)
-	case expr.Operator().Is(filter.OpLike):
-		return v.visitLikeExpr(expr)
-	case expr.Operator().IsEqualityOperator() || expr.Operator().IsOrderingOperator():
-		return v.visitComparisonExpr(expr)
-	default:
-		return fmt.Errorf("neo4j: unsupported binary operator '%s' at %s",
-			expr.Operator().String(), expr.Start().String())
 	}
 }
 

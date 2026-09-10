@@ -1,7 +1,6 @@
 package milvus
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -43,14 +42,8 @@ func (v *visitor) Visit(predicate filter.Predicate) error {
 func compilePredicate(predicate filter.Predicate) (string, error) {
 	switch expression := predicate.(type) {
 	case *filter.BinaryExpr:
-		if expression == nil {
-			return "", errors.New("milvus: cannot process nil binary expression")
-		}
 		return compileBinary(expression)
 	case *filter.UnaryExpr:
-		if expression == nil {
-			return "", errors.New("milvus: cannot process nil unary expression")
-		}
 		return compileNot(expression)
 	default:
 		return "", fmt.Errorf("milvus: unsupported predicate type %T", expression)

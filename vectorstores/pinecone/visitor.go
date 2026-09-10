@@ -1,7 +1,6 @@
 package pinecone
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -40,7 +39,6 @@ func (v *visitor) snapshot() *structpb.Struct {
 // Visit replaces prior state and accepts only trees Pinecone can represent
 // without changing their meaning.
 func (v *visitor) Visit(expr filter.Predicate) error {
-	v.err = nil
 	v.condition = nil
 	v.result = nil
 	v.currentFieldKey = ""
@@ -53,13 +51,6 @@ func (v *visitor) Visit(expr filter.Predicate) error {
 }
 
 func (v *visitor) visit(expr filter.Expr) error {
-	if expr == nil {
-		return errors.New("pinecone: cannot process nil expression")
-	}
-	if v.err != nil {
-		return v.err
-	}
-
 	switch node := expr.(type) {
 	case *filter.BinaryExpr:
 		return v.visitBinaryExpr(node)

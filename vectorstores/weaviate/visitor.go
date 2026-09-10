@@ -56,14 +56,8 @@ func (v *visitor) Visit(expr filter.Predicate) error {
 func (v *visitor) checkDeclaredPaths(expr filter.Expr) error {
 	switch node := expr.(type) {
 	case *filter.UnaryExpr:
-		if node == nil {
-			return nil
-		}
 		return v.checkDeclaredPaths(node.Right())
 	case *filter.BinaryExpr:
-		if node == nil {
-			return nil
-		}
 		if node.Operator().IsLogicalOperator() {
 			if err := v.checkDeclaredPaths(node.Left()); err != nil {
 				return err
@@ -99,20 +93,10 @@ func (v *visitor) snapshot() *filters.WhereBuilder {
 }
 
 func compileFilter(expr filter.Expr) (*filters.WhereBuilder, error) {
-	if expr == nil {
-		return nil, errors.New("weaviate.filter: expression must not be nil")
-	}
-
 	switch node := expr.(type) {
 	case *filter.BinaryExpr:
-		if node == nil {
-			return nil, errors.New("weaviate.filter: binary expression must not be nil")
-		}
 		return compileBinary(node)
 	case *filter.UnaryExpr:
-		if node == nil {
-			return nil, errors.New("weaviate.filter: unary expression must not be nil")
-		}
 		return compileUnary(node)
 	default:
 		return nil, fmt.Errorf("weaviate.filter: expected predicate, got %T", expr)

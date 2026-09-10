@@ -61,7 +61,6 @@ func (c *Compiler) Result() (string, []any) {
 }
 
 func (c *Compiler) Visit(expr filter.Predicate) error {
-	c.err = nil
 	c.sql.Reset()
 	c.args = nil
 	c.err = c.visit(expr)
@@ -69,13 +68,6 @@ func (c *Compiler) Visit(expr filter.Predicate) error {
 }
 
 func (c *Compiler) visit(expr filter.Expr) error {
-	if expr == nil {
-		return errors.New("pgvector: cannot process nil expression")
-	}
-	if c.err != nil {
-		return c.err
-	}
-
 	switch node := expr.(type) {
 	case *filter.BinaryExpr:
 		return node.Dispatch(filter.BinaryHandlers{

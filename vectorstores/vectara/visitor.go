@@ -43,46 +43,29 @@ func (v *visitor) snapshot() string {
 }
 
 func (v *visitor) Visit(expr filter.Predicate) error {
-	v.err = nil
 	v.sql.Reset()
 	v.err = v.visit(expr)
 	return v.err
 }
 
 func (v *visitor) visit(expr filter.Expr) error {
-	if expr == nil {
-		return errors.New("vectara: cannot process nil expression")
-	}
-	if v.err != nil {
-		return v.err
-	}
 	switch node := expr.(type) {
 	case *filter.BinaryExpr:
-		return v.visitBinaryExpr(node)
+		return node.Dispatch(filter.BinaryHandlers{
+			Logical:    v.visitLogicalExpr,
+			Comparison: v.visitComparisonExpr,
+			In:         v.visitInExpr,
+			Has: func(expr *filter.BinaryExpr) error {
+				return fmt.Errorf("vectara: HAS is not supported because Vectara filterable metadata fields are scalar at %s",
+					expr.Start().String())
+			},
+			Like:     v.visitLikeExpr,
+			NullTest: v.visitNullTestExpr,
+		})
 	case *filter.UnaryExpr:
 		return v.visitUnaryExpr(node)
 	default:
 		return fmt.Errorf("vectara: unsupported root expression %T", node)
-	}
-}
-
-func (v *visitor) visitBinaryExpr(expr *filter.BinaryExpr) error {
-	switch {
-	case expr.Operator().IsLogicalOperator():
-		return v.visitLogicalExpr(expr)
-	case expr.Operator().Is(filter.OpIn):
-		return v.visitInExpr(expr)
-	case expr.Operator().Is(filter.OpHas):
-		return fmt.Errorf("vectara: HAS is not supported because Vectara filterable metadata fields are scalar at %s",
-			expr.Start().String())
-	case expr.Operator().Is(filter.OpLike):
-		return v.visitLikeExpr(expr)
-	case expr.Operator().IsNullOperator():
-		return v.visitNullTestExpr(expr)
-	case expr.Operator().IsEqualityOperator() || expr.Operator().IsOrderingOperator():
-		return v.visitComparisonExpr(expr)
-	default:
-		return fmt.Errorf("vectara: unsupported binary operator '%s'", expr.Operator().String())
 	}
 }
 

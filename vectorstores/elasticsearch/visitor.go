@@ -47,20 +47,12 @@ func (v *visitor) snapshot() string {
 }
 
 func (v *visitor) Visit(expr filter.Predicate) error {
-	v.err = nil
 	v.sql.Reset()
 	v.err = v.visit(expr)
 	return v.err
 }
 
 func (v *visitor) visit(expr filter.Expr) error {
-	if expr == nil {
-		return errors.New("elasticsearch: cannot process nil expression")
-	}
-	if v.err != nil {
-		return v.err
-	}
-
 	switch node := expr.(type) {
 	case *filter.BinaryExpr:
 		return node.Dispatch(filter.BinaryHandlers{

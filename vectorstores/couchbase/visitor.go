@@ -45,48 +45,26 @@ func (v *visitor) snapshot() string {
 }
 
 func (v *visitor) Visit(expr filter.Predicate) error {
-	v.err = nil
 	v.sql.Reset()
 	v.err = v.visit(expr)
 	return v.err
 }
 
 func (v *visitor) visit(expr filter.Expr) error {
-	if expr == nil {
-		return errors.New("couchbase: cannot process nil expression")
-	}
-	if v.err != nil {
-		return v.err
-	}
-
 	switch node := expr.(type) {
 	case *filter.BinaryExpr:
-		if node.Operator().IsNullOperator() {
-			return v.visitNullTestExpr(node)
-		}
-		return v.visitBinaryExpr(node)
+		return node.Dispatch(filter.BinaryHandlers{
+			Logical:    v.visitLogicalExpr,
+			Comparison: v.visitComparisonExpr,
+			In:         v.visitInExpr,
+			Has:        v.visitHasExpr,
+			Like:       v.visitLikeExpr,
+			NullTest:   v.visitNullTestExpr,
+		})
 	case *filter.UnaryExpr:
 		return v.visitUnaryExpr(node)
 	default:
 		return fmt.Errorf("couchbase: unsupported root expression %T", node)
-	}
-}
-
-func (v *visitor) visitBinaryExpr(expr *filter.BinaryExpr) error {
-	switch {
-	case expr.Operator().IsLogicalOperator():
-		return v.visitLogicalExpr(expr)
-	case expr.Operator().Is(filter.OpIn):
-		return v.visitInExpr(expr)
-	case expr.Operator().Is(filter.OpHas):
-		return v.visitHasExpr(expr)
-	case expr.Operator().Is(filter.OpLike):
-		return v.visitLikeExpr(expr)
-	case expr.Operator().IsEqualityOperator() || expr.Operator().IsOrderingOperator():
-		return v.visitComparisonExpr(expr)
-	default:
-		return fmt.Errorf("couchbase: unsupported binary operator '%s' at %s",
-			expr.Operator().String(), expr.Start().String())
 	}
 }
 

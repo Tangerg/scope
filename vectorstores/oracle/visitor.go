@@ -46,7 +46,6 @@ func (v *visitor) snapshot() (string, []any) {
 }
 
 func (v *visitor) Visit(expr filter.Predicate) error {
-	v.err = nil
 	v.sql.Reset()
 	v.args = nil
 	v.paramCount = 0
@@ -55,13 +54,6 @@ func (v *visitor) Visit(expr filter.Predicate) error {
 }
 
 func (v *visitor) visit(expr filter.Expr) error {
-	if expr == nil {
-		return errors.New("oracle: cannot process nil expression")
-	}
-	if v.err != nil {
-		return v.err
-	}
-
 	switch node := expr.(type) {
 	case *filter.BinaryExpr:
 		return node.Dispatch(filter.BinaryHandlers{

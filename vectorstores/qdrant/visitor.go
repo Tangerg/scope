@@ -1,7 +1,6 @@
 package qdrant
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/qdrant/go-client/qdrant"
@@ -41,7 +40,6 @@ func (v *visitor) snapshot() *qdrant.Filter {
 // Visit replaces prior state and accepts only trees Qdrant can represent
 // without changing their meaning.
 func (v *visitor) Visit(expr filter.Predicate) error {
-	v.err = nil
 	v.filter = &qdrant.Filter{}
 	v.currentFieldValue = nil
 	v.currentFieldKey = ""
@@ -50,13 +48,6 @@ func (v *visitor) Visit(expr filter.Predicate) error {
 }
 
 func (v *visitor) visit(expr filter.Expr) error {
-	if expr == nil {
-		return errors.New("cannot process nil expression")
-	}
-	if v.err != nil {
-		return v.err
-	}
-
 	switch node := expr.(type) {
 	case *filter.BinaryExpr:
 		return v.visitBinaryExpr(node)

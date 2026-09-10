@@ -42,9 +42,6 @@ func (v *visitor) Visit(expr filter.Predicate) error {
 }
 
 func (v *visitor) translate(expr filter.Expr) (map[string]any, error) {
-	if expr == nil {
-		return nil, errors.New("s3vectors: cannot process nil expression")
-	}
 	switch node := expr.(type) {
 	case *filter.BinaryExpr:
 		return v.translateBinary(node)

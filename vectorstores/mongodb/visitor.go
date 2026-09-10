@@ -56,18 +56,13 @@ func (v *visitor) Visit(expr filter.Predicate) error {
 // untouched. This avoids the stateful "currentField" shuffle the other
 // visitors need.
 func (v *visitor) translate(expr filter.Expr) (map[string]any, error) {
-	if expr == nil {
-		return nil, errors.New("mongodb: cannot process nil expression")
-	}
-
 	switch node := expr.(type) {
 	case *filter.BinaryExpr:
 		return v.translateBinary(node)
 	case *filter.UnaryExpr:
 		return v.translateUnary(node)
 	default:
-		return nil, fmt.Errorf("mongodb: unsupported root expression %T at %s",
-			node, expr.Start().String())
+		return nil, fmt.Errorf("mongodb: unsupported root expression %T", node)
 	}
 }
 

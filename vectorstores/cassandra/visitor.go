@@ -39,7 +39,6 @@ func (v *visitor) snapshot() (string, []any) {
 }
 
 func (v *visitor) Visit(expr filter.Predicate) error {
-	v.err = nil
 	v.sql.Reset()
 	v.args = nil
 	v.err = v.visit(expr)
@@ -47,16 +46,17 @@ func (v *visitor) Visit(expr filter.Predicate) error {
 }
 
 func (v *visitor) visit(expr filter.Expr) error {
-	if expr == nil {
-		return errors.New("cassandra: cannot process nil expression")
-	}
-	if v.err != nil {
-		return v.err
-	}
-
 	switch node := expr.(type) {
 	case *filter.BinaryExpr:
-		return v.visitBinaryExpr(node)
+		return node.Dispatch(filter.BinaryHandlers{
+			Logical:    v.visitLogicalExpr,
+			Comparison: v.visitComparisonExpr,
+			In:         v.visitInExpr,
+			Has: func(expr *filter.BinaryExpr) error {
+				return fmt.Errorf("cassandra: HAS requires a declared collection column type, which this scalar metadata schema does not provide at %s",
+					expr.Start().String())
+			},
+		})
 	case *filter.UnaryExpr:
 		return errors.New("cassandra: NOT is not supported by CQL on metadata columns")
 	default:
@@ -64,30 +64,10 @@ func (v *visitor) visit(expr filter.Expr) error {
 	}
 }
 
-func (v *visitor) visitBinaryExpr(expr *filter.BinaryExpr) error {
-	switch {
-	case expr.Operator().IsLogicalOperator():
-		if expr.Operator().Is(filter.OpOr) {
-			// CQL doesn't support OR on regular columns; SAI indexes
-			// can do it via composite predicates but it's a special
-			// case best handled by the caller.
-			return errors.New("cassandra: OR is not supported in CQL WHERE clauses")
-		}
-		return v.visitAnd(expr)
-	case expr.Operator().Is(filter.OpIn):
-		return v.visitInExpr(expr)
-	case expr.Operator().Is(filter.OpHas):
-		return fmt.Errorf("cassandra: HAS requires a declared collection column type, which this scalar metadata schema does not provide at %s",
-			expr.Start().String())
-	case expr.Operator().IsEqualityOperator() || expr.Operator().IsOrderingOperator():
-		return v.visitComparisonExpr(expr)
-	default:
-		return fmt.Errorf("cassandra: unsupported binary operator '%s' at %s",
-			expr.Operator().String(), expr.Start().String())
+func (v *visitor) visitLogicalExpr(expr *filter.BinaryExpr) error {
+	if expr.Operator().Is(filter.OpOr) {
+		return errors.New("cassandra: OR is not supported in CQL WHERE clauses")
 	}
-}
-
-func (v *visitor) visitAnd(expr *filter.BinaryExpr) error {
 	if err := v.visit(expr.Left()); err != nil {
 		return err
 	}
