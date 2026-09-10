@@ -162,7 +162,7 @@ func TestChildCompletionPreservesSettlementCapacity(t *testing.T) {
 			}
 			if test.wantStatus == StatusFailed {
 				failure, present := result.Termination().Failure()
-				if !present || failure.Code() != "engine.limit.child_wait_signal" {
+				if !present || failure.Kind() != FailureKindExecution || failure.Code() != "engine.limit.child_wait_signal" {
 					t.Fatalf("failure=%+v, present=%t", failure, present)
 				}
 			}

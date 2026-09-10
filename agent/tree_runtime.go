@@ -499,7 +499,11 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 		return
 	}
 	if err := process.finalizePrepared(t.context); err != nil {
-		process.recordFailure(FailureKindContract, "engine.finalize.invalid", err)
+		if errors.Is(err, ErrResourceLimitExceeded) {
+			process.recordFailure(FailureKindExecution, "engine.limit.child_wait_signal", err)
+		} else {
+			process.recordFailure(FailureKindContract, "engine.finalize.invalid", err)
+		}
 		process.terminatePrepared()
 	}
 	t.finishIfTerminal(process)
