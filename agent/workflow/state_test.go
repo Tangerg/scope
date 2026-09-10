@@ -140,10 +140,7 @@ func protocolTestDefinitions(t testing.TB) (*Definition, *Definition) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	budget, err := agent.NewBudget(agent.BudgetConfig{Steps: 8, Effects: 8, Signals: 8})
-	if err != nil {
-		t.Fatal(err)
-	}
+	budget := agent.Budget{Steps: 8, Effects: 8, Signals: 8}
 	call, err := Call(CallConfig{ID: "child", Deployment: child, Budget: budget})
 	if err != nil {
 		t.Fatal(err)

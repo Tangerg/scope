@@ -57,10 +57,7 @@ func newPlanningDelegateRoot(
 	model *planningDelegateModel,
 ) agent.Deployment {
 	t.Helper()
-	budget, err := agent.NewBudget(agent.BudgetConfig{Steps: 32, Effects: 32, Signals: 64})
-	if err != nil {
-		t.Fatal(err)
-	}
+	budget := agent.Budget{Steps: 32, Effects: 32, Signals: 64}
 	delegate, err := interaction.NewDelegate(interaction.DelegateConfig{
 		Name:        "review_with_planning",
 		Description: "Use goal-directed planning to complete one review task.",

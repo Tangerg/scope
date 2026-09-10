@@ -69,10 +69,7 @@ func TestEpisodeBoundaryRejectsUnresolvedDescendantAfterRootSuccess(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		budget, err := agent.NewBudget(agent.BudgetConfig{Steps: 16, Effects: 8, Signals: 16})
-		if err != nil {
-			t.Fatal(err)
-		}
+		budget := agent.Budget{Steps: 16, Effects: 8, Signals: 16}
 		input, err := agent.EncodeInput([]agent.ChildSpec{
 			{Key: workerKey, DeploymentRef: workerBinding.DeploymentRef(), Input: workerInput, Budget: budget},
 			{Key: gateKey, DeploymentRef: gateBinding.DeploymentRef(), Input: gateInput, Budget: budget},

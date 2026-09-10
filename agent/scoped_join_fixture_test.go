@@ -142,9 +142,9 @@ func (s *scopeJoinExecution) Step(_ context.Context, signals []Signal) (Transiti
 func (s *scopeJoinExecution) child(role string) Effect {
 	key, _ := ParseChildKey(role)
 	input, _ := EncodeInput(role)
-	budget, _ := NewBudget(BudgetConfig{Steps: 20, Effects: 20, Signals: 40})
+	budget := Budget{Steps: 20, Effects: 20, Signals: 40}
 	if role == "scope" {
-		budget, _ = NewBudget(BudgetConfig{Steps: 40, Effects: 40, Signals: 80})
+		budget = Budget{Steps: 40, Effects: 40, Signals: 80}
 	}
 	effect, err := StartChild(ChildSpec{
 		Key: key, DeploymentRef: s.definition.reference, Input: input, Budget: budget,

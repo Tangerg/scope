@@ -241,7 +241,7 @@ func (t *treeRuntimeTestExecution) stepRoot(signals []Signal) (Transition, error
 	for _, role := range roles {
 		input, _ := EncodeInput(treeRuntimeTestInput{Role: role})
 		key, _ := ParseChildKey(role)
-		budget, _ := NewBudget(BudgetConfig{Steps: 4, Effects: 4, Signals: 4})
+		budget := Budget{Steps: 4, Effects: 4, Signals: 4}
 		effect, err := StartChild(ChildSpec{
 			Key: key, DeploymentRef: t.definition.reference, Input: input, Budget: budget,
 		})

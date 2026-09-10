@@ -114,6 +114,8 @@ func (u Usage) validFor(limits Limits) bool {
 // allocation is permanently transferred from its parent's remaining budget;
 // unused units are not silently reclaimed or duplicated. Remaining budget
 // excludes the parent's prepared Step and its future settlement Signals.
+// Construct allocations with named fields; child admission and capability
+// constructors validate the complete allocation before it grants authority.
 type Budget struct {
 	// Steps is the maximum committed Step count allocated to the child.
 	Steps uint64 `json:"steps"`
@@ -121,27 +123,6 @@ type Budget struct {
 	Effects uint64 `json:"effects"`
 	// Signals is the maximum accepted Signal count allocated to the child.
 	Signals uint64 `json:"signals"`
-}
-
-// BudgetConfig names each bound so a call site cannot transpose them. Three
-// positional counts of the same type are indistinguishable to the compiler,
-// and a swapped pair produces a Process that runs far longer or dies far
-// sooner than intended.
-type BudgetConfig struct {
-	Steps   uint64
-	Effects uint64
-	Signals uint64
-}
-
-// NewBudget validates the bounds together, because a budget is attenuated when
-// it passes to a child and an unvalidated zero would read as unlimited at
-// exactly the point authority is meant to narrow.
-func NewBudget(config BudgetConfig) (Budget, error) {
-	budget := Budget(config)
-	if !budget.Valid() {
-		return Budget{}, ErrResourceLimitExceeded
-	}
-	return budget, nil
 }
 
 func (b Budget) Valid() bool {

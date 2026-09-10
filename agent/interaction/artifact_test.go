@@ -18,7 +18,7 @@ func TestCompletionValidatorUsesOrderedTypedDelegateArtifacts(t *testing.T) {
 	child := delegateWorkflow(t, "interaction.artifact_worker", func(_ context.Context, input delegateRequest) (delegateResponse, error) {
 		return delegateResponse{Value: "artifact:" + input.Value}, nil
 	})
-	budget, _ := agent.NewBudget(agent.BudgetConfig{Steps: 20, Effects: 20, Signals: 20})
+	budget := agent.Budget{Steps: 20, Effects: 20, Signals: 20}
 	delegate, err := interaction.NewDelegate(interaction.DelegateConfig{
 		Name: "delegate_artifact", Description: "Produce one typed artifact for completion validation.",
 		Deployment: child, Budget: budget,

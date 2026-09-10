@@ -875,7 +875,7 @@ func (c *childTestExecution) startBinaryChildren() (Transition, error) {
 		childInput, _ := EncodeInput(childTestInput{Mode: fmt.Sprintf("binary:%d", depth-1)})
 		key, _ := ParseChildKey(name)
 		spec := childTestSpec(key, c.reference, childInput)
-		spec.Budget, _ = NewBudget(BudgetConfig{Steps: units, Effects: units, Signals: units})
+		spec.Budget = Budget{Steps: units, Effects: units, Signals: units}
 		effect, err := StartChild(spec)
 		if err != nil {
 			return Transition{}, err
@@ -931,11 +931,11 @@ func (c *childTestExecution) startSingleChild() (Transition, error) {
 
 func (c *childTestExecution) configureSingleChild(spec *ChildSpec, recursiveDepth int) {
 	if c.state.Mode == "nested_wait" {
-		spec.Budget, _ = NewBudget(BudgetConfig{Steps: 5, Effects: 5, Signals: 5})
+		spec.Budget = Budget{Steps: 5, Effects: 5, Signals: 5}
 	}
 	if recursiveDepth > 0 {
 		units := uint64(recursiveDepth * 50)
-		spec.Budget, _ = NewBudget(BudgetConfig{Steps: units, Effects: units, Signals: units})
+		spec.Budget = Budget{Steps: units, Effects: units, Signals: units}
 	}
 	switch c.state.Mode {
 	case "capability_child":
@@ -945,7 +945,7 @@ func (c *childTestExecution) configureSingleChild(spec *ChildSpec, recursiveDept
 		capability, _ := ParseCapability("resource.write")
 		spec.Capabilities, _ = NewCapabilitySet(capability)
 	case "budget_escalation":
-		spec.Budget, _ = NewBudget(BudgetConfig{Steps: 20_000, Effects: 20_000, Signals: 20_000})
+		spec.Budget = Budget{Steps: 20_000, Effects: 20_000, Signals: 20_000}
 	}
 }
 
@@ -1102,7 +1102,7 @@ func (c *childTestExecution) completeChildren(signals []Signal, consumedSignals 
 }
 
 func childTestSpec(key ChildKey, deployment DeploymentRef, input Input) ChildSpec {
-	budget, _ := NewBudget(BudgetConfig{Steps: 20, Effects: 20, Signals: 40})
+	budget := Budget{Steps: 20, Effects: 20, Signals: 40}
 	return ChildSpec{
 		Key: key, DeploymentRef: deployment, Input: input, Budget: budget,
 		Capabilities: CapabilitySet{},

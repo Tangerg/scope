@@ -266,11 +266,8 @@ func newIterationDeployment(
 	optimizer agent.Deployment,
 	evaluator agent.Deployment,
 ) (agent.Deployment, error) {
-	workerBudget, err := agent.NewBudget(agent.BudgetConfig{
+	workerBudget := agent.Budget{
 		Steps: workerBudgetSteps, Effects: workerBudgetEffects, Signals: workerBudgetSignals,
-	})
-	if err != nil {
-		return agent.Deployment{}, err
 	}
 	optimize, err := workflow.Call(workflow.CallConfig{
 		ID: "optimize", Deployment: optimizer, Budget: workerBudget,
@@ -322,11 +319,8 @@ func newOptimizationRoot(
 	if err != nil {
 		return agent.Deployment{}, err
 	}
-	iterationBudget, err := agent.NewBudget(agent.BudgetConfig{
+	iterationBudget := agent.Budget{
 		Steps: iterationBudgetSteps, Effects: iterationBudgetEffects, Signals: iterationBudgetSignals,
-	})
-	if err != nil {
-		return agent.Deployment{}, err
 	}
 	refine, err := workflow.Loop(workflow.LoopConfig[optimizationState]{
 		ID: "refine", Body: iteration, Budget: iterationBudget,

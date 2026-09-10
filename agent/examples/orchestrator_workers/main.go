@@ -144,11 +144,8 @@ func newOrchestratorWorkers() (agent.Deployment, deploymentResolver, error) {
 	if err != nil {
 		return agent.Deployment{}, nil, err
 	}
-	budget, err := agent.NewBudget(agent.BudgetConfig{
+	budget := agent.Budget{
 		Steps: workerBudgetSteps, Effects: workerBudgetEffects, Signals: workerBudgetSignals,
-	})
-	if err != nil {
-		return agent.Deployment{}, nil, err
 	}
 
 	renderGoal, err := workflow.Transform("render_goal", interactionInput[orchestrationGoal])

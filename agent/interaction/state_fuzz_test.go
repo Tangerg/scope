@@ -165,7 +165,7 @@ func fuzzInteractionDefinition(f testing.TB) *Definition {
 		f.Fatal(err)
 	}
 	reference := workerDeployment.DeploymentRef()
-	budget, _ := agent.NewBudget(agent.BudgetConfig{Steps: 10, Effects: 10, Signals: 10})
+	budget := agent.Budget{Steps: 10, Effects: 10, Signals: 10}
 	delegate := Delegate{
 		definition: chat.ToolDefinition{
 			Name: "delegate_fuzz", Description: "Delegate one fuzz task to the exact worker.",

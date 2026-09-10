@@ -160,12 +160,9 @@ func newWorkflowPatterns() (agent.Deployment, deploymentResolver, error) {
 	if err != nil {
 		return agent.Deployment{}, nil, err
 	}
-	budget, err := agent.NewBudget(agent.BudgetConfig{
+	budget := agent.Budget{
 		Steps: patternChildBudgetSteps, Effects: patternChildBudgetEffects,
 		Signals: patternChildBudgetSignals,
-	})
-	if err != nil {
-		return agent.Deployment{}, nil, err
 	}
 	stages, err := newPatternStages(children, budget)
 	if err != nil {

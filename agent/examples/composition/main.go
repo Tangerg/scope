@@ -372,12 +372,9 @@ func (c *compositionExecution) startChildren() (agent.Transition, error) {
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	budget, err := agent.NewBudget(agent.BudgetConfig{
+	budget := agent.Budget{
 		Steps: compositionChildBudgetSteps, Effects: compositionChildBudgetEffects,
 		Signals: compositionChildBudgetSignals,
-	})
-	if err != nil {
-		return agent.Transition{}, err
 	}
 	localEffect, err := agent.StartChild(agent.ChildSpec{
 		Key: localKey, DeploymentRef: c.local, Input: localInput, Budget: budget,
