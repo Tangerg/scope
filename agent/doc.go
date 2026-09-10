@@ -171,6 +171,12 @@
 // request order; none selects successful business outcomes or cancels losers.
 // [ChildWaitSatisfied] carries the chosen boundary with the terminal results.
 // Wait registration is nonblocking even when a child already reached its boundary.
+// [SignalChild] and [CancelChild] declare controls over an exact direct child.
+// The tree owner records the recipient change and [ChildControlResult] in one
+// durable Effect settlement. Rejected ownership or mailbox admission is a
+// definite failed receipt. Signals retain their caller-chosen deduplication
+// identity and obey the recipient's safe boundary; cancellation records intent
+// and requires a drained wait to establish resource release.
 //
 // Each strategy declares its own safe consumption boundary and proves it with
 // contract tests.
@@ -285,6 +291,9 @@
 // [github.com/Tangerg/scope/agent/strategy/coordination] composes bounded input
 // gates, absolute deadlines, and first-success competition through the same
 // child and wait contracts.
+// [github.com/Tangerg/scope/agent/strategy/collaboration] runs bounded coordinator
+// turns beside background workers, composes task controls, and waits for drained
+// results before continuing decisions over explicit working state.
 //
 // The messaging package delivers intermediate input through a narrow Host
 // port, retaining the original recipient and Effect-derived Signal identity.

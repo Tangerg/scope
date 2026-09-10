@@ -182,6 +182,8 @@ func (d *Descriptor) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (Descriptor) JSONSchemaAlias() any { return descriptorWire{} }
+
 type descriptorContractWire struct {
 	Name         string          `json:"name"`
 	Description  string          `json:"description"`

@@ -1,6 +1,6 @@
 // Command orchestrator_workers demonstrates model-directed task decomposition,
 // deterministic managed worker fan-out, and model synthesis without a
-// Supervisor Strategy or runtime. It uses local deterministic models and
+// collaboration Strategy. It uses local deterministic models and
 // requires no network access.
 package main
 

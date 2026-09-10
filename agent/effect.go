@@ -167,11 +167,14 @@ const (
 	frameworkEffectWait         frameworkEffectOperation = "wait"
 	frameworkEffectStartChild   frameworkEffectOperation = "start_child"
 	frameworkEffectWaitChildren frameworkEffectOperation = "wait_children"
+	frameworkEffectSignalChild  frameworkEffectOperation = "signal_child"
+	frameworkEffectCancelChild  frameworkEffectOperation = "cancel_child"
 )
 
 func (f frameworkEffectOperation) valid() bool {
 	switch f {
-	case frameworkEffectWait, frameworkEffectStartChild, frameworkEffectWaitChildren:
+	case frameworkEffectWait, frameworkEffectStartChild, frameworkEffectWaitChildren,
+		frameworkEffectSignalChild, frameworkEffectCancelChild:
 		return true
 	default:
 		return false
@@ -220,6 +223,9 @@ func validateFrameworkEffectPayload(payload json.RawMessage) error {
 		return err
 	case frameworkEffectWaitChildren:
 		_, err := decodeChildWaitEffect(payload)
+		return err
+	case frameworkEffectSignalChild, frameworkEffectCancelChild:
+		_, err := decodeChildControlEffect(payload)
 		return err
 	default:
 		return fmt.Errorf("%w: unsupported Framework Effect", ErrInvalidEffect)

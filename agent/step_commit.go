@@ -160,9 +160,9 @@ func (p *preparedStepFinalization) applySettlement(record preparedEffect) error 
 			return p.mailbox.openWait(key, signal, true)
 		case frameworkEffectWaitChildren:
 			return p.openChildWait(record, signal)
-		case frameworkEffectStartChild:
+		case frameworkEffectStartChild, frameworkEffectSignalChild, frameworkEffectCancelChild:
 			if waitID.Valid() {
-				return errors.New("child-start Effect unexpectedly contains a WaitID")
+				return errors.New("child operation unexpectedly contains a WaitID")
 			}
 		default:
 			return errors.New("unsupported prepared framework Effect")

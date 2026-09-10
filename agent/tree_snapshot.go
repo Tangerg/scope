@@ -174,6 +174,9 @@ func validateTreeSnapshot(wire treeSnapshotWire) error {
 	if err := validation.validateChildAccounting(); err != nil {
 		return err
 	}
+	if err := validation.validateChildControls(); err != nil {
+		return err
+	}
 	return validation.validateChildWaits()
 }
 

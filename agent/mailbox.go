@@ -36,7 +36,7 @@ func newSignalRecord(signal Signal, opensWait bool) signalRecord {
 }
 
 func (s signalRecord) sameContent(other signalRecord) bool {
-	return s.id == other.id && s.waitID == other.waitID && s.payloadDigest == other.payloadDigest
+	return s.id == other.id && s.waitID == other.waitID && s.payloadDigest == other.payloadDigest && s.opensWait == other.opensWait
 }
 
 func (s signalRecord) snapshot() signalRecordWire {

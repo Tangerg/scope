@@ -50,3 +50,25 @@ func (s SignalRequest) signal() (Signal, error) {
 	}
 	return newSignal(s.id, s.waitID, s.payload)
 }
+
+func (s SignalRequest) MarshalJSON() ([]byte, error) {
+	signal, err := s.signal()
+	if err != nil {
+		return nil, err
+	}
+	return signal.MarshalJSON()
+}
+
+func (s *SignalRequest) UnmarshalJSON(data []byte) error {
+	if s == nil {
+		return ErrInvalidSignalRequest
+	}
+	var signal Signal
+	if err := signal.UnmarshalJSON(data); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidSignalRequest, err)
+	}
+	*s = SignalRequest(signal)
+	return nil
+}
+
+func (SignalRequest) JSONSchemaAlias() any { return signalWire{} }

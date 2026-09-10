@@ -42,8 +42,11 @@ func (e EffectBoundaryKind) String() string {
 	return string(e)
 }
 
-// EffectBoundary binds an external Effect fact to its prospective tree so a
-// Host cannot acknowledge dispatch or settlement independently of recovery state.
+// EffectBoundary binds an Effect fact to its prospective tree so a Host cannot
+// acknowledge dispatch or settlement independently of recovery state. External
+// dispatch uses a pending permission followed by settlement. Tree-local child
+// controls settle directly, atomically with the recipient's mailbox or intent;
+// they perform no external I/O requiring a pending dispatch permission.
 type EffectBoundary struct {
 	kind               EffectBoundaryKind
 	request            EffectRequest

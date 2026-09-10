@@ -103,6 +103,10 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int, reco
 			t.startChild(process, record, startedAt)
 			return
 		}
+		if err == nil && (operation == frameworkEffectSignalChild || operation == frameworkEffectCancelChild) {
+			t.controlChild(process, uint32(index), record, startedAt)
+			return
+		}
 		if err := record.settleFramework(); err != nil {
 			// Local wait preparation performed no external work.
 			record.revokeDispatch()

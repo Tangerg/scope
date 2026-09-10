@@ -185,9 +185,36 @@ func (p preparedEffect) validateFramework() error {
 		return nil
 	case frameworkEffectWaitChildren:
 		return p.validateWait("child-wait Effect")
+	case frameworkEffectSignalChild, frameworkEffectCancelChild:
+		return p.validateChildControl()
 	default:
 		return errors.New("unsupported framework Effect")
 	}
+}
+
+func (p preparedEffect) validateChildControl() error {
+	if p.WaitID != nil {
+		return ErrInvalidChildControl
+	}
+	if p.Settlement == nil {
+		return nil
+	}
+	request, err := decodeChildControlEffect(p.Effect.Payload())
+	if err != nil {
+		return err
+	}
+	result, err := decodeChildControlResult(p.Settlement.Payload())
+	if err != nil || result.childID != request.ChildID || result.operation != request.Operation {
+		return ErrInvalidChildControl
+	}
+	wantStatus := SettlementStatusSucceeded
+	if result.failure.Valid() {
+		wantStatus = SettlementStatusFailed
+	}
+	if p.Settlement.Status() != wantStatus || !result.Matches(p.Effect) {
+		return ErrInvalidChildControl
+	}
+	return nil
 }
 
 func (p preparedEffect) validateWait(name string) error {
