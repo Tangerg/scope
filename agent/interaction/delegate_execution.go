@@ -1,6 +1,7 @@
 package interaction
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -11,10 +12,13 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-func (e *execution) startDelegateChildren(consumed uint32, calls []chat.ToolCall) (agent.Transition, bool, error) {
-	start := e.state.nextToolCallIndex()
+func (e *execution) startDelegateChildren(ctx context.Context, consumed uint32, calls []chat.ToolCall) (agent.Transition, bool, error) {
+	start := e.state.ToolRound.nextCallIndex()
 	end := start
 	for end < uint32(len(calls)) {
+		if err := ctx.Err(); err != nil {
+			return agent.Transition{}, false, err
+		}
 		if _, delegated := e.definition.delegate(calls[end].Name); !delegated {
 			break
 		}
@@ -24,6 +28,9 @@ func (e *execution) startDelegateChildren(consumed uint32, calls []chat.ToolCall
 		Invocations: make([]childInvocationState, end-start), NextStartIndex: end - start}
 	effects := make([]agent.Effect, 0, len(batch.Invocations))
 	for index := range batch.Invocations {
+		if err := ctx.Err(); err != nil {
+			return agent.Transition{}, false, err
+		}
 		call := calls[start+uint32(index)]
 		delegate, _ := e.definition.delegate(call.Name)
 		arguments := strings.TrimSpace(call.Arguments)
@@ -55,7 +62,7 @@ func (e *execution) startDelegateChildren(consumed uint32, calls []chat.ToolCall
 		batch.Invocations[index].ChildKey = &key
 		effects = append(effects, effect)
 	}
-	e.state.ChildBatch = batch
+	e.state.ToolRound.beginChildren(batch)
 	if len(effects) == 0 {
 		return agent.Transition{}, false, e.finishChildBatch()
 	}
@@ -72,7 +79,7 @@ func (e *execution) acceptDelegateOutcome(index int, call chat.ToolCall, result 
 			diagnostic += ": " + termination.Reason()
 		}
 		toolResult := delegateErrorResult(call, diagnostic)
-		e.state.ChildBatch.Invocations[index].Result = &toolCallResult{Result: &toolResult}
+		e.state.ToolRound.ChildBatch.Invocations[index].Result = &toolCallResult{Result: &toolResult}
 		return nil
 	}
 	output, present := result.Output()
@@ -84,12 +91,12 @@ func (e *execution) acceptDelegateOutcome(index int, call chat.ToolCall, result 
 	if err != nil {
 		return fmt.Errorf("%w: encode Delegate Tool output: %w", ErrInvalidExecutionState, err)
 	}
-	e.state.ChildBatch.Invocations[index].Result = &toolCallResult{Result: &chat.ToolResult{
+	e.state.ToolRound.ChildBatch.Invocations[index].Result = &toolCallResult{Result: &chat.ToolResult{
 		ID: call.ID, Name: call.Name, Output: toolOutput,
 	}}
 	e.state.ArtifactRecords = append(e.state.ArtifactRecords, artifactRecord{
 		ModelCallSequence: e.state.ModelCallCount,
-		ToolCallIndex:     e.state.nextToolCallIndex() + uint32(index),
+		ToolCallIndex:     e.state.ToolRound.nextCallIndex() + uint32(index),
 		ToolCallID:        call.ID, DelegateName: call.Name, Output: output,
 	})
 	return nil

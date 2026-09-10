@@ -70,12 +70,12 @@ func TestRestoreRejectsNonToolCompletionInPendingBatch(t *testing.T) {
 		if err := json.Unmarshal(seed.Payload(), &state); err != nil {
 			t.Fatal(err)
 		}
-		if state.PendingModelResponse == nil {
+		if state.ToolRound == nil {
 			continue
 		}
 		for _, reason := range []chat.FinishReason{chat.FinishReasonStop, chat.FinishReasonLength, chat.FinishReasonContentFilter, chat.FinishReasonRefusal, chat.FinishReasonOther} {
 			t.Run(string(state.Phase)+"/"+reason.String(), func(t *testing.T) {
-				state.PendingModelResponse.Output.FinishReason = reason
+				state.ToolRound.Response.Output.FinishReason = reason
 				payload, err := json.Marshal(state)
 				if err != nil {
 					t.Fatal(err)
@@ -113,10 +113,14 @@ func TestRestoreRequiresOneCompletedResult(t *testing.T) {
 		{name: "no model call", response: response},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			output := &Output{Source: CompletionSourceDirectToolResults, ModelResponse: test.response, DirectToolResults: test.results, ModelCalls: test.calls}
+			if test.response != nil {
+				output.Source = CompletionSourceModelResponse
+			}
 			state, err := encodeState(executionState{
 				Phase: phaseCompleted, ModelCallCount: test.calls,
-				WorkingContext:     &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}},
-				FinalModelResponse: test.response, FinalToolResults: test.results,
+				WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}},
+				FinalOutput:    output,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -198,19 +202,18 @@ func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.Executi
 	states := []executionState{
 		{
 			Phase: phaseAwaitingChildStarts, WorkingContext: request.Clone(), ModelCallCount: 1,
-			PendingModelResponse: response.Clone(),
-			ChildBatch:           &childCallBatch{Kind: childCallsDelegate, NextStartIndex: 1, Invocations: []childInvocationState{{ChildKey: &key}}},
+			ToolRound: &toolCallRound{Response: response.Clone(),
+				ChildBatch: &childCallBatch{Kind: childCallsDelegate, NextStartIndex: 1, Invocations: []childInvocationState{{ChildKey: &key}}}},
 		},
 		{
 			Phase: phaseWaitingChildren, WorkingContext: request.Clone(), ModelCallCount: 1,
-			PendingModelResponse: response.Clone(),
 			PendingSteer: &steerBatch{
 				Messages:  []chat.Message{chat.NewUserMessage(chat.NewTextPart("fuzz steer"))},
 				SignalIDs: []agent.SignalID{steerSignalID},
 			},
-			ChildBatch: &childCallBatch{Kind: childCallsDelegate, NextStartIndex: 1, WaitID: &waitID, Invocations: []childInvocationState{{
+			ToolRound: &toolCallRound{Response: response.Clone(), ChildBatch: &childCallBatch{Kind: childCallsDelegate, NextStartIndex: 1, WaitID: &waitID, Invocations: []childInvocationState{{
 				ChildKey: &key, ProcessID: &processID,
-			}}},
+			}}}},
 		},
 		{
 			Phase: phaseAwaitingModel, WorkingContext: request.Clone(), ModelCallCount: 2,

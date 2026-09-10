@@ -62,25 +62,28 @@ func ActiveDelegateChildrenFromSnapshot(
 	if decodeErr := jsonv2.Unmarshal(stateEnvelope.Payload(), &state, jsonv2.RejectUnknownMembers(true)); decodeErr != nil {
 		return nil, false, fmt.Errorf("%w: decode state: %w", ErrInvalidExecutionState, decodeErr)
 	}
-	if state.ChildBatch == nil {
+	if state.ToolRound == nil || state.ToolRound.ChildBatch == nil {
 		return nil, false, nil
+	}
+	if envelopeErr := state.validateEnvelope(); envelopeErr != nil {
+		return nil, false, envelopeErr
 	}
 	activeCalls, activeErr := state.activeChildCalls()
 	if activeErr != nil {
 		return nil, false, fmt.Errorf("%w: active Delegate children: %w", ErrInvalidExecutionState, activeErr)
 	}
-	if state.ChildBatch.Kind != childCallsDelegate {
+	if state.ToolRound.ChildBatch.Kind != childCallsDelegate {
 		return nil, false, nil
 	}
 	children = make([]ActiveDelegateChild, 0, len(activeCalls))
-	for index, invocation := range state.ChildBatch.Invocations {
+	for index, invocation := range state.ToolRound.ChildBatch.Invocations {
 		if invocation.ProcessID == nil {
 			continue
 		}
 		call := activeCalls[index]
 		child := ActiveDelegateChild{
 			modelCallSequence: state.ModelCallCount,
-			toolCallIndex:     state.nextToolCallIndex() + uint32(index),
+			toolCallIndex:     state.ToolRound.nextCallIndex() + uint32(index),
 			toolCall:          call,
 			childKey:          *invocation.ChildKey,
 			processID:         *invocation.ProcessID,

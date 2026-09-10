@@ -1,6 +1,7 @@
 package interaction
 
 import (
+	"context"
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -10,7 +11,7 @@ import (
 func (e *execution) childBindings(calls []chat.ToolCall) ([]agent.DeploymentRef, error) {
 	bindings := make([]agent.DeploymentRef, len(calls))
 	for index, call := range calls {
-		if e.state.ChildBatch.Kind == childCallsTool {
+		if e.state.ToolRound.ChildBatch.Kind == childCallsTool {
 			bindings[index] = e.definition.tools.deploymentRef
 			continue
 		}
@@ -23,7 +24,7 @@ func (e *execution) childBindings(calls []chat.ToolCall) ([]agent.DeploymentRef,
 	return bindings, nil
 }
 
-func (e *execution) acceptChildStarts(signals []agent.Signal) (agent.Transition, error) {
+func (e *execution) acceptChildStarts(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	starts, steer, consumed, err := collectChildStarts(signals)
 	if err != nil {
 		return agent.Transition{}, err
@@ -31,7 +32,7 @@ func (e *execution) acceptChildStarts(signals []agent.Signal) (agent.Transition,
 	if steerErr := e.addSteer(steer); steerErr != nil {
 		return agent.Transition{}, steerErr
 	}
-	calls, err := e.activeCallSegment()
+	calls, err := e.state.ToolRound.activeCalls()
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -39,12 +40,15 @@ func (e *execution) acceptChildStarts(signals []agent.Signal) (agent.Transition,
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	batch := e.state.ChildBatch
+	batch := e.state.ToolRound.ChildBatch
 	indices, err := batch.acceptStarts(starts, bindings)
 	if err != nil {
 		return agent.Transition{}, err
 	}
 	for offset, index := range indices {
+		if err := ctx.Err(); err != nil {
+			return agent.Transition{}, err
+		}
 		failure, failed := starts[offset].Failure()
 		if !failed {
 			continue
@@ -59,13 +63,13 @@ func (e *execution) acceptChildStarts(signals []agent.Signal) (agent.Transition,
 		if err := e.finishChildBatch(); err != nil {
 			return agent.Transition{}, err
 		}
-		return e.advanceToolCallBatch(consumed)
+		return e.advanceToolCallBatch(ctx, consumed)
 	}
 	return e.waitForChildren(consumed)
 }
 
 func (e *execution) waitForChildren(consumed uint32) (agent.Transition, error) {
-	spec, err := e.state.ChildBatch.waitSpec(e.state.ModelCallCount, e.state.nextToolCallIndex())
+	spec, err := e.state.ToolRound.ChildBatch.waitSpec(e.state.ModelCallCount, e.state.ToolRound.nextCallIndex())
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -85,18 +89,18 @@ func (e *execution) acceptChildWaitOpen(signals []agent.Signal) (agent.Transitio
 	if steerErr := e.addSteer(steer); steerErr != nil {
 		return agent.Transition{}, steerErr
 	}
-	want, err := e.state.ChildBatch.waitSpec(e.state.ModelCallCount, e.state.nextToolCallIndex())
+	want, err := e.state.ToolRound.ChildBatch.waitSpec(e.state.ModelCallCount, e.state.ToolRound.nextCallIndex())
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if err := e.state.ChildBatch.acceptWaitOpened(opened, want); err != nil {
+	if err := e.state.ToolRound.ChildBatch.acceptWaitOpened(opened, want); err != nil {
 		return agent.Transition{}, err
 	}
 	e.state.Phase = phaseWaitingChildren
 	return agent.Wait(consumed, opened.WaitID())
 }
 
-func (e *execution) acceptChildCompletions(signals []agent.Signal) (agent.Transition, error) {
+func (e *execution) acceptChildCompletions(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	completed, steer, consumed, err := collectChildWaitSatisfied(signals)
 	if err != nil {
 		return agent.Transition{}, err
@@ -104,12 +108,12 @@ func (e *execution) acceptChildCompletions(signals []agent.Signal) (agent.Transi
 	if steerErr := e.addSteer(steer); steerErr != nil {
 		return agent.Transition{}, steerErr
 	}
-	calls, err := e.activeCallSegment()
+	calls, err := e.state.ToolRound.activeCalls()
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	batch := e.state.ChildBatch
-	want, err := batch.waitSpec(e.state.ModelCallCount, e.state.nextToolCallIndex())
+	batch := e.state.ToolRound.ChildBatch
+	want, err := batch.waitSpec(e.state.ModelCallCount, e.state.ToolRound.nextCallIndex())
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -118,6 +122,9 @@ func (e *execution) acceptChildCompletions(signals []agent.Signal) (agent.Transi
 		return agent.Transition{}, err
 	}
 	for offset, outcome := range completed.Outcomes() {
+		if err := ctx.Err(); err != nil {
+			return agent.Transition{}, err
+		}
 		index := indices[offset]
 		result := outcome.Result()
 		if batch.Kind == childCallsDelegate {
@@ -144,27 +151,19 @@ func (e *execution) acceptChildCompletions(signals []agent.Signal) (agent.Transi
 	}
 	batch.WaitID = nil
 	if batch.Kind == childCallsTool {
-		return e.scheduleToolChildren(consumed)
+		return e.scheduleToolChildren(ctx, consumed)
 	}
 	if err := e.finishChildBatch(); err != nil {
 		return agent.Transition{}, err
 	}
-	return e.advanceToolCallBatch(consumed)
+	return e.advanceToolCallBatch(ctx, consumed)
 }
 
 func (e *execution) finishChildBatch() error {
-	for _, invocation := range e.state.ChildBatch.Invocations {
-		if invocation.Result == nil || invocation.Result.Result == nil {
-			return ErrInvalidExecutionState
-		}
-		e.state.SettledToolResults = append(e.state.SettledToolResults, invocation.Result.Result.Clone())
-		names, err := mergeAdvertisedToolNames(e.state.AdvertisedToolNames, invocation.Result.AdvertisedToolNames)
-		if err != nil {
-			return err
-		}
-		e.state.AdvertisedToolNames = names
-		e.state.DirectToolResultEligible = e.state.DirectToolResultEligible && invocation.Result.Direct
+	names, err := e.state.ToolRound.finishChildren(e.state.AdvertisedToolNames)
+	if err != nil {
+		return err
 	}
-	e.state.ChildBatch = nil
+	e.state.AdvertisedToolNames = names
 	return nil
 }

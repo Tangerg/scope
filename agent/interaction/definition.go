@@ -159,7 +159,8 @@ func (d *Definition) Start(input agent.Input) (agent.Execution, error) {
 	}, nil
 }
 
-// Restore recreates an Interaction solely from its opaque state.
+// Restore recreates an Interaction solely from its opaque state. It accepts
+// the current Interaction state schema and rejects unknown fields.
 func (d *Definition) Restore(state agent.ExecutionState) (agent.Execution, error) {
 	if !d.valid() {
 		return nil, ErrInvalidDefinitionConfig

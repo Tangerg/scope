@@ -139,11 +139,11 @@ func pendingSteerTestState(t testing.TB) executionState {
 		WorkingContext: &chat.Request{Messages: []chat.Message{
 			chat.NewUserMessage(chat.NewTextPart("initial")),
 		}},
-		ModelCallCount:       1,
-		PendingModelResponse: response,
-		ChildBatch: &childCallBatch{Kind: childCallsDelegate, NextStartIndex: 1, WaitID: &waitID, Invocations: []childInvocationState{{
-			ChildKey: &key, ProcessID: &childID,
-		}}},
+		ModelCallCount: 1,
+		ToolRound: &toolCallRound{Response: response,
+			ChildBatch: &childCallBatch{Kind: childCallsDelegate, NextStartIndex: 1, WaitID: &waitID, Invocations: []childInvocationState{{
+				ChildKey: &key, ProcessID: &childID,
+			}}}},
 		PendingSteer: &steerBatch{
 			Messages: []chat.Message{
 				chat.NewUserMessage(chat.NewTextPart("first steer")),

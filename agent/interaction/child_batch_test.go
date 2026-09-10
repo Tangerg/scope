@@ -20,8 +20,8 @@ func TestChildBatchRequiresDrainedWaitBoundaries(t *testing.T) {
 			for _, boundary := range []agent.ChildWaitBoundary{agent.ChildWaitBoundaryResult, agent.ChildWaitBoundaryDrained} {
 				t.Run(string(kind)+"/"+string(stage)+"/"+boundary.String(), func(t *testing.T) {
 					execution := childBatchTestExecution(t, kind, stage)
-					batch := execution.state.ChildBatch
-					want, err := batch.waitSpec(execution.state.ModelCallCount, execution.state.nextToolCallIndex())
+					batch := execution.state.ToolRound.ChildBatch
+					want, err := batch.waitSpec(execution.state.ModelCallCount, execution.state.ToolRound.nextCallIndex())
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -75,7 +75,7 @@ func TestChildBatchRequiresDrainedWaitBoundaries(t *testing.T) {
 						if got, waiting := transition.WaitID(); !waiting || got != waitID {
 							t.Fatal("wait opening lost the Engine wait identity")
 						}
-					} else if execution.state.ChildBatch != nil || execution.state.Phase != phaseAwaitingModel {
+					} else if execution.state.ToolRound != nil || execution.state.Phase != phaseAwaitingModel {
 						t.Fatal("settled child batch did not continue the model loop")
 					}
 					captured, err := execution.Snapshot()
@@ -98,7 +98,7 @@ func TestChildBatchRestoreRejectsUnknownMembers(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, marker := range []string{`"child_batch":{`, `"invocations":[{`} {
+		for _, marker := range []string{`"tool_round":{`, `"child_batch":{`, `"invocations":[{`} {
 			t.Run(string(kind)+"/"+marker, func(t *testing.T) {
 				payload := strings.Replace(string(captured.Payload()), marker, marker+`"unexpected":true,`, 1)
 				if payload == string(captured.Payload()) {
@@ -120,13 +120,13 @@ func TestChildBatchRestoreRequiresDeclaredBinding(t *testing.T) {
 	for _, kind := range []childCallKind{childCallsTool, childCallsDelegate} {
 		t.Run(string(kind), func(t *testing.T) {
 			execution := childBatchTestExecution(t, kind, phaseWaitingChildren)
-			call := execution.state.PendingModelResponse.Output.Message.Parts[0].ToolCall
+			call := execution.state.ToolRound.Response.Output.Message.Parts[0].ToolCall
 			call.Name = "unavailable"
-			key, err := execution.state.ChildBatch.childKey(execution.state.ModelCallCount, *call)
+			key, err := execution.state.ToolRound.ChildBatch.childKey(execution.state.ModelCallCount, *call)
 			if err != nil {
 				t.Fatal(err)
 			}
-			execution.state.ChildBatch.Invocations[0].ChildKey = &key
+			execution.state.ToolRound.ChildBatch.Invocations[0].ChildKey = &key
 			captured, err := encodeState(execution.state)
 			if err != nil {
 				t.Fatal(err)
@@ -183,9 +183,9 @@ func childBatchTestExecution(t testing.TB, kind childCallKind, stage phase) *exe
 	}
 	state := executionState{
 		Phase: stage, ModelCallCount: 1,
-		WorkingContext:           &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}},
-		PendingModelResponse:     &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonToolCalls}},
-		DirectToolResultEligible: kind == childCallsTool, ChildBatch: batch,
+		WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}},
+		ToolRound: &toolCallRound{Response: &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonToolCalls}},
+			DirectResultEligible: kind == childCallsTool, ChildBatch: batch},
 	}
 	captured, err := encodeState(state)
 	if err != nil {

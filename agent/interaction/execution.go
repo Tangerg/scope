@@ -21,9 +21,12 @@ type execution struct {
 
 // Step advances exactly one pure Interaction boundary. Model and tool I/O are
 // represented as dispatcher Effects and therefore never occur in this method.
-func (e *execution) Step(_ context.Context, signals []agent.Signal) (agent.Transition, error) {
+func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if e == nil || !e.definition.valid() {
 		return agent.Transition{}, ErrInvalidExecutionState
+	}
+	if err := ctx.Err(); err != nil {
+		return agent.Transition{}, err
 	}
 	if err := e.state.Validate(e.definition); err != nil {
 		return agent.Transition{}, err
@@ -43,13 +46,13 @@ func (e *execution) Step(_ context.Context, signals []agent.Signal) (agent.Trans
 		}
 		return e.requestModel(consumedSignals, appliedSteerSignalIDs)
 	case phaseAwaitingModel:
-		return e.acceptModel(signals)
+		return e.acceptModel(ctx, signals)
 	case phaseAwaitingChildStarts:
-		return e.acceptChildStarts(signals)
+		return e.acceptChildStarts(ctx, signals)
 	case phaseAwaitingChildWaitOpen:
 		return e.acceptChildWaitOpen(signals)
 	case phaseWaitingChildren:
-		return e.acceptChildCompletions(signals)
+		return e.acceptChildCompletions(ctx, signals)
 	case phaseCompleted:
 		return agent.Transition{}, fmt.Errorf("%w: completed execution cannot advance", ErrInvalidExecutionState)
 	default:
@@ -103,7 +106,7 @@ func (e *execution) requestModel(
 	return agent.Continue(consumedSignals, effect)
 }
 
-func (e *execution) acceptModel(signals []agent.Signal) (agent.Transition, error) {
+func (e *execution) acceptModel(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	envelope, steer, consumedSignals, err := collectExpectedSignal(signals, operationModelCall)
 	if err != nil {
 		return agent.Transition{}, err
@@ -153,13 +156,11 @@ func (e *execution) acceptModel(signals []agent.Signal) (agent.Transition, error
 		return e.acceptFinalModelResponse(consumedSignals, response)
 	}
 	if response.Output.FinishReason == chat.FinishReasonLength {
-		return e.rejectTruncatedToolCalls(consumedSignals, response, calls)
+		return e.rejectTruncatedToolCalls(ctx, consumedSignals, response, calls)
 	}
 
-	e.state.PendingModelResponse = response
-	e.state.SettledToolResults = nil
-	e.state.DirectToolResultEligible = true
-	return e.advanceToolCallBatch(consumedSignals)
+	e.state.ToolRound = &toolCallRound{Response: response, DirectResultEligible: true}
+	return e.advanceToolCallBatch(ctx, consumedSignals)
 }
 
 func (e *execution) acceptFinalModelResponse(
@@ -192,6 +193,7 @@ func (e *execution) acceptFinalModelResponse(
 }
 
 func (e *execution) rejectTruncatedToolCalls(
+	ctx context.Context,
 	consumedSignals uint32,
 	response *chat.Response,
 	calls []chat.ToolCall,
@@ -201,6 +203,9 @@ func (e *execution) rejectTruncatedToolCalls(
 	}
 	results := make([]chat.ToolResult, len(calls))
 	for index := range calls {
+		if err := ctx.Err(); err != nil {
+			return agent.Transition{}, err
+		}
 		call := calls[index]
 		results[index] = chat.ToolResult{
 			ID: call.ID, Name: call.Name, IsError: true,
@@ -236,11 +241,7 @@ func (e *execution) complete(consumedSignals uint32, output Output) (agent.Trans
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	e.state.Phase = phaseCompleted
-	e.clearToolCallBatch()
-	e.state.PendingSteer = nil
-	e.state.FinalModelResponse = output.ModelResponse
-	e.state.FinalToolResults = output.DirectToolResults
+	e.state.complete(output)
 	return agent.Complete(consumedSignals, encoded)
 }
 
@@ -288,25 +289,27 @@ func (e *execution) finishOrRetry(
 		return agent.Transition{}, fmt.Errorf("%w: completion retry request: %w", ErrInvalidExecutionState, err)
 	}
 	e.state.WorkingContext = request
-	e.clearToolCallBatch()
+	e.state.ToolRound = nil
 	e.state.PendingSteer = nil
 	e.state.Phase = phaseReadyModel
 	return e.requestModel(consumedSignals, nil)
 }
 
-func (e *execution) advanceToolCallBatch(consumedSignals uint32) (agent.Transition, error) {
+func (e *execution) advanceToolCallBatch(ctx context.Context, consumedSignals uint32) (agent.Transition, error) {
 	for {
-		calls, assistant, err := responseToolCalls(e.state.PendingModelResponse)
+		if err := ctx.Err(); err != nil {
+			return agent.Transition{}, err
+		}
+		calls, assistant, err := responseToolCalls(e.state.ToolRound.Response)
 		if err != nil || uint64(len(calls)) > uint64(^uint32(0)) ||
-			uint64(e.state.nextToolCallIndex()) > uint64(len(calls)) {
+			uint64(e.state.ToolRound.nextCallIndex()) > uint64(len(calls)) {
 			return agent.Transition{}, fmt.Errorf("%w: invalid pending ToolCall batch", ErrInvalidExecutionState)
 		}
-		if e.state.nextToolCallIndex() == uint32(len(calls)) {
+		if e.state.ToolRound.nextCallIndex() == uint32(len(calls)) {
 			return e.finishToolCallBatch(consumedSignals, assistant)
 		}
-		if _, delegated := e.definition.delegate(calls[e.state.nextToolCallIndex()].Name); delegated {
-			e.state.DirectToolResultEligible = false
-			transition, started, startErr := e.startDelegateChildren(consumedSignals, calls)
+		if _, delegated := e.definition.delegate(calls[e.state.ToolRound.nextCallIndex()].Name); delegated {
+			transition, started, startErr := e.startDelegateChildren(ctx, consumedSignals, calls)
 			if startErr != nil {
 				return agent.Transition{}, startErr
 			}
@@ -315,7 +318,7 @@ func (e *execution) advanceToolCallBatch(consumedSignals uint32) (agent.Transiti
 			}
 			continue
 		}
-		transition, started, err := e.startToolChildren(consumedSignals, calls)
+		transition, started, err := e.startToolChildren(ctx, consumedSignals, calls)
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -329,10 +332,10 @@ func (e *execution) finishToolCallBatch(
 	consumedSignals uint32,
 	assistant *chat.Message,
 ) (agent.Transition, error) {
-	results := cloneToolResults(e.state.SettledToolResults)
+	results := cloneToolResults(e.state.ToolRound.Results)
 	completionContext := []chat.Message{assistant.Clone(), chat.NewToolMessage(results...)}
-	direct := e.state.DirectToolResultEligible && e.state.PendingSteer == nil
-	e.clearToolCallBatch()
+	direct := e.state.ToolRound.DirectResultEligible && e.state.PendingSteer == nil
+	e.state.ToolRound = nil
 	e.state.Phase = phaseReadyModel
 	if direct {
 		return e.finishOrRetry(consumedSignals, Output{
@@ -352,26 +355,6 @@ func (e *execution) finishToolCallBatch(
 		return agent.Transition{}, fmt.Errorf("%w: continuation request: %w", ErrInvalidExecutionState, err)
 	}
 	return e.requestModel(consumedSignals, appliedSteerSignalIDs)
-}
-
-func (e *execution) activeCallSegment() ([]chat.ToolCall, error) {
-	calls, _, err := responseToolCalls(e.state.PendingModelResponse)
-	if err != nil || e.state.ChildBatch == nil || len(e.state.ChildBatch.Invocations) == 0 {
-		return nil, fmt.Errorf("%w: invalid active ToolCall segment", ErrInvalidExecutionState)
-	}
-	start := uint64(e.state.nextToolCallIndex())
-	end := start + uint64(len(e.state.ChildBatch.Invocations))
-	if end > uint64(len(calls)) {
-		return nil, fmt.Errorf("%w: invalid active ToolCall segment", ErrInvalidExecutionState)
-	}
-	return calls[start:end], nil
-}
-
-func (e *execution) clearToolCallBatch() {
-	e.state.PendingModelResponse = nil
-	e.state.SettledToolResults = nil
-	e.state.DirectToolResultEligible = false
-	e.state.ChildBatch = nil
 }
 
 func (e *execution) addSteer(batch steerBatch) error {
@@ -487,18 +470,6 @@ func sameInputRequest(left, right ToolInputRequest) bool {
 	return string(left.Prompt()) == string(right.Prompt()) &&
 		string(left.ResponseSchema()) == string(right.ResponseSchema()) &&
 		string(left.ContinuationState()) == string(right.ContinuationState())
-}
-
-func validateToolResults(calls []chat.ToolCall, results []chat.ToolResult) error {
-	if len(results) != len(calls) {
-		return fmt.Errorf("%w: %d tool results do not match %d calls", ErrInvalidExecutionState, len(results), len(calls))
-	}
-	for index := range calls {
-		if results[index].ID != calls[index].ID || results[index].Name != calls[index].Name {
-			return fmt.Errorf("%w: tool result %d does not match call %q", ErrInvalidExecutionState, index, calls[index].ID)
-		}
-	}
-	return nil
 }
 
 func (e *execution) fail(
