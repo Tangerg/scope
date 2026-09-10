@@ -1,20 +1,21 @@
-package etl_test
+package text_test
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/etl"
+	"github.com/Tangerg/scope/etl/text"
 )
 
-func TestTextFileWriterDefaultsToTextAndSupportsAppend(t *testing.T) {
+func TestFileWriterDefaultsToTextAndSupportsAppend(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "documents.txt")
-	first, err := etl.NewTextFileWriter(etl.TextFileWriterConfig{Path: path})
+	first, err := text.NewFileWriter(text.FileWriterConfig{Path: path})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +24,7 @@ func TestTextFileWriterDefaultsToTextAndSupportsAppend(t *testing.T) {
 		t.Fatal(writeErr)
 	}
 
-	second, err := etl.NewTextFileWriter(etl.TextFileWriterConfig{
+	second, err := text.NewFileWriter(text.FileWriterConfig{
 		Path: path, Append: true, DocumentMarkers: true,
 	})
 	if err != nil {
@@ -38,21 +39,51 @@ func TestTextFileWriterDefaultsToTextAndSupportsAppend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(data)
-	if !strings.HasPrefix(text, "first\n\n") || !strings.Contains(text, "### Index: 0\nsecond\n\n") {
-		t.Fatalf("file contents = %q", text)
+	contents := string(data)
+	if contents != "first\n\n### Index: 0\nsecond\n\n" {
+		t.Fatalf("file contents = %q", contents)
 	}
 }
 
-func TestTextFileWriterRequiresPath(t *testing.T) {
-	if _, err := etl.NewTextFileWriter(etl.TextFileWriterConfig{}); err == nil {
+func ExampleFileWriter() {
+	directory, err := os.MkdirTemp("", "scope-text-example-")
+	if err != nil {
+		panic(err)
+	}
+	defer func() {
+		if cleanupErr := os.RemoveAll(directory); cleanupErr != nil {
+			panic(cleanupErr)
+		}
+	}()
+	path := filepath.Join(directory, "documents.txt")
+	writer, err := text.NewFileWriter(text.FileWriterConfig{Path: path})
+	if err != nil {
+		panic(err)
+	}
+	doc, err := document.NewDocument("Retrieved evidence.", nil)
+	if err != nil {
+		panic(err)
+	}
+	if writeErr := writer.Write(context.Background(), []*document.Document{doc}); writeErr != nil {
+		panic(writeErr)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Print(string(contents))
+	// Output: Retrieved evidence.
+}
+
+func TestFileWriterRequiresPath(t *testing.T) {
+	if _, err := text.NewFileWriter(text.FileWriterConfig{}); err == nil {
 		t.Fatal("expected missing path error")
 	}
 }
 
-func TestTextFileWriterRejectsTypedNilFormatter(t *testing.T) {
+func TestFileWriterRejectsTypedNilFormatter(t *testing.T) {
 	var formatter *etl.SimpleFormatter
-	if _, err := etl.NewTextFileWriter(etl.TextFileWriterConfig{
+	if _, err := text.NewFileWriter(text.FileWriterConfig{
 		Path:      filepath.Join(t.TempDir(), "documents.txt"),
 		Formatter: formatter,
 	}); err == nil {
@@ -60,9 +91,9 @@ func TestTextFileWriterRejectsTypedNilFormatter(t *testing.T) {
 	}
 }
 
-func TestTextFileWriterHonorsCanceledContextBeforeOpening(t *testing.T) {
+func TestFileWriterHonorsCanceledContextBeforeOpening(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "documents.txt")
-	writer, err := etl.NewTextFileWriter(etl.TextFileWriterConfig{Path: path})
+	writer, err := text.NewFileWriter(text.FileWriterConfig{Path: path})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,13 +107,13 @@ func TestTextFileWriterHonorsCanceledContextBeforeOpening(t *testing.T) {
 	}
 }
 
-func TestTextFileWriterPreservesExistingFileOnRenderFailure(t *testing.T) {
+func TestFileWriterPreservesExistingFileOnRenderFailure(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "documents.txt")
 	if err := os.WriteFile(path, []byte("existing"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	want := errors.New("format failed")
-	writer, err := etl.NewTextFileWriter(etl.TextFileWriterConfig{
+	writer, err := text.NewFileWriter(text.FileWriterConfig{
 		Path: path,
 		Formatter: etl.FormatterFunc(func(*document.Document) (string, error) {
 			return "", want

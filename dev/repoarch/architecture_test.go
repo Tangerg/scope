@@ -207,6 +207,32 @@ func TestCoreModulePreservesDependencyDirection(t *testing.T) {
 	}
 }
 
+func TestETLFilesystemAdaptersStayOutsideRoot(t *testing.T) {
+	t.Parallel()
+	paths, err := filepath.Glob(filepath.Join(repositoryRoot(t), "etl", "*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, imported := range file.Imports {
+			importPath, err := strconv.Unquote(imported.Path.Value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if importPath == "os" {
+				t.Errorf("%s imports os; filesystem lifecycles belong in ETL format adapters", path)
+			}
+		}
+	}
+}
+
 func TestDomainCapabilityModulesDoNotOwnOpenTelemetry(t *testing.T) {
 	t.Parallel()
 	root := repositoryRoot(t)

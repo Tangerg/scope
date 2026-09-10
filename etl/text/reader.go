@@ -1,4 +1,4 @@
-// Package text reads plain text into documents.
+// Package text reads plain text into documents and writes documents to text files.
 package text
 
 import (

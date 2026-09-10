@@ -1,4 +1,4 @@
-package etl
+package text
 
 import (
 	"bufio"
@@ -13,15 +13,16 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/document"
+	"github.com/Tangerg/scope/etl"
 )
 
 // New text files carry no executable bits; the process umask narrows the
 // remaining permissions for the caller's environment.
 const createdTextFileMode os.FileMode = 0o666
 
-// TextFileWriterConfig fixes the output authority and filename policy at
+// FileWriterConfig fixes the output authority and filename policy at
 // construction time.
-type TextFileWriterConfig struct {
+type FileWriterConfig struct {
 	// Path is required. Existing files are replaced unless Append is true.
 	Path string
 	// DocumentMarkers adds an index header before each document.
@@ -29,40 +30,40 @@ type TextFileWriterConfig struct {
 	// Append preserves existing file contents.
 	Append bool
 	// Formatter renders each document. Nil writes document text only.
-	Formatter Formatter
+	Formatter etl.Formatter
 }
 
-// TextFileWriter persists documents as plain text. It honors Append,
+// FileWriter persists documents as plain text. It honors Append,
 // optionally injects document-marker headers, and calls [*os.File].Sync
 // before returning so callers can rely on durability when the call
 // completes.
 //
 // Example:
 //
-//	w, err := etl.NewTextFileWriter(etl.TextFileWriterConfig{
+//	w, err := text.NewFileWriter(text.FileWriterConfig{
 //	    Path:            "out.txt",
 //	    DocumentMarkers: true,
 //	})
 //	err = w.Write(ctx, docs)
-type TextFileWriter struct {
+type FileWriter struct {
 	path            string
 	documentMarkers bool
 	append          bool
-	formatter       Formatter
+	formatter       etl.Formatter
 }
 
-// NewTextFileWriter validates its filesystem boundary before accepting
+// NewFileWriter validates its filesystem boundary before accepting
 // documents.
-func NewTextFileWriter(config TextFileWriterConfig) (*TextFileWriter, error) {
+func NewFileWriter(config FileWriterConfig) (*FileWriter, error) {
 	if config.Path == "" {
 		return nil, errors.New("etl: output path is required")
 	}
 	if config.Formatter == nil {
-		config.Formatter = TextFormatter{}
+		config.Formatter = etl.TextFormatter{}
 	} else if lo.IsNil(config.Formatter) {
 		return nil, errors.New("etl: formatter must not be a typed nil")
 	}
-	return &TextFileWriter{
+	return &FileWriter{
 		path:            config.Path,
 		documentMarkers: config.DocumentMarkers,
 		append:          config.Append,
@@ -74,59 +75,59 @@ func NewTextFileWriter(config TextFileWriterConfig) (*TextFileWriter, error) {
 // so document or formatting failures leave an existing file untouched. Once
 // the destination is opened, the prepared payload is committed even if ctx is
 // subsequently canceled. Close errors are joined with earlier I/O failures.
-func (t *TextFileWriter) Write(ctx context.Context, docs []*document.Document) (err error) {
-	payload, err := t.render(ctx, docs)
+func (f *FileWriter) Write(ctx context.Context, docs []*document.Document) (err error) {
+	payload, err := f.render(ctx, docs)
 	if err != nil {
 		return err
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
 	}
-	file, err := os.OpenFile(t.path, t.openFlags(), createdTextFileMode)
+	file, err := os.OpenFile(f.path, f.openFlags(), createdTextFileMode)
 	if err != nil {
-		return fmt.Errorf("etl: open output %q: %w", t.path, err)
+		return fmt.Errorf("etl: open output %q: %w", f.path, err)
 	}
 	defer func() {
 		if closeErr := file.Close(); closeErr != nil {
-			err = errors.Join(err, fmt.Errorf("etl: close output %q: %w", t.path, closeErr))
+			err = errors.Join(err, fmt.Errorf("etl: close output %q: %w", f.path, closeErr))
 		}
 	}()
 
-	if writeErr := t.write(payload, file); writeErr != nil {
-		return fmt.Errorf("etl: write output %q: %w", t.path, writeErr)
+	if writeErr := f.write(payload, file); writeErr != nil {
+		return fmt.Errorf("etl: write output %q: %w", f.path, writeErr)
 	}
 	return nil
 }
 
-func (t *TextFileWriter) openFlags() int {
-	if t.append {
+func (f *FileWriter) openFlags() int {
+	if f.append {
 		return os.O_CREATE | os.O_WRONLY | os.O_APPEND
 	}
 	return os.O_CREATE | os.O_WRONLY | os.O_TRUNC
 }
 
-func (t *TextFileWriter) render(ctx context.Context, docs []*document.Document) (string, error) {
+func (f *FileWriter) render(ctx context.Context, docs []*document.Document) (string, error) {
 	var payload strings.Builder
 	for i, doc := range docs {
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
 		if doc == nil {
-			return "", fmt.Errorf("etl: render output %q: document %d: %w", t.path, i, ErrNilDocument)
+			return "", fmt.Errorf("etl: render output %q: document %d: %w", f.path, i, etl.ErrNilDocument)
 		}
 		if err := doc.Validate(); err != nil {
-			return "", fmt.Errorf("etl: render output %q: validate document %d: %w", t.path, i, err)
+			return "", fmt.Errorf("etl: render output %q: validate document %d: %w", f.path, i, err)
 		}
-		rendered, err := t.renderDocument(i, doc)
+		rendered, err := f.renderDocument(i, doc)
 		if err != nil {
-			return "", fmt.Errorf("etl: render output %q: document %d: %w", t.path, i, err)
+			return "", fmt.Errorf("etl: render output %q: document %d: %w", f.path, i, err)
 		}
 		payload.WriteString(rendered)
 	}
 	return payload.String(), nil
 }
 
-func (*TextFileWriter) write(payload string, file *os.File) error {
+func (*FileWriter) write(payload string, file *os.File) error {
 	buffered := bufio.NewWriter(file)
 	if _, err := io.WriteString(buffered, payload); err != nil {
 		return err
@@ -137,16 +138,16 @@ func (*TextFileWriter) write(payload string, file *os.File) error {
 	return file.Sync()
 }
 
-func (t *TextFileWriter) renderDocument(index int, doc *document.Document) (string, error) {
+func (f *FileWriter) renderDocument(index int, doc *document.Document) (string, error) {
 	var buf strings.Builder
 
-	if t.documentMarkers {
+	if f.documentMarkers {
 		buf.WriteString("### Index: ")
 		buf.WriteString(strconv.Itoa(index))
 		buf.WriteString("\n")
 	}
 
-	rendered, err := t.formatter.Format(doc)
+	rendered, err := f.formatter.Format(doc)
 	if err != nil {
 		return "", err
 	}
