@@ -121,3 +121,71 @@ func TestRestoreValidatesPlanningFacts(t *testing.T) {
 		})
 	}
 }
+
+func TestRestoreCountsPendingActionTowardAttemptLimit(t *testing.T) {
+	done := mustCondition(t, "world.done", planning.True)
+	action := mustAction(t, planning.ActionConfig{
+		Name: "finish", Description: "Finish the pending work.", Effects: []planning.Condition{done},
+	})
+	definition := newManagedDefinition(t, managedDeploymentConfig{
+		goal: mustGoal(t, done), bindings: []planning.ActionBinding{mustDispatcherBinding(t, action)},
+		maxActionAttempts: 1,
+	})
+	tests := []struct {
+		name    string
+		payload json.RawMessage
+		valid   bool
+	}{
+		{
+			name: "last permitted action is pending",
+			payload: json.RawMessage(`{"phase":"awaiting_action","input":{},"world_state":{"conditions":[]},
+				"planning_passes":1,"current_action_name":"finish"}`),
+			valid: true,
+		},
+		{
+			name: "last permitted action awaits confirmation",
+			payload: json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]},
+				"planning_passes":1,"current_action_name":"finish"}`),
+			valid: true,
+		},
+		{
+			name: "settled last action still permits sensing",
+			payload: json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]},
+				"planning_passes":1,"attempts":[{"action_name":"finish","status":"failed","diagnostic":"refused"}]}`),
+			valid: true,
+		},
+		{
+			name: "pending action exceeds limit",
+			payload: json.RawMessage(`{"phase":"awaiting_action","input":{},"world_state":{"conditions":[]},
+				"planning_passes":2,"current_action_name":"finish",
+				"attempts":[{"action_name":"finish","status":"succeeded"}]}`),
+		},
+		{
+			name: "unconfirmed action exceeds limit",
+			payload: json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]},
+				"planning_passes":2,"current_action_name":"finish",
+				"attempts":[{"action_name":"finish","status":"succeeded"}]}`),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			state, err := agent.NewExecutionState("planning", test.payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			restored, err := definition.Restore(state)
+			if !test.valid {
+				if !errors.Is(err, planning.ErrInvalidExecutionState) {
+					t.Fatalf("Restore admitted an Action beyond MaxActionAttempts: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := restored.Snapshot(); err != nil {
+				t.Fatalf("valid budget boundary cannot be captured: %v", err)
+			}
+		})
+	}
+}

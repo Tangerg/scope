@@ -104,7 +104,7 @@ func (e *execution) acceptSense(
 	if e.definition.goal.SatisfiedBy(e.state.WorldState) {
 		return e.complete(consumedSignals)
 	}
-	if uint64(len(e.state.Attempts)) >= uint64(e.definition.maxActionAttempts) {
+	if e.state.attemptCount() >= uint64(e.definition.maxActionAttempts) {
 		return e.complete(consumedSignals)
 	}
 	if e.state.PlanningPasses == math.MaxUint32 {

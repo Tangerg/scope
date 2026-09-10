@@ -114,10 +114,18 @@ func (e executionState) validateAttemptFacts(definition *Definition) error {
 			return fmt.Errorf("%w: attempt references unknown Action %q", ErrInvalidExecutionState, attempt.ActionName)
 		}
 	}
-	if uint64(len(e.Attempts)) > uint64(definition.maxActionAttempts) {
+	if e.attemptCount() > uint64(definition.maxActionAttempts) {
 		return ErrInvalidExecutionState
 	}
 	return nil
+}
+
+func (e executionState) attemptCount() uint64 {
+	count := uint64(len(e.Attempts))
+	if e.CurrentActionName != "" {
+		count++
+	}
+	return count
 }
 
 func (e executionState) validateCurrentAction(definition *Definition) error {
