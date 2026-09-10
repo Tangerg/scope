@@ -43,9 +43,8 @@ type DispatcherConfig struct {
 	// ResponseMode selects complete or streaming model responses.
 	ResponseMode ModelResponseMode
 
-	// Observer receives exact model and Tool call facts. It is intentionally
-	// separate from Engine Events/Deltas: those describe execution mechanics,
-	// while this boundary exposes typed model and Tool semantics.
+	// Observer receives exact model response facts. Nil disables observation.
+	// It is separate from Engine Events/Deltas, which describe execution mechanics.
 	Observer ModelObserver
 
 	// ModelContextReducer optionally replaces only the provider-neutral message
@@ -86,6 +85,9 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 	}
 	if !config.ResponseMode.Valid() {
 		return nil, fmt.Errorf("%w: invalid ResponseMode %q", ErrInvalidDispatcherConfig, config.ResponseMode)
+	}
+	if config.Observer != nil && lo.IsNil(config.Observer) {
+		return nil, fmt.Errorf("%w: Observer is typed nil", ErrInvalidDispatcherConfig)
 	}
 	if config.ModelContextReducer != nil && lo.IsNil(config.ModelContextReducer) {
 		return nil, fmt.Errorf("%w: ModelContextReducer is typed nil", ErrInvalidDispatcherConfig)

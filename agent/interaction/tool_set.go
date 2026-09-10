@@ -3,6 +3,8 @@ package interaction
 import (
 	"fmt"
 
+	"github.com/samber/lo"
+
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
@@ -11,10 +13,11 @@ import (
 // ToolSetConfig freezes ordinary Tool authority and its exact execution binding.
 // The digests cover the executable Tools, optional capabilities, and observer.
 type ToolSetConfig struct {
-	Name                 string
-	Description          string
-	Tools                []tool.Tool
-	DeferredTools        []tool.Tool
+	Name          string
+	Description   string
+	Tools         []tool.Tool
+	DeferredTools []tool.Tool
+	// Observer receives exact Tool call facts. Nil disables observation.
 	Observer             ToolObserver
 	ImplementationDigest agent.Digest
 	ConfigurationDigest  agent.Digest
@@ -35,6 +38,9 @@ type ToolSet struct {
 func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 	if len(config.Tools)+len(config.DeferredTools) == 0 {
 		return ToolSet{}, fmt.Errorf("%w: at least one Tool is required", ErrInvalidToolSet)
+	}
+	if config.Observer != nil && lo.IsNil(config.Observer) {
+		return ToolSet{}, fmt.Errorf("%w: Observer is typed nil", ErrInvalidToolSet)
 	}
 	dispatcher := &toolDispatcher{
 		tools: make(map[string]boundTool), deferredToolNames: make(map[string]struct{}), observer: config.Observer,
