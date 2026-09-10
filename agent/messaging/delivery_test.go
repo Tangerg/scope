@@ -87,7 +87,7 @@ func TestReplayReconcilesConsumedMessageAtOriginalRecipient(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, deliveryErr := port.Deliver(t.Context(), restored.ID(), receiver.ID(), conflict); !errors.Is(deliveryErr, agent.ErrSignalConflict) {
+		if deliveryErr := port.Deliver(t.Context(), restored.ID(), receiver.ID(), conflict); !errors.Is(deliveryErr, agent.ErrSignalConflict) {
 			t.Fatalf("conflict=%v", deliveryErr)
 		}
 		// A replacement gate never receives the unresolved original delivery.
@@ -95,7 +95,7 @@ func TestReplayReconcilesConsumedMessageAtOriginalRecipient(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, deliveryErr := port.Deliver(t.Context(), restored.ID(), replacement.ID(), calls[0]); !errors.Is(deliveryErr, agent.ErrSignalRejected) {
+		if deliveryErr := port.Deliver(t.Context(), restored.ID(), replacement.ID(), calls[0]); !errors.Is(deliveryErr, agent.ErrSignalRejected) {
 			t.Fatalf("retarget=%v", deliveryErr)
 		}
 		if cancelErr := replacement.RequestCancellation(t.Context(), "test complete"); cancelErr != nil {

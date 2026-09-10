@@ -10,17 +10,21 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
+// ErrNilDeliveryPort rejects construction without a delivery authority.
+var ErrNilDeliveryPort = errors.New("messaging: delivery port is required")
+
 // DeliveryPort admits one Signal to the supplied concrete recipient. The
 // implementation owns destination authority and payload validation, preserves
-// the recipient across replay, and uses atomic single-Signal admission. Its
-// accepted result has the same meaning as Process.DeliverSignals: false with
-// nil error means an identical Signal was already admitted. Errors never prove
-// the message was not admitted by this attempt or a previous one. Calls must
+// the recipient across replay, and uses atomic single-Signal admission. A
+// nil error confirms that this exact Signal was admitted, either by this call
+// or an earlier identical delivery. New and duplicate admissions share the
+// same acknowledgment contract; the mailbox owns admission accounting. Errors
+// never prove the message was not admitted by this attempt or a previous one. Calls must
 // honor ctx, be bounded and concurrency-safe, and may reconcile authoritative
 // receipts before reporting a terminal recipient error. Retention must preserve
 // identity conflicts and admission evidence for the entire replay obligation.
 type DeliveryPort interface {
-	Deliver(ctx context.Context, sender, recipient agent.ProcessID, signal agent.SignalRequest) (accepted bool, err error)
+	Deliver(ctx context.Context, sender, recipient agent.ProcessID, signal agent.SignalRequest) error
 }
 
 // DispatcherConfig binds the only delivery authority used by this Dispatcher.
@@ -37,7 +41,7 @@ type Dispatcher struct {
 
 func NewDispatcher(config DispatcherConfig) (*Dispatcher, error) {
 	if lo.IsNil(config.Port) {
-		return nil, errors.New("messaging: delivery port is required")
+		return nil, ErrNilDeliveryPort
 	}
 	return &Dispatcher{port: config.Port}, nil
 }
@@ -83,7 +87,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, 
 	if err != nil {
 		return agent.Settlement{}, err
 	}
-	if _, deliveryErr := d.port.Deliver(ctx, request.ProcessID(), message.Recipient, signal); deliveryErr != nil {
+	if deliveryErr := d.port.Deliver(ctx, request.ProcessID(), message.Recipient, signal); deliveryErr != nil {
 		return agent.Settlement{}, deliveryErr
 	}
 	payload, err := json.Marshal(Receipt{Recipient: message.Recipient, SignalID: id})

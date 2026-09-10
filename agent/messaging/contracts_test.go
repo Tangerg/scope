@@ -27,8 +27,10 @@ func TestDispatcherRejectsNilContextBeforeProtocolValidation(t *testing.T) {
 
 func TestMessageValidatesFrozenProtocol(t *testing.T) {
 	var missing *recipientPort
-	if _, err := messaging.NewDispatcher(messaging.DispatcherConfig{Port: missing}); err == nil {
-		t.Fatal("typed nil port was accepted")
+	for _, port := range []messaging.DeliveryPort{nil, missing} {
+		if dispatcher, err := messaging.NewDispatcher(messaging.DispatcherConfig{Port: port}); dispatcher != nil || !errors.Is(err, messaging.ErrNilDeliveryPort) {
+			t.Fatalf("NewDispatcher with nil port = %v, %v", dispatcher, err)
+		}
 	}
 	dispatcher, err := messaging.NewDispatcher(messaging.DispatcherConfig{Port: &recipientPort{}})
 	if err != nil {

@@ -164,16 +164,16 @@ type recipientPort struct {
 	checkReceipts      bool
 }
 
-func (r *recipientPort) Deliver(ctx context.Context, sender, recipient agent.ProcessID, signal agent.SignalRequest) (bool, error) {
+func (r *recipientPort) Deliver(ctx context.Context, sender, recipient agent.ProcessID, signal agent.SignalRequest) error {
 	if !sender.Valid() || recipient != r.recipient.ID() {
-		return false, agent.ErrSignalRejected
+		return agent.ErrSignalRejected
 	}
 	payload, err := agent.ParseInput(signal.Payload())
 	if err != nil {
-		return false, err
+		return err
 	}
 	if _, decodeErr := payload.Decode[string](); decodeErr != nil {
-		return false, decodeErr
+		return decodeErr
 	}
 	r.mu.Lock()
 	r.calls = append(r.calls, signal)
@@ -182,38 +182,38 @@ func (r *recipientPort) Deliver(ctx context.Context, sender, recipient agent.Pro
 	if r.checkReceipts {
 		tree, inspectErr := r.engine.InspectTree(ctx, r.recipient.Relation().RootID())
 		if inspectErr != nil {
-			return false, inspectErr
+			return inspectErr
 		}
 		fact, present := tree.Process(recipient)
 		if !present {
-			return false, agent.ErrProcessNotRunning
+			return agent.ErrProcessNotRunning
 		}
 		for _, receipt := range fact.Snapshot.SignalReceipts() {
 			if receipt.ID() != signal.ID() {
 				continue
 			}
 			if !receipt.Matches(signal) {
-				return false, agent.ErrSignalConflict
+				return agent.ErrSignalConflict
 			}
-			return false, nil
+			return nil
 		}
 	}
-	accepted, err := r.recipient.DeliverSignals(ctx, signal)
+	_, err = r.recipient.DeliverSignals(ctx, signal)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if first && r.firstAdmission != nil {
 		close(r.firstAdmission)
 		select {
 		case <-r.release:
 		case <-ctx.Done():
-			return false, ctx.Err()
+			return ctx.Err()
 		}
 	}
 	if first && r.lostAcknowledgment {
-		return false, errors.New("delivery acknowledgment lost")
+		return errors.New("delivery acknowledgment lost")
 	}
-	return accepted, nil
+	return nil
 }
 
 func finish(t testing.TB, process *agent.Process) agent.Result {
