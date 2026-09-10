@@ -3,6 +3,8 @@
 // retrieval internally — the store sends raw text to the v2 API and
 // does NOT need an [embedding.Model]. This is unlike every other
 // scope vector store.
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Requirements: a Vectara account, an API key with corpus-level
 // write + query scope, and a corpus provisioned via the Vectara

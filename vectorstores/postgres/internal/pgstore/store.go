@@ -126,20 +126,20 @@ func (d DistanceMetric) score(distance float64) vectorstore.Score {
 
 // Index embeds the documents and upserts them into the configured table.
 func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
+	// Reject unsupported content before consulting the batcher. Batch owns
+	// structural validation, including missing requests and documents.
+	if request != nil {
+		for index, doc := range request.Documents {
+			if doc != nil && doc.Media != nil {
+				return fmt.Errorf("%s.Store.Index: %w: documents[%d] contains unsupported media", s.provider, vectorstore.ErrInvalidDocument, index)
+			}
+		}
+	}
+
 	var batches []*vectorstore.IndexRequest
 	batches, err = request.Batch(ctx, s.documentBatcher)
 	if err != nil {
 		return fmt.Errorf("%s.Store.Index: batch documents: %w", s.provider, err)
-	}
-
-	// Check every batch before embedding or writing any of them: the table
-	// stores text and metadata, so accepting media would silently erase it.
-	for _, batch := range batches {
-		for _, doc := range batch.Documents {
-			if doc.Media != nil {
-				return fmt.Errorf("%s.Store.Index: %w: document %q contains unsupported media", s.provider, vectorstore.ErrInvalidDocument, doc.ID)
-			}
-		}
 	}
 
 	upsertSQL := fmt.Sprintf(

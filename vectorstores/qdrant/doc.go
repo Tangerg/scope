@@ -1,6 +1,8 @@
 // Package qdrant exposes Qdrant through the Core vector-store capability interfaces. Documents
 // are stored as points in a Qdrant collection (`{id, vector,
 // payload}`); retrieval runs the collection's vector search.
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Requirements: a reachable Qdrant server (self-hosted or Qdrant
 // Cloud). The store uses the official qdrant-client-go gRPC client.

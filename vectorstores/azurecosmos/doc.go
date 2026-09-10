@@ -3,6 +3,8 @@
 // regular Cosmos items (`{id, partition_key, content, metadata, embedding}`) and
 // retrieval runs a parameterised SQL query that orders rows by
 // VectorDistance.
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Requirements: a Cosmos DB account with vector search enabled
 // (currently a feature flag on the NoSQL API; opt in from the

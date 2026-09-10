@@ -3,6 +3,8 @@
 // a collection with id / content / metadata (nested object) / embedding
 // (float[]) fields, reached through the official typesense-go v3
 // client.
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Requirements: Typesense 0.25+ (vector search GA) — the store uses
 // nested-object metadata which needs `enable_nested_fields=true` on

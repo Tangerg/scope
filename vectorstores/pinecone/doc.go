@@ -2,6 +2,8 @@
 // Documents are stored as vectors in a Pinecone index
 // (`{id, values, metadata}`); retrieval runs the index's similarity
 // query.
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Requirements: a Pinecone account and an existing index (created
 // via the Pinecone console or control-plane API — Pinecone does not

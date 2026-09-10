@@ -3,6 +3,8 @@
 // a `vector<float, N>` column; filterable metadata keys must be declared as
 // typed columns (Cassandra has no JSON-path operator), each indexed
 // via a Storage Attached Index (SAI).
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Metadata model. A document's metadata of record is the JSON in
 // [StoreConfig.MetadataColumn], which carries no SAI index. The declared typed

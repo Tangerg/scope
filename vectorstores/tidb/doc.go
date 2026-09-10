@@ -3,6 +3,8 @@
 // (id / content / metadata JSON / embedding VECTOR) reached over
 // the MySQL wire protocol via `database/sql` +
 // go-sql-driver/mysql.
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Requirements: TiDB v8.4.0+, which is where PingCAP sets the floor for
 // self-managed and Dedicated clusters while recommending v8.5.0 or later. The

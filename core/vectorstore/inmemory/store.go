@@ -61,8 +61,9 @@ var (
 )
 
 // Store is the concurrency-safe reference implementation of the vector-store
-// capability contracts. Index snapshots documents, embeds each upsert once,
-// and replaces records by caller-owned ID. Search snapshots results, evaluates
+// capability contracts. Index snapshots complete documents including Media,
+// embeds their text once, and replaces records by caller-owned ID. Search
+// snapshots results, evaluates
 // the same filter AST exposed to external backends, and orders normalized scores
 // deterministically. Deletes never expose the internal record map.
 type Store struct {

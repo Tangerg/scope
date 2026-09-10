@@ -44,15 +44,13 @@ func TestVisitorConformanceAgreesWithCanonicalParser(t *testing.T) {
 type validatingCapabilities struct{ allCapabilities }
 
 func (validatingCapabilities) Index(_ context.Context, request *vectorstore.IndexRequest) error {
-	docs := request.Documents
-	switch {
-	case len(docs) == 0:
-		return vectorstore.ErrEmptyDocuments
-	case docs[0] == nil:
-		return vectorstore.ErrInvalidDocument
-	case docs[0].ID == "":
-		return vectorstore.ErrMissingDocumentID
-	default:
-		return vectorstore.ErrDuplicateDocumentID
+	if err := request.Validate(); err != nil {
+		return err
 	}
+	for _, doc := range request.Documents {
+		if doc.Media != nil {
+			return vectorstore.ErrInvalidDocument
+		}
+	}
+	return nil
 }

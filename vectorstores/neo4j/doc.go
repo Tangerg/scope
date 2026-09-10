@@ -4,6 +4,8 @@
 // stored as flat properties named `metadata.<key>`, the embedding
 // rides on the configured property, and the id has a uniqueness
 // constraint.
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Requirements: Neo4j 5.13+ for `CREATE VECTOR INDEX` and the
 // `db.index.vector.queryNodes` procedure. Earlier 5.x releases ship

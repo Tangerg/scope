@@ -163,6 +163,8 @@ type Indexer interface {
 	// validate the complete request before external I/O. Index does not promise
 	// atomic writes across batches: an error may leave earlier documents stored.
 	// Backend-specific transaction guarantees belong to the implementation.
+	// Accepted document content, including Media, must survive retrieval;
+	// implementations reject unsupported media before external I/O.
 	//
 	// Index never invents document IDs: its error-only result has no channel for
 	// returning generated identities to the caller.

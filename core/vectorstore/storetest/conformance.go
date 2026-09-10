@@ -5,18 +5,22 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/document"
+	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
-// Capabilities is the exact interface and search-semantics set a backend
+// Capabilities is the exact interface, content, and search-semantics set a backend
 // promises. A false interface flag forbids accidental implementation; a false
 // HybridSearch flag requires rejection before external I/O.
 type Capabilities struct {
-	Indexer       bool
-	Searcher      bool
-	HybridSearch  bool
-	IDDeleter     bool
-	FilterDeleter bool
+	Indexer      bool
+	Searcher     bool
+	HybridSearch bool
+	// MediaDocuments declares lossless storage of document media alongside text.
+	// A false value requires rejection of mixed content before external I/O.
+	MediaDocuments bool
+	IDDeleter      bool
+	FilterDeleter  bool
 
 	// Closer is true only for a store that created a resource of its own. A
 	// store handed its client, session or pool releases nothing, so a false
@@ -71,6 +75,21 @@ func Run(t *testing.T, store any, expected Capabilities) {
 				}
 			})
 		}
+		if !expected.MediaDocuments {
+			t.Run("IndexRejectsUnsupportedMediaBeforeIO", func(t *testing.T) {
+				content, err := media.NewURI("image/png", "https://example.com/image.png")
+				if err != nil {
+					t.Fatal(err)
+				}
+				request := &vectorstore.IndexRequest{Documents: []*document.Document{
+					{ID: "1", Text: "text-only document"},
+					{ID: "2", Text: "caption", Media: content},
+				}}
+				if indexErr := indexer.Index(ctx, request); !errors.Is(indexErr, vectorstore.ErrInvalidDocument) {
+					t.Fatalf("Index(mixed content) error = %v, want ErrInvalidDocument before I/O", indexErr)
+				}
+			})
+		}
 	}
 	if expected.Searcher && hasSearcher {
 		t.Run("SearchRejectsInvalidRequestBeforeIO", func(t *testing.T) {
@@ -109,8 +128,8 @@ func Run(t *testing.T, store any, expected Capabilities) {
 //
 // [Run] compares it against the set the store declares. It is separate from
 // that comparison so the interface detection can be exercised on its own:
-// HybridSearch is absent because no interface expresses it — it is a search
-// semantic that [Run] probes by calling Search.
+// HybridSearch and MediaDocuments are absent because no interface expresses
+// them; [Run] probes unsupported semantics through the operation boundary.
 func CapabilitiesOf(store any) Capabilities {
 	_, indexer := store.(vectorstore.Indexer)
 	_, searcher := store.(vectorstore.Searcher)

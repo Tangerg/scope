@@ -4,6 +4,8 @@
 // retrieval combines the supplied vector with lexical evidence from `content`
 // through relative-score fusion. [StoreConfig.HybridAlpha] optionally controls
 // vector weight.
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Requirements: a reachable Weaviate v5 server (self-hosted or
 // Weaviate Cloud Services). The store uses the official

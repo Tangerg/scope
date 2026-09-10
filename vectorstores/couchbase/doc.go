@@ -3,6 +3,8 @@
 // (`{id, content, metadata, embedding}`); queries use SQL++ (N1QL)
 // with an embedded `SEARCH(...)` k-NN clause that targets a
 // Couchbase FTS index.
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Requirements: Couchbase Server 7.6+ — that's when the Search
 // Service learned to index dense vectors and answer KNN queries.

@@ -3,6 +3,8 @@
 // schema with id / content / embedding (tensor) fields plus any
 // metadata attributes — reached over the HTTP Document / Search REST
 // APIs.
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Requirements: a Vespa application (Vespa Cloud or self-hosted) with
 // a schema (.sd file) declaring the embedding tensor field and any

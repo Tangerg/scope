@@ -8,6 +8,6 @@ import (
 
 func TestStoreConformance(t *testing.T) {
 	storetest.Run(t, new(Store), storetest.Capabilities{
-		Indexer: true, Searcher: true, IDDeleter: true, FilterDeleter: true,
+		Indexer: true, Searcher: true, IDDeleter: true, FilterDeleter: true, MediaDocuments: true,
 	})
 }

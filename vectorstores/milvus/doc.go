@@ -2,6 +2,8 @@
 // through the Core vector-store capability interfaces. Documents are stored as rows in a Milvus
 // collection (`{id, content, embedding, <metadata columns>}`);
 // retrieval runs Milvus's ANN search.
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Requirements: a reachable Milvus 2.x server (self-hosted, Docker,
 // or Zilliz Cloud managed service). The store uses the official

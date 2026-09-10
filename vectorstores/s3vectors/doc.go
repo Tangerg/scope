@@ -2,6 +2,8 @@
 // S3 Vectors is a purpose-built, fully managed vector storage tier
 // that lives next to regular S3 buckets — vectors live in a *vector
 // bucket* under a typed *vector index*.
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Requirements: an AWS account with S3 Vectors enabled (currently
 // available in a subset of regions), a vector bucket + index

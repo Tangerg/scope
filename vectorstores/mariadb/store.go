@@ -295,6 +295,11 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 	if validateErr := request.Validate(); validateErr != nil {
 		return fmt.Errorf("mariadb.Store.Index: %w", validateErr)
 	}
+	for index, doc := range request.Documents {
+		if doc.Media != nil {
+			return fmt.Errorf("mariadb.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, index)
+		}
+	}
 
 	var batches []*vectorstore.IndexRequest
 	batches, err = request.Batch(ctx, s.documentBatcher)

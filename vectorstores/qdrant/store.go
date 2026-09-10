@@ -373,6 +373,11 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 	if validateErr := request.Validate(); validateErr != nil {
 		return fmt.Errorf("qdrant.Store.Index: %w", validateErr)
 	}
+	for index, doc := range request.Documents {
+		if doc.Media != nil {
+			return fmt.Errorf("qdrant.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, index)
+		}
+	}
 	docs := request.Documents
 	for _, doc := range docs {
 		if _, parsePointIDErr := parsePointID(doc.ID); parsePointIDErr != nil {

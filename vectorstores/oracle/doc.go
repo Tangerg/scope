@@ -2,6 +2,8 @@
 // through the Core vector-store capability interfaces. Documents live in a regular Oracle table
 // (id / content / metadata JSON / embedding VECTOR) reached through
 // `database/sql` + the sijms/go-ora driver.
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Requirements: Oracle Database 23ai (the AI release). VECTOR is
 // a first-class column type in 23ai, with `VECTOR_DISTANCE()` and

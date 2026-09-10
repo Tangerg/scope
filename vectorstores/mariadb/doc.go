@@ -2,6 +2,8 @@
 // through the Core vector-store capability interfaces. Documents live in a regular MariaDB table
 // (id / content / metadata JSON / embedding VECTOR) reached through
 // `database/sql` + the go-sql-driver/mysql driver.
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Requirements: MariaDB Community Server 11.7+, or Enterprise Server 11.4.5-3+
 // — "vectors are available from MariaDB Community Server 11.7 and from MariaDB

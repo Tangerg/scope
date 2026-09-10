@@ -1,6 +1,8 @@
 // Package azureaisearch exposes Azure AI Search's vector capabilities
 // through the Core vector-store capability interfaces over the REST API (Azure doesn't ship a
 // typed Go SDK for the Search service yet).
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Requirements: an Azure AI Search service (Basic tier or higher),
 // with an index pre-provisioned through ARM / Terraform / Portal /

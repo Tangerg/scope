@@ -2,6 +2,8 @@
 // through the Core vector-store capability interfaces. Documents are stored as ordinary BSON
 // documents (`{_id, content, metadata, embedding}`); retrieval runs
 // the `$vectorSearch` aggregation stage.
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Requirements: MongoDB Atlas (vector search isn't available on
 // self-hosted Community / Enterprise — it's an Atlas-only feature).

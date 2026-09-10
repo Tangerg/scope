@@ -2,6 +2,8 @@
 // are stored as records inside a Chroma collection
 // (`{id, document, embedding, metadata}`); retrieval runs the
 // collection's nearest-neighbor query.
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Requirements: a reachable Chroma server (self-hosted or Chroma
 // Cloud). The store uses the official Go client over HTTP.

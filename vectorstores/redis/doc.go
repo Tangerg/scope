@@ -2,6 +2,8 @@
 // through the Core vector-store capability interfaces. Documents are stored as Redis HASHes keyed at
 // `<KeyPrefix><id>`; an FT.CREATE-defined index registers the
 // vector field plus any pre-declared metadata fields.
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Requirements: Redis Stack (or Redis OSS 8.0+ with the search
 // module) — RediSearch is mandatory. RedisJSON is NOT required;

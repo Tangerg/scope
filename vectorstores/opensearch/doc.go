@@ -2,6 +2,8 @@
 // through the Core vector-store capability interfaces. Documents are indexed JSON objects with a
 // `knn_vector` field for the embedding and a nested `object` field
 // for metadata.
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Requirements: OpenSearch 2.x+ with the k-NN plugin (built-in on
 // every recent release).

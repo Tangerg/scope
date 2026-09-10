@@ -3,6 +3,8 @@
 // (id / content / metadata Map(String,String) / embedding
 // Array(Float32)) reached through the official clickhouse-go v2
 // driver.
+// Documents containing media are rejected before indexing I/O because this
+// adapter persists document text and metadata only.
 //
 // Automatic schema initialization requires the vector_similarity index type
 // (HNSW-backed). Index creation errors fail construction. Hosts that provision
