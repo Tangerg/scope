@@ -187,6 +187,24 @@ func TestInspectionWaitAuthoritySurvivesRestoreWithoutChangingFacts(t *testing.T
 				t.Fatal(err)
 			}
 			waitForStatus(t, root, StatusWaiting)
+			ctx, cancel := context.WithTimeout(t.Context(), treeRuntimeProgressTimeout)
+			defer cancel()
+			for {
+				inspection := requireTreeInspection(t, engine, root.ID())
+				report, found := inspection.Process(root.ID())
+				kind, waiting := report.Snapshot.WaitKind()
+				allIdle := true
+				for _, process := range inspection.Processes {
+					allIdle = allIdle && process.Work == ProcessWorkIdle
+				}
+				if found && waiting && kind == scenario.kind && allIdle {
+					break
+				}
+				if contextErr := ctx.Err(); contextErr != nil {
+					t.Fatalf("wait facts did not settle: inspection=%+v error=%v", inspection, contextErr)
+				}
+				runtime.Gosched()
+			}
 			before, err := engine.CaptureTree(t.Context(), root.ID())
 			if err != nil {
 				t.Fatal(err)

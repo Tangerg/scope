@@ -56,3 +56,11 @@ func TestFailureRejectsIncompleteConstruction(t *testing.T) {
 		}
 	}
 }
+
+func TestNilFailureHasInvalidZeroBehavior(t *testing.T) {
+	var failure *tool.Failure
+	if failure.Error() != tool.ErrInvalidFailure.Error() || failure.Unwrap() != nil ||
+		!reflect.DeepEqual(failure.Output(), chat.ToolOutput{}) {
+		t.Fatalf("nil Failure = error %q, cause %v, output %+v", failure.Error(), failure.Unwrap(), failure.Output())
+	}
+}
