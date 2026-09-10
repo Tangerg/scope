@@ -78,15 +78,13 @@ func (c *Compiler) visit(expr filter.Expr) error {
 
 	switch node := expr.(type) {
 	case *filter.BinaryExpr:
-		if node.Operator().IsNullOperator() {
-			return c.visitNullTestExpr(node)
-		}
 		return node.Dispatch(filter.BinaryHandlers{
 			Logical:    c.visitLogicalExpr,
 			Comparison: c.visitComparisonExpr,
 			In:         c.visitInExpr,
 			Has:        c.visitHasExpr,
 			Like:       c.visitLikeExpr,
+			NullTest:   c.visitNullTestExpr,
 		})
 	case *filter.UnaryExpr:
 		return node.Dispatch(c.visitNotExpr)

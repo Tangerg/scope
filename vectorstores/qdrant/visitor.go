@@ -76,15 +76,13 @@ func (v *visitor) visit(expr filter.Expr) error {
 }
 
 func (v *visitor) visitBinaryExpr(expr *filter.BinaryExpr) error {
-	if expr.Operator().IsNullOperator() {
-		return v.visitNullTestExpr(expr)
-	}
 	return expr.Dispatch(filter.BinaryHandlers{
 		Logical:    v.visitLogicalExpr,
 		Comparison: v.visitComparisonExpr,
 		In:         v.visitInExpr,
 		Has:        v.visitHasExpr,
 		Like:       v.visitLikeExpr,
+		NullTest:   v.visitNullTestExpr,
 	})
 }
 

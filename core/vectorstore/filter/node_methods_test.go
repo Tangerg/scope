@@ -38,6 +38,7 @@ func TestBinaryExprDispatchRoutes(t *testing.T) {
 		{"in is membership", `a in (1, 2)`, "in"},
 		{"has is collection membership", `a has 1`, "has"},
 		{"like is pattern", `a like '%foo%'`, "like"},
+		{"is is null test", `a is null`, "null"},
 	}
 
 	for _, tc := range cases {
@@ -50,6 +51,7 @@ func TestBinaryExprDispatchRoutes(t *testing.T) {
 				In:         func(*filter.BinaryExpr) error { got = "in"; return nil },
 				Has:        func(*filter.BinaryExpr) error { got = "has"; return nil },
 				Like:       func(*filter.BinaryExpr) error { got = "like"; return nil },
+				NullTest:   func(*filter.BinaryExpr) error { got = "null"; return nil },
 			})
 			if err != nil {
 				t.Fatalf("BinaryExpr.Dispatch: %v", err)
