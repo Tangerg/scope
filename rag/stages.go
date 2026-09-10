@@ -14,6 +14,8 @@ import (
 var (
 	// ErrInvalidCandidate identifies an invalid document or non-finite score.
 	ErrInvalidCandidate = errors.New("rag: invalid retrieval candidate")
+	// ErrInvalidReranking identifies invalid model rankings or candidate projections.
+	ErrInvalidReranking = errors.New("rag: invalid reranking")
 	// ErrNilTransformer rejects a missing query transformation stage.
 	ErrNilTransformer = errors.New("rag: transformer must not be nil")
 	// ErrNilExpander rejects a missing query expansion stage.

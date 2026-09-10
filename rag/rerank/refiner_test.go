@@ -1,4 +1,4 @@
-package rag_test
+package rerank_test
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"github.com/Tangerg/scope/core/document"
 	corererank "github.com/Tangerg/scope/core/rerank"
 	"github.com/Tangerg/scope/rag"
+	ragrerank "github.com/Tangerg/scope/rag/rerank"
 )
 
 func TestRerankerMapsModelIndicesToOwnedCandidates(t *testing.T) {
@@ -19,7 +20,7 @@ func TestRerankerMapsModelIndicesToOwnedCandidates(t *testing.T) {
 			{Index: 0, Score: 0.4},
 		}}, nil
 	})
-	reranker, err := rag.NewReranker(rag.RerankerConfig{Model: model})
+	reranker, err := ragrerank.NewRefiner(ragrerank.RefinerConfig{Model: model})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +49,7 @@ func TestRerankerTopKAndResponseContract(t *testing.T) {
 		}
 		return &corererank.Response{Results: []*corererank.Result{{Index: 1, Score: 0.8}}}, nil
 	})
-	reranker, err := rag.NewReranker(rag.RerankerConfig{Model: model, TopK: 1})
+	reranker, err := ragrerank.NewRefiner(ragrerank.RefinerConfig{Model: model, TopK: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +62,7 @@ func TestRerankerTopKAndResponseContract(t *testing.T) {
 		t.Fatalf("Refine = %#v, %v", got, err)
 	}
 
-	invalid, err := rag.NewReranker(rag.RerankerConfig{Model: corererank.ModelFunc(func(context.Context, *corererank.Request) (*corererank.Response, error) {
+	invalid, err := ragrerank.NewRefiner(ragrerank.RefinerConfig{Model: corererank.ModelFunc(func(context.Context, *corererank.Request) (*corererank.Response, error) {
 		return &corererank.Response{Results: []*corererank.Result{{Index: 2, Score: 0.8}}}, nil
 	})})
 	if err != nil {
@@ -73,14 +74,14 @@ func TestRerankerTopKAndResponseContract(t *testing.T) {
 }
 
 func TestRerankerValidatesConstructionAndFormatting(t *testing.T) {
-	if _, err := rag.NewReranker(rag.RerankerConfig{}); !errors.Is(err, rag.ErrNilRerankModel) {
+	if _, err := ragrerank.NewRefiner(ragrerank.RefinerConfig{}); !errors.Is(err, ragrerank.ErrNilModel) {
 		t.Fatalf("missing model error = %v", err)
 	}
-	if _, err := rag.NewReranker(rag.RerankerConfig{Model: corererank.ModelFunc(func(context.Context, *corererank.Request) (*corererank.Response, error) { return nil, nil }), TopK: -1}); !errors.Is(err, rag.ErrInvalidReranking) {
+	if _, err := ragrerank.NewRefiner(ragrerank.RefinerConfig{Model: corererank.ModelFunc(func(context.Context, *corererank.Request) (*corererank.Response, error) { return nil, nil }), TopK: -1}); !errors.Is(err, rag.ErrInvalidReranking) {
 		t.Fatalf("negative TopK error = %v", err)
 	}
 	formatter := rag.DocumentFormatterFunc(func(*document.Document) (string, error) { return " ", nil })
-	reranker, err := rag.NewReranker(rag.RerankerConfig{
+	reranker, err := ragrerank.NewRefiner(ragrerank.RefinerConfig{
 		Model:     corererank.ModelFunc(func(context.Context, *corererank.Request) (*corererank.Response, error) { return nil, nil }),
 		Formatter: formatter,
 	})
@@ -90,4 +91,31 @@ func TestRerankerValidatesConstructionAndFormatting(t *testing.T) {
 	if _, err := reranker.Refine(t.Context(), mustQuery(t, "query"), rag.Candidates{candidate(identifiedDocument(t, "id", "text"))}); !errors.Is(err, rag.ErrInvalidReranking) {
 		t.Fatalf("blank formatting error = %v", err)
 	}
+}
+
+func candidate(doc *document.Document, score ...float64) rag.Candidate {
+	var value float64
+	if len(score) > 0 {
+		value = score[0]
+	}
+	return rag.Candidate{Document: doc, Score: rag.Score(value)}
+}
+
+func mustQuery(t *testing.T, text string) rag.Query {
+	t.Helper()
+	q, err := rag.NewQuery(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return q
+}
+
+func identifiedDocument(t *testing.T, id, text string) *document.Document {
+	t.Helper()
+	doc, err := document.NewDocument(text, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc.ID = id
+	return doc
 }

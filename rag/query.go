@@ -47,14 +47,6 @@ func NewValueKey[T any](name string) (ValueKey[T], error) {
 	return key, nil
 }
 
-func mustValueKey[T any](name string) ValueKey[T] {
-	key, err := NewValueKey[T](name)
-	if err != nil {
-		panic(err)
-	}
-	return key
-}
-
 // Name returns the key's diagnostic label.
 func (v ValueKey[T]) Name() string {
 	if v.identity == nil {

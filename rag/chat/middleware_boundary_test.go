@@ -1,4 +1,4 @@
-package rag_test
+package chat_test
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/rag"
+	ragchat "github.com/Tangerg/scope/rag/chat"
 )
 
 func TestMiddlewareRejectsAmbiguousTextRewrite(t *testing.T) {
@@ -24,7 +25,7 @@ func TestMiddlewareRejectsAmbiguousTextRewrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	middleware, err := rag.NewMiddleware(rag.MiddlewareConfig{
+	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
 		Retriever: &stubRetriever{},
 		Augmenter: rag.AugmenterFunc(func(context.Context, rag.Query, rag.Candidates) (rag.Augmentation, error) {
 			return rag.NewAugmentation("rewritten text")
@@ -52,16 +53,59 @@ func TestMiddlewareRejectsAmbiguousTextRewrite(t *testing.T) {
 	}
 }
 
+func TestMiddlewareRejectsRetrievalBeforeAugmentation(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		cancel bool
+		want   error
+	}{
+		{name: "invalid candidate", want: rag.ErrInvalidCandidate},
+		{name: "canceled retrieval", cancel: true, want: context.Canceled},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
+				Retriever: rag.RetrieverFunc(func(context.Context, rag.Query) (rag.Candidates, error) {
+					if test.cancel {
+						cancel()
+						return nil, nil
+					}
+					return rag.Candidates{{}}, nil
+				}),
+				Augmenter: rag.AugmenterFunc(func(context.Context, rag.Query, rag.Candidates) (rag.Augmentation, error) {
+					t.Fatal("invalid retrieval reached augmentation")
+					return rag.Augmentation{}, nil
+				}),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("question")))
+			if err != nil {
+				t.Fatal(err)
+			}
+			model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+				t.Fatal("invalid retrieval reached model")
+				return nil, nil
+			})
+			if _, callErr := middleware.Call(model).Call(ctx, request); !errors.Is(callErr, test.want) {
+				t.Fatalf("Call error = %v, want %v", callErr, test.want)
+			}
+		})
+	}
+}
+
 func TestMiddlewareStreamPublishesRetrievalMetadataOnce(t *testing.T) {
 	doc, err := document.NewDocument("evidence", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	augmenter, err := rag.NewContextualAugmenter(rag.ContextualAugmenterConfig{})
+	augmenter, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	middleware, err := rag.NewMiddleware(rag.MiddlewareConfig{Retriever: &stubRetriever{docs: rag.Candidates{candidate(doc)}}, Augmenter: augmenter})
+	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{Retriever: &stubRetriever{docs: rag.Candidates{candidate(doc)}}, Augmenter: augmenter})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,12 +138,12 @@ func TestMiddlewareStreamPublishesRetrievalMetadataOnce(t *testing.T) {
 		if streamErr != nil {
 			t.Fatal(streamErr)
 		}
-		if _, found, decodeErr := rag.CandidatesFromMetadata(delta.Metadata); decodeErr != nil {
+		if _, found, decodeErr := ragchat.CandidatesFromMetadata(delta.Metadata); decodeErr != nil {
 			t.Fatal(decodeErr)
 		} else if found {
 			candidatePayloads++
 		}
-		if _, found, decodeErr := rag.CitationsFromMetadata(delta.Metadata); decodeErr != nil {
+		if _, found, decodeErr := ragchat.CitationsFromMetadata(delta.Metadata); decodeErr != nil {
 			t.Fatal(decodeErr)
 		} else if found {
 			citationPayloads++

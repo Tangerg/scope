@@ -1,4 +1,4 @@
-package rag_test
+package chat_test
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/rag"
+	ragchat "github.com/Tangerg/scope/rag/chat"
 )
 
 // stubRetriever returns a fixed document set; used to exercise the
@@ -65,20 +66,20 @@ func (e *echoChatModel) Stream(_ context.Context, req *chat.Request) iter.Seq2[*
 }
 
 func TestNewMiddlewareRejectsInvalidConfig(t *testing.T) {
-	if _, err := rag.NewMiddleware(rag.MiddlewareConfig{}); err == nil {
+	if _, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{}); err == nil {
 		t.Fatal("missing retrievers must error")
 	}
 	var typedNilRetriever *stubRetriever
-	if _, err := rag.NewMiddleware(rag.MiddlewareConfig{Retriever: typedNilRetriever}); err == nil {
+	if _, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{Retriever: typedNilRetriever}); err == nil {
 		t.Fatal("typed nil retriever must error")
 	}
-	if _, err := rag.NewMiddleware(rag.MiddlewareConfig{Retriever: &stubRetriever{}}); !errors.Is(err, rag.ErrNilAugmenter) {
+	if _, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{Retriever: &stubRetriever{}}); !errors.Is(err, rag.ErrNilAugmenter) {
 		t.Fatalf("missing augmenter error = %v", err)
 	}
 }
 
 func TestMiddlewarePreservesMissingCapabilities(t *testing.T) {
-	middleware, err := rag.NewMiddleware(rag.MiddlewareConfig{
+	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
 		Retriever: &stubRetriever{}, Augmenter: rag.IdentityAugmenter(),
 	})
 	if err != nil {
@@ -95,8 +96,8 @@ func TestMiddlewarePreservesMissingCapabilities(t *testing.T) {
 func TestMiddlewareAugmentsRequestAndAttachesDocs(t *testing.T) {
 	doc, _ := document.NewDocument("retrieved info", nil)
 	retriever := &stubRetriever{docs: rag.Candidates{candidate(doc)}}
-	aug, _ := rag.NewContextualAugmenter(rag.ContextualAugmenterConfig{})
-	middleware, err := rag.NewMiddleware(rag.MiddlewareConfig{
+	aug, _ := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{})
+	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
 		Retriever: retriever,
 		Augmenter: aug,
 	})
@@ -114,7 +115,7 @@ func TestMiddlewareAugmentsRequestAndAttachesDocs(t *testing.T) {
 	if !strings.Contains(model.captured, "retrieved info") {
 		t.Fatalf("augmented user message did not embed retrieved doc: %q", model.captured)
 	}
-	docs, ok, err := rag.CandidatesFromMetadata(response.Metadata)
+	docs, ok, err := ragchat.CandidatesFromMetadata(response.Metadata)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +125,7 @@ func TestMiddlewareAugmentsRequestAndAttachesDocs(t *testing.T) {
 	if len(docs) != 1 {
 		t.Fatalf("attached docs len = %d, want 1", len(docs))
 	}
-	citations, found, err := rag.CitationsFromMetadata(response.Metadata)
+	citations, found, err := ragchat.CitationsFromMetadata(response.Metadata)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,10 +138,10 @@ func TestMiddlewarePreservesChatExtensionsAndExposesTypedHistory(t *testing.T) {
 	var capturedHistory []chat.Message
 	retriever := rag.RetrieverFunc(func(_ context.Context, query rag.Query) (rag.Candidates, error) {
 		var err error
-		capturedHistory, _, err = query.Value(rag.HistoryValueKey())
+		capturedHistory, _, err = query.Value(ragchat.HistoryValueKey())
 		return nil, err
 	})
-	middleware, err := rag.NewMiddleware(rag.MiddlewareConfig{
+	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
 		Retriever: retriever, Augmenter: rag.IdentityAugmenter(),
 	})
 	if err != nil {
@@ -179,8 +180,8 @@ func TestMiddlewarePreservesChatExtensionsAndExposesTypedHistory(t *testing.T) {
 func TestMiddlewareStreamAugmentsOnceAndAttachesDocs(t *testing.T) {
 	doc, _ := document.NewDocument("streamed context", nil)
 	retriever := &countingRetriever{docs: rag.Candidates{candidate(doc)}}
-	aug, _ := rag.NewContextualAugmenter(rag.ContextualAugmenterConfig{})
-	middleware, err := rag.NewMiddleware(rag.MiddlewareConfig{Retriever: retriever, Augmenter: aug})
+	aug, _ := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{})
+	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{Retriever: retriever, Augmenter: aug})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +194,7 @@ func TestMiddlewareStreamAugmentsOnceAndAttachesDocs(t *testing.T) {
 			t.Fatal(streamErr)
 		}
 		chunks++
-		if _, ok, decodeErr := rag.CandidatesFromMetadata(response.Metadata); decodeErr != nil || !ok {
+		if _, ok, decodeErr := ragchat.CandidatesFromMetadata(response.Metadata); decodeErr != nil || !ok {
 			t.Fatalf("document extension = present %v, error %v", ok, decodeErr)
 		}
 	}
@@ -217,7 +218,7 @@ func (c *countingRetriever) Retrieve(_ context.Context, _ rag.Query) (rag.Candid
 
 func TestMiddlewarePropagatesRetrieverError(t *testing.T) {
 	want := errors.New("boom")
-	middleware, err := rag.NewMiddleware(rag.MiddlewareConfig{
+	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
 		Retriever: &errorRetriever{err: want}, Augmenter: rag.IdentityAugmenter(),
 	})
 	if err != nil {
@@ -232,7 +233,7 @@ func TestMiddlewarePropagatesRetrieverError(t *testing.T) {
 }
 
 func TestMiddlewareRejectsInvalidAugmentation(t *testing.T) {
-	middleware, err := rag.NewMiddleware(rag.MiddlewareConfig{
+	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
 		Retriever: &stubRetriever{},
 		Augmenter: rag.AugmenterFunc(func(context.Context, rag.Query, rag.Candidates) (rag.Augmentation, error) {
 			return rag.Augmentation{}, nil
@@ -258,7 +259,7 @@ func TestMiddlewareRejectsInvalidAugmentation(t *testing.T) {
 
 func TestMiddlewarePreservesPartialModelResponse(t *testing.T) {
 	doc, _ := document.NewDocument("retrieved info", nil)
-	middleware, err := rag.NewMiddleware(rag.MiddlewareConfig{
+	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
 		Retriever: &stubRetriever{docs: rag.Candidates{candidate(doc)}},
 		Augmenter: rag.IdentityAugmenter(),
 	})
@@ -276,13 +277,13 @@ func TestMiddlewarePreservesPartialModelResponse(t *testing.T) {
 	if response != partial || !errors.Is(err, wantErr) {
 		t.Fatalf("response/error = %p/%v, want %p/%v", response, err, partial, wantErr)
 	}
-	if _, found, decodeErr := rag.CandidatesFromMetadata(response.Metadata); decodeErr != nil || !found {
+	if _, found, decodeErr := ragchat.CandidatesFromMetadata(response.Metadata); decodeErr != nil || !found {
 		t.Fatalf("partial response document extension = present %v, error %v", found, decodeErr)
 	}
 }
 
 func TestMiddlewareRequiresActiveUserTurn(t *testing.T) {
-	middleware, err := rag.NewMiddleware(rag.MiddlewareConfig{
+	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
 		Retriever: &stubRetriever{}, Augmenter: rag.IdentityAugmenter(),
 	})
 	if err != nil {
@@ -292,7 +293,7 @@ func TestMiddlewareRequiresActiveUserTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := middleware.Call(&echoChatModel{}).Call(t.Context(), request); !errors.Is(err, rag.ErrNoFinalUserMessage) {
+	if _, err := middleware.Call(&echoChatModel{}).Call(t.Context(), request); !errors.Is(err, ragchat.ErrNoFinalUserMessage) {
 		t.Fatalf("final assistant message error = %v", err)
 	}
 }
@@ -308,8 +309,8 @@ func (e *errorRetriever) Retrieve(_ context.Context, _ rag.Query) (rag.Candidate
 func TestMiddlewareDoesNotMutateCallerMessages(t *testing.T) {
 	doc, _ := document.NewDocument("retrieved info", nil)
 	retriever := &stubRetriever{docs: rag.Candidates{candidate(doc)}}
-	aug, _ := rag.NewContextualAugmenter(rag.ContextualAugmenterConfig{})
-	middleware, err := rag.NewMiddleware(rag.MiddlewareConfig{Retriever: retriever, Augmenter: aug})
+	aug, _ := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{})
+	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{Retriever: retriever, Augmenter: aug})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +339,7 @@ func TestMiddlewarePreservesActiveUserPartOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	middleware, err := rag.NewMiddleware(rag.MiddlewareConfig{
+	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
 		Retriever: &stubRetriever{}, Augmenter: rag.IdentityAugmenter(),
 	})
 	if err != nil {

@@ -1,4 +1,4 @@
-package rag_test
+package chat_test
 
 import (
 	"context"
@@ -6,13 +6,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/rag"
+	ragchat "github.com/Tangerg/scope/rag/chat"
 )
 
-var routeKey = mustValueKey[string]("route")
+var routeKey = lo.Must(rag.NewValueKey[string]("route"))
 
 // fakeChatModel is the target core/chat mock used by every LLM-backed
 // component test.
@@ -56,7 +59,7 @@ func TestRewriteTransformerAcceptsRootFieldTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 	model := newFakeChatModel(t, "rewritten question")
-	transformer, err := rag.NewRewriteTransformer(rag.RewriteTransformerConfig{
+	transformer, err := ragchat.NewRewriteTransformer(ragchat.RewriteTransformerConfig{
 		Model: model, TargetSearchSystem: "index", PromptTemplate: prompt,
 	})
 	if err != nil {
@@ -73,7 +76,7 @@ func TestRewriteTransformerAcceptsRootFieldTemplate(t *testing.T) {
 }
 
 func TestContextualAugmenter_RendersDocsAsContext(t *testing.T) {
-	aug, err := rag.NewContextualAugmenter(rag.ContextualAugmenterConfig{})
+	aug, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +97,7 @@ func TestContextualAugmenter_RendersDocsAsContext(t *testing.T) {
 }
 
 func TestContextualAugmenterKeepsRetrievalQueryUnchanged(t *testing.T) {
-	aug, err := rag.NewContextualAugmenter(rag.ContextualAugmenterConfig{})
+	aug, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +125,7 @@ func TestContextualAugmenterKeepsRetrievalQueryUnchanged(t *testing.T) {
 }
 
 func TestContextualAugmenter_EmptyDocs_DefaultRefusal(t *testing.T) {
-	aug, _ := rag.NewContextualAugmenter(rag.ContextualAugmenterConfig{})
+	aug, _ := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{})
 
 	q, _ := rag.NewQuery("hi")
 	got, err := aug.Augment(t.Context(), q, nil)
@@ -135,7 +138,7 @@ func TestContextualAugmenter_EmptyDocs_DefaultRefusal(t *testing.T) {
 }
 
 func TestContextualAugmenter_EmptyDocs_AllowEmptyPassesThrough(t *testing.T) {
-	aug, _ := rag.NewContextualAugmenter(rag.ContextualAugmenterConfig{AllowEmptyContext: true})
+	aug, _ := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{AllowEmptyContext: true})
 
 	q, _ := rag.NewQuery("hi")
 	got, err := aug.Augment(t.Context(), q, nil)
@@ -148,14 +151,14 @@ func TestContextualAugmenter_EmptyDocs_AllowEmptyPassesThrough(t *testing.T) {
 }
 
 func TestContextualAugmenter_ZeroQuery(t *testing.T) {
-	aug, _ := rag.NewContextualAugmenter(rag.ContextualAugmenterConfig{})
+	aug, _ := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{})
 	if _, err := aug.Augment(t.Context(), rag.Query{}, nil); err == nil {
 		t.Fatal("zero query must error")
 	}
 }
 
 func TestContextualAugmenterAppliesWholeDocumentTokenBudget(t *testing.T) {
-	augmenter, err := rag.NewContextualAugmenter(rag.ContextualAugmenterConfig{
+	augmenter, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{
 		MaxContextTokens: 2,
 		TokenEstimator:   evidenceCountEstimator{},
 	})
@@ -189,7 +192,7 @@ func TestContextualAugmenterAppliesWholeDocumentTokenBudget(t *testing.T) {
 }
 
 func TestContextualAugmenterEncodesEvidenceAsUntrustedJSON(t *testing.T) {
-	augmenter, err := rag.NewContextualAugmenter(rag.ContextualAugmenterConfig{})
+	augmenter, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,12 +215,12 @@ func TestContextualAugmenterEncodesEvidenceAsUntrustedJSON(t *testing.T) {
 }
 
 func TestContextualAugmenterValidatesTokenBudgetConfiguration(t *testing.T) {
-	for _, config := range []rag.ContextualAugmenterConfig{
+	for _, config := range []ragchat.ContextualAugmenterConfig{
 		{MaxContextTokens: -1},
 		{MaxContextTokens: 1},
 		{TokenEstimator: evidenceCountEstimator{}},
 	} {
-		if _, err := rag.NewContextualAugmenter(config); !errors.Is(err, rag.ErrInvalidContextBudget) {
+		if _, err := ragchat.NewContextualAugmenter(config); !errors.Is(err, ragchat.ErrInvalidContextBudget) {
 			t.Fatalf("NewContextualAugmenter(%#v) error = %v", config, err)
 		}
 	}
@@ -226,7 +229,7 @@ func TestContextualAugmenterValidatesTokenBudgetConfiguration(t *testing.T) {
 func TestContextualAugmenterRejectsNegativeTokenMeasurements(t *testing.T) {
 	for name, count := range map[string]int{"negative": -1, "zero": 0} {
 		t.Run(name, func(t *testing.T) {
-			augmenter, err := rag.NewContextualAugmenter(rag.ContextualAugmenterConfig{
+			augmenter, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{
 				MaxContextTokens: 1, TokenEstimator: fixedContextTokenEstimator(count),
 			})
 			if err != nil {
@@ -242,7 +245,7 @@ func TestContextualAugmenterRejectsNegativeTokenMeasurements(t *testing.T) {
 			}
 			augmentation, err := augmenter.Augment(t.Context(), query, rag.Candidates{{Document: doc, Score: 1}})
 			if count < 0 {
-				if !errors.Is(err, rag.ErrInvalidContextBudget) || augmentation.Text() != "" {
+				if !errors.Is(err, ragchat.ErrInvalidContextBudget) || augmentation.Text() != "" {
 					t.Fatalf("invalid measurement produced augmentation %q, error %v", augmentation.Text(), err)
 				}
 				return
@@ -278,40 +281,40 @@ func TestLLMComponentsRejectTemplatesMissingRequiredFields(t *testing.T) {
 
 	for name, build := range map[string]func() error{
 		"contextual augmenter": func() error {
-			_, err := rag.NewContextualAugmenter(rag.ContextualAugmenterConfig{
+			_, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{
 				PromptTemplate: prompt,
 			})
 			return err
 		},
 		"multi-query expander": func() error {
-			_, err := rag.NewMultiQueryExpander(rag.MultiQueryExpanderConfig{
+			_, err := ragchat.NewMultiQueryExpander(ragchat.MultiQueryExpanderConfig{
 				Model:          model,
 				PromptTemplate: prompt,
 			})
 			return err
 		},
 		"model reranker": func() error {
-			_, err := rag.NewChatReranker(rag.ChatRerankerConfig{
+			_, err := ragchat.NewReranker(ragchat.RerankerConfig{
 				Model:          model,
 				PromptTemplate: prompt,
 			})
 			return err
 		},
 		"compression transformer": func() error {
-			_, err := rag.NewCompressionTransformer(rag.CompressionTransformerConfig{
+			_, err := ragchat.NewCompressionTransformer(ragchat.CompressionTransformerConfig{
 				Model:          model,
 				PromptTemplate: prompt,
 			})
 			return err
 		},
 		"rewrite transformer": func() error {
-			_, err := rag.NewRewriteTransformer(rag.RewriteTransformerConfig{
+			_, err := ragchat.NewRewriteTransformer(ragchat.RewriteTransformerConfig{
 				Model: model, TargetSearchSystem: "search", PromptTemplate: prompt,
 			})
 			return err
 		},
 		"translation transformer": func() error {
-			_, err := rag.NewTranslationTransformer(rag.TranslationTransformerConfig{
+			_, err := ragchat.NewTranslationTransformer(ragchat.TranslationTransformerConfig{
 				Model:          model,
 				TargetLanguage: "English",
 				PromptTemplate: prompt,
@@ -329,7 +332,7 @@ func TestLLMComponentsRejectTemplatesMissingRequiredFields(t *testing.T) {
 
 func TestMultiQueryExpanderUsesStructuredDistinctVariants(t *testing.T) {
 	model := newFakeChatModel(t, `{"queries":[" variant 1 ","variant 1","hi","variant 2","variant 3"]}`)
-	exp, err := rag.NewMultiQueryExpander(rag.MultiQueryExpanderConfig{
+	exp, err := ragchat.NewMultiQueryExpander(ragchat.MultiQueryExpanderConfig{
 		Model:           model,
 		NumberOfQueries: 3,
 	})
@@ -362,7 +365,7 @@ func TestMultiQueryExpanderUsesStructuredDistinctVariants(t *testing.T) {
 
 func TestMultiQueryExpander_IncludeOriginal(t *testing.T) {
 	model := newFakeChatModel(t, `{"queries":["v1","v2"]}`)
-	exp, _ := rag.NewMultiQueryExpander(rag.MultiQueryExpanderConfig{
+	exp, _ := ragchat.NewMultiQueryExpander(ragchat.MultiQueryExpanderConfig{
 		Model:           model,
 		NumberOfQueries: 2,
 		IncludeOriginal: true,
@@ -380,7 +383,7 @@ func TestMultiQueryExpander_IncludeOriginal(t *testing.T) {
 
 func TestMultiQueryExpanderRejectsEmptyModelOutput(t *testing.T) {
 	model := newFakeChatModel(t, `{"queries":[]}`)
-	exp, _ := rag.NewMultiQueryExpander(rag.MultiQueryExpanderConfig{Model: model})
+	exp, _ := ragchat.NewMultiQueryExpander(ragchat.MultiQueryExpanderConfig{Model: model})
 
 	q, _ := rag.NewQuery("orig")
 	if _, err := exp.Expand(t.Context(), q); !errors.Is(err, rag.ErrEmptyExpansion) {
@@ -390,7 +393,7 @@ func TestMultiQueryExpanderRejectsEmptyModelOutput(t *testing.T) {
 
 func TestMultiQueryExpanderRejectsIncompleteDistinctOutput(t *testing.T) {
 	model := newFakeChatModel(t, `{"queries":["variant","variant"]}`)
-	expander, err := rag.NewMultiQueryExpander(rag.MultiQueryExpanderConfig{
+	expander, err := ragchat.NewMultiQueryExpander(ragchat.MultiQueryExpanderConfig{
 		Model: model, NumberOfQueries: 2,
 	})
 	if err != nil {
@@ -403,24 +406,24 @@ func TestMultiQueryExpanderRejectsIncompleteDistinctOutput(t *testing.T) {
 }
 
 func TestMultiQueryExpanderConfigRejectsMissingModel(t *testing.T) {
-	if _, err := rag.NewMultiQueryExpander(rag.MultiQueryExpanderConfig{}); err == nil {
+	if _, err := ragchat.NewMultiQueryExpander(ragchat.MultiQueryExpanderConfig{}); err == nil {
 		t.Fatal("missing Model must error")
 	}
 	var typedNilModel *fakeChatModel
-	if _, err := rag.NewMultiQueryExpander(rag.MultiQueryExpanderConfig{Model: typedNilModel}); err == nil {
+	if _, err := ragchat.NewMultiQueryExpander(ragchat.MultiQueryExpanderConfig{Model: typedNilModel}); err == nil {
 		t.Fatal("typed nil Model must error")
 	}
 }
 
 func TestCompressionTransformer_UsesHistory(t *testing.T) {
 	model := newFakeChatModel(t, "compressed query")
-	tr, err := rag.NewCompressionTransformer(rag.CompressionTransformerConfig{Model: model})
+	tr, err := ragchat.NewCompressionTransformer(ragchat.CompressionTransformerConfig{Model: model})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	q, _ := rag.NewQuery("follow-up")
-	q, err = q.WithValue(rag.HistoryValueKey(), []chat.Message{
+	q, err = q.WithValue(ragchat.HistoryValueKey(), []chat.Message{
 		chat.NewUserMessage(chat.NewTextPart("first turn")),
 		chat.NewAssistantMessage(chat.NewTextPart("first reply")),
 	})
@@ -447,10 +450,10 @@ func TestCompressionTransformerRejectsEmptyModelOutput(t *testing.T) {
 		wantErr error
 	}{
 		{name: "missing response text", wantErr: chatclient.ErrInvalidOutput},
-		{name: "blank query text", reply: " \n\t ", wantErr: rag.ErrEmptyModelOutput},
+		{name: "blank query text", reply: " \n\t ", wantErr: ragchat.ErrEmptyModelOutput},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			transformer, err := rag.NewCompressionTransformer(rag.CompressionTransformerConfig{Model: newFakeChatModel(t, test.reply)})
+			transformer, err := ragchat.NewCompressionTransformer(ragchat.CompressionTransformerConfig{Model: newFakeChatModel(t, test.reply)})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -476,7 +479,7 @@ func TestCompressionTransformerPreservesUnsuccessfulCompletion(t *testing.T) {
 			model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 				return chat.NewResponse(&chat.Output{FinishReason: reason, Message: new(chat.NewAssistantMessage(part))}, nil)
 			})
-			transformer, err := rag.NewCompressionTransformer(rag.CompressionTransformerConfig{Model: model})
+			transformer, err := ragchat.NewCompressionTransformer(ragchat.CompressionTransformerConfig{Model: model})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -494,14 +497,14 @@ func TestCompressionTransformerPreservesUnsuccessfulCompletion(t *testing.T) {
 
 func TestRewriteTransformerRequiresSearchTarget(t *testing.T) {
 	model := newFakeChatModel(t, "tightened query")
-	if _, err := rag.NewRewriteTransformer(rag.RewriteTransformerConfig{Model: model}); err == nil {
+	if _, err := ragchat.NewRewriteTransformer(ragchat.RewriteTransformerConfig{Model: model}); err == nil {
 		t.Fatal("missing search target must error")
 	}
 }
 
 func TestRewriteTransformer_HonorsCustomTarget(t *testing.T) {
 	model := newFakeChatModel(t, "tightened")
-	tr, _ := rag.NewRewriteTransformer(rag.RewriteTransformerConfig{
+	tr, _ := ragchat.NewRewriteTransformer(ragchat.RewriteTransformerConfig{
 		Model:              model,
 		TargetSearchSystem: "elasticsearch",
 	})
@@ -515,7 +518,7 @@ func TestRewriteTransformer_HonorsCustomTarget(t *testing.T) {
 
 func TestRewriteTransformerRejectsPaddedTarget(t *testing.T) {
 	model := newFakeChatModel(t, "tightened")
-	if _, err := rag.NewRewriteTransformer(rag.RewriteTransformerConfig{
+	if _, err := ragchat.NewRewriteTransformer(ragchat.RewriteTransformerConfig{
 		Model:              model,
 		TargetSearchSystem: " elasticsearch ",
 	}); err == nil {
@@ -526,7 +529,7 @@ func TestRewriteTransformerRejectsPaddedTarget(t *testing.T) {
 func TestTranslationTransformer_RequiresTargetLanguage(t *testing.T) {
 	model := newFakeChatModel(t, "")
 	for _, target := range []string{"", "   ", " English "} {
-		if _, err := rag.NewTranslationTransformer(rag.TranslationTransformerConfig{
+		if _, err := ragchat.NewTranslationTransformer(ragchat.TranslationTransformerConfig{
 			Model:          model,
 			TargetLanguage: target,
 		}); err == nil {
@@ -537,7 +540,7 @@ func TestTranslationTransformer_RequiresTargetLanguage(t *testing.T) {
 
 func TestTranslationTransformer_TranslatesText(t *testing.T) {
 	model := newFakeChatModel(t, "你好")
-	tr, _ := rag.NewTranslationTransformer(rag.TranslationTransformerConfig{
+	tr, _ := ragchat.NewTranslationTransformer(ragchat.TranslationTransformerConfig{
 		Model:          model,
 		TargetLanguage: "Chinese",
 	})
@@ -556,7 +559,7 @@ func TestTranslationTransformer_PropagatesError(t *testing.T) {
 	model := newFakeChatModel(t, "")
 	model.err = errors.New("boom")
 
-	tr, _ := rag.NewTranslationTransformer(rag.TranslationTransformerConfig{
+	tr, _ := ragchat.NewTranslationTransformer(ragchat.TranslationTransformerConfig{
 		Model:          model,
 		TargetLanguage: "English",
 	})

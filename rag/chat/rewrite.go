@@ -1,10 +1,11 @@
-package rag
+package chat
 
 import (
 	"context"
 
-	"github.com/Tangerg/scope/core/chat"
+	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
+	"github.com/Tangerg/scope/rag"
 )
 
 // rewriteDefaultTemplate asks the LLM to rewrite the query to be
@@ -21,7 +22,7 @@ Rewritten query:`
 // RewriteTransformerConfig binds one model and prompt policy to query rewriting.
 type RewriteTransformerConfig struct {
 	// Model performs the rewrite. Required.
-	Model chat.Model
+	Model corechat.Model
 
 	// TargetSearchSystem names the downstream search engine — "vector
 	// store", "web search engine", "database", etc. Required.
@@ -33,7 +34,7 @@ type RewriteTransformerConfig struct {
 	PromptTemplate *chatclient.Template
 }
 
-var _ Transformer = (*RewriteTransformer)(nil)
+var _ rag.Transformer = (*RewriteTransformer)(nil)
 
 // RewriteTransformer tightens a query for a configured search target.
 type RewriteTransformer struct {
@@ -58,6 +59,6 @@ func NewRewriteTransformer(config RewriteTransformerConfig) (*RewriteTransformer
 
 // Transform asks the LLM to rewrite the query and returns a clone with Text
 // replaced by the model output.
-func (r *RewriteTransformer) Transform(ctx context.Context, query Query) (Query, error) {
+func (r *RewriteTransformer) Transform(ctx context.Context, query rag.Query) (rag.Query, error) {
 	return r.transformer.transform(ctx, query)
 }

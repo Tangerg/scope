@@ -2,6 +2,7 @@ package rag
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/Tangerg/scope/core/document"
 )
@@ -25,9 +26,16 @@ func (d DocumentFormatterFunc) Format(doc *document.Document) (string, error) {
 	return d(doc)
 }
 
-type textDocumentFormatter struct{}
+// TextFormatter renders document text and rejects media that text alone cannot
+// represent. Its zero value is ready to use.
+type TextFormatter struct{}
 
-func (textDocumentFormatter) Format(doc *document.Document) (string, error) {
+var _ DocumentFormatter = TextFormatter{}
+
+func (TextFormatter) Format(doc *document.Document) (string, error) {
+	if err := doc.Validate(); err != nil {
+		return "", fmt.Errorf("rag: format document: %w", err)
+	}
 	if doc.Media != nil {
 		return "", ErrUnsupportedMedia
 	}

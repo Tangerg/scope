@@ -1,4 +1,4 @@
-package rag_test
+package chat_test
 
 import (
 	"errors"
@@ -8,11 +8,12 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/rag"
+	ragchat "github.com/Tangerg/scope/rag/chat"
 )
 
 func TestChatRerankerUsesStructuredOutputAndOwnsScores(t *testing.T) {
 	model := newFakeChatModel(t, `{"scores":[{"index":0,"score":0.4},{"index":1,"score":0.9}]}`)
-	reranker, err := rag.NewChatReranker(rag.ChatRerankerConfig{Model: model})
+	reranker, err := ragchat.NewReranker(ragchat.RerankerConfig{Model: model})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +56,7 @@ func TestChatRerankerValidatesCompleteRanking(t *testing.T) {
 		"invalid score":      `{"scores":[{"index":0,"score":1.1},{"index":1,"score":0.8}]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			reranker, err := rag.NewChatReranker(rag.ChatRerankerConfig{Model: newFakeChatModel(t, reply)})
+			reranker, err := ragchat.NewReranker(ragchat.RerankerConfig{Model: newFakeChatModel(t, reply)})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -68,7 +69,7 @@ func TestChatRerankerValidatesCompleteRanking(t *testing.T) {
 
 func TestChatRerankerHandlesEmptyAndUnformattableCandidates(t *testing.T) {
 	model := newFakeChatModel(t, `{"scores":[]}`)
-	reranker, err := rag.NewChatReranker(rag.ChatRerankerConfig{Model: model})
+	reranker, err := ragchat.NewReranker(ragchat.RerankerConfig{Model: model})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +81,7 @@ func TestChatRerankerHandlesEmptyAndUnformattableCandidates(t *testing.T) {
 	}
 
 	blankFormatter := rag.DocumentFormatterFunc(func(*document.Document) (string, error) { return " ", nil })
-	reranker, err = rag.NewChatReranker(rag.ChatRerankerConfig{Model: model, Formatter: blankFormatter})
+	reranker, err = ragchat.NewReranker(ragchat.RerankerConfig{Model: model, Formatter: blankFormatter})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +92,7 @@ func TestChatRerankerHandlesEmptyAndUnformattableCandidates(t *testing.T) {
 }
 
 func TestNewChatRerankerRejectsMissingModel(t *testing.T) {
-	if _, err := rag.NewChatReranker(rag.ChatRerankerConfig{}); err == nil {
+	if _, err := ragchat.NewReranker(ragchat.RerankerConfig{}); err == nil {
 		t.Fatal("missing model must error")
 	}
 }

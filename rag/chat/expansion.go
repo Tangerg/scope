@@ -1,4 +1,4 @@
-package rag
+package chat
 
 import (
 	"context"
@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Tangerg/scope/core/chat"
+	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
+	"github.com/Tangerg/scope/rag"
 )
 
 // multiExpanderDefaultTemplate asks the LLM for N alternative phrasings.
@@ -34,7 +35,7 @@ const DefaultMultiQueryCount = 3
 // policy.
 type MultiQueryExpanderConfig struct {
 	// Model produces the variants. Required.
-	Model chat.Model
+	Model corechat.Model
 
 	// IncludeOriginal prepends the original query to the variant list.
 	// Defaults to false.
@@ -60,7 +61,7 @@ func (m MultiQueryExpanderConfig) normalized() (MultiQueryExpanderConfig, error)
 	return m, nil
 }
 
-var _ Expander = (*MultiQueryExpander)(nil)
+var _ rag.Expander = (*MultiQueryExpander)(nil)
 
 // MultiQueryExpander asks a model for alternate query phrasings.
 type MultiQueryExpander struct {
@@ -78,8 +79,8 @@ type multiQueryOutput struct {
 	Queries []string `json:"queries"`
 }
 
-func (m multiQueryOutput) queries(source Query, count int, includeOriginal bool) ([]Query, error) {
-	variants := make([]Query, 0, count)
+func (m multiQueryOutput) queries(source rag.Query, count int, includeOriginal bool) ([]rag.Query, error) {
+	variants := make([]rag.Query, 0, count)
 	seen := map[string]struct{}{source.Text(): {}}
 	for _, value := range m.Queries {
 		if len(variants) >= count {
@@ -101,12 +102,12 @@ func (m multiQueryOutput) queries(source Query, count int, includeOriginal bool)
 	}
 
 	if len(variants) == 0 {
-		return nil, ErrEmptyExpansion
+		return nil, rag.ErrEmptyExpansion
 	}
 	if len(variants) != count {
 		return nil, fmt.Errorf(
 			"%w: model produced %d distinct variants, want %d",
-			ErrInvalidExpansion,
+			rag.ErrInvalidExpansion,
 			len(variants),
 			count,
 		)
@@ -114,7 +115,7 @@ func (m multiQueryOutput) queries(source Query, count int, includeOriginal bool)
 	if !includeOriginal {
 		return variants, nil
 	}
-	queries := make([]Query, 0, len(variants)+1)
+	queries := make([]rag.Query, 0, len(variants)+1)
 	queries = append(queries, source)
 	return append(queries, variants...), nil
 }
@@ -149,10 +150,10 @@ func NewMultiQueryExpander(config MultiQueryExpanderConfig) (*MultiQueryExpander
 	}, nil
 }
 
-// Expand asks the LLM for distinct variants and turns them into [Query]
+// Expand asks the LLM for distinct variants and turns them into [rag.Query]
 // values. Empty, duplicate, and original-query entries do not consume the
-// configured result limit. No usable variant returns [ErrEmptyExpansion].
-func (m *MultiQueryExpander) Expand(ctx context.Context, query Query) ([]Query, error) {
+// configured result limit. No usable variant returns [rag.ErrEmptyExpansion].
+func (m *MultiQueryExpander) Expand(ctx context.Context, query rag.Query) ([]rag.Query, error) {
 	if err := query.Validate(); err != nil {
 		return nil, err
 	}
@@ -163,7 +164,7 @@ func (m *MultiQueryExpander) Expand(ctx context.Context, query Query) ([]Query, 
 	})
 	if err != nil {
 		if errors.Is(err, chatclient.ErrInvalidOutput) {
-			return nil, fmt.Errorf("%w: model output: %w", ErrInvalidExpansion, err)
+			return nil, fmt.Errorf("%w: model output: %w", rag.ErrInvalidExpansion, err)
 		}
 		return nil, err
 	}

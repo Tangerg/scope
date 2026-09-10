@@ -1,4 +1,4 @@
-package rag_test
+package chat_test
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/rag"
+	ragchat "github.com/Tangerg/scope/rag/chat"
 )
 
 func BenchmarkMiddlewareRetrievalMetadata(b *testing.B) {
@@ -16,7 +17,7 @@ func BenchmarkMiddlewareRetrievalMetadata(b *testing.B) {
 	for index := range candidates {
 		candidates[index] = rag.Candidate{Document: &document.Document{Text: strings.Repeat("text", 1024)}}
 	}
-	middleware, err := rag.NewMiddleware(rag.MiddlewareConfig{
+	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
 		Retriever: rag.RetrieverFunc(func(context.Context, rag.Query) (rag.Candidates, error) {
 			return candidates.Clone(), nil
 		}),

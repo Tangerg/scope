@@ -1,11 +1,11 @@
-package rag
+package chat
 
 import (
 	"context"
 	"errors"
 	"strings"
 
-	"github.com/Tangerg/scope/core/chat"
+	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
 )
 
@@ -35,7 +35,7 @@ type textModelPrompt struct {
 }
 
 func newModelPrompt[T any](
-	model chat.Model,
+	model corechat.Model,
 	format chatclient.OutputFormat[T],
 	template *chatclient.Template,
 	fallback string,
@@ -53,7 +53,7 @@ func newModelPrompt[T any](
 }
 
 func newTextModelPrompt(
-	model chat.Model,
+	model corechat.Model,
 	template *chatclient.Template,
 	fallback string,
 	required ...string,
@@ -85,7 +85,7 @@ func (m modelPrompt[T]) call(ctx context.Context, data any) (T, error) {
 	if err != nil {
 		return zero, err
 	}
-	return m.client.Output(ctx, &chat.Request{Messages: []chat.Message{message}}, m.format)
+	return m.client.Output(ctx, &corechat.Request{Messages: []corechat.Message{message}}, m.format)
 }
 
 func (t textModelPrompt) call(ctx context.Context, data any) (string, error) {

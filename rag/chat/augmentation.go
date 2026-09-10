@@ -1,4 +1,4 @@
-package rag
+package chat
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/Tangerg/scope/core/chatclient"
 	"github.com/Tangerg/scope/core/tokenizer"
+	"github.com/Tangerg/scope/rag"
 )
 
 // ErrInvalidContextBudget identifies an invalid context window or token measurement.
@@ -52,8 +53,9 @@ type ContextualAugmenterConfig struct {
 	// empty-context fallback. Defaults to false.
 	AllowEmptyContext bool
 
-	// Formatter renders each retrieved document. The default renders Text and rejects media with ErrUnsupportedMedia.
-	Formatter DocumentFormatter
+	// Formatter renders each retrieved document. The default [rag.TextFormatter]
+	// rejects media with [rag.ErrUnsupportedMedia].
+	Formatter rag.DocumentFormatter
 
 	// MaxContextTokens limits the encoded evidence block. Zero leaves context
 	// unbounded. A positive value requires TokenEstimator. Only complete
@@ -99,14 +101,14 @@ func (c contextBudget) accepts(ctx context.Context, encoded []byte) (bool, error
 	return tokens <= c.maxTokens, nil
 }
 
-var _ Augmenter = (*ContextualAugmenter)(nil)
+var _ rag.Augmenter = (*ContextualAugmenter)(nil)
 
 // ContextualAugmenter folds retrieved documents into a contextual query.
 type ContextualAugmenter struct {
 	promptTemplate             *chatclient.Template
 	emptyContextPromptTemplate *chatclient.Template
 	allowEmptyContext          bool
-	formatter                  DocumentFormatter
+	formatter                  rag.DocumentFormatter
 	budget                     contextBudget
 }
 
@@ -146,7 +148,7 @@ func NewContextualAugmenter(config ContextualAugmenterConfig) (*ContextualAugmen
 	}
 	formatter := config.Formatter
 	if lo.IsNil(formatter) {
-		formatter = textDocumentFormatter{}
+		formatter = rag.TextFormatter{}
 	}
 
 	return &ContextualAugmenter{
@@ -161,12 +163,12 @@ func NewContextualAugmenter(config ContextualAugmenterConfig) (*ContextualAugmen
 // Augment keeps retrieved content in citation-labeled JSON so evidence remains
 // distinguishable from prompt instructions. A bounded context contains only
 // complete candidates; it never truncates a document into ambiguous evidence.
-func (c *ContextualAugmenter) Augment(ctx context.Context, query Query, candidates Candidates) (Augmentation, error) {
+func (c *ContextualAugmenter) Augment(ctx context.Context, query rag.Query, candidates rag.Candidates) (rag.Augmentation, error) {
 	if err := ctx.Err(); err != nil {
-		return Augmentation{}, err
+		return rag.Augmentation{}, err
 	}
 	if err := query.Validate(); err != nil {
-		return Augmentation{}, err
+		return rag.Augmentation{}, err
 	}
 
 	if len(candidates) == 0 {
@@ -175,7 +177,7 @@ func (c *ContextualAugmenter) Augment(ctx context.Context, query Query, candidat
 
 	encodedContext, citations, err := c.formatContext(ctx, candidates)
 	if err != nil {
-		return Augmentation{}, err
+		return rag.Augmentation{}, err
 	}
 	if len(citations) == 0 {
 		return c.handleEmptyContext(query)
@@ -186,21 +188,21 @@ func (c *ContextualAugmenter) Augment(ctx context.Context, query Query, candidat
 		Query:   query.Text(),
 	})
 	if err != nil {
-		return Augmentation{}, err
+		return rag.Augmentation{}, err
 	}
-	augmentation, err := NewAugmentation(rendered)
+	augmentation, err := rag.NewAugmentation(rendered)
 	if err != nil {
-		return Augmentation{}, err
+		return rag.Augmentation{}, err
 	}
 	return augmentation.WithCitations(citations)
 }
 
-func (c *ContextualAugmenter) formatContext(ctx context.Context, candidates Candidates) (string, Citations, error) {
+func (c *ContextualAugmenter) formatContext(ctx context.Context, candidates rag.Candidates) (string, rag.Citations, error) {
 	if err := candidates.Validate(); err != nil {
 		return "", nil, fmt.Errorf("rag: format context: %w", err)
 	}
 	evidence := make([]contextualEvidence, 0, len(candidates))
-	citations := make(Citations, 0, len(candidates))
+	citations := make(rag.Citations, 0, len(candidates))
 	var encoded []byte
 
 	for index, candidate := range candidates {
@@ -212,9 +214,9 @@ func (c *ContextualAugmenter) formatContext(ctx context.Context, candidates Cand
 			return "", nil, fmt.Errorf("rag: format context candidate %d: %w", index, err)
 		}
 		if strings.TrimSpace(content) == "" {
-			return "", nil, fmt.Errorf("%w: candidate %d formatted to blank content", ErrInvalidAugmentation, index)
+			return "", nil, fmt.Errorf("%w: candidate %d formatted to blank content", rag.ErrInvalidAugmentation, index)
 		}
-		citation := Citation{Number: len(citations) + 1, Candidate: candidate}
+		citation := rag.Citation{Number: len(citations) + 1, Candidate: candidate}
 		evidence = append(evidence, contextualEvidence{
 			Citation: citation.Marker(),
 			ID:       candidate.Document.ID,
@@ -251,14 +253,14 @@ func (c *ContextualAugmenter) formatContext(ctx context.Context, candidates Cand
 	return string(encoded), citations, nil
 }
 
-func (c *ContextualAugmenter) handleEmptyContext(query Query) (Augmentation, error) {
+func (c *ContextualAugmenter) handleEmptyContext(query rag.Query) (rag.Augmentation, error) {
 	if c.allowEmptyContext {
-		return NewAugmentation(query.Text())
+		return rag.NewAugmentation(query.Text())
 	}
 
 	rendered, err := c.emptyContextPromptTemplate.Render(nil)
 	if err != nil {
-		return Augmentation{}, err
+		return rag.Augmentation{}, err
 	}
-	return NewAugmentation(rendered)
+	return rag.NewAugmentation(rendered)
 }

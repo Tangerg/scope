@@ -1,12 +1,13 @@
-package rag
+package chat
 
 import (
 	"context"
 	"fmt"
 	"strings"
 
-	"github.com/Tangerg/scope/core/chat"
+	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
+	"github.com/Tangerg/scope/rag"
 )
 
 type targetedTextTransformer struct {
@@ -20,7 +21,7 @@ type targetedPromptVariables struct {
 }
 
 func newTargetedTextTransformer(
-	model chat.Model,
+	model corechat.Model,
 	template *chatclient.Template,
 	fallback string,
 	target string,
@@ -45,16 +46,16 @@ func newTargetedTextTransformer(
 	return targetedTextTransformer{prompt: prompt, target: target}, nil
 }
 
-func (t targetedTextTransformer) transform(ctx context.Context, query Query) (Query, error) {
+func (t targetedTextTransformer) transform(ctx context.Context, query rag.Query) (rag.Query, error) {
 	if err := query.Validate(); err != nil {
-		return Query{}, err
+		return rag.Query{}, err
 	}
 	text, err := t.prompt.call(ctx, targetedPromptVariables{
 		Target: t.target,
 		Query:  query.Text(),
 	})
 	if err != nil {
-		return Query{}, err
+		return rag.Query{}, err
 	}
 	return query.WithText(text)
 }

@@ -5,10 +5,13 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/media"
 	corererank "github.com/Tangerg/scope/core/rerank"
 	"github.com/Tangerg/scope/rag"
+	ragchat "github.com/Tangerg/scope/rag/chat"
+	ragrerank "github.com/Tangerg/scope/rag/rerank"
 )
 
 func TestDefaultFormattersRejectMediaWithoutCallingModels(t *testing.T) {
@@ -16,12 +19,17 @@ func TestDefaultFormattersRejectMediaWithoutCallingModels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	chatModel := newFakeChatModel(t, "{}")
-	chatReranker, err := rag.NewChatReranker(rag.ChatRerankerConfig{Model: chatModel})
+	var modelCalls int
+	chatModel := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		modelCalls++
+		t.Fatal("unsupported media reached chat model")
+		return nil, nil
+	})
+	chatReranker, err := ragchat.NewReranker(ragchat.RerankerConfig{Model: chatModel})
 	if err != nil {
 		t.Fatal(err)
 	}
-	reranker, err := rag.NewReranker(rag.RerankerConfig{
+	reranker, err := ragrerank.NewRefiner(ragrerank.RefinerConfig{
 		Model: corererank.ModelFunc(func(context.Context, *corererank.Request) (*corererank.Response, error) {
 			t.Fatal("unsupported media reached model")
 			return nil, nil
@@ -30,7 +38,7 @@ func TestDefaultFormattersRejectMediaWithoutCallingModels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	augmenter, err := rag.NewContextualAugmenter(rag.ContextualAugmenterConfig{})
+	augmenter, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +62,21 @@ func TestDefaultFormattersRejectMediaWithoutCallingModels(t *testing.T) {
 			})
 		}
 	}
-	if chatModel.calls != 0 {
-		t.Fatalf("chat model calls = %d", chatModel.calls)
+	if modelCalls != 0 {
+		t.Fatalf("chat model calls = %d", modelCalls)
+	}
+}
+
+func TestTextFormatterUsesDocumentValidation(t *testing.T) {
+	formatter := rag.TextFormatter{}
+	for _, doc := range []*document.Document{nil, {}, {Text: string([]byte{0xff})}} {
+		if _, err := formatter.Format(doc); !errors.Is(err, document.ErrInvalidDocument) {
+			t.Fatalf("Format(%#v) error = %v, want invalid document", doc, err)
+		}
+	}
+	doc := identifiedDocument(t, "evidence", "source text")
+	got, err := formatter.Format(doc)
+	if err != nil || got != doc.Text {
+		t.Fatalf("Format = %q, %v", got, err)
 	}
 }

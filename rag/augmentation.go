@@ -138,26 +138,3 @@ type AugmenterFunc func(context.Context, Query, Candidates) (Augmentation, error
 func (a AugmenterFunc) Augment(ctx context.Context, query Query, candidates Candidates) (Augmentation, error) {
 	return a(ctx, query, candidates)
 }
-
-func augment(ctx context.Context, augmenter Augmenter, query Query, candidates Candidates) (Augmentation, error) {
-	if err := ctx.Err(); err != nil {
-		return Augmentation{}, err
-	}
-	if err := query.Validate(); err != nil {
-		return Augmentation{}, err
-	}
-	if err := candidates.Validate(); err != nil {
-		return Augmentation{}, err
-	}
-	augmentation, err := augmenter.Augment(ctx, query, candidates)
-	if err != nil {
-		return Augmentation{}, err
-	}
-	if err := augmentation.Validate(); err != nil {
-		return Augmentation{}, err
-	}
-	if err := ctx.Err(); err != nil {
-		return Augmentation{}, err
-	}
-	return augmentation, nil
-}

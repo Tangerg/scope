@@ -1,4 +1,4 @@
-package rag_test
+package tool_test
 
 import (
 	"context"

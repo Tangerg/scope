@@ -1,4 +1,4 @@
-package rag
+package chat
 
 import (
 	"context"
@@ -6,17 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/samber/lo"
 
-	"github.com/Tangerg/scope/core/chat"
+	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
+	"github.com/Tangerg/scope/rag"
 )
-
-// ErrInvalidReranking identifies a chat ranking that loses or duplicates
-// candidate identity.
-var ErrInvalidReranking = errors.New("rag: invalid reranking")
 
 const chatRerankerDefaultTemplate = `Rank every candidate by relevance to the query.
 
@@ -30,26 +28,27 @@ Candidates (JSON):
 
 const chatRerankerOutputName = "rag_reranking"
 
-// ChatRerankerConfig binds explicit prompt, output, and candidate limits to a
+// RerankerConfig binds explicit prompt, output, and candidate limits to a
 // provider-neutral chat model.
-type ChatRerankerConfig struct {
+type RerankerConfig struct {
 	// Model ranks candidates. Required.
-	Model chat.Model
+	Model corechat.Model
 
 	// PromptTemplate defaults to [chatRerankerDefaultTemplate]. Custom
 	// templates must declare {{.Query}} and {{.Candidates}}.
 	PromptTemplate *chatclient.Template
 
-	// Formatter renders candidate content. The default renders text and rejects media with ErrUnsupportedMedia.
-	Formatter DocumentFormatter
+	// Formatter renders candidate content. The default [rag.TextFormatter]
+	// rejects media with [rag.ErrUnsupportedMedia].
+	Formatter rag.DocumentFormatter
 }
 
-// ChatReranker reorders candidates using a chat model's native structured output
+// Reranker reorders candidates using a chat model's native structured output
 // and replaces provider-specific retrieval scores with normalized relevance
 // scores.
-type ChatReranker struct {
+type Reranker struct {
 	prompt    modelPrompt[chatRerankingOutput]
-	formatter DocumentFormatter
+	formatter rag.DocumentFormatter
 }
 
 type chatRerankerPromptVariables struct {
@@ -66,33 +65,32 @@ type chatRerankingOutput struct {
 	Scores []chatCandidateScore `json:"scores"`
 }
 
-func (c chatRerankingOutput) rank(candidates Candidates) (Candidates, error) {
+func (c chatRerankingOutput) score(candidates rag.Candidates) (rag.Candidates, error) {
 	if len(c.Scores) != len(candidates) {
 		return nil, fmt.Errorf(
 			"%w: output contains %d candidate scores, want %d",
-			ErrInvalidReranking,
+			rag.ErrInvalidReranking,
 			len(c.Scores),
 			len(candidates),
 		)
 	}
 
-	ranked := candidates.Clone()
+	scored := slices.Clone(candidates)
 	seen := make([]bool, len(candidates))
 	for position, item := range c.Scores {
 		if item.Index < 0 || item.Index >= len(candidates) {
-			return nil, fmt.Errorf("%w: scores[%d] index %d is out of range", ErrInvalidReranking, position, item.Index)
+			return nil, fmt.Errorf("%w: scores[%d] index %d is out of range", rag.ErrInvalidReranking, position, item.Index)
 		}
 		if seen[item.Index] {
-			return nil, fmt.Errorf("%w: candidate index %d appears more than once", ErrInvalidReranking, item.Index)
+			return nil, fmt.Errorf("%w: candidate index %d appears more than once", rag.ErrInvalidReranking, item.Index)
 		}
 		if math.IsNaN(item.Score) || math.IsInf(item.Score, 0) || item.Score < 0 || item.Score > 1 {
-			return nil, fmt.Errorf("%w: scores[%d] must be between 0 and 1", ErrInvalidReranking, position)
+			return nil, fmt.Errorf("%w: scores[%d] must be between 0 and 1", rag.ErrInvalidReranking, position)
 		}
 		seen[item.Index] = true
-		ranked[item.Index].Score = Score(item.Score)
+		scored[item.Index].Score = rag.Score(item.Score)
 	}
-	sortCandidatesByScore(ranked)
-	return ranked, nil
+	return scored, nil
 }
 
 type chatRerankingInput struct {
@@ -100,10 +98,10 @@ type chatRerankingInput struct {
 	Content string `json:"content"`
 }
 
-var _ Refiner = (*ChatReranker)(nil)
+var _ rag.Refiner = (*Reranker)(nil)
 
-// NewChatReranker validates ranking policy and freezes model options.
-func NewChatReranker(config ChatRerankerConfig) (*ChatReranker, error) {
+// NewReranker validates ranking policy and freezes model options.
+func NewReranker(config RerankerConfig) (*Reranker, error) {
 	format, err := chatclient.JSONSchema[chatRerankingOutput](chatclient.JSONSchemaConfig{Name: chatRerankerOutputName})
 	if err != nil {
 		return nil, err
@@ -121,14 +119,14 @@ func NewChatReranker(config ChatRerankerConfig) (*ChatReranker, error) {
 	}
 	formatter := config.Formatter
 	if lo.IsNil(formatter) {
-		formatter = textDocumentFormatter{}
+		formatter = rag.TextFormatter{}
 	}
-	return &ChatReranker{prompt: prompt, formatter: formatter}, nil
+	return &Reranker{prompt: prompt, formatter: formatter}, nil
 }
 
 // Refine ranks every candidate. Empty input is returned without a model call;
 // non-empty model output must cover each input index exactly once.
-func (c *ChatReranker) Refine(ctx context.Context, query Query, candidates Candidates) (Candidates, error) {
+func (r *Reranker) Refine(ctx context.Context, query rag.Query, candidates rag.Candidates) (rag.Candidates, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -144,28 +142,37 @@ func (c *ChatReranker) Refine(ctx context.Context, query Query, candidates Candi
 
 	input := make([]chatRerankingInput, len(candidates))
 	for index, candidate := range candidates {
-		content, err := c.formatter.Format(candidate.Document)
+		content, err := r.formatter.Format(candidate.Document)
 		if err != nil {
-			return nil, fmt.Errorf("%w: format candidate %d: %w", ErrInvalidReranking, index, err)
+			return nil, fmt.Errorf("%w: format candidate %d: %w", rag.ErrInvalidReranking, index, err)
 		}
 		if strings.TrimSpace(content) == "" {
-			return nil, fmt.Errorf("%w: candidate %d formatted to blank content", ErrInvalidReranking, index)
+			return nil, fmt.Errorf("%w: candidate %d formatted to blank content", rag.ErrInvalidReranking, index)
 		}
 		input[index] = chatRerankingInput{Index: index, Content: content}
 	}
 	encoded, err := json.Marshal(input)
 	if err != nil {
-		return nil, fmt.Errorf("%w: encode candidates: %w", ErrInvalidReranking, err)
+		return nil, fmt.Errorf("%w: encode candidates: %w", rag.ErrInvalidReranking, err)
 	}
-	output, err := c.prompt.call(ctx, chatRerankerPromptVariables{
+	output, err := r.prompt.call(ctx, chatRerankerPromptVariables{
 		Query:      query.Text(),
 		Candidates: string(encoded),
 	})
 	if err != nil {
 		if errors.Is(err, chatclient.ErrInvalidOutput) {
-			return nil, fmt.Errorf("%w: model output: %w", ErrInvalidReranking, err)
+			return nil, fmt.Errorf("%w: model output: %w", rag.ErrInvalidReranking, err)
 		}
 		return nil, err
 	}
-	return output.rank(candidates)
+	scored, err := output.score(candidates)
+	if err != nil {
+		return nil, err
+	}
+	// Preserve every model-scored candidate through the shared ordering policy.
+	ordering, err := rag.TopK(len(scored))
+	if err != nil {
+		return nil, err
+	}
+	return ordering.Refine(ctx, query, scored)
 }

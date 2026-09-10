@@ -269,6 +269,42 @@ func assertNoOpenTelemetryImports(t *testing.T, root string) {
 	}
 }
 
+func TestRAGRootDoesNotImportAdapters(t *testing.T) {
+	t.Parallel()
+	paths, err := filepath.Glob(filepath.Join(repositoryRoot(t), "rag", "*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	forbidden := []string{
+		repositoryModulePrefix + "/rag",
+		repositoryModulePrefix + "/core/chat",
+		repositoryModulePrefix + "/core/chatclient",
+		repositoryModulePrefix + "/core/rerank",
+		repositoryModulePrefix + "/core/tool",
+		repositoryModulePrefix + "/core/vectorstore",
+	}
+	for _, path := range paths {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, imported := range file.Imports {
+			importPath, err := strconv.Unquote(imported.Path.Value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, prefix := range forbidden {
+				if importPath == prefix || strings.HasPrefix(importPath, prefix+"/") {
+					t.Errorf("%s imports %s; adapter dependencies belong outside the RAG domain root", path, importPath)
+				}
+			}
+		}
+	}
+}
+
 func TestProviderFamiliesUseLeafModules(t *testing.T) {
 	t.Parallel()
 	root := repositoryRoot(t)

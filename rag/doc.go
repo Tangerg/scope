@@ -6,13 +6,21 @@
 //	q, _ := rag.NewQuery("what is GOAP?")
 //	docs, err := retriever.Retrieve(ctx, q)
 //
-// The package owns the stable contracts ([Transformer], [Expander],
-// [Retriever], [Refiner], and [Augmenter]) as well as the small concrete
-// adapters that make those contracts useful: vector-store retrieval,
-// model-backed query transforms, dedicated and chat-backed reranking, citation-aware contextual
-// augmentation, and chat middleware. Keeping them together follows the Go
-// standard-library style:
-// one discoverable package, small interfaces, explicit composition.
+// The root package owns queries, candidates, citations, generation input,
+// stage contracts ([Transformer], [Expander], [Retriever], [Refiner], and
+// [Augmenter]), and deterministic retrieval composition. It depends on document
+// values rather than model, storage, or tool protocols.
+//
+// Adapters remain in this module and depend on these same domain contracts:
+//   - [github.com/Tangerg/scope/rag/chat] owns model-backed query transforms,
+//     expansion, reranking, contextual prompts, and chat middleware.
+//   - [github.com/Tangerg/scope/rag/vectorstore] adapts vector search to retrieval.
+//   - [github.com/Tangerg/scope/rag/rerank] adapts a dedicated rerank model to refinement.
+//   - [github.com/Tangerg/scope/rag/tool] exposes retrieval as a model-visible tool.
+//
+// [DocumentFormatter] and [TextFormatter] keep evidence rendering consistent
+// across adapters. Domain values own validation; adapters own external calls
+// and check results before passing them across the next boundary.
 //
 // Composition is explicit. Wrap a retriever with the stages you need:
 //
@@ -46,7 +54,7 @@
 //
 // # Agentic retrieval
 //
-// [NewRetrievalTool] adapts any composed Retriever to the ordinary core tool
+// [github.com/Tangerg/scope/rag/tool.NewRetrieval] adapts any composed Retriever to the ordinary core tool
 // contract. Agent runtimes can advertise it immediately or keep it in their
 // deferred tool set without introducing an agent-specific RAG API.
 //

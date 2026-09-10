@@ -1,10 +1,11 @@
-package rag
+package chat
 
 import (
 	"context"
 
-	"github.com/Tangerg/scope/core/chat"
+	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
+	"github.com/Tangerg/scope/rag"
 )
 
 // translationDefaultTemplate asks the LLM to translate the query into
@@ -24,7 +25,7 @@ Translated query:`
 // changing retrieval-scoped query values.
 type TranslationTransformerConfig struct {
 	// Model performs the translation. Required.
-	Model chat.Model
+	Model corechat.Model
 
 	// TargetLanguage is the language the embedding model expects —
 	// "English", "Chinese", "Spanish", etc. Required.
@@ -36,7 +37,7 @@ type TranslationTransformerConfig struct {
 	PromptTemplate *chatclient.Template
 }
 
-var _ Transformer = (*TranslationTransformer)(nil)
+var _ rag.Transformer = (*TranslationTransformer)(nil)
 
 // TranslationTransformer translates queries into a configured language.
 type TranslationTransformer struct {
@@ -61,6 +62,6 @@ func NewTranslationTransformer(config TranslationTransformerConfig) (*Translatio
 
 // Transform asks the LLM to translate the query and returns a clone with Text
 // replaced by the model output.
-func (t *TranslationTransformer) Transform(ctx context.Context, query Query) (Query, error) {
+func (t *TranslationTransformer) Transform(ctx context.Context, query rag.Query) (rag.Query, error) {
 	return t.transformer.transform(ctx, query)
 }

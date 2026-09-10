@@ -1,4 +1,7 @@
-package rag
+// Package vectorstore adapts core vector search to the rag Retriever contract.
+// Search policy is fixed at construction; parsed per-query filters belong to
+// this adapter and travel through rag's typed query values.
+package vectorstore
 
 import (
 	"context"
@@ -9,17 +12,18 @@ import (
 
 	corevs "github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
+	"github.com/Tangerg/scope/rag"
 )
 
-var vectorStoreFilterValueKey = mustValueKey[filter.Predicate]("vector store filter")
+var vectorStoreFilterValueKey = lo.Must(rag.NewValueKey[filter.Predicate]("vector store filter"))
 
-// VectorStoreFilterValueKey returns the typed query slot for a parsed per-call
+// FilterValueKey returns the typed query slot for a parsed per-call
 // filter. Parse textual filter DSL with [filter.Parse] before attaching it.
-func VectorStoreFilterValueKey() ValueKey[filter.Predicate] { return vectorStoreFilterValueKey }
+func FilterValueKey() rag.ValueKey[filter.Predicate] { return vectorStoreFilterValueKey }
 
-// VectorStoreRetrieverConfig binds one search capability and its defaults.
+// RetrieverConfig binds one search capability and its defaults.
 // Per-query filters remain on Query.
-type VectorStoreRetrieverConfig struct {
+type RetrieverConfig struct {
 	// VectorStore performs the actual relevance search. Required.
 	VectorStore corevs.Searcher
 
@@ -37,37 +41,37 @@ type VectorStoreRetrieverConfig struct {
 	SearchMode corevs.SearchMode
 
 	// FilterFunc dynamically builds a metadata filter from the complete query.
-	// Optional; when [VectorStoreFilterValueKey] is set, the per-query filter wins.
-	FilterFunc func(ctx context.Context, query Query) (filter.Predicate, error)
+	// Optional; when [FilterValueKey] is set, the per-query filter wins.
+	FilterFunc func(ctx context.Context, query rag.Query) (filter.Predicate, error)
 }
 
-func (v VectorStoreRetrieverConfig) validate() error {
-	if lo.IsNil(v.VectorStore) {
+func (r RetrieverConfig) validate() error {
+	if lo.IsNil(r.VectorStore) {
 		return errors.New("rag: vector store is required")
 	}
-	if err := (corevs.SearchOptions{TopK: v.TopK, MinScore: v.MinScore, Mode: v.SearchMode}).Validate(); err != nil {
+	if err := (corevs.SearchOptions{TopK: r.TopK, MinScore: r.MinScore, Mode: r.SearchMode}).Validate(); err != nil {
 		return fmt.Errorf("rag: vector-store search options: %w", err)
 	}
 
 	return nil
 }
 
-var _ Retriever = (*VectorStoreRetriever)(nil)
+var _ rag.Retriever = (*Retriever)(nil)
 
-// VectorStoreRetriever retrieves candidates from a core vector store.
-type VectorStoreRetriever struct {
+// Retriever retrieves candidates from a core vector store.
+type Retriever struct {
 	vectorStore corevs.Searcher
 	options     corevs.SearchOptions
-	filterFunc  func(ctx context.Context, query Query) (filter.Predicate, error)
+	filterFunc  func(ctx context.Context, query rag.Query) (filter.Predicate, error)
 }
 
-// NewVectorStoreRetriever validates the search boundary and its defaults.
-func NewVectorStoreRetriever(config VectorStoreRetrieverConfig) (*VectorStoreRetriever, error) {
+// NewRetriever validates the search boundary and its defaults.
+func NewRetriever(config RetrieverConfig) (*Retriever, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
 
-	return &VectorStoreRetriever{
+	return &Retriever{
 		vectorStore: config.VectorStore,
 		options:     corevs.SearchOptions{TopK: config.TopK, MinScore: config.MinScore, Mode: config.SearchMode},
 		filterFunc:  config.FilterFunc,
@@ -75,42 +79,42 @@ func NewVectorStoreRetriever(config VectorStoreRetrieverConfig) (*VectorStoreRet
 }
 
 // Retrieve issues the configured relevance search via the underlying vector store.
-func (v *VectorStoreRetriever) Retrieve(ctx context.Context, query Query) (Candidates, error) {
+func (r *Retriever) Retrieve(ctx context.Context, query rag.Query) (rag.Candidates, error) {
 	if err := query.Validate(); err != nil {
 		return nil, err
 	}
 
-	expr, err := v.resolveFilter(ctx, query)
+	expr, err := r.resolveFilter(ctx, query)
 	if err != nil {
 		return nil, err
 	}
 
 	request := &corevs.SearchRequest{
 		Query:   query.Text(),
-		Options: v.options,
+		Options: r.options,
 	}
 	request.Options.Filter = expr
 	if validateErr := request.Validate(); validateErr != nil {
 		return nil, fmt.Errorf("rag: build vector-store request: %w", validateErr)
 	}
-	response, err := v.vectorStore.Search(ctx, request)
+	response, err := r.vectorStore.Search(ctx, request)
 	if err != nil {
 		return nil, err
 	}
 	if err := response.ValidateFor(request); err != nil {
 		return nil, fmt.Errorf("rag: vector-store response: %w", err)
 	}
-	candidates := make(Candidates, 0, len(response.Results))
+	candidates := make(rag.Candidates, 0, len(response.Results))
 	for _, result := range response.Results {
-		candidates = append(candidates, Candidate{Document: result.Document.Clone(), Score: Score(result.Score.Float64())})
+		candidates = append(candidates, rag.Candidate{Document: result.Document.Clone(), Score: rag.Score(result.Score.Float64())})
 	}
 	return candidates, nil
 }
 
 // resolveFilter picks the filter expression to use for this call,
-// preferring the per-query [VectorStoreFilterValueKey] slot over the configured
+// preferring the per-query [FilterValueKey] slot over the configured
 // FilterFunc. Returns nil, nil when no filter applies.
-func (v *VectorStoreRetriever) resolveFilter(ctx context.Context, query Query) (filter.Predicate, error) {
+func (r *Retriever) resolveFilter(ctx context.Context, query rag.Query) (filter.Predicate, error) {
 	expression, exists, err := query.Value(vectorStoreFilterValueKey)
 	if err != nil {
 		return nil, fmt.Errorf("rag: read vector-store filter: %w", err)
@@ -119,8 +123,8 @@ func (v *VectorStoreRetriever) resolveFilter(ctx context.Context, query Query) (
 		return expression, nil
 	}
 
-	if v.filterFunc != nil {
-		return v.filterFunc(ctx, query)
+	if r.filterFunc != nil {
+		return r.filterFunc(ctx, query)
 	}
 	return nil, nil
 }
