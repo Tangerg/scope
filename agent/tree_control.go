@@ -139,7 +139,7 @@ func (t *treeRuntime) freezeBlockedByJob() bool {
 		return len(t.jobs) != 0
 	}
 	for _, job := range t.jobs {
-		if job.kind != processJobStep {
+		if job.kind != processJobStep && job.kind != processJobRestore {
 			return true
 		}
 	}
@@ -205,7 +205,7 @@ func (t *treeRuntime) stopProcessTree(process *processState) {
 	termination := process.effectiveTermination()
 	if !process.status.Terminal() {
 		if job := t.jobs[process.handle.processID]; job != nil {
-			if job.kind == processJobStep {
+			if job.kind == processJobStep || job.kind == processJobRestore {
 				job.stale = true
 			}
 			if job.cancel != nil {

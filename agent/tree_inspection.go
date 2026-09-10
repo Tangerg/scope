@@ -27,6 +27,7 @@ const (
 	ProcessWorkIdle       ProcessWork = "idle"
 	ProcessWorkQueued     ProcessWork = "queued"
 	ProcessWorkStep       ProcessWork = "step"
+	ProcessWorkRestore    ProcessWork = "restore"
 	ProcessWorkDispatch   ProcessWork = "dispatch"
 	ProcessWorkChildStart ProcessWork = "child_start"
 )
@@ -188,6 +189,8 @@ func (t *treeRuntime) buildInspection() (TreeInspection, error) {
 			switch job.kind {
 			case processJobStep:
 				report.Work = ProcessWorkStep
+			case processJobRestore:
+				report.Work = ProcessWorkRestore
 			case processJobDispatch:
 				report.Work = ProcessWorkDispatch
 			case processJobChildStart:

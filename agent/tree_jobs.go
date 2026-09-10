@@ -56,6 +56,26 @@ func (t *treeRuntime) startStep(process *processState) {
 	}()
 }
 
+func (t *treeRuntime) startRestore(process *processState) {
+	attempt, ok := t.nextAttempt(process)
+	if !ok {
+		return
+	}
+	processID := process.handle.processID
+	definition := process.deployment.Definition()
+	state := process.committedExecutionState
+	t.setProcessJob(processID, &processJob{
+		kind: processJobRestore, attempt: attempt, startedAt: time.Now(),
+	})
+	go func() {
+		execution, err := restoreExecution(definition, state)
+		t.completions <- treeJobCompletion{
+			processID: processID, attempt: attempt, kind: processJobRestore,
+			restore: restoreJobResult{execution: execution, err: err},
+		}
+	}()
+}
+
 func (t *treeRuntime) startPreparedEffect(process *processState, index int, record *preparedEffect) {
 	if record.Phase == effectPhasePlanned {
 		if err := record.begin(); err != nil {
@@ -290,13 +310,7 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 		// Resumption requires the committed state to be executable. Terminal
 		// intent needs only its saved evidence, so reconstruction is unnecessary.
 		if completion.kind == processJobStep && !process.pendingControl.hasTerminalIntent() {
-			execution, err := restoreExecution(process.deployment.Definition(), process.committedExecutionState)
-			if err != nil {
-				t.failProcess(process, failureKindForError(err), "execution.snapshot.unrestorable", err)
-				t.finishIfTerminal(process)
-			} else {
-				process.execution = execution
-			}
+			t.startRestore(process)
 		}
 		if t.freeze == nil {
 			t.enqueueProcess(completion.processID)
@@ -307,6 +321,12 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 	switch completion.kind {
 	case processJobStep:
 		t.applyStepCompletion(process, job, completion.step)
+	case processJobRestore:
+		if completion.restore.err != nil {
+			t.failProcess(process, failureKindForError(completion.restore.err), "execution.snapshot.unrestorable", completion.restore.err)
+		} else {
+			process.execution = completion.restore.execution
+		}
 	case processJobDispatch:
 		t.applyDispatchCompletion(process, job, completion.dispatch)
 	case processJobChildStart:

@@ -30,8 +30,8 @@ func (e *Engine) RestoreTree(
 		return nil, ErrInvalidEngineConfig
 	}
 	ctx = requireContext(ctx)
-	if !rootDeployment.Valid() {
-		return nil, ErrInvalidDeployment
+	if err := rootDeployment.validateDefinition(); err != nil {
+		return nil, err
 	}
 	wire, err := snapshot.wire()
 	if err != nil {

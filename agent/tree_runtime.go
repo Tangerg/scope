@@ -92,6 +92,7 @@ type processJobKind uint8
 const (
 	processJobInvalid processJobKind = iota
 	processJobStep
+	processJobRestore
 	processJobDispatch
 	processJobChildStart
 )
@@ -111,6 +112,7 @@ type treeJobCompletion struct {
 	attempt    processAttempt
 	kind       processJobKind
 	step       stepJobResult
+	restore    restoreJobResult
 	dispatch   dispatchJobResult
 	childStart childStartJobResult
 }
@@ -163,6 +165,11 @@ type stepJobResult struct {
 	candidateState   ExecutionState
 	stage            stepJobStage
 	err              error
+}
+
+type restoreJobResult struct {
+	execution Execution
+	err       error
 }
 
 type stepJobStage uint8

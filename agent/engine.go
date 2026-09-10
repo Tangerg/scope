@@ -210,8 +210,8 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Input) 
 		return nil, ErrInvalidEngineConfig
 	}
 	ctx = requireContext(ctx)
-	if !deployment.Valid() {
-		return nil, ErrInvalidDeployment
+	if err := deployment.validateDefinition(); err != nil {
+		return nil, err
 	}
 	if err := deployment.Descriptor().ValidateInput(input); err != nil {
 		return nil, err

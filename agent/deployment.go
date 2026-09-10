@@ -49,7 +49,10 @@ func NewDeployment(config DeploymentConfig) (Deployment, error) {
 	if config.Dispatcher != nil && lo.IsNil(config.Dispatcher) {
 		return Deployment{}, fmt.Errorf("%w: dispatcher is typed nil", ErrInvalidDeployment)
 	}
-	descriptor := config.Definition.Descriptor()
+	descriptor, err := definitionDescriptor(config.Definition)
+	if err != nil {
+		return Deployment{}, err
+	}
 	reference, err := newDeploymentRef(descriptor, config.ImplementationDigest, config.ConfigurationDigest)
 	if err != nil {
 		return Deployment{}, fmt.Errorf("%w: %w", ErrInvalidDeployment, err)
@@ -71,10 +74,36 @@ func (d Deployment) Descriptor() Descriptor { return d.descriptor }
 // Definition returns the erased behavior definition bound to this Deployment.
 func (d Deployment) Definition() Definition { return d.definition }
 
+// Valid checks the frozen binding without invoking user code. The Engine checks
+// the live Definition contract at startup and restoration boundaries.
 func (d Deployment) Valid() bool {
 	return d.reference.Valid() && d.descriptor.Valid() &&
 		!lo.IsNil(d.definition) && (d.dispatcher == nil || !lo.IsNil(d.dispatcher)) &&
-		d.definition.Descriptor().Digest() == d.descriptor.Digest()
+		d.reference.ContractDigest() == d.descriptor.Digest()
+}
+
+func (d Deployment) validateDefinition() error {
+	if !d.Valid() {
+		return ErrInvalidDeployment
+	}
+	descriptor, err := definitionDescriptor(d.definition)
+	if err != nil {
+		return err
+	}
+	if descriptor.Digest() != d.descriptor.Digest() {
+		return fmt.Errorf("%w: definition Descriptor differs from its frozen contract", ErrInvalidDeployment)
+	}
+	return nil
+}
+
+func definitionDescriptor(definition Definition) (descriptor Descriptor, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			descriptor = Descriptor{}
+			err = fmt.Errorf("%w: definition Descriptor panicked: %v", ErrInvalidDeployment, recovered)
+		}
+	}()
+	return definition.Descriptor(), nil
 }
 
 func (d Deployment) effectDispatcher() Dispatcher { return d.dispatcher }

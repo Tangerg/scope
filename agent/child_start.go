@@ -223,7 +223,7 @@ func (p *processState) effectiveReservedBudget() Budget {
 func (c *childStartPlan) resolveDeployment() (Deployment, error) {
 	reference := c.spec.DeploymentRef
 	if reference == c.parentDeployment.DeploymentRef() {
-		return c.parentDeployment, nil
+		return c.parentDeployment, c.parentDeployment.validateDefinition()
 	}
 	if c.resolver == nil {
 		return Deployment{}, fmt.Errorf("%w: no resolver for %s", ErrInvalidDeployment, reference.Name())
@@ -248,7 +248,14 @@ func resolveDeployment(
 			err = fmt.Errorf("deployment resolver panicked: %v", recovered)
 		}
 	}()
-	return resolver.Resolve(reference)
+	deployment, err = resolver.Resolve(reference)
+	if err != nil {
+		return Deployment{}, err
+	}
+	if err := deployment.validateDefinition(); err != nil {
+		return Deployment{}, err
+	}
+	return deployment, nil
 }
 
 func failedChildStart(spec ChildSpec, kind FailureKind, code string, cause error) ChildStartResult {
