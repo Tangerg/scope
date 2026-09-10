@@ -91,11 +91,11 @@ func restoreProcessState(
 	return process, nil
 }
 
-func (p *processState) restorePreparedStep(wire *preparedStepWire, durable bool) error {
-	if wire == nil {
+func (p *processState) restorePreparedStep(stored *preparedStep, durable bool) error {
+	if stored == nil {
 		return nil
 	}
-	prepared := clonePreparedStepWire(*wire)
+	prepared := stored.snapshot()
 	if output, completes := prepared.Transition.Output(); completes {
 		if err := p.deployment.Descriptor().ValidateOutput(output); err != nil {
 			return fmt.Errorf("%w: prepared output schema: %w", ErrInvalidSnapshot, err)
@@ -144,7 +144,8 @@ func (p *processState) restorePreparedStep(wire *preparedStepWire, durable bool)
 		}
 		p.restoredPending = restoredPendingEffect{id: record.ID, replayPolicy: policy}
 	}
-	p.prepared = &preparedStep{wire: prepared, candidate: candidate}
+	prepared.candidate = candidate
+	p.prepared = &prepared
 	return nil
 }
 

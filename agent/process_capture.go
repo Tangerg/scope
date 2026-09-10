@@ -33,7 +33,7 @@ func (p *processState) capture() (ProcessSnapshot, error) {
 		wire.Termination = &termination
 	}
 	if p.prepared != nil {
-		prepared := clonePreparedStepWire(p.prepared.wire)
+		prepared := p.prepared.snapshot()
 		wire.Prepared = &prepared
 	}
 	return newProcessSnapshot(wire)
@@ -65,23 +65,4 @@ func (p pendingControl) wire() pendingControlWire {
 		wire.CancellationReason = p.cancellation.reason
 	}
 	return wire
-}
-
-func clonePreparedStepWire(value preparedStepWire) preparedStepWire {
-	clone := value
-	clone.Effects = make([]preparedEffectWire, len(value.Effects))
-	for index, effect := range value.Effects {
-		clone.Effects[index] = preparedEffectWire{
-			ID: effect.ID, Effect: effect.Effect.clone(), Phase: effect.Phase,
-		}
-		if effect.WaitID != nil {
-			waitID := *effect.WaitID
-			clone.Effects[index].WaitID = &waitID
-		}
-		if effect.Settlement != nil {
-			settlement := *effect.Settlement
-			clone.Effects[index].Settlement = &settlement
-		}
-	}
-	return clone
 }

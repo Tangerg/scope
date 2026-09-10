@@ -72,10 +72,8 @@ func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 	firstSignal, _ := newSignal(firstSignalID, firstWait, json.RawMessage(`{}`))
 	secondSignal, _ := newSignal(secondSignalID, secondWait, json.RawMessage(`{}`))
 	finalization := &preparedStepFinalization{
-		process: process,
-		prepared: &preparedStep{wire: preparedStepWire{
-			Effects: make([]preparedEffectWire, 2),
-		}},
+		process:               process,
+		prepared:              &preparedStep{Effects: make([]preparedEffect, 2)},
 		mailbox:               mailbox,
 		immediateChildSignals: []Signal{firstSignal, secondSignal},
 	}
@@ -106,7 +104,7 @@ func TestPreparedCompletionDoesNotRetainOutputWhenKillWins(t *testing.T) {
 	}
 	finalization := &preparedStepFinalization{
 		process:  &processState{pendingControl: pendingControl{kill: kill}},
-		prepared: &preparedStep{wire: preparedStepWire{Transition: transition}},
+		prepared: &preparedStep{Transition: transition},
 	}
 	if err := finalization.prepareTransition(time.Now()); err != nil {
 		t.Fatal(err)
@@ -148,15 +146,15 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prepared := &preparedStep{wire: preparedStepWire{Transition: transition}}
+	prepared := &preparedStep{Transition: transition}
 	for index, effect := range effects {
-		record := preparedEffectWire{
+		record := preparedEffect{
 			ID: deriveEffectID(parent.handle.processID, 2, index), Effect: effect, Phase: effectPhasePending,
 		}
 		if err := record.settleFramework(); err != nil {
 			t.Fatal(err)
 		}
-		prepared.wire.Effects = append(prepared.wire.Effects, record)
+		prepared.Effects = append(prepared.Effects, record)
 	}
 	parent.prepared = prepared
 	if err := runtime.finalizePrepared(parent); !errors.Is(err, ErrInvalidChildWait) {
@@ -166,7 +164,7 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 		t.Fatal("rejected finalization adopted candidate state")
 	}
 	for index, spec := range specs[:2] {
-		waitID := *prepared.wire.Effects[index].WaitID
+		waitID := *prepared.Effects[index].WaitID
 		if _, _, err := runtime.registerChildWait(parent.handle.processID, waitID, spec); err != nil {
 			t.Fatalf("rejected finalization retained registration %d: %v", index, err)
 		}

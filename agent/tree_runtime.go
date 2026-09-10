@@ -465,7 +465,7 @@ func (t *treeRuntime) advanceOne() bool {
 }
 
 func (t *treeRuntime) advancePrepared(process *processState) {
-	index, err := process.prepared.wire.Effects.next()
+	index, record, err := process.prepared.nextEffect()
 	if err != nil {
 		process.discardPrepared()
 		t.failProcess(process, FailureKindContract, "engine.effect.phase.invalid", err)
@@ -474,8 +474,7 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 	}
 	if process.pendingControl.hasTerminalIntent() {
 		t.stopProcessTree(process)
-		if index < len(process.prepared.wire.Effects) {
-			record := &process.prepared.wire.Effects[index]
+		if record != nil {
 			if record.Phase == effectPhasePending {
 				if process.restoredPending.matches(record.ID) {
 					t.recoverPendingEffect(process, uint32(index), record)
@@ -490,11 +489,11 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 		t.finishIfTerminal(process)
 		return
 	}
-	if index < len(process.prepared.wire.Effects) {
-		if process.prepared.wire.Effects[index].unknown() {
+	if record != nil {
+		if record.unknown() {
 			return
 		}
-		t.startPreparedEffect(process, index)
+		t.startPreparedEffect(process, index, record)
 		return
 	}
 	if err := t.finalizePrepared(process); err != nil {

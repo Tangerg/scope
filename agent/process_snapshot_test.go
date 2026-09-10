@@ -216,7 +216,7 @@ func TestSnapshotEnforcesSequentialEffectProgress(t *testing.T) {
 			wire.Prepared.Effects = make(preparedEffects, len(sample.effects))
 			for index, item := range sample.effects {
 				effects[index] = effect
-				record := preparedEffectWire{
+				record := preparedEffect{
 					ID:     deriveEffectID(wire.ProcessID, wire.Prepared.StepSequence, index),
 					Effect: effect, Phase: item.phase,
 				}

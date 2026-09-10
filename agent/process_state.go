@@ -56,11 +56,6 @@ func (r restoredPendingEffect) matches(effectID EffectID) bool {
 	return r.id.Valid() && r.id == effectID && r.replayPolicy.Valid()
 }
 
-type preparedStep struct {
-	wire      preparedStepWire
-	candidate Execution
-}
-
 type pendingControl struct {
 	failure      Failure
 	kill         killIntent
@@ -151,11 +146,9 @@ func (p *processState) admitSignals(signals []Signal, source signalSource) (bool
 		return false, nil
 	}
 	count := uint64(len(signals))
-	reserved := p.reservedSettlementSignals()
+	reserved := p.prepared.settlementSignalCount()
 	remainingPending := p.mailbox.pendingCount()
-	if p.prepared != nil {
-		remainingPending -= uint64(p.prepared.wire.Transition.ConsumedSignals())
-	}
+	remainingPending -= p.prepared.consumedSignals()
 	reservedBudget := p.effectiveReservedBudget()
 	if !resourceQuantitiesFit(p.limits.MaxSignals, p.usage.AcceptedSignals, reserved, count) ||
 		!resourceQuantitiesFit(p.limits.MaxPendingSignals, p.mailbox.pendingCount(), count) ||
@@ -223,48 +216,17 @@ func (p *processState) requestKill(reason string) error {
 }
 
 func (p *processState) resolveEffect(settlement Settlement) error {
-	if p.prepared == nil || !settlement.Valid() || settlement.Status() == SettlementStatusUnknown {
-		return ErrEffectNotPending
-	}
-	for index := range p.prepared.wire.Effects {
-		effect := &p.prepared.wire.Effects[index]
-		if effect.ID != settlement.EffectID() {
-			continue
-		}
-		if !effect.unknown() {
-			return ErrEffectNotPending
-		}
-		if err := effect.resolveUnknown(settlement); err != nil {
-			return ErrEffectNotPending
-		}
-		return nil
-	}
-	return ErrEffectNotPending
+	_, _, err := p.prepared.resolveUnknown(settlement)
+	return err
 }
 
 func (p *processState) unknownEffectIDs() []EffectID {
 	if p.prepared == nil {
 		return nil
 	}
-	return p.prepared.wire.Effects.unknownEffectIDs()
-}
-
-func (p *processState) reservedSettlementSignals() uint64 {
-	if p.prepared == nil {
-		return 0
-	}
-	return uint64(len(p.prepared.wire.Effects))
+	return p.prepared.Effects.unknownEffectIDs()
 }
 
 func (p pendingControl) hasTerminalIntent() bool {
 	return p.failure.Valid() || p.kill.valid() || p.deadline.valid() || p.cancellation.valid()
-}
-
-func (p *preparedStep) hasUnknownSettlement() bool {
-	for _, effect := range p.wire.Effects {
-		if effect.unknown() {
-			return true
-		}
-	}
-	return false
 }

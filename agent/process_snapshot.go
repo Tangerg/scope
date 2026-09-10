@@ -210,23 +210,6 @@ func (p ProcessSnapshot) wire() (processSnapshotWire, error) {
 	return decodeProcessSnapshot(p.data)
 }
 
-type preparedEffectWire struct {
-	ID         EffectID    `json:"id"`
-	Effect     Effect      `json:"effect"`
-	Phase      effectPhase `json:"phase"`
-	WaitID     *WaitID     `json:"wait_id,omitempty"`
-	Settlement *Settlement `json:"settlement,omitempty"`
-}
-
-type preparedStepWire struct {
-	StepSequence                  uint64          `json:"step_sequence"`
-	CommittedExecutionStateDigest Digest          `json:"committed_execution_state_digest"`
-	CandidateState                ExecutionState  `json:"candidate_state"`
-	SignalCursor                  uint64          `json:"signal_cursor"`
-	Transition                    Transition      `json:"transition"`
-	Effects                       preparedEffects `json:"effects,omitempty"`
-}
-
 type pendingControlWire struct {
 	Failure            *Failure          `json:"failure,omitempty"`
 	KillReason         string            `json:"kill_reason,omitempty"`
@@ -254,7 +237,7 @@ type processSnapshotWire struct {
 	Usage                   Usage               `json:"usage"`
 	CommittedExecutionState ExecutionState      `json:"committed_execution_state"`
 	Mailbox                 mailboxWire         `json:"mailbox"`
-	Prepared                *preparedStepWire   `json:"prepared,omitempty"`
+	Prepared                *preparedStep       `json:"prepared,omitempty"`
 	CurrentWaitID           *WaitID             `json:"current_wait_id,omitempty"`
 	PauseReason             string              `json:"pause_reason,omitempty"`
 	PendingControl          pendingControlWire  `json:"pending_control"`
@@ -341,8 +324,8 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 		if !resourceQuantitiesFit(maxUint64, p.CommittedSteps, 1) {
 			return fmt.Errorf("%w: prepared Step sequence overflows", ErrInvalidSnapshot)
 		}
-		if err := validatePreparedStep(
-			p.ProcessID, p.CommittedSteps+1, p.CommittedExecutionState, mailbox, *p.Prepared,
+		if err := p.Prepared.validate(
+			p.ProcessID, p.CommittedSteps+1, p.CommittedExecutionState, mailbox,
 		); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidSnapshot, err)
 		}
@@ -354,12 +337,12 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 				return fmt.Errorf("%w: terminal Process cannot retain pending Effects", ErrInvalidSnapshot)
 			}
 		}
-		if p.Usage.PreparedEffects < uint64(len(p.Prepared.Effects)) {
+		if p.Usage.PreparedEffects < p.Prepared.settlementSignalCount() {
 			return fmt.Errorf("%w: prepared Effect identities exceed recorded usage", ErrInvalidSnapshot)
 		}
 		if !p.Status.Terminal() {
-			remainingPending -= uint64(p.Prepared.Transition.ConsumedSignals())
-			reserved = uint64(len(p.Prepared.Effects))
+			remainingPending -= p.Prepared.consumedSignals()
+			reserved = p.Prepared.settlementSignalCount()
 			preparedSteps = 1
 		}
 	}
@@ -418,83 +401,6 @@ func validateSnapshotLifecycle(wire processSnapshotWire, mailbox signalMailbox) 
 		if !slices.Equal(wire.Termination.UnresolvedEffectIDs(), unresolved) {
 			return fmt.Errorf("%w: termination and interrupted Effects disagree", ErrInvalidSnapshot)
 		}
-	}
-	return nil
-}
-
-func validatePreparedStep(processID ProcessID, sequence uint64, committedState ExecutionState, mailbox signalMailbox, prepared preparedStepWire) error {
-	if prepared.StepSequence != sequence || !prepared.CandidateState.Valid() || !prepared.Transition.Valid() ||
-		prepared.SignalCursor < mailbox.committedSignalCursor() || prepared.SignalCursor > mailbox.arrivalSequence() {
-		return errors.New("invalid prepared Step boundary")
-	}
-	digest, err := executionStateDigest(committedState)
-	if err != nil || digest != prepared.CommittedExecutionStateDigest {
-		return errors.New("prepared Step does not identify committed Execution state")
-	}
-	if prepared.SignalCursor != mailbox.committedSignalCursor()+uint64(prepared.Transition.ConsumedSignals()) {
-		return errors.New("prepared Step consumption does not match Transition")
-	}
-	effects := prepared.Transition.Effects()
-	if len(effects) != len(prepared.Effects) {
-		return errors.New("prepared Effect count does not match Transition")
-	}
-	for index, record := range prepared.Effects {
-		if effectErr := validatePreparedEffect(processID, sequence, index, effects[index], record); effectErr != nil {
-			return effectErr
-		}
-	}
-	_, err = prepared.Effects.next()
-	return err
-}
-
-func validatePreparedEffect(
-	processID ProcessID,
-	sequence uint64,
-	index int,
-	effect Effect,
-	record preparedEffectWire,
-) error {
-	wantID := deriveEffectID(processID, sequence, index)
-	if record.ID != wantID || !equalEffect(record.Effect, effect) {
-		return errors.New("prepared Effect identity or payload changed")
-	}
-	if record.Effect.Target() != EffectTargetFramework {
-		if record.WaitID != nil {
-			return errors.New("dispatcher Effect cannot contain WaitID")
-		}
-		return nil
-	}
-	return validatePreparedFrameworkEffect(record)
-}
-
-func validatePreparedFrameworkEffect(record preparedEffectWire) error {
-	operation, err := decodeFrameworkEffectOperation(record.Effect.Payload())
-	if err != nil {
-		return err
-	}
-	switch operation {
-	case frameworkEffectWait:
-		return validatePreparedWaitEffect(record, "wait Effect")
-	case frameworkEffectStartChild:
-		if record.WaitID != nil ||
-			record.Settlement != nil && record.Settlement.Status() == SettlementStatusUnknown {
-			return errors.New("child-start Effect has an invalid settlement")
-		}
-		return nil
-	case frameworkEffectWaitChildren:
-		return validatePreparedWaitEffect(record, "child-wait Effect")
-	default:
-		return errors.New("unsupported framework Effect")
-	}
-}
-
-func validatePreparedWaitEffect(record preparedEffectWire, name string) error {
-	if record.WaitID != nil && *record.WaitID != deriveWaitID(record.ID) {
-		return fmt.Errorf("%s contains a non-derived WaitID", name)
-	}
-	if (record.WaitID == nil) != (record.Phase != effectPhaseSettled) ||
-		record.Settlement != nil && record.Settlement.Status() == SettlementStatusUnknown {
-		return fmt.Errorf("%s has an incomplete or unknown settlement", name)
 	}
 	return nil
 }

@@ -173,7 +173,7 @@ func (p *processState) reserveProvisionalChildBudget(requested Budget) bool {
 		return false
 	}
 	reserved, ok := p.reservedBudget.add(Budget{
-		Steps: 1, Signals: uint64(len(p.prepared.wire.Effects)),
+		Steps: 1, Signals: p.prepared.settlementSignalCount(),
 	})
 	if !ok || !p.budget.canAllocate(p.usage, reserved, requested) {
 		return false

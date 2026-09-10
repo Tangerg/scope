@@ -75,18 +75,19 @@ func (p *processState) prepareStepResult(result stepJobResult) *stepPreparationF
 		}
 	}
 	sequence := p.committedSteps + 1
-	wire := preparedStepWire{
+	prepared := preparedStep{
+		candidate:    result.candidate,
 		StepSequence: sequence, CommittedExecutionStateDigest: digest, CandidateState: result.candidateState,
 		SignalCursor: p.mailbox.committedSignalCursor() + uint64(transition.ConsumedSignals()),
 		Transition:   transition,
 	}
 	for index, effect := range transition.Effects() {
-		wire.Effects = append(wire.Effects, preparedEffectWire{
+		prepared.Effects = append(prepared.Effects, preparedEffect{
 			ID: deriveEffectID(p.handle.processID, sequence, index), Effect: effect,
 			Phase: effectPhasePlanned,
 		})
 	}
-	p.prepared = &preparedStep{wire: wire, candidate: result.candidate}
+	p.prepared = &prepared
 	p.usage.PreparedEffects += effectCount
 	return nil
 }
@@ -113,7 +114,7 @@ type preparedTransitionState struct {
 
 func newPreparedStepFinalization(process *processState) (*preparedStepFinalization, error) {
 	mailbox := process.mailbox.clone()
-	consumedChildWaits, err := mailbox.commit(process.prepared.wire.Transition.ConsumedSignals())
+	consumedChildWaits, err := mailbox.commit(process.prepared.Transition.ConsumedSignals())
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +125,7 @@ func newPreparedStepFinalization(process *processState) (*preparedStepFinalizati
 }
 
 func (p *preparedStepFinalization) prepareSettlements() error {
-	for _, record := range p.prepared.wire.Effects {
+	for _, record := range p.prepared.Effects {
 		if err := p.applySettlement(record); err != nil {
 			return err
 		}
@@ -132,7 +133,7 @@ func (p *preparedStepFinalization) prepareSettlements() error {
 	return nil
 }
 
-func (p *preparedStepFinalization) applySettlement(record preparedEffectWire) error {
+func (p *preparedStepFinalization) applySettlement(record preparedEffect) error {
 	if !record.definitelySettled() {
 		return errors.New("effect batch is not definitely settled")
 	}
@@ -173,7 +174,7 @@ func (p *preparedStepFinalization) applySettlement(record preparedEffectWire) er
 	return nil
 }
 
-func (p *preparedStepFinalization) openChildWait(record preparedEffectWire, signal Signal) error {
+func (p *preparedStepFinalization) openChildWait(record preparedEffect, signal Signal) error {
 	spec, err := decodeChildWaitEffect(record.Effect.Payload())
 	if err != nil || record.WaitID == nil {
 		return errors.New("invalid child-wait Effect")
@@ -186,7 +187,7 @@ func (p *preparedStepFinalization) openChildWait(record preparedEffectWire, sign
 }
 
 func (p *preparedStepFinalization) enqueueImmediateChildSignals() error {
-	preparedSignals := uint64(len(p.prepared.wire.Effects))
+	preparedSignals := p.prepared.settlementSignalCount()
 	reservedBudget := p.process.effectiveReservedBudget()
 	for index, signal := range p.immediateChildSignals {
 		acceptedSignals := uint64(index) + 1
@@ -211,7 +212,7 @@ func (p *preparedStepFinalization) enqueueImmediateChildSignals() error {
 }
 
 func (p *preparedStepFinalization) prepareTransition(finishedAt time.Time) error {
-	transition := p.prepared.wire.Transition
+	transition := p.prepared.Transition
 	switch transition.Kind() {
 	case TransitionKindContinue:
 		p.transition.status = StatusRunning
@@ -264,11 +265,11 @@ func (p *preparedStepFinalization) prepareTermination(outcome stepOutcome, finis
 func (p *preparedStepFinalization) commit() {
 	process := p.process
 	process.execution = p.prepared.candidate
-	process.committedExecutionState = p.prepared.wire.CandidateState
+	process.committedExecutionState = p.prepared.CandidateState
 	process.mailbox = p.mailbox
-	process.committedSteps = p.prepared.wire.StepSequence
+	process.committedSteps = p.prepared.StepSequence
 	process.usage.CommittedSteps = process.committedSteps
-	process.usage.AcceptedSignals += uint64(len(p.prepared.wire.Effects))
+	process.usage.AcceptedSignals += p.prepared.settlementSignalCount()
 	process.usage.AcceptedSignals += uint64(len(p.immediateChildSignals))
 	process.prepared = nil
 	if p.transition.termination.Valid() {

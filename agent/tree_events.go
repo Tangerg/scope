@@ -129,7 +129,7 @@ func (t *treeRuntime) prepareSettlementEvent(
 	}
 	return t.prepareEvent(process,
 		EventEffectFinished, EventPhaseAttempt,
-		process.prepared.wire.StepSequence, effectID, payload,
+		process.prepared.StepSequence, effectID, payload,
 	)
 }
 

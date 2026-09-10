@@ -16,14 +16,14 @@ const (
 func (t *treeRuntime) effectRequestFor(
 	process *processState,
 	batchIndex uint32,
-	record preparedEffectWire,
+	record preparedEffect,
 ) EffectRequest {
 	return newEffectRequest(
 		process.handle.processID,
 		t.incarnation,
 		process.handle.deploymentRef,
 		process.handle.relation,
-		process.prepared.wire.StepSequence,
+		process.prepared.StepSequence,
 		batchIndex,
 		record.ID,
 		record.Effect,
@@ -33,7 +33,7 @@ func (t *treeRuntime) effectRequestFor(
 func (t *treeRuntime) startPendingEffectCommit(
 	process *processState,
 	batchIndex uint32,
-	record preparedEffectWire,
+	record preparedEffect,
 ) error {
 	request := t.effectRequestFor(process, batchIndex, record)
 	snapshot, err := t.captureTree()
@@ -73,48 +73,35 @@ func (t *treeRuntime) startUnknownResolutionCommit(
 	process *processState,
 	command processCommand,
 ) error {
-	if process.prepared == nil || !command.settlement.Valid() ||
-		command.settlement.Status() == SettlementStatusUnknown {
-		return ErrEffectNotPending
+	index, record, err := process.prepared.resolveUnknown(command.settlement)
+	if err != nil {
+		return err
 	}
-	for index := range process.prepared.wire.Effects {
-		record := &process.prepared.wire.Effects[index]
-		if record.ID != command.settlement.EffectID() {
-			continue
-		}
-		if !record.unknown() {
-			return ErrEffectNotPending
-		}
-		if err := record.resolveUnknown(command.settlement); err != nil {
-			return ErrEffectNotPending
-		}
-		var events []Event
-		if event, ok := t.prepareSettlementEvent(process,
-			record.ID, record.Effect.Target(), command.settlement.Status(),
-			process.startedAt,
-		); ok {
-			events = append(events, event)
-		}
-		snapshot, err := t.captureTree()
-		if err != nil {
-			return err
-		}
-		request := t.effectRequestFor(process, uint32(index), *record)
-		boundary, err := newEffectBoundary(
-			EffectBoundaryResolved, request, command.settlement, t.head.digest(), snapshot,
-		)
-		if err != nil {
-			return err
-		}
-		commit := &treeCommit{
-			kind: treeCommitEffectResolved, processID: process.handle.processID,
-			effectID: record.ID, snapshot: snapshot,
-			response: command.response, events: events,
-		}
-		t.startEffectCommit(commit, boundary)
-		return nil
+	var events []Event
+	if event, ok := t.prepareSettlementEvent(process,
+		record.ID, record.Effect.Target(), command.settlement.Status(),
+		process.startedAt,
+	); ok {
+		events = append(events, event)
 	}
-	return ErrEffectNotPending
+	snapshot, err := t.captureTree()
+	if err != nil {
+		return err
+	}
+	request := t.effectRequestFor(process, uint32(index), *record)
+	boundary, err := newEffectBoundary(
+		EffectBoundaryResolved, request, command.settlement, t.head.digest(), snapshot,
+	)
+	if err != nil {
+		return err
+	}
+	commit := &treeCommit{
+		kind: treeCommitEffectResolved, processID: process.handle.processID,
+		effectID: record.ID, snapshot: snapshot,
+		response: command.response, events: events,
+	}
+	t.startEffectCommit(commit, boundary)
+	return nil
 }
 
 func (p *pendingChildOutcome) childSettlementStatus() SettlementStatus {

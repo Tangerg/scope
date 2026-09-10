@@ -162,11 +162,11 @@ func TestPendingFailureRetainsUnknownExternalEffect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record := preparedEffectWire{ID: id, Effect: effect, Phase: effectPhasePending}
+	record := preparedEffect{ID: id, Effect: effect, Phase: effectPhasePending}
 	if err := record.settleUnknown(); err != nil {
 		t.Fatal(err)
 	}
-	parent.prepared = &preparedStep{wire: preparedStepWire{Effects: []preparedEffectWire{record}}}
+	parent.prepared = &preparedStep{Effects: []preparedEffect{record}}
 	parent.usage.PreparedEffects = 1
 	runtime.advancePrepared(parent)
 	result := mustAwait(t, &Process{handle: parent.handle})

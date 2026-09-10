@@ -11,7 +11,7 @@ const nullJSON = "null"
 
 var errInvalidReplayPolicy = errors.New("agent: invalid Dispatcher replay policy")
 
-func (p *preparedEffectWire) settleFramework() error {
+func (p *preparedEffect) settleFramework() error {
 	var header struct {
 		Operation frameworkEffectOperation `json:"operation"`
 	}
@@ -54,6 +54,22 @@ func (p *preparedEffectWire) settleFramework() error {
 	default:
 		return p.settleUnknown()
 	}
+}
+
+func (p *preparedEffect) settleChildStart(result ChildStartResult) error {
+	payload, err := encodeChildStartResult(result)
+	if err != nil {
+		return p.settleUnknown()
+	}
+	status := SettlementStatusSucceeded
+	if _, failed := result.Failure(); failed {
+		status = SettlementStatusFailed
+	}
+	settlement, err := NewSettlement(p.ID, status, payload)
+	if err != nil {
+		return p.settleUnknown()
+	}
+	return p.settle(settlement)
 }
 
 func dispatcherReplayPolicy(
