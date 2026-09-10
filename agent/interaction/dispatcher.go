@@ -62,7 +62,7 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 	if (config.Model == nil) == (config.Streamer == nil) {
 		return nil, fmt.Errorf("%w: exactly one of Model and Streamer is required", ErrInvalidDispatcherConfig)
 	}
-	if config.Model != nil && lo.IsNil(config.Model) || config.Streamer != nil && lo.IsNil(config.Streamer) {
+	if lo.IsNil(config.Model) && lo.IsNil(config.Streamer) {
 		return nil, fmt.Errorf("%w: model capability is typed nil", ErrInvalidDispatcherConfig)
 	}
 	if config.Observer != nil && lo.IsNil(config.Observer) {

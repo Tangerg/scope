@@ -315,6 +315,8 @@ func TestDispatcherRequiresExactlyOneModelCapability(t *testing.T) {
 	for name, config := range map[string]interaction.DispatcherConfig{
 		"neither": {}, "both": {Model: model, Streamer: streamer},
 		"nil model": {Model: chat.ModelFunc(nil)}, "nil streamer": {Streamer: chat.StreamerFunc(nil)},
+		"nil model with streamer": {Model: chat.ModelFunc(nil), Streamer: streamer},
+		"model with nil streamer": {Model: model, Streamer: chat.StreamerFunc(nil)},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := interaction.NewDispatcher(definition, config); !errors.Is(err, interaction.ErrInvalidDispatcherConfig) {
