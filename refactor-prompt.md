@@ -130,14 +130,14 @@ Start with focused checks. Tests protect observable behavior, owner invariants, 
 Use the Go version in `go.work`. Before committing code, run the affected module checks and the architecture gate:
 
 ```sh
-MODULE=agent scripts/check.sh build vet test race tidy isolate lint
-MODULE=dev/repoarch scripts/check.sh build vet test race tidy isolate lint
+MODULE=agent scripts/check.sh build vet test race tidy isolate pinned-test lint
+MODULE=dev/repoarch scripts/check.sh build vet test race tidy isolate pinned-test lint
 ```
 
 Replace `agent` with each affected workspace module and run applicable coverage gates from `scripts`. Architecture checks run as tests in `dev/repoarch`; `architecture` is not a separate `scripts/check.sh` command. Before completing a repository-wide round, run:
 
 ```sh
-scripts/check.sh build vet test race tidy isolate lint
+scripts/check.sh build vet test race tidy isolate pinned-test lint
 ```
 
 Exercise the public library path with deterministic in-process dependencies when that is the real contract. Use a real transport or filesystem when the affected guarantee lives there. Default tests remain offline and credential-independent. Live provider calls require current task authorization; honor existing authorization without asking again, keep execution bounded, and never print or copy credentials.

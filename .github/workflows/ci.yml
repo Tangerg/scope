@@ -65,10 +65,10 @@ jobs:
             go.work.sum
             **/go.sum
 
-      - name: Build, vet, test, race, module hygiene, and isolation
+      - name: Build, vet, test, race, module hygiene, isolation, and pinned dependency tests
         env:
           MODULE: ${{ matrix.module }}
-        run: scripts/check.sh build vet test race tidy isolate
+        run: scripts/check.sh build vet test race tidy isolate pinned-test
 
       - name: Core coverage budget
         if: matrix.module == 'core'

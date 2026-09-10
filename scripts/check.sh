@@ -6,6 +6,7 @@
 #   scripts/check.sh                       # run everything
 #   scripts/check.sh build vet test        # subset
 #   scripts/check.sh isolate               # compile each module without go.work
+#   scripts/check.sh pinned-test           # test Scope pseudo-version dependencies without go.work
 #   FAST=1 scripts/check.sh                # skip govulncheck (slowest)
 #   MODULE=core scripts/check.sh           # Core module only
 #   MODULE=models/google scripts/check.sh  # nested workspace module only
@@ -50,7 +51,7 @@ fi
 
 # Checks to run; default = all.
 if [[ $# -eq 0 ]]; then
-  CHECKS=(build vet test tidy lint vuln)
+  CHECKS=(build vet test tidy pinned-test lint vuln)
 else
   CHECKS=("$@")
 fi
@@ -84,8 +85,20 @@ run_in_module() {
     race)  (cd "$mod" && go test -race -count=1 "${MODULE_PACKAGES[@]}") ;;
     tidy)  (cd "$mod" && go mod tidy -diff) ;;
     isolate)
-      (cd "$mod" && GOWORK=off go mod tidy -diff)
-      (cd "$mod" && GOWORK=off go test -run '^$' ./...)
+      (cd "$mod" && GOWORK=off go mod tidy -diff && GOWORK=off go test -run '^$' ./...)
+      ;;
+    pinned-test)
+      local has_pinned_dependency
+      has_pinned_dependency=$(cd "$mod" && GOWORK=off go mod edit -json | jq -r '
+        any(.Require[]?;
+          (.Path | startswith("github.com/Tangerg/scope/")) and
+          (.Version | test("[.-][0-9]{14}-[0-9a-f]{12}(\\+incompatible)?$")))
+      ') || return
+      if [[ "$has_pinned_dependency" == "true" ]]; then
+        (cd "$mod" && GOWORK=off go test -count=1 ./...)
+      else
+        echo "$mod: no Scope pseudo-version dependencies; skipping pinned tests"
+      fi
       ;;
     lint)  (cd "$mod" && golangci-lint run --allow-parallel-runners --config="$ROOT/.golangci.yml" ./...) ;;
     vuln)  "$ROOT/scripts/check-vulnerabilities.sh" "$mod" ;;
