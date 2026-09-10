@@ -71,6 +71,43 @@ func TestComparisonRetainsExecutionFailuresAndMissingMetrics(t *testing.T) {
 	}
 }
 
+func TestComparisonRetainsUnjudgedMetricsWithoutNumericObservations(t *testing.T) {
+	metric, err := eval.NewMetric(eval.MetricConfig{Name: "review"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dataset, err := eval.NewDataset(eval.Case[int]{ID: "same", Subject: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	experiment, err := eval.NewExperiment(eval.ExperimentConfig[int]{
+		Dataset: dataset,
+		Evaluator: eval.EvaluatorFunc[int](func(context.Context, int) (eval.Report, error) {
+			return eval.Report{Metric: metric, Feedback: "insufficient evidence for a verdict"}, nil
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := experiment.Run(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	comparison, err := report.Compare(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comparison.Metrics) != 1 {
+		t.Fatalf("metric comparisons = %v", comparison.Metrics)
+	}
+	compared := comparison.Metrics[0]
+	if compared.Baseline == nil || compared.Candidate == nil ||
+		compared.Baseline.Unjudged != 1 || compared.Candidate.Unjudged != 1 ||
+		compared.ScoreDelta.Present || compared.MeasurementDelta.Present {
+		t.Fatalf("unjudged metric = %#v", compared)
+	}
+}
+
 func TestMetricIdentityIgnoresJSONPresentationWithoutRoundingNumbers(t *testing.T) {
 	baseline := comparisonReport(t, `{"a":[{"x":"<","y":9007199254740993}],"b":1.00000000000000001}`, false)
 	for _, test := range []struct {

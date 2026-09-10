@@ -66,7 +66,7 @@ func (e ExperimentReport) Compare(candidate ExperimentReport) (Comparison, error
 		Metrics:        make([]MetricComparison, len(metricPairs)),
 	}
 	for index, pair := range metricPairs {
-		metricComparison, err := compareMetric(pair.baseline, pair.candidate)
+		metricComparison, err := pair.compare()
 		if err != nil {
 			return Comparison{}, err
 		}
@@ -90,13 +90,14 @@ func comparableCases(baseline, candidate []CaseResult) error {
 	return nil
 }
 
+// metricPair retains catalog membership independently of observation counts.
 type metricPair struct {
-	baseline  MetricSummary
-	candidate MetricSummary
+	baseline  *MetricSummary
+	candidate *MetricSummary
 }
 
 func comparableMetrics(baseline, candidate []MetricSummary) ([]metricPair, error) {
-	candidateByIdentity := make(map[string]MetricSummary, len(candidate))
+	candidateByIdentity := make(map[string]*MetricSummary, len(candidate))
 	for index := range candidate {
 		identity, err := candidate[index].Metric.identity()
 		if err != nil {
@@ -105,7 +106,7 @@ func comparableMetrics(baseline, candidate []MetricSummary) ([]metricPair, error
 		if _, duplicate := candidateByIdentity[identity]; duplicate {
 			return nil, fmt.Errorf("%w: duplicate candidate metric %q", ErrInvalidComparison, candidate[index].Metric)
 		}
-		candidateByIdentity[identity] = candidate[index]
+		candidateByIdentity[identity] = &candidate[index]
 	}
 	pairs := make([]metricPair, 0, len(baseline)+len(candidate))
 	for index := range baseline {
@@ -114,7 +115,7 @@ func comparableMetrics(baseline, candidate []MetricSummary) ([]metricPair, error
 			return nil, fmt.Errorf("%w: baseline metric %d: %w", ErrInvalidComparison, index, err)
 		}
 		candidateMetric := candidateByIdentity[baselineIdentity]
-		pairs = append(pairs, metricPair{baseline: baseline[index], candidate: candidateMetric})
+		pairs = append(pairs, metricPair{baseline: &baseline[index], candidate: candidateMetric})
 		delete(candidateByIdentity, baselineIdentity)
 	}
 	for index := range candidate {
@@ -129,31 +130,33 @@ func comparableMetrics(baseline, candidate []MetricSummary) ([]metricPair, error
 	return pairs, nil
 }
 
-func compareMetric(baseline, candidate MetricSummary) (MetricComparison, error) {
-	scoreDelta, err := distributionDelta(baseline.Scores, candidate.Scores)
-	if err != nil {
-		return MetricComparison{}, fmt.Errorf("eval: compare metric %q scores: %w", baseline.Metric, err)
-	}
-	measurementDelta, err := distributionDelta(baseline.Measurements, candidate.Measurements)
-	if err != nil {
-		return MetricComparison{}, fmt.Errorf("eval: compare metric %q measurements: %w", baseline.Metric, err)
-	}
-	comparison := MetricComparison{
-		EvaluatedDelta:   candidate.Evaluated - baseline.Evaluated,
-		PassedDelta:      candidate.Passed - baseline.Passed,
-		FailedDelta:      candidate.Failed - baseline.Failed,
-		UnjudgedDelta:    candidate.Unjudged - baseline.Unjudged,
-		ScoreDelta:       scoreDelta,
-		MeasurementDelta: measurementDelta,
-	}
-	if baseline.Evaluated > 0 {
+func (m metricPair) compare() (MetricComparison, error) {
+	var baseline, candidate MetricSummary
+	comparison := MetricComparison{}
+	if m.baseline != nil {
+		baseline = *m.baseline
 		comparison.Metric = baseline.Metric
 		comparison.Baseline = &baseline
 	}
-	if candidate.Evaluated > 0 {
+	if m.candidate != nil {
+		candidate = *m.candidate
 		comparison.Metric = candidate.Metric
 		comparison.Candidate = &candidate
 	}
+	scoreDelta, err := distributionDelta(baseline.Scores, candidate.Scores)
+	if err != nil {
+		return MetricComparison{}, fmt.Errorf("eval: compare metric %q scores: %w", comparison.Metric, err)
+	}
+	measurementDelta, err := distributionDelta(baseline.Measurements, candidate.Measurements)
+	if err != nil {
+		return MetricComparison{}, fmt.Errorf("eval: compare metric %q measurements: %w", comparison.Metric, err)
+	}
+	comparison.EvaluatedDelta = candidate.Evaluated - baseline.Evaluated
+	comparison.PassedDelta = candidate.Passed - baseline.Passed
+	comparison.FailedDelta = candidate.Failed - baseline.Failed
+	comparison.UnjudgedDelta = candidate.Unjudged - baseline.Unjudged
+	comparison.ScoreDelta = scoreDelta
+	comparison.MeasurementDelta = measurementDelta
 	return comparison, nil
 }
 
