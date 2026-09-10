@@ -10,19 +10,19 @@ import (
 	"github.com/samber/lo"
 )
 
-// Retrieve is the validation boundary around a retriever, including custom
-// implementations supplied by callers.
-func Retrieve(ctx context.Context, retriever Retriever, query Query) (Candidates, error) {
+// retrieve validates a borrowed query and the result of an external stage.
+// Public callers use Retriever.Retrieve; function adapters share this boundary.
+func retrieve(ctx context.Context, query Query, call RetrieverFunc) (Candidates, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if lo.IsNil(retriever) {
+	if call == nil {
 		return nil, ErrNilRetriever
 	}
 	if err := query.Validate(); err != nil {
 		return nil, err
 	}
-	candidates, err := retriever.Retrieve(ctx, query)
+	candidates, err := call(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -50,12 +50,9 @@ func Parallel(retrievers ...Retriever) (Retriever, error) {
 	}
 
 	return RetrieverFunc(func(ctx context.Context, query Query) (Candidates, error) {
-		if err := query.Validate(); err != nil {
-			return nil, err
-		}
 		return parallelCandidates(ctx, "rag.Parallel", owned, "retriever",
 			func(ctx context.Context, _ int, retriever Retriever) (Candidates, error) {
-				return Retrieve(ctx, retriever, query)
+				return retrieve(ctx, query, retriever.Retrieve)
 			})
 	}), nil
 }
@@ -74,9 +71,6 @@ func WithTransformers(next Retriever, transformers ...Transformer) (Retriever, e
 	}
 
 	return RetrieverFunc(func(ctx context.Context, query Query) (Candidates, error) {
-		if err := query.Validate(); err != nil {
-			return nil, err
-		}
 		current := query
 		for i, transformer := range owned {
 			transformed, err := transform(ctx, transformer, current)
@@ -85,7 +79,7 @@ func WithTransformers(next Retriever, transformers ...Transformer) (Retriever, e
 			}
 			current = transformed
 		}
-		return Retrieve(ctx, next, current)
+		return retrieve(ctx, current, next.Retrieve)
 	}), nil
 }
 
@@ -100,16 +94,13 @@ func WithExpander(next Retriever, expander Expander) (Retriever, error) {
 	}
 
 	return RetrieverFunc(func(ctx context.Context, query Query) (Candidates, error) {
-		if err := query.Validate(); err != nil {
-			return nil, err
-		}
 		queries, err := expand(ctx, expander, query)
 		if err != nil {
 			return nil, fmt.Errorf("rag: expand query: %w", err)
 		}
 		return parallelCandidates(ctx, "rag.WithExpander", queries, "query",
 			func(ctx context.Context, _ int, q Query) (Candidates, error) {
-				return Retrieve(ctx, next, q)
+				return retrieve(ctx, q, next.Retrieve)
 			})
 	}), nil
 }
@@ -128,10 +119,7 @@ func WithRefiners(next Retriever, refiners ...Refiner) (Retriever, error) {
 	}
 
 	return RetrieverFunc(func(ctx context.Context, query Query) (Candidates, error) {
-		if err := query.Validate(); err != nil {
-			return nil, err
-		}
-		docs, err := Retrieve(ctx, next, query)
+		docs, err := retrieve(ctx, query, next.Retrieve)
 		if err != nil {
 			return nil, err
 		}

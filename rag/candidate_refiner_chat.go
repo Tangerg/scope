@@ -40,7 +40,7 @@ type ChatRerankerConfig struct {
 	// templates must declare {{.Query}} and {{.Candidates}}.
 	PromptTemplate *chatclient.Template
 
-	// Formatter renders candidate content. It defaults to document text.
+	// Formatter renders candidate content. The default renders text and rejects media with ErrUnsupportedMedia.
 	Formatter DocumentFormatter
 }
 

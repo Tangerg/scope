@@ -1,6 +1,13 @@
 package rag
 
-import "github.com/Tangerg/scope/core/document"
+import (
+	"errors"
+
+	"github.com/Tangerg/scope/core/document"
+)
+
+// ErrUnsupportedMedia means a formatter cannot represent document media.
+var ErrUnsupportedMedia = errors.New("rag: document formatter does not support media")
 
 // DocumentFormatter renders one retrieved document for model input.
 type DocumentFormatter interface {
@@ -21,5 +28,8 @@ func (d DocumentFormatterFunc) Format(doc *document.Document) (string, error) {
 type textDocumentFormatter struct{}
 
 func (textDocumentFormatter) Format(doc *document.Document) (string, error) {
+	if doc.Media != nil {
+		return "", ErrUnsupportedMedia
+	}
 	return doc.Text, nil
 }

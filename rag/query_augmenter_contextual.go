@@ -52,7 +52,7 @@ type ContextualAugmenterConfig struct {
 	// empty-context fallback. Defaults to false.
 	AllowEmptyContext bool
 
-	// Formatter renders each retrieved document. It defaults to Text only.
+	// Formatter renders each retrieved document. The default renders Text and rejects media with ErrUnsupportedMedia.
 	Formatter DocumentFormatter
 
 	// MaxContextTokens limits the encoded evidence block. Zero leaves context

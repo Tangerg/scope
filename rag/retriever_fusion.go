@@ -66,7 +66,7 @@ func (r reciprocalRankFusion) Retrieve(ctx context.Context, query Query) (candid
 	}
 	rankings, err := parallelResults(ctx, "rag.ReciprocalRankFusion", r.retrievers, "retriever",
 		func(ctx context.Context, _ int, retriever Retriever) (Candidates, error) {
-			return Retrieve(ctx, retriever, query)
+			return retrieve(ctx, query, retriever.Retrieve)
 		})
 	if err != nil {
 		return nil, err

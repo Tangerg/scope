@@ -165,7 +165,7 @@ func TestRetrieveValidatesCandidates(t *testing.T) {
 	retriever := &fakeRetriever{docs: rag.Candidates{{}}}
 	query, _ := rag.NewQuery("query")
 
-	if _, err := rag.Retrieve(t.Context(), retriever, query); !errors.Is(err, rag.ErrInvalidCandidate) {
+	if _, err := rag.RetrieverFunc(retriever.Retrieve).Retrieve(t.Context(), query); !errors.Is(err, rag.ErrInvalidCandidate) {
 		t.Fatalf("invalid candidate error = %v", err)
 	}
 }
@@ -175,12 +175,12 @@ func TestRetrieveTransfersOwnedCandidates(t *testing.T) {
 	retriever := &fakeRetriever{docs: rag.Candidates{candidate(doc, 0.8)}}
 	query, _ := rag.NewQuery("query")
 
-	first, err := rag.Retrieve(t.Context(), retriever, query)
+	first, err := rag.RetrieverFunc(retriever.Retrieve).Retrieve(t.Context(), query)
 	if err != nil {
 		t.Fatal(err)
 	}
 	first[0].Document.Text = "mutated"
-	second, err := rag.Retrieve(t.Context(), retriever, query)
+	second, err := rag.RetrieverFunc(retriever.Retrieve).Retrieve(t.Context(), query)
 	if err != nil {
 		t.Fatal(err)
 	}

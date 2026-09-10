@@ -179,3 +179,18 @@ func TestRetrieverRejectsZeroQuery(t *testing.T) {
 		t.Fatal("zero query must error")
 	}
 }
+
+func TestVectorStoreRetrieverPreservesInvalidOptions(t *testing.T) {
+	for name, config := range map[string]rag.VectorStoreRetrieverConfig{
+		"negative top k": {TopK: -1}, "invalid score": {MinScore: 2},
+		"unknown mode": {SearchMode: "unknown"},
+		"hybrid score": {SearchMode: vectorstore.SearchModeHybrid, MinScore: 0.5},
+	} {
+		t.Run(name, func(t *testing.T) {
+			config.VectorStore = &fakeVectorSearcher{}
+			if _, err := rag.NewVectorStoreRetriever(config); !errors.Is(err, vectorstore.ErrInvalidOptions) {
+				t.Fatalf("NewVectorStoreRetriever error = %v, want ErrInvalidOptions", err)
+			}
+		})
+	}
+}

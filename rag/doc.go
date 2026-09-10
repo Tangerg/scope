@@ -4,7 +4,7 @@
 // Quick start:
 //
 //	q, _ := rag.NewQuery("what is GOAP?")
-//	docs, err := rag.Retrieve(ctx, retriever, q)
+//	docs, err := retriever.Retrieve(ctx, q)
 //
 // The package owns the stable contracts ([Transformer], [Expander],
 // [Retriever], [Refiner], and [Augmenter]) as well as the small concrete
@@ -20,7 +20,7 @@
 //	r, err = rag.WithExpander(r, multiQuery)
 //	top, err := rag.TopK(8)
 //	r, err = rag.WithRefiners(r, top)
-//	docs, err := rag.Retrieve(ctx, r, q)
+//	docs, err := r.Retrieve(ctx, q)
 //
 // [IdentityAugmenter] preserves the query when contextual augmentation is
 // deliberately empty. Other optional stages are omitted from composition.

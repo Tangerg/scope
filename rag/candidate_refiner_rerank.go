@@ -16,7 +16,8 @@ var ErrNilRerankModel = errors.New("rag: rerank model must not be nil")
 
 // RerankerConfig binds a dedicated rerank model to portable request defaults.
 type RerankerConfig struct {
-	Model     corererank.Model
+	Model corererank.Model
+	// Formatter defaults to text rendering and rejects media with ErrUnsupportedMedia.
 	Formatter DocumentFormatter
 	TopK      int
 }

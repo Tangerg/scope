@@ -21,7 +21,7 @@ func TestExpansionUniquenessBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = rag.Retrieve(t.Context(), wrapped, query)
+	_, err = wrapped.Retrieve(t.Context(), query)
 	if !errors.Is(err, rag.ErrInvalidExpansion) {
 		t.Fatalf("duplicate expansion admitted: retrieval calls=%d error=%v", calls.Load(), err)
 	}

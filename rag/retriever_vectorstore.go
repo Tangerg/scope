@@ -17,8 +17,8 @@ var vectorStoreFilterValueKey = mustValueKey[filter.Predicate]("vector store fil
 // filter. Parse textual filter DSL with [filter.Parse] before attaching it.
 func VectorStoreFilterValueKey() ValueKey[filter.Predicate] { return vectorStoreFilterValueKey }
 
-// VectorStoreRetrieverConfig binds embedding and search capabilities while
-// leaving route and filter values on each Query.
+// VectorStoreRetrieverConfig binds one search capability and its defaults.
+// Per-query filters remain on Query.
 type VectorStoreRetrieverConfig struct {
 	// VectorStore performs the actual relevance search. Required.
 	VectorStore corevs.Searcher
@@ -41,27 +41,15 @@ type VectorStoreRetrieverConfig struct {
 	FilterFunc func(ctx context.Context, query Query) (filter.Predicate, error)
 }
 
-func (v VectorStoreRetrieverConfig) normalized() (VectorStoreRetrieverConfig, error) {
+func (v VectorStoreRetrieverConfig) validate() error {
 	if lo.IsNil(v.VectorStore) {
-		return VectorStoreRetrieverConfig{}, errors.New("rag: vector store is required")
+		return errors.New("rag: vector store is required")
 	}
-	if v.TopK < 0 {
-		return VectorStoreRetrieverConfig{}, errors.New("rag: vector-store top K must not be negative")
+	if err := (corevs.SearchOptions{TopK: v.TopK, MinScore: v.MinScore, Mode: v.SearchMode}).Validate(); err != nil {
+		return fmt.Errorf("rag: vector-store search options: %w", err)
 	}
-	if v.MinScore < corevs.MinRelevanceScore || v.MinScore > corevs.MaxRelevanceScore {
-		return VectorStoreRetrieverConfig{}, fmt.Errorf(
-			"rag: vector-store minimum score must be in [%.1f, %.1f]",
-			corevs.MinRelevanceScore,
-			corevs.MaxRelevanceScore,
-		)
-	}
-	if err := (corevs.SearchOptions{MinScore: v.MinScore, Mode: v.SearchMode}).Validate(); err != nil {
-		return VectorStoreRetrieverConfig{}, fmt.Errorf("rag: vector-store search options: %w", err)
-	}
-	if v.TopK == 0 {
-		v.TopK = corevs.DefaultTopK
-	}
-	return v, nil
+
+	return nil
 }
 
 var _ Retriever = (*VectorStoreRetriever)(nil)
@@ -69,24 +57,19 @@ var _ Retriever = (*VectorStoreRetriever)(nil)
 // VectorStoreRetriever retrieves candidates from a core vector store.
 type VectorStoreRetriever struct {
 	vectorStore corevs.Searcher
-	topK        int
-	minScore    corevs.Score
-	searchMode  corevs.SearchMode
+	options     corevs.SearchOptions
 	filterFunc  func(ctx context.Context, query Query) (filter.Predicate, error)
 }
 
-// NewVectorStoreRetriever validates the complete embedding-to-search boundary.
+// NewVectorStoreRetriever validates the search boundary and its defaults.
 func NewVectorStoreRetriever(config VectorStoreRetrieverConfig) (*VectorStoreRetriever, error) {
-	config, err := config.normalized()
-	if err != nil {
+	if err := config.validate(); err != nil {
 		return nil, err
 	}
 
 	return &VectorStoreRetriever{
 		vectorStore: config.VectorStore,
-		topK:        config.TopK,
-		minScore:    config.MinScore,
-		searchMode:  config.SearchMode,
+		options:     corevs.SearchOptions{TopK: config.TopK, MinScore: config.MinScore, Mode: config.SearchMode},
 		filterFunc:  config.FilterFunc,
 	}, nil
 }
@@ -103,11 +86,10 @@ func (v *VectorStoreRetriever) Retrieve(ctx context.Context, query Query) (Candi
 	}
 
 	request := &corevs.SearchRequest{
-		Query: query.Text(),
-		Options: corevs.SearchOptions{
-			TopK: v.topK, MinScore: v.minScore, Filter: expr, Mode: v.searchMode,
-		},
+		Query:   query.Text(),
+		Options: v.options,
 	}
+	request.Options.Filter = expr
 	if validateErr := request.Validate(); validateErr != nil {
 		return nil, fmt.Errorf("rag: build vector-store request: %w", validateErr)
 	}

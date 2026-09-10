@@ -51,7 +51,7 @@ func NewRetrievalTool(config RetrievalToolConfig) (RetrievalTool, error) {
 			if err != nil {
 				return RetrievalToolOutput{}, fmt.Errorf("rag: retrieval tool query: %w", err)
 			}
-			candidates, err := Retrieve(ctx, config.Retriever, query)
+			candidates, err := retrieve(ctx, query, config.Retriever.Retrieve)
 			if err != nil {
 				return RetrievalToolOutput{}, err
 			}

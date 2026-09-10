@@ -195,7 +195,7 @@ func (m *Middleware) prepare(ctx context.Context, request *chat.Request) (prepar
 		return preparedChatRequest{}, fmt.Errorf("rag: attach chat history: %w", err)
 	}
 
-	candidates, err := Retrieve(ctx, m.retriever, query)
+	candidates, err := retrieve(ctx, query, m.retriever.Retrieve)
 	if err != nil {
 		return preparedChatRequest{}, err
 	}
