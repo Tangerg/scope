@@ -17,8 +17,9 @@ var (
 	// ErrInvalidTextEncoding identifies document text that cannot be split as
 	// valid UTF-8.
 	ErrInvalidTextEncoding = errors.New("etl: invalid text encoding")
-	// ErrDocumentHasNoText rejects chunking when only media content is present.
-	ErrDocumentHasNoText = errors.New("etl: document has no text to split")
+	// ErrUnsupportedDocumentMedia rejects media whose relationship to text
+	// chunks cannot be represented by a text splitting policy.
+	ErrUnsupportedDocumentMedia = errors.New("etl: text splitting does not support document media")
 )
 
 // Chunk-lineage metadata keys stamped by [Splitter] on every emitted chunk.
@@ -44,7 +45,8 @@ type SplitterConfig struct {
 }
 
 // Splitter applies a text splitting policy to documents, clones source
-// metadata onto every chunk, and records chunk lineage.
+// metadata onto every chunk, and records chunk lineage. Documents containing
+// media are rejected because a text policy cannot assign media to chunks.
 type Splitter struct {
 	splitFunc   func(context.Context, string) ([]string, error)
 	idGenerator IDGenerator
@@ -113,8 +115,8 @@ func (s *Splitter) Split(ctx context.Context, docs []*document.Document) ([]*doc
 }
 
 func (s *Splitter) splitDocument(ctx context.Context, doc *document.Document) ([]*document.Document, error) {
-	if doc.Text == "" {
-		return nil, ErrDocumentHasNoText
+	if doc.Media != nil {
+		return nil, ErrUnsupportedDocumentMedia
 	}
 	chunks, err := s.SplitText(ctx, doc.Text)
 	if err != nil {

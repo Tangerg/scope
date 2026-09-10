@@ -132,7 +132,7 @@ var (
 // Store implements vector-store capabilities with CockroachDB's native VECTOR
 // type and vector indexes.
 type Store struct {
-	engine *pgstore.Store
+	engine pgstore.Store
 }
 
 // NewStore performs schema setup during construction, which is why it takes
@@ -191,9 +191,6 @@ func initialize(ctx context.Context, config StoreConfig) error {
 }
 
 func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
-	if err := request.Validate(); err != nil {
-		return fmt.Errorf("cockroachdb.Store.Index: %w", err)
-	}
 	return s.engine.Index(ctx, request)
 }
 

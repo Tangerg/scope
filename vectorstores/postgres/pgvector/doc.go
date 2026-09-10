@@ -1,6 +1,9 @@
 // Package pgvector implements vector-store capabilities with the pgvector
 // PostgreSQL extension. Documents live in a regular PostgreSQL table with a
 // typed `vector(N)` column; metadata is stored in `jsonb`.
+// Documents containing media are rejected before embedding or writes; this
+// store persists text and metadata only. Index batches commit independently,
+// so an error can leave earlier batches stored.
 //
 // Requirements: PostgreSQL 13+ with the `vector` extension installed
 // (the store runs `CREATE EXTENSION IF NOT EXISTS vector` under

@@ -14,15 +14,15 @@ import (
 	"github.com/Tangerg/scope/core/document"
 )
 
-// IndexRequest is one atomic indexing operation. It owns the complete
-// provider-independent validation and batching lifecycle for its documents.
+// IndexRequest describes documents for one indexing call. It owns their
+// provider-independent validation and batching lifecycle. Validation covers
+// the complete request; it does not make backend writes atomic across batches.
 type IndexRequest struct {
 	Documents []*document.Document `json:"documents"`
 }
 
-// NewIndexRequest validates every document up front so a partially valid batch
-// is rejected before any of it reaches the store, where a mid-batch failure
-// would leave the index in a state the caller cannot describe.
+// NewIndexRequest validates every document up front. Stores validate again at
+// entry because callers can modify the request or its documents.
 func NewIndexRequest(documents []*document.Document) (*IndexRequest, error) {
 	request := &IndexRequest{Documents: slices.Clone(documents)}
 	if err := request.Validate(); err != nil {
@@ -160,7 +160,9 @@ func (i *IndexRequest) validateBatches(batches [][]*document.Document) error {
 type Indexer interface {
 	// Index persists request documents using caller-assigned IDs. Existing IDs
 	// are replaced according to the backend's upsert semantics. Implementations
-	// validate the complete request before external I/O.
+	// validate the complete request before external I/O. Index does not promise
+	// atomic writes across batches: an error may leave earlier documents stored.
+	// Backend-specific transaction guarantees belong to the implementation.
 	//
 	// Index never invents document IDs: its error-only result has no channel for
 	// returning generated identities to the caller.

@@ -76,16 +76,16 @@ type Store struct {
 // and other wire-compatible backends delegate to. The provider name is passed
 // in so errors name the module the caller actually imported instead of this
 // internal one.
-func New(config Config) (*Store, error) {
+func New(config Config) (Store, error) {
 	if !config.DistanceMetric.Valid() {
-		return nil, fmt.Errorf("%s: unsupported distance metric %q", config.Provider, config.DistanceMetric)
+		return Store{}, fmt.Errorf("%s: unsupported distance metric %q", config.Provider, config.DistanceMetric)
 	}
 	embeddingClient, err := embeddingclient.New(config.EmbeddingModel)
 	if err != nil {
-		return nil, fmt.Errorf("%s: create embedding client: %w", config.Provider, err)
+		return Store{}, fmt.Errorf("%s: create embedding client: %w", config.Provider, err)
 	}
 
-	return &Store{
+	return Store{
 		provider:        config.Provider,
 		pool:            config.Pool,
 		metadataColumn:  config.MetadataColumn,
@@ -126,14 +126,20 @@ func (d DistanceMetric) score(distance float64) vectorstore.Score {
 
 // Index embeds the documents and upserts them into the configured table.
 func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
-	if validateErr := request.Validate(); validateErr != nil {
-		return fmt.Errorf("%s.Store.Index: %w", s.provider, validateErr)
-	}
-
 	var batches []*vectorstore.IndexRequest
 	batches, err = request.Batch(ctx, s.documentBatcher)
 	if err != nil {
 		return fmt.Errorf("%s.Store.Index: batch documents: %w", s.provider, err)
+	}
+
+	// Check every batch before embedding or writing any of them: the table
+	// stores text and metadata, so accepting media would silently erase it.
+	for _, batch := range batches {
+		for _, doc := range batch.Documents {
+			if doc.Media != nil {
+				return fmt.Errorf("%s.Store.Index: %w: document %q contains unsupported media", s.provider, vectorstore.ErrInvalidDocument, doc.ID)
+			}
+		}
 	}
 
 	upsertSQL := fmt.Sprintf(

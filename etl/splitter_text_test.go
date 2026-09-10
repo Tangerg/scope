@@ -94,7 +94,7 @@ func TestSplitterRejectsNilDocument(t *testing.T) {
 	}
 }
 
-func TestSplitterRejectsDocumentWithoutText(t *testing.T) {
+func TestSplitterRejectsMediaOnlyDocument(t *testing.T) {
 	splitter, err := etl.NewTextSplitter(etl.TextSplitterConfig{})
 	if err != nil {
 		t.Fatal(err)
@@ -107,8 +107,32 @@ func TestSplitterRejectsDocumentWithoutText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := splitter.Split(t.Context(), []*document.Document{doc}); !errors.Is(err, etl.ErrDocumentHasNoText) {
-		t.Fatalf("Split error = %v, want ErrDocumentHasNoText", err)
+	if _, err := splitter.Split(t.Context(), []*document.Document{doc}); !errors.Is(err, etl.ErrUnsupportedDocumentMedia) {
+		t.Fatalf("Split error = %v, want ErrUnsupportedDocumentMedia", err)
+	}
+}
+
+func TestSplitterRejectsMixedContentBeforeCallingSplitPolicy(t *testing.T) {
+	called := false
+	splitter, err := etl.NewSplitter(etl.SplitterConfig{
+		SplitFunc: func(context.Context, string) ([]string, error) {
+			called = true
+			return []string{"caption"}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := media.NewBytes("image/png", []byte("image"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := document.NewDocument("caption", content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chunks, splitErr := splitter.Split(t.Context(), []*document.Document{doc}); !errors.Is(splitErr, etl.ErrUnsupportedDocumentMedia) || chunks != nil || called {
+		t.Fatalf("Split = %v, %v, policy called = %t", chunks, splitErr, called)
 	}
 }
 

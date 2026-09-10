@@ -147,7 +147,7 @@ var (
 
 // Store implements vector-store capabilities with PostgreSQL and pgvector.
 type Store struct {
-	engine *pgstore.Store
+	engine pgstore.Store
 }
 
 // NewStore performs schema setup during construction, which is why it takes
@@ -230,9 +230,6 @@ func (d DistanceMetric) indexOpClass() string {
 }
 
 func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
-	if err := request.Validate(); err != nil {
-		return fmt.Errorf("pgvector.Store.Index: %w", err)
-	}
 	return s.engine.Index(ctx, request)
 }
 
