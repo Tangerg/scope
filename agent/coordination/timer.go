@@ -69,10 +69,18 @@ func (Timer) Dispatch(ctx context.Context, request agent.EffectRequest, _ agent.
 	if ctx.Err() == nil {
 		timer := time.NewTimer(time.Until(operation.Deadline))
 		defer timer.Stop()
-		select {
-		case <-timer.C:
-			result.Reached = true
-		case <-ctx.Done():
+		for {
+			select {
+			case <-timer.C:
+				// A duration limit or wall-clock adjustment can leave the absolute deadline ahead.
+				if remaining := time.Until(operation.Deadline); remaining > 0 {
+					timer.Reset(remaining)
+					continue
+				}
+				result.Reached = true
+			case <-ctx.Done():
+			}
+			break
 		}
 	}
 	status := agent.SettlementStatusFailed
