@@ -43,7 +43,7 @@ func TestWorkerFailuresRemainCoordinatorFacts(t *testing.T) {
 func TestCoordinatorFailuresAndFiniteBoundsStopCollaboration(t *testing.T) {
 	for _, mode := range []string{"start", "execution", "turn limit", "task limit", "reused key"} {
 		t.Run(mode, func(t *testing.T) {
-			definition, deployments := fixture(func(_ context.Context, turn Turn) (Decision, error) {
+			config, deployments := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) {
 				if mode == "execution" {
 					return Decision{}, errors.New("coordinator failure")
 				}
@@ -56,14 +56,13 @@ func TestCoordinatorFailuresAndFiniteBoundsStopCollaboration(t *testing.T) {
 				}
 				return Decision{Mode: Continue, State: turn.State}, nil
 			}, echo())
-			config := definition.config
 			if mode == "turn limit" {
 				config.MaxTurns = 2
 			}
 			if mode == "task limit" {
 				config.MaxTasks, config.MaxConcurrentTasks = 1, 1
 			}
-			definition = require(NewDefinition(config))
+			definition := require(NewDefinition(config))
 			if mode == "start" {
 				delete(deployments, config.Coordinator.Deployment.DeploymentRef())
 			}

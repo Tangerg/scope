@@ -21,7 +21,7 @@ func (d *Definition) validateRequest(request TaskRequest) error {
 	if !found {
 		return fmt.Errorf("%w: unknown worker %q", ErrInvalidDecision, request.Worker)
 	}
-	if err := worker.Deployment.Descriptor().ValidateInput(request.Input); err != nil {
+	if err := worker.descriptor.ValidateInput(request.Input); err != nil {
 		return fmt.Errorf("%w: task input: %w", ErrInvalidDecision, err)
 	}
 	return nil
@@ -69,15 +69,15 @@ func (e *execution) applyDecision(decision Decision, consumed uint32) (agent.Tra
 }
 
 func (e *execution) validateDecision(decision Decision) error {
-	config := e.definition.config
-	if err := config.StateSchema.ValidateInput(decision.State); err != nil {
+	definition := e.definition
+	if err := definition.descriptor.ValidateInput(decision.State); err != nil {
 		return fmt.Errorf("%w: state: %w", ErrInvalidDecision, err)
 	}
 	if decision.Mode == Complete {
 		if decision.Output == nil || len(decision.Tasks) != 0 || len(decision.Controls) != 0 {
 			return ErrInvalidDecision
 		}
-		if err := config.OutputSchema.ValidateOutput(*decision.Output); err != nil {
+		if err := definition.descriptor.ValidateOutput(*decision.Output); err != nil {
 			return fmt.Errorf("%w: output: %w", ErrInvalidDecision, err)
 		}
 		return nil
@@ -85,9 +85,9 @@ func (e *execution) validateDecision(decision Decision) error {
 	if decision.Mode != Continue && decision.Mode != Wait || decision.Output != nil {
 		return ErrInvalidDecision
 	}
-	if uint64(len(e.state.Tasks))+uint64(len(decision.Tasks)) > uint64(config.MaxTasks) ||
-		uint64(len(e.state.remaining()))+uint64(len(decision.Tasks)) > uint64(config.MaxConcurrentTasks) ||
-		uint64(len(decision.Controls)) > uint64(config.MaxControlsPerTurn) {
+	if uint64(len(e.state.Tasks))+uint64(len(decision.Tasks)) > uint64(definition.maxTasks) ||
+		uint64(len(e.state.remaining()))+uint64(len(decision.Tasks)) > uint64(definition.maxConcurrentTasks) ||
+		uint64(len(decision.Controls)) > uint64(definition.maxControlsPerTurn) {
 		return fmt.Errorf("%w: task or control bound exceeded", ErrInvalidDecision)
 	}
 	for index, request := range decision.Tasks {

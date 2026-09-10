@@ -117,11 +117,11 @@ func (e *executionState) recordOutcome(outcome agent.ChildOutcome) bool {
 }
 
 func (e executionState) validate(d *Definition) error {
-	if err := d.config.StateSchema.ValidateInput(e.State); err != nil {
+	if err := d.descriptor.ValidateInput(e.State); err != nil {
 		return fmt.Errorf("%w: state: %w", ErrInvalidState, err)
 	}
-	if e.Number > d.config.MaxTurns || uint64(len(e.Tasks)) > uint64(d.config.MaxTasks) ||
-		uint64(len(e.Controls)) > uint64(d.config.MaxControlsPerTurn) || e.WaitSequence > uint64(e.Number)+uint64(len(e.Tasks)) {
+	if e.Number > d.maxTurns || uint64(len(e.Tasks)) > uint64(d.maxTasks) ||
+		uint64(len(e.Controls)) > uint64(d.maxControlsPerTurn) || e.WaitSequence > uint64(e.Number)+uint64(len(e.Tasks)) {
 		return ErrInvalidState
 	}
 	pending, active := 0, 0
@@ -139,7 +139,7 @@ func (e executionState) validate(d *Definition) error {
 		if task.Start == nil {
 			pending++
 		} else {
-			if pending > 0 || !task.Start.Valid() || task.Start.Key() != task.Request.Key || task.Start.DeploymentRef() != worker.Deployment.DeploymentRef() {
+			if pending > 0 || !task.Start.Valid() || task.Start.Key() != task.Request.Key || task.Start.DeploymentRef() != worker.deploymentRef {
 				return ErrInvalidState
 			}
 			if id, present := task.Start.ProcessID(); present {
@@ -157,13 +157,13 @@ func (e executionState) validate(d *Definition) error {
 		}
 		if task.Outcome != nil {
 			if output, completed := task.Outcome.Result().Output(); completed {
-				if err := worker.Deployment.Descriptor().ValidateOutput(output); err != nil {
+				if err := worker.descriptor.ValidateOutput(output); err != nil {
 					return fmt.Errorf("%w: task output: %w", ErrInvalidState, err)
 				}
 			}
 		}
 	}
-	if uint64(active+pending) > uint64(d.config.MaxConcurrentTasks) {
+	if uint64(active+pending) > uint64(d.maxConcurrentTasks) {
 		return ErrInvalidState
 	}
 	pendingControls := 0
@@ -216,7 +216,7 @@ func (e executionState) validate(d *Definition) error {
 			return nil
 		}
 	case phaseCompleted:
-		if e.Turn.Outcome != nil && e.Mode == Complete && d.config.OutputSchema.ValidateOutput(*e.Output) == nil {
+		if e.Turn.Outcome != nil && e.Mode == Complete && d.descriptor.ValidateOutput(*e.Output) == nil {
 			return nil
 		}
 	case phaseFailed:
@@ -229,12 +229,12 @@ func (e executionState) validate(d *Definition) error {
 
 func (e executionState) validateTurn(d *Definition, ids []agent.ProcessID) error {
 	if e.Turn == nil || e.Number == 0 || e.Turn.Input.Number != e.Number || len(e.Turn.Input.Tasks) > len(e.Tasks) ||
-		d.config.StateSchema.ValidateInput(e.Turn.Input.State) != nil {
+		d.descriptor.ValidateInput(e.Turn.Input.State) != nil {
 		return ErrInvalidState
 	}
 	var descriptors []agent.Descriptor
-	for _, worker := range d.config.Workers {
-		descriptors = append(descriptors, worker.Deployment.Descriptor())
+	for _, worker := range d.workers {
+		descriptors = append(descriptors, worker.descriptor)
 	}
 	if !sameJSON(descriptors, e.Turn.Input.Workers) {
 		return ErrInvalidState
@@ -246,7 +246,7 @@ func (e executionState) validateTurn(d *Definition, ids []agent.ProcessID) error
 			return ErrInvalidState
 		}
 	}
-	if uint64(len(e.Turn.Input.Controls)) > uint64(d.config.MaxControlsPerTurn) {
+	if uint64(len(e.Turn.Input.Controls)) > uint64(d.maxControlsPerTurn) {
 		return ErrInvalidState
 	}
 	captured := executionState{Tasks: e.Turn.Input.Tasks}
@@ -258,7 +258,7 @@ func (e executionState) validateTurn(d *Definition, ids []agent.ProcessID) error
 	}
 	if e.Turn.Start != nil {
 		key, err := turnKey(e.Number)
-		if err != nil || !e.Turn.Start.Valid() || e.Turn.Start.Key() != key || e.Turn.Start.DeploymentRef() != d.config.Coordinator.Deployment.DeploymentRef() {
+		if err != nil || !e.Turn.Start.Valid() || e.Turn.Start.Key() != key || e.Turn.Start.DeploymentRef() != d.coordinator.deploymentRef {
 			return ErrInvalidState
 		}
 		id, present := e.Turn.Start.ProcessID()
@@ -288,7 +288,7 @@ func (e executionState) validateAppliedDecision(d *Definition) error {
 	if !present || result.Status() != agent.StatusCompleted {
 		return ErrInvalidState
 	}
-	decision, err := d.config.Coordinator.Deployment.Descriptor().DecodeOutput[Decision](output)
+	decision, err := d.coordinator.descriptor.DecodeOutput[Decision](output)
 	if err != nil {
 		return fmt.Errorf("%w: coordinator output: %w", ErrInvalidState, err)
 	}

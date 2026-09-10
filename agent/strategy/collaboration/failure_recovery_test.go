@@ -36,7 +36,7 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 				return Decision{}, errors.New(strings.TrimPrefix(message, `transform "test.coordinator.transform": `))
 			}, gate())
 			if mode == "start" {
-				delete(deployments, definition.config.Coordinator.Deployment.DeploymentRef())
+				delete(deployments, definition.coordinator.deploymentRef)
 			}
 			store := agenttest.NewMemoryTreeDurability()
 			_, process := run(t, definition, deployments, store)

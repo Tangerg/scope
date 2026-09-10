@@ -50,7 +50,8 @@ func requireOutput[T any](value T) *agent.Output {
 }
 
 func TestConfigurationAndProtocolContracts(t *testing.T) {
-	definition, _ := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
+	validConfig, _ := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
+	definition := require(NewDefinition(validConfig))
 	for name, mutate := range map[string]func(*DefinitionConfig){
 		"zero bound":                   func(config *DefinitionConfig) { config.MaxTurns = 0 },
 		"concurrency exceeds lifetime": func(config *DefinitionConfig) { config.MaxConcurrentTasks = config.MaxTasks + 1 },
@@ -61,7 +62,7 @@ func TestConfigurationAndProtocolContracts(t *testing.T) {
 		"invalid descriptor":           func(config *DefinitionConfig) { config.Name = "UPPER CASE" },
 	} {
 		t.Run(name, func(t *testing.T) {
-			config := definition.config
+			config := validConfig
 			mutate(&config)
 			if _, err := NewDefinition(config); !errors.Is(err, ErrInvalidConfig) {
 				t.Fatal(err)
@@ -169,7 +170,7 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 		phases[state.Phase] = true
 		mutations := map[string]func(*executionState){
 			"unknown phase": func(state *executionState) { state.Phase = "unknown" },
-			"excess turns":  func(state *executionState) { state.Number = definition.config.MaxTurns + 1 },
+			"excess turns":  func(state *executionState) { state.Number = definition.maxTurns + 1 },
 			"changed state": func(state *executionState) { state.State = require(agent.EncodeInput(1)) },
 		}
 		if state.Turn != nil {

@@ -36,6 +36,11 @@ func workerConfig(deployment agent.Deployment) WorkerConfig {
 }
 
 func fixture(coordinator func(context.Context, Turn) (Decision, error), workers ...agent.Deployment) (*Definition, resolver) {
+	config, deployments := fixtureConfig(coordinator, workers...)
+	return require(NewDefinition(config)), deployments
+}
+
+func fixtureConfig(coordinator func(context.Context, Turn) (Decision, error), workers ...agent.Deployment) (DefinitionConfig, resolver) {
 	decision := transformed("test.coordinator", coordinator)
 	config := DefinitionConfig{Name: "test.collaboration", Description: "Coordinate finite tasks.", Coordinator: workerConfig(decision),
 		StateSchema: require(agent.SchemaFor[string]()), OutputSchema: require(agent.SchemaFor[string]()),
@@ -45,7 +50,7 @@ func fixture(coordinator func(context.Context, Turn) (Decision, error), workers 
 		config.Workers = append(config.Workers, workerConfig(worker))
 		deployments[worker.DeploymentRef()] = worker
 	}
-	return require(NewDefinition(config)), deployments
+	return config, deployments
 }
 
 type resolver map[agent.DeploymentRef]agent.Deployment

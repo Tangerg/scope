@@ -37,14 +37,14 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 }
 
 func (e *execution) startTurn(consumed uint32) (agent.Transition, error) {
-	if e.state.Number == e.definition.config.MaxTurns {
+	if e.state.Number == e.definition.maxTurns {
 		return agent.Transition{}, ErrTurnLimit
 	}
 	e.state.Number++
 	turn := Turn{Number: e.state.Number, State: e.state.State,
 		Tasks: append([]Task{}, e.state.Tasks...), Controls: append([]ControlReceipt{}, e.state.Controls...), Workers: []agent.Descriptor{}}
-	for _, worker := range e.definition.config.Workers {
-		turn.Workers = append(turn.Workers, worker.Deployment.Descriptor())
+	for _, worker := range e.definition.workers {
+		turn.Workers = append(turn.Workers, worker.descriptor)
 	}
 	input, err := agent.EncodeInput(turn)
 	if err != nil {
@@ -54,7 +54,7 @@ func (e *execution) startTurn(consumed uint32) (agent.Transition, error) {
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	effect, err := agent.StartChild(e.definition.config.Coordinator.spec(key, input))
+	effect, err := agent.StartChild(e.definition.coordinator.spec(key, input))
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -77,7 +77,7 @@ func (e *execution) acceptTurnStart(signals []agent.Signal) (agent.Transition, e
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if started.Key() != key || started.DeploymentRef() != e.definition.config.Coordinator.Deployment.DeploymentRef() {
+	if started.Key() != key || started.DeploymentRef() != e.definition.coordinator.deploymentRef {
 		return agent.Transition{}, ErrInvalidProtocol
 	}
 	e.state.Turn.Start = &started
@@ -193,7 +193,7 @@ func (e *execution) acceptActions(signals []agent.Signal) (agent.Transition, err
 			return agent.Transition{}, err
 		}
 		worker, _ := e.definition.worker(task.Request.Worker)
-		if started.Key() != task.Request.Key || started.DeploymentRef() != worker.Deployment.DeploymentRef() {
+		if started.Key() != task.Request.Key || started.DeploymentRef() != worker.deploymentRef {
 			return agent.Transition{}, ErrInvalidProtocol
 		}
 		task.Start = &started

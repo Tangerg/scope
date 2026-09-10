@@ -80,11 +80,10 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 			return value.Decode[Decision]()
 		}))
 		coordinator := binding(require(workflow.NewDefinition(workflow.DefinitionConfig{Name: "test.model_coordinator", Description: "Adapt a model decision.", Stages: []workflow.Stage{render, call, decode}})))
-		definition, deployments := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "unused"), nil }, gate())
-		delete(deployments, definition.config.Coordinator.Deployment.DeploymentRef())
-		config := definition.config
+		config, deployments := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "unused"), nil }, gate())
+		delete(deployments, config.Coordinator.Deployment.DeploymentRef())
 		config.Coordinator = WorkerConfig{Deployment: coordinator, Budget: agent.Budget{Steps: 64, Effects: 32, Signals: 64}}
-		definition = require(NewDefinition(config))
+		definition := require(NewDefinition(config))
 		deployments[model.DeploymentRef()], deployments[coordinator.DeploymentRef()] = model, coordinator
 		engine, process := run(t, definition, deployments, agenttest.NewMemoryTreeDurability())
 		<-entered

@@ -6,7 +6,6 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
 )
@@ -24,6 +23,8 @@ const stateKind = "collaboration"
 // WorkerConfig freezes a child binding and its permanently allocated grants.
 // Workers are selected by Deployment.Descriptor().Name(), never by routing or
 // a model-supplied DeploymentRef, budget, or capability grant.
+// The Definition retains only immutable references, contracts, and grants;
+// the Engine's resolver owns the executable Deployments.
 type WorkerConfig struct {
 	Deployment   agent.Deployment
 	Budget       agent.Budget
@@ -34,9 +35,21 @@ func (w WorkerConfig) valid() bool {
 	return w.Deployment.Valid() && w.Budget.Valid() && w.Capabilities.Valid()
 }
 
-func (w WorkerConfig) spec(key agent.ChildKey, input agent.Input) agent.ChildSpec {
-	return agent.ChildSpec{Key: key, Input: input, DeploymentRef: w.Deployment.DeploymentRef(),
-		Budget: w.Budget, Capabilities: w.Capabilities}
+func (w WorkerConfig) binding() childBinding {
+	return childBinding{descriptor: w.Deployment.Descriptor(), deploymentRef: w.Deployment.DeploymentRef(),
+		budget: w.Budget, capabilities: w.Capabilities}
+}
+
+type childBinding struct {
+	descriptor    agent.Descriptor
+	deploymentRef agent.DeploymentRef
+	budget        agent.Budget
+	capabilities  agent.CapabilitySet
+}
+
+func (c childBinding) spec(key agent.ChildKey, input agent.Input) agent.ChildSpec {
+	return agent.ChildSpec{Key: key, Input: input, DeploymentRef: c.deploymentRef,
+		Budget: c.budget, Capabilities: c.capabilities}
 }
 
 // DefinitionConfig binds the coordinator, permitted workers, schemas, and
@@ -61,8 +74,13 @@ type DefinitionConfig struct {
 // Definition coordinates background tasks through ordinary child Effects.
 // It owns decision policy, not a scheduler, mailbox, model client, or session.
 type Definition struct {
-	descriptor agent.Descriptor
-	config     DefinitionConfig
+	descriptor         agent.Descriptor
+	coordinator        childBinding
+	workers            []childBinding
+	maxTurns           uint32
+	maxTasks           uint32
+	maxConcurrentTasks uint32
+	maxControlsPerTurn uint32
 }
 
 func NewDefinition(config DefinitionConfig) (*Definition, error) {
@@ -79,20 +97,23 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 	if err != nil {
 		return nil, err
 	}
-	coordinator := config.Coordinator.Deployment.Descriptor()
-	if !bytes.Equal(inputSchema.JSON(), coordinator.InputSchema().JSON()) ||
-		!bytes.Equal(outputSchema.JSON(), coordinator.OutputSchema().JSON()) {
+	coordinator := config.Coordinator.binding()
+	if !bytes.Equal(inputSchema.JSON(), coordinator.descriptor.InputSchema().JSON()) ||
+		!bytes.Equal(outputSchema.JSON(), coordinator.descriptor.OutputSchema().JSON()) {
 		return nil, fmt.Errorf("%w: coordinator must accept Turn and return Decision", ErrInvalidConfig)
 	}
-	for index, worker := range config.Workers {
+	workers := make([]childBinding, 0, len(config.Workers))
+	for _, worker := range config.Workers {
 		if !worker.valid() {
 			return nil, ErrInvalidConfig
 		}
-		for _, previous := range config.Workers[:index] {
-			if previous.Deployment.Descriptor().Name() == worker.Deployment.Descriptor().Name() {
+		child := worker.binding()
+		for _, previous := range workers {
+			if previous.descriptor.Name() == child.descriptor.Name() {
 				return nil, fmt.Errorf("%w: duplicate worker name", ErrInvalidConfig)
 			}
 		}
+		workers = append(workers, child)
 	}
 	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
 		Name: config.Name, Description: config.Description, InputSchema: config.StateSchema, OutputSchema: config.OutputSchema,
@@ -100,8 +121,9 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
-	config.Workers = slices.Clone(config.Workers)
-	return &Definition{descriptor: descriptor, config: config}, nil
+	return &Definition{descriptor: descriptor, coordinator: coordinator, workers: workers,
+		maxTurns: config.MaxTurns, maxTasks: config.MaxTasks,
+		maxConcurrentTasks: config.MaxConcurrentTasks, maxControlsPerTurn: config.MaxControlsPerTurn}, nil
 }
 
 func (d *Definition) Descriptor() agent.Descriptor {
@@ -138,13 +160,13 @@ func (d *Definition) Restore(state agent.ExecutionState) (agent.Execution, error
 	return &execution{definition: d, state: decoded}, nil
 }
 
-func (d *Definition) worker(name string) (WorkerConfig, bool) {
-	for _, worker := range d.config.Workers {
-		if worker.Deployment.Descriptor().Name() == name {
+func (d *Definition) worker(name string) (childBinding, bool) {
+	for _, worker := range d.workers {
+		if worker.descriptor.Name() == name {
 			return worker, true
 		}
 	}
-	return WorkerConfig{}, false
+	return childBinding{}, false
 }
 
 func (e *execution) Snapshot() (agent.ExecutionState, error) {
