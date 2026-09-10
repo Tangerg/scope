@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/typesense
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.17.1-0.20260910143008-88957661d87b
+	github.com/Tangerg/scope/core v0.18.0
 	github.com/samber/lo v1.53.0
 	github.com/typesense/typesense-go/v3 v3.2.0
 )
