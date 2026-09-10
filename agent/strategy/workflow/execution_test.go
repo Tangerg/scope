@@ -92,7 +92,8 @@ func TestCallPropagatesChildFailure(t *testing.T) {
 		t.Fatalf("Workflow status = %s", result.Status())
 	}
 	failure, present := result.Termination().Failure()
-	if !present || failure.Code() != "workflow.call.child_failed" {
+	if !present || failure.Kind() != agent.FailureKindExecution || failure.Code() != "execution.step.failed" ||
+		failure.Message() != `transform "fail": deliberate child failure` {
 		t.Fatalf("Workflow failure = %#v", failure)
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {

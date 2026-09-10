@@ -74,7 +74,7 @@ func TestLoopRunsAtLeastOnceAndReportsSatisfiedOrExhausted(t *testing.T) {
 	}
 }
 
-func TestLoopAttributesBodyFailure(t *testing.T) {
+func TestLoopPropagatesBodyFailure(t *testing.T) {
 	body := mustDeployment(t, mustDefinition(t, "test.workflow.failing_loop_body",
 		mustTransform(t, "fail", func(context.Context, loopValue) (loopValue, error) {
 			return loopValue{}, errors.New("deliberate Loop body failure")
@@ -97,7 +97,8 @@ func TestLoopAttributesBodyFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	failure, present := result.Termination().Failure()
-	if result.Status() != agent.StatusFailed || !present || failure.Code() != "workflow.loop.child_failed" {
+	if result.Status() != agent.StatusFailed || !present || failure.Kind() != agent.FailureKindExecution ||
+		failure.Code() != "execution.step.failed" || failure.Message() != `transform "fail": deliberate Loop body failure` {
 		t.Fatalf("Loop termination = %#v", result.Termination())
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {

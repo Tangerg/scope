@@ -78,14 +78,7 @@ func (e *execution) acceptFanoutStarts(signals []agent.Signal) (agent.Transition
 			)
 		}
 		if failure, failed := result.Failure(); failed {
-			attributed, err := agent.NewFailure(
-				failure.Kind(), e.stage().fanoutFailureCode("start_failed"),
-				e.fanoutFailureMessage(index, "failed to start: "+failure.Code()),
-			)
-			if err != nil {
-				return agent.Transition{}, err
-			}
-			e.state.ActiveFanoutWindow[offset].Failure = &attributed
+			e.state.ActiveFanoutWindow[offset].Failure = &failure
 			continue
 		}
 		processID, started := result.ProcessID()
@@ -211,12 +204,11 @@ func (e *execution) fanoutOutcome(
 	result agent.Result,
 ) (*agent.Failure, json.RawMessage, error) {
 	if result.Status() != agent.StatusCompleted {
+		if failure, failed := result.Termination().Failure(); failed {
+			return &failure, nil, nil
+		}
 		code := e.stage().fanoutFailureCode("not_completed")
 		message := e.fanoutFailureMessage(index, "terminated with status "+result.Status().String())
-		if childFailure, failed := result.Termination().Failure(); failed {
-			code = e.stage().fanoutFailureCode("failed")
-			message = e.fanoutFailureMessage(index, "failed: "+childFailure.Code())
-		}
 		failure, err := agent.NewFailure(agent.FailureKindExternal, code, message)
 		return &failure, nil, err
 	}

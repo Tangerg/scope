@@ -238,6 +238,7 @@ func TestCallCannotEscalateBudgetOrCapabilities(t *testing.T) {
 		capabilities agent.CapabilitySet
 		engine       agent.EngineConfig
 		wantCause    string
+		wantKind     agent.FailureKind
 	}{
 		{
 			name: "budget", budget: largeBudget,
@@ -245,10 +246,12 @@ func TestCallCannotEscalateBudgetOrCapabilities(t *testing.T) {
 				MaxSteps: 16, MaxEffects: 16, MaxSignals: 16, MaxPendingSignals: 16,
 			}},
 			wantCause: "engine.child.budget_exhausted",
+			wantKind:  agent.FailureKindExecution,
 		},
 		{
 			name: "capability", budget: smallBudget, capabilities: capabilities,
 			wantCause: "engine.child.capability_escalation",
+			wantKind:  agent.FailureKindContract,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -269,8 +272,7 @@ func TestCallCannotEscalateBudgetOrCapabilities(t *testing.T) {
 				t.Fatal(err)
 			}
 			failure, present := result.Termination().Failure()
-			if result.Status() != agent.StatusFailed || !present || failure.Code() != "workflow.call.start_failed" ||
-				!strings.Contains(failure.Message(), test.wantCause) {
+			if result.Status() != agent.StatusFailed || !present || failure.Kind() != test.wantKind || failure.Code() != test.wantCause {
 				t.Fatalf("guard failure = %#v", failure)
 			}
 			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {

@@ -6,6 +6,12 @@
 // identity, snapshot, budget, capabilities, cancellation, and tree recovery.
 // Ordinary in-process control flow belongs outside the Agent Framework.
 //
+// Child admission and execution Failures propagate unchanged, preserving their
+// kind, code, and complete diagnostic text. Fan-out waits for the active window
+// to drain and propagates its first failure in declaration order. The Process
+// tree retains the child identity and Stage binding; Workflow-owned decisions
+// use workflow-prefixed failure codes.
+//
 // Transform, Switch, Fork, and Loop callbacks run inside a discardable Step.
 // They must be bounded, deterministic, side-effect-free, and cooperate with
 // context cancellation during CPU work. Context carries cancellation, never

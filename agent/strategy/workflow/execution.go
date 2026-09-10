@@ -187,11 +187,7 @@ func (e *execution) acceptChildStart(signals []agent.Signal) (agent.Transition, 
 		return agent.Transition{}, fmt.Errorf("%w: child-start result does not match Stage %q", ErrInvalidProtocol, stage.id)
 	}
 	if failure, failed := result.Failure(); failed {
-		return e.fail(
-			1, stage.failureCode("start_failed"),
-			"Child Process start failed for Stage "+e.stageInvocationLabel()+": "+failure.Code(),
-			failure.Kind(),
-		)
+		return agent.Fail(1, failure)
 	}
 	childID, started := result.ProcessID()
 	if !started {
@@ -263,15 +259,13 @@ func (e *execution) acceptChildCompletion(ctx context.Context, signals []agent.S
 	result := outcomes[0].Result()
 	if result.Status() != agent.StatusCompleted {
 		if failure, failed := result.Termination().Failure(); failed {
-			return e.failExternal(
-				1, e.stage().failureCode("child_failed"),
-				"Child Process failed for Stage "+e.stageInvocationLabel()+": "+failure.Code(),
-			)
+			return agent.Fail(1, failure)
 		}
-		return e.failExternal(
+		return e.fail(
 			1,
 			e.stage().failureCode("child_not_completed"),
 			"Child Process for Stage "+e.stageInvocationLabel()+" terminated with status "+result.Status().String(),
+			agent.FailureKindExternal,
 		)
 	}
 	output, present := result.Output()
@@ -309,10 +303,6 @@ func (e *execution) finishStage(consumedSignals uint32) (agent.Transition, error
 
 func (e *execution) failContract(consumedSignals uint32, code, message string) (agent.Transition, error) {
 	return e.fail(consumedSignals, code, message, agent.FailureKindContract)
-}
-
-func (e *execution) failExternal(consumedSignals uint32, code, message string) (agent.Transition, error) {
-	return e.fail(consumedSignals, code, message, agent.FailureKindExternal)
 }
 
 func (*execution) fail(

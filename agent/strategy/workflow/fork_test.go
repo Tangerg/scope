@@ -106,7 +106,7 @@ func testForkUsesBoundedWindowsAndDeclarationOrder(t *testing.T) {
 	}
 }
 
-func TestForkAttributesLowestFailingBranch(t *testing.T) {
+func TestForkPropagatesLowestFailingBranch(t *testing.T) {
 	branches := make([]workflow.ForkBranch, 0, 2)
 	resolver := deploymentResolver{}
 	for _, id := range []string{"first", "second"} {
@@ -134,12 +134,70 @@ func TestForkAttributesLowestFailingBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 	failure, present := result.Termination().Failure()
-	if result.Status() != agent.StatusFailed || !present || failure.Code() != "workflow.fork.branch_failed" ||
-		!strings.Contains(failure.Message(), "branch first") {
+	if result.Status() != agent.StatusFailed || !present || failure.Kind() != agent.FailureKindExecution ||
+		failure.Code() != "execution.step.failed" || failure.Message() != `transform "fail": first failed` {
 		t.Fatalf("Fork failure = %#v", failure)
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestForkPreservesFailedAdmissionWhileDrainingSiblings(t *testing.T) {
+	branches := make([]workflow.ForkBranch, 0, 2)
+	resolver := deploymentResolver{}
+	for _, id := range []string{"unavailable", "available"} {
+		child := mustDeployment(t, mustDefinition(t, "test.workflow.admission_"+id,
+			mustTransform(t, "identity", func(_ context.Context, input forkInput) (numberOutput, error) {
+				return numberOutput(input), nil
+			}),
+		), "admission-"+id)
+		if id == "available" {
+			resolver[child.DeploymentRef()] = child
+		}
+		branches = append(branches, workflow.ForkBranch{ID: id, Deployment: child, Budget: mustBudget(t)})
+	}
+	stage, err := workflow.Fork(workflow.ForkConfig[forkInput, numberOutput, numberOutput]{
+		ID: "workers", Branches: branches, WindowSize: 2,
+		Reduce: func(context.Context, []numberOutput) (numberOutput, error) {
+			t.Error("reducer ran after a failed branch admission")
+			return numberOutput{}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	input, err := agent.EncodeInput(forkInput{Value: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := mustDeployment(t, mustDefinition(t, "test.workflow.admission_failure", stage), "admission-failure")
+	result, err := engine.Run(t.Context(), root, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure, failed := result.Termination().Failure()
+	if !failed || failure.Kind() != agent.FailureKindExternal || failure.Code() != "engine.child.deployment_unavailable" ||
+		failure.Message() != "deployment not found" {
+		t.Fatalf("failed admission lost its cause: %#v", failure)
+	}
+	tree, err := engine.CaptureTree(t.Context(), result.ProcessID())
+	if err != nil || len(tree.ProcessSnapshots()) != 2 {
+		t.Fatalf("failed admission tree = %d Processes, %v", len(tree.ProcessSnapshots()), err)
+	}
+	for _, snapshot := range tree.ProcessSnapshots() {
+		if snapshot.ProcessID() != result.ProcessID() && snapshot.Status() != agent.StatusCompleted {
+			t.Fatalf("sibling did not finish before failure propagation: %s", snapshot.Status())
+		}
 	}
 }
 
