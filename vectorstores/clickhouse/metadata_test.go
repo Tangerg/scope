@@ -48,16 +48,6 @@ func TestMetadataRoundTripsExactly(t *testing.T) {
 		t.Fatalf("decoded = %#v, want %#v", decoded, source)
 	}
 
-	roundTripped, err := decoded.Values()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for key, want := range values {
-		if roundTripped[key] != want {
-			t.Fatalf("values[%q] = %#v (%T), want %#v (%T)",
-				key, roundTripped[key], roundTripped[key], want, want)
-		}
-	}
 }
 
 // An empty map stays empty rather than becoming a map with no entries, so a

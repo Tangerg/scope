@@ -66,16 +66,10 @@ func TestSearchResultMetadataRoundTripsExactly(t *testing.T) {
 		t.Fatal("searchResultFromScan() = nil, want a match")
 	}
 
-	roundTripped, err := match.Document.Metadata.Values()
-	if err != nil {
-		t.Fatal(err)
+	if !match.Document.Metadata.Equal(source) {
+		t.Fatalf("metadata = %s, want %s", match.Document.Metadata, source)
 	}
-	for key, want := range values {
-		if roundTripped[key] != want {
-			t.Fatalf("metadata[%q] = %#v (%T), want %#v (%T)",
-				key, roundTripped[key], roundTripped[key], want, want)
-		}
-	}
+
 }
 
 // Text that is not JSON cannot have come from this store's write path, so the

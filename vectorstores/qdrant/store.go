@@ -354,7 +354,7 @@ func (s *Store) buildPointStruct(doc *document.Document, vector []float64) (*qdr
 	if err != nil {
 		return nil, fmt.Errorf("qdrant: decode metadata: %w", err)
 	}
-	payload, err := qdrant.TryValueMap(metadataValues)
+	payload, err := payloadValues(metadataValues)
 	if err != nil {
 		return nil, fmt.Errorf("qdrant: convert metadata to payload: %w", err)
 	}

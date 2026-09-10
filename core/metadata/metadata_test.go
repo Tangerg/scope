@@ -255,10 +255,10 @@ func TestCloneDoesNotAliasValues(t *testing.T) {
 func TestValueMapBoundary(t *testing.T) {
 	source := map[string]any{
 		"name":  "scope",
-		"count": int64(2),
-		"large": int64(9007199254740993),
+		"count": json.Number("2"),
+		"large": json.Number("9007199254740993"),
 		"nested": map[string]any{
-			"values": []any{int64(9007199254740993), 0.25},
+			"values": []any{json.Number("9007199254740993"), json.Number("0.25")},
 			"ok":     true,
 		},
 	}
@@ -275,5 +275,28 @@ func TestValueMapBoundary(t *testing.T) {
 	}
 	if _, err := metadata.FromValues(map[string]any{"bad": func() {}}); err == nil {
 		t.Fatal("FromValues accepted runtime behavior")
+	}
+}
+
+func TestValuesPreservesJSONNumbers(t *testing.T) {
+	for _, text := range []string{"9007199254740993", "9007199254740993.0", "9.007199254740993e15", "1e1000", "0.1"} {
+		t.Run(text, func(t *testing.T) {
+			encoded := metadata.Map{"number": json.RawMessage(text), "nested": json.RawMessage(`{"values":[` + text + `]}`)}
+			values, err := encoded.Values()
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := map[string]any{
+				"number": json.Number(text),
+				"nested": map[string]any{"values": []any{json.Number(text)}},
+			}
+			if !reflect.DeepEqual(values, want) {
+				t.Fatalf("Values = %#v, want %#v", values, want)
+			}
+			roundTrip, err := metadata.FromValues(values)
+			if err != nil || !roundTrip.Equal(encoded) {
+				t.Fatalf("round trip = %s, %v", roundTrip, err)
+			}
+		})
 	}
 }

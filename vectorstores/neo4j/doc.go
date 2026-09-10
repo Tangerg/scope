@@ -35,4 +35,7 @@
 //
 // See https://neo4j.com/docs/cypher-manual/current/indexes-for-vector-search/
 // for index syntax and the vector-search reference.
+// Metadata numbers use signed 64-bit integers where exact, otherwise doubles
+// whose decimal JSON value round-trips without loss. Unrepresentable numbers
+// are rejected at the payload boundary.
 package neo4j

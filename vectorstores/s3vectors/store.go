@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3vectors"
 	s3vdoc "github.com/aws/aws-sdk-go-v2/service/s3vectors/document"
 	"github.com/aws/aws-sdk-go-v2/service/s3vectors/types"
+	smithyjson "github.com/aws/smithy-go/document/json"
 
 	"github.com/samber/lo"
 
@@ -268,11 +269,16 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 			// surface it — S3 Vectors itself only stores vector + key
 			// + metadata.
 			meta[contentMetaKey] = doc.Text
+			var encoded map[string]any
+			var decoder smithyjson.Decoder
+			if err := decoder.DecodeJSONInterface(meta, &encoded); err != nil {
+				return fmt.Errorf("s3vectors: encode metadata for %s: %w", id, err)
+			}
 
 			records = append(records, types.PutInputVector{
 				Key:      aws.String(id),
 				Data:     &types.VectorDataMemberFloat32{Value: embedding.Float32Vector(vectors[i])},
-				Metadata: s3vdoc.NewLazyDocument(meta),
+				Metadata: s3vdoc.NewLazyDocument(encoded),
 			})
 		}
 

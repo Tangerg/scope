@@ -64,4 +64,6 @@
 // caller's batcher.
 //
 // See https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors.html.
+// Metadata numbers are encoded with the SDK's arbitrary-precision Smithy number
+// representation. The service remains responsible for its storage limits.
 package s3vectors

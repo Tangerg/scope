@@ -1,6 +1,8 @@
 package neo4j
 
 import (
+	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/Tangerg/scope/core/document"
@@ -51,5 +53,25 @@ func TestMetadataValuesSelectOnlyOwnedProperties(t *testing.T) {
 	})
 	if len(values) != 1 || values["tenant"] != "acme" {
 		t.Fatalf("metadataValues = %#v", values)
+	}
+}
+
+func TestDocumentPropertiesPreserveNumericValues(t *testing.T) {
+	store := &Store{idProperty: "id", textProperty: "text", metadataPrefix: "metadata"}
+	properties, err := store.documentProperties(&document.Document{ID: "one", Text: "text", Metadata: metadata.Map{
+		"large": json.RawMessage(`9007199254740993.0`),
+		"items": json.RawMessage(`[9.007199254740993e15,0.25]`),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if properties["metadata.large"] != int64(9007199254740993) || !reflect.DeepEqual(properties["metadata.items"], []any{int64(9007199254740993), 0.25}) {
+		t.Fatalf("properties = %#v", properties)
+	}
+	for _, number := range []string{"1e1000", "1.00000000000000001"} {
+		_, err := store.documentProperties(&document.Document{ID: "one", Text: "text", Metadata: metadata.Map{"number": json.RawMessage(number)}})
+		if err == nil {
+			t.Fatalf("accepted unrepresentable number %s", number)
+		}
 	}
 }

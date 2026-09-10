@@ -360,7 +360,11 @@ func (s *Store) documentProperties(doc *document.Document) (map[string]any, erro
 	props[s.textProperty] = doc.Text
 	prefix := s.metadataPrefix + "."
 	for k, v := range metadataValues {
-		props[prefix+k] = v
+		value, err := propertyValue(v)
+		if err != nil {
+			return nil, fmt.Errorf("neo4j: metadata %q: %w", k, err)
+		}
+		props[prefix+k] = value
 	}
 	return props, nil
 }

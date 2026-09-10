@@ -6,9 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math"
-	"strconv"
-	"strings"
 )
 
 var (
@@ -41,6 +38,9 @@ func FromValues(values map[string]any) (Map, error) {
 	return encoded, nil
 }
 
+// Values returns an independently owned JSON value tree. Every number remains
+// a json.Number, including nested values; consumers choose numeric conversions
+// at their typed or provider boundary.
 func (m Map) Values() (map[string]any, error) {
 	if m == nil {
 		return nil, nil
@@ -66,60 +66,7 @@ func decodeValue(raw json.RawMessage) (any, error) {
 	if err := decoder.Decode(&value); err != nil {
 		return nil, err
 	}
-	return normalizeNumbers(value)
-}
-
-func normalizeNumbers(value any) (any, error) {
-	switch value := value.(type) {
-	case json.Number:
-		return normalizeNumber(value)
-	case []any:
-		for i := range value {
-			normalized, err := normalizeNumbers(value[i])
-			if err != nil {
-				return nil, err
-			}
-			value[i] = normalized
-		}
-	case map[string]any:
-		for key, item := range value {
-			normalized, err := normalizeNumbers(item)
-			if err != nil {
-				return nil, err
-			}
-			value[key] = normalized
-		}
-	}
 	return value, nil
-}
-
-func normalizeNumber(number json.Number) (any, error) {
-	text := number.String()
-	if !strings.ContainsAny(text, ".eE") {
-		return normalizeInteger(number, text), nil
-	}
-	value, err := number.Float64()
-	if err != nil {
-		return nil, err
-	}
-	return value, nil
-}
-
-func normalizeInteger(number json.Number, text string) any {
-	if strings.HasPrefix(text, "-") {
-		if value, err := strconv.ParseInt(text, 10, 64); err == nil {
-			return value
-		}
-		return number
-	}
-	value, err := strconv.ParseUint(text, 10, 64)
-	if err != nil {
-		return number
-	}
-	if value <= math.MaxInt64 {
-		return int64(value)
-	}
-	return value
 }
 
 func (m *Map) Set(key string, value any) error {

@@ -52,4 +52,7 @@
 // separates that case.
 //
 // See https://qdrant.tech/documentation/ for the full API surface.
+// Metadata numbers use signed 64-bit integers where exact, otherwise doubles
+// whose decimal JSON value round-trips without loss. Unrepresentable numbers
+// are rejected at the payload boundary.
 package qdrant
