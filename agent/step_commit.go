@@ -77,7 +77,6 @@ func (p *processState) prepareStepResult(result stepJobResult) *stepPreparationF
 	}
 	sequence := p.committedSteps + 1
 	prepared := preparedStep{
-		candidate:    result.candidate,
 		StepSequence: sequence, CommittedExecutionStateDigest: digest, CandidateState: result.candidateState,
 		SignalCursor: p.mailbox.committedSignalCursor() + uint64(transition.ConsumedSignals()),
 		Transition:   transition,
@@ -89,6 +88,7 @@ func (p *processState) prepareStepResult(result stepJobResult) *stepPreparationF
 		})
 	}
 	p.prepared = &prepared
+	p.preparedExecution = result.candidate
 	p.usage.PreparedEffects += effectCount
 	return nil
 }
@@ -265,7 +265,8 @@ func (p *preparedStepFinalization) prepareTermination(outcome stepOutcome, finis
 
 func (p *preparedStepFinalization) adopt() {
 	process := p.process
-	process.execution = p.prepared.candidate
+	process.execution = process.preparedExecution
+	process.preparedExecution = nil
 	process.committedExecutionState = p.prepared.CandidateState
 	process.mailbox = p.mailbox
 	process.committedSteps = p.prepared.StepSequence

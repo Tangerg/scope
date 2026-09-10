@@ -32,19 +32,8 @@ const (
 // Parsing validates the captured state, not storage acknowledgment.
 // [Engine.InspectTree] identifies the acknowledged head of its durable captures.
 type ProcessSnapshot struct {
-	data                    json.RawMessage
-	processID               ProcessID
-	deploymentRef           DeploymentRef
-	status                  Status
-	usage                   Usage
-	committedExecutionState ExecutionState
-	waitID                  WaitID
-	waitKind                WaitKind
-	relation                ProcessRelation
-	budget                  Budget
-	capabilities            CapabilitySet
-	unknownEffectIDs        []EffectID
-	signalReceipts          []SignalReceipt
+	data  json.RawMessage
+	state *processSnapshotWire
 }
 
 // ParseProcessSnapshot strictly validates one Process snapshot wire value,
@@ -53,8 +42,24 @@ type ProcessSnapshot struct {
 // capability grant. Terminal prepared batches contain no pending attempt and
 // their unknown identities must exactly match the Termination.
 func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
-	wire, err := decodeProcessSnapshot(data)
+	if len(data) == 0 || len(data) > maxSnapshotBytes {
+		return ProcessSnapshot{}, fmt.Errorf("%w: JSON must contain at most %d bytes", ErrInvalidSnapshot, maxSnapshotBytes)
+	}
+	wire, err := wireJSON.decode[processSnapshotWire](data)
 	if err != nil {
+		return ProcessSnapshot{}, fmt.Errorf("%w: decode: %w", ErrInvalidSnapshot, err)
+	}
+	return processSnapshotFromWire(wire)
+}
+
+func newProcessSnapshot(wire processSnapshotWire) (ProcessSnapshot, error) {
+	return processSnapshotFromWire(wire.clone())
+}
+
+// The caller transfers the wire's mutable containers. After validation, state
+// is immutable and data is its encoded projection; neither is updated in place.
+func processSnapshotFromWire(wire processSnapshotWire) (ProcessSnapshot, error) {
+	if err := validateProcessSnapshot(wire); err != nil {
 		return ProcessSnapshot{}, err
 	}
 	normalized, err := json.Marshal(wire)
@@ -64,43 +69,7 @@ func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 	if len(normalized) > maxSnapshotBytes {
 		return ProcessSnapshot{}, fmt.Errorf("%w: exceeds %d bytes", ErrInvalidSnapshot, maxSnapshotBytes)
 	}
-	var unknownEffectIDs []EffectID
-	if wire.Prepared != nil {
-		unknownEffectIDs = wire.Prepared.Effects.unknownEffectIDs()
-	}
-	var waitKind WaitKind
-	for _, wait := range wire.Mailbox.Waits {
-		if wire.CurrentWaitID != nil && wait.WaitID == *wire.CurrentWaitID {
-			waitKind = WaitKindChildren
-			if wait.ExternallyAddressable {
-				waitKind = WaitKindExternal
-			}
-			break
-		}
-	}
-	return ProcessSnapshot{
-		data:                    normalized,
-		processID:               wire.ProcessID,
-		deploymentRef:           wire.DeploymentRef,
-		status:                  wire.Status,
-		usage:                   wire.Usage,
-		committedExecutionState: wire.CommittedExecutionState,
-		waitID:                  snapshotWaitID(wire.CurrentWaitID),
-		waitKind:                waitKind,
-		relation:                mustProcessRelation(wire.ProcessID, wire.Relation),
-		budget:                  wire.Budget,
-		capabilities:            wire.Capabilities,
-		unknownEffectIDs:        unknownEffectIDs,
-		signalReceipts:          snapshotSignalReceipts(wire.Mailbox),
-	}, nil
-}
-
-func newProcessSnapshot(wire processSnapshotWire) (ProcessSnapshot, error) {
-	data, err := json.Marshal(wire)
-	if err != nil {
-		return ProcessSnapshot{}, fmt.Errorf("%w: encode: %w", ErrInvalidSnapshot, err)
-	}
-	return ParseProcessSnapshot(data)
+	return ProcessSnapshot{data: normalized, state: &wire}, nil
 }
 
 // JSON returns an independently owned snapshot representation.
@@ -111,36 +80,79 @@ func (p ProcessSnapshot) JSON() json.RawMessage { return bytes.Clone(p.data) }
 // accepted after a final Step obtained its Signal window. These facts have the
 // same acknowledgment boundary as this snapshot; absence in an older capture
 // does not prove rejection. No mailbox or consumption authority is transferred.
-func (p ProcessSnapshot) SignalReceipts() []SignalReceipt { return slices.Clone(p.signalReceipts) }
+func (p ProcessSnapshot) SignalReceipts() []SignalReceipt {
+	if p.state == nil {
+		return nil
+	}
+	return snapshotSignalReceipts(p.state.Mailbox)
+}
 
 // ProcessID returns the captured Process identity.
-func (p ProcessSnapshot) ProcessID() ProcessID { return p.processID }
+func (p ProcessSnapshot) ProcessID() ProcessID {
+	if p.state == nil {
+		return ProcessID{}
+	}
+	return p.state.ProcessID
+}
 
 // DeploymentRef returns the exact execution binding required for restoration.
-func (p ProcessSnapshot) DeploymentRef() DeploymentRef { return p.deploymentRef }
+func (p ProcessSnapshot) DeploymentRef() DeploymentRef {
+	if p.state == nil {
+		return DeploymentRef{}
+	}
+	return p.state.DeploymentRef
+}
 
 // Relation returns the immutable parent/root/depth location captured with the
 // Process.
-func (p ProcessSnapshot) Relation() ProcessRelation { return p.relation }
+func (p ProcessSnapshot) Relation() ProcessRelation {
+	if p.state == nil {
+		return ProcessRelation{}
+	}
+	return mustProcessRelation(p.state.ProcessID, p.state.Relation)
+}
 
 // Budget returns the Process work allocation captured by this snapshot.
-func (p ProcessSnapshot) Budget() Budget { return p.budget }
+func (p ProcessSnapshot) Budget() Budget {
+	if p.state == nil {
+		return Budget{}
+	}
+	return p.state.Budget
+}
 
 // Capabilities returns the Process authority set captured by this snapshot.
-func (p ProcessSnapshot) Capabilities() CapabilitySet { return p.capabilities }
+func (p ProcessSnapshot) Capabilities() CapabilitySet {
+	if p.state == nil {
+		return CapabilitySet{}
+	}
+	return p.state.Capabilities
+}
 
 // Status returns the captured common lifecycle state.
-func (p ProcessSnapshot) Status() Status { return p.status }
+func (p ProcessSnapshot) Status() Status {
+	if p.state == nil {
+		return StatusInvalid
+	}
+	return p.state.Status
+}
 
 // Usage returns the Framework counters recorded in this capture.
-func (p ProcessSnapshot) Usage() Usage { return p.usage }
+func (p ProcessSnapshot) Usage() Usage {
+	if p.state == nil {
+		return Usage{}
+	}
+	return p.state.Usage
+}
 
 // UnknownEffectIDs returns Effects whose captured settlement requires explicit
 // resolution. RuntimeError separately owns outcomes an instance could not confirm.
 // A terminal capture retains unresolved evidence; its Process cannot resume or
 // accept further resolution commands.
 func (p ProcessSnapshot) UnknownEffectIDs() []EffectID {
-	return slices.Clone(p.unknownEffectIDs)
+	if p.state == nil || p.state.Prepared == nil {
+		return nil
+	}
+	return p.state.Prepared.Effects.unknownEffectIDs()
 }
 
 // CommittedExecutionState returns the latest committed opaque Strategy state.
@@ -148,28 +160,43 @@ func (p ProcessSnapshot) UnknownEffectIDs() []EffectID {
 // Only the owning Definition or its typed inspection helpers may interpret the
 // returned state's payload.
 func (p ProcessSnapshot) CommittedExecutionState() ExecutionState {
-	return p.committedExecutionState.clone()
+	if p.state == nil {
+		return ExecutionState{}
+	}
+	return p.state.CommittedExecutionState.clone()
 }
 
 // WaitID returns the current Engine-minted wait identity and true when the
 // captured Process is Waiting.
 func (p ProcessSnapshot) WaitID() (WaitID, bool) {
-	return p.waitID, p.status == StatusWaiting && p.waitID.Valid()
+	if p.state == nil || p.state.Status != StatusWaiting {
+		return WaitID{}, false
+	}
+	waitID := snapshotWaitID(p.state.CurrentWaitID)
+	return waitID, waitID.Valid()
 }
 
 // WaitKind distinguishes Host input from Framework child completion while the
 // captured Process is Waiting. It derives from the existing wait authority.
 func (p ProcessSnapshot) WaitKind() (WaitKind, bool) {
-	if p.status != StatusWaiting || !p.waitID.Valid() {
+	waitID, waiting := p.WaitID()
+	if !waiting {
 		return "", false
 	}
-	return p.waitKind, true
+	wait, found := findWaitRecord(p.state.Mailbox, waitID)
+	if !found {
+		return "", false
+	}
+	if wait.ExternallyAddressable {
+		return WaitKindExternal, true
+	}
+	return WaitKindChildren, true
 }
 
 func (p ProcessSnapshot) Valid() bool {
-	return len(p.data) > 0 && p.processID.Valid() && p.deploymentRef.Valid() &&
-		p.status.Valid() && p.committedExecutionState.Valid() && p.relation.Valid() &&
-		p.budget.Valid() && p.capabilities.Valid()
+	return p.state != nil && len(p.data) > 0 && p.state.ProcessID.Valid() && p.state.DeploymentRef.Valid() &&
+		p.state.Status.Valid() && p.state.CommittedExecutionState.Valid() && p.Relation().Valid() &&
+		p.state.Budget.Valid() && p.state.Capabilities.Valid()
 }
 
 func mustProcessRelation(processID ProcessID, wire processRelationWire) ProcessRelation {
@@ -207,7 +234,7 @@ func (p ProcessSnapshot) wire() (processSnapshotWire, error) {
 	if !p.Valid() {
 		return processSnapshotWire{}, ErrInvalidSnapshot
 	}
-	return decodeProcessSnapshot(p.data)
+	return p.state.clone(), nil
 }
 
 type pendingControlWire struct {
@@ -245,18 +272,47 @@ type processSnapshotWire struct {
 	Termination             *Termination        `json:"termination,omitempty"`
 }
 
-func decodeProcessSnapshot(data []byte) (processSnapshotWire, error) {
-	if len(data) == 0 || len(data) > maxSnapshotBytes {
-		return processSnapshotWire{}, fmt.Errorf("%w: JSON must contain at most %d bytes", ErrInvalidSnapshot, maxSnapshotBytes)
+// Domain values are immutable. The wire's pointers, slices, and raw mailbox
+// payloads need independent ownership before retention or mutable restoration.
+func (p processSnapshotWire) clone() processSnapshotWire {
+	clone := p
+	if p.Relation.ParentID != nil {
+		clone.Relation.ParentID = new(*p.Relation.ParentID)
 	}
-	wire, err := wireJSON.decode[processSnapshotWire](data)
-	if err != nil {
-		return processSnapshotWire{}, fmt.Errorf("%w: decode: %w", ErrInvalidSnapshot, err)
+	if p.Relation.ChildKey != nil {
+		clone.Relation.ChildKey = new(*p.Relation.ChildKey)
 	}
-	if err := validateProcessSnapshot(wire); err != nil {
-		return processSnapshotWire{}, err
+	if p.ChildRequestDigest != nil {
+		clone.ChildRequestDigest = new(*p.ChildRequestDigest)
 	}
-	return wire, nil
+	if p.FinishedAt != nil {
+		clone.FinishedAt = new(*p.FinishedAt)
+	}
+	if p.CurrentWaitID != nil {
+		clone.CurrentWaitID = new(*p.CurrentWaitID)
+	}
+	if p.PendingControl.Failure != nil {
+		clone.PendingControl.Failure = new(*p.PendingControl.Failure)
+	}
+	if p.Output != nil {
+		clone.Output = new(*p.Output)
+	}
+	if p.Termination != nil {
+		clone.Termination = new(*p.Termination)
+	}
+	clone.Mailbox.Signals = slices.Clone(p.Mailbox.Signals)
+	for index, signal := range p.Mailbox.Signals {
+		clone.Mailbox.Signals[index].Payload = bytes.Clone(signal.Payload)
+		if signal.WaitID != nil {
+			clone.Mailbox.Signals[index].WaitID = new(*signal.WaitID)
+		}
+	}
+	clone.Mailbox.Waits = slices.Clone(p.Mailbox.Waits)
+	if p.Prepared != nil {
+		prepared := p.Prepared.snapshot()
+		clone.Prepared = &prepared
+	}
+	return clone
 }
 
 func validateProcessSnapshot(wire processSnapshotWire) error {

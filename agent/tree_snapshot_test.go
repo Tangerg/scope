@@ -104,11 +104,12 @@ func TestTreeSnapshotCarriesOneTypedIncarnationIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire.IncarnationID = &incarnationID
+	wire.IncarnationID = new(incarnationID)
 	durable, err := newTreeSnapshot(wire)
 	if err != nil {
 		t.Fatal(err)
 	}
+	*wire.IncarnationID = TreeIncarnationID{}
 	got, ok := durable.IncarnationID()
 	if !ok || got != incarnationID {
 		t.Fatalf("IncarnationID = %s, %t, want %s, true", got, ok, incarnationID)
@@ -176,6 +177,31 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 	if err != nil || parsed.RootID() != tree.RootID() || len(parsed.ProcessSnapshots()) != 4 {
 		t.Fatalf("parsed tree = %#v, error = %v", parsed, err)
 	}
+	t.Run("structured tree owns child wait members", func(t *testing.T) {
+		wire, decodeErr := tree.wire()
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		rebuilt, snapshotErr := newTreeSnapshot(wire)
+		if snapshotErr != nil {
+			t.Fatal(snapshotErr)
+		}
+		wire.ChildWaits[0].Spec.Children[0] = ProcessID{}
+		wire.ProcessSnapshots[0] = ProcessSnapshot{}
+		returned, wireErr := rebuilt.wire()
+		if wireErr != nil {
+			t.Fatal(wireErr)
+		}
+		returned.ChildWaits[0].Spec.Children[0] = ProcessID{}
+		retained, retainedErr := rebuilt.wire()
+		if retainedErr != nil {
+			t.Fatal(retainedErr)
+		}
+		encoded, encodeErr := json.Marshal(retained)
+		if encodeErr != nil || !bytes.Equal(encoded, tree.JSON()) {
+			t.Fatalf("wire mutation changed retained child wait membership: %v", encodeErr)
+		}
+	})
 	for _, boundary := range []ChildWaitBoundary{"", "unknown", ChildWaitBoundaryDrained} {
 		t.Run("child wait rejects changed boundary "+string(boundary), func(t *testing.T) {
 			candidate, decodeErr := tree.wire()

@@ -36,7 +36,7 @@ func (p *processState) capture() (ProcessSnapshot, error) {
 		prepared := p.prepared.snapshot()
 		wire.Prepared = &prepared
 	}
-	return newProcessSnapshot(wire)
+	return processSnapshotFromWire(wire)
 }
 
 func (p *processState) result() Result {

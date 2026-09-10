@@ -144,7 +144,7 @@ func (p *processState) restorePreparedStep(stored *preparedStep, durable bool) e
 		}
 		p.restoredPending = restoredPendingEffect{id: record.ID, replayPolicy: policy}
 	}
-	prepared.candidate = candidate
+	p.preparedExecution = candidate
 	p.prepared = &prepared
 	return nil
 }

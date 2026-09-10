@@ -114,7 +114,7 @@ func (p *processHandleState) outcome() (Result, error) {
 
 func (p *processHandleState) publishRuntimeFailure(err *RuntimeError, snapshot ProcessSnapshot) {
 	p.mu.Lock()
-	p.acknowledgedStatus = snapshot.status
+	p.acknowledgedStatus = snapshot.Status()
 	p.runtimeErr = err
 	p.mu.Unlock()
 	close(p.outcomePublished)

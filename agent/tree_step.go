@@ -58,7 +58,7 @@ func (t *treeRuntime) finalizePrepared(process *processState) error {
 }
 
 func (t *treeRuntime) terminatePrepared(process *processState) {
-	process.prepared.candidate = nil
+	process.preparedExecution = nil
 	process.execution = nil
 	t.installTerminationWithUnresolved(process, stepOutcome{}, process.unknownEffectIDs())
 }

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"errors"
@@ -41,7 +42,7 @@ func (s signalRecord) sameContent(other signalRecord) bool {
 func (s signalRecord) snapshot() signalRecordWire {
 	wire := signalRecordWire{
 		ArrivalSequence: s.arrivalSequence, ID: s.id,
-		PayloadDigest: s.payloadDigest, Payload: s.payload, OpensWait: s.opensWait,
+		PayloadDigest: s.payloadDigest, Payload: bytes.Clone(s.payload), OpensWait: s.opensWait,
 	}
 	if s.waitID.Valid() {
 		wire.WaitID = &s.waitID

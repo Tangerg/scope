@@ -166,7 +166,7 @@ func (t *treeRuntime) captureTree() (TreeSnapshot, error) {
 			Spec:            childWaitSpecWireFromValue(registration.spec),
 		})
 	}
-	return newTreeSnapshot(wire)
+	return treeSnapshotFromWire(wire)
 }
 
 func (t *treeRuntime) releaseFreeze(freeze *treeFreeze) error {

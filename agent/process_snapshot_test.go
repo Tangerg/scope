@@ -25,6 +25,71 @@ func TestSnapshotStrictlyRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestProcessSnapshotOwnsMutableWire(t *testing.T) {
+	prepared, err := preparedEngineTestSnapshot(t).wire()
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := ParseSignalID("signal:snapshot-ownership")
+	signal, err := newSignal(id, WaitID{}, []byte(`{"value":"retained"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared.Mailbox.Signals = []signalRecordWire{newSignalRecord(signal, false).snapshot()}
+	prepared.Mailbox.Signals[0].ArrivalSequence = 1
+	prepared.Usage.AcceptedSignals = 1
+	failure, _ := NewFailure(FailureKindContract, "test.pending.failure", "pending failure")
+	prepared.PendingControl.Failure = &failure
+	completed, err := completedEngineTestSnapshot(t).wire()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, wire := range []processSnapshotWire{prepared, completed} {
+		t.Run(wire.Status.String(), func(t *testing.T) {
+			snapshot, err := newProcessSnapshot(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := ParseProcessSnapshot(snapshot.JSON())
+			if err != nil || !bytes.Equal(snapshot.JSON(), parsed.JSON()) {
+				t.Fatalf("structured construction and parsing disagree: %v", err)
+			}
+			mutate := func(value processSnapshotWire) {
+				value.Mailbox.Signals[0].ID = SignalID{}
+				if len(value.Mailbox.Signals[0].Payload) > 0 {
+					value.Mailbox.Signals[0].Payload[0] = '['
+				}
+				if value.Prepared != nil {
+					value.Prepared.Effects[0].ID = EffectID{}
+					*value.PendingControl.Failure = Failure{}
+				}
+				if value.FinishedAt != nil {
+					*value.FinishedAt = value.StartedAt
+					*value.Output = Output{}
+					*value.Termination = Termination{}
+				}
+			}
+			mutate(wire)
+			returned, err := snapshot.wire()
+			if err != nil {
+				t.Fatal(err)
+			}
+			mutate(returned)
+			retained, err := snapshot.wire()
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(retained)
+			if err != nil || !bytes.Equal(encoded, parsed.JSON()) {
+				t.Fatalf("wire mutation changed immutable snapshot facts: %v", err)
+			}
+			if receipts := snapshot.SignalReceipts(); receipts[0].ID() != parsed.SignalReceipts()[0].ID() {
+				t.Fatal("wire mutation changed public admission receipts")
+			}
+		})
+	}
+}
+
 func TestPreparedSnapshotBindsCommittedExecutionState(t *testing.T) {
 	snapshot := preparedEngineTestSnapshot(t)
 	var projection struct {

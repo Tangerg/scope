@@ -122,8 +122,8 @@ func (e EffectBoundary) matchesProspectiveTree() bool {
 		processSnapshot.Relation() != e.request.Relation() {
 		return false
 	}
-	wire, err := processSnapshot.wire()
-	if err != nil || wire.Prepared == nil ||
+	wire := processSnapshot.state
+	if wire.Prepared == nil ||
 		wire.Prepared.StepSequence != e.request.StepSequence() ||
 		uint64(e.request.BatchIndex()) >= uint64(len(wire.Prepared.Effects)) {
 		return false
@@ -244,10 +244,7 @@ func (t TreeCheckpoint) matchesSafeCut() bool {
 		if snapshot.Status() == StatusWaiting || snapshot.Status() == StatusPaused {
 			continue
 		}
-		wire, err := snapshot.wire()
-		if err != nil {
-			return false
-		}
+		wire := snapshot.state
 		if wire.Prepared == nil || len(wire.Prepared.Effects.unknownEffectIDs()) == 0 {
 			parked = false
 		}

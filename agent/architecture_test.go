@@ -59,6 +59,8 @@ func TestAdmissionAndObservationFactsAreImmutable(t *testing.T) {
 
 func TestBoundaryValuesDoNotCarryRuntimeAuthority(t *testing.T) {
 	for _, value := range []reflect.Type{
+		reflect.TypeFor[ProcessSnapshot](),
+		reflect.TypeFor[TreeSnapshot](),
 		reflect.TypeFor[ProcessAdmission](),
 		reflect.TypeFor[ProcessStartOutcome](),
 		reflect.TypeFor[SignalReceipt](),

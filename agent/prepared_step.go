@@ -2,12 +2,10 @@ package agent
 
 import "errors"
 
-// preparedStep owns the candidate state and effect lifecycle until commit.
-// Its exported fields are the single persisted representation; candidate is
-// activation-local execution and is never part of a snapshot.
+// preparedStep owns candidate state and the effect lifecycle until adoption.
+// Its fields are the single persisted representation. Executable instances
+// belong to processState so portable facts cannot carry runtime authority.
 type preparedStep struct {
-	candidate Execution
-
 	StepSequence                  uint64          `json:"step_sequence"`
 	CommittedExecutionStateDigest Digest          `json:"committed_execution_state_digest"`
 	CandidateState                ExecutionState  `json:"candidate_state"`
@@ -105,7 +103,6 @@ func (p preparedStep) validate(processID ProcessID, sequence uint64, committedSt
 
 func (p preparedStep) snapshot() preparedStep {
 	clone := p
-	clone.candidate = nil
 	clone.Effects = make([]preparedEffect, len(p.Effects))
 	for index, effect := range p.Effects {
 		clone.Effects[index] = preparedEffect{

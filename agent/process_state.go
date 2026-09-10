@@ -12,10 +12,11 @@ type processState struct {
 	// owner goroutine mutates the execution fields below.
 	handle     *processHandleState
 	deployment Deployment
-	execution  Execution
 
 	// Only treeRuntime's owner goroutine mutates protocol and recovery state, keeping
 	// snapshots and externally visible transitions in one deterministic order.
+	execution               Execution
+	preparedExecution       Execution
 	startedAt               time.Time
 	finishedAt              time.Time
 	status                  Status
