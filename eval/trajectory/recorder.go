@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/interaction"
+	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/core/chat"
 )
 
