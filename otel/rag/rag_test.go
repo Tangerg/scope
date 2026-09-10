@@ -104,6 +104,26 @@ func TestMiddlewareClassifiesWrappedCancellationWithoutChangingError(t *testing.
 	assertHistogramAttribute(t, durationMetric(t, rig.reader), "error.type", "context.canceled")
 }
 
+func TestMiddlewarePreservesRetrieverCancellationPolicy(t *testing.T) {
+	middleware, rig := newRig(t)
+	want := fmt.Errorf("retrieval canceled before dispatch: %w", context.Canceled)
+	inner := &testRetriever{err: want}
+	wrapped, err := middleware.Wrap(inner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query, err := corerag.NewQuery("query")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := wrapped.Retrieve(ctx, query); err != want || !inner.observed {
+		t.Fatalf("Retrieve error = %v, retriever observed = %t", err, inner.observed)
+	}
+	assertString(t, attributeMap(rig.spans.Ended()[0].Attributes()), "error.type", "context.canceled")
+}
+
 func TestMiddlewareRejectsInvalidConstructionAndRetrievers(t *testing.T) {
 	var zero ragotel.Middleware
 	if wrapped, err := zero.Wrap(&testRetriever{}); wrapped != nil || !errors.Is(err, ragotel.ErrInvalidConfig) {

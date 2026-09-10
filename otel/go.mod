@@ -6,7 +6,7 @@ require (
 	github.com/Tangerg/scope/agent v0.16.0
 	github.com/Tangerg/scope/core v0.16.0
 	github.com/Tangerg/scope/eval v0.16.0
-	github.com/Tangerg/scope/rag v0.16.1-0.20260910070312-917d7a5173f8
+	github.com/Tangerg/scope/rag v0.16.1-0.20260910075601-fbb3b1733665
 	github.com/samber/lo v1.53.0
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/log v0.22.0
