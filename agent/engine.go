@@ -276,14 +276,22 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Input) 
 	return &Process{handle: handle}, nil
 }
 
-// Run keeps waiting after cancellation because accepted Effects must settle
-// before the terminal result can describe their outcomes truthfully.
+// Run starts one root Process and joins its entire subtree before returning the
+// root's terminal Result. It keeps waiting after ctx cancellation because owned
+// work and required acknowledgments must finish. A runtime failure anywhere in
+// the subtree returns a RuntimeError and no Result, even when the root already
+// completed; its acknowledged result remains available through Process.Await.
+// Ordinary execution failure returns the root's valid Result and nil error.
 func (e *Engine) Run(ctx context.Context, deployment Deployment, input Input) (Result, error) {
 	process, err := e.Start(ctx, deployment, input)
 	if err != nil {
 		return Result{}, err
 	}
-	return process.Await(context.WithoutCancel(requireContext(ctx)))
+	waitContext := context.WithoutCancel(requireContext(ctx))
+	if err := process.Join(waitContext); err != nil {
+		return Result{}, err
+	}
+	return process.Await(waitContext)
 }
 
 func (e *Engine) Process(id ProcessID) (*Process, bool) {
@@ -301,8 +309,9 @@ func (e *Engine) Process(id ProcessID) (*Process, bool) {
 
 // Close rejects pending starts or restorations, Processes whose result
 // publication or parent/child bookkeeping is incomplete, and trees that still
-// own asynchronous work or a freeze. Await joins a Process's bookkeeping;
-// callers must establish this completion before closing the Engine.
+// own asynchronous work or a freeze. Process.Join or Run establishes subtree
+// completion; callers must finish every tree and release any freeze before
+// closing the Engine.
 // Once closing begins, the Engine drains accepted Delta delivery and stops
 // observation workers. Canceling ctx stops only this caller's wait; it does not
 // interrupt that owned shutdown. A later Close joins the same shutdown.

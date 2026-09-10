@@ -5,10 +5,12 @@ import (
 	"slices"
 )
 
-// RuntimeError reports that the active writer stopped without establishing a
-// logical Process result. The Host may reconcile storage and restore its
-// authoritative tree head in another Engine. This error does not terminate the
-// durable execution or authorize replay of an uncertain Effect.
+// RuntimeError reports that the active writer stopped without establishing the
+// requested Process result or subtree completion. A result acknowledged before
+// a descendant failed remains available through Process.Await. The Host may
+// reconcile storage and restore its authoritative tree head in another Engine.
+// This error does not terminate the durable execution or authorize replay of an
+// uncertain Effect.
 // Engine constructs these errors; the zero value carries no runtime identity.
 // Process methods and tree reports return independent RuntimeError values;
 // Unwrap preserves the original cause.

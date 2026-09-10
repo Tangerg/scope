@@ -196,6 +196,10 @@
 // does not release the tree. A runtime failure in the subtree makes Join fail
 // after its local calls return, even if this Process already published a result.
 // Terminal Unknown settlements remain evidence of remote uncertainty after Join.
+// [Engine.Run] composes Start, Join, and Await as one synchronous operation. It
+// returns the root result only after the subtree finishes, or a RuntimeError if
+// that completion fails. Canceling its context requests termination but does not
+// abandon owned work or required acknowledgments.
 //
 // A child-completion delivery failure is recorded as pending termination.
 // Accepted external effects settle first, and any unknown identities remain
@@ -220,8 +224,9 @@
 // tree. Calls that forward the callback context receive [ErrListenerReentrancy]
 // while that invocation is active. Different tree owners remain independently
 // callable, but callbacks must avoid cyclic waits and return in bounded time.
-// Engine.Close requires completed publication and bookkeeping in both durable
-// and ephemeral mode; Await establishes that completion for each Process.
+// Engine.Close requires every tree's publication, bookkeeping, and owned work
+// to finish in both durable and ephemeral mode. Join or Run establishes this
+// subtree completion; any separately acquired freeze must also be released.
 // Close(ctx) closes admission once and joins Engine-owned observation shutdown;
 // canceling ctx ends only that caller's wait. DeltaListener callbacks must not
 // call Close or FlushDeltas on their Engine because both join Delta delivery.
