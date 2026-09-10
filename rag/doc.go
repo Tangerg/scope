@@ -17,7 +17,7 @@
 // Composition is explicit. Wrap a retriever with the stages you need:
 //
 //	r, err := rag.WithTransformers(base, rewrite, translate)
-//	r, err = rag.WithExpander(r, multiQuery)
+//	r, err = rag.WithExpander(rag.ExpansionConfig{Retriever: r, Expander: multiQuery})
 //	top, err := rag.TopK(8)
 //	r, err = rag.WithRefiners(r, top)
 //	docs, err := r.Retrieve(ctx, q)
@@ -32,22 +32,17 @@
 //
 // # Parallel retriever fan-out
 //
-// Scope deliberately does not ship a separate "DocumentJoiner"
-// abstraction. Use [Parallel] to run retrievers concurrently and union their
-// result lists into a flat slice; use refiners to re-organize that slice.
-// A typical "join overlapping retriever results" pattern is:
+// [ReciprocalRankFusion] combines independent rankings without comparing their
+// raw scores. [WithExpander] applies the same fusion to independent queries.
+// Both bound active retrieval calls through [ReciprocalRankFusionConfig].
 //
 //	top, err := rag.TopK(topK)
-//	combined, err := rag.Parallel(vectorR1, vectorR2)
+//	combined, err := rag.ReciprocalRankFusion(rag.ReciprocalRankFusionConfig{}, vectorR1, vectorR2)
 //	r, err := rag.WithRefiners(combined, top)
 //
-// TopK keeps the highest-scoring candidate for each non-empty document ID
-// before ranking and capping, so duplicate hits cannot consume result slots.
-// Use [Dedup] separately only when unique documents are needed without score
-// ordering or a result cap. Score-based refiners assume all retrievers use a
-// comparable score scale. Use [ReciprocalRankFusion] before TopK when combining
-// unlike ranking systems so fusion depends on result order instead of raw
-// scores.
+// [TopK] only sorts and caps a comparable result. [Dedup] independently keeps
+// the best candidate for each known document identity. Apply Dedup before
+// TopK when a source can return duplicate identities; RRF already fuses them.
 //
 // # Agentic retrieval
 //

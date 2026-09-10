@@ -13,7 +13,7 @@ func TestExpansionUniquenessBoundary(t *testing.T) {
 	var calls atomic.Int64
 	retriever := rag.RetrieverFunc(func(context.Context, rag.Query) (rag.Candidates, error) { calls.Add(1); return nil, nil })
 	expander := rag.ExpanderFunc(func(_ context.Context, q rag.Query) ([]rag.Query, error) { return []rag.Query{q, q}, nil })
-	wrapped, err := rag.WithExpander(retriever, expander)
+	wrapped, err := rag.WithExpander(rag.ExpansionConfig{Retriever: retriever, Expander: expander})
 	if err != nil {
 		t.Fatal(err)
 	}

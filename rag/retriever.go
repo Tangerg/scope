@@ -54,28 +54,6 @@ func (c composedRetriever) Retrieve(ctx context.Context, query Query) (Candidate
 	return candidates, nil
 }
 
-// Parallel returns a [Retriever] that runs retrievers concurrently and unions
-// their documents in declaration order. Every retriever must succeed; partial
-// retrieval is not silently presented as a complete result.
-func Parallel(retrievers ...Retriever) (Retriever, error) {
-	if len(retrievers) == 0 {
-		return nil, ErrNilRetriever
-	}
-	owned := slices.Clone(retrievers)
-	for index, retriever := range owned {
-		if lo.IsNil(retriever) {
-			return nil, fmt.Errorf("rag.Parallel: retriever %d: %w", index, ErrNilRetriever)
-		}
-	}
-
-	return composedRetriever(func(ctx context.Context, query Query) (Candidates, error) {
-		return parallelCandidates(ctx, "rag.Parallel", owned, "retriever",
-			func(ctx context.Context, _ int, retriever Retriever) (Candidates, error) {
-				return retrieve(ctx, query, retriever.Retrieve)
-			})
-	}), nil
-}
-
 // WithTransformers returns a [Retriever] that rewrites the query through
 // transformers before calling next.
 func WithTransformers(next Retriever, transformers ...Transformer) (Retriever, error) {
@@ -102,25 +80,42 @@ func WithTransformers(next Retriever, transformers ...Transformer) (Retriever, e
 	}), nil
 }
 
-// WithExpander returns a [Retriever] that expands one query into many and
-// calls next for each expanded query in parallel.
-func WithExpander(next Retriever, expander Expander) (Retriever, error) {
-	if lo.IsNil(next) {
+// ExpansionConfig selects the query expansion stage, retrieval source, and
+// rank fusion policy used to combine the independent query results.
+type ExpansionConfig struct {
+	Retriever Retriever
+	Expander  Expander
+	Fusion    ReciprocalRankFusionConfig
+}
+
+// WithExpander returns a [Retriever] that retrieves each expanded query under
+// the configured concurrency bound and combines rankings with reciprocal-rank
+// fusion. Every query must succeed; raw scores never cross query boundaries.
+func WithExpander(config ExpansionConfig) (Retriever, error) {
+	if lo.IsNil(config.Retriever) {
 		return nil, ErrNilRetriever
 	}
-	if lo.IsNil(expander) {
+	if lo.IsNil(config.Expander) {
 		return nil, ErrNilExpander
+	}
+	fusion, err := config.Fusion.normalized()
+	if err != nil {
+		return nil, err
 	}
 
 	return composedRetriever(func(ctx context.Context, query Query) (Candidates, error) {
-		queries, err := expand(ctx, expander, query)
+		queries, err := expand(ctx, config.Expander, query)
 		if err != nil {
 			return nil, fmt.Errorf("rag: expand query: %w", err)
 		}
-		return parallelCandidates(ctx, "rag.WithExpander", queries, "query",
+		rankings, err := parallelResults(ctx, "rag.WithExpander", queries, "query", fusion.MaxConcurrentRetrievals,
 			func(ctx context.Context, _ int, q Query) (Candidates, error) {
-				return retrieve(ctx, q, next.Retrieve)
+				return retrieve(ctx, q, config.Retriever.Retrieve)
 			})
+		if err != nil {
+			return nil, err
+		}
+		return fuseRankings(ctx, rankings, fusion.RankConstant)
 	}), nil
 }
 
@@ -213,45 +208,30 @@ func refine(ctx context.Context, refiner Refiner, query Query, candidates Candid
 	return refined, nil
 }
 
-func parallelCandidates[Item any](
-	ctx context.Context,
-	op string,
-	items []Item,
-	itemLabel string,
-	fn func(context.Context, int, Item) (Candidates, error),
-) (Candidates, error) {
-	results, err := parallelResults(ctx, op, items, itemLabel, fn)
-	if err != nil {
-		return nil, err
-	}
-	var out Candidates
-	for _, block := range results {
-		out = append(out, block...)
-	}
-	return out, nil
-}
-
 func parallelResults[Item, Out any](
 	ctx context.Context,
 	op string,
 	items []Item,
 	itemLabel string,
+	maxConcurrent int,
 	fn func(context.Context, int, Item) (Out, error),
 ) ([]Out, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	// Each goroutine writes only its own index, so no lock is needed and the
-	// union stays in input order regardless of completion order — Dedup's
-	// identity order and equal-score selection, plus TopK's tie-break, depend on
-	// it.
+	// Indexed results preserve ranking and failure order independently of
+	// completion order. Acquire a slot before starting a goroutine so expanded
+	// query count cannot determine the number of active goroutines.
 	results := make([]Out, len(items))
 	failures := make([]error, len(items))
 
 	var wg sync.WaitGroup
+	slots := make(chan struct{}, min(maxConcurrent, len(items)))
 	for index, item := range items {
+		slots <- struct{}{}
 		wg.Go(func() {
+			defer func() { <-slots }()
 			result, err := fn(ctx, index, item)
 			if err != nil {
 				failures[index] = fmt.Errorf("%s #%d: %w", itemLabel, index, err)

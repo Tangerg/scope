@@ -9,7 +9,7 @@ import (
 )
 
 func TestComposedRetrieversRejectInputBeforeCallingStages(t *testing.T) {
-	for _, name := range []string{"parallel", "transformers", "expander", "refiners"} {
+	for _, name := range []string{"fusion", "transformers", "expander", "refiners"} {
 		t.Run(name, func(t *testing.T) {
 			calls := 0
 			base := rag.RetrieverFunc(func(context.Context, rag.Query) (rag.Candidates, error) {
@@ -19,18 +19,18 @@ func TestComposedRetrieversRejectInputBeforeCallingStages(t *testing.T) {
 			var composed rag.Retriever
 			var err error
 			switch name {
-			case "parallel":
-				composed, err = rag.Parallel(base)
+			case "fusion":
+				composed, err = rag.ReciprocalRankFusion(rag.ReciprocalRankFusionConfig{}, base)
 			case "transformers":
 				composed, err = rag.WithTransformers(base, rag.TransformerFunc(func(_ context.Context, query rag.Query) (rag.Query, error) {
 					calls++
 					return query, nil
 				}))
 			case "expander":
-				composed, err = rag.WithExpander(base, rag.ExpanderFunc(func(_ context.Context, query rag.Query) ([]rag.Query, error) {
+				composed, err = rag.WithExpander(rag.ExpansionConfig{Retriever: base, Expander: rag.ExpanderFunc(func(_ context.Context, query rag.Query) ([]rag.Query, error) {
 					calls++
 					return []rag.Query{query}, nil
-				}))
+				})})
 			case "refiners":
 				composed, err = rag.WithRefiners(base, rag.Dedup())
 			}

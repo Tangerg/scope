@@ -107,7 +107,7 @@ func TestTopKSortsAndCaps(t *testing.T) {
 	}
 }
 
-func TestTopKDeduplicatesBeforeApplyingLimit(t *testing.T) {
+func TestTopKPreservesDuplicateCandidates(t *testing.T) {
 	r, err := rag.TopK(2)
 	if err != nil {
 		t.Fatal(err)
@@ -129,14 +129,14 @@ func TestTopKDeduplicatesBeforeApplyingLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(got) != 2 {
-		t.Fatalf("got %d documents, want two unique results", len(got))
+		t.Fatalf("got %d documents, want two highest-scoring candidates", len(got))
 	}
-	if got[0].Document.Text != high.Text || got[1].Document.Text != other.Text {
-		t.Fatalf("results = %#v, want highest duplicate followed by other document", got)
+	if got[0].Document.Text != high.Text || got[1].Document.Text != low.Text {
+		t.Fatalf("results = %#v, want both candidates with identity a", got)
 	}
 }
 
-func TestDedupAndTopKOrderDoesNotChangeResult(t *testing.T) {
+func TestDedupBeforeTopKKeepsUniqueResultSlots(t *testing.T) {
 	top, err := rag.TopK(2)
 	if err != nil {
 		t.Fatal(err)
@@ -150,7 +150,7 @@ func TestDedupAndTopKOrderDoesNotChangeResult(t *testing.T) {
 	third, _ := document.NewDocument("third", nil)
 	third.ID = "c"
 	input := []rag.Candidate{
-		candidate(first, 0.2),
+		candidate(first, 0.85),
 		candidate(second, 0.8),
 		candidate(best, 0.9),
 		candidate(third, 0.7),
@@ -174,14 +174,11 @@ func TestDedupAndTopKOrderDoesNotChangeResult(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(dedupThenTop) != len(topThenDedup) || len(dedupThenTop) != 2 {
-		t.Fatalf("result lengths differ: dedup-then-top=%d top-then-dedup=%d", len(dedupThenTop), len(topThenDedup))
+	if len(dedupThenTop) != 2 || dedupThenTop[0].Document.ID != "a" || dedupThenTop[1].Document.ID != "b" {
+		t.Fatalf("dedup before top = %#v, want a then b", dedupThenTop)
 	}
-	for index := range dedupThenTop {
-		left, right := dedupThenTop[index], topThenDedup[index]
-		if left.Document.ID != right.Document.ID || left.Document.Text != right.Document.Text || left.Score != right.Score {
-			t.Fatalf("result[%d] differs by composition order: %#v != %#v", index, left, right)
-		}
+	if len(topThenDedup) != 1 || topThenDedup[0].Document.ID != "a" {
+		t.Fatalf("top before dedup = %#v, want only a", topThenDedup)
 	}
 }
 

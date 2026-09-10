@@ -164,7 +164,7 @@ func (f *fakeRetriever) Retrieve(_ context.Context, q rag.Query) (rag.Candidates
 func TestRetrieveValidatesCandidates(t *testing.T) {
 	retriever := &fakeRetriever{docs: rag.Candidates{{}}}
 	query, _ := rag.NewQuery("query")
-	composed, err := rag.Parallel(rag.RetrieverFunc(retriever.Retrieve))
+	composed, err := rag.ReciprocalRankFusion(rag.ReciprocalRankFusionConfig{}, rag.RetrieverFunc(retriever.Retrieve))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,13 +290,13 @@ func TestWithTransformersErrorShortCircuits(t *testing.T) {
 	}
 }
 
-func TestParallelUnionsResults(t *testing.T) {
+func TestFusionUnionsResults(t *testing.T) {
 	docA, _ := document.NewDocument("a", nil)
 	docB, _ := document.NewDocument("b", nil)
 	r1 := &fakeRetriever{docs: rag.Candidates{candidate(docA)}}
 	r2 := &fakeRetriever{docs: rag.Candidates{candidate(docB)}}
 
-	combined, err := rag.Parallel(r1, r2)
+	combined, err := rag.ReciprocalRankFusion(rag.ReciprocalRankFusionConfig{}, r1, r2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,12 +309,12 @@ func TestParallelUnionsResults(t *testing.T) {
 	}
 }
 
-func TestParallelRejectsPartialResults(t *testing.T) {
+func TestFusionRejectsPartialResults(t *testing.T) {
 	docA, _ := document.NewDocument("a", nil)
 	r1 := &fakeRetriever{docs: rag.Candidates{candidate(docA)}}
 	r2 := &fakeRetriever{err: errors.New("retriever 2 broken")}
 
-	combined, err := rag.Parallel(r1, r2)
+	combined, err := rag.ReciprocalRankFusion(rag.ReciprocalRankFusionConfig{}, r1, r2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,8 +327,8 @@ func TestParallelRejectsPartialResults(t *testing.T) {
 	}
 }
 
-func TestParallelAcceptsEmptySuccessfulResults(t *testing.T) {
-	combined, err := rag.Parallel(&fakeRetriever{}, &fakeRetriever{})
+func TestFusionAcceptsEmptySuccessfulResults(t *testing.T) {
+	combined, err := rag.ReciprocalRankFusion(rag.ReciprocalRankFusionConfig{}, &fakeRetriever{}, &fakeRetriever{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +342,7 @@ func TestParallelAcceptsEmptySuccessfulResults(t *testing.T) {
 	}
 }
 
-func TestParallelOwnsConfigurationAndOrdersFailuresByDeclaration(t *testing.T) {
+func TestFusionOwnsConfigurationAndOrdersFailuresByDeclaration(t *testing.T) {
 	firstFailure := errors.New("first failure")
 	secondFailure := errors.New("second failure")
 	secondFinished := make(chan struct{})
@@ -355,7 +355,7 @@ func TestParallelOwnsConfigurationAndOrdersFailuresByDeclaration(t *testing.T) {
 		return nil, secondFailure
 	})
 	retrievers := []rag.Retriever{first, second}
-	combined, err := rag.Parallel(retrievers...)
+	combined, err := rag.ReciprocalRankFusion(rag.ReciprocalRankFusionConfig{}, retrievers...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +363,7 @@ func TestParallelOwnsConfigurationAndOrdersFailuresByDeclaration(t *testing.T) {
 
 	_, err = combined.Retrieve(t.Context(), mustQuery(t, "hi"))
 	if !errors.Is(err, firstFailure) || !errors.Is(err, secondFailure) {
-		t.Fatalf("Parallel error = %v, want both failures", err)
+		t.Fatalf("ReciprocalRankFusion error = %v, want both failures", err)
 	}
 	message := err.Error()
 	if strings.Index(message, firstFailure.Error()) > strings.Index(message, secondFailure.Error()) {
@@ -376,24 +376,24 @@ func TestCombinatorsRejectNilCapabilitiesAtConstruction(t *testing.T) {
 	if _, err := rag.WithTransformers(&fakeRetriever{}, transformer); !errors.Is(err, rag.ErrNilTransformer) {
 		t.Fatalf("WithTransformers error = %v, want ErrNilTransformer", err)
 	}
-	if _, err := rag.WithExpander(&fakeRetriever{}, nil); !errors.Is(err, rag.ErrNilExpander) {
+	if _, err := rag.WithExpander(rag.ExpansionConfig{Retriever: &fakeRetriever{}}); !errors.Is(err, rag.ErrNilExpander) {
 		t.Fatalf("WithExpander error = %v, want ErrNilExpander", err)
 	}
 	if _, err := rag.WithRefiners(&fakeRetriever{}, nil); !errors.Is(err, rag.ErrNilRefiner) {
 		t.Fatalf("WithRefiners error = %v, want ErrNilRefiner", err)
 	}
-	if _, err := rag.Parallel(&fakeRetriever{}, nil); !errors.Is(err, rag.ErrNilRetriever) {
-		t.Fatalf("Parallel error = %v, want ErrNilRetriever", err)
+	if _, err := rag.ReciprocalRankFusion(rag.ReciprocalRankFusionConfig{}, &fakeRetriever{}, nil); !errors.Is(err, rag.ErrNilRetriever) {
+		t.Fatalf("ReciprocalRankFusion error = %v, want ErrNilRetriever", err)
 	}
 }
 
 func TestWithExpanderRejectsEmptyExpansion(t *testing.T) {
-	expanded, err := rag.WithExpander(
-		&fakeRetriever{},
-		rag.ExpanderFunc(func(context.Context, rag.Query) ([]rag.Query, error) {
+	expanded, err := rag.WithExpander(rag.ExpansionConfig{
+		Retriever: &fakeRetriever{},
+		Expander: rag.ExpanderFunc(func(context.Context, rag.Query) ([]rag.Query, error) {
 			return nil, nil
 		}),
-	)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -406,12 +406,12 @@ func TestWithExpanderRejectsEmptyExpansion(t *testing.T) {
 
 func TestWithExpanderValidatesAllQueriesBeforeRetrieval(t *testing.T) {
 	retriever := &fakeRetriever{}
-	expanded, err := rag.WithExpander(
-		retriever,
-		rag.ExpanderFunc(func(context.Context, rag.Query) ([]rag.Query, error) {
+	expanded, err := rag.WithExpander(rag.ExpansionConfig{
+		Retriever: retriever,
+		Expander: rag.ExpanderFunc(func(context.Context, rag.Query) ([]rag.Query, error) {
 			return []rag.Query{mustQuery(t, "valid"), {}}, nil
 		}),
-	)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

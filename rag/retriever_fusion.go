@@ -16,16 +16,31 @@ var ErrInvalidRankConstant = errors.New("rag: reciprocal-rank constant must not 
 // DefaultReciprocalRankConstant is the conventional RRF smoothing constant.
 const DefaultReciprocalRankConstant = 60
 
-// RankConstant is added to each one-based rank before reciprocal weighting.
-// Zero uses
-// [DefaultReciprocalRankConstant].
+// DefaultMaxConcurrentRetrievals bounds fan-out when no limit is specified.
+const DefaultMaxConcurrentRetrievals = 4
+
+// ErrInvalidRetrievalConcurrency rejects a negative retrieval concurrency bound.
+var ErrInvalidRetrievalConcurrency = errors.New("rag: retrieval concurrency must not be negative")
+
+// ReciprocalRankFusionConfig controls ranking and per-call retrieval fan-out.
+// RankConstant is added to each one-based rank before reciprocal weighting;
+// zero uses [DefaultReciprocalRankConstant]. MaxConcurrentRetrievals bounds
+// active child calls; zero uses [DefaultMaxConcurrentRetrievals], and one
+// executes sequentially. The bound applies independently to each invocation.
 type ReciprocalRankFusionConfig struct {
-	RankConstant int
+	RankConstant            int
+	MaxConcurrentRetrievals int
 }
 
 func (r ReciprocalRankFusionConfig) normalized() (ReciprocalRankFusionConfig, error) {
 	if r.RankConstant < 0 {
 		return ReciprocalRankFusionConfig{}, ErrInvalidRankConstant
+	}
+	if r.MaxConcurrentRetrievals < 0 {
+		return ReciprocalRankFusionConfig{}, ErrInvalidRetrievalConcurrency
+	}
+	if r.MaxConcurrentRetrievals == 0 {
+		r.MaxConcurrentRetrievals = DefaultMaxConcurrentRetrievals
 	}
 	if r.RankConstant == 0 {
 		r.RankConstant = DefaultReciprocalRankConstant
@@ -36,7 +51,8 @@ func (r ReciprocalRankFusionConfig) normalized() (ReciprocalRankFusionConfig, er
 // ReciprocalRankFusion returns a retriever that concurrently executes each
 // input retriever and fuses their ordered results using reciprocal-rank
 // fusion. Raw candidate scores are deliberately ignored because independent
-// retrievers commonly use incomparable score scales.
+// retrievers commonly use incomparable score scales. Every retriever must
+// succeed; failures are reported in declaration order without partial results.
 func ReciprocalRankFusion(config ReciprocalRankFusionConfig, retrievers ...Retriever) (Retriever, error) {
 	config, err := config.normalized()
 	if err != nil {
@@ -52,31 +68,31 @@ func ReciprocalRankFusion(config ReciprocalRankFusionConfig, retrievers ...Retri
 		}
 	}
 
-	return reciprocalRankFusion{rankConstant: config.RankConstant, retrievers: owned}, nil
+	return reciprocalRankFusion{config: config, retrievers: owned}, nil
 }
 
 type reciprocalRankFusion struct {
-	rankConstant int
-	retrievers   []Retriever
+	config     ReciprocalRankFusionConfig
+	retrievers []Retriever
 }
 
 func (r reciprocalRankFusion) Retrieve(ctx context.Context, query Query) (candidates Candidates, err error) {
 	if validateErr := query.Validate(); validateErr != nil {
 		return nil, validateErr
 	}
-	rankings, err := parallelResults(ctx, "rag.ReciprocalRankFusion", r.retrievers, "retriever",
+	rankings, err := parallelResults(ctx, "rag.ReciprocalRankFusion", r.retrievers, "retriever", r.config.MaxConcurrentRetrievals,
 		func(ctx context.Context, _ int, retriever Retriever) (Candidates, error) {
 			return retrieve(ctx, query, retriever.Retrieve)
 		})
 	if err != nil {
 		return nil, err
 	}
-	return r.fuse(ctx, rankings)
+	return fuseRankings(ctx, rankings, r.config.RankConstant)
 }
 
-func (r reciprocalRankFusion) fuse(ctx context.Context, rankings []Candidates) (Candidates, error) {
+func fuseRankings(ctx context.Context, rankings []Candidates, rankConstant int) (Candidates, error) {
 	positions := make(map[string]int)
-	fused := make(Candidates, 0)
+	var fused Candidates
 
 	for _, ranking := range rankings {
 		if err := ctx.Err(); err != nil {
@@ -92,7 +108,7 @@ func (r reciprocalRankFusion) fuse(ctx context.Context, rankings []Candidates) (
 				seen[identity] = struct{}{}
 			}
 
-			contribution := Score(1 / (float64(r.rankConstant) + float64(index) + 1))
+			contribution := Score(1 / (float64(rankConstant) + float64(index) + 1))
 			if identity == "" {
 				candidate.Score = contribution
 				fused = append(fused, candidate)
