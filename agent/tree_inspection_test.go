@@ -184,6 +184,17 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 			if !stopped.Stopped || stopped.CommitPending || stopped.HeadDigest != commit.previous || len(stopped.Processes) != 1 {
 				t.Fatalf("stopped inspection=%+v", stopped)
 			}
+			if scenario.checkpoint == TreeCheckpointChild {
+				if err := root.Join(t.Context()); !errors.Is(err, durability.failure) {
+					t.Fatalf("child rollback join error=%v", err)
+				}
+				assertNoPendingProcessStarts(t, engine)
+				runtime := root.handle.runtime.Load()
+				parent := runtime.processes[root.ID()]
+				if parent.effectiveReservedBudget() != (Budget{}) || len(runtime.processes) != 1 {
+					t.Fatal("rejected child checkpoint retained child budget or prospective Process")
+				}
+			}
 			failure := stopped.Processes[0].RuntimeError
 			if failure == nil || !errors.Is(failure, durability.failure) {
 				t.Fatalf("inspection runtime failure=%v", failure)

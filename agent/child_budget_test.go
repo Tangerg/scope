@@ -86,3 +86,43 @@ func TestSnapshotRejectsChildBudgetThatConsumesPreparedStep(t *testing.T) {
 		t.Fatalf("unfunded prepared Step error=%v", parseErr)
 	}
 }
+
+func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
+	runtime, parent := newChildCompletionTestProcess(t)
+	engine := runtime.engine
+	if err := engine.reserveProcessStart(parent.handle.relation, parent.deployment.DeploymentRef(), parent.treeLimits, Digest{}); err != nil {
+		t.Fatal(err)
+	}
+	engine.publishReservedProcess(parent.handle)
+	effectID := deriveEffectID(parent.handle.processID, 1, 0)
+	key, _ := ParseChildKey("worker")
+	input, _ := EncodeInput(childTestInput{Mode: "leaf"})
+	spec := childTestSpec(key, parent.deployment.DeploymentRef(), input)
+	prepared := runtime.prepareChildStart(parent, effectID, spec)
+	if prepared.plan == nil {
+		t.Fatalf("prepare child failed: %+v", prepared.result)
+	}
+	result := prepared.plan.execute(t.Context())
+	if !result.started() {
+		t.Fatalf("initialize child failed: %+v", result.result)
+	}
+	// Reject settlement after initialization to exercise cleanup after the
+	// child's budget and prospective Process have both been installed.
+	runtime.applyChildStartCompletion(parent, &processJob{
+		childStart: prepared.plan, effectID: effectID, startedAt: result.startedAt,
+	}, result)
+	if parent.status != StatusFailed {
+		t.Fatalf("rejected settlement parent status=%s", parent.status)
+	}
+	if _, exists := engine.Process(prepared.plan.childID); exists {
+		t.Fatal("rejected child settlement published the child")
+	}
+	if parent.effectiveReservedBudget() != (Budget{}) || len(runtime.processes) != 1 {
+		t.Fatal("rejected child settlement retained its budget or prospective Process")
+	}
+	assertNoPendingProcessStarts(t, engine)
+	if err := engine.reserveProcessStart(prepared.plan.relation, spec.DeploymentRef, parent.treeLimits, prepared.plan.requestDigest); err != nil {
+		t.Fatalf("released child identity and key could not be reserved again: %v", err)
+	}
+	engine.discardProcessStartReservation(prepared.plan.childID)
+}

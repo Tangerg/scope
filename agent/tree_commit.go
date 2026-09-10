@@ -168,7 +168,7 @@ func (t *treeRuntime) applyFailedTreeCommit(commit *treeCommit, commitErr error)
 		unresolvedEffectID = EffectID{}
 	}
 	if commit.kind == treeCommitChildOutcome {
-		t.discardProspectiveChild(commit.child)
+		t.discardChildStart(commit.child.plan)
 	}
 	t.failDurability(commitErr, commit.processID, unresolvedEffectID)
 }
@@ -192,6 +192,7 @@ func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 		t.enqueueProcess(commit.processID)
 	case treeCommitChildOutcome:
 		if err := t.publishChildOutcome(commit.child); err != nil {
+			t.discardChildStart(commit.child.plan)
 			t.failDurability(err, commit.processID, commit.effectID)
 			return
 		}
@@ -203,23 +204,31 @@ func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 	}
 }
 
-func (t *treeRuntime) discardProspectiveChild(pending *pendingChildOutcome) {
-	if pending == nil || pending.plan == nil ||
-		!pending.result.started() {
+// The runtime releases the reservation it currently owns: provisional before
+// installation, committed after installation. Published children never use this path.
+func (t *treeRuntime) discardChildStart(plan *childStartPlan) {
+	if plan == nil {
 		return
 	}
-	delete(t.processes, pending.plan.childID)
-	delete(t.queued, pending.plan.childID)
+	parentID, _ := plan.relation.ParentID()
+	parent := t.processes[parentID]
+	if child := t.processes[plan.childID]; child != nil {
+		delete(t.processes, plan.childID)
+		if parent != nil {
+			parent.releaseCommittedChildBudget(plan.spec.Budget)
+		}
+	} else if parent != nil {
+		parent.releaseProvisionalChildBudget(plan.spec.Budget)
+	}
+	delete(t.queued, plan.childID)
+	delete(t.pendingPublications, plan.childID)
 	for index, processID := range t.processQueue {
-		if processID == pending.plan.childID {
+		if processID == plan.childID {
 			t.processQueue = append(t.processQueue[:index], t.processQueue[index+1:]...)
 			break
 		}
 	}
-	t.engine.discardProcessStartReservation(pending.plan.childID)
-	if parent := t.processes[pending.parentID]; parent != nil {
-		parent.releaseCommittedChildBudget(pending.plan.spec.Budget)
-	}
+	t.engine.discardProcessStartReservation(plan.childID)
 }
 
 func (t *treeRuntime) publishChildOutcome(pending *pendingChildOutcome) error {
@@ -400,7 +409,7 @@ func (t *treeRuntime) failDurability(
 			}
 		}
 		if job.kind == processJobChildStart {
-			t.abandonChildStartJob(t.processes[candidateID], job)
+			t.abandonChildStartJob(job)
 		}
 	}
 	clear(t.pendingPublications)
@@ -465,17 +474,13 @@ func (t *treeRuntime) processesInCanonicalOrder() []*processState {
 	return processes
 }
 
-func (t *treeRuntime) abandonChildStartJob(
-	parent *processState,
-	job *processJob,
-) {
-	if parent == nil || job == nil || job.childStart == nil {
+func (t *treeRuntime) abandonChildStartJob(job *processJob) {
+	if job == nil || job.childStart == nil {
 		return
 	}
 	plan := job.childStart
 	job.childStart = nil
-	t.engine.discardProcessStartReservation(plan.childID)
-	parent.releaseProvisionalChildBudget(plan.spec.Budget)
+	t.discardChildStart(plan)
 }
 
 func newTreeDurabilityFailure(cause error) Failure {

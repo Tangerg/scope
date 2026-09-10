@@ -228,19 +228,22 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Input) 
 	); reserveProcessStartErr != nil {
 		return nil, reserveProcessStartErr
 	}
+	published := false
+	defer func() {
+		if !published {
+			e.discardProcessStartReservation(id)
+		}
+	}()
 	if requestProcessAdmissionErr := requestProcessAdmission(ctx, e.admitter, admission); requestProcessAdmissionErr != nil {
-		e.discardProcessStartReservation(id)
 		return nil, requestProcessAdmissionErr
 	}
 	startedAt := time.Now().Round(0).UTC()
 	execution, state, failure, err := initializeExecution(deployment.Definition(), input)
 	if err != nil {
 		acknowledgeErr := acknowledgeProcessStartOutcome(ctx, e.startOutcomeAcknowledger, abortedProcessOutcome(admission, failure))
-		e.discardProcessStartReservation(id)
 		return nil, errors.Join(fmt.Errorf("agent: initialize Process: %w", err), acknowledgeErr)
 	}
 	if err := acknowledgeProcessStartOutcome(ctx, e.startOutcomeAcknowledger, startedProcessOutcome(admission, startedAt)); err != nil {
-		e.discardProcessStartReservation(id)
 		return nil, err
 	}
 	handle := newProcessHandleState(
@@ -253,27 +256,24 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Input) 
 	if e.durability != nil {
 		incarnation, incarnationErr := newTreeIncarnationID()
 		if incarnationErr != nil {
-			e.discardProcessStartReservation(id)
 			return nil, incarnationErr
 		}
 		runtime.incarnation = incarnation
 		baseSnapshot, captureErr := runtime.captureTree()
 		if captureErr != nil {
-			e.discardProcessStartReservation(id)
 			return nil, captureErr
 		}
 		checkpoint, err := newTreeCheckpoint(TreeCheckpointStart, Digest{}, baseSnapshot)
 		if err != nil {
-			e.discardProcessStartReservation(id)
 			return nil, err
 		}
 		if err := commitTreeCheckpoint(ctx, e.durability, checkpoint); err != nil {
-			e.discardProcessStartReservation(id)
 			return nil, err
 		}
 		runtime.establishDurableHead(incarnation, baseSnapshot)
 	}
 	e.publishReservedProcess(handle)
+	published = true
 	go runtime.run(ctx)
 	return &Process{handle: handle}, nil
 }

@@ -95,9 +95,14 @@ func (t *treeRuntime) prepareChildStart(
 			spec, FailureKindExecution, childBudgetExhaustedCode, ErrResourceLimitExceeded,
 		)}
 	}
+	transferred := false
+	defer func() {
+		if !transferred {
+			process.releaseProvisionalChildBudget(spec.Budget)
+		}
+	}()
 	childLimits, err := limitsFromBudget(process.limits, spec.Budget)
 	if err != nil {
-		process.releaseProvisionalChildBudget(spec.Budget)
 		return childStartPreparation{result: failedChildStart(
 			spec, FailureKindExecution, childBudgetInvalidCode, err,
 		)}
@@ -105,7 +110,6 @@ func (t *treeRuntime) prepareChildStart(
 	if reserveProcessStartErr := t.engine.reserveProcessStart(
 		relation, spec.DeploymentRef, process.treeLimits, requestDigest,
 	); reserveProcessStartErr != nil {
-		process.releaseProvisionalChildBudget(spec.Budget)
 		if errors.Is(reserveProcessStartErr, ErrResourceLimitExceeded) {
 			return childStartPreparation{result: failedChildStart(
 				spec, FailureKindExecution, childTreeLimitCode, reserveProcessStartErr,
@@ -120,6 +124,7 @@ func (t *treeRuntime) prepareChildStart(
 			spec, FailureKindContract, childIdentityConflictCode, reserveProcessStartErr,
 		)}
 	}
+	transferred = true
 	return childStartPreparation{plan: &childStartPlan{
 		admitter: t.engine.admitter, acknowledger: t.engine.startOutcomeAcknowledger,
 		resolver: t.engine.resolver, parentDeployment: process.deployment,

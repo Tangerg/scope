@@ -29,7 +29,8 @@ func (p *processState) prepareStepResult(result stepJobResult) *stepPreparationF
 			kind: FailureKindContract, code: "execution.transition.invalid", cause: ErrInvalidTransition,
 		}
 	}
-	for _, effect := range transition.Effects() {
+	effects := transition.Effects()
+	for _, effect := range effects {
 		if err := p.deployment.validateEffect(effect); err != nil {
 			return &stepPreparationFailure{
 				kind: FailureKindContract, code: "execution.effect.invalid", cause: err,
@@ -41,7 +42,7 @@ func (p *processState) prepareStepResult(result stepJobResult) *stepPreparationF
 			}
 		}
 	}
-	effectCount := uint64(len(transition.Effects()))
+	effectCount := uint64(len(effects))
 	reservedBudget := p.effectiveReservedBudget()
 	if !resourceQuantitiesFit(p.limits.MaxEffects, p.usage.PreparedEffects, effectCount) ||
 		!resourceQuantitiesFit(
@@ -81,7 +82,7 @@ func (p *processState) prepareStepResult(result stepJobResult) *stepPreparationF
 		SignalCursor: p.mailbox.committedSignalCursor() + uint64(transition.ConsumedSignals()),
 		Transition:   transition,
 	}
-	for index, effect := range transition.Effects() {
+	for index, effect := range effects {
 		prepared.Effects = append(prepared.Effects, preparedEffect{
 			ID: deriveEffectID(p.handle.processID, sequence, index), Effect: effect,
 			Phase: effectPhasePlanned,
@@ -262,7 +263,7 @@ func (p *preparedStepFinalization) prepareTermination(outcome stepOutcome, finis
 	p.transition.closedChildWaits = p.mailbox.closeAllWaits()
 }
 
-func (p *preparedStepFinalization) commit() {
+func (p *preparedStepFinalization) adopt() {
 	process := p.process
 	process.execution = p.prepared.candidate
 	process.committedExecutionState = p.prepared.CandidateState

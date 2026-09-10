@@ -359,8 +359,19 @@ func (t *treeRuntime) applyChildStartCompletion(
 		parentID: parent.handle.processID, effectID: job.effectID,
 		plan: plan, result: result, startedAt: job.startedAt,
 	}
-	if err := t.applyChildOutcome(pending); err != nil {
-		t.failPreparedEffect(parent, childSettlementInvalidCode, err)
+	transferred := false
+	var outcomeErr, checkpointErr error
+	defer func() {
+		if !transferred {
+			t.discardChildStart(plan)
+		}
+		if outcomeErr != nil {
+			t.failPreparedEffect(parent, childSettlementInvalidCode, outcomeErr)
+		} else if checkpointErr != nil {
+			t.failDurability(checkpointErr, parent.handle.processID, job.effectID)
+		}
+	}()
+	if outcomeErr = t.applyChildOutcome(pending); outcomeErr != nil {
 		return
 	}
 	if t.engine.durability != nil {
@@ -377,15 +388,14 @@ func (t *treeRuntime) applyChildStartCompletion(
 				effectID: pending.effectID, snapshot: snapshot, child: pending,
 			}, TreeCheckpointChild)
 		}
-		if err != nil {
-			t.discardProspectiveChild(pending)
-			t.failDurability(err, parent.handle.processID, job.effectID)
-		}
+		checkpointErr = err
+		transferred = err == nil
 		return
 	}
-	if err := t.publishChildOutcome(pending); err != nil {
-		t.failPreparedEffect(parent, childSettlementInvalidCode, err)
+	if outcomeErr = t.publishChildOutcome(pending); outcomeErr != nil {
+		return
 	}
+	transferred = true
 }
 
 func (t *treeRuntime) applyChildOutcome(pending *pendingChildOutcome) error {
@@ -420,8 +430,7 @@ func (t *treeRuntime) applyChildOutcome(pending *pendingChildOutcome) error {
 			t.stopProcessTree(child)
 		}
 	} else {
-		t.engine.discardProcessStartReservation(pending.plan.childID)
-		parent.releaseProvisionalChildBudget(pending.plan.spec.Budget)
+		t.discardChildStart(pending.plan)
 	}
 	_, err := t.applyChildStartSettlement(parent, pending.effectID, pending.result.result)
 	return err

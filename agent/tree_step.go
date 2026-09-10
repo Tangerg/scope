@@ -16,9 +16,9 @@ func (t *treeRuntime) finalizePrepared(process *processState) error {
 		return err
 	}
 	var registered []WaitID
-	committed := false
+	adopted := false
 	defer func() {
-		if !committed {
+		if !adopted {
 			for _, waitID := range registered {
 				t.unregisterChildWait(waitID)
 			}
@@ -40,8 +40,8 @@ func (t *treeRuntime) finalizePrepared(process *processState) error {
 	if err := finalization.prepareTransition(time.Now().Round(0).UTC()); err != nil {
 		return err
 	}
-	finalization.commit()
-	committed = true
+	finalization.adopt()
+	adopted = true
 	for _, waitID := range finalization.consumedChildWaits {
 		t.unregisterChildWait(waitID)
 	}
@@ -60,19 +60,19 @@ func (t *treeRuntime) finalizePrepared(process *processState) error {
 func (t *treeRuntime) terminatePrepared(process *processState) {
 	process.prepared.candidate = nil
 	process.execution = nil
-	t.commitTerminationWithUnresolved(process, stepOutcome{}, process.unknownEffectIDs())
+	t.installTerminationWithUnresolved(process, stepOutcome{}, process.unknownEffectIDs())
 }
 
 func (t *treeRuntime) failProcess(process *processState, kind FailureKind, code string, err error) {
 	process.recordFailure(kind, code, err)
-	t.commitTermination(process, stepOutcome{})
+	t.installTermination(process, stepOutcome{})
 }
 
-func (t *treeRuntime) commitTermination(process *processState, outcome stepOutcome) {
-	t.commitTerminationWithUnresolved(process, outcome, nil)
+func (t *treeRuntime) installTermination(process *processState, outcome stepOutcome) {
+	t.installTerminationWithUnresolved(process, outcome, nil)
 }
 
-func (t *treeRuntime) commitTerminationWithUnresolved(process *processState, outcome stepOutcome, unresolvedEffectIDs []EffectID) {
+func (t *treeRuntime) installTerminationWithUnresolved(process *processState, outcome stepOutcome, unresolvedEffectIDs []EffectID) {
 	termination := process.resolveStepTermination(outcome)
 	process.installTermination(termination.withUnresolvedEffectIDs(unresolvedEffectIDs), Output{}, time.Now().Round(0).UTC())
 	for _, waitID := range process.mailbox.closeAllWaits() {

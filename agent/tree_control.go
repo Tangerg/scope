@@ -228,7 +228,7 @@ func (t *treeRuntime) stopProcessTree(process *processState) {
 
 func (t *treeRuntime) applyPendingControl(process *processState) bool {
 	if process.pendingControl.hasTerminalIntent() {
-		t.commitTermination(process, stepOutcome{})
+		t.installTermination(process, stepOutcome{})
 		return true
 	}
 	if !process.applyPendingPause() {

@@ -301,6 +301,12 @@ func TestRejectingStartedChildOutcomePreventsChildPublication(t *testing.T) {
 			if _, published := engine.Process(childID); published {
 				t.Fatal("unacknowledged child was published")
 			}
+			if err := parent.Join(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if reserved := parent.handle.runtime.Load().processes[parent.ID()].effectiveReservedBudget(); reserved != (Budget{}) {
+				t.Fatalf("unacknowledged child retained budget: %+v", reserved)
+			}
 			assertNoPendingProcessStarts(t, engine)
 			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 				t.Fatal(err)
