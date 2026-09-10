@@ -355,10 +355,10 @@ func TestMiddlewarePreservesActiveUserPartOrder(t *testing.T) {
 	}
 	model := chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
 		parts := request.Messages[len(request.Messages)-1].Parts
-		if len(parts) != 3 || parts[0].Kind != chat.PartMedia || parts[1].Kind != chat.PartText || parts[2].Kind != chat.PartMedia {
+		if len(parts) != 4 || parts[0].Kind != chat.PartMedia || parts[1].Kind != chat.PartText || parts[2].Kind != chat.PartMedia || parts[3].Kind != chat.PartText {
 			t.Fatalf("active user parts = %#v", parts)
 		}
-		if parts[1].Text != "firstsecond" || parts[0].Media == first || parts[2].Media == second {
+		if parts[1].Text != "first" || parts[3].Text != "second" || parts[0].Media == first || parts[2].Media == second {
 			t.Fatalf("active user parts were not independently preserved: %#v", parts)
 		}
 		return textResponse("answer"), nil

@@ -56,7 +56,10 @@ func (m MiddlewareConfig) validate() error {
 
 // Middleware owns retrieval and augmentation policy for both chat call modes.
 // It is immutable after construction and safe for concurrent use when its
-// Retriever and Augmenter are safe for concurrent use.
+// Retriever and Augmenter are safe for concurrent use. Unchanged augmentation
+// preserves every user Part. Text rewrites require exactly one text Part and
+// preserve all other Parts and their relative positions; ambiguous rewrites
+// fail with ErrInvalidAugmentation before calling the model.
 type Middleware struct {
 	retriever Retriever
 	augmenter Augmenter
@@ -87,25 +90,28 @@ func (p preparedChatRequest) finalUserText() (string, error) {
 	return p.request.Messages[last].Text(), nil
 }
 
-func (p *preparedChatRequest) replaceFinalUserText(text string) {
-	index := len(p.request.Messages) - 1
-	original := p.request.Messages[index]
-	parts := make([]chat.Part, 0, len(original.Parts))
-	replaced := false
-	for partIndex := range original.Parts {
-		switch original.Parts[partIndex].Kind {
-		case chat.PartText:
-			if !replaced {
-				parts = append(parts, chat.NewTextPart(text))
-				replaced = true
-			}
-		case chat.PartMedia:
-			parts = append(parts, original.Parts[partIndex])
+// A text projection cannot locate replacements across several original Parts.
+// Unchanged text preserves the complete message; a rewrite replaces one Part.
+func (p *preparedChatRequest) replaceFinalUserText(text string) error {
+	original := &p.request.Messages[len(p.request.Messages)-1]
+	if text == original.Text() {
+		return nil
+	}
+	textIndex := -1
+	for index, part := range original.Parts {
+		if part.Kind != chat.PartText {
+			continue
 		}
+		if textIndex >= 0 {
+			return fmt.Errorf("%w: text rewrite requires exactly one text part", ErrInvalidAugmentation)
+		}
+		textIndex = index
 	}
-	p.request.Messages[index] = chat.Message{
-		Role: chat.RoleUser, Parts: parts, Metadata: original.Metadata,
+	if textIndex < 0 {
+		return fmt.Errorf("%w: text rewrite requires exactly one text part", ErrInvalidAugmentation)
 	}
+	original.Parts[textIndex].Text = text
+	return nil
 }
 
 func (p preparedChatRequest) history() []chat.Message {
@@ -132,7 +138,8 @@ func (p preparedChatRequest) attachRetrievalMetadata(target **chat.ResponseMetad
 }
 
 // CandidatesFromMetadata returns the candidates attached by [NewMiddleware].
-// Complete responses and stream deltas share this metadata vocabulary.
+// Streaming responses attach the payload to their first non-nil delta only.
+// chat.ResponseAccumulator retains it in the complete response.
 func CandidatesFromMetadata(metadata *chat.ResponseMetadata) (Candidates, bool, error) {
 	if metadata == nil {
 		return nil, false, nil
@@ -205,7 +212,9 @@ func (m *Middleware) prepare(ctx context.Context, request *chat.Request) (prepar
 	}
 	prepared.candidates = candidates
 	prepared.citations = augmentation.citations
-	prepared.replaceFinalUserText(augmentation.Text())
+	if err := prepared.replaceFinalUserText(augmentation.Text()); err != nil {
+		return preparedChatRequest{}, err
+	}
 	return prepared, nil
 }
 
@@ -241,6 +250,7 @@ func (m *Middleware) stream(ctx context.Context, request *chat.Request, next cha
 			yield(nil, ErrNilChatStreamSequence)
 			return
 		}
+		attached := false
 		for delta, streamErr := range sequence {
 			if delta == nil {
 				if streamErr != nil {
@@ -250,9 +260,12 @@ func (m *Middleware) stream(ctx context.Context, request *chat.Request, next cha
 				yield(nil, ErrNilChatResponse)
 				return
 			}
-			if extensionErr := prepared.attachRetrievalMetadata(&delta.Metadata); extensionErr != nil {
-				yield(delta, errors.Join(streamErr, extensionErr))
-				return
+			if !attached {
+				if extensionErr := prepared.attachRetrievalMetadata(&delta.Metadata); extensionErr != nil {
+					yield(delta, errors.Join(streamErr, extensionErr))
+					return
+				}
+				attached = true
 			}
 			if streamErr != nil {
 				yield(delta, streamErr)
