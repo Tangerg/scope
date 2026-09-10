@@ -31,6 +31,8 @@ type Tool interface {
 	// capability-specific semantic validation. Ordinary failure is returned as
 	// error without assigning retry or control-flow meaning. Implementations must
 	// honor ctx and must not retain the invocation or its arguments.
+	// On error, the returned output is not consumed; use [Failure] to preserve
+	// complete failure content, including acknowledged partial effects.
 	Call(ctx context.Context, invocation Invocation) (chat.ToolOutput, error)
 }
 
