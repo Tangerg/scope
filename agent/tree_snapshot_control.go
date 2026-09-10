@@ -48,19 +48,11 @@ func (t *treeSnapshotValidation) validateChildControl(parentID ProcessID, record
 	if err != nil {
 		return err
 	}
-	signal, err := request.Signal.signal()
-	if err != nil {
-		return err
-	}
-	for _, receipt := range child.Mailbox.Signals {
-		if receipt.ID != result.signalID {
+	for _, receipt := range snapshotSignalReceipts(child.Mailbox) {
+		if receipt.ID() != result.signalID {
 			continue
 		}
-		var waitID WaitID
-		if receipt.WaitID != nil {
-			waitID = *receipt.WaitID
-		}
-		if receipt.OpensWait || receipt.PayloadDigest != ComputeDigest(signal.Payload()) || waitID != signal.waitID {
+		if !receipt.Matches(*request.Signal) {
 			return ErrInvalidChildControl
 		}
 		return nil

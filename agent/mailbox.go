@@ -99,6 +99,9 @@ func (s *signalMailbox) enqueueRecord(status Status, record signalRecord, source
 		if !s.records[index].sameContent(record) {
 			return false, ErrSignalConflict
 		}
+		if record.waitID.Valid() && s.waits[record.waitID].externallyAddressable != (source == signalSourceExternal) {
+			return false, ErrSignalRejected
+		}
 		return false, nil
 	}
 	waitID := record.waitID

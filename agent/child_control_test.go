@@ -305,3 +305,35 @@ func TestDescriptorParticipatesInTypedWireSchemas(t *testing.T) {
 		t.Fatal("descriptor identity changed")
 	}
 }
+
+func TestControlSnapshotRejectsChildWaitAsExternalAdmission(t *testing.T) {
+	parentID := controlValue(newProcessID())
+	childID := controlValue(newProcessID())
+	id := deriveEffectID(parentID, 1, 0)
+	waitID := deriveWaitID(deriveEffectID(childID, 1, 0))
+	request := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:child-answer")), waitID, []byte(`"done"`)))
+	result := ChildControlResult{childID: childID, operation: frameworkEffectSignalChild, signalID: request.ID()}
+	record := preparedEffect{ID: id, Effect: controlValue(SignalChild(childID, request)), Phase: effectPhaseSettled,
+		Settlement: new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(json.Marshal(result)))))}
+	mailbox := newSignalMailbox()
+	opening := mustMailboxSignal(t, "signal:child-opening", waitID, []byte(`"opened"`))
+	if err := mailbox.openWait(controlValue(ParseWaitKey("children")), opening, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mailbox.enqueue(StatusRunning, controlValue(request.signal()), signalSourceChildWait); err != nil {
+		t.Fatal(err)
+	}
+	for _, consumed := range []bool{false, true} {
+		if consumed {
+			if _, err := mailbox.commit(2); err != nil {
+				t.Fatal(err)
+			}
+		}
+		child := processSnapshotWire{ProcessID: childID, Status: StatusRunning,
+			Relation: processRelationWire{ParentID: &parentID}, Mailbox: mailbox.snapshot()}
+		validation := treeSnapshotValidation{processes: map[ProcessID]processSnapshotWire{childID: child}}
+		if err := validation.validateChildControl(parentID, record); !errors.Is(err, ErrInvalidChildControl) {
+			t.Fatalf("consumed=%t: child-wait receipt proved external admission: %v", consumed, err)
+		}
+	}
+}

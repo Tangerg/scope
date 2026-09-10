@@ -9,6 +9,7 @@ type SignalReceipt struct {
 	waitID          WaitID
 	payloadDigest   Digest
 	arrivalSequence uint64
+	external        bool
 	consumed        bool
 	pending         Signal
 }
@@ -27,19 +28,25 @@ func (s SignalReceipt) Consumed() bool { return s.consumed }
 // PendingSignal returns the retained input only while it remains unconsumed.
 func (s SignalReceipt) PendingSignal() (Signal, bool) { return s.pending, s.pending.Valid() }
 
-// Matches compares the complete immutable delivery content. A matching ID with
-// a different WaitID or normalized payload remains a Signal identity conflict.
+// Matches reports whether this receipt proves admission of the external request.
+// Internal wait-opening and child-wait settlement Signals cannot prove external
+// admission. A different WaitID or normalized payload remains an identity conflict.
 func (s SignalReceipt) Matches(request SignalRequest) bool {
-	return request.Valid() && s.id == request.id && s.waitID == request.waitID &&
+	return s.external && request.Valid() && s.id == request.id && s.waitID == request.waitID &&
 		s.payloadDigest == ComputeDigest(request.payload)
 }
 
 func snapshotSignalReceipts(mailbox mailboxWire) []SignalReceipt {
+	externalWaits := make(map[WaitID]bool, len(mailbox.Waits))
+	for _, wait := range mailbox.Waits {
+		externalWaits[wait.WaitID] = wait.ExternallyAddressable
+	}
 	receipts := make([]SignalReceipt, 0, len(mailbox.Signals))
 	for _, record := range mailbox.Signals {
 		receipt := SignalReceipt{
 			id: record.ID, waitID: snapshotWaitID(record.WaitID), payloadDigest: record.PayloadDigest,
 			arrivalSequence: record.ArrivalSequence, consumed: record.ArrivalSequence <= mailbox.SignalCursor,
+			external: !record.OpensWait && (record.WaitID == nil || externalWaits[*record.WaitID]),
 		}
 		if !receipt.consumed {
 			receipt.pending = Signal{id: receipt.id, waitID: receipt.waitID, payload: record.Payload}
