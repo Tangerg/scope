@@ -135,6 +135,9 @@ func (t ToolInvocation) ModelResult(output chat.ToolOutput, cause error) (result
 	if errors.Is(cause, tool.ErrAuthorizationDenied) {
 		return rejectedToolResult(call, fmt.Sprintf("tool %q is not authorized", call.Name)), true
 	}
+	if failure, ok := errors.AsType[*tool.Failure](cause); ok {
+		return chat.ToolResult{ID: call.ID, Name: call.Name, Output: failure.Output(), IsError: true}, true
+	}
 	return chat.ToolResult{
 		ID: call.ID, Name: call.Name,
 		Output:  chat.NewTextToolOutput(fmt.Sprintf("error: tool %q failed: %s", call.Name, boundedDiagnostic(cause.Error()))),

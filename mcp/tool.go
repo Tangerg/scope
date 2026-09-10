@@ -17,7 +17,6 @@ import (
 type remoteTool struct {
 	session           *sdkmcp.ClientSession
 	descriptor        descriptorSnapshot
-	definition        corechat.ToolDefinition
 	requestMeta       RequestMetaFunc
 	sourceName        string
 	concurrencyPolicy ToolConcurrencyPolicy
@@ -28,7 +27,6 @@ var _ toolcontract.Tool = remoteTool{}
 type remoteToolConfig struct {
 	source            ToolSource
 	descriptor        descriptorSnapshot
-	publicName        string
 	requestMeta       RequestMetaFunc
 	concurrencyPolicy ToolConcurrencyPolicy
 }
@@ -37,27 +35,22 @@ func newRemoteTool(config remoteToolConfig) (remoteTool, error) {
 	if config.source.Session == nil {
 		return remoteTool{}, ErrNilSession
 	}
-	definition, err := config.descriptor.definition(config.publicName)
-	if err != nil {
-		return remoteTool{}, fmt.Errorf("build definition for remote tool %q: %w", config.descriptor.name(), err)
-	}
 	return remoteTool{
 		session:           config.source.Session,
 		descriptor:        config.descriptor,
-		definition:        definition,
 		requestMeta:       config.requestMeta,
 		sourceName:        config.source.Name,
 		concurrencyPolicy: config.concurrencyPolicy,
 	}, nil
 }
 
-func (r remoteTool) Definition() corechat.ToolDefinition { return r.definition.Clone() }
+func (r remoteTool) Definition() corechat.ToolDefinition { return r.descriptor.definition.Clone() }
 
 // MCPToolIdentity returns the unsanitized source and remote tool names bound to
 // this wrapper. Consumers use the pair for policy decisions; Definition.Name is
 // a provider-constrained presentation label and is not an injective identity.
 func (r remoteTool) MCPToolIdentity() (sourceName, remoteName string) {
-	return r.sourceName, r.descriptor.name()
+	return r.sourceName, r.descriptor.remoteName
 }
 
 // ConcurrencyKey structurally satisfies schedulers that support conflict-aware
@@ -68,18 +61,18 @@ func (r remoteTool) ConcurrencyKey(invocation toolcontract.Invocation) (key stri
 	if r.concurrencyPolicy == nil {
 		return "", false
 	}
-	return r.concurrencyPolicy(r.sourceName, r.descriptor.name(), r.descriptor.annotations(), invocation)
+	return r.concurrencyPolicy(r.sourceName, r.descriptor.remoteName, r.descriptor.annotations(), invocation)
 }
 
-// A remote IsError result becomes [*ToolCallError] so callers can distinguish
-// tool failure from successful model-facing text.
+// A remote IsError result becomes [tool.Failure], preserving its complete
+// content separately from transport and protocol errors.
 //
 // One `mcp.tool.call <name>` span per call (kind=Client), carrying
 // `gen_ai.tool.name`; a failed call records the error and sets the span
 // status to Error (no separate bool attribute). No-op overhead when no
 // TracerProvider is configured.
 func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation) (out corechat.ToolOutput, err error) {
-	remoteName := r.descriptor.name()
+	remoteName := r.descriptor.remoteName
 	ctx, span := mcpTracer.Start(ctx, "mcp.tool.call "+remoteName,
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(attribute.String(attrToolName, remoteName)),

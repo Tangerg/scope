@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -71,15 +72,17 @@ func atomicWriteRootFile(root *os.Root, path string, data []byte, mode os.FileMo
 	}
 	defer func() {
 		if err != nil {
-			_ = root.Remove(tmpPath)
+			if cleanupErr := root.Remove(tmpPath); !errors.Is(cleanupErr, os.ErrNotExist) {
+				err = errors.Join(err, cleanupErr)
+			}
 		}
 	}()
 	if _, err = tmp.Write(data); err != nil {
-		tmp.Close()
+		err = errors.Join(err, tmp.Close())
 		return err
 	}
 	if err = tmp.Sync(); err != nil {
-		tmp.Close()
+		err = errors.Join(err, tmp.Close())
 		return err
 	}
 	if err = tmp.Close(); err != nil {

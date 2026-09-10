@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/mcp
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.16.0
+	github.com/Tangerg/scope/core v0.16.1-0.20260910072847-b39c0c14bf5c
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/stretchr/testify v1.12.1
 	go.opentelemetry.io/otel v1.46.0

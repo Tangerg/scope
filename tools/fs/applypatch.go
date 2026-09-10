@@ -2,6 +2,8 @@ package fs
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -17,7 +19,9 @@ type ApplyPatchRequest struct {
 	Patch string `json:"patch" jsonschema:"minLength=1" jsonschema_description:"Git-compatible unified diff. Supports create, modify, delete, and rename operations; express moves with Git rename metadata."`
 }
 
-// ApplyPatchResponse reports the complete committed file and hunk set.
+// ApplyPatchResponse reports acknowledged file mutations even when ApplyPatch
+// returns an error. Files are listed in commit order. An interrupted move is
+// reported as a created destination until the source has actually been removed.
 type ApplyPatchResponse struct {
 	Files []PatchFileResponse `json:"files"`
 	Hunks int                 `json:"hunks"`
@@ -39,7 +43,7 @@ type PatchFileResponse struct {
 
 var _ toolcontract.Tool = (*ApplyPatchTool)(nil)
 
-// ApplyPatchTool is the model-facing adapter for an atomic PatchApplier.
+// ApplyPatchTool preserves both complete and partial PatchApplier outcomes.
 type ApplyPatchTool struct {
 	executor PatchApplier
 	typed    toolcontract.Func[ApplyPatchRequest, ApplyPatchResponse]
@@ -79,7 +83,18 @@ func (a *ApplyPatchTool) Call(ctx context.Context, invocation toolcontract.Invoc
 func (a *ApplyPatchTool) apply(ctx context.Context, req ApplyPatchRequest) (ApplyPatchResponse, error) {
 	res, err := a.executor.ApplyPatch(ctx, req)
 	if err != nil {
-		return ApplyPatchResponse{}, fmt.Errorf("fs.apply_patch: %w", err)
+		cause := fmt.Errorf("fs.apply_patch: %w", err)
+		encoded, encodeErr := json.Marshal(res)
+		if encodeErr != nil {
+			return ApplyPatchResponse{}, errors.Join(cause, encodeErr)
+		}
+		output := chat.NewTextToolOutput(fmt.Sprintf("%s\nAcknowledged file mutations: %s", cause, encoded))
+		output.Details = encoded
+		failure, failureErr := toolcontract.NewFailure(cause, output)
+		if failureErr != nil {
+			return ApplyPatchResponse{}, errors.Join(cause, failureErr)
+		}
+		return ApplyPatchResponse{}, failure
 	}
 	return res, nil
 }

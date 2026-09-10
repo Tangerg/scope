@@ -1,11 +1,14 @@
 package mcp
 
 import (
+	"errors"
 	"testing"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Tangerg/scope/core/tool"
 )
 
 func TestRemoteResultContent(t *testing.T) {
@@ -63,11 +66,19 @@ func TestRemoteResultContent(t *testing.T) {
 	}
 }
 
-func TestRemoteResultErrorMessage(t *testing.T) {
-	result := remoteResult{value: &sdkmcp.CallToolResult{Content: []sdkmcp.Content{
-		&sdkmcp.TextContent{},
-		&sdkmcp.TextContent{Text: "real"},
-	}}}
-	assert.Equal(t, "real", result.firstText("fallback"))
-	assert.Equal(t, "fallback", (remoteResult{value: &sdkmcp.CallToolResult{}}).firstText("fallback"))
+func TestRemoteFailureRetainsMediaAndStructuredDetails(t *testing.T) {
+	result := remoteResult{remoteName: "inspect", value: &sdkmcp.CallToolResult{
+		IsError: true,
+		Content: []sdkmcp.Content{
+			&sdkmcp.TextContent{Text: "bad image"},
+			&sdkmcp.ImageContent{MIMEType: "image/png", Data: []byte{1, 2, 3}},
+		},
+		StructuredContent: map[string]any{"code": "invalid"},
+	}}
+	want, err := result.content()
+	require.NoError(t, err)
+	_, err = result.unwrap()
+	failure, ok := errors.AsType[*tool.Failure](err)
+	require.True(t, ok)
+	assert.Equal(t, want, failure.Output())
 }

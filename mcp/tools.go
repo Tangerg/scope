@@ -110,25 +110,23 @@ func DiscoverTools(ctx context.Context, sources []ToolSource, config ToolDiscove
 			if err != nil {
 				return nil, fmt.Errorf("mcp: list tools from source %q: %w", source.Name, err)
 			}
-			snapshot, err := newDescriptorSnapshot(descriptor)
+			if descriptor == nil {
+				return nil, fmt.Errorf("mcp: source %q returned a nil tool descriptor", source.Name)
+			}
+			name := config.publicName(source.Name, descriptor.Name)
+			snapshot, err := newDescriptorSnapshot(*descriptor, name)
 			if err != nil {
 				return nil, fmt.Errorf("mcp: snapshot tool from source %q: %w", source.Name, err)
-			}
-
-			name := config.publicName(source.Name, snapshot.name())
-			if name == "" {
-				return nil, fmt.Errorf("mcp: source %q tool %q has an empty public name", source.Name, snapshot.name())
 			}
 
 			remote, err := newRemoteTool(remoteToolConfig{
 				source:            source,
 				descriptor:        snapshot,
-				publicName:        name,
 				requestMeta:       config.RequestMeta,
 				concurrencyPolicy: config.ConcurrencyPolicy,
 			})
 			if err != nil {
-				return nil, fmt.Errorf("mcp: wrap tool %q from source %q: %w", snapshot.name(), source.Name, err)
+				return nil, fmt.Errorf("mcp: wrap tool %q from source %q: %w", snapshot.remoteName, source.Name, err)
 			}
 
 			if _, exists := seen[name]; exists {

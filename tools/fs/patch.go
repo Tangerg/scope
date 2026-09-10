@@ -19,20 +19,26 @@ type unifiedPatch struct {
 	files []filePatch
 }
 
-// duplicatePath reports a path two file patches both touch. Endpoints count, not
-// just destinations: patching a file and moving another one onto it are two edits
-// to one path, and applying both would make the result depend on their order.
-func (u unifiedPatch) duplicatePath() string {
+// validatePaths rejects write sets whose meaning depends on commit order.
+// A file cannot also be an ancestor directory of another endpoint.
+func (u unifiedPatch) validatePaths() error {
 	seen := make(map[string]struct{}, len(u.files))
 	for _, file := range u.files {
 		for _, path := range file.touches() {
 			if _, ok := seen[path]; ok {
-				return path
+				return fmt.Errorf("fs.ApplyPatch: duplicate file patch for %s", path)
 			}
 			seen[path] = struct{}{}
 		}
 	}
-	return ""
+	for path := range seen {
+		for parent := filepath.Dir(path); parent != "."; parent = filepath.Dir(parent) {
+			if _, exists := seen[parent]; exists {
+				return fmt.Errorf("fs.ApplyPatch: file %s is an ancestor of %s", parent, path)
+			}
+		}
+	}
+	return nil
 }
 
 // filePatch is Scope's execution view of an upstream parsed Git/unified diff.
@@ -176,11 +182,17 @@ func (l *LocalExecutor) ApplyPatch(ctx context.Context, in ApplyPatchRequest) (_
 
 	var out ApplyPatchResponse
 	for _, file := range prepared {
-		if err := file.commit(root); err != nil {
-			return ApplyPatchResponse{}, err
+		if err := ctx.Err(); err != nil {
+			return out, err
 		}
-		out.Files = append(out.Files, file.result)
-		out.Hunks += file.result.Hunks
+		result, err := file.commit(root)
+		if result.Path != "" {
+			out.Files = append(out.Files, result)
+			out.Hunks += result.Hunks
+		}
+		if err != nil {
+			return out, err
+		}
 	}
 	return out, nil
 }
@@ -215,14 +227,14 @@ func (l *LocalExecutor) resolvePatch(patch unifiedPatch) (unifiedPatch, error) {
 		}
 		resolved.files[index] = file
 	}
-	if path := resolved.duplicatePath(); path != "" {
-		return unifiedPatch{}, fmt.Errorf("fs.ApplyPatch: duplicate file patch for %s", path)
+	if err := resolved.validatePaths(); err != nil {
+		return unifiedPatch{}, err
 	}
 	return resolved, nil
 }
 
-// preparedPatch is one file patch's committed outcome, computed before anything
-// is written so a patch that cannot apply changes nothing.
+// preparedPatch holds a validated file mutation. Preparation changes no files;
+// commit reports only effects acknowledged by the filesystem.
 type preparedPatch struct {
 	// path is where the content lands, empty for a delete.
 	path string
@@ -236,16 +248,24 @@ type preparedPatch struct {
 
 // commit writes before it removes, so a failure between the two leaves the
 // content somewhere rather than nowhere.
-func (p preparedPatch) commit(root *os.Root) error {
+func (p preparedPatch) commit(root *os.Root) (PatchFileResponse, error) {
 	if p.path != "" {
 		if err := atomicWriteRootFile(root, p.path, p.data, p.mode); err != nil {
-			return err
+			return PatchFileResponse{}, fmt.Errorf("fs.ApplyPatch: write %s: %w", p.path, err)
 		}
 	}
 	if p.source != "" && p.source != p.path {
-		return root.Remove(p.source)
+		if err := root.Remove(p.source); err != nil {
+			var result PatchFileResponse
+			if p.path != "" {
+				// A move whose removal fails created its destination but did not
+				// move the source. Report that actual effect rather than the plan.
+				result = PatchFileResponse{Path: p.path, Hunks: p.result.Hunks, Created: true}
+			}
+			return result, fmt.Errorf("fs.ApplyPatch: remove %s: %w", p.source, err)
+		}
 	}
-	return nil
+	return p.result, nil
 }
 
 func (l *LocalExecutor) preparePatch(

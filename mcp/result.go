@@ -8,6 +8,7 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
+	"github.com/Tangerg/scope/core/tool"
 )
 
 type remoteResult struct {
@@ -19,13 +20,22 @@ func (r remoteResult) unwrap() (chat.ToolOutput, error) {
 	if r.value == nil {
 		return chat.ToolOutput{}, fmt.Errorf("mcp: call tool %q: server returned a nil result", r.remoteName)
 	}
-	if r.value.IsError {
-		return chat.ToolOutput{}, &ToolCallError{
-			RemoteName: r.remoteName,
-			Message:    r.firstText("tool returned isError=true with no text content"),
-		}
+	output, err := r.content()
+	if err != nil {
+		return chat.ToolOutput{}, err
 	}
-	return r.content()
+	if !r.value.IsError {
+		return output, nil
+	}
+	cause := fmt.Errorf("mcp: tool %q reported failure", r.remoteName)
+	if len(output.Content) == 0 && len(output.Details) == 0 {
+		output = chat.NewTextToolOutput(cause.Error())
+	}
+	failure, err := tool.NewFailure(cause, output)
+	if err != nil {
+		return chat.ToolOutput{}, err
+	}
+	return chat.ToolOutput{}, failure
 }
 
 func (r remoteResult) content() (chat.ToolOutput, error) {
@@ -112,13 +122,4 @@ func remoteBytesMedia(mimeType string, data []byte) (chat.Part, error) {
 		return chat.Part{}, err
 	}
 	return chat.NewMediaPart(value), nil
-}
-
-func (r remoteResult) firstText(fallback string) string {
-	for _, content := range r.value.Content {
-		if text, ok := content.(*sdkmcp.TextContent); ok && text.Text != "" {
-			return text.Text
-		}
-	}
-	return fallback
 }

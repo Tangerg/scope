@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"mime"
 	"slices"
@@ -108,6 +109,14 @@ func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (*s
 
 func (s serverTool) errorResult(span trace.Span, err error) *sdkmcp.CallToolResult {
 	recordSpanError(span, err)
+	if failure, ok := errors.AsType[*toolcontract.Failure](err); ok {
+		result, mappingErr := mapServerToolOutput(failure.Output())
+		if mappingErr == nil {
+			result.IsError = true
+			return result
+		}
+		err = errors.Join(err, mappingErr)
+	}
 	return &sdkmcp.CallToolResult{
 		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error()}},
 		IsError: true,

@@ -11,6 +11,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/Tangerg/scope/core/tool"
 	scopemcp "github.com/Tangerg/scope/mcp"
 )
 
@@ -24,8 +25,9 @@ func startServerWithFailing(t *testing.T, ctx context.Context) (*sdkmcp.ClientSe
 		&sdkmcp.Tool{Name: "boom", Description: "always fails", InputSchema: json.RawMessage(`{"type":"object"}`)},
 		func(ctx context.Context, req *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
 			return &sdkmcp.CallToolResult{
-				Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "kaboom"}},
-				IsError: true,
+				Content:           []sdkmcp.Content{&sdkmcp.TextContent{Text: "kaboom"}, &sdkmcp.TextContent{Text: "field name is required"}},
+				StructuredContent: map[string]any{"field": "name", "code": "required"},
+				IsError:           true,
 			}, nil
 		},
 	)
@@ -42,7 +44,7 @@ func startServerWithFailing(t *testing.T, ctx context.Context) (*sdkmcp.ClientSe
 	}
 }
 
-func TestTool_IsErrorBecomesToolCallError(t *testing.T) {
+func TestTool_IsErrorPreservesCompleteFailure(t *testing.T) {
 	ctx := t.Context()
 	cs, cleanup := startServerWithFailing(t, ctx)
 	defer cleanup()
@@ -57,15 +59,18 @@ func TestTool_IsErrorBecomesToolCallError(t *testing.T) {
 	assert.Empty(t, out)
 
 	// errors.AsType both classifies the error and exposes the structured payload.
-	tcErr, ok := errors.AsType[*scopemcp.ToolCallError](err)
-	require.True(t, ok, "expected errors.AsType to extract *ToolCallError, got %v", err)
-	assert.Equal(t, "boom", tcErr.RemoteName)
-	assert.Equal(t, "kaboom", tcErr.Message)
+	failure, ok := errors.AsType[*tool.Failure](err)
+	require.True(t, ok, "expected tool.Failure, got %v", err)
+	content := failure.Output()
+	require.Len(t, content.Content, 2)
+	assert.Equal(t, "kaboom", content.Content[0].Text)
+	assert.Equal(t, "field name is required", content.Content[1].Text)
+	assert.JSONEq(t, `{"field":"name","code":"required"}`, string(content.Details))
 }
 
-func TestTool_RPCErrorIsNotToolCallError(t *testing.T) {
+func TestTool_RPCErrorIsNotToolFailure(t *testing.T) {
 	// Closing the session before a Call forces a transport error,
-	// which must NOT be classified as *ToolCallError.
+	// which must not be classified as a known tool failure.
 	ctx := t.Context()
 	cs, cleanup := startServerWithFailing(t, ctx)
 	tools, err := scopemcp.DiscoverTools(ctx, []scopemcp.ToolSource{{Name: "s", Session: cs}}, scopemcp.ToolDiscoveryConfig{})
@@ -75,8 +80,8 @@ func TestTool_RPCErrorIsNotToolCallError(t *testing.T) {
 
 	_, callErr := invokeTestTool(ctx, tools[0], "{}")
 	require.Error(t, callErr)
-	_, ok := errors.AsType[*scopemcp.ToolCallError](callErr)
-	assert.False(t, ok, "transport errors must not unwrap into *ToolCallError")
+	_, ok := errors.AsType[*tool.Failure](callErr)
+	assert.False(t, ok, "transport errors must not unwrap into tool.Failure")
 }
 
 func TestTool_EmptyArgumentsAreValidatedAsEmptyObject(t *testing.T) {

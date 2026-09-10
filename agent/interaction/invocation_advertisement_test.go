@@ -136,6 +136,14 @@ func assertModelToolResultPolicy(t *testing.T, invocation interaction.ToolInvoca
 	if !present || !reflect.DeepEqual(failure, wantFailure) {
 		t.Fatalf("failure = %#v, present = %t", failure, present)
 	}
+	completeFailure, err := tool.NewFailure(errors.New("partial execution"), structured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	complete, present := invocation.ModelResult(chat.ToolOutput{}, fmt.Errorf("wrapped: %w", completeFailure))
+	if !present || !reflect.DeepEqual(complete, chat.ToolResult{ID: call.ID, Name: call.Name, IsError: true, Output: structured}) {
+		t.Fatalf("complete failure = %#v, present = %t", complete, present)
+	}
 
 	controlCauses := []error{
 		interaction.HostFailure(errors.New("projection unavailable")),

@@ -23,7 +23,10 @@ type Editor interface {
 	Edit(ctx context.Context, request EditRequest) (EditResponse, error)
 }
 
-// PatchApplier keeps coordinated multi-file mutation inside one backend call.
+// PatchApplier validates a complete patch before mutation and reports every
+// acknowledged file effect, including on error. A multi-file patch is not a
+// filesystem transaction: commit failures can leave earlier changes applied.
+// Implementations may create parent directories while committing files.
 type PatchApplier interface {
 	ApplyPatch(ctx context.Context, request ApplyPatchRequest) (ApplyPatchResponse, error)
 }

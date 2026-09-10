@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,58 +10,36 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
-const emptyObjectSchema = `{"type":"object","additionalProperties":false}`
-
-var errNilDescriptor = errors.New("mcp: descriptor must not be nil")
-
 type descriptorSnapshot struct {
-	value sdkmcp.Tool
+	remoteName      string
+	definition      corechat.ToolDefinition
+	toolAnnotations sdkmcp.ToolAnnotations
 }
 
-func newDescriptorSnapshot(descriptor *sdkmcp.Tool) (descriptorSnapshot, error) {
-	if descriptor == nil {
-		return descriptorSnapshot{}, errNilDescriptor
-	}
+func newDescriptorSnapshot(descriptor sdkmcp.Tool, publicName string) (descriptorSnapshot, error) {
 	if descriptor.Name == "" {
 		return descriptorSnapshot{}, errors.New("mcp: descriptor name must not be empty")
 	}
-
-	data, err := json.Marshal(descriptor)
+	schema, err := json.Marshal(descriptor.InputSchema)
 	if err != nil {
-		return descriptorSnapshot{}, err
-	}
-	var snapshot sdkmcp.Tool
-	if err := json.Unmarshal(data, &snapshot); err != nil {
-		return descriptorSnapshot{}, err
-	}
-	return descriptorSnapshot{value: snapshot}, nil
-}
-
-func (d descriptorSnapshot) name() string {
-	return d.value.Name
-}
-
-func (d descriptorSnapshot) definition(publicName string) (corechat.ToolDefinition, error) {
-	schema, err := d.inputSchema()
-	if err != nil {
-		return corechat.ToolDefinition{}, err
+		return descriptorSnapshot{}, fmt.Errorf("mcp: encode tool input schema: %w", err)
 	}
 	definition := corechat.ToolDefinition{
-		Name:        publicName,
-		Description: d.value.Description,
-		InputSchema: schema,
+		Name: publicName, Description: descriptor.Description, InputSchema: schema,
 	}
 	if err := definition.Validate(); err != nil {
-		return corechat.ToolDefinition{}, err
+		return descriptorSnapshot{}, err
 	}
-	return definition, nil
+	snapshot := descriptorSnapshot{remoteName: descriptor.Name, definition: definition}
+	if descriptor.Annotations != nil {
+		snapshot.toolAnnotations = *descriptor.Annotations
+		snapshot.toolAnnotations = snapshot.annotations()
+	}
+	return snapshot, nil
 }
 
 func (d descriptorSnapshot) annotations() sdkmcp.ToolAnnotations {
-	if d.value.Annotations == nil {
-		return sdkmcp.ToolAnnotations{}
-	}
-	annotations := *d.value.Annotations
+	annotations := d.toolAnnotations
 	if annotations.DestructiveHint != nil {
 		annotations.DestructiveHint = new(*annotations.DestructiveHint)
 	}
@@ -70,32 +47,4 @@ func (d descriptorSnapshot) annotations() sdkmcp.ToolAnnotations {
 		annotations.OpenWorldHint = new(*annotations.OpenWorldHint)
 	}
 	return annotations
-}
-
-func (d descriptorSnapshot) inputSchema() (json.RawMessage, error) {
-	switch value := d.value.InputSchema.(type) {
-	case nil:
-		return json.RawMessage(emptyObjectSchema), nil
-	case string:
-		if value == "" {
-			return json.RawMessage(emptyObjectSchema), nil
-		}
-		return json.RawMessage(value), nil
-	case json.RawMessage:
-		if len(value) == 0 {
-			return json.RawMessage(emptyObjectSchema), nil
-		}
-		return bytes.Clone(value), nil
-	case []byte:
-		if len(value) == 0 {
-			return json.RawMessage(emptyObjectSchema), nil
-		}
-		return bytes.Clone(value), nil
-	default:
-		encoded, err := json.Marshal(value)
-		if err != nil {
-			return nil, fmt.Errorf("encode tool input schema: %w", err)
-		}
-		return encoded, nil
-	}
 }

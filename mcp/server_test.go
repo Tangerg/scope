@@ -145,6 +145,31 @@ func TestRegister_ErrorBecomesIsError(t *testing.T) {
 	assert.Contains(t, tc.Text, "kaboom from scope tool")
 }
 
+func TestToolFailureSurvivesProtocolRoundTrip(t *testing.T) {
+	want := corechat.ToolOutput{
+		Content: []corechat.Part{corechat.NewTextPart("failed"), corechat.NewTextPart("one file was committed")},
+		Details: json.RawMessage(`{"files":["one"],"complete":false}`),
+	}
+	failure, err := tool.NewFailure(errors.New("partial execution"), want)
+	require.NoError(t, err)
+	executable := testTool{
+		definition: corechat.ToolDefinition{Name: "partial", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		call: func(context.Context, tool.Invocation) (corechat.ToolOutput, error) {
+			return corechat.ToolOutput{}, failure
+		},
+	}
+	session, cleanup := connectPair(t, t.Context(), executable)
+	defer cleanup()
+	remote, err := scopemcp.DiscoverTools(t.Context(), []scopemcp.ToolSource{{Session: session}}, scopemcp.ToolDiscoveryConfig{})
+	require.NoError(t, err)
+	require.Len(t, remote, 1)
+	_, err = invokeTestTool(t.Context(), remote[0], `{}`)
+	received, found := errors.AsType[*tool.Failure](err)
+	require.True(t, found, "round-trip error = %v", err)
+	assert.Equal(t, want.Content, received.Output().Content)
+	assert.JSONEq(t, string(want.Details), string(received.Output().Details))
+}
+
 func TestRegister_RejectsNilArgs(t *testing.T) {
 	srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "x"}, nil)
 	require.ErrorIs(t, scopemcp.Register(nil, newEchoTool()), scopemcp.ErrNilServer)

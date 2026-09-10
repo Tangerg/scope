@@ -55,15 +55,17 @@ func TestRoundTripErrorTelemetryExcludesContent(t *testing.T) {
 	invocation, err := binding.Prepare(corechat.ToolCall{ID: "call", Name: executables[0].Definition().Name, Arguments: `{}`})
 	require.NoError(t, err)
 	_, err = binding.Call(t.Context(), invocation)
-	remote, ok := errors.AsType[*ToolCallError](err)
+	remote, ok := errors.AsType[*tool.Failure](err)
 	require.True(t, ok, "caller error = %v", err)
-	require.Equal(t, "private-tool-error-marker", remote.Message)
+	text, textOnly := remote.Output().Text()
+	require.True(t, textOnly)
+	require.Equal(t, "private-tool-error-marker", text)
 	spans := recorder.Ended()
 	require.Len(t, spans, 2)
 	for _, span := range spans {
 		want := "*errors.errorString"
 		if span.Name() == "mcp.tool.call fail" {
-			want = "*mcp.ToolCallError"
+			want = "*tool.Failure"
 		}
 		assertSpanErrorClassification(t, span, want)
 

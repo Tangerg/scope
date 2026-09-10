@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/agent
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.16.0
+	github.com/Tangerg/scope/core v0.16.1-0.20260910072847-b39c0c14bf5c
 	github.com/samber/lo v1.53.0
 )
 

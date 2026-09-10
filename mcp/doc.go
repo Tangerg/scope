@@ -9,6 +9,9 @@
 //
 // Client and server spans record error classifications without raw error
 // messages. Callers still receive the complete protocol error details.
+// Remote IsError results use core/tool.Failure to preserve every content part
+// and structured detail. Register projects that same failure value back into
+// the MCP result without flattening it to an error string.
 //
 // # Naming
 //

@@ -266,8 +266,7 @@ func TestToolsRejectsEmptyPublicName(t *testing.T) {
 	_, err := scopemcp.DiscoverTools(ctx, []scopemcp.ToolSource{{Name: "src", Session: cs}}, scopemcp.ToolDiscoveryConfig{
 		PublicName: func(string, string) string { return "" },
 	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "public name")
+	require.ErrorIs(t, err, corechat.ErrInvalidToolDefinition)
 }
 
 func TestToolsRejectsInvalidPublicName(t *testing.T) {
