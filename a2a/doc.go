@@ -12,6 +12,10 @@
 //     adapts it to the SDK and mounts the JSON-RPC method endpoint plus the
 //     well-known AgentCard.
 //
+// The server mounts the exact path advertised by the card's sole JSON-RPC
+// interface. Remote tools execute exclusively unless the host supplies an
+// [Endpoint.ConcurrencyPolicy] that declares which calls may safely overlap.
+//
 // The transport default is JSON-RPC over HTTP, matching the rest of the
 // stack; the SDK's REST/gRPC bindings are not precluded but are not wired
 // here.

@@ -32,16 +32,18 @@ type callArguments struct {
 //
 // The wrapper is immutable after construction and does not own the client.
 type remoteTool struct {
-	client     *a2aclient.Client
-	definition corechat.ToolDefinition
+	client            *a2aclient.Client
+	definition        corechat.ToolDefinition
+	concurrencyPolicy ToolConcurrencyPolicy
 }
 
 var _ toolcontract.Tool = remoteTool{}
 
 type remoteToolConfig struct {
-	client *a2aclient.Client
-	card   *sdka2a.AgentCard
-	name   string
+	client            *a2aclient.Client
+	card              *sdka2a.AgentCard
+	name              string
+	concurrencyPolicy ToolConcurrencyPolicy
 }
 
 func newRemoteTool(config remoteToolConfig) (remoteTool, error) {
@@ -64,19 +66,20 @@ func newRemoteTool(config remoteToolConfig) (remoteTool, error) {
 		return remoteTool{}, fmt.Errorf("a2a: build tool for agent %q: %w", config.card.Name, err)
 	}
 	return remoteTool{
-		client:     config.client,
-		definition: definition,
+		client:            config.client,
+		definition:        definition,
+		concurrencyPolicy: config.concurrencyPolicy,
 	}, nil
 }
 
 func (r remoteTool) Definition() corechat.ToolDefinition { return r.definition.Clone() }
 
-// ConcurrencyKey declares A2A invocations independent: every SendMessage owns
-// a distinct remote task, and the remote server retains authority over its own
-// execution limit. The scope Agent ToolLoop may therefore overlap calls while
-// still committing their observable results in request order.
-func (r remoteTool) ConcurrencyKey(toolcontract.Invocation) (key string, concurrent bool) {
-	return "", true
+// ConcurrencyKey applies the endpoint's explicit host scheduling policy.
+func (r remoteTool) ConcurrencyKey(invocation toolcontract.Invocation) (key string, concurrent bool) {
+	if r.concurrencyPolicy == nil {
+		return "", false
+	}
+	return r.concurrencyPolicy(invocation)
 }
 
 // Each remote call owns a client span named `a2a.agent.call <name>` with

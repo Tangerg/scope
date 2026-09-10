@@ -62,7 +62,7 @@ func TestNewHTTPHandlerRequiresAgentAndCard(t *testing.T) {
 	}
 }
 
-func TestNewHTTPHandlerRejectsInvalidCardAndPattern(t *testing.T) {
+func TestNewHTTPHandlerRejectsInvalidCard(t *testing.T) {
 	tests := []struct {
 		name   string
 		config a2a.ServerConfig
@@ -78,19 +78,6 @@ func TestNewHTTPHandlerRejectsInvalidCardAndPattern(t *testing.T) {
 			}},
 			want: a2a.ErrInvalidCard,
 		},
-		{
-			name:   "malformed RPC pattern",
-			config: a2a.ServerConfig{Agent: echoAgent{}, Card: &sdka2a.AgentCard{Name: "test"}, RPCPattern: "/{"},
-			want:   a2a.ErrInvalidRPCPattern,
-		},
-		{
-			name: "RPC pattern conflicts with card endpoint",
-			config: a2a.ServerConfig{
-				Agent: echoAgent{}, Card: &sdka2a.AgentCard{Name: "test"},
-				RPCPattern: a2asrv.WellKnownAgentCardPath,
-			},
-			want: a2a.ErrInvalidRPCPattern,
-		},
 	}
 
 	for _, test := range tests {
@@ -104,7 +91,8 @@ func TestNewHTTPHandlerRejectsInvalidCardAndPattern(t *testing.T) {
 
 func TestNewHTTPHandlerSnapshotsAgentCard(t *testing.T) {
 	card := &sdka2a.AgentCard{
-		Name: "original",
+		Name:                "original",
+		SupportedInterfaces: []*sdka2a.AgentInterface{sdka2a.NewAgentInterface("https://agent.example/custom/rpc", sdka2a.TransportProtocolJSONRPC)},
 		Skills: []sdka2a.AgentSkill{{
 			ID: "read", Name: "Read",
 		}},
@@ -149,7 +137,7 @@ func TestRoundTrip(t *testing.T) {
 		Name:        "Echo Agent",
 		Description: "Echoes the request back",
 		SupportedInterfaces: []*sdka2a.AgentInterface{
-			a2a.NewJSONRPCInterface(ts.URL + a2a.DefaultRPCPattern),
+			sdka2a.NewAgentInterface(ts.URL+"/custom/rpc", sdka2a.TransportProtocolJSONRPC),
 		},
 		DefaultInputModes:  []string{"text"},
 		DefaultOutputModes: []string{"text"},
@@ -166,7 +154,12 @@ func TestRoundTrip(t *testing.T) {
 	delegate = handler
 
 	// Client side: resolve the card and wrap the remote agent as a tool.
-	toolSet, err := a2a.OpenToolSet(ctx, a2a.Endpoint{CardURL: ts.URL})
+	toolSet, err := a2a.OpenToolSet(ctx, a2a.Endpoint{
+		CardURL: ts.URL,
+		ConcurrencyPolicy: func(invocation toolcontract.Invocation) (string, bool) {
+			return string(invocation.Arguments()), true
+		},
+	})
 	if err != nil {
 		t.Fatalf("OpenToolSet: %v", err)
 	}
@@ -193,6 +186,23 @@ func TestRoundTrip(t *testing.T) {
 	definition.InputSchema[0] = '['
 	if got := tool.Definition().InputSchema[0]; got != '{' {
 		t.Fatalf("mutating returned definition changed A2A tool schema prefix to %q", got)
+	}
+	scheduled, ok := tool.(interface {
+		ConcurrencyKey(toolcontract.Invocation) (string, bool)
+	})
+	if !ok {
+		t.Fatal("remote tool lost its scheduling capability")
+	}
+	binding, err := toolcontract.Bind(tool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation, err := binding.Prepare(chat.ToolCall{ID: "policy", Name: binding.Definition().Name, Arguments: `{"message":"hello"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key, concurrent := scheduled.ConcurrencyKey(invocation); key != `{"message":"hello"}` || !concurrent {
+		t.Fatalf("endpoint concurrency policy = %q, %v", key, concurrent)
 	}
 
 	out, err := invokeTestTool(ctx, tool, `{"message":"hello"}`)

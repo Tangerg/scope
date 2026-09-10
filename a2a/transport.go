@@ -9,7 +9,15 @@ import (
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
+
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
+
+// ToolConcurrencyPolicy decides whether calls to one endpoint may overlap.
+// False keeps a call exclusive; true permits overlap except for equal non-empty
+// keys. The invocation has passed schema validation. The callback must be
+// deterministic, side-effect-free, and safe for concurrent use and replay.
+type ToolConcurrencyPolicy func(toolcontract.Invocation) (key string, concurrent bool)
 
 // Endpoint describes one remote A2A agent to expose as a chat tool. Its zero
 // policy keeps discovery and RPC traffic on CardURL's origin.
@@ -34,6 +42,10 @@ type Endpoint struct {
 	// Entries use the exact "scheme://host[:port]" form. Empty prevents an
 	// AgentCard from redirecting calls to another origin.
 	AllowedRPCOrigins []string
+
+	// ConcurrencyPolicy belongs to the host because distinct remote task IDs do
+	// not establish resource independence. Nil keeps calls exclusive.
+	ConcurrencyPolicy ToolConcurrencyPolicy
 }
 
 const defaultCardTimeout = 30 * time.Second

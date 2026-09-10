@@ -19,7 +19,7 @@ var (
 	ErrInvalidRPCOrigin   = errors.New("a2a: invalid allowed RPC origin")
 	ErrOriginNotAllowed   = errors.New("a2a: origin not allowed")
 
-	ErrInvalidRPCPattern = errors.New("a2a: invalid RPC pattern")
+	ErrInvalidRPCInterface = errors.New("a2a: invalid RPC interface")
 
 	ErrInvalidResult = errors.New("a2a: invalid send-message result")
 )

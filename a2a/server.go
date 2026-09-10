@@ -4,14 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 )
-
-// DefaultRPCPattern is where [NewHTTPHandler] mounts the JSON-RPC method
-// endpoint. The AgentCard's JSON-RPC interface URL must point at this path.
-const DefaultRPCPattern = "/invoke"
 
 // ServerConfig wires a [Agent] into an HTTP A2A endpoint.
 type ServerConfig struct {
@@ -19,14 +16,11 @@ type ServerConfig struct {
 	Agent Agent
 
 	// Card is the AgentCard served at the well-known path. Required and
-	// snapshotted during construction — its SupportedInterfaces should advertise
-	// a JSON-RPC interface whose URL ends in RPCPattern. Build it with
-	// [NewJSONRPCInterface] for the transport entry.
+	// snapshotted during construction. SupportedInterfaces must contain exactly
+	// one JSON-RPC interface using the SDK's protocol version and an absolute
+	// HTTP(S) URL. Its path is the exact RPC route; hosts own public-origin
+	// routing and reverse-proxy configuration.
 	Card *sdka2a.AgentCard
-
-	// RPCPattern overrides where the JSON-RPC endpoint is mounted. Empty
-	// uses [DefaultRPCPattern].
-	RPCPattern string
 }
 
 // NewHTTPHandler returns a plain [http.Handler] rather than starting a server,
@@ -46,18 +40,24 @@ func NewHTTPHandler(config ServerConfig) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	if config.RPCPattern == "" {
-		config.RPCPattern = DefaultRPCPattern
+	rpcPath, err := serverRPCPath(config.Card)
+	if err != nil {
+		return nil, err
 	}
 
 	requestHandler := a2asrv.NewHandler(exec)
 
-	mux := http.NewServeMux()
-	mux.Handle(a2asrv.WellKnownAgentCardPath, cardHandler)
-	if err := registerRPCHandler(mux, config.RPCPattern, a2asrv.NewJSONRPCHandler(requestHandler)); err != nil {
-		return nil, err
-	}
-	return mux, nil
+	rpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case a2asrv.WellKnownAgentCardPath:
+			cardHandler.ServeHTTP(w, r)
+		case rpcPath:
+			rpcHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}), nil
 }
 
 func newStaticAgentCardHandler(card *sdka2a.AgentCard) (http.Handler, error) {
@@ -67,20 +67,22 @@ func newStaticAgentCardHandler(card *sdka2a.AgentCard) (http.Handler, error) {
 	return a2asrv.NewStaticAgentCardHandler(card), nil
 }
 
-func registerRPCHandler(mux *http.ServeMux, pattern string, handler http.Handler) (err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("%w %q: %v", ErrInvalidRPCPattern, pattern, recovered)
-		}
-	}()
-	mux.Handle(pattern, handler)
-	return nil
-}
-
-// NewJSONRPCInterface builds the interface entry a card must advertise for the
-// endpoint this package mounts. It exists so the transport a peer discovers and
-// the transport actually served cannot drift apart in hand-written card
-// literals.
-func NewJSONRPCInterface(url string) *sdka2a.AgentInterface {
-	return sdka2a.NewAgentInterface(url, sdka2a.TransportProtocolJSONRPC)
+func serverRPCPath(card *sdka2a.AgentCard) (string, error) {
+	if len(card.SupportedInterfaces) != 1 || card.SupportedInterfaces[0] == nil ||
+		card.SupportedInterfaces[0].ProtocolBinding != sdka2a.TransportProtocolJSONRPC ||
+		card.SupportedInterfaces[0].ProtocolVersion != sdka2a.Version {
+		return "", fmt.Errorf("%w: exactly one JSON-RPC interface using protocol %s is required", ErrInvalidRPCInterface, sdka2a.Version)
+	}
+	endpoint, err := url.Parse(card.SupportedInterfaces[0].URL)
+	if err != nil {
+		return "", fmt.Errorf("%w: parse URL: %w", ErrInvalidRPCInterface, err)
+	}
+	if _, err := originFromURL(endpoint); err != nil {
+		return "", fmt.Errorf("%w: %w", ErrInvalidRPCInterface, err)
+	}
+	if endpoint.User != nil || endpoint.RawQuery != "" || endpoint.ForceQuery || endpoint.Fragment != "" ||
+		endpoint.Path == "" || endpoint.Path == a2asrv.WellKnownAgentCardPath {
+		return "", fmt.Errorf("%w: URL requires a distinct RPC path without user info, query, or fragment", ErrInvalidRPCInterface)
+	}
+	return endpoint.Path, nil
 }
