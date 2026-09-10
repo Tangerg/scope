@@ -25,6 +25,8 @@ type toolMiddleware struct {
 // before executing any Tool. The accepted batch executes serially, followed by
 // one model call. Runtime failures do not roll back completed Tools. Further
 // rounds and execution policy remain outside this boundary.
+// A runtime failure returns [ToolBatchError] with the successful prefix and
+// failed call, preserving the original cause through errors.Is and errors.As.
 // Only FinishReasonToolCalls authorizes execution; other outcomes pass through.
 func NewToolMiddleware(executables ...tool.Tool) (chat.CallMiddleware, error) {
 	if len(executables) == 0 {
@@ -96,8 +98,7 @@ func (t *toolMiddleware) call(
 }
 
 type preparedToolCall struct {
-	id         string
-	name       string
+	proposal   chat.ToolCall
 	binding    tool.Binding
 	invocation tool.Invocation
 }
@@ -123,7 +124,7 @@ func (t *toolMiddleware) prepare(calls []chat.ToolCall) (preparedToolBatch, erro
 			return nil, fmt.Errorf("chatclient: prepare tool call[%d]: %w", index, err)
 		}
 		batch[index] = preparedToolCall{
-			id: call.ID, name: call.Name, binding: binding, invocation: invocation,
+			proposal: call, binding: binding, invocation: invocation,
 		}
 	}
 	return batch, nil
@@ -131,15 +132,15 @@ func (t *toolMiddleware) prepare(calls []chat.ToolCall) (preparedToolBatch, erro
 
 func (p preparedToolBatch) execute(ctx context.Context) ([]chat.ToolResult, error) {
 	results := make([]chat.ToolResult, 0, len(p))
-	for index, call := range p {
+	for _, call := range p {
 		output, err := call.binding.Call(ctx, call.invocation)
 		if err != nil {
-			return nil, fmt.Errorf("chatclient: execute tool call[%d] %q: %w", index, call.name, err)
+			return nil, &ToolBatchError{completed: results, failed: call.proposal, cause: err}
 		}
 		if err := output.Validate(); err != nil {
-			return nil, fmt.Errorf("chatclient: validate tool call[%d] %q output: %w", index, call.name, err)
+			return nil, &ToolBatchError{completed: results, failed: call.proposal, cause: fmt.Errorf("invalid output: %w", err)}
 		}
-		results = append(results, chat.ToolResult{ID: call.id, Name: call.name, Output: output.Clone()})
+		results = append(results, chat.ToolResult{ID: call.proposal.ID, Name: call.proposal.Name, Output: output.Clone()})
 	}
 	return results, nil
 }
