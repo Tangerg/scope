@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/pinecone-io/go-pinecone/v4/pinecone"
-	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/samber/lo"
 
@@ -302,7 +301,7 @@ func (s *Store) buildVectors(docs []*document.Document, vectors [][]float64) ([]
 		maps.Copy(metaMap, metadataValues)
 		metaMap[payloadDocumentContentKey] = doc.Text
 
-		meta, err := structpb.NewStruct(metaMap)
+		meta, err := payloadValues(metaMap)
 		if err != nil {
 			return nil, fmt.Errorf("pinecone: convert metadata for document %s: %w", doc.ID, err)
 		}

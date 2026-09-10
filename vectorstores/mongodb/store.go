@@ -374,10 +374,10 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 				s.contentField:  doc.Text,
 				s.embeddingPath: embedding.Float32Vector(vectors[i]),
 			}
-			if metadataValues == nil {
-				metadataValues = map[string]any{}
+			payload[s.metadataField], err = metadataDocument(metadataValues)
+			if err != nil {
+				return fmt.Errorf("mongodb: convert metadata for %s: %w", id, err)
 			}
-			payload[s.metadataField] = metadataValues
 
 			writes = append(writes, mongo.NewReplaceOneModel().
 				SetFilter(bson.M{defaultIDField: id}).

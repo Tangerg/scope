@@ -5,6 +5,10 @@
 // Documents containing media are rejected before indexing I/O because this
 // adapter persists document text and metadata only.
 //
+// Metadata numbers use Pinecone's double representation only when their
+// decimal value survives JSON round-tripping. Unrepresentable values are
+// rejected before upsert rather than rounded or converted to strings.
+//
 // Requirements: a Pinecone account and an existing index (created
 // via the Pinecone console or control-plane API — Pinecone does not
 // allow lazy index creation from the data plane). The store uses

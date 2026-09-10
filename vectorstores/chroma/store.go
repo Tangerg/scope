@@ -290,7 +290,7 @@ func (s *Store) buildAddOptions(docs []*document.Document, vectors [][]float64) 
 		if err != nil {
 			return nil, fmt.Errorf("chroma: decode metadata for document %d: %w", i, err)
 		}
-		meta, err := v2.NewDocumentMetadataFromMap(metadataValues)
+		meta, err := documentMetadata(metadataValues)
 		if err != nil {
 			return nil, fmt.Errorf("chroma: convert metadata for document %d: %w", i, err)
 		}

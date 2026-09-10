@@ -5,6 +5,10 @@
 // Documents containing media are rejected before indexing I/O because this
 // adapter persists document text and metadata only.
 //
+// Metadata numbers use BSON integers when integral and representable as int64,
+// otherwise doubles only when their decimal value survives JSON round-tripping.
+// Unrepresentable values are rejected before writing rather than rounded.
+//
 // Requirements: MongoDB Atlas (vector search isn't available on
 // self-hosted Community / Enterprise — it's an Atlas-only feature).
 // The store uses the v2 official driver

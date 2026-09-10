@@ -5,6 +5,10 @@
 // Documents containing media are rejected before indexing I/O because this
 // adapter persists document text and metadata only.
 //
+// Metadata numbers use the SDK's integer representation when possible. The
+// store verifies the SDK's final JSON encoding and rejects numbers it would
+// round, including scalar decimals below its encoding precision.
+//
 // Requirements: a reachable Chroma server (self-hosted or Chroma
 // Cloud). The store uses the official Go client over HTTP.
 //
