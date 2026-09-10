@@ -47,7 +47,6 @@ type Definition struct {
 	descriptor        agent.Descriptor
 	goal              Goal
 	bindings          []ActionBinding
-	byName            map[string]ActionBinding
 	planner           Planner
 	maxActionAttempts uint32
 }
@@ -61,16 +60,16 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 		return nil, ErrInvalidDefinitionConfig
 	}
 	bindings := slices.Clone(config.Actions)
-	byName := make(map[string]ActionBinding, len(bindings))
+	names := make(map[string]struct{}, len(bindings))
 	for index, binding := range bindings {
 		if !binding.Valid() {
 			return nil, fmt.Errorf("%w: Actions[%d]", ErrInvalidDefinitionConfig, index)
 		}
 		name := binding.action.name
-		if _, duplicate := byName[name]; duplicate {
+		if _, duplicate := names[name]; duplicate {
 			return nil, fmt.Errorf("%w: duplicate Action %q", ErrInvalidDefinitionConfig, name)
 		}
-		byName[name] = binding
+		names[name] = struct{}{}
 	}
 	outputSchema, err := agent.SchemaFor[Output]()
 	if err != nil {
@@ -84,7 +83,7 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 		return nil, fmt.Errorf("%w: descriptor: %w", ErrInvalidDefinitionConfig, err)
 	}
 	return &Definition{
-		descriptor: descriptor, goal: config.Goal, bindings: bindings, byName: byName,
+		descriptor: descriptor, goal: config.Goal, bindings: bindings,
 		planner: config.Planner, maxActionAttempts: config.MaxActionAttempts,
 	}, nil
 }
@@ -130,21 +129,16 @@ func (d *Definition) Restore(state agent.ExecutionState) (agent.Execution, error
 }
 
 func (d *Definition) valid() bool {
-	if d == nil || !d.descriptor.Valid() || !d.goal.Valid() ||
-		lo.IsNil(d.planner) || d.maxActionAttempts == 0 || len(d.bindings) != len(d.byName) {
-		return false
-	}
-	for _, binding := range d.bindings {
-		if !binding.Valid() || d.byName[binding.action.name].action.name != binding.action.name {
-			return false
-		}
-	}
-	return true
+	return d != nil && d.descriptor.Valid()
 }
 
 func (d *Definition) binding(name string) (ActionBinding, bool) {
-	binding, found := d.byName[name]
-	return binding, found
+	for _, binding := range d.bindings {
+		if binding.action.name == name {
+			return binding, true
+		}
+	}
+	return ActionBinding{}, false
 }
 
 func (d *Definition) problem(state executionState) (Problem, error) {

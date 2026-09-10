@@ -62,7 +62,7 @@ func NewDelegate(config DelegateConfig) (Delegate, error) {
 		return Delegate{}, fmt.Errorf("%w: model contract: %w", ErrInvalidDelegate, err)
 	}
 	return Delegate{
-		definition: definition.Clone(), deploymentRef: config.Deployment.DeploymentRef(),
+		definition: definition, deploymentRef: config.Deployment.DeploymentRef(),
 		inputSchema: descriptor.InputSchema(), outputSchema: descriptor.OutputSchema(), budget: config.Budget,
 		capabilities: config.Capabilities,
 	}, nil
@@ -74,11 +74,6 @@ func (d Delegate) Valid() bool {
 		len(d.definition.Description) <= maxDelegateDescriptionBytes &&
 		d.deploymentRef.Valid() && d.inputSchema.Valid() && d.outputSchema.Valid() &&
 		d.budget.Valid() && d.capabilities.Valid()
-}
-
-func (d Delegate) clone() Delegate {
-	d.definition = d.definition.Clone()
-	return d
 }
 
 func (d Delegate) validateInput(input agent.Input) error {

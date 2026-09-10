@@ -60,7 +60,6 @@ type Definition struct {
 	descriptor             agent.Descriptor
 	maxModelCalls          uint32
 	delegates              []Delegate
-	delegateByName         map[string]Delegate
 	completionValidator    CompletionValidator
 	tools                  toolManifest
 	toolBudget             agent.Budget
@@ -103,7 +102,7 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 		return nil, fmt.Errorf("%w: descriptor: %w", ErrInvalidDefinitionConfig, err)
 	}
 	delegates := slices.Clone(config.Delegates)
-	byName := make(map[string]Delegate, len(delegates))
+	names := make(map[string]struct{}, len(delegates))
 	for index, delegate := range delegates {
 		if !delegate.Valid() {
 			return nil, fmt.Errorf("%w: Delegates[%d]: %w", ErrInvalidDefinitionConfig, index, ErrInvalidDelegate)
@@ -112,16 +111,14 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 		if _, duplicate := config.Tools.manifest.entries[name]; duplicate {
 			return nil, fmt.Errorf("%w: Delegate name %q collides with a Tool", ErrInvalidDefinitionConfig, name)
 		}
-		if _, duplicate := byName[name]; duplicate {
+		if _, duplicate := names[name]; duplicate {
 			return nil, fmt.Errorf("%w: duplicate Delegate name %q", ErrInvalidDefinitionConfig, name)
 		}
-		delegate = delegate.clone()
-		delegates[index] = delegate
-		byName[name] = delegate
+		names[name] = struct{}{}
 	}
 	return &Definition{
 		descriptor: descriptor, maxModelCalls: config.MaxModelCalls,
-		delegates: delegates, delegateByName: byName,
+		delegates:           delegates,
 		completionValidator: config.CompletionValidator,
 		tools:               config.Tools.manifest, toolBudget: config.ToolBudget,
 		toolCapabilities:       config.ToolCapabilities,
@@ -181,24 +178,19 @@ func (d *Definition) Restore(state agent.ExecutionState) (agent.Execution, error
 }
 
 func (d *Definition) valid() bool {
-	if d == nil || !d.descriptor.Valid() || d.maxModelCalls == 0 ||
-		len(d.delegates) != len(d.delegateByName) {
-		return false
-	}
-	for _, delegate := range d.delegates {
-		if !delegate.Valid() || d.delegateByName[delegate.definition.Name].deploymentRef != delegate.deploymentRef {
-			return false
-		}
-	}
-	return true
+	return d != nil && d.descriptor.Valid()
 }
 
 func (d *Definition) delegate(name string) (Delegate, bool) {
 	if d == nil {
 		return Delegate{}, false
 	}
-	delegate, found := d.delegateByName[name]
-	return delegate, found && delegate.Valid()
+	for _, delegate := range d.delegates {
+		if delegate.definition.Name == name {
+			return delegate, true
+		}
+	}
+	return Delegate{}, false
 }
 
 func encodeState(state executionState) (agent.ExecutionState, error) {

@@ -106,15 +106,7 @@ func (d *Definition) Restore(state agent.ExecutionState) (agent.Execution, error
 }
 
 func (d *Definition) valid() bool {
-	if d == nil || !d.descriptor.Valid() || len(d.stages) == 0 {
-		return false
-	}
-	for index, stage := range d.stages {
-		if !stage.Valid() || index > 0 && !stage.accepts(d.stages[index-1].outputSchema) {
-			return false
-		}
-	}
-	return d.descriptor.InputSchema().Valid() && d.descriptor.OutputSchema().Valid()
+	return d != nil && d.descriptor.Valid()
 }
 
 func encodeExecutionState(state executionState) (agent.ExecutionState, error) {
