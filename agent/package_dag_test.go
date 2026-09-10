@@ -16,12 +16,12 @@ const moduleImportPath = "github.com/Tangerg/scope/agent"
 var allowedPackageDependencies = map[string]map[string]struct{}{
 	".":                        {},
 	"agenttest":                {".": {}},
-	"coordination":             {".": {}},
+	"strategy/coordination":    {".": {}},
 	"messaging":                {".": {}},
-	"interaction":              {".": {}},
-	"planning":                 {".": {}},
-	"planning/goap":            {"planning": {}},
-	"workflow":                 {".": {}},
+	"strategy/interaction":     {".": {}},
+	"strategy/planning":        {".": {}},
+	"strategy/planning/goap":   {"strategy/planning": {}},
+	"strategy/workflow":        {".": {}},
 	"internal/conformancetest": {".": {}, "agenttest": {}},
 }
 
@@ -92,7 +92,7 @@ func assertExternalPackageBoundary(t *testing.T, packagePath string, sourcePath 
 		t.Errorf("%s imports OpenTelemetry outside the otel adapter: %q", sourcePath, importPath)
 	case importPath == "log/slog":
 		t.Errorf("%s imports a logging backend instead of publishing Framework observations", sourcePath)
-	case isInteractionDependency(importPath) && packagePath != "interaction":
+	case isInteractionDependency(importPath) && packagePath != "strategy/interaction":
 		t.Errorf("%s imports Interaction-owned protocol %q outside the interaction package", sourcePath, importPath)
 	}
 }

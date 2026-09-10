@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/workflow"
+	"github.com/Tangerg/scope/agent/strategy/workflow"
 )
 
 type episodeState struct {

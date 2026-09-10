@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/coordination"
 	"github.com/Tangerg/scope/agent/messaging"
+	"github.com/Tangerg/scope/agent/strategy/coordination"
 )
 
 func bind(t testing.TB, definition agent.Definition, dispatcher agent.Dispatcher) agent.Deployment {

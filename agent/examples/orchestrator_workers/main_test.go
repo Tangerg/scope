@@ -10,9 +10,9 @@ import (
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/interaction"
-	"github.com/Tangerg/scope/agent/planning"
-	"github.com/Tangerg/scope/agent/planning/goap"
+	"github.com/Tangerg/scope/agent/strategy/interaction"
+	"github.com/Tangerg/scope/agent/strategy/planning"
+	"github.com/Tangerg/scope/agent/strategy/planning/goap"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
 )

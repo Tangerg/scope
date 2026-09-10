@@ -7,7 +7,7 @@ import (
 	"testing/synctest"
 
 	"github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/coordination"
+	"github.com/Tangerg/scope/agent/strategy/coordination"
 )
 
 func TestEpisodeBoundaryRejectsUnresolvedDescendantAfterRootSuccess(t *testing.T) {

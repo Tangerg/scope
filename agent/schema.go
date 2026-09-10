@@ -25,7 +25,9 @@ func ParseSchema(data json.RawMessage) (Schema, error) {
 	return Schema{contract: contract}, nil
 }
 
-// SchemaFor derives and resolves a JSON Schema for T.
+// SchemaFor derives and resolves a JSON Schema for T. Named types contribute
+// package-qualified schema names, so relocating them can change Descriptor
+// digests and exact Deployment bindings even when their JSON fields stay equal.
 func SchemaFor[T any]() (Schema, error) {
 	contract, err := corejsonschema.For[T]()
 	if err != nil {

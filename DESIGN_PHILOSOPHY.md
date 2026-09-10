@@ -52,6 +52,8 @@ Scope is reusable Go infrastructure for models, agents, retrieval-augmented gene
 
 A module expresses an independent dependency set, release cadence, and version boundary. A package expresses one responsibility inside that boundary. Splitting modules for visual symmetry creates release overhead without isolation; merging unrelated provider dependencies couples versions that should move independently.
 
+Within `agent`, the root package owns the execution protocol and runtime. Built-in packages under `agent/strategy/` decide what happens next through that public protocol: interaction, planning, workflow, and coordination. The `strategy` directory is a namespace, with no shared Strategy interface, registry, or runtime. GOAP remains a planning implementation under `agent/strategy/planning/goap`; the Host selects it. The kernel does not import its strategies. Cross-strategy composition uses exact Deployments and child Processes. Messaging remains a horizontal delivery capability in `agent/messaging`, and `agent/agenttest` serves built-in and Host-defined strategies alike.
+
 `models/<provider>`, `vectorstores/<provider>`, and `historystores/<provider>` are separate modules because their software development kits (SDKs) and release cadences differ. `tools/web/<provider>` remains a package family because those providers share one lightweight dependency set and lifecycle.
 
 The project identity is `Scope`, and Go module paths start with `github.com/Tangerg/scope`. External provider and protocol names appear only where integration facts require them; they do not become naming anchors for Scope concepts.

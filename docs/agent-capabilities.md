@@ -130,16 +130,17 @@ Adding a strategy therefore requires its state codec, validation, safe Signal-co
 
 ## Compose strategies without flattening their semantics
 
-The built-in strategies demonstrate distinct decision procedures on one execution protocol. They are starting points for composition, not a closed list of Agent paradigms.
+The built-in strategies under `agent/strategy/` demonstrate distinct decision procedures on one execution protocol. Each package owns its decisions and state; `strategy/` itself adds no runtime or public contract. Host-defined strategies use the same kernel interfaces.
 
 | Strategy | Decision procedure | Composition boundary |
 | --- | --- | --- |
-| `interaction` | A model selects Tools, Delegates, or completion | Managed Tool and Delegate children |
-| `planning` | Sense, plan actions, execute, and sense again | Dispatcher-backed or child-backed action bindings |
-| `workflow` | Advance ordered, declared stages | Exact child calls, branches, maps, and bounded loops |
+| [interaction](../agent/strategy/interaction/doc.go) | A model selects Tools, Delegates, or completion | Managed Tool and Delegate children |
+| [planning](../agent/strategy/planning/doc.go) | Sense, plan actions, execute, and sense again | Dispatcher-backed or child-backed action bindings |
+| [workflow](../agent/strategy/workflow/doc.go) | Advance ordered, declared stages | Exact child calls, branches, maps, and bounded loops |
+| [coordination](../agent/strategy/coordination/doc.go) | Wait for input or deadlines, or select successful work | Identified Signals and exact child outcomes |
 | Independent Definition | Any bounded deterministic reduction over its state and inputs | The same Framework Effects and optional Dispatcher |
 
-All three built-in families can target heterogeneous child Deployments. Input and output contracts still need to agree. Workflow uses explicit transforms rather than guessing conversions, and model-visible Delegates must satisfy their tool-input contract.
+Managed child composition spans these strategy families and can target heterogeneous Deployments. Input and output contracts still need to agree. Workflow uses explicit transforms rather than guessing conversions, and model-visible Delegates must satisfy their tool-input contract. Messaging stays in `agent/messaging` as a delivery capability usable by different strategies.
 
 A parent's business interpretation also remains explicit. Planning confirms an action through a subsequent observation rather than treating child Output as WorldState. A planning Process can complete with an achieved, unreachable, or stuck outcome. A caller that requires achievement must inspect that outcome; Process completion alone does not establish business success.
 
@@ -151,7 +152,7 @@ A missing convenience API does not by itself prove a missing runtime capability.
 
 ### Bounded reactive coordination
 
-A coordinator can represent independent sources of progress as owned child executions. The [coordination package](../agent/coordination/doc.go) provides InputGate, which completes with the original admitted Signal, and Deadline, backed by the cancellable Timer Dispatcher. Its checked example composes these Definitions with an independent workflow worker and FirstSuccess under one ownership scope.
+A coordinator can represent independent sources of progress as owned child executions. The [coordination package](../agent/strategy/coordination/doc.go) provides InputGate, which completes with the original admitted Signal, and Deadline, backed by the cancellable Timer Dispatcher. Its checked example composes these Definitions with an independent workflow worker and FirstSuccess under one ownership scope.
 
 ```mermaid
 flowchart TB
@@ -168,7 +169,7 @@ Slow work belongs in worker children when the coordinator must remain responsive
 
 This construction guarantees a decision after a selected child becomes terminal. It does not guarantee that the first raw input admitted anywhere in the tree wins. An input gate needs a Step after admission before it becomes terminal. `AnyChild` reports terminal outcomes in request order; it is not an earliest-event arbitration primitive. See [child waiting](../agent/child_wait.go).
 
-Deadline retains an absolute instant, so replay under the same Effect identity does not restart a relative delay. Timer cancellation releases the wait and returns a definite interrupted result; a settled Unknown still requires the existing adjudication path. The [deadline tests](../agent/coordination/deadline_test.go) check recovery, cancellation, and retained identity and resource charges. Other timing adapters must establish the same contract; a sleeping goroutine alone does not.
+Deadline retains an absolute instant, so replay under the same Effect identity does not restart a relative delay. Timer cancellation releases the wait and returns a definite interrupted result; a settled Unknown still requires the existing adjudication path. The [deadline tests](../agent/strategy/coordination/deadline_test.go) check recovery, cancellation, and retained identity and resource charges. Other timing adapters must establish the same contract; a sleeping goroutine alone does not.
 
 Repeated gates consume child and Signal allocations. The construction fits bounded coordination episodes. Its resource cost and input-routing contract must be part of any reusable abstraction built from it.
 
@@ -178,7 +179,7 @@ Replacing a gate also changes the input address. The router must retain the dest
 
 A strategy can wait for any child, inspect business outcomes, and continue waiting on unfinished children until its success predicate holds. It retains the failure facts needed for its decision. A count of terminal children does not imply successful results or consensus.
 
-[FirstSuccess](../agent/coordination/first_success.go) implements this composition with an explicit pure success predicate, request-ordered outcomes, and an all-failed result that has no winner.
+[FirstSuccess](../agent/strategy/coordination/first_success.go) implements this composition with an explicit pure success predicate, request-ordered outcomes, and an all-failed result that has no winner.
 
 The strategy must define the result when every candidate fails and how it selects among multiple outcomes visible in one Signal window. It must also handle a child that is already terminal when the wait is registered, using the runtime's existing wait protocol.
 

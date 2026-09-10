@@ -8,7 +8,7 @@ cd "$(dirname "$0")/../agent"
 coverage_budget=(
   ". 76.5"
   "./agenttest 76.8"
-  "./coordination 78.0"
+  "./strategy/coordination 78.0"
   "./examples/autonomous 67.8"
   "./examples/composition 71.3"
   "./examples/direct_vs_managed 67.4"
@@ -16,12 +16,12 @@ coverage_budget=(
   "./examples/orchestrator_workers 67.3"
   "./examples/workflow 67.6"
   "./examples/workflow_patterns 70.8"
-  "./interaction 75.5"
+  "./strategy/interaction 75.5"
   "./internal/conformancetest 79.1"
   "./messaging 86.5"
-  "./planning 76.1"
-  "./planning/goap 86.1"
-  "./workflow 78.4"
+  "./strategy/planning 76.1"
+  "./strategy/planning/goap 86.1"
+  "./strategy/workflow 78.4"
 )
 
 configured_packages=$(
@@ -46,7 +46,7 @@ for budget in "${coverage_budget[@]}"; do
   if [[ "$package" == "./internal/conformancetest" ]]; then
     # The shared recorder is exercised by its Strategy consumers, not by a
     # separate test of the test helper.
-    if ! output=$(go test -count=1 -coverpkg="$package" -coverprofile="$coverage_profile" ./interaction ./planning ./workflow 2>&1); then
+    if ! output=$(go test -count=1 -coverpkg="$package" -coverprofile="$coverage_profile" ./strategy/interaction ./strategy/planning ./strategy/workflow 2>&1); then
       echo "$output" >&2
       exit 1
     fi

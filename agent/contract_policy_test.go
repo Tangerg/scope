@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,10 +12,6 @@ import (
 	"strings"
 	"testing"
 )
-
-var frameworkPackageDirectories = []string{
-	".", "agenttest", "interaction", "planning", "planning/goap", "workflow",
-}
 
 func TestPublicInterfacesAreDocumentedAndParametersNamed(t *testing.T) {
 	for _, path := range frameworkProductionGoFiles(t) {
@@ -46,17 +43,23 @@ func TestManagedExecutionVocabularyIsUnambiguous(t *testing.T) {
 func frameworkProductionGoFiles(t *testing.T) []string {
 	t.Helper()
 	var paths []string
-	for _, directory := range frameworkPackageDirectories {
-		entries, err := os.ReadDir(directory)
-		if err != nil {
-			t.Fatal(err)
+	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
-		for _, entry := range entries {
-			name := entry.Name()
-			if !entry.IsDir() && strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go") {
-				paths = append(paths, filepath.Join(directory, name))
+		if entry.IsDir() {
+			if path != "." && excludedArchitectureDirectory(path) {
+				return filepath.SkipDir
 			}
+			return nil
 		}
+		if strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") {
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 	return paths
 }

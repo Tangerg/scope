@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/workflow"
+	"github.com/Tangerg/scope/agent/strategy/workflow"
 )
 
 const (

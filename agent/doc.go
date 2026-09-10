@@ -272,14 +272,20 @@
 //
 // # Strategies
 //
-// Distinct strategies run on this one kernel. The interaction package implements
-// ReAct-style model and tool loops with working context, delegates, and
-// artifacts. The planning package, with planning/goap, implements goal-driven
-// search over immutable actions. The workflow package implements ordered
-// deterministic stages over a closed vocabulary, composing through real child
-// Processes rather than by nesting a second Execution.
-// The coordination package composes bounded input gates, absolute deadlines,
-// and first-success competition through the same child and wait contracts.
+// Built-in strategies live under strategy/. Each concrete package implements
+// the public execution protocol; the directory itself defines no package or
+// runtime contract. Host-defined strategies use the same protocol.
+//
+// [github.com/Tangerg/scope/agent/strategy/interaction] implements ReAct-style
+// model and tool loops with working context, delegates, and artifacts.
+// [github.com/Tangerg/scope/agent/strategy/planning] owns goal-driven planning;
+// its goap subpackage supplies a bounded search implementation selected by the
+// Host. [github.com/Tangerg/scope/agent/strategy/workflow] implements ordered
+// deterministic stages over a closed vocabulary, composing real child Processes.
+// [github.com/Tangerg/scope/agent/strategy/coordination] composes bounded input
+// gates, absolute deadlines, and first-success competition through the same
+// child and wait contracts.
+//
 // The messaging package delivers intermediate input through a narrow Host
 // port, retaining the original recipient and Effect-derived Signal identity.
 //
