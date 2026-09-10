@@ -41,6 +41,7 @@ func TestScopedJoinRequiresDescendantCheckpointAcknowledgment(t *testing.T) {
 				}
 				scope := directChildWithKey(t, engine, root, "scope")
 				waitForStatus(t, scope, StatusPaused)
+				waitForStatus(t, root, StatusWaiting)
 				if operationErr := scope.Resume(t.Context()); operationErr != nil {
 					t.Fatal(operationErr)
 				}
