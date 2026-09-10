@@ -148,8 +148,8 @@ func (t *toolExecution) Step(ctx context.Context, signals []agent.Signal) (agent
 		}
 		return t.request(0, t.state.Call)
 	}
-	if len(signals) != 1 {
-		return agent.Transition{}, fmt.Errorf("%w: Tool requires one expected Signal", ErrInvalidExecutionState)
+	if len(signals) == 0 {
+		return agent.Transition{}, fmt.Errorf("%w: Tool expected a Signal", ErrInvalidExecutionState)
 	}
 	signal := signals[0]
 	envelope, err := decodeSignal(signal.Payload())
