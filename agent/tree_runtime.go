@@ -533,11 +533,8 @@ func (t *treeRuntime) canStop() bool {
 		len(t.pendingPublications) != 0 {
 		return false
 	}
-	if t.fault != nil {
-		return true
-	}
 	for _, process := range t.processes {
-		if !process.status.Terminal() {
+		if !process.handle.joinDone() {
 			return false
 		}
 	}

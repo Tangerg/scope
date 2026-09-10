@@ -16,8 +16,9 @@ type restoredTreeProcess struct {
 // rootDeployment must exactly bind the captured root; same-reference children
 // reuse it, while other exact references are resolved through EngineConfig's
 // DeploymentResolver. Registration is all-or-nothing within this Engine.
-// Committed and prepared candidate states must both restore through their exact
-// Definition before registration, durability activation, or Effect dispatch.
+// Committed states and nonterminal prepared candidates must restore through
+// their exact Definition before registration, activation, or Effect dispatch.
+// Interrupted terminal candidates remain inert evidence and are not restored.
 // Both completed and prepared completion outputs must satisfy that Definition's
 // output schema before admission.
 func (e *Engine) RestoreTree(

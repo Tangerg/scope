@@ -1,9 +1,49 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"testing/synctest"
+	"time"
 )
+
+func TestCheckpointPreparationFailureCompletesJoinBeforeRuntimeStops(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		runtime, process := newChildCompletionTestProcess(t)
+		runtime.engine.durability = &recordingTreeDurability{}
+		incarnation, err := newTreeIncarnationID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		runtime.incarnation = incarnation
+		initial, err := runtime.captureTree()
+		if err != nil {
+			t.Fatal(err)
+		}
+		runtime.establishDurableHead(incarnation, initial)
+		process.status = StatusPaused
+		process.pauseReason = "checkpoint preparation"
+		// Inject an unencodable prospective state after a valid acknowledged
+		// head. Capture failure must drain the same lifecycle as storage failure.
+		process.committedExecutionState = ExecutionState{}
+		runtime.run(t.Context())
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		handle := &Process{handle: process.handle}
+		_, awaitErr := handle.Await(ctx)
+		if _, ok := errors.AsType[*RuntimeError](awaitErr); !ok {
+			t.Fatalf("checkpoint preparation did not fail the runtime: %v", awaitErr)
+		}
+		joinErr := handle.Join(ctx)
+		if _, ok := errors.AsType[*RuntimeError](joinErr); !ok {
+			t.Fatalf("stopped runtime left Join incomplete: %v", joinErr)
+		}
+		if !errors.Is(joinErr, runtime.fault) {
+			t.Fatalf("Join lost the checkpoint failure: %v", joinErr)
+		}
+	})
+}
 
 func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
