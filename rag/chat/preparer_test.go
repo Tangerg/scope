@@ -15,7 +15,7 @@ import (
 )
 
 // stubRetriever returns a fixed document set; used to exercise the
-// middleware without a real vector store.
+// preparer without a real vector store.
 type stubRetriever struct {
 	docs rag.Candidates
 }
@@ -25,7 +25,7 @@ func (s *stubRetriever) Retrieve(_ context.Context, _ rag.Query) (rag.Candidates
 }
 
 // echoChatModel mirrors the user's last message back. It implements both
-// target chat capabilities so call and stream middleware share one fixture.
+// target chat capabilities so call and stream preparer share one fixture.
 type echoChatModel struct {
 	captured string
 }
@@ -65,39 +65,69 @@ func (e *echoChatModel) Stream(_ context.Context, req *chat.Request) iter.Seq2[*
 	}
 }
 
-func TestNewMiddlewareRejectsInvalidConfig(t *testing.T) {
-	if _, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{}); err == nil {
+func TestNewPreparerRejectsInvalidConfig(t *testing.T) {
+	if _, err := ragchat.NewPreparer(ragchat.PreparerConfig{}); err == nil {
 		t.Fatal("missing retrievers must error")
 	}
 	var typedNilRetriever *stubRetriever
-	if _, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{Retriever: typedNilRetriever}); err == nil {
+	if _, err := ragchat.NewPreparer(ragchat.PreparerConfig{Retriever: typedNilRetriever}); err == nil {
 		t.Fatal("typed nil retriever must error")
 	}
-	if _, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{Retriever: &stubRetriever{}}); !errors.Is(err, rag.ErrNilAugmenter) {
+	if _, err := ragchat.NewPreparer(ragchat.PreparerConfig{Retriever: &stubRetriever{}}); !errors.Is(err, rag.ErrNilAugmenter) {
 		t.Fatalf("missing augmenter error = %v", err)
 	}
 }
 
-func TestMiddlewarePreservesMissingCapabilities(t *testing.T) {
-	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
+func TestPreparedRequestRejectsMissingCapabilities(t *testing.T) {
+	preparer, err := ragchat.NewPreparer(ragchat.PreparerConfig{
 		Retriever: &stubRetriever{}, Augmenter: rag.IdentityAugmenter(),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if middleware.Call(nil) != nil {
-		t.Fatal("call middleware synthesized a model capability")
+	request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("question")))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if middleware.Stream(nil) != nil {
-		t.Fatal("stream middleware synthesized a streaming capability")
+	prepared := mustPrepare(t, preparer, request)
+	var typedNil *echoChatModel
+	for _, model := range []chat.Model{nil, typedNil} {
+		if _, callErr := prepared.Call(t.Context(), model); callErr == nil {
+			t.Fatal("missing model accepted")
+		}
+	}
+	for _, streamer := range []chat.Streamer{nil, typedNil} {
+		for delta, streamErr := range prepared.Stream(t.Context(), streamer) {
+			if delta != nil || streamErr == nil {
+				t.Fatalf("missing streamer = %v, %v", delta, streamErr)
+			}
+		}
+	}
+	var zero ragchat.PreparedRequest
+	if _, callErr := zero.Call(t.Context(), &echoChatModel{}); !errors.Is(callErr, chat.ErrInvalidRequest) {
+		t.Fatalf("unprepared call = %v", callErr)
+	}
+	for delta, streamErr := range zero.Stream(t.Context(), &echoChatModel{}) {
+		if delta != nil || !errors.Is(streamErr, chat.ErrInvalidRequest) {
+			t.Fatalf("unprepared stream = %v, %v", delta, streamErr)
+		}
 	}
 }
 
-func TestMiddlewareAugmentsRequestAndAttachesDocs(t *testing.T) {
+func mustPrepare(t *testing.T, preparer *ragchat.Preparer, request *chat.Request) ragchat.PreparedRequest {
+	t.Helper()
+	prepared, err := preparer.Prepare(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return prepared
+}
+
+func TestPreparerAugmentsRequestAndAttachesDocs(t *testing.T) {
 	doc, _ := document.NewDocument("retrieved info", nil)
 	retriever := &stubRetriever{docs: rag.Candidates{candidate(doc)}}
 	aug, _ := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{})
-	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
+	preparer, err := ragchat.NewPreparer(ragchat.PreparerConfig{
 		Retriever: retriever,
 		Augmenter: aug,
 	})
@@ -107,7 +137,7 @@ func TestMiddlewareAugmentsRequestAndAttachesDocs(t *testing.T) {
 
 	model := &echoChatModel{}
 	request, _ := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("what is RAG?")))
-	response, err := middleware.Call(model).Call(t.Context(), request)
+	response, err := mustPrepare(t, preparer, request).Call(t.Context(), model)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,14 +164,14 @@ func TestMiddlewareAugmentsRequestAndAttachesDocs(t *testing.T) {
 	}
 }
 
-func TestMiddlewarePreservesChatExtensionsAndExposesTypedHistory(t *testing.T) {
+func TestPreparerPreservesChatExtensionsAndExposesTypedHistory(t *testing.T) {
 	var capturedHistory []chat.Message
 	retriever := rag.RetrieverFunc(func(_ context.Context, query rag.Query) (rag.Candidates, error) {
 		var err error
 		capturedHistory, _, err = query.Value(ragchat.HistoryValueKey())
 		return nil, err
 	})
-	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
+	preparer, err := ragchat.NewPreparer(ragchat.PreparerConfig{
 		Retriever: retriever, Augmenter: rag.IdentityAugmenter(),
 	})
 	if err != nil {
@@ -166,7 +196,7 @@ func TestMiddlewarePreservesChatExtensionsAndExposesTypedHistory(t *testing.T) {
 		}
 		return textResponse("answer"), nil
 	})
-	if _, callErr := middleware.Call(model).Call(t.Context(), request); callErr != nil {
+	if _, callErr := mustPrepare(t, preparer, request).Call(t.Context(), model); callErr != nil {
 		t.Fatal(callErr)
 	}
 	if downstreamTenant != "acme" {
@@ -177,11 +207,11 @@ func TestMiddlewarePreservesChatExtensionsAndExposesTypedHistory(t *testing.T) {
 	}
 }
 
-func TestMiddlewareStreamAugmentsOnceAndAttachesDocs(t *testing.T) {
+func TestPreparerStreamAugmentsOnceAndAttachesDocs(t *testing.T) {
 	doc, _ := document.NewDocument("streamed context", nil)
 	retriever := &countingRetriever{docs: rag.Candidates{candidate(doc)}}
 	aug, _ := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{})
-	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{Retriever: retriever, Augmenter: aug})
+	preparer, err := ragchat.NewPreparer(ragchat.PreparerConfig{Retriever: retriever, Augmenter: aug})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +219,7 @@ func TestMiddlewareStreamAugmentsOnceAndAttachesDocs(t *testing.T) {
 	model := &echoChatModel{}
 	request, _ := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("question")))
 	var chunks int
-	for response, streamErr := range middleware.Stream(model).Stream(t.Context(), request) {
+	for response, streamErr := range mustPrepare(t, preparer, request).Stream(t.Context(), model) {
 		if streamErr != nil {
 			t.Fatal(streamErr)
 		}
@@ -216,9 +246,9 @@ func (c *countingRetriever) Retrieve(_ context.Context, _ rag.Query) (rag.Candid
 	return c.docs, nil
 }
 
-func TestMiddlewarePropagatesRetrieverError(t *testing.T) {
+func TestPreparerPropagatesRetrieverError(t *testing.T) {
 	want := errors.New("boom")
-	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
+	preparer, err := ragchat.NewPreparer(ragchat.PreparerConfig{
 		Retriever: &errorRetriever{err: want}, Augmenter: rag.IdentityAugmenter(),
 	})
 	if err != nil {
@@ -226,14 +256,14 @@ func TestMiddlewarePropagatesRetrieverError(t *testing.T) {
 	}
 
 	request, _ := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("hi")))
-	_, err = middleware.Call(&echoChatModel{}).Call(t.Context(), request)
+	_, err = preparer.Prepare(t.Context(), request)
 	if !errors.Is(err, want) {
 		t.Fatalf("err = %v", err)
 	}
 }
 
-func TestMiddlewareRejectsInvalidAugmentation(t *testing.T) {
-	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
+func TestPreparerRejectsInvalidAugmentation(t *testing.T) {
+	preparer, err := ragchat.NewPreparer(ragchat.PreparerConfig{
 		Retriever: &stubRetriever{},
 		Augmenter: rag.AugmenterFunc(func(context.Context, rag.Query, rag.Candidates) (rag.Augmentation, error) {
 			return rag.Augmentation{}, nil
@@ -242,24 +272,15 @@ func TestMiddlewareRejectsInvalidAugmentation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	called := false
-	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
-		called = true
-		return textResponse("unexpected"), nil
-	})
 	request, _ := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("question")))
-
-	if _, err := middleware.Call(model).Call(t.Context(), request); !errors.Is(err, rag.ErrInvalidAugmentation) {
-		t.Fatalf("invalid augmentation error = %v", err)
-	}
-	if called {
-		t.Fatal("model called with an invalid augmentation")
+	if _, prepareErr := preparer.Prepare(t.Context(), request); !errors.Is(prepareErr, rag.ErrInvalidAugmentation) {
+		t.Fatalf("invalid augmentation error = %v", prepareErr)
 	}
 }
 
-func TestMiddlewarePreservesPartialModelResponse(t *testing.T) {
+func TestPreparerPreservesPartialModelResponse(t *testing.T) {
 	doc, _ := document.NewDocument("retrieved info", nil)
-	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
+	preparer, err := ragchat.NewPreparer(ragchat.PreparerConfig{
 		Retriever: &stubRetriever{docs: rag.Candidates{candidate(doc)}},
 		Augmenter: rag.IdentityAugmenter(),
 	})
@@ -273,7 +294,7 @@ func TestMiddlewarePreservesPartialModelResponse(t *testing.T) {
 	})
 	request, _ := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("question")))
 
-	response, err := middleware.Call(model).Call(t.Context(), request)
+	response, err := mustPrepare(t, preparer, request).Call(t.Context(), model)
 	if response != partial || !errors.Is(err, wantErr) {
 		t.Fatalf("response/error = %p/%v, want %p/%v", response, err, partial, wantErr)
 	}
@@ -282,8 +303,8 @@ func TestMiddlewarePreservesPartialModelResponse(t *testing.T) {
 	}
 }
 
-func TestMiddlewareRequiresActiveUserTurn(t *testing.T) {
-	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
+func TestPreparerRequiresActiveUserTurn(t *testing.T) {
+	preparer, err := ragchat.NewPreparer(ragchat.PreparerConfig{
 		Retriever: &stubRetriever{}, Augmenter: rag.IdentityAugmenter(),
 	})
 	if err != nil {
@@ -293,7 +314,7 @@ func TestMiddlewareRequiresActiveUserTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := middleware.Call(&echoChatModel{}).Call(t.Context(), request); !errors.Is(err, ragchat.ErrNoFinalUserMessage) {
+	if _, err := preparer.Prepare(t.Context(), request); !errors.Is(err, ragchat.ErrNoFinalUserMessage) {
 		t.Fatalf("final assistant message error = %v", err)
 	}
 }
@@ -306,11 +327,11 @@ func (e *errorRetriever) Retrieve(_ context.Context, _ rag.Query) (rag.Candidate
 	return nil, e.err
 }
 
-func TestMiddlewareDoesNotMutateCallerMessages(t *testing.T) {
+func TestPreparerDoesNotMutateCallerMessages(t *testing.T) {
 	doc, _ := document.NewDocument("retrieved info", nil)
 	retriever := &stubRetriever{docs: rag.Candidates{candidate(doc)}}
 	aug, _ := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{})
-	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{Retriever: retriever, Augmenter: aug})
+	preparer, err := ragchat.NewPreparer(ragchat.PreparerConfig{Retriever: retriever, Augmenter: aug})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +339,7 @@ func TestMiddlewareDoesNotMutateCallerMessages(t *testing.T) {
 	model := &echoChatModel{}
 	userMessage := chat.NewUserMessage(chat.NewTextPart("what is RAG?"))
 	request, _ := chat.NewRequest(userMessage)
-	if _, err := middleware.Call(model).Call(t.Context(), request); err != nil {
+	if _, err := mustPrepare(t, preparer, request).Call(t.Context(), model); err != nil {
 		t.Fatal(err)
 	}
 
@@ -330,7 +351,7 @@ func TestMiddlewareDoesNotMutateCallerMessages(t *testing.T) {
 	}
 }
 
-func TestMiddlewarePreservesActiveUserPartOrder(t *testing.T) {
+func TestPreparerPreservesActiveUserPartOrder(t *testing.T) {
 	first, err := media.NewURI("image/png", "https://example.com/first.png")
 	if err != nil {
 		t.Fatal(err)
@@ -339,7 +360,7 @@ func TestMiddlewarePreservesActiveUserPartOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
+	preparer, err := ragchat.NewPreparer(ragchat.PreparerConfig{
 		Retriever: &stubRetriever{}, Augmenter: rag.IdentityAugmenter(),
 	})
 	if err != nil {
@@ -364,7 +385,7 @@ func TestMiddlewarePreservesActiveUserPartOrder(t *testing.T) {
 		}
 		return textResponse("answer"), nil
 	})
-	if _, err := middleware.Call(model).Call(t.Context(), request); err != nil {
+	if _, err := mustPrepare(t, preparer, request).Call(t.Context(), model); err != nil {
 		t.Fatal(err)
 	}
 	if len(request.Messages[0].Parts) != 4 {

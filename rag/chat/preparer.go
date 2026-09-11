@@ -1,6 +1,6 @@
 // Package chat composes retrieval with chat models through the rag domain
 // contracts. It owns query transforms, expansion, model-backed ranking,
-// contextual prompts, and middleware for ordinary and streaming chat calls.
+// contextual prompts, and retrieval preparation for chat requests.
 // Chat history and prompt policy remain here; queries, candidates, citations,
 // and generation input retain their owners in rag.
 package chat
@@ -36,12 +36,12 @@ const (
 var historyValueKey = lo.Must(rag.NewValueKey[[]corechat.Message]("chat history"))
 
 // HistoryValueKey returns the typed query slot for the immutable history
-// snapshot produced by [Middleware] before the active user turn.
+// snapshot produced by [Preparer] before the active user turn.
 func HistoryValueKey() rag.ValueKey[[]corechat.Message] { return historyValueKey }
 
-// MiddlewareConfig makes retrieval and augmentation independently replaceable
+// PreparerConfig makes retrieval and augmentation independently replaceable
 // while requiring both policies explicitly.
-type MiddlewareConfig struct {
+type PreparerConfig struct {
 	// Retriever fetches documents for the latest user message. Required.
 	Retriever rag.Retriever
 
@@ -50,45 +50,48 @@ type MiddlewareConfig struct {
 	Augmenter rag.Augmenter
 }
 
-func (m MiddlewareConfig) validate() error {
-	if lo.IsNil(m.Retriever) {
+func (p PreparerConfig) validate() error {
+	if lo.IsNil(p.Retriever) {
 		return rag.ErrNilRetriever
 	}
-	if lo.IsNil(m.Augmenter) {
+	if lo.IsNil(p.Augmenter) {
 		return rag.ErrNilAugmenter
 	}
 	return nil
 }
 
-// Middleware owns retrieval and augmentation policy for both chat call modes.
+// Preparer owns retrieval and augmentation at the start of a user turn.
 // It is immutable after construction and safe for concurrent use when its
 // Retriever and Augmenter are safe for concurrent use. Unchanged augmentation
 // preserves every user Part. Text rewrites require exactly one text Part and
 // preserve all other Parts and their relative positions; ambiguous rewrites
 // fail with [rag.ErrInvalidAugmentation] before calling the model.
-type Middleware struct {
+type Preparer struct {
 	retriever rag.Retriever
 	augmenter rag.Augmenter
 }
 
-type preparedChatRequest struct {
+// PreparedRequest owns an immutable augmented request and its retrieval evidence.
+// Its zero value is invalid. Prepare once, then pass the complete model or tool
+// orchestration to Call or Stream; downstream continuations never retrieve again.
+type PreparedRequest struct {
 	request    *corechat.Request
 	candidates rag.Candidates
 	citations  rag.Citations
 }
 
-func newPreparedChatRequest(request *corechat.Request) (preparedChatRequest, error) {
+func newPreparedRequest(request *corechat.Request) (PreparedRequest, error) {
 	if request == nil {
-		return preparedChatRequest{}, fmt.Errorf("%w: nil request", corechat.ErrInvalidRequest)
+		return PreparedRequest{}, fmt.Errorf("%w: nil request", corechat.ErrInvalidRequest)
 	}
 	clone := request.Clone()
 	if err := clone.Validate(); err != nil {
-		return preparedChatRequest{}, err
+		return PreparedRequest{}, err
 	}
-	return preparedChatRequest{request: clone}, nil
+	return PreparedRequest{request: clone}, nil
 }
 
-func (p preparedChatRequest) finalUserText() (string, error) {
+func (p PreparedRequest) finalUserText() (string, error) {
 	last := len(p.request.Messages) - 1
 	if last < 0 || p.request.Messages[last].Role != corechat.RoleUser {
 		return "", ErrNoFinalUserMessage
@@ -98,7 +101,7 @@ func (p preparedChatRequest) finalUserText() (string, error) {
 
 // A text projection cannot locate replacements across several original Parts.
 // Unchanged text preserves the complete message; a rewrite replaces one Part.
-func (p *preparedChatRequest) replaceFinalUserText(text string) error {
+func (p *PreparedRequest) replaceFinalUserText(text string) error {
 	original := &p.request.Messages[len(p.request.Messages)-1]
 	if text == original.Text() {
 		return nil
@@ -120,7 +123,7 @@ func (p *preparedChatRequest) replaceFinalUserText(text string) error {
 	return nil
 }
 
-func (p preparedChatRequest) history() []corechat.Message {
+func (p PreparedRequest) history() []corechat.Message {
 	history := make([]corechat.Message, len(p.request.Messages)-1)
 	for index := range history {
 		history[index] = p.request.Messages[index].Clone()
@@ -128,7 +131,7 @@ func (p preparedChatRequest) history() []corechat.Message {
 	return history
 }
 
-func (p preparedChatRequest) attachRetrievalMetadata(target **corechat.ResponseMetadata) error {
+func (p PreparedRequest) attachRetrievalMetadata(target **corechat.ResponseMetadata) error {
 	if *target == nil {
 		*target = &corechat.ResponseMetadata{}
 	}
@@ -143,7 +146,7 @@ func (p preparedChatRequest) attachRetrievalMetadata(target **corechat.ResponseM
 	return metadata.Extra.Set(citationsMetadataKey, p.citations)
 }
 
-// CandidatesFromMetadata returns the candidates attached by [NewMiddleware].
+// CandidatesFromMetadata returns the candidates attached by [PreparedRequest].
 // Streaming responses attach the payload to their first non-nil delta only.
 // corechat.ResponseAccumulator retains it in the complete response.
 func CandidatesFromMetadata(metadata *corechat.ResponseMetadata) (rag.Candidates, bool, error) {
@@ -181,92 +184,102 @@ func CitationsFromMetadata(metadata *corechat.ResponseMetadata) (rag.Citations, 
 	return citations, found, nil
 }
 
-// NewMiddleware freezes the two-stage RAG policy for both call modes.
-func NewMiddleware(config MiddlewareConfig) (*Middleware, error) {
+// NewPreparer freezes the retrieval and augmentation policies.
+func NewPreparer(config PreparerConfig) (*Preparer, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
-	return &Middleware{retriever: config.Retriever, augmenter: config.Augmenter}, nil
+	return &Preparer{retriever: config.Retriever, augmenter: config.Augmenter}, nil
 }
 
-func (m *Middleware) prepare(ctx context.Context, request *corechat.Request) (preparedChatRequest, error) {
-	prepared, err := newPreparedChatRequest(request)
+// Prepare snapshots request and retrieves evidence for its final user message.
+// Retrieval and augmentation finish before any model or tool execution begins.
+func (p *Preparer) Prepare(ctx context.Context, request *corechat.Request) (PreparedRequest, error) {
+	prepared, err := newPreparedRequest(request)
 	if err != nil {
-		return preparedChatRequest{}, err
+		return PreparedRequest{}, err
 	}
 	text, err := prepared.finalUserText()
 	if err != nil {
-		return preparedChatRequest{}, err
+		return PreparedRequest{}, err
 	}
 	query, err := rag.NewQuery(text)
 	if err != nil {
-		return preparedChatRequest{}, fmt.Errorf("rag: build query from final user message: %w", err)
+		return PreparedRequest{}, fmt.Errorf("rag: build query from final user message: %w", err)
 	}
 
 	query, err = query.WithValue(historyValueKey, prepared.history())
 	if err != nil {
-		return preparedChatRequest{}, fmt.Errorf("rag: attach chat history: %w", err)
+		return PreparedRequest{}, fmt.Errorf("rag: attach chat history: %w", err)
 	}
 
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return preparedChatRequest{}, ctxErr
+		return PreparedRequest{}, ctxErr
 	}
-	candidates, err := m.retriever.Retrieve(ctx, query)
+	candidates, err := p.retriever.Retrieve(ctx, query)
 	if err != nil {
-		return preparedChatRequest{}, err
+		return PreparedRequest{}, err
 	}
 	if candidateErr := candidates.Validate(); candidateErr != nil {
-		return preparedChatRequest{}, candidateErr
+		return PreparedRequest{}, candidateErr
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return preparedChatRequest{}, ctxErr
+		return PreparedRequest{}, ctxErr
 	}
-	augmentation, err := m.augmenter.Augment(ctx, query, candidates)
+	augmentation, err := p.augmenter.Augment(ctx, query, candidates)
 	if err != nil {
-		return preparedChatRequest{}, err
+		return PreparedRequest{}, err
 	}
 	if augmentationErr := augmentation.Validate(); augmentationErr != nil {
-		return preparedChatRequest{}, augmentationErr
+		return PreparedRequest{}, augmentationErr
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return preparedChatRequest{}, ctxErr
+		return PreparedRequest{}, ctxErr
 	}
 	prepared.candidates = candidates
 	prepared.citations = augmentation.Citations()
 	if err := prepared.replaceFinalUserText(augmentation.Text()); err != nil {
-		return preparedChatRequest{}, err
+		return PreparedRequest{}, err
 	}
 	return prepared, nil
 }
 
-func (m *Middleware) call(ctx context.Context, request *corechat.Request, next corechat.Model) (*corechat.Response, error) {
-	prepared, err := m.prepare(ctx, request)
-	if err != nil {
-		return nil, err
+// Call runs the prepared request through next and attaches retrieval evidence
+// to its response. It does not retrieve again, including on a model failure.
+func (p PreparedRequest) Call(ctx context.Context, next corechat.Model) (*corechat.Response, error) {
+	if p.request == nil {
+		return nil, fmt.Errorf("%w: unprepared request", corechat.ErrInvalidRequest)
 	}
-
-	response, err := next.Call(ctx, prepared.request)
+	if lo.IsNil(next) {
+		return nil, errors.New("rag: chat model is nil")
+	}
+	response, err := next.Call(ctx, p.request)
 	if response == nil {
 		if err != nil {
 			return nil, err
 		}
 		return nil, ErrNilResponse
 	}
-	if extensionErr := prepared.attachRetrievalMetadata(&response.Metadata); extensionErr != nil {
+	if extensionErr := p.attachRetrievalMetadata(&response.Metadata); extensionErr != nil {
 		return response, errors.Join(err, extensionErr)
 	}
 	return response, err
 }
 
-func (m *Middleware) stream(ctx context.Context, request *corechat.Request, next corechat.Streamer) iter.Seq2[*corechat.ResponseDelta, error] {
+// Stream starts model work lazily and attaches retrieval evidence to the first
+// delta. Preparation has already completed; stopping iteration synchronously
+// releases the downstream stream through its normal iterator contract.
+func (p PreparedRequest) Stream(ctx context.Context, next corechat.Streamer) iter.Seq2[*corechat.ResponseDelta, error] {
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
-		prepared, err := m.prepare(ctx, request)
-		if err != nil {
-			yield(nil, err)
+		if p.request == nil {
+			yield(nil, fmt.Errorf("%w: unprepared request", corechat.ErrInvalidRequest))
 			return
 		}
-
-		sequence := next.Stream(ctx, prepared.request)
+		if lo.IsNil(next) {
+			yield(nil, errors.New("rag: chat streamer is nil"))
+			return
+		}
+		sequence := next.Stream(ctx, p.request)
 		if sequence == nil {
 			yield(nil, ErrNilStreamSequence)
 			return
@@ -282,7 +295,7 @@ func (m *Middleware) stream(ctx context.Context, request *corechat.Request, next
 				return
 			}
 			if !attached {
-				if extensionErr := prepared.attachRetrievalMetadata(&delta.Metadata); extensionErr != nil {
+				if extensionErr := p.attachRetrievalMetadata(&delta.Metadata); extensionErr != nil {
 					yield(delta, errors.Join(streamErr, extensionErr))
 					return
 				}
@@ -297,22 +310,4 @@ func (m *Middleware) stream(ctx context.Context, request *corechat.Request, next
 			}
 		}
 	}
-}
-
-func (m *Middleware) Call(next corechat.Model) corechat.Model {
-	if lo.IsNil(next) {
-		return nil
-	}
-	return corechat.ModelFunc(func(ctx context.Context, request *corechat.Request) (*corechat.Response, error) {
-		return m.call(ctx, request, next)
-	})
-}
-
-func (m *Middleware) Stream(next corechat.Streamer) corechat.Streamer {
-	if lo.IsNil(next) {
-		return nil
-	}
-	return corechat.StreamerFunc(func(ctx context.Context, request *corechat.Request) iter.Seq2[*corechat.ResponseDelta, error] {
-		return m.stream(ctx, request, next)
-	})
 }

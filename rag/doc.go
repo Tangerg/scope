@@ -13,7 +13,7 @@
 //
 // Adapters remain in this module and depend on these same domain contracts:
 //   - [github.com/Tangerg/scope/rag/chat] owns model-backed query transforms,
-//     expansion, reranking, contextual prompts, and chat middleware.
+//     expansion, reranking, contextual prompts, and explicit chat request preparation.
 //   - [github.com/Tangerg/scope/rag/vectorstore] adapts vector search to retrieval.
 //   - [github.com/Tangerg/scope/rag/rerank] adapts a dedicated rerank model to refinement.
 //   - [github.com/Tangerg/scope/rag/tool] exposes retrieval as a model-visible tool.

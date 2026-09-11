@@ -14,7 +14,7 @@ import (
 	ragchat "github.com/Tangerg/scope/rag/chat"
 )
 
-func TestMiddlewareRejectsAmbiguousTextRewrite(t *testing.T) {
+func TestPreparerRejectsAmbiguousTextRewrite(t *testing.T) {
 	image, err := media.NewURI("image/png", "https://example.com/image.png")
 	if err != nil {
 		t.Fatal(err)
@@ -25,7 +25,7 @@ func TestMiddlewareRejectsAmbiguousTextRewrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
+	preparer, err := ragchat.NewPreparer(ragchat.PreparerConfig{
 		Retriever: &stubRetriever{},
 		Augmenter: rag.AugmenterFunc(func(context.Context, rag.Query, rag.Candidates) (rag.Augmentation, error) {
 			return rag.NewAugmentation("rewritten text")
@@ -34,26 +34,12 @@ func TestMiddlewareRejectsAmbiguousTextRewrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	called := false
-	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
-		called = true
-		return textResponse("answer"), nil
-	})
-	if _, callErr := middleware.Call(model).Call(t.Context(), request); !errors.Is(callErr, rag.ErrInvalidAugmentation) || called {
-		t.Fatalf("Call = %v, model called = %t", callErr, called)
-	}
-	streamer := chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
-		called = true
-		return nil
-	})
-	for delta, streamErr := range middleware.Stream(streamer).Stream(t.Context(), request) {
-		if delta != nil || !errors.Is(streamErr, rag.ErrInvalidAugmentation) || called {
-			t.Fatalf("Stream = %v, %v, model called = %t", delta, streamErr, called)
-		}
+	if _, prepareErr := preparer.Prepare(t.Context(), request); !errors.Is(prepareErr, rag.ErrInvalidAugmentation) {
+		t.Fatalf("Prepare = %v", prepareErr)
 	}
 }
 
-func TestMiddlewareRejectsRetrievalBeforeAugmentation(t *testing.T) {
+func TestPreparerRejectsRetrievalBeforeAugmentation(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		cancel bool
@@ -65,7 +51,7 @@ func TestMiddlewareRejectsRetrievalBeforeAugmentation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{
+			preparer, err := ragchat.NewPreparer(ragchat.PreparerConfig{
 				Retriever: rag.RetrieverFunc(func(context.Context, rag.Query) (rag.Candidates, error) {
 					if test.cancel {
 						cancel()
@@ -85,18 +71,14 @@ func TestMiddlewareRejectsRetrievalBeforeAugmentation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
-				t.Fatal("invalid retrieval reached model")
-				return nil, nil
-			})
-			if _, callErr := middleware.Call(model).Call(ctx, request); !errors.Is(callErr, test.want) {
-				t.Fatalf("Call error = %v, want %v", callErr, test.want)
+			if _, prepareErr := preparer.Prepare(ctx, request); !errors.Is(prepareErr, test.want) {
+				t.Fatalf("Prepare error = %v, want %v", prepareErr, test.want)
 			}
 		})
 	}
 }
 
-func TestMiddlewareStreamPublishesRetrievalMetadataOnce(t *testing.T) {
+func TestPreparerStreamPublishesRetrievalMetadataOnce(t *testing.T) {
 	doc, err := document.NewDocument("evidence", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -105,7 +87,7 @@ func TestMiddlewareStreamPublishesRetrievalMetadataOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	middleware, err := ragchat.NewMiddleware(ragchat.MiddlewareConfig{Retriever: &stubRetriever{docs: rag.Candidates{candidate(doc)}}, Augmenter: augmenter})
+	preparer, err := ragchat.NewPreparer(ragchat.PreparerConfig{Retriever: &stubRetriever{docs: rag.Candidates{candidate(doc)}}, Augmenter: augmenter})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,9 +95,10 @@ func TestMiddlewareStreamPublishesRetrievalMetadataOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	complete, err := middleware.Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	prepared := mustPrepare(t, preparer, request)
+	complete, err := prepared.Call(t.Context(), chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return textResponse("abc"), nil
-	})).Call(t.Context(), request)
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +117,7 @@ func TestMiddlewareStreamPublishesRetrievalMetadataOnce(t *testing.T) {
 	})
 	var accumulator chat.ResponseAccumulator
 	var candidatePayloads, citationPayloads int
-	for delta, streamErr := range middleware.Stream(streamer).Stream(t.Context(), request) {
+	for delta, streamErr := range prepared.Stream(t.Context(), streamer) {
 		if streamErr != nil {
 			t.Fatal(streamErr)
 		}
