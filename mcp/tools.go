@@ -32,6 +32,8 @@ type ToolSource struct {
 // side-effect-free, and safe for concurrent use because a durable resume may
 // plan queued calls again and callers may inspect the capability from multiple
 // goroutines.
+// It must not capture a Tool, session, or execution backend; schedulers retain
+// the declaration independently of the remote tool's execution lifetime.
 type ToolConcurrencyPolicy func(
 	sourceName, remoteName string,
 	annotations sdkmcp.ToolAnnotations,

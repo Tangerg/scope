@@ -53,15 +53,17 @@ func (r remoteTool) MCPToolIdentity() (sourceName, remoteName string) {
 	return r.sourceName, r.descriptor.remoteName
 }
 
-// ConcurrencyKey structurally satisfies schedulers that support conflict-aware
-// parallel calls without coupling this protocol adapter to a particular agent
-// runtime. Unknown remote tools remain exclusive unless the caller supplied a
-// policy through [ToolDiscoveryConfig.ConcurrencyPolicy].
-func (r remoteTool) ConcurrencyKey(invocation toolcontract.Invocation) (key string, concurrent bool) {
+// ConcurrencyPolicy freezes scheduling data without retaining the RPC session.
+// Unknown tools remain exclusive unless discovery received a host policy.
+func (r remoteTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
 	if r.concurrencyPolicy == nil {
-		return "", false
+		return nil
 	}
-	return r.concurrencyPolicy(r.sourceName, r.descriptor.remoteName, r.descriptor.annotations(), invocation)
+	policy, sourceName, remoteName := r.concurrencyPolicy, r.sourceName, r.descriptor.remoteName
+	annotations := r.descriptor.annotations()
+	return func(invocation toolcontract.Invocation) (string, bool) {
+		return policy(sourceName, remoteName, cloneToolAnnotations(annotations), invocation)
+	}
 }
 
 // A remote IsError result becomes [tool.Failure], preserving its complete

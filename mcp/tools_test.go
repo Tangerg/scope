@@ -17,8 +17,8 @@ import (
 
 const echoSchema = `{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}`
 
-type concurrencyKeyer interface {
-	ConcurrencyKey(invocation toolcontract.Invocation) (key string, concurrent bool)
+type concurrencyDeclarer interface {
+	ConcurrencyPolicy() func(toolcontract.Invocation) (key string, concurrent bool)
 }
 
 // startServerWithEcho boots an in-memory MCP server that exposes a single
@@ -194,11 +194,11 @@ func TestToolsConcurrencyPolicyReceivesRemoteIdentity(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, wrapped, 1)
 
-	scheduled, ok := wrapped[0].(concurrencyKeyer)
+	scheduled, ok := wrapped[0].(concurrencyDeclarer)
 	require.True(t, ok)
 	_, invocation, err := prepareTestTool(wrapped[0], `{"text":"acme"}`)
 	require.NoError(t, err)
-	key, concurrent := scheduled.ConcurrencyKey(invocation)
+	key, concurrent := scheduled.ConcurrencyPolicy()(invocation)
 	assert.True(t, concurrent)
 	assert.Equal(t, "tenant:acme", key)
 	assert.Equal(t, "primary", gotSource)
@@ -226,11 +226,12 @@ func TestToolsConcurrencyPolicyCannotMutateDescriptor(t *testing.T) {
 	assert.Equal(t, "primary_echo", definition.Name)
 	assert.Equal(t, "echo the input", definition.Description)
 
-	scheduled := wrapped[0].(concurrencyKeyer)
+	scheduled := wrapped[0].(concurrencyDeclarer)
+	policy := scheduled.ConcurrencyPolicy()
 	_, invocation, err := prepareTestTool(wrapped[0], `{"text":"stable"}`)
 	require.NoError(t, err)
 	for range 2 {
-		_, concurrent := scheduled.ConcurrencyKey(invocation)
+		_, concurrent := policy(invocation)
 		assert.True(t, concurrent)
 	}
 	assert.Equal(t, []bool{false, false}, destructive)
@@ -249,13 +250,9 @@ func TestToolsDefaultConcurrencyIsExclusive(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, wrapped, 1)
 
-	scheduled, ok := wrapped[0].(concurrencyKeyer)
+	scheduled, ok := wrapped[0].(concurrencyDeclarer)
 	require.True(t, ok)
-	_, invocation, err := prepareTestTool(wrapped[0], `{"text":"stable"}`)
-	require.NoError(t, err)
-	key, concurrent := scheduled.ConcurrencyKey(invocation)
-	assert.False(t, concurrent)
-	assert.Empty(t, key)
+	assert.Nil(t, scheduled.ConcurrencyPolicy())
 }
 
 func TestToolsRejectsEmptyPublicName(t *testing.T) {
