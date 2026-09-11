@@ -214,7 +214,15 @@ func TestProcessAdmitterPanicAndTypedNilAreRejected(t *testing.T) {
 
 func TestRestoreDoesNotReadmitPreviouslyAdmittedProcess(t *testing.T) {
 	deployment := newChildTestDeployment(t)
-	first, err := NewEngine(EngineConfig{})
+	write, err := ParseCapability("files.write")
+	if err != nil {
+		t.Fatal(err)
+	}
+	capabilities, err := NewCapabilitySet(write)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := NewEngine(EngineConfig{Capabilities: capabilities})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,6 +242,8 @@ func TestRestoreDoesNotReadmitPreviouslyAdmittedProcess(t *testing.T) {
 	var admissionCalls atomic.Uint32
 	var outcomeCalls atomic.Uint32
 	restoredEngine, err := NewEngine(EngineConfig{
+		Limits:     Limits{MaxSteps: 1},
+		TreeLimits: TreeLimits{MaxDepth: 1},
 		ProcessAdmitter: ProcessAdmitterFunc(func(context.Context, ProcessAdmission) error {
 			admissionCalls.Add(1)
 			return errors.New("live policy changed")
@@ -261,6 +271,17 @@ func TestRestoreDoesNotReadmitPreviouslyAdmittedProcess(t *testing.T) {
 	}
 	if result := mustAwait(t, restored); result.Status() != StatusCompleted {
 		t.Fatalf("restored status = %s", result.Status())
+	}
+	if !restored.Capabilities().Contains(write) || restored.Budget() != process.Budget() {
+		t.Fatal("restoration rewrote captured authority or budget using current start defaults")
+	}
+	before, err := snapshot.ProcessSnapshots()[0].wire()
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := inspectProcessSnapshot(t, restored).wire()
+	if err != nil || before.Limits != after.Limits || before.TreeLimits != after.TreeLimits || before.Usage != after.Usage {
+		t.Fatalf("restoration changed captured resource facts: %v", err)
 	}
 	if err := restoredEngine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)

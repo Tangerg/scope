@@ -83,6 +83,18 @@
 // continuation: the Definition must establish those properties with conformance
 // cases. Complete tree recovery also validates runtime identities, mailboxes,
 // child ownership, settlements, and the exact Deployment binding.
+// The Engine owns deployment identity; a Definition validates its own opaque
+// state under that matching binding rather than duplicating deployment identity.
+// RestoreTree retains captured authority, limits, budgets, and usage. EngineConfig
+// resource defaults apply to new root trees; the Host must authorize a captured
+// tree before restoring it under current policy. Recovery never silently edits
+// historical grants or repeats initialization admission.
+//
+// Lifecycle timestamps are observed UTC wall times, not causal ordering proofs.
+// Clock adjustment or a different restoration writer can put a finish before a
+// start, or a child start before its parent. Identities, relations, Step progress,
+// and committed lifecycle facts establish causality; timestamps must be present
+// but need not increase.
 //
 // # Effects and settlement
 //

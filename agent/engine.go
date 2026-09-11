@@ -21,7 +21,9 @@ var (
 )
 
 // EngineConfig keeps scheduling and authority policy outside Deployments so a
-// strategy cannot change Engine-wide constraints through its behavior binding.
+// strategy cannot change its constraints through its behavior binding. Limits,
+// TreeLimits, and Capabilities apply to newly started root trees. RestoreTree
+// retains their captured values; the Host authorizes snapshots before recovery.
 type EngineConfig struct {
 	// TreeDurability makes publication wait for acknowledgment of a recoverable
 	// tree. Nil selects ephemeral execution without storage acknowledgment.
@@ -61,8 +63,8 @@ type EngineConfig struct {
 	// inherit DefaultTreeLimits independently of per-Process Limits.
 	TreeLimits TreeLimits
 
-	// Children receive only subsets of root authority so composition cannot
-	// escalate privileges through a child Effect.
+	// Capabilities grants authority to new roots. Children receive only subsets
+	// of their parent's captured authority, including after restoration.
 	Capabilities CapabilitySet
 }
 

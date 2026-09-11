@@ -18,9 +18,10 @@ type Definition interface {
 	// executed a Step and must not share mutable state with another Process.
 	Start(input Input) (Execution, error)
 	// Restore reconstructs one Execution from a state previously produced by
-	// Snapshot for this exact definition. It must reject malformed state and
-	// state belonging to another contract; restoration must
-	// not replay external work.
+	// Snapshot for this exact definition. The caller must supply the matching
+	// definition; Engine enforces this with the snapshot's exact DeploymentRef.
+	// Restore validates state structure and strategy invariants without replaying
+	// external work. Opaque state need not independently identify its deployment.
 	Restore(state ExecutionState) (Execution, error)
 }
 

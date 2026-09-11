@@ -21,6 +21,11 @@ type restoredTreeProcess struct {
 // Interrupted terminal candidates remain inert evidence and are not restored.
 // Both completed and prepared completion outputs must satisfy that Definition's
 // output schema before admission.
+//
+// Snapshot capabilities, limits, budgets, and usage remain authoritative. Current
+// EngineConfig start defaults do not revoke or rewrite captured grants. The Host
+// must authorize the snapshot before calling RestoreTree; ProcessAdmitter and
+// initialization acknowledgment are not repeated for captured Processes.
 func (e *Engine) RestoreTree(
 	ctx context.Context,
 	rootDeployment Deployment,

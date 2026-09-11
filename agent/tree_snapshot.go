@@ -242,7 +242,7 @@ func (t *treeSnapshotValidation) validateRelations() error {
 		parentRelation, _ := processRelationFromWire(parentID, parent.Relation)
 		identity := childIdentity{parent: parentID, key: key}
 		if !child || !keyed || !parentExists || relation.Depth() != parentRelation.Depth()+1 ||
-			processWire.StartedAt.Before(parent.StartedAt) || !parent.Capabilities.Allows(processWire.Capabilities) {
+			!parent.Capabilities.Allows(processWire.Capabilities) {
 			return fmt.Errorf("%w: invalid child relation or attenuation", ErrInvalidTreeSnapshot)
 		}
 		if _, duplicate := t.children[identity]; duplicate {

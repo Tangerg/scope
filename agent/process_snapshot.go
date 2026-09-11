@@ -416,8 +416,8 @@ func validateSnapshotLifecycle(wire processSnapshotWire, mailbox signalMailbox) 
 	if terminal != (wire.Termination != nil) || terminal != (wire.FinishedAt != nil) {
 		return fmt.Errorf("%w: terminal status, termination, and finished time must agree", ErrInvalidSnapshot)
 	}
-	if wire.FinishedAt != nil && wire.FinishedAt.Before(wire.StartedAt) {
-		return fmt.Errorf("%w: finished time precedes started time", ErrInvalidSnapshot)
+	if wire.FinishedAt != nil && wire.FinishedAt.IsZero() {
+		return fmt.Errorf("%w: finished time is required", ErrInvalidSnapshot)
 	}
 	if terminal && (wire.Termination.Status() != wire.Status || !wire.Termination.Valid()) {
 		return fmt.Errorf("%w: termination does not match status", ErrInvalidSnapshot)

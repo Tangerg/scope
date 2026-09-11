@@ -67,6 +67,41 @@ func TestStageConstructorsExposeAccurateImmutableContracts(t *testing.T) {
 	}
 }
 
+func TestEngineOwnsExactRestoreBindingForCompatibleWorkflows(t *testing.T) {
+	stage := mustTransform(t, "identity", func(_ context.Context, input numberInput) (numberInput, error) {
+		return input, nil
+	})
+	first := mustDeployment(t, mustDefinition(t, "workflow.first", stage), "shared-implementation")
+	second := mustDeployment(t, mustDefinition(t, "workflow.second", stage), "shared-implementation")
+	engine, err := agent.NewEngine(agent.EngineConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	input, err := agent.EncodeInput(numberInput{Value: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := engine.Start(t.Context(), first, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if joinErr := root.Join(t.Context()); joinErr != nil {
+		t.Fatal(joinErr)
+	}
+	snapshot, err := engine.CaptureTree(t.Context(), root.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.RestoreTree(t.Context(), second, snapshot); !errors.Is(err, agent.ErrInvalidTreeSnapshot) {
+		t.Fatalf("different workflow accepted structurally compatible state: %v", err)
+	}
+}
+
 func mustDefinition(t *testing.T, name string, stages ...workflow.Stage) *workflow.Definition {
 	t.Helper()
 	definition, err := workflow.NewDefinition(workflow.DefinitionConfig{

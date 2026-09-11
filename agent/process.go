@@ -254,10 +254,11 @@ type Result struct {
 // ProcessID returns the completed Process identity.
 func (r Result) ProcessID() ProcessID { return r.processID }
 
-// StartedAt returns the lifecycle start time.
+// StartedAt returns the observed UTC lifecycle start time.
 func (r Result) StartedAt() time.Time { return r.startedAt }
 
-// FinishedAt returns the committed terminal time.
+// FinishedAt returns the observed UTC time of committed termination. Wall-clock
+// adjustments and restoration on another writer can make it earlier than StartedAt.
 func (r Result) FinishedAt() time.Time { return r.finishedAt }
 
 // Status returns the terminal lifecycle state.
@@ -273,7 +274,7 @@ func (r Result) Usage() Usage { return r.usage }
 func (r Result) Output() (Output, bool) { return r.output, r.output.Valid() }
 
 func (r Result) Valid() bool {
-	if !r.processID.Valid() || r.startedAt.IsZero() || r.finishedAt.Before(r.startedAt) || !r.termination.Valid() {
+	if !r.processID.Valid() || r.startedAt.IsZero() || r.finishedAt.IsZero() || !r.termination.Valid() {
 		return false
 	}
 	return r.termination.Status() == StatusCompleted && r.output.Valid() ||
