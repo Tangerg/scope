@@ -13,7 +13,6 @@ import (
 
 type boundTool struct {
 	executable tool.Binding
-	definition chat.ToolDefinition
 	deferred   bool
 	direct     bool
 	concurrent ConcurrentTool
@@ -70,7 +69,7 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
 	if err != nil {
 		return err
 	}
-	definition := binding.Definition()
+	definition := binding.Contract().Definition()
 	if _, duplicate := t.tools[definition.Name]; duplicate {
 		return fmt.Errorf("duplicate tool name %q", definition.Name)
 	}
@@ -83,7 +82,7 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
 		return err
 	}
 	t.tools[definition.Name] = boundTool{
-		executable: binding, definition: definition, deferred: deferred,
+		executable: binding, deferred: deferred,
 		direct: direct, concurrent: concurrent,
 	}
 	if deferred {
@@ -171,7 +170,7 @@ func (t *toolDispatcher) prepareToolCall(call chat.ToolCall) preparedToolCall {
 		return prepared
 	}
 	prepared.binding = &binding
-	invocation, err := binding.executable.Prepare(call)
+	invocation, err := binding.executable.Contract().Prepare(call)
 	if err != nil {
 		result := rejectedToolResult(call, "invalid arguments: "+boundedDiagnostic(err.Error()))
 		prepared.rejection = &result

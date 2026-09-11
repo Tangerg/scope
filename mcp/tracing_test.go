@@ -52,7 +52,7 @@ func TestRoundTripErrorTelemetryExcludesContent(t *testing.T) {
 	require.Len(t, executables, 1)
 	binding, err := tool.Bind(executables[0])
 	require.NoError(t, err)
-	invocation, err := binding.Prepare(corechat.ToolCall{ID: "call", Name: executables[0].Definition().Name, Arguments: `{}`})
+	invocation, err := binding.Contract().Prepare(corechat.ToolCall{ID: "call", Name: executables[0].Definition().Name, Arguments: `{}`})
 	require.NoError(t, err)
 	_, err = binding.Call(t.Context(), invocation)
 	remote, ok := errors.AsType[*tool.Failure](err)

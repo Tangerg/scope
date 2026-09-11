@@ -21,8 +21,8 @@ func invocationFor(t *testing.T, executable toolcontract.Tool, arguments string)
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Prepare(chat.ToolCall{
-		ID: "test-call", Name: binding.Definition().Name, Arguments: arguments,
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{
+		ID: "test-call", Name: binding.Contract().Definition().Name, Arguments: arguments,
 	})
 	if err != nil {
 		t.Fatal(err)

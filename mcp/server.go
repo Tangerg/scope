@@ -90,7 +90,7 @@ func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (*s
 		rawArgs = string(req.Params.Arguments)
 	}
 
-	invocation, err := s.executable.Prepare(corechat.ToolCall{
+	invocation, err := s.executable.Contract().Prepare(corechat.ToolCall{
 		ID: "mcp/" + toolName, Name: toolName, Arguments: rawArgs,
 	})
 	if err != nil {

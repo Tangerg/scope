@@ -25,8 +25,8 @@ func TestToolConcurrencyKeyDefaultsToExclusive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Prepare(chat.ToolCall{
-		ID: "test-call", Name: binding.Definition().Name, Arguments: `{"message":"one"}`,
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{
+		ID: "test-call", Name: binding.Contract().Definition().Name, Arguments: `{"message":"one"}`,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -54,8 +54,8 @@ func TestToolConcurrencyKeyUsesHostPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Prepare(chat.ToolCall{
-		ID: "call", Name: binding.Definition().Name, Arguments: `{"message":"write"}`,
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{
+		ID: "call", Name: binding.Contract().Definition().Name, Arguments: `{"message":"write"}`,
 	})
 	if err != nil {
 		t.Fatal(err)

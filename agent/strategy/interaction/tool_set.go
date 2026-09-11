@@ -73,20 +73,8 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 	}
 	for name, binding := range dispatcher.tools {
 		manifest.entries[name] = toolManifestEntry{
-			definition: binding.definition.Clone(), deferred: binding.deferred,
-			plan: func(call chat.ToolCall) (toolConcurrencyPlan, error) {
-				if binding.concurrent == nil {
-					return toolConcurrencyPlan{}, nil
-				}
-				invocation, prepareErr := binding.executable.Prepare(call)
-				if prepareErr != nil {
-					// Invalid arguments receive an ordinary rejection from the
-					// child; they confer no authority to overlap other calls.
-					return toolConcurrencyPlan{}, nil
-				}
-				key, concurrent, declarationErr := concurrencyDeclaration(binding.concurrent, invocation)
-				return toolConcurrencyPlan{concurrent: concurrent, key: key}, declarationErr
-			},
+			contract: binding.executable.Contract(), deferred: binding.deferred,
+			concurrent: binding.concurrent,
 		}
 	}
 	return ToolSet{deployment: deployment, manifest: manifest, dispatcher: dispatcher}, nil
@@ -116,7 +104,7 @@ type toolManifest struct {
 }
 
 type toolManifestEntry struct {
-	definition chat.ToolDefinition
+	contract   tool.Contract
 	deferred   bool
-	plan       func(chat.ToolCall) (toolConcurrencyPlan, error)
+	concurrent ConcurrentTool
 }

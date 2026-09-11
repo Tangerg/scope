@@ -30,7 +30,7 @@ func ExampleRetrieval() {
 	if err != nil {
 		panic(err)
 	}
-	invocation, err := binding.Prepare(chat.ToolCall{
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{
 		ID: "search-1", Name: "search", Arguments: `{"query":"Go design"}`,
 	})
 	if err != nil {

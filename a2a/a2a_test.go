@@ -197,7 +197,7 @@ func TestRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Prepare(chat.ToolCall{ID: "policy", Name: binding.Definition().Name, Arguments: `{"message":"hello"}`})
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "policy", Name: binding.Contract().Definition().Name, Arguments: `{"message":"hello"}`})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,8 +242,8 @@ func invokeTestTool(ctx context.Context, executable toolcontract.Tool, arguments
 	if err != nil {
 		return chat.ToolOutput{}, err
 	}
-	invocation, err := binding.Prepare(chat.ToolCall{
-		ID: "test-call", Name: binding.Definition().Name, Arguments: arguments,
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{
+		ID: "test-call", Name: binding.Contract().Definition().Name, Arguments: arguments,
 	})
 	if err != nil {
 		return chat.ToolOutput{}, err

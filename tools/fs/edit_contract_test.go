@@ -45,7 +45,7 @@ func TestEditRejectsInvalidReplacementsWithoutChangingFile(t *testing.T) {
 					if encodeErr != nil {
 						t.Fatal(encodeErr)
 					}
-					invocation, prepareErr := binding.Prepare(chat.ToolCall{ID: "edit", Name: "edit", Arguments: string(arguments)})
+					invocation, prepareErr := binding.Contract().Prepare(chat.ToolCall{ID: "edit", Name: "edit", Arguments: string(arguments)})
 					if prepareErr != nil {
 						t.Fatal(prepareErr)
 					}

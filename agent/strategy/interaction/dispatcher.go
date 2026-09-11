@@ -79,7 +79,7 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 	}
 	for name, entry := range definition.tools.entries {
 		if entry.deferred {
-			dispatcher.deferredDefinitions[name] = entry.definition.Clone()
+			dispatcher.deferredDefinitions[name] = entry.contract.Definition()
 		}
 	}
 	for _, delegate := range definition.delegates {

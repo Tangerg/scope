@@ -35,6 +35,20 @@ func (t toolManifest) planCalls(calls []chat.ToolCall) ([]toolConcurrencyPlan, e
 	return plans, nil
 }
 
+func (t toolManifestEntry) plan(call chat.ToolCall) (toolConcurrencyPlan, error) {
+	if t.concurrent == nil {
+		return toolConcurrencyPlan{}, nil
+	}
+	invocation, err := t.contract.Prepare(call)
+	if err != nil {
+		// Invalid arguments receive an ordinary rejection from the child; they
+		// confer no authority to overlap other calls.
+		return toolConcurrencyPlan{}, nil
+	}
+	key, concurrent, err := concurrencyDeclaration(t.concurrent, invocation)
+	return toolConcurrencyPlan{concurrent: concurrent, key: key}, err
+}
+
 func concurrencyDeclaration(
 	capability ConcurrentTool,
 	invocation tool.Invocation,
