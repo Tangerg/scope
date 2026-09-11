@@ -28,7 +28,7 @@ func (d *Definition) validateRequest(request TaskRequest) error {
 }
 
 func (e *execution) applyDecision(decision Decision, consumed uint32) (agent.Transition, error) {
-	if err := e.validateDecision(decision); err != nil {
+	if err := e.state.validateDecision(e.definition, decision); err != nil {
 		return agent.Transition{}, err
 	}
 	effects := make([]agent.Effect, 0, len(decision.Tasks)+len(decision.Controls))
@@ -68,8 +68,7 @@ func (e *execution) applyDecision(decision Decision, consumed uint32) (agent.Tra
 	return agent.Continue(consumed, effects...)
 }
 
-func (e *execution) validateDecision(decision Decision) error {
-	definition := e.definition
+func (e executionState) validateDecision(definition *Definition, decision Decision) error {
 	if err := definition.descriptor.ValidateInput(decision.State); err != nil {
 		return fmt.Errorf("%w: state: %w", ErrInvalidDecision, err)
 	}
@@ -85,16 +84,16 @@ func (e *execution) validateDecision(decision Decision) error {
 	if decision.Mode != Continue && decision.Mode != Wait || decision.Output != nil {
 		return ErrInvalidDecision
 	}
-	if uint64(len(e.state.Tasks))+uint64(len(decision.Tasks)) > uint64(definition.maxTasks) ||
-		uint64(len(e.state.remaining()))+uint64(len(decision.Tasks)) > uint64(definition.maxConcurrentTasks) ||
+	if uint64(len(e.Tasks))+uint64(len(decision.Tasks)) > uint64(definition.maxTasks) ||
+		uint64(len(e.remaining()))+uint64(len(decision.Tasks)) > uint64(definition.maxConcurrentTasks) ||
 		uint64(len(decision.Controls)) > uint64(definition.maxControlsPerTurn) {
 		return fmt.Errorf("%w: task or control bound exceeded", ErrInvalidDecision)
 	}
 	for index, request := range decision.Tasks {
-		if err := e.definition.validateRequest(request); err != nil {
+		if err := definition.validateRequest(request); err != nil {
 			return err
 		}
-		if e.state.task(request.Key) != nil {
+		if e.task(request.Key) != nil {
 			return fmt.Errorf("%w: reused task key", ErrInvalidDecision)
 		}
 		for _, previous := range decision.Tasks[:index] {
@@ -104,11 +103,11 @@ func (e *execution) validateDecision(decision Decision) error {
 		}
 	}
 	for _, control := range decision.Controls {
-		if _, err := e.state.controlEffect(control); err != nil {
+		if _, err := e.controlEffect(control); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidDecision, err)
 		}
 	}
-	if decision.Mode == Wait && len(e.state.remaining())+len(decision.Tasks) == 0 && !e.state.turnHadOutstandingTask() {
+	if decision.Mode == Wait && len(e.remaining())+len(decision.Tasks) == 0 && !e.turnHadOutstandingTask() {
 		return fmt.Errorf("%w: wait has no outstanding tasks", ErrInvalidDecision)
 	}
 	return nil

@@ -310,8 +310,7 @@ func (e executionState) validateAppliedDecision(d *Definition) error {
 	}
 	before := e
 	before.Tasks = e.Tasks[:previousCount]
-	candidate := execution{definition: d, state: before}
-	if err := candidate.validateDecision(decision); err != nil {
+	if err := before.validateDecision(d, decision); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidState, err)
 	}
 	return nil
