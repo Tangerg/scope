@@ -253,13 +253,13 @@ func (e *execution) finishOrRetry(
 	if err := output.Validate(); err != nil {
 		return agent.Transition{}, err
 	}
-	candidate := CompletionCandidate{
-		workingContext: e.state.WorkingContext.Clone(),
-		output:         output.clone(),
-		artifacts:      newArtifacts(e.state.ArtifactRecords),
-	}
 	decision := CompletionDecision{Accepted: true}
 	if e.definition.completionValidator != nil {
+		candidate := CompletionCandidate{
+			workingContext: e.state.WorkingContext.Clone(),
+			output:         output.clone(),
+			artifacts:      newArtifacts(e.state.ArtifactRecords),
+		}
 		var err error
 		decision, err = e.definition.completionValidator(candidate)
 		if err != nil {

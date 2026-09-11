@@ -172,7 +172,7 @@ func (s Stage) behaviorKind() (StageKind, bool) {
 	return selected, selected != StageKindInvalid
 }
 
-func (s Stage) accepts(schema agent.Schema) bool {
+func (s Stage) hasIdenticalInputSchema(schema agent.Schema) bool {
 	return schema.Valid() && bytes.Equal(s.inputSchema.JSON(), schema.JSON())
 }
 
