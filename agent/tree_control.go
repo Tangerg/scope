@@ -159,12 +159,14 @@ func (t *treeRuntime) captureTree() (TreeSnapshot, error) {
 		}
 		wire.ProcessSnapshots = append(wire.ProcessSnapshots, snapshot)
 	}
-	for _, registration := range t.childWaits {
-		wire.ChildWaits = append(wire.ChildWaits, childWaitSnapshotWire{
-			ParentProcessID: registration.parent,
-			WaitID:          registration.waitID,
-			Spec:            childWaitSpecWireFromValue(registration.spec),
-		})
+	for parentID, registrations := range t.childWaits {
+		for _, registration := range registrations {
+			wire.ChildWaits = append(wire.ChildWaits, childWaitSnapshotWire{
+				ParentProcessID: parentID,
+				WaitID:          registration.waitID,
+				Spec:            childWaitSpecWireFromValue(registration.spec),
+			})
+		}
 	}
 	return treeSnapshotFromWire(wire)
 }

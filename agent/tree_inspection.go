@@ -166,7 +166,7 @@ func (t *treeRuntime) buildInspection() (TreeInspection, error) {
 	if t.head != nil {
 		snapshots = t.head.snapshot.ProcessSnapshots()
 	} else {
-		for _, process := range t.processesInCanonicalOrder() {
+		for _, process := range orderedProcesses(t.processes) {
 			snapshot, err := process.capture()
 			if err != nil {
 				return TreeInspection{}, err

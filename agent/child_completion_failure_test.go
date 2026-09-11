@@ -123,10 +123,10 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 		runtime.addProcess(last)
 		children = append(children, id)
 	}
-	runtime.childWaits[waitID] = &childWaitRegistration{
-		parent: parentID, waitID: waitID,
-		spec: ChildWaitSpec{Boundary: ChildWaitBoundaryResult, Key: waitKey, Children: children, Condition: AllChildren()},
-	}
+	runtime.childWaits[parentID] = map[WaitID]*childWaitRegistration{waitID: {
+		waitID: waitID,
+		spec:   ChildWaitSpec{Boundary: ChildWaitBoundaryResult, Key: waitKey, Children: children, Condition: AllChildren()},
+	}}
 	runtime.propagateProcessTermination(last)
 	if !parent.pendingControl.failure.Valid() {
 		t.Fatal("aggregate encoding failure left the parent waiting without a failure intent")

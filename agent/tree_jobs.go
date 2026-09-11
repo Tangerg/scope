@@ -310,6 +310,7 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 	}
 	delete(t.jobs, completion.processID)
 	t.inFlightWork.Add(-1)
+	t.queueJoin(process)
 	if job.cancel != nil {
 		job.cancel()
 	}

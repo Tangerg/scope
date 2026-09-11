@@ -45,7 +45,9 @@ func validIdentity(value string) bool {
 
 func (i identity) String() string { return i.value }
 
-func (i identity) Valid() bool { return validIdentity(i.value) }
+// Valid distinguishes a parsed identity from its invalid zero value. Parsing
+// and text decoding are the only boundaries that can install non-empty text.
+func (i identity) Valid() bool { return i.value != "" }
 
 func (i identity) MarshalText() ([]byte, error) {
 	if !i.Valid() {

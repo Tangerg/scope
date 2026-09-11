@@ -342,7 +342,7 @@ func (t *treeRuntime) stageCommittedEvent(event Event) {
 }
 
 func (t *treeRuntime) publishAcknowledgedChanges() {
-	for _, process := range t.processesInCanonicalOrder() {
+	for _, process := range orderedProcesses(t.processes) {
 		processID := process.handle.processID
 		publication, pending := t.pendingPublications[processID]
 		if !pending {
@@ -356,7 +356,7 @@ func (t *treeRuntime) publishAcknowledgedChanges() {
 			continue
 		}
 		process.handle.publishResult(process.result())
-		process.handle.finishBookkeeping()
+		t.completeProcessBookkeeping(process)
 		delete(t.pendingPublications, processID)
 	}
 }
@@ -415,7 +415,7 @@ func (t *treeRuntime) failDurability(
 	clear(t.pendingPublications)
 	clear(t.queued)
 	t.processQueue = nil
-	for _, process := range t.processesInCanonicalOrder() {
+	for _, process := range orderedProcesses(t.processes) {
 		select {
 		case <-process.handle.outcomePublished:
 			continue
@@ -445,7 +445,7 @@ func (t *treeRuntime) failDurability(
 			processID: processID, incarnationID: t.incarnation, headDigest: t.head.digest(),
 			unresolvedEffectIDs: canonicalEffectIDs(unresolvedByProcess[processID]), cause: cause,
 		}, acknowledged)
-		process.handle.finishBookkeeping()
+		t.completeProcessBookkeeping(process)
 	}
 	if t.freeze != nil {
 		acquisition := t.freeze.acquisition
@@ -454,9 +454,9 @@ func (t *treeRuntime) failDurability(
 	}
 }
 
-func (t *treeRuntime) processesInCanonicalOrder() []*processState {
-	processes := make([]*processState, 0, len(t.processes))
-	for _, process := range t.processes {
+func orderedProcesses(values map[ProcessID]*processState) []*processState {
+	processes := make([]*processState, 0, len(values))
+	for _, process := range values {
 		processes = append(processes, process)
 	}
 	slices.SortFunc(processes, func(left, right *processState) int {

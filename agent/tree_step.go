@@ -20,7 +20,7 @@ func (t *treeRuntime) finalizePrepared(process *processState) error {
 	defer func() {
 		if !adopted {
 			for _, waitID := range registered {
-				t.unregisterChildWait(waitID)
+				t.unregisterChildWait(process.handle.processID, waitID)
 			}
 		}
 	}()
@@ -43,10 +43,10 @@ func (t *treeRuntime) finalizePrepared(process *processState) error {
 	finalization.adopt()
 	adopted = true
 	for _, waitID := range finalization.consumedChildWaits {
-		t.unregisterChildWait(waitID)
+		t.unregisterChildWait(process.handle.processID, waitID)
 	}
 	for _, waitID := range finalization.transition.closedChildWaits {
-		t.unregisterChildWait(waitID)
+		t.unregisterChildWait(process.handle.processID, waitID)
 	}
 	t.publishEphemeralStatus(process)
 	payload, _ := json.Marshal(stepCommittedEventPayload{ProcessStatus: process.status})
@@ -76,7 +76,7 @@ func (t *treeRuntime) installTerminationWithUnresolved(process *processState, ou
 	termination := process.resolveStepTermination(outcome)
 	process.installTermination(termination.withUnresolvedEffectIDs(unresolvedEffectIDs), Output{}, time.Now().Round(0).UTC())
 	for _, waitID := range process.mailbox.closeAllWaits() {
-		t.unregisterChildWait(waitID)
+		t.unregisterChildWait(process.handle.processID, waitID)
 	}
 	t.publishEphemeralStatus(process)
 }

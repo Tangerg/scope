@@ -34,7 +34,8 @@ type treeRuntime struct {
 	// scheduling, freeze, and checkpoint order a single explicit state machine.
 	processes           map[ProcessID]*processState
 	childrenByParent    map[ProcessID][]ProcessID
-	childWaits          map[WaitID]*childWaitRegistration
+	childWaits          map[ProcessID]map[WaitID]*childWaitRegistration
+	joinCandidates      map[ProcessID]*processState
 	processQueue        []ProcessID
 	queued              map[ProcessID]struct{}
 	jobs                map[ProcessID]*processJob
@@ -205,7 +206,8 @@ func newTreeRuntime(
 		inspections:         make(chan chan treeInspectionResponse, treeCommandBufferCapacity),
 		processes:           make(map[ProcessID]*processState, len(processes)),
 		childrenByParent:    make(map[ProcessID][]ProcessID),
-		childWaits:          make(map[WaitID]*childWaitRegistration),
+		childWaits:          make(map[ProcessID]map[WaitID]*childWaitRegistration),
+		joinCandidates:      make(map[ProcessID]*processState),
 		queued:              make(map[ProcessID]struct{}, len(processes)),
 		jobs:                make(map[ProcessID]*processJob, len(processes)),
 		commitDone:          make(chan treeCommitCompletion),
@@ -260,7 +262,7 @@ func (t *treeRuntime) finishRun() {
 }
 
 func (t *treeRuntime) publishInitialProcessEvents() {
-	for _, process := range t.processesInCanonicalOrder() {
+	for _, process := range orderedProcesses(t.processes) {
 		if process.status.Terminal() {
 			continue
 		}

@@ -3,6 +3,7 @@ package agent_test
 import (
 	"encoding"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/Tangerg/scope/agent"
@@ -89,6 +90,8 @@ func TestIdentitiesRejectMalformedText(t *testing.T) {
 		"empty":      "",
 		"whitespace": "with space",
 		"symbol":     "with/slash",
+		"non-ASCII":  "process:节点",
+		"oversized":  strings.Repeat("x", 257),
 	}
 	for name, kind := range identityKinds() {
 		t.Run(name, func(t *testing.T) {
@@ -97,8 +100,15 @@ func TestIdentitiesRejectMalformedText(t *testing.T) {
 					if _, err := kind.parse(value); err == nil {
 						t.Fatalf("parse(%q) succeeded", value)
 					}
-					if err := kind.receive().UnmarshalText([]byte(value)); err == nil {
+					receiver := kind.receive()
+					if err := receiver.UnmarshalText([]byte("valid:identity")); err != nil {
+						t.Fatal(err)
+					}
+					if err := receiver.UnmarshalText([]byte(value)); err == nil {
 						t.Fatalf("UnmarshalText(%q) succeeded", value)
+					}
+					if !valid(receiver) || text(receiver) != "valid:identity" {
+						t.Fatal("rejected text changed the previously parsed identity")
 					}
 				})
 			}

@@ -67,7 +67,7 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	}
 	runtime.addProcess(child)
 	handle.publishResult(child.result())
-	handle.finishBookkeeping()
+	runtime.completeProcessBookkeeping(child)
 	waitID, _ := ParseWaitID("wait:completed-child-drain")
 	waitKey, _ := ParseWaitKey("completed-child-drain")
 	spec := ChildWaitSpec{Key: waitKey, Children: []ProcessID{childID}, Condition: AllChildren(), Boundary: ChildWaitBoundaryDrained}
@@ -82,7 +82,7 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	parent.usage.AcceptedSignals++
 	parent.currentWaitID = waitID
 	parent.status = StatusWaiting
-	runtime.childWaits[waitID] = &childWaitRegistration{parent: parent.handle.processID, waitID: waitID, spec: spec}
+	runtime.childWaits[parent.handle.processID] = map[WaitID]*childWaitRegistration{waitID: {waitID: waitID, spec: spec}}
 	acknowledged, err := parent.capture()
 	if err != nil {
 		t.Fatal(err)
@@ -92,7 +92,7 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	cause := errors.New("sibling storage acknowledgment lost")
 	runtime.fault = cause
 	parent.handle.publishRuntimeFailure(&RuntimeError{processID: parent.handle.processID, cause: cause}, acknowledged)
-	parent.handle.finishBookkeeping()
+	runtime.completeProcessBookkeeping(parent)
 	clear(runtime.queued)
 	runtime.processQueue = nil
 	beforeUsage := parent.usage

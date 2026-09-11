@@ -6,7 +6,6 @@ import (
 )
 
 type childWaitRegistration struct {
-	parent ProcessID
 	waitID WaitID
 	spec   ChildWaitSpec
 }
@@ -29,16 +28,12 @@ func (t *treeRuntime) finishIfTerminal(process *processState) {
 	)
 	process.handle.publishResult(process.result())
 	t.propagateProcessTermination(process)
-	process.handle.finishBookkeeping()
+	t.completeProcessBookkeeping(process)
 }
 
 func (t *treeRuntime) propagateProcessTermination(process *processState) {
 	processID := process.handle.processID
-	for waitID, registration := range t.childWaits {
-		if registration.parent == processID {
-			delete(t.childWaits, waitID)
-		}
-	}
+	delete(t.childWaits, processID)
 	t.stopProcessTree(process)
 	t.notifyChildWaits(processID, ChildWaitBoundaryResult)
 }
@@ -47,11 +42,19 @@ func (t *treeRuntime) notifyChildWaits(processID ProcessID, boundary ChildWaitBo
 	if t.fault != nil {
 		return
 	}
-	for _, registration := range orderedChildWaitRegistrations(t.childWaits) {
+	child := t.processes[processID]
+	if child == nil {
+		return
+	}
+	parentID, hasParent := child.handle.relation.ParentID()
+	if !hasParent {
+		return
+	}
+	parent := t.processes[parentID]
+	for _, registration := range orderedChildWaitRegistrations(t.childWaits[parentID]) {
 		if registration.spec.Boundary != boundary || !containsProcessID(registration.spec.Children, processID) {
 			continue
 		}
-		parent := t.processes[registration.parent]
 		if parent == nil || parent.status.Terminal() || parent.pendingControl.hasTerminalIntent() ||
 			parent.mailbox.contains(deriveChildWaitSignalID(registration.waitID)) {
 			continue
@@ -126,7 +129,7 @@ func (t *treeRuntime) registerChildWait(
 	if !parentID.Valid() || !waitID.Valid() || !spec.Valid() || t.processes[parentID] == nil {
 		return Signal{}, false, ErrInvalidChildWait
 	}
-	if t.childWaits[waitID] != nil {
+	if t.childWaits[parentID][waitID] != nil {
 		return Signal{}, false, ErrInvalidChildWait
 	}
 	for _, childID := range spec.Children {
@@ -140,23 +143,29 @@ func (t *treeRuntime) registerChildWait(
 		}
 	}
 	registration := &childWaitRegistration{
-		parent: parentID,
 		waitID: waitID,
 		spec:   cloneChildWaitSpec(spec),
 	}
-	t.childWaits[waitID] = registration
+	if t.childWaits[parentID] == nil {
+		t.childWaits[parentID] = make(map[WaitID]*childWaitRegistration)
+	}
+	t.childWaits[parentID][waitID] = registration
 	outcomes, satisfied := t.childWaitOutcomes(registration)
 	if !satisfied {
 		return Signal{}, false, nil
 	}
 	signal, err := encodeChildWaitSatisfied(waitID, spec.Key, spec.Boundary, outcomes)
 	if err != nil {
-		delete(t.childWaits, waitID)
+		t.unregisterChildWait(parentID, waitID)
 		return Signal{}, false, err
 	}
 	return signal, true, nil
 }
 
-func (t *treeRuntime) unregisterChildWait(waitID WaitID) {
-	delete(t.childWaits, waitID)
+func (t *treeRuntime) unregisterChildWait(parentID ProcessID, waitID WaitID) {
+	registrations := t.childWaits[parentID]
+	delete(registrations, waitID)
+	if len(registrations) == 0 {
+		delete(t.childWaits, parentID)
+	}
 }

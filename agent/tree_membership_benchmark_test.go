@@ -29,6 +29,7 @@ func BenchmarkTreeOwnerTraversal(b *testing.B) {
 					b.StopTimer()
 					for _, process := range runtime.processes {
 						process.handle.joined = make(chan struct{})
+						runtime.queueJoin(process)
 					}
 					b.StartTimer()
 					if !runtime.publishJoins() || !runtime.processes[runtime.rootID].handle.joinDone() {

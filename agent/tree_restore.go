@@ -109,7 +109,7 @@ type treeRestoration struct {
 	wire        treeSnapshotWire
 	deployments map[DeploymentRef]Deployment
 	processes   []restoredTreeProcess
-	childWaits  []*childWaitRegistration
+	childWaits  map[ProcessID]map[WaitID]*childWaitRegistration
 	runtime     *treeRuntime
 }
 
@@ -126,9 +126,7 @@ func (t *treeRestoration) prepareRuntime(ctx context.Context) {
 		}
 		t.runtime.establishDurableHead(incarnation, snapshot)
 	}
-	for _, registration := range t.childWaits {
-		t.runtime.childWaits[registration.waitID] = registration
-	}
+	t.runtime.childWaits = t.childWaits
 }
 
 func (t *treeRestoration) prepareProcesses() error {
@@ -179,15 +177,16 @@ func (t *treeRestoration) deployment(reference DeploymentRef) (Deployment, error
 }
 
 func (t *treeRestoration) prepareChildWaits() error {
-	t.childWaits = make([]*childWaitRegistration, 0, len(t.wire.ChildWaits))
+	t.childWaits = make(map[ProcessID]map[WaitID]*childWaitRegistration)
 	for _, encoded := range t.wire.ChildWaits {
 		spec, err := encoded.Spec.value()
 		if err != nil {
 			return fmt.Errorf("%w: child wait: %w", ErrInvalidTreeSnapshot, err)
 		}
-		t.childWaits = append(t.childWaits, &childWaitRegistration{
-			parent: encoded.ParentProcessID, waitID: encoded.WaitID, spec: spec,
-		})
+		if t.childWaits[encoded.ParentProcessID] == nil {
+			t.childWaits[encoded.ParentProcessID] = make(map[WaitID]*childWaitRegistration)
+		}
+		t.childWaits[encoded.ParentProcessID][encoded.WaitID] = &childWaitRegistration{waitID: encoded.WaitID, spec: spec}
 	}
 	return nil
 }
@@ -205,7 +204,7 @@ func (e *Engine) startRestoredTree(ctx context.Context, restoration *treeRestora
 			continue
 		}
 		restoration.runtime.propagateProcessTermination(entry.state)
-		entry.handle.finishBookkeeping()
+		restoration.runtime.completeProcessBookkeeping(entry.state)
 	}
 	root := restoration.runtime.processes[restoration.wire.RootID].handle
 	go restoration.runtime.run(requireContext(ctx))
@@ -249,9 +248,11 @@ func (e *Engine) reserveRestoredTree(restoration *treeRestoration) error {
 			}
 		}
 	}
-	for _, wait := range restoration.childWaits {
-		if wait == nil || !wait.waitID.Valid() {
-			return ErrInvalidChildWait
+	for _, registrations := range restoration.childWaits {
+		for _, wait := range registrations {
+			if wait == nil || !wait.waitID.Valid() {
+				return ErrInvalidChildWait
+			}
 		}
 	}
 	e.treeRestoreReservations[rootID] = restoration

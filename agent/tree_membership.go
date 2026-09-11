@@ -13,6 +13,7 @@ func (t *treeRuntime) addProcess(process *processState) {
 	}
 	process.handle.runtime.Store(t)
 	t.processes[processID] = process
+	t.queueJoin(process)
 	if parentID, child := process.handle.relation.ParentID(); child {
 		t.childrenByParent[parentID] = append(t.childrenByParent[parentID], processID)
 	}
@@ -42,4 +43,5 @@ func (t *treeRuntime) removeProcess(processID ProcessID) {
 		}
 	}
 	delete(t.processes, processID)
+	delete(t.joinCandidates, processID)
 }
