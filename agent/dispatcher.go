@@ -102,8 +102,10 @@ func (e EffectRequest) Effect() Effect { return e.effect.clone() }
 
 // DeltaEmitter accepts Strategy-owned streaming payloads while Dispatch is
 // active. The Engine validates, orders, bounds, and publishes each payload as a
-// best-effort Delta. It intentionally returns no observer error. A Dispatcher
-// must not retain or call it after Dispatch returns.
+// best-effort Delta. Concurrent calls are serialized in emitter admission order;
+// delivered EffectSequence values increase, with gaps for dropped payloads.
+// It intentionally returns no observer error. A Dispatcher must join concurrent
+// emissions before returning and must not retain or call emit afterward.
 type DeltaEmitter func(payload json.RawMessage)
 
 // Dispatcher executes Strategy-owned Effects outside Execution.Step. It must

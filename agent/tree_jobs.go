@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"sync/atomic"
+	"sync"
 	"time"
 )
 
@@ -247,21 +247,22 @@ func (t *treeRuntime) startDispatch(
 		startedAt: startedAt,
 	}
 	t.setProcessJob(process.handle.processID, job)
-	var deltaSequence atomic.Uint64
-	var dropped atomic.Uint64
-	var acceptingDeltas atomic.Bool
-	acceptingDeltas.Store(true)
+	var deltaMu sync.Mutex
+	var deltaSequence, dropped uint64
+	acceptingDeltas := true
 	emit := func(payload json.RawMessage) {
-		if !acceptingDeltas.Load() {
+		deltaMu.Lock()
+		defer deltaMu.Unlock()
+		if !acceptingDeltas {
 			return
 		}
-		sequence := deltaSequence.Add(1)
+		deltaSequence++
 		delta, err := newDelta(
 			process.handle.processID, record.ID, t.incarnation,
-			sequence, time.Now(), payload,
+			deltaSequence, time.Now(), payload,
 		)
 		if err != nil || !t.engine.observation.offerDelta(t.context, delta) {
-			dropped.Add(1)
+			dropped++
 		}
 	}
 	go func() {
@@ -271,7 +272,10 @@ func (t *treeRuntime) startDispatch(
 			request,
 			emit,
 		)
-		acceptingDeltas.Store(false)
+		deltaMu.Lock()
+		acceptingDeltas = false
+		droppedCount := dropped
+		deltaMu.Unlock()
 		if err == nil && (!settlement.Valid() || settlement.EffectID() != record.ID) {
 			err = ErrInvalidSettlement
 		}
@@ -292,7 +296,7 @@ func (t *treeRuntime) startDispatch(
 				err:        err,
 				effectID:   record.ID,
 				settlement: settlement,
-				dropped:    dropped.Load(),
+				dropped:    droppedCount,
 			},
 		}
 	}()

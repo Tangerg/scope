@@ -13,7 +13,7 @@ const maxDeltaBytes = 1 << 20
 var ErrInvalidDelta = errors.New("agent: invalid delta")
 
 // Delta is a bounded, best-effort stream increment from one Effect attempt.
-// EffectSequence preserves producer order. Delta is never replayed from a
+// EffectSequence preserves emitter admission order. Delta is never replayed from a
 // snapshot and never contributes to the authoritative final Output.
 type Delta struct {
 	processID      ProcessID
@@ -70,7 +70,8 @@ func (d Delta) TreeIncarnationID() (TreeIncarnationID, bool) {
 	return d.incarnationID, d.incarnationID.Valid()
 }
 
-// EffectSequence returns the one-based producer order within the Effect attempt.
+// EffectSequence returns the one-based emitter admission order within the Effect
+// attempt. Delivered sequences increase; dropped payloads leave gaps.
 func (d Delta) EffectSequence() uint64 { return d.effectSequence }
 
 // EmittedAt returns when the producer emitted the increment.
