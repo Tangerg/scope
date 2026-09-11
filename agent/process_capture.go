@@ -1,8 +1,10 @@
 package agent
 
+import "reflect"
+
 func (p *processState) capture() (ProcessSnapshot, error) {
-	if p.drainedSnapshot.Valid() {
-		return p.drainedSnapshot, nil
+	if p.snapshotDrained {
+		return p.snapshot, nil
 	}
 	wire := processSnapshotWire{
 		ProcessID:     p.handle.processID,
@@ -39,11 +41,19 @@ func (p *processState) capture() (ProcessSnapshot, error) {
 		prepared := p.prepared.snapshot()
 		wire.Prepared = &prepared
 	}
+	// Compare every persisted fact, including mailbox and Effect contents. This
+	// avoids a second mutation protocol whose invalidation could miss a control,
+	// reservation, or settlement while reusing the already validated value.
+	if p.snapshot.state != nil && reflect.DeepEqual(wire, *p.snapshot.state) {
+		p.snapshotDrained = p.status.Terminal() && p.handle.joinDone()
+		return p.snapshot, nil
+	}
 	snapshot, err := processSnapshotFromWire(wire)
-	if err == nil && p.status.Terminal() && p.handle.joinDone() {
-		// Join proves that child admission, descendant work, and acknowledgments
-		// have drained. Terminal protocol state cannot change after this boundary.
-		p.drainedSnapshot = snapshot
+	if err == nil {
+		p.snapshot = snapshot
+		// Join proves that descendant work and child budget accounting have
+		// drained; only a capture at that boundary can become permanent.
+		p.snapshotDrained = p.status.Terminal() && p.handle.joinDone()
 	}
 	return snapshot, err
 }

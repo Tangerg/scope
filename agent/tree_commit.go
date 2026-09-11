@@ -415,6 +415,10 @@ func (t *treeRuntime) failDurability(
 	clear(t.pendingPublications)
 	clear(t.queued)
 	t.processQueue = nil
+	acknowledgedByID := make(map[ProcessID]ProcessSnapshot, len(t.head.snapshot.state.ProcessSnapshots))
+	for _, snapshot := range t.head.snapshot.state.ProcessSnapshots {
+		acknowledgedByID[snapshot.ProcessID()] = snapshot
+	}
 	for _, process := range orderedProcesses(t.processes) {
 		select {
 		case <-process.handle.outcomePublished:
@@ -422,13 +426,7 @@ func (t *treeRuntime) failDurability(
 		default:
 		}
 		processID := process.handle.processID
-		var acknowledged ProcessSnapshot
-		for _, snapshot := range t.head.snapshot.ProcessSnapshots() {
-			if snapshot.ProcessID() == processID {
-				acknowledged = snapshot
-				break
-			}
-		}
+		acknowledged := acknowledgedByID[processID]
 		if !acknowledged.Valid() {
 			// A prospective child that never entered an acknowledged head has
 			// no published lifecycle to stop.

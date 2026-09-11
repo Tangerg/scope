@@ -30,7 +30,8 @@ type processState struct {
 	pendingControl          pendingControl
 	finalOutput             Output
 	termination             Termination
-	drainedSnapshot         ProcessSnapshot
+	snapshot                ProcessSnapshot
+	snapshotDrained         bool
 
 	// Allocation and authority stay adjacent because every child reservation
 	// must update both before it can become observable.
