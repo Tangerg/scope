@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"slices"
 	"testing"
 	"testing/fstest"
 )
@@ -77,6 +78,14 @@ func TestMergePrecedence(t *testing.T) {
 	}
 	if len(list) != 3 {
 		t.Fatalf("got %d summaries, want 3 (union, deduped): %v", len(list), list)
+	}
+	want := []Summary{
+		{Name: "only-glob", Description: "global only"},
+		{Name: "only-proj", Description: "project only"},
+		{Name: "shared", Description: "PROJECT copy"},
+	}
+	if !slices.Equal(list, want) {
+		t.Fatalf("List = %v, want %v", list, want)
 	}
 
 	// The shared name must resolve to the project copy, not the global one.
@@ -211,6 +220,15 @@ func TestMergeDoesNotMaskMalformedWinningSkill(t *testing.T) {
 		"shared/SKILL.md":           skillFile("shared", "global shared", "global body"),
 		"shared/references/note.md": {Data: []byte("GLOBAL note")},
 	})
+	for _, source := range []ResourceSource{Merge(project, global), Merge(Merge(project), global)} {
+		summaries, listErr := source.List(t.Context())
+		if len(summaries) != 0 || !errors.Is(listErr, ErrInvalidSkill) || !errors.Is(listErr, ErrDescriptionEmpty) {
+			t.Fatalf("List = %v, %v; want malformed winning skill diagnostic", summaries, listErr)
+		}
+		if _, loadErr := source.Load(t.Context(), "shared"); !errors.Is(loadErr, ErrInvalidSkill) {
+			t.Fatalf("Load = %v; want malformed winning skill", loadErr)
+		}
+	}
 
 	_, _, err := ReadResource(t.Context(), Merge(project, global), "shared", "references/note.md", DefaultMaxResourceBytes)
 	if !errors.Is(err, ErrInvalidSkill) {
@@ -250,6 +268,16 @@ func TestMergeObservesCancellationAfterSourceCalls(t *testing.T) {
 			name: "list",
 			source: func(cancel context.CancelFunc) ResourceSource {
 				return cancelAfterListSource{ResourceSource: base, cancel: cancel}
+			},
+			call: func(ctx context.Context, source ResourceSource) error {
+				_, err := source.List(ctx)
+				return err
+			},
+		},
+		{
+			name: "list owner resolution",
+			source: func(cancel context.CancelFunc) ResourceSource {
+				return cancelAfterLoadSource{ResourceSource: base, cancel: cancel}
 			},
 			call: func(ctx context.Context, source ResourceSource) error {
 				_, err := source.List(ctx)

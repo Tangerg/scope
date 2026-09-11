@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"slices"
-	"strings"
 
 	"github.com/samber/lo"
 )
@@ -16,6 +15,8 @@ import (
 // callers express precedence by order (e.g. a project source before a global
 // one). The winning source owns the complete skill bundle; missing resources
 // do not fall through to a lower-precedence copy with the same name.
+// Discovery resolves names through Load too: a malformed winning bundle is
+// reported instead of advertising a lower-precedence copy as loadable.
 //
 // Nil and typed-nil sources are dropped. Merge of none yields an empty source
 // (List returns nothing, Load reports not found).
@@ -36,13 +37,14 @@ type merged struct {
 var _ Source = (*merged)(nil)
 var _ ResourceSource = (*merged)(nil)
 
-// List unions every source's summaries, keeping the first occurrence of each
-// name (precedence by source order) and sorting the result by name.
+// List discovers candidate names, then uses the same owner resolution as Load.
+// It returns sorted summaries or an error from the winning bundle. Loading each
+// candidate is necessary because Source.List may omit malformed bundles.
 func (m *merged) List(ctx context.Context) ([]Summary, error) {
 	if err := contextError(ctx, "list"); err != nil {
 		return nil, err
 	}
-	var out []Summary
+	var names []string
 	seen := make(map[string]struct{})
 	for _, src := range m.sources {
 		if err := contextError(ctx, "list"); err != nil {
@@ -60,15 +62,21 @@ func (m *merged) List(ctx context.Context) ([]Summary, error) {
 				return nil, fmt.Errorf("%w summary %q: %w", ErrInvalidSkill, summary.Name, err)
 			}
 			if _, dup := seen[summary.Name]; dup {
-				continue // a higher-precedence source already provided this name
+				continue
 			}
 			seen[summary.Name] = struct{}{}
-			out = append(out, summary)
+			names = append(names, summary.Name)
 		}
 	}
-	slices.SortFunc(out, func(a, b Summary) int {
-		return strings.Compare(a.Name, b.Name)
-	})
+	slices.Sort(names)
+	var out []Summary
+	for _, name := range names {
+		skill, err := m.Load(ctx, name)
+		if err != nil {
+			return nil, fmt.Errorf("skills: list: %w", err)
+		}
+		out = append(out, skill.Summary())
+	}
 	return out, nil
 }
 
