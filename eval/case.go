@@ -21,7 +21,8 @@ func (c CaseID) Validate() error {
 	return nil
 }
 
-// Case gives a stable identity to one evaluation subject.
+// Case gives a stable identity to one evaluation subject. Subject is borrowed
+// read-only: copying a Case does not copy objects referenced by T.
 type Case[T any] struct {
 	ID       CaseID
 	Subject  T
@@ -43,12 +44,14 @@ func (c Case[T]) clone() Case[T] {
 	return c
 }
 
-// Dataset is an immutable ordered set of uniquely identified cases. Evaluators
-// must not mutate subjects; metadata is owned and cloned by the Dataset.
+// Dataset owns an ordered snapshot of case identities and metadata. Subjects
+// remain borrowed read-only values; callers and evaluators must not mutate
+// referenced objects while the Dataset is in use.
 type Dataset[T any] struct{ cases []Case[T] }
 
-// NewDataset snapshots cases and rejects duplicate identity before experiment
-// scheduling can make result correlation ambiguous.
+// NewDataset snapshots the case container and metadata, preserving Subject by
+// assignment. It rejects duplicate identity before experiment scheduling can
+// make result correlation ambiguous.
 func NewDataset[T any](cases ...Case[T]) (Dataset[T], error) {
 	owned := slices.Clone(cases)
 	seen := make(map[CaseID]struct{}, len(owned))
@@ -67,7 +70,8 @@ func NewDataset[T any](cases ...Case[T]) (Dataset[T], error) {
 
 func (d Dataset[T]) Len() int { return len(d.cases) }
 
-// Cases returns an owned copy in deterministic declaration order.
+// Cases copies the case container and metadata in declaration order. Subject
+// is still borrowed read-only and can share referenced objects with the Dataset.
 func (d Dataset[T]) Cases() []Case[T] {
 	cases := slices.Clone(d.cases)
 	for index := range cases {
