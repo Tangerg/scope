@@ -11,6 +11,15 @@ import (
 
 type runeTokenizer struct{}
 
+type chunkLimitTokenizer struct{ runeTokenizer }
+
+func (c chunkLimitTokenizer) Encode(ctx context.Context, text string) ([]int, error) {
+	if text == "defgh" {
+		return nil, errors.New("tokenizer called after the chunk limit")
+	}
+	return c.runeTokenizer.Encode(ctx, text)
+}
+
 func (runeTokenizer) Encode(ctx context.Context, text string) ([]int, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -62,7 +71,7 @@ func TestTokenSplitterHonorsTokenAndSentenceBounds(t *testing.T) {
 
 func TestTokenSplitterFailsInsteadOfEmittingOversizedTail(t *testing.T) {
 	splitter, err := etl.NewTokenSplitter(etl.TokenSplitterConfig{
-		Tokenizer:         runeTokenizer{},
+		Tokenizer:         chunkLimitTokenizer{},
 		MaxTokensPerChunk: 3,
 		MinTokensPerChunk: 1,
 		MaxChunks:         1,

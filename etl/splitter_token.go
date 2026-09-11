@@ -94,8 +94,8 @@ func NewTokenSplitter(config TokenSplitterConfig) (*TokenSplitter, error) {
 }
 
 // SplitText emits trimmed chunks whose final text stays within the token budget.
-// The remaining source is encoded again after each chunk because trimming can
-// change vocabulary boundaries.
+// Each chunk uses an adaptively sized source probe and an exact final token
+// measurement; chunk boundaries need not match a whole-document tokenization.
 func (t *TokenSplitter) SplitText(ctx context.Context, text string) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -113,14 +113,14 @@ func (t *TokenSplitter) SplitText(ctx context.Context, text string) ([]string, e
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		if len(chunks) == t.maxChunks {
+			return nil, fmt.Errorf("%w: maximum is %d", ErrChunkLimitExceeded, t.maxChunks)
+		}
 		selected, err := t.nextChunk(ctx, text)
 		if err != nil {
 			return nil, err
 		}
 		text = strings.TrimSpace(text[len(selected):])
-		if len(chunks) == t.maxChunks {
-			return nil, fmt.Errorf("%w: maximum is %d", ErrChunkLimitExceeded, t.maxChunks)
-		}
 		chunks = append(chunks, strings.TrimSpace(selected))
 	}
 	return chunks, nil

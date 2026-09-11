@@ -359,6 +359,9 @@ func (s *Splitter) splitParagraph(ctx context.Context, prefix, paragraph string)
 	render := func(body string) string { return renderChunk(prefix, strings.TrimSpace(body)) }
 	var chunks []string
 	for paragraph = strings.TrimSpace(paragraph); paragraph != ""; {
+		if len(chunks) == s.maxChunks {
+			return nil, fmt.Errorf("%w: maximum is %d", etl.ErrChunkLimitExceeded, s.maxChunks)
+		}
 		decoded, err := tokenwindow.Prefix(ctx, s.tokenizer, paragraph, s.maxTokensPerChunk, render)
 		if err != nil {
 			return nil, fmt.Errorf("markdown splitter: select paragraph token window: %w", err)
@@ -368,9 +371,6 @@ func (s *Splitter) splitParagraph(ctx context.Context, prefix, paragraph string)
 			return nil, s.semanticUnitError(ctx, blockParagraph, render(paragraph[:size]))
 		}
 		paragraph = strings.TrimSpace(paragraph[len(decoded):])
-		if len(chunks) == s.maxChunks {
-			return nil, fmt.Errorf("%w: maximum is %d", etl.ErrChunkLimitExceeded, s.maxChunks)
-		}
 		chunks = append(chunks, strings.TrimSpace(decoded))
 	}
 	return chunks, nil
