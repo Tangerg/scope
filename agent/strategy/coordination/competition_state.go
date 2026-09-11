@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
 type competitionPhase string
@@ -43,7 +44,7 @@ func (f firstSuccessState) validate(maxCandidates uint32) error {
 	}
 	for index, started := range f.Starts {
 		candidate := f.Candidates[index]
-		if !started.Valid() || started.Key() != candidate.Key || started.DeploymentRef() != candidate.DeploymentRef {
+		if !started.Valid() || !childcall.StartMatches(started, candidate.Key, candidate.DeploymentRef) {
 			return fmt.Errorf("%w: start fact disagrees with its candidate", ErrInvalidState)
 		}
 		if id, present := started.ProcessID(); present {
@@ -134,9 +135,4 @@ func (f firstSuccessState) result() FirstSuccessResult {
 		result.Winner = &winner
 	}
 	return result
-}
-
-func sameWaitSpec(left, right agent.ChildWaitSpec) bool {
-	return left.Key == right.Key && left.Boundary == right.Boundary && left.Condition == right.Condition &&
-		slices.Equal(left.Children, right.Children)
 }

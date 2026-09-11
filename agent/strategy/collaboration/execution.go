@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
 type execution struct {
@@ -77,7 +78,7 @@ func (e *execution) acceptTurnStart(signals []agent.Signal) (agent.Transition, e
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if started.Key() != key || started.DeploymentRef() != e.definition.coordinator.deploymentRef {
+	if !childcall.StartMatches(started, key, e.definition.coordinator.deploymentRef) {
 		return agent.Transition{}, ErrInvalidProtocol
 	}
 	e.state.Turn.Start = &started
@@ -115,8 +116,7 @@ func (e *execution) acceptOpening(signals []agent.Signal) (agent.Transition, err
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	got := opened.Spec()
-	if got.Key != want.Key || got.Boundary != want.Boundary || got.Condition != want.Condition || !slices.Equal(got.Children, want.Children) {
+	if !childcall.OpeningMatches(opened, want) {
 		return agent.Transition{}, ErrInvalidProtocol
 	}
 	id := opened.WaitID()
@@ -137,7 +137,7 @@ func (e *execution) acceptOutcomes(signals []agent.Signal) (agent.Transition, er
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if e.state.WaitID == nil || satisfied.WaitID() != *e.state.WaitID || satisfied.Key() != want.Key || satisfied.Boundary() != want.Boundary {
+	if e.state.WaitID == nil || !childcall.CompletionMatches(satisfied, *e.state.WaitID, want.Key, want.Boundary) {
 		return agent.Transition{}, ErrInvalidProtocol
 	}
 	outcomes := satisfied.Outcomes()
@@ -193,7 +193,7 @@ func (e *execution) acceptActions(signals []agent.Signal) (agent.Transition, err
 			return agent.Transition{}, err
 		}
 		worker, _ := e.definition.worker(task.Request.Worker)
-		if started.Key() != task.Request.Key || started.DeploymentRef() != worker.deploymentRef {
+		if !childcall.StartMatches(started, task.Request.Key, worker.deploymentRef) {
 			return agent.Transition{}, ErrInvalidProtocol
 		}
 		task.Start = &started

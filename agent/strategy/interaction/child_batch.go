@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 	"github.com/Tangerg/scope/core/chat"
 )
 
@@ -189,7 +190,7 @@ func (c *childCallBatch) acceptStarts(starts []agent.ChildStartResult, bindings 
 	}
 	for offset, index := range pending {
 		start := starts[offset]
-		if start.Key() != *c.Invocations[index].ChildKey || start.DeploymentRef() != bindings[index] {
+		if !childcall.StartMatches(start, *c.Invocations[index].ChildKey, bindings[index]) {
 			return nil, fmt.Errorf("%w: child start does not match its binding", ErrInvalidExecutionState)
 		}
 		if processID, started := start.ProcessID(); started {
@@ -208,9 +209,7 @@ func (c *childCallBatch) acceptStarts(starts []agent.ChildStartResult, bindings 
 }
 
 func (c *childCallBatch) acceptWaitOpened(opened agent.ChildWaitOpened, want agent.ChildWaitSpec) error {
-	got := opened.Spec()
-	if c.WaitID != nil || got.Key != want.Key || got.Boundary != want.Boundary ||
-		got.Condition != want.Condition || !slices.Equal(got.Children, want.Children) {
+	if c.WaitID != nil || !childcall.OpeningMatches(opened, want) {
 		return fmt.Errorf("%w: child wait opening does not match the active batch", ErrInvalidExecutionState)
 	}
 	waitID := opened.WaitID()
@@ -219,8 +218,7 @@ func (c *childCallBatch) acceptWaitOpened(opened agent.ChildWaitOpened, want age
 }
 
 func (c childCallBatch) validateCompletions(completed agent.ChildWaitSatisfied, want agent.ChildWaitSpec) ([]int, error) {
-	if c.WaitID == nil || completed.WaitID() != *c.WaitID ||
-		completed.Key() != want.Key || completed.Boundary() != want.Boundary {
+	if c.WaitID == nil || !childcall.CompletionMatches(completed, *c.WaitID, want.Key, want.Boundary) {
 		return nil, fmt.Errorf("%w: child completion wait mismatch", ErrInvalidExecutionState)
 	}
 	outcomes := completed.Outcomes()

@@ -1,6 +1,9 @@
 package coordination
 
-import agent "github.com/Tangerg/scope/agent"
+import (
+	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
+)
 
 // FirstSuccessResult preserves child-start facts and the terminal outcomes seen
 // before selection. Both slices retain request order. Children absent from
@@ -64,7 +67,7 @@ func matchingStart(starts []agent.ChildStartResult, outcome agent.ChildOutcome) 
 	}
 	for index, started := range starts {
 		id, present := started.ProcessID()
-		if present && started.Key() == outcome.Key() && id == outcome.Result().ProcessID() {
+		if present && childcall.OutcomeMatches(outcome, started.Key(), id) {
 			return index
 		}
 	}

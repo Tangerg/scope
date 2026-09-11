@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
 type phase string
@@ -97,7 +98,7 @@ func matchesOutcome(start *agent.ChildStartResult, outcome *agent.ChildOutcome) 
 		return false
 	}
 	id, present := start.ProcessID()
-	return present && outcome.Key() == start.Key() && outcome.Result().ProcessID() == id
+	return present && childcall.OutcomeMatches(*outcome, start.Key(), id)
 }
 
 func (e *executionState) recordOutcome(outcome agent.ChildOutcome) bool {
@@ -139,7 +140,7 @@ func (e executionState) validate(d *Definition) error {
 		if task.Start == nil {
 			pending++
 		} else {
-			if pending > 0 || !task.Start.Valid() || task.Start.Key() != task.Request.Key || task.Start.DeploymentRef() != worker.deploymentRef {
+			if pending > 0 || !task.Start.Valid() || !childcall.StartMatches(*task.Start, task.Request.Key, worker.deploymentRef) {
 				return ErrInvalidState
 			}
 			if id, present := task.Start.ProcessID(); present {
@@ -258,7 +259,7 @@ func (e executionState) validateTurn(d *Definition, ids []agent.ProcessID) error
 	}
 	if e.Turn.Start != nil {
 		key, err := turnKey(e.Number)
-		if err != nil || !e.Turn.Start.Valid() || e.Turn.Start.Key() != key || e.Turn.Start.DeploymentRef() != d.coordinator.deploymentRef {
+		if err != nil || !e.Turn.Start.Valid() || !childcall.StartMatches(*e.Turn.Start, key, d.coordinator.deploymentRef) {
 			return ErrInvalidState
 		}
 		id, present := e.Turn.Start.ProcessID()

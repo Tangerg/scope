@@ -10,6 +10,7 @@ import (
 	"strconv"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
 type execution struct {
@@ -223,7 +224,7 @@ func (e *execution) acceptChildStart(signals []agent.Signal) (agent.Transition, 
 		return agent.Transition{}, fmt.Errorf("%w: child-start result mismatch: %w", ErrInvalidProtocol, err)
 	}
 	if !found || binding.target != bindingTargetChild || e.state.ChildKey == nil ||
-		result.Key() != *e.state.ChildKey || result.DeploymentRef() != binding.child.DeploymentRef {
+		!childcall.StartMatches(result, *e.state.ChildKey, binding.child.DeploymentRef) {
 		return agent.Transition{}, fmt.Errorf("%w: child-start result mismatch", ErrInvalidProtocol)
 	}
 	consumedSignals := uint32(len(signals))
@@ -261,12 +262,13 @@ func (e *execution) acceptChildWaitOpen(signals []agent.Signal) (agent.Transitio
 		return agent.Transition{}, fmt.Errorf("%w: child wait opening: %w", ErrInvalidProtocol, err)
 	}
 	wantKey, err := planningChildWaitKey(*e.state.ChildKey, *e.state.ChildProcessID)
-	spec := opened.Spec()
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: child wait opening mismatch: %w", ErrInvalidProtocol, err)
 	}
-	if spec.Key != wantKey || spec.Boundary != agent.ChildWaitBoundaryDrained || len(spec.Children) != 1 ||
-		spec.Children[0] != *e.state.ChildProcessID || spec.Condition != agent.AllChildren() {
+	if !childcall.OpeningMatches(opened, agent.ChildWaitSpec{
+		Key: wantKey, Boundary: agent.ChildWaitBoundaryDrained,
+		Children: []agent.ProcessID{*e.state.ChildProcessID}, Condition: agent.AllChildren(),
+	}) {
 		return agent.Transition{}, fmt.Errorf("%w: child wait opening mismatch", ErrInvalidProtocol)
 	}
 	waitID := opened.WaitID()
@@ -283,19 +285,15 @@ func (e *execution) acceptChildCompletion(signals []agent.Signal) (agent.Transit
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: child completion mismatch: %w", ErrInvalidProtocol, err)
 	}
-	if completed.WaitID() != *e.state.WaitID || completed.Boundary() != agent.ChildWaitBoundaryDrained {
-		return agent.Transition{}, fmt.Errorf("%w: child completion mismatch", ErrInvalidProtocol)
-	}
 	wantWaitKey, err := planningChildWaitKey(*e.state.ChildKey, *e.state.ChildProcessID)
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: child completion wait key mismatch: %w", ErrInvalidProtocol, err)
 	}
-	if completed.Key() != wantWaitKey {
-		return agent.Transition{}, fmt.Errorf("%w: child completion wait key mismatch", ErrInvalidProtocol)
+	if !childcall.CompletionMatches(completed, *e.state.WaitID, wantWaitKey, agent.ChildWaitBoundaryDrained) {
+		return agent.Transition{}, fmt.Errorf("%w: child completion wait mismatch", ErrInvalidProtocol)
 	}
 	outcomes := completed.Outcomes()
-	if len(outcomes) != 1 || outcomes[0].Key() != *e.state.ChildKey ||
-		outcomes[0].Result().ProcessID() != *e.state.ChildProcessID {
+	if len(outcomes) != 1 || !childcall.OutcomeMatches(outcomes[0], *e.state.ChildKey, *e.state.ChildProcessID) {
 		return agent.Transition{}, fmt.Errorf("%w: child completion outcome mismatch", ErrInvalidProtocol)
 	}
 	result := outcomes[0].Result()

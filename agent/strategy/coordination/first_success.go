@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
 const firstSuccessStateKind = "coordination.first_success"
@@ -150,7 +151,7 @@ func (f *firstSuccessExecution) acceptStarts(signals []agent.Signal) (agent.Tran
 			return agent.Transition{}, err
 		}
 		candidate := f.state.Candidates[len(f.state.Starts)]
-		if started.Key() != candidate.Key || started.DeploymentRef() != candidate.DeploymentRef {
+		if !childcall.StartMatches(started, candidate.Key, candidate.DeploymentRef) {
 			return agent.Transition{}, fmt.Errorf("%w: child start disagrees with its candidate", ErrInvalidProtocol)
 		}
 		f.state.Starts = append(f.state.Starts, started)
@@ -174,7 +175,7 @@ func (f *firstSuccessExecution) acceptWaitOpen(signals []agent.Signal) (agent.Tr
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if !sameWaitSpec(opened.Spec(), want) {
+	if !childcall.OpeningMatches(opened, want) {
 		return agent.Transition{}, fmt.Errorf("%w: competition wait opening disagrees with remaining candidates", ErrInvalidProtocol)
 	}
 	waitID := opened.WaitID()
@@ -195,7 +196,7 @@ func (f *firstSuccessExecution) acceptOutcomes(ctx context.Context, signals []ag
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if satisfied.WaitID() != *f.state.WaitID || satisfied.Key() != wait.Key || satisfied.Boundary() != wait.Boundary {
+	if !childcall.CompletionMatches(satisfied, *f.state.WaitID, wait.Key, wait.Boundary) {
 		return agent.Transition{}, fmt.Errorf("%w: competition satisfaction addresses a different wait", ErrInvalidProtocol)
 	}
 	outcomes := satisfied.Outcomes()

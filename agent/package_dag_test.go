@@ -13,21 +13,7 @@ import (
 
 const moduleImportPath = "github.com/Tangerg/scope/agent"
 
-var allowedPackageDependencies = map[string]map[string]struct{}{
-	".":                        {},
-	"agenttest":                {".": {}},
-	"strategy/collaboration":   {".": {}},
-	"strategy/coordination":    {".": {}},
-	"messaging":                {".": {}},
-	"strategy/interaction":     {".": {}},
-	"strategy/planning":        {".": {}},
-	"strategy/planning/goap":   {"strategy/planning": {}},
-	"strategy/workflow":        {".": {}},
-	"internal/conformancetest": {".": {}, "agenttest": {}},
-}
-
 func TestProductionPackageDependencyGraph(t *testing.T) {
-	actualPackages := make(map[string]struct{})
 	actualDependencies := make(map[string]map[string]struct{})
 	files := token.NewFileSet()
 	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, walkErr error) error {
@@ -45,7 +31,6 @@ func TestProductionPackageDependencyGraph(t *testing.T) {
 		}
 
 		packagePath := filepath.ToSlash(filepath.Dir(path))
-		actualPackages[packagePath] = struct{}{}
 		if actualDependencies[packagePath] == nil {
 			actualDependencies[packagePath] = make(map[string]struct{})
 		}
@@ -70,16 +55,14 @@ func TestProductionPackageDependencyGraph(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertPackageSet(t, actualPackages)
 	for packagePath, dependencies := range actualDependencies {
-		allowed := allowedPackageDependencies[packagePath]
 		for dependency := range dependencies {
-			if _, ok := allowed[dependency]; !ok {
+			if !allowedAgentDependency(packagePath, dependency) {
 				t.Errorf("production package %q imports forbidden agent package %q", packagePath, dependency)
 			}
 		}
 	}
-	assertAcyclicPackageGraph(t)
+	assertAcyclicPackageGraph(t, actualDependencies)
 }
 
 func assertExternalPackageBoundary(t *testing.T, packagePath string, sourcePath string, importPath string) {
@@ -89,11 +72,11 @@ func assertExternalPackageBoundary(t *testing.T, packagePath string, sourcePath 
 		t.Errorf("%s imports Host application package %q", sourcePath, importPath)
 	case isPackageOrChild(importPath, "github.com/Tangerg/flow"):
 		t.Errorf("%s imports flow instead of keeping managed Workflow execution Framework-owned: %q", sourcePath, importPath)
-	case isPackageOrChild(importPath, "go.opentelemetry.io/otel") && packagePath != "otel":
-		t.Errorf("%s imports OpenTelemetry outside the otel adapter: %q", sourcePath, importPath)
+	case isPackageOrChild(importPath, "go.opentelemetry.io/otel"):
+		t.Errorf("%s imports OpenTelemetry inside Agent: %q", sourcePath, importPath)
 	case importPath == "log/slog":
 		t.Errorf("%s imports a logging backend instead of publishing Framework observations", sourcePath)
-	case isInteractionDependency(importPath) && packagePath != "strategy/interaction":
+	case isInteractionDependency(importPath) && !isPackageOrChild(packagePath, "strategy/interaction"):
 		t.Errorf("%s imports Interaction-owned protocol %q outside the interaction package", sourcePath, importPath)
 	}
 }
@@ -124,48 +107,82 @@ func internalPackagePath(importPath string) (string, bool) {
 	return strings.TrimPrefix(importPath, prefix), true
 }
 
-func assertPackageSet(t *testing.T, actual map[string]struct{}) {
-	t.Helper()
-	for packagePath := range actual {
-		if _, ok := allowedPackageDependencies[packagePath]; !ok {
-			t.Errorf("production package %q is not part of the accepted agent package graph", packagePath)
-		}
+// The guard follows ownership roles so a new private protocol package does not
+// require an inventory exception. Concrete Strategies compose through Agent.
+func allowedAgentDependency(source, dependency string) bool {
+	if source == "." {
+		return false
 	}
-	for packagePath := range allowedPackageDependencies {
-		if _, ok := actual[packagePath]; !ok {
-			t.Errorf("accepted production package %q has no production Go source", packagePath)
+	if dependency == "." {
+		return true
+	}
+	if isPackageOrChild(source, "internal/conformancetest") {
+		return isPackageOrChild(dependency, "agenttest") || isPackageOrChild(dependency, "internal/conformancetest")
+	}
+	if isPackageOrChild(source, "strategy/internal") {
+		return isPackageOrChild(dependency, "strategy/internal")
+	}
+	if strings.HasPrefix(source, "strategy/") {
+		owner, _, _ := strings.Cut(strings.TrimPrefix(source, "strategy/"), "/")
+		return isPackageOrChild(dependency, "strategy/"+owner) || isPackageOrChild(dependency, "strategy/internal")
+	}
+	owner, _, _ := strings.Cut(source, "/")
+	return isPackageOrChild(dependency, owner)
+}
+
+func TestAgentDependencyOwnershipRules(t *testing.T) {
+	for _, test := range []struct {
+		source     string
+		dependency string
+		allowed    bool
+	}{
+		{".", "strategy/workflow", false},
+		{".", "strategy/internal/childcall", false},
+		{"strategy/workflow", ".", true},
+		{"strategy/workflow", "strategy/internal/newprotocol", true},
+		{"strategy/internal/newprotocol", ".", true},
+		{"strategy/internal/newprotocol", "strategy/workflow", false},
+		{"strategy/workflow", "strategy/planning", false},
+		{"strategy/planning/goap", "strategy/planning", true},
+		{"strategy/interaction", "agenttest", false},
+		{"messaging", "strategy/collaboration", false},
+		{"messaging", "messaging/internal/codec", true},
+		{"internal/conformancetest", "agenttest", true},
+	} {
+		if got := allowedAgentDependency(test.source, test.dependency); got != test.allowed {
+			t.Errorf("dependency %s -> %s allowed = %v, want %v", test.source, test.dependency, got, test.allowed)
 		}
 	}
 }
 
-func assertAcyclicPackageGraph(t *testing.T) {
+func assertAcyclicPackageGraph(t *testing.T, dependencies map[string]map[string]struct{}) {
 	t.Helper()
 	const (
 		unvisited = iota
 		visiting
 		visited
 	)
-	states := make(map[string]int, len(allowedPackageDependencies))
+	states := make(map[string]int, len(dependencies))
 	var visit func(string)
 	visit = func(packagePath string) {
 		switch states[packagePath] {
 		case visiting:
-			t.Errorf("accepted package graph contains a cycle through %q", packagePath)
+			t.Errorf("production package graph contains a cycle through %q", packagePath)
 			return
 		case visited:
 			return
 		}
 		states[packagePath] = visiting
-		for dependency := range allowedPackageDependencies[packagePath] {
-			if _, ok := allowedPackageDependencies[dependency]; !ok {
-				t.Errorf("accepted package %q points to undeclared package %q", packagePath, dependency)
+		for dependency := range dependencies[packagePath] {
+			if _, ok := dependencies[dependency]; !ok {
+				t.Errorf("production package %q points to missing package %q", packagePath, dependency)
 				continue
 			}
 			visit(dependency)
 		}
 		states[packagePath] = visited
 	}
-	for packagePath := range allowedPackageDependencies {
+	for packagePath := range dependencies {
 		visit(packagePath)
 	}
 }
