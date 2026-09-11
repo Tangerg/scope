@@ -88,13 +88,23 @@ const (
 )
 
 func (s *signalMailbox) enqueue(status Status, signal Signal, source signalSource) (bool, error) {
-	if !signal.Valid() || (source != signalSourceExternal && source != signalSourceChildWait) {
-		return false, fmt.Errorf("%w: %w", ErrSignalRejected, ErrInvalidSignal)
+	record, err := newAdmissionRecord(signal, source)
+	if err != nil {
+		return false, err
 	}
-	return s.enqueueRecord(status, newSignalRecord(signal, false), source)
+	return s.enqueueRecord(status, record, source)
 }
 
 func (s *signalMailbox) enqueueRecord(status Status, record signalRecord, source signalSource) (bool, error) {
+	accepted, err := s.validateRecord(status, record, source)
+	if err != nil || !accepted {
+		return accepted, err
+	}
+	s.acceptRecord(record)
+	return true, nil
+}
+
+func (s signalMailbox) validateRecord(status Status, record signalRecord, source signalSource) (bool, error) {
 	if index, exists := s.seen[record.id]; exists {
 		if !s.records[index].sameContent(record) {
 			return false, ErrSignalConflict
@@ -113,13 +123,19 @@ func (s *signalMailbox) enqueueRecord(status Status, record signalRecord, source
 			!acceptsAnswer {
 			return false, ErrSignalRejected
 		}
-		wait.answered = true
-		s.waits[waitID] = wait
 	} else if source != signalSourceExternal || (status != StatusRunning && status != StatusPaused && status != StatusWaiting) {
 		return false, ErrSignalRejected
 	}
-	s.appendRecord(record)
 	return true, nil
+}
+
+func (s *signalMailbox) acceptRecord(record signalRecord) {
+	if record.waitID.Valid() {
+		wait := s.waits[record.waitID]
+		wait.answered = true
+		s.waits[record.waitID] = wait
+	}
+	s.appendRecord(record)
 }
 
 func (s *signalMailbox) openWait(key WaitKey, signal Signal, externallyAddressable bool) error {

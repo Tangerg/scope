@@ -117,35 +117,13 @@ func (p *processState) recordParentTermination(parent Termination) {
 	}
 }
 
-// Admission validates identity and wait authority before charging resources.
-// The candidate keeps a rejected batch from changing any mailbox or wait state.
+// Admission validates the complete batch before changing mailbox or wait state.
 func (p *processState) admitSignals(signals []Signal, source signalSource) (bool, error) {
-	candidate := p.mailbox.clone()
-	status := p.status
-	duplicate := false
-	for _, signal := range signals {
-		accepted, err := candidate.enqueue(status, signal, source)
-		if err != nil {
-			return false, err
-		}
-		if !accepted {
-			duplicate = true
-			continue
-		}
-		if status == StatusWaiting {
-			waitID, _ := signal.WaitID()
-			if source == signalSourceExternal {
-				wait := p.mailbox.waits[p.currentWaitID]
-				if waitID != p.currentWaitID && (waitID.Valid() || wait.externallyAddressable) {
-					return false, ErrSignalRejected
-				}
-			}
-			if waitID == p.currentWaitID {
-				status = StatusRunning
-			}
-		}
+	admission, err := p.mailbox.prepareAdmission(p.status, p.currentWaitID, signals, source)
+	if err != nil {
+		return false, err
 	}
-	if duplicate {
+	if admission.duplicate {
 		return false, nil
 	}
 	count := uint64(len(signals))
@@ -159,8 +137,10 @@ func (p *processState) admitSignals(signals []Signal, source signalSource) (bool
 		!resourceQuantitiesFit(p.budget.Signals, p.usage.AcceptedSignals, reservedBudget.Signals, reserved, count) {
 		return false, ErrResourceLimitExceeded
 	}
-	p.mailbox = candidate
-	if p.status == StatusWaiting && status == StatusRunning {
+	for _, record := range admission.records {
+		p.mailbox.acceptRecord(record)
+	}
+	if p.status == StatusWaiting && admission.status == StatusRunning {
 		p.status = StatusRunning
 		p.currentWaitID = WaitID{}
 	}
