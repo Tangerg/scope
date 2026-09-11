@@ -10,7 +10,7 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-func TestToolConcurrencyKeyDefaultsToExclusive(t *testing.T) {
+func TestToolConcurrencyPolicyDefaultsToExclusive(t *testing.T) {
 	client := new(a2aclient.Client)
 	tool, err := newRemoteTool(remoteToolConfig{
 		client: client,
@@ -21,23 +21,12 @@ func TestToolConcurrencyKeyDefaultsToExclusive(t *testing.T) {
 		t.Fatalf("newRemoteTool: %v", err)
 	}
 
-	binding, err := toolcontract.Bind(tool)
-	if err != nil {
-		t.Fatal(err)
-	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{
-		ID: "test-call", Name: binding.Contract().Definition().Name, Arguments: `{"message":"one"}`,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	key, concurrent := tool.ConcurrencyKey(invocation)
-	if key != "" || concurrent {
-		t.Fatalf("ConcurrencyKey() = %q, %v, want exclusive", key, concurrent)
+	if tool.ConcurrencyPolicy() != nil {
+		t.Fatal("default tool must not declare parallel execution")
 	}
 }
 
-func TestToolConcurrencyKeyUsesHostPolicy(t *testing.T) {
+func TestToolConcurrencyPolicyUsesHostPolicy(t *testing.T) {
 	var received toolcontract.Invocation
 	remote, err := newRemoteTool(remoteToolConfig{
 		client: new(a2aclient.Client),
@@ -60,7 +49,7 @@ func TestToolConcurrencyKeyUsesHostPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, concurrent := remote.ConcurrencyKey(invocation)
+	key, concurrent := remote.ConcurrencyPolicy()(invocation)
 	if key != "shared-account" || !concurrent || string(received.Arguments()) != `{"message":"write"}` {
 		t.Fatalf("policy result = %q, %v; arguments = %s", key, concurrent, received.Arguments())
 	}

@@ -17,6 +17,8 @@ import (
 // False keeps a call exclusive; true permits overlap except for equal non-empty
 // keys. The invocation has passed schema validation. The callback must be
 // deterministic, side-effect-free, and safe for concurrent use and replay.
+// It must not capture a Tool, client, or execution backend; schedulers retain
+// this declaration independently of the endpoint's execution lifetime.
 type ToolConcurrencyPolicy func(toolcontract.Invocation) (key string, concurrent bool)
 
 // Endpoint describes one remote A2A agent to expose as a chat tool. Its zero

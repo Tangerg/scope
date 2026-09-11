@@ -74,12 +74,9 @@ func newRemoteTool(config remoteToolConfig) (remoteTool, error) {
 
 func (r remoteTool) Definition() corechat.ToolDefinition { return r.definition.Clone() }
 
-// ConcurrencyKey applies the endpoint's explicit host scheduling policy.
-func (r remoteTool) ConcurrencyKey(invocation toolcontract.Invocation) (key string, concurrent bool) {
-	if r.concurrencyPolicy == nil {
-		return "", false
-	}
-	return r.concurrencyPolicy(invocation)
+// ConcurrencyPolicy exports only the host's independent scheduling declaration.
+func (r remoteTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
+	return r.concurrencyPolicy
 }
 
 // Each remote call owns a client span named `a2a.agent.call <name>` with

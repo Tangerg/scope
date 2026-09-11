@@ -188,7 +188,7 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatalf("mutating returned definition changed A2A tool schema prefix to %q", got)
 	}
 	scheduled, ok := tool.(interface {
-		ConcurrencyKey(toolcontract.Invocation) (string, bool)
+		ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool)
 	})
 	if !ok {
 		t.Fatal("remote tool lost its scheduling capability")
@@ -201,7 +201,7 @@ func TestRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if key, concurrent := scheduled.ConcurrencyKey(invocation); key != `{"message":"hello"}` || !concurrent {
+	if key, concurrent := scheduled.ConcurrencyPolicy()(invocation); key != `{"message":"hello"}` || !concurrent {
 		t.Fatalf("endpoint concurrency policy = %q, %v", key, concurrent)
 	}
 
