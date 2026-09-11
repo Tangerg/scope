@@ -86,6 +86,9 @@ type ExpansionConfig struct {
 	Retriever Retriever
 	Expander  Expander
 	Fusion    ReciprocalRankFusionConfig
+	// MaxConcurrentRetrievals bounds expanded-query retrievals per invocation.
+	// Zero uses DefaultMaxConcurrentRetrievals; one is sequential.
+	MaxConcurrentRetrievals int
 }
 
 // WithExpander returns a [Retriever] that retrieves each expanded query under
@@ -103,12 +106,17 @@ func WithExpander(config ExpansionConfig) (Retriever, error) {
 		return nil, err
 	}
 
+	concurrency, err := normalizeRetrievalConcurrency(config.MaxConcurrentRetrievals)
+	if err != nil {
+		return nil, err
+	}
+
 	return composedRetriever(func(ctx context.Context, query Query) (Candidates, error) {
 		queries, err := expand(ctx, config.Expander, query)
 		if err != nil {
 			return nil, fmt.Errorf("rag: expand query: %w", err)
 		}
-		rankings, err := parallelResults(ctx, "rag.WithExpander", queries, "query", fusion.MaxConcurrentRetrievals,
+		rankings, err := parallelResults(ctx, "rag.WithExpander", queries, "query", concurrency,
 			func(ctx context.Context, _ int, q Query) (Candidates, error) {
 				return retrieve(ctx, q, config.Retriever.Retrieve)
 			})
@@ -206,6 +214,22 @@ func refine(ctx context.Context, refiner Refiner, query Query, candidates Candid
 		return nil, err
 	}
 	return refined, nil
+}
+
+// DefaultMaxConcurrentRetrievals bounds fan-out when no limit is specified.
+const DefaultMaxConcurrentRetrievals = 4
+
+// ErrInvalidRetrievalConcurrency rejects a negative retrieval concurrency bound.
+var ErrInvalidRetrievalConcurrency = errors.New("rag: retrieval concurrency must not be negative")
+
+func normalizeRetrievalConcurrency(limit int) (int, error) {
+	if limit < 0 {
+		return 0, ErrInvalidRetrievalConcurrency
+	}
+	if limit == 0 {
+		return DefaultMaxConcurrentRetrievals, nil
+	}
+	return limit, nil
 }
 
 func parallelResults[Item, Out any](

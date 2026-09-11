@@ -42,10 +42,10 @@
 //
 // [ReciprocalRankFusion] combines independent rankings without comparing their
 // raw scores. [WithExpander] applies the same fusion to independent queries.
-// Both bound active retrieval calls through [ReciprocalRankFusionConfig].
+// Both configure retrieval concurrency independently from [ReciprocalRankFusionConfig].
 //
 //	top, err := rag.TopK(topK)
-//	combined, err := rag.ReciprocalRankFusion(rag.ReciprocalRankFusionConfig{}, vectorR1, vectorR2)
+//	combined, err := rag.ReciprocalRankFusion(rag.FusionRetrieverConfig{}, vectorR1, vectorR2)
 //	r, err := rag.WithRefiners(combined, top)
 //
 // [TopK] only sorts and caps a comparable result. [Dedup] independently keeps

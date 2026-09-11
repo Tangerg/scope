@@ -164,7 +164,7 @@ func (f *fakeRetriever) Retrieve(_ context.Context, q rag.Query) (rag.Candidates
 func TestRetrieveValidatesCandidates(t *testing.T) {
 	retriever := &fakeRetriever{docs: rag.Candidates{{}}}
 	query, _ := rag.NewQuery("query")
-	composed, err := rag.ReciprocalRankFusion(rag.ReciprocalRankFusionConfig{}, rag.RetrieverFunc(retriever.Retrieve))
+	composed, err := rag.ReciprocalRankFusion(rag.FusionRetrieverConfig{}, rag.RetrieverFunc(retriever.Retrieve))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func TestFusionUnionsResults(t *testing.T) {
 	r1 := &fakeRetriever{docs: rag.Candidates{candidate(docA)}}
 	r2 := &fakeRetriever{docs: rag.Candidates{candidate(docB)}}
 
-	combined, err := rag.ReciprocalRankFusion(rag.ReciprocalRankFusionConfig{}, r1, r2)
+	combined, err := rag.ReciprocalRankFusion(rag.FusionRetrieverConfig{}, r1, r2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +314,7 @@ func TestFusionRejectsPartialResults(t *testing.T) {
 	r1 := &fakeRetriever{docs: rag.Candidates{candidate(docA)}}
 	r2 := &fakeRetriever{err: errors.New("retriever 2 broken")}
 
-	combined, err := rag.ReciprocalRankFusion(rag.ReciprocalRankFusionConfig{}, r1, r2)
+	combined, err := rag.ReciprocalRankFusion(rag.FusionRetrieverConfig{}, r1, r2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +328,7 @@ func TestFusionRejectsPartialResults(t *testing.T) {
 }
 
 func TestFusionAcceptsEmptySuccessfulResults(t *testing.T) {
-	combined, err := rag.ReciprocalRankFusion(rag.ReciprocalRankFusionConfig{}, &fakeRetriever{}, &fakeRetriever{})
+	combined, err := rag.ReciprocalRankFusion(rag.FusionRetrieverConfig{}, &fakeRetriever{}, &fakeRetriever{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +355,7 @@ func TestFusionOwnsConfigurationAndOrdersFailuresByDeclaration(t *testing.T) {
 		return nil, secondFailure
 	})
 	retrievers := []rag.Retriever{first, second}
-	combined, err := rag.ReciprocalRankFusion(rag.ReciprocalRankFusionConfig{}, retrievers...)
+	combined, err := rag.ReciprocalRankFusion(rag.FusionRetrieverConfig{}, retrievers...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +382,7 @@ func TestCombinatorsRejectNilCapabilitiesAtConstruction(t *testing.T) {
 	if _, err := rag.WithRefiners(&fakeRetriever{}, nil); !errors.Is(err, rag.ErrNilRefiner) {
 		t.Fatalf("WithRefiners error = %v, want ErrNilRefiner", err)
 	}
-	if _, err := rag.ReciprocalRankFusion(rag.ReciprocalRankFusionConfig{}, &fakeRetriever{}, nil); !errors.Is(err, rag.ErrNilRetriever) {
+	if _, err := rag.ReciprocalRankFusion(rag.FusionRetrieverConfig{}, &fakeRetriever{}, nil); !errors.Is(err, rag.ErrNilRetriever) {
 		t.Fatalf("ReciprocalRankFusion error = %v, want ErrNilRetriever", err)
 	}
 }

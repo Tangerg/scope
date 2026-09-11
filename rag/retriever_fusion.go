@@ -16,31 +16,16 @@ var ErrInvalidRankConstant = errors.New("rag: reciprocal-rank constant must not 
 // DefaultReciprocalRankConstant is the conventional RRF smoothing constant.
 const DefaultReciprocalRankConstant = 60
 
-// DefaultMaxConcurrentRetrievals bounds fan-out when no limit is specified.
-const DefaultMaxConcurrentRetrievals = 4
-
-// ErrInvalidRetrievalConcurrency rejects a negative retrieval concurrency bound.
-var ErrInvalidRetrievalConcurrency = errors.New("rag: retrieval concurrency must not be negative")
-
-// ReciprocalRankFusionConfig controls ranking and per-call retrieval fan-out.
+// ReciprocalRankFusionConfig controls reciprocal-rank weighting.
 // RankConstant is added to each one-based rank before reciprocal weighting;
-// zero uses [DefaultReciprocalRankConstant]. MaxConcurrentRetrievals bounds
-// active child calls; zero uses [DefaultMaxConcurrentRetrievals], and one
-// executes sequentially. The bound applies independently to each invocation.
+// zero uses [DefaultReciprocalRankConstant].
 type ReciprocalRankFusionConfig struct {
-	RankConstant            int
-	MaxConcurrentRetrievals int
+	RankConstant int
 }
 
 func (r ReciprocalRankFusionConfig) normalized() (ReciprocalRankFusionConfig, error) {
 	if r.RankConstant < 0 {
 		return ReciprocalRankFusionConfig{}, ErrInvalidRankConstant
-	}
-	if r.MaxConcurrentRetrievals < 0 {
-		return ReciprocalRankFusionConfig{}, ErrInvalidRetrievalConcurrency
-	}
-	if r.MaxConcurrentRetrievals == 0 {
-		r.MaxConcurrentRetrievals = DefaultMaxConcurrentRetrievals
 	}
 	if r.RankConstant == 0 {
 		r.RankConstant = DefaultReciprocalRankConstant
@@ -48,13 +33,25 @@ func (r ReciprocalRankFusionConfig) normalized() (ReciprocalRankFusionConfig, er
 	return r, nil
 }
 
+// FusionRetrieverConfig selects ranking policy and retrieval scheduling.
+type FusionRetrieverConfig struct {
+	Fusion ReciprocalRankFusionConfig
+	// MaxConcurrentRetrievals bounds active child calls independently per
+	// invocation. Zero uses DefaultMaxConcurrentRetrievals; one is sequential.
+	MaxConcurrentRetrievals int
+}
+
 // ReciprocalRankFusion returns a retriever that concurrently executes each
 // input retriever and fuses their ordered results using reciprocal-rank
 // fusion. Raw candidate scores are deliberately ignored because independent
 // retrievers commonly use incomparable score scales. Every retriever must
 // succeed; failures are reported in declaration order without partial results.
-func ReciprocalRankFusion(config ReciprocalRankFusionConfig, retrievers ...Retriever) (Retriever, error) {
-	config, err := config.normalized()
+func ReciprocalRankFusion(config FusionRetrieverConfig, retrievers ...Retriever) (Retriever, error) {
+	fusion, err := config.Fusion.normalized()
+	if err != nil {
+		return nil, err
+	}
+	concurrency, err := normalizeRetrievalConcurrency(config.MaxConcurrentRetrievals)
 	if err != nil {
 		return nil, err
 	}
@@ -68,26 +65,27 @@ func ReciprocalRankFusion(config ReciprocalRankFusionConfig, retrievers ...Retri
 		}
 	}
 
-	return reciprocalRankFusion{config: config, retrievers: owned}, nil
+	return reciprocalRankFusion{fusion: fusion, maxConcurrentRetrievals: concurrency, retrievers: owned}, nil
 }
 
 type reciprocalRankFusion struct {
-	config     ReciprocalRankFusionConfig
-	retrievers []Retriever
+	fusion                  ReciprocalRankFusionConfig
+	maxConcurrentRetrievals int
+	retrievers              []Retriever
 }
 
 func (r reciprocalRankFusion) Retrieve(ctx context.Context, query Query) (candidates Candidates, err error) {
 	if validateErr := query.Validate(); validateErr != nil {
 		return nil, validateErr
 	}
-	rankings, err := parallelResults(ctx, "rag.ReciprocalRankFusion", r.retrievers, "retriever", r.config.MaxConcurrentRetrievals,
+	rankings, err := parallelResults(ctx, "rag.ReciprocalRankFusion", r.retrievers, "retriever", r.maxConcurrentRetrievals,
 		func(ctx context.Context, _ int, retriever Retriever) (Candidates, error) {
 			return retrieve(ctx, query, retriever.Retrieve)
 		})
 	if err != nil {
 		return nil, err
 	}
-	return fuseRankings(ctx, rankings, r.config.RankConstant)
+	return fuseRankings(ctx, rankings, r.fusion.RankConstant)
 }
 
 func fuseRankings(ctx context.Context, rankings []Candidates, rankConstant int) (Candidates, error) {

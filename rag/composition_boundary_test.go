@@ -20,7 +20,7 @@ func TestComposedRetrieversRejectInputBeforeCallingStages(t *testing.T) {
 			var err error
 			switch name {
 			case "fusion":
-				composed, err = rag.ReciprocalRankFusion(rag.ReciprocalRankFusionConfig{}, base)
+				composed, err = rag.ReciprocalRankFusion(rag.FusionRetrieverConfig{}, base)
 			case "transformers":
 				composed, err = rag.WithTransformers(base, rag.TransformerFunc(func(_ context.Context, query rag.Query) (rag.Query, error) {
 					calls++
