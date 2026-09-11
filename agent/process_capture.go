@@ -1,6 +1,9 @@
 package agent
 
 func (p *processState) capture() (ProcessSnapshot, error) {
+	if p.drainedSnapshot.Valid() {
+		return p.drainedSnapshot, nil
+	}
 	wire := processSnapshotWire{
 		ProcessID:     p.handle.processID,
 		Relation:      p.handle.relation.wire(),
@@ -36,7 +39,13 @@ func (p *processState) capture() (ProcessSnapshot, error) {
 		prepared := p.prepared.snapshot()
 		wire.Prepared = &prepared
 	}
-	return processSnapshotFromWire(wire)
+	snapshot, err := processSnapshotFromWire(wire)
+	if err == nil && p.status.Terminal() && p.handle.joinDone() {
+		// Join proves that child admission, descendant work, and acknowledgments
+		// have drained. Terminal protocol state cannot change after this boundary.
+		p.drainedSnapshot = snapshot
+	}
+	return snapshot, err
 }
 
 func (p *processState) result() Result {

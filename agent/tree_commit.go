@@ -213,7 +213,7 @@ func (t *treeRuntime) discardChildStart(plan *childStartPlan) {
 	parentID, _ := plan.relation.ParentID()
 	parent := t.processes[parentID]
 	if child := t.processes[plan.childID]; child != nil {
-		delete(t.processes, plan.childID)
+		t.removeProcess(plan.childID)
 		if parent != nil {
 			parent.releaseCommittedChildBudget(plan.spec.Budget)
 		}
@@ -433,7 +433,7 @@ func (t *treeRuntime) failDurability(
 			// A prospective child that never entered an acknowledged head has
 			// no published lifecycle to stop.
 			t.engine.discardProcessStartReservation(processID)
-			delete(t.processes, processID)
+			t.removeProcess(processID)
 			continue
 		}
 		failure := newTreeDurabilityFailure(cause)

@@ -33,6 +33,7 @@ type treeRuntime struct {
 	// Everything below is owner-line state. Keeping it lock-free makes commit,
 	// scheduling, freeze, and checkpoint order a single explicit state machine.
 	processes           map[ProcessID]*processState
+	childrenByParent    map[ProcessID][]ProcessID
 	childWaits          map[WaitID]*childWaitRegistration
 	processQueue        []ProcessID
 	queued              map[ProcessID]struct{}
@@ -203,6 +204,7 @@ func newTreeRuntime(
 		completions:         make(chan treeJobCompletion),
 		inspections:         make(chan chan treeInspectionResponse, treeCommandBufferCapacity),
 		processes:           make(map[ProcessID]*processState, len(processes)),
+		childrenByParent:    make(map[ProcessID][]ProcessID),
 		childWaits:          make(map[WaitID]*childWaitRegistration),
 		queued:              make(map[ProcessID]struct{}, len(processes)),
 		jobs:                make(map[ProcessID]*processJob, len(processes)),
@@ -230,22 +232,6 @@ func (t *treeRuntime) establishDurableHead(
 	}
 	t.incarnation = incarnation
 	t.advanceHead(snapshot)
-}
-
-func (t *treeRuntime) addProcess(process *processState) {
-	if t == nil || process == nil || process.handle == nil ||
-		process.handle.relation.RootID() != t.rootID {
-		panic("agent: invalid tree Process")
-	}
-	processID := process.handle.processID
-	if t.processes[processID] != nil {
-		panic("agent: duplicate tree Process")
-	}
-	process.handle.runtime.Store(t)
-	t.processes[processID] = process
-	if !process.status.Terminal() {
-		t.enqueueProcess(processID)
-	}
 }
 
 func (t *treeRuntime) run(rootContext context.Context) {

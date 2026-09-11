@@ -214,11 +214,8 @@ func (t *treeRuntime) stopProcessTree(process *processState) {
 		}
 		t.enqueueProcess(process.handle.processID)
 	}
-	for _, child := range t.processes {
-		parentID, isChild := child.handle.relation.ParentID()
-		if !isChild || parentID != process.handle.processID {
-			continue
-		}
+	for _, childID := range t.childrenByParent[process.handle.processID] {
+		child := t.processes[childID]
 		if !child.status.Terminal() {
 			child.recordParentTermination(termination)
 		}

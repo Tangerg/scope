@@ -120,7 +120,7 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 		if !last.result().Valid() {
 			t.Fatal("invalid child result")
 		}
-		runtime.processes[id] = last
+		runtime.addProcess(last)
 		children = append(children, id)
 	}
 	runtime.childWaits[waitID] = &childWaitRegistration{

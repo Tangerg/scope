@@ -65,7 +65,7 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 		handle: handle, status: StatusCompleted, startedAt: parent.startedAt,
 		finishedAt: parent.startedAt, finalOutput: output, termination: termination,
 	}
-	runtime.processes[childID] = child
+	runtime.addProcess(child)
 	handle.publishResult(child.result())
 	handle.finishBookkeeping()
 	waitID, _ := ParseWaitID("wait:completed-child-drain")

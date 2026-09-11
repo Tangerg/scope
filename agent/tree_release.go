@@ -43,10 +43,8 @@ func (e *Engine) ReleaseTree(ctx context.Context, rootID ProcessID) error {
 	if e.trees[rootID] != runtime {
 		return ErrInvalidProcessRelation
 	}
-	for processID, handle := range e.processes {
-		if handle.relation.RootID() != rootID {
-			continue
-		}
+	for processID, process := range runtime.processes {
+		handle := process.handle
 		if parentID, child := handle.relation.ParentID(); child {
 			key, _ := handle.relation.ChildKey()
 			delete(e.children, childIdentity{parent: parentID, key: key})

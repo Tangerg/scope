@@ -120,6 +120,7 @@ func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 	if parent.effectiveReservedBudget() != (Budget{}) || len(runtime.processes) != 1 {
 		t.Fatal("rejected child settlement retained its budget or prospective Process")
 	}
+	assertTreeMembership(t, runtime)
 	assertNoPendingProcessStarts(t, engine)
 	if err := engine.reserveProcessStart(prepared.plan.relation, spec.DeploymentRef, parent.treeLimits, prepared.plan.requestDigest); err != nil {
 		t.Fatalf("released child identity and key could not be reserved again: %v", err)

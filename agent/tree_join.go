@@ -30,11 +30,8 @@ func (t *treeRuntime) publishJoins() bool {
 			unresolved = append(unresolved, failure.UnresolvedEffectIDs()...)
 		}
 		ready := true
-		for _, child := range processes {
-			parentID, hasParent := child.handle.relation.ParentID()
-			if !hasParent || parentID != process.handle.processID {
-				continue
-			}
+		for _, childID := range t.childrenByParent[process.handle.processID] {
+			child := t.processes[childID]
 			select {
 			case <-child.handle.joined:
 				if childFailure, ok := errors.AsType[*RuntimeError](child.handle.joinError()); ok {
