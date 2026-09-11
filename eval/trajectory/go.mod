@@ -3,8 +3,8 @@ module github.com/Tangerg/scope/eval/trajectory
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/agent v0.18.1-0.20260911064211-87051908682b
-	github.com/Tangerg/scope/core v0.18.1-0.20260911043248-58865d5a1930
+	github.com/Tangerg/scope/agent v0.18.1-0.20260911091101-cedc063a4e87
+	github.com/Tangerg/scope/core v0.18.1-0.20260911090050-5409a35242da
 	github.com/Tangerg/scope/eval v0.18.0
 )
 

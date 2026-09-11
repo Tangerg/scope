@@ -1,5 +1,5 @@
-github.com/Tangerg/scope/core v0.18.0 h1:OKFQukMeGMWhGLOVN25UD0fbllAyrpbOEZGtcXMjHN8=
-github.com/Tangerg/scope/core v0.18.0/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
+github.com/Tangerg/scope/core v0.18.1-0.20260911090050-5409a35242da h1:V+BRfLqns4qWoRyyoH+WFQbT02YQ/7Kd6nwFc12Dg8k=
+github.com/Tangerg/scope/core v0.18.1-0.20260911090050-5409a35242da/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
 github.com/Tangerg/scope/models/assemblyai v0.18.0 h1:/OB5qO0zwr+vKDWJEauWBxVVXWVfbMRfs5IqES/0krw=
 github.com/Tangerg/scope/models/assemblyai v0.18.0/go.mod h1:SoBQcXSRmI+hJn2QZpQqV0NvVPfBVFHaRiIQ1JIEDag=
 github.com/Tangerg/scope/models/blackforestlabs v0.18.0 h1:YAQbDjesBBmaBsvJWIOsOmyWBX0Go1CaOiBMtWji9K4=
@@ -12,8 +12,8 @@ github.com/Tangerg/scope/models/replicate v0.18.0 h1:jG+3VxPxnShZB4/62clN1Y6NLKW
 github.com/Tangerg/scope/models/replicate v0.18.0/go.mod h1:gnY+k8Zq9K/YeJ8CIXTbF00ZUD4xtV+NUGW7GxJV8v4=
 github.com/Tangerg/scope/models/revai v0.18.0 h1:XllpU5N1/69fOJiyLGkwIKRPCpsoMhyZ1grOcYZf0AM=
 github.com/Tangerg/scope/models/revai v0.18.0/go.mod h1:+j5WPOLFCUr+e+8z96b2rO2uBUrGPJmZXsN0+86YYOI=
-github.com/Tangerg/scope/tools v0.18.0 h1:Z3EvyM6urX/dXMvlEewqHRy30Wx7WRnbFwFlzp17Mjg=
-github.com/Tangerg/scope/tools v0.18.0/go.mod h1:GTBaoOjwQskIBcQIMklTAGGV4CXQhBzEvxyZEf8G+7g=
+github.com/Tangerg/scope/tools v0.18.1-0.20260911090650-2baf792c4e73 h1:pliPZHgm1JtZ2wCeW2/CY5tfU5fb+zqqj1EZFsiSxEU=
+github.com/Tangerg/scope/tools v0.18.1-0.20260911090650-2baf792c4e73/go.mod h1:y7TKjlT35kbWlILQhEFZlHp//QDS+/IQTEN7lLmutTQ=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
 github.com/bahlo/generic-list-go v0.2.0/go.mod h1:2KvAjgMlE5NNynlg/5iLrrCCZ2+5xWbdbCW3pNTGyYg=
 github.com/buger/jsonparser v1.6.1 h1:I0phFv0PlbLHnM7TZAVjZ2MJ2/eWRTDyuO7GLR98IEs=

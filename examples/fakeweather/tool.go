@@ -199,3 +199,6 @@ func (t *Tool) generate(_ context.Context, req Request) (*Response, error) {
 func (t *Tool) log(key, value string) {
 	_, _ = fmt.Fprintf(t.writer, "[fakeweather] %s: %s\n", key, value)
 }
+
+// Unwrap exposes the typed input contract through tool decorators.
+func (t *Tool) Unwrap() toolcontract.Tool { return t.typed }
