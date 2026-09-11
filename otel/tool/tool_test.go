@@ -77,7 +77,7 @@ func TestMiddlewareTracesAndMeasuresExactToolBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Prepare(chat.ToolCall{ID: "test", Name: "lookup", Arguments: `{"key":"secret"}`})
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "test", Name: "lookup", Arguments: `{"key":"secret"}`})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestMiddlewareClassifiesWrappedCancellationWithoutChangingError(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Prepare(chat.ToolCall{ID: "test", Name: "lookup", Arguments: `{}`})
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "test", Name: "lookup", Arguments: `{}`})
 	if err != nil {
 		t.Fatal(err)
 	}
