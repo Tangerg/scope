@@ -1,6 +1,6 @@
-// Package childcall correlates parsed Framework child responses with the
-// Strategy's declared request. Strategies own progress, result membership,
-// ordering, and failure policy; this package neither parses nor advances them.
+// Package childcall owns Framework child response correlation and recoverable
+// single-child handshake progress. Strategies own invocation keys, signal
+// consumption, result interpretation, and failure policy.
 package childcall
 
 import (

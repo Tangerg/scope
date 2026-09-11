@@ -37,11 +37,14 @@ func (f fixtureGatedExecution) Step(ctx context.Context, signals []agent.Signal)
 	}
 	var state struct {
 		Phase string `json:"phase"`
+		Child *struct {
+			ProcessID string `json:"process_id"`
+		} `json:"child"`
 	}
 	if err := json.Unmarshal(s.Payload(), &state); err != nil {
 		return agent.Transition{}, err
 	}
-	if state.Phase == "awaiting_child_start" {
+	if state.Phase == "child" && state.Child != nil && state.Child.ProcessID == "" {
 		select {
 		case <-f.gate:
 		case <-ctx.Done():

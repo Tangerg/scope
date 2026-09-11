@@ -5,15 +5,14 @@ import (
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
 type phase string
 
 const (
 	phaseReady                  phase = "ready"
-	phaseAwaitingChildStart     phase = "awaiting_child_start"
-	phaseAwaitingChildWaitOpen  phase = "awaiting_child_wait_open"
-	phaseWaitingChild           phase = "waiting_child"
+	phaseChild                  phase = "child"
 	phaseAwaitingFanoutStarts   phase = "awaiting_fanout_starts"
 	phaseAwaitingFanoutWaitOpen phase = "awaiting_fanout_wait_open"
 	phaseWaitingFanout          phase = "waiting_fanout"
@@ -22,8 +21,7 @@ const (
 
 func (p phase) valid() bool {
 	switch p {
-	case phaseReady, phaseAwaitingChildStart, phaseAwaitingChildWaitOpen,
-		phaseWaitingChild, phaseAwaitingFanoutStarts, phaseAwaitingFanoutWaitOpen,
+	case phaseReady, phaseChild, phaseAwaitingFanoutStarts, phaseAwaitingFanoutWaitOpen,
 		phaseWaitingFanout, phaseCompleted:
 		return true
 	default:
@@ -36,8 +34,8 @@ type executionState struct {
 	StageIndex             uint32             `json:"stage_index"`
 	CurrentValue           json.RawMessage    `json:"current_value"`
 	SelectedCaseID         string             `json:"selected_case_id,omitempty"`
-	ChildProcessID         *agent.ProcessID   `json:"child_process_id,omitempty"`
-	WaitID                 *agent.WaitID      `json:"wait_id,omitempty"`
+	Child                  *childcall.Single  `json:"child,omitempty"`
+	FanoutWaitID           *agent.WaitID      `json:"fanout_wait_id,omitempty"`
 	ActiveFanoutWindow     []fanoutChildState `json:"active_fanout_window,omitempty"`
 	CompletedFanoutOutputs []json.RawMessage  `json:"completed_fanout_outputs,omitempty"`
 	LoopIteration          uint32             `json:"loop_iteration,omitempty"`
@@ -73,27 +71,17 @@ func (e executionState) validate(definition *Definition) error {
 }
 
 func (e executionState) validatePhaseState(definition *Definition) error {
-	hasChild := e.ChildProcessID != nil && e.ChildProcessID.Valid()
-	hasWait := e.WaitID != nil && e.WaitID.Valid()
 	switch e.Phase {
 	case phaseReady:
 		if e.StageIndex >= uint32(len(definition.stages)) || !e.noProgress() {
 			return ErrInvalidExecutionState
 		}
-	case phaseAwaitingChildStart:
-		if !e.singleChildStage(definition) || e.ChildProcessID != nil || e.WaitID != nil || e.hasFanoutProgress() {
-			return ErrInvalidExecutionState
-		}
-	case phaseAwaitingChildWaitOpen:
-		if !e.singleChildStage(definition) || !hasChild || e.WaitID != nil || e.hasFanoutProgress() {
-			return ErrInvalidExecutionState
-		}
-	case phaseWaitingChild:
-		if !e.singleChildStage(definition) || !hasChild || !hasWait || e.hasFanoutProgress() {
+	case phaseChild:
+		if !e.singleChildStage(definition) || e.Child == nil || e.hasFanoutProgress() {
 			return ErrInvalidExecutionState
 		}
 	case phaseAwaitingFanoutStarts, phaseAwaitingFanoutWaitOpen, phaseWaitingFanout:
-		if e.SelectedCaseID != "" || e.ChildProcessID != nil || e.LoopIteration != 0 {
+		if e.SelectedCaseID != "" || e.Child != nil || e.LoopIteration != 0 {
 			return ErrInvalidExecutionState
 		}
 		if err := e.validateFanout(definition); err != nil {
@@ -127,13 +115,13 @@ func (e executionState) singleChildStage(definition *Definition) bool {
 }
 
 func (e executionState) noProgress() bool {
-	return e.SelectedCaseID == "" && e.ChildProcessID == nil && e.WaitID == nil &&
+	return e.SelectedCaseID == "" && e.Child == nil && e.FanoutWaitID == nil &&
 		e.ActiveFanoutWindow == nil && e.CompletedFanoutOutputs == nil &&
 		e.LoopIteration == 0
 }
 
 func (e executionState) hasFanoutProgress() bool {
-	return e.ActiveFanoutWindow != nil || e.CompletedFanoutOutputs != nil
+	return e.FanoutWaitID != nil || e.ActiveFanoutWindow != nil || e.CompletedFanoutOutputs != nil
 }
 
 func (e executionState) validateFanout(definition *Definition) error {
@@ -216,11 +204,11 @@ func (e executionState) validateCompletedFanoutOutputs(stage Stage) error {
 func (e executionState) validateFanoutPhase(resolved, started int) error {
 	switch e.Phase {
 	case phaseAwaitingFanoutStarts:
-		if e.WaitID != nil || resolved != 0 && started != 0 {
+		if e.FanoutWaitID != nil || resolved != 0 && started != 0 {
 			return ErrInvalidExecutionState
 		}
 	case phaseAwaitingFanoutWaitOpen:
-		if e.WaitID != nil || resolved != len(e.ActiveFanoutWindow) || started == 0 {
+		if e.FanoutWaitID != nil || resolved != len(e.ActiveFanoutWindow) || started == 0 {
 			return ErrInvalidExecutionState
 		}
 		for _, child := range e.ActiveFanoutWindow {
@@ -229,7 +217,7 @@ func (e executionState) validateFanoutPhase(resolved, started int) error {
 			}
 		}
 	case phaseWaitingFanout:
-		if e.WaitID == nil || !e.WaitID.Valid() || resolved != len(e.ActiveFanoutWindow) || started == 0 {
+		if e.FanoutWaitID == nil || !e.FanoutWaitID.Valid() || resolved != len(e.ActiveFanoutWindow) || started == 0 {
 			return ErrInvalidExecutionState
 		}
 	default:

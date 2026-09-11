@@ -216,3 +216,69 @@ func TestExecutionPreservesSignalDecodeCause(t *testing.T) {
 		t.Fatalf("Step error = %v, want protocol and unknown member causes", err)
 	}
 }
+
+func TestRestoreKeepsSingleChildProgressWithinItsAction(t *testing.T) {
+	done := mustCondition(t, "world.done", planning.True)
+	action := mustAction(t, planning.ActionConfig{
+		Name: "finish", Description: "Complete the work.", Effects: []planning.Condition{done},
+	})
+	world := newManagedWorld(t)
+	child := newManagedDeployment(t, managedDeploymentConfig{
+		goal: mustGoal(t, done), bindings: []planning.ActionBinding{mustDispatcherBinding(t, action)},
+		executors: map[string]planning.ActionExecutor{"finish": world.apply(action)}, sensor: world,
+	})
+	binding, err := planning.NewChildBinding(planning.ChildBindingConfig{
+		Action: action, DeploymentRef: child.DeploymentRef(), Budget: agent.Budget{Steps: 32, Effects: 32, Signals: 64},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition := newManagedDefinition(t, managedDeploymentConfig{goal: mustGoal(t, done), bindings: []planning.ActionBinding{binding}})
+	for _, test := range []struct {
+		phase string
+		child json.RawMessage
+		valid bool
+	}{
+		{"child", json.RawMessage(`{}`), true},
+		{"child", json.RawMessage(`{"process_id":"child"}`), true},
+		{"child", json.RawMessage(`{"process_id":"child","wait_id":"wait"}`), true},
+		{"child", json.RawMessage(`null`), false},
+		{"child", json.RawMessage(`{"wait_id":"wait"}`), false},
+		{"child", json.RawMessage(`{"process_id":"child","unknown":true}`), false},
+		{"awaiting_sense", json.RawMessage(`{}`), false},
+		{"awaiting_action", json.RawMessage(`{}`), false},
+	} {
+		payload, encodeErr := json.Marshal(struct {
+			Phase          string          `json:"phase"`
+			Input          json.RawMessage `json:"input"`
+			WorldState     json.RawMessage `json:"world_state"`
+			PlanningPasses uint32          `json:"planning_passes"`
+			Action         string          `json:"current_action_name"`
+			Child          json.RawMessage `json:"child"`
+		}{test.phase, json.RawMessage(`{}`), json.RawMessage(`{"conditions":[]}`), 1, "finish", test.child})
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
+		state, stateErr := agent.NewExecutionState("planning", payload)
+		if stateErr != nil {
+			t.Fatal(stateErr)
+		}
+		restored, restoreErr := definition.Restore(state)
+		if !test.valid {
+			if !errors.Is(restoreErr, planning.ErrInvalidExecutionState) {
+				t.Fatalf("Restore(%s) error=%v", payload, restoreErr)
+			}
+			continue
+		}
+		if restoreErr != nil {
+			t.Fatalf("Restore(%s): %v", payload, restoreErr)
+		}
+		snapshot, snapshotErr := restored.Snapshot()
+		if snapshotErr != nil {
+			t.Fatal(snapshotErr)
+		}
+		if _, restoreAgainErr := definition.Restore(snapshot); restoreAgainErr != nil {
+			t.Fatal(restoreAgainErr)
+		}
+	}
+}

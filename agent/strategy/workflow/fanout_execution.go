@@ -127,13 +127,13 @@ func (e *execution) acceptFanoutWaitOpen(signals []agent.Signal) (agent.Transiti
 		return agent.Transition{}, fmt.Errorf("%w: fan-out child wait does not match Stage %q", ErrInvalidProtocol, e.stage().id)
 	}
 	waitID := opened.WaitID()
-	e.state.WaitID = &waitID
+	e.state.FanoutWaitID = &waitID
 	e.state.Phase = phaseWaitingFanout
 	return agent.Wait(1, waitID)
 }
 
 func (e *execution) acceptFanoutCompletion(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
-	if len(signals) == 0 || e.state.WaitID == nil {
+	if len(signals) == 0 || e.state.FanoutWaitID == nil {
 		return agent.Transition{}, fmt.Errorf("%w: fan-out completion requires one active child wait Signal", ErrInvalidProtocol)
 	}
 	completed, err := agent.ParseChildWaitSatisfied(signals[0])
@@ -144,7 +144,7 @@ func (e *execution) acceptFanoutCompletion(ctx context.Context, signals []agent.
 	if keyErr != nil {
 		return agent.Transition{}, fmt.Errorf("%w: fan-out completion does not match Stage %q: %w", ErrInvalidProtocol, e.stage().id, keyErr)
 	}
-	if !childcall.CompletionMatches(completed, *e.state.WaitID, wantKey, agent.ChildWaitBoundaryDrained) {
+	if !childcall.CompletionMatches(completed, *e.state.FanoutWaitID, wantKey, agent.ChildWaitBoundaryDrained) {
 		return agent.Transition{}, fmt.Errorf("%w: fan-out completion does not match Stage %q", ErrInvalidProtocol, e.stage().id)
 	}
 	outcomes := completed.Outcomes()
@@ -182,7 +182,7 @@ func (e *execution) acceptFanoutCompletion(ctx context.Context, signals []agent.
 		return agent.Fail(1, failure)
 	}
 	e.state.CompletedFanoutOutputs = append(e.state.CompletedFanoutOutputs, windowOutputs...)
-	e.state.WaitID = nil
+	e.state.FanoutWaitID = nil
 	e.state.ActiveFanoutWindow = nil
 	count, err := e.stage().fanoutCount(e.state.CurrentValue)
 	if err != nil {

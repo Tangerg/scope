@@ -92,7 +92,7 @@ func TestFanoutRestoreRejectsInvalidWindowState(t *testing.T) {
 			name: "duplicate children in active wait",
 			fields: map[string]json.RawMessage{
 				"phase":                json.RawMessage(`"waiting_fanout"`),
-				"wait_id":              json.RawMessage(`"wait"`),
+				"fanout_wait_id":       json.RawMessage(`"wait"`),
 				"active_fanout_window": json.RawMessage(`[{"child_process_id":"child"},{"child_process_id":"child"}]`),
 			},
 		},

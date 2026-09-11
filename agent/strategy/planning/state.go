@@ -9,24 +9,23 @@ import (
 	"unicode/utf8"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
 type phase string
 
 const (
-	phaseReadySense            phase = "ready_sense"
-	phaseAwaitingSense         phase = "awaiting_sense"
-	phaseAwaitingAction        phase = "awaiting_action"
-	phaseAwaitingChildStart    phase = "awaiting_child_start"
-	phaseAwaitingChildWaitOpen phase = "awaiting_child_wait_open"
-	phaseWaitingChild          phase = "waiting_child"
-	phaseCompleted             phase = "completed"
+	phaseReadySense     phase = "ready_sense"
+	phaseAwaitingSense  phase = "awaiting_sense"
+	phaseAwaitingAction phase = "awaiting_action"
+	phaseChild          phase = "child"
+	phaseCompleted      phase = "completed"
 )
 
 func (p phase) valid() bool {
 	switch p {
 	case phaseReadySense, phaseAwaitingSense, phaseAwaitingAction,
-		phaseAwaitingChildStart, phaseAwaitingChildWaitOpen, phaseWaitingChild, phaseCompleted:
+		phaseChild, phaseCompleted:
 		return true
 	default:
 		return false
@@ -34,58 +33,13 @@ func (p phase) valid() bool {
 }
 
 type executionState struct {
-	Phase             phase            `json:"phase"`
-	Input             json.RawMessage  `json:"input"`
-	WorldState        WorldState       `json:"world_state"`
-	PlanningPasses    uint32           `json:"planning_passes"`
-	Attempts          []Attempt        `json:"attempts,omitempty"`
-	CurrentActionName string           `json:"current_action_name,omitempty"`
-	ChildKey          *agent.ChildKey  `json:"child_key,omitempty"`
-	ChildProcessID    *agent.ProcessID `json:"child_process_id,omitempty"`
-	WaitID            *agent.WaitID    `json:"wait_id,omitempty"`
-}
-
-type phaseField uint8
-
-const (
-	phaseFieldAbsent phaseField = iota
-	phaseFieldOptional
-	phaseFieldRequired
-)
-
-type phaseShape struct {
-	action         phaseField
-	childKey       phaseField
-	childProcessID phaseField
-	waitID         phaseField
-	initial        bool
-}
-
-func (p phase) shape() (phaseShape, bool) {
-	switch p {
-	case phaseReadySense:
-		return phaseShape{initial: true}, true
-	case phaseAwaitingSense:
-		return phaseShape{action: phaseFieldOptional}, true
-	case phaseAwaitingAction:
-		return phaseShape{action: phaseFieldRequired}, true
-	case phaseAwaitingChildStart:
-		return phaseShape{action: phaseFieldRequired, childKey: phaseFieldRequired}, true
-	case phaseAwaitingChildWaitOpen:
-		return phaseShape{
-			action: phaseFieldRequired, childKey: phaseFieldRequired,
-			childProcessID: phaseFieldRequired,
-		}, true
-	case phaseWaitingChild:
-		return phaseShape{
-			action: phaseFieldRequired, childKey: phaseFieldRequired,
-			childProcessID: phaseFieldRequired, waitID: phaseFieldRequired,
-		}, true
-	case phaseCompleted:
-		return phaseShape{}, true
-	default:
-		return phaseShape{}, false
-	}
+	Phase             phase             `json:"phase"`
+	Input             json.RawMessage   `json:"input"`
+	WorldState        WorldState        `json:"world_state"`
+	PlanningPasses    uint32            `json:"planning_passes"`
+	Attempts          []Attempt         `json:"attempts,omitempty"`
+	CurrentActionName string            `json:"current_action_name,omitempty"`
+	Child             *childcall.Single `json:"child,omitempty"`
 }
 
 func (e executionState) validate(definition *Definition) error {
@@ -143,19 +97,8 @@ func (e executionState) validateCurrentAction(definition *Definition) error {
 		return fmt.Errorf("%w: current Action is excluded", ErrInvalidExecutionState)
 	}
 	if e.Phase == phaseAwaitingAction && binding.target != bindingTargetDispatcher ||
-		(e.Phase == phaseAwaitingChildStart || e.Phase == phaseAwaitingChildWaitOpen ||
-			e.Phase == phaseWaitingChild) && binding.target != bindingTargetChild {
+		e.Phase == phaseChild && binding.target != bindingTargetChild {
 		return fmt.Errorf("%w: current Action does not match the execution phase", ErrInvalidExecutionState)
-	}
-	if binding.target != bindingTargetChild || e.ChildKey == nil {
-		return nil
-	}
-	wantKey, err := planningChildKey(e.CurrentActionName, uint32(len(e.Attempts)+1))
-	if err != nil {
-		return fmt.Errorf("%w: child key does not match the Action attempt: %w", ErrInvalidExecutionState, err)
-	}
-	if *e.ChildKey != wantKey {
-		return fmt.Errorf("%w: child key does not match the Action attempt", ErrInvalidExecutionState)
 	}
 	return nil
 }
@@ -182,7 +125,7 @@ func (e executionState) validateProgress(definition *Definition) error {
 			!e.awaitingConfirmation() && passes != attempts {
 			return fmt.Errorf("%w: sensing phase counters are inconsistent", ErrInvalidExecutionState)
 		}
-	case phaseAwaitingAction, phaseAwaitingChildStart, phaseAwaitingChildWaitOpen, phaseWaitingChild:
+	case phaseAwaitingAction, phaseChild:
 		if passes != attempts+1 {
 			return fmt.Errorf("%w: active Action counters are inconsistent", ErrInvalidExecutionState)
 		}
@@ -191,32 +134,21 @@ func (e executionState) validateProgress(definition *Definition) error {
 }
 
 func (e executionState) validatePhase() error {
-	shape, found := e.Phase.shape()
-	hasAction := e.CurrentActionName != ""
-	if !found || !shape.action.matches(hasAction, true) ||
-		!shape.childKey.matches(e.ChildKey != nil, e.ChildKey != nil && e.ChildKey.Valid()) ||
-		!shape.childProcessID.matches(
-			e.ChildProcessID != nil,
-			e.ChildProcessID != nil && e.ChildProcessID.Valid(),
-		) ||
-		!shape.waitID.matches(e.WaitID != nil, e.WaitID != nil && e.WaitID.Valid()) ||
-		shape.initial && (e.PlanningPasses != 0 || len(e.Attempts) != 0) {
+	if (e.Child != nil) != (e.Phase == phaseChild) {
 		return ErrInvalidExecutionState
 	}
-	return nil
-}
-
-func (p phaseField) matches(present bool, valid bool) bool {
-	switch p {
-	case phaseFieldAbsent:
-		return !present
-	case phaseFieldOptional:
-		return !present || valid
-	case phaseFieldRequired:
-		return present && valid
-	default:
-		return false
+	hasAction := e.CurrentActionName != ""
+	switch e.Phase {
+	case phaseReadySense, phaseCompleted:
+		if hasAction {
+			return ErrInvalidExecutionState
+		}
+	case phaseAwaitingAction, phaseChild:
+		if !hasAction {
+			return ErrInvalidExecutionState
+		}
 	}
+	return nil
 }
 
 func (e executionState) awaitingConfirmation() bool {
@@ -249,17 +181,11 @@ func (e *executionState) recordFailedAction(reason string) {
 	e.CurrentActionName = ""
 }
 
-func (e *executionState) clearChild() {
-	e.ChildKey = nil
-	e.ChildProcessID = nil
-	e.WaitID = nil
-}
-
 func (e *executionState) complete(definition *Definition) (Output, error) {
 	candidate := *e
 	candidate.Phase = phaseCompleted
 	candidate.CurrentActionName = ""
-	candidate.clearChild()
+	candidate.Child = nil
 	if err := candidate.validate(definition); err != nil {
 		return Output{}, err
 	}

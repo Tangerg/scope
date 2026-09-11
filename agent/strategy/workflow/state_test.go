@@ -18,7 +18,7 @@ func TestRestoreRejectsUnknownAndContradictoryState(t *testing.T) {
 	for name, payload := range map[string]json.RawMessage{
 		"unknown field":            json.RawMessage(`{"phase":"ready","stage_index":0,"current_value":{"value":1},"unknown":true}`),
 		"finished as ready":        json.RawMessage(`{"phase":"ready","stage_index":1,"current_value":{"value":1}}`),
-		"child in transform":       json.RawMessage(`{"phase":"awaiting_child_start","stage_index":0,"current_value":{"value":1}}`),
+		"child in transform":       json.RawMessage(`{"phase":"child","stage_index":0,"current_value":{"value":1},"child":{}}`),
 		"Loop cursor in Transform": json.RawMessage(`{"phase":"ready","stage_index":0,"current_value":{"value":1},"loop_iteration":1}`),
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -49,15 +49,15 @@ func TestExecutionRejectsMissingProtocolSignals(t *testing.T) {
 	}{
 		"child start": {
 			definition: callDefinition,
-			payload:    `{"phase":"awaiting_child_start","stage_index":0,"current_value":{"value":1}}`,
+			payload:    `{"phase":"child","stage_index":0,"current_value":{"value":1},"child":{}}`,
 		},
 		"child wait opening": {
 			definition: callDefinition,
-			payload:    `{"phase":"awaiting_child_wait_open","stage_index":0,"current_value":{"value":1},"child_process_id":"child"}`,
+			payload:    `{"phase":"child","stage_index":0,"current_value":{"value":1},"child":{"process_id":"child"}}`,
 		},
 		"child completion": {
 			definition: callDefinition,
-			payload:    `{"phase":"waiting_child","stage_index":0,"current_value":{"value":1},"child_process_id":"child","wait_id":"wait"}`,
+			payload:    `{"phase":"child","stage_index":0,"current_value":{"value":1},"child":{"process_id":"child","wait_id":"wait"}}`,
 		},
 		"fan-out starts": {
 			definition: fanoutDefinition,
@@ -69,7 +69,7 @@ func TestExecutionRejectsMissingProtocolSignals(t *testing.T) {
 		},
 		"fan-out completion": {
 			definition: fanoutDefinition,
-			payload:    `{"phase":"waiting_fanout","stage_index":0,"current_value":{"value":1},"wait_id":"wait","active_fanout_window":[{"child_process_id":"child"}]}`,
+			payload:    `{"phase":"waiting_fanout","stage_index":0,"current_value":{"value":1},"fanout_wait_id":"wait","active_fanout_window":[{"child_process_id":"child"}]}`,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -85,6 +85,24 @@ func TestExecutionRejectsMissingProtocolSignals(t *testing.T) {
 				t.Fatalf("Step error = %v", err)
 			}
 		})
+	}
+}
+
+func TestRestoreRejectsContradictorySingleChildProgress(t *testing.T) {
+	definition, _ := protocolTestDefinitions(t)
+	for _, payload := range []string{
+		`{"phase":"child","stage_index":0,"current_value":{"value":1}}`,
+		`{"phase":"child","stage_index":0,"current_value":{"value":1},"child":{"wait_id":"wait"}}`,
+		`{"phase":"child","stage_index":0,"current_value":{"value":1},"child":{},"fanout_wait_id":"wait"}`,
+		`{"phase":"ready","stage_index":0,"current_value":{"value":1},"child":{}}`,
+	} {
+		state, err := agent.NewExecutionState(executionStateKind, json.RawMessage(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := definition.Restore(state); !errors.Is(err, ErrInvalidExecutionState) {
+			t.Fatalf("Restore(%s) error=%v", payload, err)
+		}
 	}
 }
 

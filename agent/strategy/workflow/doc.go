@@ -11,6 +11,8 @@
 // to drain and propagates its first failure in declaration order. The Process
 // tree retains the child identity and Stage binding; Workflow-owned decisions
 // use workflow-prefixed failure codes.
+// Single-child Stages also wait for the child subtree to drain. Restoring any
+// handshake boundary resumes the same invocation and its Engine-assigned wait.
 //
 // Transform, Switch, Fork, and Loop callbacks run inside a discardable Step.
 // They must be bounded, deterministic, side-effect-free, and cooperate with

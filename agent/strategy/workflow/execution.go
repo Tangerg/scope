@@ -26,12 +26,8 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 	switch e.state.Phase {
 	case phaseReady:
 		return e.advance(ctx, signals)
-	case phaseAwaitingChildStart:
-		return e.acceptChildStart(signals)
-	case phaseAwaitingChildWaitOpen:
-		return e.acceptChildWaitOpen(signals)
-	case phaseWaitingChild:
-		return e.acceptChildCompletion(ctx, signals)
+	case phaseChild:
+		return e.advanceChild(ctx, signals)
 	case phaseAwaitingFanoutStarts:
 		return e.acceptFanoutStarts(signals)
 	case phaseAwaitingFanoutWaitOpen:
@@ -130,7 +126,8 @@ func (e *execution) startSingleChild(consumedSignals uint32, binding childBindin
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	e.state.Phase = phaseAwaitingChildStart
+	e.state.Child = &childcall.Single{}
+	e.state.Phase = phaseChild
 	return agent.Continue(consumedSignals, effect)
 }
 
@@ -150,8 +147,7 @@ func (e *execution) singleChildBinding() (childBinding, bool) {
 
 func (e *execution) clearSingleChild() {
 	e.state.SelectedCaseID = ""
-	e.state.ChildProcessID = nil
-	e.state.WaitID = nil
+	e.state.Child = nil
 }
 
 func (e *execution) stageInvocationLabel() string {
@@ -164,94 +160,56 @@ func (e *execution) stageInvocationLabel() string {
 	return e.stage().id
 }
 
-func (e *execution) acceptChildStart(signals []agent.Signal) (agent.Transition, error) {
+func (e *execution) advanceChild(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if len(signals) == 0 {
-		return agent.Transition{}, fmt.Errorf("%w: child start requires its settlement Signal", ErrInvalidProtocol)
+		return agent.Transition{}, fmt.Errorf("%w: child handshake requires its settlement Signal", ErrInvalidProtocol)
 	}
-	result, err := agent.ParseChildStartResult(signals[0])
-	key, keyErr := e.childKey()
-	binding, bound := e.singleChildBinding()
-	stage := e.stage()
+	key, err := e.childKey()
 	if err != nil {
-		return agent.Transition{}, fmt.Errorf("%w: child-start result does not match Stage %q: %w", ErrInvalidProtocol, stage.id, err)
-	}
-	if keyErr != nil {
-		return agent.Transition{}, fmt.Errorf("%w: child-start result does not match Stage %q: %w", ErrInvalidProtocol, stage.id, keyErr)
-	}
-	if !bound || !childcall.StartMatches(result, key, binding.deploymentRef) {
-		return agent.Transition{}, fmt.Errorf("%w: child-start result does not match Stage %q", ErrInvalidProtocol, stage.id)
-	}
-	if failure, failed := result.Failure(); failed {
-		return agent.Fail(1, failure)
-	}
-	childID, started := result.ProcessID()
-	if !started {
-		return agent.Transition{}, fmt.Errorf("%w: child-start result has no Process", ErrInvalidProtocol)
+		return agent.Transition{}, err
 	}
 	waitKey, err := e.waitKey()
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	effect, err := agent.WaitForChildren(agent.ChildWaitSpec{
-		Boundary: agent.ChildWaitBoundaryDrained,
-		Key:      waitKey, Children: []agent.ProcessID{childID}, Condition: agent.AllChildren(),
-	})
+	switch e.state.Child.Phase() {
+	case childcall.AwaitingStart:
+		return e.acceptChildStart(signals[0], key, waitKey)
+	case childcall.AwaitingOpening:
+		waitID, openErr := e.state.Child.AcceptOpening(signals[0], waitKey, agent.ChildWaitBoundaryDrained)
+		if openErr != nil {
+			return agent.Transition{}, fmt.Errorf("%w: Stage %q child wait opening: %w", ErrInvalidProtocol, e.stage().id, openErr)
+		}
+		return agent.Wait(1, waitID)
+	default:
+		result, completeErr := e.state.Child.Complete(signals[0], key, waitKey, agent.ChildWaitBoundaryDrained)
+		if completeErr != nil {
+			return agent.Transition{}, fmt.Errorf("%w: Stage %q child completion: %w", ErrInvalidProtocol, e.stage().id, completeErr)
+		}
+		return e.acceptChildCompletion(ctx, result)
+	}
+}
+
+func (e *execution) acceptChildStart(signal agent.Signal, key agent.ChildKey, waitKey agent.WaitKey) (agent.Transition, error) {
+	binding, bound := e.singleChildBinding()
+	if !bound {
+		return agent.Transition{}, ErrInvalidExecutionState
+	}
+	result, err := e.state.Child.AcceptStart(signal, key, binding.deploymentRef)
+	if err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: Stage %q child start: %w", ErrInvalidProtocol, e.stage().id, err)
+	}
+	if failure, failed := result.Failure(); failed {
+		return agent.Fail(1, failure)
+	}
+	effect, err := e.state.Child.WaitEffect(waitKey, agent.ChildWaitBoundaryDrained)
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	e.state.ChildProcessID = &childID
-	e.state.Phase = phaseAwaitingChildWaitOpen
 	return agent.Continue(1, effect)
 }
 
-func (e *execution) acceptChildWaitOpen(signals []agent.Signal) (agent.Transition, error) {
-	if len(signals) == 0 || e.state.ChildProcessID == nil {
-		return agent.Transition{}, fmt.Errorf("%w: child wait opening requires its settlement Signal", ErrInvalidProtocol)
-	}
-	opened, err := agent.ParseChildWaitOpened(signals[0])
-	wantKey, keyErr := e.waitKey()
-	if err != nil {
-		return agent.Transition{}, fmt.Errorf("%w: child wait opening does not match Stage %q: %w", ErrInvalidProtocol, e.stage().id, err)
-	}
-	if keyErr != nil {
-		return agent.Transition{}, fmt.Errorf("%w: child wait opening does not match Stage %q: %w", ErrInvalidProtocol, e.stage().id, keyErr)
-	}
-	if !childcall.OpeningMatches(opened, agent.ChildWaitSpec{
-		Key: wantKey, Boundary: agent.ChildWaitBoundaryDrained,
-		Children: []agent.ProcessID{*e.state.ChildProcessID}, Condition: agent.AllChildren(),
-	}) {
-		return agent.Transition{}, fmt.Errorf("%w: child wait opening does not match Stage %q", ErrInvalidProtocol, e.stage().id)
-	}
-	waitID := opened.WaitID()
-	e.state.WaitID = &waitID
-	e.state.Phase = phaseWaitingChild
-	return agent.Wait(1, waitID)
-}
-
-func (e *execution) acceptChildCompletion(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
-	if len(signals) == 0 || e.state.ChildProcessID == nil || e.state.WaitID == nil {
-		return agent.Transition{}, fmt.Errorf("%w: child completion requires one active child wait Signal", ErrInvalidProtocol)
-	}
-	completed, err := agent.ParseChildWaitSatisfied(signals[0])
-	wantWaitKey, keyErr := e.waitKey()
-	if err != nil {
-		return agent.Transition{}, fmt.Errorf("%w: child completion does not match Stage %q: %w", ErrInvalidProtocol, e.stage().id, err)
-	}
-	if keyErr != nil {
-		return agent.Transition{}, fmt.Errorf("%w: child completion does not match Stage %q: %w", ErrInvalidProtocol, e.stage().id, keyErr)
-	}
-	if !childcall.CompletionMatches(completed, *e.state.WaitID, wantWaitKey, agent.ChildWaitBoundaryDrained) {
-		return agent.Transition{}, fmt.Errorf("%w: child completion does not match Stage %q", ErrInvalidProtocol, e.stage().id)
-	}
-	outcomes := completed.Outcomes()
-	wantChildKey, err := e.childKey()
-	if err != nil {
-		return agent.Transition{}, fmt.Errorf("%w: child outcome does not match Stage %q: %w", ErrInvalidProtocol, e.stage().id, err)
-	}
-	if len(outcomes) != 1 || !childcall.OutcomeMatches(outcomes[0], wantChildKey, *e.state.ChildProcessID) {
-		return agent.Transition{}, fmt.Errorf("%w: child outcome does not match Stage %q", ErrInvalidProtocol, e.stage().id)
-	}
-	result := outcomes[0].Result()
+func (e *execution) acceptChildCompletion(ctx context.Context, result agent.Result) (agent.Transition, error) {
 	if result.Status() != agent.StatusCompleted {
 		if failure, failed := result.Termination().Failure(); failed {
 			return agent.Fail(1, failure)

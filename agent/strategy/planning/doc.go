@@ -13,4 +13,7 @@
 // successful remains current until sensing confirms its predicted effects;
 // failed or unconfirmed Actions are excluded from subsequent planning. Restore
 // reconstructs those decisions from the same facts used during live execution.
+// A delegated Action waits for its child subtree to drain before reobserving
+// the world. A child start or execution failure records a failed attempt;
+// it does not bypass sensing or directly establish the Action's effects.
 package planning
