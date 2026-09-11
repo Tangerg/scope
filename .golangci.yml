@@ -24,6 +24,22 @@ linters:
     misspell:
       # Keep user-facing strings and documentation on one spelling convention.
       locale: US
+    staticcheck:
+      # Naming an explicit list replaces the default, so it repeats golangci-lint's
+      # own opt-out set before adding this project's single exception.
+      checks:
+        - all
+        - -ST1000
+        - -ST1003
+        - -ST1016
+        - -ST1020
+        - -ST1021
+        - -ST1022
+        # SA4023's nilness fact analyzer panics with an index-out-of-range on
+        # some packages under Go 1.27 (honnef.co/go/tools v0.8.1, the newest
+        # release). The panic aborts the whole metalinter, so an exclusion rule
+        # cannot filter it. Re-enable once a fixed staticcheck ships.
+        - -SA4023
   exclusions:
     generated: lax
     presets:
