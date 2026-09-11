@@ -170,9 +170,6 @@ func (d *Definition) worker(name string) (childBinding, bool) {
 }
 
 func (e *execution) Snapshot() (agent.ExecutionState, error) {
-	if err := e.state.validate(e.definition); err != nil {
-		return agent.ExecutionState{}, err
-	}
 	payload, err := json.Marshal(e.state)
 	if err != nil {
 		return agent.ExecutionState{}, err

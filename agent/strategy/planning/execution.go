@@ -25,9 +25,6 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 	if e == nil || !e.definition.valid() {
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
-	if err := e.state.validate(e.definition); err != nil {
-		return agent.Transition{}, err
-	}
 	switch e.state.Phase {
 	case phaseReadySense:
 		if len(signals) != 0 {
@@ -56,9 +53,6 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 func (e *execution) Snapshot() (agent.ExecutionState, error) {
 	if e == nil || !e.definition.valid() {
 		return agent.ExecutionState{}, ErrInvalidExecutionState
-	}
-	if err := e.state.validate(e.definition); err != nil {
-		return agent.ExecutionState{}, err
 	}
 	return encodeExecutionState(e.state)
 }
