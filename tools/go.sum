@@ -1,10 +1,10 @@
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk=
 github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
-github.com/Tangerg/scope/core v0.18.1-0.20260911090050-5409a35242da h1:V+BRfLqns4qWoRyyoH+WFQbT02YQ/7Kd6nwFc12Dg8k=
-github.com/Tangerg/scope/core v0.18.1-0.20260911090050-5409a35242da/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
-github.com/Tangerg/scope/skills v0.18.1-0.20260911090051-1adedb8381ea h1:yJcFSync69NZX3fRzz+8DLKjMEroUMZ1F2lspYkLrZk=
-github.com/Tangerg/scope/skills v0.18.1-0.20260911090051-1adedb8381ea/go.mod h1:lDUbyZP0+PnJknjHu7yCrOmtggRroPSOwuH2ar9mLwc=
+github.com/Tangerg/scope/core v0.19.0 h1:D1LOcRPUKY4O6JSOb2oWeH8hVDb2rqe+qr/17hwrQhA=
+github.com/Tangerg/scope/core v0.19.0/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
+github.com/Tangerg/scope/skills v0.19.0 h1:O0zKRz8oTbrtNWpPHatCZotjH5lJF20zaRln5hgs+Es=
+github.com/Tangerg/scope/skills v0.19.0/go.mod h1:lDUbyZP0+PnJknjHu7yCrOmtggRroPSOwuH2ar9mLwc=
 github.com/adrg/frontmatter v0.2.0 h1:/DgnNe82o03riBd1S+ZDjd43wAmC6W35q67NHeLkPd4=
 github.com/adrg/frontmatter v0.2.0/go.mod h1:93rQCj3z3ZlwyxxpQioRKC1wDLto4aXHrbqIsnH9wmE=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
