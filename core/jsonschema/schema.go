@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"strconv"
 	"strings"
 
 	reflection "github.com/invopop/jsonschema"
@@ -44,7 +45,8 @@ type Schema struct {
 
 // For derives and compiles the JSON Schema contract for T. It follows
 // encoding/json field names and options and the invopop/jsonschema tag dialect.
-// Structs reject additional properties by default.
+// Structs reject additional properties by default. Integer bounds preserve the
+// Go representation even when field tags specify a wider semantic range.
 func For[T any]() (Schema, error) {
 	typeOf := reflect.TypeFor[T]()
 	definition, err := reflectType(typeOf)
@@ -118,7 +120,23 @@ func reflectWireType(typeOf reflect.Type) *reflection.Schema {
 			{Type: "string", ContentEncoding: "base64"},
 		}}
 	}
-	return nil
+	var minimum, maximum string
+	switch typeOf.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		bound := int64(^uint64(0) >> (65 - typeOf.Bits()))
+		minimum = strconv.FormatInt(-bound-1, 10)
+		maximum = strconv.FormatInt(bound, 10)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		minimum = "0"
+		maximum = strconv.FormatUint(^uint64(0)>>(64-typeOf.Bits()), 10)
+	default:
+		return nil
+	}
+	// The reflector writes field tags onto the outer schema. Keeping machine
+	// bounds in an intersection lets tags narrow them without widening the type.
+	return &reflection.Schema{Type: "integer", AllOf: []*reflection.Schema{{
+		Minimum: json.Number(minimum), Maximum: json.Number(maximum),
+	}}}
 }
 
 func qualifiedTypeName(typeOf reflect.Type) string {

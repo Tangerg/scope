@@ -268,8 +268,11 @@ func TestForSupportsCompositePointerAndEncodingSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encoding/json string option: %v", err)
 	}
-	if !strings.Contains(string(encoded.JSON()), `"value":{"type":"string"}`) {
-		t.Fatalf("string-encoded field schema = %s", encoded.JSON())
+	if err := encoded.Validate([]byte(`{"value":"42"}`)); err != nil {
+		t.Fatalf("string-encoded field rejected its wire representation: %v", err)
+	}
+	if err := encoded.Validate([]byte(`{"value":42}`)); err == nil {
+		t.Fatal("string-encoded field accepted a JSON number")
 	}
 	if _, err := jsonschema.For[chan int](); err == nil {
 		t.Fatal("unsupported Go type succeeded")
@@ -286,6 +289,39 @@ func TestParseRejectsMalformedAndUnresolvedSchemas(t *testing.T) {
 	} {
 		if _, err := jsonschema.Parse(raw); !errors.Is(err, jsonschema.ErrInvalid) {
 			t.Fatalf("Parse(%q) error = %v, want ErrInvalid", raw, err)
+		}
+	}
+}
+
+func TestForPreservesIntegerRepresentationBounds(t *testing.T) {
+	type input struct {
+		Signed   int8     `json:"signed,omitempty"`
+		Unsigned uint8    `json:"unsigned,omitempty"`
+		Wide     int64    `json:"wide,omitempty"`
+		Huge     uint64   `json:"huge,omitempty"`
+		Tagged   uint8    `json:"tagged,omitempty" jsonschema:"minimum=-10,maximum=300"`
+		Nested   []uint16 `json:"nested,omitempty"`
+	}
+	schema, err := jsonschema.For[input]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		raw   string
+		valid bool
+	}{
+		{`{"signed":-128}`, true}, {`{"signed":127}`, true},
+		{`{"signed":-129}`, false}, {`{"signed":128}`, false},
+		{`{"unsigned":0}`, true}, {`{"unsigned":255}`, true},
+		{`{"unsigned":-1}`, false}, {`{"unsigned":256}`, false},
+		{`{"wide":-9223372036854775808}`, true}, {`{"wide":9223372036854775807}`, true},
+		{`{"wide":-9223372036854775809}`, false}, {`{"wide":9223372036854775808}`, false},
+		{`{"huge":18446744073709551615}`, true}, {`{"huge":18446744073709551616}`, false},
+		{`{"tagged":255}`, true}, {`{"tagged":256}`, false}, {`{"tagged":-1}`, false},
+		{`{"nested":[65535]}`, true}, {`{"nested":[65536]}`, false},
+	} {
+		if err := schema.Validate([]byte(test.raw)); (err == nil) != test.valid {
+			t.Errorf("Validate(%s) = %v, want valid=%t", test.raw, err, test.valid)
 		}
 	}
 }

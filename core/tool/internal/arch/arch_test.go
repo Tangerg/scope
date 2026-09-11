@@ -35,8 +35,9 @@ func TestExecutableToolProtocolStaysMinimal(t *testing.T) {
 }
 
 // Planning values must not prolong executable capability lifetimes merely to
-// retain a compiled schema. Follow Tool-owned representation fields so this
-// also rejects an executable hidden behind another private struct.
+// retain input admission rules. The independent input validator has its own
+// lifetime regression test; every other function or interface remains forbidden.
+// Follow Tool-owned fields to reject executors hidden behind private structs.
 func TestContractAndInvocationDoNotRetainExecutionAuthority(t *testing.T) {
 	owner := reflect.TypeFor[tool.Contract]().PkgPath()
 	visited := make(map[reflect.Type]bool)
@@ -59,6 +60,12 @@ func TestContractAndInvocationDoNotRetainExecutionAuthority(t *testing.T) {
 				return
 			}
 			for field := range value.Fields() {
+				if value.Name() == "contractState" && field.Name == "validate" {
+					if field.Type != reflect.TypeFor[func([]byte) error]() {
+						t.Errorf("input validator type = %v", field.Type)
+					}
+					continue
+				}
 				inspect(field.Type)
 			}
 		}
@@ -74,11 +81,14 @@ func TestFuncStaysAnImmutableValueAdapter(t *testing.T) {
 		methods = append(methods, method.Name)
 	}
 	slices.Sort(methods)
-	if !slices.Equal(methods, []string{"Call", "Definition"}) {
-		t.Fatalf("Func methods = %v, want Call/Definition only", methods)
+	if !slices.Equal(methods, []string{"Call", "Definition", "InputValidator"}) {
+		t.Fatalf("Func methods = %v, want Call/Definition/InputValidator only", methods)
 	}
 	if !typeOf.Implements(reflect.TypeFor[tool.Tool]()) {
 		t.Fatal("Func value does not implement Tool")
+	}
+	if !typeOf.Implements(reflect.TypeFor[tool.InputValidatingTool]()) {
+		t.Fatal("Func value does not declare its input admission rules")
 	}
 	assertReceiverMethodsInFile(t, "Func", "function.go")
 }

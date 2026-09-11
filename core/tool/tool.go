@@ -39,11 +39,13 @@ type Tool interface {
 type contractState struct {
 	definition chat.ToolDefinition
 	input      corejsonschema.Schema
+	validate   func([]byte) error
 }
 
 // Contract is the immutable trust boundary between an untrusted [chat.ToolCall]
 // and a validated Invocation. It holds the frozen definition and compiled input
-// schema without retaining an executable Tool. A Contract obtained from
+// schema and independent input validator without retaining an executable Tool.
+// A Contract obtained from
 // [Binding.Contract] is safe for concurrent use independently of the Tool.
 type Contract struct {
 	state *contractState
@@ -69,8 +71,12 @@ func Bind(executable Tool) (Binding, error) {
 	if err != nil {
 		return Binding{}, fmt.Errorf("%w: input schema: %w", ErrInvalidTool, err)
 	}
+	validator, err := inputValidator(executable)
+	if err != nil {
+		return Binding{}, fmt.Errorf("%w: input validation: %w", ErrInvalidTool, err)
+	}
 	return Binding{
-		contract:   Contract{state: &contractState{definition: definition.Clone(), input: input}},
+		contract:   Contract{state: &contractState{definition: definition.Clone(), input: input, validate: validator}},
 		executable: executable,
 	}, nil
 }
@@ -87,17 +93,17 @@ func (c Contract) Definition() chat.ToolDefinition {
 	return c.state.definition.Clone()
 }
 
-// Invocation is a complete JSON object validated against one exact frozen Tool
-// definition. Its fields are intentionally private: only Contract.Prepare can
+// Invocation is a complete JSON object admitted by one exact frozen Tool
+// contract. Its fields are intentionally private: only Contract.Prepare can
 // promote an untrusted model proposal into an executable invocation.
 type Invocation struct {
 	contract  *contractState
 	arguments []byte
 }
 
-// Prepare validates identity, RFC 7493 JSON syntax, and the frozen input schema
-// without invoking the Tool or any optional Tool capability. Blank arguments
-// are normalized to the empty object.
+// Prepare validates identity, RFC 7493 JSON syntax, the frozen input schema,
+// and its independent input validator. It does not invoke the executable Tool
+// or authorization policy. Blank arguments are normalized to the empty object.
 func (c Contract) Prepare(call chat.ToolCall) (Invocation, error) {
 	if c.state == nil {
 		return Invocation{}, fmt.Errorf("%w: contract is zero", ErrInvalidInvocation)
@@ -115,7 +121,7 @@ func (c Contract) Prepare(call chat.ToolCall) (Invocation, error) {
 	if len(bytes.TrimSpace(arguments)) == 0 {
 		arguments = []byte("{}")
 	}
-	if err := c.state.input.Validate(arguments); err != nil {
+	if err := c.validateInput(arguments); err != nil {
 		return Invocation{}, fmt.Errorf("%w: arguments: %w", ErrInvalidInvocation, err)
 	}
 	owned := append([]byte(nil), arguments...)

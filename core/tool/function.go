@@ -23,24 +23,25 @@ type Func[In, Out any] struct {
 	function func(context.Context, In) (Out, error)
 }
 
-// FuncConfig describes a typed function tool. NewFunc derives InputSchema from
-// In so the decoder and model-visible contract cannot drift independently.
+// FuncConfig describes a typed function tool. NewFunc derives the model-visible
+// schema and the independent input validator from In.
 type FuncConfig struct {
 	Name        string
 	Description string
 }
 
-// NewFunc derives the model-visible JSON Schema from the Go input type, so the
-// advertised contract and the decoded arguments cannot drift apart. Hand-
-// written schemas are the usual source of tools that accept what the model was
-// told to send and then fail to decode it.
+// NewFunc derives the model-visible JSON Schema from the Go input type. Its
+// independent input validator uses the same strict decoder as Call, so Bind
+// admits arguments before any function executes, even when JSON Schema cannot
+// express all decoder constraints. Custom JSON and text decoders in In must be
+// deterministic, bounded, side-effect-free, and safe for concurrent use.
 func NewFunc[In, Out any](config FuncConfig, function func(context.Context, In) (Out, error)) (Func[In, Out], error) {
 	var zero Func[In, Out]
 	if function == nil {
 		return zero, fmt.Errorf("%w: function is nil", ErrInvalidTool)
 	}
 	inputType := reflect.TypeFor[In]()
-	if err := validateFuncInput(inputType); err != nil {
+	if err := validateFuncInputType(inputType); err != nil {
 		return zero, fmt.Errorf("%w: %w", ErrInvalidTool, err)
 	}
 	input, err := corejsonschema.For[In]()
@@ -62,7 +63,7 @@ func NewFunc[In, Out any](config FuncConfig, function func(context.Context, In) 
 	}, nil
 }
 
-func validateFuncInput(input reflect.Type) error {
+func validateFuncInputType(input reflect.Type) error {
 	if input == nil {
 		return errors.New("tool: function input type is nil")
 	}
@@ -92,7 +93,7 @@ func (f Func[In, Out]) Call(ctx context.Context, invocation Invocation) (chat.To
 	if f.function == nil {
 		return chat.ToolOutput{}, fmt.Errorf("%w: function tool is nil", ErrInvalidTool)
 	}
-	input, err := f.decodeInput(invocation.Arguments())
+	input, err := decodeFuncInput[In](invocation.Arguments())
 	if err != nil {
 		return chat.ToolOutput{}, fmt.Errorf("tool: decode function arguments: %w", err)
 	}
@@ -107,7 +108,16 @@ func (f Func[In, Out]) Call(ctx context.Context, invocation Invocation) (chat.To
 	return result, nil
 }
 
-func (f Func[In, Out]) decodeInput(arguments []byte) (In, error) {
+// InputValidator retains only the input type's decoding behavior. It captures
+// neither this Func nor its application function.
+func (Func[In, Out]) InputValidator() func([]byte) error {
+	return func(arguments []byte) error {
+		_, err := decodeFuncInput[In](arguments)
+		return err
+	}
+}
+
+func decodeFuncInput[In any](arguments []byte) (In, error) {
 	var input In
 	if err := jsonv2.Unmarshal(arguments, &input, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return input, err

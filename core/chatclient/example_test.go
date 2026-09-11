@@ -2,11 +2,13 @@ package chatclient_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
+	"github.com/Tangerg/scope/core/tool"
 )
 
 func Example() {
@@ -91,6 +93,67 @@ func ExampleClient_Output() {
 	}
 	fmt.Println(result.Value)
 	// Output: 42
+}
+
+func ExampleToolContinuationError() {
+	toolCalls := 0
+	executable, err := tool.NewFunc(tool.FuncConfig{Name: "save"}, func(context.Context, struct{}) (string, error) {
+		toolCalls++
+		return "saved", nil
+	})
+	if err != nil {
+		panic(err)
+	}
+	middleware, err := chatclient.NewToolMiddleware(executable)
+	if err != nil {
+		panic(err)
+	}
+	modelCalls := 0
+	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		modelCalls++
+		switch modelCalls {
+		case 1:
+			message := chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: "save-1", Name: "save", Arguments: `{}`}))
+			return &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonToolCalls}}, nil
+		case 2:
+			return nil, errors.New("model connection interrupted")
+		default:
+			return textResponse("Saved."), nil
+		}
+	})
+	observedCalls := 0
+	observe := func(next chat.Model) chat.Model {
+		return chat.ModelFunc(func(ctx context.Context, request *chat.Request) (*chat.Response, error) {
+			observedCalls++
+			return next.Call(ctx, request)
+		})
+	}
+	// Keep the complete model chain used after tool execution. Recovery must
+	// retain these decorators as well as the completed tool results.
+	downstream := chat.Wrap(model, observe)
+	client, err := chatclient.New(downstream, chatclient.Config{CallMiddleware: []chat.CallMiddleware{middleware}})
+	if err != nil {
+		panic(err)
+	}
+	request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("Save this.")))
+	if err != nil {
+		panic(err)
+	}
+	response, err := client.Call(context.Background(), request)
+	if continuation, ok := errors.AsType[*chatclient.ToolContinuationError](err); ok {
+		// The host chooses this single retry; it does not execute save again.
+		response, err = downstream.Call(context.Background(), continuation.Request())
+	}
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(response.Text())
+	fmt.Println("tool executions:", toolCalls)
+	fmt.Println("observed model calls:", observedCalls)
+	// Output:
+	// Saved.
+	// tool executions: 1
+	// observed model calls: 3
 }
 
 func textResponse(text string) *chat.Response {

@@ -155,6 +155,42 @@ func TestToolMiddlewareRejectsEntireInvalidBatchBeforeExecution(t *testing.T) {
 	}
 }
 
+func TestToolMiddlewareRejectsUndecodableBatchBeforeAnySideEffect(t *testing.T) {
+	type input struct {
+		N uint8 `json:"n"`
+	}
+	for _, arguments := range []string{`{"n":-1}`, `{"n":256}`, `{"n":1.0}`, `{"n":1e0}`} {
+		t.Run(arguments, func(t *testing.T) {
+			executions := 0
+			first, err := tool.NewFunc(tool.FuncConfig{Name: "write"}, func(context.Context, struct{}) (string, error) {
+				executions++
+				return "written", nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			second, err := tool.NewFunc(tool.FuncConfig{Name: "narrow"}, func(context.Context, input) (string, error) {
+				t.Fatal("invalid arguments reached the function")
+				return "", nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			middleware, err := NewToolMiddleware(first, second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			model := middleware(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+				return toolCallResponse(chat.ToolCall{ID: "first", Name: "write", Arguments: `{}`}, chat.ToolCall{ID: "second", Name: "narrow", Arguments: arguments}), nil
+			}))
+			_, err = model.Call(t.Context(), textRequest("write"))
+			if !errors.Is(err, tool.ErrInvalidInvocation) || executions != 0 {
+				t.Fatalf("batch error=%v, side effects=%d", err, executions)
+			}
+		})
+	}
+}
+
 func TestToolMiddlewareExecutesOnlyOneBatch(t *testing.T) {
 	var executions int
 	executable := middlewareTool{name: "lookup", call: func(context.Context, tool.Invocation) (chat.ToolOutput, error) {
