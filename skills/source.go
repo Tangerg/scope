@@ -7,11 +7,12 @@ import (
 	"io/fs"
 )
 
-// Source is the read-only repository that lists and loads skills. Its two
-// operations mirror the first progressive-disclosure levels, so a consumer
+// Source is the read-only repository that discovers and loads skills. Its
+// operations preserve progressive disclosure, so a consumer
 // pulls in only as much as a task needs:
 //
 //   - List — name + description for every skill (level 1)
+//   - Lookup — name + description for one exact skill (level 1)
 //   - Load — one skill's full instructions (level 2)
 //
 // Implementations must return valid Summary and Skill models and honor ctx
@@ -24,6 +25,12 @@ type Source interface {
 	// permission, and context failures must be returned rather than disguised as
 	// an empty source.
 	List(ctx context.Context) ([]Summary, error)
+	// Lookup checks one name's ownership and metadata without loading its
+	// instructions or resources. An absent bundle returns ErrSkillNotFound;
+	// invalid metadata returns ErrInvalidSkill. Access and cancellation errors
+	// remain distinct from both. A valid summary does not guarantee that the
+	// full document fits Load's limits or passes its validation.
+	Lookup(ctx context.Context, name string) (Summary, error)
 	// Load validates and returns one complete skill by exact name. The caller owns
 	// the returned value. An absent skill returns ErrSkillNotFound; malformed
 	// bundles, I/O errors, and cancellation must not be classified as absence.

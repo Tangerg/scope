@@ -3,8 +3,10 @@ package skills
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"slices"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -27,6 +29,17 @@ func (c cancelAfterListSource) List(ctx context.Context) ([]Summary, error) {
 type cancelAfterLoadSource struct {
 	ResourceSource
 	cancel context.CancelFunc
+}
+
+type cancelAfterLookupSource struct {
+	ResourceSource
+	cancel context.CancelFunc
+}
+
+func (c cancelAfterLookupSource) Lookup(ctx context.Context, name string) (Summary, error) {
+	summary, err := c.ResourceSource.Lookup(ctx, name)
+	c.cancel()
+	return summary, err
 }
 
 func (c cancelAfterLoadSource) Load(ctx context.Context, name string) (*Skill, error) {
@@ -100,6 +113,74 @@ func TestMergePrecedence(t *testing.T) {
 	// A global-only skill is still reachable through the merge.
 	if _, err := src.Load(context.Background(), "only-glob"); err != nil {
 		t.Errorf("Load only-glob via merge: %v", err)
+	}
+}
+
+func TestMergedDiscoveryReadsMetadataOnly(t *testing.T) {
+	for _, sourceCount := range []int{1, 2} {
+		t.Run(fmt.Sprintf("sources_%d", sourceCount), func(t *testing.T) {
+			primary := &countingFS{FS: fstest.MapFS{"shared/SKILL.md": skillFile("shared", "primary", strings.Repeat("body", 4096))}}
+			secondary := &countingFS{FS: fstest.MapFS{
+				"shared/SKILL.md":    skillFile("shared", "secondary", strings.Repeat("body", 4096)),
+				"secondary/SKILL.md": skillFile("secondary", "secondary", strings.Repeat("body", 4096)),
+			}}
+			var sources []ResourceSource
+			for _, backing := range []*countingFS{primary, secondary}[:sourceCount] {
+				repository, err := NewRepository(backing, RepositoryConfig{MaxFrontmatterBytes: 256, MaxSkillBytes: 512})
+				if err != nil {
+					t.Fatal(err)
+				}
+				sources = append(sources, repository)
+			}
+			source := Merge(sources...)
+			summaries, err := source.List(t.Context())
+			if err != nil || len(summaries) != sourceCount {
+				t.Fatalf("List = %v, %v", summaries, err)
+			}
+			if primary.skillOpens != sourceCount || secondary.skillOpens != 2*(sourceCount-1) {
+				t.Fatalf("discovery repeated reads: primary=%d secondary=%d", primary.skillOpens, secondary.skillOpens)
+			}
+			if primary.reads > 257 || secondary.reads > 514 {
+				t.Fatalf("discovery read beyond frontmatter: %d/%d", primary.reads, secondary.reads)
+			}
+			summary, err := source.Lookup(t.Context(), "shared")
+			if err != nil || summary.Description != "primary" {
+				t.Fatalf("Lookup = %v, %v", summary, err)
+			}
+			if _, err := source.Load(t.Context(), "shared"); !errors.Is(err, ErrContentTooLarge) {
+				t.Fatalf("full loading did not enforce its own limit: %v", err)
+			}
+		})
+	}
+}
+
+func TestMergeDoesNotReplaceBundleMissingMetadata(t *testing.T) {
+	primary := mustNewFS(fstest.MapFS{"shared/resource.txt": {Data: []byte("primary")}})
+	secondary := mustNewFS(fstest.MapFS{
+		"shared/SKILL.md":     skillFile("shared", "secondary", "body"),
+		"shared/resource.txt": {Data: []byte("secondary")},
+	})
+	source := Merge(primary, secondary)
+	for _, lookup := range []func() error{
+		func() error { _, err := source.List(t.Context()); return err },
+		func() error { _, err := source.Lookup(t.Context(), "shared"); return err },
+		func() error { _, err := source.Load(t.Context(), "shared"); return err },
+		func() error { _, err := source.OpenResource(t.Context(), "shared", "resource.txt"); return err },
+	} {
+		if err := lookup(); !errors.Is(err, ErrInvalidSkill) || errors.Is(err, ErrSkillNotFound) {
+			t.Fatalf("broken bundle lost ownership: %v", err)
+		}
+	}
+}
+
+func TestMergedDiscoveryPreservesCancellationDuringOwnershipLookup(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	primary := cancelAfterLookupSource{ResourceSource: mustNewFS(fstest.MapFS{}), cancel: cancel}
+	secondary := mustNewFS(fstest.MapFS{"shared/SKILL.md": skillFile("shared", "secondary", "body")})
+	_, err := Merge(primary, secondary).List(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ownership lookup hid cancellation as absence: %v", err)
 	}
 }
 
@@ -275,12 +356,12 @@ func TestMergeObservesCancellationAfterSourceCalls(t *testing.T) {
 			},
 		},
 		{
-			name: "list owner resolution",
+			name: "lookup",
 			source: func(cancel context.CancelFunc) ResourceSource {
-				return cancelAfterLoadSource{ResourceSource: base, cancel: cancel}
+				return cancelAfterLookupSource{ResourceSource: base, cancel: cancel}
 			},
 			call: func(ctx context.Context, source ResourceSource) error {
-				_, err := source.List(ctx)
+				_, err := source.Lookup(ctx, "safe-skill")
 				return err
 			},
 		},

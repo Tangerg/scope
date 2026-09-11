@@ -299,6 +299,11 @@ func (c canceledSource) List(context.Context) ([]skills.Summary, error) {
 	return nil, c.failure
 }
 
+func (c canceledSource) Lookup(context.Context, string) (skills.Summary, error) {
+	c.cancel()
+	return skills.Summary{}, c.failure
+}
+
 func (c canceledSource) Load(context.Context, string) (*skills.Skill, error) {
 	c.cancel()
 	return nil, c.failure

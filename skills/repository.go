@@ -145,7 +145,7 @@ func (r *Repository) summaryForEntry(ctx context.Context, entry fs.DirEntry) (Su
 	if !entry.IsDir() || ValidateName(entry.Name()) != nil {
 		return Summary{}, false, nil
 	}
-	summary, err := r.loadSummary(ctx, entry.Name())
+	summary, err := r.Lookup(ctx, entry.Name())
 	if ctxErr := contextError(ctx, "list"); ctxErr != nil {
 		return Summary{}, false, errors.Join(err, ctxErr)
 	}
@@ -160,10 +160,6 @@ func (r *Repository) summaryForEntry(ctx context.Context, entry fs.DirEntry) (Su
 
 // Load reads, parses, and validates one skill by directory name.
 func (r *Repository) Load(ctx context.Context, name string) (*Skill, error) {
-	return r.load(ctx, name)
-}
-
-func (r *Repository) load(ctx context.Context, name string) (*Skill, error) {
 	if err := r.validate(); err != nil {
 		return nil, err
 	}
@@ -197,13 +193,18 @@ func (r *Repository) load(ctx context.Context, name string) (*Skill, error) {
 	return skill, nil
 }
 
-func (r *Repository) loadSummary(ctx context.Context, name string) (Summary, error) {
+// Lookup reads only bounded frontmatter. The named directory owns the bundle
+// even when SKILL.md is missing or its metadata is malformed.
+func (r *Repository) Lookup(ctx context.Context, name string) (Summary, error) {
+	if err := r.validate(); err != nil {
+		return Summary{}, err
+	}
+	if err := ValidateName(name); err != nil {
+		return Summary{}, err
+	}
 	operation := fmt.Sprintf("load summary %q", name)
-	file, err := r.fsys.Open(name + "/" + SkillFile)
+	file, err := r.openSkillFile(ctx, name)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return Summary{}, invalidSkill(name, err)
-		}
 		return Summary{}, fmt.Errorf("skills: %s: %w", operation, err)
 	}
 	frontmatter, readErr := readFrontmatter(ctx, file, r.limits.maxFrontmatterBytes)
@@ -218,6 +219,9 @@ func (r *Repository) loadSummary(ctx context.Context, name string) (Summary, err
 		return Summary{}, fmt.Errorf("skills: %s: %w", operation, readErr)
 	}
 	skill, err := Parse(frontmatter)
+	if ctxErr := contextError(ctx, operation); ctxErr != nil {
+		return Summary{}, errors.Join(err, ctxErr)
+	}
 	if err != nil {
 		return Summary{}, invalidSkill(name, err)
 	}
@@ -230,12 +234,9 @@ func (r *Repository) loadSummary(ctx context.Context, name string) (Summary, err
 }
 
 func (r *Repository) readSkillFile(ctx context.Context, name string, maxBytes int64) ([]byte, error) {
-	file, err := r.fsys.Open(name + "/" + SkillFile)
+	file, err := r.openSkillFile(ctx, name)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			err = errors.Join(ErrSkillNotFound, err)
-		}
-		return nil, fmt.Errorf("skills: load %q: %w", name, errors.Join(err, contextError(ctx, "open skill")))
+		return nil, fmt.Errorf("skills: load %q: %w", name, err)
 	}
 	data, truncated, readErr := readBounded(ctx, file, maxBytes)
 	closeErr := file.Close()
@@ -246,6 +247,38 @@ func (r *Repository) readSkillFile(ctx context.Context, name string, maxBytes in
 		return nil, fmt.Errorf("%w: skill %q exceeds %d bytes", ErrContentTooLarge, name, maxBytes)
 	}
 	return data, nil
+}
+
+func (r *Repository) openSkillFile(ctx context.Context, name string) (fs.File, error) {
+	if err := contextError(ctx, "open skill"); err != nil {
+		return nil, err
+	}
+	file, err := r.fsys.Open(name + "/" + SkillFile)
+	if err == nil {
+		return file, nil
+	}
+	if ctxErr := contextError(ctx, "open skill"); ctxErr != nil {
+		return nil, errors.Join(err, ctxErr)
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	// A present bundle owns its name even without a metadata file. Only an
+	// absent directory permits a lower-precedence source to supply the skill.
+	entry, openErr := r.fsys.Open(name)
+	if openErr != nil {
+		if ctxErr := contextError(ctx, "open skill directory"); ctxErr != nil {
+			return nil, errors.Join(err, openErr, ctxErr)
+		}
+		if errors.Is(openErr, fs.ErrNotExist) {
+			return nil, errors.Join(ErrSkillNotFound, err, openErr)
+		}
+		return nil, errors.Join(err, openErr)
+	}
+	if closeErr := errors.Join(entry.Close(), contextError(ctx, "close skill directory")); closeErr != nil {
+		return nil, errors.Join(err, closeErr)
+	}
+	return nil, invalidSkill(name, err)
 }
 
 func readFrontmatter(ctx context.Context, reader io.Reader, maxBytes int64) ([]byte, error) {
@@ -297,7 +330,7 @@ func (r *Repository) OpenResource(ctx context.Context, name, resource string) (f
 	if err := validateResourcePath(resource); err != nil {
 		return nil, err
 	}
-	if _, err := r.load(ctx, name); err != nil {
+	if _, err := r.Load(ctx, name); err != nil {
 		return nil, err
 	}
 	operation := fmt.Sprintf("open resource %q/%q", name, resource)

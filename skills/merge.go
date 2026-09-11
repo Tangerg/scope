@@ -15,8 +15,8 @@ import (
 // callers express precedence by order (e.g. a project source before a global
 // one). The winning source owns the complete skill bundle; missing resources
 // do not fall through to a lower-precedence copy with the same name.
-// Discovery resolves names through Load too: a malformed winning bundle is
-// reported instead of advertising a lower-precedence copy as loadable.
+// Discovery resolves name ownership through bounded metadata lookups: invalid
+// higher-precedence metadata never advertises a lower-precedence copy.
 //
 // Nil and typed-nil sources are dropped. Merge of none yields an empty source
 // (List returns nothing, Load reports not found).
@@ -37,16 +37,20 @@ type merged struct {
 var _ Source = (*merged)(nil)
 var _ ResourceSource = (*merged)(nil)
 
-// List discovers candidate names, then uses the same owner resolution as Load.
-// It returns sorted summaries or an error from the winning bundle. Loading each
-// candidate is necessary because Source.List may omit malformed bundles.
+// List preserves level-one discovery. It reuses listed summaries and checks
+// only higher-precedence sources that omitted a name, because those sources
+// may own a malformed bundle. Full-document validation remains with Load.
 func (m *merged) List(ctx context.Context) ([]Summary, error) {
 	if err := contextError(ctx, "list"); err != nil {
 		return nil, err
 	}
 	var names []string
-	seen := make(map[string]struct{})
-	for _, src := range m.sources {
+	type candidate struct {
+		summary     Summary
+		sourceIndex int
+	}
+	seen := make(map[string]candidate)
+	for sourceIndex, src := range m.sources {
 		if err := contextError(ctx, "list"); err != nil {
 			return nil, err
 		}
@@ -64,20 +68,58 @@ func (m *merged) List(ctx context.Context) ([]Summary, error) {
 			if _, dup := seen[summary.Name]; dup {
 				continue
 			}
-			seen[summary.Name] = struct{}{}
+			seen[summary.Name] = candidate{summary: summary, sourceIndex: sourceIndex}
 			names = append(names, summary.Name)
 		}
 	}
 	slices.Sort(names)
 	var out []Summary
 	for _, name := range names {
-		skill, err := m.Load(ctx, name)
-		if err != nil {
-			return nil, fmt.Errorf("skills: list: %w", err)
+		if err := contextError(ctx, "list"); err != nil {
+			return nil, err
 		}
-		out = append(out, skill.Summary())
+		listed := seen[name]
+		summary := listed.summary
+		if listed.sourceIndex != 0 {
+			higher := merged{sources: m.sources[:listed.sourceIndex]}
+			owned, err := higher.Lookup(ctx, name)
+			if ctxErr := contextError(ctx, "list"); ctxErr != nil {
+				return nil, errors.Join(err, ctxErr)
+			}
+			switch {
+			case err == nil:
+				summary = owned
+			case errors.Is(err, ErrSkillNotFound):
+			default:
+				return nil, fmt.Errorf("skills: list: %w", err)
+			}
+		}
+		out = append(out, summary)
 	}
 	return out, nil
+}
+
+func (m *merged) Lookup(ctx context.Context, name string) (Summary, error) {
+	if err := ValidateName(name); err != nil {
+		return Summary{}, err
+	}
+	operation := fmt.Sprintf("lookup %q", name)
+	return m.resolve(ctx, name, operation, func(src ResourceSource) (Summary, error) {
+		summary, err := src.Lookup(ctx, name)
+		if ctxErr := contextError(ctx, operation); ctxErr != nil {
+			return Summary{}, errors.Join(err, ctxErr)
+		}
+		if err != nil {
+			return Summary{}, err
+		}
+		if err := summary.Validate(); err != nil {
+			return Summary{}, invalidSkill(name, err)
+		}
+		if summary.Name != name {
+			return Summary{}, invalidSkill(name, ErrNameMismatch)
+		}
+		return summary, nil
+	})
 }
 
 // Load returns the skill from the first source that has it. Missing skills are

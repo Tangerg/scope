@@ -19,6 +19,10 @@ func (*panicFS) Open(string) (fs.File, error) {
 
 type panicResourceSource struct{}
 
+func (*panicResourceSource) Lookup(context.Context, string) (Summary, error) {
+	panic("unexpected Lookup")
+}
+
 func (*panicResourceSource) List(context.Context) ([]Summary, error) {
 	panic("typed-nil source was used")
 }
@@ -55,10 +59,14 @@ type failingOpenFS struct {
 
 type countingFS struct {
 	fs.FS
-	reads int
+	reads      int
+	skillOpens int
 }
 
 func (c *countingFS) Open(name string) (fs.File, error) {
+	if strings.HasSuffix(name, "/"+SkillFile) {
+		c.skillOpens++
+	}
 	file, err := c.FS.Open(name)
 	if err != nil || name == "." {
 		return file, err
