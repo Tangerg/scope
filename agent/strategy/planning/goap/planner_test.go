@@ -242,3 +242,28 @@ func actionNames(plan planning.Plan) []string {
 	}
 	return names
 }
+
+func TestPlannerStopsExpansionWhenCostCancelsContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := condition(t, "world.done", planning.True)
+	calls := 0
+	var actions []planning.Action
+	for _, name := range []string{"action.first", "action.second"} {
+		candidate, err := planning.NewAction(planning.ActionConfig{
+			Name: name, Description: "Cancel during one expansion.", Effects: []planning.Condition{done},
+			Cost: func(planning.WorldState) (float64, error) { calls++; cancel(); return 1, nil },
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		actions = append(actions, candidate)
+	}
+	problem := mustProblem(t, planning.WorldState{}, goal(t, done), actions...)
+	if _, found, err := goap.New(goap.Config{}).Plan(ctx, problem); found || !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled expansion = found:%t error:%v", found, err)
+	}
+	if calls != 1 {
+		t.Fatalf("cost callbacks after cancellation: %d", calls)
+	}
+}

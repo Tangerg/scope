@@ -93,16 +93,19 @@ func (s *search) run(ctx context.Context) (searchNode, bool, error) {
 		if s.problem.Goal().SatisfiedBy(current.state) {
 			return *current, true, nil
 		}
-		if err := s.expand(current); err != nil {
+		if err := s.expand(ctx, current); err != nil {
 			return searchNode{}, false, err
 		}
 	}
 	return searchNode{}, false, nil
 }
 
-func (s *search) expand(current *searchNode) error {
+func (s *search) expand(ctx context.Context, current *searchNode) error {
 	currentKey := current.state.Key()
 	for _, action := range s.actions {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if !action.Applicable(current.state) {
 			continue
 		}
@@ -117,6 +120,9 @@ func (s *search) expand(current *searchNode) error {
 		edgeCost, err := action.Cost(current.state)
 		if err != nil {
 			return fmt.Errorf("goap: Action %q at state %q: %w", action.Name(), currentKey, err)
+		}
+		if cancelErr := ctx.Err(); cancelErr != nil {
+			return cancelErr
 		}
 		cost := current.cost + edgeCost
 		if math.IsInf(cost, 0) {
@@ -136,9 +142,12 @@ func (s *search) expand(current *searchNode) error {
 	return nil
 }
 
-func (s *search) reconstruct(goalKey string) ([]planning.PlannedAction, error) {
+func (s *search) reconstruct(ctx context.Context, goalKey string) ([]planning.PlannedAction, error) {
 	var reversed []planning.PlannedAction
 	for cursor := goalKey; cursor != s.startKey; {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		previous, found := s.predecessors[cursor]
 		if !found {
 			return nil, fmt.Errorf("goap: predecessor missing for state %q", cursor)
@@ -150,15 +159,24 @@ func (s *search) reconstruct(goalKey string) ([]planning.PlannedAction, error) {
 	return reversed, nil
 }
 
-func (s *search) hasGoalProducers() bool {
+func (s *search) hasGoalProducers(ctx context.Context) (bool, error) {
 	initial := s.problem.InitialState()
 	for _, required := range s.problem.Goal().Conditions() {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
 		if initial.Truth(required.Key()) == required.Truth() {
 			continue
 		}
 		produced := false
 		for _, action := range s.actions {
+			if err := ctx.Err(); err != nil {
+				return false, err
+			}
 			for _, effect := range action.Effects() {
+				if err := ctx.Err(); err != nil {
+					return false, err
+				}
 				if effect.Key() == required.Key() && effect.Truth() == required.Truth() {
 					produced = true
 					break
@@ -169,8 +187,8 @@ func (s *search) hasGoalProducers() bool {
 			}
 		}
 		if !produced {
-			return false
+			return false, nil
 		}
 	}
-	return true
+	return true, ctx.Err()
 }

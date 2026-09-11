@@ -49,7 +49,11 @@ func (p *Planner) Plan(ctx context.Context, problem planning.Problem) (planning.
 		return plan, true, err
 	}
 	search := newSearch(problem, p.maxExpansions)
-	if !search.hasGoalProducers() {
+	producers, err := search.hasGoalProducers(ctx)
+	if err != nil {
+		return planning.Plan{}, false, err
+	}
+	if !producers {
 		return planning.Plan{}, false, nil
 	}
 	goal, found, err := search.run(ctx)
@@ -59,7 +63,7 @@ func (p *Planner) Plan(ctx context.Context, problem planning.Problem) (planning.
 	if !found {
 		return planning.Plan{}, false, nil
 	}
-	actions, err := search.reconstruct(goal.state.Key())
+	actions, err := search.reconstruct(ctx, goal.state.Key())
 	if err != nil {
 		return planning.Plan{}, false, err
 	}
@@ -69,6 +73,9 @@ func (p *Planner) Plan(ctx context.Context, problem planning.Problem) (planning.
 	}
 	if err := problem.ValidatePlan(plan); err != nil {
 		return planning.Plan{}, false, fmt.Errorf("goap: validate result: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return planning.Plan{}, false, err
 	}
 	return plan, true, nil
 }

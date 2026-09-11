@@ -11,7 +11,8 @@ import (
 // which is what allows a planner to prefer a cheap path under current facts
 // rather than a fixed ordering. Returning an error keeps an uncomputable cost
 // from being silently treated as zero, which would make that action always
-// win.
+// win. The callback must be pure, deterministic, concurrency-safe, and bounded;
+// a Planner cannot interrupt a callback that does not return.
 type CostFunc func(source WorldState) (float64, error)
 
 // FixedCost returns a CostFunc that always returns value. Validation occurs
