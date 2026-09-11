@@ -88,3 +88,6 @@ func (t *Tool) run(ctx context.Context, req Request) (Response, error) {
 		Duration: res.Duration.String(),
 	}, nil
 }
+
+// Unwrap exposes the typed input contract through tool decorators.
+func (t *Tool) Unwrap() toolcontract.Tool { return t.typed }

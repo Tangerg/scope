@@ -65,3 +65,6 @@ func (w *WriteTool) write(ctx context.Context, req WriteRequest) (WriteResponse,
 	}
 	return res, nil
 }
+
+// Unwrap exposes the typed input contract through tool decorators.
+func (w *WriteTool) Unwrap() toolcontract.Tool { return w.typed }

@@ -71,3 +71,6 @@ func (e *EditTool) edit(ctx context.Context, req EditRequest) (EditResponse, err
 	}
 	return res, nil
 }
+
+// Unwrap exposes the typed input contract through tool decorators.
+func (e *EditTool) Unwrap() toolcontract.Tool { return e.typed }

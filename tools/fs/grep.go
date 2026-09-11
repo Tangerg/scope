@@ -77,10 +77,9 @@ func (g *GrepTool) Definition() chat.ToolDefinition {
 	return g.typed.Definition()
 }
 
-// ConcurrencyKey opts grep into parallel execution — a read-only content
-// search has no conflict (the tool loop's optional concurrency contract).
-func (g *GrepTool) ConcurrencyKey(toolcontract.Invocation) (key string, concurrent bool) {
-	return "", true
+// ConcurrencyPolicy declares independent calls to the concurrent-safe backend.
+func (g *GrepTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
+	return func(toolcontract.Invocation) (string, bool) { return "", true }
 }
 
 func (g *GrepTool) Call(ctx context.Context, invocation toolcontract.Invocation) (chat.ToolOutput, error) {
@@ -105,3 +104,6 @@ func (g *GrepTool) grep(ctx context.Context, req GrepRequest) (GrepResponse, err
 	}
 	return res, nil
 }
+
+// Unwrap exposes the typed input contract through tool decorators.
+func (g *GrepTool) Unwrap() toolcontract.Tool { return g.typed }

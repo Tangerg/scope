@@ -99,6 +99,8 @@ func (f *FetchResponse) Validate() error {
 // Fetcher is the provider boundary behind the model-facing page fetch tool.
 // Network authority, authentication, redirects, and provider defaults are
 // frozen in the implementation rather than supplied by model arguments.
+// Implementations must support concurrent calls, including calls through
+// other tools sharing the same backend; fetch tools advertise parallel use.
 type Fetcher interface {
 	// Fetch retrieves and renders exactly request.URL in the requested format
 	// without mutating or retaining request. Implementations must honor ctx,

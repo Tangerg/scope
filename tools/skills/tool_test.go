@@ -14,6 +14,10 @@ import (
 
 type panicSource struct{}
 
+func (*panicSource) Lookup(context.Context, string) (skillsrc.Summary, error) {
+	panic("unexpected Lookup")
+}
+
 func (*panicSource) List(context.Context) ([]skillsrc.Summary, error) {
 	panic("typed-nil source was used")
 }

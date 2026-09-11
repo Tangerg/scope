@@ -30,7 +30,8 @@ type ReadResponse struct {
 
 var _ toolcontract.Tool = (*ReadTool)(nil)
 
-// ReadTool is the model-facing adapter for the narrow Reader port.
+// ReadTool adapts a concurrent-safe Reader and declares parallel calls. The
+// Reader owns synchronization across tool instances and Processes.
 type ReadTool struct {
 	executor Reader
 	typed    toolcontract.Func[ReadRequest, ReadResponse]
@@ -63,11 +64,9 @@ func (r *ReadTool) Definition() chat.ToolDefinition {
 	return r.typed.Definition()
 }
 
-// ConcurrencyKey opts read into parallel execution — a pure read has no
-// resource conflict (the tool loop's optional concurrency contract), so the
-// loop runs several reads (and reads alongside other parallel tools) at once.
-func (r *ReadTool) ConcurrencyKey(toolcontract.Invocation) (key string, concurrent bool) {
-	return "", true
+// ConcurrencyPolicy declares independent calls to the concurrent-safe backend.
+func (r *ReadTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
+	return func(toolcontract.Invocation) (string, bool) { return "", true }
 }
 
 func (r *ReadTool) Call(ctx context.Context, invocation toolcontract.Invocation) (chat.ToolOutput, error) {
@@ -98,3 +97,6 @@ func (r *ReadTool) read(ctx context.Context, req ReadRequest) (ReadResponse, err
 		Truncated:  res.Truncated,
 	}, nil
 }
+
+// Unwrap exposes the typed input contract through tool decorators.
+func (r *ReadTool) Unwrap() toolcontract.Tool { return r.typed }

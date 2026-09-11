@@ -1,8 +1,11 @@
 package fs
 
 import (
+	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
@@ -12,7 +15,7 @@ import (
 // on a tool. It is declared here rather than imported so this package keeps
 // depending only on what it uses.
 type concurrencyAware interface {
-	ConcurrencyKey(invocation toolcontract.Invocation) (key string, concurrent bool)
+	ConcurrencyPolicy() func(toolcontract.Invocation) (key string, concurrent bool)
 }
 
 func invocationFor(t *testing.T, executable toolcontract.Tool, arguments string) toolcontract.Invocation {
@@ -30,9 +33,7 @@ func invocationFor(t *testing.T, executable toolcontract.Tool, arguments string)
 	return invocation
 }
 
-// TestReadOnlyToolsDeclareNoConflict is the scheduling contract the tool loop
-// relies on: a read has no local resource to conflict on, so parallel reads
-// must never be serialized behind an accidental key.
+// Backends promise concurrent use; the adapters do not impose a resource key.
 func TestReadOnlyToolsDeclareNoConflict(t *testing.T) {
 	root := t.TempDir()
 	executor := mustLocalExecutor(t, root)
@@ -51,7 +52,7 @@ func TestReadOnlyToolsDeclareNoConflict(t *testing.T) {
 			if !ok {
 				t.Fatalf("%T does not declare a concurrency key", testCase.tool)
 			}
-			key, concurrent := aware.ConcurrencyKey(invocationFor(t, testCase.tool, testCase.arguments))
+			key, concurrent := aware.ConcurrencyPolicy()(invocationFor(t, testCase.tool, testCase.arguments))
 			if !concurrent {
 				t.Fatal("a read-only tool declared itself exclusive")
 			}
@@ -59,6 +60,66 @@ func TestReadOnlyToolsDeclareNoConflict(t *testing.T) {
 				t.Fatalf("a read-only tool claimed the conflict key %q", key)
 			}
 		})
+	}
+}
+
+type overlappingReader struct {
+	active  atomic.Int32
+	started chan string
+	release <-chan struct{}
+}
+
+func (o *overlappingReader) Read(ctx context.Context, input ReadInput) (ReadOutput, error) {
+	o.active.Add(1)
+	defer o.active.Add(-1)
+	o.started <- input.Path
+	select {
+	case <-o.release:
+		return ReadOutput{Content: input.Path, EndLine: 1, TotalLines: 1}, nil
+	case <-ctx.Done():
+		return ReadOutput{}, ctx.Err()
+	}
+}
+
+func TestReadToolUsesConcurrentReaderContract(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	release := make(chan struct{})
+	reader := &overlappingReader{started: make(chan string, 2), release: release}
+	executable, err := NewReadTool(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := toolcontract.Bind(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "read", Name: "read", Arguments: `{"path":"file.txt"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, callErr := binding.Call(ctx, invocation)
+			completed <- callErr
+		}()
+	}
+	for range 2 {
+		select {
+		case <-reader.started:
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+	}
+	if reader.active.Load() != 2 {
+		t.Fatal("declared reads did not reach the backend concurrently")
+	}
+	close(release)
+	for range 2 {
+		if err := <-completed; err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

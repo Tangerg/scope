@@ -64,8 +64,10 @@ func (r readOnlyTool) Call(ctx context.Context, invocation toolcontract.Invocati
 	return r.inner.Call(ctx, invocation)
 }
 
-// Network reads have no local resource conflict, so independent calls may run
-// concurrently under the tool executor's optional scheduling contract.
-func (readOnlyTool) ConcurrencyKey(toolcontract.Invocation) (key string, concurrent bool) {
-	return "", true
+// ConcurrencyPolicy declares independent calls to the concurrent-safe backend.
+func (readOnlyTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
+	return func(toolcontract.Invocation) (string, bool) { return "", true }
 }
+
+// Unwrap exposes the typed input contract through tool decorators.
+func (r readOnlyTool) Unwrap() toolcontract.Tool { return r.inner }

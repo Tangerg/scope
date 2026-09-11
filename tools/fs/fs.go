@@ -5,10 +5,11 @@ import (
 	"context"
 )
 
-// Each tool depends on the smallest backend capability it consumes. A backend
-// may implement any combination of these ports; LocalExecutor implements all
-// of them without forcing remote or policy-specific backends to grow unrelated
-// methods.
+// Reader is the read backend used by ReadTool. Implementations must support
+// concurrent calls, including calls through other tools sharing the same
+// backend. Private buffers, cursors, and caches remain the backend's concern.
+// This promise permits ReadTool to advertise parallel reads; it is stronger
+// than the absence of filesystem writes. LocalExecutor satisfies the contract.
 type Reader interface {
 	Read(ctx context.Context, in ReadInput) (ReadOutput, error)
 }
@@ -32,12 +33,13 @@ type PatchApplier interface {
 }
 
 // Globber lets remote backends search paths without exposing directory walking
-// as many tool calls.
+// as many tool calls. Like Reader, it must support concurrent backend calls.
 type Globber interface {
 	Glob(ctx context.Context, request GlobRequest) (GlobResponse, error)
 }
 
 // Grepper lets a backend own its content-search engine and filesystem boundary.
+// Like Reader, it must support concurrent backend calls.
 type Grepper interface {
 	Grep(ctx context.Context, in GrepInput) (GrepResponse, error)
 }

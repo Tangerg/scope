@@ -217,6 +217,8 @@ func (s *SearchResponse) Validate() error {
 // Searcher is the provider boundary behind the model-facing search tool. It
 // receives only the normalized provider-neutral contract; authentication,
 // endpoint selection, and provider defaults are frozen in the implementation.
+// Implementations must support concurrent calls, including calls through
+// other tools sharing the same backend; search tools advertise parallel use.
 type Searcher interface {
 	// Search performs one request without mutating or retaining it and transfers
 	// ownership of a normalized response to the caller. Implementations must

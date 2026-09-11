@@ -12,6 +12,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func TestToolUsesStrictTypedContract(t *testing.T) {
@@ -36,13 +39,18 @@ func TestToolUsesStrictTypedContract(t *testing.T) {
 	if schema.AdditionalProperties {
 		t.Fatalf("schema permits unknown fields: %s", definition.InputSchema)
 	}
+	binding, err := toolcontract.Bind(tool)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, arguments := range []string{
 		`{"url":"https://example.com","timeout":5000}`,
 		`{"url":"https://example.com","method":"get"}`,
 		`{"url":"https://example.com","timeout_ms":120001}`,
+		`{"url":"https://example.com","timeout_ms":1.0}`,
 	} {
-		if _, err := invokeTestTool(t.Context(), tool, arguments); err == nil {
-			t.Errorf("Call(%s): want contract error", arguments)
+		if _, err := binding.Contract().Prepare(chat.ToolCall{ID: "request", Name: definition.Name, Arguments: arguments}); !errors.Is(err, toolcontract.ErrInvalidInvocation) {
+			t.Errorf("Prepare(%s) = %v, want invalid invocation", arguments, err)
 		}
 	}
 }

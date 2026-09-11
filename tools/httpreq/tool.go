@@ -41,6 +41,9 @@ func NewTool(client *Client) (*Tool, error) {
 
 func (t *Tool) Definition() chat.ToolDefinition { return t.inner.Definition() }
 
+// Unwrap exposes the typed input contract through tool decorators.
+func (t *Tool) Unwrap() toolcontract.Tool { return t.inner }
+
 const description = `Execute a single HTTP request and return the response.
 - The "url" must be a fully-formed absolute http(s) URL.
 - Method defaults to GET. Write methods (POST/PUT/PATCH/DELETE) only work when configured policy allows them.

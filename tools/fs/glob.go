@@ -58,10 +58,9 @@ func (g *GlobTool) Definition() chat.ToolDefinition {
 	return g.typed.Definition()
 }
 
-// ConcurrencyKey opts glob into parallel execution — a read-only filename
-// search has no conflict (the tool loop's optional concurrency contract).
-func (g *GlobTool) ConcurrencyKey(toolcontract.Invocation) (key string, concurrent bool) {
-	return "", true
+// ConcurrencyPolicy declares independent calls to the concurrent-safe backend.
+func (g *GlobTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
+	return func(toolcontract.Invocation) (string, bool) { return "", true }
 }
 
 func (g *GlobTool) Call(ctx context.Context, invocation toolcontract.Invocation) (chat.ToolOutput, error) {
@@ -75,3 +74,6 @@ func (g *GlobTool) glob(ctx context.Context, req GlobRequest) (GlobResponse, err
 	}
 	return res, nil
 }
+
+// Unwrap exposes the typed input contract through tool decorators.
+func (g *GlobTool) Unwrap() toolcontract.Tool { return g.typed }

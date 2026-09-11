@@ -98,3 +98,6 @@ func (a *ApplyPatchTool) apply(ctx context.Context, req ApplyPatchRequest) (Appl
 	}
 	return res, nil
 }
+
+// Unwrap exposes the typed input contract through tool decorators.
+func (a *ApplyPatchTool) Unwrap() toolcontract.Tool { return a.typed }
