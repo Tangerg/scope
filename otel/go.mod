@@ -3,10 +3,10 @@ module github.com/Tangerg/scope/otel
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/agent v0.18.1-0.20260911095510-4f1585e6093d
-	github.com/Tangerg/scope/core v0.18.1-0.20260911090050-5409a35242da
-	github.com/Tangerg/scope/eval v0.18.0
-	github.com/Tangerg/scope/rag v0.18.1-0.20260911090650-f469929cf3f4
+	github.com/Tangerg/scope/agent v0.19.0
+	github.com/Tangerg/scope/core v0.19.0
+	github.com/Tangerg/scope/eval v0.19.0
+	github.com/Tangerg/scope/rag v0.19.0
 	github.com/samber/lo v1.53.0
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/log v0.22.0
