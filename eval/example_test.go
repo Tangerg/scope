@@ -59,3 +59,46 @@ func ExampleScore_Verdict() {
 	// Output:
 	// pass 0.82
 }
+
+func ExampleSuiteEvaluator_Evaluate() {
+	qualityMetric, err := eval.NewMetric(eval.MetricConfig{Namespace: "example", Name: "quality"})
+	if err != nil {
+		panic(err)
+	}
+	safetyMetric, err := eval.NewMetric(eval.MetricConfig{Namespace: "example", Name: "safety"})
+	if err != nil {
+		panic(err)
+	}
+	quality := eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
+		score, scoreErr := eval.NewScore(0.9)
+		return eval.Report{Metric: qualityMetric, Score: &score, Verdict: eval.VerdictPass}, scoreErr
+	})
+	safety := eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
+		return eval.Report{Metric: safetyMetric, Verdict: eval.VerdictFail, Feedback: "Answer requires review."}, nil
+	})
+	scored, err := eval.NewCompositeEvaluator(eval.CompositeConfig[string]{
+		Components: []eval.Component[string]{{Evaluator: quality}},
+	})
+	if err != nil {
+		panic(err)
+	}
+	// A gate determines acceptance without contributing a score. The Suite
+	// preserves the quality Composite's score under its own metric identity.
+	suite, err := eval.NewSuiteEvaluator(eval.SuiteConfig[string]{
+		Evaluators: []eval.Evaluator[string]{scored, safety},
+	})
+	if err != nil {
+		panic(err)
+	}
+	report, err := suite.Evaluate(context.Background(), "answer")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("acceptance:", report.Verdict)
+	fmt.Println("quality:", report.Details[0].Score.Float64())
+	fmt.Println("gate has score:", report.Details[1].Score != nil)
+	// Output:
+	// acceptance: fail
+	// quality: 0.9
+	// gate has score: false
+}

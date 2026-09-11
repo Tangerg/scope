@@ -53,7 +53,8 @@ func (p PassPolicy) minimum(componentCount, configured int) (int, error) {
 
 // Component assigns score weight and pass criticality to one evaluator.
 // A zero Weight selects 1. Required components must pass independently of the
-// aggregate pass policy.
+// aggregate pass policy and still contribute to the score. To keep a gate out
+// of the quality score, compose it beside a Composite in a [SuiteEvaluator].
 type Component[T any] struct {
 	Evaluator Evaluator[T]
 	Weight    float64
