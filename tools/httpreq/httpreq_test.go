@@ -33,8 +33,8 @@ func TestToolUsesStrictTypedContract(t *testing.T) {
 	var schema struct {
 		AdditionalProperties bool `json:"additionalProperties"`
 	}
-	if err := json.Unmarshal(definition.InputSchema, &schema); err != nil {
-		t.Fatalf("decode schema: %v", err)
+	if decodeErr := json.Unmarshal(definition.InputSchema, &schema); decodeErr != nil {
+		t.Fatalf("decode schema: %v", decodeErr)
 	}
 	if schema.AdditionalProperties {
 		t.Fatalf("schema permits unknown fields: %s", definition.InputSchema)
