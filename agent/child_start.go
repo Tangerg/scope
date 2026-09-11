@@ -9,19 +9,19 @@ import (
 )
 
 const (
-	childRequestInvalidCode             = "engine.child.request.invalid"
-	childIdentityConflictCode           = "engine.child.identity_conflict"
-	childCapabilityEscalationCode       = "engine.child.capability_escalation"
-	childBudgetExhaustedCode            = "engine.child.budget_exhausted"
-	childBudgetInvalidCode              = "engine.child.budget_invalid"
-	childTreeLimitCode                  = "engine.child.tree_limit"
-	childStartUnavailableCode           = "engine.child.start.unavailable"
-	childStartInterruptedCode           = "engine.child.start.interrupted"
-	childDeploymentUnavailableCode      = "engine.child.deployment_unavailable"
-	childInputInvalidCode               = "engine.child.input.invalid"
-	childAdmissionRejectedCode          = "engine.child.admission.rejected"
-	childStartOutcomeUnacknowledgedCode = "engine.child.start_outcome.unacknowledged"
-	childSettlementInvalidCode          = "engine.child.settlement.invalid"
+	childRequestInvalidCode                      = "engine.child.request.invalid"
+	childIdentityConflictCode                    = "engine.child.identity_conflict"
+	childCapabilityEscalationCode                = "engine.child.capability_escalation"
+	childBudgetExhaustedCode                     = "engine.child.budget_exhausted"
+	childBudgetInvalidCode                       = "engine.child.budget_invalid"
+	childTreeLimitCode                           = "engine.child.tree_limit"
+	childStartUnavailableCode                    = "engine.child.start.unavailable"
+	childStartInterruptedCode                    = "engine.child.start.interrupted"
+	childDeploymentUnavailableCode               = "engine.child.deployment_unavailable"
+	childInputInvalidCode                        = "engine.child.input.invalid"
+	childAdmissionRejectedCode                   = "engine.child.admission.rejected"
+	childInitializationOutcomeUnacknowledgedCode = "engine.child.initialization_outcome.unacknowledged"
+	childSettlementInvalidCode                   = "engine.child.settlement.invalid"
 )
 
 type childStartPreparation struct {
@@ -31,7 +31,7 @@ type childStartPreparation struct {
 
 type childStartPlan struct {
 	admitter         ProcessAdmitter
-	acknowledger     ProcessStartOutcomeAcknowledger
+	acknowledger     ProcessInitializationOutcomeAcknowledger
 	resolver         DeploymentResolver
 	parentDeployment Deployment
 	spec             ChildSpec
@@ -126,7 +126,7 @@ func (t *treeRuntime) prepareChildStart(
 	}
 	transferred = true
 	return childStartPreparation{plan: &childStartPlan{
-		admitter: t.engine.admitter, acknowledger: t.engine.startOutcomeAcknowledger,
+		admitter: t.engine.admitter, acknowledger: t.engine.initializationOutcomeAcknowledger,
 		resolver: t.engine.resolver, parentDeployment: process.deployment,
 		spec: spec, childID: childID, relation: relation,
 		limits: childLimits, treeLimits: process.treeLimits,
@@ -155,14 +155,14 @@ func (c *childStartPlan) execute(ctx context.Context) childStartJobResult {
 	startedAt := time.Now().Round(0).UTC()
 	execution, state, failure, err := initializeExecution(deployment.Definition(), c.spec.Input)
 	if err != nil {
-		acknowledgeErr := acknowledgeProcessStartOutcome(ctx, c.acknowledger, abortedProcessOutcome(admission, failure))
+		acknowledgeErr := acknowledgeProcessInitializationOutcome(ctx, c.acknowledger, failedProcessInitializationOutcome(admission, failure))
 		return childStartJobResult{result: failedChildStart(
 			c.spec, failure.Kind(), failure.Code(), errors.Join(err, acknowledgeErr),
 		)}
 	}
-	if err := acknowledgeProcessStartOutcome(ctx, c.acknowledger, startedProcessOutcome(admission, startedAt)); err != nil {
+	if err := acknowledgeProcessInitializationOutcome(ctx, c.acknowledger, initializedProcessOutcome(admission, startedAt)); err != nil {
 		return childStartJobResult{result: failedChildStart(
-			c.spec, FailureKindExternal, childStartOutcomeUnacknowledgedCode, err,
+			c.spec, FailureKindExternal, childInitializationOutcomeUnacknowledgedCode, err,
 		)}
 	}
 	return childStartJobResult{

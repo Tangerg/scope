@@ -51,7 +51,8 @@ func (p *Process) Relation() ProcessRelation {
 	return p.handle.relation
 }
 
-// StartedAt returns the lifecycle time committed by its started outcome.
+// StartedAt returns the observed UTC lifecycle start time recorded before
+// initialization, retained when the Process is published.
 func (p *Process) StartedAt() time.Time {
 	return p.handle.startedAt
 }
@@ -105,6 +106,9 @@ func (p *Process) Resume(ctx context.Context) error {
 // Process has reached a safe boundary or become terminal. Once submitted, ctx
 // cancellation cannot revoke the request. The first committed cancellation
 // intent maps to StatusCanceled with a host-cancellation cause.
+// A pending tree commit must finish before the owner can apply this queued
+// intent. Storage acknowledgment latency therefore also delays cancellation of
+// owned contexts; submission alone does not interrupt an in-flight commit.
 // Applying the intent cancels owned Step, Dispatch, and child-admission contexts
 // throughout the subtree before waiting for their results. Already started
 // external work still settles; remaining planned Effects do not start. Required

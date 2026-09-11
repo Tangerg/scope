@@ -308,13 +308,16 @@ func (t TreeActivation) Valid() bool {
 // restored writer cannot race its predecessor. Every commit must atomically
 // compare and advance that head; accepting a duplicate requires identical
 // content and a head that still matches the proposal. Hosts own storage,
-// deadlines, and reconciliation when a commit response is lost.
+// deadlines, and reconciliation when a commit response is lost. The supplied
+// context retains Host values but removes cancellation and deadlines. Hosts must
+// apply an independent bounded storage deadline; a timeout does not prove that
+// the authoritative head was unchanged and requires reconciliation.
 //
 // A start checkpoint requires an absent head and a zero PreviousTreeDigest.
 // Other checkpoints and Effects require the current incarnation and digest.
 // Activation must replace both together to fence the previous writer before
 // restoration can publish a Process. Initialization acknowledgment is separate
-// because an aborted root has no execution tree to persist.
+// because failed root initialization has no execution tree to persist.
 type TreeDurability interface {
 	// ActivateTree must fence the previous writer before restored work can run.
 	ActivateTree(ctx context.Context, activation TreeActivation) error

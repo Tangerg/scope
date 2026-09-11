@@ -23,11 +23,11 @@ func TestInitializationFailureDiagnosticsSurviveJSON(t *testing.T) {
 			cause := errors.New(test.message)
 			var failure Failure
 			engine, err := NewEngine(EngineConfig{
-				ProcessStartOutcomeAcknowledger: ProcessStartOutcomeAcknowledgerFunc(func(_ context.Context, outcome ProcessStartOutcome) error {
+				ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(_ context.Context, outcome ProcessInitializationOutcome) error {
 					var present bool
 					failure, present = outcome.Failure()
 					if !present {
-						return errors.New("aborted outcome has no failure")
+						return errors.New("failed initialization outcome has no failure")
 					}
 					return nil
 				}),

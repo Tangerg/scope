@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestProcessStartOutcomesConcludeAcceptedRootAndChildAdmissions(t *testing.T) {
+func TestProcessInitializationOutcomesConcludeAcceptedRootAndChildAdmissions(t *testing.T) {
 	for _, mode := range []struct {
 		name       string
 		durability TreeDurability
@@ -20,16 +20,16 @@ func TestProcessStartOutcomesConcludeAcceptedRootAndChildAdmissions(t *testing.T
 			parentDeployment := newCrossParentDeployment(t, childDeployment.DeploymentRef())
 			var engine *Engine
 			var mu sync.Mutex
-			var outcomes []ProcessStartOutcome
-			acknowledger := ProcessStartOutcomeAcknowledgerFunc(func(
+			var outcomes []ProcessInitializationOutcome
+			acknowledger := ProcessInitializationOutcomeAcknowledgerFunc(func(
 				_ context.Context,
-				outcome ProcessStartOutcome,
+				outcome ProcessInitializationOutcome,
 			) error {
 				if !outcome.Valid() {
 					t.Fatal("acknowledger received an invalid outcome")
 				}
 				if _, published := engine.Process(outcome.Admission().Relation().ProcessID()); published {
-					t.Fatal("started outcome was acknowledged after Process publication")
+					t.Fatal("initialized outcome was acknowledged after Process publication")
 				}
 				mu.Lock()
 				outcomes = append(outcomes, outcome)
@@ -38,9 +38,9 @@ func TestProcessStartOutcomesConcludeAcceptedRootAndChildAdmissions(t *testing.T
 			})
 			var err error
 			engine, err = NewEngine(EngineConfig{
-				TreeDurability:                  mode.durability,
-				DeploymentResolver:              deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment},
-				ProcessStartOutcomeAcknowledger: acknowledger,
+				TreeDurability:                           mode.durability,
+				DeploymentResolver:                       deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment},
+				ProcessInitializationOutcomeAcknowledger: acknowledger,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -62,18 +62,18 @@ func TestProcessStartOutcomesConcludeAcceptedRootAndChildAdmissions(t *testing.T
 			_ = mustAwait(t, child)
 
 			mu.Lock()
-			got := append([]ProcessStartOutcome(nil), outcomes...)
+			got := append([]ProcessInitializationOutcome(nil), outcomes...)
 			mu.Unlock()
 			if len(got) != 2 {
 				t.Fatalf("outcomes = %d, want root and child", len(got))
 			}
-			byProcess := make(map[ProcessID]ProcessStartOutcome, len(got))
+			byProcess := make(map[ProcessID]ProcessInitializationOutcome, len(got))
 			for _, outcome := range got {
-				if outcome.Status() != ProcessStartOutcomeStatusStarted {
-					t.Fatalf("outcome status = %s, want started", outcome.Status())
+				if outcome.Status() != ProcessInitializationOutcomeStatusInitialized || outcome.Status().String() != "initialized" {
+					t.Fatalf("outcome status = %s, want initialized", outcome.Status())
 				}
 				if _, failed := outcome.Failure(); failed {
-					t.Fatal("started outcome exposes a Failure")
+					t.Fatal("initialized outcome exposes a Failure")
 				}
 				byProcess[outcome.Admission().Relation().ProcessID()] = outcome
 			}
@@ -97,7 +97,7 @@ func TestProcessStartOutcomesConcludeAcceptedRootAndChildAdmissions(t *testing.T
 	}
 }
 
-func TestProcessStartOutcomeReportsPostAdmissionInitializationFailure(t *testing.T) {
+func TestProcessInitializationOutcomeReportsPostAdmissionInitializationFailure(t *testing.T) {
 	tests := []struct {
 		name  string
 		stage initializationFailureStage
@@ -111,11 +111,11 @@ func TestProcessStartOutcomeReportsPostAdmissionInitializationFailure(t *testing
 		t.Run(test.name, func(t *testing.T) {
 			initializationErr := errors.New("injected initialization failure")
 			deployment := failingInitializationDeployment(t, test.stage, initializationErr)
-			var outcomes []ProcessStartOutcome
+			var outcomes []ProcessInitializationOutcome
 			engine, err := NewEngine(EngineConfig{
-				ProcessStartOutcomeAcknowledger: ProcessStartOutcomeAcknowledgerFunc(func(
+				ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
 					_ context.Context,
-					outcome ProcessStartOutcome,
+					outcome ProcessInitializationOutcome,
 				) error {
 					outcomes = append(outcomes, outcome)
 					return nil
@@ -129,19 +129,19 @@ func TestProcessStartOutcomeReportsPostAdmissionInitializationFailure(t *testing
 			if process != nil || !errors.Is(err, initializationErr) {
 				t.Fatalf("Start process=%v error=%v", process, err)
 			}
-			if len(outcomes) != 1 || outcomes[0].Status() != ProcessStartOutcomeStatusAborted {
+			if len(outcomes) != 1 || outcomes[0].Status() != ProcessInitializationOutcomeStatusFailed || outcomes[0].Status().String() != "failed" {
 				t.Fatalf("outcomes = %#v", outcomes)
 			}
 			failure, failed := outcomes[0].Failure()
 			if !failed || failure.Code() != test.code {
-				t.Fatalf("aborted failure = %#v, present = %t", failure, failed)
+				t.Fatalf("initialization failure = %#v, present = %t", failure, failed)
 			}
 			if startedAt, started := outcomes[0].StartedAt(); started || !startedAt.IsZero() {
-				t.Fatalf("aborted StartedAt = %s, present = %t", startedAt, started)
+				t.Fatalf("failed initialization StartedAt = %s, present = %t", startedAt, started)
 			}
 			processID := outcomes[0].Admission().Relation().ProcessID()
 			if _, published := engine.Process(processID); published {
-				t.Fatal("aborted Process was published")
+				t.Fatal("Process was published after failed initialization")
 			}
 			assertNoPendingProcessStarts(t, engine)
 			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
@@ -151,16 +151,16 @@ func TestProcessStartOutcomeReportsPostAdmissionInitializationFailure(t *testing
 	}
 }
 
-func TestProcessStartOutcomeReportsChildInitializationFailure(t *testing.T) {
+func TestProcessInitializationOutcomeReportsChildInitializationFailure(t *testing.T) {
 	childDeployment := failingStartDeployment(t, errors.New("child cannot initialize"))
 	parentDeployment := newCrossParentDeployment(t, childDeployment.DeploymentRef())
 	var mu sync.Mutex
-	var outcomes []ProcessStartOutcome
+	var outcomes []ProcessInitializationOutcome
 	engine, err := NewEngine(EngineConfig{
 		DeploymentResolver: deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment},
-		ProcessStartOutcomeAcknowledger: ProcessStartOutcomeAcknowledgerFunc(func(
+		ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
 			_ context.Context,
-			outcome ProcessStartOutcome,
+			outcome ProcessInitializationOutcome,
 		) error {
 			mu.Lock()
 			outcomes = append(outcomes, outcome)
@@ -182,9 +182,9 @@ func TestProcessStartOutcomeReportsChildInitializationFailure(t *testing.T) {
 		t.Fatalf("parent output = %#v", output)
 	}
 	mu.Lock()
-	got := append([]ProcessStartOutcome(nil), outcomes...)
+	got := append([]ProcessInitializationOutcome(nil), outcomes...)
 	mu.Unlock()
-	if len(got) != 2 || got[1].Status() != ProcessStartOutcomeStatusAborted {
+	if len(got) != 2 || got[1].Status() != ProcessInitializationOutcomeStatusFailed {
 		t.Fatalf("outcomes = %#v", got)
 	}
 	parentID, child := got[1].Admission().Relation().ParentID()
@@ -193,7 +193,7 @@ func TestProcessStartOutcomeReportsChildInitializationFailure(t *testing.T) {
 		t.Fatalf("child outcome = %#v", got[1])
 	}
 	if _, published := engine.Process(got[1].Admission().Relation().ProcessID()); published {
-		t.Fatal("aborted child was published")
+		t.Fatal("child was published after failed initialization")
 	}
 	assertNoPendingProcessStarts(t, engine)
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
@@ -201,12 +201,12 @@ func TestProcessStartOutcomeReportsChildInitializationFailure(t *testing.T) {
 	}
 }
 
-func TestRejectingStartedProcessOutcomePreventsPublication(t *testing.T) {
+func TestRejectingInitializedProcessOutcomePreventsPublication(t *testing.T) {
 	rejection := errors.New("outcome was not accepted")
 	engine, err := NewEngine(EngineConfig{
-		ProcessStartOutcomeAcknowledger: ProcessStartOutcomeAcknowledgerFunc(func(
+		ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
 			context.Context,
-			ProcessStartOutcome,
+			ProcessInitializationOutcome,
 		) error {
 			return rejection
 		}),
@@ -226,16 +226,16 @@ func TestRejectingStartedProcessOutcomePreventsPublication(t *testing.T) {
 	}
 }
 
-func TestRejectingAbortedProcessOutcomePreservesBothFailures(t *testing.T) {
+func TestRejectingFailedProcessInitializationOutcomePreservesBothFailures(t *testing.T) {
 	initializationErr := errors.New("definition cannot initialize")
 	acknowledgmentErr := errors.New("outcome was not accepted")
 	engine, err := NewEngine(EngineConfig{
-		ProcessStartOutcomeAcknowledger: ProcessStartOutcomeAcknowledgerFunc(func(
+		ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
 			_ context.Context,
-			outcome ProcessStartOutcome,
+			outcome ProcessInitializationOutcome,
 		) error {
-			if outcome.Status() != ProcessStartOutcomeStatusAborted {
-				t.Fatalf("outcome status = %s, want aborted", outcome.Status())
+			if outcome.Status() != ProcessInitializationOutcomeStatusFailed {
+				t.Fatalf("outcome status = %s, want failed", outcome.Status())
 			}
 			return acknowledgmentErr
 		}),
@@ -255,7 +255,7 @@ func TestRejectingAbortedProcessOutcomePreservesBothFailures(t *testing.T) {
 	}
 }
 
-func TestRejectingStartedChildOutcomePreventsChildPublication(t *testing.T) {
+func TestRejectingInitializedChildOutcomePreventsChildPublication(t *testing.T) {
 	for _, mode := range []struct {
 		name       string
 		durability TreeDurability
@@ -271,9 +271,9 @@ func TestRejectingStartedChildOutcomePreventsChildPublication(t *testing.T) {
 			engine, err := NewEngine(EngineConfig{
 				TreeDurability:     mode.durability,
 				DeploymentResolver: deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment},
-				ProcessStartOutcomeAcknowledger: ProcessStartOutcomeAcknowledgerFunc(func(
+				ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
 					_ context.Context,
-					outcome ProcessStartOutcome,
+					outcome ProcessInitializationOutcome,
 				) error {
 					if outcome.Admission().Relation().IsRoot() {
 						return nil
@@ -292,7 +292,7 @@ func TestRejectingStartedChildOutcomePreventsChildPublication(t *testing.T) {
 			}
 			output := childTestResult(t, mustAwait(t, parent))
 			if output.Failures != 1 || len(output.FailureCodes) != 1 ||
-				output.FailureCodes[0] != "engine.child.start_outcome.unacknowledged" {
+				output.FailureCodes[0] != "engine.child.initialization_outcome.unacknowledged" {
 				t.Fatalf("parent output = %#v", output)
 			}
 			if !childID.Valid() {
@@ -315,15 +315,15 @@ func TestRejectingStartedChildOutcomePreventsChildPublication(t *testing.T) {
 	}
 }
 
-func TestProcessStartOutcomeAcknowledgerPanicAndTypedNilAreContained(t *testing.T) {
-	var typedNil ProcessStartOutcomeAcknowledgerFunc
-	if _, err := NewEngine(EngineConfig{ProcessStartOutcomeAcknowledger: typedNil}); !errors.Is(err, ErrInvalidEngineConfig) {
+func TestProcessInitializationOutcomeAcknowledgerPanicAndTypedNilAreContained(t *testing.T) {
+	var typedNil ProcessInitializationOutcomeAcknowledgerFunc
+	if _, err := NewEngine(EngineConfig{ProcessInitializationOutcomeAcknowledger: typedNil}); !errors.Is(err, ErrInvalidEngineConfig) {
 		t.Fatalf("typed-nil error = %v, want %v", err, ErrInvalidEngineConfig)
 	}
 	engine, err := NewEngine(EngineConfig{
-		ProcessStartOutcomeAcknowledger: ProcessStartOutcomeAcknowledgerFunc(func(
+		ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
 			context.Context,
-			ProcessStartOutcome,
+			ProcessInitializationOutcome,
 		) error {
 			panic("outcome panic")
 		}),
@@ -342,13 +342,13 @@ func TestProcessStartOutcomeAcknowledgerPanicAndTypedNilAreContained(t *testing.
 	}
 }
 
-func TestEngineCannotCloseWhileProcessStartOutcomeIsPending(t *testing.T) {
+func TestEngineCannotCloseWhileProcessInitializationOutcomeIsPending(t *testing.T) {
 	acknowledging := make(chan struct{})
 	release := make(chan struct{})
 	engine, err := NewEngine(EngineConfig{
-		ProcessStartOutcomeAcknowledger: ProcessStartOutcomeAcknowledgerFunc(func(
+		ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
 			context.Context,
-			ProcessStartOutcome,
+			ProcessInitializationOutcome,
 		) error {
 			close(acknowledging)
 			<-release
@@ -384,15 +384,15 @@ func TestEngineCannotCloseWhileProcessStartOutcomeIsPending(t *testing.T) {
 	}
 }
 
-func TestRejectedAdmissionProducesNoProcessStartOutcome(t *testing.T) {
+func TestRejectedAdmissionProducesNoProcessInitializationOutcome(t *testing.T) {
 	var outcomeCount int
 	engine, err := NewEngine(EngineConfig{
 		ProcessAdmitter: ProcessAdmitterFunc(func(context.Context, ProcessAdmission) error {
 			return errors.New("not admitted")
 		}),
-		ProcessStartOutcomeAcknowledger: ProcessStartOutcomeAcknowledgerFunc(func(
+		ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
 			context.Context,
-			ProcessStartOutcome,
+			ProcessInitializationOutcome,
 		) error {
 			outcomeCount++
 			return nil

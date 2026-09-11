@@ -141,14 +141,14 @@ func TestTreeDurabilityConfigurationIsUnambiguous(t *testing.T) {
 		t.Fatalf("typed-nil TreeDurability error=%v", err)
 	}
 	durability := &recordingTreeDurability{}
-	acknowledger := ProcessStartOutcomeAcknowledgerFunc(func(
+	acknowledger := ProcessInitializationOutcomeAcknowledgerFunc(func(
 		context.Context,
-		ProcessStartOutcome,
+		ProcessInitializationOutcome,
 	) error {
 		return nil
 	})
 	if _, err := NewEngine(EngineConfig{
-		TreeDurability: durability, ProcessStartOutcomeAcknowledger: acknowledger,
+		TreeDurability: durability, ProcessInitializationOutcomeAcknowledger: acknowledger,
 	}); err != nil {
 		t.Fatalf("independent durability and initialization ports error=%v", err)
 	}
@@ -903,20 +903,20 @@ func TestDurableStartSeparatesInitializationAcceptanceFromCheckpoint(t *testing.
 		acknowledgmentErr error
 		persistenceErr    error
 		wantError         error
-		wantStatus        ProcessStartOutcomeStatus
+		wantStatus        ProcessInitializationOutcomeStatus
 		wantCheckpoints   int
 	}{
-		{name: "initialization failure", initializationErr: initializationErr, wantError: initializationErr, wantStatus: ProcessStartOutcomeStatusAborted},
-		{name: "initialization rejected", acknowledgmentErr: acknowledgmentErr, wantError: acknowledgmentErr, wantStatus: ProcessStartOutcomeStatusStarted},
-		{name: "persistence failure after initialization acceptance", persistenceErr: persistenceErr, wantError: persistenceErr, wantStatus: ProcessStartOutcomeStatusStarted, wantCheckpoints: 1},
+		{name: "initialization failure", initializationErr: initializationErr, wantError: initializationErr, wantStatus: ProcessInitializationOutcomeStatusFailed},
+		{name: "initialization rejected", acknowledgmentErr: acknowledgmentErr, wantError: acknowledgmentErr, wantStatus: ProcessInitializationOutcomeStatusInitialized},
+		{name: "persistence failure after initialization acceptance", persistenceErr: persistenceErr, wantError: persistenceErr, wantStatus: ProcessInitializationOutcomeStatusInitialized, wantCheckpoints: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			recorder := &recordingTreeDurability{}
 			durability := &rejectingStartCheckpointDurability{recordingTreeDurability: recorder, err: test.persistenceErr}
-			var outcomes []ProcessStartOutcome
+			var outcomes []ProcessInitializationOutcome
 			engine, err := NewEngine(EngineConfig{
 				TreeDurability: durability,
-				ProcessStartOutcomeAcknowledger: ProcessStartOutcomeAcknowledgerFunc(func(_ context.Context, outcome ProcessStartOutcome) error {
+				ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(_ context.Context, outcome ProcessInitializationOutcome) error {
 					if len(recorder.treeCheckpoints()) != 0 {
 						t.Error("persistence preceded initialization acceptance")
 					}

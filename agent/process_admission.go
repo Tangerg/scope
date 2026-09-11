@@ -58,7 +58,7 @@ func (p ProcessAdmission) Valid() bool {
 // an error rejects only this prospective Process. Budget allocation, capability
 // attenuation, and tree limits remain Engine invariants and cannot be changed
 // by an admitter. Every accepted admission concludes with exactly one
-// ProcessStartOutcome when an acknowledger is configured. Restore repeats
+// ProcessInitializationOutcome when an acknowledger is configured. Restore repeats
 // neither admission nor its outcome for a captured Process.
 type ProcessAdmitter interface {
 	// Admit decides whether the immutable prospective Process may initialize.

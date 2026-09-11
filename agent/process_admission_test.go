@@ -248,9 +248,9 @@ func TestRestoreDoesNotReadmitPreviouslyAdmittedProcess(t *testing.T) {
 			admissionCalls.Add(1)
 			return errors.New("live policy changed")
 		}),
-		ProcessStartOutcomeAcknowledger: ProcessStartOutcomeAcknowledgerFunc(func(
+		ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
 			context.Context,
-			ProcessStartOutcome,
+			ProcessInitializationOutcome,
 		) error {
 			outcomeCalls.Add(1)
 			return errors.New("outcome must not be requested")

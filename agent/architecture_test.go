@@ -43,7 +43,7 @@ func TestRuntimeInspectionHasOnePublicOwner(t *testing.T) {
 func TestAdmissionAndObservationFactsAreImmutable(t *testing.T) {
 	for _, fact := range []reflect.Type{
 		reflect.TypeFor[ProcessAdmission](),
-		reflect.TypeFor[ProcessStartOutcome](),
+		reflect.TypeFor[ProcessInitializationOutcome](),
 		reflect.TypeFor[SignalReceipt](),
 		reflect.TypeFor[Event](),
 	} {
@@ -62,7 +62,7 @@ func TestBoundaryValuesDoNotCarryRuntimeAuthority(t *testing.T) {
 		reflect.TypeFor[ProcessSnapshot](),
 		reflect.TypeFor[TreeSnapshot](),
 		reflect.TypeFor[ProcessAdmission](),
-		reflect.TypeFor[ProcessStartOutcome](),
+		reflect.TypeFor[ProcessInitializationOutcome](),
 		reflect.TypeFor[SignalReceipt](),
 		reflect.TypeFor[Event](),
 		reflect.TypeFor[TreeInspection](),

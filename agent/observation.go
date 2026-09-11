@@ -38,12 +38,15 @@ func (e EventListenerFunc) OnEvent(ctx context.Context, event Event) {
 }
 
 // DeltaListener observes best-effort Strategy streaming increments. Panics are
-// isolated; slow listeners may cause bounded queue drops. Implementations must
-// return in bounded time without closing or flushing their Engine.
+// isolated; all listeners and trees share one Engine queue and delivery worker.
+// A slow callback delays the other listeners and trees and can cause bounded
+// queue drops. Implementations must return in bounded time without closing or
+// flushing their Engine.
 type DeltaListener interface {
 	// OnDelta receives an accepted best-effort increment in queue order. Delivery
 	// is sequential per listener but may lag Process execution; slow callbacks can
-	// cause later increments to be dropped. The callback cannot affect execution.
+	// cause later increments to be dropped. It has no acknowledgment authority;
+	// Engine.Close and FlushDeltas still wait for accepted callback delivery.
 	// Close and FlushDeltas using this context, or a derived context, return
 	// [ErrListenerReentrancy] while this invocation is active because both would
 	// wait for the worker delivering this callback.

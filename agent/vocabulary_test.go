@@ -107,11 +107,11 @@ func TestStableEnumVocabulary(t *testing.T) {
 				agent.TerminationCausePanic,
 			},
 		},
-		"process start outcome status": {
-			invalid: agent.ProcessStartOutcomeStatusInvalid,
+		"process initialization outcome status": {
+			invalid: agent.ProcessInitializationOutcomeStatusInvalid,
 			valid: []any{
-				agent.ProcessStartOutcomeStatusStarted,
-				agent.ProcessStartOutcomeStatusAborted,
+				agent.ProcessInitializationOutcomeStatusInitialized,
+				agent.ProcessInitializationOutcomeStatusFailed,
 			},
 		},
 		"effect boundary kind": {

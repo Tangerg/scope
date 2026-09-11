@@ -84,7 +84,7 @@ func TestCancellationCollectsInFlightChildInitialization(t *testing.T) {
 				release := make(chan struct{})
 				unblock := sync.OnceFunc(func() { close(release) })
 				defer unblock()
-				var outcomes []ProcessStartOutcome
+				var outcomes []ProcessInitializationOutcome
 				config := EngineConfig{
 					TreeDurability: &recordingTreeDurability{},
 					ProcessAdmitter: ProcessAdmitterFunc(func(ctx context.Context, admission ProcessAdmission) error {
@@ -98,7 +98,7 @@ func TestCancellationCollectsInFlightChildInitialization(t *testing.T) {
 						}
 						return nil
 					}),
-					ProcessStartOutcomeAcknowledger: ProcessStartOutcomeAcknowledgerFunc(func(ctx context.Context, outcome ProcessStartOutcome) error {
+					ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(ctx context.Context, outcome ProcessInitializationOutcome) error {
 						if outcome.Admission().Relation().IsRoot() {
 							return nil
 						}

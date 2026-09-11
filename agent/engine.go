@@ -29,10 +29,10 @@ type EngineConfig struct {
 	// tree. Nil selects ephemeral execution without storage acknowledgment.
 	TreeDurability TreeDurability
 
-	// ProcessStartOutcomeAcknowledger optionally accepts initialization outcomes
+	// ProcessInitializationOutcomeAcknowledger optionally accepts initialization outcomes
 	// before publication. Its acknowledgment is separate from TreeDurability;
 	// nil omits this Host acceptance step.
-	ProcessStartOutcomeAcknowledger ProcessStartOutcomeAcknowledger
+	ProcessInitializationOutcomeAcknowledger ProcessInitializationOutcomeAcknowledger
 
 	// Exact local bindings prevent restoration from silently selecting different
 	// behavior. Same-Deployment recursion needs no resolver.
@@ -73,14 +73,14 @@ type EngineConfig struct {
 // lifecycle. Construct it with NewEngine; copying an Engine would share its
 // registries while duplicating their synchronization.
 type Engine struct {
-	durability               TreeDurability
-	startOutcomeAcknowledger ProcessStartOutcomeAcknowledger
-	resolver                 DeploymentResolver
-	admitter                 ProcessAdmitter
-	observation              *observationBus
-	limits                   Limits
-	treeLimits               TreeLimits
-	capabilities             CapabilitySet
+	durability                        TreeDurability
+	initializationOutcomeAcknowledger ProcessInitializationOutcomeAcknowledger
+	resolver                          DeploymentResolver
+	admitter                          ProcessAdmitter
+	observation                       *observationBus
+	limits                            Limits
+	treeLimits                        TreeLimits
+	capabilities                      CapabilitySet
 
 	// Tree-wide administrative operations use an independent serial lane so a
 	// caller waiting for one root never holds the registry lock needed by Engine
@@ -146,8 +146,8 @@ func NewEngine(config EngineConfig) (*Engine, error) {
 	if config.TreeDurability != nil && lo.IsNil(config.TreeDurability) {
 		return nil, fmt.Errorf("%w: TreeDurability is typed nil", ErrInvalidEngineConfig)
 	}
-	if config.ProcessStartOutcomeAcknowledger != nil && lo.IsNil(config.ProcessStartOutcomeAcknowledger) {
-		return nil, fmt.Errorf("%w: ProcessStartOutcomeAcknowledger is typed nil", ErrInvalidEngineConfig)
+	if config.ProcessInitializationOutcomeAcknowledger != nil && lo.IsNil(config.ProcessInitializationOutcomeAcknowledger) {
+		return nil, fmt.Errorf("%w: ProcessInitializationOutcomeAcknowledger is typed nil", ErrInvalidEngineConfig)
 	}
 	if config.DeploymentResolver != nil && lo.IsNil(config.DeploymentResolver) {
 		return nil, fmt.Errorf("%w: DeploymentResolver is typed nil", ErrInvalidEngineConfig)
@@ -181,21 +181,21 @@ func NewEngine(config EngineConfig) (*Engine, error) {
 		return nil, fmt.Errorf("%w: capabilities are invalid", ErrInvalidEngineConfig)
 	}
 	return &Engine{
-		durability:               config.TreeDurability,
-		startOutcomeAcknowledger: config.ProcessStartOutcomeAcknowledger,
-		resolver:                 config.DeploymentResolver,
-		admitter:                 config.ProcessAdmitter,
-		observation:              newObservationBus(config.EventListeners, config.DeltaListeners, capacity),
-		limits:                   limits,
-		treeLimits:               treeLimits,
-		capabilities:             config.Capabilities,
-		treeOperations:           make(map[ProcessID]*treeOperation),
-		processes:                make(map[ProcessID]*processHandleState),
-		trees:                    make(map[ProcessID]*treeRuntime),
-		startReservations:        make(map[ProcessID]processStartReservation),
-		treeRestoreReservations:  make(map[ProcessID]*treeRestoration),
-		children:                 make(map[childIdentity]ProcessID),
-		childStartReservations:   make(map[childIdentity]ProcessID),
+		durability:                        config.TreeDurability,
+		initializationOutcomeAcknowledger: config.ProcessInitializationOutcomeAcknowledger,
+		resolver:                          config.DeploymentResolver,
+		admitter:                          config.ProcessAdmitter,
+		observation:                       newObservationBus(config.EventListeners, config.DeltaListeners, capacity),
+		limits:                            limits,
+		treeLimits:                        treeLimits,
+		capabilities:                      config.Capabilities,
+		treeOperations:                    make(map[ProcessID]*treeOperation),
+		processes:                         make(map[ProcessID]*processHandleState),
+		trees:                             make(map[ProcessID]*treeRuntime),
+		startReservations:                 make(map[ProcessID]processStartReservation),
+		treeRestoreReservations:           make(map[ProcessID]*treeRestoration),
+		children:                          make(map[childIdentity]ProcessID),
+		childStartReservations:            make(map[childIdentity]ProcessID),
 	}, nil
 }
 
@@ -242,10 +242,10 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Input) 
 	startedAt := time.Now().Round(0).UTC()
 	execution, state, failure, err := initializeExecution(deployment.Definition(), input)
 	if err != nil {
-		acknowledgeErr := acknowledgeProcessStartOutcome(ctx, e.startOutcomeAcknowledger, abortedProcessOutcome(admission, failure))
+		acknowledgeErr := acknowledgeProcessInitializationOutcome(ctx, e.initializationOutcomeAcknowledger, failedProcessInitializationOutcome(admission, failure))
 		return nil, errors.Join(fmt.Errorf("agent: initialize Process: %w", err), acknowledgeErr)
 	}
-	if err := acknowledgeProcessStartOutcome(ctx, e.startOutcomeAcknowledger, startedProcessOutcome(admission, startedAt)); err != nil {
+	if err := acknowledgeProcessInitializationOutcome(ctx, e.initializationOutcomeAcknowledger, initializedProcessOutcome(admission, startedAt)); err != nil {
 		return nil, err
 	}
 	handle := newProcessHandleState(
