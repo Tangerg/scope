@@ -27,6 +27,8 @@ type toolMiddleware struct {
 // rounds and execution policy remain outside this boundary.
 // A runtime failure returns [ToolBatchError] with the successful prefix and
 // failed call, preserving the original cause through errors.Is and errors.As.
+// A failed follow-up model call returns [ToolContinuationError] with the full
+// continuation request, including every completed tool result.
 // Only FinishReasonToolCalls authorizes execution; other outcomes pass through.
 func NewToolMiddleware(executables ...tool.Tool) (chat.CallMiddleware, error) {
 	if len(executables) == 0 {
@@ -94,7 +96,11 @@ func (t *toolMiddleware) call(
 		response.Output.Message.Clone(),
 		chat.NewToolMessage(results...),
 	)
-	return next.Call(ctx, current)
+	response, err = next.Call(ctx, current)
+	if err != nil {
+		return response, &ToolContinuationError{request: current, cause: err}
+	}
+	return response, nil
 }
 
 type preparedToolCall struct {

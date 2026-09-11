@@ -75,6 +75,21 @@ func TestToolOutputPreservesStructuredAndMediaContent(t *testing.T) {
 	}
 }
 
+func TestJSONToolOutputRequiresDocument(t *testing.T) {
+	for _, raw := range []json.RawMessage{nil, {}, []byte(" ")} {
+		if _, err := chat.NewJSONToolOutput(raw); !errors.Is(err, chat.ErrInvalidToolOutput) {
+			t.Errorf("NewJSONToolOutput(%q) error = %v", raw, err)
+		}
+	}
+	output, err := chat.NewJSONToolOutput([]byte(`null`))
+	if err != nil || string(output.Details) != "null" {
+		t.Fatalf("null output = %#v, error = %v", output, err)
+	}
+	if err := (chat.ToolOutput{}).Validate(); err != nil {
+		t.Fatalf("zero output: %v", err)
+	}
+}
+
 func TestToolOutputJSONOwnsValidation(t *testing.T) {
 	original, err := chat.NewJSONToolOutput(json.RawMessage(`{"ok":true}`))
 	if err != nil {

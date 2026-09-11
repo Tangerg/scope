@@ -166,9 +166,14 @@ func (s Schema) JSON() json.RawMessage { return bytes.Clone(s.raw) }
 
 func (s Schema) Valid() bool { return len(s.raw) > 0 && s.compiled != nil }
 
+// Validate requires one RFC 7493 JSON document and validates it against the
+// compiled schema without rounding JSON numbers through floating-point values.
 func (s Schema) Validate(raw []byte) error {
 	if !s.Valid() {
 		return ErrInvalid
+	}
+	if !jsontext.Value(raw).IsValid() {
+		return errors.New("jsonschema: value must be one valid RFC 7493 JSON document")
 	}
 	value, err := validation.UnmarshalJSON(bytes.NewReader(raw))
 	if err != nil {

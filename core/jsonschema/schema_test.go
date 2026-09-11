@@ -13,6 +13,35 @@ import (
 	"github.com/Tangerg/scope/core/speech"
 )
 
+func TestValidateRequiresStrictJSONAndPreservesNumbers(t *testing.T) {
+	schema, err := jsonschema.Parse([]byte(`true`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{
+		`{"value":"first","value":"second"}`,
+		`{"nested":{"value":1,"value":2}}`,
+		"{\"value\":\"\xff\"}",
+		`{"value":"\ud800"}`,
+		`{} {}`,
+		``,
+	} {
+		if validationErr := schema.Validate([]byte(raw)); validationErr == nil {
+			t.Errorf("Validate(%q) accepted invalid RFC 7493 JSON", raw)
+		}
+	}
+	schema, err = jsonschema.Parse([]byte(`{"const":9007199254740993}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Validate([]byte(`9007199254740993`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Validate([]byte(`9007199254740992`)); err == nil {
+		t.Fatal("distinct integers above float64 precision compared equal")
+	}
+}
+
 type wireFixture struct {
 	Metadata  map[string]json.RawMessage `json:"metadata"`
 	Signature []byte                     `json:"signature"`

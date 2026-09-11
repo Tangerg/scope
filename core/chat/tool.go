@@ -63,11 +63,10 @@ func NewTextToolOutput(text string) ToolOutput {
 // NewJSONToolOutput returns a structured output whose exact JSON encoding is
 // preserved. The value must be one complete RFC 7493 JSON document.
 func NewJSONToolOutput(value json.RawMessage) (ToolOutput, error) {
-	output := ToolOutput{Details: bytes.Clone(value)}
-	if err := output.Validate(); err != nil {
-		return ToolOutput{}, err
+	if !jsontext.Value(value).IsValid() {
+		return ToolOutput{}, fmt.Errorf("%w: details must be one valid RFC 7493 JSON document", ErrInvalidToolOutput)
 	}
-	return output, nil
+	return ToolOutput{Details: bytes.Clone(value)}, nil
 }
 
 func (t ToolOutput) Clone() ToolOutput {

@@ -125,6 +125,7 @@ func TestToolMiddlewareRejectsEntireInvalidBatchBeforeExecution(t *testing.T) {
 	for _, second := range []chat.ToolCall{
 		{ID: "second", Name: "missing", Arguments: `{"value":"second"}`},
 		{ID: "second", Name: "write", Arguments: `{"value":123}`},
+		{ID: "second", Name: "write", Arguments: `{"value":"first","value":"second"}`},
 		{ID: "first", Name: "write", Arguments: `{"value":"second"}`},
 	} {
 		t.Run(second.Name, func(t *testing.T) {

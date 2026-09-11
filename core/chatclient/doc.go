@@ -9,4 +9,7 @@
 // advertises a frozen executable Tool set, validates one returned call batch,
 // executes it serially, and performs one follow-up model call. Further tool
 // rounds, retries, concurrency, approval, and durable execution belong to Agent.
+// Tool execution failures retain their successful prefix in [ToolBatchError].
+// A failed follow-up model call retains all completed effects and the exact
+// continuation request in [ToolContinuationError].
 package chatclient
