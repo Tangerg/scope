@@ -15,7 +15,7 @@ type boundTool struct {
 	executable tool.Binding
 	deferred   bool
 	direct     bool
-	concurrent ConcurrentTool
+	concurrent func(tool.Invocation) (string, bool)
 }
 
 type toolDispatcher struct {
@@ -197,7 +197,13 @@ func directResultCapability(executable tool.Tool) (direct bool, err error) {
 	return capability.ReturnsDirectResult(), nil
 }
 
-func concurrentToolCapability(executable tool.Tool) (declared ConcurrentTool, err error) {
+func concurrentToolCapability(executable tool.Tool) (declared func(tool.Invocation) (string, bool), err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			declared = nil
+			err = fmt.Errorf("concurrency policy declaration panicked: %v", recovered)
+		}
+	}()
 	capability, found, err := tool.Capability[ConcurrentTool](executable)
 	if err != nil {
 		return nil, fmt.Errorf("concurrency capability: %w", err)
@@ -205,5 +211,5 @@ func concurrentToolCapability(executable tool.Tool) (declared ConcurrentTool, er
 	if !found {
 		return nil, nil
 	}
-	return capability, nil
+	return capability.ConcurrencyPolicy(), nil
 }

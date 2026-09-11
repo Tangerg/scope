@@ -50,7 +50,7 @@ func (t toolManifestEntry) plan(call chat.ToolCall) (toolConcurrencyPlan, error)
 }
 
 func concurrencyDeclaration(
-	capability ConcurrentTool,
+	policy func(tool.Invocation) (string, bool),
 	invocation tool.Invocation,
 ) (key string, concurrent bool, err error) {
 	defer func() {
@@ -60,7 +60,7 @@ func concurrencyDeclaration(
 			err = fmt.Errorf("capability panicked: %v", recovered)
 		}
 	}()
-	key, concurrent = capability.ConcurrencyKey(invocation)
+	key, concurrent = policy(invocation)
 	return key, concurrent, nil
 }
 

@@ -148,7 +148,10 @@ func (r *recoveryTool) Definition() chat.ToolDefinition {
 	return chat.ToolDefinition{Name: r.name, Description: "Exercise independent recovery.", InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false}`)}
 }
 
-func (r *recoveryTool) ConcurrencyKey(tool.Invocation) (string, bool) { return r.key, true }
+func (r *recoveryTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) {
+	key := r.key
+	return func(tool.Invocation) (string, bool) { return key, true }
+}
 
 func (r *recoveryTool) Call(ctx context.Context, _ tool.Invocation) (chat.ToolOutput, error) {
 	r.calls.Add(1)

@@ -223,9 +223,12 @@ func (t *trustBoundaryTool) Call(context.Context, tool.Invocation) (chat.ToolOut
 	return chat.NewTextToolOutput(t.name + " result"), nil
 }
 
-func (t *trustBoundaryTool) ConcurrencyKey(tool.Invocation) (string, bool) {
-	t.capabilities.Add(1)
-	return t.name, true
+func (t *trustBoundaryTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) {
+	name, calls := t.name, t.capabilities
+	return func(tool.Invocation) (string, bool) {
+		calls.Add(1)
+		return name, true
+	}
 }
 
 var _ interaction.ConcurrentTool = (*trustBoundaryTool)(nil)

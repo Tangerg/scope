@@ -106,5 +106,5 @@ type toolManifest struct {
 type toolManifestEntry struct {
 	contract   tool.Contract
 	deferred   bool
-	concurrent ConcurrentTool
+	concurrent func(tool.Invocation) (string, bool)
 }

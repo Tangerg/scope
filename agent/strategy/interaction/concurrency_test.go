@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"weak"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/interaction"
@@ -69,6 +72,48 @@ func TestConcurrentToolsRespectLimitAndCommitInModelOrder(t *testing.T) {
 	if maximum.Load() != 2 {
 		t.Fatalf("maximum concurrent calls = %d, want 2", maximum.Load())
 	}
+}
+
+func TestDefinitionDoesNotRetainConcurrentTool(t *testing.T) {
+	definition, executable := isolatedSchedulingDefinition(t)
+	runtime.GC()
+	runtime.GC()
+	if executable.Value() != nil {
+		t.Fatal("Definition retained the executable through its scheduling policy")
+	}
+	if !definition.Descriptor().Valid() {
+		t.Fatal("Definition lost its pure contract")
+	}
+	runtime.KeepAlive(definition)
+}
+
+func TestToolSetRejectsPanickingConcurrencyDeclaration(t *testing.T) {
+	_, err := interaction.NewToolSet(interaction.ToolSetConfig{Tools: []tool.Tool{
+		panickingConcurrencyTool{scheduledTool: &scheduledTool{name: "read"}},
+	}})
+	if !errors.Is(err, interaction.ErrInvalidToolSet) || !strings.Contains(err.Error(), "policy unavailable") {
+		t.Fatalf("invalid scheduling declaration = %v", err)
+	}
+}
+
+type panickingConcurrencyTool struct{ *scheduledTool }
+
+func (p panickingConcurrencyTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) {
+	panic("policy unavailable")
+}
+
+func isolatedSchedulingDefinition(t *testing.T) (*interaction.Definition, weak.Pointer[scheduledTool]) {
+	t.Helper()
+	executable := &scheduledTool{name: "read", key: "stable", call: func(context.Context, string) (string, error) { return "read", nil }}
+	tools := testToolSet(t, interaction.ToolSetConfig{Tools: []tool.Tool{executable}})
+	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
+		Name: "interaction.isolated", Description: "Retain pure scheduling policy only.",
+		MaxModelCalls: 2, Tools: tools, ToolBudget: agent.Budget{Steps: 8, Effects: 8, Signals: 8}, MaxConcurrentToolCalls: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return definition, weak.Make(executable)
 }
 
 func TestConcurrentToolsWithSameKeyDoNotOverlap(t *testing.T) {
@@ -304,7 +349,10 @@ func (s *scheduledTool) Call(ctx context.Context, invocation tool.Invocation) (c
 	return chat.NewTextToolOutput(result), err
 }
 
-func (s *scheduledTool) ConcurrencyKey(tool.Invocation) (string, bool) { return s.key, true }
+func (s *scheduledTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) {
+	key := s.key
+	return func(tool.Invocation) (string, bool) { return key, true }
+}
 
 type exclusiveTool struct {
 	name string

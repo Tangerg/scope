@@ -7,6 +7,9 @@
 // binds ordinary executable Tools to a separate Deployment; the Engine must
 // resolve that exact child binding. Definition allocates an explicit budget to
 // each Tool child and schedules calls within their declared concurrency bounds.
+// ToolSet freezes independent input validators and scheduling classifiers;
+// Definition retains these pure declarations without retaining executable Tools
+// or their backends. Hosts cover declaration identity in deployment digests.
 // Each call owns one Effect, its result, and any input continuation. Completed
 // siblings retain their settlements when another call remains unknown or waits
 // for input. Model context receives the complete results in original call order.
