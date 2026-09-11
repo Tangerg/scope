@@ -1,6 +1,7 @@
 package interaction
 
 import (
+	"context"
 	"fmt"
 	"slices"
 
@@ -123,16 +124,21 @@ func (c childCallBatch) validateBindings(definition *Definition, calls []chat.To
 	if c.Kind == childCallsDelegate {
 		return nil
 	}
-	plans, err := definition.tools.planCalls(calls)
+	end, err := definition.tools.concurrentBatchEnd(context.Background(), calls)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
-	if !definition.tools.deploymentRef.Valid() || concurrentBatchEnd(plans, 0) != len(calls) ||
+	if !definition.tools.deploymentRef.Valid() || end != len(calls) ||
 		definition.maxConcurrentToolCalls == 1 && len(calls) != 1 {
 		return fmt.Errorf("%w: Tool batch crosses an exclusive boundary", ErrInvalidExecutionState)
 	}
 	active := 0
 	for _, invocation := range c.Invocations {
+		if invocation.Result != nil {
+			if err := definition.tools.validateAdvertisements(invocation.Result.AdvertisedToolNames); err != nil {
+				return fmt.Errorf("%w: child advertisements: %w", ErrInvalidExecutionState, err)
+			}
+		}
 		if invocation.ChildKey != nil && invocation.Result == nil {
 			active++
 		}

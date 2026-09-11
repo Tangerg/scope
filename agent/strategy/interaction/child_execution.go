@@ -54,7 +54,7 @@ func (e *execution) acceptChildStarts(ctx context.Context, signals []agent.Signa
 			continue
 		}
 		if batch.Kind == childCallsTool {
-			return e.fail(consumed, agent.FailureKindExecution, "interaction.tool.start_failed", failure.Message())
+			return agent.Fail(consumed, failure)
 		}
 		result := delegateErrorResult(calls[index], "child start failed: "+failure.Code()+": "+failure.Message())
 		batch.Invocations[index].Result = &toolCallResult{Result: &result}
@@ -134,7 +134,12 @@ func (e *execution) acceptChildCompletions(ctx context.Context, signals []agent.
 			continue
 		}
 		if result.Status() != agent.StatusCompleted {
-			return e.fail(consumed, agent.FailureKindExecution, "interaction.tool.process_failed", "Tool child ended with "+result.Status().String())
+			termination := result.Termination()
+			if failure, failed := termination.Failure(); failed {
+				return agent.Fail(consumed, failure)
+			}
+			diagnostic := fmt.Sprintf("Tool child %s ended with %s (%s): %s", result.ProcessID(), result.Status(), termination.Cause(), termination.Reason())
+			return e.fail(consumed, agent.FailureKindExecution, "interaction.tool.process_failed", diagnostic)
 		}
 		encoded, present := result.Output()
 		if !present {
@@ -160,7 +165,7 @@ func (e *execution) acceptChildCompletions(ctx context.Context, signals []agent.
 }
 
 func (e *execution) finishChildBatch() error {
-	names, err := e.state.ToolRound.finishChildren(e.state.AdvertisedToolNames)
+	names, err := e.state.ToolRound.finishChildren(e.definition.tools, e.state.AdvertisedToolNames)
 	if err != nil {
 		return err
 	}

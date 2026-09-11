@@ -61,6 +61,9 @@ func (e executionState) Validate(definition *Definition) error {
 	if err := e.validateEnvelope(); err != nil {
 		return err
 	}
+	if err := definition.tools.validateAdvertisements(e.AdvertisedToolNames); err != nil {
+		return fmt.Errorf("%w: advertised Tools: %w", ErrInvalidExecutionState, err)
+	}
 	if err := e.validateArtifacts(definition); err != nil {
 		return err
 	}

@@ -125,9 +125,6 @@ func decodeToolState(state agent.ExecutionState) (toolExecutionState, error) {
 type toolExecution struct{ state toolExecutionState }
 
 func (t *toolExecution) Snapshot() (agent.ExecutionState, error) {
-	if err := t.state.validate(); err != nil {
-		return agent.ExecutionState{}, err
-	}
 	payload, err := json.Marshal(t.state)
 	if err != nil {
 		return agent.ExecutionState{}, err
@@ -137,9 +134,6 @@ func (t *toolExecution) Snapshot() (agent.ExecutionState, error) {
 
 func (t *toolExecution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if err := ctx.Err(); err != nil {
-		return agent.Transition{}, err
-	}
-	if err := t.state.validate(); err != nil {
 		return agent.Transition{}, err
 	}
 	if t.state.Phase == toolReady {

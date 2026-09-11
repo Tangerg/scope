@@ -95,8 +95,8 @@ func validateAdvertisedToolNames(names []string) error {
 	return nil
 }
 
-func mergeAdvertisedToolNames(current []string, additions ...[]string) ([]string, error) {
-	if err := validateAdvertisedToolNames(current); err != nil {
+func (t toolManifest) mergeAdvertisements(current []string, additions ...[]string) ([]string, error) {
+	if err := t.validateAdvertisements(current); err != nil {
 		return nil, err
 	}
 	merged := slices.Clone(current)
@@ -105,7 +105,7 @@ func mergeAdvertisedToolNames(current []string, additions ...[]string) ([]string
 		seen[name] = struct{}{}
 	}
 	for _, names := range additions {
-		if err := validateAdvertisedToolNames(names); err != nil {
+		if err := t.validateAdvertisements(names); err != nil {
 			return nil, err
 		}
 		for _, name := range names {
@@ -117,4 +117,16 @@ func mergeAdvertisedToolNames(current []string, additions ...[]string) ([]string
 		}
 	}
 	return merged, nil
+}
+
+func (t toolManifest) validateAdvertisements(names []string) error {
+	if err := validateAdvertisedToolNames(names); err != nil {
+		return err
+	}
+	for _, name := range names {
+		if entry, found := t.entries[name]; !found || !entry.deferred {
+			return fmt.Errorf("tool %q is not a bound deferred Tool", name)
+		}
+	}
+	return nil
 }

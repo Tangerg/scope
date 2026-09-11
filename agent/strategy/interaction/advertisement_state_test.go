@@ -1,21 +1,18 @@
 package interaction
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"testing"
 
+	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/tool"
 )
 
 func TestAdvertisedToolNamesSurviveExecutionStateRestore(t *testing.T) {
-	definition, err := NewDefinition(DefinitionConfig{
-		Name: "interaction.advertisement_restore", Description: "Verify deferred Tool manifest recovery.",
-		MaxModelCalls: 2,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	definition := advertisementTestDefinition(t)
 	state := executionState{
 		Phase: phaseReadyModel,
 		WorkingContext: &chat.Request{Messages: []chat.Message{
@@ -52,22 +49,49 @@ func TestAdvertisedToolNamesSurviveExecutionStateRestore(t *testing.T) {
 	}
 }
 
-func TestExecutionStateRejectsDuplicateAdvertisedToolNames(t *testing.T) {
-	definition, err := NewDefinition(DefinitionConfig{
-		Name: "interaction.advertisement_validation", Description: "Reject malformed deferred Tool manifests.",
-		MaxModelCalls: 2,
+func TestRestoreRejectsInvalidAdvertisements(t *testing.T) {
+	definition := advertisementTestDefinition(t)
+	for _, names := range [][]string{{"first", "first"}, {"unknown"}, {"initial"}, {" first"}, {""}} {
+		state := executionState{Phase: phaseReadyModel,
+			WorkingContext:      &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("restore"))}},
+			AdvertisedToolNames: names,
+		}
+		encoded, err := encodeState(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := definition.Restore(encoded); !errors.Is(err, ErrInvalidExecutionState) {
+			t.Fatalf("Restore accepted advertisements %v: %v", names, err)
+		}
+	}
+}
+
+func advertisementTestDefinition(t testing.TB) *Definition {
+	t.Helper()
+	var executables []tool.Tool
+	for _, name := range []string{"initial", "first", "second", "existing"} {
+		executable, err := tool.NewFunc(tool.FuncConfig{Name: name, Description: "Exercise deferred tool recovery."},
+			func(context.Context, struct{}) (string, error) { return "done", nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		executables = append(executables, executable)
+	}
+	toolSet, err := NewToolSet(ToolSetConfig{
+		Name: "advertisement.tools", Description: "Exercise deferred tool recovery.",
+		Tools: executables[:1], DeferredTools: executables[1:],
+		ImplementationDigest: agent.ComputeDigest([]byte("advertisement-tools")),
+		ConfigurationDigest:  agent.ComputeDigest([]byte("advertisement-config")),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := executionState{
-		Phase: phaseReadyModel,
-		WorkingContext: &chat.Request{Messages: []chat.Message{
-			chat.NewUserMessage(chat.NewTextPart("validate deferred manifest")),
-		}},
-		AdvertisedToolNames: []string{"duplicate", "duplicate"},
+	definition, err := NewDefinition(DefinitionConfig{
+		Name: "interaction.advertisement_restore", Description: "Verify deferred Tool manifest recovery.",
+		MaxModelCalls: 2, Tools: toolSet, ToolBudget: agent.Budget{Steps: 10, Effects: 10, Signals: 10},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := state.Validate(definition); !errors.Is(err, ErrInvalidExecutionState) {
-		t.Fatalf("error = %v, want ErrInvalidExecutionState", err)
-	}
+	return definition
 }

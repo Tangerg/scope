@@ -214,7 +214,7 @@ type childResultTestWire struct {
 	ProcessID   agent.ProcessID `json:"process_id"`
 	StartedAt   time.Time       `json:"started_at"`
 	FinishedAt  time.Time       `json:"finished_at"`
-	Output      agent.Output    `json:"output"`
+	Output      agent.Output    `json:"output,omitzero"`
 	Termination json.RawMessage `json:"termination"`
 }
 
@@ -233,4 +233,39 @@ func childBatchTestSignal(t testing.TB, waitID agent.WaitID, payload any) agent.
 		t.Fatal(err)
 	}
 	return signal
+}
+
+func TestToolChildTerminationPreservesFailureAndCause(t *testing.T) {
+	for _, test := range []struct {
+		name, termination, code, message string
+		kind                             agent.FailureKind
+	}{
+		{"host failure", `{"status":"failed","cause":"external_failure","reason":"storage unavailable","failure":{"kind":"external","code":"tool.storage.failed","message":"storage unavailable"}}`, "tool.storage.failed", "storage unavailable", agent.FailureKindExternal},
+		{"panic", `{"status":"failed","cause":"panic","reason":"decoder panic","failure":{"kind":"panic","code":"engine.step.panicked","message":"decoder panic"}}`, "engine.step.panicked", "decoder panic", agent.FailureKindPanic},
+		{"canceled", `{"status":"canceled","cause":"host_cancellation","reason":"operator stopped job"}`, "interaction.tool.process_failed", "Tool child process:child-batch ended with canceled (host_cancellation): operator stopped job", agent.FailureKindExecution},
+		{"deadline", `{"status":"timed_out","cause":"process_deadline","reason":"worker deadline reached"}`, "interaction.tool.process_failed", "Tool child process:child-batch ended with timed_out (process_deadline): worker deadline reached", agent.FailureKindExecution},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			execution := childBatchTestExecution(t, childCallsTool, phaseWaitingChildren)
+			batch := execution.state.ToolRound.ChildBatch
+			wait, err := batch.waitSpec(1, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			signal := childBatchTestSignal(t, *batch.WaitID, childCompletionTestPayload{
+				Operation: "child_wait_satisfied", Key: wait.Key, Boundary: agent.ChildWaitBoundaryDrained,
+				Outcomes: []childOutcomeTestWire{{Key: *batch.Invocations[0].ChildKey, Result: childResultTestWire{
+					ProcessID: *batch.Invocations[0].ProcessID, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0), Termination: json.RawMessage(test.termination),
+				}}},
+			})
+			transition, err := execution.Step(t.Context(), []agent.Signal{signal})
+			if err != nil {
+				t.Fatal(err)
+			}
+			failure, failed := transition.Failure()
+			if !failed || failure.Kind() != test.kind || failure.Code() != test.code || failure.Message() != test.message {
+				t.Fatalf("child diagnostic was replaced: failure = %+v", failure)
+			}
+		})
+	}
 }

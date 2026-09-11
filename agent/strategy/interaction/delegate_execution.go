@@ -12,12 +12,12 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-func (e *execution) startDelegateChildren(ctx context.Context, consumed uint32, calls []chat.ToolCall) (agent.Transition, bool, error) {
+func (e *execution) prepareDelegateChildren(ctx context.Context, calls []chat.ToolCall) ([]agent.Effect, error) {
 	start := e.state.ToolRound.nextCallIndex()
 	end := start
 	for end < uint32(len(calls)) {
 		if err := ctx.Err(); err != nil {
-			return agent.Transition{}, false, err
+			return nil, err
 		}
 		if _, delegated := e.definition.delegate(calls[end].Name); !delegated {
 			break
@@ -29,7 +29,7 @@ func (e *execution) startDelegateChildren(ctx context.Context, consumed uint32, 
 	effects := make([]agent.Effect, 0, len(batch.Invocations))
 	for index := range batch.Invocations {
 		if err := ctx.Err(); err != nil {
-			return agent.Transition{}, false, err
+			return nil, err
 		}
 		call := calls[start+uint32(index)]
 		delegate, _ := e.definition.delegate(call.Name)
@@ -50,25 +50,20 @@ func (e *execution) startDelegateChildren(ctx context.Context, consumed uint32, 
 		}
 		key, err := DelegateChildKey(e.state.ModelCallCount, call)
 		if err != nil {
-			return agent.Transition{}, false, err
+			return nil, err
 		}
 		effect, err := agent.StartChild(agent.ChildSpec{
 			Key: key, DeploymentRef: delegate.deploymentRef, Input: input,
 			Budget: delegate.budget, Capabilities: delegate.capabilities,
 		})
 		if err != nil {
-			return agent.Transition{}, false, err
+			return nil, err
 		}
 		batch.Invocations[index].ChildKey = &key
 		effects = append(effects, effect)
 	}
 	e.state.ToolRound.beginChildren(batch)
-	if len(effects) == 0 {
-		return agent.Transition{}, false, e.finishChildBatch()
-	}
-	e.state.Phase = phaseAwaitingChildStarts
-	transition, err := agent.Continue(consumed, effects...)
-	return transition, true, err
+	return effects, nil
 }
 
 func (e *execution) acceptDelegateOutcome(index int, call chat.ToolCall, result agent.Result) error {

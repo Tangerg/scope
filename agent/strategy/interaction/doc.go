@@ -37,7 +37,9 @@
 // Only FinishReasonToolCalls admits Tool and Delegate execution. Length-truncated
 // calls receive model-visible feedback for another bounded model attempt; calls
 // accompanying other finish reasons fail the Process without execution. Restored
-// pending batches must satisfy the same admission rule.
+// pending batches must satisfy the same admission rule. Advertised names must
+// refer to bound deferred Tools, including during restoration. Model preparation
+// errors settle as definite host failures before external work begins.
 //
 // An ordinary Tool error produces a model-visible ToolResult. Host failures,
 // cancellation, deadlines, and panics that produce no definite ToolResult leave
@@ -45,5 +47,7 @@
 // and restoration and requires explicit settlement before execution continues.
 // Terminating the Process retains unresolved identities in its Result; it does
 // not establish that external work failed. Observer callbacks describe attempts
-// and never replace the Engine's authoritative settlement boundary.
+// and never replace the Engine's authoritative settlement boundary. When a Tool
+// child terminates, its Failure propagates unchanged to the parent. Cancellation
+// and timeout diagnostics retain the child identity and termination cause.
 package interaction

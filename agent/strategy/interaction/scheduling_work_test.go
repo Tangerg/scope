@@ -1,0 +1,79 @@
+package interaction
+
+import (
+	"fmt"
+	"testing"
+
+	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/tool"
+)
+
+func BenchmarkToolBatchScheduling(b *testing.B) {
+	for _, count := range []int{100, 1000} {
+		b.Run(fmt.Sprint(count), func(b *testing.B) {
+			execution, _ := schedulingTestExecution(b, count)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				execution.state.ToolRound.Results = nil
+				execution.state.ToolRound.ChildBatch = nil
+				for range count {
+					if _, err := execution.startToolChildren(b.Context(), 0, schedulingCalls(execution)); err != nil {
+						b.Fatal(err)
+					}
+					finishSchedulingTestBatch(execution)
+				}
+			}
+		})
+	}
+}
+
+func schedulingTestExecution(t testing.TB, count int) (*execution, *int) {
+	t.Helper()
+	execution := childBatchTestExecution(t, childCallsTool, phaseAwaitingChildStarts)
+	execution.definition.maxConcurrentToolCalls = 4
+	classifications := new(int)
+	entry := execution.definition.tools.entries["delegate_fuzz"]
+	entry.concurrent = func(tool.Invocation) (string, bool) { *classifications++; return "resource", true }
+	execution.definition.tools.entries["delegate_fuzz"] = entry
+	var parts []chat.Part
+	for index := range count {
+		parts = append(parts, chat.NewToolCallPart(chat.ToolCall{ID: fmt.Sprintf("call_%d", index), Name: "delegate_fuzz", Arguments: `{"task":"check"}`}))
+	}
+	message := chat.NewAssistantMessage(parts...)
+	execution.state.ToolRound = &toolCallRound{Response: &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonToolCalls}}, DirectResultEligible: true}
+	return execution, classifications
+}
+
+func schedulingCalls(execution *execution) []chat.ToolCall {
+	parts := execution.state.ToolRound.Response.Output.Message.Parts
+	calls := make([]chat.ToolCall, len(parts))
+	for index := range parts {
+		calls[index] = *parts[index].ToolCall
+	}
+	return calls
+}
+
+func finishSchedulingTestBatch(execution *execution) {
+	call := execution.state.ToolRound.Response.Output.Message.Parts[execution.state.ToolRound.nextCallIndex()].ToolCall
+	execution.state.ToolRound.Results = append(execution.state.ToolRound.Results, chat.ToolResult{ID: call.ID, Name: call.Name, Output: chat.NewTextToolOutput("done")})
+	execution.state.ToolRound.ChildBatch = nil
+}
+
+func TestToolBatchClassifiesOnlyThroughNextBoundary(t *testing.T) {
+	const count = 100
+	execution, classifications := schedulingTestExecution(t, count)
+	calls := schedulingCalls(execution)
+	for range count {
+		if _, err := execution.startToolChildren(t.Context(), 0, calls); err != nil {
+			t.Fatal(err)
+		}
+		if len(execution.state.ToolRound.ChildBatch.Invocations) != 1 {
+			t.Fatal("same-key calls overlapped")
+		}
+		finishSchedulingTestBatch(execution)
+	}
+	if *classifications != 2*count-1 {
+		t.Fatalf("classifications = %d, want %d", *classifications, 2*count-1)
+	}
+}

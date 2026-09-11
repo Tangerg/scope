@@ -38,7 +38,7 @@ type Dispatcher struct {
 	model               chat.Model
 	streamer            chat.Streamer
 	initialDefinitions  []chat.ToolDefinition
-	deferredDefinitions map[string]chat.ToolDefinition
+	tools               toolManifest
 	observer            ModelObserver
 	observationFailures observationFailureCounters
 	contextReducer      ModelContextReducer
@@ -73,14 +73,9 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 	}
 	dispatcher := &Dispatcher{
 		model: config.Model, streamer: config.Streamer, observer: config.Observer,
-		contextReducer:      config.ModelContextReducer,
-		initialDefinitions:  cloneDefinitions(definition.tools.initialDefinitions),
-		deferredDefinitions: make(map[string]chat.ToolDefinition),
-	}
-	for name, entry := range definition.tools.entries {
-		if entry.deferred {
-			dispatcher.deferredDefinitions[name] = entry.contract.Definition()
-		}
+		contextReducer:     config.ModelContextReducer,
+		initialDefinitions: cloneDefinitions(definition.tools.initialDefinitions),
+		tools:              definition.tools,
 	}
 	for _, delegate := range definition.delegates {
 		dispatcher.initialDefinitions = append(dispatcher.initialDefinitions, delegate.definition.Clone())
@@ -102,17 +97,17 @@ func (d *Dispatcher) Dispatch(
 		panic(errors.New("interaction: nil Context"))
 	}
 	if d == nil || (lo.IsNil(d.model) && lo.IsNil(d.streamer)) {
-		return agent.Settlement{}, ErrInvalidDispatcherConfig
+		return modelHostFailureSettlement(request.ID(), ErrInvalidDispatcherConfig)
 	}
 	envelope, err := decodeEffect(request.Effect().Payload())
 	if err != nil {
-		return agent.Settlement{}, err
+		return modelHostFailureSettlement(request.ID(), err)
 	}
 	switch envelope.Operation {
 	case operationModelCall:
 		return d.dispatchModel(ctx, request, envelope.ModelCall, emit)
 	default:
-		return agent.Settlement{}, errors.New("interaction: unsupported dispatcher operation")
+		return modelHostFailureSettlement(request.ID(), errors.New("interaction: unsupported dispatcher operation"))
 	}
 }
 
@@ -131,11 +126,11 @@ func (d *Dispatcher) dispatchModel(
 	modelRequest := call.Request.Clone()
 	definitions, err := d.modelDefinitions(call.AdvertisedToolNames)
 	if err != nil {
-		return agent.Settlement{}, err
+		return modelHostFailureSettlement(request.ID(), err)
 	}
 	modelRequest.Tools = definitions
 	if validateErr := modelRequest.Validate(); validateErr != nil {
-		return agent.Settlement{}, fmt.Errorf("interaction: prepare model request: %w", validateErr)
+		return modelHostFailureSettlement(request.ID(), fmt.Errorf("interaction: prepare model request: %w", validateErr))
 	}
 	invocation := modelInvocationFromRequest(
 		request,
@@ -189,16 +184,12 @@ func (d *Dispatcher) dispatchModel(
 }
 
 func (d *Dispatcher) modelDefinitions(advertisedToolNames []string) ([]chat.ToolDefinition, error) {
-	if err := validateAdvertisedToolNames(advertisedToolNames); err != nil {
+	if err := d.tools.validateAdvertisements(advertisedToolNames); err != nil {
 		return nil, fmt.Errorf("interaction: advertised Tools: %w", err)
 	}
 	definitions := cloneDefinitions(d.initialDefinitions)
 	for _, name := range advertisedToolNames {
-		definition, found := d.deferredDefinitions[name]
-		if !found {
-			return nil, fmt.Errorf("interaction: tool %q is not a bound deferred Tool", name)
-		}
-		definitions = append(definitions, definition.Clone())
+		definitions = append(definitions, d.tools.entries[name].contract.Definition())
 	}
 	return definitions, nil
 }

@@ -81,6 +81,7 @@ func TestRestoreRejectsIncompleteLifecycleStates(t *testing.T) {
 }
 
 func TestChildBatchSettlementIsAtomic(t *testing.T) {
+	tools := advertisementTestDefinition(t).tools
 	first := chat.ToolResult{ID: "first", Name: "tool", Output: chat.NewTextToolOutput("first result")}
 	second := chat.ToolResult{ID: "second", Name: "tool", Output: chat.NewTextToolOutput("second result")}
 	round := &toolCallRound{DirectResultEligible: true, ChildBatch: &childCallBatch{
@@ -93,7 +94,7 @@ func TestChildBatchSettlementIsAtomic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, settleErr := round.finishChildren([]string{"existing"}); settleErr == nil {
+	if _, settleErr := round.finishChildren(tools, []string{"existing"}); settleErr == nil {
 		t.Fatal("invalid advertisement accepted")
 	}
 	after, err := json.Marshal(round)
@@ -101,7 +102,7 @@ func TestChildBatchSettlementIsAtomic(t *testing.T) {
 		t.Fatalf("failed settlement partially changed the tool round: %v", err)
 	}
 	round.ChildBatch.Invocations[1].Result.AdvertisedToolNames = []string{"second"}
-	names, err := round.finishChildren([]string{"existing"})
+	names, err := round.finishChildren(tools, []string{"existing"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,32 +10,18 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-func (e *execution) startToolChildren(ctx context.Context, consumed uint32, calls []chat.ToolCall) (agent.Transition, bool, error) {
+func (e *execution) startToolChildren(ctx context.Context, consumed uint32, calls []chat.ToolCall) (agent.Transition, error) {
 	start := e.state.ToolRound.nextCallIndex()
-	if _, found := e.definition.tools.entries[calls[start].Name]; !found {
-		e.state.ToolRound.rejectCall(calls[start], fmt.Sprintf("tool %q is not available", calls[start].Name))
-		return agent.Transition{}, false, nil
-	}
-	end := start + 1
+	count := 1
 	if e.definition.maxConcurrentToolCalls > 1 {
-		for end < uint32(len(calls)) {
-			if err := ctx.Err(); err != nil {
-				return agent.Transition{}, false, err
-			}
-			if _, found := e.definition.tools.entries[calls[end].Name]; !found {
-				break
-			}
-			end++
-		}
-		plans, err := e.definition.tools.planCalls(calls[start:end])
+		var err error
+		count, err = e.definition.tools.concurrentBatchEnd(ctx, calls[start:])
 		if err != nil {
-			return agent.Transition{}, false, err
+			return agent.Transition{}, err
 		}
-		end = start + uint32(concurrentBatchEnd(plans, 0))
 	}
-	e.state.ToolRound.beginChildren(&childCallBatch{Kind: childCallsTool, Invocations: make([]childInvocationState, end-start)})
-	transition, err := e.scheduleToolChildren(ctx, consumed)
-	return transition, true, err
+	e.state.ToolRound.beginChildren(&childCallBatch{Kind: childCallsTool, Invocations: make([]childInvocationState, count)})
+	return e.scheduleToolChildren(ctx, consumed)
 }
 
 func (e *execution) scheduleToolChildren(ctx context.Context, consumed uint32) (agent.Transition, error) {

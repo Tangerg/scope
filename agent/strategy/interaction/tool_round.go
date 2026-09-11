@@ -48,14 +48,14 @@ func (t *toolCallRound) rejectCall(call chat.ToolCall, diagnostic string) {
 	t.DirectResultEligible = false
 }
 
-func (t *toolCallRound) finishChildren(advertisedNames []string) ([]string, error) {
+func (t *toolCallRound) finishChildren(tools toolManifest, advertisedNames []string) ([]string, error) {
 	results := make([]chat.ToolResult, 0, len(t.ChildBatch.Invocations))
 	direct := t.DirectResultEligible
 	for _, invocation := range t.ChildBatch.Invocations {
 		if invocation.Result == nil || invocation.Result.Result == nil {
 			return nil, ErrInvalidExecutionState
 		}
-		names, err := mergeAdvertisedToolNames(advertisedNames, invocation.Result.AdvertisedToolNames)
+		names, err := tools.mergeAdvertisements(advertisedNames, invocation.Result.AdvertisedToolNames)
 		if err != nil {
 			return nil, err
 		}

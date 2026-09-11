@@ -49,9 +49,11 @@ func TestToolChildFailuresRetainRestorableParentState(t *testing.T) {
 			}
 			child := tools.Deployment()
 			config := agent.EngineConfig{DeploymentResolver: delegateResolver{child.DeploymentRef(): child}}
-			wantCode, wantCalls := "interaction.tool.process_failed", int32(1)
+			wantCode, wantCalls := "engine.limit.steps", int32(1)
+			wantKind, wantMessage := agent.FailureKindExecution, "agent: resource limit exceeded"
 			if stage == "start" {
-				wantCode, wantCalls = "interaction.tool.start_failed", 0
+				wantCode, wantCalls = "engine.child.admission.rejected", 0
+				wantKind, wantMessage = agent.FailureKindExternal, "agent: process admission rejected: child admission rejected"
 				config.ProcessAdmitter = agent.ProcessAdmitterFunc(func(_ context.Context, admission agent.ProcessAdmission) error {
 					if !admission.Relation().IsRoot() {
 						return errors.New("child admission rejected")
@@ -74,7 +76,7 @@ func TestToolChildFailuresRetainRestorableParentState(t *testing.T) {
 				t.Fatal(err)
 			}
 			failure, failed := result.Termination().Failure()
-			if result.Status() != agent.StatusFailed || !failed || failure.Code() != wantCode || calls.Load() != wantCalls {
+			if result.Status() != agent.StatusFailed || !failed || failure.Code() != wantCode || failure.Kind() != wantKind || failure.Message() != wantMessage || calls.Load() != wantCalls {
 				t.Fatalf("parent failure = %+v, calls = %d, want %s after %d calls", failure, calls.Load(), wantCode, wantCalls)
 			}
 			root, found := engine.Process(result.ProcessID())

@@ -28,9 +28,6 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 	if err := ctx.Err(); err != nil {
 		return agent.Transition{}, err
 	}
-	if err := e.state.Validate(e.definition); err != nil {
-		return agent.Transition{}, err
-	}
 	switch e.state.Phase {
 	case phaseReadyModel:
 		steer, consumedSignals, err := collectSteerSignals(signals)
@@ -61,12 +58,10 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 }
 
 // Snapshot returns a complete, self-sufficient WorkingContext and checkpoint.
+// Restore owns full validation, including Engine admission of each candidate.
 func (e *execution) Snapshot() (agent.ExecutionState, error) {
 	if e == nil || !e.definition.valid() {
 		return agent.ExecutionState{}, ErrInvalidExecutionState
-	}
-	if err := e.state.Validate(e.definition); err != nil {
-		return agent.ExecutionState{}, err
 	}
 	return encodeState(e.state)
 }
@@ -308,23 +303,26 @@ func (e *execution) advanceToolCallBatch(ctx context.Context, consumedSignals ui
 		if e.state.ToolRound.nextCallIndex() == uint32(len(calls)) {
 			return e.finishToolCallBatch(consumedSignals, assistant)
 		}
-		if _, delegated := e.definition.delegate(calls[e.state.ToolRound.nextCallIndex()].Name); delegated {
-			transition, started, startErr := e.startDelegateChildren(ctx, consumedSignals, calls)
-			if startErr != nil {
-				return agent.Transition{}, startErr
+		call := calls[e.state.ToolRound.nextCallIndex()]
+		if _, delegated := e.definition.delegate(call.Name); delegated {
+			effects, prepareErr := e.prepareDelegateChildren(ctx, calls)
+			if prepareErr != nil {
+				return agent.Transition{}, prepareErr
 			}
-			if started {
-				return transition, nil
+			if len(effects) != 0 {
+				e.state.Phase = phaseAwaitingChildStarts
+				return agent.Continue(consumedSignals, effects...)
+			}
+			if finishErr := e.finishChildBatch(); finishErr != nil {
+				return agent.Transition{}, finishErr
 			}
 			continue
 		}
-		transition, started, err := e.startToolChildren(ctx, consumedSignals, calls)
-		if err != nil {
-			return agent.Transition{}, err
+		if _, found := e.definition.tools.entries[call.Name]; !found {
+			e.state.ToolRound.rejectCall(call, fmt.Sprintf("tool %q is not available", call.Name))
+			continue
 		}
-		if started {
-			return transition, nil
-		}
+		return e.startToolChildren(ctx, consumedSignals, calls)
 	}
 }
 
