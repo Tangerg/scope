@@ -82,3 +82,6 @@ func (r Retrieval) Definition() chat.ToolDefinition { return r.function.Definiti
 func (r Retrieval) Call(ctx context.Context, invocation coretool.Invocation) (chat.ToolOutput, error) {
 	return r.function.Call(ctx, invocation)
 }
+
+// Unwrap exposes the typed input contract through tool decorators.
+func (r Retrieval) Unwrap() coretool.Tool { return r.function }
