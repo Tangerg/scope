@@ -13,6 +13,116 @@ import (
 	"github.com/Tangerg/scope/etl/markdown"
 )
 
+// The vocabulary is reversible but token prefixes do not preserve rune boundaries.
+type boundaryTokenizer struct{ byteTokenizer }
+
+func (b boundaryTokenizer) Encode(ctx context.Context, text string) ([]int, error) {
+	switch text {
+	case "éx":
+		return []int{256, 257}, nil
+	case "é":
+		return []int{260}, nil
+	case "ab":
+		return []int{261}, nil
+	case "[é]":
+		return []int{262}, nil
+	default:
+		return b.byteTokenizer.Encode(ctx, text)
+	}
+}
+
+func (b boundaryTokenizer) Decode(ctx context.Context, tokens []int) (string, error) {
+	switch {
+	case slices.Equal(tokens, []int{256}):
+		return "\xc3", nil
+	case slices.Equal(tokens, []int{256, 257}):
+		return "éx", nil
+	case slices.Equal(tokens, []int{260}):
+		return "é", nil
+	case slices.Equal(tokens, []int{261}):
+		return "ab", nil
+	case slices.Equal(tokens, []int{262}):
+		return "[é]", nil
+	default:
+		return b.byteTokenizer.Decode(ctx, tokens)
+	}
+}
+
+func TestBoundaryTokenizerRoundTrip(t *testing.T) {
+	codec := boundaryTokenizer{}
+	for _, source := range []string{"éx", "é", "ab", "[é]", "abc", " a"} {
+		tokens, err := codec.Encode(t.Context(), source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded, err := codec.Decode(t.Context(), tokens)
+		if err != nil || decoded != source {
+			t.Fatalf("round trip %q = %q, %v", source, decoded, err)
+		}
+	}
+}
+
+type measuredTokenizer struct {
+	byteTokenizer
+	encodedBytes int
+}
+
+func (m *measuredTokenizer) Encode(ctx context.Context, text string) ([]int, error) {
+	m.encodedBytes += len(text)
+	return m.byteTokenizer.Encode(ctx, text)
+}
+
+func TestPrefixKeepsSuccessfulProbeWorkBounded(t *testing.T) {
+	codec := &measuredTokenizer{}
+	source := strings.Repeat("a", 1<<20)
+	prefix, err := tokenwindow.Prefix(t.Context(), codec, source, 32, strings.TrimSpace)
+	if err != nil || len(prefix) != 32 {
+		t.Fatalf("Prefix() length = %d, error = %v", len(prefix), err)
+	}
+	if codec.encodedBytes > 8192 {
+		t.Fatalf("one small chunk encoded %d bytes of a long document", codec.encodedBytes)
+	}
+}
+
+func TestPrefixCancelsSourceBoundarySearch(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	_, err := tokenwindow.Prefix(ctx, boundaryTokenizer{}, "éx", 1, func(string) string {
+		cancel()
+		return "over budget"
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Prefix() error = %v, want cancellation", err)
+	}
+}
+
+func TestPrefixSearchesSourceBoundaries(t *testing.T) {
+	for _, test := range []struct {
+		name, source, want string
+		limit              int
+		render             func(string) string
+	}{
+		{name: "independent rune", source: "éx", want: "é", limit: 1, render: strings.TrimSpace},
+		{name: "structural rendering", source: "éx", want: "é", limit: 1, render: func(text string) string { return "[" + text + "]" }},
+		{name: "nonmonotonic rendering", source: "abc", want: "ab", limit: 1, render: func(text string) string {
+			if text == "a" {
+				return "too large"
+			}
+			return text
+		}},
+		{name: "empty rendered prefix", source: " a", want: " a", limit: 1, render: strings.TrimSpace},
+		{name: "empty source", source: "", render: strings.TrimSpace},
+		{name: "all rendering empty", source: "abc", render: func(string) string { return "" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := tokenwindow.Prefix(t.Context(), boundaryTokenizer{}, test.source, test.limit, test.render)
+			if err != nil || got != test.want {
+				t.Fatalf("Prefix() = %q, %v; want %q", got, err, test.want)
+			}
+		})
+	}
+}
+
 // Byte tokens reproduce vocabularies whose individual tokens split a rune.
 type byteTokenizer struct{ replaceInvalid bool }
 

@@ -18,8 +18,12 @@ const initialProbeBytes = 4 << 10
 // Probe and final rendering are encoded independently because vocabulary
 // boundaries can change after trimming or adding structural context. Chunk
 // boundaries are selected from the probe, not a whole-document tokenization.
-// An empty result means no complete source character fits.
+// Token-prefix decoding is only a candidate selector: if it finds no admissible
+// prefix, every source rune boundary is checked by independent encoding. Token
+// counts need not be monotonic. An empty result proves that no nonempty rendered
+// source prefix fits; proving absence can require scanning the entire source.
 func Prefix(ctx context.Context, codec tokenizer.Tokenizer, source string, limit int, render func(string) string) (string, error) {
+	searched := 0
 	for end := min(len(source), initialProbeBytes); ; end += min(end, len(source)-end) {
 		if err := ctx.Err(); err != nil {
 			return "", err
@@ -36,8 +40,30 @@ func Prefix(ctx context.Context, codec tokenizer.Tokenizer, source string, limit
 			continue
 		}
 		prefix, err := renderedPrefix(ctx, codec, probe, tokens, limit, render)
-		if err != nil || prefix != "" || end == len(source) {
+		if err != nil || prefix != "" {
 			return prefix, err
+		}
+		for searched < end {
+			if err := ctx.Err(); err != nil {
+				return "", err
+			}
+			_, size := utf8.DecodeRuneInString(source[searched:])
+			searched += size
+			candidate := source[:searched]
+			rendered := render(candidate)
+			if rendered == "" {
+				continue
+			}
+			measured, err := codec.Encode(ctx, rendered)
+			if err != nil {
+				return "", err
+			}
+			if len(measured) <= limit {
+				return candidate, nil
+			}
+		}
+		if end == len(source) {
+			return "", nil
 		}
 	}
 }

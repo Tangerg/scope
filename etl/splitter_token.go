@@ -23,7 +23,7 @@ const (
 // number of documents.
 var ErrChunkLimitExceeded = errors.New("etl: chunk limit exceeded")
 
-// ErrChunkBudgetTooSmall means no lossless source character fits the token budget.
+// ErrChunkBudgetTooSmall means no nonempty trimmed source prefix fits the token budget.
 var ErrChunkBudgetTooSmall = errors.New("etl: chunk token budget is too small")
 
 // TokenSplitterConfig configures token-aware chunking. Zero sizing values use
