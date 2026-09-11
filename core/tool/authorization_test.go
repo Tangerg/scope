@@ -49,7 +49,7 @@ func TestGuardAuthorizesValidatedInvocationBeforeExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Prepare(chat.ToolCall{
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{
 		ID: "call", Name: "search", Arguments: `{"query":"scope"}`,
 	})
 	if err != nil {
@@ -88,7 +88,7 @@ func TestGuardDenialPreservesCauseAndSkipsExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Prepare(chat.ToolCall{
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{
 		ID: "call", Name: "search", Arguments: `{"query":"scope"}`,
 	})
 	if err != nil {
@@ -120,7 +120,7 @@ func TestGuardHonorsCancellationBeforePolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Prepare(chat.ToolCall{
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{
 		ID: "call", Name: "search", Arguments: `{"query":"scope"}`,
 	})
 	if err != nil {
@@ -151,7 +151,7 @@ func TestGuardPreservesPolicyCancellationSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Prepare(chat.ToolCall{
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{
 		ID: "call", Name: "search", Arguments: `{"query":"scope"}`,
 	})
 	if err != nil {

@@ -19,7 +19,7 @@ var (
 
 // Tool is the minimal executable capability used by model-driven runtimes.
 // Definition returns an independent snapshot safe to expose to a model. Call
-// receives only an Invocation promoted by the exact frozen [Binding].
+// receives only an Invocation promoted by its exact frozen [Contract].
 //
 // Tool assigns no control-flow meaning to errors. Retry, pause, abort, and
 // ordinary error feedback belong to the runtime driving the tool.
@@ -36,18 +36,24 @@ type Tool interface {
 	Call(ctx context.Context, invocation Invocation) (chat.ToolOutput, error)
 }
 
-type boundContract struct {
-	executable Tool
+type contractState struct {
 	definition chat.ToolDefinition
 	input      corejsonschema.Schema
 }
 
-// Binding freezes one Tool definition and compiles its input schema. It is the
-// canonical trust boundary between an untrusted [chat.ToolCall] and execution.
-// A successfully constructed Binding and every Invocation it creates are safe
-// for concurrent use when the underlying Tool is safe for concurrent calls.
+// Contract is the immutable trust boundary between an untrusted [chat.ToolCall]
+// and a validated Invocation. It holds the frozen definition and compiled input
+// schema without retaining an executable Tool. A Contract obtained from
+// [Binding.Contract] is safe for concurrent use independently of the Tool.
+type Contract struct {
+	state *contractState
+}
+
+// Binding associates one immutable Contract with the Tool that executes it.
+// Calls may run concurrently when the underlying Tool supports concurrent use.
 type Binding struct {
-	contract *boundContract
+	contract   Contract
+	executable Tool
 }
 
 // Bind freezes and validates executable. Definition is read exactly once.
@@ -63,63 +69,66 @@ func Bind(executable Tool) (Binding, error) {
 	if err != nil {
 		return Binding{}, fmt.Errorf("%w: input schema: %w", ErrInvalidTool, err)
 	}
-	return Binding{contract: &boundContract{
+	return Binding{
+		contract:   Contract{state: &contractState{definition: definition.Clone(), input: input}},
 		executable: executable,
-		definition: definition.Clone(),
-		input:      input,
-	}}, nil
+	}, nil
 }
 
+// Contract returns the exact frozen contract used to prepare this Binding's
+// invocations. Retaining it does not retain the executable Tool.
+func (b Binding) Contract() Contract { return b.contract }
+
 // Definition returns an independent snapshot of the frozen definition.
-func (b Binding) Definition() chat.ToolDefinition {
-	if b.contract == nil {
+func (c Contract) Definition() chat.ToolDefinition {
+	if c.state == nil {
 		return chat.ToolDefinition{}
 	}
-	return b.contract.definition.Clone()
+	return c.state.definition.Clone()
 }
 
 // Invocation is a complete JSON object validated against one exact frozen Tool
-// definition. Its fields are intentionally private: only Binding.Prepare can
+// definition. Its fields are intentionally private: only Contract.Prepare can
 // promote an untrusted model proposal into an executable invocation.
 type Invocation struct {
-	contract  *boundContract
+	contract  *contractState
 	arguments []byte
 }
 
 // Prepare validates identity, RFC 7493 JSON syntax, and the frozen input schema
 // without invoking the Tool or any optional Tool capability. Blank arguments
 // are normalized to the empty object.
-func (b Binding) Prepare(call chat.ToolCall) (Invocation, error) {
-	if b.contract == nil {
-		return Invocation{}, fmt.Errorf("%w: binding is zero", ErrInvalidInvocation)
+func (c Contract) Prepare(call chat.ToolCall) (Invocation, error) {
+	if c.state == nil {
+		return Invocation{}, fmt.Errorf("%w: contract is zero", ErrInvalidInvocation)
 	}
 	if err := call.Validate(); err != nil {
 		return Invocation{}, fmt.Errorf("%w: %w", ErrInvalidInvocation, err)
 	}
-	if call.Name != b.contract.definition.Name {
+	if call.Name != c.state.definition.Name {
 		return Invocation{}, fmt.Errorf(
 			"%w: call name %q does not match bound tool %q",
-			ErrInvalidInvocation, call.Name, b.contract.definition.Name,
+			ErrInvalidInvocation, call.Name, c.state.definition.Name,
 		)
 	}
 	arguments := []byte(call.Arguments)
 	if len(bytes.TrimSpace(arguments)) == 0 {
 		arguments = []byte("{}")
 	}
-	if err := b.contract.input.Validate(arguments); err != nil {
+	if err := c.state.input.Validate(arguments); err != nil {
 		return Invocation{}, fmt.Errorf("%w: arguments: %w", ErrInvalidInvocation, err)
 	}
 	owned := append([]byte(nil), arguments...)
-	return Invocation{contract: b.contract, arguments: owned}, nil
+	return Invocation{contract: c.state, arguments: owned}, nil
 }
 
-// Call executes an Invocation created by this exact Binding. It rejects values
-// promoted by another binding even when the public Tool name happens to match.
+// Call executes an Invocation prepared by this Binding's exact Contract. It
+// rejects another binding's contract even when the public Tool name matches.
 func (b Binding) Call(ctx context.Context, invocation Invocation) (chat.ToolOutput, error) {
-	if b.contract == nil || invocation.contract == nil || b.contract != invocation.contract {
+	if b.contract.state == nil || invocation.contract != b.contract.state {
 		return chat.ToolOutput{}, fmt.Errorf("%w: invocation does not belong to binding", ErrInvalidInvocation)
 	}
-	return b.contract.executable.Call(ctx, invocation)
+	return b.executable.Call(ctx, invocation)
 }
 
 // Arguments returns an owned copy of the validated JSON object.

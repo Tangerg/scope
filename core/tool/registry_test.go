@@ -41,7 +41,7 @@ func TestRegistryResolveAndDefinitions(t *testing.T) {
 	if !ok {
 		t.Fatal("Resolve(alpha) did not find registered tool")
 	}
-	invocation, err := value.Prepare(chat.ToolCall{ID: "call", Name: "alpha", Arguments: `{}`})
+	invocation, err := value.Contract().Prepare(chat.ToolCall{ID: "call", Name: "alpha", Arguments: `{}`})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestRegistryRejectsInvalidTools(t *testing.T) {
 	if err := nilRegistry.Register(newStubTool("tool")); !errors.Is(err, tool.ErrInvalidRegistry) {
 		t.Fatalf("nil Registry.Register error = %v", err)
 	}
-	if value, ok := nilRegistry.Resolve("tool"); ok || value.Definition().Name != "" {
+	if value, ok := nilRegistry.Resolve("tool"); ok || value.Contract().Definition().Name != "" {
 		t.Fatalf("nil Registry.Resolve = %#v, %v", value, ok)
 	}
 }

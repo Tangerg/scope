@@ -51,7 +51,7 @@ func (r *Registry) Register(values ...Tool) error {
 		if err != nil {
 			return fmt.Errorf("tools[%d]: %w", index, err)
 		}
-		definition := binding.Definition()
+		definition := binding.Contract().Definition()
 		if _, duplicate := pending[definition.Name]; duplicate {
 			return fmt.Errorf("%w: %q appears more than once in batch", ErrDuplicateTool, definition.Name)
 		}
@@ -89,7 +89,7 @@ func (r *Registry) Definitions() []chat.ToolDefinition {
 	r.mu.RLock()
 	definitions := make([]chat.ToolDefinition, 0, len(r.entries))
 	for _, binding := range r.entries {
-		definitions = append(definitions, binding.Definition())
+		definitions = append(definitions, binding.Contract().Definition())
 	}
 	r.mu.RUnlock()
 

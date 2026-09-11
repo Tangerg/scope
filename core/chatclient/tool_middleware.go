@@ -43,7 +43,7 @@ func NewToolMiddleware(executables ...tool.Tool) (chat.CallMiddleware, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%w: tools[%d]: %w", ErrInvalidToolMiddleware, index, err)
 		}
-		definition := binding.Definition()
+		definition := binding.Contract().Definition()
 		if _, duplicate := middleware.bindings[definition.Name]; duplicate {
 			return nil, fmt.Errorf("%w: duplicate Tool name %q", ErrInvalidToolMiddleware, definition.Name)
 		}
@@ -125,7 +125,7 @@ func (t *toolMiddleware) prepare(calls []chat.ToolCall) (preparedToolBatch, erro
 		if !exists {
 			return nil, fmt.Errorf("chatclient: execute tool call[%d]: tool %q is not bound", index, call.Name)
 		}
-		invocation, err := binding.Prepare(call)
+		invocation, err := binding.Contract().Prepare(call)
 		if err != nil {
 			return nil, fmt.Errorf("chatclient: prepare tool call[%d]: %w", index, err)
 		}

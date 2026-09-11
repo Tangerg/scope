@@ -32,7 +32,7 @@ func Example() {
 	if !ok {
 		panic("missing add")
 	}
-	invocation, err := binding.Prepare(chat.ToolCall{ID: "call-1", Name: "add", Arguments: `{"a":2,"b":3}`})
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "call-1", Name: "add", Arguments: `{"a":2,"b":3}`})
 	if err != nil {
 		panic(err)
 	}

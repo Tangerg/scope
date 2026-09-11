@@ -261,8 +261,8 @@ func call(t *testing.T, ctx context.Context, executable tool.Tool, arguments str
 	if err != nil {
 		return chat.ToolOutput{}, err
 	}
-	invocation, err := binding.Prepare(chat.ToolCall{
-		ID: "call", Name: binding.Definition().Name, Arguments: arguments,
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{
+		ID: "call", Name: binding.Contract().Definition().Name, Arguments: arguments,
 	})
 	if err != nil {
 		return chat.ToolOutput{}, err

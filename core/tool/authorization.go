@@ -14,7 +14,7 @@ import (
 var ErrAuthorizationDenied = errors.New("tool: authorization denied")
 
 // Authorization carries only the frozen model-visible contract and validated
-// arguments, so policy code cannot bypass Binding or execute the invocation.
+// arguments, so policy code cannot bypass Contract validation or execute the invocation.
 type Authorization struct {
 	definition chat.ToolDefinition
 	arguments  []byte
@@ -65,8 +65,8 @@ type Guard struct {
 // NewGuard snapshots the wrapped tool's definition at construction, so the
 // contract policy evaluates is the contract the model was shown. Resolving it
 // per call would let a mutable inner tool widen its own arguments after
-// approval. Schema compilation and invocation validation remain owned by
-// [Bind]; construction validates only the definition's protocol shape.
+// approval. [Bind] compiles the frozen schema and [Contract.Prepare] validates
+// invocations; construction validates only the definition's protocol shape.
 func NewGuard(config GuardConfig) (Guard, error) {
 	if lo.IsNil(config.Authorizer) {
 		return Guard{}, fmt.Errorf("%w: authorizer is nil", ErrInvalidTool)

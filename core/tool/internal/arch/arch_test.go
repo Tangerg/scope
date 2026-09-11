@@ -17,7 +17,7 @@ import (
 	"github.com/Tangerg/scope/core/tool"
 )
 
-func TestToolContractStaysMinimal(t *testing.T) {
+func TestExecutableToolProtocolStaysMinimal(t *testing.T) {
 	typeOf := reflect.TypeFor[tool.Tool]()
 	if typeOf.Kind() != reflect.Interface || typeOf.NumMethod() != 2 {
 		t.Fatalf("Tool shape = %v with %d methods, want two-method interface", typeOf, typeOf.NumMethod())
@@ -32,6 +32,39 @@ func TestToolContractStaysMinimal(t *testing.T) {
 			t.Errorf("Tool.%s = %v (present %v), want %v", name, method.Type, ok, signature)
 		}
 	}
+}
+
+// Planning values must not prolong executable capability lifetimes merely to
+// retain a compiled schema. Follow Tool-owned representation fields so this
+// also rejects an executable hidden behind another private struct.
+func TestContractAndInvocationDoNotRetainExecutionAuthority(t *testing.T) {
+	owner := reflect.TypeFor[tool.Contract]().PkgPath()
+	visited := make(map[reflect.Type]bool)
+	var inspect func(reflect.Type)
+	inspect = func(value reflect.Type) {
+		if visited[value] {
+			return
+		}
+		visited[value] = true
+		switch value.Kind() {
+		case reflect.Interface, reflect.Func:
+			t.Errorf("planning representation retains executable authority through %v", value)
+		case reflect.Pointer, reflect.Array, reflect.Slice, reflect.Chan:
+			inspect(value.Elem())
+		case reflect.Map:
+			inspect(value.Key())
+			inspect(value.Elem())
+		case reflect.Struct:
+			if value.PkgPath() != owner {
+				return
+			}
+			for field := range value.Fields() {
+				inspect(field.Type)
+			}
+		}
+	}
+	inspect(reflect.TypeFor[tool.Contract]())
+	inspect(reflect.TypeFor[tool.Invocation]())
 }
 
 func TestFuncStaysAnImmutableValueAdapter(t *testing.T) {

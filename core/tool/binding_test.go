@@ -32,7 +32,7 @@ func (c *countingTool) Call(_ context.Context, invocation tool.Invocation) (chat
 	return chat.NewTextToolOutput(string(invocation.Arguments())), nil
 }
 
-func TestBindingPromotesOnlySchemaValidCalls(t *testing.T) {
+func TestContractPromotesOnlySchemaValidCalls(t *testing.T) {
 	executable := &countingTool{name: "search"}
 	binding, err := tool.Bind(executable)
 	if err != nil {
@@ -42,6 +42,14 @@ func TestBindingPromotesOnlySchemaValidCalls(t *testing.T) {
 		t.Fatalf("Definition called %d times, want exactly once", executable.definition.Load())
 	}
 
+	contract := binding.Contract()
+	exposed := contract.Definition()
+	executable.name = "changed"
+	exposed.InputSchema[0] = '['
+	if definition := contract.Definition(); definition.Name != "search" || !json.Valid(definition.InputSchema) {
+		t.Fatalf("Contract retained a caller's definition mutation: %+v", definition)
+	}
+
 	for _, call := range []chat.ToolCall{
 		{ID: "", Name: "search", Arguments: `{"query":"ok"}`},
 		{ID: "call", Name: "other", Arguments: `{"query":"ok"}`},
@@ -49,7 +57,7 @@ func TestBindingPromotesOnlySchemaValidCalls(t *testing.T) {
 		{ID: "call", Name: "search", Arguments: `{"query":"x"}`},
 		{ID: "call", Name: "search", Arguments: `{"query":"ok","extra":true}`},
 	} {
-		if _, prepareErr := binding.Prepare(call); !errors.Is(prepareErr, tool.ErrInvalidInvocation) {
+		if _, prepareErr := contract.Prepare(call); !errors.Is(prepareErr, tool.ErrInvalidInvocation) {
 			t.Errorf("Prepare(%+v) error = %v, want ErrInvalidInvocation", call, prepareErr)
 		}
 	}
@@ -57,7 +65,7 @@ func TestBindingPromotesOnlySchemaValidCalls(t *testing.T) {
 		t.Fatalf("invalid promotion executed Tool %d times", executable.calls.Load())
 	}
 
-	invocation, err := binding.Prepare(chat.ToolCall{ID: "call", Name: "search", Arguments: `{"query":"scope"}`})
+	invocation, err := contract.Prepare(chat.ToolCall{ID: "call", Name: "search", Arguments: `{"query":"scope"}`})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,14 +83,14 @@ func TestBindingPromotesOnlySchemaValidCalls(t *testing.T) {
 	}
 }
 
-func TestBindingNormalizesBlankArgumentsToEmptyObject(t *testing.T) {
+func TestContractNormalizesBlankArgumentsToEmptyObject(t *testing.T) {
 	executableSchema := json.RawMessage(`{"type":"object","additionalProperties":false}`)
 	wrapped := definitionTool{definition: chat.ToolDefinition{Name: "empty", InputSchema: executableSchema}}
 	binding, err := tool.Bind(wrapped)
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Prepare(chat.ToolCall{ID: "call", Name: "empty"})
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "call", Name: "empty"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,11 +119,18 @@ func TestBindingRejectsForeignInvocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := first.Prepare(chat.ToolCall{ID: "call", Name: "same", Arguments: `{}`})
+	invocation, err := first.Contract().Prepare(chat.ToolCall{ID: "call", Name: "same", Arguments: `{}`})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := second.Call(t.Context(), invocation); !errors.Is(err, tool.ErrInvalidInvocation) {
 		t.Fatalf("Call error = %v, want ErrInvalidInvocation", err)
+	}
+}
+
+func TestZeroContractCannotPrepareInvocation(t *testing.T) {
+	var contract tool.Contract
+	if _, err := contract.Prepare(chat.ToolCall{ID: "call", Name: "search", Arguments: `{}`}); !errors.Is(err, tool.ErrInvalidInvocation) {
+		t.Fatalf("Prepare error = %v, want ErrInvalidInvocation", err)
 	}
 }
