@@ -89,7 +89,7 @@ func (p phase) shape() (phaseShape, bool) {
 }
 
 func (e executionState) validate(definition *Definition) error {
-	if !e.Phase.valid() || !definition.valid() || !e.WorldState.Valid() {
+	if !e.Phase.valid() || !definition.valid() {
 		return ErrInvalidExecutionState
 	}
 	input, err := agent.ParseInput(e.Input)

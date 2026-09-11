@@ -100,15 +100,15 @@ func (a Action) Effects() []Condition { return slices.Clone(a.effects) }
 
 // Applicable reports whether state establishes every Action precondition.
 func (a Action) Applicable(state WorldState) bool {
-	return a.Valid() && state.Valid() && state.Satisfies(a.preconditions...)
+	return a.Valid() && state.Satisfies(a.preconditions...)
 }
 
 // Cost evaluates the Action's predicted edge cost against source. Panics,
 // errors, negative values, and non-finite values are returned as
 // ErrInvalidActionCost.
 func (a Action) Cost(source WorldState) (cost float64, err error) {
-	if !a.Valid() || !source.Valid() {
-		return 0, fmt.Errorf("%w: invalid Action or source WorldState", ErrInvalidActionCost)
+	if !a.Valid() {
+		return 0, fmt.Errorf("%w: invalid Action", ErrInvalidActionCost)
 	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -133,18 +133,14 @@ func (a Action) Cost(source WorldState) (cost float64, err error) {
 // Apply returns the Action's predicted successor state. It does not assert that
 // external execution actually produced the prediction.
 func (a Action) Apply(source WorldState) (WorldState, error) {
-	if !a.Valid() || !source.Valid() {
+	if !a.Valid() {
 		return WorldState{}, ErrInvalidAction
 	}
-	return source.Apply(a.effects...)
+	return source.apply(a.effects), nil
 }
 
-func (a Action) Valid() bool {
-	return validName(a.name) && validDescription(a.description) &&
-		canonicalConditionSlice(a.preconditions) && len(a.effects) > 0 &&
-		canonicalConditionSlice(a.effects) && a.cost != nil &&
-		changesAnyCondition(a.preconditions, a.effects)
-}
+// Valid distinguishes a constructed Action from its invalid zero value.
+func (a Action) Valid() bool { return a.cost != nil }
 
 func changesAnyCondition(preconditions, effects []Condition) bool {
 	for _, effect := range effects {
@@ -174,13 +170,4 @@ func canonicalConditions(conditions []Condition) ([]Condition, error) {
 		}
 	}
 	return values, nil
-}
-
-func canonicalConditionSlice(conditions []Condition) bool {
-	for index, condition := range conditions {
-		if !condition.Valid() || index > 0 && conditions[index-1].key >= condition.key {
-			return false
-		}
-	}
-	return true
 }

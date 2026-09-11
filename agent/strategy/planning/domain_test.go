@@ -40,6 +40,39 @@ func TestWorldStatePreservesThreeValuedImmutableFacts(t *testing.T) {
 	}
 }
 
+func TestWorldStateApplyOrdersFactsAndUsesLastRepeatedEffect(t *testing.T) {
+	state := mustWorldState(t,
+		mustCondition(t, "b", planning.False),
+		mustCondition(t, "d", planning.True),
+	)
+	effects := []planning.Condition{
+		mustCondition(t, "e", planning.True),
+		mustCondition(t, "b", planning.True),
+		mustCondition(t, "a", planning.False),
+		mustCondition(t, "e", planning.False),
+		mustCondition(t, "c", planning.True),
+	}
+	before := slices.Clone(effects)
+	updated, err := state.Apply(effects...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Key() != "a=0|b=1|c=1|d=1|e=0|" || state.Key() != "b=0|d=1|" ||
+		!slices.Equal(effects, before) {
+		t.Fatalf("apply changed its inputs or facts: %s -> %s", state.Key(), updated.Key())
+	}
+	effects[0] = mustCondition(t, "z", planning.True)
+	if updated.Truth("z") != planning.Unknown {
+		t.Fatal("successor retained caller effects")
+	}
+	if unchanged, applyErr := state.Apply(); applyErr != nil || unchanged.Key() != state.Key() {
+		t.Fatalf("empty effects changed the state: %s, %v", unchanged.Key(), applyErr)
+	}
+	if _, applyErr := state.Apply(planning.Condition{}); !errors.Is(applyErr, planning.ErrInvalidWorldState) {
+		t.Fatalf("invalid effect accepted: %v", applyErr)
+	}
+}
+
 func TestPlanningValuesUseStrictPortableJSON(t *testing.T) {
 	state := mustWorldState(t,
 		mustCondition(t, "world.alpha", planning.True),

@@ -85,8 +85,8 @@ type Output struct {
 // Validate checks completed planning counters and ordered attempt facts. Goal
 // satisfaction and Action membership require the owning Definition.
 func (o Output) Validate() error {
-	if !o.Outcome.Valid() || !o.WorldState.Valid() {
-		return errors.New("planning: invalid output outcome or WorldState")
+	if !o.Outcome.Valid() {
+		return errors.New("planning: invalid output outcome")
 	}
 	if err := validateAttempts(o.Attempts); err != nil {
 		return err

@@ -19,9 +19,6 @@ type Problem struct {
 // reach it into one value, so a planner cannot be handed a goal without the
 // vocabulary it is expected to search over.
 func NewProblem(initial WorldState, goal Goal, actions ...Action) (Problem, error) {
-	if !initial.Valid() {
-		return Problem{}, fmt.Errorf("%w: initial state", ErrInvalidProblem)
-	}
 	if !goal.Valid() {
 		return Problem{}, fmt.Errorf("%w: Goal", ErrInvalidProblem)
 	}
@@ -58,22 +55,8 @@ func (p Problem) Action(name string) (Action, bool) {
 	return Action{}, false
 }
 
-func (p Problem) Valid() bool {
-	if !p.initial.Valid() || !p.goal.Valid() {
-		return false
-	}
-	seen := make(map[string]struct{}, len(p.actions))
-	for _, action := range p.actions {
-		if !action.Valid() {
-			return false
-		}
-		if _, duplicate := seen[action.name]; duplicate {
-			return false
-		}
-		seen[action.name] = struct{}{}
-	}
-	return true
-}
+// Valid distinguishes a constructed Problem from its invalid zero value.
+func (p Problem) Valid() bool { return p.goal.Valid() }
 
 // ValidatePlan verifies that every referenced Action exists and is applicable
 // in sequence, the reported cost equals the evaluated path cost, and the

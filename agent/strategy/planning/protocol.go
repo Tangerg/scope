@@ -60,7 +60,7 @@ func newSenseEffect(input agent.Input) (agent.Effect, error) {
 }
 
 func newActionEffect(input agent.Input, binding ActionBinding, state WorldState) (agent.Effect, error) {
-	if !input.Valid() || !binding.Valid() || binding.target != bindingTargetDispatcher || !state.Valid() ||
+	if !input.Valid() || !binding.Valid() || binding.target != bindingTargetDispatcher ||
 		!binding.action.Applicable(state) {
 		return agent.Effect{}, ErrInvalidProtocol
 	}
@@ -92,7 +92,7 @@ func decodeEffect(payload json.RawMessage) (effectEnvelope, error) {
 		}
 	case operationAction:
 		if envelope.Action == nil || !validName(envelope.Action.Name) ||
-			!validDescription(envelope.Action.Description) || !envelope.Action.WorldState.Valid() {
+			!validDescription(envelope.Action.Description) {
 			return effectEnvelope{}, ErrInvalidProtocol
 		}
 	}
@@ -104,9 +104,6 @@ func senseSignal(state WorldState, cause error) (json.RawMessage, error) {
 	if cause != nil {
 		result.Error = diagnostic(cause.Error())
 	} else {
-		if !state.Valid() {
-			return nil, ErrInvalidProtocol
-		}
 		cloned := state
 		result.WorldState = &cloned
 	}
@@ -141,8 +138,7 @@ func decodeSignal(payload json.RawMessage) (signalEnvelope, error) {
 			(envelope.Sensing.WorldState == nil) == (envelope.Sensing.Error == "") {
 			return signalEnvelope{}, ErrInvalidProtocol
 		}
-		if envelope.Sensing.WorldState != nil && !envelope.Sensing.WorldState.Valid() ||
-			envelope.Sensing.Error != "" && diagnostic(envelope.Sensing.Error) != envelope.Sensing.Error {
+		if envelope.Sensing.Error != "" && diagnostic(envelope.Sensing.Error) != envelope.Sensing.Error {
 			return signalEnvelope{}, ErrInvalidProtocol
 		}
 	case operationAction:

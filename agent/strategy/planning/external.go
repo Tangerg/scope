@@ -139,7 +139,7 @@ func validateSenseRequest(request SenseRequest) error {
 
 func validateActionRequest(request ActionRequest) error {
 	if !request.EffectID.Valid() || !request.Input.Valid() || !validName(request.ActionName) ||
-		!validDescription(request.ActionDescription) || !request.WorldState.Valid() {
+		!validDescription(request.ActionDescription) {
 		return fmt.Errorf("planning: invalid Action request for %q", request.ActionName)
 	}
 	return nil

@@ -18,9 +18,6 @@ func FuzzWorldStateJSON(f *testing.F) {
 		if err := json.Unmarshal(data, &state); err != nil {
 			return
 		}
-		if !state.Valid() {
-			t.Fatal("decoded WorldState is invalid")
-		}
 		encoded, err := json.Marshal(state)
 		if err != nil {
 			t.Fatal(err)

@@ -9,7 +9,9 @@ import (
 )
 
 // WorldState is an immutable, canonical observation of known condition truths.
-// Missing conditions read as Unknown. Its zero value is the valid empty state.
+// Missing conditions read as Unknown. Its zero value is the empty state. Every
+// value is valid: constructors and decoding establish invariants, and
+// observations never expose mutable storage.
 type WorldState struct {
 	conditions []Condition
 }
@@ -19,19 +21,9 @@ type WorldState struct {
 // states for equality while searching, and duplicate or conflicting conditions
 // would make that comparison meaningless.
 func NewWorldState(conditions ...Condition) (WorldState, error) {
-	values := slices.Clone(conditions)
-	for index, condition := range values {
-		if !condition.Valid() {
-			return WorldState{}, fmt.Errorf("%w: condition %d", ErrInvalidWorldState, index)
-		}
-	}
-	slices.SortFunc(values, func(left, right Condition) int {
-		return strings.Compare(left.key, right.key)
-	})
-	for index := 1; index < len(values); index++ {
-		if values[index-1].key == values[index].key {
-			return WorldState{}, fmt.Errorf("%w: duplicate condition %q", ErrInvalidWorldState, values[index].key)
-		}
+	values, err := canonicalConditions(conditions)
+	if err != nil {
+		return WorldState{}, fmt.Errorf("%w: %w", ErrInvalidWorldState, err)
 	}
 	return WorldState{conditions: values}, nil
 }
@@ -61,26 +53,53 @@ func (w WorldState) Satisfies(requirements ...Condition) bool {
 }
 
 // Apply returns a new state with predicted effects layered over this state.
-// The receiver is never mutated.
+// The receiver is never mutated. The last effect for a repeated key wins.
 func (w WorldState) Apply(effects ...Condition) (WorldState, error) {
-	if !w.Valid() {
-		return WorldState{}, ErrInvalidWorldState
-	}
-	values := make(map[string]Truth, len(w.conditions)+len(effects))
-	for _, condition := range w.conditions {
-		values[condition.key] = condition.truth
-	}
-	for index, effect := range effects {
+	values := slices.Clone(effects)
+	for index, effect := range values {
 		if !effect.Valid() {
 			return WorldState{}, fmt.Errorf("%w: effect %d", ErrInvalidWorldState, index)
 		}
-		values[effect.key] = effect.truth
 	}
-	conditions := make([]Condition, 0, len(values))
-	for key, truth := range values {
-		conditions = append(conditions, Condition{key: key, truth: truth})
+	slices.SortStableFunc(values, func(left, right Condition) int {
+		return strings.Compare(left.key, right.key)
+	})
+	canonical := values[:0]
+	for _, effect := range values {
+		if len(canonical) > 0 && canonical[len(canonical)-1].key == effect.key {
+			canonical[len(canonical)-1] = effect
+		} else {
+			canonical = append(canonical, effect)
+		}
 	}
-	return NewWorldState(conditions...)
+	return w.apply(canonical), nil
+}
+
+// Both inputs already own sorted, unique conditions. Preserve that invariant
+// while constructing the successor instead of rebuilding an untrusted state.
+func (w WorldState) apply(effects []Condition) WorldState {
+	if len(effects) == 0 {
+		return w
+	}
+	conditions := make([]Condition, 0, len(w.conditions)+len(effects))
+	left, right := 0, 0
+	for left < len(w.conditions) && right < len(effects) {
+		switch strings.Compare(w.conditions[left].key, effects[right].key) {
+		case -1:
+			conditions = append(conditions, w.conditions[left])
+			left++
+		case 0:
+			conditions = append(conditions, effects[right])
+			left++
+			right++
+		case 1:
+			conditions = append(conditions, effects[right])
+			right++
+		}
+	}
+	conditions = append(conditions, w.conditions[left:]...)
+	conditions = append(conditions, effects[right:]...)
+	return WorldState{conditions: conditions}
 }
 
 // Key returns a stable identity derived only from canonical known truths.
@@ -99,19 +118,7 @@ func (w WorldState) Key() string {
 	return key.String()
 }
 
-func (w WorldState) Valid() bool {
-	for index, condition := range w.conditions {
-		if !condition.Valid() || index > 0 && w.conditions[index-1].key >= condition.key {
-			return false
-		}
-	}
-	return true
-}
-
 func (w WorldState) MarshalJSON() ([]byte, error) {
-	if !w.Valid() {
-		return nil, ErrInvalidWorldState
-	}
 	conditions := slices.Clone(w.conditions)
 	if conditions == nil {
 		conditions = []Condition{}

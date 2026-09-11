@@ -49,6 +49,7 @@ type predecessor struct {
 
 type search struct {
 	problem       planning.Problem
+	actions       []planning.Action
 	maxExpansions uint32
 	startKey      string
 	frontier      *frontier
@@ -63,7 +64,7 @@ func newSearch(problem planning.Problem, maxExpansions uint32) *search {
 	queue := &frontier{}
 	heap.Init(queue)
 	search := &search{
-		problem: problem, maxExpansions: maxExpansions, startKey: start.Key(), frontier: queue,
+		problem: problem, actions: problem.Actions(), maxExpansions: maxExpansions, startKey: start.Key(), frontier: queue,
 		bestCosts: map[string]float64{start.Key(): 0}, predecessors: make(map[string]predecessor),
 	}
 	search.push(start, 0)
@@ -101,7 +102,7 @@ func (s *search) run(ctx context.Context) (searchNode, bool, error) {
 
 func (s *search) expand(current *searchNode) error {
 	currentKey := current.state.Key()
-	for _, action := range s.problem.Actions() {
+	for _, action := range s.actions {
 		if !action.Applicable(current.state) {
 			continue
 		}
@@ -156,7 +157,7 @@ func (s *search) hasGoalProducers() bool {
 			continue
 		}
 		produced := false
-		for _, action := range s.problem.Actions() {
+		for _, action := range s.actions {
 			for _, effect := range action.Effects() {
 				if effect.Key() == required.Key() && effect.Truth() == required.Truth() {
 					produced = true

@@ -55,10 +55,8 @@ func (g Goal) Conditions() []Condition { return slices.Clone(g.conditions) }
 
 // SatisfiedBy reports whether state establishes every goal condition.
 func (g Goal) SatisfiedBy(state WorldState) bool {
-	return g.Valid() && state.Valid() && state.Satisfies(g.conditions...)
+	return g.Valid() && state.Satisfies(g.conditions...)
 }
 
-func (g Goal) Valid() bool {
-	return validName(g.name) && validDescription(g.description) && len(g.conditions) > 0 &&
-		canonicalConditionSlice(g.conditions)
-}
+// Valid distinguishes a constructed Goal from its invalid zero value.
+func (g Goal) Valid() bool { return len(g.conditions) > 0 }

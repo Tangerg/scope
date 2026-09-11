@@ -2,7 +2,6 @@ package planning
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -124,9 +123,6 @@ func (d *Dispatcher) sense(
 		return agent.Settlement{}, err
 	}
 	state, senseErr := d.sensor.Sense(ctx, request)
-	if senseErr == nil && !state.Valid() {
-		return agent.Settlement{}, errors.New("planning: Sensor returned an invalid WorldState")
-	}
 	payload, err := senseSignal(state, senseErr)
 	if err != nil {
 		return agent.Settlement{}, err

@@ -19,7 +19,7 @@ type Condition struct {
 // to compare and combine them without executing anything.
 func NewCondition(key string, truth Truth) (Condition, error) {
 	condition := Condition{key: key, truth: truth}
-	if !condition.Valid() {
+	if !validName(key) || !truth.known() {
 		return Condition{}, fmt.Errorf("%w: key %q and truth %s", ErrInvalidCondition, key, truth)
 	}
 	return condition, nil
@@ -31,9 +31,8 @@ func (c Condition) Key() string { return c.key }
 // Truth returns the known truth asserted by the condition.
 func (c Condition) Truth() Truth { return c.truth }
 
-func (c Condition) Valid() bool {
-	return validName(c.key) && c.truth.known()
-}
+// Valid distinguishes a constructed Condition from its invalid zero value.
+func (c Condition) Valid() bool { return c.key != "" }
 
 func (c Condition) MarshalJSON() ([]byte, error) {
 	if !c.Valid() {
