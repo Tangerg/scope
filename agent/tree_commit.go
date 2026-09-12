@@ -58,7 +58,7 @@ func (t *treeRuntime) startEffectCommit(
 	commit *treeCommit,
 	boundary EffectBoundary,
 ) {
-	if t.commit != nil || t.engine.durability == nil || !boundary.Valid() ||
+	if t.commit != nil || t.engine.durability == nil || !boundary.kind.Valid() ||
 		commit == nil || !commit.processID.Valid() {
 		panic("agent: invalid concurrent tree commit")
 	}

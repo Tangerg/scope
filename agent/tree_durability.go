@@ -115,7 +115,7 @@ func (e EffectBoundary) Valid() bool {
 
 func (e EffectBoundary) matchesProspectiveTree() bool {
 	var processSnapshot ProcessSnapshot
-	for _, candidate := range e.treeSnapshot.ProcessSnapshots() {
+	for _, candidate := range e.treeSnapshot.state.ProcessSnapshots {
 		if candidate.ProcessID() == e.request.ProcessID() {
 			processSnapshot = candidate
 			break
@@ -132,7 +132,7 @@ func (e EffectBoundary) matchesProspectiveTree() bool {
 		return false
 	}
 	record := wire.Prepared.Effects[e.request.BatchIndex()]
-	if record.ID != e.request.ID() || !sameBoundaryEffect(record.Effect, e.request.Effect()) {
+	if record.ID != e.request.ID() || !sameBoundaryEffect(record.Effect, e.request.effect) {
 		return false
 	}
 	if e.kind == EffectBoundaryPending {
@@ -350,7 +350,9 @@ func commitEffectBoundary(
 	durability TreeDurability,
 	boundary EffectBoundary,
 ) (err error) {
-	if durability == nil || !boundary.Valid() {
+	// Construction already checked the complete immutable boundary. This call
+	// only crosses the Host I/O boundary, so it need not repeat tree matching.
+	if durability == nil || !boundary.kind.Valid() {
 		return errors.New("invalid durable Effect boundary")
 	}
 	defer func() {
