@@ -67,12 +67,7 @@ func (p Part) Clone() Part {
 	clone.ReasoningState = slices.Clone(p.ReasoningState)
 	clone.Media = p.Media.Clone()
 	clone.Metadata = p.Metadata.Clone()
-	if p.Citations != nil {
-		clone.Citations = make([]Citation, len(p.Citations))
-		for index := range p.Citations {
-			clone.Citations[index] = p.Citations[index].Clone()
-		}
-	}
+	clone.Citations = slices.Clone(p.Citations)
 	if p.ToolCall != nil {
 		clone.ToolCall = new(*p.ToolCall)
 	}
@@ -134,9 +129,9 @@ func (p Part) Validate() error {
 	case PartReasoning:
 		return p.validateReasoningPayload(payload)
 	case PartToolCall:
-		return validatePartPayload(p.Kind, payload, payloadToolCall, func() error { return p.ToolCall.Validate() })
+		return p.validatePayload(payload, payloadToolCall, func() error { return p.ToolCall.Validate() })
 	case PartToolResult:
-		return validatePartPayload(p.Kind, payload, payloadToolResult, func() error { return p.ToolResult.Validate() })
+		return p.validatePayload(payload, payloadToolResult, func() error { return p.ToolResult.Validate() })
 	case PartRefusal:
 		return p.validateRefusalPayload(payload)
 	}
@@ -206,16 +201,6 @@ func (p Part) validateRefusalPayload(payload partPayload) error {
 	return nil
 }
 
-func validatePartPayload(kind PartKind, actual, required partPayload, validate func() error) error {
-	if actual != required {
-		return fmt.Errorf("%w: kind %q requires its matching payload and no other payload", ErrInvalidPart, kind)
-	}
-	if err := validate(); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidPart, err)
-	}
-	return nil
-}
-
 func (p Part) MarshalJSON() ([]byte, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
@@ -238,5 +223,15 @@ func (p *Part) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*p = candidate
+	return nil
+}
+
+func (p Part) validatePayload(actual, required partPayload, validate func() error) error {
+	if actual != required {
+		return fmt.Errorf("%w: kind %q requires its matching payload and no other payload", ErrInvalidPart, p.Kind)
+	}
+	if err := validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidPart, err)
+	}
 	return nil
 }

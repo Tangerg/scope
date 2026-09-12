@@ -293,22 +293,7 @@ type indexSchema struct {
 	} `json:"vectorSearch"`
 }
 
-func (s *Store) verifyIndex(ctx context.Context) error {
-	raw, err := s.sendJSON(ctx, http.MethodGet, "/indexes/"+url.PathEscape(s.indexName), nil)
-	if err != nil {
-		return fmt.Errorf("azureaisearch: read index %s: %w", s.indexName, err)
-	}
-	var schema indexSchema
-	if err = json.Unmarshal(raw, &schema); err != nil {
-		return fmt.Errorf("azureaisearch: decode index %s: %w", s.indexName, err)
-	}
-	if err = validateIndexIDField(&schema, s.idField); err != nil {
-		return err
-	}
-	return validateIndexMetric(&schema, s.embeddingField, s.similarityMetric)
-}
-
-// validateIndexIDField refuses an index whose ID field cannot carry the two
+// validateIDField refuses an index whose ID field cannot carry the two
 // jobs this store gives it: naming a document in a delete action, and walking
 // a filter's full match set.
 //
@@ -327,8 +312,8 @@ func (s *Store) verifyIndex(ctx context.Context) error {
 //
 // Construction is the only useful moment to say so, because those attributes
 // "can only be enabled when a field is first added to an index".
-func validateIndexIDField(schema *indexSchema, idField string) error {
-	for _, field := range schema.Fields {
+func (i *indexSchema) validateIDField(idField string) error {
+	for _, field := range i.Fields {
 		if field.Name != idField {
 			continue
 		}
@@ -345,7 +330,7 @@ func validateIndexIDField(schema *indexSchema, idField string) error {
 	return fmt.Errorf("%w: the index declares no field named %q", ErrIncompatibleIndex, idField)
 }
 
-// validateIndexMetric refuses a store whose configured metric is not the one
+// validateMetric refuses a store whose configured metric is not the one
 // the vector field's algorithm was configured with.
 //
 // @search.score is metric-specific, so a wrong value does not fail: the store
@@ -355,10 +340,10 @@ func validateIndexIDField(schema *indexSchema, idField string) error {
 //
 // Dimensions are deliberately not compared. This store declares none, and
 // Azure rejects a vector of the wrong width on upload.
-func validateIndexMetric(schema *indexSchema, embeddingField string, want SimilarityMetric) error {
+func (i *indexSchema) validateMetric(embeddingField string, want SimilarityMetric) error {
 	profileName := ""
 	found := false
-	for _, field := range schema.Fields {
+	for _, field := range i.Fields {
 		if field.Name == embeddingField {
 			profileName = field.VectorSearchProfile
 			found = true
@@ -374,7 +359,7 @@ func validateIndexMetric(schema *indexSchema, embeddingField string, want Simila
 	}
 
 	algorithmName := ""
-	for _, profile := range schema.VectorSearch.Profiles {
+	for _, profile := range i.VectorSearch.Profiles {
 		if profile.Name == profileName {
 			algorithmName = profile.Algorithm
 			break
@@ -385,7 +370,7 @@ func validateIndexMetric(schema *indexSchema, embeddingField string, want Simila
 			ErrIncompatibleIndex, profileName, embeddingField)
 	}
 
-	for _, algorithm := range schema.VectorSearch.Algorithms {
+	for _, algorithm := range i.VectorSearch.Algorithms {
 		if algorithm.Name != algorithmName {
 			continue
 		}
@@ -403,6 +388,21 @@ func validateIndexMetric(schema *indexSchema, embeddingField string, want Simila
 		return nil
 	}
 	return fmt.Errorf("%w: the index declares no algorithm named %q", ErrIncompatibleIndex, algorithmName)
+}
+
+func (s *Store) verifyIndex(ctx context.Context) error {
+	raw, err := s.sendJSON(ctx, http.MethodGet, "/indexes/"+url.PathEscape(s.indexName), nil)
+	if err != nil {
+		return fmt.Errorf("azureaisearch: read index %s: %w", s.indexName, err)
+	}
+	var schema indexSchema
+	if err = json.Unmarshal(raw, &schema); err != nil {
+		return fmt.Errorf("azureaisearch: decode index %s: %w", s.indexName, err)
+	}
+	if err = (&schema).validateIDField(s.idField); err != nil {
+		return err
+	}
+	return (&schema).validateMetric(s.embeddingField, s.similarityMetric)
 }
 
 // Index validates metadata ownership across the full request, embeds documents,
@@ -570,7 +570,7 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 // enumerateKeys collects every key matching filterStr, following Azure's
 // documented workaround for skip: each page carries its own range filter on
 // the key, so no page's contents depend on where the previous one stopped.
-// [validateIndexIDField] records why skip cannot be used here.
+// [indexSchema.validateIDField] records why skip cannot be used here.
 func (s *Store) enumerateKeys(ctx context.Context, filterStr string) ([]string, error) {
 	var ids []string
 	seen := make(map[string]struct{})

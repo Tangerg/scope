@@ -60,6 +60,74 @@ type ImageGenerationOptions struct {
 	SafetySettings        []ImageSafetySetting      `json:"safety_settings,omitempty"`
 }
 
+func (i *ImageGenerationOptions) validate(modelName string) error {
+	if i == nil {
+		return errors.New("google: image: nil provider options")
+	}
+	if err := i.validateValues(); err != nil {
+		return err
+	}
+	if err := i.validateModel(modelName); err != nil {
+		return err
+	}
+	return validateImageSafetySettings(i.SafetySettings)
+}
+
+func (i *ImageGenerationOptions) validateValues() error {
+	if i.AspectRatio != "" && !slices.Contains([]string{
+		"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "1:8", "8:1", "1:4", "4:1",
+	}, i.AspectRatio) {
+		return fmt.Errorf("google: image: unsupported aspect ratio %q", i.AspectRatio)
+	}
+	if i.ImageSize != "" && !slices.Contains([]string{"512", "1K", "2K", "4K"}, i.ImageSize) {
+		return fmt.Errorf("google: image: unsupported image size %q", i.ImageSize)
+	}
+	if i.Delivery != "" && i.Delivery != "inline" && i.Delivery != "uri" {
+		return fmt.Errorf("google: image: unsupported delivery %q", i.Delivery)
+	}
+	if i.ThinkingLevel != "" && !slices.Contains([]string{"minimal", "low", "medium", "high"}, i.ThinkingLevel) {
+		return fmt.Errorf("google: image: unsupported thinking level %q", i.ThinkingLevel)
+	}
+	if i.ThinkingSummaries != "" && i.ThinkingSummaries != "auto" && i.ThinkingSummaries != "none" {
+		return fmt.Errorf("google: image: unsupported thinking summaries %q", i.ThinkingSummaries)
+	}
+	if i.ServiceTier != "" && !slices.Contains([]string{"flex", "standard", "priority"}, i.ServiceTier) {
+		return fmt.Errorf("google: image: unsupported service tier %q", i.ServiceTier)
+	}
+	if i.GoogleSearch != nil {
+		for index, searchType := range i.GoogleSearch.SearchTypes {
+			if searchType != "web_search" && searchType != "image_search" {
+				return fmt.Errorf("google: image: google_search.search_types[%d]: unsupported value %q", index, searchType)
+			}
+		}
+	}
+	return nil
+}
+
+func (i *ImageGenerationOptions) validateModel(modelName string) error {
+	switch modelName {
+	case ModelGemini31FlashLiteImage:
+		if i.ImageSize != "" && i.ImageSize != "1K" {
+			return fmt.Errorf("google: image: model %q only supports image size 1K", modelName)
+		}
+		if i.GoogleSearch != nil {
+			return fmt.Errorf("google: image: model %q does not support Google Search grounding", modelName)
+		}
+		if i.ThinkingLevel != "" && i.ThinkingLevel != "minimal" && i.ThinkingLevel != "high" {
+			return fmt.Errorf("google: image: model %q only supports minimal or high thinking", modelName)
+		}
+	case ModelGemini25FlashImage:
+		if i.ImageSize != "" && i.ImageSize != "1K" {
+			return fmt.Errorf("google: image: model %q only supports image size 1K", modelName)
+		}
+	case ModelGemini3ProImage:
+		if i.ImageSize == "512" {
+			return fmt.Errorf("google: image: model %q does not support image size 512", modelName)
+		}
+	}
+	return nil
+}
+
 // ImageGoogleSearchOptions configures the image-generation guide's
 // google_search tool. SearchTypes accepts "web_search" and "image_search".
 type ImageGoogleSearchOptions struct {
@@ -155,7 +223,7 @@ func (i *ImageModel) buildAPIRequest(req *image.Request) (*imageInteractionReque
 	if err != nil {
 		return nil, err
 	}
-	if err := validateImageGenerationOptions(effectiveOptions.Model, providerOpts); err != nil {
+	if err := providerOpts.validate(effectiveOptions.Model); err != nil {
 		return nil, err
 	}
 	if effectiveOptions.OutputFormat != "" && effectiveOptions.OutputFormat != mediaTypePNG && effectiveOptions.OutputFormat != mediaTypeJPEG {
@@ -256,74 +324,6 @@ func imageInteractionContentFromMedia(value *media.Media) (imageInteractionConte
 	return content, nil
 }
 
-func validateImageGenerationOptions(modelName string, opts *ImageGenerationOptions) error {
-	if opts == nil {
-		return errors.New("google: image: nil provider options")
-	}
-	if err := validateImageOptionValues(opts); err != nil {
-		return err
-	}
-	if err := validateImageModelOptions(modelName, opts); err != nil {
-		return err
-	}
-	return validateImageSafetySettings(opts.SafetySettings)
-}
-
-func validateImageOptionValues(opts *ImageGenerationOptions) error {
-	if opts.AspectRatio != "" && !slices.Contains([]string{
-		"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "1:8", "8:1", "1:4", "4:1",
-	}, opts.AspectRatio) {
-		return fmt.Errorf("google: image: unsupported aspect ratio %q", opts.AspectRatio)
-	}
-	if opts.ImageSize != "" && !slices.Contains([]string{"512", "1K", "2K", "4K"}, opts.ImageSize) {
-		return fmt.Errorf("google: image: unsupported image size %q", opts.ImageSize)
-	}
-	if opts.Delivery != "" && opts.Delivery != "inline" && opts.Delivery != "uri" {
-		return fmt.Errorf("google: image: unsupported delivery %q", opts.Delivery)
-	}
-	if opts.ThinkingLevel != "" && !slices.Contains([]string{"minimal", "low", "medium", "high"}, opts.ThinkingLevel) {
-		return fmt.Errorf("google: image: unsupported thinking level %q", opts.ThinkingLevel)
-	}
-	if opts.ThinkingSummaries != "" && opts.ThinkingSummaries != "auto" && opts.ThinkingSummaries != "none" {
-		return fmt.Errorf("google: image: unsupported thinking summaries %q", opts.ThinkingSummaries)
-	}
-	if opts.ServiceTier != "" && !slices.Contains([]string{"flex", "standard", "priority"}, opts.ServiceTier) {
-		return fmt.Errorf("google: image: unsupported service tier %q", opts.ServiceTier)
-	}
-	if opts.GoogleSearch != nil {
-		for index, searchType := range opts.GoogleSearch.SearchTypes {
-			if searchType != "web_search" && searchType != "image_search" {
-				return fmt.Errorf("google: image: google_search.search_types[%d]: unsupported value %q", index, searchType)
-			}
-		}
-	}
-	return nil
-}
-
-func validateImageModelOptions(modelName string, opts *ImageGenerationOptions) error {
-	switch modelName {
-	case ModelGemini31FlashLiteImage:
-		if opts.ImageSize != "" && opts.ImageSize != "1K" {
-			return fmt.Errorf("google: image: model %q only supports image size 1K", modelName)
-		}
-		if opts.GoogleSearch != nil {
-			return fmt.Errorf("google: image: model %q does not support Google Search grounding", modelName)
-		}
-		if opts.ThinkingLevel != "" && opts.ThinkingLevel != "minimal" && opts.ThinkingLevel != "high" {
-			return fmt.Errorf("google: image: model %q only supports minimal or high thinking", modelName)
-		}
-	case ModelGemini25FlashImage:
-		if opts.ImageSize != "" && opts.ImageSize != "1K" {
-			return fmt.Errorf("google: image: model %q only supports image size 1K", modelName)
-		}
-	case ModelGemini3ProImage:
-		if opts.ImageSize == "512" {
-			return fmt.Errorf("google: image: model %q does not support image size 512", modelName)
-		}
-	}
-	return nil
-}
-
 func validateImageSafetySettings(settings []ImageSafetySetting) error {
 	for index, setting := range settings {
 		if !slices.Contains([]string{
@@ -376,6 +376,22 @@ type imageInteractionOutput struct {
 	Resolution string `json:"resolution,omitempty"`
 }
 
+func (i imageInteractionOutput) media() (*media.Media, error) {
+	if i.MIMEType == "" {
+		return nil, errors.New("image output has no MIME type")
+	}
+	switch {
+	case len(i.Data) > 0 && i.URI == "":
+		return media.NewBytes(i.MIMEType, i.Data)
+	case len(i.Data) == 0 && i.URI != "":
+		return media.NewURI(i.MIMEType, i.URI)
+	case len(i.Data) == 0:
+		return nil, errors.New("image output has neither inline data nor URI")
+	default:
+		return nil, errors.New("image output has both inline data and URI")
+	}
+}
+
 func (i *ImageModel) buildResponse(apiResp *imageInteractionResponse) (*image.Response, error) {
 	if apiResp == nil {
 		return nil, errors.New("google: image: nil Interactions response")
@@ -400,7 +416,7 @@ func (i *ImageModel) buildResponse(apiResp *imageInteractionResponse) (*image.Re
 			if interactionOutput.Type != imageInteractionType {
 				continue
 			}
-			value, err := imageMediaFromInteractionOutput(interactionOutput)
+			value, err := interactionOutput.media()
 			if err != nil {
 				return nil, fmt.Errorf("google: image: steps[%d].content[%d]: %w", stepIndex, contentIndex, err)
 			}
@@ -431,22 +447,6 @@ func (i *ImageModel) buildResponse(apiResp *imageInteractionResponse) (*image.Re
 		return nil, err
 	}
 	return image.NewResponse(outputs, meta)
-}
-
-func imageMediaFromInteractionOutput(output imageInteractionOutput) (*media.Media, error) {
-	if output.MIMEType == "" {
-		return nil, errors.New("image output has no MIME type")
-	}
-	switch {
-	case len(output.Data) > 0 && output.URI == "":
-		return media.NewBytes(output.MIMEType, output.Data)
-	case len(output.Data) == 0 && output.URI != "":
-		return media.NewURI(output.MIMEType, output.URI)
-	case len(output.Data) == 0:
-		return nil, errors.New("image output has neither inline data nor URI")
-	default:
-		return nil, errors.New("image output has both inline data and URI")
-	}
 }
 
 func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Response, error) {

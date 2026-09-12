@@ -45,16 +45,16 @@ func TestValidateCohereEmbeddingOptions(t *testing.T) {
 		}
 	}
 
-	if err := validateCohereTruncate(embeddingFamilyCohereV3, "START"); err != nil {
+	if err := embeddingFamilyCohereV3.validateTruncate("START"); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateCohereTruncate(embeddingFamilyCohereV4, "LEFT"); err != nil {
+	if err := embeddingFamilyCohereV4.validateTruncate("LEFT"); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateCohereTruncate(embeddingFamilyCohereV3, "LEFT"); err == nil {
+	if err := embeddingFamilyCohereV3.validateTruncate("LEFT"); err == nil {
 		t.Fatal("Cohere V3 accepted a V4 truncate value")
 	}
-	if err := validateCohereTruncate(embeddingFamilyCohereV4, "START"); err == nil {
+	if err := embeddingFamilyCohereV4.validateTruncate("START"); err == nil {
 		t.Fatal("Cohere V4 accepted a V3 truncate value")
 	}
 }

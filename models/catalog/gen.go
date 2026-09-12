@@ -117,6 +117,52 @@ type apiModel struct {
 	} `json:"limit"`
 }
 
+// isChat keeps only chat models — embeddings (by family/id) and models
+// that don't emit text (TTS, image generation) are dropped.
+func (a apiModel) isChat() bool {
+	lid, fam := strings.ToLower(a.ID), strings.ToLower(a.Family)
+	if strings.Contains(fam, "embed") || strings.Contains(lid, "embed") || strings.Contains(lid, "rerank") {
+		return false
+	}
+	if len(a.Modalities.Output) > 0 && !slices.Contains(a.Modalities.Output, "text") {
+		return false
+	}
+	return true
+}
+
+func (a apiModel) modelInfo(aug augEntry) modelcatalog.Model {
+	info := modelcatalog.Model{
+		ID:               a.ID,
+		DisplayName:      a.Name,
+		KnowledgeCutoff:  parseDate(a.Knowledge),
+		ReleaseDate:      parseDate(a.ReleaseDate),
+		LastUpdated:      parseDate(a.LastUpdated),
+		Deprecated:       a.Status == "deprecated",
+		ToolCall:         a.ToolCall,
+		StructuredOutput: a.StructuredOutput,
+		Pricing:          a.Cost.pricing(),
+		Modalities: modelcatalog.Modalities{
+			Input:  toModalities(a.Modalities.Input),
+			Output: toModalities(a.Modalities.Output),
+		},
+		Limits: modelcatalog.Limits{
+			ContextWindow:   a.Limit.Context,
+			MaxInputTokens:  a.Limit.Input,
+			MaxOutputTokens: a.Limit.Output,
+		},
+	}
+	if a.Reasoning {
+		// models.dev only knows whether a model reasons; effort levels
+		// come from the augmentation file.
+		info.Reasoning = modelcatalog.Reasoning{
+			Supported:    true,
+			Levels:       aug.Levels,
+			DefaultLevel: aug.DefaultLevel,
+		}
+	}
+	return info
+}
+
 // apiCost mirrors a models.dev [cost] block: base rates plus optional
 // context tiers.
 type apiCost struct {
@@ -125,6 +171,39 @@ type apiCost struct {
 	CacheRead  float64   `json:"cache_read"`
 	CacheWrite float64   `json:"cache_write"`
 	Tiers      []apiTier `json:"tiers"`
+}
+
+// pricing maps a models.dev [cost] block to a banded rate card: the
+// base band (threshold 0) plus a band per context tier, sorted ascending
+// by threshold ([modelcatalog.PricingSchedule.Cost] scans back to front). Non-context tiers are
+// skipped — only prompt-size repricing is modeled. Returns nil when there's
+// no input rate (unknown pricing).
+func (a apiCost) pricing() modelcatalog.PricingSchedule {
+	if a.Input == 0 && a.Output == 0 {
+		return nil
+	}
+	bands := modelcatalog.PricingSchedule{{
+		InputPer1M:      a.Input,
+		OutputPer1M:     a.Output,
+		CacheReadPer1M:  a.CacheRead,
+		CacheWritePer1M: a.CacheWrite,
+	}}
+	for _, t := range a.Tiers {
+		if t.Tier.Type != "context" || t.Tier.Size == 0 {
+			continue
+		}
+		bands = append(bands, modelcatalog.Pricing{
+			Threshold:       t.Tier.Size,
+			InputPer1M:      t.Input,
+			OutputPer1M:     t.Output,
+			CacheReadPer1M:  t.CacheRead,
+			CacheWritePer1M: t.CacheWrite,
+		})
+	}
+	slices.SortFunc(bands, func(a, b modelcatalog.Pricing) int {
+		return cmp.Compare(a.Threshold, b.Threshold)
+	})
+	return bands
 }
 
 // apiTier is one models.dev tiered-pricing step: rates that take over
@@ -176,7 +255,7 @@ func main() {
 		}
 		var models []modelcatalog.Model
 		for id, m := range p.Models {
-			if !isChat(m) {
+			if !m.isChat() {
 				continue
 			}
 			if officialID := officialModelIDs[provider][m.ID]; officialID != "" {
@@ -185,7 +264,7 @@ func main() {
 			if officialDeprecatedModelIDs[provider][m.ID] {
 				m.Status = "deprecated"
 			}
-			models = append(models, toModelInfo(m, augs[provider][id]))
+			models = append(models, m.modelInfo(augs[provider][id]))
 		}
 		slices.SortFunc(models, func(a, b modelcatalog.Model) int {
 			return cmp.Compare(a.ID, b.ID)
@@ -197,85 +276,6 @@ func main() {
 		}
 		fmt.Printf("%s: %d chat models\n", out, len(models))
 	}
-}
-
-// isChat keeps only chat models — embeddings (by family/id) and models
-// that don't emit text (TTS, image generation) are dropped.
-func isChat(m apiModel) bool {
-	lid, fam := strings.ToLower(m.ID), strings.ToLower(m.Family)
-	if strings.Contains(fam, "embed") || strings.Contains(lid, "embed") || strings.Contains(lid, "rerank") {
-		return false
-	}
-	if len(m.Modalities.Output) > 0 && !slices.Contains(m.Modalities.Output, "text") {
-		return false
-	}
-	return true
-}
-
-func toModelInfo(m apiModel, aug augEntry) modelcatalog.Model {
-	info := modelcatalog.Model{
-		ID:               m.ID,
-		DisplayName:      m.Name,
-		KnowledgeCutoff:  parseDate(m.Knowledge),
-		ReleaseDate:      parseDate(m.ReleaseDate),
-		LastUpdated:      parseDate(m.LastUpdated),
-		Deprecated:       m.Status == "deprecated",
-		ToolCall:         m.ToolCall,
-		StructuredOutput: m.StructuredOutput,
-		Pricing:          toPricing(m.Cost),
-		Modalities: modelcatalog.Modalities{
-			Input:  toModalities(m.Modalities.Input),
-			Output: toModalities(m.Modalities.Output),
-		},
-		Limits: modelcatalog.Limits{
-			ContextWindow:   m.Limit.Context,
-			MaxInputTokens:  m.Limit.Input,
-			MaxOutputTokens: m.Limit.Output,
-		},
-	}
-	if m.Reasoning {
-		// models.dev only knows whether a model reasons; effort levels
-		// come from the augmentation file.
-		info.Reasoning = modelcatalog.Reasoning{
-			Supported:    true,
-			Levels:       aug.Levels,
-			DefaultLevel: aug.DefaultLevel,
-		}
-	}
-	return info
-}
-
-// toPricing maps a models.dev [cost] block to a banded rate card: the
-// base band (threshold 0) plus a band per context tier, sorted ascending
-// by threshold ([modelcatalog.PricingSchedule.Cost] scans back to front). Non-context tiers are
-// skipped — only prompt-size repricing is modeled. Returns nil when there's
-// no input rate (unknown pricing).
-func toPricing(c apiCost) modelcatalog.PricingSchedule {
-	if c.Input == 0 && c.Output == 0 {
-		return nil
-	}
-	bands := modelcatalog.PricingSchedule{{
-		InputPer1M:      c.Input,
-		OutputPer1M:     c.Output,
-		CacheReadPer1M:  c.CacheRead,
-		CacheWritePer1M: c.CacheWrite,
-	}}
-	for _, t := range c.Tiers {
-		if t.Tier.Type != "context" || t.Tier.Size == 0 {
-			continue
-		}
-		bands = append(bands, modelcatalog.Pricing{
-			Threshold:       t.Tier.Size,
-			InputPer1M:      t.Input,
-			OutputPer1M:     t.Output,
-			CacheReadPer1M:  t.CacheRead,
-			CacheWritePer1M: t.CacheWrite,
-		})
-	}
-	slices.SortFunc(bands, func(a, b modelcatalog.Pricing) int {
-		return cmp.Compare(a.Threshold, b.Threshold)
-	})
-	return bands
 }
 
 // parseDate parses a models.dev date — full "2006-01-02" or month-only

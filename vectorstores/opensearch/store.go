@@ -313,7 +313,7 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 		if err != nil {
 			return fmt.Errorf("opensearch: bulk: %w", err)
 		}
-		if err := (bulkOutcome{operation: bulkOperationIndex, response: resp}).Err(); err != nil {
+		if err := (bulkOutcome{operation: bulkOperationIndex, response: resp}).err(); err != nil {
 			return err
 		}
 	}
@@ -457,7 +457,7 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	if err != nil {
 		return fmt.Errorf("opensearch: bulk delete: %w", err)
 	}
-	return (bulkOutcome{operation: bulkOperationDelete, response: resp}).Err()
+	return (bulkOutcome{operation: bulkOperationDelete, response: resp}).err()
 }
 
 // buildFilterQuery wraps the visitor and returns the Lucene query

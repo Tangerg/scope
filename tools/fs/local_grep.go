@@ -1,15 +1,12 @@
 package fs
 
 import (
-	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -182,45 +179,4 @@ func (r *ripgrepDecoder) addCount(path string) {
 	}
 	r.files[path] = len(r.response.Counts)
 	r.response.Counts = append(r.response.Counts, GrepFileCount{Path: path, Count: 1})
-}
-
-func runRipgrep(
-	ctx context.Context,
-	path string,
-	args []string,
-	decoder *ripgrepDecoder,
-	directory string,
-) (GrepResponse, error) {
-	command := exec.CommandContext(ctx, path, args...)
-	command.Dir = directory
-	var stderr bytes.Buffer
-	command.Stderr = &stderr
-	stdout, err := command.StdoutPipe()
-	if err != nil {
-		return GrepResponse{}, fmt.Errorf("open ripgrep output: %w", err)
-	}
-	if err := command.Start(); err != nil {
-		return GrepResponse{}, fmt.Errorf("start ripgrep: %w", err)
-	}
-	response, decodeErr := decoder.decode(stdout)
-	if decodeErr != nil {
-		_ = command.Process.Kill()
-		_ = command.Wait()
-		return GrepResponse{}, decodeErr
-	}
-	waitErr := command.Wait()
-	if waitErr == nil {
-		return response, nil
-	}
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return GrepResponse{}, ctxErr
-	}
-	if exitErr, ok := errors.AsType[*exec.ExitError](waitErr); ok && exitErr.ExitCode() == ripgrepNoMatchesExitCode {
-		return response, nil
-	}
-	message := strings.TrimSpace(stderr.String())
-	if message == "" {
-		return GrepResponse{}, waitErr
-	}
-	return GrepResponse{}, fmt.Errorf("%w: %s", waitErr, message)
 }

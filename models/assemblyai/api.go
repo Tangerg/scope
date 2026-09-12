@@ -80,6 +80,27 @@ type transcriptRequest struct {
 	SpeechUnderstanding         map[string]any `json:"speech_understanding,omitzero"`
 }
 
+func (t *transcriptRequest) validate() error {
+	for index, model := range t.SpeechModels {
+		if model != ModelUniversal3Point5Pro && model != ModelUniversal2 {
+			return fmt.Errorf("assemblyai: speech_models[%d] must be %q or %q, got %q", index, ModelUniversal3Point5Pro, ModelUniversal2, model)
+		}
+	}
+	if t.Prompt != "" && len(t.KeytermsPrompt) > 0 {
+		return errors.New("assemblyai: prompt and keyterms_prompt are mutually exclusive")
+	}
+	if t.LanguageConfidenceThreshold != nil && (*t.LanguageConfidenceThreshold < 0 || *t.LanguageConfidenceThreshold > 1) {
+		return fmt.Errorf("assemblyai: language_confidence_threshold must be between 0 and 1, got %g", *t.LanguageConfidenceThreshold)
+	}
+	if t.SpeechThreshold != nil && (*t.SpeechThreshold < 0 || *t.SpeechThreshold > 1) {
+		return fmt.Errorf("assemblyai: speech_threshold must be between 0 and 1, got %g", *t.SpeechThreshold)
+	}
+	if t.ContentSafetyConfidence != nil && (*t.ContentSafetyConfidence < 25 || *t.ContentSafetyConfidence > 100) {
+		return fmt.Errorf("assemblyai: content_safety_confidence must be between 25 and 100, got %d", *t.ContentSafetyConfidence)
+	}
+	return nil
+}
+
 // transcriptStatus enumerates the four values AssemblyAI documents for
 // [transcriptResponse].Status. Only queued and processing are still moving.
 type transcriptStatus string

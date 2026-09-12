@@ -16,7 +16,7 @@ type AudioTTSModelConfig struct {
 }
 
 func (a AudioTTSModelConfig) resolve() (endpointConfig, error) {
-	endpoint, err := resolveModelConfig(a.Config, a.DefaultOptions.Model, a.DefaultOptions.Validate)
+	endpoint, err := a.resolveModel(a.DefaultOptions.Model, a.DefaultOptions.Validate)
 	if err != nil {
 		return endpointConfig{}, err
 	}

@@ -39,8 +39,8 @@ func (c Config) Validate() error {
 	return err
 }
 
-func resolveModelConfig(config Config, model string, validateOptions func() error) (endpointConfig, error) {
-	endpoint, err := config.resolve()
+func (c Config) resolveModel(model string, validateOptions func() error) (endpointConfig, error) {
+	endpoint, err := c.resolve()
 	if err != nil {
 		return endpointConfig{}, err
 	}
@@ -53,8 +53,8 @@ func resolveModelConfig(config Config, model string, validateOptions func() erro
 	return endpoint, nil
 }
 
-func resolveChatConfig(config Config, validateOptions func() error) (endpointConfig, error) {
-	endpoint, err := config.resolve()
+func (c Config) resolveChat(validateOptions func() error) (endpointConfig, error) {
+	endpoint, err := c.resolve()
 	if err != nil {
 		return endpointConfig{}, err
 	}

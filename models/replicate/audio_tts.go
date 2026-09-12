@@ -198,7 +198,7 @@ func (a *AudioTTSModel) prepareRequest(req *tts.Request) (tts.Options, *predicti
 }
 
 func (a *AudioTTSModel) response(ctx context.Context, effectiveOptions tts.Options, final *predictionResponse) (*tts.Response, error) {
-	url, err := firstAudioURL(final.Output, a.inputSchema.OutputKind)
+	url, err := a.inputSchema.OutputKind.audioURL(final.Output)
 	if err != nil {
 		return nil, err
 	}
@@ -248,30 +248,4 @@ func (a *AudioTTSModel) response(ctx context.Context, effectiveOptions tts.Optio
 		return nil, err
 	}
 	return tts.NewResponse(output, meta)
-}
-
-func firstAudioURL(out any, kind FileOutputKind) (string, error) {
-	if out == nil {
-		return "", errors.New("replicate: speech output is null")
-	}
-	switch kind {
-	case FileOutputURI:
-		value, ok := out.(string)
-		if !ok || value == "" {
-			return "", fmt.Errorf("replicate: speech output must be a non-empty URI, got %T", out)
-		}
-		return value, nil
-	case FileOutputURIList:
-		values, ok := out.([]any)
-		if !ok || len(values) != 1 {
-			return "", fmt.Errorf("replicate: speech output must be a one-element URI array, got %T", out)
-		}
-		value, ok := values[0].(string)
-		if !ok || value == "" {
-			return "", fmt.Errorf("replicate: speech output[0] must be a non-empty URI, got %T", values[0])
-		}
-		return value, nil
-	default:
-		return "", fmt.Errorf("replicate: unsupported speech output schema %q", kind)
-	}
 }

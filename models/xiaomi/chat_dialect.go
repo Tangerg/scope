@@ -36,36 +36,15 @@ func (c ChatRequestOptions) Validate() error {
 	}
 }
 
-func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleRequest) error {
-	if temperature, ok := target.Temperature(); ok && temperature > 1.5 {
-		return errors.New("xiaomi: temperature must be between 0 and 1.5")
-	}
-	options, _, err := source.Options.Extensions.Decode[ChatRequestOptions](RequestExtensionKey)
-	if err != nil {
-		return fmt.Errorf("xiaomi: extension %q: %w", RequestExtensionKey, err)
-	}
-	if err = options.Validate(); err != nil {
-		return fmt.Errorf("xiaomi: extension %q: %w", RequestExtensionKey, err)
-	}
-	if err = rejectSilentlyDiscardedOptions(source, target, options); err != nil {
-		return err
-	}
-	if options.Thinking == "" {
-		return nil
-	}
-	return target.SetExtraField("thinking", map[string]any{"type": options.Thinking})
-}
-
-// rejectSilentlyDiscardedOptions refuses the settings MiMo documents itself as
+// validateRequest refuses the settings MiMo documents itself as
 // throwing away, rather than letting a caller's choice disappear on the way.
 //
 // Thinking is checked against the documented default rather than the extension
 // alone: MiMo's table defaults thinking to enabled, so an absent extension is
 // the case where the override happens, not the case to skip.
-func rejectSilentlyDiscardedOptions(
+func (c ChatRequestOptions) validateRequest(
 	source *corechat.Request,
 	target *openai.CompatibleRequest,
-	options ChatRequestOptions,
 ) error {
 	// "when tool_choice passes non-auto values, backend defaults to removing
 	// the field, model response behavior remains equal to auto mode" -- a
@@ -74,7 +53,7 @@ func rejectSilentlyDiscardedOptions(
 		return fmt.Errorf("xiaomi: tool choice %q is discarded by MiMo, which serves every request as %q",
 			choice.Mode, corechat.ToolChoiceAuto)
 	}
-	if options.Thinking == ThinkingDisabled {
+	if c.Thinking == ThinkingDisabled {
 		return nil
 	}
 	// "in thinking mode, mimo-v2.5-pro, mimo-v2.5 models do not support custom
@@ -87,4 +66,24 @@ func rejectSilentlyDiscardedOptions(
 		return errors.New("xiaomi: MiMo forces top_p to 0.95 in thinking mode, so options.top_p would have no effect")
 	}
 	return nil
+}
+
+func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleRequest) error {
+	if temperature, ok := target.Temperature(); ok && temperature > 1.5 {
+		return errors.New("xiaomi: temperature must be between 0 and 1.5")
+	}
+	options, _, err := source.Options.Extensions.Decode[ChatRequestOptions](RequestExtensionKey)
+	if err != nil {
+		return fmt.Errorf("xiaomi: extension %q: %w", RequestExtensionKey, err)
+	}
+	if err = options.Validate(); err != nil {
+		return fmt.Errorf("xiaomi: extension %q: %w", RequestExtensionKey, err)
+	}
+	if err = options.validateRequest(source, target); err != nil {
+		return err
+	}
+	if options.Thinking == "" {
+		return nil
+	}
+	return target.SetExtraField("thinking", map[string]any{"type": options.Thinking})
 }

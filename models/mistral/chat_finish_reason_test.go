@@ -27,8 +27,8 @@ func TestFinishReasonCoversEveryDocumentedValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(string(test.raw), func(t *testing.T) {
-			if got := normalizeMistralFinishReason(test.raw); got != test.want {
-				t.Fatalf("normalizeMistralFinishReason(%q) = %q, want %q", test.raw, got, test.want)
+			if got := test.raw.normalized(); got != test.want {
+				t.Fatalf("finishReason(%q).normalized() = %q, want %q", test.raw, got, test.want)
 			}
 		})
 	}
@@ -43,16 +43,16 @@ func TestNativeFinishReasonSurvivesOther(t *testing.T) {
 
 	for _, raw := range []finishReason{finishReasonError, "some_future_reason"} {
 		t.Run(string(raw), func(t *testing.T) {
-			mapped := normalizeMistralFinishReason(raw)
+			mapped := raw.normalized()
 			if mapped != corechat.FinishReasonOther {
-				t.Fatalf("normalizeMistralFinishReason(%q) = %q, want %q", raw, mapped, corechat.FinishReasonOther)
+				t.Fatalf("finishReason(%q).normalized() = %q, want %q", raw, mapped, corechat.FinishReasonOther)
 			}
-			outputMetadata, err := mapMistralNativeFinishReason(raw, mapped)
+			outputMetadata, err := raw.metadata(mapped)
 			if err != nil {
-				t.Fatalf("mapMistralNativeFinishReason(%q) = %v, want nil", raw, err)
+				t.Fatalf("finishReason(%q).metadata() = %v, want nil", raw, err)
 			}
 			if outputMetadata == nil {
-				t.Fatalf("mapMistralNativeFinishReason(%q) = nil metadata, want the provider value kept", raw)
+				t.Fatalf("finishReason(%q).metadata() = nil metadata, want the provider value kept", raw)
 			}
 			native, found, err := outputMetadata.Extra.Decode[string](nativeFinishReasonKey)
 			if err != nil || !found {
@@ -72,13 +72,13 @@ func TestNativeFinishReasonStaysAbsentForAPortableReason(t *testing.T) {
 	t.Parallel()
 
 	for _, raw := range []finishReason{finishReasonStop, finishReasonLength, finishReasonToolCalls} {
-		mapped := normalizeMistralFinishReason(raw)
-		outputMetadata, err := mapMistralNativeFinishReason(raw, mapped)
+		mapped := raw.normalized()
+		outputMetadata, err := raw.metadata(mapped)
 		if err != nil {
-			t.Fatalf("mapMistralNativeFinishReason(%q) = %v, want nil", raw, err)
+			t.Fatalf("finishReason(%q).metadata() = %v, want nil", raw, err)
 		}
 		if outputMetadata != nil {
-			t.Fatalf("mapMistralNativeFinishReason(%q) = %#v, want nil", raw, outputMetadata)
+			t.Fatalf("finishReason(%q).metadata() = %#v, want nil", raw, outputMetadata)
 		}
 	}
 }

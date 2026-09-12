@@ -38,7 +38,7 @@ func (p *protocolResponseMapper) mapResponse(requestModel string, response nativ
 	if !response.Done {
 		return nil, errors.New("ollama: non-streaming chat returned a nonterminal response")
 	}
-	metadata, err := mapProtocolResponseMetadata(requestModel, response)
+	metadata, err := response.metadata(requestModel)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +54,7 @@ func (p *protocolResponseMapper) mapResponse(requestModel string, response nativ
 }
 
 func (p *protocolResponseMapper) mapDelta(requestModel string, response nativeChatResponse) (*corechat.ResponseDelta, error) {
-	metadata, err := mapProtocolResponseMetadata(requestModel, response)
+	metadata, err := response.metadata(requestModel)
 	if err != nil {
 		return nil, err
 	}
@@ -97,47 +97,6 @@ func (p *protocolResponseMapper) mapDelta(requestModel string, response nativeCh
 		return nil, fmt.Errorf("ollama: mapped response delta: %w", err)
 	}
 	return mapped, nil
-}
-
-func mapProtocolResponseMetadata(requestModel string, response nativeChatResponse) (*corechat.ResponseMetadata, error) {
-	modelName := response.Model
-	if modelName == "" {
-		modelName = requestModel
-	}
-	metadata := &corechat.ResponseMetadata{
-		Model: modelName,
-		Usage: corechat.Usage{
-			InputTokens:  int64(response.PromptEvalCount),
-			OutputTokens: int64(response.EvalCount),
-		},
-	}
-	if err := metadata.Extra.Set(ResponseExtensionKey, response.raw); err != nil {
-		return nil, fmt.Errorf("ollama: preserve native response: %w", err)
-	}
-	if !response.CreatedAt.IsZero() {
-		metadata.CreatedAt = response.CreatedAt.UTC()
-	}
-	if hasProtocolDurations(response.nativeMetrics) {
-		durations := map[string]int64{
-			"total":       int64(response.TotalDuration),
-			"load":        int64(response.LoadDuration),
-			"prompt_eval": int64(response.PromptEvalDuration),
-			"eval":        int64(response.EvalDuration),
-		}
-		if err := metadata.Extra.Set(protocolDurationsKey, durations); err != nil {
-			return nil, err
-		}
-	}
-	if response.PromptEvalCount != 0 || response.EvalCount != 0 {
-		metrics := protocolMetrics{
-			PromptEvalCount: response.PromptEvalCount,
-			EvalCount:       response.EvalCount,
-		}
-		if err := metadata.Extra.Set(protocolMetricsKey, metrics); err != nil {
-			return nil, err
-		}
-	}
-	return metadata, nil
 }
 
 func (p *protocolResponseMapper) mapOutput(response nativeChatResponse) (*corechat.Output, error) {
@@ -209,11 +168,6 @@ func normalizeProtocolDoneReason(reason string, hasToolCalls bool) corechat.Fini
 	default:
 		return corechat.FinishReasonOther
 	}
-}
-
-func hasProtocolDurations(metrics nativeMetrics) bool {
-	return metrics.TotalDuration != 0 || metrics.LoadDuration != 0 ||
-		metrics.PromptEvalDuration != 0 || metrics.EvalDuration != 0
 }
 
 type protocolMetrics struct {

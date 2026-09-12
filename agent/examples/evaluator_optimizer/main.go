@@ -89,6 +89,67 @@ type optimizationState struct {
 	Accepted  bool      `json:"accepted"`
 }
 
+func (o optimizationState) validatePending(threshold float64) error {
+	if err := o.validateHistory(threshold); err != nil {
+		return err
+	}
+	wantRevision := uint32(len(o.History) + 1)
+	if o.Current.Revision != wantRevision || strings.TrimSpace(o.Current.Content) == "" {
+		return errors.New("optimizer did not produce the next complete revision")
+	}
+	return nil
+}
+
+func (o optimizationState) validateSettled(threshold float64) error {
+	if err := o.validateHistory(threshold); err != nil {
+		return err
+	}
+	if len(o.History) == 0 {
+		if o.Current != (candidate{}) {
+			return errors.New("initial state contains a current candidate")
+		}
+		return nil
+	}
+	if o.Current != o.History[len(o.History)-1].Candidate {
+		return errors.New("current candidate is not the latest evaluated revision")
+	}
+	return nil
+}
+
+func (o optimizationState) validateHistory(threshold float64) error {
+	if strings.TrimSpace(o.Objective) == "" || o.Objective != strings.TrimSpace(o.Objective) {
+		return errors.New("optimization objective must be non-empty and trimmed")
+	}
+	if o.History == nil {
+		return errors.New("optimization history must be initialized")
+	}
+	if len(o.History) == 0 {
+		if o.HasBest || o.Best != (attempt{}) || o.Accepted {
+			return errors.New("empty history contains derived result state")
+		}
+		return nil
+	}
+	best := o.History[0]
+	for index, recorded := range o.History {
+		if recorded.Candidate.Revision != uint32(index+1) ||
+			strings.TrimSpace(recorded.Candidate.Content) == "" ||
+			!validScore(recorded.Assessment.Score) ||
+			strings.TrimSpace(recorded.Assessment.Feedback) == "" {
+			return fmt.Errorf("attempt %d is invalid", index)
+		}
+		if recorded.Assessment.Score > best.Assessment.Score {
+			best = recorded
+		}
+	}
+	if !o.HasBest || o.Best != best {
+		return errors.New("best attempt is not the earliest highest-scoring attempt")
+	}
+	if o.Accepted != (best.Assessment.Score >= threshold) {
+		return errors.New("acceptance state does not match the configured threshold")
+	}
+	return nil
+}
+
 type optimizationReport struct {
 	Objective  string    `json:"objective"`
 	History    []attempt `json:"history"`
@@ -212,7 +273,7 @@ func newOptimizerDeployment(threshold float64) (agent.Deployment, error) {
 			Threshold float64 `json:"threshold"`
 		}{Threshold: threshold},
 		func(_ context.Context, state optimizationState) (optimizationState, error) {
-			if err := validateSettledState(state, threshold); err != nil {
+			if err := state.validateSettled(threshold); err != nil {
 				return optimizationState{}, err
 			}
 			revision := uint32(len(state.History) + 1)
@@ -235,7 +296,7 @@ func newEvaluatorDeployment(scores []float64, threshold float64) (agent.Deployme
 			Threshold float64   `json:"threshold"`
 		}{Scores: scores, Threshold: threshold},
 		func(_ context.Context, state optimizationState) (optimizationState, error) {
-			if validatePendingStateErr := validatePendingState(state, threshold); validatePendingStateErr != nil {
+			if validatePendingStateErr := state.validatePending(threshold); validatePendingStateErr != nil {
 				return optimizationState{}, validatePendingStateErr
 			}
 			index := len(state.History)
@@ -254,7 +315,7 @@ func newEvaluatorDeployment(scores []float64, threshold float64) (agent.Deployme
 				state.HasBest = true
 			}
 			state.Accepted = state.Best.Assessment.Score >= threshold
-			if validateSettledStateErr := validateSettledState(state, threshold); validateSettledStateErr != nil {
+			if validateSettledStateErr := state.validateSettled(threshold); validateSettledStateErr != nil {
 				return optimizationState{}, validateSettledStateErr
 			}
 			return state, nil
@@ -326,7 +387,7 @@ func newOptimizationRoot(
 		ID: "refine", Body: iteration, Budget: iterationBudget,
 		MaxIterations: maxIterations,
 		Predicate: func(_ context.Context, state optimizationState) (bool, error) {
-			if validateSettledStateErr := validateSettledState(state, threshold); validateSettledStateErr != nil {
+			if validateSettledStateErr := state.validateSettled(threshold); validateSettledStateErr != nil {
 				return false, validateSettledStateErr
 			}
 			return state.Accepted, nil
@@ -342,7 +403,7 @@ func newOptimizationRoot(
 		if !result.Valid() || result.Satisfied != state.Accepted {
 			return optimizationReport{}, errors.New("loop result and acceptance state disagree")
 		}
-		if validateSettledStateErr := validateSettledState(state, threshold); validateSettledStateErr != nil {
+		if validateSettledStateErr := state.validateSettled(threshold); validateSettledStateErr != nil {
 			return optimizationReport{}, validateSettledStateErr
 		}
 		if !state.HasBest || uint32(len(state.History)) != result.Iterations {
@@ -379,67 +440,6 @@ func newOptimizationRoot(
 			MaxIterations:   maxIterations,
 		},
 	)
-}
-
-func validatePendingState(state optimizationState, threshold float64) error {
-	if err := validateHistory(state, threshold); err != nil {
-		return err
-	}
-	wantRevision := uint32(len(state.History) + 1)
-	if state.Current.Revision != wantRevision || strings.TrimSpace(state.Current.Content) == "" {
-		return errors.New("optimizer did not produce the next complete revision")
-	}
-	return nil
-}
-
-func validateSettledState(state optimizationState, threshold float64) error {
-	if err := validateHistory(state, threshold); err != nil {
-		return err
-	}
-	if len(state.History) == 0 {
-		if state.Current != (candidate{}) {
-			return errors.New("initial state contains a current candidate")
-		}
-		return nil
-	}
-	if state.Current != state.History[len(state.History)-1].Candidate {
-		return errors.New("current candidate is not the latest evaluated revision")
-	}
-	return nil
-}
-
-func validateHistory(state optimizationState, threshold float64) error {
-	if strings.TrimSpace(state.Objective) == "" || state.Objective != strings.TrimSpace(state.Objective) {
-		return errors.New("optimization objective must be non-empty and trimmed")
-	}
-	if state.History == nil {
-		return errors.New("optimization history must be initialized")
-	}
-	if len(state.History) == 0 {
-		if state.HasBest || state.Best != (attempt{}) || state.Accepted {
-			return errors.New("empty history contains derived result state")
-		}
-		return nil
-	}
-	best := state.History[0]
-	for index, recorded := range state.History {
-		if recorded.Candidate.Revision != uint32(index+1) ||
-			strings.TrimSpace(recorded.Candidate.Content) == "" ||
-			!validScore(recorded.Assessment.Score) ||
-			strings.TrimSpace(recorded.Assessment.Feedback) == "" {
-			return fmt.Errorf("attempt %d is invalid", index)
-		}
-		if recorded.Assessment.Score > best.Assessment.Score {
-			best = recorded
-		}
-	}
-	if !state.HasBest || state.Best != best {
-		return errors.New("best attempt is not the earliest highest-scoring attempt")
-	}
-	if state.Accepted != (best.Assessment.Score >= threshold) {
-		return errors.New("acceptance state does not match the configured threshold")
-	}
-	return nil
 }
 
 func validScore(score float64) bool {

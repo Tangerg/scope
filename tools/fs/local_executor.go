@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -339,7 +340,7 @@ func (l *LocalExecutor) Grep(ctx context.Context, in GrepInput) (_ GrepResponse,
 	}
 	mode := in.OutputMode.Resolve()
 	args := in.ripgrepArguments(base, mode)
-	response, err := runRipgrep(ctx, executable, args, newRipgrepDecoder(mode, maxResults), l.root)
+	response, err := l.runRipgrep(ctx, executable, args, newRipgrepDecoder(mode, maxResults))
 	if err != nil {
 		return GrepResponse{}, fmt.Errorf("fs.LocalExecutor.Grep: %w", err)
 	}
@@ -579,4 +580,44 @@ func (l *LocalExecutor) preparePatch(
 	}
 	prepared.result = result
 	return prepared, nil
+}
+
+func (l *LocalExecutor) runRipgrep(
+	ctx context.Context,
+	path string,
+	args []string,
+	decoder *ripgrepDecoder,
+) (GrepResponse, error) {
+	command := exec.CommandContext(ctx, path, args...)
+	command.Dir = l.root
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		return GrepResponse{}, fmt.Errorf("open ripgrep output: %w", err)
+	}
+	if err := command.Start(); err != nil {
+		return GrepResponse{}, fmt.Errorf("start ripgrep: %w", err)
+	}
+	response, decodeErr := decoder.decode(stdout)
+	if decodeErr != nil {
+		_ = command.Process.Kill()
+		_ = command.Wait()
+		return GrepResponse{}, decodeErr
+	}
+	waitErr := command.Wait()
+	if waitErr == nil {
+		return response, nil
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return GrepResponse{}, ctxErr
+	}
+	if exitErr, ok := errors.AsType[*exec.ExitError](waitErr); ok && exitErr.ExitCode() == ripgrepNoMatchesExitCode {
+		return response, nil
+	}
+	message := strings.TrimSpace(stderr.String())
+	if message == "" {
+		return GrepResponse{}, waitErr
+	}
+	return GrepResponse{}, fmt.Errorf("%w: %s", waitErr, message)
 }

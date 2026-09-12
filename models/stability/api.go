@@ -44,7 +44,7 @@ func newAPI(config apiConfig) (*api, error) {
 	return &api{http: client}, nil
 }
 
-// GenerateRequest models the union of fields each v2beta image endpoint
+// generateRequest models the union of fields each v2beta image endpoint
 // accepts. Mode selects the response wrapping: [ResponseModeImage] returns
 // raw bytes; [ResponseModeJSON] returns a base64 envelope with FinishReason
 // + Seed echoed back (required when callers care about those).
@@ -60,6 +60,48 @@ type generateRequest struct {
 	Mode           string
 }
 
+func (g *generateRequest) formFields() map[string]string {
+	out := make(map[string]string)
+	put := func(k, v string) {
+		if v != "" {
+			out[k] = v
+		}
+	}
+	put("prompt", g.Prompt)
+	put("negative_prompt", g.NegativePrompt)
+	put("aspect_ratio", g.AspectRatio)
+	put("model", g.Model)
+	put("output_format", g.OutputFormat)
+	put("style_preset", g.StylePreset)
+	if g.CFGScale != nil {
+		out["cfg_scale"] = strconv.FormatFloat(*g.CFGScale, 'f', -1, 64)
+	}
+	if g.Seed != nil {
+		out["seed"] = strconv.FormatInt(*g.Seed, 10)
+	}
+	return out
+}
+
+func (g *generateRequest) validate() error {
+	if g.AspectRatio != "" {
+		switch g.AspectRatio {
+		case "16:9", "1:1", "21:9", "2:3", "3:2", "4:5", "5:4", "9:16", "9:21":
+		default:
+			return fmt.Errorf("stability: unsupported aspect_ratio %q", g.AspectRatio)
+		}
+	}
+	if g.OutputFormat != "" && g.OutputFormat != "jpeg" && g.OutputFormat != "png" && g.OutputFormat != "webp" {
+		return fmt.Errorf("stability: output_format must be jpeg, png, or webp, got %q", g.OutputFormat)
+	}
+	if g.Seed != nil && (*g.Seed < 0 || *g.Seed > 4294967294) {
+		return fmt.Errorf("stability: seed must be between 0 and 4294967294, got %d", *g.Seed)
+	}
+	if g.CFGScale != nil && (*g.CFGScale < 1 || *g.CFGScale > 10) {
+		return fmt.Errorf("stability: cfg_scale must be between 1 and 10, got %g", *g.CFGScale)
+	}
+	return nil
+}
+
 type jsonResponse struct {
 	Image        string `json:"image"`
 	FinishReason string `json:"finish_reason"`
@@ -73,7 +115,7 @@ func (a *api) generate(ctx context.Context, path string, req *generateRequest) (
 
 	r := a.http.R().
 		SetContext(ctx).
-		SetMultipartFormData(buildFormFields(req)).
+		SetMultipartFormData(req.formFields()).
 		SetHeader("Accept", cmp.Or(req.Mode, ResponseModeImage))
 
 	resp, err := r.Post(path)
@@ -86,30 +128,8 @@ func (a *api) generate(ctx context.Context, path string, req *generateRequest) (
 	return resp.Body(), resp.Header(), nil
 }
 
-func buildFormFields(req *generateRequest) map[string]string {
-	out := make(map[string]string)
-	put := func(k, v string) {
-		if v != "" {
-			out[k] = v
-		}
-	}
-	put("prompt", req.Prompt)
-	put("negative_prompt", req.NegativePrompt)
-	put("aspect_ratio", req.AspectRatio)
-	put("model", req.Model)
-	put("output_format", req.OutputFormat)
-	put("style_preset", req.StylePreset)
-	if req.CFGScale != nil {
-		out["cfg_scale"] = strconv.FormatFloat(*req.CFGScale, 'f', -1, 64)
-	}
-	if req.Seed != nil {
-		out["seed"] = strconv.FormatInt(*req.Seed, 10)
-	}
-	return out
-}
-
-// DecodeJSON decodes Stability's JSON image envelope.
-func DecodeJSON(body []byte) (*jsonResponse, error) {
+// decodeJSON decodes Stability's JSON image envelope.
+func decodeJSON(body []byte) (*jsonResponse, error) {
 	var resp jsonResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("stability: decode json: %w", err)

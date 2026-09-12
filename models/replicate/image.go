@@ -65,6 +65,63 @@ const (
 	FileOutputURIList FileOutputKind = "uri_list"
 )
 
+// imageURLs extracts every hosted image URL from a Replicate prediction.
+func (f FileOutputKind) imageURLs(out any) ([]string, error) {
+	if out == nil {
+		return nil, errors.New("replicate: image output is null")
+	}
+	switch f {
+	case FileOutputURI:
+		value, ok := out.(string)
+		if !ok || value == "" {
+			return nil, fmt.Errorf("replicate: image output must be a non-empty URI, got %T", out)
+		}
+		return []string{value}, nil
+	case FileOutputURIList:
+		values, ok := out.([]any)
+		if !ok || len(values) == 0 {
+			return nil, fmt.Errorf("replicate: image output must be a non-empty URI array, got %T", out)
+		}
+		urls := make([]string, len(values))
+		for index, value := range values {
+			url, ok := value.(string)
+			if !ok || url == "" {
+				return nil, fmt.Errorf("replicate: image output[%d] must be a non-empty URI, got %T", index, value)
+			}
+			urls[index] = url
+		}
+		return urls, nil
+	default:
+		return nil, fmt.Errorf("replicate: unsupported image output schema %q", f)
+	}
+}
+
+func (f FileOutputKind) audioURL(out any) (string, error) {
+	if out == nil {
+		return "", errors.New("replicate: speech output is null")
+	}
+	switch f {
+	case FileOutputURI:
+		value, ok := out.(string)
+		if !ok || value == "" {
+			return "", fmt.Errorf("replicate: speech output must be a non-empty URI, got %T", out)
+		}
+		return value, nil
+	case FileOutputURIList:
+		values, ok := out.([]any)
+		if !ok || len(values) != 1 {
+			return "", fmt.Errorf("replicate: speech output must be a one-element URI array, got %T", out)
+		}
+		value, ok := values[0].(string)
+		if !ok || value == "" {
+			return "", fmt.Errorf("replicate: speech output[0] must be a non-empty URI, got %T", values[0])
+		}
+		return value, nil
+	default:
+		return "", fmt.Errorf("replicate: unsupported speech output schema %q", f)
+	}
+}
+
 // ImageInputSchema explicitly binds provider-neutral image fields to one
 // Replicate model's OpenAPI input/output schema. Empty optional keys mean the
 // model cannot represent that Core option; setting the option then fails
@@ -248,7 +305,7 @@ func (i *ImageModel) prepareRequest(req *image.Request) (image.Options, *predict
 }
 
 func (i *ImageModel) response(ctx context.Context, effectiveOptions image.Options, final *predictionResponse) (*image.Response, error) {
-	urls, err := imageURLs(final.Output, i.inputSchema.OutputKind)
+	urls, err := i.inputSchema.OutputKind.imageURLs(final.Output)
 	if err != nil {
 		return nil, err
 	}
@@ -330,35 +387,4 @@ func outputMIMEType(contentType, fallback string) (string, error) {
 		return "", fmt.Errorf("parse content type %q: %w", contentType, err)
 	}
 	return mimeType, nil
-}
-
-// imageURLs extracts every hosted image URL from a Replicate prediction.
-func imageURLs(out any, kind FileOutputKind) ([]string, error) {
-	if out == nil {
-		return nil, errors.New("replicate: image output is null")
-	}
-	switch kind {
-	case FileOutputURI:
-		value, ok := out.(string)
-		if !ok || value == "" {
-			return nil, fmt.Errorf("replicate: image output must be a non-empty URI, got %T", out)
-		}
-		return []string{value}, nil
-	case FileOutputURIList:
-		values, ok := out.([]any)
-		if !ok || len(values) == 0 {
-			return nil, fmt.Errorf("replicate: image output must be a non-empty URI array, got %T", out)
-		}
-		urls := make([]string, len(values))
-		for index, value := range values {
-			url, ok := value.(string)
-			if !ok || url == "" {
-				return nil, fmt.Errorf("replicate: image output[%d] must be a non-empty URI, got %T", index, value)
-			}
-			urls[index] = url
-		}
-		return urls, nil
-	default:
-		return nil, fmt.Errorf("replicate: unsupported image output schema %q", kind)
-	}
 }

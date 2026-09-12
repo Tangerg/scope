@@ -74,6 +74,56 @@ type listenParams struct {
 	Extra          url.Values
 }
 
+func (l *listenParams) query() url.Values {
+	q := url.Values{}
+	if l == nil {
+		return q
+	}
+	for k, vs := range l.Extra {
+		for _, v := range vs {
+			q.Add(k, v)
+		}
+	}
+	setStr := func(k, v string) {
+		if v != "" {
+			q.Set(k, v)
+		}
+	}
+	setBool := func(k string, v *bool) {
+		if v == nil {
+			return
+		}
+		if *v {
+			q.Set(k, "true")
+		} else {
+			q.Set(k, "false")
+		}
+	}
+	setStr("model", l.Model)
+	setStr("language", l.Language)
+	setStr("tier", l.Tier)
+	setStr("version", l.Version)
+	setStr("summarize", l.Summarize)
+	setBool("punctuate", l.Punctuate)
+	setBool("smart_format", l.SmartFormat)
+	setBool("diarize", l.Diarize)
+	setBool("numerals", l.Numerals)
+	setBool("paragraphs", l.Paragraphs)
+	setBool("utterances", l.Utterances)
+	setBool("topics", l.Topics)
+	setBool("sentiment", l.Sentiment)
+	setBool("intents", l.Intents)
+	setBool("detect_entities", l.DetectEntities)
+	setBool("detect_language", l.DetectLanguage)
+	for _, r := range l.Redact {
+		q.Add("redact", r)
+	}
+	for _, keyterm := range l.Keyterms {
+		q.Add("keyterm", keyterm)
+	}
+	return q
+}
+
 type listenResponse struct {
 	RequestID string `json:"request_id"`
 	Metadata  struct {
@@ -119,7 +169,7 @@ func (a *api) listen(ctx context.Context, audio []byte, contentType string, para
 	resp, err := a.http.R().
 		SetContext(ctx).
 		SetHeader("Content-Type", cmp.Or(contentType, "application/octet-stream")).
-		SetQueryParamsFromValues(buildListenQuery(params)).
+		SetQueryParamsFromValues(params.query()).
 		SetBody(audio).
 		SetResult(&out).
 		Post("/listen")
@@ -145,6 +195,37 @@ type speakParams struct {
 	BitRate    int
 	Speed      float64
 	Extra      url.Values
+}
+
+func (s *speakParams) query() url.Values {
+	q := url.Values{}
+	if s == nil {
+		return q
+	}
+	for k, vs := range s.Extra {
+		for _, v := range vs {
+			q.Add(k, v)
+		}
+	}
+	if s.Model != "" {
+		q.Set("model", s.Model)
+	}
+	if s.Encoding != "" {
+		q.Set("encoding", s.Encoding)
+	}
+	if s.Container != "" {
+		q.Set("container", s.Container)
+	}
+	if s.SampleRate > 0 {
+		q.Set("sample_rate", strconv.Itoa(s.SampleRate))
+	}
+	if s.BitRate > 0 {
+		q.Set("bit_rate", strconv.Itoa(s.BitRate))
+	}
+	if s.Speed > 0 {
+		q.Set("speed", strconv.FormatFloat(s.Speed, 'f', -1, 64))
+	}
+	return q
 }
 
 // speak posts text to /speak and returns the raw audio bytes plus the
@@ -175,7 +256,7 @@ func (a *api) speakStream(ctx context.Context, text string, params *speakParams)
 		SetContext(ctx).
 		SetHeader("Content-Type", "application/json").
 		SetHeader("Accept", "audio/*").
-		SetQueryParamsFromValues(buildSpeakQuery(params)).
+		SetQueryParamsFromValues(params.query()).
 		SetBody(map[string]string{"text": text}).
 		SetDoNotParseResponse(true).
 		Post("/speak")
@@ -205,85 +286,4 @@ func readBounded(reader io.Reader, maxBytes int64) ([]byte, error) {
 		return nil, fmt.Errorf("response exceeds %d-byte limit", maxBytes)
 	}
 	return data, nil
-}
-
-func buildSpeakQuery(p *speakParams) url.Values {
-	q := url.Values{}
-	if p == nil {
-		return q
-	}
-	for k, vs := range p.Extra {
-		for _, v := range vs {
-			q.Add(k, v)
-		}
-	}
-	if p.Model != "" {
-		q.Set("model", p.Model)
-	}
-	if p.Encoding != "" {
-		q.Set("encoding", p.Encoding)
-	}
-	if p.Container != "" {
-		q.Set("container", p.Container)
-	}
-	if p.SampleRate > 0 {
-		q.Set("sample_rate", strconv.Itoa(p.SampleRate))
-	}
-	if p.BitRate > 0 {
-		q.Set("bit_rate", strconv.Itoa(p.BitRate))
-	}
-	if p.Speed > 0 {
-		q.Set("speed", strconv.FormatFloat(p.Speed, 'f', -1, 64))
-	}
-	return q
-}
-
-func buildListenQuery(p *listenParams) url.Values {
-	q := url.Values{}
-	if p == nil {
-		return q
-	}
-	for k, vs := range p.Extra {
-		for _, v := range vs {
-			q.Add(k, v)
-		}
-	}
-	setStr := func(k, v string) {
-		if v != "" {
-			q.Set(k, v)
-		}
-	}
-	setBool := func(k string, v *bool) {
-		if v == nil {
-			return
-		}
-		if *v {
-			q.Set(k, "true")
-		} else {
-			q.Set(k, "false")
-		}
-	}
-	setStr("model", p.Model)
-	setStr("language", p.Language)
-	setStr("tier", p.Tier)
-	setStr("version", p.Version)
-	setStr("summarize", p.Summarize)
-	setBool("punctuate", p.Punctuate)
-	setBool("smart_format", p.SmartFormat)
-	setBool("diarize", p.Diarize)
-	setBool("numerals", p.Numerals)
-	setBool("paragraphs", p.Paragraphs)
-	setBool("utterances", p.Utterances)
-	setBool("topics", p.Topics)
-	setBool("sentiment", p.Sentiment)
-	setBool("intents", p.Intents)
-	setBool("detect_entities", p.DetectEntities)
-	setBool("detect_language", p.DetectLanguage)
-	for _, r := range p.Redact {
-		q.Add("redact", r)
-	}
-	for _, keyterm := range p.Keyterms {
-		q.Add("keyterm", keyterm)
-	}
-	return q
 }

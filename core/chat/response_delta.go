@@ -88,7 +88,7 @@ func (p PartDelta) Clone() PartDelta {
 		clone.ToolCall = new(*p.ToolCall)
 	}
 	if p.Citation != nil {
-		citation := p.Citation.Clone()
+		citation := *p.Citation
 		clone.Citation = &citation
 	}
 	return clone

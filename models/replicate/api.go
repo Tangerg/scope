@@ -119,8 +119,8 @@ func newAPI(config apiConfig) (*api, error) {
 	return &api{http: client, download: download, baseHost: parsedBaseURL.Hostname()}, nil
 }
 
-// PredictionRequest contains the caller-controlled body fields shared by both
-// prediction endpoints. CreatePrediction derives version exclusively from the
+// predictionRequest contains the caller-controlled body fields shared by both
+// prediction endpoints. createPrediction derives version exclusively from the
 // model id so endpoint routing and the immutable version cannot disagree.
 type predictionRequest struct {
 	Input               map[string]any `json:"input"`
@@ -128,7 +128,7 @@ type predictionRequest struct {
 	WebhookEventsFilter []string       `json:"webhook_events_filter,omitzero"`
 }
 
-func (p predictionRequest) Validate() error {
+func (p predictionRequest) validate() error {
 	if p.Input == nil {
 		return errors.New("replicate: prediction input is required")
 	}
@@ -228,7 +228,7 @@ func (a *api) createPrediction(ctx context.Context, modelID string, req *predict
 	if req == nil {
 		return nil, errors.New("replicate: request must not be nil")
 	}
-	if err := req.Validate(); err != nil {
+	if err := req.validate(); err != nil {
 		return nil, err
 	}
 	if modelID == "" {

@@ -116,7 +116,7 @@ func (a *AudioTranscriptionModel) Call(ctx context.Context, req *transcription.R
 		return nil, err
 	}
 	apiReq.SpeechModels = prioritizedSpeechModels(effectiveOptions.Model, apiReq.SpeechModels)
-	if validateTranscriptRequestErr := validateTranscriptRequest(apiReq); validateTranscriptRequestErr != nil {
+	if validateTranscriptRequestErr := apiReq.validate(); validateTranscriptRequestErr != nil {
 		return nil, validateTranscriptRequestErr
 	}
 	if apiReq.LanguageCode == "" && effectiveOptions.Language != "" {
@@ -241,25 +241,4 @@ func prioritizedSpeechModels(primary string, fallbacks []string) []string {
 		}
 	}
 	return models
-}
-
-func validateTranscriptRequest(req *transcriptRequest) error {
-	for index, model := range req.SpeechModels {
-		if model != ModelUniversal3Point5Pro && model != ModelUniversal2 {
-			return fmt.Errorf("assemblyai: speech_models[%d] must be %q or %q, got %q", index, ModelUniversal3Point5Pro, ModelUniversal2, model)
-		}
-	}
-	if req.Prompt != "" && len(req.KeytermsPrompt) > 0 {
-		return errors.New("assemblyai: prompt and keyterms_prompt are mutually exclusive")
-	}
-	if req.LanguageConfidenceThreshold != nil && (*req.LanguageConfidenceThreshold < 0 || *req.LanguageConfidenceThreshold > 1) {
-		return fmt.Errorf("assemblyai: language_confidence_threshold must be between 0 and 1, got %g", *req.LanguageConfidenceThreshold)
-	}
-	if req.SpeechThreshold != nil && (*req.SpeechThreshold < 0 || *req.SpeechThreshold > 1) {
-		return fmt.Errorf("assemblyai: speech_threshold must be between 0 and 1, got %g", *req.SpeechThreshold)
-	}
-	if req.ContentSafetyConfidence != nil && (*req.ContentSafetyConfidence < 25 || *req.ContentSafetyConfidence > 100) {
-		return fmt.Errorf("assemblyai: content_safety_confidence must be between 25 and 100, got %d", *req.ContentSafetyConfidence)
-	}
-	return nil
 }

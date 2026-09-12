@@ -73,7 +73,7 @@ func (r *reportGenerator) report() *Response {
 	maxTemp := max(clamp(mean+r.profile.dailyAmplitude+r.rng.IntN(3)-1, r.profile.floor, r.profile.ceiling), current)
 
 	// Pick a condition compatible with the temperature + zone + month.
-	candidates := candidateConditions(current, r.month, r.zone, r.seasonal)
+	candidates := r.zone.candidateConditions(current, r.month, r.seasonal)
 	condition := candidates[r.rng.IntN(len(candidates))]
 
 	wind := r.wind(condition)
@@ -156,7 +156,7 @@ func (r *reportGenerator) hourlyForecast(dailyMean int, condition Condition) []H
 
 		hourCondition := condition
 		if r.rng.Float64() < 0.2 {
-			alt := candidateConditions(hourTemp, int(r.target.Month()), r.zone, seasonalPattern{})
+			alt := r.zone.candidateConditions(hourTemp, int(r.target.Month()), seasonalPattern{})
 			hourCondition = alt[r.rng.IntN(len(alt))]
 		}
 

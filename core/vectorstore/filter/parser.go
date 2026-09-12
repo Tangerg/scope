@@ -147,7 +147,7 @@ func (p *parser) parseNotIn(left Selector) (Predicate, error) {
 }
 
 func (p *parser) parseComparison(left Selector) (Predicate, error) {
-	operator := operatorForToken(p.current.kind)
+	operator := p.current.kind.operator()
 	return p.parseLiteralPredicate(left, operator)
 }
 
@@ -284,7 +284,7 @@ func (p *parser) parseList() (*ListLiteral, error) {
 }
 
 func (p *parser) parseLiteral() (*Literal, error) {
-	kind, ok := literalKindForToken(p.current.kind)
+	kind, ok := p.current.kind.literalKind()
 	if !ok {
 		return nil, p.unexpected("string, number, or boolean literal")
 	}
@@ -328,36 +328,4 @@ func (p *parser) unexpected(expected string) error {
 		literal,
 		fmt.Sprintf("expected %s, got %s", expected, literal),
 	)
-}
-
-func operatorForToken(kind tokenKind) Operator {
-	switch kind {
-	case tokenEqual:
-		return OpEqual
-	case tokenNotEqual:
-		return OpNotEqual
-	case tokenLess:
-		return OpLess
-	case tokenLessEqual:
-		return OpLessEqual
-	case tokenGreater:
-		return OpGreater
-	case tokenGreaterEqual:
-		return OpGreaterEqual
-	default:
-		return ""
-	}
-}
-
-func literalKindForToken(kind tokenKind) (LiteralKind, bool) {
-	switch kind {
-	case tokenString:
-		return LiteralString, true
-	case tokenNumber:
-		return LiteralNumber, true
-	case tokenTrue, tokenFalse:
-		return LiteralBool, true
-	default:
-		return "", false
-	}
 }

@@ -8,11 +8,9 @@ import (
 	"math"
 	"strings"
 	"time"
-)
 
-// These private values model only the documented /api/chat and /api/embed
-// wire used by this adapter. Keeping the wire local avoids importing Ollama's
-// daemon repository merely to issue two HTTP requests.
+	corechat "github.com/Tangerg/scope/core/chat"
+)
 
 type nativeDuration struct {
 	time.Duration
@@ -192,6 +190,11 @@ type nativeMetrics struct {
 	EvalDuration       time.Duration `json:"eval_duration,omitempty"`
 }
 
+func (n nativeMetrics) hasDurations() bool {
+	return n.TotalDuration != 0 || n.LoadDuration != 0 ||
+		n.PromptEvalDuration != 0 || n.EvalDuration != 0
+}
+
 type nativeChatResponse struct {
 	Error       string          `json:"error,omitempty"`
 	Model       string          `json:"model"`
@@ -216,6 +219,47 @@ func (n *nativeChatResponse) UnmarshalJSON(data []byte) error {
 	*n = nativeChatResponse(decoded)
 	n.raw = bytes.Clone(data)
 	return nil
+}
+
+func (n nativeChatResponse) metadata(requestModel string) (*corechat.ResponseMetadata, error) {
+	modelName := n.Model
+	if modelName == "" {
+		modelName = requestModel
+	}
+	metadata := &corechat.ResponseMetadata{
+		Model: modelName,
+		Usage: corechat.Usage{
+			InputTokens:  int64(n.PromptEvalCount),
+			OutputTokens: int64(n.EvalCount),
+		},
+	}
+	if err := metadata.Extra.Set(ResponseExtensionKey, n.raw); err != nil {
+		return nil, fmt.Errorf("ollama: preserve native response: %w", err)
+	}
+	if !n.CreatedAt.IsZero() {
+		metadata.CreatedAt = n.CreatedAt.UTC()
+	}
+	if n.hasDurations() {
+		durations := map[string]int64{
+			"total":       int64(n.TotalDuration),
+			"load":        int64(n.LoadDuration),
+			"prompt_eval": int64(n.PromptEvalDuration),
+			"eval":        int64(n.EvalDuration),
+		}
+		if err := metadata.Extra.Set(protocolDurationsKey, durations); err != nil {
+			return nil, err
+		}
+	}
+	if n.PromptEvalCount != 0 || n.EvalCount != 0 {
+		metrics := protocolMetrics{
+			PromptEvalCount: n.PromptEvalCount,
+			EvalCount:       n.EvalCount,
+		}
+		if err := metadata.Extra.Set(protocolMetricsKey, metrics); err != nil {
+			return nil, err
+		}
+	}
+	return metadata, nil
 }
 
 type nativeEmbedRequest struct {

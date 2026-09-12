@@ -84,7 +84,7 @@ type ttsRequest struct {
 	InstantMode           *bool          `json:"instant_mode,omitempty"`
 }
 
-// TTSResponse is the JSON envelope. Generations[0].Audio is the
+// ttsResponse is the JSON envelope. Generations[0].Audio is the
 // base64-encoded audio bytes.
 type ttsResponse struct {
 	Generations []struct {
@@ -101,7 +101,7 @@ type ttsResponse struct {
 	RequestID string `json:"request_id"`
 }
 
-// TTSStreamEvent is one JSON-line union member returned by
+// ttsStreamEvent is one JSON-line union member returned by
 // /tts/stream/json. Type is either "audio" or "timestamp".
 type ttsStreamEvent struct {
 	Type            string          `json:"type"`
@@ -119,7 +119,7 @@ type ttsStreamEvent struct {
 	Timestamp       json.RawMessage `json:"timestamp,omitempty"`
 }
 
-func (t *ttsStreamEvent) DecodeAudio() ([]byte, error) {
+func (t *ttsStreamEvent) decodeAudio() ([]byte, error) {
 	if t.Type != "audio" {
 		return nil, fmt.Errorf("hume: stream event type %q has no audio", t.Type)
 	}
@@ -134,7 +134,7 @@ func (t *ttsStreamEvent) DecodeAudio() ([]byte, error) {
 }
 
 func (t *ttsStreamEvent) response(model string) (*tts.Response, error) {
-	audio, err := t.DecodeAudio()
+	audio, err := t.decodeAudio()
 	if err != nil {
 		return nil, err
 	}
@@ -179,8 +179,8 @@ func (t *ttsStreamEvent) response(model string) (*tts.Response, error) {
 	return tts.NewResponse(output, responseMetadata)
 }
 
-// DecodeAudio returns the raw audio bytes from the first generation.
-func (t *ttsResponse) DecodeAudio() ([]byte, error) {
+// decodeAudio returns the raw audio bytes from the first generation.
+func (t *ttsResponse) decodeAudio() ([]byte, error) {
 	if len(t.Generations) == 0 {
 		return nil, errors.New("hume: TTS response has no generations")
 	}

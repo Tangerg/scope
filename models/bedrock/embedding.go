@@ -180,6 +180,25 @@ func classifyEmbeddingModel(modelID string) (embeddingFamily, error) {
 	}
 }
 
+func (e embeddingFamily) validateTruncate(truncate string) error {
+	if truncate == "" {
+		return nil
+	}
+	if e == embeddingFamilyCohereV3 {
+		switch truncate {
+		case "NONE", "START", "END":
+			return nil
+		}
+		return fmt.Errorf("bedrock: embedding extension %q has invalid Cohere V3 truncate %q", EmbeddingRequestExtensionKey, truncate)
+	}
+	switch truncate {
+	case "NONE", "LEFT", "RIGHT":
+		return nil
+	default:
+		return fmt.Errorf("bedrock: embedding extension %q has invalid Cohere V4 truncate %q", EmbeddingRequestExtensionKey, truncate)
+	}
+}
+
 type embeddingBatch struct {
 	vectors        [][]float64
 	inputTokens    int64
@@ -293,7 +312,7 @@ func (e *EmbeddingModel) embedCohere(
 	if err := validateCohereInputType(native.InputType); err != nil {
 		return nil, err
 	}
-	if err := validateCohereTruncate(family, native.Truncate); err != nil {
+	if err := family.validateTruncate(native.Truncate); err != nil {
 		return nil, err
 	}
 	if native.Normalize != nil {
@@ -357,25 +376,6 @@ func validateCohereInputType(inputType string) error {
 		return fmt.Errorf("bedrock: embedding extension %q input_type is required for Cohere Embed", EmbeddingRequestExtensionKey)
 	default:
 		return fmt.Errorf("bedrock: embedding extension %q has invalid Cohere input_type %q", EmbeddingRequestExtensionKey, inputType)
-	}
-}
-
-func validateCohereTruncate(family embeddingFamily, truncate string) error {
-	if truncate == "" {
-		return nil
-	}
-	if family == embeddingFamilyCohereV3 {
-		switch truncate {
-		case "NONE", "START", "END":
-			return nil
-		}
-		return fmt.Errorf("bedrock: embedding extension %q has invalid Cohere V3 truncate %q", EmbeddingRequestExtensionKey, truncate)
-	}
-	switch truncate {
-	case "NONE", "LEFT", "RIGHT":
-		return nil
-	default:
-		return fmt.Errorf("bedrock: embedding extension %q has invalid Cohere V4 truncate %q", EmbeddingRequestExtensionKey, truncate)
 	}
 }
 

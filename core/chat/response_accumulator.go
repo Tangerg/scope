@@ -202,7 +202,7 @@ func (r *ResponseAccumulator) mergePart(delta PartDelta) {
 		r.parts = append(r.parts, accumulatedPart{part: part, content: []byte(call.Arguments)})
 	case PartDeltaCitation:
 		part := &r.parts[len(r.parts)-1].part
-		part.Citations = append(part.Citations, delta.Citation.Clone())
+		part.Citations = append(part.Citations, *delta.Citation)
 	}
 }
 

@@ -123,6 +123,6 @@ func fuseRankings(ctx context.Context, rankings []Candidates, rankConstant int) 
 		}
 	}
 
-	sortCandidatesByScore(fused)
+	fused.sortByScore()
 	return fused, nil
 }

@@ -37,6 +37,17 @@ type Distribution struct {
 	Maximum float64
 }
 
+func (d Distribution) delta(candidate Distribution) (DistributionDelta, error) {
+	if d.Count == 0 || candidate.Count == 0 {
+		return DistributionDelta{}, nil
+	}
+	difference := candidate.Mean - d.Mean
+	if math.IsInf(difference, 0) {
+		return DistributionDelta{}, fmt.Errorf("%w: mean difference overflows float64", ErrInvalidComparison)
+	}
+	return DistributionDelta{Present: true, Mean: difference}, nil
+}
+
 // MetricSummary keeps score and measurement distributions attached to their
 // full Metric identity so unrelated units, directions, and configurations are
 // never aggregated together. Experiment summarizes both top-level reports and

@@ -1,6 +1,12 @@
 package mistral
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+
+	corechat "github.com/Tangerg/scope/core/chat"
+)
 
 type chatRole string
 
@@ -57,6 +63,51 @@ const (
 	// mean.
 	finishReasonError finishReason = "error"
 )
+
+// normalized maps the five values Mistral's client declares —
+// stop, length, model_length, error and tool_calls — and answers anything else
+// with Other, because that client types the field as those literals or an
+// unrecognized string, so a value outside the set is something this adapter has
+// not seen rather than something it failed to classify.
+//
+// error and an unrecognized value both land on Other, which is what Core
+// reserves for a known terminal state with no portable match. Neither is
+// silently lost: finishReason.metadata keeps the provider's own word for
+// it on the output, the way this adapter's siblings do, so a caller can tell an
+// errored generation from a provider iteration limit.
+func (f finishReason) normalized() corechat.FinishReason {
+	switch f {
+	case "":
+		return ""
+	case finishReasonStop:
+		return corechat.FinishReasonStop
+	case finishReasonLength, finishReasonModelLength:
+		return corechat.FinishReasonLength
+	case finishReasonToolCalls:
+		return corechat.FinishReasonToolCalls
+	case finishReasonError:
+		return corechat.FinishReasonOther
+	default:
+		return corechat.FinishReasonOther
+	}
+}
+
+// metadata records the provider's own finish reason
+// whenever the portable one is Other, so the distinction Other erases stays
+// available.
+func (f finishReason) metadata(
+
+	mapped corechat.FinishReason,
+) (*corechat.OutputMetadata, error) {
+	if mapped != corechat.FinishReasonOther {
+		return nil, nil
+	}
+	outputMetadata := &corechat.OutputMetadata{}
+	if err := outputMetadata.Extra.Set(nativeFinishReasonKey, string(f)); err != nil {
+		return nil, fmt.Errorf("mistral: record native finish reason: %w", err)
+	}
+	return outputMetadata, nil
+}
 
 type responseFormat struct {
 	Type       outputFormatType      `json:"type"`
@@ -174,6 +225,49 @@ type chatCompletionResponse struct {
 	Usage   chatUsage              `json:"usage"`
 }
 
+func (c *chatCompletionResponse) response() (*corechat.Response, error) {
+	if c == nil {
+		return nil, errors.New("mistral: nil chat completion response")
+	}
+	if len(c.Choices) != expectedResponseChoices {
+		return nil, fmt.Errorf("mistral: response has %d choices; Core requires one output", len(c.Choices))
+	}
+	response := &corechat.Response{
+		Metadata: &corechat.ResponseMetadata{
+			ID: c.ID, Model: c.Model, Usage: c.Usage.usage(),
+		},
+	}
+	if err := response.Metadata.Extra.Set(responseExtensionKey, c); err != nil {
+		return nil, err
+	}
+	wireChoice := c.Choices[0]
+	if wireChoice.Index != firstChoiceIndex {
+		return nil, fmt.Errorf("mistral: choice index is %d, want %d", wireChoice.Index, firstChoiceIndex)
+	}
+	parts, err := mapMistralContent(wireChoice.Message.Content)
+	if err != nil {
+		return nil, fmt.Errorf("mistral: output message content: %w", err)
+	}
+	toolParts, err := mapMistralToolCalls(wireChoice.Message.ToolCalls)
+	if err != nil {
+		return nil, fmt.Errorf("mistral: output message tool calls: %w", err)
+	}
+	parts = append(parts, toolParts...)
+	finish := wireChoice.FinishReason.normalized()
+	nativeFinish, err := wireChoice.FinishReason.metadata(finish)
+	if err != nil {
+		return nil, err
+	}
+	response.Output = &corechat.Output{FinishReason: finish, Metadata: nativeFinish}
+	if len(parts) > 0 {
+		response.Output.Message = &corechat.Message{Role: corechat.RoleAssistant, Parts: parts}
+	}
+	if err := response.Validate(); err != nil {
+		return nil, fmt.Errorf("mistral: mapped chat completion: %w", err)
+	}
+	return response, nil
+}
+
 type chatCompletionChoice struct {
 	Index        int                   `json:"index"`
 	Message      chatCompletionMessage `json:"message"`
@@ -207,4 +301,16 @@ type chatUsage struct {
 	PromptTokensDetails *struct {
 		CachedTokens int64 `json:"cached_tokens"`
 	} `json:"prompt_tokens_details"`
+}
+
+func (c chatUsage) usage() corechat.Usage {
+	mapped := corechat.Usage{InputTokens: c.PromptTokens, OutputTokens: c.CompletionTokens}
+	cached := c.NumCachedTokens
+	if c.PromptTokensDetails != nil && c.PromptTokensDetails.CachedTokens != 0 {
+		cached = c.PromptTokensDetails.CachedTokens
+	}
+	if cached != 0 {
+		mapped.CacheReadInputTokens = &cached
+	}
+	return mapped
 }

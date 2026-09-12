@@ -91,3 +91,35 @@ func (t tokenKind) string() string {
 		return "invalid token"
 	}
 }
+
+func (t tokenKind) operator() Operator {
+	switch t {
+	case tokenEqual:
+		return OpEqual
+	case tokenNotEqual:
+		return OpNotEqual
+	case tokenLess:
+		return OpLess
+	case tokenLessEqual:
+		return OpLessEqual
+	case tokenGreater:
+		return OpGreater
+	case tokenGreaterEqual:
+		return OpGreaterEqual
+	default:
+		return ""
+	}
+}
+
+func (t tokenKind) literalKind() (LiteralKind, bool) {
+	switch t {
+	case tokenString:
+		return LiteralString, true
+	case tokenNumber:
+		return LiteralNumber, true
+	case tokenTrue, tokenFalse:
+		return LiteralBool, true
+	default:
+		return "", false
+	}
+}

@@ -2,7 +2,6 @@ package eval
 
 import (
 	"fmt"
-	"math"
 )
 
 // DistributionDelta is candidate mean minus baseline mean. Present is false
@@ -109,11 +108,11 @@ func (m metricPair) compare() (MetricComparison, error) {
 		comparison.Metric = candidate.Metric
 		comparison.Candidate = &candidate
 	}
-	scoreDelta, err := distributionDelta(baseline.Scores, candidate.Scores)
+	scoreDelta, err := baseline.Scores.delta(candidate.Scores)
 	if err != nil {
 		return MetricComparison{}, fmt.Errorf("eval: compare metric %q scores: %w", comparison.Metric, err)
 	}
-	measurementDelta, err := distributionDelta(baseline.Measurements, candidate.Measurements)
+	measurementDelta, err := baseline.Measurements.delta(candidate.Measurements)
 	if err != nil {
 		return MetricComparison{}, fmt.Errorf("eval: compare metric %q measurements: %w", comparison.Metric, err)
 	}
@@ -124,15 +123,4 @@ func (m metricPair) compare() (MetricComparison, error) {
 	comparison.ScoreDelta = scoreDelta
 	comparison.MeasurementDelta = measurementDelta
 	return comparison, nil
-}
-
-func distributionDelta(baseline, candidate Distribution) (DistributionDelta, error) {
-	if baseline.Count == 0 || candidate.Count == 0 {
-		return DistributionDelta{}, nil
-	}
-	difference := candidate.Mean - baseline.Mean
-	if math.IsInf(difference, 0) {
-		return DistributionDelta{}, fmt.Errorf("%w: mean difference overflows float64", ErrInvalidComparison)
-	}
-	return DistributionDelta{Present: true, Mean: difference}, nil
 }

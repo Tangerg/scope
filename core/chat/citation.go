@@ -58,8 +58,6 @@ type Citation struct {
 	Quote  string         `json:"quote,omitempty"`
 }
 
-func (c Citation) Clone() Citation { return c }
-
 func (c Citation) Validate() error {
 	if err := c.Source.Validate(); err != nil {
 		return err

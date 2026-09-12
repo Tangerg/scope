@@ -108,10 +108,10 @@ func NewEvaluator[T any](config Config[T]) (*Evaluator[T], error) {
 	if samples == 0 {
 		samples = 1
 	}
-	metric, err := configuredMetric(config.Metric, metricConfiguration{
+	metric, err := (metricConfiguration{
 		ModelID: config.ModelID, RubricID: config.RubricID, Options: config.Options.Clone(),
 		Aggregation: aggregationMedian, Samples: samples, Threshold: threshold,
-	})
+	}).metric(config.Metric)
 	if err != nil {
 		return nil, fmt.Errorf("%w: metric configuration: %w", eval.ErrInvalidEvaluatorConfig, err)
 	}
@@ -129,9 +129,9 @@ func NewEvaluator[T any](config Config[T]) (*Evaluator[T], error) {
 	}, nil
 }
 
-func configuredMetric(metric eval.Metric, configuration metricConfiguration) (eval.Metric, error) {
+func (m metricConfiguration) metric(metric eval.Metric) (eval.Metric, error) {
 	parameters := metric.Parameters()
-	if err := parameters.Set(metricJudgeConfigurationKey, configuration); err != nil {
+	if err := parameters.Set(metricJudgeConfigurationKey, m); err != nil {
 		return eval.Metric{}, err
 	}
 	return eval.NewMetric(eval.MetricConfig{

@@ -14,7 +14,7 @@ type AudioTranscriptionModelConfig struct {
 }
 
 func (a AudioTranscriptionModelConfig) resolve() (endpointConfig, error) {
-	return resolveModelConfig(a.Config, a.DefaultOptions.Model, a.DefaultOptions.Validate)
+	return a.resolveModel(a.DefaultOptions.Model, a.DefaultOptions.Validate)
 }
 
 func (a AudioTranscriptionModelConfig) Validate() error {

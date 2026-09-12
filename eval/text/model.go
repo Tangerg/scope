@@ -32,8 +32,8 @@ type ModelEvaluatorConfig struct {
 	Samples   int
 }
 
-func buildPrompt[Variables any](config ModelEvaluatorConfig, fallback string, required ...string) (*chatclient.Template, error) {
-	prompt := config.PromptTemplate
+func (m ModelEvaluatorConfig) prompt[Variables any](fallback string, required ...string) (*chatclient.Template, error) {
+	prompt := m.PromptTemplate
 	if prompt == nil {
 		var err error
 		prompt, err = chatclient.ParseTemplate(fallback)
@@ -57,7 +57,7 @@ func newModelEvaluator[Subject, Variables any](
 	variables func(Subject) Variables,
 	required ...string,
 ) (eval.Evaluator[Subject], error) {
-	prompt, err := buildPrompt[Variables](config, defaultPrompt, required...)
+	prompt, err := config.prompt[Variables](defaultPrompt, required...)
 	if err != nil {
 		return nil, err
 	}

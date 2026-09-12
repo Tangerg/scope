@@ -111,7 +111,7 @@ func (i *ImageModel) buildAPIRequest(req *image.Request) (string, *generateReque
 
 	// Force JSON mode to get FinishReason / Seed echoed back.
 	apiReq.Mode = ResponseModeJSON
-	if err := validateGenerateRequest(apiReq); err != nil {
+	if err := apiReq.validate(); err != nil {
 		return "", nil, err
 	}
 
@@ -142,7 +142,7 @@ func checkFinishReason(reason string) error {
 }
 
 func (i *ImageModel) buildResponse(body []byte, hdr http.Header, outputFormat string) (*image.Response, error) {
-	envelope, err := DecodeJSON(body)
+	envelope, err := decodeJSON(body)
 	if err != nil {
 		return nil, err
 	}
@@ -219,24 +219,4 @@ func resolveModel(model string) (endpoint, wireModel string, err error) {
 	default:
 		return "", "", fmt.Errorf("stability: unsupported image model %q", model)
 	}
-}
-
-func validateGenerateRequest(req *generateRequest) error {
-	if req.AspectRatio != "" {
-		switch req.AspectRatio {
-		case "16:9", "1:1", "21:9", "2:3", "3:2", "4:5", "5:4", "9:16", "9:21":
-		default:
-			return fmt.Errorf("stability: unsupported aspect_ratio %q", req.AspectRatio)
-		}
-	}
-	if req.OutputFormat != "" && req.OutputFormat != "jpeg" && req.OutputFormat != "png" && req.OutputFormat != "webp" {
-		return fmt.Errorf("stability: output_format must be jpeg, png, or webp, got %q", req.OutputFormat)
-	}
-	if req.Seed != nil && (*req.Seed < 0 || *req.Seed > 4294967294) {
-		return fmt.Errorf("stability: seed must be between 0 and 4294967294, got %d", *req.Seed)
-	}
-	if req.CFGScale != nil && (*req.CFGScale < 1 || *req.CFGScale > 10) {
-		return fmt.Errorf("stability: cfg_scale must be between 1 and 10, got %g", *req.CFGScale)
-	}
-	return nil
 }

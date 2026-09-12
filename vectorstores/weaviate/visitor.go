@@ -37,7 +37,7 @@ func (v *visitor) Visit(expr filter.Predicate) error {
 	if err := v.checkDeclaredPaths(expr); err != nil {
 		return err
 	}
-	result, err := compileFilter(expr)
+	result, err := v.compileFilter(expr)
 	if err != nil {
 		return err
 	}
@@ -92,43 +92,43 @@ func (v *visitor) snapshot() *filters.WhereBuilder {
 	return v.result
 }
 
-func compileFilter(expr filter.Expr) (*filters.WhereBuilder, error) {
+func (v *visitor) compileFilter(expr filter.Expr) (*filters.WhereBuilder, error) {
 	switch node := expr.(type) {
 	case *filter.BinaryExpr:
-		return compileBinary(node)
+		return v.compileBinary(node)
 	case *filter.UnaryExpr:
-		return compileUnary(node)
+		return v.compileUnary(node)
 	default:
 		return nil, fmt.Errorf("weaviate.filter: expected predicate, got %T", expr)
 	}
 }
 
-func compileBinary(expr *filter.BinaryExpr) (*filters.WhereBuilder, error) {
+func (v *visitor) compileBinary(expr *filter.BinaryExpr) (*filters.WhereBuilder, error) {
 	switch {
 	case expr.Operator().IsNullOperator():
-		return compileNullTest(expr)
+		return v.compileNullTest(expr)
 	case expr.Operator().IsLogicalOperator():
-		return compileLogical(expr)
+		return v.compileLogical(expr)
 	case expr.Operator().IsComparisonOperator():
-		return compileComparison(expr)
+		return v.compileComparison(expr)
 	case expr.Operator().Is(filter.OpIn):
-		return compileIn(expr)
+		return v.compileIn(expr)
 	case expr.Operator().Is(filter.OpHas):
-		return compileHas(expr)
+		return v.compileHas(expr)
 	case expr.Operator().Is(filter.OpLike):
-		return compileLike(expr)
+		return v.compileLike(expr)
 	default:
 		return nil, fmt.Errorf("weaviate.filter: unsupported binary operator %q at %s",
 			expr.Operator().String(), expr.Start())
 	}
 }
 
-func compileUnary(expr *filter.UnaryExpr) (*filters.WhereBuilder, error) {
+func (v *visitor) compileUnary(expr *filter.UnaryExpr) (*filters.WhereBuilder, error) {
 	if !expr.Operator().Is(filter.OpNot) {
 		return nil, fmt.Errorf("weaviate.filter: unsupported unary operator %q at %s",
 			expr.Operator().String(), expr.Start())
 	}
-	operand, err := compileFilter(expr.Right())
+	operand, err := v.compileFilter(expr.Right())
 	if err != nil {
 		return nil, fmt.Errorf("weaviate.filter: NOT operand: %w", err)
 	}
@@ -137,12 +137,12 @@ func compileUnary(expr *filter.UnaryExpr) (*filters.WhereBuilder, error) {
 		WithOperands([]*filters.WhereBuilder{operand}), nil
 }
 
-func compileLogical(expr *filter.BinaryExpr) (*filters.WhereBuilder, error) {
-	left, err := compileFilter(expr.Left())
+func (v *visitor) compileLogical(expr *filter.BinaryExpr) (*filters.WhereBuilder, error) {
+	left, err := v.compileFilter(expr.Left())
 	if err != nil {
 		return nil, fmt.Errorf("weaviate.filter: left operand of %s: %w", expr.Operator(), err)
 	}
-	right, err := compileFilter(expr.Right())
+	right, err := v.compileFilter(expr.Right())
 	if err != nil {
 		return nil, fmt.Errorf("weaviate.filter: right operand of %s: %w", expr.Operator(), err)
 	}
@@ -161,7 +161,7 @@ func compileLogical(expr *filter.BinaryExpr) (*filters.WhereBuilder, error) {
 		WithOperands([]*filters.WhereBuilder{left, right}), nil
 }
 
-func compileComparison(expr *filter.BinaryExpr) (*filters.WhereBuilder, error) {
+func (v *visitor) compileComparison(expr *filter.BinaryExpr) (*filters.WhereBuilder, error) {
 	path, err := expr.Path()
 	if err != nil {
 		return nil, fmt.Errorf("weaviate.filter: left operand of %s: %w", expr.Operator(), err)
@@ -181,6 +181,75 @@ func compileComparison(expr *filter.BinaryExpr) (*filters.WhereBuilder, error) {
 			expr.Operator(), expr.Start())
 	}
 	return scalarFilter(path, operator, literal)
+}
+
+func (v *visitor) compileIn(expr *filter.BinaryExpr) (*filters.WhereBuilder, error) {
+	path, err := expr.Path()
+	if err != nil {
+		return nil, fmt.Errorf("weaviate.filter: left operand of IN: %w", err)
+	}
+	list, err := expr.List()
+	if err != nil {
+		return nil, fmt.Errorf("weaviate.filter: %w", err)
+	}
+	if _, err := list.Values(); err != nil {
+		return nil, fmt.Errorf("weaviate.filter: IN values: %w", err)
+	}
+
+	operands := make([]*filters.WhereBuilder, 0, list.Len())
+	for _, literal := range list.Literals() {
+		operand, err := scalarFilter(path, filters.Equal, literal)
+		if err != nil {
+			return nil, fmt.Errorf("weaviate.filter: IN value: %w", err)
+		}
+		operands = append(operands, operand)
+	}
+	return filters.Where().
+		WithOperator(filters.Or).
+		WithOperands(operands), nil
+}
+
+func (v *visitor) compileHas(expr *filter.BinaryExpr) (*filters.WhereBuilder, error) {
+	path, err := expr.Path()
+	if err != nil {
+		return nil, fmt.Errorf("weaviate.filter: left operand of HAS: %w", err)
+	}
+	literal, ok := expr.Right().(*filter.Literal)
+	if !ok || literal == nil {
+		return nil, fmt.Errorf("weaviate.filter: right operand of HAS must be a literal, got %T at %s",
+			expr.Right(), expr.Start())
+	}
+	return scalarFilter(path, filters.ContainsAny, literal)
+}
+
+func (v *visitor) compileLike(expr *filter.BinaryExpr) (*filters.WhereBuilder, error) {
+	path, err := expr.Path()
+	if err != nil {
+		return nil, fmt.Errorf("weaviate.filter: left operand of LIKE: %w", err)
+	}
+	pattern, err := expr.Pattern()
+	if err != nil {
+		return nil, fmt.Errorf("weaviate.filter: %w", err)
+	}
+	translated, err := weaviateLikePattern(pattern)
+	if err != nil {
+		return nil, err
+	}
+	return filters.Where().
+		WithPath(path).
+		WithOperator(filters.Like).
+		WithValueText(translated), nil
+}
+
+func (v *visitor) compileNullTest(expr *filter.BinaryExpr) (*filters.WhereBuilder, error) {
+	path, err := expr.Path()
+	if err != nil {
+		return nil, fmt.Errorf("weaviate.filter: left operand of IS NULL: %w", err)
+	}
+	return filters.Where().
+		WithPath(path).
+		WithOperator(filters.IsNull).
+		WithValueBoolean(true), nil
 }
 
 func comparisonOperator(operator filter.Operator) (filters.WhereOperator, error) {
@@ -244,64 +313,6 @@ func scalarFilter(
 	}
 }
 
-func compileIn(expr *filter.BinaryExpr) (*filters.WhereBuilder, error) {
-	path, err := expr.Path()
-	if err != nil {
-		return nil, fmt.Errorf("weaviate.filter: left operand of IN: %w", err)
-	}
-	list, err := expr.List()
-	if err != nil {
-		return nil, fmt.Errorf("weaviate.filter: %w", err)
-	}
-	if _, err := list.Values(); err != nil {
-		return nil, fmt.Errorf("weaviate.filter: IN values: %w", err)
-	}
-
-	operands := make([]*filters.WhereBuilder, 0, list.Len())
-	for _, literal := range list.Literals() {
-		operand, err := scalarFilter(path, filters.Equal, literal)
-		if err != nil {
-			return nil, fmt.Errorf("weaviate.filter: IN value: %w", err)
-		}
-		operands = append(operands, operand)
-	}
-	return filters.Where().
-		WithOperator(filters.Or).
-		WithOperands(operands), nil
-}
-
-func compileHas(expr *filter.BinaryExpr) (*filters.WhereBuilder, error) {
-	path, err := expr.Path()
-	if err != nil {
-		return nil, fmt.Errorf("weaviate.filter: left operand of HAS: %w", err)
-	}
-	literal, ok := expr.Right().(*filter.Literal)
-	if !ok || literal == nil {
-		return nil, fmt.Errorf("weaviate.filter: right operand of HAS must be a literal, got %T at %s",
-			expr.Right(), expr.Start())
-	}
-	return scalarFilter(path, filters.ContainsAny, literal)
-}
-
-func compileLike(expr *filter.BinaryExpr) (*filters.WhereBuilder, error) {
-	path, err := expr.Path()
-	if err != nil {
-		return nil, fmt.Errorf("weaviate.filter: left operand of LIKE: %w", err)
-	}
-	pattern, err := expr.Pattern()
-	if err != nil {
-		return nil, fmt.Errorf("weaviate.filter: %w", err)
-	}
-	translated, err := weaviateLikePattern(pattern)
-	if err != nil {
-		return nil, err
-	}
-	return filters.Where().
-		WithPath(path).
-		WithOperator(filters.Like).
-		WithValueText(translated), nil
-}
-
 // weaviateLikePattern translates SQL LIKE wildcards into Weaviate's wildcard
 // syntax. Weaviate cannot escape literal '*' or '?', so accepting either
 // would broaden the predicate and violate the source expression.
@@ -310,15 +321,4 @@ func weaviateLikePattern(pattern string) (string, error) {
 		return "", errors.New("weaviate.filter: LIKE cannot represent literal '*' or '?' characters")
 	}
 	return strings.NewReplacer("%", "*", "_", "?").Replace(pattern), nil
-}
-
-func compileNullTest(expr *filter.BinaryExpr) (*filters.WhereBuilder, error) {
-	path, err := expr.Path()
-	if err != nil {
-		return nil, fmt.Errorf("weaviate.filter: left operand of IS NULL: %w", err)
-	}
-	return filters.Where().
-		WithPath(path).
-		WithOperator(filters.IsNull).
-		WithValueBoolean(true), nil
 }

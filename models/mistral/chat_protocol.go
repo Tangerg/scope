@@ -165,7 +165,7 @@ func (c *Chat) Call(ctx context.Context, request *corechat.Request) (*corechat.R
 	if err != nil {
 		return nil, err
 	}
-	return mapChatCompletion(wireResponse)
+	return wireResponse.response()
 }
 
 func (c *Chat) Stream(ctx context.Context, request *corechat.Request) iter.Seq2[*corechat.ResponseDelta, error] {

@@ -93,7 +93,7 @@ func (a *AudioTranscriptionModel) Call(ctx context.Context, req *transcription.R
 		}
 		apiReq.LanguageConfig.Languages = []string{effectiveOptions.Language}
 	}
-	if validateTranscriptionRequestErr := validateTranscriptionRequest(apiReq); validateTranscriptionRequestErr != nil {
+	if validateTranscriptionRequestErr := apiReq.validate(); validateTranscriptionRequestErr != nil {
 		return nil, validateTranscriptionRequestErr
 	}
 	if apiReq.AudioURL == "" {
@@ -155,21 +155,6 @@ func (a *AudioTranscriptionModel) Call(ctx context.Context, req *transcription.R
 		return nil, err
 	}
 	return transcription.NewResponse(output, meta)
-}
-
-func validateTranscriptionRequest(req *transcriptionRequest) error {
-	if req.Model != ModelSolaria3 && req.Model != ModelSolaria1 {
-		return fmt.Errorf("gladia: transcription model must be %q or %q, got %q", ModelSolaria3, ModelSolaria1, req.Model)
-	}
-	if req.Model == ModelSolaria3 {
-		if req.LanguageConfig == nil || len(req.LanguageConfig.Languages) != 1 {
-			return errors.New("gladia: solaria-3 requires exactly one language_config.languages entry")
-		}
-		if req.LanguageConfig.CodeSwitching != nil && *req.LanguageConfig.CodeSwitching {
-			return errors.New("gladia: solaria-3 does not support language code switching")
-		}
-	}
-	return nil
 }
 
 func (a *AudioTranscriptionModel) pollUntilDone(ctx context.Context, id string) (*transcriptionResult, error) {

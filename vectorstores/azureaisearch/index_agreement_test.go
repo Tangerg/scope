@@ -90,15 +90,15 @@ func TestValidateIndexMetric(t *testing.T) {
 			if err := json.Unmarshal([]byte(test.schema), &schema); err != nil {
 				t.Fatalf("decode schema: %v", err)
 			}
-			err := validateIndexMetric(&schema, "vector", test.want)
+			err := (&schema).validateMetric("vector", test.want)
 			if test.wantErr {
 				if !errors.Is(err, ErrIncompatibleIndex) {
-					t.Fatalf("validateIndexMetric() = %v, want ErrIncompatibleIndex", err)
+					t.Fatalf("validateMetric() = %v, want ErrIncompatibleIndex", err)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("validateIndexMetric() = %v, want nil", err)
+				t.Fatalf("validateMetric() = %v, want nil", err)
 			}
 		})
 	}
@@ -153,15 +153,15 @@ func TestValidateIndexIDField(t *testing.T) {
 			if err := json.Unmarshal([]byte(test.schema), &schema); err != nil {
 				t.Fatalf("decode schema: %v", err)
 			}
-			err := validateIndexIDField(&schema, "id")
+			err := (&schema).validateIDField("id")
 			if test.wantErr {
 				if !errors.Is(err, ErrIncompatibleIndex) {
-					t.Fatalf("validateIndexIDField() = %v, want ErrIncompatibleIndex", err)
+					t.Fatalf("validateIDField() = %v, want ErrIncompatibleIndex", err)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("validateIndexIDField() = %v, want nil", err)
+				t.Fatalf("validateIDField() = %v, want nil", err)
 			}
 		})
 	}

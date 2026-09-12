@@ -33,7 +33,7 @@ func (c *chatStreamState) terminated() bool { return c.finished }
 func (c *chatStreamState) mapChunk(chunk chatCompletionChunk) (*corechat.ResponseDelta, error) {
 	response := &corechat.ResponseDelta{
 		Metadata: &corechat.ResponseMetadata{
-			ID: chunk.ID, Model: chunk.Model, Usage: mapMistralUsage(chunk.Usage),
+			ID: chunk.ID, Model: chunk.Model, Usage: chunk.Usage.usage(),
 		},
 	}
 	if err := response.Metadata.Extra.Set(streamChunkExtensionKey, chunk); err != nil {
@@ -57,7 +57,7 @@ func (c *chatStreamState) mapChunk(chunk chatCompletionChunk) (*corechat.Respons
 		}
 		parts = append(parts, toolParts...)
 		response.Parts = parts
-		response.FinishReason = normalizeMistralFinishReason(wireChoice.FinishReason)
+		response.FinishReason = wireChoice.FinishReason.normalized()
 		if response.FinishReason != "" {
 			if c.finished {
 				return nil, errors.New("mistral: stream emitted more than one finish reason")

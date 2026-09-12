@@ -12,6 +12,7 @@ import (
 	"time"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/eval"
 )
 
 const (
@@ -76,13 +77,20 @@ func (t Trajectory) Clone() (Trajectory, error) {
 }
 
 func (t Trajectory) RootProcessID() agent.ProcessID { return t.rootProcessID }
+
 func (t Trajectory) Termination() agent.Termination { return t.termination }
-func (t Trajectory) Output() *agent.Output          { return cloneOutput(t.output) }
-func (t Trajectory) Usage() agent.Usage             { return t.usage }
-func (t Trajectory) Duration() time.Duration        { return t.duration }
-func (t Trajectory) Events() []agent.Event          { return slices.Clone(t.events) }
-func (t Trajectory) ModelCalls() []ModelCall        { return cloneModelCalls(t.modelCalls) }
-func (t Trajectory) ToolCalls() []ToolCall          { return cloneToolCalls(t.toolCalls) }
+
+func (t Trajectory) Output() *agent.Output { return cloneOutput(t.output) }
+
+func (t Trajectory) Usage() agent.Usage { return t.usage }
+
+func (t Trajectory) Duration() time.Duration { return t.duration }
+
+func (t Trajectory) Events() []agent.Event { return slices.Clone(t.events) }
+
+func (t Trajectory) ModelCalls() []ModelCall { return cloneModelCalls(t.modelCalls) }
+
+func (t Trajectory) ToolCalls() []ToolCall { return cloneToolCalls(t.toolCalls) }
 
 func (t Trajectory) config() Config {
 	return Config{
@@ -308,6 +316,23 @@ func (t Trajectory) behavior() (behaviorProjection, error) {
 		}
 	}
 	return projection, nil
+}
+
+func (t Trajectory) consistencyReport(baseline Trajectory) (eval.Report, error) {
+	actualDigest, err := t.BehaviorDigest()
+	if err != nil {
+		return eval.Report{}, err
+	}
+	baselineDigest, err := baseline.BehaviorDigest()
+	if err != nil {
+		return eval.Report{}, err
+	}
+	passed := actualDigest == baselineDigest
+	feedback := "semantic trajectory matched the replay baseline"
+	if !passed {
+		feedback = "semantic trajectory differed from the replay baseline"
+	}
+	return binaryReport(MetricConsistency, passed, feedback)
 }
 
 func compareEvent(left, right agent.Event, paths map[agent.ProcessID]string) int {

@@ -1,17 +1,38 @@
 package trajectory
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 	"time"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/eval"
 )
 
 // ToolSequence makes an exact ordered Tool-call assertion explicit. A nil
 // *ToolSequence skips the assertion; a non-nil empty sequence asserts no calls.
 type ToolSequence struct {
 	Calls []ToolExpectation `json:"calls"`
+}
+
+func (t ToolSequence) report(actual []ToolCall) (eval.Report, error) {
+	passed := len(actual) == len(t.Calls)
+	feedback := fmt.Sprintf("observed the expected %d Tool calls", len(t.Calls))
+	if !passed {
+		feedback = fmt.Sprintf("observed %d Tool calls, expected %d", len(actual), len(t.Calls))
+	}
+	for index := 0; passed && index < len(t.Calls); index++ {
+		matches, err := t.Calls[index].matches(actual[index])
+		if err != nil {
+			return eval.Report{}, err
+		}
+		if !matches {
+			passed = false
+			feedback = fmt.Sprintf("Tool call %d did not match its expected name, arguments, or outcome", index)
+		}
+	}
+	return binaryReport(MetricToolCalls, passed, feedback)
 }
 
 // ToolArguments is one exact semantic JSON argument assertion. Its empty value
@@ -52,6 +73,26 @@ func (t ToolExpectation) Validate() error {
 	return nil
 }
 
+func (t ToolExpectation) matches(actual ToolCall) (bool, error) {
+	if actual.Call.Name != t.Name {
+		return false, nil
+	}
+	if t.Arguments != nil {
+		actualArguments, err := canonicalArguments(actual.Call.Arguments)
+		if err != nil {
+			return false, err
+		}
+		expectedArguments, err := canonicalArguments(string(*t.Arguments))
+		if err != nil {
+			return false, err
+		}
+		if !bytes.Equal(actualArguments, expectedArguments) {
+			return false, nil
+		}
+	}
+	return t.Outcome == ToolOutcomeInvalid || actual.Outcome == t.Outcome, nil
+}
+
 // Limits defines optional upper bounds. Pointers distinguish an asserted zero
 // from a dimension the case does not evaluate.
 type Limits struct {
@@ -71,6 +112,80 @@ func (l Limits) Validate() error {
 		return fmt.Errorf("%w: duration limit must not be negative", ErrInvalidSample)
 	}
 	return nil
+}
+
+func (l Limits) reports(actual Trajectory) ([]eval.Report, error) {
+	reports := make([]eval.Report, 0, 6)
+	if l.CommittedSteps != nil {
+		report, err := measurementReport(
+			MetricCommittedSteps, metricUnitCount,
+			float64(actual.usage.CommittedSteps), actual.usage.CommittedSteps <= *l.CommittedSteps,
+			*l.CommittedSteps,
+		)
+		if err != nil {
+			return nil, err
+		}
+		reports = append(reports, report)
+	}
+	if l.PreparedEffects != nil {
+		report, err := measurementReport(
+			MetricPreparedEffects, metricUnitCount,
+			float64(actual.usage.PreparedEffects), actual.usage.PreparedEffects <= *l.PreparedEffects,
+			*l.PreparedEffects,
+		)
+		if err != nil {
+			return nil, err
+		}
+		reports = append(reports, report)
+	}
+	if l.AcceptedSignals != nil {
+		report, err := measurementReport(
+			MetricAcceptedSignals, metricUnitCount,
+			float64(actual.usage.AcceptedSignals), actual.usage.AcceptedSignals <= *l.AcceptedSignals,
+			*l.AcceptedSignals,
+		)
+		if err != nil {
+			return nil, err
+		}
+		reports = append(reports, report)
+	}
+	if l.DroppedDeltas != nil {
+		report, err := measurementReport(
+			MetricDroppedDeltas, metricUnitCount,
+			float64(actual.usage.DroppedDeltas), actual.usage.DroppedDeltas <= *l.DroppedDeltas,
+			*l.DroppedDeltas,
+		)
+		if err != nil {
+			return nil, err
+		}
+		reports = append(reports, report)
+	}
+	if l.TotalTokens != nil {
+		tokens, err := actual.TotalTokens()
+		if err != nil {
+			return nil, err
+		}
+		report, err := measurementReport(
+			MetricTotalTokens, metricUnitToken,
+			float64(tokens), tokens <= *l.TotalTokens, *l.TotalTokens,
+		)
+		if err != nil {
+			return nil, err
+		}
+		reports = append(reports, report)
+	}
+	if l.Duration != nil {
+		report, err := measurementReport(
+			MetricDuration, metricUnitSecond,
+			actual.duration.Seconds(), actual.duration <= *l.Duration,
+			l.Duration.Seconds(),
+		)
+		if err != nil {
+			return nil, err
+		}
+		reports = append(reports, report)
+	}
+	return reports, nil
 }
 
 // Expectation describes case-specific success without contaminating Metric
@@ -122,4 +237,25 @@ func (s Sample) Validate() error {
 		return err
 	}
 	return nil
+}
+
+func (s Sample) taskReport() (eval.Report, error) {
+	passed := s.Actual.termination.Status() == s.Expected.Status
+	feedback := "terminal status matched"
+	if !passed {
+		feedback = fmt.Sprintf(
+			"terminal status was %s, expected %s",
+			s.Actual.termination.Status(), s.Expected.Status,
+		)
+	}
+	if passed && s.Expected.Output != nil {
+		passed = s.Actual.output != nil &&
+			bytes.Equal(s.Actual.output.JSON(), s.Expected.Output.JSON())
+		if passed {
+			feedback = "terminal status and output matched"
+		} else {
+			feedback = "terminal output differed from the expected value"
+		}
+	}
+	return binaryReport(MetricTaskSuccess, passed, feedback)
 }

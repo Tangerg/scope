@@ -27,6 +27,46 @@ type chromaNumber struct {
 	isInteger bool
 }
 
+func (c chromaNumber) equalityClause(fieldKey string, equal bool) v2.WhereClause {
+	if c.isInteger {
+		if equal {
+			return v2.EqInt(fieldKey, c.integer)
+		}
+		return v2.NotEqInt(fieldKey, c.integer)
+	}
+	if equal {
+		return v2.EqFloat(fieldKey, c.fraction)
+	}
+	return v2.NotEqFloat(fieldKey, c.fraction)
+}
+
+func (c chromaNumber) orderingClause(fieldKey string, operator filter.Operator, position string) (v2.WhereClause, error) {
+	switch operator {
+	case filter.OpLess:
+		if c.isInteger {
+			return v2.LtInt(fieldKey, c.integer), nil
+		}
+		return v2.LtFloat(fieldKey, c.fraction), nil
+	case filter.OpLessEqual:
+		if c.isInteger {
+			return v2.LteInt(fieldKey, c.integer), nil
+		}
+		return v2.LteFloat(fieldKey, c.fraction), nil
+	case filter.OpGreater:
+		if c.isInteger {
+			return v2.GtInt(fieldKey, c.integer), nil
+		}
+		return v2.GtFloat(fieldKey, c.fraction), nil
+	case filter.OpGreaterEqual:
+		if c.isInteger {
+			return v2.GteInt(fieldKey, c.integer), nil
+		}
+		return v2.GteFloat(fieldKey, c.fraction), nil
+	default:
+		return nil, fmt.Errorf("chroma: unexpected ordering operator '%s' at %s", operator, position)
+	}
+}
+
 func newVisitor() *visitor {
 	return &visitor{}
 }
@@ -37,7 +77,7 @@ func (v *visitor) snapshot() v2.WhereClause {
 
 func (v *visitor) Visit(predicate filter.Predicate) error {
 	v.result = nil
-	result, err := compilePredicate(predicate)
+	result, err := v.compilePredicate(predicate)
 	if err != nil {
 		return err
 	}
@@ -45,10 +85,10 @@ func (v *visitor) Visit(predicate filter.Predicate) error {
 	return nil
 }
 
-func compilePredicate(predicate filter.Predicate) (v2.WhereClause, error) {
+func (v *visitor) compilePredicate(predicate filter.Predicate) (v2.WhereClause, error) {
 	switch expression := predicate.(type) {
 	case *filter.BinaryExpr:
-		return compileBinary(expression)
+		return v.compileBinary(expression)
 	case *filter.UnaryExpr:
 		return nil, errors.New("chroma: NOT operator is not supported; rewrite using != or NIN")
 	default:
@@ -56,16 +96,16 @@ func compilePredicate(predicate filter.Predicate) (v2.WhereClause, error) {
 	}
 }
 
-func compileBinary(expression *filter.BinaryExpr) (v2.WhereClause, error) {
+func (v *visitor) compileBinary(expression *filter.BinaryExpr) (v2.WhereClause, error) {
 	switch operator := expression.Operator(); {
 	case operator.IsLogicalOperator():
-		return compileLogical(expression)
+		return v.compileLogical(expression)
 	case operator.IsEqualityOperator():
-		return compileEquality(expression)
+		return v.compileEquality(expression)
 	case operator.IsOrderingOperator():
-		return compileOrdering(expression)
+		return v.compileOrdering(expression)
 	case operator.Is(filter.OpIn):
-		return compileIn(expression)
+		return v.compileIn(expression)
 	case operator.Is(filter.OpHas):
 		return nil, fmt.Errorf("chroma: HAS is not supported because Chroma metadata values are scalar (at %s)", expression.Start())
 	case operator.Is(filter.OpLike):
@@ -75,12 +115,12 @@ func compileBinary(expression *filter.BinaryExpr) (v2.WhereClause, error) {
 	}
 }
 
-func compileLogical(expression *filter.BinaryExpr) (v2.WhereClause, error) {
-	left, err := compileOperand(expression.Left())
+func (v *visitor) compileLogical(expression *filter.BinaryExpr) (v2.WhereClause, error) {
+	left, err := v.compileOperand(expression.Left())
 	if err != nil {
 		return nil, fmt.Errorf("chroma: process left operand of '%s' at %s: %w", expression.Operator(), expression.Start(), err)
 	}
-	right, err := compileOperand(expression.Right())
+	right, err := v.compileOperand(expression.Right())
 	if err != nil {
 		return nil, fmt.Errorf("chroma: process right operand of '%s' at %s: %w", expression.Operator(), expression.Start(), err)
 	}
@@ -94,15 +134,15 @@ func compileLogical(expression *filter.BinaryExpr) (v2.WhereClause, error) {
 	}
 }
 
-func compileOperand(expression filter.Expr) (v2.WhereClause, error) {
+func (v *visitor) compileOperand(expression filter.Expr) (v2.WhereClause, error) {
 	predicate, ok := expression.(filter.Predicate)
 	if !ok {
 		return nil, fmt.Errorf("chroma: unsupported expression type %T for clause building", expression)
 	}
-	return compilePredicate(predicate)
+	return v.compilePredicate(predicate)
 }
 
-func compileEquality(expression *filter.BinaryExpr) (v2.WhereClause, error) {
+func (v *visitor) compileEquality(expression *filter.BinaryExpr) (v2.WhereClause, error) {
 	fieldKey, err := selectorKey(expression)
 	if err != nil {
 		return nil, fmt.Errorf("chroma: extract field key from left operand of '%s' at %s: %w", expression.Operator(), expression.Start(), err)
@@ -122,39 +162,7 @@ func compileEquality(expression *filter.BinaryExpr) (v2.WhereClause, error) {
 	return clause, nil
 }
 
-func equalityClause(fieldKey string, fieldValue any, equal bool) (v2.WhereClause, error) {
-	switch value := fieldValue.(type) {
-	case string:
-		if equal {
-			return v2.EqString(fieldKey, value), nil
-		}
-		return v2.NotEqString(fieldKey, value), nil
-	case chromaNumber:
-		return numericEqualityClause(fieldKey, value, equal), nil
-	case bool:
-		if equal {
-			return v2.EqBool(fieldKey, value), nil
-		}
-		return v2.NotEqBool(fieldKey, value), nil
-	default:
-		return nil, fmt.Errorf("chroma: unsupported value type %T for equality condition", fieldValue)
-	}
-}
-
-func numericEqualityClause(fieldKey string, value chromaNumber, equal bool) v2.WhereClause {
-	if value.isInteger {
-		if equal {
-			return v2.EqInt(fieldKey, value.integer)
-		}
-		return v2.NotEqInt(fieldKey, value.integer)
-	}
-	if equal {
-		return v2.EqFloat(fieldKey, value.fraction)
-	}
-	return v2.NotEqFloat(fieldKey, value.fraction)
-}
-
-func compileOrdering(expression *filter.BinaryExpr) (v2.WhereClause, error) {
+func (v *visitor) compileOrdering(expression *filter.BinaryExpr) (v2.WhereClause, error) {
 	fieldKey, err := selectorKey(expression)
 	if err != nil {
 		return nil, fmt.Errorf("chroma: extract field key from left operand of '%s' at %s: %w", expression.Operator(), expression.Start(), err)
@@ -171,37 +179,10 @@ func compileOrdering(expression *filter.BinaryExpr) (v2.WhereClause, error) {
 	if !ok {
 		return nil, fmt.Errorf("chroma: cannot convert value to number for '%s' comparison at %s: expected number, got %T", expression.Operator(), expression.Start(), fieldValue)
 	}
-	return orderingClause(fieldKey, numericValue, expression.Operator(), expression.Start().String())
+	return numericValue.orderingClause(fieldKey, expression.Operator(), expression.Start().String())
 }
 
-func orderingClause(fieldKey string, value chromaNumber, operator filter.Operator, position string) (v2.WhereClause, error) {
-	switch operator {
-	case filter.OpLess:
-		if value.isInteger {
-			return v2.LtInt(fieldKey, value.integer), nil
-		}
-		return v2.LtFloat(fieldKey, value.fraction), nil
-	case filter.OpLessEqual:
-		if value.isInteger {
-			return v2.LteInt(fieldKey, value.integer), nil
-		}
-		return v2.LteFloat(fieldKey, value.fraction), nil
-	case filter.OpGreater:
-		if value.isInteger {
-			return v2.GtInt(fieldKey, value.integer), nil
-		}
-		return v2.GtFloat(fieldKey, value.fraction), nil
-	case filter.OpGreaterEqual:
-		if value.isInteger {
-			return v2.GteInt(fieldKey, value.integer), nil
-		}
-		return v2.GteFloat(fieldKey, value.fraction), nil
-	default:
-		return nil, fmt.Errorf("chroma: unexpected ordering operator '%s' at %s", operator, position)
-	}
-}
-
-func compileIn(expression *filter.BinaryExpr) (v2.WhereClause, error) {
+func (v *visitor) compileIn(expression *filter.BinaryExpr) (v2.WhereClause, error) {
 	fieldKey, err := selectorKey(expression)
 	if err != nil {
 		return nil, fmt.Errorf("chroma: extract field key from left operand of 'IN' at %s: %w", expression.Start(), err)
@@ -228,6 +209,25 @@ func compileIn(expression *filter.BinaryExpr) (v2.WhereClause, error) {
 		return v2.InBool(fieldKey, values...), nil
 	default:
 		return nil, fmt.Errorf("chroma: unsupported value type %s in 'IN' list at %s", literals[0].Kind(), expression.Start())
+	}
+}
+
+func equalityClause(fieldKey string, fieldValue any, equal bool) (v2.WhereClause, error) {
+	switch value := fieldValue.(type) {
+	case string:
+		if equal {
+			return v2.EqString(fieldKey, value), nil
+		}
+		return v2.NotEqString(fieldKey, value), nil
+	case chromaNumber:
+		return value.equalityClause(fieldKey, equal), nil
+	case bool:
+		if equal {
+			return v2.EqBool(fieldKey, value), nil
+		}
+		return v2.NotEqBool(fieldKey, value), nil
+	default:
+		return nil, fmt.Errorf("chroma: unsupported value type %T for equality condition", fieldValue)
 	}
 }
 

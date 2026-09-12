@@ -31,7 +31,7 @@ type ChatConfig struct {
 }
 
 func (c ChatConfig) resolve() (endpointConfig, error) {
-	return resolveChatConfig(c.Config, c.DefaultOptions.Validate)
+	return c.resolveChat(c.DefaultOptions.Validate)
 }
 
 func (c ChatConfig) Validate() error {

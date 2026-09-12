@@ -31,7 +31,7 @@ func (v *visitor) snapshot() string {
 // without changing their meaning.
 func (v *visitor) Visit(predicate filter.Predicate) error {
 	v.result = ""
-	result, err := compilePredicate(predicate)
+	result, err := v.compilePredicate(predicate)
 	if err != nil {
 		return err
 	}
@@ -39,40 +39,40 @@ func (v *visitor) Visit(predicate filter.Predicate) error {
 	return nil
 }
 
-func compilePredicate(predicate filter.Predicate) (string, error) {
+func (v *visitor) compilePredicate(predicate filter.Predicate) (string, error) {
 	switch expression := predicate.(type) {
 	case *filter.BinaryExpr:
-		return compileBinary(expression)
+		return v.compileBinary(expression)
 	case *filter.UnaryExpr:
-		return compileNot(expression)
+		return v.compileNot(expression)
 	default:
 		return "", fmt.Errorf("milvus: unsupported predicate type %T", expression)
 	}
 }
 
-func compileBinary(expression *filter.BinaryExpr) (string, error) {
+func (v *visitor) compileBinary(expression *filter.BinaryExpr) (string, error) {
 	switch operator := expression.Operator(); {
 	case operator.IsLogicalOperator():
-		return compileLogical(expression)
+		return v.compileLogical(expression)
 	case operator.IsComparisonOperator():
-		return compileComparison(expression)
+		return v.compileComparison(expression)
 	case operator.Is(filter.OpIn):
-		return compileIn(expression)
+		return v.compileIn(expression)
 	case operator.Is(filter.OpHas):
-		return compileHas(expression)
+		return v.compileHas(expression)
 	case operator.Is(filter.OpLike):
-		return compileLike(expression)
+		return v.compileLike(expression)
 	default:
 		return "", fmt.Errorf("milvus: unsupported binary operator '%s' at %s", operator, expression.Start())
 	}
 }
 
-func compileLogical(expression *filter.BinaryExpr) (string, error) {
-	left, err := compileOperand(expression.Left())
+func (v *visitor) compileLogical(expression *filter.BinaryExpr) (string, error) {
+	left, err := v.compileOperand(expression.Left())
 	if err != nil {
 		return "", fmt.Errorf("milvus: process left operand of '%s' at %s: %w", expression.Operator(), expression.Start(), err)
 	}
-	right, err := compileOperand(expression.Right())
+	right, err := v.compileOperand(expression.Right())
 	if err != nil {
 		return "", fmt.Errorf("milvus: process right operand of '%s' at %s: %w", expression.Operator(), expression.Start(), err)
 	}
@@ -86,26 +86,26 @@ func compileLogical(expression *filter.BinaryExpr) (string, error) {
 	return fmt.Sprintf("(%s) %s (%s)", left, operator, right), nil
 }
 
-func compileOperand(expression filter.Expr) (string, error) {
+func (v *visitor) compileOperand(expression filter.Expr) (string, error) {
 	predicate, ok := expression.(filter.Predicate)
 	if !ok {
 		return "", fmt.Errorf("milvus: expected predicate operand, got %T", expression)
 	}
-	return compilePredicate(predicate)
+	return v.compilePredicate(predicate)
 }
 
-func compileNot(expression *filter.UnaryExpr) (string, error) {
+func (v *visitor) compileNot(expression *filter.UnaryExpr) (string, error) {
 	if expression.Operator() != filter.OpNot {
 		return "", fmt.Errorf("milvus: unexpected unary operator '%s' at %s", expression.Operator(), expression.Start())
 	}
-	operand, err := compilePredicate(expression.Right())
+	operand, err := v.compilePredicate(expression.Right())
 	if err != nil {
 		return "", fmt.Errorf("milvus: process NOT operand at %s: %w", expression.Start(), err)
 	}
 	return fmt.Sprintf("not (%s)", operand), nil
 }
 
-func compileComparison(expression *filter.BinaryExpr) (string, error) {
+func (v *visitor) compileComparison(expression *filter.BinaryExpr) (string, error) {
 	fieldKey, err := selectorString(expression)
 	if err != nil {
 		return "", fmt.Errorf("milvus: extract field key from '%s' at %s: %w", expression.Operator(), expression.Start(), err)
@@ -132,7 +132,7 @@ func compileComparison(expression *filter.BinaryExpr) (string, error) {
 	return fmt.Sprintf("%s %s %s", fieldKey, operator, fieldValue), nil
 }
 
-func compileIn(expression *filter.BinaryExpr) (string, error) {
+func (v *visitor) compileIn(expression *filter.BinaryExpr) (string, error) {
 	fieldKey, err := selectorString(expression)
 	if err != nil {
 		return "", fmt.Errorf("milvus: extract field key from 'IN' at %s: %w", expression.Start(), err)
@@ -148,7 +148,7 @@ func compileIn(expression *filter.BinaryExpr) (string, error) {
 	return fmt.Sprintf("%s in %s", fieldKey, value), nil
 }
 
-func compileHas(expression *filter.BinaryExpr) (string, error) {
+func (v *visitor) compileHas(expression *filter.BinaryExpr) (string, error) {
 	fieldKey, err := selectorString(expression)
 	if err != nil {
 		return "", fmt.Errorf("milvus: extract collection field at %s: %w", expression.Start(), err)
@@ -164,7 +164,7 @@ func compileHas(expression *filter.BinaryExpr) (string, error) {
 	return fmt.Sprintf("ARRAY_CONTAINS(%s, %s)", fieldKey, fieldValue), nil
 }
 
-func compileLike(expression *filter.BinaryExpr) (string, error) {
+func (v *visitor) compileLike(expression *filter.BinaryExpr) (string, error) {
 	fieldKey, err := selectorString(expression)
 	if err != nil {
 		return "", fmt.Errorf("milvus: extract field key from 'LIKE' at %s: %w", expression.Start(), err)

@@ -3,7 +3,6 @@ package elevenlabs
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 
 	"github.com/Tangerg/scope/core/metadata"
@@ -83,7 +82,7 @@ func (a *AudioTranscriptionModel) Call(ctx context.Context, req *transcription.R
 	if apiReq.LanguageCode == "" && effectiveOptions.Language != "" {
 		apiReq.LanguageCode = effectiveOptions.Language
 	}
-	if validateTranscriptionRequestErr := validateTranscriptionRequest(apiReq); validateTranscriptionRequestErr != nil {
+	if validateTranscriptionRequestErr := apiReq.validate(); validateTranscriptionRequestErr != nil {
 		return nil, validateTranscriptionRequestErr
 	}
 
@@ -127,35 +126,4 @@ func (a *AudioTranscriptionModel) Call(ctx context.Context, req *transcription.R
 		return nil, err
 	}
 	return transcription.NewResponse(output, responseMetadata)
-}
-
-func validateTranscriptionRequest(req *transcriptionRequest) error {
-	if req.ModelID != ModelScribeV2 && req.ModelID != ModelScribeV1 {
-		return fmt.Errorf("elevenlabs: transcription model must be %q or %q, got %q", ModelScribeV2, ModelScribeV1, req.ModelID)
-	}
-	if req.NumSpeakers != nil && (*req.NumSpeakers < 1 || *req.NumSpeakers > 32) {
-		return fmt.Errorf("elevenlabs: num_speakers must be between 1 and 32, got %d", *req.NumSpeakers)
-	}
-	if req.DiarizationThreshold != nil && (*req.DiarizationThreshold < 0.1 || *req.DiarizationThreshold > 0.4) {
-		return fmt.Errorf("elevenlabs: diarization_threshold must be between 0.1 and 0.4, got %g", *req.DiarizationThreshold)
-	}
-	if req.Temperature != nil && (*req.Temperature < 0 || *req.Temperature > 2) {
-		return fmt.Errorf("elevenlabs: transcription temperature must be between 0 and 2, got %g", *req.Temperature)
-	}
-	if req.Seed != nil && *req.Seed < 0 {
-		return fmt.Errorf("elevenlabs: transcription seed must be non-negative, got %d", *req.Seed)
-	}
-	if req.TimestampsGranularity != "" && req.TimestampsGranularity != "none" && req.TimestampsGranularity != "word" && req.TimestampsGranularity != "character" {
-		return fmt.Errorf("elevenlabs: timestamps_granularity must be none, word, or character, got %q", req.TimestampsGranularity)
-	}
-	if req.FileFormat != "" && req.FileFormat != "other" && req.FileFormat != "pcm_s16le_16" {
-		return fmt.Errorf("elevenlabs: file_format must be other or pcm_s16le_16, got %q", req.FileFormat)
-	}
-	if len(req.Keyterms) > maximumKeyterms {
-		return fmt.Errorf("elevenlabs: keyterms must contain at most %d entries, got %d", maximumKeyterms, len(req.Keyterms))
-	}
-	if req.ModelID == ModelScribeV1 && len(req.Keyterms) > 0 {
-		return errors.New("elevenlabs: keyterms are only supported by scribe_v2")
-	}
-	return nil
 }

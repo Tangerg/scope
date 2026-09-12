@@ -144,7 +144,7 @@ func (a *AudioTTSModel) Call(ctx context.Context, req *tts.Request) (*tts.Respon
 }
 
 func (a *AudioTTSModel) buildResponse(apiResp *ttsResponse, model string) (*tts.Response, error) {
-	audio, err := apiResp.DecodeAudio()
+	audio, err := apiResp.decodeAudio()
 	if err != nil {
 		return nil, err
 	}

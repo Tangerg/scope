@@ -14,7 +14,7 @@ type ImageModelConfig struct {
 }
 
 func (i ImageModelConfig) resolve() (endpointConfig, error) {
-	return resolveModelConfig(i.Config, i.DefaultOptions.Model, i.DefaultOptions.Validate)
+	return i.resolveModel(i.DefaultOptions.Model, i.DefaultOptions.Validate)
 }
 
 func (i ImageModelConfig) Validate() error {

@@ -162,7 +162,7 @@ type bulkOutcome struct {
 	response  *opensearchapi.BulkResp
 }
 
-func (b bulkOutcome) Err() error {
+func (b bulkOutcome) err() error {
 	if b.response == nil {
 		return fmt.Errorf("opensearch: bulk %s returned no response", b.operation)
 	}

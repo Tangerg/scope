@@ -103,10 +103,10 @@ func (c Candidates) uniqueBest() Candidates {
 	return unique
 }
 
-// sortCandidatesByScore sorts an owned result. Refiners detach borrowed
+// sortByScore sorts an owned result. Refiners detach borrowed
 // documents before handing them to this ordering step.
-func sortCandidatesByScore(candidates Candidates) {
-	slices.SortStableFunc(candidates, func(left, right Candidate) int {
+func (c Candidates) sortByScore() {
+	slices.SortStableFunc(c, func(left, right Candidate) int {
 		return cmp.Compare(right.Score, left.Score)
 	})
 }

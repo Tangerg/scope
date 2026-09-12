@@ -80,6 +80,21 @@ type transcriptionRequest struct {
 	CustomMetadata         map[string]any  `json:"custom_metadata,omitzero"`
 }
 
+func (t *transcriptionRequest) validate() error {
+	if t.Model != ModelSolaria3 && t.Model != ModelSolaria1 {
+		return fmt.Errorf("gladia: transcription model must be %q or %q, got %q", ModelSolaria3, ModelSolaria1, t.Model)
+	}
+	if t.Model == ModelSolaria3 {
+		if t.LanguageConfig == nil || len(t.LanguageConfig.Languages) != 1 {
+			return errors.New("gladia: solaria-3 requires exactly one language_config.languages entry")
+		}
+		if t.LanguageConfig.CodeSwitching != nil && *t.LanguageConfig.CodeSwitching {
+			return errors.New("gladia: solaria-3 does not support language code switching")
+		}
+	}
+	return nil
+}
+
 type languageConfig struct {
 	Languages     []string `json:"languages,omitzero"`
 	CodeSwitching *bool    `json:"code_switching,omitempty"`

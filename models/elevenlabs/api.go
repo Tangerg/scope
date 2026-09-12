@@ -206,6 +206,37 @@ func (t *transcriptionRequest) form() (map[string]string, error) {
 	return form, nil
 }
 
+func (t *transcriptionRequest) validate() error {
+	if t.ModelID != ModelScribeV2 && t.ModelID != ModelScribeV1 {
+		return fmt.Errorf("elevenlabs: transcription model must be %q or %q, got %q", ModelScribeV2, ModelScribeV1, t.ModelID)
+	}
+	if t.NumSpeakers != nil && (*t.NumSpeakers < 1 || *t.NumSpeakers > 32) {
+		return fmt.Errorf("elevenlabs: num_speakers must be between 1 and 32, got %d", *t.NumSpeakers)
+	}
+	if t.DiarizationThreshold != nil && (*t.DiarizationThreshold < 0.1 || *t.DiarizationThreshold > 0.4) {
+		return fmt.Errorf("elevenlabs: diarization_threshold must be between 0.1 and 0.4, got %g", *t.DiarizationThreshold)
+	}
+	if t.Temperature != nil && (*t.Temperature < 0 || *t.Temperature > 2) {
+		return fmt.Errorf("elevenlabs: transcription temperature must be between 0 and 2, got %g", *t.Temperature)
+	}
+	if t.Seed != nil && *t.Seed < 0 {
+		return fmt.Errorf("elevenlabs: transcription seed must be non-negative, got %d", *t.Seed)
+	}
+	if t.TimestampsGranularity != "" && t.TimestampsGranularity != "none" && t.TimestampsGranularity != "word" && t.TimestampsGranularity != "character" {
+		return fmt.Errorf("elevenlabs: timestamps_granularity must be none, word, or character, got %q", t.TimestampsGranularity)
+	}
+	if t.FileFormat != "" && t.FileFormat != "other" && t.FileFormat != "pcm_s16le_16" {
+		return fmt.Errorf("elevenlabs: file_format must be other or pcm_s16le_16, got %q", t.FileFormat)
+	}
+	if len(t.Keyterms) > maximumKeyterms {
+		return fmt.Errorf("elevenlabs: keyterms must contain at most %d entries, got %d", maximumKeyterms, len(t.Keyterms))
+	}
+	if t.ModelID == ModelScribeV1 && len(t.Keyterms) > 0 {
+		return errors.New("elevenlabs: keyterms are only supported by scribe_v2")
+	}
+	return nil
+}
+
 // TranscriptionResponse models /v1/speech-to-text JSON output.
 type transcriptionResponse struct {
 	LanguageCode        string                `json:"language_code"`
