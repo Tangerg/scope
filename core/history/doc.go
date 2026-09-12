@@ -15,7 +15,14 @@
 // Writes preserve message order within one call. Conversation listing is an
 // optional capability and returns unique IDs in lexical order. Concurrent
 // writes and writes through distinct Store instances have no common ordering
-// guarantee unless a backend documents one.
+// guarantee unless a backend documents one. Writer returns WriteOutcome even
+// on failure; errors never silently mean that no messages were stored. A
+// CommitError identifies history failure after model completion and preserves
+// the attempted messages and write outcome.
+//
+// The Host owns conversation turn ordering. Concurrent-safe store methods do
+// not isolate the whole Read/model/Write sequence; multi-instance hosts must
+// coordinate that sequence across instances if they require serial turns.
 //
 // Persistent backends live in independent leaf modules so database drivers do
 // not enter Core:

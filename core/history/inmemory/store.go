@@ -25,19 +25,19 @@ type Store struct {
 	messages map[history.ConversationID][]chat.Message
 }
 
-func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) error {
+func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (history.WriteOutcome, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return history.WriteOutcome{}, err
 	}
 	if err := conversationID.Validate(); err != nil {
-		return err
+		return history.WriteOutcome{}, err
 	}
 	if len(messages) == 0 {
-		return nil
+		return history.WriteOutcome{Accepted: len(messages)}, nil
 	}
 	messageSnapshot, err := snapshotMessages(messages)
 	if err != nil {
-		return err
+		return history.WriteOutcome{}, err
 	}
 
 	s.mu.Lock()
@@ -46,7 +46,7 @@ func (s *Store) Write(ctx context.Context, conversationID history.ConversationID
 		s.messages = make(map[history.ConversationID][]chat.Message)
 	}
 	s.messages[conversationID] = append(s.messages[conversationID], messageSnapshot...)
-	return nil
+	return history.WriteOutcome{Accepted: len(messages)}, nil
 }
 
 func (s *Store) Read(ctx context.Context, conversationID history.ConversationID) ([]chat.Message, error) {

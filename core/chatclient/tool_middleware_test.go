@@ -33,9 +33,9 @@ func TestToolMiddlewareExecutesSeriallyUntilFinalResponse(t *testing.T) {
 		executed = append(executed, string(invocation.Arguments()))
 		return chat.NewTextToolOutput("found"), nil
 	}}
-	middleware, err := NewToolMiddleware(executable)
+	middleware, err := NewSingleBatchToolMiddleware(executable)
 	if err != nil {
-		t.Fatalf("NewToolMiddleware() error = %v", err)
+		t.Fatalf("NewSingleBatchToolMiddleware() error = %v", err)
 	}
 
 	var requests []*chat.Request
@@ -73,11 +73,11 @@ func TestToolMiddlewareExecutesSeriallyUntilFinalResponse(t *testing.T) {
 }
 
 func TestToolMiddlewareRejectsCompetingManifest(t *testing.T) {
-	middleware, err := NewToolMiddleware(middlewareTool{name: "lookup", call: func(context.Context, tool.Invocation) (chat.ToolOutput, error) {
+	middleware, err := NewSingleBatchToolMiddleware(middlewareTool{name: "lookup", call: func(context.Context, tool.Invocation) (chat.ToolOutput, error) {
 		return chat.ToolOutput{}, nil
 	}})
 	if err != nil {
-		t.Fatalf("NewToolMiddleware() error = %v", err)
+		t.Fatalf("NewSingleBatchToolMiddleware() error = %v", err)
 	}
 	model := middleware(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		t.Fatal("model must not be called")
@@ -87,30 +87,30 @@ func TestToolMiddlewareRejectsCompetingManifest(t *testing.T) {
 		Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("search"))},
 		Tools:    []chat.ToolDefinition{middlewareTool{name: "other"}.Definition()},
 	}
-	if _, err := model.Call(t.Context(), request); !errors.Is(err, ErrInvalidToolMiddleware) {
-		t.Fatalf("Call() error = %v, want ErrInvalidToolMiddleware", err)
+	if _, err := model.Call(t.Context(), request); !errors.Is(err, ErrInvalidToolBatch) {
+		t.Fatalf("Call() error = %v, want ErrInvalidToolBatch", err)
 	}
 }
 
 func TestToolMiddlewareRejectsInvalidConfiguration(t *testing.T) {
-	if _, err := NewToolMiddleware(); !errors.Is(err, ErrInvalidToolMiddleware) {
-		t.Fatalf("NewToolMiddleware() error = %v, want ErrInvalidToolMiddleware", err)
+	if _, err := NewSingleBatchToolMiddleware(); !errors.Is(err, ErrInvalidToolBatch) {
+		t.Fatalf("NewSingleBatchToolMiddleware() error = %v, want ErrInvalidToolBatch", err)
 	}
 	duplicate := middlewareTool{name: "duplicate", call: func(context.Context, tool.Invocation) (chat.ToolOutput, error) {
 		return chat.ToolOutput{}, nil
 	}}
-	if _, err := NewToolMiddleware(duplicate, duplicate); !errors.Is(err, ErrInvalidToolMiddleware) {
-		t.Fatalf("NewToolMiddleware(duplicate) error = %v, want ErrInvalidToolMiddleware", err)
+	if _, err := NewSingleBatchToolMiddleware(duplicate, duplicate); !errors.Is(err, ErrInvalidToolBatch) {
+		t.Fatalf("NewSingleBatchToolMiddleware(duplicate) error = %v, want ErrInvalidToolBatch", err)
 	}
 }
 
 func TestToolMiddlewarePropagatesExecutionFailure(t *testing.T) {
 	want := errors.New("unavailable")
-	middleware, err := NewToolMiddleware(middlewareTool{name: "lookup", call: func(context.Context, tool.Invocation) (chat.ToolOutput, error) {
+	middleware, err := NewSingleBatchToolMiddleware(middlewareTool{name: "lookup", call: func(context.Context, tool.Invocation) (chat.ToolOutput, error) {
 		return chat.ToolOutput{}, want
 	}})
 	if err != nil {
-		t.Fatalf("NewToolMiddleware() error = %v", err)
+		t.Fatalf("NewSingleBatchToolMiddleware() error = %v", err)
 	}
 	model := middleware(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return toolCallResponse(chat.ToolCall{ID: "call-1", Name: "lookup", Arguments: `{"value":"first"}`}), nil
@@ -130,7 +130,7 @@ func TestToolMiddlewareRejectsEntireInvalidBatchBeforeExecution(t *testing.T) {
 	} {
 		t.Run(second.Name, func(t *testing.T) {
 			executions := 0
-			middleware, err := NewToolMiddleware(middlewareTool{
+			middleware, err := NewSingleBatchToolMiddleware(middlewareTool{
 				name: "write",
 				call: func(context.Context, tool.Invocation) (chat.ToolOutput, error) {
 					executions++
@@ -176,7 +176,7 @@ func TestToolMiddlewareRejectsUndecodableBatchBeforeAnySideEffect(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			middleware, err := NewToolMiddleware(first, second)
+			middleware, err := NewSingleBatchToolMiddleware(first, second)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -197,9 +197,9 @@ func TestToolMiddlewareExecutesOnlyOneBatch(t *testing.T) {
 		executions++
 		return chat.NewTextToolOutput("found"), nil
 	}}
-	middleware, err := NewToolMiddleware(executable)
+	middleware, err := NewSingleBatchToolMiddleware(executable)
 	if err != nil {
-		t.Fatalf("NewToolMiddleware() error = %v", err)
+		t.Fatalf("NewSingleBatchToolMiddleware() error = %v", err)
 	}
 	var calls int
 	model := middleware(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
@@ -220,7 +220,7 @@ func TestToolMiddlewarePreservesNonToolCompletionWithoutExecution(t *testing.T) 
 	for _, reason := range []chat.FinishReason{chat.FinishReasonStop, chat.FinishReasonLength, chat.FinishReasonContentFilter, chat.FinishReasonRefusal, chat.FinishReasonOther} {
 		t.Run(reason.String(), func(t *testing.T) {
 			executions := 0
-			middleware, err := NewToolMiddleware(middlewareTool{name: "write", call: func(context.Context, tool.Invocation) (chat.ToolOutput, error) {
+			middleware, err := NewSingleBatchToolMiddleware(middlewareTool{name: "write", call: func(context.Context, tool.Invocation) (chat.ToolOutput, error) {
 				executions++
 				return chat.NewTextToolOutput("changed"), nil
 			}})

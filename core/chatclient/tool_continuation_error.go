@@ -9,7 +9,7 @@ import (
 // ToolContinuationError reports a failed model call after every tool in the
 // batch completed. The completed effects have not been rolled back. Callers
 // may retry Request through the downstream model without rerunning tools;
-// passing it through NewToolMiddleware again violates that middleware's tool
+// passing it through NewSingleBatchToolMiddleware again violates that middleware's tool
 // ownership contract. The error assigns no retry policy.
 type ToolContinuationError struct {
 	request *chat.Request

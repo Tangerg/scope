@@ -10,9 +10,9 @@ import (
 )
 
 var (
-	// ErrInvalidToolMiddleware identifies an executable set or request that
+	// ErrInvalidToolBatch identifies an executable set or request that
 	// cannot satisfy the middleware's single-batch ownership contract.
-	ErrInvalidToolMiddleware = errors.New("chatclient: invalid tool middleware")
+	ErrInvalidToolBatch = errors.New("chatclient: invalid tool batch")
 )
 
 type toolMiddleware struct {
@@ -20,19 +20,24 @@ type toolMiddleware struct {
 	definitions []chat.ToolDefinition
 }
 
-// NewToolMiddleware keeps direct Client usage useful for one model-requested
+// NewSingleBatchToolMiddleware keeps direct Client usage useful for one model-requested
 // Tool batch. It advertises a frozen Tool set and validates every invocation
 // before executing any Tool. The accepted batch executes serially, followed by
 // one model call. Runtime failures do not roll back completed Tools. Further
 // rounds and execution policy remain outside this boundary.
 // A runtime failure returns [ToolBatchError] with the successful prefix and
-// failed call, preserving the original cause through errors.Is and errors.As.
+// failed call and complete original proposal, preserving the original cause
+// through errors.Is and errors.As. Tools and ToolChoice are owned exclusively;
+// combine tools in this constructor and never stack this middleware.
+// Place history.Middleware.Call outside it to persist only fresh user input and
+// the final assistant answer. Inside it, history sees the continuation exchange
+// and records the assistant tool proposals and tool results as well.
 // A failed follow-up model call returns [ToolContinuationError] with the full
 // continuation request, including every completed tool result.
 // Only FinishReasonToolCalls authorizes execution; other outcomes pass through.
-func NewToolMiddleware(executables ...tool.Tool) (chat.CallMiddleware, error) {
+func NewSingleBatchToolMiddleware(executables ...tool.Tool) (chat.CallMiddleware, error) {
 	if len(executables) == 0 {
-		return nil, fmt.Errorf("%w: at least one Tool is required", ErrInvalidToolMiddleware)
+		return nil, fmt.Errorf("%w: at least one Tool is required", ErrInvalidToolBatch)
 	}
 	middleware := &toolMiddleware{
 		bindings:    make(map[string]tool.Binding, len(executables)),
@@ -41,11 +46,11 @@ func NewToolMiddleware(executables ...tool.Tool) (chat.CallMiddleware, error) {
 	for index, executable := range executables {
 		binding, err := tool.Bind(executable)
 		if err != nil {
-			return nil, fmt.Errorf("%w: tools[%d]: %w", ErrInvalidToolMiddleware, index, err)
+			return nil, fmt.Errorf("%w: tools[%d]: %w", ErrInvalidToolBatch, index, err)
 		}
 		definition := binding.Contract().Definition()
 		if _, duplicate := middleware.bindings[definition.Name]; duplicate {
-			return nil, fmt.Errorf("%w: duplicate Tool name %q", ErrInvalidToolMiddleware, definition.Name)
+			return nil, fmt.Errorf("%w: duplicate Tool name %q", ErrInvalidToolBatch, definition.Name)
 		}
 		middleware.bindings[definition.Name] = binding
 		middleware.definitions = append(middleware.definitions, definition)
@@ -65,12 +70,12 @@ func (t *toolMiddleware) call(
 	request *chat.Request,
 ) (*chat.Response, error) {
 	if request == nil {
-		return nil, fmt.Errorf("%w: nil Request", ErrInvalidToolMiddleware)
+		return nil, fmt.Errorf("%w: nil Request", ErrInvalidToolBatch)
 	}
 	if len(request.Tools) != 0 || request.ToolChoice != nil {
 		return nil, fmt.Errorf(
 			"%w: request tools and tool choice must be empty because the middleware owns the tool contract",
-			ErrInvalidToolMiddleware,
+			ErrInvalidToolBatch,
 		)
 	}
 	current := request.Clone()
@@ -87,9 +92,11 @@ func (t *toolMiddleware) call(
 	if err != nil {
 		return nil, err
 	}
-	results, err := batch.execute(ctx)
-	if err != nil {
-		return nil, err
+	results, batchErr := batch.execute(ctx)
+	if batchErr != nil {
+		batchErr.request = current
+		batchErr.proposal = response.Clone()
+		return nil, batchErr
 	}
 	current.Messages = append(
 		current.Messages,
@@ -118,7 +125,7 @@ func (t *toolMiddleware) prepare(calls []chat.ToolCall) (preparedToolBatch, erro
 	seenIDs := make(map[string]struct{}, len(calls))
 	for index, call := range calls {
 		if _, duplicate := seenIDs[call.ID]; duplicate {
-			return nil, fmt.Errorf("%w: duplicate tool call ID %q", ErrInvalidToolMiddleware, call.ID)
+			return nil, fmt.Errorf("%w: duplicate tool call ID %q", ErrInvalidToolBatch, call.ID)
 		}
 		seenIDs[call.ID] = struct{}{}
 		binding, exists := t.bindings[call.Name]
@@ -136,15 +143,15 @@ func (t *toolMiddleware) prepare(calls []chat.ToolCall) (preparedToolBatch, erro
 	return batch, nil
 }
 
-func (p preparedToolBatch) execute(ctx context.Context) ([]chat.ToolResult, error) {
+func (p preparedToolBatch) execute(ctx context.Context) ([]chat.ToolResult, *ToolBatchError) {
 	results := make([]chat.ToolResult, 0, len(p))
 	for _, call := range p {
 		output, err := call.binding.Call(ctx, call.invocation)
 		if err != nil {
-			return nil, &ToolBatchError{completed: results, failed: call.proposal, cause: err}
+			return nil, &ToolBatchError{completed: results, cause: err}
 		}
 		if err := output.Validate(); err != nil {
-			return nil, &ToolBatchError{completed: results, failed: call.proposal, cause: fmt.Errorf("invalid output: %w", err)}
+			return nil, &ToolBatchError{completed: results, cause: fmt.Errorf("invalid output: %w", err)}
 		}
 		results = append(results, chat.ToolResult{ID: call.proposal.ID, Name: call.proposal.Name, Output: output.Clone()})
 	}

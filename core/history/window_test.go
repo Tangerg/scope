@@ -39,7 +39,7 @@ func TestWindowStoreMergesSystemAndKeepsRecentMessages(t *testing.T) {
 	for _, text := range []string{"two", "three", "four"} {
 		messages = append(messages, chat.NewUserMessage(chat.NewTextPart(text)))
 	}
-	if err := base.Write(t.Context(), "c", messages...); err != nil {
+	if _, err := base.Write(t.Context(), "c", messages...); err != nil {
 		t.Fatal(err)
 	}
 	window, err := history.NewWindowStore(base, 3)
@@ -75,7 +75,7 @@ func TestWindowStoreKeepsCompleteToolTurn(t *testing.T) {
 		),
 		chat.NewAssistantMessage(chat.NewTextPart("new answer")),
 	}
-	if err := base.Write(t.Context(), "c", messages...); err != nil {
+	if _, err := base.Write(t.Context(), "c", messages...); err != nil {
 		t.Fatal(err)
 	}
 	window, err := history.NewWindowStore(base, 4)
@@ -104,7 +104,7 @@ func TestWindowStoreRejectsSplitNewestTurn(t *testing.T) {
 		chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: "call", Name: "read", Arguments: `{}`})),
 		chat.NewToolMessage(chat.ToolResult{ID: "call", Name: "read", Output: chat.NewTextToolOutput("result")}),
 	}
-	if err := base.Write(t.Context(), "c", messages...); err != nil {
+	if _, err := base.Write(t.Context(), "c", messages...); err != nil {
 		t.Fatal(err)
 	}
 	window, err := history.NewWindowStore(base, 3)
@@ -123,7 +123,7 @@ func TestWindowStorePreservesStandaloneNewestUserTurn(t *testing.T) {
 		chat.NewAssistantMessage(chat.NewTextPart("old answer")),
 		chat.NewUserMessage(chat.NewTextPart("new question")),
 	}
-	if err := base.Write(t.Context(), "c", messages...); err != nil {
+	if _, err := base.Write(t.Context(), "c", messages...); err != nil {
 		t.Fatal(err)
 	}
 	window, err := history.NewWindowStore(base, 1)
@@ -148,7 +148,7 @@ func TestWindowStorePreservesSystemPartStructure(t *testing.T) {
 	}
 	first := chat.Message{Role: chat.RoleSystem, Parts: []chat.Part{chat.NewTextPart("first"), part}}
 	second := chat.NewSystemMessage("second")
-	if err := base.Write(t.Context(), "c", first, second); err != nil {
+	if _, err := base.Write(t.Context(), "c", first, second); err != nil {
 		t.Fatal(err)
 	}
 	window, err := history.NewWindowStore(base, 1)
@@ -181,10 +181,10 @@ func TestWindowStoreDelegatesWritesAndClear(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := window.Write(t.Context(), "b", chat.NewUserMessage(chat.NewTextPart("one"))); err != nil {
+	if _, err := window.Write(t.Context(), "b", chat.NewUserMessage(chat.NewTextPart("one"))); err != nil {
 		t.Fatal(err)
 	}
-	if err := window.Write(t.Context(), "a", chat.NewUserMessage(chat.NewTextPart("one"))); err != nil {
+	if _, err := window.Write(t.Context(), "a", chat.NewUserMessage(chat.NewTextPart("one"))); err != nil {
 		t.Fatal(err)
 	}
 	if err := window.Clear(t.Context(), "a"); err != nil {

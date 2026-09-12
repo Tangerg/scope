@@ -13,7 +13,7 @@ import (
 func TestToolContinuationRetainsEffectsAndResumesOnlyModel(t *testing.T) {
 	cause := errors.New("model unavailable")
 	executions := 0
-	middleware, err := NewToolMiddleware(middlewareTool{
+	middleware, err := NewSingleBatchToolMiddleware(middlewareTool{
 		name: "write",
 		call: func(context.Context, tool.Invocation) (chat.ToolOutput, error) {
 			executions++

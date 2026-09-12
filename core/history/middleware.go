@@ -16,7 +16,10 @@ var ErrNilStream = errors.New("history: middleware: nil stream sequence")
 
 // Middleware replays and persists history around synchronous and streaming
 // chat capabilities. It is immutable after construction and safe for
-// concurrent use when its Store is safe for concurrent use.
+// concurrent use when its Store is safe for concurrent use. This does not
+// serialize complete Read/model/Write turns for the same conversation. The Host
+// must serialize those turns across all instances if ordering is required;
+// different conversations may proceed concurrently.
 type Middleware struct {
 	store ReadWriter
 }
@@ -193,8 +196,16 @@ func (m Middleware) persist(
 	messages := make([]chat.Message, 0, len(fresh)+1)
 	messages = append(messages, fresh...)
 	messages = append(messages, assistant)
-	if err := m.store.Write(ctx, conversationID, messages...); err != nil {
-		return fmt.Errorf("history: middleware: write history: %w", err)
+	outcome, err := m.store.Write(ctx, conversationID, messages...)
+	if invalid := outcome.Validate(len(messages), err); invalid != nil {
+		err = errors.Join(err, invalid)
+		// Contradictory adapter facts cannot authorize a retry of any message.
+		outcome = WriteOutcome{Uncertain: len(messages) > 0}
+	}
+	if err != nil {
+		failure := &CommitError{conversationID: conversationID, messages: messages, outcome: outcome, cause: err}
+		failure.messages = failure.Messages()
+		return failure
 	}
 	return nil
 }

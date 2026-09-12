@@ -86,22 +86,22 @@ func runReaderTests(t *testing.T, reader history.Reader, ctx, canceledCtx contex
 func runWriterTests(t *testing.T, writer history.Writer, ctx, canceledCtx context.Context) {
 	t.Helper()
 	t.Run("WriteRejectsCanceledContextBeforeIO", func(t *testing.T) {
-		if err := writer.Write(canceledCtx, "conversation"); !errors.Is(err, context.Canceled) {
+		if outcome, err := writer.Write(canceledCtx, "conversation"); !errors.Is(err, context.Canceled) || outcome != (history.WriteOutcome{}) {
 			t.Fatalf("Write(canceled context) error = %v, want %v", err, context.Canceled)
 		}
 	})
 	t.Run("WriteRejectsInvalidConversationBeforeIO", func(t *testing.T) {
-		if err := writer.Write(ctx, ""); !errors.Is(err, history.ErrInvalidConversationID) {
+		if outcome, err := writer.Write(ctx, ""); !errors.Is(err, history.ErrInvalidConversationID) || outcome != (history.WriteOutcome{}) {
 			t.Fatalf("Write(empty conversation) error = %v, want %v", err, history.ErrInvalidConversationID)
 		}
 	})
 	t.Run("WriteRejectsInvalidMessageBeforeIO", func(t *testing.T) {
-		if err := writer.Write(ctx, "conversation", chat.Message{}); !errors.Is(err, chat.ErrInvalidMessage) {
+		if outcome, err := writer.Write(ctx, "conversation", chat.Message{}); !errors.Is(err, chat.ErrInvalidMessage) || outcome != (history.WriteOutcome{}) {
 			t.Fatalf("Write(invalid message) error = %v, want %v", err, chat.ErrInvalidMessage)
 		}
 	})
 	t.Run("WriteTreatsEmptyMessagesAsNoop", func(t *testing.T) {
-		if err := writer.Write(ctx, "conversation"); err != nil {
+		if outcome, err := writer.Write(ctx, "conversation"); err != nil || outcome != (history.WriteOutcome{}) {
 			t.Fatalf("Write(empty messages) error = %v, want nil", err)
 		}
 	})

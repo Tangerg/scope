@@ -455,15 +455,15 @@ func (r *recordingStore) Read(context.Context, history.ConversationID) ([]chat.M
 	return cloneMessages(r.read), nil
 }
 
-func (r *recordingStore) Write(_ context.Context, _ history.ConversationID, messages ...chat.Message) error {
+func (r *recordingStore) Write(_ context.Context, _ history.ConversationID, messages ...chat.Message) (history.WriteOutcome, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.writeCalls++
 	if r.writeErr != nil {
-		return r.writeErr
+		return history.WriteOutcome{}, r.writeErr
 	}
 	r.writes = append(r.writes, cloneMessages(messages))
-	return nil
+	return history.WriteOutcome{Accepted: len(messages)}, nil
 }
 
 func (r *recordingStore) counts() (int, int) {

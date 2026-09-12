@@ -33,7 +33,7 @@ func TestGuardedFuncToolMiddleware(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	middleware, err := chatclient.NewToolMiddleware(guard)
+	middleware, err := chatclient.NewSingleBatchToolMiddleware(guard)
 	if err != nil {
 		t.Fatal(err)
 	}

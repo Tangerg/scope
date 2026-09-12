@@ -12,7 +12,7 @@ import (
 func Example() {
 	store := new(inmemory.Store)
 	message := chat.NewUserMessage(chat.NewTextPart("hello"))
-	if err := store.Write(context.Background(), history.ConversationID("demo"), message); err != nil {
+	if _, err := store.Write(context.Background(), history.ConversationID("demo"), message); err != nil {
 		panic(err)
 	}
 	messages, err := store.Read(context.Background(), history.ConversationID("demo"))

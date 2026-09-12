@@ -104,7 +104,7 @@ func ExampleToolContinuationError() {
 	if err != nil {
 		panic(err)
 	}
-	middleware, err := chatclient.NewToolMiddleware(executable)
+	middleware, err := chatclient.NewSingleBatchToolMiddleware(executable)
 	if err != nil {
 		panic(err)
 	}

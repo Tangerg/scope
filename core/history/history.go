@@ -26,9 +26,10 @@ type Reader interface {
 // Store instances is implementation-defined.
 type Writer interface {
 	// Write validates and snapshots the full argument batch before appending it
-	// in argument order. A returned error must not conceal a partially accepted
-	// prefix unless the concrete store documents an external atomicity limit.
-	Write(ctx context.Context, conversationID ConversationID, messages ...chat.Message) error
+	// in argument order. The outcome must account for every acknowledged or
+	// uncertain effect even on error; validation failures return the zero outcome.
+	// A nil error acknowledges the complete batch.
+	Write(ctx context.Context, conversationID ConversationID, messages ...chat.Message) (WriteOutcome, error)
 }
 
 // ReadWriter combines the capabilities required by components that replay and

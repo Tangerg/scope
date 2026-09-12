@@ -45,7 +45,7 @@ func NewWindowStore(store Store, limit int) (WindowStore, error) {
 	return WindowStore{store: store, limit: limit}, nil
 }
 
-func (w WindowStore) Write(ctx context.Context, conversationID ConversationID, messages ...chat.Message) error {
+func (w WindowStore) Write(ctx context.Context, conversationID ConversationID, messages ...chat.Message) (WriteOutcome, error) {
 	return w.store.Write(ctx, conversationID, messages...)
 }
 

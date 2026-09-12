@@ -20,7 +20,7 @@ func TestStoreOwnsMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := store.Write(t.Context(), "conversation", message); err != nil {
+	if _, err := store.Write(t.Context(), "conversation", message); err != nil {
 		t.Fatal(err)
 	}
 	message.Parts[0].Text = "mutated"
@@ -52,10 +52,10 @@ func TestStoreOwnsMessages(t *testing.T) {
 
 func TestStoreRejectsInvalidInputAndCancellation(t *testing.T) {
 	store := new(inmemory.Store)
-	if err := store.Write(t.Context(), "", chat.NewUserMessage(chat.NewTextPart("hello"))); !errors.Is(err, history.ErrInvalidConversationID) {
+	if _, err := store.Write(t.Context(), "", chat.NewUserMessage(chat.NewTextPart("hello"))); !errors.Is(err, history.ErrInvalidConversationID) {
 		t.Fatalf("invalid conversation error = %v", err)
 	}
-	if err := store.Write(t.Context(), "conversation", chat.Message{}); !errors.Is(err, chat.ErrInvalidMessage) {
+	if _, err := store.Write(t.Context(), "conversation", chat.Message{}); !errors.Is(err, chat.ErrInvalidMessage) {
 		t.Fatalf("invalid message error = %v", err)
 	}
 
@@ -64,7 +64,7 @@ func TestStoreRejectsInvalidInputAndCancellation(t *testing.T) {
 	if _, err := store.Read(ctx, "conversation"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Read cancellation = %v", err)
 	}
-	if err := store.Write(ctx, "conversation"); !errors.Is(err, context.Canceled) {
+	if _, err := store.Write(ctx, "conversation"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Write cancellation = %v", err)
 	}
 	if err := store.Clear(ctx, "conversation"); !errors.Is(err, context.Canceled) {
