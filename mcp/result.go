@@ -39,7 +39,7 @@ func (r remoteResult) unwrap() (chat.ToolOutput, error) {
 }
 
 func (r remoteResult) content() (chat.ToolOutput, error) {
-	output := chat.ToolOutput{Content: make([]chat.Part, 0, len(r.value.Content))}
+	output := chat.ToolOutput{Content: make([]chat.ToolContent, 0, len(r.value.Content))}
 	for index := range r.value.Content {
 		part, include, err := mapRemoteContent(r.value.Content[index])
 		if err != nil {
@@ -62,13 +62,13 @@ func (r remoteResult) content() (chat.ToolOutput, error) {
 	return output, nil
 }
 
-func mapRemoteContent(content sdkmcp.Content) (chat.Part, bool, error) {
+func mapRemoteContent(content sdkmcp.Content) (chat.ToolContent, bool, error) {
 	switch value := content.(type) {
 	case *sdkmcp.TextContent:
 		if value.Text == "" {
-			return chat.Part{}, false, nil
+			return chat.ToolContent{}, false, nil
 		}
-		return chat.NewTextPart(value.Text), true, nil
+		return chat.ToolContent{Kind: chat.PartText, Text: value.Text}, true, nil
 	case *sdkmcp.ImageContent:
 		part, err := remoteBytesMedia(value.MIMEType, value.Data)
 		return part, err == nil, err
@@ -80,7 +80,7 @@ func mapRemoteContent(content sdkmcp.Content) (chat.Part, bool, error) {
 			linked, err := media.NewURI(value.MIMEType, value.URI)
 			if err == nil {
 				linked.Name = value.Name
-				return chat.NewMediaPart(linked), true, nil
+				return chat.ToolContent{Kind: chat.PartMedia, Media: linked}, true, nil
 			}
 		}
 	case *sdkmcp.EmbeddedResource:
@@ -90,36 +90,36 @@ func mapRemoteContent(content sdkmcp.Content) (chat.Part, bool, error) {
 	}
 	encoded, err := json.Marshal(content)
 	if err != nil {
-		return chat.Part{}, false, fmt.Errorf("encode unsupported content %T: %w", content, err)
+		return chat.ToolContent{}, false, fmt.Errorf("encode unsupported content %T: %w", content, err)
 	}
-	return chat.NewTextPart(string(encoded)), true, nil
+	return chat.ToolContent{Kind: chat.PartText, Text: string(encoded)}, true, nil
 }
 
-func mapEmbeddedResource(resource *sdkmcp.ResourceContents) (chat.Part, bool, error) {
+func mapEmbeddedResource(resource *sdkmcp.ResourceContents) (chat.ToolContent, bool, error) {
 	if resource == nil {
-		return chat.Part{}, false, nil
+		return chat.ToolContent{}, false, nil
 	}
 	if resource.Text != "" {
-		return chat.NewTextPart(resource.Text), true, nil
+		return chat.ToolContent{Kind: chat.PartText, Text: resource.Text}, true, nil
 	}
 	if len(resource.Blob) != 0 && resource.MIMEType != "" {
 		part, err := remoteBytesMedia(resource.MIMEType, resource.Blob)
 		return part, err == nil, err
 	}
 	if resource.URI == "" || resource.MIMEType == "" {
-		return chat.Part{}, false, nil
+		return chat.ToolContent{}, false, nil
 	}
 	linked, err := media.NewURI(resource.MIMEType, resource.URI)
 	if err != nil {
-		return chat.Part{}, false, nil
+		return chat.ToolContent{}, false, nil
 	}
-	return chat.NewMediaPart(linked), true, nil
+	return chat.ToolContent{Kind: chat.PartMedia, Media: linked}, true, nil
 }
 
-func remoteBytesMedia(mimeType string, data []byte) (chat.Part, error) {
+func remoteBytesMedia(mimeType string, data []byte) (chat.ToolContent, error) {
 	value, err := media.NewBytes(mimeType, data)
 	if err != nil {
-		return chat.Part{}, err
+		return chat.ToolContent{}, err
 	}
-	return chat.NewMediaPart(value), nil
+	return chat.ToolContent{Kind: chat.PartMedia, Media: value}, nil
 }

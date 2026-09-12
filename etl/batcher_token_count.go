@@ -16,7 +16,7 @@ import (
 // per-batch token budgets.
 type TokenCountBatcherConfig struct {
 	// Estimator is required.
-	Estimator tokenizer.TextEstimator
+	Estimator tokenizer.TextCounter
 	// MaxTokens is the required provider input limit. The batching layer has no
 	// provider-neutral default because model limits differ.
 	MaxTokens int
@@ -68,7 +68,7 @@ func (t TokenCountBatcherConfig) normalized() (TokenCountBatcherConfig, error) {
 // rejected with an error — the caller is expected to split it first
 // (see [TokenSplitter]).
 type TokenCountBatcher struct {
-	estimator tokenizer.TextEstimator
+	estimator tokenizer.TextCounter
 	maxTokens int
 	formatter Formatter
 }
@@ -118,7 +118,7 @@ func (t *TokenCountBatcher) measure(ctx context.Context, docs []*document.Docume
 			return nil, fmt.Errorf("etl: format document %d for sizing: %w", index, err)
 		}
 
-		count, err := t.estimator.EstimateText(ctx, rendered)
+		count, err := t.estimator.CountText(ctx, rendered)
 		if err != nil {
 			return nil, fmt.Errorf("etl: estimate document %d tokens: %w", index, err)
 		}

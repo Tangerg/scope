@@ -31,8 +31,8 @@ func TestToolResultContentPreservesJSONTextAndMedia(t *testing.T) {
 		t.Fatal(err)
 	}
 	document.Name = "evidence.pdf"
-	content, err := mapToolResultContent(corechat.ToolOutput{Content: []corechat.Part{
-		corechat.NewTextPart("summary"), corechat.NewMediaPart(image), corechat.NewMediaPart(document),
+	content, err := mapToolResultContent(corechat.ToolOutput{Content: []corechat.ToolContent{
+		{Kind: corechat.PartText, Text: "summary"}, {Kind: corechat.PartMedia, Media: image}, {Kind: corechat.PartMedia, Media: document},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +56,7 @@ func TestToolResultContentRejectsUnsupportedAudio(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = mapToolResultContent(corechat.ToolOutput{Content: []corechat.Part{corechat.NewMediaPart(audio)}})
+	_, err = mapToolResultContent(corechat.ToolOutput{Content: []corechat.ToolContent{{Kind: corechat.PartMedia, Media: audio}}})
 	if err == nil {
 		t.Fatal("mapToolResultContent accepted audio")
 	}

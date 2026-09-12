@@ -82,7 +82,19 @@ func TestUsageRejectedACacheHitBeforeNormalization(t *testing.T) {
 func TestUsageHandlesAMissingReport(t *testing.T) {
 	t.Parallel()
 
-	if usage := mapProtocolUsage(nil); usage != (corechat.Usage{}) {
-		t.Fatalf("mapProtocolUsage(nil) = %#v, want the zero usage", usage)
+	if usage := mapProtocolUsage(nil); usage != nil {
+		t.Fatalf("mapProtocolUsage(nil) = %#v, want absent accounting", usage)
+	}
+}
+
+func TestUsageRequiresBothReportedTotals(t *testing.T) {
+	for _, report := range []*types.TokenUsage{{}, {InputTokens: aws.Int32(1)}, {OutputTokens: aws.Int32(1)}} {
+		if usage := mapProtocolUsage(report); usage != nil {
+			t.Fatalf("partial report = %#v, want absent accounting", usage)
+		}
+	}
+	usage := mapProtocolUsage(&types.TokenUsage{InputTokens: aws.Int32(0), OutputTokens: aws.Int32(0)})
+	if usage == nil || usage.InputTokens != 0 || usage.OutputTokens != 0 {
+		t.Fatalf("explicit zero = %#v", usage)
 	}
 }

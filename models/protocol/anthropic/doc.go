@@ -13,7 +13,7 @@
 // [Dialect]. Application code continues to use the provider's own chat type.
 //
 // [Messages.CountInputTokens] exposes the provider-specific complete-request
-// token endpoint. [NewTextEstimator] serves isolated text workflows.
+// token endpoint. [NewTextCounter] serves isolated text workflows.
 //
 // Anthropic's Message Batches API (~50% pricing, up to 24h
 // asynchronous) doesn't fit core/chat's synchronous request/response shape and

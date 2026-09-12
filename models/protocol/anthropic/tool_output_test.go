@@ -19,8 +19,8 @@ func TestToolResultPreservesTextImageAndDocumentContent(t *testing.T) {
 	document.Name = "evidence.pdf"
 	mapped, err := mapProtocolToolResult(corechat.ToolResult{
 		ID: "call", Name: "inspect", IsError: true,
-		Output: corechat.ToolOutput{Content: []corechat.Part{
-			corechat.NewTextPart("failed"), corechat.NewMediaPart(image), corechat.NewMediaPart(document),
+		Output: corechat.ToolOutput{Content: []corechat.ToolContent{
+			{Kind: corechat.PartText, Text: "failed"}, {Kind: corechat.PartMedia, Media: image}, {Kind: corechat.PartMedia, Media: document},
 		}},
 	})
 	if err != nil {
@@ -39,7 +39,7 @@ func TestToolResultRejectsUnsupportedMedia(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = mapProtocolToolResult(corechat.ToolResult{
-		ID: "call", Name: "listen", Output: corechat.ToolOutput{Content: []corechat.Part{corechat.NewMediaPart(audio)}},
+		ID: "call", Name: "listen", Output: corechat.ToolOutput{Content: []corechat.ToolContent{{Kind: corechat.PartMedia, Media: audio}}},
 	})
 	if err == nil {
 		t.Fatal("mapProtocolToolResult accepted unsupported audio")

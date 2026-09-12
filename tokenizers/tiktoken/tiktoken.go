@@ -47,8 +47,8 @@ func (e Encoding) load() (*tiktokenlib.Tiktoken, error) {
 }
 
 var (
-	_ tokenizer.TextEstimator = Tokenizer{}
-	_ tokenizer.Tokenizer     = Tokenizer{}
+	_ tokenizer.TextCounter = Tokenizer{}
+	_ tokenizer.Tokenizer   = Tokenizer{}
 )
 
 // Tokenizer encodes, decodes, and counts text with one tiktoken vocabulary.
@@ -70,7 +70,7 @@ func New(encoding Encoding) (Tokenizer, error) {
 	return Tokenizer{encoding: native}, nil
 }
 
-func (t Tokenizer) EstimateText(ctx context.Context, text string) (int, error) {
+func (t Tokenizer) CountText(ctx context.Context, text string) (int, error) {
 	tokens, err := t.Encode(ctx, text)
 	if err != nil {
 		return 0, err

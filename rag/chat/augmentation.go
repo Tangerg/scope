@@ -64,15 +64,15 @@ type ContextualAugmenterConfig struct {
 
 	// TokenEstimator measures the exact encoded evidence block against
 	// MaxContextTokens.
-	TokenEstimator tokenizer.TextEstimator
+	TokenEstimator tokenizer.TextCounter
 }
 
 type contextBudget struct {
 	maxTokens int
-	estimator tokenizer.TextEstimator
+	estimator tokenizer.TextCounter
 }
 
-func newContextBudget(maxTokens int, estimator tokenizer.TextEstimator) (contextBudget, error) {
+func newContextBudget(maxTokens int, estimator tokenizer.TextCounter) (contextBudget, error) {
 	if maxTokens < 0 {
 		return contextBudget{}, fmt.Errorf("%w: MaxContextTokens must not be negative", ErrInvalidContextBudget)
 	}
@@ -91,7 +91,7 @@ func (c contextBudget) accepts(ctx context.Context, encoded []byte) (bool, error
 	if !c.limited() {
 		return true, nil
 	}
-	tokens, err := c.estimator.EstimateText(ctx, string(encoded))
+	tokens, err := c.estimator.CountText(ctx, string(encoded))
 	if err != nil {
 		return false, fmt.Errorf("rag: estimate context tokens: %w", err)
 	}

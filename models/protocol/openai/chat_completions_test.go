@@ -84,7 +84,7 @@ func assertCoreChatStream(t *testing.T, responses []*corechat.ResponseDelta) {
 	t.Helper()
 	var text, reasoning strings.Builder
 	var toolIDs []string
-	var finalUsage corechat.Usage
+	var finalUsage *corechat.Usage
 	for index, response := range responses {
 		if _, found := response.Metadata.Extra["test/openai_stream_chunk"]; !found {
 			t.Error("compatible stream did not preserve a provider-scoped official chunk")

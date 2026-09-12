@@ -114,7 +114,15 @@ func mapProtocolContent(blocks []anthropicsdk.ContentBlockUnion, provider string
 	return parts, nil
 }
 
-func mapProtocolUsage(usage anthropicsdk.Usage) corechat.Usage {
+func mapProtocolUsage(usage anthropicsdk.Usage) *corechat.Usage {
+	if usage.RawJSON() != "" {
+		if !usage.JSON.InputTokens.Valid() || !usage.JSON.OutputTokens.Valid() {
+			return nil
+		}
+	} else if usage.InputTokens == 0 && usage.OutputTokens == 0 && usage.CacheReadInputTokens == 0 && usage.CacheCreationInputTokens == 0 {
+		return nil
+	}
+
 	mapped := corechat.Usage{
 		InputTokens:  protocolTotalInputTokens(usage.InputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens),
 		OutputTokens: usage.OutputTokens,
@@ -131,7 +139,7 @@ func mapProtocolUsage(usage anthropicsdk.Usage) corechat.Usage {
 		value := usage.CacheCreationInputTokens
 		mapped.CacheWriteInputTokens = &value
 	}
-	return mapped
+	return &mapped
 }
 
 func protocolTotalInputTokens(uncached, cacheRead, cacheWrite int64) int64 {
@@ -255,7 +263,7 @@ type protocolStreamState struct {
 	id             string
 	model          string
 	tools          map[int64]protocolStreamTool
-	usage          corechat.Usage
+	usage          *corechat.Usage
 	finish         corechat.FinishReason
 }
 
@@ -301,7 +309,9 @@ func (p *protocolStreamState) mapEvent(event anthropicsdk.MessageStreamEventUnio
 		}
 	case anthropicsdk.ContentBlockStopEvent, anthropicsdk.MessageStopEvent:
 	}
-	response.Metadata.Usage = p.usage
+	if p.usage != nil {
+		response.Metadata.Usage = new(*p.usage)
+	}
 	if err := response.Validate(); err != nil {
 		return nil, fmt.Errorf("anthropic: mapped stream response: %w", err)
 	}
@@ -501,20 +511,39 @@ func (p *protocolStreamState) mapBlockDelta(event anthropicsdk.ContentBlockDelta
 }
 
 func (p *protocolStreamState) mergeDeltaUsage(usage anthropicsdk.MessageDeltaUsage) {
-	if usage.InputTokens > 0 || usage.CacheReadInputTokens > 0 || usage.CacheCreationInputTokens > 0 {
-		p.usage.InputTokens = protocolTotalInputTokens(usage.InputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens)
+	if p.usage == nil {
+		if !usage.JSON.InputTokens.Valid() || !usage.JSON.OutputTokens.Valid() {
+			return
+		}
+		p.usage = &corechat.Usage{}
 	}
-	p.usage.OutputTokens = usage.OutputTokens
+	uncached := p.usage.InputTokens
+	if p.usage.CacheReadInputTokens != nil {
+		uncached -= *p.usage.CacheReadInputTokens
+	}
+	if p.usage.CacheWriteInputTokens != nil {
+		uncached -= *p.usage.CacheWriteInputTokens
+	}
+	if usage.JSON.InputTokens.Valid() || usage.InputTokens != 0 {
+		uncached = usage.InputTokens
+	}
+	if usage.JSON.OutputTokens.Valid() || usage.RawJSON() == "" {
+		p.usage.OutputTokens = usage.OutputTokens
+	}
 	if usage.OutputTokensDetails.ThinkingTokens != 0 || usage.OutputTokensDetails.JSON.ThinkingTokens.Valid() {
-		value := usage.OutputTokensDetails.ThinkingTokens
-		p.usage.ReasoningTokens = &value
+		p.usage.ReasoningTokens = new(usage.OutputTokensDetails.ThinkingTokens)
 	}
-	if usage.CacheReadInputTokens != 0 {
-		value := usage.CacheReadInputTokens
-		p.usage.CacheReadInputTokens = &value
+	if usage.CacheReadInputTokens != 0 || usage.JSON.CacheReadInputTokens.Valid() {
+		p.usage.CacheReadInputTokens = new(usage.CacheReadInputTokens)
 	}
-	if usage.CacheCreationInputTokens != 0 {
-		value := usage.CacheCreationInputTokens
-		p.usage.CacheWriteInputTokens = &value
+	if usage.CacheCreationInputTokens != 0 || usage.JSON.CacheCreationInputTokens.Valid() {
+		p.usage.CacheWriteInputTokens = new(usage.CacheCreationInputTokens)
+	}
+	p.usage.InputTokens = uncached
+	if p.usage.CacheReadInputTokens != nil {
+		p.usage.InputTokens += *p.usage.CacheReadInputTokens
+	}
+	if p.usage.CacheWriteInputTokens != nil {
+		p.usage.InputTokens += *p.usage.CacheWriteInputTokens
 	}
 }

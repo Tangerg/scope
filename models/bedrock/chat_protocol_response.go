@@ -143,19 +143,14 @@ func mapProtocolStopReason(reason types.StopReason) corechat.FinishReason {
 	}
 }
 
-func mapProtocolUsage(usage *types.TokenUsage) corechat.Usage {
-	if usage == nil {
-		return corechat.Usage{}
+func mapProtocolUsage(usage *types.TokenUsage) *corechat.Usage {
+	if usage == nil || usage.InputTokens == nil || usage.OutputTokens == nil {
+		return nil
 	}
-	result := corechat.Usage{}
-	if usage.OutputTokens != nil {
-		result.OutputTokens = int64(*usage.OutputTokens)
-	}
+	result := corechat.Usage{OutputTokens: int64(*usage.OutputTokens)}
 
-	var uncached, cacheRead, cacheWrite int64
-	if usage.InputTokens != nil {
-		uncached = int64(*usage.InputTokens)
-	}
+	uncached := int64(*usage.InputTokens)
+	var cacheRead, cacheWrite int64
 	if usage.CacheReadInputTokens != nil {
 		cacheRead = int64(*usage.CacheReadInputTokens)
 		result.CacheReadInputTokens = &cacheRead
@@ -165,7 +160,7 @@ func mapProtocolUsage(usage *types.TokenUsage) corechat.Usage {
 		result.CacheWriteInputTokens = &cacheWrite
 	}
 	result.InputTokens = protocolTotalInputTokens(uncached, cacheRead, cacheWrite)
-	return result
+	return &result
 }
 
 // protocolTotalInputTokens converts Converse's disjoint input counters into the

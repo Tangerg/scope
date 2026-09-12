@@ -170,7 +170,14 @@ func audioMIME(format string) string {
 	}
 }
 
-func mapUsage(usage openaisdk.CompletionUsage) corechat.Usage {
+func mapUsage(usage openaisdk.CompletionUsage) *corechat.Usage {
+	if usage.RawJSON() != "" {
+		if !usage.JSON.PromptTokens.Valid() || !usage.JSON.CompletionTokens.Valid() {
+			return nil
+		}
+	} else if usage.PromptTokens == 0 && usage.CompletionTokens == 0 {
+		return nil
+	}
 	mapped := corechat.Usage{
 		InputTokens:  usage.PromptTokens,
 		OutputTokens: usage.CompletionTokens,
@@ -183,7 +190,7 @@ func mapUsage(usage openaisdk.CompletionUsage) corechat.Usage {
 		value := usage.PromptTokensDetails.CachedTokens
 		mapped.CacheReadInputTokens = &value
 	}
-	return mapped
+	return &mapped
 }
 
 func normalizeFinishReason(reason string) corechat.FinishReason {

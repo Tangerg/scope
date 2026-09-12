@@ -187,7 +187,14 @@ func responsesFinishReason(response *responses.Response) (corechat.FinishReason,
 	return finishReason, nil
 }
 
-func responsesUsage(usage responses.ResponseUsage) corechat.Usage {
+func responsesUsage(usage responses.ResponseUsage) *corechat.Usage {
+	if usage.RawJSON() != "" {
+		if !usage.JSON.InputTokens.Valid() || !usage.JSON.OutputTokens.Valid() {
+			return nil
+		}
+	} else if usage.InputTokens == 0 && usage.OutputTokens == 0 {
+		return nil
+	}
 	result := corechat.Usage{InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens}
 	if usage.OutputTokensDetails.ReasoningTokens > 0 {
 		value := usage.OutputTokensDetails.ReasoningTokens
@@ -197,5 +204,5 @@ func responsesUsage(usage responses.ResponseUsage) corechat.Usage {
 		value := usage.InputTokensDetails.CachedTokens
 		result.CacheReadInputTokens = &value
 	}
-	return result
+	return &result
 }

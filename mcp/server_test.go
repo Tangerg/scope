@@ -147,7 +147,7 @@ func TestRegister_ErrorBecomesIsError(t *testing.T) {
 
 func TestToolFailureSurvivesProtocolRoundTrip(t *testing.T) {
 	want := corechat.ToolOutput{
-		Content: []corechat.Part{corechat.NewTextPart("failed"), corechat.NewTextPart("one file was committed")},
+		Content: []corechat.ToolContent{{Kind: corechat.PartText, Text: "failed"}, {Kind: corechat.PartText, Text: "one file was committed"}},
 		Details: json.RawMessage(`{"files":["one"],"complete":false}`),
 	}
 	failure, err := tool.NewFailure(errors.New("partial execution"), want)

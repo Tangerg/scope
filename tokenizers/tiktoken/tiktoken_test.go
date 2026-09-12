@@ -32,17 +32,17 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	}
 }
 
-func TestEstimateText(t *testing.T) {
+func TestCountText(t *testing.T) {
 	tk, err := tiktoken.New(tiktoken.CL100KBase)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := tk.EstimateText(t.Context(), "hello world")
+	got, err := tk.CountText(t.Context(), "hello world")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got <= 0 {
-		t.Fatalf("EstimateText() = %d, want > 0", got)
+		t.Fatalf("CountText() = %d, want > 0", got)
 	}
 }
 
@@ -60,8 +60,8 @@ func TestOperationsHonorCanceledContext(t *testing.T) {
 	if _, err := tk.Decode(ctx, []int{1}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Decode() error = %v, want context.Canceled", err)
 	}
-	if _, err := tk.EstimateText(ctx, "hello"); !errors.Is(err, context.Canceled) {
-		t.Fatalf("EstimateText() error = %v, want context.Canceled", err)
+	if _, err := tk.CountText(ctx, "hello"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("CountText() error = %v, want context.Canceled", err)
 	}
 }
 

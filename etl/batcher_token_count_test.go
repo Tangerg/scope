@@ -12,7 +12,7 @@ import (
 
 type textLengthEstimator struct{}
 
-func (textLengthEstimator) EstimateText(_ context.Context, text string) (int, error) {
+func (textLengthEstimator) CountText(_ context.Context, text string) (int, error) {
 	return len(text), nil
 }
 
@@ -93,13 +93,13 @@ func TestTokenCountBatcherValidatesConstructorInput(t *testing.T) {
 
 type failingEstimator struct{ err error }
 
-func (f failingEstimator) EstimateText(context.Context, string) (int, error) {
+func (f failingEstimator) CountText(context.Context, string) (int, error) {
 	return 0, f.err
 }
 
 type negativeEstimator struct{}
 
-func (negativeEstimator) EstimateText(context.Context, string) (int, error) { return -1, nil }
+func (negativeEstimator) CountText(context.Context, string) (int, error) { return -1, nil }
 
 func TestTokenCountBatcherPropagatesEstimatorError(t *testing.T) {
 	want := errors.New("estimate failed")

@@ -259,13 +259,13 @@ func TestContextualAugmenterRejectsNegativeTokenMeasurements(t *testing.T) {
 
 type fixedContextTokenEstimator int
 
-func (f fixedContextTokenEstimator) EstimateText(context.Context, string) (int, error) {
+func (f fixedContextTokenEstimator) CountText(context.Context, string) (int, error) {
 	return int(f), nil
 }
 
 type evidenceCountEstimator struct{}
 
-func (evidenceCountEstimator) EstimateText(ctx context.Context, text string) (int, error) {
+func (evidenceCountEstimator) CountText(ctx context.Context, text string) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
