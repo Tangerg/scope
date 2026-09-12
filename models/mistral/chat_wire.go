@@ -222,7 +222,7 @@ type chatCompletionResponse struct {
 	ID      string                 `json:"id"`
 	Model   string                 `json:"model"`
 	Choices []chatCompletionChoice `json:"choices"`
-	Usage   chatUsage              `json:"usage"`
+	Usage   *chatUsage             `json:"usage"`
 }
 
 func (c *chatCompletionResponse) response() (*corechat.Response, error) {
@@ -284,7 +284,7 @@ type chatCompletionChunk struct {
 	ID      string                       `json:"id"`
 	Model   string                       `json:"model"`
 	Choices []chatCompletionStreamChoice `json:"choices"`
-	Usage   chatUsage                    `json:"usage"`
+	Usage   *chatUsage                   `json:"usage"`
 }
 
 type chatCompletionStreamChoice struct {
@@ -294,17 +294,20 @@ type chatCompletionStreamChoice struct {
 }
 
 type chatUsage struct {
-	PromptTokens        int64 `json:"prompt_tokens"`
-	CompletionTokens    int64 `json:"completion_tokens"`
-	TotalTokens         int64 `json:"total_tokens"`
-	NumCachedTokens     int64 `json:"num_cached_tokens"`
+	PromptTokens        *int64 `json:"prompt_tokens"`
+	CompletionTokens    *int64 `json:"completion_tokens"`
+	TotalTokens         int64  `json:"total_tokens"`
+	NumCachedTokens     int64  `json:"num_cached_tokens"`
 	PromptTokensDetails *struct {
 		CachedTokens int64 `json:"cached_tokens"`
 	} `json:"prompt_tokens_details"`
 }
 
-func (c chatUsage) usage() corechat.Usage {
-	mapped := corechat.Usage{InputTokens: c.PromptTokens, OutputTokens: c.CompletionTokens}
+func (c *chatUsage) usage() *corechat.Usage {
+	if c == nil || c.PromptTokens == nil || c.CompletionTokens == nil {
+		return nil
+	}
+	mapped := corechat.Usage{InputTokens: *c.PromptTokens, OutputTokens: *c.CompletionTokens}
 	cached := c.NumCachedTokens
 	if c.PromptTokensDetails != nil && c.PromptTokensDetails.CachedTokens != 0 {
 		cached = c.PromptTokensDetails.CachedTokens
@@ -312,5 +315,5 @@ func (c chatUsage) usage() corechat.Usage {
 	if cached != 0 {
 		mapped.CacheReadInputTokens = &cached
 	}
-	return mapped
+	return &mapped
 }

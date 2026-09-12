@@ -15,7 +15,7 @@
 //   - [NewAudioTranscriptionModel] — audio-input → text via
 //     generate_content (Gemini transcribes any audio attachment).
 //
-// Token estimation: [NewTextEstimator] wraps CountTokens for
+// Token estimation: [NewTextCounter] wraps CountTokens for
 // model-specific tokenizer-based counts.
 //
 // The Interactions request carries no Api-Revision header. Google documents

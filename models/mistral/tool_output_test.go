@@ -14,7 +14,7 @@ func TestToolOutputRejectsMediaInsteadOfDroppingIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	message := corechat.NewToolMessage(corechat.ToolResult{
-		ID: "call", Name: "inspect", Output: corechat.ToolOutput{Content: []corechat.Part{corechat.NewMediaPart(image)}},
+		ID: "call", Name: "inspect", Output: corechat.ToolOutput{Content: []corechat.ToolContent{{Kind: corechat.PartMedia, Media: image}}},
 	})
 	if _, err := mapChatRequestMessages([]corechat.Message{message}); err == nil || !strings.Contains(err.Error(), "media Tool output is unsupported") {
 		t.Fatalf("mapChatRequestMessages error = %v", err)

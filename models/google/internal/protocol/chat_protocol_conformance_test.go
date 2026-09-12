@@ -70,7 +70,7 @@ func assertProtocolChatStream(t *testing.T, responses []*corechat.ResponseDelta)
 	var text, reasoning strings.Builder
 	var signature []byte
 	var toolID string
-	var finalUsage corechat.Usage
+	var finalUsage *corechat.Usage
 	for _, response := range responses {
 		finalUsage = response.Metadata.Usage
 		for _, part := range response.Parts {

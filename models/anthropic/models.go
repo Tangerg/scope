@@ -95,24 +95,24 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*Cha
 	)
 }
 
-// TextEstimatorConfig binds provider access and the model shared by every estimate.
-type TextEstimatorConfig struct {
+// TextCounterConfig binds provider access and the model shared by every count.
+type TextCounterConfig struct {
 	APIKey     string
 	Model      string
 	BaseURL    string
 	HTTPClient *http.Client
 }
 
-func (t TextEstimatorConfig) Validate() error { return t.protocol().Validate() }
+func (t TextCounterConfig) Validate() error { return t.protocol().Validate() }
 
-func (t TextEstimatorConfig) protocol() anthropicprotocol.TextEstimatorConfig {
-	return anthropicprotocol.TextEstimatorConfig{APIKey: t.APIKey, Model: t.Model, BaseURL: t.BaseURL, HTTPClient: t.HTTPClient}
+func (t TextCounterConfig) protocol() anthropicprotocol.TextCounterConfig {
+	return anthropicprotocol.TextCounterConfig{APIKey: t.APIKey, Model: t.Model, BaseURL: t.BaseURL, HTTPClient: t.HTTPClient}
 }
 
-// TextEstimator is Anthropic's token-counting estimator.
-type TextEstimator = anthropicprotocol.TextEstimator
+// TextCounter is Anthropic's token-counting counter.
+type TextCounter = anthropicprotocol.TextCounter
 
-// NewTextEstimator rejects an invalid provider/model binding before estimation begins.
-func NewTextEstimator(ctx context.Context, config TextEstimatorConfig) (*TextEstimator, error) {
-	return anthropicprotocol.NewTextEstimator(ctx, config.protocol())
+// NewTextCounter rejects an invalid provider/model binding before counting begins.
+func NewTextCounter(ctx context.Context, config TextCounterConfig) (*TextCounter, error) {
+	return anthropicprotocol.NewTextCounter(ctx, config.protocol())
 }

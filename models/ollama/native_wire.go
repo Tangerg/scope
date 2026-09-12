@@ -184,9 +184,9 @@ type nativeChatRequest struct {
 type nativeMetrics struct {
 	TotalDuration      time.Duration `json:"total_duration,omitempty"`
 	LoadDuration       time.Duration `json:"load_duration,omitempty"`
-	PromptEvalCount    int           `json:"prompt_eval_count,omitempty"`
+	PromptEvalCount    *int          `json:"prompt_eval_count,omitempty"`
 	PromptEvalDuration time.Duration `json:"prompt_eval_duration,omitempty"`
-	EvalCount          int           `json:"eval_count,omitempty"`
+	EvalCount          *int          `json:"eval_count,omitempty"`
 	EvalDuration       time.Duration `json:"eval_duration,omitempty"`
 }
 
@@ -228,10 +228,9 @@ func (n nativeChatResponse) metadata(requestModel string) (*corechat.ResponseMet
 	}
 	metadata := &corechat.ResponseMetadata{
 		Model: modelName,
-		Usage: corechat.Usage{
-			InputTokens:  int64(n.PromptEvalCount),
-			OutputTokens: int64(n.EvalCount),
-		},
+	}
+	if n.PromptEvalCount != nil && n.EvalCount != nil {
+		metadata.Usage = &corechat.Usage{InputTokens: int64(*n.PromptEvalCount), OutputTokens: int64(*n.EvalCount)}
 	}
 	if err := metadata.Extra.Set(ResponseExtensionKey, n.raw); err != nil {
 		return nil, fmt.Errorf("ollama: preserve native response: %w", err)
@@ -250,10 +249,10 @@ func (n nativeChatResponse) metadata(requestModel string) (*corechat.ResponseMet
 			return nil, err
 		}
 	}
-	if n.PromptEvalCount != 0 || n.EvalCount != 0 {
+	if n.PromptEvalCount != nil && n.EvalCount != nil {
 		metrics := protocolMetrics{
-			PromptEvalCount: n.PromptEvalCount,
-			EvalCount:       n.EvalCount,
+			PromptEvalCount: *n.PromptEvalCount,
+			EvalCount:       *n.EvalCount,
 		}
 		if err := metadata.Extra.Set(protocolMetricsKey, metrics); err != nil {
 			return nil, err

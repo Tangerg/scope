@@ -445,7 +445,10 @@ func normalizeProtocolFinishReason(reason genai.FinishReason, hasToolCalls bool)
 	}
 }
 
-func mapProtocolUsage(usage *genai.GenerateContentResponseUsageMetadata) corechat.Usage {
+func mapProtocolUsage(usage *genai.GenerateContentResponseUsageMetadata) *corechat.Usage {
+	if usage == nil {
+		return nil
+	}
 	// Gemini reports tool-output prompt tokens and thought tokens outside the
 	// similarly named prompt/candidate counters. Core totals include both, while
 	// cache and reasoning remain optional breakdowns.
@@ -461,7 +464,7 @@ func mapProtocolUsage(usage *genai.GenerateContentResponseUsageMetadata) corecha
 		value := int64(usage.CachedContentTokenCount)
 		mapped.CacheReadInputTokens = &value
 	}
-	return mapped
+	return &mapped
 }
 
 type protocolUsageExtension struct {

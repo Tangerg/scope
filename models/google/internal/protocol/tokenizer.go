@@ -9,16 +9,16 @@ import (
 	"github.com/Tangerg/scope/core/tokenizer"
 )
 
-// TextEstimatorConfig configures a Gemini-backed token estimator.
+// TextCounterConfig configures a Gemini-backed token counter.
 // Token counts vary across model families — supply the same Model name
 // you intend to send chat requests under so the count matches the real
 // billing.
-type TextEstimatorConfig struct {
+type TextCounterConfig struct {
 	Client ClientConfig
 	Model  string
 }
 
-func (t TextEstimatorConfig) Validate() error {
+func (t TextCounterConfig) Validate() error {
 	if err := t.Client.Validate(); err != nil {
 		return err
 	}
@@ -28,18 +28,18 @@ func (t TextEstimatorConfig) Validate() error {
 	return nil
 }
 
-var _ tokenizer.TextEstimator = (*TextEstimator)(nil)
+var _ tokenizer.TextCounter = (*TextCounter)(nil)
 
-// TextEstimator reports input-token counts via Gemini's count_tokens
-// endpoint. Implements [tokenizer.TextEstimator] so it drops into code
+// TextCounter reports input-token counts via Gemini's count_tokens
+// endpoint. Implements [tokenizer.TextCounter] so it drops into code
 // paths gating on token budgets (RAG chunking, prompt-window checks).
-type TextEstimator struct {
+type TextCounter struct {
 	api   *api
 	model string
 }
 
-// NewTextEstimator rejects an invalid provider/model binding before estimation begins.
-func NewTextEstimator(ctx context.Context, config TextEstimatorConfig) (*TextEstimator, error) {
+// NewTextCounter rejects an invalid provider/model binding before counting begins.
+func NewTextCounter(ctx context.Context, config TextCounterConfig) (*TextCounter, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -49,12 +49,12 @@ func NewTextEstimator(ctx context.Context, config TextEstimatorConfig) (*TextEst
 		return nil, err
 	}
 
-	return &TextEstimator{api: api, model: config.Model}, nil
+	return &TextCounter{api: api, model: config.Model}, nil
 }
 
-// EstimateText returns the prompt-token count Gemini would charge if
+// CountText returns the prompt-token count Gemini would charge if
 // text were sent as a single user message under the configured model.
-func (t *TextEstimator) EstimateText(ctx context.Context, text string) (int, error) {
+func (t *TextCounter) CountText(ctx context.Context, text string) (int, error) {
 	contents := []*genai.Content{genai.NewContentFromText(text, genai.RoleUser)}
 	resp, err := t.api.countTokens(ctx, t.model, contents, nil)
 	if err != nil {

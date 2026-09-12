@@ -331,39 +331,39 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 	return i.protocol.Call(ctx, req)
 }
 
-// TextEstimatorConfig binds provider access and the model shared by every estimate.
-type TextEstimatorConfig struct {
+// TextCounterConfig binds provider access and the model shared by every count.
+type TextCounterConfig struct {
 	APIKey     string
 	Model      string
 	BaseURL    string
 	HTTPClient *http.Client
 }
 
-func (t TextEstimatorConfig) Validate() error { return t.protocol().Validate() }
+func (t TextCounterConfig) Validate() error { return t.protocol().Validate() }
 
-func (t TextEstimatorConfig) protocol() protocol.TextEstimatorConfig {
-	return protocol.TextEstimatorConfig{
+func (t TextCounterConfig) protocol() protocol.TextCounterConfig {
+	return protocol.TextCounterConfig{
 		Client: protocolClient(t.APIKey, t.BaseURL, t.HTTPClient), Model: t.Model,
 	}
 }
 
-// TextEstimator wraps this provider's protocol implementation so the wire
+// TextCounter wraps this provider's protocol implementation so the wire
 // type stays unexported. Callers depend on the Core modality contract, which
 // lets the protocol change without breaking this module's public surface.
-type TextEstimator struct{ protocol *protocol.TextEstimator }
+type TextCounter struct{ protocol *protocol.TextCounter }
 
-// NewTextEstimator rejects an invalid provider/model binding before estimation begins.
-func NewTextEstimator(ctx context.Context, config TextEstimatorConfig) (*TextEstimator, error) {
-	estimator, err := protocol.NewTextEstimator(ctx, config.protocol())
+// NewTextCounter rejects an invalid provider/model binding before counting begins.
+func NewTextCounter(ctx context.Context, config TextCounterConfig) (*TextCounter, error) {
+	counter, err := protocol.NewTextCounter(ctx, config.protocol())
 	if err != nil {
 		return nil, err
 	}
-	return &TextEstimator{protocol: estimator}, nil
+	return &TextCounter{protocol: counter}, nil
 }
 
-func (t *TextEstimator) EstimateText(ctx context.Context, value string) (int, error) {
+func (t *TextCounter) CountText(ctx context.Context, value string) (int, error) {
 	if t == nil || t.protocol == nil {
-		return 0, errors.New("google: nil TextEstimator")
+		return 0, errors.New("google: nil TextCounter")
 	}
-	return t.protocol.EstimateText(ctx, value)
+	return t.protocol.CountText(ctx, value)
 }

@@ -1,6 +1,6 @@
 // Package anthropic exposes Anthropic adapters. [NewChat] targets the Messages
 // API, [NewChatCompletions] targets the OpenAI-compatible endpoint, and
-// [NewTextEstimator] serves isolated text-token estimation.
+// [NewTextCounter] serves isolated text-token estimation.
 //
 // The OpenAI-compatible endpoint is narrower than the native one, and Anthropic
 // publishes exactly how. Its support table marks reasoning_effort,
