@@ -90,3 +90,10 @@ func (o Output) Validate() error {
 	}
 	return nil
 }
+
+func (o Output) clone() Output {
+	cloned := o
+	cloned.ModelResponse = o.ModelResponse.Clone()
+	cloned.DirectToolResults = cloneToolResults(o.DirectToolResults)
+	return cloned
+}

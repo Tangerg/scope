@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -216,4 +217,20 @@ func (o *observationBus) close() {
 	}
 	o.deltaMu.Unlock()
 	<-o.deltaDone
+}
+
+func (o *observationBus) checkDeltaListenerReentrancy(ctx context.Context, operation string) error {
+	active, ok := ctx.Value(observedDeltaKey{bus: o}).(*atomic.Bool)
+	if !ok || !active.Load() {
+		return nil
+	}
+	return fmt.Errorf("%w: %s would wait for its active Delta listener", ErrListenerReentrancy, operation)
+}
+
+func (o *observationBus) checkListenerReentrancy(ctx context.Context, rootID ProcessID, operation string) error {
+	active, ok := ctx.Value(observedTreeKey{bus: o, rootID: rootID}).(*atomic.Bool)
+	if !ok || !active.Load() {
+		return nil
+	}
+	return fmt.Errorf("%w: %s on tree %s is unavailable while its listener is active", ErrListenerReentrancy, operation, rootID)
 }

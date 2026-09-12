@@ -316,6 +316,81 @@ func (e executionState) validateAppliedDecision(d *Definition) error {
 	return nil
 }
 
+func (e executionState) validateDecision(definition *Definition, decision Decision) error {
+	if err := definition.descriptor.ValidateInput(decision.State); err != nil {
+		return fmt.Errorf("%w: state: %w", ErrInvalidDecision, err)
+	}
+	if decision.Mode == Complete {
+		if decision.Output == nil || len(decision.Tasks) != 0 || len(decision.Controls) != 0 {
+			return ErrInvalidDecision
+		}
+		if err := definition.descriptor.ValidateOutput(*decision.Output); err != nil {
+			return fmt.Errorf("%w: output: %w", ErrInvalidDecision, err)
+		}
+		return nil
+	}
+	if decision.Mode != Continue && decision.Mode != Wait || decision.Output != nil {
+		return ErrInvalidDecision
+	}
+	if uint64(len(e.Tasks))+uint64(len(decision.Tasks)) > uint64(definition.maxTasks) ||
+		uint64(len(e.remaining()))+uint64(len(decision.Tasks)) > uint64(definition.maxConcurrentTasks) ||
+		uint64(len(decision.Controls)) > uint64(definition.maxControlsPerTurn) {
+		return fmt.Errorf("%w: task or control bound exceeded", ErrInvalidDecision)
+	}
+	for index, request := range decision.Tasks {
+		if err := definition.validateRequest(request); err != nil {
+			return err
+		}
+		if e.task(request.Key) != nil {
+			return fmt.Errorf("%w: reused task key", ErrInvalidDecision)
+		}
+		for _, previous := range decision.Tasks[:index] {
+			if previous.Key == request.Key {
+				return fmt.Errorf("%w: duplicate task key", ErrInvalidDecision)
+			}
+		}
+	}
+	for _, control := range decision.Controls {
+		if _, err := e.controlEffect(control); err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidDecision, err)
+		}
+	}
+	if decision.Mode == Wait && len(e.remaining())+len(decision.Tasks) == 0 && !e.turnHadOutstandingTask() {
+		return fmt.Errorf("%w: wait has no outstanding tasks", ErrInvalidDecision)
+	}
+	return nil
+}
+
+func (e executionState) controlEffect(control Control) (agent.Effect, error) {
+	task := e.task(control.Task)
+	if task == nil || task.Start == nil || (control.Signal == nil) == (control.CancelReason == nil) {
+		return agent.Effect{}, ErrInvalidDecision
+	}
+	id, started := task.Start.ProcessID()
+	if !started {
+		return agent.Effect{}, ErrInvalidDecision
+	}
+	if control.Signal != nil {
+		return agent.SignalChild(id, *control.Signal)
+	}
+	return agent.CancelChild(id, *control.CancelReason)
+}
+
+func (e executionState) turnHadOutstandingTask() bool {
+	if e.Turn == nil {
+		return false
+	}
+	for _, task := range e.Turn.Input.Tasks {
+		if task.Start == nil || task.Outcome != nil {
+			continue
+		}
+		if _, started := task.Start.ProcessID(); started {
+			return true
+		}
+	}
+	return false
+}
+
 func nilIfEmpty[T any](values []T) []T {
 	if len(values) == 0 {
 		return nil
@@ -330,4 +405,10 @@ func sameJSON(left, right any) bool {
 	}
 	second, err := json.Marshal(right)
 	return err == nil && bytes.Equal(first, second)
+}
+
+const turnPrefix = "collaboration.turn."
+
+func turnKey(number uint32) (agent.ChildKey, error) {
+	return agent.ParseChildKey(fmt.Sprintf("%s%d", turnPrefix, number))
 }

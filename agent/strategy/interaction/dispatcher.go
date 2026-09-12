@@ -194,6 +194,57 @@ func (d *Dispatcher) modelDefinitions(advertisedToolNames []string) ([]chat.Tool
 	return definitions, nil
 }
 
+func (d *Dispatcher) observeModel(ctx context.Context, invocation ModelInvocation, response *chat.Response) {
+	if d.observer == nil {
+		return
+	}
+	defer recordObserverPanic(&d.observationFailures.modelResponsePanics)
+	d.observer.OnModelResponse(ctx, invocation, response.Clone())
+}
+
+func (d *Dispatcher) callModel(
+	ctx context.Context,
+	request *chat.Request,
+	emit agent.DeltaEmitter,
+) (*chat.Response, error) {
+	if d.streamer == nil {
+		return d.model.Call(ctx, request)
+	}
+	var accumulator chat.ResponseAccumulator
+	seen := false
+	sequence := d.streamer.Stream(ctx, request)
+	if sequence == nil {
+		return nil, errors.New("model streamer returned a nil sequence")
+	}
+	for delta, err := range sequence {
+		if err != nil {
+			return nil, err
+		}
+		if delta == nil {
+			return nil, errors.New("model stream yielded a nil response Delta")
+		}
+		if err := accumulator.Add(delta); err != nil {
+			return nil, fmt.Errorf("accumulate model stream: %w", err)
+		}
+		seen = true
+		if emit != nil {
+			payload, err := encodeModelResponseDelta(delta)
+			if err != nil {
+				return nil, err
+			}
+			emit(payload)
+		}
+	}
+	if !seen {
+		return nil, errors.New("model stream ended without a response Delta")
+	}
+	response, err := accumulator.Response()
+	if err != nil {
+		return nil, fmt.Errorf("complete model stream: %w", err)
+	}
+	return response, nil
+}
+
 func modelFailureSettlement(effectID agent.EffectID, cause error) (agent.Settlement, error) {
 	payload, err := encodeProtocol(signalEnvelope{
 		Operation:   operationModelCall,

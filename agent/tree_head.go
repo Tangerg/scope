@@ -1,6 +1,8 @@
 package agent
 
-import "context"
+import (
+	"context"
+)
 
 // A head generation belongs to one acknowledged checkpoint. Callers retain the
 // generation while waiting; the tree never retains individual subscriptions.
@@ -43,18 +45,4 @@ func (t *treeHead) finish(err error) {
 		t.err = err
 		close(t.advanced)
 	}
-}
-
-func (t *treeRuntime) advanceHead(snapshot TreeSnapshot) {
-	if t.head.digest() == snapshot.Digest() {
-		return
-	}
-	previous := t.head
-	t.head = &treeHead{snapshot: snapshot, advanced: make(chan struct{})}
-	for _, snapshot := range snapshot.ProcessSnapshots() {
-		if process := t.processes[snapshot.ProcessID()]; process != nil {
-			process.handle.updateStatus(snapshot.Status())
-		}
-	}
-	previous.finish(nil)
 }

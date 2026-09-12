@@ -96,30 +96,3 @@ func recordObserverPanic(counter *atomic.Uint64) {
 		}
 	}
 }
-
-func (d *Dispatcher) observeModel(ctx context.Context, invocation ModelInvocation, response *chat.Response) {
-	if d.observer == nil {
-		return
-	}
-	defer recordObserverPanic(&d.observationFailures.modelResponsePanics)
-	d.observer.OnModelResponse(ctx, invocation, response.Clone())
-}
-
-func (t *toolDispatcher) observeToolStarted(ctx context.Context, invocation ToolInvocation) {
-	if t.observer == nil {
-		return
-	}
-	defer recordObserverPanic(&t.observationFailures.toolStartedPanics)
-	t.observer.OnToolStarted(ctx, invocation)
-}
-
-func (t *toolDispatcher) observeToolSettled(ctx context.Context, invocation ToolInvocation, settlement ToolSettlement) {
-	if t.observer == nil {
-		return
-	}
-	if settlement.Result != nil {
-		settlement.Result = new(settlement.Result.Clone())
-	}
-	defer recordObserverPanic(&t.observationFailures.toolSettledPanics)
-	t.observer.OnToolSettled(ctx, invocation, settlement)
-}

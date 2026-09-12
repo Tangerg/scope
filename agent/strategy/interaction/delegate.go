@@ -82,3 +82,10 @@ func (d Delegate) validateInput(input agent.Input) error {
 	}
 	return d.inputSchema.ValidateInput(input)
 }
+
+func delegateErrorResult(call chat.ToolCall, diagnostic string) chat.ToolResult {
+	return chat.ToolResult{
+		ID: call.ID, Name: call.Name,
+		Output: chat.NewTextToolOutput("error: delegated worker " + boundedDiagnostic(diagnostic)), IsError: true,
+	}
+}

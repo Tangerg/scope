@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -10,62 +9,6 @@ import (
 const nullJSON = "null"
 
 var errInvalidReplayPolicy = errors.New("agent: invalid Dispatcher replay policy")
-
-func (p *preparedEffect) settleFramework() error {
-	operation, err := decodeFrameworkEffectOperation(p.Effect.Payload())
-	if err != nil {
-		return err
-	}
-	var payload json.RawMessage
-	switch operation {
-	case frameworkEffectWait:
-		_, payload, err = decodeWaitRequest(p.Effect)
-		if err != nil {
-			return err
-		}
-	case frameworkEffectStartChild:
-		// Child start crosses admission and initialization boundaries. treeRuntime
-		// intercepts it and commits its fenced job completion atomically.
-		return fmt.Errorf("%w: child start requires its job outcome", ErrInvalidEffect)
-	case frameworkEffectWaitChildren:
-		spec, decodeErr := decodeChildWaitEffect(p.Effect.Payload())
-		if decodeErr != nil {
-			return decodeErr
-		}
-		payload, err = encodeChildWaitOpened(spec)
-		if err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("%w: unsupported local Framework Effect", ErrInvalidEffect)
-	}
-	settlement, err := NewSettlement(p.ID, SettlementStatusSucceeded, payload)
-	if err != nil {
-		return err
-	}
-	if err := p.settle(settlement); err != nil {
-		return err
-	}
-	waitID := deriveWaitID(p.ID)
-	p.WaitID = &waitID
-	return nil
-}
-
-func (p *preparedEffect) settleChildStart(result ChildStartResult) error {
-	payload, err := encodeChildStartResult(result)
-	if err != nil {
-		return p.settleUnknown()
-	}
-	status := SettlementStatusSucceeded
-	if _, failed := result.Failure(); failed {
-		status = SettlementStatusFailed
-	}
-	settlement, err := NewSettlement(p.ID, status, payload)
-	if err != nil {
-		return p.settleUnknown()
-	}
-	return p.settle(settlement)
-}
 
 func dispatcherReplayPolicy(
 	dispatcher Dispatcher,

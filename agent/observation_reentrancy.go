@@ -1,10 +1,7 @@
 package agent
 
 import (
-	"context"
 	"errors"
-	"fmt"
-	"sync/atomic"
 )
 
 // ErrListenerReentrancy reports an operation that would wait for the active
@@ -24,20 +21,4 @@ type observedTreeKey struct {
 
 type observedDeltaKey struct {
 	bus *observationBus
-}
-
-func (o *observationBus) checkDeltaListenerReentrancy(ctx context.Context, operation string) error {
-	active, ok := ctx.Value(observedDeltaKey{bus: o}).(*atomic.Bool)
-	if !ok || !active.Load() {
-		return nil
-	}
-	return fmt.Errorf("%w: %s would wait for its active Delta listener", ErrListenerReentrancy, operation)
-}
-
-func (o *observationBus) checkListenerReentrancy(ctx context.Context, rootID ProcessID, operation string) error {
-	active, ok := ctx.Value(observedTreeKey{bus: o, rootID: rootID}).(*atomic.Bool)
-	if !ok || !active.Load() {
-		return nil
-	}
-	return fmt.Errorf("%w: %s on tree %s is unavailable while its listener is active", ErrListenerReentrancy, operation, rootID)
 }

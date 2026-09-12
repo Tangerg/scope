@@ -1,6 +1,8 @@
 package workflow
 
-import agent "github.com/Tangerg/scope/agent"
+import (
+	agent "github.com/Tangerg/scope/agent"
+)
 
 // BindingRole describes how an exact child binding participates in a Stage.
 type BindingRole string
@@ -68,59 +70,4 @@ type Topology struct {
 	Descriptor agent.Descriptor `json:"descriptor"`
 	// Stages are projected in execution order.
 	Stages []StageTopology `json:"stages"`
-}
-
-// Topology returns a fresh, function-free projection of this Definition. An
-// invalid or nil Definition returns the zero Topology.
-func (d *Definition) Topology() Topology {
-	if !d.valid() {
-		return Topology{}
-	}
-	stages := make([]StageTopology, len(d.stages))
-	for index, stage := range d.stages {
-		stages[index] = stage.topology()
-	}
-	return Topology{Descriptor: d.descriptor, Stages: stages}
-}
-
-func (s Stage) topology() StageTopology {
-	projected := StageTopology{
-		ID: s.id, Kind: s.kind,
-		InputSchema: s.inputSchema, OutputSchema: s.outputSchema,
-	}
-	switch s.kind {
-	case StageKindCall:
-		projected.Bindings = []BindingTopology{
-			s.call.topology(BindingRoleCall, "", s.inputSchema, s.outputSchema),
-		}
-	case StageKindSwitch:
-		projected.Bindings = make([]BindingTopology, len(s.switcher.cases))
-		for index, candidate := range s.switcher.cases {
-			projected.Bindings[index] = candidate.binding.topology(
-				BindingRoleCase, candidate.id, s.inputSchema, s.outputSchema,
-			)
-		}
-	case StageKindFork, StageKindMap:
-		projected.WindowSize = s.fanout.windowSize
-		projected.Bindings, projected.MaxItems = s.fanout.source.topology(s.inputSchema, s.fanout.outputSchema)
-	case StageKindLoop:
-		projected.MaxIterations = s.loop.maxIterations
-		projected.Bindings = []BindingTopology{s.loop.binding.topology(
-			BindingRoleBody, "", s.loop.valueSchema, s.loop.valueSchema,
-		)}
-	}
-	return projected
-}
-
-func (c childBinding) topology(
-	role BindingRole,
-	id string,
-	inputSchema agent.Schema,
-	outputSchema agent.Schema,
-) BindingTopology {
-	return BindingTopology{
-		Role: role, ID: id, DeploymentRef: c.deploymentRef,
-		InputSchema: inputSchema, OutputSchema: outputSchema,
-		Budget: c.budget, Capabilities: c.capabilities,
-	}
 }

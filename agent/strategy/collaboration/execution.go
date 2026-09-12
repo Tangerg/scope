@@ -2,6 +2,7 @@ package collaboration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 
@@ -226,4 +227,53 @@ func (e *execution) afterActions(consumed uint32) (agent.Transition, error) {
 		return e.openWait(consumed)
 	}
 	return e.startTurn(consumed)
+}
+
+func (e *execution) applyDecision(decision Decision, consumed uint32) (agent.Transition, error) {
+	if err := e.state.validateDecision(e.definition, decision); err != nil {
+		return agent.Transition{}, err
+	}
+	effects := make([]agent.Effect, 0, len(decision.Tasks)+len(decision.Controls))
+	for _, request := range decision.Tasks {
+		worker, _ := e.definition.worker(request.Worker)
+		effect, err := agent.StartChild(worker.spec(request.Key, request.Input))
+		if err != nil {
+			return agent.Transition{}, err
+		}
+		effects = append(effects, effect)
+	}
+	for _, control := range decision.Controls {
+		effect, err := e.state.controlEffect(control)
+		if err != nil {
+			return agent.Transition{}, err
+		}
+		effects = append(effects, effect)
+	}
+	e.state.State = decision.State
+	e.state.Mode = decision.Mode
+	e.state.Controls = nil
+	for _, request := range decision.Tasks {
+		e.state.Tasks = append(e.state.Tasks, Task{Request: request})
+	}
+	for _, control := range decision.Controls {
+		e.state.Controls = append(e.state.Controls, ControlReceipt{Control: control})
+	}
+	if decision.Mode == Complete {
+		e.state.Phase = phaseCompleted
+		e.state.Output = decision.Output
+		return agent.Complete(consumed, *decision.Output)
+	}
+	if len(effects) == 0 {
+		return e.afterActions(consumed)
+	}
+	e.state.Phase = phaseApplying
+	return agent.Continue(consumed, effects...)
+}
+
+func (e *execution) Snapshot() (agent.ExecutionState, error) {
+	payload, err := json.Marshal(e.state)
+	if err != nil {
+		return agent.ExecutionState{}, err
+	}
+	return agent.NewExecutionState(stateKind, payload)
 }

@@ -1,7 +1,9 @@
 package interaction
 
 import (
+	"context"
 	"fmt"
+	"slices"
 
 	"github.com/samber/lo"
 
@@ -103,8 +105,90 @@ type toolManifest struct {
 	entries            map[string]toolManifestEntry
 }
 
+func (t toolManifest) mergeAdvertisements(current []string, additions ...[]string) ([]string, error) {
+	if err := t.validateAdvertisements(current); err != nil {
+		return nil, err
+	}
+	merged := slices.Clone(current)
+	seen := make(map[string]struct{}, len(current))
+	for _, name := range current {
+		seen[name] = struct{}{}
+	}
+	for _, names := range additions {
+		if err := t.validateAdvertisements(names); err != nil {
+			return nil, err
+		}
+		for _, name := range names {
+			if _, duplicate := seen[name]; duplicate {
+				continue
+			}
+			seen[name] = struct{}{}
+			merged = append(merged, name)
+		}
+	}
+	return merged, nil
+}
+
+func (t toolManifest) validateAdvertisements(names []string) error {
+	if err := validateAdvertisedToolNames(names); err != nil {
+		return err
+	}
+	for _, name := range names {
+		if entry, found := t.entries[name]; !found || !entry.deferred {
+			return fmt.Errorf("tool %q is not a bound deferred Tool", name)
+		}
+	}
+	return nil
+}
+
+// concurrentBatchEnd inspects only the next group and its first boundary.
+// Classifying later calls again at every boundary makes exclusive runs quadratic.
+func (t toolManifest) concurrentBatchEnd(ctx context.Context, calls []chat.ToolCall) (int, error) {
+	claimed := make(map[string]struct{})
+	for index, call := range calls {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		entry, found := t.entries[call.Name]
+		if !found {
+			return index, nil
+		}
+		plan, err := entry.plan(call)
+		if err != nil {
+			return 0, fmt.Errorf("interaction: tool call %q concurrency: %w", call.ID, err)
+		}
+		if !plan.concurrent {
+			if index == 0 {
+				return 1, nil
+			}
+			return index, nil
+		}
+		if plan.key != "" {
+			if _, duplicate := claimed[plan.key]; duplicate {
+				return index, nil
+			}
+			claimed[plan.key] = struct{}{}
+		}
+	}
+	return len(calls), nil
+}
+
 type toolManifestEntry struct {
 	contract   tool.Contract
 	deferred   bool
 	concurrent func(tool.Invocation) (string, bool)
+}
+
+func (t toolManifestEntry) plan(call chat.ToolCall) (toolConcurrencyPlan, error) {
+	if t.concurrent == nil {
+		return toolConcurrencyPlan{}, nil
+	}
+	invocation, err := t.contract.Prepare(call)
+	if err != nil {
+		// Invalid arguments receive an ordinary rejection from the child; they
+		// confer no authority to overlap other calls.
+		return toolConcurrencyPlan{}, nil
+	}
+	key, concurrent, err := concurrencyDeclaration(t.concurrent, invocation)
+	return toolConcurrencyPlan{concurrent: concurrent, key: key}, err
 }

@@ -139,17 +139,6 @@ func (p preparedEffect) definitelySettled() bool {
 		p.Settlement.Status() != SettlementStatusUnknown
 }
 
-func (p *preparedStep) settleUnknown(effectID EffectID) error {
-	if p == nil {
-		return errors.New("prepared Step is missing")
-	}
-	_, record := p.pendingEffect(effectID)
-	if record == nil {
-		return errors.New("pending Effect is missing")
-	}
-	return record.settleUnknown()
-}
-
 func (p preparedEffect) validateIdentity(
 	processID ProcessID,
 	sequence uint64,
@@ -226,4 +215,60 @@ func (p preparedEffect) validateWait(name string) error {
 		return fmt.Errorf("%s has an incomplete or unknown settlement", name)
 	}
 	return nil
+}
+
+func (p *preparedEffect) settleFramework() error {
+	operation, err := decodeFrameworkEffectOperation(p.Effect.Payload())
+	if err != nil {
+		return err
+	}
+	var payload json.RawMessage
+	switch operation {
+	case frameworkEffectWait:
+		_, payload, err = decodeWaitRequest(p.Effect)
+		if err != nil {
+			return err
+		}
+	case frameworkEffectStartChild:
+		// Child start crosses admission and initialization boundaries. treeRuntime
+		// intercepts it and commits its fenced job completion atomically.
+		return fmt.Errorf("%w: child start requires its job outcome", ErrInvalidEffect)
+	case frameworkEffectWaitChildren:
+		spec, decodeErr := decodeChildWaitEffect(p.Effect.Payload())
+		if decodeErr != nil {
+			return decodeErr
+		}
+		payload, err = encodeChildWaitOpened(spec)
+		if err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("%w: unsupported local Framework Effect", ErrInvalidEffect)
+	}
+	settlement, err := NewSettlement(p.ID, SettlementStatusSucceeded, payload)
+	if err != nil {
+		return err
+	}
+	if err := p.settle(settlement); err != nil {
+		return err
+	}
+	waitID := deriveWaitID(p.ID)
+	p.WaitID = &waitID
+	return nil
+}
+
+func (p *preparedEffect) settleChildStart(result ChildStartResult) error {
+	payload, err := encodeChildStartResult(result)
+	if err != nil {
+		return p.settleUnknown()
+	}
+	status := SettlementStatusSucceeded
+	if _, failed := result.Failure(); failed {
+		status = SettlementStatusFailed
+	}
+	settlement, err := NewSettlement(p.ID, status, payload)
+	if err != nil {
+		return p.settleUnknown()
+	}
+	return p.settle(settlement)
 }

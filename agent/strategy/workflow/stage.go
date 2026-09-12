@@ -44,6 +44,19 @@ type childBinding struct {
 	capabilities  agent.CapabilitySet
 }
 
+func (c childBinding) topology(
+	role BindingRole,
+	id string,
+	inputSchema agent.Schema,
+	outputSchema agent.Schema,
+) BindingTopology {
+	return BindingTopology{
+		Role: role, ID: id, DeploymentRef: c.deploymentRef,
+		InputSchema: inputSchema, OutputSchema: outputSchema,
+		Budget: c.budget, Capabilities: c.capabilities,
+	}
+}
+
 // Stage is an immutable operation in one Workflow Definition. Values can only
 // be constructed by this package, keeping the execution algebra closed.
 type Stage struct {
@@ -143,6 +156,55 @@ func (s Stage) Valid() bool { return s.kind != StageKindInvalid }
 
 func (s Stage) hasIdenticalInputSchema(schema agent.Schema) bool {
 	return schema.Valid() && bytes.Equal(s.inputSchema.JSON(), schema.JSON())
+}
+
+func (s Stage) fanoutMemberLabel(index uint32) string {
+	member, _ := s.fanout.source.member(index)
+	return s.fanoutMemberNoun() + " " + member.id
+}
+
+func (s Stage) fanoutFailureCode(suffix string) string {
+	return s.failureCode(s.fanoutMemberNoun() + "_" + suffix)
+}
+
+func (s Stage) failureCode(suffix string) string {
+	return fmt.Sprintf("workflow.%s.%s", string(s.kind), suffix)
+}
+
+func (s Stage) fanoutMemberNoun() string {
+	if s.kind == StageKindFork {
+		return "branch"
+	}
+	return "item"
+}
+
+func (s Stage) topology() StageTopology {
+	projected := StageTopology{
+		ID: s.id, Kind: s.kind,
+		InputSchema: s.inputSchema, OutputSchema: s.outputSchema,
+	}
+	switch s.kind {
+	case StageKindCall:
+		projected.Bindings = []BindingTopology{
+			s.call.topology(BindingRoleCall, "", s.inputSchema, s.outputSchema),
+		}
+	case StageKindSwitch:
+		projected.Bindings = make([]BindingTopology, len(s.switcher.cases))
+		for index, candidate := range s.switcher.cases {
+			projected.Bindings[index] = candidate.binding.topology(
+				BindingRoleCase, candidate.id, s.inputSchema, s.outputSchema,
+			)
+		}
+	case StageKindFork, StageKindMap:
+		projected.WindowSize = s.fanout.windowSize
+		projected.Bindings, projected.MaxItems = s.fanout.source.topology(s.inputSchema, s.fanout.outputSchema)
+	case StageKindLoop:
+		projected.MaxIterations = s.loop.maxIterations
+		projected.Bindings = []BindingTopology{s.loop.binding.topology(
+			BindingRoleBody, "", s.loop.valueSchema, s.loop.valueSchema,
+		)}
+	}
+	return projected
 }
 
 func validStageID(value string) bool {

@@ -1,6 +1,8 @@
 package agent
 
-import "errors"
+import (
+	"errors"
+)
 
 // preparedStep owns candidate state and the effect lifecycle until adoption.
 // Its fields are the single persisted representation. Executable instances
@@ -118,4 +120,15 @@ func (p preparedStep) snapshot() preparedStep {
 		}
 	}
 	return clone
+}
+
+func (p *preparedStep) settleUnknown(effectID EffectID) error {
+	if p == nil {
+		return errors.New("prepared Step is missing")
+	}
+	_, record := p.pendingEffect(effectID)
+	if record == nil {
+		return errors.New("pending Effect is missing")
+	}
+	return record.settleUnknown()
 }

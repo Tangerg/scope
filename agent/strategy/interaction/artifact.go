@@ -118,10 +118,3 @@ func (c CompletionDecision) Valid() bool {
 // the hard bound on retry rounds. Evaluation requiring external work belongs
 // in a managed child Process, not this callback.
 type CompletionValidator func(candidate CompletionCandidate) (CompletionDecision, error)
-
-func (o Output) clone() Output {
-	cloned := o
-	cloned.ModelResponse = o.ModelResponse.Clone()
-	cloned.DirectToolResults = cloneToolResults(o.DirectToolResults)
-	return cloned
-}

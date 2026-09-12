@@ -183,6 +183,25 @@ func (t *toolDispatcher) prepareToolCall(call chat.ToolCall) preparedToolCall {
 	return prepared
 }
 
+func (t *toolDispatcher) observeToolStarted(ctx context.Context, invocation ToolInvocation) {
+	if t.observer == nil {
+		return
+	}
+	defer recordObserverPanic(&t.observationFailures.toolStartedPanics)
+	t.observer.OnToolStarted(ctx, invocation)
+}
+
+func (t *toolDispatcher) observeToolSettled(ctx context.Context, invocation ToolInvocation, settlement ToolSettlement) {
+	if t.observer == nil {
+		return
+	}
+	if settlement.Result != nil {
+		settlement.Result = new(settlement.Result.Clone())
+	}
+	defer recordObserverPanic(&t.observationFailures.toolSettledPanics)
+	t.observer.OnToolSettled(ctx, invocation, settlement)
+}
+
 func directResultCapability(executable tool.Tool) (direct bool, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {

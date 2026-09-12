@@ -2,10 +2,10 @@ package collaboration
 
 import (
 	"bytes"
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"strings"
 
 	agent "github.com/Tangerg/scope/agent"
 )
@@ -169,10 +169,16 @@ func (d *Definition) worker(name string) (childBinding, bool) {
 	return childBinding{}, false
 }
 
-func (e *execution) Snapshot() (agent.ExecutionState, error) {
-	payload, err := json.Marshal(e.state)
-	if err != nil {
-		return agent.ExecutionState{}, err
+func (d *Definition) validateRequest(request TaskRequest) error {
+	if !request.Key.Valid() || strings.HasPrefix(request.Key.String(), turnPrefix) {
+		return ErrInvalidDecision
 	}
-	return agent.NewExecutionState(stateKind, payload)
+	worker, found := d.worker(request.Worker)
+	if !found {
+		return fmt.Errorf("%w: unknown worker %q", ErrInvalidDecision, request.Worker)
+	}
+	if err := worker.descriptor.ValidateInput(request.Input); err != nil {
+		return fmt.Errorf("%w: task input: %w", ErrInvalidDecision, err)
+	}
+	return nil
 }

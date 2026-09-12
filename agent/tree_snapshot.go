@@ -3,7 +3,6 @@ package agent
 import (
 	"bytes"
 	"cmp"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -313,6 +312,137 @@ func (t *treeSnapshotValidation) validateChildWaits() error {
 	return nil
 }
 
+func (t *treeSnapshotValidation) validateChildControls() error {
+	for _, parent := range t.processes {
+		if parent.Prepared == nil {
+			continue
+		}
+		for _, record := range parent.Prepared.Effects {
+			if record.Effect.Target() != EffectTargetFramework || !record.definitelySettled() {
+				continue
+			}
+			operation, err := decodeFrameworkEffectOperation(record.Effect.Payload())
+			if err != nil {
+				return err
+			}
+			if operation != frameworkEffectSignalChild && operation != frameworkEffectCancelChild {
+				continue
+			}
+			if err := t.validateChildControl(parent.ProcessID, record); err != nil {
+				return fmt.Errorf("%w: child control: %w", ErrInvalidTreeSnapshot, err)
+			}
+		}
+	}
+	return nil
+}
+
+func (t *treeSnapshotValidation) validateChildControl(parentID ProcessID, record preparedEffect) error {
+	if err := record.validateChildControl(); err != nil {
+		return err
+	}
+	result, err := decodeChildControlResult(record.Settlement.Payload())
+	if err != nil || result.failure.Valid() {
+		return err
+	}
+	child, present := t.processes[result.childID]
+	if !present || child.Relation.ParentID == nil || *child.Relation.ParentID != parentID {
+		return ErrInvalidChildControl
+	}
+	if result.operation == frameworkEffectCancelChild {
+		if !child.Status.Terminal() && !child.PendingControl.CancellationOwner.valid() {
+			return ErrInvalidChildControl
+		}
+		return nil
+	}
+	request, err := decodeChildControlEffect(record.Effect.Payload())
+	if err != nil {
+		return err
+	}
+	for _, receipt := range snapshotSignalReceipts(child.Mailbox) {
+		if receipt.ID() != result.signalID {
+			continue
+		}
+		if !receipt.Matches(*request.Signal) {
+			return ErrInvalidChildControl
+		}
+		return nil
+	}
+	return ErrInvalidChildControl
+}
+
+func (t *treeSnapshotValidation) validateChildWaitSignals(mailbox mailboxWire, waitID WaitID, spec ChildWaitSpec) error {
+	opened, err := encodeChildWaitOpened(spec)
+	if err != nil {
+		return fmt.Errorf("%w: encode child wait: %w", ErrInvalidTreeSnapshot, err)
+	}
+	opened, err = wireJSON.normalize(opened, maxWireBytes)
+	if err != nil {
+		return fmt.Errorf("%w: normalize child wait: %w", ErrInvalidTreeSnapshot, err)
+	}
+	for _, record := range mailbox.Signals {
+		if record.WaitID == nil || *record.WaitID != waitID {
+			continue
+		}
+		if record.OpensWait {
+			if record.PayloadDigest != ComputeDigest(opened) {
+				return fmt.Errorf("%w: child wait disagrees with its opening Signal", ErrInvalidTreeSnapshot)
+			}
+			continue
+		}
+		signal, signalErr := newSignal(record.ID, waitID, record.Payload)
+		if signalErr != nil {
+			return fmt.Errorf("%w: invalid child wait Signal: %w", ErrInvalidTreeSnapshot, signalErr)
+		}
+		satisfied, parseErr := ParseChildWaitSatisfied(signal)
+		if parseErr != nil || record.ID != deriveChildWaitSignalID(waitID) ||
+			satisfied.Key() != spec.Key || satisfied.Boundary() != spec.Boundary {
+			return fmt.Errorf("%w: child wait satisfaction disagrees with its registration", ErrInvalidTreeSnapshot)
+		}
+		required, _ := spec.Condition.required(len(spec.Children))
+		if uint32(len(satisfied.outcomes)) < required {
+			return fmt.Errorf("%w: child wait condition is unsatisfied", ErrInvalidTreeSnapshot)
+		}
+		previous := -1
+		for _, outcome := range satisfied.outcomes {
+			index := slices.Index(spec.Children, outcome.result.ProcessID())
+			if index <= previous || !t.matchesChildWaitOutcome(outcome, spec.Boundary) {
+				return fmt.Errorf("%w: child wait outcome disagrees with its tree", ErrInvalidTreeSnapshot)
+			}
+			previous = index
+		}
+	}
+	return nil
+}
+
+func (t *treeSnapshotValidation) matchesChildWaitOutcome(outcome ChildOutcome, boundary ChildWaitBoundary) bool {
+	child, exists := t.processes[outcome.result.ProcessID()]
+	if !exists || !child.Status.Terminal() || child.Relation.ChildKey == nil || *child.Relation.ChildKey != outcome.key {
+		return false
+	}
+	expected := resultWire{
+		ProcessID: child.ProcessID, StartedAt: child.StartedAt, FinishedAt: *child.FinishedAt,
+		Output: child.Output, Termination: *child.Termination, Usage: child.Usage,
+	}
+	expectedJSON, expectedErr := json.Marshal(expected)
+	actualJSON, actualErr := json.Marshal(resultWireFromValue(outcome.result))
+	if expectedErr != nil || actualErr != nil || !bytes.Equal(expectedJSON, actualJSON) {
+		return false
+	}
+	return boundary != ChildWaitBoundaryDrained || t.subtreeTerminal(child.ProcessID)
+}
+
+func (t *treeSnapshotValidation) subtreeTerminal(processID ProcessID) bool {
+	if !t.processes[processID].Status.Terminal() {
+		return false
+	}
+	for _, child := range t.processes {
+		if child.Relation.ParentID != nil && *child.Relation.ParentID == processID && !t.subtreeTerminal(child.ProcessID) {
+			return false
+		}
+	}
+	return true
+}
+
 func findWaitRecord(mailbox mailboxWire, id WaitID) (waitRecordWire, bool) {
 	for _, record := range mailbox.Waits {
 		if record.WaitID == id {
@@ -320,42 +450,6 @@ func findWaitRecord(mailbox mailboxWire, id WaitID) (waitRecordWire, bool) {
 		}
 	}
 	return waitRecordWire{}, false
-}
-
-// CaptureTree quiesces one complete Engine-owned tree at Strategy-safe
-// boundaries and captures a consistent portable cut. In-flight Effects settle
-// according to their existing contract before a Process joins the barrier.
-// Cancellation remains available while the active work drains.
-func (e *Engine) CaptureTree(ctx context.Context, rootID ProcessID) (TreeSnapshot, error) {
-	if e == nil {
-		return TreeSnapshot{}, ErrInvalidProcessRelation
-	}
-	ctx = requireContext(ctx)
-	if !rootID.Valid() {
-		return TreeSnapshot{}, ErrInvalidProcessRelation
-	}
-	if e.durability != nil {
-		return TreeSnapshot{}, ErrTreeCaptureUnavailable
-	}
-	operation, err := e.acquireTreeOperation(ctx, rootID)
-	if err != nil {
-		return TreeSnapshot{}, err
-	}
-	defer operation.release()
-	runtime, err := e.runtimeForTree(rootID)
-	if err != nil {
-		return TreeSnapshot{}, err
-	}
-	freeze, snapshot, err := runtime.acquireTreeFreeze(ctx)
-	if err != nil {
-		return TreeSnapshot{}, err
-	}
-	if freeze != nil {
-		if releaseErr := freeze.release(); releaseErr != nil {
-			return TreeSnapshot{}, releaseErr
-		}
-	}
-	return snapshot, nil
 }
 
 // treeFreeze identifies the active snapshot barrier. Only CaptureTree receives
@@ -378,63 +472,5 @@ func (t *treeFreeze) release() error {
 		return err
 	case <-t.runtime.done:
 		return ErrEngineQuiescenceUnavailable
-	}
-}
-
-func (e *Engine) runtimeForTree(rootID ProcessID) (*treeRuntime, error) {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	root := e.processes[rootID]
-	runtime := e.trees[rootID]
-	if root == nil || runtime == nil || !root.relation.IsRoot() ||
-		root.relation.RootID() != rootID || root.runtime.Load() != runtime {
-		return nil, ErrInvalidProcessRelation
-	}
-	return runtime, nil
-}
-
-func (t *treeRuntime) acquireTreeFreeze(
-	ctx context.Context,
-) (*treeFreeze, TreeSnapshot, error) {
-	ctx = requireContext(ctx)
-	if err := ctx.Err(); err != nil {
-		return nil, TreeSnapshot{}, err
-	}
-	if snapshot, err, stopped := t.captureStoppedTree(); stopped {
-		return nil, snapshot, err
-	}
-	acquisition := &treeFreezeAcquisition{
-		response: make(chan treeFreezeAcquisitionResult, 1),
-		canceled: make(chan struct{}),
-	}
-	select {
-	case t.controls <- treeCommand{
-		kind: treeCommandAcquireFreeze, acquisition: acquisition,
-	}:
-	case <-t.done:
-		snapshot, err, _ := t.captureStoppedTree()
-		return nil, snapshot, err
-	case <-ctx.Done():
-		return nil, TreeSnapshot{}, ctx.Err()
-	}
-	select {
-	case result := <-acquisition.response:
-		return result.freeze, result.snapshot, result.err
-	case <-t.done:
-		snapshot, err, _ := t.captureStoppedTree()
-		return nil, snapshot, err
-	case <-ctx.Done():
-		close(acquisition.canceled)
-		return nil, TreeSnapshot{}, ctx.Err()
-	}
-}
-
-func (t *treeRuntime) captureStoppedTree() (TreeSnapshot, error, bool) {
-	select {
-	case <-t.done:
-		snapshot, err := t.captureTree()
-		return snapshot, err, true
-	default:
-		return TreeSnapshot{}, nil, false
 	}
 }

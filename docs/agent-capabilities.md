@@ -245,7 +245,7 @@ The lifecycle has separate observable facts:
 | Runtime work drained | The relevant owned calls and descendant work have returned or completed their local cleanup | An unknown remote side effect did not happen |
 | Effects resolved | The relevant external outcomes are known | The external system reversed successful operations |
 
-`RequestCancellation` acknowledges submission. `Process.Await` waits for that Process's terminal result and immediate bookkeeping. `Process.Join` waits for its owned subtree calls and required acknowledgments in the current runtime. `Engine.ReleaseTree` waits for the complete root runtime to stop, then releases its in-memory registration. These operations must not be described as stronger barriers than their contracts state. See [Process control](../agent/process.go) and [tree release](../agent/tree_release.go).
+`RequestCancellation` acknowledges submission. `Process.Await` waits for that Process's terminal result and immediate bookkeeping. `Process.Join` waits for its owned subtree calls and required acknowledgments in the current runtime. `Engine.ReleaseTree` waits for the complete root runtime to stop, then releases its in-memory registration. These operations must not be described as stronger barriers than their contracts state. See [Process control](../agent/process.go) and [tree release](../agent/engine.go).
 
 A strategy chooses terminal results or drained subtrees through `ChildWaitSpec.Boundary`, using the same `WaitForChildren` operation. The runtime owns the drain fact used by both this wait and Host `Join`; neither introduces another scheduler. A strategy replacing one task can therefore wait for that task's scope to drain while retaining independent siblings. See the [scoped join tests](../agent/scoped_join_test.go).
 
@@ -255,7 +255,7 @@ The same contract must distinguish local drain from remote uncertainty. A cancel
 
 The runtime signals cancellation to the execution attempts it owns. A cooperative Dispatcher receives that signal through its call context. The runtime then collects the returned settlement before deciding termination and drain.
 
-Step and Dispatch jobs receive separately cancellable attempt contexts. [Control propagation](../agent/tree_control.go) cancels active calls throughout the owned subtree without waiting for an ancestor call to return. Required persistence acknowledgment uses the tree context and survives cancellation of the attempted operation. See [job execution](../agent/tree_jobs.go) and [cancellation durability tests](../agent/cancellation_durability_test.go).
+Step and Dispatch jobs receive separately cancellable attempt contexts. [Control propagation](../agent/tree_runtime.go) cancels active calls throughout the owned subtree without waiting for an ancestor call to return. Required persistence acknowledgment uses the tree context and survives cancellation of the attempted operation. See [job execution](../agent/tree_runtime.go) and [cancellation durability tests](../agent/cancellation_durability_test.go).
 
 Cancellation preserves the following properties:
 

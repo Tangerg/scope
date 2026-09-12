@@ -109,6 +109,19 @@ func (d *Definition) valid() bool {
 	return d != nil && d.descriptor.Valid()
 }
 
+// Topology returns a fresh, function-free projection of this Definition. An
+// invalid or nil Definition returns the zero Topology.
+func (d *Definition) Topology() Topology {
+	if !d.valid() {
+		return Topology{}
+	}
+	stages := make([]StageTopology, len(d.stages))
+	for index, stage := range d.stages {
+		stages[index] = stage.topology()
+	}
+	return Topology{Descriptor: d.descriptor, Stages: stages}
+}
+
 func encodeExecutionState(state executionState) (agent.ExecutionState, error) {
 	payload, err := json.Marshal(state)
 	if err != nil {

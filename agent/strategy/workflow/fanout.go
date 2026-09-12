@@ -30,26 +30,6 @@ type fanoutStage struct {
 	complete     func(context.Context, []json.RawMessage) (json.RawMessage, error)
 }
 
-func (s Stage) fanoutMemberLabel(index uint32) string {
-	member, _ := s.fanout.source.member(index)
-	return s.fanoutMemberNoun() + " " + member.id
-}
-
-func (s Stage) fanoutFailureCode(suffix string) string {
-	return s.failureCode(s.fanoutMemberNoun() + "_" + suffix)
-}
-
-func (s Stage) failureCode(suffix string) string {
-	return fmt.Sprintf("workflow.%s.%s", string(s.kind), suffix)
-}
-
-func (s Stage) fanoutMemberNoun() string {
-	if s.kind == StageKindFork {
-		return "branch"
-	}
-	return "item"
-}
-
 type fanoutOutputDecoder struct {
 	stageName  string
 	stageID    string
