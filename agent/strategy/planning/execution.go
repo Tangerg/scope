@@ -25,6 +25,9 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 	if e == nil || !e.definition.valid() {
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
+	if err := ctx.Err(); err != nil {
+		return agent.Transition{}, err
+	}
 	switch e.state.Phase {
 	case phaseReadySense:
 		if len(signals) != 0 {
@@ -112,7 +115,13 @@ func (e *execution) acceptSense(
 		return e.fail(consumedSignals, agent.FailureKindContract, "planning.problem.invalid", err.Error())
 	}
 	plan, found, err := e.definition.planner.Plan(ctx, problem)
+	if cancelErr := ctx.Err(); cancelErr != nil {
+		return agent.Transition{}, cancelErr
+	}
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return agent.Transition{}, err
+		}
 		return e.fail(consumedSignals, agent.FailureKindExecution, "planning.planner.failed", err.Error())
 	}
 	if !found {
