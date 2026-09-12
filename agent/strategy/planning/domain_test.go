@@ -221,8 +221,8 @@ func TestOutputValidatesCompletedPlanningFacts(t *testing.T) {
 		{name: "stuck with missing pass", outcome: planning.OutcomeStuck, attempts: []planning.Attempt{failed}},
 		{name: "stuck with extra passes", outcome: planning.OutcomeStuck, attempts: []planning.Attempt{failed}, passes: 3},
 		{name: "repeated success", outcome: planning.OutcomeAchieved, attempts: []planning.Attempt{succeeded, succeeded}, passes: 2, valid: true},
-		{name: "attempt after failure", outcome: planning.OutcomeAchieved, attempts: []planning.Attempt{failed, succeeded}, passes: 2},
-		{name: "attempt after unconfirmed action", outcome: planning.OutcomeStuck, attempts: []planning.Attempt{unconfirmed, succeeded}, passes: 2},
+		{name: "attempt after failure", outcome: planning.OutcomeAchieved, attempts: []planning.Attempt{failed, succeeded}, passes: 2, valid: true},
+		{name: "attempt after unconfirmed action", outcome: planning.OutcomeStuck, attempts: []planning.Attempt{unconfirmed, succeeded}, passes: 2, valid: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			output := planning.Output{Outcome: test.outcome, Attempts: test.attempts, PlanningPasses: test.passes}

@@ -83,7 +83,8 @@ type Output struct {
 }
 
 // Validate checks completed planning counters and ordered attempt facts. Goal
-// satisfaction and Action membership require the owning Definition.
+// satisfaction, Action membership, and admission policy require the owning
+// Definition. A repeated Action name is a valid fact, even after a failed attempt.
 func (o Output) Validate() error {
 	if !o.Outcome.Valid() {
 		return errors.New("planning: invalid output outcome")
@@ -111,16 +112,9 @@ func (o Output) Validate() error {
 }
 
 func validateAttempts(attempts []Attempt) error {
-	previouslyExcluded := make(map[string]struct{})
 	for index, attempt := range attempts {
 		if err := attempt.Validate(); err != nil {
 			return fmt.Errorf("planning: attempt %d: %w", index, err)
-		}
-		if _, excluded := previouslyExcluded[attempt.ActionName]; excluded {
-			return fmt.Errorf("planning: Action %q was attempted after exclusion", attempt.ActionName)
-		}
-		if attempt.Status != AttemptSucceeded {
-			previouslyExcluded[attempt.ActionName] = struct{}{}
 		}
 	}
 	return nil

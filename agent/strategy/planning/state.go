@@ -66,10 +66,8 @@ func (e executionState) validate(definition *Definition) error {
 }
 
 func (e executionState) validateAttemptFacts(definition *Definition) error {
-	for _, attempt := range e.Attempts {
-		if _, found := definition.binding(attempt.ActionName); !found {
-			return fmt.Errorf("%w: attempt references unknown Action %q", ErrInvalidExecutionState, attempt.ActionName)
-		}
+	if err := definition.validateActionHistory(e.Attempts); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
 	if e.attemptCount() > uint64(definition.maxActionAttempts) {
 		return ErrInvalidExecutionState
@@ -93,7 +91,7 @@ func (e executionState) validateCurrentAction(definition *Definition) error {
 	if !found {
 		return fmt.Errorf("%w: unknown current Action %q", ErrInvalidExecutionState, e.CurrentActionName)
 	}
-	if e.actionExcluded(e.CurrentActionName) {
+	if definition.actionExcluded(e.Attempts, e.CurrentActionName) {
 		return fmt.Errorf("%w: current Action is excluded", ErrInvalidExecutionState)
 	}
 	if e.Phase == phaseAwaitingAction && binding.target != bindingTargetDispatcher ||
@@ -109,9 +107,6 @@ func (e executionState) validateProgress(definition *Definition) error {
 			return fmt.Errorf("%w: completion: %w", ErrInvalidExecutionState, err)
 		}
 		return nil
-	}
-	if err := validateAttempts(e.Attempts); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
 	attempts := uint64(len(e.Attempts))
 	passes := uint64(e.PlanningPasses)
@@ -153,15 +148,6 @@ func (e executionState) validatePhase() error {
 
 func (e executionState) awaitingConfirmation() bool {
 	return e.Phase == phaseAwaitingSense && e.CurrentActionName != ""
-}
-
-func (e executionState) actionExcluded(name string) bool {
-	for _, attempt := range e.Attempts {
-		if attempt.ActionName == name && attempt.Status != AttemptSucceeded {
-			return true
-		}
-	}
-	return false
 }
 
 func (e *executionState) confirmAction(action Action) {

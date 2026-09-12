@@ -43,6 +43,9 @@ type DefinitionConfig struct {
 // Definition is an immutable Planning Strategy definition. It contains no
 // Sensor or ActionExecutor; those I/O capabilities belong to its
 // Deployment-bound Dispatcher.
+// Failed and unconfirmed Action names remain excluded for this Definition's
+// entire execution, including after WorldState changes. Restore enforces this
+// admission policy; portable Output validation only checks attempt facts.
 type Definition struct {
 	descriptor        agent.Descriptor
 	goal              Goal
@@ -144,11 +147,43 @@ func (d *Definition) binding(name string) (ActionBinding, bool) {
 func (d *Definition) problem(state executionState) (Problem, error) {
 	actions := make([]Action, 0, len(d.bindings))
 	for _, binding := range d.bindings {
-		if !state.actionExcluded(binding.action.name) {
+		if !d.actionExcluded(state.Attempts, binding.action.name) {
 			actions = append(actions, binding.action)
 		}
 	}
 	return NewProblem(state.WorldState, d.goal, actions...)
+}
+
+func (d *Definition) actionExcluded(attempts []Attempt, name string) bool {
+	for _, attempt := range attempts {
+		if attempt.ActionName == name && d.excludes(attempt) {
+			return true
+		}
+	}
+	return false
+}
+
+func (d *Definition) excludes(attempt Attempt) bool {
+	return attempt.Status != AttemptSucceeded
+}
+
+func (d *Definition) validateActionHistory(attempts []Attempt) error {
+	if err := validateAttempts(attempts); err != nil {
+		return err
+	}
+	excluded := make(map[string]struct{})
+	for _, attempt := range attempts {
+		if _, found := d.binding(attempt.ActionName); !found {
+			return fmt.Errorf("attempt references unknown Action %q", attempt.ActionName)
+		}
+		if _, present := excluded[attempt.ActionName]; present {
+			return fmt.Errorf("Action %q was attempted after exclusion", attempt.ActionName)
+		}
+		if d.excludes(attempt) {
+			excluded[attempt.ActionName] = struct{}{}
+		}
+	}
+	return nil
 }
 
 func encodeExecutionState(state executionState) (agent.ExecutionState, error) {
