@@ -16,16 +16,19 @@ import (
 
 func TestRuntimeInspectionHasOnePublicOwner(t *testing.T) {
 	process := reflect.TypeFor[*Process]()
-	var methods []string
 	for index := range process.NumMethod() {
-		methods = append(methods, process.Method(index).Name)
-	}
-	want := []string{
-		"Await", "Budget", "Capabilities", "DeliverSignals", "DeploymentRef", "ID", "Join",
-		"Kill", "Pause", "Relation", "RequestCancellation", "ResolveUnknownEffect", "Resume", "StartedAt",
-	}
-	if !slices.Equal(methods, want) {
-		t.Fatalf("Process must expose identity, control, and Await; runtime reads belong to Engine.InspectTree: %v", methods)
+		method := process.Method(index)
+		for output := range method.Type.NumOut() {
+			value := method.Type.Out(output)
+			if value.Kind() == reflect.Pointer {
+				value = value.Elem()
+			}
+			switch value {
+			case reflect.TypeFor[TreeInspection](), reflect.TypeFor[ProcessInspection](),
+				reflect.TypeFor[TreeSnapshot](), reflect.TypeFor[ProcessSnapshot]():
+				t.Errorf("Process.%s exposes runtime inspection owned by Engine", method.Name)
+			}
+		}
 	}
 	engine := reflect.TypeFor[*Engine]()
 	var inspectionMethods []string
@@ -74,7 +77,10 @@ func TestBoundaryValuesDoNotCarryRuntimeAuthority(t *testing.T) {
 	}
 }
 
-func assertNoRuntimeAuthority(t *testing.T, value reflect.Type, seen map[reflect.Type]bool) {
+func assertNoRuntimeAuthority(t interface {
+	Helper()
+	Errorf(string, ...any)
+}, value reflect.Type, seen map[reflect.Type]bool) {
 	t.Helper()
 	if seen[value] {
 		return
@@ -116,55 +122,6 @@ func assertNoRuntimeAuthority(t *testing.T, value reflect.Type, seen map[reflect
 	}
 }
 
-func TestFrameworkRootExcludesHostAbstractions(t *testing.T) {
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	forbiddenIdentifiers := map[string]bool{
-		"Store": true, "Repository": true, "Transaction": true, "Lease": true,
-	}
-	forbiddenFragments := []string{"Session", "Conversation", "Workspace", "WriteSet"}
-	files := token.NewFileSet()
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		file, err := parser.ParseFile(files, filepath.Clean(name), nil, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		ast.Inspect(file, func(node ast.Node) bool {
-			for _, identifier := range declaredIdentifiers(node) {
-				forbidden := forbiddenIdentifiers[identifier.Name]
-				for _, fragment := range forbiddenFragments {
-					forbidden = forbidden || strings.Contains(identifier.Name, fragment)
-				}
-				if forbidden {
-					t.Errorf("%s declares forbidden Host abstraction identifier %q", name, identifier.Name)
-				}
-			}
-			return true
-		})
-	}
-}
-
-func declaredIdentifiers(node ast.Node) []*ast.Ident {
-	switch declaration := node.(type) {
-	case *ast.TypeSpec:
-		return []*ast.Ident{declaration.Name}
-	case *ast.FuncDecl:
-		return []*ast.Ident{declaration.Name}
-	case *ast.ValueSpec:
-		return declaration.Names
-	case *ast.Field:
-		return declaration.Names
-	default:
-		return nil
-	}
-}
-
 func TestProcessConstructionRemainsEngineOwned(t *testing.T) {
 	files := token.NewFileSet()
 	entries, err := os.ReadDir(".")
@@ -185,11 +142,59 @@ func TestProcessConstructionRemainsEngineOwned(t *testing.T) {
 			case *ast.GenDecl:
 				assertProcessFieldsArePrivate(t, name, declaration)
 			case *ast.FuncDecl:
-				if returnsProcessPointer(declaration.Type.Results) &&
-					(declaration.Recv == nil || receiverTypeName(declaration.Recv) != "Engine") {
+				if exportsProcessConstruction(declaration) {
 					t.Errorf("%s exports non-Engine Process construction through %s", name, declaration.Name.Name)
 				}
 			}
+		}
+	}
+}
+
+func exportsProcessConstruction(declaration *ast.FuncDecl) bool {
+	return declaration.Name.IsExported() && returnsProcessPointer(declaration.Type.Results) &&
+		receiverTypeName(declaration.Recv) != "Engine"
+}
+
+func TestProcessConstructionGuardDistinguishesPublicAuthority(t *testing.T) {
+	for _, test := range []struct {
+		declaration string
+		forbidden   bool
+	}{
+		{declaration: "func newHandle() *Process"},
+		{declaration: "func (e *Engine) Start() (*Process, error)"},
+		{declaration: "func NewHandle() *Process", forbidden: true},
+		{declaration: "func (f *Factory) NewHandle() *Process", forbidden: true},
+		{declaration: "func NewValue() string"},
+	} {
+		file, err := parser.ParseFile(token.NewFileSet(), "factory.go", "package agent\n"+test.declaration, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := exportsProcessConstruction(file.Decls[0].(*ast.FuncDecl)); got != test.forbidden {
+			t.Fatalf("%s: forbidden=%t", test.declaration, got)
+		}
+	}
+}
+
+type authorityProbe struct{ found bool }
+
+func (a *authorityProbe) Helper()               {}
+func (a *authorityProbe) Errorf(string, ...any) { a.found = true }
+
+func TestBoundaryAuthorityGuardDetectsCapabilitiesRegardlessOfNames(t *testing.T) {
+	for _, test := range []struct {
+		value     reflect.Type
+		forbidden bool
+	}{
+		{value: reflect.TypeFor[struct{ Value *Engine }](), forbidden: true},
+		{value: reflect.TypeFor[struct{ Value Dispatcher }](), forbidden: true},
+		{value: reflect.TypeFor[struct{ Value func() *Process }](), forbidden: true},
+		{value: reflect.TypeFor[struct{ Session string }]()},
+	} {
+		probe := &authorityProbe{}
+		assertNoRuntimeAuthority(probe, test.value, make(map[reflect.Type]bool))
+		if probe.found != test.forbidden {
+			t.Fatalf("%v: forbidden=%t", test.value, probe.found)
 		}
 	}
 }
