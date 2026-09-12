@@ -36,10 +36,7 @@ func ExamplePreparer() {
 	if err != nil {
 		panic(err)
 	}
-	candidates, _, err := ragchat.CandidatesFromMetadata(response.Metadata)
-	if err != nil {
-		panic(err)
-	}
+	candidates := prepared.Evidence().Candidates
 	fmt.Println(response.Text(), len(candidates))
 	// Output: AI infrastructure 1
 }

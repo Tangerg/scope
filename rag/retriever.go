@@ -252,8 +252,20 @@ func parallelResults[Item, Out any](
 
 	var wg sync.WaitGroup
 	slots := make(chan struct{}, min(maxConcurrent, len(items)))
+admission:
 	for index, item := range items {
-		slots <- struct{}{}
+		if ctx.Err() != nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			break admission
+		case slots <- struct{}{}:
+		}
+		if ctx.Err() != nil {
+			<-slots
+			break
+		}
 		wg.Go(func() {
 			defer func() { <-slots }()
 			result, err := fn(ctx, index, item)
@@ -266,7 +278,7 @@ func parallelResults[Item, Out any](
 	}
 	wg.Wait()
 
-	if err := errors.Join(failures...); err != nil {
+	if err := errors.Join(append(failures, ctx.Err())...); err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 

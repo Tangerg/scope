@@ -116,20 +116,13 @@ func TestPreparerStreamPublishesRetrievalMetadataOnce(t *testing.T) {
 		}
 	})
 	var accumulator chat.ResponseAccumulator
-	var candidatePayloads, citationPayloads int
+
 	for delta, streamErr := range prepared.Stream(t.Context(), streamer) {
 		if streamErr != nil {
 			t.Fatal(streamErr)
 		}
-		if _, found, decodeErr := ragchat.CandidatesFromMetadata(delta.Metadata); decodeErr != nil {
-			t.Fatal(decodeErr)
-		} else if found {
-			candidatePayloads++
-		}
-		if _, found, decodeErr := ragchat.CitationsFromMetadata(delta.Metadata); decodeErr != nil {
-			t.Fatal(decodeErr)
-		} else if found {
-			citationPayloads++
+		if delta.Metadata != nil {
+			t.Fatal("retrieval changed delta metadata")
 		}
 		if addErr := accumulator.Add(delta); addErr != nil {
 			t.Fatal(addErr)
@@ -139,7 +132,11 @@ func TestPreparerStreamPublishesRetrievalMetadataOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if candidatePayloads != 1 || citationPayloads != 1 || !reflect.DeepEqual(streamed, complete) {
-		t.Fatalf("payload counts = %d, %d; streamed = %#v, complete = %#v", candidatePayloads, citationPayloads, streamed, complete)
+	if !reflect.DeepEqual(streamed, complete) {
+		t.Fatalf("streamed = %#v, complete = %#v", streamed, complete)
+	}
+	evidence := prepared.Evidence()
+	if len(evidence.Candidates) != 1 || len(evidence.Citations) != 1 {
+		t.Fatalf("evidence = %#v", evidence)
 	}
 }

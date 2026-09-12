@@ -123,7 +123,7 @@ func mustPrepare(t *testing.T, preparer *ragchat.Preparer, request *chat.Request
 	return prepared
 }
 
-func TestPreparerAugmentsRequestAndAttachesDocs(t *testing.T) {
+func TestPreparerAugmentsRequestAndOwnsEvidence(t *testing.T) {
 	doc, _ := document.NewDocument("retrieved info", nil)
 	retriever := &stubRetriever{docs: rag.Candidates{candidate(doc)}}
 	aug, _ := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{})
@@ -137,7 +137,8 @@ func TestPreparerAugmentsRequestAndAttachesDocs(t *testing.T) {
 
 	model := &echoChatModel{}
 	request, _ := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("what is RAG?")))
-	response, err := mustPrepare(t, preparer, request).Call(t.Context(), model)
+	prepared := mustPrepare(t, preparer, request)
+	response, err := prepared.Call(t.Context(), model)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,22 +146,22 @@ func TestPreparerAugmentsRequestAndAttachesDocs(t *testing.T) {
 	if !strings.Contains(model.captured, "retrieved info") {
 		t.Fatalf("augmented user message did not embed retrieved doc: %q", model.captured)
 	}
-	docs, ok, err := ragchat.CandidatesFromMetadata(response.Metadata)
-	if err != nil {
-		t.Fatal(err)
+	if response.Metadata != nil {
+		t.Fatal("retrieval changed model metadata")
 	}
-	if !ok {
-		t.Fatal("retrieved candidates not attached to response")
+	evidence := prepared.Evidence()
+	if len(evidence.Candidates) != 1 {
+		t.Fatalf("candidates = %#v", evidence.Candidates)
 	}
-	if len(docs) != 1 {
-		t.Fatalf("attached docs len = %d, want 1", len(docs))
+	citations := evidence.Citations
+	if len(citations) != 1 || citations[0].Marker() != "[1]" || citations[0].Candidate.Document.Text != doc.Text {
+		t.Fatalf("citations = %#v", citations)
 	}
-	citations, found, err := ragchat.CitationsFromMetadata(response.Metadata)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !found || len(citations) != 1 || citations[0].Marker() != "[1]" || citations[0].Candidate.Document.Text != doc.Text {
-		t.Fatalf("citations = %#v, present %v", citations, found)
+	evidence.Candidates[0].Document.Text = "changed"
+	evidence.Citations[0].Candidate.Document.Text = "changed"
+	again := prepared.Evidence()
+	if again.Candidates[0].Document.Text != doc.Text || again.Citations[0].Candidate.Document.Text != doc.Text {
+		t.Fatal("evidence snapshot mutated preparation")
 	}
 }
 
@@ -207,7 +208,7 @@ func TestPreparerPreservesChatExtensionsAndExposesTypedHistory(t *testing.T) {
 	}
 }
 
-func TestPreparerStreamAugmentsOnceAndAttachesDocs(t *testing.T) {
+func TestPreparerStreamAugmentsOnceAndOwnsEvidence(t *testing.T) {
 	doc, _ := document.NewDocument("streamed context", nil)
 	retriever := &countingRetriever{docs: rag.Candidates{candidate(doc)}}
 	aug, _ := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{})
@@ -219,13 +220,17 @@ func TestPreparerStreamAugmentsOnceAndAttachesDocs(t *testing.T) {
 	model := &echoChatModel{}
 	request, _ := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("question")))
 	var chunks int
-	for response, streamErr := range mustPrepare(t, preparer, request).Stream(t.Context(), model) {
+	prepared := mustPrepare(t, preparer, request)
+	for response, streamErr := range prepared.Stream(t.Context(), model) {
 		if streamErr != nil {
 			t.Fatal(streamErr)
 		}
 		chunks++
-		if _, ok, decodeErr := ragchat.CandidatesFromMetadata(response.Metadata); decodeErr != nil || !ok {
-			t.Fatalf("document extension = present %v, error %v", ok, decodeErr)
+		if response.Metadata != nil {
+			t.Fatal("retrieval changed delta metadata")
+		}
+		if len(prepared.Evidence().Candidates) != 1 {
+			t.Fatal("missing evidence")
 		}
 	}
 	if chunks != 1 || retriever.hits != 1 {
@@ -294,12 +299,13 @@ func TestPreparerPreservesPartialModelResponse(t *testing.T) {
 	})
 	request, _ := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("question")))
 
-	response, err := mustPrepare(t, preparer, request).Call(t.Context(), model)
+	prepared := mustPrepare(t, preparer, request)
+	response, err := prepared.Call(t.Context(), model)
 	if response != partial || !errors.Is(err, wantErr) {
 		t.Fatalf("response/error = %p/%v, want %p/%v", response, err, partial, wantErr)
 	}
-	if _, found, decodeErr := ragchat.CandidatesFromMetadata(response.Metadata); decodeErr != nil || !found {
-		t.Fatalf("partial response document extension = present %v, error %v", found, decodeErr)
+	if len(prepared.Evidence().Candidates) != 1 {
+		t.Fatal("model failure lost retrieval evidence")
 	}
 }
 

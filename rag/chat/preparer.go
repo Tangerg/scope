@@ -28,11 +28,6 @@ var (
 	ErrNoFinalUserMessage = errors.New("rag: chat request must end with a user message")
 )
 
-const (
-	retrievedCandidatesMetadataKey = "rag/retrieved_candidates"
-	citationsMetadataKey           = "rag/citations"
-)
-
 var historyValueKey = lo.Must(rag.NewValueKey[[]corechat.Message]("chat history"))
 
 // HistoryValueKey returns the typed query slot for the immutable history
@@ -131,57 +126,17 @@ func (p PreparedRequest) history() []corechat.Message {
 	return history
 }
 
-func (p PreparedRequest) attachRetrievalMetadata(target **corechat.ResponseMetadata) error {
-	if *target == nil {
-		*target = &corechat.ResponseMetadata{}
-	}
-	metadata := *target
-	if err := metadata.Extra.Set(retrievedCandidatesMetadataKey, p.candidates); err != nil {
-		return err
-	}
-	if len(p.citations) == 0 {
-		delete(metadata.Extra, citationsMetadataKey)
-		return nil
-	}
-	return metadata.Extra.Set(citationsMetadataKey, p.citations)
+// Evidence is the retrieval result for one prepared request. It belongs to RAG
+// and remains available independently of model success or stream consumption.
+type Evidence struct {
+	Candidates rag.Candidates
+	Citations  rag.Citations
 }
 
-// CandidatesFromMetadata returns the candidates attached by [PreparedRequest].
-// Streaming responses attach the payload to their first non-nil delta only.
-// corechat.ResponseAccumulator retains it in the complete response.
-func CandidatesFromMetadata(metadata *corechat.ResponseMetadata) (rag.Candidates, bool, error) {
-	if metadata == nil {
-		return nil, false, nil
-	}
-	candidates, found, err := metadata.Extra.Decode[rag.Candidates](retrievedCandidatesMetadataKey)
-	if err != nil {
-		return nil, found, fmt.Errorf("rag: decode retrieved candidates: %w", err)
-	}
-	if found {
-		if err := candidates.Validate(); err != nil {
-			return nil, true, fmt.Errorf("rag: decode retrieved candidates: %w", err)
-		}
-	}
-	return candidates, found, nil
-}
-
-// CitationsFromMetadata returns the ordered citation mapping produced by the
-// configured augmenter. The boolean reports whether citation metadata was
-// present.
-func CitationsFromMetadata(metadata *corechat.ResponseMetadata) (rag.Citations, bool, error) {
-	if metadata == nil {
-		return nil, false, nil
-	}
-	citations, found, err := metadata.Extra.Decode[rag.Citations](citationsMetadataKey)
-	if err != nil {
-		return nil, found, fmt.Errorf("rag: decode citations: %w", err)
-	}
-	if found {
-		if err := citations.Validate(); err != nil {
-			return nil, true, fmt.Errorf("rag: decode citations: %w", err)
-		}
-	}
-	return citations, found, nil
+// Evidence returns independently owned candidates and their ordered citations.
+// Complete documents are never added to model response metadata implicitly.
+func (p PreparedRequest) Evidence() Evidence {
+	return Evidence{Candidates: p.candidates.Clone(), Citations: p.citations.Clone()}
 }
 
 // NewPreparer freezes the retrieval and augmentation policies.
@@ -244,8 +199,8 @@ func (p *Preparer) Prepare(ctx context.Context, request *corechat.Request) (Prep
 	return prepared, nil
 }
 
-// Call runs the prepared request through next and attaches retrieval evidence
-// to its response. It does not retrieve again, including on a model failure.
+// Call runs the prepared request through next. Evidence remains on the prepared
+// request; this call never retrieves again, including on a model failure.
 func (p PreparedRequest) Call(ctx context.Context, next corechat.Model) (*corechat.Response, error) {
 	if p.request == nil {
 		return nil, fmt.Errorf("%w: unprepared request", corechat.ErrInvalidRequest)
@@ -260,14 +215,12 @@ func (p PreparedRequest) Call(ctx context.Context, next corechat.Model) (*corech
 		}
 		return nil, ErrNilResponse
 	}
-	if extensionErr := p.attachRetrievalMetadata(&response.Metadata); extensionErr != nil {
-		return response, errors.Join(err, extensionErr)
-	}
+
 	return response, err
 }
 
-// Stream starts model work lazily and attaches retrieval evidence to the first
-// delta. Preparation has already completed; stopping iteration synchronously
+// Stream starts model work lazily. Evidence remains on the prepared request.
+// Preparation has already completed; stopping iteration synchronously
 // releases the downstream stream through its normal iterator contract.
 func (p PreparedRequest) Stream(ctx context.Context, next corechat.Streamer) iter.Seq2[*corechat.ResponseDelta, error] {
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
@@ -284,7 +237,6 @@ func (p PreparedRequest) Stream(ctx context.Context, next corechat.Streamer) ite
 			yield(nil, ErrNilStreamSequence)
 			return
 		}
-		attached := false
 		for delta, streamErr := range sequence {
 			if delta == nil {
 				if streamErr != nil {
@@ -294,13 +246,7 @@ func (p PreparedRequest) Stream(ctx context.Context, next corechat.Streamer) ite
 				yield(nil, ErrNilResponse)
 				return
 			}
-			if !attached {
-				if extensionErr := p.attachRetrievalMetadata(&delta.Metadata); extensionErr != nil {
-					yield(delta, errors.Join(streamErr, extensionErr))
-					return
-				}
-				attached = true
-			}
+
 			if streamErr != nil {
 				yield(delta, streamErr)
 				return

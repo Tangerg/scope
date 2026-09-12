@@ -73,8 +73,8 @@ func TestPreparedRequestPreservesEvidenceThroughToolContinuation(t *testing.T) {
 	if err != nil || response.Text() != "done" || retrievals != 1 || executions != 1 || modelCalls != 2 {
 		t.Fatalf("response = %v, error = %v, retrievals = %d, tools = %d, model calls = %d", response, err, retrievals, executions, modelCalls)
 	}
-	candidates, found, err := ragchat.CandidatesFromMetadata(response.Metadata)
-	if err != nil || !found || !reflect.DeepEqual(candidates, evidence) {
-		t.Fatalf("evidence = %#v, found = %v, error = %v", candidates, found, err)
+	candidates := prepared.Evidence().Candidates
+	if !reflect.DeepEqual(candidates, evidence) {
+		t.Fatalf("evidence = %#v", candidates)
 	}
 }
