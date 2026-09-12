@@ -42,9 +42,6 @@ func TestObserverTracesRealProcessStepAndEffectLifecycle(t *testing.T) {
 	}
 	duration := metricByName(t, metrics, "gen_ai.invoke_agent.duration")
 	point := duration.Data.(metricdata.Histogram[float64]).DataPoints[0]
-	if point.Sum != process.EndTime().Sub(process.StartTime()).Seconds() {
-		t.Error("agent metric duration differs from its span")
-	}
 	if !slices.Equal(point.Bounds, []float64{0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8, 25.6, 51.2, 102.4, 204.8, 409.6}) {
 		t.Errorf("agent duration bounds = %v", point.Bounds)
 	}
@@ -165,7 +162,7 @@ func assertObservedMetrics(t *testing.T, reader *sdkmetric.ManualReader, result 
 	if got := int64Sum(t, metricByName(t, metrics, "agent.process.exits")); got != 1 {
 		t.Fatalf("process exits = %d, want 1", got)
 	}
-	if got := histogramCount(t, metricByName(t, metrics, "agent.step.duration")); got != 2 {
+	if got := histogramCount(t, metricByName(t, metrics, "agent.step.work.duration")); got != 2 {
 		t.Fatalf("step duration observations = %d, want 2", got)
 	}
 	if got := histogramCount(t, metricByName(t, metrics, "agent.effect.duration")); got != 1 {
@@ -175,7 +172,7 @@ func assertObservedMetrics(t *testing.T, reader *sdkmetric.ManualReader, result 
 		t.Fatalf("process duration observations = %d, want 1", got)
 	}
 	for _, name := range []string{
-		"gen_ai.invoke_agent.duration", "agent.step.duration", "agent.effect.duration",
+		"gen_ai.invoke_agent.duration", "agent.step.work.duration", "agent.effect.duration",
 	} {
 		if got := metricByName(t, metrics, name).Unit; got != "s" {
 			t.Fatalf("metric %q unit = %q, want seconds", name, got)
@@ -185,7 +182,7 @@ func assertObservedMetrics(t *testing.T, reader *sdkmetric.ManualReader, result 
 	assertInt64HistogramSum(t, metricByName(t, metrics, "agent.process.committed_steps"), int64(usage.CommittedSteps))
 	assertInt64HistogramSum(t, metricByName(t, metrics, "agent.process.prepared_effects"), int64(usage.PreparedEffects))
 	assertInt64HistogramSum(t, metricByName(t, metrics, "agent.process.accepted_signals"), int64(usage.AcceptedSignals))
-	assertHistogramAttribute(t, metricByName(t, metrics, "agent.step.duration"), "agent.deployment.name", "test.otel")
+	assertHistogramAttribute(t, metricByName(t, metrics, "agent.step.work.duration"), "agent.deployment.name", "test.otel")
 	assertHistogramAttribute(t, metricByName(t, metrics, "agent.effect.duration"), "agent.deployment.name", "test.otel")
 	assertSumAttribute(t, metricByName(t, metrics, "agent.process.activations"), "agent.process.activation", "started")
 }

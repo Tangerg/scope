@@ -11,7 +11,7 @@ import (
 
 type behaviorProjection struct {
 	Termination behaviorTermination `json:"termination"`
-	Output      *agent.Output       `json:"output,omitempty"`
+	Output      json.RawMessage     `json:"output,omitempty"`
 	Events      []behaviorEvent     `json:"events"`
 	Models      []behaviorModel     `json:"models,omitempty"`
 	Tools       []behaviorTool      `json:"tools,omitempty"`
@@ -20,10 +20,8 @@ type behaviorProjection struct {
 type behaviorTermination struct {
 	Status            agent.Status           `json:"status"`
 	Cause             agent.TerminationCause `json:"cause"`
-	Reason            string                 `json:"reason,omitempty"`
 	FailureKind       agent.FailureKind      `json:"failure_kind,omitempty"`
 	FailureCode       string                 `json:"failure_code,omitempty"`
-	FailureMessage    string                 `json:"failure_message,omitempty"`
 	UnresolvedEffects int                    `json:"unresolved_effects,omitempty"`
 }
 
@@ -40,7 +38,6 @@ type behaviorEvent struct {
 	StepStatus       agent.StepStatus       `json:"step_status,omitempty"`
 	EffectTarget     agent.EffectTarget     `json:"effect_target,omitempty"`
 	Settlement       agent.SettlementStatus `json:"settlement,omitempty"`
-	DroppedDeltas    uint64                 `json:"dropped_deltas,omitempty"`
 }
 
 type behaviorModel struct {
@@ -68,13 +65,12 @@ type behaviorToolResult struct {
 
 func behaviorTerminationOf(termination agent.Termination) behaviorTermination {
 	projection := behaviorTermination{
-		Status: termination.Status(), Cause: termination.Cause(), Reason: termination.Reason(),
+		Status: termination.Status(), Cause: termination.Cause(),
 		UnresolvedEffects: len(termination.UnresolvedEffectIDs()),
 	}
 	if failure, present := termination.Failure(); present {
 		projection.FailureKind = failure.Kind()
 		projection.FailureCode = failure.Code()
-		projection.FailureMessage = failure.Message()
 	}
 	return projection
 }
@@ -94,10 +90,6 @@ func (b *behaviorEvent) apply(event agent.Event) {
 		b.StepStatus = fact.Status()
 		return
 	}
-	if fact, present := event.StepCommitted(); present {
-		b.ProcessStatus = fact.Status()
-		return
-	}
 	if fact, present := event.EffectStarted(); present {
 		b.EffectTarget = fact.Target()
 		return
@@ -106,9 +98,6 @@ func (b *behaviorEvent) apply(event agent.Event) {
 		b.EffectTarget = fact.Target()
 		b.Settlement = fact.SettlementStatus()
 		return
-	}
-	if fact, present := event.DeltaDropped(); present {
-		b.DroppedDeltas = fact.Count()
 	}
 }
 

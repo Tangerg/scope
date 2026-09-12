@@ -12,11 +12,11 @@ import (
 func TestTrajectoryRequiresAgreementWithRootFinishedEvent(t *testing.T) {
 	recorder := &trajectory.Recorder{}
 	process, _ := startRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{}, 1)
-	result, err := process.Await(t.Context())
+	_, err := process.Await(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	recorded, err := recorder.Take(result)
+	recorded, err := recorder.Take(t.Context(), process, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestTrajectoryRequiresAgreementWithRootFinishedEvent(t *testing.T) {
 			termination := trajectoryFailureTermination(t, recorded.Termination(), testCase.cause, failure)
 			constructed, constructErr := trajectory.New(trajectory.Config{
 				RootProcessID: recorded.RootProcessID(), Termination: termination,
-				Usage: recorded.Usage(), Duration: recorded.Duration(), Events: recorded.Events(),
+				RootUsage: recorded.RootUsage(), Elapsed: recorded.Elapsed(), Events: recorded.Events(),
 				ModelCalls: recorded.ModelCalls(), ToolCalls: recorded.ToolCalls(),
 			})
 			var wire map[string]json.RawMessage

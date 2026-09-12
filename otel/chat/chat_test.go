@@ -75,7 +75,7 @@ func response(text string, finish chat.FinishReason, input, output int64) *chat.
 		Output: &chat.Output{Message: &message, FinishReason: finish},
 		Metadata: &chat.ResponseMetadata{
 			ID: "response-1", Model: "served-model",
-			Usage: chat.Usage{InputTokens: input, OutputTokens: output},
+			Usage: &chat.Usage{InputTokens: input, OutputTokens: output},
 		},
 	}
 }
@@ -85,7 +85,7 @@ func responseDelta(text string, finish chat.FinishReason, input, output int64) *
 		FinishReason: finish,
 		Metadata: &chat.ResponseMetadata{
 			ID: "response-1", Model: "served-model",
-			Usage: chat.Usage{InputTokens: input, OutputTokens: output},
+			Usage: &chat.Usage{InputTokens: input, OutputTokens: output},
 		},
 	}
 	if text != "" {
@@ -159,7 +159,7 @@ func TestCallRecordsCurrentGenAISemantics(t *testing.T) {
 		Output: &chat.Output{FinishReason: chat.FinishReasonStop},
 		Metadata: &chat.ResponseMetadata{
 			ID: "response-1", Model: "claude-served",
-			Usage: chat.Usage{InputTokens: 12, OutputTokens: 7},
+			Usage: &chat.Usage{InputTokens: 12, OutputTokens: 7},
 		},
 	}
 	var sawSpanContext bool
@@ -215,6 +215,64 @@ func TestCallRecordsCurrentGenAISemantics(t *testing.T) {
 	}
 	assertMetricAttribute(t, metrics, "gen_ai.client.token.usage", "gen_ai.provider.name", "anthropic")
 	assertMetricAttribute(t, metrics, "gen_ai.client.operation.duration", "gen_ai.request.model", "claude-requested")
+}
+
+func TestStreamingAccountingUsesTheLastReportedSnapshot(t *testing.T) {
+	for _, sample := range []struct {
+		name    string
+		initial *chat.Usage
+		final   *chat.Usage
+		known   bool
+		input   int64
+		cached  bool
+	}{
+		{name: "unreported"},
+		{name: "explicit zero", initial: &chat.Usage{InputTokens: 8, OutputTokens: 2, CacheReadInputTokens: new(int64(4))}, final: &chat.Usage{}, known: true},
+		{name: "later omission", initial: &chat.Usage{InputTokens: 8, OutputTokens: 2, CacheReadInputTokens: new(int64(4))}, known: true, input: 8, cached: true},
+	} {
+		t.Run(sample.name, func(t *testing.T) {
+			middleware, rig := newRig(t, "openai")
+			streamer := chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
+				return func(yield func(*chat.ResponseDelta, error) bool) {
+					if !yield(&chat.ResponseDelta{Metadata: &chat.ResponseMetadata{Usage: sample.initial}}, nil) {
+						return
+					}
+					yield(&chat.ResponseDelta{FinishReason: chat.FinishReasonStop, Metadata: &chat.ResponseMetadata{Usage: sample.final}}, nil)
+				}
+			})
+			for delta, err := range middleware.Stream(streamer).Stream(t.Context(), request("model")) {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if delta.Metadata.Usage != nil && delta.Metadata.Usage.CacheReadInputTokens != nil {
+					*delta.Metadata.Usage.CacheReadInputTokens = 1
+				}
+			}
+			attrs := spanAttributes(t, rig.spans.Ended()[0])
+			input, present := attrs["gen_ai.usage.input_tokens"]
+			if present != sample.known || present && input.AsInt64() != sample.input {
+				t.Fatalf("input accounting = %v, present=%v", input, present)
+			}
+			cached, present := attrs["gen_ai.usage.cache_read.input_tokens"]
+			if present != sample.cached || present && cached.AsInt64() != 4 {
+				t.Fatalf("cache accounting = %v, present=%v", cached, present)
+			}
+			metrics := collectMetrics(t, rig.reader)
+			if sample.known {
+				if value := histogramInt64Sum(t, metrics, "gen_ai.client.token.usage", "gen_ai.token.type", "input"); value != sample.input {
+					t.Fatalf("input metric = %d", value)
+				}
+			} else {
+				for _, scope := range metrics.ScopeMetrics {
+					for _, metric := range scope.Metrics {
+						if metric.Name == "gen_ai.client.token.usage" {
+							t.Fatal("unreported accounting emitted a token metric")
+						}
+					}
+				}
+			}
+		})
+	}
 }
 
 func TestCallPreservesResponseAndError(t *testing.T) {

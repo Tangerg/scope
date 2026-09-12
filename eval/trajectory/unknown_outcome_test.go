@@ -71,7 +71,7 @@ func TestRecorderPreservesHostFailureAsUnknownToolOutcome(t *testing.T) {
 	if len(unresolved) != 1 || len(unknown) != 1 || unresolved[0] != unknown[0] {
 		t.Fatalf("terminal unresolved Effects=%v, want %v", unresolved, unknown)
 	}
-	recorded, err := recorder.Take(result)
+	recorded, err := recorder.Take(t.Context(), process, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,22 +93,15 @@ func (d *delayedToolObserver) OnToolSettled(_ context.Context, invocation intera
 	d.settlement = settlement
 }
 
-func TestIncompleteTakeRetainsObservationsUntilTheyCanBeValidated(t *testing.T) {
+func TestIncompleteTakeConsumesSessionAndLateCallbacksDoNotReopenIt(t *testing.T) {
 	recorder := &trajectory.Recorder{}
 	observer := &delayedToolObserver{Recorder: recorder}
-	result := runRecordedInteraction(t, recorder, observer, fixtureWeatherTool{})
-	if _, err := recorder.Take(result); !errors.Is(err, trajectory.ErrIncompleteRecording) {
-		t.Fatalf("Take without tool settlement error = %v", err)
+	process := runRecordedInteraction(t, recorder, observer, fixtureWeatherTool{})
+	if _, err := recorder.Take(t.Context(), process, nil); !errors.Is(err, trajectory.ErrIncompleteRecording) {
+		t.Fatalf("incomplete Take = %v", err)
 	}
 	recorder.OnToolSettled(t.Context(), observer.invocation, observer.settlement)
-	recorded, err := recorder.Take(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(recorded.ModelCalls()) != 2 || len(recorded.ToolCalls()) != 1 {
-		t.Fatalf("failed Take consumed observations: %d model calls, %d tool calls", len(recorded.ModelCalls()), len(recorded.ToolCalls()))
-	}
-	if _, err := recorder.Take(result); err == nil {
-		t.Fatal("successful Take did not release the recording")
+	if _, err := recorder.Take(t.Context(), process, nil); !errors.Is(err, trajectory.ErrIncompleteRecording) {
+		t.Fatalf("late callback reopened recording: %v", err)
 	}
 }

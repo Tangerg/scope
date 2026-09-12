@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -185,4 +186,72 @@ func (o overlappingDispatcher) Dispatch(ctx context.Context, request agent.Effec
 	o.entered <- observedDispatch{request: request, release: release}
 	<-release
 	return o.testDispatcher.Dispatch(ctx, request, emit)
+}
+
+func TestActivationMetricUsesMonotonicObservationInterval(t *testing.T) {
+	events := captureObserverEvents(t)
+	synctest.Test(t, func(t *testing.T) {
+		harness := newObserverHarness(t)
+		var started, finished agent.Event
+		for _, event := range events {
+			if event.Name() == agent.EventProcessStarted {
+				started = event
+			}
+			if event.Name() == agent.EventProcessFinished {
+				finished = event
+			}
+		}
+		data, marshalErr := json.Marshal(finished)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		var wire map[string]json.RawMessage
+		if decodeErr := json.Unmarshal(data, &wire); decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		wire["occurred_at"], marshalErr = json.Marshal(started.OccurredAt().Add(-time.Hour))
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		data, marshalErr = json.Marshal(wire)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		if decodeErr := json.Unmarshal(data, &finished); decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		harness.observer.OnEvent(t.Context(), started)
+		time.Sleep(5 * time.Second)
+		harness.observer.OnEvent(t.Context(), finished)
+		var metrics metricdata.ResourceMetrics
+		if collectErr := harness.reader.Collect(t.Context(), &metrics); collectErr != nil {
+			t.Fatal(collectErr)
+		}
+		point := metricByName(t, metrics, "gen_ai.invoke_agent.duration").Data.(metricdata.Histogram[float64]).DataPoints[0]
+		if point.Sum != 5 {
+			t.Fatalf("monotonic interval = %f, want 5", point.Sum)
+		}
+	})
+}
+
+func TestProcessFinishClosesUnpairedChildSpans(t *testing.T) {
+	harness := newObserverHarness(t)
+	for _, event := range captureObserverEvents(t) {
+		step, _ := event.StepSequence()
+		if event.Name() == agent.EventProcessStarted || event.Name() == agent.EventProcessFinished ||
+			(step == 1 && (event.Name() == agent.EventStepStarted || event.Name() == agent.EventEffectStarted)) {
+			harness.observer.OnEvent(t.Context(), event)
+		}
+	}
+	for _, name := range []string{"agent.step", "agent.effect"} {
+		spans := spansByName(harness.recorder.Ended(), name)
+		if len(spans) != 1 || spans[0].Status().Code != codes.Error {
+			t.Fatalf("unpaired %s was not closed as incomplete", name)
+		}
+	}
+	before := len(harness.recorder.Ended())
+	harness.observer.Close()
+	if after := len(harness.recorder.Ended()); after != before {
+		t.Fatalf("Close ended already reclaimed spans: before=%d after=%d", before, after)
+	}
 }

@@ -38,7 +38,7 @@ const (
 	processCommittedStepsMetricName  = "agent.process.committed_steps"
 	processPreparedEffectsMetricName = "agent.process.prepared_effects"
 	processAcceptedSignalsMetricName = "agent.process.accepted_signals"
-	stepDurationMetricName           = "agent.step.duration"
+	stepDurationMetricName           = "agent.step.work.duration"
 	effectDurationMetricName         = "agent.effect.duration"
 	deltaDropsMetricName             = "agent.delta.dropped"
 
@@ -143,6 +143,7 @@ type observerInstruments struct {
 	processPreparedEffects    metric.Int64Histogram
 	processAcceptedSignals    metric.Int64Histogram
 	stepDuration              metric.Float64Histogram
+	stepAdoptionDelay         metric.Float64Histogram
 	effectDuration            metric.Float64Histogram
 	deltaDrops                metric.Int64Counter
 	durabilityDuration        metric.Float64Histogram
@@ -229,9 +230,13 @@ func newObserverInstruments(meter metric.Meter) (observerInstruments, error) {
 	if err != nil {
 		return observerInstruments{}, fmt.Errorf("%w: create process accepted signals histogram: %w", ErrInvalidObserverConfig, err)
 	}
+	stepAdoptionDelay, err := meter.Float64Histogram("agent.step.adoption.delay", metric.WithDescription("Completion delivery and tree-owner wait after Step work."), metric.WithUnit(durationUnit))
+	if err != nil {
+		return observerInstruments{}, fmt.Errorf("%w: create step adoption delay histogram: %w", ErrInvalidObserverConfig, err)
+	}
 	stepDuration, err := meter.Float64Histogram(
 		stepDurationMetricName,
-		metric.WithDescription("Execution Step wall-clock duration."),
+		metric.WithDescription("Monotonic Step, Snapshot, and Restore worker duration, excluding adoption wait."),
 		metric.WithUnit(durationUnit),
 	)
 	if err != nil {
@@ -277,6 +282,7 @@ func newObserverInstruments(meter metric.Meter) (observerInstruments, error) {
 		processPreparedEffects:    processPreparedEffects,
 		processAcceptedSignals:    processAcceptedSignals,
 		stepDuration:              stepDuration,
+		stepAdoptionDelay:         stepAdoptionDelay,
 		effectDuration:            effectDuration,
 		deltaDrops:                deltaDrops,
 		durabilityDuration:        durabilityDuration,
@@ -392,7 +398,7 @@ func (o *Observer) startProcess(ctx context.Context, event agent.Event) {
 		trace.WithAttributes(spanAttributes...),
 	)
 	record := processSpanRecord{
-		span: span, startedAt: event.OccurredAt(), activation: activation,
+		span: span, startedAt: time.Now(), activation: activation,
 	}
 	o.stateMu.Lock()
 	if _, exists := o.processes[processKeyFor(event)]; exists {
@@ -419,7 +425,12 @@ func (o *Observer) finishProcess(ctx context.Context, event agent.Event) {
 	if found {
 		delete(o.processes, processKeyFor(event))
 	}
+	children := o.takeChildSpans(processKeyFor(event))
 	o.stateMu.Unlock()
+	for _, span := range children {
+		recordSpanFailure(span, errIncompleteSpan, event.OccurredAt())
+		span.End(trace.WithTimestamp(event.OccurredAt()))
+	}
 	attributes := append(deploymentMetricAttributes(event),
 		processStatusAttribute.String(fact.Status().String()),
 		processCauseAttribute.String(fact.Cause().String()),
@@ -458,7 +469,7 @@ func (o *Observer) finishProcess(ctx context.Context, event agent.Event) {
 		durationAttributes = append(durationAttributes, semconv.ErrorType(observedError))
 	}
 	o.instruments.processActivationDuration.Record(
-		trace.ContextWithSpan(ctx, record.span), elapsedSeconds(record.startedAt, event.OccurredAt()),
+		trace.ContextWithSpan(ctx, record.span), time.Since(record.startedAt).Seconds(),
 		metric.WithAttributes(durationAttributes...),
 	)
 	spanAttributes := []attribute.KeyValue{
@@ -536,8 +547,9 @@ func (o *Observer) finishStep(ctx context.Context, event agent.Event) {
 		stepStatusAttribute.String(fact.Status().String()),
 	)
 	o.instruments.stepDuration.Record(
-		ctx, fact.Duration().Seconds(), metric.WithAttributes(metricAttributes...),
+		ctx, fact.WorkDuration().Seconds(), metric.WithAttributes(metricAttributes...),
 	)
+	o.instruments.stepAdoptionDelay.Record(ctx, fact.AdoptionDelay().Seconds(), metric.WithAttributes(metricAttributes...))
 	if !found {
 		return
 	}
@@ -748,19 +760,7 @@ func (o *Observer) stopRuntime(ctx context.Context, event agent.Event) {
 	o.stateMu.Lock()
 	record, found := o.processes[key]
 	delete(o.processes, key)
-	var spans []trace.Span
-	for step, span := range o.steps {
-		if step.process == key {
-			spans = append(spans, span)
-			delete(o.steps, step)
-		}
-	}
-	for effect, span := range o.effects {
-		if effect.process == key {
-			spans = append(spans, span)
-			delete(o.effects, effect)
-		}
-	}
+	spans := o.takeChildSpans(key)
 	o.stateMu.Unlock()
 	observedError := runtimeFactError{kind: fact.FailureKind(), code: fact.FailureCode()}
 	if found {
@@ -771,7 +771,7 @@ func (o *Observer) stopRuntime(ctx context.Context, event agent.Event) {
 			semconv.ErrorType(observedError),
 		}
 		o.instruments.processActivationDuration.Record(
-			trace.ContextWithSpan(ctx, record.span), elapsedSeconds(record.startedAt, event.OccurredAt()),
+			trace.ContextWithSpan(ctx, record.span), time.Since(record.startedAt).Seconds(),
 			metric.WithAttributes(attributes...),
 		)
 	}
@@ -820,13 +820,6 @@ func deploymentMetricAttributes(event agent.Event) []attribute.KeyValue {
 	return []attribute.KeyValue{
 		deploymentNameAttribute.String(reference.Name()),
 	}
-}
-
-func elapsedSeconds(startedAt, finishedAt time.Time) float64 {
-	if finishedAt.Before(startedAt) {
-		return 0
-	}
-	return finishedAt.Sub(startedAt).Seconds()
 }
 
 type processFactError struct {
@@ -891,3 +884,21 @@ func processStatusIsError(status agent.Status) bool {
 }
 
 var _ agent.EventListener = (*Observer)(nil)
+
+// takeChildSpans transfers active children while stateMu is held.
+func (o *Observer) takeChildSpans(key processKey) []trace.Span {
+	var spans []trace.Span
+	for step, span := range o.steps {
+		if step.process == key {
+			spans = append(spans, span)
+			delete(o.steps, step)
+		}
+	}
+	for effect, span := range o.effects {
+		if effect.process == key {
+			spans = append(spans, span)
+			delete(o.effects, effect)
+		}
+	}
+	return spans
+}

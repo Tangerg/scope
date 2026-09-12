@@ -101,25 +101,29 @@ type Limits struct {
 	AcceptedSignals *uint64        `json:"accepted_signals,omitempty"`
 	DroppedDeltas   *uint64        `json:"dropped_deltas,omitempty"`
 	TotalTokens     *int64         `json:"total_tokens,omitempty"`
-	Duration        *time.Duration `json:"duration,omitempty"`
+	Elapsed         *time.Duration `json:"elapsed_ns,omitempty"`
 }
 
 func (l Limits) Validate() error {
 	if l.TotalTokens != nil && *l.TotalTokens < 0 {
 		return fmt.Errorf("%w: total token limit must not be negative", ErrInvalidSample)
 	}
-	if l.Duration != nil && *l.Duration < 0 {
+	if l.Elapsed != nil && *l.Elapsed < 0 {
 		return fmt.Errorf("%w: duration limit must not be negative", ErrInvalidSample)
 	}
 	return nil
 }
 
 func (l Limits) reports(actual Trajectory) ([]eval.Report, error) {
+	usage, err := actual.TreeUsage()
+	if err != nil && (l.CommittedSteps != nil || l.PreparedEffects != nil || l.AcceptedSignals != nil || l.DroppedDeltas != nil) {
+		return nil, err
+	}
 	reports := make([]eval.Report, 0, 6)
 	if l.CommittedSteps != nil {
 		report, err := measurementReport(
 			MetricCommittedSteps, metricUnitCount,
-			float64(actual.usage.CommittedSteps), actual.usage.CommittedSteps <= *l.CommittedSteps,
+			float64(usage.CommittedSteps), usage.CommittedSteps <= *l.CommittedSteps,
 			*l.CommittedSteps,
 		)
 		if err != nil {
@@ -130,7 +134,7 @@ func (l Limits) reports(actual Trajectory) ([]eval.Report, error) {
 	if l.PreparedEffects != nil {
 		report, err := measurementReport(
 			MetricPreparedEffects, metricUnitCount,
-			float64(actual.usage.PreparedEffects), actual.usage.PreparedEffects <= *l.PreparedEffects,
+			float64(usage.PreparedEffects), usage.PreparedEffects <= *l.PreparedEffects,
 			*l.PreparedEffects,
 		)
 		if err != nil {
@@ -141,7 +145,7 @@ func (l Limits) reports(actual Trajectory) ([]eval.Report, error) {
 	if l.AcceptedSignals != nil {
 		report, err := measurementReport(
 			MetricAcceptedSignals, metricUnitCount,
-			float64(actual.usage.AcceptedSignals), actual.usage.AcceptedSignals <= *l.AcceptedSignals,
+			float64(usage.AcceptedSignals), usage.AcceptedSignals <= *l.AcceptedSignals,
 			*l.AcceptedSignals,
 		)
 		if err != nil {
@@ -152,7 +156,7 @@ func (l Limits) reports(actual Trajectory) ([]eval.Report, error) {
 	if l.DroppedDeltas != nil {
 		report, err := measurementReport(
 			MetricDroppedDeltas, metricUnitCount,
-			float64(actual.usage.DroppedDeltas), actual.usage.DroppedDeltas <= *l.DroppedDeltas,
+			float64(usage.DroppedDeltas), usage.DroppedDeltas <= *l.DroppedDeltas,
 			*l.DroppedDeltas,
 		)
 		if err != nil {
@@ -174,11 +178,14 @@ func (l Limits) reports(actual Trajectory) ([]eval.Report, error) {
 		}
 		reports = append(reports, report)
 	}
-	if l.Duration != nil {
+	if l.Elapsed != nil {
+		if actual.elapsed == nil {
+			return nil, fmt.Errorf("%w: recording elapsed time is unknown", ErrIncompleteRecording)
+		}
 		report, err := measurementReport(
-			MetricDuration, metricUnitSecond,
-			actual.duration.Seconds(), actual.duration <= *l.Duration,
-			l.Duration.Seconds(),
+			MetricElapsed, metricUnitSecond,
+			actual.elapsed.Seconds(), *actual.elapsed <= *l.Elapsed,
+			l.Elapsed.Seconds(),
 		)
 		if err != nil {
 			return nil, err
@@ -239,7 +246,7 @@ func (s Sample) Validate() error {
 	return nil
 }
 
-func (s Sample) taskReport() (eval.Report, error) {
+func (s Sample) outcomeReport() (eval.Report, error) {
 	passed := s.Actual.termination.Status() == s.Expected.Status
 	feedback := "terminal status matched"
 	if !passed {
@@ -257,5 +264,5 @@ func (s Sample) taskReport() (eval.Report, error) {
 			feedback = "terminal output differed from the expected value"
 		}
 	}
-	return binaryReport(MetricTaskSuccess, passed, feedback)
+	return binaryReport(MetricExpectedOutcome, passed, feedback)
 }

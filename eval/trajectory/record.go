@@ -35,10 +35,12 @@ func (t ToolOutcome) Valid() bool {
 
 // ModelCall is one settled model boundary attributed to an Agent Process Step.
 type ModelCall struct {
-	ProcessID    agent.ProcessID `json:"process_id"`
-	StepSequence uint64          `json:"step_sequence"`
-	CallSequence uint32          `json:"call_sequence"`
-	Response     *chat.Response  `json:"response"`
+	TreeIncarnationID agent.TreeIncarnationID `json:"tree_incarnation_id,omitzero"`
+	EffectID          agent.EffectID          `json:"effect_id"`
+	ProcessID         agent.ProcessID         `json:"process_id"`
+	StepSequence      uint64                  `json:"step_sequence"`
+	CallSequence      uint32                  `json:"call_sequence"`
+	Response          *chat.Response          `json:"response"`
 }
 
 func (m ModelCall) Clone() ModelCall {
@@ -47,7 +49,7 @@ func (m ModelCall) Clone() ModelCall {
 }
 
 func (m ModelCall) Validate() error {
-	if !m.ProcessID.Valid() || m.StepSequence == 0 || m.CallSequence == 0 || m.Response == nil {
+	if !m.EffectID.Valid() || !m.ProcessID.Valid() || m.StepSequence == 0 || m.CallSequence == 0 || m.Response == nil {
 		return fmt.Errorf("%w: model call attribution is incomplete", ErrInvalidTrajectory)
 	}
 	if err := m.Response.Validate(); err != nil {
@@ -58,13 +60,15 @@ func (m ModelCall) Validate() error {
 
 // ToolCall is one settled Tool boundary attributed to an Agent Process Step.
 type ToolCall struct {
-	ProcessID    agent.ProcessID  `json:"process_id"`
-	StepSequence uint64           `json:"step_sequence"`
-	ModelCall    uint32           `json:"model_call"`
-	Index        uint32           `json:"index"`
-	Call         chat.ToolCall    `json:"call"`
-	Outcome      ToolOutcome      `json:"outcome"`
-	Result       *chat.ToolResult `json:"result,omitempty"`
+	TreeIncarnationID agent.TreeIncarnationID `json:"tree_incarnation_id,omitzero"`
+	EffectID          agent.EffectID          `json:"effect_id"`
+	ProcessID         agent.ProcessID         `json:"process_id"`
+	StepSequence      uint64                  `json:"step_sequence"`
+	ModelCall         uint32                  `json:"model_call"`
+	Index             uint32                  `json:"index"`
+	Call              chat.ToolCall           `json:"call"`
+	Outcome           ToolOutcome             `json:"outcome"`
+	Result            *chat.ToolResult        `json:"result,omitempty"`
 	// Failure describes a failed call or diagnoses an unknown outcome without
 	// claiming that the external operation definitely failed.
 	Failure string `json:"failure,omitempty"`
@@ -79,7 +83,7 @@ func (t ToolCall) Clone() ToolCall {
 }
 
 func (t ToolCall) Validate() error {
-	if !t.ProcessID.Valid() || t.StepSequence == 0 || t.ModelCall == 0 {
+	if !t.EffectID.Valid() || !t.ProcessID.Valid() || t.StepSequence == 0 || t.ModelCall == 0 {
 		return fmt.Errorf("%w: tool call attribution is incomplete", ErrInvalidTrajectory)
 	}
 	if err := t.Call.Validate(); err != nil {

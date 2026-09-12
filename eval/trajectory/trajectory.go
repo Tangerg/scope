@@ -22,15 +22,16 @@ const (
 
 // Trajectory is an owned, portable record of one completed root Process tree.
 // Absolute timing and provider responses remain available in the record, but
-// BehaviorDigest deliberately excludes them from replay comparison.
+// BehaviorDigest uses an explicit Host output projection for replay comparison.
 // Root termination and usage must agree with the root Process's finished Event,
 // including its termination cause and stable failure classification.
 type Trajectory struct {
 	rootProcessID agent.ProcessID
 	termination   agent.Termination
 	output        *agent.Output
-	usage         agent.Usage
-	duration      time.Duration
+	rootUsage     agent.Usage
+	coverage      *Coverage
+	elapsed       *time.Duration
 	events        []agent.Event
 	modelCalls    []ModelCall
 	toolCalls     []ToolCall
@@ -45,8 +46,9 @@ func New(config Config) (Trajectory, error) {
 		rootProcessID: config.RootProcessID,
 		termination:   config.Termination,
 		output:        cloneOutput(config.Output),
-		usage:         config.Usage,
-		duration:      config.Duration,
+		rootUsage:     config.RootUsage,
+		coverage:      config.Coverage.clone(),
+		elapsed:       cloneElapsed(config.Elapsed),
 		events:        slices.Clone(config.Events),
 		modelCalls:    cloneModelCalls(config.ModelCalls),
 		toolCalls:     cloneToolCalls(config.ToolCalls),
@@ -65,8 +67,9 @@ type Config struct {
 	RootProcessID agent.ProcessID
 	Termination   agent.Termination
 	Output        *agent.Output
-	Usage         agent.Usage
-	Duration      time.Duration
+	RootUsage     agent.Usage
+	Coverage      *Coverage
+	Elapsed       *time.Duration
 	Events        []agent.Event
 	ModelCalls    []ModelCall
 	ToolCalls     []ToolCall
@@ -82,9 +85,13 @@ func (t Trajectory) Termination() agent.Termination { return t.termination }
 
 func (t Trajectory) Output() *agent.Output { return cloneOutput(t.output) }
 
-func (t Trajectory) Usage() agent.Usage { return t.usage }
+func (t Trajectory) RootUsage() agent.Usage { return t.rootUsage }
 
-func (t Trajectory) Duration() time.Duration { return t.duration }
+func (t Trajectory) Coverage() *Coverage { return t.coverage.clone() }
+
+// Elapsed is the monotonic recording interval from root start to export,
+// including idle time. Nil means that the complete interval was not observed.
+func (t Trajectory) Elapsed() *time.Duration { return cloneElapsed(t.elapsed) }
 
 func (t Trajectory) Events() []agent.Event { return slices.Clone(t.events) }
 
@@ -95,7 +102,7 @@ func (t Trajectory) ToolCalls() []ToolCall { return cloneToolCalls(t.toolCalls) 
 func (t Trajectory) config() Config {
 	return Config{
 		RootProcessID: t.rootProcessID, Termination: t.termination,
-		Output: t.output, Usage: t.usage, Duration: t.duration,
+		Output: t.output, RootUsage: t.rootUsage, Coverage: t.coverage, Elapsed: t.elapsed,
 		Events: t.events, ModelCalls: t.modelCalls, ToolCalls: t.toolCalls,
 	}
 }
@@ -104,8 +111,9 @@ type trajectoryWire struct {
 	RootProcessID agent.ProcessID   `json:"root_process_id"`
 	Termination   agent.Termination `json:"termination"`
 	Output        *agent.Output     `json:"output,omitempty"`
-	Usage         agent.Usage       `json:"usage"`
-	Duration      time.Duration     `json:"duration"`
+	RootUsage     agent.Usage       `json:"root_usage"`
+	Coverage      *Coverage         `json:"coverage,omitempty"`
+	Elapsed       *time.Duration    `json:"elapsed_ns,omitempty"`
 	Events        []agent.Event     `json:"events"`
 	ModelCalls    []ModelCall       `json:"model_calls,omitempty"`
 	ToolCalls     []ToolCall        `json:"tool_calls,omitempty"`
@@ -117,7 +125,7 @@ func (t Trajectory) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(trajectoryWire{
 		RootProcessID: t.rootProcessID, Termination: t.termination,
-		Output: t.output, Usage: t.usage, Duration: t.duration,
+		Output: t.output, RootUsage: t.rootUsage, Coverage: t.coverage, Elapsed: t.elapsed,
 		Events: t.events, ModelCalls: t.modelCalls, ToolCalls: t.toolCalls,
 	})
 }
@@ -139,7 +147,7 @@ func (t *Trajectory) UnmarshalJSON(data []byte) error {
 }
 
 func (t Trajectory) Validate() error {
-	if !t.rootProcessID.Valid() || !t.termination.Valid() || t.duration < 0 {
+	if !t.rootProcessID.Valid() || !t.termination.Valid() || (t.elapsed != nil && *t.elapsed < 0) {
 		return fmt.Errorf("%w: root outcome is incomplete", ErrInvalidTrajectory)
 	}
 	if t.termination.Status() == agent.StatusCompleted {
@@ -162,22 +170,34 @@ func (t Trajectory) Validate() error {
 		return fmt.Errorf("%w: events are not in canonical process order", ErrInvalidTrajectory)
 	}
 	finished := 0
-	sequences := make(map[agent.ProcessID]uint64)
+	terminals := make(map[agent.ProcessID]bool)
+	sequences := make(map[activationProcess]uint64)
 	for index, event := range t.events {
 		if !event.Valid() || event.Relation().RootID() != t.rootProcessID {
 			return fmt.Errorf("%w: events[%d] is invalid or belongs to another tree", ErrInvalidTrajectory, index)
 		}
-		want := sequences[event.ProcessID()] + 1
+		want := sequences[activationProcess{event.ProcessID(), eventIncarnation(event)}] + 1
 		if event.ProcessSequence() != want {
 			return fmt.Errorf("%w: events[%d] breaks process-local order", ErrInvalidTrajectory, index)
 		}
-		sequences[event.ProcessID()] = want
+		sequences[activationProcess{event.ProcessID(), eventIncarnation(event)}] = want
+		if event.Name() == agent.EventProcessFinished {
+			if terminals[event.ProcessID()] {
+				return fmt.Errorf("%w: duplicate process terminal event", ErrInvalidTrajectory)
+			}
+			terminals[event.ProcessID()] = true
+		}
 		if event.ProcessID() == t.rootProcessID && event.Name() == agent.EventProcessFinished {
 			fact, present := event.ProcessFinished()
 			if !present || !t.matchesRootOutcome(fact) {
 				return fmt.Errorf("%w: root finished event disagrees with outcome", ErrInvalidTrajectory)
 			}
 			finished++
+		}
+	}
+	for process := range paths {
+		if !terminals[process] {
+			return fmt.Errorf("%w: process %s has no terminal evidence", ErrIncompleteRecording, process)
 		}
 	}
 	if finished != 1 {
@@ -205,11 +225,14 @@ func (t Trajectory) Validate() error {
 			return fmt.Errorf("%w: tool_calls must have unique canonical attribution", ErrInvalidTrajectory)
 		}
 	}
+	if t.coverage != nil {
+		return t.validateCoverage()
+	}
 	return nil
 }
 
 func (t Trajectory) matchesRootOutcome(fact agent.ProcessFinishedFact) bool {
-	if fact.Status() != t.termination.Status() || fact.Cause() != t.termination.Cause() || fact.Usage() != t.usage {
+	if fact.Status() != t.termination.Status() || fact.Cause() != t.termination.Cause() || fact.Usage() != t.rootUsage {
 		return false
 	}
 	failure, failed := t.termination.Failure()
@@ -224,10 +247,16 @@ func (t Trajectory) TotalTokens() (int64, error) {
 	if err := t.Validate(); err != nil {
 		return 0, err
 	}
+	if !t.HistoryComplete() {
+		return 0, fmt.Errorf("%w: model history is incomplete", ErrIncompleteRecording)
+	}
+	if err := t.validateCoverage(); err != nil {
+		return 0, err
+	}
 	var total int64
 	for _, call := range t.modelCalls {
-		if call.Response.Metadata == nil {
-			continue
+		if call.Response.Metadata == nil || call.Response.Metadata.Usage == nil {
+			return 0, fmt.Errorf("%w: model token accounting is absent", ErrIncompleteRecording)
 		}
 		value := call.Response.Metadata.Usage.TotalTokens()
 		if value > (1<<63-1)-total {
@@ -256,12 +285,25 @@ func (t *Trajectory) canonicalize() error {
 }
 
 // BehaviorDigest identifies deterministic, semantic behavior while excluding
-// wall-clock time, attempt duration, provider responses, and token usage.
-func (t Trajectory) BehaviorDigest() (string, error) {
+// observation loss, signal arrival interleaving, transient scheduling status,
+// wall-clock time, attempt duration, response envelopes, and token usage.
+// The required projection selects the semantic root output; the generic
+// recorder never guesses which opaque output fields are business data.
+// Complete event history and declared semantic coverage are required.
+func (t Trajectory) BehaviorDigest(project eval.Projection[agent.Output, json.RawMessage]) (string, error) {
 	if err := t.Validate(); err != nil {
 		return "", err
 	}
-	projection, err := t.behavior()
+	if !t.HistoryComplete() {
+		return "", fmt.Errorf("%w: replay history is incomplete", ErrIncompleteRecording)
+	}
+	if err := t.validateCoverage(); err != nil {
+		return "", err
+	}
+	if project == nil {
+		return "", fmt.Errorf("%w: output projection is required", ErrInvalidSample)
+	}
+	projection, err := t.behavior(project)
 	if err != nil {
 		return "", err
 	}
@@ -273,19 +315,33 @@ func (t Trajectory) BehaviorDigest() (string, error) {
 	return hex.EncodeToString(digest[:]), nil
 }
 
-func (t Trajectory) behavior() (behaviorProjection, error) {
+func (t Trajectory) behavior(project eval.Projection[agent.Output, json.RawMessage]) (behaviorProjection, error) {
 	paths, err := processPaths(t.rootProcessID, t.events)
 	if err != nil {
 		return behaviorProjection{}, err
 	}
 	projection := behaviorProjection{
-		Termination: behaviorTerminationOf(t.termination), Output: cloneOutput(t.output),
+		Termination: behaviorTerminationOf(t.termination),
 	}
+	if t.output != nil {
+		projection.Output, err = project(*t.output)
+		if err != nil {
+			return behaviorProjection{}, fmt.Errorf("project output: %w", err)
+		}
+		if len(projection.Output) == 0 || !json.Valid(projection.Output) {
+			return behaviorProjection{}, fmt.Errorf("%w: projection must return JSON", ErrInvalidSample)
+		}
+	}
+	sequences := make(map[agent.ProcessID]uint64)
 	projection.Events = make([]behaviorEvent, 0, len(t.events))
 	for _, event := range t.events {
+		if event.Name() == agent.EventDeltaDropped || event.Name() == agent.EventSignalAccepted {
+			continue
+		}
+		sequences[event.ProcessID()]++
 		step, _ := event.StepSequence()
 		fact := behaviorEvent{
-			ProcessPath: paths[event.ProcessID()], Sequence: event.ProcessSequence(),
+			ProcessPath: paths[event.ProcessID()], Sequence: sequences[event.ProcessID()],
 			StepSequence: step, Name: event.Name(), Phase: event.Phase(),
 		}
 		fact.apply(event)
@@ -318,12 +374,12 @@ func (t Trajectory) behavior() (behaviorProjection, error) {
 	return projection, nil
 }
 
-func (t Trajectory) consistencyReport(baseline Trajectory) (eval.Report, error) {
-	actualDigest, err := t.BehaviorDigest()
+func (t Trajectory) consistencyReport(baseline Trajectory, project eval.Projection[agent.Output, json.RawMessage]) (eval.Report, error) {
+	actualDigest, err := t.BehaviorDigest(project)
 	if err != nil {
 		return eval.Report{}, err
 	}
-	baselineDigest, err := baseline.BehaviorDigest()
+	baselineDigest, err := baseline.BehaviorDigest(project)
 	if err != nil {
 		return eval.Report{}, err
 	}
@@ -339,12 +395,18 @@ func compareEvent(left, right agent.Event, paths map[agent.ProcessID]string) int
 	if result := strings.Compare(paths[left.ProcessID()], paths[right.ProcessID()]); result != 0 {
 		return result
 	}
+	if order := strings.Compare(eventIncarnation(left).String(), eventIncarnation(right).String()); order != 0 {
+		return order
+	}
 	return cmp.Compare(left.ProcessSequence(), right.ProcessSequence())
 }
 
 func compareModelCall(left, right ModelCall, paths map[agent.ProcessID]string) int {
 	if result := strings.Compare(paths[left.ProcessID], paths[right.ProcessID]); result != 0 {
 		return result
+	}
+	if order := strings.Compare(left.TreeIncarnationID.String(), right.TreeIncarnationID.String()); order != 0 {
+		return order
 	}
 	if left.StepSequence != right.StepSequence {
 		return cmp.Compare(left.StepSequence, right.StepSequence)
@@ -355,6 +417,9 @@ func compareModelCall(left, right ModelCall, paths map[agent.ProcessID]string) i
 func compareToolCall(left, right ToolCall, paths map[agent.ProcessID]string) int {
 	if result := strings.Compare(paths[left.ProcessID], paths[right.ProcessID]); result != 0 {
 		return result
+	}
+	if order := strings.Compare(left.TreeIncarnationID.String(), right.TreeIncarnationID.String()); order != 0 {
+		return order
 	}
 	if left.StepSequence != right.StepSequence {
 		return cmp.Compare(left.StepSequence, right.StepSequence)
@@ -434,4 +499,118 @@ func cloneToolCalls(calls []ToolCall) []ToolCall {
 		cloned[index] = cloned[index].Clone()
 	}
 	return cloned
+}
+
+func cloneElapsed(value *time.Duration) *time.Duration {
+	if value == nil {
+		return nil
+	}
+	return new(*value)
+}
+
+type activationProcess struct {
+	process     agent.ProcessID
+	incarnation agent.TreeIncarnationID
+}
+type observedEffect struct {
+	process     agent.ProcessID
+	incarnation agent.TreeIncarnationID
+	effect      agent.EffectID
+}
+
+func eventIncarnation(event agent.Event) agent.TreeIncarnationID {
+	value, _ := event.TreeIncarnationID()
+	return value
+}
+
+// HistoryComplete reports whether every observed Process starts in this
+// recording. A restored activation is conservatively a history fragment:
+// neither event continuity nor a final result proves pre-restart coverage.
+func (t Trajectory) HistoryComplete() bool {
+	for _, event := range t.events {
+		if event.Name() == agent.EventProcessRestored || event.Name() == agent.EventRuntimeStopped {
+			return false
+		}
+		if event.ProcessSequence() == 1 && event.Name() != agent.EventProcessStarted {
+			return false
+		}
+	}
+	return len(t.events) > 0
+}
+
+// TreeUsage sums final cumulative usage once per logical Process. RootUsage
+// remains available independently. Incomplete historical evidence is an error.
+func (t Trajectory) TreeUsage() (agent.Usage, error) {
+	if err := t.Validate(); err != nil {
+		return agent.Usage{}, err
+	}
+	if !t.HistoryComplete() {
+		return agent.Usage{}, fmt.Errorf("%w: tree history is incomplete", ErrIncompleteRecording)
+	}
+	var total agent.Usage
+	for _, event := range t.events {
+		fact, ok := event.ProcessFinished()
+		if !ok {
+			continue
+		}
+		usage := fact.Usage()
+		for _, pair := range []struct {
+			sum   *uint64
+			value uint64
+		}{
+			{&total.CommittedSteps, usage.CommittedSteps}, {&total.PreparedEffects, usage.PreparedEffects},
+			{&total.AcceptedSignals, usage.AcceptedSignals}, {&total.DroppedDeltas, usage.DroppedDeltas},
+		} {
+			if pair.value > ^uint64(0)-*pair.sum {
+				return agent.Usage{}, fmt.Errorf("%w: tree usage overflows uint64", ErrInvalidTrajectory)
+			}
+			*pair.sum += pair.value
+		}
+	}
+	return total, nil
+}
+
+func (t Trajectory) validateCoverage() error {
+	if t.coverage == nil {
+		return fmt.Errorf("%w: semantic coverage is undeclared", ErrIncompleteRecording)
+	}
+	if err := t.coverage.Validate(); err != nil {
+		return err
+	}
+	models := make(map[observedEffect]int)
+	tools := make(map[observedEffect]int)
+	for _, call := range t.modelCalls {
+		models[observedEffect{call.ProcessID, call.TreeIncarnationID, call.EffectID}]++
+	}
+	for _, call := range t.toolCalls {
+		tools[observedEffect{call.ProcessID, call.TreeIncarnationID, call.EffectID}]++
+	}
+	for _, event := range t.events {
+		fact, ok := event.EffectStarted()
+		if !ok || fact.Target() != agent.EffectTargetDispatcher {
+			continue
+		}
+		effect, _ := event.EffectID()
+		key := observedEffect{event.ProcessID(), eventIncarnation(event), effect}
+		reference := event.DeploymentRef()
+		switch {
+		case slices.Contains(t.coverage.Models, reference):
+			if models[key] != 1 {
+				return fmt.Errorf("%w: model effect %s lacks exactly one response", ErrIncompleteRecording, effect)
+			}
+			delete(models, key)
+		case slices.Contains(t.coverage.Tools, reference):
+			if tools[key] != 1 {
+				return fmt.Errorf("%w: tool effect %s lacks exactly one call", ErrIncompleteRecording, effect)
+			}
+			delete(tools, key)
+		case slices.Contains(t.coverage.Other, reference):
+		default:
+			return fmt.Errorf("%w: dispatcher deployment %s is unclassified", ErrIncompleteRecording, reference.Name())
+		}
+	}
+	if len(models) != 0 || len(tools) != 0 {
+		return fmt.Errorf("%w: semantic observations have no matching dispatcher attempt", ErrIncompleteRecording)
+	}
+	return nil
 }

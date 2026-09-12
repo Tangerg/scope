@@ -19,33 +19,28 @@ import (
 )
 
 func TestRecorderAndEvaluatorCoverAgentRegressionDimensions(t *testing.T) {
-	recorded := runTrajectory(t)
-	root := recorded.RootProcessID()
-	response := &chat.Response{
-		Output: &chat.Output{FinishReason: chat.FinishReasonStop},
-		Metadata: &chat.ResponseMetadata{
-			Usage: chat.Usage{InputTokens: 3, OutputTokens: 2},
-		},
+	recorder := &trajectory.Recorder{}
+	process := runRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{})
+	recorded, err := recorder.Take(t.Context(), process, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	result := chat.ToolResult{
-		ID: "call-1", Name: "weather", Output: chat.NewTextToolOutput("sunny"),
+	coverage := &trajectory.Coverage{}
+	for _, event := range recorded.Events() {
+		if event.Name() != agent.EventProcessStarted {
+			continue
+		}
+		if event.Relation().IsRoot() {
+			coverage.Models = append(coverage.Models, event.DeploymentRef())
+		} else {
+			coverage.Tools = append(coverage.Tools, event.DeploymentRef())
+		}
 	}
-	recorded, err := trajectory.New(trajectory.Config{
-		RootProcessID: recorded.RootProcessID(),
-		Termination:   recorded.Termination(),
-		Output:        recorded.Output(),
-		Usage:         recorded.Usage(),
-		Duration:      recorded.Duration(),
-		Events:        recorded.Events(),
-		ModelCalls: []trajectory.ModelCall{{
-			ProcessID: root, StepSequence: 1, CallSequence: 1, Response: response,
-		}},
-		ToolCalls: []trajectory.ToolCall{{
-			ProcessID: root, StepSequence: 1, ModelCall: 1,
-			Call:    chat.ToolCall{ID: "call-1", Name: "weather", Arguments: `{"city":"Paris"}`},
-			Outcome: trajectory.ToolOutcomeSucceeded, Result: &result,
-		}},
-	})
+	calls := recorded.ModelCalls()
+	for i := range calls {
+		calls[i].Response.Metadata = &chat.ResponseMetadata{Usage: &chat.Usage{InputTokens: 3, OutputTokens: 2}}
+	}
+	recorded, err = trajectory.New(trajectory.Config{RootProcessID: recorded.RootProcessID(), Termination: recorded.Termination(), Output: recorded.Output(), RootUsage: recorded.RootUsage(), Elapsed: recorded.Elapsed(), Coverage: coverage, Events: recorded.Events(), ModelCalls: calls, ToolCalls: recorded.ToolCalls()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,11 +48,15 @@ func TestRecorderAndEvaluatorCoverAgentRegressionDimensions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	steps := uint64(1)
-	tokens := int64(5)
+	usage, err := recorded.TreeUsage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	steps := usage.CommittedSteps
+	tokens := int64(10)
 	duration := time.Hour
 	paris := trajectory.ToolArguments(`{"city":"Paris"}`)
-	report, err := (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{
+	report, err := (trajectory.Evaluator{OutputProjection: rawOutputProjection}).Evaluate(t.Context(), trajectory.Sample{
 		Actual: recorded,
 		Expected: trajectory.Expectation{
 			Status: agent.StatusCompleted,
@@ -68,7 +67,7 @@ func TestRecorderAndEvaluatorCoverAgentRegressionDimensions(t *testing.T) {
 			}}},
 			Baseline: &baseline,
 			Limits: trajectory.Limits{
-				CommittedSteps: &steps, TotalTokens: &tokens, Duration: &duration,
+				CommittedSteps: &steps, TotalTokens: &tokens, Elapsed: &duration,
 			},
 		},
 	})
@@ -81,7 +80,7 @@ func TestRecorderAndEvaluatorCoverAgentRegressionDimensions(t *testing.T) {
 
 	noSteps := uint64(0)
 	berlin := trajectory.ToolArguments(`{"city":"Berlin"}`)
-	report, err = (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{
+	report, err = (trajectory.Evaluator{OutputProjection: rawOutputProjection}).Evaluate(t.Context(), trajectory.Sample{
 		Actual: recorded,
 		Expected: trajectory.Expectation{
 			Status: agent.StatusCompleted,
@@ -102,7 +101,7 @@ func TestRecorderAndEvaluatorCoverAgentRegressionDimensions(t *testing.T) {
 func TestRecorderCapturesInteractionModelAndToolFacts(t *testing.T) {
 	recorder := &trajectory.Recorder{}
 	result := runRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{})
-	recorded, err := recorder.Take(result)
+	recorded, err := recorder.Take(t.Context(), result, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,14 +115,14 @@ func TestRecorderCapturesInteractionModelAndToolFacts(t *testing.T) {
 	}
 }
 
-func runRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observer interaction.ToolObserver, weather tool.Tool) agent.Result {
+func runRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observer interaction.ToolObserver, weather tool.Tool) *agent.Process {
 	t.Helper()
 	process, _ := startRecordedInteraction(t, recorder, observer, weather, 2)
-	result, err := process.Await(t.Context())
+	_, err := process.Await(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return result
+	return process
 }
 
 func startRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observer interaction.ToolObserver, weather tool.Tool, maxModelCalls uint32) (*agent.Process, *agent.Engine) {
@@ -187,16 +186,16 @@ func startRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, obser
 }
 
 func TestBehaviorDigestExcludesTimingAndProviderAccounting(t *testing.T) {
-	baseline := decorateBehaviorTrajectory(t, runTrajectory(t), "response-a", "call-a", 3)
-	candidate := decorateBehaviorTrajectory(t, runTrajectory(t), "response-b", "call-b", 300)
+	baseline := decorateBehaviorTrajectory(t, coveredInteraction(t), "response-a", "call-a", 3)
+	candidate := decorateBehaviorTrajectory(t, coveredInteraction(t), "response-b", "call-b", 300)
 	if baseline.RootProcessID() == candidate.RootProcessID() {
 		t.Fatal("independent runs unexpectedly reused one Process identity")
 	}
-	left, err := baseline.BehaviorDigest()
+	left, err := baseline.BehaviorDigest(rawOutputProjection)
 	if err != nil {
 		t.Fatal(err)
 	}
-	right, err := candidate.BehaviorDigest()
+	right, err := candidate.BehaviorDigest(rawOutputProjection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,11 +205,12 @@ func TestBehaviorDigestExcludesTimingAndProviderAccounting(t *testing.T) {
 	changedCalls := append([]trajectory.ToolCall(nil), candidate.ToolCalls()...)
 	changedCalls[0].Call.Arguments = `{"city":"Berlin"}`
 	changed, err := trajectory.New(trajectory.Config{
+		Coverage:      candidate.Coverage(),
 		RootProcessID: candidate.RootProcessID(),
 		Termination:   candidate.Termination(),
 		Output:        candidate.Output(),
-		Usage:         candidate.Usage(),
-		Duration:      candidate.Duration(),
+		RootUsage:     candidate.RootUsage(),
+		Elapsed:       candidate.Elapsed(),
 		Events:        candidate.Events(),
 		ModelCalls:    candidate.ModelCalls(),
 		ToolCalls:     changedCalls,
@@ -218,7 +218,7 @@ func TestBehaviorDigestExcludesTimingAndProviderAccounting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	changedDigest, err := changed.BehaviorDigest()
+	changedDigest, err := changed.BehaviorDigest(rawOutputProjection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,31 +235,16 @@ func decorateBehaviorTrajectory(
 	inputTokens int64,
 ) trajectory.Trajectory {
 	t.Helper()
-	response := &chat.Response{
-		Output: &chat.Output{FinishReason: chat.FinishReasonStop},
-		Metadata: &chat.ResponseMetadata{
-			ID: responseID, Model: "fixture", Usage: chat.Usage{InputTokens: inputTokens, OutputTokens: 2},
-		},
+	config := trajectoryConfig(base)
+	config.Elapsed = new(*base.Elapsed() + time.Duration(inputTokens))
+	for i := range config.ModelCalls {
+		config.ModelCalls[i].Response.Metadata = &chat.ResponseMetadata{
+			ID: responseID, Model: "fixture", Usage: &chat.Usage{InputTokens: inputTokens, OutputTokens: 2},
+		}
 	}
-	result := chat.ToolResult{
-		ID: toolCallID, Name: "weather", Output: chat.NewTextToolOutput("sunny"),
-	}
-	decorated, err := trajectory.New(trajectory.Config{
-		RootProcessID: base.RootProcessID(),
-		Termination:   base.Termination(),
-		Output:        base.Output(),
-		Usage:         base.Usage(),
-		Duration:      base.Duration() + time.Duration(inputTokens),
-		Events:        base.Events(),
-		ModelCalls: []trajectory.ModelCall{{
-			ProcessID: base.RootProcessID(), StepSequence: 1, CallSequence: 1, Response: response,
-		}},
-		ToolCalls: []trajectory.ToolCall{{
-			ProcessID: base.RootProcessID(), StepSequence: 1, ModelCall: 1,
-			Call:    chat.ToolCall{ID: toolCallID, Name: "weather", Arguments: `{"city":"Paris"}`},
-			Outcome: trajectory.ToolOutcomeSucceeded, Result: &result,
-		}},
-	})
+	config.ToolCalls[0].Call.ID = toolCallID
+	config.ToolCalls[0].Result.ID = toolCallID
+	decorated, err := trajectory.New(config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +254,7 @@ func decorateBehaviorTrajectory(
 func TestEvaluatorHonorsCancellationAndRejectsInvalidExpectations(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := (trajectory.Evaluator{}).Evaluate(ctx, trajectory.Sample{}); !errors.Is(err, context.Canceled) {
+	if _, err := (trajectory.Evaluator{OutputProjection: rawOutputProjection}).Evaluate(ctx, trajectory.Sample{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled evaluation error = %v", err)
 	}
 	invalid := trajectory.Expectation{
@@ -290,6 +275,10 @@ func TestToolArgumentsRejectAmbiguousJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	effectID, err := agent.ParseEffectID("effect:arguments")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, raw := range []string{
 		`{"city":"Paris","city":"Berlin"}`,
 		`{"city":"Paris","\u0063ity":"Berlin"}`,
@@ -302,7 +291,7 @@ func TestToolArgumentsRejectAmbiguousJSON(t *testing.T) {
 				t.Fatalf("ToolArguments.Validate = %v, want ErrInvalidSample", validateErr)
 			}
 			call := trajectory.ToolCall{
-				ProcessID: processID, StepSequence: 1, ModelCall: 1,
+				EffectID: effectID, ProcessID: processID, StepSequence: 1, ModelCall: 1,
 				Call:    chat.ToolCall{ID: "call-1", Name: "weather", Arguments: raw},
 				Outcome: trajectory.ToolOutcomeUnknown,
 			}
@@ -323,19 +312,19 @@ func TestTrajectoryJSONRoundTripPreservesCanonicalBehavior(t *testing.T) {
 	if decodeErr := json.Unmarshal(encoded, &decoded); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
-	want, err := recorded.BehaviorDigest()
+	want, err := recorded.BehaviorDigest(rawOutputProjection)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := decoded.BehaviorDigest()
+	got, err := decoded.BehaviorDigest(rawOutputProjection)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != want {
 		t.Fatalf("decoded behavior digest = %s, want %s", got, want)
 	}
-	if decoded.Duration() != recorded.Duration() {
-		t.Fatalf("decoded duration = %s, want %s", decoded.Duration(), recorded.Duration())
+	if *decoded.Elapsed() != *recorded.Elapsed() {
+		t.Fatalf("decoded duration = %s, want %s", decoded.Elapsed(), recorded.Elapsed())
 	}
 	unknown := []byte(string(encoded[:len(encoded)-1]) + `,"unexpected":true}`)
 	if decodeErr := json.Unmarshal(unknown, &decoded); !errors.Is(decodeErr, jsonv2.ErrUnknownName) {
@@ -501,7 +490,11 @@ func runTrajectory(t *testing.T) trajectory.Trajectory {
 	if err != nil {
 		t.Fatal(err)
 	}
-	recorded, err := recorder.Take(result)
+	process, ok := engine.Process(result.ProcessID())
+	if !ok {
+		t.Fatal("root is missing")
+	}
+	recorded, err := recorder.Take(t.Context(), process, &trajectory.Coverage{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -517,3 +510,5 @@ func (t trajectoryDeploymentResolver) Resolve(reference agent.DeploymentRef) (ag
 	}
 	return deployment, nil
 }
+
+func rawOutputProjection(output agent.Output) (json.RawMessage, error) { return output.JSON(), nil }

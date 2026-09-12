@@ -2,7 +2,10 @@ package trajectory
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+
+	agent "github.com/Tangerg/scope/agent"
 
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/eval"
@@ -18,7 +21,7 @@ const (
 	metricUnitToken                       = "token"
 	metricUnitSecond                      = "s"
 	MetricTrajectory      eval.MetricName = "trajectory"
-	MetricTaskSuccess     eval.MetricName = "task_success"
+	MetricExpectedOutcome eval.MetricName = "expected_outcome"
 	MetricToolCalls       eval.MetricName = "tool_calls"
 	MetricConsistency     eval.MetricName = "consistency"
 	MetricCommittedSteps  eval.MetricName = "committed_steps"
@@ -26,29 +29,35 @@ const (
 	MetricAcceptedSignals eval.MetricName = "accepted_signals"
 	MetricDroppedDeltas   eval.MetricName = "dropped_deltas"
 	MetricTotalTokens     eval.MetricName = "total_tokens"
-	MetricDuration        eval.MetricName = "duration"
+	MetricElapsed         eval.MetricName = "recording_elapsed"
 )
 
-// Evaluator deterministically checks terminal success, exact Tool behavior,
+// Evaluator deterministically checks the expected terminal outcome, Tool behavior,
 // replay consistency, and configured resource regressions for one Sample.
-// Its zero value is ready to use because all case-specific policy belongs to
-// the typed Sample rather than mutable evaluator configuration.
-type Evaluator struct{}
+// OutputProjection is required only when comparing a replay baseline.
+// Resource counts cover the whole tree; unknown evidence returns an error.
+type Evaluator struct {
+	// OutputProjection selects the business output used by optional replay comparison.
+	OutputProjection eval.Projection[agent.Output, json.RawMessage]
+}
 
-func (Evaluator) Evaluate(ctx context.Context, sample Sample) (eval.Report, error) {
-	if err := ctx.Err(); err != nil {
-		return eval.Report{}, err
+func (e Evaluator) Evaluate(ctx context.Context, sample Sample) (eval.Report, error) {
+	if checkErr := ctx.Err(); checkErr != nil {
+		return eval.Report{}, checkErr
 	}
-	if err := sample.Validate(); err != nil {
-		return eval.Report{}, err
+	if checkErr := sample.Validate(); checkErr != nil {
+		return eval.Report{}, checkErr
 	}
 	details := make([]eval.Report, 0, 9)
-	task, err := sample.taskReport()
+	task, err := sample.outcomeReport()
 	if err != nil {
 		return eval.Report{}, err
 	}
 	details = append(details, task)
 	if sample.Expected.Tools != nil {
+		if checkErr := sample.Actual.validateCoverage(); checkErr != nil {
+			return eval.Report{}, checkErr
+		}
 		tools, toolErr := sample.Expected.Tools.report(sample.Actual.toolCalls)
 		if toolErr != nil {
 			return eval.Report{}, toolErr
@@ -56,7 +65,7 @@ func (Evaluator) Evaluate(ctx context.Context, sample Sample) (eval.Report, erro
 		details = append(details, tools)
 	}
 	if sample.Expected.Baseline != nil {
-		consistency, consistencyErr := sample.Actual.consistencyReport(*sample.Expected.Baseline)
+		consistency, consistencyErr := sample.Actual.consistencyReport(*sample.Expected.Baseline, e.OutputProjection)
 		if consistencyErr != nil {
 			return eval.Report{}, consistencyErr
 		}
@@ -79,8 +88,8 @@ func (Evaluator) Evaluate(ctx context.Context, sample Sample) (eval.Report, erro
 		}
 	}
 	report := eval.Report{Metric: metric, Verdict: verdict, Details: details}
-	if err := report.Validate(); err != nil {
-		return eval.Report{}, err
+	if checkErr := report.Validate(); checkErr != nil {
+		return eval.Report{}, checkErr
 	}
 	return report, nil
 }
@@ -97,8 +106,8 @@ func binaryReport(name eval.MetricName, passed bool, feedback string) (eval.Repo
 		verdict = eval.VerdictPass
 	}
 	report := eval.Report{Metric: metric, Verdict: verdict, Score: &score, Feedback: feedback}
-	if err := report.Validate(); err != nil {
-		return eval.Report{}, err
+	if checkErr := report.Validate(); checkErr != nil {
+		return eval.Report{}, checkErr
 	}
 	return report, nil
 }
@@ -111,8 +120,8 @@ func measurementReport[Maximum uint64 | int64 | float64](
 	maximum Maximum,
 ) (eval.Report, error) {
 	parameters := metadata.Map{}
-	if err := parameters.Set(metricMaximumKey, maximum); err != nil {
-		return eval.Report{}, fmt.Errorf("eval/trajectory: metric maximum: %w", err)
+	if checkErr := parameters.Set(metricMaximumKey, maximum); checkErr != nil {
+		return eval.Report{}, fmt.Errorf("eval/trajectory: metric maximum: %w", checkErr)
 	}
 	metric, err := eval.NewMetric(eval.MetricConfig{
 		Namespace: metricNamespace, Name: name, Unit: unit,
@@ -126,8 +135,8 @@ func measurementReport[Maximum uint64 | int64 | float64](
 		verdict = eval.VerdictPass
 	}
 	report := eval.Report{Metric: metric, Verdict: verdict, Measurement: &measurement}
-	if err := report.Validate(); err != nil {
-		return eval.Report{}, err
+	if checkErr := report.Validate(); checkErr != nil {
+		return eval.Report{}, checkErr
 	}
 	return report, nil
 }

@@ -281,6 +281,7 @@ func (m Middleware) finish(
 	if finishReason == "" {
 		finishReason = incompleteFinishReason
 	}
+	observation.recordUsage(span)
 	span.SetAttributes(semconv.GenAIResponseFinishReasons(finishReason))
 	if err != nil {
 		errorType := errorTypeAttribute(err)
@@ -307,16 +308,16 @@ func (m Middleware) recordMetrics(
 		genaiconv.ProviderNameAttr(m.provider),
 		durationAttrs...,
 	)
-	if observation.inputTokens > 0 {
-		m.tokens.Record(ctx, observation.inputTokens,
+	if observation.usage != nil {
+		m.tokens.Record(ctx, observation.usage.InputTokens,
 			genaiconv.OperationNameChat,
 			genaiconv.ProviderNameAttr(m.provider),
 			genaiconv.TokenTypeInput,
 			attrs...,
 		)
 	}
-	if observation.outputTokens > 0 {
-		m.tokens.Record(ctx, observation.outputTokens,
+	if observation.usage != nil {
+		m.tokens.Record(ctx, observation.usage.OutputTokens,
 			genaiconv.OperationNameChat,
 			genaiconv.ProviderNameAttr(m.provider),
 			genaiconv.TokenTypeOutput,
@@ -366,12 +367,11 @@ func requestAttributes(request *corechat.Request) []attribute.KeyValue {
 	return attrs
 }
 
-// responseObservation retains only scalar facts across iterator callbacks.
+// responseObservation owns accounting snapshots across iterator callbacks.
 // Provider content and mutable metadata remain owned by the caller.
 type responseObservation struct {
 	model        string
-	inputTokens  int64
-	outputTokens int64
+	usage        *corechat.Usage
 	finishReason corechat.FinishReason
 }
 
@@ -387,25 +387,18 @@ func (r *responseObservation) observeMetadata(span trace.Span, metadata *corecha
 		r.model = metadata.Model
 		attributes = append(attributes, semconv.GenAIResponseModel(metadata.Model))
 	}
-	usage := metadata.Usage
-	if usage.InputTokens > 0 || usage.OutputTokens > 0 || usage.ReasoningTokens != nil ||
-		usage.CacheReadInputTokens != nil || usage.CacheWriteInputTokens != nil {
-		r.inputTokens, r.outputTokens = usage.InputTokens, usage.OutputTokens
-	}
-	if usage.InputTokens > 0 {
-		attributes = append(attributes, semconv.GenAIUsageInputTokensKey.Int64(usage.InputTokens))
-	}
-	if usage.OutputTokens > 0 {
-		attributes = append(attributes, semconv.GenAIUsageOutputTokensKey.Int64(usage.OutputTokens))
-	}
-	if usage.CacheReadInputTokens != nil {
-		attributes = append(attributes, semconv.GenAIUsageCacheReadInputTokensKey.Int64(*usage.CacheReadInputTokens))
-	}
-	if usage.CacheWriteInputTokens != nil {
-		attributes = append(attributes, cacheWriteInputTokensKey.Int64(*usage.CacheWriteInputTokens))
-	}
-	if usage.ReasoningTokens != nil {
-		attributes = append(attributes, semconv.GenAIUsageReasoningOutputTokensKey.Int64(*usage.ReasoningTokens))
+	if metadata.Usage != nil {
+		usage := *metadata.Usage
+		if usage.ReasoningTokens != nil {
+			usage.ReasoningTokens = new(*usage.ReasoningTokens)
+		}
+		if usage.CacheReadInputTokens != nil {
+			usage.CacheReadInputTokens = new(*usage.CacheReadInputTokens)
+		}
+		if usage.CacheWriteInputTokens != nil {
+			usage.CacheWriteInputTokens = new(*usage.CacheWriteInputTokens)
+		}
+		r.usage = &usage
 	}
 	span.SetAttributes(attributes...)
 }
@@ -459,4 +452,27 @@ func errorTypeAttribute(err error) attribute.KeyValue {
 	default:
 		return semconv.ErrorType(err)
 	}
+}
+
+// Only the final known snapshot belongs on the span; optional breakdowns from
+// an earlier snapshot must not survive a replacement that omits them.
+func (r responseObservation) recordUsage(span trace.Span) {
+	if r.usage == nil {
+		return
+	}
+	usage := r.usage
+	attributes := []attribute.KeyValue{
+		semconv.GenAIUsageInputTokensKey.Int64(usage.InputTokens),
+		semconv.GenAIUsageOutputTokensKey.Int64(usage.OutputTokens),
+	}
+	if usage.CacheReadInputTokens != nil {
+		attributes = append(attributes, semconv.GenAIUsageCacheReadInputTokensKey.Int64(*usage.CacheReadInputTokens))
+	}
+	if usage.CacheWriteInputTokens != nil {
+		attributes = append(attributes, cacheWriteInputTokensKey.Int64(*usage.CacheWriteInputTokens))
+	}
+	if usage.ReasoningTokens != nil {
+		attributes = append(attributes, semconv.GenAIUsageReasoningOutputTokensKey.Int64(*usage.ReasoningTokens))
+	}
+	span.SetAttributes(attributes...)
 }
