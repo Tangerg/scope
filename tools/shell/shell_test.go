@@ -93,7 +93,7 @@ func TestNewLocalExecutorRejectsInvalidConfig(t *testing.T) {
 	for name, config := range map[string]LocalConfig{
 		"empty directory":  {},
 		"blank shell":      {Directory: ".", Shell: " \t"},
-		"negative maximum": {Directory: ".", MaxOutputBytes: -1},
+		"negative maximum": {Directory: ".", MaxBytesPerStream: -1},
 	} {
 		if _, err := NewLocalExecutor(config); !errors.Is(err, ErrInvalidConfig) {
 			t.Errorf("%s error = %v, want ErrInvalidConfig", name, err)
@@ -125,7 +125,7 @@ func TestLocalExecutorRejectsInvalidInput(t *testing.T) {
 
 func TestLocalExecutor_OutputCap(t *testing.T) {
 	skipWithoutShell(t)
-	exec := mustLocalExecutor(t, LocalConfig{Directory: ".", MaxOutputBytes: 100})
+	exec := mustLocalExecutor(t, LocalConfig{Directory: ".", MaxBytesPerStream: 100})
 	out, err := exec.Run(t.Context(), Input{
 		Cmd: `for i in $(seq 1 1000); do echo "line $i"; done`,
 	})
@@ -194,14 +194,14 @@ func TestTool_Call_EnforcesPreciseInputContract(t *testing.T) {
 }
 
 func TestToolRejectsNilExecutor(t *testing.T) {
-	if _, err := NewTool(nil); !errors.Is(err, ErrNilExecutor) {
-		t.Fatalf("NewTool(nil) error = %v, want ErrNilExecutor", err)
+	if _, err := NewTool(Config{}); !errors.Is(err, ErrNilExecutor) {
+		t.Fatalf("NewTool(Config{}) error = %v, want ErrNilExecutor", err)
 	}
 }
 
 func TestToolRejectsTypedNilExecutor(t *testing.T) {
 	var executor *LocalExecutor
-	if _, err := NewTool(executor); !errors.Is(err, ErrNilExecutor) {
+	if _, err := NewTool(Config{Executor: executor}); !errors.Is(err, ErrNilExecutor) {
 		t.Fatalf("NewTool(typed nil) error = %v, want ErrNilExecutor", err)
 	}
 }

@@ -1,7 +1,10 @@
 package shell
 
 import (
+	"cmp"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -15,7 +18,7 @@ import (
 // [Input] — environment, working directory, and streaming are
 // executor-side concerns, not LLM knobs.
 type Request struct {
-	Command   string `json:"command" jsonschema:"minLength=1" jsonschema_description:"Shell command line run by /bin/sh -c."`
+	Command   string `json:"command" jsonschema:"minLength=1" jsonschema_description:"Command line interpreted by the host-configured shell executor."`
 	TimeoutMS int    `json:"timeout_ms,omitempty" jsonschema:"minimum=1,maximum=600000" jsonschema_description:"Hard execution timeout in milliseconds, from 1 to 600000. Omit for no timeout."`
 }
 
@@ -40,20 +43,26 @@ type Tool struct {
 	typed    toolcontract.Func[Request, Response]
 }
 
+// Config binds execution authority and the model-visible description.
+type Config struct {
+	Executor Executor
+	// Description replaces the neutral default with the host's actual shell
+	// semantics and tool-use policy. Empty selects the neutral description.
+	Description string
+}
+
 // NewTool requires an executor because there is no safe default for running
 // arbitrary commands; a package-level fallback would let a caller obtain shell
 // access without ever stating where it should run.
-func NewTool(executor Executor) (*Tool, error) {
-	if lo.IsNil(executor) {
+func NewTool(config Config) (*Tool, error) {
+	if lo.IsNil(config.Executor) {
 		return nil, ErrNilExecutor
 	}
-	t := &Tool{executor: executor}
+	t := &Tool{executor: config.Executor}
 	typed, err := toolcontract.NewFunc[Request, Response](
 		toolcontract.FuncConfig{
-			Name: "shell",
-			Description: "Execute a shell command via /bin/sh -c. Returns stdout, stderr, exit code, and duration. " +
-				"Avoid using `find`, `grep`, `cat`, `head`, `tail`, `sed`, `awk` here — use the dedicated `glob`, `grep`, `read`, `edit` tools instead. Reserve `shell` for operations that genuinely need a shell (build commands, git, package managers, etc.). " +
-				"Each invocation starts a fresh shell — `cd`, exported variables, and shell options do not persist between calls. Use timeout_ms only when the command needs a hard deadline.",
+			Name:        "shell",
+			Description: cmp.Or(config.Description, "Execute a command through the host-configured shell executor. Returns stdout, stderr, exit code, and duration. Use timeout_ms when the command needs a hard deadline."),
 		},
 		t.run,
 	)
@@ -77,16 +86,28 @@ func (t *Tool) run(ctx context.Context, req Request) (Response, error) {
 		Cmd:     req.Command,
 		Timeout: time.Duration(req.TimeoutMS) * time.Millisecond,
 	})
-	if err != nil {
-		return Response{}, fmt.Errorf("shell.tool: run: %w", err)
-	}
-	return Response{
+	response := Response{
 		Stdout:   string(res.Stdout),
 		Stderr:   string(res.Stderr),
 		ExitCode: res.ExitCode,
 		Killed:   res.Killed,
 		Duration: res.Duration.String(),
-	}, nil
+	}
+	if err == nil {
+		return response, nil
+	}
+	cause := fmt.Errorf("shell.tool: run: %w", err)
+	encoded, encodeErr := json.Marshal(response)
+	if encodeErr != nil {
+		return Response{}, errors.Join(cause, encodeErr)
+	}
+	output := chat.NewTextToolOutput(fmt.Sprintf("%s\nCaptured execution output: %s", cause, encoded))
+	output.Details = encoded
+	failure, failureErr := toolcontract.NewFailure(cause, output)
+	if failureErr != nil {
+		return Response{}, errors.Join(cause, failureErr)
+	}
+	return Response{}, failure
 }
 
 // Unwrap exposes the typed input contract through tool decorators.

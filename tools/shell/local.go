@@ -13,19 +13,21 @@ import (
 )
 
 const (
-	defaultShell          = "/bin/sh"
-	shellCommandFlag      = "-c"
-	defaultMaxOutputBytes = 30 * 1024
-	pipeCloseDelay        = time.Second
+	defaultShell             = "/bin/sh"
+	shellCommandFlag         = "-c"
+	defaultMaxBytesPerStream = 30 * 1024
+	pipeCloseDelay           = time.Second
 )
 
 // LocalConfig makes the local process authority visible at construction. The
 // directory controls relative-path resolution but is not a filesystem jail;
 // callers that need confinement must supply an OS sandbox or container.
 type LocalConfig struct {
-	Directory      string
-	Shell          string
-	MaxOutputBytes int
+	Directory string
+	Shell     string
+	// MaxBytesPerStream caps captured stdout and stderr independently.
+	// Zero selects 30 KiB per stream; truncation markers are additional bytes.
+	MaxBytesPerStream int
 }
 
 // LocalExecutor runs commands on the local host through one immutable
@@ -34,9 +36,9 @@ type LocalConfig struct {
 // A command that deliberately creates another session requires a host sandbox
 // to keep its lifetime confined; this executor is not a process sandbox.
 type LocalExecutor struct {
-	directory      string
-	shell          string
-	maxOutputBytes int
+	directory         string
+	shell             string
+	maxBytesPerStream int
 }
 
 // NewLocalExecutor resolves the working directory to an absolute path and
@@ -50,7 +52,7 @@ func NewLocalExecutor(config LocalConfig) (*LocalExecutor, error) {
 	if strings.TrimSpace(config.Shell) == "" && config.Shell != "" {
 		return nil, fmt.Errorf("%w: shell must not be blank", ErrInvalidConfig)
 	}
-	if config.MaxOutputBytes < 0 {
+	if config.MaxBytesPerStream < 0 {
 		return nil, fmt.Errorf("%w: maximum output bytes must not be negative", ErrInvalidConfig)
 	}
 	directory, err := filepath.Abs(config.Directory)
@@ -58,9 +60,9 @@ func NewLocalExecutor(config LocalConfig) (*LocalExecutor, error) {
 		return nil, fmt.Errorf("shell.NewLocalExecutor: resolve directory %q: %w", config.Directory, err)
 	}
 	return &LocalExecutor{
-		directory:      filepath.Clean(directory),
-		shell:          cmp.Or(config.Shell, defaultShell),
-		maxOutputBytes: cmp.Or(config.MaxOutputBytes, defaultMaxOutputBytes),
+		directory:         filepath.Clean(directory),
+		shell:             cmp.Or(config.Shell, defaultShell),
+		maxBytesPerStream: cmp.Or(config.MaxBytesPerStream, defaultMaxBytesPerStream),
 	}, nil
 }
 
@@ -68,7 +70,7 @@ func (l *LocalExecutor) Run(ctx context.Context, in Input) (Output, error) {
 	if l == nil {
 		return Output{}, ErrNilExecutor
 	}
-	if l.directory == "" || l.shell == "" || l.maxOutputBytes <= 0 {
+	if l.directory == "" || l.shell == "" || l.maxBytesPerStream <= 0 {
 		return Output{}, ErrInvalidConfig
 	}
 	if strings.TrimSpace(in.Cmd) == "" {
@@ -93,8 +95,8 @@ func (l *LocalExecutor) Run(ctx context.Context, in Input) (Output, error) {
 	// Escaped descendants cannot keep inherited pipes alive indefinitely.
 	cmd.WaitDelay = pipeCloseDelay
 
-	stdout := newBoundedBuffer(l.maxOutputBytes)
-	stderr := newBoundedBuffer(l.maxOutputBytes)
+	stdout := newBoundedBuffer(l.maxBytesPerStream)
+	stderr := newBoundedBuffer(l.maxBytesPerStream)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 

@@ -12,6 +12,8 @@ type Executor interface {
 	// Run executes exactly one command within the executor's frozen authority.
 	// It honors ctx and Input.Timeout, returns non-zero exit status as Output
 	// rather than error, and reserves error for spawn, I/O, or collection failure.
+	// On error, Output retains all available execution facts. Neither an error
+	// nor missing output proves that the command had no side effects.
 	Run(ctx context.Context, in Input) (Output, error)
 }
 
