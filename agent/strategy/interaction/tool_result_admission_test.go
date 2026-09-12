@@ -64,7 +64,7 @@ func TestRestoreRejectsFailedToolAdvertisements(t *testing.T) {
 			},
 		}},
 	}
-	encoded, err := encodeState(state)
+	encoded, err := state.snapshot()
 	if err != nil {
 		t.Fatal(err)
 	}

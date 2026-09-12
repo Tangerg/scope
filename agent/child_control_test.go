@@ -26,7 +26,7 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 			effect = controlValue(CancelChild(child, "stop work"))
 		}
 		var roundTrip Effect
-		if err := json.Unmarshal(controlValue(json.Marshal(effect)), &roundTrip); err != nil || !sameBoundaryEffect(effect, roundTrip) {
+		if err := json.Unmarshal(controlValue(json.Marshal(effect)), &roundTrip); err != nil || !effect.equal(roundTrip) {
 			t.Fatalf("effect codec: %v", err)
 		}
 		for _, failed := range []bool{false, true} {
@@ -56,7 +56,7 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 			if got, err := ParseChildControlResult(signal); err != nil || !got.Matches(effect) {
 				t.Fatal(err)
 			}
-			id := deriveEffectID(child, 1, 0)
+			id := child.effectID(1, 0)
 			status := SettlementStatusSucceeded
 			if failed {
 				status = SettlementStatusFailed
@@ -76,7 +76,7 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 					}
 					record.Settlement = new(controlValue(NewSettlement(id, wrong, payload)))
 				},
-				"addressed": func(record *preparedEffect) { record.WaitID = new(deriveWaitID(id)) },
+				"addressed": func(record *preparedEffect) { record.WaitID = new(id.waitID()) },
 				"other recipient": func(record *preparedEffect) {
 					if operation == frameworkEffectSignalChild {
 						record.Effect = controlValue(SignalChild(other, request))
@@ -130,7 +130,7 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 
 func TestSignalRequestWireSchemaAndOpeningIdentity(t *testing.T) {
 	id := controlValue(ParseSignalID("signal:opening"))
-	wait := deriveWaitID(deriveEffectID(controlValue(newProcessID()), 1, 0))
+	wait := controlValue(newProcessID()).effectID(1, 0).waitID()
 	request := controlValue(NewSignalRequest(id, wait, []byte(`"request"`)))
 	payload := controlValue(json.Marshal(request))
 	var decoded SignalRequest
@@ -182,7 +182,7 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 			}
 			request := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:control")), WaitID{}, []byte(`"steer"`)))
 			effect := controlValue(SignalChild(recipient, request))
-			id := deriveEffectID(parent.handle.processID, 1, 0)
+			id := parent.handle.processID.effectID(1, 0)
 			parent.prepared = &preparedStep{StepSequence: 1, Effects: preparedEffects{{ID: id, Effect: effect, Phase: effectPhasePending}}}
 			record := &parent.prepared.Effects[0]
 			runtime.controlChild(parent, 0, record, time.Now())
@@ -237,7 +237,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 	request := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:cut")), WaitID{}, []byte(`"instruction"`)))
 	effect := controlValue(SignalChild(childID, request))
 	result := ChildControlResult{childID: childID, operation: frameworkEffectSignalChild, signalID: request.ID()}
-	id := deriveEffectID(parentID, 1, 0)
+	id := parentID.effectID(1, 0)
 	record := preparedEffect{ID: id, Effect: effect, Phase: effectPhaseSettled,
 		Settlement: new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(json.Marshal(result)))))}
 	receipt := newSignalRecord(controlValue(request.signal()), false).snapshot()
@@ -250,7 +250,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 			child.Mailbox.Signals[0].PayloadDigest = ComputeDigest([]byte(`"other"`))
 		},
 		"opening receipt": func(child *processSnapshotWire) { child.Mailbox.Signals[0].OpensWait = true },
-		"wrong wait":      func(child *processSnapshotWire) { child.Mailbox.Signals[0].WaitID = new(deriveWaitID(id)) },
+		"wrong wait":      func(child *processSnapshotWire) { child.Mailbox.Signals[0].WaitID = new(id.waitID()) },
 		"wrong parent":    func(child *processSnapshotWire) { child.Relation.ParentID = new(controlValue(newProcessID())) },
 		"not a child":     func(child *processSnapshotWire) { child.Relation.ParentID = nil },
 	} {
@@ -309,8 +309,8 @@ func TestDescriptorParticipatesInTypedWireSchemas(t *testing.T) {
 func TestControlSnapshotRejectsChildWaitAsExternalAdmission(t *testing.T) {
 	parentID := controlValue(newProcessID())
 	childID := controlValue(newProcessID())
-	id := deriveEffectID(parentID, 1, 0)
-	waitID := deriveWaitID(deriveEffectID(childID, 1, 0))
+	id := parentID.effectID(1, 0)
+	waitID := childID.effectID(1, 0).waitID()
 	request := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:child-answer")), waitID, []byte(`"done"`)))
 	result := ChildControlResult{childID: childID, operation: frameworkEffectSignalChild, signalID: request.ID()}
 	record := preparedEffect{ID: id, Effect: controlValue(SignalChild(childID, request)), Phase: effectPhaseSettled,

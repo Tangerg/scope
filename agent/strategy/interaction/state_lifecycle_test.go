@@ -69,7 +69,7 @@ func TestRestoreRejectsIncompleteLifecycleStates(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			execution := childBatchTestExecution(t, childCallsTool, phaseAwaitingChildStarts)
 			test.change(&execution.state)
-			state, stateErr := encodeState(execution.state)
+			state, stateErr := execution.state.snapshot()
 			if stateErr != nil {
 				t.Fatal(stateErr)
 			}

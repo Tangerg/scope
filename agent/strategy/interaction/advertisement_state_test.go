@@ -24,7 +24,7 @@ func TestAdvertisedToolNamesSurviveExecutionStateRestore(t *testing.T) {
 	if validateErr := state.Validate(definition); validateErr != nil {
 		t.Fatal(validateErr)
 	}
-	encoded, err := encodeState(state)
+	encoded, err := state.snapshot()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestRestoreRejectsInvalidAdvertisements(t *testing.T) {
 			WorkingContext:      &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("restore"))}},
 			AdvertisedToolNames: names,
 		}
-		encoded, err := encodeState(state)
+		encoded, err := state.snapshot()
 		if err != nil {
 			t.Fatal(err)
 		}

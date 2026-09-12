@@ -2,7 +2,6 @@ package agent
 
 import (
 	"cmp"
-	"encoding/json"
 	"errors"
 	"slices"
 )
@@ -12,21 +11,6 @@ const (
 	treeDurabilityFailureCode   = "engine.tree.durability_failed"
 	treeIncarnationConflictCode = "engine.tree.incarnation_conflict"
 )
-
-func terminalEventPayload(process *processState) json.RawMessage {
-	usage := process.usage
-	eventPayload := processFinishedEventPayload{
-		ProcessStatus:    process.status,
-		TerminationCause: process.termination.Cause(),
-		Usage:            &usage,
-	}
-	if failure, failed := process.termination.Failure(); failed {
-		eventPayload.FailureKind = failure.Kind()
-		eventPayload.FailureCode = failure.Code()
-	}
-	payload, _ := json.Marshal(eventPayload)
-	return payload
-}
 
 func orderedProcesses(values map[ProcessID]*processState) []*processState {
 	processes := make([]*processState, 0, len(values))

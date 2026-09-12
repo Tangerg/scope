@@ -83,7 +83,7 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 		t.Fatal(err)
 	}
 	now := time.Now().Round(0).UTC()
-	handle := newProcessHandleState(rootProcessRelation(rootID), deployment.DeploymentRef(), budgetFromLimits(engine.limits), engine.capabilities, engine.treeLimits, now, StatusRunning)
+	handle := newProcessHandleState(rootProcessRelation(rootID), deployment.DeploymentRef(), engine.limits.budget(), engine.capabilities, engine.treeLimits, now, StatusRunning)
 	root := newProcessState(handle, deployment, execution, state, now, engine.limits)
 	processes := []*processState{root}
 	for index := 1; index < count; index++ {
@@ -96,7 +96,7 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 			t.Fatal(err)
 		}
 		budget := Budget{Steps: 10, Effects: 10, Signals: 10}
-		limits, err := limitsFromBudget(engine.limits, budget)
+		limits, err := budget.limits(engine.limits.MaxPendingSignals)
 		if err != nil {
 			t.Fatal(err)
 		}

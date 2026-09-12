@@ -127,7 +127,7 @@ func TestChildBatchRestoreRequiresDeclaredBinding(t *testing.T) {
 				t.Fatal(err)
 			}
 			execution.state.ToolRound.ChildBatch.Invocations[0].ChildKey = &key
-			captured, err := encodeState(execution.state)
+			captured, err := execution.state.snapshot()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -187,7 +187,7 @@ func childBatchTestExecution(t testing.TB, kind childCallKind, stage phase) *exe
 		ToolRound: &toolCallRound{Response: &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonToolCalls}},
 			DirectResultEligible: kind == childCallsTool, ChildBatch: batch},
 	}
-	captured, err := encodeState(state)
+	captured, err := state.snapshot()
 	if err != nil {
 		t.Fatal(err)
 	}

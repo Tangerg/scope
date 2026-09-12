@@ -228,3 +228,11 @@ func (e executionState) validateFanoutPhase(resolved, started int) error {
 	}
 	return nil
 }
+
+func (e executionState) snapshot() (agent.ExecutionState, error) {
+	payload, err := json.Marshal(e)
+	if err != nil {
+		return agent.ExecutionState{}, fmt.Errorf("workflow: encode execution state: %w", err)
+	}
+	return agent.NewExecutionState(executionStateKind, payload)
+}

@@ -73,123 +73,6 @@ type deltaDroppedEventPayload struct {
 	DroppedDeltaCount uint64 `json:"dropped_delta_count"`
 }
 
-type eventIdentityScope uint8
-
-const (
-	eventIdentityProcess eventIdentityScope = iota + 1
-	eventIdentityStep
-	eventIdentityEffect
-)
-
-func validateEventContract(
-	name string,
-	phase EventPhase,
-	stepSequence uint64,
-	effectID EffectID,
-	payload json.RawMessage,
-) error {
-	switch name {
-	case EventProcessStarted, EventProcessRestored, EventProcessPaused, EventProcessResumed:
-		return validateEmptyEvent(phase, EventPhaseCommitted, stepSequence, effectID, eventIdentityProcess, payload)
-	case EventProcessFinished:
-		if err := validateEventIdentity(phase, EventPhaseCommitted, stepSequence, effectID, eventIdentityProcess); err != nil {
-			return err
-		}
-		_, err := decodeProcessFinishedFact(payload)
-		return err
-	case EventRuntimeStopped:
-		if err := validateEventIdentity(phase, EventPhaseAttempt, stepSequence, effectID, eventIdentityProcess); err != nil {
-			return err
-		}
-		_, err := decodeRuntimeStoppedFact(payload)
-		return err
-	case EventSignalAccepted:
-		if err := validateEventIdentity(phase, EventPhaseCommitted, stepSequence, effectID, eventIdentityProcess); err != nil {
-			return err
-		}
-		_, err := decodeSignalAcceptedFact(payload)
-		return err
-	case EventStepStarted, EventStepPrepared:
-		return validateEmptyEvent(phase, EventPhaseAttempt, stepSequence, effectID, eventIdentityStep, payload)
-	case EventStepFinished:
-		if err := validateEventIdentity(phase, EventPhaseAttempt, stepSequence, effectID, eventIdentityStep); err != nil {
-			return err
-		}
-		_, err := decodeStepFinishedFact(payload)
-		return err
-	case EventStepCommitted:
-		if err := validateEventIdentity(phase, EventPhaseCommitted, stepSequence, effectID, eventIdentityStep); err != nil {
-			return err
-		}
-		_, err := decodeStepCommittedFact(payload)
-		return err
-	case EventEffectStarted:
-		if err := validateEventIdentity(phase, EventPhaseAttempt, stepSequence, effectID, eventIdentityEffect); err != nil {
-			return err
-		}
-		_, err := decodeEffectStartedFact(payload)
-		return err
-	case EventEffectFinished:
-		if err := validateEventIdentity(phase, EventPhaseAttempt, stepSequence, effectID, eventIdentityEffect); err != nil {
-			return err
-		}
-		_, err := decodeEffectFinishedFact(payload)
-		return err
-	case EventDeltaDropped:
-		if err := validateEventIdentity(phase, EventPhaseAttempt, stepSequence, effectID, eventIdentityEffect); err != nil {
-			return err
-		}
-		_, err := decodeDeltaDroppedFact(payload)
-		return err
-	default:
-		return errors.New("unknown Framework event name")
-	}
-}
-
-func validateEmptyEvent(
-	phase EventPhase,
-	wantPhase EventPhase,
-	stepSequence uint64,
-	effectID EffectID,
-	scope eventIdentityScope,
-	payload json.RawMessage,
-) error {
-	if err := validateEventIdentity(phase, wantPhase, stepSequence, effectID, scope); err != nil {
-		return err
-	}
-	_, err := wireJSON.decode[struct{}](payload)
-	return err
-}
-
-func validateEventIdentity(
-	phase EventPhase,
-	wantPhase EventPhase,
-	stepSequence uint64,
-	effectID EffectID,
-	scope eventIdentityScope,
-) error {
-	if phase != wantPhase {
-		return errors.New("event phase does not match its Framework fact")
-	}
-	switch scope {
-	case eventIdentityProcess:
-		if stepSequence != 0 || effectID.Valid() {
-			return errors.New("process event cannot carry Step or Effect identity")
-		}
-	case eventIdentityStep:
-		if stepSequence == 0 || effectID.Valid() {
-			return errors.New("step event requires only a Step sequence")
-		}
-	case eventIdentityEffect:
-		if stepSequence == 0 || !effectID.Valid() {
-			return errors.New("effect event requires Step and Effect identity")
-		}
-	default:
-		return errors.New("event identity scope is invalid")
-	}
-	return nil
-}
-
 // ProcessFinishedFact is the immutable terminal fact carried by a finished
 // Process Event. Usage is the authoritative Framework-owned terminal usage.
 type ProcessFinishedFact struct {
@@ -211,7 +94,44 @@ func (p ProcessFinishedFact) Failure() (FailureKind, string, bool) {
 func (p ProcessFinishedFact) Usage() Usage { return p.usage }
 
 func (p ProcessFinishedFact) Valid() bool {
-	return validProcessFinishedFact(p)
+	if !p.status.Terminal() || !p.cause.Valid() {
+		return false
+	}
+	failed := p.status == StatusFailed
+	if failed != (p.failureKind.Valid() && validQualifiedName(p.failureCode) && len(p.failureCode) <= maxFailureCodeBytes) {
+		return false
+	}
+	if !failed && (p.failureKind != FailureKindInvalid || p.failureCode != "") {
+		return false
+	}
+	switch p.status {
+	case StatusCompleted:
+		return p.cause == TerminationCauseCompletion
+	case StatusFailed:
+		switch p.failureKind {
+		case FailureKindExecution:
+			return p.cause == TerminationCauseExecutionFailure
+		case FailureKindContract:
+			return p.cause == TerminationCauseContractFailure
+		case FailureKindExternal:
+			return p.cause == TerminationCauseExternalFailure
+		case FailureKindPanic:
+			return p.cause == TerminationCausePanic
+		default:
+			return false
+		}
+	case StatusCanceled:
+		return p.cause == TerminationCauseParentCancellation ||
+			p.cause == TerminationCauseHostCancellation
+	case StatusTimedOut:
+		return p.cause == TerminationCauseProcessDeadline ||
+			p.cause == TerminationCauseParentDeadline ||
+			p.cause == TerminationCauseHostDeadline
+	case StatusKilled:
+		return p.cause == TerminationCauseEngineKill
+	default:
+		return false
+	}
 }
 
 // RuntimeStoppedFact describes an instance failure, not a logical Process
@@ -339,47 +259,6 @@ func decodeProcessFinishedFact(payload json.RawMessage) (ProcessFinishedFact, er
 		return ProcessFinishedFact{}, errors.New("invalid Process finished event fact")
 	}
 	return fact, nil
-}
-
-func validProcessFinishedFact(fact ProcessFinishedFact) bool {
-	if !fact.status.Terminal() || !fact.cause.Valid() {
-		return false
-	}
-	failed := fact.status == StatusFailed
-	if failed != (fact.failureKind.Valid() && validQualifiedName(fact.failureCode) && len(fact.failureCode) <= maxFailureCodeBytes) {
-		return false
-	}
-	if !failed && (fact.failureKind != FailureKindInvalid || fact.failureCode != "") {
-		return false
-	}
-	switch fact.status {
-	case StatusCompleted:
-		return fact.cause == TerminationCauseCompletion
-	case StatusFailed:
-		switch fact.failureKind {
-		case FailureKindExecution:
-			return fact.cause == TerminationCauseExecutionFailure
-		case FailureKindContract:
-			return fact.cause == TerminationCauseContractFailure
-		case FailureKindExternal:
-			return fact.cause == TerminationCauseExternalFailure
-		case FailureKindPanic:
-			return fact.cause == TerminationCausePanic
-		default:
-			return false
-		}
-	case StatusCanceled:
-		return fact.cause == TerminationCauseParentCancellation ||
-			fact.cause == TerminationCauseHostCancellation
-	case StatusTimedOut:
-		return fact.cause == TerminationCauseProcessDeadline ||
-			fact.cause == TerminationCauseParentDeadline ||
-			fact.cause == TerminationCauseHostDeadline
-	case StatusKilled:
-		return fact.cause == TerminationCauseEngineKill
-	default:
-		return false
-	}
 }
 
 func decodeSignalAcceptedFact(payload json.RawMessage) (SignalAcceptedFact, error) {

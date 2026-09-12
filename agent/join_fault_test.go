@@ -57,7 +57,7 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	termination, err := resolveTermination(terminationFacts{outcome: completedOutcome()})
+	termination, err := (terminationFacts{outcome: completedOutcome()}).resolve()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	if !parent.handle.joinDone() || !errors.Is(parent.handle.joinError(), cause) {
 		t.Fatal("parent lost its runtime failure")
 	}
-	if parent.usage != beforeUsage || parent.mailbox.contains(deriveChildWaitSignalID(waitID)) || len(runtime.pendingPublications) != 0 {
+	if parent.usage != beforeUsage || parent.mailbox.contains(waitID.childWaitSignalID()) || len(runtime.pendingPublications) != 0 {
 		t.Fatal("join published new strategy input after the tree runtime failed")
 	}
 	if !runtime.canStop() {

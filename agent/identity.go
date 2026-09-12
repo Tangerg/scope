@@ -79,6 +79,15 @@ func (p *ProcessID) UnmarshalText(text []byte) error {
 	return nil
 }
 
+func (p ProcessID) effectID(step uint64, index int) EffectID {
+	digest := digestBytes([]byte(fmt.Sprintf("%s\x00%d\x00%d", p.String(), step, index)))
+	id, err := ParseEffectID(effectIDPrefix + digest.hex())
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
 // SignalID is the stable identity used to deduplicate one Signal delivery.
 type SignalID struct{ identity }
 
@@ -123,6 +132,15 @@ func (w *WaitID) UnmarshalText(text []byte) error {
 	return nil
 }
 
+func (w WaitID) childWaitSignalID() SignalID {
+	digest := digestBytes([]byte("child-wait-satisfied\x00" + w.String()))
+	id, err := ParseSignalID(signalIDPrefix + digest.hex())
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
 // EffectID identifies one Effect at a stable Process, Step, and batch index.
 type EffectID struct{ identity }
 
@@ -142,6 +160,33 @@ func (e *EffectID) UnmarshalText(text []byte) error {
 	}
 	*e = value
 	return nil
+}
+
+func (e EffectID) waitID() WaitID {
+	digest := digestBytes([]byte("wait\x00" + e.String()))
+	id, err := ParseWaitID(waitIDPrefix + digest.hex())
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
+func (e EffectID) settlementSignalID() SignalID {
+	digest := digestBytes([]byte("signal\x00" + e.String()))
+	id, err := ParseSignalID(signalIDPrefix + digest.hex())
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
+func (e EffectID) childProcessID() ProcessID {
+	digest := digestBytes([]byte("child\x00" + e.String()))
+	id, err := ParseProcessID(processIDPrefix + digest.hex())
+	if err != nil {
+		panic(err)
+	}
+	return id
 }
 
 // WaitKey is an Execution-owned logical key used to associate a requested wait

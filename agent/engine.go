@@ -223,7 +223,7 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Input) 
 		return nil, err
 	}
 	relation := rootProcessRelation(id)
-	budget := budgetFromLimits(e.limits)
+	budget := e.limits.budget()
 	admission := newProcessAdmission(relation, deployment, budget, e.capabilities)
 	if reserveProcessStartErr := e.reserveProcessStart(
 		relation, deployment.DeploymentRef(), e.treeLimits, Digest{},

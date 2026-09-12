@@ -13,10 +13,10 @@ func TestRestoredAdvertisementsDispatchAgainstBoundManifest(t *testing.T) {
 	for _, matched := range []bool{true, false} {
 		t.Run(map[bool]string{true: "bound", false: "unbound"}[matched], func(t *testing.T) {
 			definition := advertisementTestDefinition(t)
-			state, err := encodeState(executionState{
+			state, err := (executionState{
 				Phase: phaseReadyModel, ModelCallCount: 1, AdvertisedToolNames: []string{"first", "second"},
 				WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("resume"))}},
-			})
+			}).snapshot()
 			if err != nil {
 				t.Fatal(err)
 			}

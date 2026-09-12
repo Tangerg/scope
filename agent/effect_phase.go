@@ -145,8 +145,8 @@ func (p preparedEffect) validateIdentity(
 	index int,
 	effect Effect,
 ) error {
-	wantID := deriveEffectID(processID, sequence, index)
-	if p.ID != wantID || !equalEffect(p.Effect, effect) {
+	wantID := processID.effectID(sequence, index)
+	if p.ID != wantID || !p.Effect.equal(effect) {
 		return errors.New("prepared Effect identity or payload changed")
 	}
 	if p.Effect.Target() != EffectTargetFramework {
@@ -207,7 +207,7 @@ func (p preparedEffect) validateChildControl() error {
 }
 
 func (p preparedEffect) validateWait(name string) error {
-	if p.WaitID != nil && *p.WaitID != deriveWaitID(p.ID) {
+	if p.WaitID != nil && *p.WaitID != p.ID.waitID() {
 		return fmt.Errorf("%s contains a non-derived WaitID", name)
 	}
 	if (p.WaitID == nil) != (p.Phase != effectPhaseSettled) ||
@@ -225,7 +225,7 @@ func (p *preparedEffect) settleFramework() error {
 	var payload json.RawMessage
 	switch operation {
 	case frameworkEffectWait:
-		_, payload, err = decodeWaitRequest(p.Effect)
+		_, payload, err = p.Effect.waitRequest()
 		if err != nil {
 			return err
 		}
@@ -252,7 +252,7 @@ func (p *preparedEffect) settleFramework() error {
 	if err := p.settle(settlement); err != nil {
 		return err
 	}
-	waitID := deriveWaitID(p.ID)
+	waitID := p.ID.waitID()
 	p.WaitID = &waitID
 	return nil
 }

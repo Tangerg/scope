@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"math"
@@ -120,12 +119,4 @@ func (d *Definition) Topology() Topology {
 		stages[index] = stage.topology()
 	}
 	return Topology{Descriptor: d.descriptor, Stages: stages}
-}
-
-func encodeExecutionState(state executionState) (agent.ExecutionState, error) {
-	payload, err := json.Marshal(state)
-	if err != nil {
-		return agent.ExecutionState{}, fmt.Errorf("workflow: encode execution state: %w", err)
-	}
-	return agent.NewExecutionState(executionStateKind, payload)
 }

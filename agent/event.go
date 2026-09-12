@@ -130,12 +130,7 @@ func newEvent(spec eventSpec) (Event, error) {
 	if err != nil {
 		return Event{}, fmt.Errorf("%w: payload: %w", ErrInvalidEvent, err)
 	}
-	if err := validateEventContract(
-		spec.name, spec.phase, spec.stepSequence, spec.effectID, normalized,
-	); err != nil {
-		return Event{}, fmt.Errorf("%w: %w", ErrInvalidEvent, err)
-	}
-	return Event{
+	event := Event{
 		processSequence: spec.processSequence,
 		processID:       spec.processID,
 		deploymentRef:   spec.deploymentRef,
@@ -147,7 +142,11 @@ func newEvent(spec eventSpec) (Event, error) {
 		phase:           spec.phase,
 		occurredAt:      spec.occurredAt.Round(0).UTC(),
 		payload:         normalized,
-	}, nil
+	}
+	if err := event.validateContract(); err != nil {
+		return Event{}, fmt.Errorf("%w: %w", ErrInvalidEvent, err)
+	}
+	return event, nil
 }
 
 // ProcessSequence returns the Process-local publication order within one tree
@@ -270,7 +269,7 @@ func (e Event) Valid() bool {
 		(e.incarnationID == (TreeIncarnationID{}) || e.incarnationID.Valid()) &&
 		e.phase.Valid() &&
 		!e.occurredAt.IsZero() && len(e.payload) > 0 &&
-		validateEventContract(e.name, e.phase, e.stepSequence, e.effectID, e.payload) == nil
+		e.validateContract() == nil
 }
 
 func (e Event) MarshalJSON() ([]byte, error) {
@@ -333,6 +332,96 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (e Event) validateContract() error {
+	switch e.name {
+	case EventProcessStarted, EventProcessRestored, EventProcessPaused, EventProcessResumed:
+		return e.validateEmpty(EventPhaseCommitted, eventIdentityProcess)
+	case EventProcessFinished:
+		if err := e.validateIdentity(EventPhaseCommitted, eventIdentityProcess); err != nil {
+			return err
+		}
+		_, err := decodeProcessFinishedFact(e.payload)
+		return err
+	case EventRuntimeStopped:
+		if err := e.validateIdentity(EventPhaseAttempt, eventIdentityProcess); err != nil {
+			return err
+		}
+		_, err := decodeRuntimeStoppedFact(e.payload)
+		return err
+	case EventSignalAccepted:
+		if err := e.validateIdentity(EventPhaseCommitted, eventIdentityProcess); err != nil {
+			return err
+		}
+		_, err := decodeSignalAcceptedFact(e.payload)
+		return err
+	case EventStepStarted, EventStepPrepared:
+		return e.validateEmpty(EventPhaseAttempt, eventIdentityStep)
+	case EventStepFinished:
+		if err := e.validateIdentity(EventPhaseAttempt, eventIdentityStep); err != nil {
+			return err
+		}
+		_, err := decodeStepFinishedFact(e.payload)
+		return err
+	case EventStepCommitted:
+		if err := e.validateIdentity(EventPhaseCommitted, eventIdentityStep); err != nil {
+			return err
+		}
+		_, err := decodeStepCommittedFact(e.payload)
+		return err
+	case EventEffectStarted:
+		if err := e.validateIdentity(EventPhaseAttempt, eventIdentityEffect); err != nil {
+			return err
+		}
+		_, err := decodeEffectStartedFact(e.payload)
+		return err
+	case EventEffectFinished:
+		if err := e.validateIdentity(EventPhaseAttempt, eventIdentityEffect); err != nil {
+			return err
+		}
+		_, err := decodeEffectFinishedFact(e.payload)
+		return err
+	case EventDeltaDropped:
+		if err := e.validateIdentity(EventPhaseAttempt, eventIdentityEffect); err != nil {
+			return err
+		}
+		_, err := decodeDeltaDroppedFact(e.payload)
+		return err
+	default:
+		return errors.New("unknown Framework event name")
+	}
+}
+
+func (e Event) validateEmpty(wantPhase EventPhase, scope eventIdentityScope) error {
+	if err := e.validateIdentity(wantPhase, scope); err != nil {
+		return err
+	}
+	_, err := wireJSON.decode[struct{}](e.payload)
+	return err
+}
+
+func (e Event) validateIdentity(wantPhase EventPhase, scope eventIdentityScope) error {
+	if e.phase != wantPhase {
+		return errors.New("event phase does not match its Framework fact")
+	}
+	switch scope {
+	case eventIdentityProcess:
+		if e.stepSequence != 0 || e.effectID.Valid() {
+			return errors.New("process event cannot carry Step or Effect identity")
+		}
+	case eventIdentityStep:
+		if e.stepSequence == 0 || e.effectID.Valid() {
+			return errors.New("step event requires only a Step sequence")
+		}
+	case eventIdentityEffect:
+		if e.stepSequence == 0 || !e.effectID.Valid() {
+			return errors.New("effect event requires Step and Effect identity")
+		}
+	default:
+		return errors.New("event identity scope is invalid")
+	}
+	return nil
+}
+
 type eventWire struct {
 	ProcessSequence uint64              `json:"process_sequence"`
 	ProcessID       ProcessID           `json:"process_id"`
@@ -353,3 +442,11 @@ func treeIncarnationOrZero(value *TreeIncarnationID) TreeIncarnationID {
 	}
 	return *value
 }
+
+type eventIdentityScope uint8
+
+const (
+	eventIdentityProcess eventIdentityScope = iota + 1
+	eventIdentityStep
+	eventIdentityEffect
+)

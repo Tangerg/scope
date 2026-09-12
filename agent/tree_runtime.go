@@ -564,9 +564,9 @@ func (t *treeRuntime) prepareChildStart(
 			spec, FailureKindContract, childRequestInvalidCode, ErrInvalidChildStart,
 		)}
 	}
-	childID := deriveChildProcessID(effectID)
+	childID := effectID.childProcessID()
 	relation := childProcessRelation(childID, process.handle.relation, spec.Key)
-	requestDigest, err := childSpecDigest(spec)
+	requestDigest, err := spec.digest()
 	if err != nil {
 		return childStartPreparation{result: failedChildStart(
 			spec, FailureKindContract, childRequestInvalidCode, err,
@@ -599,7 +599,7 @@ func (t *treeRuntime) prepareChildStart(
 			process.releaseProvisionalChildBudget(spec.Budget)
 		}
 	}()
-	childLimits, err := limitsFromBudget(process.limits, spec.Budget)
+	childLimits, err := spec.Budget.limits(process.limits.MaxPendingSignals)
 	if err != nil {
 		return childStartPreparation{result: failedChildStart(
 			spec, FailureKindExecution, childBudgetInvalidCode, err,
@@ -1015,7 +1015,7 @@ func (t *treeRuntime) stageTerminal(process *processState) {
 	if publication.terminal {
 		return
 	}
-	payload := terminalEventPayload(process)
+	payload := process.terminalEventPayload()
 	event, prepared := t.prepareEvent(process,
 		EventProcessFinished, EventPhaseCommitted, 0, EffectID{}, payload,
 	)
@@ -1313,7 +1313,7 @@ func (t *treeRuntime) captureTree() (TreeSnapshot, error) {
 			wire.ChildWaits = append(wire.ChildWaits, childWaitSnapshotWire{
 				ParentProcessID: parentID,
 				WaitID:          registration.waitID,
-				Spec:            childWaitSpecWireFromValue(registration.spec),
+				Spec:            registration.spec.wire(),
 			})
 		}
 	}
@@ -2379,7 +2379,7 @@ func (t *treeRuntime) finishIfTerminal(process *processState) {
 	default:
 	}
 	t.publishEvent(process, EventProcessFinished, EventPhaseCommitted, 0, EffectID{},
-		terminalEventPayload(process),
+		process.terminalEventPayload(),
 	)
 	process.handle.publishResult(process.result())
 	t.propagateProcessTermination(process)
@@ -2411,7 +2411,7 @@ func (t *treeRuntime) notifyChildWaits(processID ProcessID, boundary ChildWaitBo
 			continue
 		}
 		if parent == nil || parent.status.Terminal() || parent.pendingControl.hasTerminalIntent() ||
-			parent.mailbox.contains(deriveChildWaitSignalID(registration.waitID)) {
+			parent.mailbox.contains(registration.waitID.childWaitSignalID()) {
 			continue
 		}
 		outcomes, satisfied := t.childWaitOutcomes(registration)
@@ -2477,7 +2477,7 @@ func (t *treeRuntime) registerChildWait(
 	}
 	registration := &childWaitRegistration{
 		waitID: waitID,
-		spec:   cloneChildWaitSpec(spec),
+		spec:   spec.clone(),
 	}
 	if t.childWaits[parentID] == nil {
 		t.childWaits[parentID] = make(map[WaitID]*childWaitRegistration)

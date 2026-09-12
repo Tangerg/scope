@@ -74,17 +74,18 @@ func NewAction(config ActionConfig) (Action, error) {
 	if len(effects) == 0 {
 		return Action{}, fmt.Errorf("%w: at least one effect is required", ErrInvalidAction)
 	}
-	if !changesAnyCondition(preconditions, effects) {
-		return Action{}, fmt.Errorf("%w: effects cannot change any state satisfying the preconditions", ErrInvalidAction)
-	}
 	cost := config.Cost
 	if cost == nil {
 		cost = FixedCost(1)
 	}
-	return Action{
+	action := Action{
 		name: config.Name, description: config.Description,
 		preconditions: preconditions, effects: effects, cost: cost,
-	}, nil
+	}
+	if !action.changesState() {
+		return Action{}, fmt.Errorf("%w: effects cannot change any state satisfying the preconditions", ErrInvalidAction)
+	}
+	return action, nil
 }
 
 // Name returns the stable Action identity.
@@ -143,12 +144,12 @@ func (a Action) Apply(source WorldState) (WorldState, error) {
 // Valid distinguishes a constructed Action from its invalid zero value.
 func (a Action) Valid() bool { return a.cost != nil }
 
-func changesAnyCondition(preconditions, effects []Condition) bool {
-	for _, effect := range effects {
-		index, found := slices.BinarySearchFunc(preconditions, effect.key, func(condition Condition, key string) int {
+func (a Action) changesState() bool {
+	for _, effect := range a.effects {
+		index, found := slices.BinarySearchFunc(a.preconditions, effect.key, func(condition Condition, key string) int {
 			return strings.Compare(condition.key, key)
 		})
-		if !found || preconditions[index].truth != effect.truth {
+		if !found || a.preconditions[index].truth != effect.truth {
 			return true
 		}
 	}

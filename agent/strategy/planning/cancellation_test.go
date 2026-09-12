@@ -55,7 +55,7 @@ func TestCanceledStepDoesNotAdvancePlanning(t *testing.T) {
 				state.PlanningPasses = 1
 				state.CurrentActionName = "action.finish"
 			}
-			before, err := encodeExecutionState(state)
+			before, err := state.snapshot()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -86,7 +86,7 @@ func TestPlannerCancellationRemainsAnError(t *testing.T) {
 			definition := cancellationDefinition(t, PlannerFunc(func(context.Context, Problem) (Plan, bool, error) {
 				return Plan{}, false, fmt.Errorf("search interrupted: %w", cause)
 			}))
-			state, err := encodeExecutionState(executionState{Phase: phaseAwaitingSense, Input: json.RawMessage(`{}`)})
+			state, err := (executionState{Phase: phaseAwaitingSense, Input: json.RawMessage(`{}`)}).snapshot()
 			if err != nil {
 				t.Fatal(err)
 			}

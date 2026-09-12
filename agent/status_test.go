@@ -42,12 +42,12 @@ func TestResolveTerminationPriorityMatrix(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := resolveTermination(test.facts)
+			got, err := test.facts.resolve()
 			if err != nil {
 				t.Fatal(err)
 			}
 			if !got.Valid() || got.Status() != test.want || got.Cause() != test.cause {
-				t.Fatalf("ResolveTermination() = status %s cause %s valid %t", got.Status(), got.Cause(), got.Valid())
+				t.Fatalf("terminationFacts.resolve() = status %s cause %s valid %t", got.Status(), got.Cause(), got.Valid())
 			}
 		})
 	}
@@ -85,8 +85,8 @@ func TestStatusStrictJSONRoundTrip(t *testing.T) {
 }
 
 func TestResolveTerminationRejectsMissingFacts(t *testing.T) {
-	if _, err := resolveTermination(terminationFacts{}); !errors.Is(err, errInvalidTermination) {
-		t.Fatalf("resolveTermination(empty) error = %v, want errInvalidTermination", err)
+	if _, err := (terminationFacts{}).resolve(); !errors.Is(err, errInvalidTermination) {
+		t.Fatalf("empty terminationFacts.resolve() error = %v, want errInvalidTermination", err)
 	}
 	if _, err := newDeadlineIntent(deadlineOwnerInvalid, "deadline"); !errors.Is(err, errInvalidTermination) {
 		t.Fatalf("newDeadlineIntent error = %v, want errInvalidTermination", err)
@@ -95,7 +95,7 @@ func TestResolveTerminationRejectsMissingFacts(t *testing.T) {
 
 func TestTerminationJSONRoundTripRejectsContradictoryState(t *testing.T) {
 	failure, _ := NewFailure(FailureKindExternal, "dispatcher.failed", "dispatcher failed")
-	termination := terminationForFailure(failure)
+	termination := failure.termination()
 	data, err := json.Marshal(termination)
 	if err != nil {
 		t.Fatal(err)

@@ -1,7 +1,6 @@
 package planning
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
@@ -184,12 +183,4 @@ func (d *Definition) validateActionHistory(attempts []Attempt) error {
 		}
 	}
 	return nil
-}
-
-func encodeExecutionState(state executionState) (agent.ExecutionState, error) {
-	payload, err := json.Marshal(state)
-	if err != nil {
-		return agent.ExecutionState{}, fmt.Errorf("planning: encode execution state: %w", err)
-	}
-	return agent.NewExecutionState(executionStateKind, payload)
 }

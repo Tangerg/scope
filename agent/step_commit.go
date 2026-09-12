@@ -60,7 +60,7 @@ func (p *preparedStepFinalization) applySettlement(record preparedEffect) error 
 	if record.WaitID != nil {
 		waitID = *record.WaitID
 	}
-	signal, err := newSignal(deriveSettlementSignalID(record.ID), waitID, record.Settlement.Payload())
+	signal, err := newSignal(record.ID.settlementSignalID(), waitID, record.Settlement.Payload())
 	if err != nil {
 		return err
 	}
@@ -71,7 +71,7 @@ func (p *preparedStepFinalization) applySettlement(record preparedEffect) error 
 		}
 		switch operation {
 		case frameworkEffectWait:
-			key, _, decodeErr := decodeWaitRequest(record.Effect)
+			key, _, decodeErr := record.Effect.waitRequest()
 			if decodeErr != nil {
 				return decodeErr
 			}

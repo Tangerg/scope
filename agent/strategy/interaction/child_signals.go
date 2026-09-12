@@ -10,7 +10,7 @@ func collectChildStarts(signals []agent.Signal) ([]agent.ChildStartResult, steer
 	starts := make([]agent.ChildStartResult, 0, len(signals))
 	var steer steerBatch
 	for _, signal := range signals {
-		if recognized, err := appendSteerSignal(&steer, signal); err != nil {
+		if recognized, err := steer.collectSignal(signal); err != nil {
 			return nil, steerBatch{}, 0, err
 		} else if recognized {
 			continue
@@ -33,7 +33,7 @@ func collectChildWaitOpened(signals []agent.Signal) (agent.ChildWaitOpened, stee
 	var steer steerBatch
 	var consumed uint32
 	for _, signal := range signals {
-		if recognized, err := appendSteerSignal(&steer, signal); err != nil {
+		if recognized, err := steer.collectSignal(signal); err != nil {
 			return agent.ChildWaitOpened{}, steerBatch{}, 0, err
 		} else if recognized {
 			consumed++
@@ -66,7 +66,7 @@ func collectChildWaitSatisfied(signals []agent.Signal) (agent.ChildWaitSatisfied
 	var found bool
 	var steer steerBatch
 	for _, signal := range signals {
-		if recognized, err := appendSteerSignal(&steer, signal); err != nil {
+		if recognized, err := steer.collectSignal(signal); err != nil {
 			return agent.ChildWaitSatisfied{}, steerBatch{}, 0, err
 		} else if recognized {
 			continue
@@ -81,18 +81,4 @@ func collectChildWaitSatisfied(signals []agent.Signal) (agent.ChildWaitSatisfied
 		return agent.ChildWaitSatisfied{}, steerBatch{}, 0, fmt.Errorf("%w: child completion Signal is missing", ErrInvalidExecutionState)
 	}
 	return completed, steer, uint32(len(signals)), nil
-}
-
-func appendSteerSignal(batch *steerBatch, signal agent.Signal) (bool, error) {
-	envelope, err := decodeSignal(signal.Payload())
-	if err != nil {
-		return false, nil
-	}
-	if envelope.Operation != operationSteer {
-		return true, fmt.Errorf("%w: unexpected Interaction %q Signal", ErrInvalidExecutionState, envelope.Operation)
-	}
-	if err := batch.appendSignal(signal, envelope.Steer.Messages); err != nil {
-		return true, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
-	}
-	return true, nil
 }

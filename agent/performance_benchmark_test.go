@@ -233,7 +233,7 @@ func BenchmarkTreeRuntimeFastSiblingLatency(b *testing.B) {
 		}
 		benchmarkReceive(b, probe.blockedStepStarted)
 		benchmarkReceive(b, probe.fastStepReady)
-		fastID := deriveChildProcessID(deriveEffectID(root.ID(), 1, 1))
+		fastID := root.ID().effectID(1, 1).childProcessID()
 		fast, exists := engine.Process(fastID)
 		if !exists {
 			b.Fatal("fast sibling was not published")
@@ -247,7 +247,7 @@ func BenchmarkTreeRuntimeFastSiblingLatency(b *testing.B) {
 			b.Fatalf("fast sibling status=%s error=%v", result.Status(), err)
 		}
 
-		blockedID := deriveChildProcessID(deriveEffectID(root.ID(), 1, 0))
+		blockedID := root.ID().effectID(1, 0).childProcessID()
 		blocked, exists := engine.Process(blockedID)
 		if !exists {
 			b.Fatal("blocked sibling was not published")

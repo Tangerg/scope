@@ -16,7 +16,7 @@ func TestPendingSteerSurvivesExecutionStateRestoreWithExactSignalOrder(t *testin
 	if err := state.Validate(definition); err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := encodeState(state)
+	encoded, err := state.snapshot()
 	if err != nil {
 		t.Fatal(err)
 	}

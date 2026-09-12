@@ -1,11 +1,14 @@
 package interaction
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
@@ -53,6 +56,16 @@ func (t toolCall) validate() error {
 		return fmt.Errorf("interaction: tool_call: %w", err)
 	}
 	return nil
+}
+
+func (t toolCall) checkpointWaitKey(pauseCount uint32) (agent.WaitKey, error) {
+	hash := sha256.New()
+	hash.Write([]byte(strconv.FormatUint(uint64(t.ModelCallSequence), 10)))
+	hash.Write([]byte{0})
+	hash.Write([]byte(t.Call.ID))
+	hash.Write([]byte{0})
+	hash.Write([]byte(strconv.FormatUint(uint64(pauseCount), 10)))
+	return agent.ParseWaitKey("interaction.input." + hex.EncodeToString(hash.Sum(nil)))
 }
 
 type toolDispatchRequest struct {

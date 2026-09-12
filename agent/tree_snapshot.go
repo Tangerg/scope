@@ -46,10 +46,14 @@ func newTreeSnapshot(wire treeSnapshotWire) (TreeSnapshot, error) {
 }
 
 func treeSnapshotFromWire(wire treeSnapshotWire) (TreeSnapshot, error) {
-	if validateErr := validateTreeSnapshot(wire); validateErr != nil {
+	validation, err := newTreeSnapshotValidation(wire)
+	if err != nil {
+		return TreeSnapshot{}, err
+	}
+	if validateErr := validation.validate(); validateErr != nil {
 		return TreeSnapshot{}, validateErr
 	}
-	normalizeTreeSnapshot(&wire)
+	wire.normalize()
 	normalized, err := json.Marshal(wire)
 	if err != nil {
 		return TreeSnapshot{}, fmt.Errorf("%w: encode: %w", ErrInvalidTreeSnapshot, err)
@@ -141,6 +145,13 @@ func (t treeSnapshotWire) clone() treeSnapshotWire {
 	return clone
 }
 
+func (t *treeSnapshotWire) normalize() {
+	slices.SortFunc(t.ProcessSnapshots, compareSnapshots)
+	slices.SortFunc(t.ChildWaits, func(left, right childWaitSnapshotWire) int {
+		return cmp.Compare(left.WaitID.String(), right.WaitID.String())
+	})
+}
+
 func treeSnapshotIncarnation(value *TreeIncarnationID) (TreeIncarnationID, bool) {
 	if value == nil {
 		return TreeIncarnationID{}, false
@@ -148,35 +159,11 @@ func treeSnapshotIncarnation(value *TreeIncarnationID) (TreeIncarnationID, bool)
 	return *value, true
 }
 
-func normalizeTreeSnapshot(wire *treeSnapshotWire) {
-	slices.SortFunc(wire.ProcessSnapshots, compareSnapshots)
-	slices.SortFunc(wire.ChildWaits, func(left, right childWaitSnapshotWire) int {
-		return cmp.Compare(left.WaitID.String(), right.WaitID.String())
-	})
-}
-
 func compareSnapshots(left, right ProcessSnapshot) int {
 	if order := cmp.Compare(left.Relation().Depth(), right.Relation().Depth()); order != 0 {
 		return order
 	}
 	return cmp.Compare(left.ProcessID().String(), right.ProcessID().String())
-}
-
-func validateTreeSnapshot(wire treeSnapshotWire) error {
-	validation, err := newTreeSnapshotValidation(wire)
-	if err != nil {
-		return err
-	}
-	if err := validation.validateRelations(); err != nil {
-		return err
-	}
-	if err := validation.validateChildAccounting(); err != nil {
-		return err
-	}
-	if err := validation.validateChildControls(); err != nil {
-		return err
-	}
-	return validation.validateChildWaits()
 }
 
 type treeSnapshotValidation struct {
@@ -283,7 +270,7 @@ func (t *treeSnapshotValidation) validateChildWaits() error {
 		if _, duplicate := waitOwners[encoded.WaitID]; duplicate {
 			return fmt.Errorf("%w: duplicate child WaitID", ErrInvalidTreeSnapshot)
 		}
-		waitRecord, exists := findWaitRecord(parent.Mailbox, encoded.WaitID)
+		waitRecord, exists := parent.Mailbox.waitRecord(encoded.WaitID)
 		if !exists || waitRecord.ExternallyAddressable || waitRecord.Closed || waitRecord.WaitKey != spec.Key {
 			return fmt.Errorf("%w: child wait is absent from parent mailbox", ErrInvalidTreeSnapshot)
 		}
@@ -358,7 +345,7 @@ func (t *treeSnapshotValidation) validateChildControl(parentID ProcessID, record
 	if err != nil {
 		return err
 	}
-	for _, receipt := range snapshotSignalReceipts(child.Mailbox) {
+	for _, receipt := range child.Mailbox.receipts() {
 		if receipt.ID() != result.signalID {
 			continue
 		}
@@ -394,7 +381,7 @@ func (t *treeSnapshotValidation) validateChildWaitSignals(mailbox mailboxWire, w
 			return fmt.Errorf("%w: invalid child wait Signal: %w", ErrInvalidTreeSnapshot, signalErr)
 		}
 		satisfied, parseErr := ParseChildWaitSatisfied(signal)
-		if parseErr != nil || record.ID != deriveChildWaitSignalID(waitID) ||
+		if parseErr != nil || record.ID != waitID.childWaitSignalID() ||
 			satisfied.Key() != spec.Key || satisfied.Boundary() != spec.Boundary {
 			return fmt.Errorf("%w: child wait satisfaction disagrees with its registration", ErrInvalidTreeSnapshot)
 		}
@@ -424,7 +411,7 @@ func (t *treeSnapshotValidation) matchesChildWaitOutcome(outcome ChildOutcome, b
 		Output: child.Output, Termination: *child.Termination, Usage: child.Usage,
 	}
 	expectedJSON, expectedErr := json.Marshal(expected)
-	actualJSON, actualErr := json.Marshal(resultWireFromValue(outcome.result))
+	actualJSON, actualErr := json.Marshal(outcome.result.wire())
 	if expectedErr != nil || actualErr != nil || !bytes.Equal(expectedJSON, actualJSON) {
 		return false
 	}
@@ -443,13 +430,17 @@ func (t *treeSnapshotValidation) subtreeTerminal(processID ProcessID) bool {
 	return true
 }
 
-func findWaitRecord(mailbox mailboxWire, id WaitID) (waitRecordWire, bool) {
-	for _, record := range mailbox.Waits {
-		if record.WaitID == id {
-			return record, true
-		}
+func (t *treeSnapshotValidation) validate() error {
+	if err := t.validateRelations(); err != nil {
+		return err
 	}
-	return waitRecordWire{}, false
+	if err := t.validateChildAccounting(); err != nil {
+		return err
+	}
+	if err := t.validateChildControls(); err != nil {
+		return err
+	}
+	return t.validateChildWaits()
 }
 
 // treeFreeze identifies the active snapshot barrier. Only CaptureTree receives

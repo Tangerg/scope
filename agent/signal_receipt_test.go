@@ -41,7 +41,7 @@ func TestSignalReceiptsReconcileOnlyExternalAdmissions(t *testing.T) {
 					}
 				}
 				mailbox = restoredMailbox(t, mailbox, StatusRunning)
-				receipts := snapshotSignalReceipts(mailbox.snapshot())
+				receipts := mailbox.snapshot().receipts()
 				if test.wait && receipts[0].Matches(SignalRequest(opening)) {
 					t.Errorf("consumed=%t: opening receipt proved an external admission", consumed)
 				}

@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -235,6 +236,14 @@ func (e executionState) validateCurrentBatchArtifacts(definition *Definition) er
 		}
 	}
 	return nil
+}
+
+func (e executionState) snapshot() (agent.ExecutionState, error) {
+	payload, err := json.Marshal(e)
+	if err != nil {
+		return agent.ExecutionState{}, fmt.Errorf("interaction: encode execution state: %w", err)
+	}
+	return agent.NewExecutionState(executionStateKind, payload)
 }
 
 func cloneMessages(messages []chat.Message) []chat.Message {

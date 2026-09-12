@@ -45,6 +45,20 @@ func (s *steerBatch) appendSignal(signal agent.Signal, messages []chat.Message) 
 	return nil
 }
 
+func (s *steerBatch) collectSignal(signal agent.Signal) (bool, error) {
+	envelope, err := decodeSignal(signal.Payload())
+	if err != nil {
+		return false, nil
+	}
+	if envelope.Operation != operationSteer {
+		return true, fmt.Errorf("%w: unexpected Interaction %q Signal", ErrInvalidExecutionState, envelope.Operation)
+	}
+	if err := s.appendSignal(signal, envelope.Steer.Messages); err != nil {
+		return true, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
+	}
+	return true, nil
+}
+
 func validateSteerSignalIDs(ids []agent.SignalID) error {
 	if len(ids) == 0 {
 		return fmt.Errorf("%w: at least one SignalID is required", ErrInvalidSteer)

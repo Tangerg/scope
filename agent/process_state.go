@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -443,7 +444,7 @@ func (p *processState) prepareStepResult(result stepJobResult) *stepPreparationF
 			}
 		}
 	}
-	digest, err := executionStateDigest(p.committedExecutionState)
+	digest, err := p.committedExecutionState.digest()
 	if err != nil {
 		return &stepPreparationFailure{
 			kind: FailureKindContract, code: "engine.committed_execution_state.invalid", cause: err,
@@ -457,7 +458,7 @@ func (p *processState) prepareStepResult(result stepJobResult) *stepPreparationF
 	}
 	for index, effect := range effects {
 		prepared.Effects = append(prepared.Effects, preparedEffect{
-			ID: deriveEffectID(p.handle.processID, sequence, index), Effect: effect,
+			ID: p.handle.processID.effectID(sequence, index), Effect: effect,
 			Phase: effectPhasePlanned,
 		})
 	}
@@ -493,13 +494,13 @@ func (p *processState) resolveStepTermination(outcome stepOutcome) Termination {
 	if p.pendingControl.failure.Valid() {
 		outcome, _ = failedOutcome(p.pendingControl.failure)
 	}
-	termination, err := resolveTermination(terminationFacts{
+	termination, err := (terminationFacts{
 		kill: p.pendingControl.kill, deadline: p.pendingControl.deadline,
 		cancellation: p.pendingControl.cancellation, outcome: outcome,
-	})
+	}).resolve()
 	if err != nil {
 		failure, _ := NewFailure(FailureKindContract, "engine.termination.invalid", err.Error())
-		termination = terminationForFailure(failure)
+		termination = failure.termination()
 	}
 	return termination
 }
@@ -509,6 +510,21 @@ func (p *processState) effectiveTermination() Termination {
 		return p.termination
 	}
 	return p.resolveStepTermination(stepOutcome{})
+}
+
+func (p *processState) terminalEventPayload() json.RawMessage {
+	usage := p.usage
+	eventPayload := processFinishedEventPayload{
+		ProcessStatus:    p.status,
+		TerminationCause: p.termination.Cause(),
+		Usage:            &usage,
+	}
+	if failure, failed := p.termination.Failure(); failed {
+		eventPayload.FailureKind = failure.Kind()
+		eventPayload.FailureCode = failure.Code()
+	}
+	payload, _ := json.Marshal(eventPayload)
+	return payload
 }
 
 func (p pendingControl) hasTerminalIntent() bool {

@@ -1,9 +1,7 @@
 package agent
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -132,26 +130,14 @@ func (e EffectBoundary) matchesProspectiveTree() bool {
 		return false
 	}
 	record := wire.Prepared.Effects[e.request.BatchIndex()]
-	if record.ID != e.request.ID() || !sameBoundaryEffect(record.Effect, e.request.effect) {
+	if record.ID != e.request.ID() || !record.Effect.equal(e.request.effect) {
 		return false
 	}
 	if e.kind == EffectBoundaryPending {
 		return record.Phase == effectPhasePending && record.Settlement == nil
 	}
 	return record.Phase == effectPhaseSettled && record.Settlement != nil &&
-		sameBoundarySettlement(*record.Settlement, e.settlement)
-}
-
-func sameBoundaryEffect(left, right Effect) bool {
-	leftJSON, leftErr := json.Marshal(left)
-	rightJSON, rightErr := json.Marshal(right)
-	return leftErr == nil && rightErr == nil && bytes.Equal(leftJSON, rightJSON)
-}
-
-func sameBoundarySettlement(left, right Settlement) bool {
-	leftJSON, leftErr := json.Marshal(left)
-	rightJSON, rightErr := json.Marshal(right)
-	return leftErr == nil && rightErr == nil && bytes.Equal(leftJSON, rightJSON)
+		record.Settlement.equal(e.settlement)
 }
 
 // TreeCheckpointKind distinguishes absent-head creation from writer-fenced

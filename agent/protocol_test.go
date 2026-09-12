@@ -145,7 +145,7 @@ func TestWaitRequestKeepsEngineKeySeparateFromStrategySignalPayload(t *testing.T
 	if effect.Target() != EffectTargetFramework {
 		t.Fatalf("RequestWait target = %s, want framework", effect.Target())
 	}
-	decodedKey, signalPayload, err := decodeWaitRequest(effect)
+	decodedKey, signalPayload, err := effect.waitRequest()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestWaitRequestKeepsEngineKeySeparateFromStrategySignalPayload(t *testing.T
 	if err := json.Unmarshal(data, &restored); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := decodeWaitRequest(restored); err != nil {
+	if _, _, err := restored.waitRequest(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -171,5 +171,80 @@ func TestFrameworkEffectRejectsUnknownOperations(t *testing.T) {
 	var effect Effect
 	if err := json.Unmarshal(data, &effect); !errors.Is(err, ErrInvalidEffect) {
 		t.Fatalf("unknown Framework Effect error = %v, want ErrInvalidEffect", err)
+	}
+}
+
+func TestEffectEqualityUsesTheCompleteCanonicalRequest(t *testing.T) {
+	decode := func(raw string) Effect {
+		t.Helper()
+		var value Effect
+		if raw != "" {
+			if err := json.Unmarshal([]byte(raw), &value); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return value
+	}
+	left := decode(`{"target":"dispatcher","payload":{"b":2,"a":1},"required_capabilities":["tool.read","tool.write"]}`)
+	for _, test := range []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{"canonical content", `{"target":"dispatcher","payload":{ "a":1,"b":2 },"required_capabilities":["tool.write","tool.read"]}`, true},
+		{"different payload", `{"target":"dispatcher","payload":{"a":2,"b":2},"required_capabilities":["tool.read","tool.write"]}`, false},
+		{"different authority", `{"target":"dispatcher","payload":{"a":1,"b":2},"required_capabilities":["tool.read"]}`, false},
+		{"invalid request", "", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			right := decode(test.raw)
+			if left.equal(right) != test.want || right.equal(left) != test.want {
+				t.Fatalf("request equality must be %t in both directions", test.want)
+			}
+		})
+	}
+	framework := decode(`{"target":"framework","payload":{"operation":"wait","key":"approval","signal_payload":{}}}`)
+	dispatcher, err := NewDispatcherEffect(framework.Payload())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if framework.equal(dispatcher) || (Effect{}).equal(Effect{}) {
+		t.Fatal("different targets or invalid requests must not match")
+	}
+}
+
+func TestSettlementEqualityKeepsIdentityStatusAndPayload(t *testing.T) {
+	decode := func(raw string) Settlement {
+		t.Helper()
+		var value Settlement
+		if raw != "" {
+			if err := json.Unmarshal([]byte(raw), &value); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return value
+	}
+	left := decode(`{"effect_id":"effect:one","status":"unknown","payload":{"b":2,"a":1}}`)
+	for _, test := range []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{"canonical content", `{"effect_id":"effect:one","status":"unknown","payload":{ "a":1,"b":2 }}`, true},
+		{"different identity", `{"effect_id":"effect:two","status":"unknown","payload":{"a":1,"b":2}}`, false},
+		{"definite success", `{"effect_id":"effect:one","status":"succeeded","payload":{"a":1,"b":2}}`, false},
+		{"definite failure", `{"effect_id":"effect:one","status":"failed","payload":{"a":1,"b":2}}`, false},
+		{"different payload", `{"effect_id":"effect:one","status":"unknown","payload":{"a":2,"b":2}}`, false},
+		{"invalid settlement", "", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			right := decode(test.raw)
+			if left.equal(right) != test.want || right.equal(left) != test.want {
+				t.Fatalf("settlement equality must be %t in both directions", test.want)
+			}
+		})
+	}
+	if (Settlement{}).equal(Settlement{}) {
+		t.Fatal("invalid settlements must not match")
 	}
 }

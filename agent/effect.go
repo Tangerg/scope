@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 )
 
 var ErrInvalidEffect = errors.New("agent: invalid effect")
@@ -155,6 +156,18 @@ func (e *Effect) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (e Effect) waitRequest() (WaitKey, json.RawMessage, error) {
+	if e.Target() != EffectTargetFramework {
+		return WaitKey{}, nil, fmt.Errorf("%w: Effect is not framework-owned", ErrInvalidEffect)
+	}
+	return decodeWaitRequestPayload(e.payload)
+}
+
+func (e Effect) equal(other Effect) bool {
+	return e.Valid() && other.Valid() && e.target == other.target &&
+		bytes.Equal(e.payload, other.payload) && slices.Equal(e.requirements.values, other.requirements.values)
+}
+
 type effectWire struct {
 	Target               EffectTarget    `json:"target"`
 	Payload              json.RawMessage `json:"payload"`
@@ -185,13 +198,6 @@ type waitRequestWire struct {
 	Operation     frameworkEffectOperation `json:"operation"`
 	Key           WaitKey                  `json:"key"`
 	SignalPayload json.RawMessage          `json:"signal_payload"`
-}
-
-func decodeWaitRequest(effect Effect) (WaitKey, json.RawMessage, error) {
-	if effect.Target() != EffectTargetFramework {
-		return WaitKey{}, nil, fmt.Errorf("%w: Effect is not framework-owned", ErrInvalidEffect)
-	}
-	return decodeWaitRequestPayload(effect.payload)
 }
 
 func decodeWaitRequestPayload(payload json.RawMessage) (WaitKey, json.RawMessage, error) {

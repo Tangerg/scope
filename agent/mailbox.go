@@ -282,6 +282,35 @@ type mailboxWire struct {
 	Waits        []waitRecordWire   `json:"waits,omitempty"`
 }
 
+func (m mailboxWire) receipts() []SignalReceipt {
+	externalWaits := make(map[WaitID]bool, len(m.Waits))
+	for _, wait := range m.Waits {
+		externalWaits[wait.WaitID] = wait.ExternallyAddressable
+	}
+	receipts := make([]SignalReceipt, 0, len(m.Signals))
+	for _, record := range m.Signals {
+		receipt := SignalReceipt{
+			id: record.ID, waitID: snapshotWaitID(record.WaitID), payloadDigest: record.PayloadDigest,
+			arrivalSequence: record.ArrivalSequence, consumed: record.ArrivalSequence <= m.SignalCursor,
+			external: !record.OpensWait && (record.WaitID == nil || externalWaits[*record.WaitID]),
+		}
+		if !receipt.consumed {
+			receipt.pending = Signal{id: receipt.id, waitID: receipt.waitID, payload: record.Payload}
+		}
+		receipts = append(receipts, receipt)
+	}
+	return receipts
+}
+
+func (m mailboxWire) waitRecord(id WaitID) (waitRecordWire, bool) {
+	for _, record := range m.Waits {
+		if record.WaitID == id {
+			return record, true
+		}
+	}
+	return waitRecordWire{}, false
+}
+
 func (s *signalMailbox) snapshot() mailboxWire {
 	wire := mailboxWire{SignalCursor: s.signalCursor}
 	for _, record := range s.records {

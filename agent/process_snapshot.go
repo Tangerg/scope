@@ -59,7 +59,7 @@ func newProcessSnapshot(wire processSnapshotWire) (ProcessSnapshot, error) {
 // The caller transfers the wire's mutable containers. After validation, state
 // is immutable and data is its encoded projection; neither is updated in place.
 func processSnapshotFromWire(wire processSnapshotWire) (ProcessSnapshot, error) {
-	if err := validateProcessSnapshot(wire); err != nil {
+	if err := wire.validate(); err != nil {
 		return ProcessSnapshot{}, err
 	}
 	normalized, err := json.Marshal(wire)
@@ -84,7 +84,7 @@ func (p ProcessSnapshot) SignalReceipts() []SignalReceipt {
 	if p.state == nil {
 		return nil
 	}
-	return snapshotSignalReceipts(p.state.Mailbox)
+	return p.state.Mailbox.receipts()
 }
 
 // ProcessID returns the captured Process identity.
@@ -183,7 +183,7 @@ func (p ProcessSnapshot) WaitKind() (WaitKind, bool) {
 	if !waiting {
 		return "", false
 	}
-	wait, found := findWaitRecord(p.state.Mailbox, waitID)
+	wait, found := p.state.Mailbox.waitRecord(waitID)
 	if !found {
 		return "", false
 	}
@@ -315,29 +315,6 @@ func (p processSnapshotWire) clone() processSnapshotWire {
 	return clone
 }
 
-func validateProcessSnapshot(wire processSnapshotWire) error {
-	if err := wire.validateContract(); err != nil {
-		return err
-	}
-	if err := wire.validateRelation(); err != nil {
-		return err
-	}
-	mailbox, err := restoreSignalMailbox(wire.Mailbox, wire.Status)
-	if err != nil {
-		return fmt.Errorf("%w: mailbox: %w", ErrInvalidSnapshot, err)
-	}
-	if err := wire.validateProgress(mailbox); err != nil {
-		return err
-	}
-	if err := validateSnapshotLifecycle(wire, mailbox); err != nil {
-		return err
-	}
-	if _, err := pendingControlFromWire(wire.PendingControl); err != nil {
-		return fmt.Errorf("%w: pending control: %w", ErrInvalidSnapshot, err)
-	}
-	return nil
-}
-
 func (p processSnapshotWire) validateContract() error {
 	if !p.ProcessID.Valid() || !p.DeploymentRef.Valid() || p.StartedAt.IsZero() ||
 		!p.Status.Valid() || p.Status == StatusNotStarted || !p.CommittedExecutionState.Valid() ||
@@ -411,94 +388,75 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 	return nil
 }
 
-func validateSnapshotLifecycle(wire processSnapshotWire, mailbox signalMailbox) error {
-	terminal := wire.Status.Terminal()
-	if terminal != (wire.Termination != nil) || terminal != (wire.FinishedAt != nil) {
-		return fmt.Errorf("%w: terminal status, termination, and finished time must agree", ErrInvalidSnapshot)
+func (p processSnapshotWire) validate() error {
+	if err := p.validateContract(); err != nil {
+		return err
 	}
-	if wire.FinishedAt != nil && wire.FinishedAt.IsZero() {
-		return fmt.Errorf("%w: finished time is required", ErrInvalidSnapshot)
+	if err := p.validateRelation(); err != nil {
+		return err
 	}
-	if terminal && (wire.Termination.Status() != wire.Status || !wire.Termination.Valid()) {
-		return fmt.Errorf("%w: termination does not match status", ErrInvalidSnapshot)
+	mailbox, err := restoreSignalMailbox(p.Mailbox, p.Status)
+	if err != nil {
+		return fmt.Errorf("%w: mailbox: %w", ErrInvalidSnapshot, err)
 	}
-	if wire.Status == StatusCompleted {
-		if wire.Output == nil || !wire.Output.Valid() {
-			return fmt.Errorf("%w: completed process requires output", ErrInvalidSnapshot)
-		}
-	} else if wire.Output != nil {
-		return fmt.Errorf("%w: only Completed Process may contain Output", ErrInvalidSnapshot)
+	if err := p.validateProgress(mailbox); err != nil {
+		return err
 	}
-	if wire.Status == StatusWaiting {
-		if wire.CurrentWaitID == nil || !wire.CurrentWaitID.Valid() {
-			return fmt.Errorf("%w: waiting process requires current WaitID", ErrInvalidSnapshot)
-		}
-		if shouldWait, err := mailbox.enterWait(*wire.CurrentWaitID); err != nil || !shouldWait {
-			return fmt.Errorf("%w: current WaitID requires an open unanswered wait", ErrInvalidSnapshot)
-		}
-	} else if wire.CurrentWaitID != nil {
-		return fmt.Errorf("%w: current WaitID requires Waiting status", ErrInvalidSnapshot)
+	if err := p.validateLifecycle(mailbox); err != nil {
+		return err
 	}
-	if wire.Status == StatusPaused {
-		if err := validateTerminationReason(wire.PauseReason); err != nil {
-			return fmt.Errorf("%w: invalid pause reason", ErrInvalidSnapshot)
-		}
-	} else if wire.PauseReason != "" {
-		return fmt.Errorf("%w: pause reason requires Paused status", ErrInvalidSnapshot)
-	}
-	if terminal {
-		if !emptyPendingControl(wire.PendingControl) {
-			return fmt.Errorf("%w: terminal Process cannot retain control state", ErrInvalidSnapshot)
-		}
-		var unresolved []EffectID
-		if wire.Prepared != nil {
-			unresolved = wire.Prepared.Effects.unknownEffectIDs()
-		}
-		if !slices.Equal(wire.Termination.UnresolvedEffectIDs(), unresolved) {
-			return fmt.Errorf("%w: termination and interrupted Effects disagree", ErrInvalidSnapshot)
-		}
+	if _, err := pendingControlFromWire(p.PendingControl); err != nil {
+		return fmt.Errorf("%w: pending control: %w", ErrInvalidSnapshot, err)
 	}
 	return nil
 }
 
-func emptyPendingControl(control pendingControlWire) bool { return control == pendingControlWire{} }
-
-func executionStateDigest(state ExecutionState) (Digest, error) {
-	data, err := json.Marshal(state)
-	if err != nil {
-		return Digest{}, err
+func (p processSnapshotWire) validateLifecycle(mailbox signalMailbox) error {
+	terminal := p.Status.Terminal()
+	if terminal != (p.Termination != nil) || terminal != (p.FinishedAt != nil) {
+		return fmt.Errorf("%w: terminal status, termination, and finished time must agree", ErrInvalidSnapshot)
 	}
-	return digestBytes(data), nil
-}
-
-func deriveEffectID(processID ProcessID, step uint64, index int) EffectID {
-	digest := digestBytes([]byte(fmt.Sprintf("%s\x00%d\x00%d", processID.String(), step, index)))
-	id, err := ParseEffectID(effectIDPrefix + digest.hex())
-	if err != nil {
-		panic(err)
+	if p.FinishedAt != nil && p.FinishedAt.IsZero() {
+		return fmt.Errorf("%w: finished time is required", ErrInvalidSnapshot)
 	}
-	return id
-}
-
-func deriveWaitID(effectID EffectID) WaitID {
-	digest := digestBytes([]byte("wait\x00" + effectID.String()))
-	id, err := ParseWaitID(waitIDPrefix + digest.hex())
-	if err != nil {
-		panic(err)
+	if terminal && (p.Termination.Status() != p.Status || !p.Termination.Valid()) {
+		return fmt.Errorf("%w: termination does not match status", ErrInvalidSnapshot)
 	}
-	return id
-}
-
-func deriveSettlementSignalID(effectID EffectID) SignalID {
-	digest := digestBytes([]byte("signal\x00" + effectID.String()))
-	id, err := ParseSignalID(signalIDPrefix + digest.hex())
-	if err != nil {
-		panic(err)
+	if p.Status == StatusCompleted {
+		if p.Output == nil || !p.Output.Valid() {
+			return fmt.Errorf("%w: completed process requires output", ErrInvalidSnapshot)
+		}
+	} else if p.Output != nil {
+		return fmt.Errorf("%w: only Completed Process may contain Output", ErrInvalidSnapshot)
 	}
-	return id
-}
-
-func equalEffect(left, right Effect) bool {
-	return left.Target() == right.Target() && bytes.Equal(left.Payload(), right.Payload()) &&
-		slices.Equal(left.RequiredCapabilities().values, right.RequiredCapabilities().values)
+	if p.Status == StatusWaiting {
+		if p.CurrentWaitID == nil || !p.CurrentWaitID.Valid() {
+			return fmt.Errorf("%w: waiting process requires current WaitID", ErrInvalidSnapshot)
+		}
+		if shouldWait, err := mailbox.enterWait(*p.CurrentWaitID); err != nil || !shouldWait {
+			return fmt.Errorf("%w: current WaitID requires an open unanswered wait", ErrInvalidSnapshot)
+		}
+	} else if p.CurrentWaitID != nil {
+		return fmt.Errorf("%w: current WaitID requires Waiting status", ErrInvalidSnapshot)
+	}
+	if p.Status == StatusPaused {
+		if err := validateTerminationReason(p.PauseReason); err != nil {
+			return fmt.Errorf("%w: invalid pause reason", ErrInvalidSnapshot)
+		}
+	} else if p.PauseReason != "" {
+		return fmt.Errorf("%w: pause reason requires Paused status", ErrInvalidSnapshot)
+	}
+	if terminal {
+		if p.PendingControl != (pendingControlWire{}) {
+			return fmt.Errorf("%w: terminal Process cannot retain control state", ErrInvalidSnapshot)
+		}
+		var unresolved []EffectID
+		if p.Prepared != nil {
+			unresolved = p.Prepared.Effects.unknownEffectIDs()
+		}
+		if !slices.Equal(p.Termination.UnresolvedEffectIDs(), unresolved) {
+			return fmt.Errorf("%w: termination and interrupted Effects disagree", ErrInvalidSnapshot)
+		}
+	}
+	return nil
 }

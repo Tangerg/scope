@@ -37,7 +37,7 @@ func newDeploymentRef(descriptor Descriptor, implementationDigest, configuration
 		implementationDigest: implementationDigest,
 		configurationDigest:  configurationDigest,
 	}
-	digest, err := deploymentDigest(reference)
+	digest, err := reference.computeDigest()
 	if err != nil {
 		return DeploymentRef{}, fmt.Errorf("%w: digest: %w", ErrInvalidDeploymentRef, err)
 	}
@@ -73,7 +73,7 @@ func (d DeploymentRef) Valid() bool {
 		!d.configurationDigest.Valid() || !d.digest.Valid() {
 		return false
 	}
-	want, err := deploymentDigest(d)
+	want, err := d.computeDigest()
 	return err == nil && want == d.digest
 }
 
@@ -132,8 +132,8 @@ func (d DeploymentRef) identityWire() deploymentIdentityWire {
 	}
 }
 
-func deploymentDigest(reference DeploymentRef) (Digest, error) {
-	data, err := json.Marshal(reference.identityWire())
+func (d DeploymentRef) computeDigest() (Digest, error) {
+	data, err := json.Marshal(d.identityWire())
 	if err != nil {
 		return Digest{}, err
 	}

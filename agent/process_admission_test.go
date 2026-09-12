@@ -63,7 +63,7 @@ func TestProcessAdmitterReceivesRootAndChildResourceContracts(t *testing.T) {
 		rootAdmission.Relation().ProcessID() != parent.ID() ||
 		rootAdmission.DeploymentRef() != parentDeployment.DeploymentRef() ||
 		rootAdmission.Descriptor().Digest() != parentDeployment.Descriptor().Digest() ||
-		rootAdmission.Budget() != budgetFromLimits(DefaultLimits()) ||
+		rootAdmission.Budget() != DefaultLimits().budget() ||
 		!rootAdmission.Capabilities().Contains(read) {
 		t.Fatalf("root admission = %#v", rootAdmission)
 	}

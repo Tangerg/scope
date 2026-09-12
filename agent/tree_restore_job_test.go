@@ -59,11 +59,11 @@ func TestStaleStepRestoreDoesNotBlockTreeOwner(t *testing.T) {
 		}
 		<-probe.blockedStepStarted
 		<-probe.fastStepReady
-		blocked, ok := engine.Process(deriveChildProcessID(deriveEffectID(root.ID(), 1, 0)))
+		blocked, ok := engine.Process(root.ID().effectID(1, 0).childProcessID())
 		if !ok {
 			t.Fatal("blocked child was not published")
 		}
-		fast, ok := engine.Process(deriveChildProcessID(deriveEffectID(root.ID(), 1, 1)))
+		fast, ok := engine.Process(root.ID().effectID(1, 1).childProcessID())
 		if !ok {
 			t.Fatal("fast child was not published")
 		}

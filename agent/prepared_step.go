@@ -83,7 +83,7 @@ func (p preparedStep) validate(processID ProcessID, sequence uint64, committedSt
 		p.SignalCursor < mailbox.committedSignalCursor() || p.SignalCursor > mailbox.arrivalSequence() {
 		return errors.New("invalid prepared Step boundary")
 	}
-	digest, err := executionStateDigest(committedState)
+	digest, err := committedState.digest()
 	if err != nil || digest != p.CommittedExecutionStateDigest {
 		return errors.New("prepared Step does not identify committed Execution state")
 	}

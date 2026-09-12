@@ -209,7 +209,7 @@ func (t *toolExecution) acceptResult(outcome toolDispatchResult) (agent.Transiti
 		if err != nil {
 			return agent.Transition{}, err
 		}
-		key, err := checkpointWaitKey(t.state.Call.ModelCallSequence, t.state.Call.Call.ID, checkpoint.PauseCount)
+		key, err := t.state.Call.checkpointWaitKey(checkpoint.PauseCount)
 		if err != nil {
 			return agent.Transition{}, err
 		}

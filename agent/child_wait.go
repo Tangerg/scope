@@ -120,6 +120,20 @@ func (c ChildWaitSpec) Valid() bool {
 	return true
 }
 
+func (c ChildWaitSpec) wire() childWaitSpecWire {
+	return childWaitSpecWire{
+		Key: c.Key, Children: slices.Clone(c.Children),
+		Boundary:  c.Boundary,
+		Condition: childWaitConditionWire{Kind: c.Condition.kind, Quorum: c.Condition.quorum},
+	}
+}
+
+func (c ChildWaitSpec) clone() ChildWaitSpec {
+	cloned := c
+	cloned.Children = slices.Clone(c.Children)
+	return cloned
+}
+
 // WaitForChildren creates a Framework Effect that opens an Engine-owned wait
 // over direct children. Dispatch returns immediately with a WaitID; child work
 // never blocks Execution.Step or holds a prepared Step open.
@@ -129,7 +143,7 @@ func WaitForChildren(spec ChildWaitSpec) (Effect, error) {
 	}
 	payload, err := json.Marshal(childWaitEffectWire{
 		Operation: frameworkEffectWaitChildren,
-		Spec:      childWaitSpecWireFromValue(spec),
+		Spec:      spec.wire(),
 	})
 	if err != nil {
 		return Effect{}, fmt.Errorf("%w: encode request: %w", ErrInvalidChildWait, err)
@@ -197,7 +211,7 @@ func (c ChildOutcome) MarshalJSON() ([]byte, error) {
 	if !c.Valid() {
 		return nil, ErrInvalidChildWait
 	}
-	return json.Marshal(childOutcomeWire{Key: c.key, Result: resultWireFromValue(c.result)})
+	return json.Marshal(childOutcomeWire{Key: c.key, Result: c.result.wire()})
 }
 
 func (c *ChildOutcome) UnmarshalJSON(data []byte) error {
@@ -337,14 +351,6 @@ type resultWire struct {
 	Usage       Usage       `json:"usage"`
 }
 
-func childWaitSpecWireFromValue(spec ChildWaitSpec) childWaitSpecWire {
-	return childWaitSpecWire{
-		Key: spec.Key, Children: slices.Clone(spec.Children),
-		Boundary:  spec.Boundary,
-		Condition: childWaitConditionWire{Kind: spec.Condition.kind, Quorum: spec.Condition.quorum},
-	}
-}
-
 func (c childWaitSpecWire) value() (ChildWaitSpec, error) {
 	spec := ChildWaitSpec{
 		Key: c.Key, Children: slices.Clone(c.Children),
@@ -355,12 +361,6 @@ func (c childWaitSpecWire) value() (ChildWaitSpec, error) {
 		return ChildWaitSpec{}, ErrInvalidChildWait
 	}
 	return spec, nil
-}
-
-func cloneChildWaitSpec(spec ChildWaitSpec) ChildWaitSpec {
-	cloned := spec
-	cloned.Children = slices.Clone(spec.Children)
-	return cloned
 }
 
 func decodeChildWaitEffect(payload json.RawMessage) (ChildWaitSpec, error) {
@@ -380,7 +380,7 @@ func encodeChildWaitOpened(spec ChildWaitSpec) (json.RawMessage, error) {
 	}
 	return json.Marshal(childWaitOpenedWire{
 		Operation: childSignalWaitOpened,
-		Spec:      childWaitSpecWireFromValue(spec),
+		Spec:      spec.wire(),
 	})
 }
 
@@ -394,18 +394,6 @@ func (c childOutcomeWire) value() (ChildOutcome, error) {
 		return ChildOutcome{}, ErrInvalidChildWait
 	}
 	return outcome, nil
-}
-
-func resultWireFromValue(result Result) resultWire {
-	wire := resultWire{
-		ProcessID: result.processID, StartedAt: result.startedAt, FinishedAt: result.finishedAt,
-		Termination: result.termination, Usage: result.usage,
-	}
-	if result.output.Valid() {
-		output := result.output
-		wire.Output = &output
-	}
-	return wire
 }
 
 func (r resultWire) value() (Result, error) {
@@ -441,21 +429,12 @@ func encodeChildWaitSatisfied(
 	}
 	for index, outcome := range outcomes {
 		wire.Outcomes[index] = childOutcomeWire{
-			Key: outcome.key, Result: resultWireFromValue(outcome.result),
+			Key: outcome.key, Result: outcome.result.wire(),
 		}
 	}
 	payload, err := json.Marshal(wire)
 	if err != nil {
 		return Signal{}, err
 	}
-	return newSignal(deriveChildWaitSignalID(waitID), waitID, payload)
-}
-
-func deriveChildWaitSignalID(waitID WaitID) SignalID {
-	digest := digestBytes([]byte("child-wait-satisfied\x00" + waitID.String()))
-	id, err := ParseSignalID(signalIDPrefix + digest.hex())
-	if err != nil {
-		panic(err)
-	}
-	return id
+	return newSignal(waitID.childWaitSignalID(), waitID, payload)
 }

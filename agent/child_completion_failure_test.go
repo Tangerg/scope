@@ -102,7 +102,7 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	termination, err := resolveTermination(terminationFacts{outcome: completedOutcome()})
+	termination, err := (terminationFacts{outcome: completedOutcome()}).resolve()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestPendingFailureRetainsUnknownExternalEffect(t *testing.T) {
 	if err != nil || control.failure != parent.pendingControl.failure {
 		t.Fatalf("pending failure round trip = %+v, error = %v", control, err)
 	}
-	id := deriveEffectID(parent.handle.processID, 1, 0)
+	id := parent.handle.processID.effectID(1, 0)
 	effect, err := NewDispatcherEffect([]byte(`{}`))
 	if err != nil {
 		t.Fatal(err)
@@ -191,7 +191,7 @@ func newChildCompletionTestProcess(t *testing.T) (*treeRuntime, *processState) {
 	now := time.Now().Round(0).UTC()
 	parentID, _ := newProcessID()
 	handle := newProcessHandleState(rootProcessRelation(parentID), deployment.DeploymentRef(),
-		budgetFromLimits(engine.limits), engine.capabilities, engine.treeLimits, now, StatusRunning)
+		engine.limits.budget(), engine.capabilities, engine.treeLimits, now, StatusRunning)
 	parent := newProcessState(handle, deployment, execution, state, now, engine.limits)
 	runtime := newTreeRuntime(engine, parentID, t.Context(), parent)
 	return runtime, parent

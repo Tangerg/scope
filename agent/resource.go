@@ -88,6 +88,10 @@ func (l Limits) validate() error {
 	}
 }
 
+func (l Limits) budget() Budget {
+	return Budget{Steps: l.MaxSteps, Effects: l.MaxEffects, Signals: l.MaxSignals}
+}
+
 // Usage contains monotonic Framework-owned counters. It deliberately excludes
 // provider pricing and Strategy-specific concepts such as tokens or tool calls.
 type Usage struct {
@@ -129,25 +133,6 @@ func (b Budget) Valid() bool {
 	return b.Steps > 0 && b.Effects > 0 && b.Signals > 0
 }
 
-func budgetFromLimits(limits Limits) Budget {
-	return Budget{Steps: limits.MaxSteps, Effects: limits.MaxEffects, Signals: limits.MaxSignals}
-}
-
-func limitsFromBudget(parent Limits, budget Budget) (Limits, error) {
-	if !budget.Valid() {
-		return Limits{}, ErrResourceLimitExceeded
-	}
-	pending := min(parent.MaxPendingSignals, budget.Signals)
-	limits := Limits{
-		MaxSteps: budget.Steps, MaxEffects: budget.Effects,
-		MaxSignals: budget.Signals, MaxPendingSignals: pending,
-	}
-	if !limits.Valid() {
-		return Limits{}, fmt.Errorf("%w: child budget cannot form valid limits", ErrResourceLimitExceeded)
-	}
-	return limits, nil
-}
-
 func (b Budget) contains(usage Usage, reserved Budget) bool {
 	return resourceQuantitiesFit(b.Steps, usage.CommittedSteps, reserved.Steps) &&
 		resourceQuantitiesFit(b.Effects, usage.PreparedEffects, reserved.Effects) &&
@@ -173,6 +158,21 @@ func (b Budget) add(other Budget) (Budget, bool) {
 		Signals: b.Signals + other.Signals,
 	}
 	return result, true
+}
+
+func (b Budget) limits(maxPendingSignals uint64) (Limits, error) {
+	if !b.Valid() {
+		return Limits{}, ErrResourceLimitExceeded
+	}
+	pending := min(maxPendingSignals, b.Signals)
+	limits := Limits{
+		MaxSteps: b.Steps, MaxEffects: b.Effects,
+		MaxSignals: b.Signals, MaxPendingSignals: pending,
+	}
+	if !limits.Valid() {
+		return Limits{}, fmt.Errorf("%w: child budget cannot form valid limits", ErrResourceLimitExceeded)
+	}
+	return limits, nil
 }
 
 func resourceQuantitiesFit(limit uint64, quantities ...uint64) bool {

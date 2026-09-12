@@ -161,7 +161,7 @@ func TestSnapshotRejectsPreparedStepSequenceOverflow(t *testing.T) {
 	wire.Limits.MaxSteps = math.MaxUint64
 	wire.Budget.Steps = math.MaxUint64
 	wire.Prepared.StepSequence = 0
-	wire.Prepared.Effects[0].ID = deriveEffectID(wire.ProcessID, 0, 0)
+	wire.Prepared.Effects[0].ID = wire.ProcessID.effectID(0, 0)
 	data, err := json.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
@@ -282,7 +282,7 @@ func TestSnapshotEnforcesSequentialEffectProgress(t *testing.T) {
 			for index, item := range sample.effects {
 				effects[index] = effect
 				record := preparedEffect{
-					ID:     deriveEffectID(wire.ProcessID, wire.Prepared.StepSequence, index),
+					ID:     wire.ProcessID.effectID(wire.Prepared.StepSequence, index),
 					Effect: effect, Phase: item.phase,
 				}
 				if item.settlement.Valid() {

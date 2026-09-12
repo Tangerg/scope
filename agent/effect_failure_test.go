@@ -115,7 +115,7 @@ func TestDispatchCompletionRetainsOriginalError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record := preparedEffect{ID: deriveEffectID(process.handle.processID, 1, 0), Effect: effect, Phase: effectPhasePending}
+	record := preparedEffect{ID: process.handle.processID.effectID(1, 0), Effect: effect, Phase: effectPhasePending}
 	process.prepared = &preparedStep{StepSequence: 1, Effects: preparedEffects{record}}
 	runtime.startDispatch(process, 0, record)
 	completion := receiveTreeRuntimeProbe(t, runtime.completions)
@@ -129,7 +129,7 @@ func TestLocalFrameworkSettlementDoesNotInventUnknown(t *testing.T) {
 	processID, _ := ParseProcessID("process:local-contract")
 	for _, payload := range []string{`{`, `{"operation":"unsupported"}`, `{"operation":"wait"}`, `{"operation":"wait_children"}`, `{"operation":"start_child"}`} {
 		record := preparedEffect{
-			ID:     deriveEffectID(processID, 1, 0),
+			ID:     processID.effectID(1, 0),
 			Effect: Effect{target: EffectTargetFramework, payload: json.RawMessage(payload)}, Phase: effectPhasePending,
 		}
 		if err := record.settleFramework(); err == nil {

@@ -35,23 +35,3 @@ func (s SignalReceipt) Matches(request SignalRequest) bool {
 	return s.external && request.Valid() && s.id == request.id && s.waitID == request.waitID &&
 		s.payloadDigest == ComputeDigest(request.payload)
 }
-
-func snapshotSignalReceipts(mailbox mailboxWire) []SignalReceipt {
-	externalWaits := make(map[WaitID]bool, len(mailbox.Waits))
-	for _, wait := range mailbox.Waits {
-		externalWaits[wait.WaitID] = wait.ExternallyAddressable
-	}
-	receipts := make([]SignalReceipt, 0, len(mailbox.Signals))
-	for _, record := range mailbox.Signals {
-		receipt := SignalReceipt{
-			id: record.ID, waitID: snapshotWaitID(record.WaitID), payloadDigest: record.PayloadDigest,
-			arrivalSequence: record.ArrivalSequence, consumed: record.ArrivalSequence <= mailbox.SignalCursor,
-			external: !record.OpensWait && (record.WaitID == nil || externalWaits[*record.WaitID]),
-		}
-		if !receipt.consumed {
-			receipt.pending = Signal{id: receipt.id, waitID: receipt.waitID, payload: record.Payload}
-		}
-		receipts = append(receipts, receipt)
-	}
-	return receipts
-}

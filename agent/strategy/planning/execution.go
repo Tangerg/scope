@@ -53,7 +53,7 @@ func (e *execution) Snapshot() (agent.ExecutionState, error) {
 	if e == nil || !e.definition.valid() {
 		return agent.ExecutionState{}, ErrInvalidExecutionState
 	}
-	return encodeExecutionState(e.state)
+	return e.state.snapshot()
 }
 
 func (e *execution) requestSense(consumedSignals uint32) (agent.Transition, error) {

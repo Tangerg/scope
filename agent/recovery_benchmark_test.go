@@ -48,7 +48,13 @@ func BenchmarkTreeRecoveryBoundary(b *testing.B) {
 					benchmarkTreeSnapshotSink, err = engine.CaptureTree(b.Context(), process.ID())
 					return err
 				}},
-				{name: "validate", run: func() error { return validateTreeSnapshot(wire) }},
+				{name: "validate", run: func() error {
+					validation, validationErr := newTreeSnapshotValidation(wire)
+					if validationErr != nil {
+						return validationErr
+					}
+					return validation.validate()
+				}},
 				{name: "encode", run: func() error {
 					benchmarkSnapshotBytesSink, err = json.Marshal(wire)
 					return err
@@ -133,7 +139,8 @@ func benchmarkRecoverableProcess(
 	if err != nil {
 		b.Fatal(err)
 	}
-	process, err := engine.Start(b.Context(), deployment, input)
+	// Cleanup owns termination; b.Context is canceled before cleanup runs.
+	process, err := engine.Start(context.WithoutCancel(b.Context()), deployment, input)
 	if err != nil {
 		b.Fatal(err)
 	}

@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -138,21 +137,4 @@ func failedChildStart(spec ChildSpec, kind FailureKind, code string, cause error
 		key: spec.Key, deploymentRef: spec.DeploymentRef,
 		failure: newEngineFailure(kind, code, cause),
 	}
-}
-
-func childSpecDigest(spec ChildSpec) (Digest, error) {
-	payload, err := json.Marshal(spec)
-	if err != nil {
-		return Digest{}, err
-	}
-	return digestBytes(payload), nil
-}
-
-func deriveChildProcessID(effectID EffectID) ProcessID {
-	digest := digestBytes([]byte("child\x00" + effectID.String()))
-	id, err := ParseProcessID(processIDPrefix + digest.hex())
-	if err != nil {
-		panic(err)
-	}
-	return id
 }

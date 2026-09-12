@@ -70,7 +70,7 @@ func NewDescriptor(config DescriptorConfig) (Descriptor, error) {
 		inputSchema:  config.InputSchema,
 		outputSchema: config.OutputSchema,
 	}
-	digest, err := descriptorDigest(descriptor)
+	digest, err := descriptor.computeDigest()
 	if err != nil {
 		return Descriptor{}, fmt.Errorf("%w: digest: %w", ErrInvalidDescriptor, err)
 	}
@@ -196,14 +196,6 @@ type descriptorWire struct {
 	Digest Digest `json:"digest"`
 }
 
-func descriptorDigest(descriptor Descriptor) (Digest, error) {
-	data, err := json.Marshal(descriptor.contractWire())
-	if err != nil {
-		return Digest{}, err
-	}
-	return digestBytes(data), nil
-}
-
 func (d Descriptor) contractWire() descriptorContractWire {
 	return descriptorContractWire{
 		Name:         d.name,
@@ -211,4 +203,12 @@ func (d Descriptor) contractWire() descriptorContractWire {
 		InputSchema:  d.inputSchema.JSON(),
 		OutputSchema: d.outputSchema.JSON(),
 	}
+}
+
+func (d Descriptor) computeDigest() (Digest, error) {
+	data, err := json.Marshal(d.contractWire())
+	if err != nil {
+		return Digest{}, err
+	}
+	return digestBytes(data), nil
 }

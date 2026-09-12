@@ -40,7 +40,7 @@ func admissionTestProcess(t testing.TB, history int) *processState {
 	limits := DefaultLimits()
 	limits.MaxSignals = 100000
 	limits.MaxPendingSignals = 100000
-	process := &processState{status: StatusRunning, mailbox: newSignalMailbox(), limits: limits, budget: budgetFromLimits(limits)}
+	process := &processState{status: StatusRunning, mailbox: newSignalMailbox(), limits: limits, budget: limits.budget()}
 	for index := range history {
 		signal := mustMailboxSignal(t, fmt.Sprintf("signal:%d", index), WaitID{}, json.RawMessage(`{}`))
 		if accepted, err := process.mailbox.enqueue(StatusRunning, signal, signalSourceExternal); err != nil || !accepted {

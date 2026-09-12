@@ -117,11 +117,11 @@ func TestRestoreRequiresOneCompletedResult(t *testing.T) {
 			if test.response != nil {
 				output.Source = CompletionSourceModelResponse
 			}
-			state, err := encodeState(executionState{
+			state, err := (executionState{
 				Phase: phaseCompleted, ModelCallCount: test.calls,
 				WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}},
 				FinalOutput:    output,
-			})
+			}).snapshot()
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -90,6 +90,17 @@ func (d deadlineIntent) valid() bool {
 	return d.owner.valid() && d.reason != ""
 }
 
+func (d deadlineIntent) termination() Termination {
+	cause := TerminationCauseProcessDeadline
+	switch d.owner {
+	case deadlineOwnerParent:
+		cause = TerminationCauseParentDeadline
+	case deadlineOwnerHost:
+		cause = TerminationCauseHostDeadline
+	}
+	return Termination{status: StatusTimedOut, cause: cause, reason: d.reason}
+}
+
 // cancellationIntent records a non-deadline cancellation from a parent Process
 // or Host context.
 type cancellationIntent struct {
@@ -109,6 +120,14 @@ func newCancellationIntent(owner cancellationOwner, reason string) (cancellation
 
 func (c cancellationIntent) valid() bool {
 	return c.owner.valid() && c.reason != ""
+}
+
+func (c cancellationIntent) termination() Termination {
+	cause := TerminationCauseParentCancellation
+	if c.owner == cancellationOwnerHost {
+		cause = TerminationCauseHostCancellation
+	}
+	return Termination{status: StatusCanceled, cause: cause, reason: c.reason}
 }
 
 // stepOutcomeKind describes the valid terminal result of a Step. A zero outcome
@@ -150,6 +169,31 @@ type terminationFacts struct {
 	deadline     deadlineIntent
 	cancellation cancellationIntent
 	outcome      stepOutcome
+}
+
+// resolve applies Engine kill, deadline, cancellation, and Step
+// outcome facts in that priority order. It never infers intent from an error.
+func (t terminationFacts) resolve() (Termination, error) {
+	if !t.outcome.valid() {
+		return Termination{}, fmt.Errorf("%w: invalid Step outcome", errInvalidTermination)
+	}
+	if t.kill.valid() {
+		return Termination{status: StatusKilled, cause: TerminationCauseEngineKill, reason: t.kill.reason}, nil
+	}
+	if t.deadline.valid() {
+		return t.deadline.termination(), nil
+	}
+	if t.cancellation.valid() {
+		return t.cancellation.termination(), nil
+	}
+	switch t.outcome.kind {
+	case stepOutcomeCompleted:
+		return Termination{status: StatusCompleted, cause: TerminationCauseCompletion}, nil
+	case stepOutcomeFailed:
+		return t.outcome.failure.termination(), nil
+	default:
+		return Termination{}, fmt.Errorf("%w: no terminal fact was recorded", errInvalidTermination)
+	}
 }
 
 // TerminationCause is the stable reason category of a terminal Process.
@@ -210,63 +254,6 @@ type Termination struct {
 	reason              string
 	failure             Failure
 	unresolvedEffectIDs []EffectID
-}
-
-// resolveTermination applies Engine kill, deadline, cancellation, and Step
-// outcome facts in that priority order. It never infers intent from an error.
-func resolveTermination(facts terminationFacts) (Termination, error) {
-	if !facts.outcome.valid() {
-		return Termination{}, fmt.Errorf("%w: invalid Step outcome", errInvalidTermination)
-	}
-	if facts.kill.valid() {
-		return Termination{status: StatusKilled, cause: TerminationCauseEngineKill, reason: facts.kill.reason}, nil
-	}
-	if facts.deadline.valid() {
-		return terminationForDeadline(facts.deadline), nil
-	}
-	if facts.cancellation.valid() {
-		return terminationForCancellation(facts.cancellation), nil
-	}
-	switch facts.outcome.kind {
-	case stepOutcomeCompleted:
-		return Termination{status: StatusCompleted, cause: TerminationCauseCompletion}, nil
-	case stepOutcomeFailed:
-		return terminationForFailure(facts.outcome.failure), nil
-	default:
-		return Termination{}, fmt.Errorf("%w: no terminal fact was recorded", errInvalidTermination)
-	}
-}
-
-func terminationForDeadline(intent deadlineIntent) Termination {
-	cause := TerminationCauseProcessDeadline
-	switch intent.owner {
-	case deadlineOwnerParent:
-		cause = TerminationCauseParentDeadline
-	case deadlineOwnerHost:
-		cause = TerminationCauseHostDeadline
-	}
-	return Termination{status: StatusTimedOut, cause: cause, reason: intent.reason}
-}
-
-func terminationForCancellation(intent cancellationIntent) Termination {
-	cause := TerminationCauseParentCancellation
-	if intent.owner == cancellationOwnerHost {
-		cause = TerminationCauseHostCancellation
-	}
-	return Termination{status: StatusCanceled, cause: cause, reason: intent.reason}
-}
-
-func terminationForFailure(failure Failure) Termination {
-	cause := TerminationCauseExecutionFailure
-	switch failure.Kind() {
-	case FailureKindContract:
-		cause = TerminationCauseContractFailure
-	case FailureKindExternal:
-		cause = TerminationCauseExternalFailure
-	case FailureKindPanic:
-		cause = TerminationCausePanic
-	}
-	return Termination{status: StatusFailed, cause: cause, reason: failure.Message(), failure: failure}
 }
 
 func validateTerminationReason(reason string) error {
@@ -330,7 +317,7 @@ func (t Termination) Valid() bool {
 		if !t.failure.Valid() || t.reason != t.failure.Message() {
 			return false
 		}
-		return t.cause == terminationForFailure(t.failure).cause
+		return t.cause == t.failure.termination().cause
 	case StatusCanceled:
 		return (t.cause == TerminationCauseParentCancellation || t.cause == TerminationCauseHostCancellation) &&
 			!t.failure.Valid()

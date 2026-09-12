@@ -108,6 +108,11 @@ func (s *Settlement) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (s Settlement) equal(other Settlement) bool {
+	return s.Valid() && other.Valid() && s.effectID == other.effectID &&
+		s.status == other.status && bytes.Equal(s.payload, other.payload)
+}
+
 type settlementWire struct {
 	EffectID EffectID         `json:"effect_id"`
 	Status   SettlementStatus `json:"status"`

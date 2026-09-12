@@ -94,7 +94,7 @@ func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine.publishReservedProcess(parent.handle)
-	effectID := deriveEffectID(parent.handle.processID, 1, 0)
+	effectID := parent.handle.processID.effectID(1, 0)
 	key, _ := ParseChildKey("worker")
 	input, _ := EncodeInput(childTestInput{Mode: "leaf"})
 	spec := childTestSpec(key, parent.deployment.DeploymentRef(), input)

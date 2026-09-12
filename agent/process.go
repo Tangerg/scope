@@ -285,6 +285,18 @@ func (r Result) Valid() bool {
 		r.termination.Status() != StatusCompleted && !r.output.Valid()
 }
 
+func (r Result) wire() resultWire {
+	wire := resultWire{
+		ProcessID: r.processID, StartedAt: r.startedAt, FinishedAt: r.finishedAt,
+		Termination: r.termination, Usage: r.usage,
+	}
+	if r.output.Valid() {
+		output := r.output
+		wire.Output = &output
+	}
+	return wire
+}
+
 // Budget returns the fixed non-renewable allocation assigned to this Process.
 func (p *Process) Budget() Budget {
 	return p.handle.budget

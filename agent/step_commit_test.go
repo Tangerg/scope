@@ -54,7 +54,7 @@ func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 	}
 	process := &processState{
 		limits: limits,
-		budget: budgetFromLimits(limits),
+		budget: limits.budget(),
 	}
 	mailbox := newSignalMailbox()
 	firstWait, _ := ParseWaitID("wait:first")
@@ -119,7 +119,7 @@ func TestPreparedCompletionDoesNotRetainOutputWhenKillWins(t *testing.T) {
 
 func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
-	childID := deriveChildProcessID(deriveEffectID(parent.handle.processID, 1, 0))
+	childID := parent.handle.processID.effectID(1, 0).childProcessID()
 	childKey, _ := ParseChildKey("worker")
 	handle := newProcessHandleState(
 		childProcessRelation(childID, parent.handle.relation, childKey),
@@ -149,7 +149,7 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 	prepared := &preparedStep{Transition: transition}
 	for index, effect := range effects {
 		record := preparedEffect{
-			ID: deriveEffectID(parent.handle.processID, 2, index), Effect: effect, Phase: effectPhasePending,
+			ID: parent.handle.processID.effectID(2, index), Effect: effect, Phase: effectPhasePending,
 		}
 		if err := record.settleFramework(); err != nil {
 			t.Fatal(err)

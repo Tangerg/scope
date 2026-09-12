@@ -2,11 +2,8 @@ package interaction
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -63,7 +60,7 @@ func (e *execution) Snapshot() (agent.ExecutionState, error) {
 	if e == nil || !e.definition.valid() {
 		return agent.ExecutionState{}, ErrInvalidExecutionState
 	}
-	return encodeState(e.state)
+	return e.state.snapshot()
 }
 
 func (e *execution) requestModel(
@@ -452,16 +449,6 @@ func collectExpectedSignal(
 		return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: %q settlement Signal is missing", ErrInvalidExecutionState, expected)
 	}
 	return result, steer, uint32(len(signals)), nil
-}
-
-func checkpointWaitKey(modelCallCount uint32, toolCallID string, pauseCount uint32) (agent.WaitKey, error) {
-	hash := sha256.New()
-	hash.Write([]byte(strconv.FormatUint(uint64(modelCallCount), 10)))
-	hash.Write([]byte{0})
-	hash.Write([]byte(toolCallID))
-	hash.Write([]byte{0})
-	hash.Write([]byte(strconv.FormatUint(uint64(pauseCount), 10)))
-	return agent.ParseWaitKey("interaction.input." + hex.EncodeToString(hash.Sum(nil)))
 }
 
 func (e *execution) fail(

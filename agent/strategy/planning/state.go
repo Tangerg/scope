@@ -202,6 +202,14 @@ func (e executionState) input() (agent.Input, error) {
 	return agent.ParseInput(bytes.Clone(e.Input))
 }
 
+func (e executionState) snapshot() (agent.ExecutionState, error) {
+	payload, err := json.Marshal(e)
+	if err != nil {
+		return agent.ExecutionState{}, fmt.Errorf("planning: encode execution state: %w", err)
+	}
+	return agent.NewExecutionState(executionStateKind, payload)
+}
+
 func diagnostic(value string) string {
 	value = strings.ToValidUTF8(value, "�")
 	value = strings.TrimSpace(value)
