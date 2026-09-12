@@ -40,7 +40,10 @@ type SplitterConfig struct {
 
 	MaxTokensPerChunk int
 	MaxChunks         int
-	IDGenerator       etl.IDGenerator
+	// MaxSearchWork bounds each paragraph prefix search in bytes rendered or
+	// encoded plus tokens decoded; zero uses etl.DefaultMaxSearchWork.
+	MaxSearchWork int
+	IDGenerator   etl.IDGenerator
 }
 
 // Splitter produces token-bounded Markdown chunks without severing tables,
@@ -51,6 +54,7 @@ type Splitter struct {
 	tokenizer         tokenizer.Tokenizer
 	maxTokensPerChunk int
 	maxChunks         int
+	maxSearchWork     int
 	base              *etl.Splitter
 }
 
@@ -59,11 +63,14 @@ func NewSplitter(config SplitterConfig) (*Splitter, error) {
 	if lo.IsNil(config.Tokenizer) {
 		return nil, errors.New("markdown splitter: tokenizer is required")
 	}
-	if config.MaxTokensPerChunk < 0 || config.MaxChunks < 0 {
+	if config.MaxTokensPerChunk < 0 || config.MaxChunks < 0 || config.MaxSearchWork < 0 {
 		return nil, errors.New("markdown splitter: limits must not be negative")
 	}
 	if config.MaxTokensPerChunk == 0 {
 		config.MaxTokensPerChunk = defaultMaxTokensPerChunk
+	}
+	if config.MaxSearchWork == 0 {
+		config.MaxSearchWork = etl.DefaultMaxSearchWork
 	}
 	if config.MaxChunks == 0 {
 		config.MaxChunks = defaultMaxChunks
@@ -74,6 +81,7 @@ func NewSplitter(config SplitterConfig) (*Splitter, error) {
 		tokenizer:         config.Tokenizer,
 		maxTokensPerChunk: config.MaxTokensPerChunk,
 		maxChunks:         config.MaxChunks,
+		maxSearchWork:     config.MaxSearchWork,
 	}
 	base, err := etl.NewSplitter(etl.SplitterConfig{
 		SplitFunc:   splitter.SplitText,
@@ -362,7 +370,10 @@ func (s *Splitter) splitParagraph(ctx context.Context, prefix, paragraph string)
 		if len(chunks) == s.maxChunks {
 			return nil, fmt.Errorf("%w: maximum is %d", etl.ErrChunkLimitExceeded, s.maxChunks)
 		}
-		decoded, err := tokenwindow.Prefix(ctx, s.tokenizer, paragraph, s.maxTokensPerChunk, render)
+		decoded, err := tokenwindow.Prefix(ctx, s.tokenizer, paragraph, s.maxTokensPerChunk, s.maxSearchWork, render)
+		if errors.Is(err, tokenwindow.ErrSearchBudgetExceeded) {
+			return nil, etl.ErrSearchBudgetExceeded
+		}
 		if err != nil {
 			return nil, fmt.Errorf("markdown splitter: select paragraph token window: %w", err)
 		}

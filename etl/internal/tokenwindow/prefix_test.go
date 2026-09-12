@@ -75,7 +75,7 @@ func (m *measuredTokenizer) Encode(ctx context.Context, text string) ([]int, err
 func TestPrefixKeepsSuccessfulProbeWorkBounded(t *testing.T) {
 	codec := &measuredTokenizer{}
 	source := strings.Repeat("a", 1<<20)
-	prefix, err := tokenwindow.Prefix(t.Context(), codec, source, 32, strings.TrimSpace)
+	prefix, err := tokenwindow.Prefix(t.Context(), codec, source, 32, etl.DefaultMaxSearchWork, strings.TrimSpace)
 	if err != nil || len(prefix) != 32 {
 		t.Fatalf("Prefix() length = %d, error = %v", len(prefix), err)
 	}
@@ -87,7 +87,7 @@ func TestPrefixKeepsSuccessfulProbeWorkBounded(t *testing.T) {
 func TestPrefixCancelsSourceBoundarySearch(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	_, err := tokenwindow.Prefix(ctx, boundaryTokenizer{}, "éx", 1, func(string) string {
+	_, err := tokenwindow.Prefix(ctx, boundaryTokenizer{}, "éx", 1, etl.DefaultMaxSearchWork, func(string) string {
 		cancel()
 		return "over budget"
 	})
@@ -115,7 +115,7 @@ func TestPrefixSearchesSourceBoundaries(t *testing.T) {
 		{name: "all rendering empty", source: "abc", render: func(string) string { return "" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := tokenwindow.Prefix(t.Context(), boundaryTokenizer{}, test.source, test.limit, test.render)
+			got, err := tokenwindow.Prefix(t.Context(), boundaryTokenizer{}, test.source, test.limit, etl.DefaultMaxSearchWork, test.render)
 			if err != nil || got != test.want {
 				t.Fatalf("Prefix() = %q, %v; want %q", got, err, test.want)
 			}
@@ -142,7 +142,7 @@ func TestTokenWindowsGrowWithoutSplittingSourceCharacters(t *testing.T) {
 		remaining := source
 		var chunks []string
 		for remaining != "" {
-			prefix, err := tokenwindow.Prefix(t.Context(), codec, remaining, limit, strings.TrimSpace)
+			prefix, err := tokenwindow.Prefix(t.Context(), codec, remaining, limit, etl.DefaultMaxSearchWork, strings.TrimSpace)
 			if err != nil || prefix == "" || !strings.HasPrefix(remaining, prefix) {
 				t.Fatalf("lossless prefix = %q, err=%v", prefix, err)
 			}
@@ -218,5 +218,50 @@ func TestSplittersPreserveCharactersAcrossVocabularyTokens(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestPrefixSearchBudgetBoundsInfeasibleSearch(t *testing.T) {
+	for _, render := range []func(string) string{
+		func(text string) string { return "HEAD" + text },
+		func(string) string { return "" },
+	} {
+		codec := &measuredTokenizer{}
+		const maxWork = 4096
+		prefix, err := tokenwindow.Prefix(t.Context(), codec, strings.Repeat("x", 512), 1, maxWork, render)
+		if !errors.Is(err, tokenwindow.ErrSearchBudgetExceeded) || prefix != "" {
+			t.Fatalf("Prefix = %q, %v", prefix, err)
+		}
+		if codec.encodedBytes > maxWork {
+			t.Fatalf("encoded %d bytes with budget %d", codec.encodedBytes, maxWork)
+		}
+	}
+}
+
+func TestSplittersDistinguishSearchExhaustionFromImpossibleChunk(t *testing.T) {
+	plain, err := etl.NewTokenSplitter(etl.TokenSplitterConfig{Tokenizer: byteTokenizer{}, MaxTokensPerChunk: 1, MaxSearchWork: 64})
+	if err != nil {
+		t.Fatal(err)
+	}
+	structured, err := markdown.NewSplitter(markdown.SplitterConfig{Tokenizer: byteTokenizer{}, MaxTokensPerChunk: 1, MaxSearchWork: 64})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, splitter := range []interface {
+		SplitText(context.Context, string) ([]string, error)
+	}{plain, structured} {
+		chunks, splitErr := splitter.SplitText(t.Context(), strings.Repeat("世", 128))
+		if chunks != nil || !errors.Is(splitErr, etl.ErrSearchBudgetExceeded) {
+			t.Fatalf("%T: chunks=%v error=%v", splitter, chunks, splitErr)
+		}
+		if errors.Is(splitErr, etl.ErrChunkBudgetTooSmall) || errors.Is(splitErr, markdown.ErrSemanticUnitTooLarge) {
+			t.Fatalf("search exhaustion was classified as proof: %v", splitErr)
+		}
+	}
+	if _, err := etl.NewTokenSplitter(etl.TokenSplitterConfig{Tokenizer: byteTokenizer{}, MaxSearchWork: -1}); err == nil {
+		t.Fatal("negative search budget accepted")
+	}
+	if _, err := markdown.NewSplitter(markdown.SplitterConfig{Tokenizer: byteTokenizer{}, MaxSearchWork: -1}); err == nil {
+		t.Fatal("negative search budget accepted")
 	}
 }

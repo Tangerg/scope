@@ -17,6 +17,8 @@ const (
 	defaultMaxTokensPerChunk = 800
 	defaultMinTokensPerChunk = 350
 	defaultMaxChunks         = 10_000
+	// DefaultMaxSearchWork bounds token-window search per chunk.
+	DefaultMaxSearchWork = 8 << 20
 )
 
 // ErrChunkLimitExceeded prevents token splitting from producing an unbounded
@@ -26,6 +28,10 @@ var ErrChunkLimitExceeded = errors.New("etl: chunk limit exceeded")
 // ErrChunkBudgetTooSmall means no nonempty trimmed source prefix fits the token budget.
 var ErrChunkBudgetTooSmall = errors.New("etl: chunk token budget is too small")
 
+// ErrSearchBudgetExceeded means prefix search stopped before proving whether
+// a nonempty chunk fits. It is distinct from ErrChunkBudgetTooSmall.
+var ErrSearchBudgetExceeded = errors.New("etl: token window search budget exceeded")
+
 // TokenSplitterConfig configures token-aware chunking. Zero sizing values use
 // documented defaults; negative values are rejected.
 type TokenSplitterConfig struct {
@@ -34,8 +40,11 @@ type TokenSplitterConfig struct {
 	MaxTokensPerChunk int
 	MinTokensPerChunk int
 	MaxChunks         int
-	PreserveNewlines  bool
-	IDGenerator       IDGenerator
+	// MaxSearchWork bounds bytes rendered or encoded and tokens decoded per
+	// prefix search. Each operation costs at least one; zero uses DefaultMaxSearchWork.
+	MaxSearchWork    int
+	PreserveNewlines bool
+	IDGenerator      IDGenerator
 }
 
 // TokenSplitter splits document text into token-bounded chunks and prefers a
@@ -45,6 +54,7 @@ type TokenSplitter struct {
 	maxTokensPerChunk int
 	minTokensPerChunk int
 	maxChunks         int
+	maxSearchWork     int
 	preserveNewlines  bool
 	splitter          *Splitter
 }
@@ -55,7 +65,7 @@ func NewTokenSplitter(config TokenSplitterConfig) (*TokenSplitter, error) {
 	if lo.IsNil(config.Tokenizer) {
 		return nil, errors.New("etl: tokenizer is required")
 	}
-	if config.MaxTokensPerChunk < 0 || config.MinTokensPerChunk < 0 || config.MaxChunks < 0 {
+	if config.MaxTokensPerChunk < 0 || config.MinTokensPerChunk < 0 || config.MaxChunks < 0 || config.MaxSearchWork < 0 {
 		return nil, errors.New("etl: token splitter limits must not be negative")
 	}
 	if config.MaxTokensPerChunk == 0 {
@@ -63,6 +73,9 @@ func NewTokenSplitter(config TokenSplitterConfig) (*TokenSplitter, error) {
 	}
 	if config.MinTokensPerChunk == 0 {
 		config.MinTokensPerChunk = min(defaultMinTokensPerChunk, config.MaxTokensPerChunk)
+	}
+	if config.MaxSearchWork == 0 {
+		config.MaxSearchWork = DefaultMaxSearchWork
 	}
 	if config.MaxChunks == 0 {
 		config.MaxChunks = defaultMaxChunks
@@ -80,6 +93,7 @@ func NewTokenSplitter(config TokenSplitterConfig) (*TokenSplitter, error) {
 		maxTokensPerChunk: config.MaxTokensPerChunk,
 		minTokensPerChunk: config.MinTokensPerChunk,
 		maxChunks:         config.MaxChunks,
+		maxSearchWork:     config.MaxSearchWork,
 		preserveNewlines:  config.PreserveNewlines,
 	}
 	base, err := NewSplitter(SplitterConfig{
@@ -127,7 +141,10 @@ func (t *TokenSplitter) SplitText(ctx context.Context, text string) ([]string, e
 }
 
 func (t *TokenSplitter) nextChunk(ctx context.Context, source string) (string, error) {
-	window, err := tokenwindow.Prefix(ctx, t.tokenizer, source, t.maxTokensPerChunk, strings.TrimSpace)
+	window, err := tokenwindow.Prefix(ctx, t.tokenizer, source, t.maxTokensPerChunk, t.maxSearchWork, strings.TrimSpace)
+	if errors.Is(err, tokenwindow.ErrSearchBudgetExceeded) {
+		return "", ErrSearchBudgetExceeded
+	}
 	if err != nil {
 		return "", fmt.Errorf("etl: select token window: %w", err)
 	}
