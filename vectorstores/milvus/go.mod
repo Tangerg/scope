@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/milvus
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.20.0
+	github.com/Tangerg/scope/core v0.20.1-0.20260912184949-d135b3f712c6
 	github.com/milvus-io/milvus/client/v2 v2.6.5
 	github.com/samber/lo v1.53.0
 	google.golang.org/grpc v1.83.2

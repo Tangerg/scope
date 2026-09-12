@@ -1,5 +1,5 @@
-github.com/Tangerg/scope/core v0.20.0 h1:u0egNNcjzZy6kz70z8ktPWqoVIr3HQdyR73hz/YmhQ4=
-github.com/Tangerg/scope/core v0.20.0/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
+github.com/Tangerg/scope/core v0.20.1-0.20260912184949-d135b3f712c6 h1:b1vzMHMeBK0rnm9vrfiIhFUKd718cFmCaeLQAJFete8=
+github.com/Tangerg/scope/core v0.20.1-0.20260912184949-d135b3f712c6/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
 github.com/opensearch-project/opensearch-go/v4 v4.7.3 h1:JzETy7bYnnSDj4gueUh8t4EYBhs9rhKsgeVsoul77rA=
 github.com/opensearch-project/opensearch-go/v4 v4.7.3/go.mod h1:+iikkyLrVC8ZvyfKv2sua1Ze1LbpWL7eZe4IkHqNGtg=
 github.com/samber/lo v1.53.0 h1:t975lj2py4kJPQ6haz1QMgtId2gtmfktACxIXArw3HM=

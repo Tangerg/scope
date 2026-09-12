@@ -4,7 +4,7 @@ go 1.27.0
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.48.0
-	github.com/Tangerg/scope/core v0.20.0
+	github.com/Tangerg/scope/core v0.20.1-0.20260912184949-d135b3f712c6
 	github.com/samber/lo v1.53.0
 )
 
