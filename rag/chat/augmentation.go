@@ -58,31 +58,31 @@ type ContextualAugmenterConfig struct {
 	Formatter rag.DocumentFormatter
 
 	// MaxContextTokens limits the encoded evidence block. Zero leaves context
-	// unbounded. A positive value requires TokenEstimator. Only complete
+	// unbounded. A positive value requires TokenCounter. Only complete
 	// candidates are included, in retrieval order.
 	MaxContextTokens int
 
-	// TokenEstimator measures the exact encoded evidence block against
+	// TokenCounter measures the exact encoded evidence block against
 	// MaxContextTokens.
-	TokenEstimator tokenizer.TextCounter
+	TokenCounter tokenizer.TextCounter
 }
 
 type contextBudget struct {
 	maxTokens int
-	estimator tokenizer.TextCounter
+	counter   tokenizer.TextCounter
 }
 
-func newContextBudget(maxTokens int, estimator tokenizer.TextCounter) (contextBudget, error) {
+func newContextBudget(maxTokens int, counter tokenizer.TextCounter) (contextBudget, error) {
 	if maxTokens < 0 {
 		return contextBudget{}, fmt.Errorf("%w: MaxContextTokens must not be negative", ErrInvalidContextBudget)
 	}
-	if maxTokens > 0 && lo.IsNil(estimator) {
-		return contextBudget{}, fmt.Errorf("%w: TokenEstimator is required when MaxContextTokens is positive", ErrInvalidContextBudget)
+	if maxTokens > 0 && lo.IsNil(counter) {
+		return contextBudget{}, fmt.Errorf("%w: TokenCounter is required when MaxContextTokens is positive", ErrInvalidContextBudget)
 	}
-	if maxTokens == 0 && !lo.IsNil(estimator) {
-		return contextBudget{}, fmt.Errorf("%w: TokenEstimator requires a positive MaxContextTokens", ErrInvalidContextBudget)
+	if maxTokens == 0 && !lo.IsNil(counter) {
+		return contextBudget{}, fmt.Errorf("%w: TokenCounter requires a positive MaxContextTokens", ErrInvalidContextBudget)
 	}
-	return contextBudget{maxTokens: maxTokens, estimator: estimator}, nil
+	return contextBudget{maxTokens: maxTokens, counter: counter}, nil
 }
 
 func (c contextBudget) limited() bool { return c.maxTokens > 0 }
@@ -91,12 +91,12 @@ func (c contextBudget) accepts(ctx context.Context, encoded []byte) (bool, error
 	if !c.limited() {
 		return true, nil
 	}
-	tokens, err := c.estimator.CountText(ctx, string(encoded))
+	tokens, err := c.counter.CountText(ctx, string(encoded))
 	if err != nil {
-		return false, fmt.Errorf("rag: estimate context tokens: %w", err)
+		return false, fmt.Errorf("rag: count context tokens: %w", err)
 	}
 	if tokens < 0 {
-		return false, fmt.Errorf("%w: token estimator returned %d", ErrInvalidContextBudget, tokens)
+		return false, fmt.Errorf("%w: token counter returned %d", ErrInvalidContextBudget, tokens)
 	}
 	return tokens <= c.maxTokens, nil
 }
@@ -126,7 +126,7 @@ type contextualEvidence struct {
 // NewContextualAugmenter validates the complete context policy before retrieval
 // results are admitted.
 func NewContextualAugmenter(config ContextualAugmenterConfig) (*ContextualAugmenter, error) {
-	budget, err := newContextBudget(config.MaxContextTokens, config.TokenEstimator)
+	budget, err := newContextBudget(config.MaxContextTokens, config.TokenCounter)
 	if err != nil {
 		return nil, err
 	}

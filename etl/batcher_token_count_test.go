@@ -10,15 +10,15 @@ import (
 	"github.com/Tangerg/scope/etl"
 )
 
-type textLengthEstimator struct{}
+type textLengthCounter struct{}
 
-func (textLengthEstimator) CountText(_ context.Context, text string) (int, error) {
+func (textLengthCounter) CountText(_ context.Context, text string) (int, error) {
 	return len(text), nil
 }
 
 func TestTokenCountBatcherDefaultsToPlainTextWithoutReserve(t *testing.T) {
 	batcher, err := etl.NewTokenCountBatcher(etl.TokenCountBatcherConfig{
-		Estimator: textLengthEstimator{},
+		Counter:   textLengthCounter{},
 		MaxTokens: 10,
 	})
 	if err != nil {
@@ -38,7 +38,7 @@ func TestTokenCountBatcherDefaultsToPlainTextWithoutReserve(t *testing.T) {
 
 func TestTokenCountBatcherReserveReducesBudget(t *testing.T) {
 	batcher, err := etl.NewTokenCountBatcher(etl.TokenCountBatcherConfig{
-		Estimator: textLengthEstimator{},
+		Counter:   textLengthCounter{},
 		MaxTokens: 10,
 		Reserve:   0.2,
 	})
@@ -62,24 +62,24 @@ func TestTokenCountBatcherValidatesConstructorInput(t *testing.T) {
 		name   string
 		config etl.TokenCountBatcherConfig
 	}{
-		{name: "estimator required"},
+		{name: "counter required"},
 		{name: "maximum required", config: etl.TokenCountBatcherConfig{
-			Estimator: textLengthEstimator{},
+			Counter: textLengthCounter{},
 		}},
 		{name: "negative max", config: etl.TokenCountBatcherConfig{
-			Estimator: textLengthEstimator{}, MaxTokens: -1,
+			Counter: textLengthCounter{}, MaxTokens: -1,
 		}},
 		{name: "invalid reserve", config: etl.TokenCountBatcherConfig{
-			Estimator: textLengthEstimator{}, MaxTokens: 10, Reserve: 1,
+			Counter: textLengthCounter{}, MaxTokens: 10, Reserve: 1,
 		}},
 		{name: "not a number reserve", config: etl.TokenCountBatcherConfig{
-			Estimator: textLengthEstimator{}, MaxTokens: 10, Reserve: math.NaN(),
+			Counter: textLengthCounter{}, MaxTokens: 10, Reserve: math.NaN(),
 		}},
 		{name: "infinite reserve", config: etl.TokenCountBatcherConfig{
-			Estimator: textLengthEstimator{}, MaxTokens: 10, Reserve: math.Inf(1),
+			Counter: textLengthCounter{}, MaxTokens: 10, Reserve: math.Inf(1),
 		}},
 		{name: "reserve removes capacity", config: etl.TokenCountBatcherConfig{
-			Estimator: textLengthEstimator{}, MaxTokens: 1, Reserve: 0.5,
+			Counter: textLengthCounter{}, MaxTokens: 1, Reserve: 0.5,
 		}},
 	}
 	for _, test := range tests {
@@ -91,20 +91,20 @@ func TestTokenCountBatcherValidatesConstructorInput(t *testing.T) {
 	}
 }
 
-type failingEstimator struct{ err error }
+type failingCounter struct{ err error }
 
-func (f failingEstimator) CountText(context.Context, string) (int, error) {
+func (f failingCounter) CountText(context.Context, string) (int, error) {
 	return 0, f.err
 }
 
-type negativeEstimator struct{}
+type negativeCounter struct{}
 
-func (negativeEstimator) CountText(context.Context, string) (int, error) { return -1, nil }
+func (negativeCounter) CountText(context.Context, string) (int, error) { return -1, nil }
 
-func TestTokenCountBatcherPropagatesEstimatorError(t *testing.T) {
-	want := errors.New("estimate failed")
+func TestTokenCountBatcherPropagatesCounterError(t *testing.T) {
+	want := errors.New("count failed")
 	batcher, err := etl.NewTokenCountBatcher(etl.TokenCountBatcherConfig{
-		Estimator: failingEstimator{err: want},
+		Counter:   failingCounter{err: want},
 		MaxTokens: 10,
 	})
 	if err != nil {
@@ -118,7 +118,7 @@ func TestTokenCountBatcherPropagatesEstimatorError(t *testing.T) {
 
 func TestTokenCountBatcherRejectsInvalidStageValues(t *testing.T) {
 	batcher, err := etl.NewTokenCountBatcher(etl.TokenCountBatcherConfig{
-		Estimator: textLengthEstimator{},
+		Counter:   textLengthCounter{},
 		MaxTokens: 10,
 	})
 	if err != nil {
@@ -129,7 +129,7 @@ func TestTokenCountBatcherRejectsInvalidStageValues(t *testing.T) {
 	}
 
 	batcher, err = etl.NewTokenCountBatcher(etl.TokenCountBatcherConfig{
-		Estimator: negativeEstimator{},
+		Counter:   negativeCounter{},
 		MaxTokens: 10,
 	})
 	if err != nil {
@@ -137,6 +137,6 @@ func TestTokenCountBatcherRejectsInvalidStageValues(t *testing.T) {
 	}
 	doc, _ := document.NewDocument("text", nil)
 	if _, err := batcher.Batch(t.Context(), []*document.Document{doc}); err == nil {
-		t.Fatal("negative token estimate was accepted")
+		t.Fatal("negative token count was accepted")
 	}
 }

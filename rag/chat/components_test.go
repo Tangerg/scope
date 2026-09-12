@@ -160,7 +160,7 @@ func TestContextualAugmenter_ZeroQuery(t *testing.T) {
 func TestContextualAugmenterAppliesWholeDocumentTokenBudget(t *testing.T) {
 	augmenter, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{
 		MaxContextTokens: 2,
-		TokenEstimator:   evidenceCountEstimator{},
+		TokenCounter:     evidenceCountCounter{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -218,7 +218,7 @@ func TestContextualAugmenterValidatesTokenBudgetConfiguration(t *testing.T) {
 	for _, config := range []ragchat.ContextualAugmenterConfig{
 		{MaxContextTokens: -1},
 		{MaxContextTokens: 1},
-		{TokenEstimator: evidenceCountEstimator{}},
+		{TokenCounter: evidenceCountCounter{}},
 	} {
 		if _, err := ragchat.NewContextualAugmenter(config); !errors.Is(err, ragchat.ErrInvalidContextBudget) {
 			t.Fatalf("NewContextualAugmenter(%#v) error = %v", config, err)
@@ -230,7 +230,7 @@ func TestContextualAugmenterRejectsNegativeTokenMeasurements(t *testing.T) {
 	for name, count := range map[string]int{"negative": -1, "zero": 0} {
 		t.Run(name, func(t *testing.T) {
 			augmenter, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{
-				MaxContextTokens: 1, TokenEstimator: fixedContextTokenEstimator(count),
+				MaxContextTokens: 1, TokenCounter: fixedContextTokenCounter(count),
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -257,15 +257,15 @@ func TestContextualAugmenterRejectsNegativeTokenMeasurements(t *testing.T) {
 	}
 }
 
-type fixedContextTokenEstimator int
+type fixedContextTokenCounter int
 
-func (f fixedContextTokenEstimator) CountText(context.Context, string) (int, error) {
+func (f fixedContextTokenCounter) CountText(context.Context, string) (int, error) {
 	return int(f), nil
 }
 
-type evidenceCountEstimator struct{}
+type evidenceCountCounter struct{}
 
-func (evidenceCountEstimator) CountText(ctx context.Context, text string) (int, error) {
+func (evidenceCountCounter) CountText(ctx context.Context, text string) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}

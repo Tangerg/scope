@@ -15,22 +15,22 @@ import (
 // TokenCountBatcherConfig binds one tokenizer to hard per-document and
 // per-batch token budgets.
 type TokenCountBatcherConfig struct {
-	// Estimator is required.
-	Estimator tokenizer.TextCounter
+	// Counter is required.
+	Counter tokenizer.TextCounter
 	// MaxTokens is the required provider input limit. The batching layer has no
 	// provider-neutral default because model limits differ.
 	MaxTokens int
 	// Reserve is the fraction of MaxTokens held back from each batch. Zero
 	// means no reserve.
 	Reserve float64
-	// Formatter renders each document before estimation. Nil uses document
+	// Formatter renders each document before counting. Nil uses document
 	// text without metadata.
 	Formatter Formatter
 }
 
 func (t TokenCountBatcherConfig) normalized() (TokenCountBatcherConfig, error) {
-	if lo.IsNil(t.Estimator) {
-		return TokenCountBatcherConfig{}, errors.New("etl: token estimator is required")
+	if lo.IsNil(t.Counter) {
+		return TokenCountBatcherConfig{}, errors.New("etl: token counter is required")
 	}
 	if t.MaxTokens <= 0 {
 		return TokenCountBatcherConfig{}, errors.New("etl: maximum batch tokens must be positive")
@@ -68,7 +68,7 @@ func (t TokenCountBatcherConfig) normalized() (TokenCountBatcherConfig, error) {
 // rejected with an error — the caller is expected to split it first
 // (see [TokenSplitter]).
 type TokenCountBatcher struct {
-	estimator tokenizer.TextCounter
+	counter   tokenizer.TextCounter
 	maxTokens int
 	formatter Formatter
 }
@@ -87,7 +87,7 @@ func NewTokenCountBatcher(config TokenCountBatcherConfig) (*TokenCountBatcher, e
 	}
 
 	return &TokenCountBatcher{
-		estimator: config.Estimator,
+		counter:   config.Counter,
 		maxTokens: config.MaxTokens,
 		formatter: config.Formatter,
 	}, nil
@@ -118,12 +118,12 @@ func (t *TokenCountBatcher) measure(ctx context.Context, docs []*document.Docume
 			return nil, fmt.Errorf("etl: format document %d for sizing: %w", index, err)
 		}
 
-		count, err := t.estimator.CountText(ctx, rendered)
+		count, err := t.counter.CountText(ctx, rendered)
 		if err != nil {
-			return nil, fmt.Errorf("etl: estimate document %d tokens: %w", index, err)
+			return nil, fmt.Errorf("etl: count document %d tokens: %w", index, err)
 		}
 		if count < 0 {
-			return nil, fmt.Errorf("etl: token estimator returned %d for document %d", count, index)
+			return nil, fmt.Errorf("etl: token counter returned %d for document %d", count, index)
 		}
 		if err := ctx.Err(); err != nil {
 			return nil, err

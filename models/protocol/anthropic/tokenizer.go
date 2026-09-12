@@ -10,7 +10,7 @@ import (
 	"github.com/Tangerg/scope/core/tokenizer"
 )
 
-// TextCounterConfig configures an Anthropic-backed token estimator.
+// TextCounterConfig configures an Anthropic-backed token counter.
 // Model picks the tokenizer vocabulary Anthropic counts against; a
 // mismatch (Claude 3 model name vs Claude 4 vocab) produces wrong
 // counts.
@@ -38,14 +38,14 @@ var _ tokenizer.TextCounter = (*TextCounter)(nil)
 // so it drops into code paths already gating on token budgets (RAG
 // chunking, prompt-window checks, cost preflight).
 //
-// Every estimate is a network round-trip; for high-QPS counting reach
+// Every count is a network round-trip; for high-QPS counting reach
 // for an offline tokenizer instead.
 type TextCounter struct {
 	api   *api
 	model string
 }
 
-// NewTextCounter rejects an invalid provider/model binding before estimation begins.
+// NewTextCounter rejects an invalid provider/model binding before counting begins.
 func NewTextCounter(_ context.Context, config TextCounterConfig) (*TextCounter, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err

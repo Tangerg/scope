@@ -8,15 +8,15 @@ import (
 	"github.com/Tangerg/scope/core/tokenizer"
 )
 
-type wordEstimator struct{}
+type wordCounter struct{}
 
-func (wordEstimator) CountText(_ context.Context, text string) (int, error) {
+func (wordCounter) CountText(_ context.Context, text string) (int, error) {
 	return len(strings.Fields(text)), nil
 }
 
 func Example() {
-	var estimator tokenizer.TextCounter = wordEstimator{}
-	count, err := estimator.CountText(context.Background(), "small stable contract")
+	var counter tokenizer.TextCounter = wordCounter{}
+	count, err := counter.CountText(context.Background(), "small stable contract")
 	if err != nil {
 		panic(err)
 	}
