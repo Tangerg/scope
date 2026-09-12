@@ -46,9 +46,9 @@ failed=0
 for budget in "${coverage_budget[@]}"; do
   read -r package minimum <<<"$budget"
   if [[ "$package" == "./internal/conformancetest" ]]; then
-    # The shared recorder is exercised by its Strategy consumers, not by a
-    # separate test of the test helper.
-    if ! output=$(go test -count=1 -coverpkg="$package" -coverprofile="$coverage_profile" ./strategy/interaction ./strategy/planning ./strategy/workflow 2>&1); then
+    # Include direct authority-guard tests and the Strategy consumers that
+    # exercise the shared Engine-boundary recorder.
+    if ! output=$(go test -count=1 -coverpkg="$package" -coverprofile="$coverage_profile" "$package" ./strategy/interaction ./strategy/planning ./strategy/workflow 2>&1); then
       echo "$output" >&2
       exit 1
     fi
