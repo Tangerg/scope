@@ -1,6 +1,12 @@
 # Scope design philosophy
 
-This conceptual document explains why Scope is shaped the way it is. [`AGENTS.md`](AGENTS.md) contains the short repository rules, and [`REFACTORING.md`](REFACTORING.md) turns these principles into an editing and verification method. Package-specific contracts live with their GoDoc and checked examples.
+This document explains why Scope is shaped the way it is. It assumes the general engineering conventions in
+[`AGENTS.md`](AGENTS.md) and states only what a framework needs on top of them: where a contract belongs, how
+variation is admitted, what one public API means, and which directions have already been rejected.
+
+[`PROJECT_RULES.md`](PROJECT_RULES.md) holds the short repository rules, [`REFACTORING.md`](REFACTORING.md)
+turns these principles into an editing and verification method, and package-specific contracts live with their
+GoDoc and checked examples.
 
 ## The governing idea
 
@@ -23,19 +29,15 @@ Breaking exported APIs, wire shapes, and schemas still require an explicit blast
 
 ## Explainable and explicit design
 
-The useful parts of the Zen of Python apply directly to framework design:
+Readability, explicit dependencies, flat structure, and the refusal to guess at ambiguity are stated in
+[`AGENTS.md`](AGENTS.md) and are not repeated here. Two consequences are specific to a framework.
 
-- Prefer explicit relationships over implicit behavior. Dependencies, ownership, policy, identity, and lifecycle choices appear in types, declarations, or parameters.
-- Prefer a direct model over a complicated one. Necessary complexity remains visible; indirection does not pretend the complexity disappeared.
-- Prefer flat and sparse structure until nesting represents real ownership, composition, or protocol shape.
-- Treat readability as a correctness property. If the public model cannot explain the implementation, first assume the model or implementation is wrong.
-- Do not let special cases create a second semantic path. A genuine semantic difference gets a separate owner; an incidental difference uses the existing abstraction.
-- Let practical evidence correct theory, but do not weaken invariants to accommodate one integration.
-- Reject ambiguous input, ownership, or capability selection instead of guessing.
-- Keep one obvious API for one meaning. Discoverability comes from naming, documentation, and examples rather than duplicate entry points.
-- Implement a proven need now as a complete vertical slice. Wait when the design is not understood; incomplete urgency is worse than deliberate omission.
-- Treat an implementation that is hard to explain as a design warning, not as a reason to write a longer comment.
-- Use namespaces and package boundaries to communicate ownership and prevent collisions.
+A framework publishes its model before it publishes its behavior, so an implementation that is hard to explain
+is a design warning rather than a reason to write a longer comment. If the public model cannot explain the
+implementation, first assume the model or the implementation is wrong.
+
+Discoverability comes from naming, documentation, and examples rather than duplicate entry points. That rule
+has its own section below, because in a framework it governs the public surface rather than one call site.
 
 ## Scope's framework boundary
 
@@ -101,19 +103,15 @@ Substitutability is behavioral, not syntactic. An implementation must honor ever
 
 ## Cohesion, coupling, and extension
 
-The familiar design principles are decisions, not slogans:
+Cohesion, coupling, SOLID, DRY, and YAGNI are stated in [`AGENTS.md`](AGENTS.md). What Scope adds is how to
+read them against a module boundary rather than a call site.
 
-| Principle | Scope interpretation |
-|---|---|
-| High cohesion | A package, type, or function has one coherent reason to change |
-| Low coupling | A boundary exposes the least information needed by its consumer |
-| Single responsibility | Split mixed ownership or mixed lifecycle, not a large cohesive algorithm |
-| Open and closed | A real extension arrives as a new implementation of an existing contract, not another branch in a central dispatch loop |
-| Interface segregation | Consumers depend on the methods they use; assembly may compose those interfaces |
-| Dependency inversion | High-level capability code owns the abstraction and receives provider implementations |
-| Don't repeat yourself (DRY) | Share one truth that must evolve together; do not couple similar code that changes for different reasons |
-| Keep it understandable | Prefer ordinary control flow, named values, and local reasoning over reflection, clever generics, or hidden dispatch |
-| You are not going to need it (YAGNI) | Add an extension point after the variation exists, not when it is only imaginable |
+Three of them resolve differently here. **Open and closed:** a real extension arrives as a new implementation
+of an existing contract, never another branch in a central dispatch loop. **Dependency inversion:** high-level
+capability code owns the abstraction and receives provider implementations, so a provider module never
+publishes the interface its consumer needs. **Interface segregation:** consumers depend on the methods they
+use, while assembly may compose those interfaces — which is why a composition root may know both sides of a
+boundary that neither collaborator sees whole.
 
 A large cohesive parser, engine, or protocol package is not automatically a god package. Split it only when the split gives each side a distinct responsibility and severs a real coupling. Function count, file count, and line count are signals for inspection, not design goals.
 
@@ -183,13 +181,10 @@ A detached goroutine preserves trace values with `context.WithoutCancel` rather 
 
 ## Performance follows evidence
 
-Rob Pike's five rules define Scope's performance discipline:
-
-1. Do not guess where time is spent. Bottlenecks appear in unexpected places, so profile the real workload.
-2. Measure before tuning. Change code only when one part dominates the workload, then measure again and preserve a benchmark when regression risk matters.
-3. Assume `n` is small until evidence says otherwise. Constants, allocation, cache locality, and maintenance cost often dominate theoretical complexity at real input sizes.
-4. Prefer straightforward algorithms and data structures. Clever algorithms create more states and more bugs, so evidence must pay for their complexity.
-5. Let data dominate. A representation with correct ownership and indexing usually makes the algorithm obvious.
+Rob Pike's five rules are stated in [`AGENTS.md`](AGENTS.md) and define Scope's performance discipline
+unchanged. One consequence is worth stating for a library, because a library cannot see its caller's workload:
+preserve a benchmark whenever regression risk matters, since the next measurement will be taken by someone
+who did not make the original trade-off.
 
 Parallelism, caching, custom allocators, tries, trees, and lock-free structures are not improvements by themselves. Each needs a measured bottleneck and a result that remains better after its complexity, memory, and failure modes are counted.
 

@@ -1,25 +1,138 @@
-# Repository instructions
+# AGENTS.md
 
-Scope is a Go workspace of independently versioned AI infrastructure modules. It is a framework and library, not an application platform. Flame owns product sessions, desktop workflows, dashboards, marketplaces, billing, and deployment catalogs. The repository root stays a workspace without a Go module, and every module path starts with `github.com/Tangerg/scope`.
+## Priorities
 
-Package contracts live in GoDoc and checked examples. Read [`DESIGN_PHILOSOPHY.md`](DESIGN_PHILOSOPHY.md) before designing a capability and [`REFACTORING.md`](REFACTORING.md) before refactoring.
+Preserve correctness, security, data integrity, and explicit requirements. Within those constraints, optimize
+for maintainability, readability, and testability. Add extensibility, flexibility, and reuse only when current
+needs justify them.
 
-For ongoing audits and refinement, follow [`refactor-prompt.md`](refactor-prompt.md) to establish evidence, complete bounded repair batches, and stop when no justified work remains.
+Use design principles as judgment aids, not a checklist of patterns to implement. Resolve trade-offs in favor
+of clear behavior and lower overall complexity.
 
-- Do not design for backward compatibility during development. Fix a wrong design at its owning layer, then remove obsolete APIs, schemas, aliases, fallbacks, migrations, and shims. Scope-owned state and persistence use one strict current schema; do not add schema-version envelopes, version-selection branches, migration registries, or dual reads/writes.
-- Prefer explicit, readable, flat, sparse code. Implement a proven need as the smallest complete end-to-end slice, keep necessary complexity visible, and reject speculative or hard-to-explain indirection.
-- Enforce one canonical API per atomic capability as a hard constraint, following the same principle as `gofmt`: make one choice and eliminate competing alternatives. Each atomic capability has exactly one semantic owner, one public representation, and one canonical API. Higher-level convenience facades are allowed when they compose those canonical atomic APIs into a useful operation; they must reuse the same contracts, domain types, validation rules, and lifecycle ownership rather than reimplementing them or introducing a parallel API family. Keep any additional orchestration policy explicit. Do not add synonymous methods and free functions, aliases, or competing construction styles for the same operation. A better design must replace the old API completely, updating all consumers, tests, and documentation; never retain the replaced API for compatibility or preference. Multiple implementations may satisfy the same contract without introducing competing API vocabularies.
-- Treat repository-local usage as no evidence for or against a public API.
-- Make every domain noun name one concept and lifecycle across code, comments, errors, and documentation. Prefer object-oriented, behavior-rich domain models over procedural logic around anemic data bags: put invariants, validation, derived values, and pure state transitions on the domain owner, while configs, wire values, requests, responses, and facts remain data models.
-- Keep each type declaration and all its receiver methods in the same Go file, including test helper types. Organize behavior around its owner rather than splitting one receiver across operation or lifecycle files.
-- Make dependencies, policy, vocabulary, and errors explicit. Do not use magic values, anonymous maps, ambient state, registration order, or hidden globals as domain state. Resolve ambiguity instead of guessing, and never discard an error unless the contract explicitly permits it.
-- Keep dependencies one-way. Define narrow interfaces in the consuming package, depend on only the methods it uses, and do not pass a whole engine, client, or store across a smaller boundary.
-- Use the standard library first, then existing mature dependencies when they reduce total complexity. Check their documentation and types before wrapping or reimplementing them. Use explicit `Config` structs, not functional options or builders, for Scope construction settings.
-- Use the Go version in `go.work` and its current standard library. Receivers use their type's lowercase initial, parameters never shadow imported packages, and typed-nil checks call `lo.IsNil` directly.
-- Do not guess where performance matters. Measure first, optimize only a dominant bottleneck, and measure again. Assume `n` is small until data proves otherwise, prefer straightforward algorithms and structures, and fix the data model before adding clever code.
-- Do not reintroduce a framework-wide retry layer, transient-error taxonomy, second structured-output conversion chain, fat interface, duplicate public type, speculative service provider interface, or provider-owned OAuth refresh.
-- Keep OpenTelemetry outside Core and capability modules. Integrations decorate protocol boundaries from the outside; the repository design documents own the cross-module observability rules.
-- Tests protect observable contracts and architecture boundaries with exact expectations. Every module keeps `doc.go` as its sole module entry; public usage lives in GoDoc and checked examples, not parallel module Markdown. Update code, tests, documentation, and architecture guards together, and do not preserve point-in-time audits as permanent documentation.
-- Preserve unrelated user changes. Discuss a breaking exported API, wire, or schema change before applying it, then replace the old design without a compatibility layer. Ask before adding a document.
-- Reply to the user in Chinese. Keep code, identifiers, comments, errors, and repository documentation in English. Comments explain why, not what.
-- Before committing, run build, vet, test, race, tidy, isolation, architecture, and lint checks for the affected workspace. Keep commits independently revertible and push unless the user asks to stay local.
+## Working approach
+
+- Read applicable instructions and relevant implementation, callers, and tests. Expand context as dependencies
+  or uncertainty require; load documentation and skills only when their scope matches the task.
+- Use commands verified in repository scripts, configuration, or CI. Follow sound local conventions; introduce
+  a different pattern to address a concrete limitation, not a stylistic preference.
+- For cross-cutting or risky work, identify intended behavior, affected contracts, and verification before
+  editing. Make straightforward changes directly.
+- Resolve ambiguity from contracts and repository evidence. Ask only when remaining uncertainty materially
+  affects behavior, scope, or data safety; otherwise use the simplest consistent interpretation.
+- Within the authorized scope, implement and verify the change. Run checks and fix introduced failures without
+  repeated approval in confirmed isolated environments. Before unfamiliar or potentially state-changing
+  commands, confirm the target environment and expected side effects are within the authorized scope. Changes
+  to shared or external state require explicit authorization; a command named `test` is not proof of isolation.
+- Preserve unrelated work. Production actions, destructive data operations, and destructive Git operations
+  require explicit authorization beyond permission to edit code.
+
+## Design and implementation
+
+### Simplicity and abstraction
+
+- **Occam's razor / KISS:** Choose the least complex sufficient solution: fewer assumptions, concepts, states,
+  dependencies, and indirections. Reduce understanding and change costs, not line count.
+- **YAGNI:** Add only capabilities required now. Do not prebuild configuration, extension points, or
+  frameworks. Necessary safety checks and tests are not speculative work.
+- **DRY:** Give each business rule one authoritative representation. Share stable knowledge, not merely
+  similar syntax; keep independently changing concepts separate.
+- An abstraction must reduce complexity for its callers, consolidate stable knowledge, or isolate an actual
+  variation. Moving code behind another name is not enough.
+- Prefer standard-library and existing project capabilities. Add dependencies only when their benefits justify
+  their maintenance cost; use established implementations for security-sensitive primitives.
+
+### Boundaries and contracts (SOLID)
+
+- **SRP:** Group code by its reason to change; split independent responsibilities, not cohesive logic to
+  satisfy arbitrary size limits.
+- **OCP:** Extend behavior at demonstrated variation points; repair flawed abstractions instead of preserving
+  them behind extra layers.
+- **LSP:** Preserve behavioral contracts, including invariants and failure semantics. Do not strengthen
+  preconditions or weaken postconditions.
+- **ISP:** Shape small, cohesive interfaces around consumer needs, not every capability of an implementation.
+- **DIP:** Separate business policy from volatile infrastructure through explicit boundaries; do not create an
+  interface for every type.
+- **LoD:** Depend on direct collaborators' public contracts, not their internal object graphs. Avoid
+  forwarding layers that merely disguise coupling.
+
+### Readability and state (Zen of Python)
+
+- Use the host language's idioms. Prefer explicit dependencies, flat control flow, readable spacing, and
+  coherent namespaces over implicit magic or clever compression.
+- Represent necessary complexity behind clear boundaries. Keep justified exceptions local and prefer practical
+  clarity over rigid uniformity.
+- Keep mutable state minimal, ownership explicit, and each fact authoritative in one place. Separate business
+  decisions from external I/O.
+- Prefer one clear path per behavior. Simplify hard-to-explain logic without fragmenting cohesive code into
+  tiny helpers.
+- Make failures explicit; suppress only specific expected errors allowed by the contract. Never turn
+  unexpected failure into apparent success.
+
+### Data and performance (Rob Pike)
+
+1. Do not guess bottlenecks or add speculative speed hacks.
+2. Measure representative workloads before tuning; optimize significant bottlenecks and compare results
+   against the baseline.
+3. Choose algorithms for actual input sizes; consider constant costs as well as asymptotic complexity.
+4. Use simple algorithms and data structures unless requirements or measurements justify the added complexity.
+5. Design data representations and invariants first; simplify algorithms through better structure.
+
+Respect known scale and resource limits during design.
+
+### Comments
+
+- Default to no comments; use naming, types, and structure to express intent.
+- At critical data structures, non-obvious algorithms, interfaces, or pitfalls, explain **why**: constraints,
+  trade-offs, or essential contracts the types cannot express, such as ownership, lifetime, concurrency, or
+  failure semantics. Do not narrate operations or repeat signatures.
+- Keep necessary comments accurate; remove stale comments and commented-out code. Preserve licenses and tool
+  directives. Do not use TODOs in place of required work.
+
+## Fixes and evolution
+
+- Establish the root cause through reproduction, tests, or traced behavior. Fix the responsible model,
+  invariant, or boundary and check other affected paths.
+- Do not conceal defects with stacked special cases, duplicated state, blind retries, or silent fallbacks.
+  Keep validation and resilience where real contracts require them.
+- **Breaking changes are allowed** to fix faulty contracts or achieve a simplification worth the migration
+  cost. Honor explicit compatibility requirements; do not break sound contracts for style.
+- Update affected callers, types, tests, and documentation together. Address protocol, persisted-data, and
+  external-consumer migrations explicitly; disclose what remains outside the task's control.
+- Keep compatibility adapters only for real consumers or rollout needs, with a removal condition. Delete
+  superseded code and configuration when that condition is met.
+- Make the smallest complete change that fixes the cause. Refactor obstructive related code in verifiable
+  steps; distinguish behavior-preserving cleanup from intentional contract changes.
+- At iteration or milestone reviews, revisit repeatedly broken, frequently changed, or hard-to-test modules.
+  Record out-of-scope debt with its impact and a trigger for revisiting it; do not start unrelated rewrites.
+
+## Verification and completion
+
+- Use checks sufficient to demonstrate changed behavior. Broaden coverage for shared contracts, cross-module
+  changes, or build configuration. Honor required repository checks.
+- For bug fixes, add regression coverage that exposes the original failure when feasible. Test observable
+  behavior and contracts, including relevant boundaries and failures.
+- Control time, randomness, and external state where needed for reliable tests. Do not distort production
+  interfaces merely to mock them.
+- Do not disable checks, skip failing tests, or weaken valid assertions to manufacture a pass. Correct test
+  expectations only for intentional contract changes or demonstrated test errors.
+- Review the diff for concrete defects, contract violations, and maintainability problems. Remove accidental
+  edits, debug residue, and dead code; do not treat stylistic alternatives as defects.
+- Finish when requested behavior and affected integrations are complete and relevant verification passes.
+  Report genuine blockers rather than claiming completion; stop improving when acceptance criteria are met.
+- Report changes, actual verification results, and any migrations or remaining risks. Distinguish passed,
+  failed, and not-run checks; identify unrelated pre-existing failures.
+
+## Maintaining these instructions
+
+- Keep durable rules that prevent recurring mistakes or record non-obvious project decisions. Put scoped rules
+  near affected code and occasional procedures in narrowly triggered skills or linked documentation.
+- When maintaining instructions, remove stale or redundant guidance and evaluate changes on representative
+  tasks. Let observed task outcomes guide further revisions. Keep skill descriptions short and triggers
+  precise; do not rewrite policy during unrelated coding work.
+- Enforce mechanical requirements through formatters, linters, hooks, and CI rather than repeated prose. Never
+  weaken instructions or checks to excuse a noncompliant change.
+## Project-specific rules
+
+Rules that apply only to this repository live in [`PROJECT_RULES.md`](PROJECT_RULES.md).
+
+@./PROJECT_RULES.md

@@ -23,7 +23,7 @@ Audit before editing:
 5. Separate independent findings into independently revertible batches.
 6. State the scope, alternatives, and blast radius before a structural or exported breaking change.
 
-Repository-local call counts do not decide whether a public framework application programming interface (API) belongs. A locally unused export may be a valid downstream extension point; a heavily used export may still be the wrong abstraction. Judge responsibility, semantic ownership, and downstream utility.
+[`PROJECT_RULES.md`](PROJECT_RULES.md) states that repository-local usage is no evidence about a public API. Applied to an audit: a locally unused export may be a valid downstream extension point, and a heavily used export may still be the wrong abstraction, so classify by responsibility and semantic ownership rather than by call count.
 
 ## Choose the right refactoring scope
 
@@ -238,9 +238,8 @@ Prefer OpenTelemetry semantic conventions. Custom attribute keys carry no Scope 
 
 ## Write comments only for information code cannot express
 
-First try naming, a richer type, a smaller function, or a clearer state transition. Add a comment only when code cannot carry the constraint itself.
-
-Valid comments explain one of these reasons:
+[`AGENTS.md`](AGENTS.md) states when a comment is warranted. In Go, a comment earns its place for one of five
+reasons:
 
 1. A public contract: invariants, ownership, lifetime, error semantics, side effects, or concurrency guarantees.
 2. An external constraint: a protocol rule, compatibility fact, provider SDK behavior, or business convention.
@@ -248,13 +247,11 @@ Valid comments explain one of these reasons:
 4. A counter-intuitive choice: why the more familiar implementation is wrong here.
 5. A safety rule: goroutine ownership, lock ordering, transaction boundaries, cancellation, trust, or cleanup.
 
-Do not restate a symbol name or line of code. Do not write migration history, reviewer notes, or comments such as "fixed here". Update or delete the comment in the same change as the code it constrains.
-
 An ordinary constructor, `Validate`, or `MarshalJSON` does not need template prose that repeats its name. If a lint rule demands noise, adjust the rule or use a package-level exemption rather than manufacturing a comment that will rot.
 
 ## Test contracts, not implementation trivia
 
-Write tests against observable semantics and architecture boundaries. A test that copies an implementation table or computes its expected value with the production helper proves only that the code agrees with itself.
+A test that copies an implementation table or computes its expected value with the production helper proves only that the code agrees with itself.
 
 Use exact expectations for discrete mappings, state transitions, wire values, error classifications, and lifecycle outcomes. Non-empty, unique, monotonic, or count-only proxies are insufficient when the contract specifies exact values.
 
@@ -285,7 +282,7 @@ Before a performance refactor:
 5. Make the smallest change that addresses the measured bottleneck.
 6. Measure again and preserve a benchmark when regression risk is meaningful.
 
-Do not add caching, parallelism, custom allocation, a tree, a trie, or a lock-free structure from intuition. Count invalidation, memory, synchronization, and failure modes as part of the cost.
+The cost of a speculative structure is stated in [`DESIGN_PHILOSOPHY.md`](DESIGN_PHILOSOPHY.md); count invalidation, memory, synchronization, and failure modes before proposing one.
 
 ## Batch and verify the work
 
