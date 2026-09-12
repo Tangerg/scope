@@ -1,5 +1,5 @@
-github.com/Tangerg/scope/core v0.20.1-0.20260912184949-d135b3f712c6 h1:b1vzMHMeBK0rnm9vrfiIhFUKd718cFmCaeLQAJFete8=
-github.com/Tangerg/scope/core v0.20.1-0.20260912184949-d135b3f712c6/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
+github.com/Tangerg/scope/core v0.21.0 h1:SvoEl2P1hO0XXlzYBC+jbQ27shnyYqQWqWg+NAKKR1A=
+github.com/Tangerg/scope/core v0.21.0/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
 github.com/lumalabs/luma-agents-go v0.5.0 h1:2YWgQ6h1TXhcZZhrKVEcTfERZhfdh54H2oO58TAjgRs=
 github.com/lumalabs/luma-agents-go v0.5.0/go.mod h1:oxgjNsKJqSCv/o7dtLpYchLyqMmzYosrQ/mbW0RBDCs=
 github.com/tidwall/gjson v1.14.2/go.mod h1:/wbyibRr2FHMks5tjHJ5F8dMZh3AcwJEMf5vlfC0lxk=

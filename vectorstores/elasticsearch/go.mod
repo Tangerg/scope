@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/elasticsearch
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.20.1-0.20260912184949-d135b3f712c6
+	github.com/Tangerg/scope/core v0.21.0
 	github.com/elastic/go-elasticsearch/v8 v8.19.7
 	github.com/samber/lo v1.53.0
 )

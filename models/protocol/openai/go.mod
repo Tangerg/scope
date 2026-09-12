@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/models/protocol/openai
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.20.1-0.20260912184949-d135b3f712c6
+	github.com/Tangerg/scope/core v0.21.0
 	github.com/openai/openai-go/v3 v3.58.0
 )
 

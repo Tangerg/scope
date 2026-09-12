@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/s3vectors
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.20.1-0.20260912184949-d135b3f712c6
+	github.com/Tangerg/scope/core v0.21.0
 	github.com/aws/aws-sdk-go-v2 v1.46.0
 	github.com/aws/aws-sdk-go-v2/service/s3vectors v1.14.0
 	github.com/aws/smithy-go v1.28.1
