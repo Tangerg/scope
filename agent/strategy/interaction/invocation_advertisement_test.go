@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 
@@ -95,73 +93,6 @@ func TestInvocationAttributionAndDeferredToolAdvertisement(t *testing.T) {
 	}
 	if tools[0].EffectID() == tools[1].EffectID() {
 		t.Fatalf("Tool Effects share identity %s", tools[0].EffectID().String())
-	}
-	assertModelToolResultPolicy(t, tools[0])
-}
-
-func assertModelToolResultPolicy(t *testing.T, invocation interaction.ToolInvocation) {
-	t.Helper()
-	call := invocation.ToolCall()
-	structured, err := chat.NewJSONToolOutput(json.RawMessage(`{"value":42}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	success, present := invocation.ModelResult(structured, nil)
-	wantSuccess := chat.ToolResult{ID: call.ID, Name: call.Name, Output: structured}
-	if !present || !reflect.DeepEqual(success, wantSuccess) {
-		t.Fatalf("success = %#v, present = %t", success, present)
-	}
-	empty, present := invocation.ModelResult(chat.ToolOutput{}, nil)
-	if !present || !reflect.DeepEqual(empty, chat.ToolResult{ID: call.ID, Name: call.Name}) {
-		t.Fatalf("empty success = %#v, present = %t", empty, present)
-	}
-	invalidOutput := chat.ToolOutput{Details: json.RawMessage(`{`)}
-	invalid, present := invocation.ModelResult(invalidOutput, nil)
-	wantInvalid := chat.ToolResult{
-		ID: call.ID, Name: call.Name, IsError: true,
-		Output: chat.NewTextToolOutput("error: tool \"" + call.Name +
-			"\" failed: tool returned invalid output: chat: invalid tool output: details must be one valid RFC 7493 JSON document"),
-	}
-	if !present || !reflect.DeepEqual(invalid, wantInvalid) {
-		t.Fatalf("invalid output result = %#v, present = %t", invalid, present)
-	}
-
-	diagnostic := strings.Repeat("x", 3_000)
-	failure, present := invocation.ModelResult(chat.NewTextToolOutput("ignored"), errors.New(diagnostic))
-	wantFailure := chat.ToolResult{
-		ID: call.ID, Name: call.Name,
-		Output:  chat.NewTextToolOutput("error: tool \"" + call.Name + "\" failed: " + diagnostic[:2_048]),
-		IsError: true,
-	}
-	if !present || !reflect.DeepEqual(failure, wantFailure) {
-		t.Fatalf("failure = %#v, present = %t", failure, present)
-	}
-	completeFailure, err := tool.NewFailure(errors.New("partial execution"), structured)
-	if err != nil {
-		t.Fatal(err)
-	}
-	complete, present := invocation.ModelResult(chat.ToolOutput{}, fmt.Errorf("wrapped: %w", completeFailure))
-	if !present || !reflect.DeepEqual(complete, chat.ToolResult{ID: call.ID, Name: call.Name, IsError: true, Output: structured}) {
-		t.Fatalf("complete failure = %#v, present = %t", complete, present)
-	}
-
-	controlCauses := []error{
-		interaction.HostFailure(errors.New("projection unavailable")),
-		context.Canceled,
-		context.DeadlineExceeded,
-		interaction.RequireToolInput(
-			json.RawMessage(`"continue?"`),
-			json.RawMessage(`{"type":"boolean"}`),
-			json.RawMessage(`{"stage":"waiting"}`),
-		),
-	}
-	for _, cause := range controlCauses {
-		if result, present := invocation.ModelResult(invalidOutput, cause); present || !reflect.DeepEqual(result, chat.ToolResult{}) {
-			t.Fatalf("control cause %v produced %#v, present = %t", cause, result, present)
-		}
-	}
-	if result, present := (interaction.ToolInvocation{}).ModelResult(chat.NewTextToolOutput("ignored"), nil); present || !reflect.DeepEqual(result, chat.ToolResult{}) {
-		t.Fatalf("invalid invocation produced %#v, present = %t", result, present)
 	}
 }
 

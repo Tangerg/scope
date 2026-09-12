@@ -151,8 +151,8 @@ func (t *toolDispatcher) callTool(
 			return chat.ToolResult{}, nil, &request, nil
 		}
 	}
-	result, present := invocation.ModelResult(output, err)
-	if !present {
+	result, err = ModelToolResult(call, output, err)
+	if err != nil {
 		return chat.ToolResult{}, nil, nil, err
 	}
 	if result.IsError {
