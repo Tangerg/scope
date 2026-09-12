@@ -83,18 +83,18 @@ func TestWriteRejectsUnacknowledgedResult(t *testing.T) {
 		t.Run(sample.name, func(t *testing.T) {
 			collection := &scriptedCollection{inserted: sample.inserted}
 			store := storeFor(t, collection)
-			err := store.Write(t.Context(), history.ConversationID("conversation"),
+			outcome, err := store.Write(t.Context(), history.ConversationID("conversation"),
 				chat.NewUserMessage(chat.NewTextPart("hello")))
 			if collection.calls != 1 {
 				t.Fatalf("InsertMany calls = %d, want 1", collection.calls)
 			}
 			if sample.want == "" {
-				if err != nil {
-					t.Fatalf("Write() = %v, want nil", err)
+				if err != nil || outcome != (history.WriteOutcome{Accepted: 1}) {
+					t.Fatalf("Write() = %+v, %v", outcome, err)
 				}
 				return
 			}
-			if err == nil || !strings.Contains(err.Error(), sample.want) {
+			if err == nil || outcome != (history.WriteOutcome{Uncertain: true}) || !strings.Contains(err.Error(), sample.want) {
 				t.Fatalf("Write() = %v, want an error containing %q", err, sample.want)
 			}
 		})
@@ -103,34 +103,38 @@ func TestWriteRejectsUnacknowledgedResult(t *testing.T) {
 
 // insertMany is ordered and not atomic across documents, so a rejected batch
 // leaves the documents before the rejected one stored. Returning the driver's
-// error alone reads as "nothing was written", which is the one thing
-// [history.Writer] says a Write error must not do.
-func TestWriteNamesThePrefixARejectedBatchLeftBehind(t *testing.T) {
+// outcome must retain that prefix without requiring error-string parsing.
+func TestWriteReportsThePrefixARejectedBatchLeftBehind(t *testing.T) {
 	t.Parallel()
 
 	for _, sample := range []struct {
 		name        string
 		insertError error
-		want        string
+		want        history.WriteOutcome
 	}{
 		{
 			name: "third message rejected",
 			insertError: mongo.BulkWriteException{
 				WriteErrors: []mongo.BulkWriteError{{WriteError: mongo.WriteError{Index: 2, Code: 11000}}},
 			},
-			want: "stored the first 2 of 4 message(s)",
+			want: history.WriteOutcome{Accepted: 2},
 		},
 		{
 			// A write-concern error establishes nothing about how far the
 			// insert got, so the error says that rather than guessing.
 			name:        "write concern error",
 			insertError: mongo.BulkWriteException{WriteConcernError: &mongo.WriteConcernError{Code: 64}},
-			want:        "stored an unknown part of 4 message(s)",
+			want:        history.WriteOutcome{Uncertain: true},
+		},
+		{
+			name:        "rejection with unconfirmed durability",
+			insertError: mongo.BulkWriteException{WriteConcernError: &mongo.WriteConcernError{Code: 64}, WriteErrors: []mongo.BulkWriteError{{WriteError: mongo.WriteError{Index: 2, Code: 11000}}}},
+			want:        history.WriteOutcome{Uncertain: true},
 		},
 		{
 			name:        "connection lost",
 			insertError: errors.New("connection(localhost:27017) socket was unexpectedly closed"),
-			want:        "stored an unknown part of 4 message(s)",
+			want:        history.WriteOutcome{Uncertain: true},
 		},
 	} {
 		t.Run(sample.name, func(t *testing.T) {
@@ -140,9 +144,9 @@ func TestWriteNamesThePrefixARejectedBatchLeftBehind(t *testing.T) {
 			for index := range messages {
 				messages[index] = chat.NewUserMessage(chat.NewTextPart("hello"))
 			}
-			err := store.Write(t.Context(), history.ConversationID("conversation"), messages...)
-			if err == nil || !strings.Contains(err.Error(), sample.want) {
-				t.Fatalf("Write() = %v, want an error containing %q", err, sample.want)
+			outcome, err := store.Write(t.Context(), history.ConversationID("conversation"), messages...)
+			if err == nil || outcome != sample.want {
+				t.Fatalf("Write() = %+v, %v, want %+v", outcome, err, sample.want)
 			}
 			// The prefix is added alongside the provider's error, not in
 			// place of it, so the chain still reaches what MongoDB said.

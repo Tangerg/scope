@@ -157,20 +157,20 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 // Write appends every message under conversationID in one single-partition
 // unlogged batch. Client-generated TIMEUUIDs are strictly increasing within
 // one call; concurrent calls have no defined relative order.
-func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (err error) {
+func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (outcome history.WriteOutcome, err error) {
 	if err = ctx.Err(); err != nil {
-		return err
+		return outcome, err
 	}
 	if err = conversationID.Validate(); err != nil {
-		return err
+		return outcome, err
 	}
 	if len(messages) == 0 {
-		return nil
+		return history.WriteOutcome{Accepted: len(messages)}, nil
 	}
 
 	encoded, err := encodeMessages(messages)
 	if err != nil {
-		return fmt.Errorf("cassandra: write: encode messages: %w", err)
+		return outcome, fmt.Errorf("cassandra: write: encode messages: %w", err)
 	}
 	batch := s.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
 	sequenceBase := s.sequence.Reserve(len(encoded))
@@ -178,10 +178,11 @@ func (s *Store) Write(ctx context.Context, conversationID history.ConversationID
 		messageSequence := sequenceUUID(sequenceBase, index)
 		batch.Query(s.writeCQL, conversationID.String(), messageSequence, string(raw))
 	}
+	outcome.Uncertain = true
 	if err = s.session.ExecuteBatch(batch); err != nil {
-		return fmt.Errorf("cassandra: write: execute batch: %w", err)
+		return outcome, fmt.Errorf("cassandra: write: execute batch: %w", err)
 	}
-	return nil
+	return history.WriteOutcome{Accepted: len(messages)}, nil
 }
 
 func sequenceUUID(base int64, index int) gocql.UUID {

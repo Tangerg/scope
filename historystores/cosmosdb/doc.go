@@ -27,7 +27,8 @@
 // 424 to say it was rolled back rather than that it failed. Cosmos caps a
 // batch at [MaxMessagesPerWrite] operations and Write refuses a larger one,
 // because splitting it across batches would trade that guarantee for a
-// partial conversation nothing reported.
+// partial conversation. A confirmed rollback returns zero accepted messages;
+// transport failures report an uncertain outcome.
 //
 // Reads issue a single-partition query and order the materialized
 // documents by (`seq`, `id`) without requiring a Cosmos composite index. `seq`

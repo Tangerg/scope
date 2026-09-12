@@ -169,31 +169,32 @@ func (s *Store) initSchema(ctx context.Context) error {
 // Write appends every message under conversationID. Messages within one call
 // are queued in order; concurrent calls may interleave. Empty writes are a
 // no-op.
-func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (err error) {
+func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (outcome history.WriteOutcome, err error) {
 	if err = ctx.Err(); err != nil {
-		return err
+		return outcome, err
 	}
 	if err = conversationID.Validate(); err != nil {
-		return err
+		return outcome, err
 	}
 	if len(messages) == 0 {
-		return nil
+		return history.WriteOutcome{Accepted: len(messages)}, nil
 	}
 
 	encoded, err := encodeMessages(messages)
 	if err != nil {
-		return fmt.Errorf("postgres: write: encode messages: %w", err)
+		return outcome, fmt.Errorf("postgres: write: encode messages: %w", err)
 	}
 	batch := &pgx.Batch{}
 	for _, raw := range encoded {
 		batch.Queue(s.writeSQL, conversationID.String(), raw)
 	}
 
+	outcome.Uncertain = true
 	results := s.pool.SendBatch(ctx, batch)
 	if err = results.Close(); err != nil {
-		return fmt.Errorf("postgres: write: execute batch: %w", err)
+		return outcome, fmt.Errorf("postgres: write: execute batch: %w", err)
 	}
-	return nil
+	return history.WriteOutcome{Accepted: len(messages)}, nil
 }
 
 // Read returns every message stored under conversationID in

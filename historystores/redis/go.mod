@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/historystores/redis
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.19.0
+	github.com/Tangerg/scope/core v0.19.1-0.20260912050203-70af4548c422
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/samber/lo v1.53.0
 )

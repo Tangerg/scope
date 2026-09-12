@@ -18,11 +18,9 @@
 // no defined relative order.
 //
 // Write atomicity. One Write is one UNWIND ... CREATE statement, so it applies
-// whole or not at all and a failed one leaves no prefix behind. The driver's
-// ExecuteQuery "automatically retries to run a failed query if the failure is
-// deemed to be transient", which does not duplicate those nodes: although a
-// transaction function "might be executed multiple times, the database queries
-// inside it will always run only once".
+// whole or not at all. A driver error does not prove rollback: losing the
+// acknowledgment may hide a completed commit. WriteOutcome reports uncertainty
+// on execution errors; callers must reconcile before resubmitting the batch.
 //
 // Example:
 //

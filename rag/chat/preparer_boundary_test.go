@@ -78,7 +78,7 @@ func TestPreparerRejectsRetrievalBeforeAugmentation(t *testing.T) {
 	}
 }
 
-func TestPreparerStreamPublishesRetrievalMetadataOnce(t *testing.T) {
+func TestPreparerKeepsEvidenceSeparateFromStreamingResponse(t *testing.T) {
 	doc, err := document.NewDocument("evidence", nil)
 	if err != nil {
 		t.Fatal(err)

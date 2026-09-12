@@ -125,21 +125,22 @@ func (s *Store) initIndex(ctx context.Context) error {
 // sequence range preserves argument order and remains monotonic if the local
 // clock moves backward.
 // InsertMany is ordered but is not a multi-document transaction: an error can
-// leave earlier messages stored. The returned error preserves the driver cause.
-func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (err error) {
+// leave earlier messages stored. WriteOutcome preserves the confirmed prefix
+// or marks additional writes uncertain, while the error preserves the cause.
+func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (outcome history.WriteOutcome, err error) {
 	if err = ctx.Err(); err != nil {
-		return err
+		return outcome, err
 	}
 	if err = conversationID.Validate(); err != nil {
-		return err
+		return outcome, err
 	}
 	if len(messages) == 0 {
-		return nil
+		return history.WriteOutcome{Accepted: len(messages)}, nil
 	}
 
 	encoded, err := encodeMessages(messages)
 	if err != nil {
-		return fmt.Errorf("mongodb: write: encode messages: %w", err)
+		return outcome, fmt.Errorf("mongodb: write: encode messages: %w", err)
 	}
 	now := time.Now().UTC()
 	sequenceBase := s.sequence.Reserve(len(encoded))
@@ -153,36 +154,22 @@ func (s *Store) Write(ctx context.Context, conversationID history.ConversationID
 		})
 	}
 
+	outcome.Uncertain = true
 	result, err := s.collection.InsertMany(ctx, docs)
 	if err != nil {
-		return fmt.Errorf("mongodb: write: insert messages: %s: %w", storedBeforeFailure(err, len(docs)), err)
+		var bulk mongo.BulkWriteException
+		if errors.As(err, &bulk) && bulk.WriteConcernError == nil && len(bulk.WriteErrors) > 0 {
+			index := bulk.WriteErrors[0].Index
+			if index >= 0 && index < len(messages) {
+				outcome = history.WriteOutcome{Accepted: index}
+			}
+		}
+		return outcome, fmt.Errorf("mongodb: write: insert messages: %w", err)
 	}
 	if result == nil || !result.Acknowledged {
-		return errUnacknowledged("write")
+		return outcome, errUnacknowledged("write")
 	}
-	return nil
-}
-
-// storedBeforeFailure names the part of a rejected batch MongoDB kept.
-//
-// insertMany is not atomic across documents, and the driver always sends it
-// ordered: MongoDB "stops after an error" with "documents that precede the
-// invalid document in the documents array" already "written to the
-// collection". Undoing them would need a distributed transaction, which is
-// unavailable on a standalone deployment, so this is the external atomicity
-// limit [history.Writer] allows a store to have — and what it still requires
-// is that the error not conceal the prefix.
-func storedBeforeFailure(err error, messages int) string {
-	var bulk mongo.BulkWriteException
-	if errors.As(err, &bulk) && len(bulk.WriteErrors) > 0 {
-		// Ordered inserts stop at the first rejection, so its index is also
-		// the count of messages that landed ahead of it. The driver rebases
-		// the index onto the caller's slice when it splits large batches.
-		return fmt.Sprintf("stored the first %d of %d message(s)", bulk.WriteErrors[0].Index, messages)
-	}
-	// A write-concern error or a lost connection says nothing about how far
-	// the insert got, and guessing would be worse than saying so.
-	return fmt.Sprintf("stored an unknown part of %d message(s)", messages)
+	return history.WriteOutcome{Accepted: len(messages)}, nil
 }
 
 // errUnacknowledged reports a write concern under which no MongoDB write can be

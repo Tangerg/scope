@@ -28,9 +28,9 @@ func (h *historyRecorder) Read(context.Context, history.ConversationID) ([]chat.
 	return h.messages, h.err
 }
 
-func (h *historyRecorder) Write(_ context.Context, _ history.ConversationID, messages ...chat.Message) error {
+func (h *historyRecorder) Write(_ context.Context, _ history.ConversationID, messages ...chat.Message) (history.WriteOutcome, error) {
 	h.messages = messages
-	return h.err
+	return history.WriteOutcome{Accepted: len(messages)}, h.err
 }
 
 func (h *historyRecorder) Clear(context.Context, history.ConversationID) error {
@@ -94,7 +94,7 @@ func TestStorePreservesResultsAndRecordsOperations(t *testing.T) {
 	wrapped := middleware.Store(store)
 	message := chat.NewUserMessage(chat.NewTextPart("hello"))
 
-	if err := wrapped.Write(t.Context(), "conversation", message); !errors.Is(err, wantErr) {
+	if outcome, err := wrapped.Write(t.Context(), "conversation", message); !errors.Is(err, wantErr) || outcome != (history.WriteOutcome{Accepted: 1}) {
 		t.Fatalf("Write() error = %v", err)
 	}
 	if _, err := wrapped.Read(t.Context(), "conversation"); !errors.Is(err, wantErr) {

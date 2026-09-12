@@ -183,7 +183,7 @@ func TestWriteSendsOneTransactionalBatch(t *testing.T) {
 		chat.NewUserMessage(chat.NewTextPart("first")),
 		chat.NewUserMessage(chat.NewTextPart("second")),
 	}
-	if err := store.Write(t.Context(), history.ConversationID("conversation"), messages...); err != nil {
+	if outcome, err := store.Write(t.Context(), history.ConversationID("conversation"), messages...); err != nil || outcome != (history.WriteOutcome{Accepted: len(messages)}) {
 		t.Fatalf("Write: %v", err)
 	}
 	if posts != 1 {
@@ -210,10 +210,10 @@ func TestWriteReportsARolledBackBatch(t *testing.T) {
 		fmt.Fprint(writer, `[{"statusCode":424},{"statusCode":409}]`)
 	})
 
-	err := store.Write(t.Context(), history.ConversationID("conversation"),
+	outcome, err := store.Write(t.Context(), history.ConversationID("conversation"),
 		chat.NewUserMessage(chat.NewTextPart("first")),
 		chat.NewUserMessage(chat.NewTextPart("second")))
-	if err == nil {
+	if err == nil || outcome != (history.WriteOutcome{}) {
 		t.Fatal("Write() = nil error, want the rolled-back batch reported")
 	}
 	if !strings.Contains(err.Error(), "409") {
@@ -233,8 +233,8 @@ func TestWriteRefusesMoreMessagesThanOneBatchCarries(t *testing.T) {
 	for index := range messages {
 		messages[index] = chat.NewUserMessage(chat.NewTextPart("message"))
 	}
-	err := store.Write(t.Context(), history.ConversationID("conversation"), messages...)
-	if err == nil {
+	outcome, err := store.Write(t.Context(), history.ConversationID("conversation"), messages...)
+	if err == nil || outcome != (history.WriteOutcome{}) {
 		t.Fatal("Write() = nil error, want the oversized batch refused")
 	}
 	if !strings.Contains(err.Error(), strconv.Itoa(cosmosdb.MaxMessagesPerWrite)) {
@@ -285,5 +285,15 @@ func TestNewStoreRefusesAContainerPartitionedElsewhere(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), cosmosdb.PartitionKeyPath) {
 		t.Fatalf("NewStore() = %v, want an error naming %s", err, cosmosdb.PartitionKeyPath)
+	}
+}
+
+func TestWriteReportsUncertainOutcomeForMalformedAcknowledgment(t *testing.T) {
+	store := newTestStore(t, func(writer http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(writer, `not a batch acknowledgment`)
+	})
+	outcome, err := store.Write(t.Context(), "conversation", chat.NewUserMessage(chat.NewTextPart("first")))
+	if err == nil || outcome != (history.WriteOutcome{Uncertain: true}) {
+		t.Fatalf("outcome=%+v error=%v", outcome, err)
 	}
 }

@@ -209,8 +209,8 @@ func (i invalidHistoryStore) Read(context.Context, corehistory.ConversationID) (
 	return nil, i.err
 }
 
-func (i invalidHistoryStore) Write(context.Context, corehistory.ConversationID, ...chat.Message) error {
-	return i.err
+func (i invalidHistoryStore) Write(context.Context, corehistory.ConversationID, ...chat.Message) (corehistory.WriteOutcome, error) {
+	return corehistory.WriteOutcome{}, i.err
 }
 
 func (i invalidHistoryStore) Clear(context.Context, corehistory.ConversationID) error {
@@ -225,13 +225,13 @@ func (h historyStore) Read(ctx context.Context, conversationID corehistory.Conve
 	return messages, err
 }
 
-func (h historyStore) Write(ctx context.Context, conversationID corehistory.ConversationID, messages ...chat.Message) error {
+func (h historyStore) Write(ctx context.Context, conversationID corehistory.ConversationID, messages ...chat.Message) (corehistory.WriteOutcome, error) {
 	ctx, observation := h.middleware.start(ctx, operationWrite, conversationID,
 		attribute.Int(messageCountAttribute, len(messages)),
 	)
-	err := h.next.Write(ctx, conversationID, messages...)
+	outcome, err := h.next.Write(ctx, conversationID, messages...)
 	observation.finish(err)
-	return err
+	return outcome, err
 }
 
 func (h historyStore) Clear(ctx context.Context, conversationID corehistory.ConversationID) error {

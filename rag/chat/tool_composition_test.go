@@ -40,7 +40,7 @@ func TestPreparedRequestPreservesEvidenceThroughToolContinuation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	middleware, err := chatclient.NewToolMiddleware(executable)
+	middleware, err := chatclient.NewSingleBatchToolMiddleware(executable)
 	if err != nil {
 		t.Fatal(err)
 	}

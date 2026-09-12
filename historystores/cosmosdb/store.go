@@ -114,27 +114,27 @@ type document struct {
 // Write creates one document per message. Random document IDs prevent
 // concurrent writers from overwriting each other; seq preserves argument order
 // within one call. Retried calls append fresh documents and are not idempotent.
-// Messages are written separately, so an error can leave earlier messages
-// stored. The returned error identifies the failing message index.
-func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (err error) {
+// The transactional batch either commits or rolls back; a lost acknowledgment
+// returns an uncertain outcome instead of claiming that nothing was stored.
+func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (outcome history.WriteOutcome, err error) {
 	if err = ctx.Err(); err != nil {
-		return err
+		return outcome, err
 	}
 	if err = conversationID.Validate(); err != nil {
-		return err
+		return outcome, err
 	}
 	if len(messages) == 0 {
-		return nil
+		return history.WriteOutcome{Accepted: len(messages)}, nil
 	}
 
 	if len(messages) > MaxMessagesPerWrite {
-		return fmt.Errorf("cosmosdb: write: %d messages exceed the %d operations one transactional batch may carry",
+		return outcome, fmt.Errorf("cosmosdb: write: %d messages exceed the %d operations one transactional batch may carry",
 			len(messages), MaxMessagesPerWrite)
 	}
 
 	encoded, err := encodeMessages(messages)
 	if err != nil {
-		return fmt.Errorf("cosmosdb: write: encode messages: %w", err)
+		return outcome, fmt.Errorf("cosmosdb: write: encode messages: %w", err)
 	}
 	partitionKey := azcosmos.NewPartitionKeyString(conversationID.String())
 	sequenceBase := s.sequence.Reserve(len(encoded))
@@ -155,16 +155,21 @@ func (s *Store) Write(ctx context.Context, conversationID history.ConversationID
 			CreatedAt:      createdAt,
 		})
 		if marshalErr != nil {
-			return fmt.Errorf("cosmosdb: write: marshal message %d: %w", index, marshalErr)
+			return outcome, fmt.Errorf("cosmosdb: write: marshal message %d: %w", index, marshalErr)
 		}
 		batch.CreateItem(body, nil)
 	}
 
+	outcome.Uncertain = true
 	response, err := s.container.ExecuteTransactionalBatch(ctx, batch, nil)
 	if err != nil {
-		return fmt.Errorf("cosmosdb: write: execute batch: %w", err)
+		return outcome, fmt.Errorf("cosmosdb: write: execute batch: %w", err)
 	}
-	return writeOutcome(&response, len(encoded))
+	if err := writeOutcome(&response, len(encoded)); err != nil {
+		outcome.Uncertain = response.Success
+		return outcome, err
+	}
+	return history.WriteOutcome{Accepted: len(messages)}, nil
 }
 
 // writeOutcome reads what the batch actually did. Cosmos answers a rolled-back

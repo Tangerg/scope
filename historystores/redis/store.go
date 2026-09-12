@@ -102,20 +102,20 @@ func (s *Store) key(conversationID history.ConversationID) string {
 // Write appends every message under conversationID. When TTL is set, append
 // and expiry refresh execute in one Redis transaction. Empty writes are a
 // no-op.
-func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (err error) {
+func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (outcome history.WriteOutcome, err error) {
 	if err = ctx.Err(); err != nil {
-		return err
+		return outcome, err
 	}
 	if err = conversationID.Validate(); err != nil {
-		return err
+		return outcome, err
 	}
 	if len(messages) == 0 {
-		return nil
+		return history.WriteOutcome{Accepted: len(messages)}, nil
 	}
 
 	encoded, err := encodeMessages(messages)
 	if err != nil {
-		return fmt.Errorf("redis: write: encode messages: %w", err)
+		return outcome, fmt.Errorf("redis: write: encode messages: %w", err)
 	}
 	payloads := make([]any, len(encoded))
 	for index, raw := range encoded {
@@ -123,19 +123,23 @@ func (s *Store) Write(ctx context.Context, conversationID history.ConversationID
 	}
 
 	key := s.key(conversationID)
+	outcome.Uncertain = true
 	if s.ttl == 0 {
 		if err = s.client.RPush(ctx, key, payloads...).Err(); err != nil {
-			return fmt.Errorf("redis: write: append messages: %w", err)
+			return outcome, fmt.Errorf("redis: write: append messages: %w", err)
 		}
-		return nil
+		return history.WriteOutcome{Accepted: len(messages)}, nil
 	}
 	transaction := s.client.TxPipeline()
-	transaction.RPush(ctx, key, payloads...)
+	appendCommand := transaction.RPush(ctx, key, payloads...)
 	transaction.PExpire(ctx, key, s.ttl)
 	if _, err = transaction.Exec(ctx); err != nil {
-		return fmt.Errorf("redis: write: append messages and refresh expiry: %w", err)
+		if appendCommand.Err() == nil {
+			outcome = history.WriteOutcome{Accepted: len(messages)}
+		}
+		return outcome, fmt.Errorf("redis: write: append messages and refresh expiry: %w", err)
 	}
-	return nil
+	return history.WriteOutcome{Accepted: len(messages)}, nil
 }
 
 // Read returns every message stored under conversationID in

@@ -316,7 +316,7 @@ an agent runtime ranking in reverse, and it must not make `eval` depend on
 ### Where the verification items stand
 
 - **The ordinary path**: the root README shows `chatclient` directly; the
-  minimal tool loop comes from `chatclient.NewToolMiddleware`; checked examples
+  minimal tool loop comes from `chatclient.NewSingleBatchToolMiddleware`; checked examples
   in capability modules stop the documentation from collapsing back into a
   managed-execution-only narrative.
 - **Custom Execution**: `agenttest.RunDefinitionConformance` verifies the

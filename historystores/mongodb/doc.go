@@ -36,9 +36,9 @@
 // precede the invalid document in the documents array" already "written to the
 // collection". Rolling them back would need a distributed transaction, which a
 // standalone deployment does not offer, so a failed Write can leave a prefix of
-// its messages stored. The error says which prefix — or says the extent is
-// unknown, for a write-concern error or a lost connection, which establish
-// nothing about how far the insert got.
+// its messages stored. WriteOutcome identifies the acknowledged prefix. A
+// write-concern error or lost connection makes the remaining outcome uncertain,
+// including when a write-concern failure accompanies a document rejection.
 //
 // Example:
 //

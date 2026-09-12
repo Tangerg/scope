@@ -122,20 +122,20 @@ func (s *Store) initIndex(ctx context.Context) error {
 // Write creates a new node per message under conversationID. A reserved
 // sequence range preserves argument order and remains monotonic if the local
 // clock moves backward.
-func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (err error) {
+func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (outcome history.WriteOutcome, err error) {
 	if err = ctx.Err(); err != nil {
-		return err
+		return outcome, err
 	}
 	if err = conversationID.Validate(); err != nil {
-		return err
+		return outcome, err
 	}
 	if len(messages) == 0 {
-		return nil
+		return history.WriteOutcome{Accepted: len(messages)}, nil
 	}
 
 	encoded, err := encodeMessages(messages)
 	if err != nil {
-		return fmt.Errorf("neo4j: write: encode messages: %w", err)
+		return outcome, fmt.Errorf("neo4j: write: encode messages: %w", err)
 	}
 	sequenceBase := s.sequence.Reserve(len(encoded))
 	rows := make([]map[string]any, 0, len(encoded))
@@ -156,15 +156,16 @@ func (s *Store) Write(ctx context.Context, conversationID history.ConversationID
 			created_at:      datetime()
 		})`, s.label)
 
+	outcome.Uncertain = true
 	_, err = neo4j.ExecuteQuery(ctx, s.driver, cypher,
 		map[string]any{parameterRows: rows},
 		neo4j.EagerResultTransformer,
 		neo4j.ExecuteQueryWithDatabase(s.database),
 	)
 	if err != nil {
-		return fmt.Errorf("neo4j: write: create message nodes: %w", err)
+		return outcome, fmt.Errorf("neo4j: write: create message nodes: %w", err)
 	}
-	return nil
+	return history.WriteOutcome{Accepted: len(messages)}, nil
 }
 
 // Read returns every message stored under conversationID in

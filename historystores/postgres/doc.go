@@ -23,8 +23,9 @@
 //
 // Write atomicity. One Write is one pgx batch, and pgx runs "all queries ...
 // in an implicit transaction unless explicit transaction control statements
-// are executed", so a Write applies whole or not at all and a failed one
-// leaves no prefix behind.
+// are executed", so a Write applies whole or not at all. A transport error
+// can hide a committed transaction, so execution failures return an uncertain
+// WriteOutcome rather than asserting that nothing was written.
 //
 // Example:
 //

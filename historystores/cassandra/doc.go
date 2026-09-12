@@ -23,7 +23,8 @@
 // leave the batch only partly applied". Asking for LOGGED would not buy the
 // guarantee, because "a LOGGED batch to a single partition will be converted
 // to an UNLOGGED batch as an optimization". A failed Write can therefore leave
-// part of its batch stored, and no reply distinguishes how much.
+// part of its batch stored. WriteOutcome marks that remainder uncertain;
+// a successful acknowledgment accepts the complete batch.
 //
 // Write acknowledgment. The session must not use consistency ANY. At every
 // other level a successful write reached at least one replica, but at ANY
