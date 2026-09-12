@@ -4,8 +4,10 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"iter"
 	"net/http"
+	"slices"
 
 	"github.com/go-resty/resty/v2"
 	"google.golang.org/genai"
@@ -123,4 +125,66 @@ func (a *api) embedding(ctx context.Context, modelName string, contents []*genai
 
 func (a *api) countTokens(ctx context.Context, modelName string, contents []*genai.Content, config *genai.CountTokensConfig) (*genai.CountTokensResponse, error) {
 	return a.wrapResult(a.client.Models.CountTokens(ctx, modelName, contents, config))
+}
+
+func (*api) wrapError(err error) error {
+	if err == nil {
+		return nil
+	}
+	type httpError interface {
+		error
+		HTTPStatus() int
+		HTTPHeader() http.Header
+	}
+	if _, ok := errors.AsType[httpError](err); ok {
+		return err
+	}
+	apiErr, ok := errors.AsType[*genai.APIError](err)
+	if !ok {
+		return err
+	}
+	return &responseError{err: err, status: apiErr.Code}
+}
+
+func (a *api) wrapResult[T any](value *T, err error) (*T, error) {
+	return value, a.wrapError(err)
+}
+
+func (a *api) wrapSequence[T any](sequence iter.Seq2[*T, error]) iter.Seq2[*T, error] {
+	return func(yield func(*T, error) bool) {
+		for value, err := range sequence {
+			if !yield(value, a.wrapError(err)) {
+				return
+			}
+		}
+	}
+}
+
+func (a *api) createImageInteraction(ctx context.Context, req *imageInteractionRequest) (*imageInteractionResponse, error) {
+	if a == nil || a.interactionsHTTP == nil {
+		return nil, errors.New("google: image: nil API")
+	}
+	if req == nil {
+		return nil, errors.New("google: image: request must not be nil")
+	}
+
+	var out imageInteractionResponse
+	var apiErr interactionErrorEnvelope
+	resp, err := a.interactionsHTTP.R().
+		SetContext(ctx).
+		SetBody(req).
+		SetResult(&out).
+		SetError(&apiErr).
+		Post("/v1beta/interactions")
+	if err != nil {
+		return nil, fmt.Errorf("google: image: create interaction: %w", err)
+	}
+	if !resp.IsSuccess() {
+		if apiErr.Error.Message != "" {
+			return nil, fmt.Errorf("google: image: http %d (%s): %s", resp.StatusCode(), apiErr.Error.Status, apiErr.Error.Message)
+		}
+		return nil, fmt.Errorf("google: image: http %d: %s", resp.StatusCode(), resp.String())
+	}
+	out.Raw = slices.Clone(resp.Body())
+	return &out, nil
 }

@@ -3,7 +3,6 @@ package openai
 import (
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"mime"
 	"strings"
@@ -13,42 +12,6 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
 )
-
-func (c *ChatCompletions) buildRequest(req *corechat.Request, stream bool) (*openaisdk.ChatCompletionNewParams, error) {
-	if c == nil || c.api == nil {
-		return nil, errors.New("openai: nil ChatCompletions")
-	}
-	if err := req.Validate(); err != nil {
-		return nil, fmt.Errorf("openai: request: %w", err)
-	}
-	params := openaisdk.ChatCompletionNewParams{}
-	if err := c.applyRequestExtension(req, &params); err != nil {
-		return nil, err
-	}
-	options, err := c.defaults.Resolve(req.Options)
-	if err != nil {
-		return nil, fmt.Errorf("openai: options: %w", err)
-	}
-	if applyErr := c.applyOptions(options, req.ToolChoice, &params); applyErr != nil {
-		return nil, applyErr
-	}
-
-	params.Messages, err = mapRequestMessages(req.Messages)
-	if err != nil {
-		return nil, err
-	}
-	params.Tools, err = mapToolDefinitions(req.Tools)
-	if err != nil {
-		return nil, err
-	}
-	if formatErr := applyChatOutputFormat(options.OutputFormat, &params, c.dialect); formatErr != nil {
-		return nil, formatErr
-	}
-	if prepareErr := c.prepareRequest(req, stream, &params); prepareErr != nil {
-		return nil, prepareErr
-	}
-	return &params, nil
-}
 
 func mapToolDefinitions(definitions []corechat.ToolDefinition) ([]openaisdk.ChatCompletionToolUnionParam, error) {
 	tools := make([]openaisdk.ChatCompletionToolUnionParam, 0, len(definitions))

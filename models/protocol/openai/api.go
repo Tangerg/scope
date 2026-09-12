@@ -126,3 +126,30 @@ func (a *api) audioTranslation(ctx context.Context, req *openai.AudioTranslation
 	}
 	return a.wrapResult(a.client.Audio.Translations.New(ctx, *req, opts...))
 }
+
+func (*api) wrapError(err error) error {
+	if err == nil {
+		return nil
+	}
+	type httpError interface {
+		error
+		HTTPStatus() int
+		HTTPHeader() http.Header
+	}
+	if _, ok := errors.AsType[httpError](err); ok {
+		return err
+	}
+	apiErr, ok := errors.AsType[*openai.Error](err)
+	if !ok {
+		return err
+	}
+	var header http.Header
+	if apiErr.Response != nil {
+		header = apiErr.Response.Header.Clone()
+	}
+	return &responseError{err: err, status: apiErr.StatusCode, header: header}
+}
+
+func (a *api) wrapResult[T any](value *T, err error) (*T, error) {
+	return value, a.wrapError(err)
+}

@@ -3,6 +3,10 @@ package fs
 import (
 	"cmp"
 	"context"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 )
 
 // Reader is the read backend used by ReadTool. Implementations must support
@@ -56,6 +60,14 @@ type ReadInput struct {
 	PartialLine    bool  // admit a UTF-8 prefix when the output cap splits a line
 }
 
+func (r ReadInput) resolvedLimits() readLimits {
+	return readLimits{
+		inputBytes:  positiveOr(r.MaxInputBytes, defaultReadInputBytes),
+		lineBytes:   positiveOr(r.MaxLineBytes, defaultReadLineBytes),
+		outputBytes: positiveOr(r.MaxOutputBytes, defaultReadOutputBytes),
+	}
+}
+
 // ReadOutput reports the admitted line window and whole-file size without
 // leaking backend implementation details.
 type ReadOutput struct {
@@ -70,6 +82,35 @@ type editOperation struct {
 	OldString  string
 	NewString  string
 	ReplaceAll bool
+}
+
+func (e editOperation) apply(content, path string) (string, int, error) {
+	if e.OldString == "" {
+		return "", 0, errors.New("old_string must not be empty")
+	}
+	if e.OldString == e.NewString {
+		return "", 0, errors.New("new_string must differ from old_string")
+	}
+	if strings.ContainsRune(e.NewString, 0) {
+		return "", 0, ErrBinaryFile
+	}
+	occurrences := strings.Count(content, e.OldString)
+	switch {
+	case occurrences == 0:
+		return "", 0, fmt.Errorf("old_string not found in %s", path)
+	case occurrences > 1 && !e.ReplaceAll:
+		return "", 0, fmt.Errorf("old_string matches %d times in %s — set replace_all=true to confirm", occurrences, path)
+	default:
+		n := 1
+		if e.ReplaceAll {
+			n = -1
+		}
+		replacements := occurrences
+		if !e.ReplaceAll {
+			replacements = 1
+		}
+		return strings.Replace(content, e.OldString, e.NewString, n), replacements, nil
+	}
 }
 
 // GrepOutputMode controls what GrepResponse populates.
@@ -125,6 +166,32 @@ type GrepInput struct {
 
 func (g GrepInput) contextLines() (before, after int) {
 	return cmp.Or(g.BeforeContext, g.Context), cmp.Or(g.AfterContext, g.Context)
+}
+
+func (g GrepInput) ripgrepArguments(root string, mode GrepOutputMode) []string {
+	args := []string{"--json", "--no-config", "--no-follow"}
+	if mode == GrepOutputContent {
+		before, after := g.contextLines()
+		if before > 0 {
+			args = append(args, "--before-context", strconv.Itoa(before))
+		}
+		if after > 0 {
+			args = append(args, "--after-context", strconv.Itoa(after))
+		}
+	}
+	if g.IgnoreCase {
+		args = append(args, "--ignore-case")
+	}
+	if g.Multiline {
+		args = append(args, "--multiline", "--multiline-dotall")
+	}
+	if g.FileType != "" {
+		args = append(args, "--type", g.FileType)
+	}
+	if g.Glob != "" {
+		args = append(args, "--glob", g.Glob)
+	}
+	return append(args, "--regexp", g.Pattern, "--", root)
 }
 
 // GrepLineKind distinguishes a matching line from requested surrounding

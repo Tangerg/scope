@@ -2,7 +2,6 @@ package httpreq
 
 import (
 	"fmt"
-	"net/http"
 	"net/netip"
 	"strings"
 
@@ -46,27 +45,6 @@ func (a Allowlist) Allows(host string) bool {
 		}
 	}
 	return false
-}
-
-func (c clientPolicy) checkRedirect(request *http.Request, via []*http.Request) error {
-	if len(via) >= defaultRedirectLimit {
-		return fmt.Errorf("%w: limit %d", ErrRedirectLimitReached, defaultRedirectLimit)
-	}
-	if request == nil || request.URL == nil {
-		return fmt.Errorf("httpreq: validate redirect target: %w", ErrInvalidURL)
-	}
-	if request.URL.Scheme != "http" && request.URL.Scheme != "https" {
-		return fmt.Errorf("httpreq: validate redirect target: %w", ErrInvalidURL)
-	}
-	host := request.URL.Hostname()
-	if !c.allowedHosts.Allows(host) {
-		return fmt.Errorf("%w: redirect target %q", ErrHostNotAllowed, host)
-	}
-	method := Method(request.Method).Normalize()
-	if _, allowed := c.allowedMethods[method]; !allowed {
-		return fmt.Errorf("%w: redirect method %s", ErrMethodNotAllowed, method)
-	}
-	return nil
 }
 
 type hostPattern struct {

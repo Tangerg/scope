@@ -2,15 +2,20 @@ package redis
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	goredis "github.com/redis/go-redis/v9"
 
+	"github.com/Tangerg/scope/core/document"
+	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
 	"github.com/Tangerg/scope/core/vectorstore"
+	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
 var (
@@ -225,4 +230,289 @@ func (s *Store) vectorArgs() *goredis.FTVectorArgs {
 		}
 	}
 	return args
+}
+
+// Delete looks up documents matching the filter via FT.SEARCH, then
+// removes the underlying keys with DEL.
+func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
+	if expr == nil {
+		return vectorstore.ErrMissingFilter
+	}
+	if err = expr.Validate(); err != nil {
+		return fmt.Errorf("redis.Store.DeleteWhere: %w", err)
+	}
+
+	var query string
+	query, err = s.buildFilterQuery(expr)
+	if err != nil {
+		return err
+	}
+	if query == "*" {
+		return errors.New("redis: refusing to DELETE on empty filter — pass a non-trivial expression")
+	}
+
+	const pageSize = 500
+	opts := &goredis.FTSearchOptions{
+		NoContent:      true,
+		LimitOffset:    0,
+		Limit:          pageSize,
+		DialectVersion: redisSearchDialectVersion,
+	}
+	// Only an empty page establishes that nothing matches. RediSearch runs
+	// FT.SEARCH under a query timeout whose default ON_TIMEOUT policy returns
+	// the hits accumulated so far, so a page shorter than the limit can mean a
+	// truncated scan rather than an exhausted match set. Re-querying after each
+	// DEL converges in either case; trusting a short page would report success
+	// while matching documents remained.
+	for {
+		result, err := s.client.FTSearchWithArgs(ctx, s.indexName, query, opts).Result()
+		if err != nil {
+			return fmt.Errorf("redis: FT.SEARCH %s: %w", s.indexName, err)
+		}
+		if completenessErr := checkSearchCompleteness(s.indexName, result); completenessErr != nil {
+			return completenessErr
+		}
+		if len(result.Docs) == 0 {
+			return nil
+		}
+		keys := make([]string, 0, len(result.Docs))
+		for _, hit := range result.Docs {
+			keys = append(keys, hit.ID)
+		}
+		if _, err = s.client.Del(ctx, keys...).Result(); err != nil {
+			return fmt.Errorf("redis: DEL: %w", err)
+		}
+	}
+}
+
+// DeleteIDs removes documents by id, resolving each to its HASH key
+// `<KeyPrefix><id>` and issuing a single DEL. An empty slice is a
+// no-op; unknown ids are silently ignored (idempotent). Implements
+// [vectorstore.IDDeleter].
+func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	keys := make([]string, len(ids))
+	for i, id := range ids {
+		keys[i] = s.keyPrefix + id
+	}
+	if _, err = s.client.Del(ctx, keys...).Result(); err != nil {
+		return fmt.Errorf("redis: DEL: %w", err)
+	}
+	return nil
+}
+
+// buildFilterQuery turns the optional filter predicate into a
+// RediSearch query string. Returns "*" (match-all) when filter is nil,
+// matching the syntax FT.SEARCH expects in front of the KNN tail.
+func (s *Store) buildFilterQuery(expr filter.Predicate) (string, error) {
+	if expr == nil {
+		return "*", nil
+	}
+	v := newVisitor(s.fieldTypes)
+	if err := expr.Accept(v); err != nil {
+		return "", fmt.Errorf("redis: convert filter: %w", err)
+	}
+	fragment := v.snapshot()
+	if fragment == "" {
+		return "*", nil
+	}
+	return "(" + fragment + ")", nil
+}
+
+// Index embeds documents and writes them as Redis HASHes keyed by
+// `<KeyPrefix><id>`.
+func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
+	if validateErr := request.Validate(); validateErr != nil {
+		return fmt.Errorf("redis.Store.Index: %w", validateErr)
+	}
+	for index, doc := range request.Documents {
+		if doc.Media != nil {
+			return fmt.Errorf("redis.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, index)
+		}
+	}
+
+	var batches []*vectorstore.IndexRequest
+	batches, err = request.Batch(ctx, s.documentBatcher)
+	if err != nil {
+		return fmt.Errorf("redis: batch documents: %w", err)
+	}
+
+	for _, batch := range batches {
+		docs := batch.Documents
+		texts, err := batch.Texts()
+		if err != nil {
+			return fmt.Errorf("vectorstore: project document text: %w", err)
+		}
+		vectors, err := s.embeddingClient.EmbedTexts(ctx, texts)
+		if err != nil {
+			return fmt.Errorf("redis: embed documents: %w", err)
+		}
+
+		pipe := s.client.Pipeline()
+		for i, doc := range docs {
+			id := doc.ID
+			metadataValues, valuesErr := doc.Metadata.Values()
+			if valuesErr != nil {
+				return fmt.Errorf("redis: decode metadata for %s: %w", id, valuesErr)
+			}
+			metadataJSON, marshalErr := json.Marshal(doc.Metadata)
+			if marshalErr != nil {
+				return fmt.Errorf("redis: encode metadata for %s: %w", id, marshalErr)
+			}
+			fields := map[string]any{
+				s.contentField:      doc.Text,
+				s.embeddingField:    float32sToBytes(embedding.Float32Vector(vectors[i])),
+				s.metadataJSONField: string(metadataJSON),
+			}
+			// The declared fields are the index projection: RediSearch indexes a
+			// HASH field's text as its declared type, so each one has to hold the
+			// value in the form the index expects. The JSON field above is the
+			// record a search reads back, which is why that projection no longer
+			// has to be reversible.
+			for k, v := range metadataValues {
+				field, formatErr := formatMetadataValue(v)
+				if formatErr != nil {
+					return fmt.Errorf("%w (document %s, key %s)", formatErr, id, k)
+				}
+				fields[k] = field
+			}
+			pipe.HSet(ctx, s.keyPrefix+id, fields)
+		}
+
+		if _, err = pipe.Exec(ctx); err != nil {
+			return fmt.Errorf("redis: pipeline HSET: %w", err)
+		}
+	}
+	return nil
+}
+
+// Search embeds the query, runs a KNN search through RediSearch,
+// and returns the matching documents above MinScore.
+func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+	var docs []*vectorstore.SearchResult
+	if err = req.Validate(); err != nil {
+		return nil, fmt.Errorf("redis.Store.Search: %w", err)
+	}
+	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+		return nil, fmt.Errorf("redis.Store.Search: %w", err)
+	}
+
+	defer func() {
+		if err == nil {
+			err = response.ValidateFor(req)
+		}
+	}()
+
+	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
+	if err != nil {
+		return nil, fmt.Errorf("redis: embed query: %w", err)
+	}
+	queryVec := float32sToBytes(embedding.Float32Vector(vector))
+
+	filterQuery, err := s.buildFilterQuery(req.Options.Filter)
+	if err != nil {
+		return nil, err
+	}
+
+	// RediSearch hybrid syntax: <filter>=>[KNN <k> @embedding $vec AS distance]
+	queryStr := fmt.Sprintf(
+		"%s=>[KNN %d @%s $%s AS %s]",
+		filterQuery, req.Options.ResultLimit(), s.embeddingField, vectorParamName, distanceFieldName,
+	)
+
+	opts := &goredis.FTSearchOptions{
+		Params: map[string]any{
+			vectorParamName: queryVec,
+		},
+		Return:         s.returnFields(),
+		LimitOffset:    0,
+		Limit:          req.Options.ResultLimit(),
+		DialectVersion: redisSearchDialectVersion,
+		SortBy: []goredis.FTSearchSortBy{
+			{FieldName: distanceFieldName, Asc: true},
+		},
+	}
+
+	result, err := s.client.FTSearchWithArgs(ctx, s.indexName, queryStr, opts).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis: FT.SEARCH %s: %w", s.indexName, err)
+	}
+	if err := checkSearchCompleteness(s.indexName, result); err != nil {
+		return nil, err
+	}
+
+	docs = make([]*vectorstore.SearchResult, 0, len(result.Docs))
+	for _, hit := range result.Docs {
+		score, err := s.scoreFromFields(hit.Fields)
+		if err != nil {
+			return nil, err
+		}
+		if score < req.Options.MinScore {
+			continue
+		}
+		doc, err := s.toDocument(hit)
+		if err != nil {
+			return nil, err
+		}
+		docs = append(docs, &vectorstore.SearchResult{Document: doc, Score: score})
+	}
+	return &vectorstore.SearchResponse{Results: docs}, nil
+}
+
+// returnFields is everything a search result is read from. RETURN limits the
+// reply to the fields it lists, so a field missing here reads back as an absent
+// field rather than as an error — which is why the list is named and pinned
+// rather than assembled at the call site.
+//
+// The declared metadata fields are absent on purpose: they exist so RediSearch
+// can index and filter on them, and the metadata field is what a result reads
+// its metadata back from, so the projection never has to come over the wire.
+func (s *Store) returnFields() []goredis.FTSearchReturn {
+	return []goredis.FTSearchReturn{
+		{FieldName: s.contentField},
+		{FieldName: distanceFieldName},
+		{FieldName: s.metadataJSONField},
+	}
+}
+
+func (s *Store) scoreFromFields(fields map[string]string) (vectorstore.Score, error) {
+	raw, ok := fields[distanceFieldName]
+	if !ok {
+		return 0, fmt.Errorf("redis: missing distance field %q in result", distanceFieldName)
+	}
+	dist, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, fmt.Errorf("redis: parse distance %q: %w", raw, err)
+	}
+	return s.distanceMetric.score(dist), nil
+}
+
+func (s *Store) toDocument(hit goredis.Document) (*document.Document, error) {
+	id := strings.TrimPrefix(hit.ID, s.keyPrefix)
+	if id == "" {
+		return nil, errors.New("redis: search result is missing document ID")
+	}
+	text := hit.Fields[s.contentField]
+	if text == "" {
+		return nil, fmt.Errorf("redis: document %q is missing field %q", id, s.contentField)
+	}
+	doc := &document.Document{
+		ID:   id,
+		Text: text,
+	}
+
+	// Metadata comes from the JSON field rather than from the declared index
+	// fields. A declared field holds the value in the form its RediSearch type
+	// expects, so reading it back turned a number into a float64 and everything
+	// else into a string, and an undeclared key had no field to read at all —
+	// a search returned a document that differed from the one that was written.
+	if raw, ok := hit.Fields[s.metadataJSONField]; ok && raw != "" {
+		if err := json.Unmarshal([]byte(raw), &doc.Metadata); err != nil {
+			return nil, fmt.Errorf("redis: decode metadata for %q: %w", id, err)
+		}
+	}
+	return doc, nil
 }

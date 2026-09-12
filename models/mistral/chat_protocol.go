@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"iter"
 	"net/http"
+	"slices"
 
 	"github.com/Tangerg/sse"
 
@@ -212,4 +213,78 @@ func (c *Chat) Stream(ctx context.Context, request *corechat.Request) iter.Seq2[
 			yield(nil, fmt.Errorf("mistral: stream: %w: missing terminal response", corechat.ErrInvalidResponse))
 		}
 	}
+}
+
+func (c *Chat) buildRequest(request *corechat.Request, stream bool) (*chatCompletionRequest, error) {
+	if c == nil || c.api == nil {
+		return nil, errors.New("mistral: nil Chat")
+	}
+	if err := request.Validate(); err != nil {
+		return nil, fmt.Errorf("mistral: request: %w", err)
+	}
+	extension, _, err := request.Options.Extensions.Decode[ChatRequestOptions](RequestExtensionKey)
+	if err != nil {
+		return nil, fmt.Errorf("mistral: extension %q: %w", RequestExtensionKey, err)
+	}
+	if validateErr := extension.Validate(); validateErr != nil {
+		return nil, fmt.Errorf("mistral: extension %q: %w", RequestExtensionKey, validateErr)
+	}
+	options, err := c.defaults.Resolve(request.Options)
+	if err != nil {
+		return nil, fmt.Errorf("mistral: options: %w", err)
+	}
+	if options.Model == "" {
+		return nil, errors.New("mistral: model is required in defaults or request options")
+	}
+	if options.TopK != nil {
+		return nil, errors.New("mistral: options.top_k is not supported")
+	}
+	if options.Temperature != nil && (*options.Temperature < 0 || *options.Temperature > maximumTemperature) {
+		return nil, fmt.Errorf("mistral: options.temperature must be between 0 and %g, got %v", maximumTemperature, *options.Temperature)
+	}
+	messages, err := mapChatRequestMessages(request.Messages)
+	if err != nil {
+		return nil, err
+	}
+	tools, err := mapChatTools(request.Tools)
+	if err != nil {
+		return nil, err
+	}
+	responseFormat, err := newResponseFormat(options.OutputFormat)
+	if err != nil {
+		return nil, err
+	}
+	toolChoice, parallelToolCalls, err := mapMistralToolChoice(request.ToolChoice)
+	if err != nil {
+		return nil, err
+	}
+	// Mistral's reasoning_effort enum is Core's vocabulary without max, so the
+	// portable option reaches the wire instead of being dropped -- Core is
+	// explicit that an adapter "must not accept the effort and send a request
+	// that never carried it". An empty effort leaves whatever the native
+	// extension set, because empty means "the model's default" and a caller who
+	// set reasoning_effort natively has already chosen.
+	if options.ReasoningEffort != "" {
+		effort := ReasoningEffort(options.ReasoningEffort)
+		if validateErr := effort.Validate(); validateErr != nil {
+			return nil, fmt.Errorf("mistral: options.reasoning_effort: %w", validateErr)
+		}
+		extension.ReasoningEffort = effort
+	}
+	return &chatCompletionRequest{
+		Model:              options.Model,
+		Messages:           messages,
+		Temperature:        options.Temperature,
+		TopP:               options.TopP,
+		MaxTokens:          options.MaxOutputTokens,
+		Stream:             stream,
+		Stop:               slices.Clone(options.Stop),
+		PresencePenalty:    options.PresencePenalty,
+		FrequencyPenalty:   options.FrequencyPenalty,
+		Tools:              tools,
+		ToolChoice:         toolChoice,
+		ParallelToolCalls:  parallelToolCalls,
+		ResponseFormat:     responseFormat,
+		ChatRequestOptions: extension,
+	}, nil
 }

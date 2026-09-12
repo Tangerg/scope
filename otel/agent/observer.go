@@ -9,14 +9,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/samber/lo"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
-
-	"github.com/samber/lo"
 
 	agent "github.com/Tangerg/scope/agent"
 )
@@ -659,6 +658,131 @@ func (o *Observer) addProcessEvent(event agent.Event) {
 	record.span.AddEvent(
 		event.Name(), trace.WithTimestamp(event.OccurredAt()), trace.WithAttributes(attributes...),
 	)
+}
+
+// WrapDispatcher propagates the observed Effect span into downstream calls.
+// Register this same Observer as an Engine EventListener: the Engine publishes
+// EffectStarted before dispatch and EffectFinished after dispatch returns.
+// Without an active observed Effect, the caller's context passes through.
+// The returned decorator preserves replay policy, settlement, and Delta delivery.
+func (o *Observer) WrapDispatcher(next agent.Dispatcher) (agent.Dispatcher, error) {
+	if o == nil || lo.IsNil(o.tracer) {
+		return nil, fmt.Errorf("%w: observer must be constructed with NewObserver", ErrInvalidObserverConfig)
+	}
+	if lo.IsNil(next) {
+		return nil, fmt.Errorf("%w: dispatcher must not be nil", ErrInvalidObserverConfig)
+	}
+	return &observedDispatcher{observer: o, next: next}, nil
+}
+
+// WrapTreeDurability observes the existing port so instrumentation cannot select
+// a different commit or fencing path. Metric labels stay bounded to avoid one
+// time series per tree; identities belong only in traces. Adapter diagnostics
+// are excluded because they can contain credentials or payloads. An error other
+// than an explicit conflict remains unresolved because a lost response cannot
+// prove whether storage committed.
+func (o *Observer) WrapTreeDurability(next agent.TreeDurability) (agent.TreeDurability, error) {
+	if o == nil || lo.IsNil(o.tracer) {
+		return nil, fmt.Errorf("%w: observer must be constructed with NewObserver", ErrInvalidObserverConfig)
+	}
+	if lo.IsNil(next) {
+		return nil, fmt.Errorf("%w: tree durability must not be nil", ErrInvalidObserverConfig)
+	}
+	return &observedTreeDurability{observer: o, next: next}, nil
+}
+
+func (o *Observer) observeDurability(ctx context.Context, operation, boundary string, snapshot agent.TreeSnapshot, invoke func(context.Context) error) (err error) {
+	if !o.beginObservation() {
+		return invoke(ctx)
+	}
+	defer o.inFlight.Done()
+	if ctx == nil {
+		panic(errNilContext)
+	}
+	attributes := []attribute.KeyValue{durabilityOperationAttribute.String(operation)}
+	if boundary != "" {
+		attributes = append(attributes, durabilityBoundaryAttribute.String(boundary))
+	}
+	ctx, span := o.tracer.Start(ctx, "agent.durability."+operation, trace.WithAttributes(attributes...))
+	if snapshot.Valid() {
+		span.SetAttributes(
+			processRootIDAttribute.String(snapshot.RootID().String()),
+			durabilityHeadAttribute.String(snapshot.Digest().String()),
+		)
+		if incarnationID, durable := snapshot.IncarnationID(); durable {
+			span.SetAttributes(treeIncarnationIDAttribute.String(incarnationID.String()))
+		}
+	}
+	startedAt := time.Now()
+	defer func() {
+		panicked := recover()
+		outcome := durabilityOutcome(err)
+		if panicked != nil {
+			outcome = durabilityUnresolved
+		}
+		finishedAt := time.Now()
+		attributes = append(attributes, durabilityOutcomeAttribute.String(outcome))
+		span.SetAttributes(durabilityOutcomeAttribute.String(outcome))
+		if outcome != durabilityAcknowledged {
+			recordSpanFailure(span, durabilityFactError{outcome: outcome}, finishedAt)
+		}
+		options := metric.WithAttributes(attributes...)
+		o.instruments.durabilityDuration.Record(ctx, finishedAt.Sub(startedAt).Seconds(), options)
+		if snapshot.Valid() {
+			o.instruments.durabilitySnapshotBytes.Record(ctx, int64(len(snapshot.JSON())), options)
+		}
+		span.End(trace.WithTimestamp(finishedAt))
+		if panicked != nil {
+			panic(panicked)
+		}
+	}()
+	return invoke(ctx)
+}
+
+func (o *Observer) stopRuntime(ctx context.Context, event agent.Event) {
+	fact, ok := event.RuntimeStopped()
+	if !ok {
+		return
+	}
+	key := processKeyFor(event)
+	o.stateMu.Lock()
+	record, found := o.processes[key]
+	delete(o.processes, key)
+	var spans []trace.Span
+	for step, span := range o.steps {
+		if step.process == key {
+			spans = append(spans, span)
+			delete(o.steps, step)
+		}
+	}
+	for effect, span := range o.effects {
+		if effect.process == key {
+			spans = append(spans, span)
+			delete(o.effects, effect)
+		}
+	}
+	o.stateMu.Unlock()
+	observedError := runtimeFactError{kind: fact.FailureKind(), code: fact.FailureCode()}
+	if found {
+		spans = append(spans, record.span)
+		attributes := []attribute.KeyValue{
+			semconv.GenAIAgentName(event.DeploymentRef().Name()),
+			processActivationAttribute.String(string(record.activation)),
+			semconv.ErrorType(observedError),
+		}
+		o.instruments.processActivationDuration.Record(
+			trace.ContextWithSpan(ctx, record.span), elapsedSeconds(record.startedAt, event.OccurredAt()),
+			metric.WithAttributes(attributes...),
+		)
+	}
+	for _, span := range spans {
+		span.SetAttributes(
+			processFailureKindAttribute.String(fact.FailureKind().String()),
+			processFailureCodeAttribute.String(fact.FailureCode()),
+		)
+		recordSpanFailure(span, observedError, event.OccurredAt())
+		span.End(trace.WithTimestamp(event.OccurredAt()))
+	}
 }
 
 func uint64Attribute(key attribute.Key, value uint64) attribute.KeyValue {

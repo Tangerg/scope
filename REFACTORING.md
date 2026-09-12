@@ -56,7 +56,7 @@ Run `dev/repoarch` after naming changes; its gates cover receiver spelling, impo
 
 Prefer object-oriented, behavior-rich domain models over procedural code around anemic data bags. In Go, this means methods on the type that owns the semantics, not inheritance.
 
-Within `agent`, keep each type declaration and all its receiver methods in the same Go file. This includes test helper types and generic receivers. A reader should find an owner's complete behavior alongside its definition; do not distribute that receiver across operation or lifecycle files. File length alone does not justify splitting the owner. Keep test-only declarations and methods in test files.
+Keep each type declaration and all its receiver methods in the same Go file. This includes test helper types and generic receivers. A reader should find an owner's complete behavior alongside its definition; do not distribute that receiver across operation or lifecycle files. File length alone does not justify splitting the owner. Keep test-only declarations and methods in test files.
 
 Move invariants, validation, derived values, classification, and pure state transitions onto the entity or value object they describe. A package-level function that repeatedly inspects one type or enforces its policy usually belongs on that type even when the function does not read stored fields.
 

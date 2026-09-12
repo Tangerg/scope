@@ -2,9 +2,7 @@ package openai
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"slices"
 
 	openaisdk "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
@@ -13,86 +11,6 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/metadata"
 )
-
-func (r *Responses) buildResponsesRequest(req *corechat.Request) (*responses.ResponseNewParams, error) {
-	if r == nil || r.api == nil {
-		return nil, errors.New("openai responses: nil Responses")
-	}
-	if err := req.Validate(); err != nil {
-		return nil, fmt.Errorf("openai responses: request: %w", err)
-	}
-	if err := rejectCoreOwnedResponsesExtension(req.Options.Extensions); err != nil {
-		return nil, err
-	}
-	params, found, err := req.Options.Extensions.Decode[responses.ResponseNewParams](ResponsesRequestExtensionKey)
-	if err != nil {
-		return nil, fmt.Errorf("openai responses: extension %q: %w", ResponsesRequestExtensionKey, err)
-	}
-	if !found {
-		params = responses.ResponseNewParams{}
-	}
-
-	options, err := r.defaults.Resolve(req.Options)
-	if err != nil {
-		return nil, fmt.Errorf("openai responses: options: %w", err)
-	}
-	if options.Model == "" {
-		return nil, errors.New("openai responses: model is required in defaults or request options")
-	}
-	if options.FrequencyPenalty != nil || options.PresencePenalty != nil || options.TopK != nil || len(options.Stop) != 0 {
-		return nil, errors.New("openai responses: frequency_penalty, presence_penalty, top_k, and stop are not supported")
-	}
-	params.Model = shared.ResponsesModel(options.Model)
-	if options.MaxOutputTokens != nil {
-		params.MaxOutputTokens = openaisdk.Int(*options.MaxOutputTokens)
-	}
-	if options.Temperature != nil {
-		params.Temperature = openaisdk.Float(*options.Temperature)
-	}
-	if options.TopP != nil {
-		params.TopP = openaisdk.Float(*options.TopP)
-	}
-	if req.ToolChoice != nil {
-		switch req.ToolChoice.Mode {
-		case corechat.ToolChoiceAuto, corechat.ToolChoiceNone, corechat.ToolChoiceRequired:
-			params.ToolChoice.OfToolChoiceMode = openaisdk.Opt(responses.ToolChoiceOptions(req.ToolChoice.Mode))
-		case corechat.ToolChoiceNamed:
-			params.ToolChoice.OfFunctionTool = &responses.ToolChoiceFunctionParam{Name: req.ToolChoice.Name}
-		}
-		switch req.ToolChoice.Parallelism {
-		case corechat.ToolParallelismAllow:
-			params.ParallelToolCalls = openaisdk.Bool(true)
-		case corechat.ToolParallelismSingle:
-			params.ParallelToolCalls = openaisdk.Bool(false)
-		}
-	}
-	reasoningEffort, err := mapReasoningEffort(options.ReasoningEffort)
-	if err != nil {
-		return nil, err
-	}
-	params.Reasoning.Effort = reasoningEffort
-	if options.OutputFormat != nil {
-		format, mapResponsesOutputFormatErr := mapResponsesOutputFormat(options.OutputFormat)
-		if mapResponsesOutputFormatErr != nil {
-			return nil, mapResponsesOutputFormatErr
-		}
-		params.Text.Format = format
-	}
-	if !slices.Contains(params.Include, responses.ResponseIncludableReasoningEncryptedContent) {
-		params.Include = append(params.Include, responses.ResponseIncludableReasoningEncryptedContent)
-	}
-
-	items, err := mapResponsesInput(req.Messages)
-	if err != nil {
-		return nil, err
-	}
-	params.Input.OfInputItemList = items
-	params.Tools, err = mapResponsesTools(req.Tools)
-	if err != nil {
-		return nil, err
-	}
-	return &params, nil
-}
 
 func projectResponsesInputTokenCount(params *responses.ResponseNewParams) (*responses.InputTokenCountParams, error) {
 	encoded, err := json.Marshal(params)

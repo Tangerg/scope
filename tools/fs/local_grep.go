@@ -11,7 +11,6 @@ import (
 	"math"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 )
 
@@ -183,80 +182,6 @@ func (r *ripgrepDecoder) addCount(path string) {
 	}
 	r.files[path] = len(r.response.Counts)
 	r.response.Counts = append(r.response.Counts, GrepFileCount{Path: path, Count: 1})
-}
-
-func (l *LocalExecutor) Grep(ctx context.Context, in GrepInput) (_ GrepResponse, err error) {
-	if in.MaxResults < 0 || in.Context < 0 || in.BeforeContext < 0 || in.AfterContext < 0 ||
-		in.Context > maximumContextLines || in.BeforeContext > maximumContextLines || in.AfterContext > maximumContextLines {
-		return GrepResponse{}, fmt.Errorf("%w: grep result and context limits are outside their supported range", ErrInvalidInput)
-	}
-	if in.Pattern == "" {
-		return GrepResponse{}, ErrEmptyPattern
-	}
-	if !in.OutputMode.Valid() {
-		return GrepResponse{}, fmt.Errorf("fs.LocalExecutor.Grep: invalid output_mode %q", in.OutputMode)
-	}
-	base, err := l.authorize(in.Path, true)
-	if err != nil {
-		return GrepResponse{}, err
-	}
-	root, err := l.openRoot()
-	if err != nil {
-		return GrepResponse{}, err
-	}
-	defer func() {
-		err = errors.Join(err, root.Close())
-	}()
-	info, err := root.Stat(base)
-	if err != nil {
-		return GrepResponse{}, err
-	}
-	if !info.Mode().IsRegular() && !info.IsDir() {
-		return GrepResponse{}, fmt.Errorf("fs.LocalExecutor.Grep: %s: unsupported file mode %s", in.Path, info.Mode().Type())
-	}
-	executable, err := exec.LookPath(ripgrepExecutable)
-	if err != nil {
-		return GrepResponse{}, fmt.Errorf("fs.LocalExecutor.Grep: %w: %w", ErrRipgrepUnavailable, err)
-	}
-	maxResults := in.MaxResults
-	if maxResults == 0 {
-		maxResults = defaultGrepMaxResults
-	} else if maxResults > maximumSearchResults {
-		return GrepResponse{}, fmt.Errorf("fs.LocalExecutor.Grep: max_results exceeds %d", maximumSearchResults)
-	}
-	mode := in.OutputMode.Resolve()
-	args := in.ripgrepArguments(base, mode)
-	response, err := runRipgrep(ctx, executable, args, newRipgrepDecoder(mode, maxResults), l.root)
-	if err != nil {
-		return GrepResponse{}, fmt.Errorf("fs.LocalExecutor.Grep: %w", err)
-	}
-	return response, nil
-}
-
-func (g GrepInput) ripgrepArguments(root string, mode GrepOutputMode) []string {
-	args := []string{"--json", "--no-config", "--no-follow"}
-	if mode == GrepOutputContent {
-		before, after := g.contextLines()
-		if before > 0 {
-			args = append(args, "--before-context", strconv.Itoa(before))
-		}
-		if after > 0 {
-			args = append(args, "--after-context", strconv.Itoa(after))
-		}
-	}
-	if g.IgnoreCase {
-		args = append(args, "--ignore-case")
-	}
-	if g.Multiline {
-		args = append(args, "--multiline", "--multiline-dotall")
-	}
-	if g.FileType != "" {
-		args = append(args, "--type", g.FileType)
-	}
-	if g.Glob != "" {
-		args = append(args, "--glob", g.Glob)
-	}
-	return append(args, "--regexp", g.Pattern, "--", root)
 }
 
 func runRipgrep(

@@ -11,6 +11,9 @@ import (
 	"net/http"
 
 	"github.com/go-resty/resty/v2"
+
+	"github.com/Tangerg/scope/core/metadata"
+	tts "github.com/Tangerg/scope/core/speech"
 )
 
 const maximumErrorResponseBytes = int64(64 * 1024)
@@ -128,6 +131,52 @@ func (t *ttsStreamEvent) DecodeAudio() ([]byte, error) {
 		return nil, fmt.Errorf("hume: decode streamed audio: %w", err)
 	}
 	return audio, nil
+}
+
+func (t *ttsStreamEvent) response(model string) (*tts.Response, error) {
+	audio, err := t.DecodeAudio()
+	if err != nil {
+		return nil, err
+	}
+	var outputMetadata metadata.Map
+	if setErr := outputMetadata.Set(metadataAudioFormat, t.AudioFormat); setErr != nil {
+		return nil, setErr
+	}
+	if setErr := outputMetadata.Set(metadataChunkIndex, t.ChunkIndex); setErr != nil {
+		return nil, setErr
+	}
+	if setErr := outputMetadata.Set(metadataGenerationID, t.GenerationID); setErr != nil {
+		return nil, setErr
+	}
+	if setErr := outputMetadata.Set(metadataIsLastChunk, t.IsLastChunk); setErr != nil {
+		return nil, setErr
+	}
+	if setErr := outputMetadata.Set(metadataSnippetID, t.SnippetID); setErr != nil {
+		return nil, setErr
+	}
+	if setErr := outputMetadata.Set(metadataText, t.Text); setErr != nil {
+		return nil, setErr
+	}
+	if setErr := outputMetadata.Set(metadataTranscribedText, t.TranscribedText); setErr != nil {
+		return nil, setErr
+	}
+	if setErr := outputMetadata.Set(metadataUtteranceIndex, t.UtteranceIndex); setErr != nil {
+		return nil, setErr
+	}
+	if setErr := outputMetadata.Set(metadataStreamAudioEvent, t); setErr != nil {
+		return nil, setErr
+	}
+	output, err := tts.NewOutput(audio, outputMetadata)
+	if err != nil {
+		return nil, err
+	}
+	responseMetadata := &tts.ResponseMetadata{Model: model}
+	if t.RequestID != "" {
+		if err := responseMetadata.Extra.Set(metadataRequestID, t.RequestID); err != nil {
+			return nil, err
+		}
+	}
+	return tts.NewResponse(output, responseMetadata)
 }
 
 // DecodeAudio returns the raw audio bytes from the first generation.

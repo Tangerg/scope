@@ -1,80 +1,9 @@
 package redis
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-
-	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/vectorstore"
 )
-
-// Index embeds documents and writes them as Redis HASHes keyed by
-// `<KeyPrefix><id>`.
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
-	if validateErr := request.Validate(); validateErr != nil {
-		return fmt.Errorf("redis.Store.Index: %w", validateErr)
-	}
-	for index, doc := range request.Documents {
-		if doc.Media != nil {
-			return fmt.Errorf("redis.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, index)
-		}
-	}
-
-	var batches []*vectorstore.IndexRequest
-	batches, err = request.Batch(ctx, s.documentBatcher)
-	if err != nil {
-		return fmt.Errorf("redis: batch documents: %w", err)
-	}
-
-	for _, batch := range batches {
-		docs := batch.Documents
-		texts, err := batch.Texts()
-		if err != nil {
-			return fmt.Errorf("vectorstore: project document text: %w", err)
-		}
-		vectors, err := s.embeddingClient.EmbedTexts(ctx, texts)
-		if err != nil {
-			return fmt.Errorf("redis: embed documents: %w", err)
-		}
-
-		pipe := s.client.Pipeline()
-		for i, doc := range docs {
-			id := doc.ID
-			metadataValues, valuesErr := doc.Metadata.Values()
-			if valuesErr != nil {
-				return fmt.Errorf("redis: decode metadata for %s: %w", id, valuesErr)
-			}
-			metadataJSON, marshalErr := json.Marshal(doc.Metadata)
-			if marshalErr != nil {
-				return fmt.Errorf("redis: encode metadata for %s: %w", id, marshalErr)
-			}
-			fields := map[string]any{
-				s.contentField:      doc.Text,
-				s.embeddingField:    float32sToBytes(embedding.Float32Vector(vectors[i])),
-				s.metadataJSONField: string(metadataJSON),
-			}
-			// The declared fields are the index projection: RediSearch indexes a
-			// HASH field's text as its declared type, so each one has to hold the
-			// value in the form the index expects. The JSON field above is the
-			// record a search reads back, which is why that projection no longer
-			// has to be reversible.
-			for k, v := range metadataValues {
-				field, formatErr := formatMetadataValue(v)
-				if formatErr != nil {
-					return fmt.Errorf("%w (document %s, key %s)", formatErr, id, k)
-				}
-				fields[k] = field
-			}
-			pipe.HSet(ctx, s.keyPrefix+id, fields)
-		}
-
-		if _, err = pipe.Exec(ctx); err != nil {
-			return fmt.Errorf("redis: pipeline HSET: %w", err)
-		}
-	}
-	return nil
-}
 
 // formatMetadataValue coerces a Go value into the HASH string form
 // RediSearch can index. Slices and maps are JSON-encoded — they only

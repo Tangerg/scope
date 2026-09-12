@@ -2,10 +2,15 @@ package bedrock
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"iter"
+	"maps"
 	"net/http"
+	"slices"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -184,4 +189,120 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 		}
 		yield(terminal, nil)
 	}
+}
+
+func (c *Chat) buildConverseInput(req *corechat.Request) (*bedrockruntime.ConverseInput, string, error) {
+	prepared, err := c.prepareRequest(req)
+	if err != nil {
+		return nil, "", err
+	}
+	return &bedrockruntime.ConverseInput{
+		ModelId:                           aws.String(prepared.model),
+		AdditionalModelRequestFields:      toBedrockDocument(prepared.native.AdditionalModelRequestFields),
+		AdditionalModelResponseFieldPaths: slices.Clone(prepared.native.AdditionalModelResponseFieldPaths),
+		GuardrailConfig:                   mapGuardrailOptions(prepared.native.Guardrail),
+		InferenceConfig:                   prepared.inference,
+		Messages:                          prepared.messages,
+		OutputConfig:                      mapOutputFormat(prepared.outputFormat),
+		PerformanceConfig:                 mapPerformanceOptions(prepared.native.PerformanceLatency),
+		RequestMetadata:                   maps.Clone(prepared.native.RequestMetadata),
+		ServiceTier:                       mapServiceTier(prepared.native.ServiceTier),
+		System:                            prepared.system,
+		ToolConfig:                        prepared.tools,
+	}, prepared.model, nil
+}
+
+func (c *Chat) buildConverseStreamInput(req *corechat.Request) (*bedrockruntime.ConverseStreamInput, string, error) {
+	prepared, err := c.prepareRequest(req)
+	if err != nil {
+		return nil, "", err
+	}
+	return &bedrockruntime.ConverseStreamInput{
+		ModelId:                           aws.String(prepared.model),
+		AdditionalModelRequestFields:      toBedrockDocument(prepared.native.AdditionalModelRequestFields),
+		AdditionalModelResponseFieldPaths: slices.Clone(prepared.native.AdditionalModelResponseFieldPaths),
+		GuardrailConfig:                   mapStreamGuardrailOptions(prepared.native.StreamGuardrail),
+		InferenceConfig:                   prepared.inference,
+		Messages:                          prepared.messages,
+		OutputConfig:                      mapOutputFormat(prepared.outputFormat),
+		PerformanceConfig:                 mapPerformanceOptions(prepared.native.PerformanceLatency),
+		RequestMetadata:                   maps.Clone(prepared.native.RequestMetadata),
+		ServiceTier:                       mapServiceTier(prepared.native.ServiceTier),
+		System:                            prepared.system,
+		ToolConfig:                        prepared.tools,
+	}, prepared.model, nil
+}
+
+func (c *Chat) prepareRequest(req *corechat.Request) (*preparedChatRequest, error) {
+	if c == nil || c.api == nil {
+		return nil, errors.New("bedrock: nil Chat")
+	}
+	if err := req.Validate(); err != nil {
+		return nil, fmt.Errorf("bedrock: request: %w", err)
+	}
+	options, err := c.defaults.Resolve(req.Options)
+	if err != nil {
+		return nil, fmt.Errorf("bedrock: options: %w", err)
+	}
+	if options.Model == "" {
+		return nil, errors.New("bedrock: model is required in defaults or request options")
+	}
+	if options.FrequencyPenalty != nil || options.PresencePenalty != nil || options.TopK != nil {
+		return nil, errors.New("bedrock: frequency_penalty, presence_penalty, and top_k are not supported by Converse inference configuration")
+	}
+	// Converse has no reasoning field. Reasoning rides in
+	// additionalModelRequestFields, and its shape belongs to the model
+	// generation rather than to Converse: Claude 3.7 takes
+	// reasoning_config with a budget_tokens count, while the newer models
+	// reject that form and take thinking with an output_config effort. Turning
+	// an effort into a token budget would mean inventing the number, and
+	// picking between the two shapes would mean guessing the generation from a
+	// model id — so the option is refused and the caller states what the model
+	// actually accepts through [ChatRequestOptions.AdditionalModelRequestFields].
+	if options.ReasoningEffort != "" {
+		return nil, fmt.Errorf(
+			"bedrock: options.reasoning_effort %q is not supported: Converse has no reasoning field, so set the model's own reasoning parameters through the %q extension's AdditionalModelRequestFields",
+			options.ReasoningEffort, ChatRequestExtensionKey)
+	}
+
+	native, found, err := req.Options.Extensions.Decode[ChatRequestOptions](ChatRequestExtensionKey)
+	if err != nil {
+		return nil, fmt.Errorf("bedrock: extension %q: %w", ChatRequestExtensionKey, err)
+	}
+	if !found {
+		native = ChatRequestOptions{}
+	} else {
+		fields, _, decodeErr := req.Options.Extensions.Decode[map[string]json.RawMessage](ChatRequestExtensionKey)
+		if decodeErr != nil {
+			return nil, fmt.Errorf("bedrock: extension %q: %w", ChatRequestExtensionKey, decodeErr)
+		}
+		if _, exists := fields["json_schema"]; exists {
+			return nil, fmt.Errorf("bedrock: extension %q field %q is owned by options.output_format", ChatRequestExtensionKey, "json_schema")
+		}
+	}
+
+	system, messages, err := mapProtocolMessages(req.Messages)
+	if err != nil {
+		return nil, err
+	}
+	tools, err := mapProtocolTools(req.Tools, req.ToolChoice)
+	if err != nil {
+		return nil, err
+	}
+	if options.OutputFormat != nil && options.OutputFormat.Type == corechat.OutputFormatJSON {
+		return nil, fmt.Errorf("%w: bedrock Converse does not support %q", corechat.ErrUnsupportedOutputFormat, options.OutputFormat.Type)
+	}
+	inference, err := mapInferenceOptions(options)
+	if err != nil {
+		return nil, err
+	}
+	return &preparedChatRequest{
+		model:        options.Model,
+		system:       system,
+		messages:     messages,
+		inference:    inference,
+		tools:        tools,
+		outputFormat: options.OutputFormat,
+		native:       native,
+	}, nil
 }

@@ -1,34 +1,13 @@
 package trajectory
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"encoding/json/jsontext"
-	"fmt"
 	"strings"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
 )
-
-// BehaviorDigest identifies deterministic, semantic behavior while excluding
-// wall-clock time, attempt duration, provider responses, and token usage.
-func (t Trajectory) BehaviorDigest() (string, error) {
-	if err := t.Validate(); err != nil {
-		return "", err
-	}
-	projection, err := t.behavior()
-	if err != nil {
-		return "", err
-	}
-	encoded, err := json.Marshal(projection)
-	if err != nil {
-		return "", fmt.Errorf("%w: encode behavior: %w", ErrInvalidTrajectory, err)
-	}
-	digest := sha256.Sum256(encoded)
-	return hex.EncodeToString(digest[:]), nil
-}
 
 type behaviorProjection struct {
 	Termination behaviorTermination `json:"termination"`
@@ -85,51 +64,6 @@ type behaviorToolResult struct {
 	Name    string          `json:"name"`
 	Output  chat.ToolOutput `json:"output"`
 	IsError bool            `json:"is_error,omitempty"`
-}
-
-func (t Trajectory) behavior() (behaviorProjection, error) {
-	paths, err := processPaths(t.rootProcessID, t.events)
-	if err != nil {
-		return behaviorProjection{}, err
-	}
-	projection := behaviorProjection{
-		Termination: behaviorTerminationOf(t.termination), Output: cloneOutput(t.output),
-	}
-	projection.Events = make([]behaviorEvent, 0, len(t.events))
-	for _, event := range t.events {
-		step, _ := event.StepSequence()
-		fact := behaviorEvent{
-			ProcessPath: paths[event.ProcessID()], Sequence: event.ProcessSequence(),
-			StepSequence: step, Name: event.Name(), Phase: event.Phase(),
-		}
-		fact.apply(event)
-		projection.Events = append(projection.Events, fact)
-	}
-	projection.Models = make([]behaviorModel, len(t.modelCalls))
-	for index, call := range t.modelCalls {
-		projection.Models[index] = behaviorModel{
-			ProcessPath: paths[call.ProcessID], Step: call.StepSequence,
-			Sequence: call.CallSequence,
-		}
-	}
-	projection.Tools = make([]behaviorTool, len(t.toolCalls))
-	for index, call := range t.toolCalls {
-		arguments, err := canonicalArguments(call.Call.Arguments)
-		if err != nil {
-			return behaviorProjection{}, err
-		}
-		var result *behaviorToolResult
-		if call.Result != nil {
-			cloned := call.Result.Clone()
-			result = &behaviorToolResult{Name: cloned.Name, Output: cloned.Output, IsError: cloned.IsError}
-		}
-		projection.Tools[index] = behaviorTool{
-			ProcessPath: paths[call.ProcessID], Step: call.StepSequence,
-			ModelCall: call.ModelCall, Index: call.Index, Name: call.Call.Name,
-			Arguments: arguments, Outcome: call.Outcome, Result: result,
-		}
-	}
-	return projection, nil
 }
 
 func behaviorTerminationOf(termination agent.Termination) behaviorTermination {

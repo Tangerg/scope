@@ -2,12 +2,10 @@ package fs
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/bluekeyes/go-gitdiff/gitdiff"
@@ -140,97 +138,11 @@ func (f filePatch) apply(source []byte) ([]byte, error) {
 	return output.Bytes(), nil
 }
 
-func (l *LocalExecutor) ApplyPatch(ctx context.Context, in ApplyPatchRequest) (_ ApplyPatchResponse, err error) {
-	parsed, err := parseUnifiedPatch(in.Patch)
-	if err != nil {
-		return ApplyPatchResponse{}, err
-	}
-	resolved, err := l.resolvePatch(parsed)
-	if err != nil {
-		return ApplyPatchResponse{}, err
-	}
-	root, err := l.openRoot()
-	if err != nil {
-		return ApplyPatchResponse{}, err
-	}
-	defer func() {
-		err = errors.Join(err, root.Close())
-	}()
-
-	var locks []string
-	for _, file := range resolved.files {
-		locks = append(locks, file.touches()...)
-	}
-
-	// Both endpoints of a move are locked: it removes one file and creates
-	// another, and holding only the destination would let a concurrent write to
-	// the origin land in a file this call is about to delete.
-	slices.Sort(locks)
-	for _, path := range locks {
-		unlock := l.lockPath(path)
-		defer unlock()
-	}
-
-	prepared := make([]preparedPatch, len(resolved.files))
-	for i, file := range resolved.files {
-		next, err := l.preparePatch(ctx, root, file)
-		if err != nil {
-			return ApplyPatchResponse{}, err
-		}
-		prepared[i] = next
-	}
-
-	var out ApplyPatchResponse
-	for _, file := range prepared {
-		if err := ctx.Err(); err != nil {
-			return out, err
-		}
-		result, err := file.commit(root)
-		if result.Path != "" {
-			out.Files = append(out.Files, result)
-			out.Hunks += result.Hunks
-		}
-		if err != nil {
-			return out, err
-		}
-	}
-	return out, nil
-}
-
 func validatePatchPath(path string) error {
 	if path == "" || path == "." || path == string(filepath.Separator) {
 		return fmt.Errorf("fs.ApplyPatch: invalid file path %q", path)
 	}
 	return nil
-}
-
-// Paths acquire their execution identity before duplicate detection, locking,
-// preparation, or reporting. Those phases must agree on what one file means.
-func (l *LocalExecutor) resolvePatch(patch unifiedPatch) (unifiedPatch, error) {
-	resolved := unifiedPatch{files: make([]filePatch, len(patch.files))}
-	for index, file := range patch.files {
-		var err error
-		if file.oldPath != "" {
-			file.oldPath, err = l.authorize(file.oldPath, false)
-			if err != nil {
-				return unifiedPatch{}, err
-			}
-		}
-		if file.newPath != "" {
-			file.newPath, err = l.authorize(file.newPath, false)
-			if err != nil {
-				return unifiedPatch{}, err
-			}
-		}
-		if err := file.validate(); err != nil {
-			return unifiedPatch{}, err
-		}
-		resolved.files[index] = file
-	}
-	if err := resolved.validatePaths(); err != nil {
-		return unifiedPatch{}, err
-	}
-	return resolved, nil
 }
 
 // preparedPatch holds a validated file mutation. Preparation changes no files;
@@ -266,76 +178,6 @@ func (p preparedPatch) commit(root *os.Root) (PatchFileResponse, error) {
 		}
 	}
 	return p.result, nil
-}
-
-func (l *LocalExecutor) preparePatch(
-	ctx context.Context,
-	root *os.Root,
-	file filePatch,
-) (preparedPatch, error) {
-	// A patch may not land on a file it did not open. Create says so by having no
-	// origin; a move has one, but its destination is a new file all the same.
-	if file.created() || file.moved() {
-		if _, err := root.Stat(file.newPath); err == nil {
-			return preparedPatch{}, fmt.Errorf("fs.ApplyPatch: %s: file already exists", file.newPath)
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return preparedPatch{}, fmt.Errorf("fs.ApplyPatch: %s: %w", file.newPath, err)
-		}
-	}
-
-	mode := defaultFileMode
-	var source []byte
-	hadBOM, hadCRLF := false, false
-	if !file.created() {
-		info, err := root.Stat(file.oldPath)
-		if err != nil {
-			return preparedPatch{}, err
-		}
-		mode = info.Mode().Perm()
-		data, err := readBoundedRootFile(ctx, root, file.oldPath, defaultMutationInputBytes)
-		if err != nil {
-			return preparedPatch{}, err
-		}
-		if looksBinary(data) {
-			return preparedPatch{}, ErrBinaryFile
-		}
-		text, bom, crlf := normalizeText(data)
-		hadBOM, hadCRLF = bom, crlf
-		source = []byte(text)
-	}
-
-	patched, err := file.apply(source)
-	if err != nil {
-		return preparedPatch{}, err
-	}
-	if file.deleted() {
-		if len(patched) != 0 {
-			return preparedPatch{}, fmt.Errorf("fs.ApplyPatch: delete %s: patched content is not empty", file.path())
-		}
-		return preparedPatch{
-			source: file.oldPath,
-			result: PatchFileResponse{Path: file.path(), Hunks: file.hunks(), Deleted: true},
-		}, nil
-	}
-
-	result := PatchFileResponse{
-		Path:    file.path(),
-		Hunks:   file.hunks(),
-		Created: file.created(),
-	}
-	prepared := preparedPatch{
-		path: file.newPath,
-		data: restoreFormat(string(patched), hadBOM, hadCRLF),
-		mode: mode,
-	}
-	if file.moved() {
-		// The origin is reported, not just the destination: "moved" without saying
-		// from where leaves the model to infer which file stopped existing.
-		prepared.source = file.oldPath
-		result.MovedFrom = file.oldPath
-	}
-	prepared.result = result
-	return prepared, nil
 }
 
 func parseUnifiedPatch(patch string) (unifiedPatch, error) {

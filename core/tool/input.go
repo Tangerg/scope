@@ -1,6 +1,8 @@
 package tool
 
-import "fmt"
+import (
+	"fmt"
+)
 
 // InputValidatingTool supplies the input admission rules that JSON Schema
 // cannot express, such as Go numeric syntax or a custom JSON decoder's domain
@@ -26,19 +28,4 @@ func inputValidator(executable Tool) (validator func([]byte) error, err error) {
 		return nil, err
 	}
 	return capability.InputValidator(), nil
-}
-
-func (c Contract) validateInput(arguments []byte) (err error) {
-	if schemaErr := c.state.input.Validate(arguments); schemaErr != nil {
-		return schemaErr
-	}
-	if c.state.validate == nil {
-		return nil
-	}
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("input validator panicked: %v", recovered)
-		}
-	}()
-	return c.state.validate(arguments)
 }

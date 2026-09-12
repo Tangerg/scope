@@ -128,6 +128,21 @@ func (c Contract) Prepare(call chat.ToolCall) (Invocation, error) {
 	return Invocation{contract: c.state, arguments: owned}, nil
 }
 
+func (c Contract) validateInput(arguments []byte) (err error) {
+	if schemaErr := c.state.input.Validate(arguments); schemaErr != nil {
+		return schemaErr
+	}
+	if c.state.validate == nil {
+		return nil
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("input validator panicked: %v", recovered)
+		}
+	}()
+	return c.state.validate(arguments)
+}
+
 // Call executes an Invocation prepared by this Binding's exact Contract. It
 // rejects another binding's contract even when the public Tool name matches.
 func (b Binding) Call(ctx context.Context, invocation Invocation) (chat.ToolOutput, error) {

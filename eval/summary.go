@@ -85,6 +85,40 @@ func (e ExperimentReport) Summary() ExperimentSummary {
 	return summary
 }
 
+// Compare compares runs over the same ordered Dataset identities. Execution
+// counts remain comparable when evaluation fails. Metrics are matched by full
+// identity in baseline order, followed by candidate-only metrics; an absent
+// side remains explicit instead of preventing comparison of the whole run.
+// A mean difference outside the finite float64 range returns ErrInvalidComparison
+// without exposing a partial comparison.
+func (e ExperimentReport) Compare(candidate ExperimentReport) (Comparison, error) {
+	if err := comparableCases(e.cases, candidate.cases); err != nil {
+		return Comparison{}, err
+	}
+	baselineSummary, candidateSummary := e.Summary(), candidate.Summary()
+	metricPairs, err := comparableMetrics(baselineSummary.Metrics, candidateSummary.Metrics)
+	if err != nil {
+		return Comparison{}, err
+	}
+	comparison := Comparison{
+		Baseline: baselineSummary, Candidate: candidateSummary,
+		EvaluatedDelta: candidateSummary.Evaluated - baselineSummary.Evaluated,
+		PassedDelta:    candidateSummary.Passed - baselineSummary.Passed,
+		FailedDelta:    candidateSummary.Failed - baselineSummary.Failed,
+		UnjudgedDelta:  candidateSummary.Unjudged - baselineSummary.Unjudged,
+		ErrorDelta:     candidateSummary.Errors - baselineSummary.Errors,
+		Metrics:        make([]MetricComparison, len(metricPairs)),
+	}
+	for index, pair := range metricPairs {
+		metricComparison, err := pair.compare()
+		if err != nil {
+			return Comparison{}, err
+		}
+		comparison.Metrics[index] = metricComparison
+	}
+	return comparison, nil
+}
+
 func newCaseResults[T any](cases []Case[T]) []CaseResult {
 	results := make([]CaseResult, len(cases))
 	for index, caseValue := range cases {
