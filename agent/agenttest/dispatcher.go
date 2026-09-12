@@ -163,11 +163,10 @@ func (d dispatchStep) dispatch(
 	if !matches {
 		return agent.Settlement{}, ErrEffectMismatch
 	}
-	if len(d.deltas) > 0 && emit == nil {
-		return agent.Settlement{}, fmt.Errorf("%w: nil DeltaEmitter", ErrUnexpectedDispatch)
-	}
-	for _, delta := range d.deltas {
-		emit(bytes.Clone(delta))
+	if emit != nil {
+		for _, delta := range d.deltas {
+			emit(bytes.Clone(delta))
+		}
 	}
 	if d.err != nil {
 		return agent.Settlement{}, d.err

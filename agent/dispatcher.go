@@ -104,6 +104,9 @@ func (e EffectRequest) Effect() Effect { return e.effect.clone() }
 // active. The Engine validates, orders, bounds, and publishes each payload as a
 // best-effort Delta. Concurrent calls are serialized in emitter admission order;
 // delivered EffectSequence values increase, with gaps for dropped payloads.
+// With no DeltaListener the emitter is nil: no observation payload is built,
+// validated, sequenced, or counted as dropped. Dispatchers must guard emission
+// with emit != nil. Their execution validation remains mandatory.
 // It intentionally returns no observer error. A Dispatcher must join concurrent
 // emissions before returning and must not retain or call emit afterward.
 type DeltaEmitter func(payload json.RawMessage)

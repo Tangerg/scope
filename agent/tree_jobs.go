@@ -250,21 +250,25 @@ func (t *treeRuntime) startDispatch(
 	var deltaMu sync.Mutex
 	var deltaSequence, dropped uint64
 	acceptingDeltas := true
-	emit := func(payload json.RawMessage) {
-		deltaMu.Lock()
-		defer deltaMu.Unlock()
-		if !acceptingDeltas {
-			return
-		}
-		deltaSequence++
-		delta, err := newDelta(
-			process.handle.processID, record.ID, t.incarnation,
-			deltaSequence, time.Now(), payload,
-		)
-		if err != nil || !t.engine.observation.offerDelta(t.context, delta) {
-			dropped++
+	var emit DeltaEmitter
+	if len(t.engine.observation.deltas) > 0 {
+		emit = func(payload json.RawMessage) {
+			deltaMu.Lock()
+			defer deltaMu.Unlock()
+			if !acceptingDeltas {
+				return
+			}
+			deltaSequence++
+			delta, err := newDelta(
+				process.handle.processID, record.ID, t.incarnation,
+				deltaSequence, time.Now(), payload,
+			)
+			if err != nil || !t.engine.observation.offerDelta(t.context, delta) {
+				dropped++
+			}
 		}
 	}
+
 	go func() {
 		settlement, err := dispatchEffect(
 			dispatchCtx,

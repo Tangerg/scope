@@ -75,12 +75,12 @@ func (d *Dispatcher) callModel(
 		if err := accumulator.Add(delta); err != nil {
 			return nil, fmt.Errorf("accumulate model stream: %w", err)
 		}
-		payload, err := encodeModelResponseDelta(delta)
-		if err != nil {
-			return nil, err
-		}
 		seen = true
 		if emit != nil {
+			payload, err := encodeModelResponseDelta(delta)
+			if err != nil {
+				return nil, err
+			}
 			emit(payload)
 		}
 	}

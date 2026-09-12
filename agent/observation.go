@@ -41,7 +41,9 @@ func (e EventListenerFunc) OnEvent(ctx context.Context, event Event) {
 // isolated; all listeners and trees share one Engine queue and delivery worker.
 // A slow callback delays the other listeners and trees and can cause bounded
 // queue drops. Implementations must return in bounded time without closing or
-// flushing their Engine.
+// flushing their Engine. Hosts must put network or disk exporters behind their
+// own bounded queue, own its worker and drain lifecycle, and expose its drops.
+// Register independent queues for consumers requiring delivery isolation.
 type DeltaListener interface {
 	// OnDelta receives an accepted best-effort increment in queue order. Delivery
 	// is sequential per listener but may lag Process execution; slow callbacks can

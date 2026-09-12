@@ -459,7 +459,9 @@ func (e *engineTestDispatcher) Dispatch(
 		count = 1
 	}
 	for range count {
-		emit(delta)
+		if emit != nil {
+			emit(delta)
+		}
 	}
 	payload, _ := json.Marshal(engineTestMessage{Kind: "result", Value: message.Value + ":done"})
 	return NewSettlement(request.ID(), SettlementStatusSucceeded, payload)

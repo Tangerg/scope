@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -18,7 +19,9 @@ func (c concurrentDeltaDispatcher) Dispatch(_ context.Context, request EffectReq
 	for _, payload := range c.payloads {
 		workers.Go(func() {
 			<-start
-			emit(payload)
+			if emit != nil {
+				emit(payload)
+			}
 		})
 	}
 	close(start)
@@ -85,5 +88,52 @@ func TestConcurrentDeltaEmitterDeliversIncreasingSequences(t *testing.T) {
 			t.Fatalf("invalid or duplicate payload %d", payload.Index)
 		}
 		seen[payload.Index] = true
+	}
+}
+
+type optionalDeltaDispatcher struct {
+	observed bool
+}
+
+func (o optionalDeltaDispatcher) Dispatch(_ context.Context, request EffectRequest, emit DeltaEmitter) (Settlement, error) {
+	if (emit != nil) != o.observed {
+		return Settlement{}, errors.New("unexpected observation admission")
+	}
+	if emit != nil {
+		emit(json.RawMessage(`{"text":"observed"}`))
+	}
+	return NewSettlement(request.ID(), SettlementStatusSucceeded, json.RawMessage(`{"kind":"result","value":"done"}`))
+}
+
+func (o optionalDeltaDispatcher) ReplayPolicy(Effect) ReplayPolicy { return ReplayPolicyNever }
+
+func TestEngineOnlySuppliesEmitterWithListeners(t *testing.T) {
+	for _, observed := range []bool{false, true} {
+		config := EngineConfig{}
+		var delivered int
+		if observed {
+			config.DeltaListeners = []DeltaListener{DeltaListenerFunc(func(context.Context, Delta) { delivered++ })}
+		}
+		engine, err := NewEngine(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { mustCloseEngine(t, engine) })
+		definition := newEngineTestDefinition(t, "engine.effect", "effect")
+		deployment := engineTestDeployment(t, definition, optionalDeltaDispatcher{observed: observed})
+		input, err := EncodeInput(engineTestInput{Value: "stream"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := engine.Run(t.Context(), deployment, input)
+		if err != nil || result.Status() != StatusCompleted || result.Usage().DroppedDeltas != 0 {
+			t.Fatalf("observed=%v result=%+v err=%v", observed, result, err)
+		}
+		if err := engine.FlushDeltas(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if observed && delivered != 1 || !observed && delivered != 0 {
+			t.Fatalf("delivered = %d", delivered)
+		}
 	}
 }

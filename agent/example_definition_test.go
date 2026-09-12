@@ -133,7 +133,9 @@ func (echoDispatcher) Dispatch(ctx context.Context, request agent.EffectRequest,
 		return agent.Settlement{}, err
 	}
 	payload := request.Effect().Payload()
-	emit(payload)
+	if emit != nil {
+		emit(payload)
+	}
 	return agent.NewSettlement(request.ID(), agent.SettlementStatusSucceeded, payload)
 }
 
