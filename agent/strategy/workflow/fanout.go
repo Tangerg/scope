@@ -53,24 +53,27 @@ func (s Stage) fanoutBinding(index uint32) (childBinding, bool) {
 
 func (s Stage) fanoutWindowInputs(
 	start uint32,
-	end uint32,
 	raw json.RawMessage,
-) ([]agent.Input, error) {
+) ([]agent.Input, uint32, error) {
 	switch s.kind {
 	case StageKindFork:
+		count := uint32(len(s.fork.branches))
+		if start > count {
+			return nil, 0, ErrInvalidExecutionState
+		}
 		input, err := agent.ParseInput(raw)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
-		inputs := make([]agent.Input, end-start)
+		inputs := make([]agent.Input, min(s.fork.windowSize, count-start))
 		for index := range inputs {
 			inputs[index] = input
 		}
-		return inputs, nil
+		return inputs, count, nil
 	case StageKindMap:
-		return s.mapper.windowInputs(raw, start, end)
+		return s.mapper.windowInputs(raw, start)
 	default:
-		return nil, ErrInvalidStage
+		return nil, 0, ErrInvalidStage
 	}
 }
 

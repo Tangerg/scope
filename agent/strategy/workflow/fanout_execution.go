@@ -11,21 +11,31 @@ import (
 	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
-func (e *execution) startFanoutWindow(consumedSignals uint32) (agent.Transition, error) {
+func (e *execution) startFanoutWindow(ctx context.Context, consumedSignals uint32) (agent.Transition, error) {
 	stage := e.stage()
-	count, err := stage.fanoutCount(e.state.CurrentValue)
-	if err != nil || count == 0 || stage.fanoutWindowSize() == 0 {
-		return agent.Transition{}, errors.Join(ErrInvalidStage, err)
-	}
 	start := e.state.fanoutWindowStart()
-	if start >= count {
+	inputs, count, err := stage.fanoutWindowInputs(start, e.state.CurrentValue)
+	if err != nil {
+		if _, exceeded := errors.AsType[mapMaxItemsExceededError](err); exceeded {
+			return e.failContract(consumedSignals, stage.failureCode("max_items_exceeded"),
+				"Map Stage "+stage.id+" input exceeds its configured maximum items")
+		}
+		return agent.Transition{}, err
+	}
+	if start > count || stage.fanoutWindowSize() == 0 ||
+		uint32(len(inputs)) != min(stage.fanoutWindowSize(), count-start) {
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
-	end := start + min(stage.fanoutWindowSize(), count-start)
-	inputs, err := stage.fanoutWindowInputs(start, end, e.state.CurrentValue)
-	if err != nil || len(inputs) != int(end-start) {
-		return agent.Transition{}, errors.Join(ErrInvalidExecutionState, err)
+	if start == count {
+		value, err := stage.fanoutComplete(ctx, e.state.CompletedFanoutOutputs)
+		if err != nil {
+			return agent.Transition{}, err
+		}
+		e.state.CurrentValue = value
+		e.state.Phase = phaseReady
+		return e.finishStage(consumedSignals)
 	}
+	end := start + uint32(len(inputs))
 	window := make([]fanoutChildState, end-start)
 	effects := make([]agent.Effect, 0, end-start)
 	for index := start; index < end; index++ {
@@ -184,20 +194,7 @@ func (e *execution) acceptFanoutCompletion(ctx context.Context, signals []agent.
 	e.state.CompletedFanoutOutputs = append(e.state.CompletedFanoutOutputs, windowOutputs...)
 	e.state.FanoutWaitID = nil
 	e.state.ActiveFanoutWindow = nil
-	count, err := e.stage().fanoutCount(e.state.CurrentValue)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	if e.state.fanoutWindowStart() < count {
-		return e.startFanoutWindow(1)
-	}
-	value, err := e.stage().fanoutComplete(ctx, e.state.CompletedFanoutOutputs)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	e.state.CurrentValue = value
-	e.state.Phase = phaseReady
-	return e.finishStage(1)
+	return e.startFanoutWindow(ctx, 1)
 }
 
 func (e *execution) fanoutOutcome(

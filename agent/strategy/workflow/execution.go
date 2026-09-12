@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -80,28 +79,8 @@ func (e *execution) advance(ctx context.Context, signals []agent.Signal) (agent.
 		}
 		e.state.SelectedCaseID = selected
 		return e.startSingleChild(0, binding)
-	case StageKindFork:
-		return e.startFanoutWindow(0)
-	case StageKindMap:
-		count, err := stage.fanoutCount(e.state.CurrentValue)
-		if err != nil {
-			if _, ok := errors.AsType[mapMaxItemsExceededError](err); ok {
-				return e.failContract(
-					0, stage.failureCode("max_items_exceeded"),
-					"Map Stage "+stage.id+" input exceeds its configured maximum items",
-				)
-			}
-			return agent.Transition{}, err
-		}
-		if count > 0 {
-			return e.startFanoutWindow(0)
-		}
-		value, err := stage.fanoutComplete(ctx, []json.RawMessage{})
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		e.state.CurrentValue = value
-		return e.finishStage(0)
+	case StageKindFork, StageKindMap:
+		return e.startFanoutWindow(ctx, 0)
 	case StageKindLoop:
 		e.state.LoopIteration = 1
 		return e.startSingleChild(0, stage.loop.binding)
