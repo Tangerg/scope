@@ -1,11 +1,15 @@
 package postgres_test
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/history"
 	"github.com/Tangerg/scope/historystores/postgres"
 )
 
@@ -79,5 +83,36 @@ func TestNewStoreAcceptsValidIdentifiers(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
+	}
+}
+
+func TestWriteMarksOutcomeUncertainWhenBatchExecutionFails(t *testing.T) {
+	config, err := pgxpool.ParseConfig("postgres://127.0.0.1:1/db?connect_timeout=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.MinConns = 0
+	config.MaxConns = 1
+	config.ConnConfig.ConnectTimeout = 10 * time.Millisecond
+
+	pool, err := pgxpool.NewWithConfig(context.Background(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	store, err := postgres.NewStore(context.Background(), postgres.StoreConfig{Pool: pool})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	outcome, err := store.Write(ctx, history.ConversationID("conversation"), chat.NewUserMessage(chat.NewTextPart("hello")))
+	if err == nil {
+		t.Fatal("expected batch execution error")
+	}
+	if outcome != (history.WriteOutcome{Uncertain: true}) {
+		t.Fatalf("outcome = %+v, want uncertain outcome", outcome)
 	}
 }
