@@ -1,9 +1,9 @@
-github.com/Tangerg/scope/agent v0.19.0 h1:StGij6vzJzwy2k35UUQ6T4ucoX8M9yCxWidWUucynuQ=
-github.com/Tangerg/scope/agent v0.19.0/go.mod h1:1OWV7wg5sPTj0n81fWUy3uAldHfMLOXTXR3v5vvETQk=
-github.com/Tangerg/scope/core v0.19.0 h1:D1LOcRPUKY4O6JSOb2oWeH8hVDb2rqe+qr/17hwrQhA=
-github.com/Tangerg/scope/core v0.19.0/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
-github.com/Tangerg/scope/mcp v0.19.0 h1:1m2sIiEhFAc8feV6c7q3a2WMnLZk4iHYOH5JbSI/O5M=
-github.com/Tangerg/scope/mcp v0.19.0/go.mod h1:qYP7UMz22PUe8SYCbsmWhu6GmEFYU7oIXeTRWUOpx2k=
+github.com/Tangerg/scope/agent v0.20.0 h1:h6bEifZT1hS90bm39YqiGHLfzeJ/sqW4l9qqTt8nIvA=
+github.com/Tangerg/scope/agent v0.20.0/go.mod h1:4/n+yEj/zogbXZmk6uHHCtcxQ5I9esm4M+cNK71Gx/Q=
+github.com/Tangerg/scope/core v0.20.0 h1:u0egNNcjzZy6kz70z8ktPWqoVIr3HQdyR73hz/YmhQ4=
+github.com/Tangerg/scope/core v0.20.0/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
+github.com/Tangerg/scope/mcp v0.20.0 h1:ToK3erLSLSLrUSYvw6+5SehcpX25UuiSOMgT2RwpzHQ=
+github.com/Tangerg/scope/mcp v0.20.0/go.mod h1:Fl3Ix12SQTu/Ev9PsDOZDwgPpu+WDRZgYt22CeBo6cw=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
 github.com/bahlo/generic-list-go v0.2.0/go.mod h1:2KvAjgMlE5NNynlg/5iLrrCCZ2+5xWbdbCW3pNTGyYg=
 github.com/buger/jsonparser v1.6.1 h1:I0phFv0PlbLHnM7TZAVjZ2MJ2/eWRTDyuO7GLR98IEs=

@@ -3,8 +3,8 @@ module github.com/Tangerg/scope/models/google
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.19.0
-	github.com/Tangerg/scope/models/protocol/openai v0.19.0
+	github.com/Tangerg/scope/core v0.20.0
+	github.com/Tangerg/scope/models/protocol/openai v0.20.0
 	github.com/go-resty/resty/v2 v2.17.2
 	google.golang.org/genai v1.71.0
 )
