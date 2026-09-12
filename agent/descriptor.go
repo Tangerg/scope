@@ -67,8 +67,8 @@ func NewDescriptor(config DescriptorConfig) (Descriptor, error) {
 	descriptor := Descriptor{
 		name:         config.Name,
 		description:  config.Description,
-		inputSchema:  config.InputSchema.clone(),
-		outputSchema: config.OutputSchema.clone(),
+		inputSchema:  config.InputSchema,
+		outputSchema: config.OutputSchema,
 	}
 	digest, err := descriptorDigest(descriptor)
 	if err != nil {
@@ -84,11 +84,11 @@ func (d Descriptor) Name() string { return d.name }
 // Description returns the human-readable purpose of the Definition.
 func (d Descriptor) Description() string { return d.description }
 
-// InputSchema returns an independently owned schema value.
-func (d Descriptor) InputSchema() Schema { return d.inputSchema.clone() }
+// InputSchema returns the immutable schema value.
+func (d Descriptor) InputSchema() Schema { return d.inputSchema }
 
-// OutputSchema returns an independently owned schema value.
-func (d Descriptor) OutputSchema() Schema { return d.outputSchema.clone() }
+// OutputSchema returns the immutable schema value.
+func (d Descriptor) OutputSchema() Schema { return d.outputSchema }
 
 // Digest returns the SHA-256 identity of the complete descriptor contract.
 func (d Descriptor) Digest() Digest { return d.digest }

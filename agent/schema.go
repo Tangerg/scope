@@ -62,8 +62,6 @@ func (s Schema) validate(data []byte) error {
 	return s.contract.Validate(data)
 }
 
-func (s Schema) clone() Schema { return s }
-
 func (s Schema) MarshalJSON() ([]byte, error) {
 	if !s.Valid() {
 		return nil, ErrInvalidSchema
