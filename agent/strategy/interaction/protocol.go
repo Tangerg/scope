@@ -277,6 +277,9 @@ func (t toolCallResult) validate() error {
 	if t.Direct && t.Result.IsError {
 		return errors.New("interaction: failed tool_result cannot be direct")
 	}
+	if t.Result.IsError && len(t.AdvertisedToolNames) != 0 {
+		return errors.New("interaction: failed tool_result cannot advertise Tools")
+	}
 	if err := validateAdvertisedToolNames(t.AdvertisedToolNames); err != nil {
 		return fmt.Errorf("interaction: tool_result advertised Tools: %w", err)
 	}
