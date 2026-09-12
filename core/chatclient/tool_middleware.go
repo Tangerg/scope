@@ -92,11 +92,12 @@ func (t *toolMiddleware) call(
 	if err != nil {
 		return nil, err
 	}
-	results, batchErr := batch.execute(ctx)
-	if batchErr != nil {
-		batchErr.request = current
-		batchErr.proposal = response.Clone()
-		return nil, batchErr
+	results, err := batch.execute(ctx)
+	if err != nil {
+		return nil, &ToolBatchError{
+			completed: results, failed: calls[len(results)], request: current,
+			proposal: response.Clone(), cause: err,
+		}
 	}
 	current.Messages = append(
 		current.Messages,
@@ -143,15 +144,15 @@ func (t *toolMiddleware) prepare(calls []chat.ToolCall) (preparedToolBatch, erro
 	return batch, nil
 }
 
-func (p preparedToolBatch) execute(ctx context.Context) ([]chat.ToolResult, *ToolBatchError) {
+func (p preparedToolBatch) execute(ctx context.Context) ([]chat.ToolResult, error) {
 	results := make([]chat.ToolResult, 0, len(p))
 	for _, call := range p {
 		output, err := call.binding.Call(ctx, call.invocation)
 		if err != nil {
-			return nil, &ToolBatchError{completed: results, cause: err}
+			return results, err
 		}
 		if err := output.Validate(); err != nil {
-			return nil, &ToolBatchError{completed: results, cause: fmt.Errorf("invalid output: %w", err)}
+			return results, fmt.Errorf("invalid output: %w", err)
 		}
 		results = append(results, chat.ToolResult{ID: call.proposal.ID, Name: call.proposal.Name, Output: output.Clone()})
 	}
