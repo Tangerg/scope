@@ -60,11 +60,11 @@ func TestDirResourceRejectsADirectoryTarget(t *testing.T) {
 	}
 }
 
-// TestMergeOpensResourcesFromTheWinningSource is the precedence rule that keeps
+// TestOverlayOpensResourcesFromTheWinningSource is the precedence rule that keeps
 // a shadowed copy from contributing files: the resource must come from the same
 // source as the skill that won, even when a lower-precedence source has a file
 // the winner does not.
-func TestMergeOpensResourcesFromTheWinningSource(t *testing.T) {
+func TestOverlayOpensResourcesFromTheWinningSource(t *testing.T) {
 	winner := t.TempDir()
 	loser := t.TempDir()
 	writeSkill(t, winner, "shared-skill")
@@ -85,28 +85,28 @@ func TestMergeOpensResourcesFromTheWinningSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged := Merge(first, second)
+	overlaid := Overlay(first, second)
 
-	content, truncated, err := ReadResource(t.Context(), merged, "shared-skill", "references/winner.md", DefaultMaxResourceBytes)
+	content, truncated, err := ReadResource(t.Context(), overlaid, "shared-skill", "references/winner.md", DefaultMaxResourceBytes)
 	if err != nil || truncated || string(content) != "winner" {
 		t.Fatalf("winning resource = %q, truncated %t, %v", content, truncated, err)
 	}
 
-	if _, _, err := ReadResource(t.Context(), merged, "shared-skill", "references/only-here.md", DefaultMaxResourceBytes); err == nil {
+	if _, _, err := ReadResource(t.Context(), overlaid, "shared-skill", "references/only-here.md", DefaultMaxResourceBytes); err == nil {
 		t.Fatal("a shadowed source contributed a resource to the winning skill")
 	}
 }
 
-func TestMergeValidatesBeforeResolving(t *testing.T) {
+func TestOverlayValidatesBeforeResolving(t *testing.T) {
 	root := t.TempDir()
 	writeSkill(t, root, "valid-skill")
 	repository, err := NewDirectoryRepository(root, RepositoryConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged := Merge(repository)
+	overlaid := Overlay(repository)
 
-	if _, err := merged.OpenResource(t.Context(), "Invalid Name", "references/a.md"); err == nil {
+	if _, err := overlaid.OpenResource(t.Context(), "Invalid Name", "references/a.md"); err == nil {
 		t.Fatal("OpenResource accepted an invalid skill name")
 	}
 	for name, resource := range map[string]string{
@@ -116,7 +116,7 @@ func TestMergeValidatesBeforeResolving(t *testing.T) {
 		"backslash":         `references\a.md`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := merged.OpenResource(t.Context(), "valid-skill", resource); !errors.Is(err, ErrResourcePath) {
+			if _, err := overlaid.OpenResource(t.Context(), "valid-skill", resource); !errors.Is(err, ErrResourcePath) {
 				t.Fatalf("OpenResource(%q) error = %v, want ErrResourcePath", resource, err)
 			}
 		})

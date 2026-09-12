@@ -62,7 +62,7 @@ func TestSourceCancellationPreservesStandardAndCustomCauses(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, source := range []skills.ResourceSource{repository, skills.Merge(repository)} {
+		for _, source := range []skills.ResourceSource{repository, skills.Overlay(repository)} {
 			for _, call := range []func() error{
 				func() error { _, err := source.List(ctx); return err },
 				func() error { _, err := source.Load(ctx, "safe-skill"); return err },
@@ -81,7 +81,7 @@ func TestSourceCancellationPreservesStandardAndCustomCauses(t *testing.T) {
 }
 
 func TestResourceCancellationClosesFileAndPreservesFailures(t *testing.T) {
-	for _, operation := range []string{"repository", "merged", "read"} {
+	for _, operation := range []string{"repository", "overlaid", "read"} {
 		for _, phase := range []string{"open", "stat"} {
 			for _, failed := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s/%s/failed=%t", operation, phase, failed), func(t *testing.T) {
@@ -107,8 +107,8 @@ func TestResourceCancellationClosesFileAndPreservesFailures(t *testing.T) {
 						t.Fatal(err)
 					}
 					var source skills.ResourceSource = repository
-					if operation == "merged" {
-						source = skills.Merge(repository)
+					if operation == "overlaid" {
+						source = skills.Overlay(repository)
 					}
 					if operation == "read" {
 						var data []byte
@@ -150,14 +150,14 @@ func TestResourceCancellationClosesFileAndPreservesFailures(t *testing.T) {
 	}
 }
 
-func TestMergedSourcePreservesFailureOnCancellation(t *testing.T) {
+func TestOverlaidSourcePreservesFailureOnCancellation(t *testing.T) {
 	for _, operation := range []string{"list", "load", "open"} {
 		t.Run(operation, func(t *testing.T) {
 			cause := errors.New("source stopped")
 			failure := errors.New("source failed")
 			ctx, cancel := context.WithCancelCause(t.Context())
 			defer cancel(nil)
-			source := skills.Merge(canceledSource{cancel: func() { cancel(cause) }, failure: failure})
+			source := skills.Overlay(canceledSource{cancel: func() { cancel(cause) }, failure: failure})
 			var err error
 			switch operation {
 			case "list":

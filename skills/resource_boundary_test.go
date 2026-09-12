@@ -36,7 +36,7 @@ func (r resourceCountingFile) Stat() (fs.FileInfo, error) {
 	return r.File.Stat()
 }
 
-func TestMergedResourceReadsOwningSkillAndChecksFileOnce(t *testing.T) {
+func TestOverlaidResourceReadsOwningSkillAndChecksFileOnce(t *testing.T) {
 	backing := &resourceCountingFS{
 		FS: fstest.MapFS{
 			"demo/SKILL.md": {Data: []byte("---\nname: demo\ndescription: Demonstration\n---\nInstructions")},
@@ -48,7 +48,7 @@ func TestMergedResourceReadsOwningSkillAndChecksFileOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, truncated, err := skills.ReadResource(t.Context(), skills.Merge(skills.Merge(repository)), "demo", "note", 1024)
+	data, truncated, err := skills.ReadResource(t.Context(), skills.Overlay(skills.Overlay(repository)), "demo", "note", 1024)
 	if err != nil || truncated || string(data) != "resource" {
 		t.Fatalf("ReadResource = %q, %t, %v", data, truncated, err)
 	}
@@ -74,10 +74,10 @@ func TestResourceAbsenceRetainsSkillOwnership(t *testing.T) {
 	}
 }
 
-func TestMergeDoesNotHideCancellationAsSkillAbsence(t *testing.T) {
+func TestOverlayDoesNotHideCancellationAsSkillAbsence(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	failure := errors.New("source failed")
-	source := skills.Merge(canceledSource{cancel: cancel, failure: errors.Join(skills.ErrSkillNotFound, failure)}, skills.Merge())
+	source := skills.Overlay(canceledSource{cancel: cancel, failure: errors.Join(skills.ErrSkillNotFound, failure)}, skills.Overlay())
 	_, err := source.OpenResource(ctx, "demo", "note")
 	if !errors.Is(err, context.Canceled) || !errors.Is(err, failure) {
 		t.Fatalf("canceled missing-skill lookup = %v", err)

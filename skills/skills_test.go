@@ -106,7 +106,7 @@ func (n nilFileResourceSource) OpenResource(context.Context, string, string) (fs
 
 const pdfSkill = `---
 name: pdf-processing
-description: Extract PDF text, fill forms, merge files. Use when handling PDFs.
+description: Extract PDF text, fill forms, overlay files. Use when handling PDFs.
 license: Apache-2.0
 metadata:
   author: example-org
@@ -497,8 +497,8 @@ func TestOperationsHonorCanceledContextBeforeAccess(t *testing.T) {
 			_, _, err := ReadResource(ctx, &panicResourceSource{}, "safe-skill", "references/note.md", DefaultMaxResourceBytes)
 			return err
 		}},
-		{name: "empty merge list", call: func() error { _, err := Merge().List(ctx); return err }},
-		{name: "empty merge load", call: func() error { _, err := Merge().Load(ctx, "safe-skill"); return err }},
+		{name: "empty overlay list", call: func() error { _, err := Overlay().List(ctx); return err }},
+		{name: "empty overlay load", call: func() error { _, err := Overlay().Load(ctx, "safe-skill"); return err }},
 	}
 	for _, operation := range operations {
 		t.Run(operation.name, func(t *testing.T) {

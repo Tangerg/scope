@@ -10,7 +10,7 @@ import (
 	"github.com/samber/lo"
 )
 
-// Merge layers several resource sources into one. Earlier sources take
+// Overlay layers several resource sources into one. Earlier sources take
 // precedence: on a name collision the first source that has the skill wins, so
 // callers express precedence by order (e.g. a project source before a global
 // one). The winning source owns the complete skill bundle; missing resources
@@ -18,29 +18,29 @@ import (
 // Discovery resolves name ownership through bounded metadata lookups: invalid
 // higher-precedence metadata never advertises a lower-precedence copy.
 //
-// Nil and typed-nil sources are dropped. Merge of none yields an empty source
+// Nil and typed-nil sources are dropped. Overlay of none yields an empty source
 // (List returns nothing, Load reports not found).
-func Merge(sources ...ResourceSource) ResourceSource {
+func Overlay(sources ...ResourceSource) ResourceSource {
 	kept := make([]ResourceSource, 0, len(sources))
 	for _, s := range sources {
 		if !lo.IsNil(s) {
 			kept = append(kept, s)
 		}
 	}
-	return &merged{sources: kept}
+	return &overlaySource{sources: kept}
 }
 
-type merged struct {
+type overlaySource struct {
 	sources []ResourceSource
 }
 
-var _ Source = (*merged)(nil)
-var _ ResourceSource = (*merged)(nil)
+var _ Source = (*overlaySource)(nil)
+var _ ResourceSource = (*overlaySource)(nil)
 
 // List preserves level-one discovery. It reuses listed summaries and checks
 // only higher-precedence sources that omitted a name, because those sources
 // may own a malformed bundle. Full-document validation remains with Load.
-func (m *merged) List(ctx context.Context) ([]Summary, error) {
+func (o *overlaySource) List(ctx context.Context) ([]Summary, error) {
 	if err := contextError(ctx, "list"); err != nil {
 		return nil, err
 	}
@@ -50,7 +50,7 @@ func (m *merged) List(ctx context.Context) ([]Summary, error) {
 		sourceIndex int
 	}
 	seen := make(map[string]candidate)
-	for sourceIndex, src := range m.sources {
+	for sourceIndex, src := range o.sources {
 		if err := contextError(ctx, "list"); err != nil {
 			return nil, err
 		}
@@ -81,7 +81,7 @@ func (m *merged) List(ctx context.Context) ([]Summary, error) {
 		listed := seen[name]
 		summary := listed.summary
 		if listed.sourceIndex != 0 {
-			higher := merged{sources: m.sources[:listed.sourceIndex]}
+			higher := overlaySource{sources: o.sources[:listed.sourceIndex]}
 			owned, err := higher.Lookup(ctx, name)
 			if ctxErr := contextError(ctx, "list"); ctxErr != nil {
 				return nil, errors.Join(err, ctxErr)
@@ -99,12 +99,12 @@ func (m *merged) List(ctx context.Context) ([]Summary, error) {
 	return out, nil
 }
 
-func (m *merged) Lookup(ctx context.Context, name string) (Summary, error) {
+func (o *overlaySource) Lookup(ctx context.Context, name string) (Summary, error) {
 	if err := ValidateName(name); err != nil {
 		return Summary{}, err
 	}
 	operation := fmt.Sprintf("lookup %q", name)
-	return m.resolve(ctx, name, operation, func(src ResourceSource) (Summary, error) {
+	return o.resolve(ctx, name, operation, func(src ResourceSource) (Summary, error) {
 		summary, err := src.Lookup(ctx, name)
 		if ctxErr := contextError(ctx, operation); ctxErr != nil {
 			return Summary{}, errors.Join(err, ctxErr)
@@ -125,12 +125,12 @@ func (m *merged) Lookup(ctx context.Context, name string) (Summary, error) {
 // Load returns the skill from the first source that has it. Missing skills are
 // skipped; malformed skills return immediately so a broken higher-precedence
 // copy is not silently masked by a lower one.
-func (m *merged) Load(ctx context.Context, name string) (*Skill, error) {
+func (o *overlaySource) Load(ctx context.Context, name string) (*Skill, error) {
 	if err := ValidateName(name); err != nil {
 		return nil, err
 	}
 	operation := fmt.Sprintf("load %q", name)
-	return m.resolve(ctx, name, operation, func(src ResourceSource) (*Skill, error) {
+	return o.resolve(ctx, name, operation, func(src ResourceSource) (*Skill, error) {
 		skill, err := src.Load(ctx, name)
 		if ctxErr := contextError(ctx, operation); ctxErr != nil {
 			return nil, errors.Join(err, ctxErr)
@@ -151,7 +151,7 @@ func (m *merged) Load(ctx context.Context, name string) (*Skill, error) {
 // OpenResource opens a resource from the source that owns the winning skill.
 // A lower-precedence copy must never contribute files to a higher-precedence
 // skill with the same name.
-func (m *merged) OpenResource(ctx context.Context, name, resource string) (fs.File, error) {
+func (o *overlaySource) OpenResource(ctx context.Context, name, resource string) (fs.File, error) {
 	if err := ValidateName(name); err != nil {
 		return nil, err
 	}
@@ -159,7 +159,7 @@ func (m *merged) OpenResource(ctx context.Context, name, resource string) (fs.Fi
 		return nil, err
 	}
 	operation := fmt.Sprintf("open resource %q/%q", name, resource)
-	return m.resolve(ctx, name, operation, func(src ResourceSource) (fs.File, error) {
+	return o.resolve(ctx, name, operation, func(src ResourceSource) (fs.File, error) {
 		file, err := src.OpenResource(ctx, name, resource)
 		return receivedResourceFile(ctx, operation, name, resource, file, err)
 	})
@@ -167,13 +167,13 @@ func (m *merged) OpenResource(ctx context.Context, name, resource string) (fs.Fi
 
 // resolve only falls through when the skill itself is absent. A missing file
 // never allows a lower-precedence source to supply part of the winning bundle.
-func (m *merged) resolve[T any](ctx context.Context, name, operation string, lookup func(ResourceSource) (T, error)) (T, error) {
+func (o *overlaySource) resolve[T any](ctx context.Context, name, operation string, lookup func(ResourceSource) (T, error)) (T, error) {
 	var zero T
 	if err := contextError(ctx, operation); err != nil {
 		return zero, err
 	}
 	var errs []error
-	for _, src := range m.sources {
+	for _, src := range o.sources {
 		if err := contextError(ctx, operation); err != nil {
 			return zero, err
 		}

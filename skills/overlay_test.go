@@ -73,7 +73,7 @@ func (c cancelAfterOpenSource) OpenResource(ctx context.Context, name, resource 
 	return file, err
 }
 
-func TestMergePrecedence(t *testing.T) {
+func TestOverlayPrecedence(t *testing.T) {
 	project := mustNewFS(fstest.MapFS{
 		"shared/SKILL.md":    skillFile("shared", "PROJECT copy", "project body"),
 		"only-proj/SKILL.md": skillFile("only-proj", "project only", "x"),
@@ -83,7 +83,7 @@ func TestMergePrecedence(t *testing.T) {
 		"only-glob/SKILL.md": skillFile("only-glob", "global only", "y"),
 	})
 
-	src := Merge(project, global) // project first → higher precedence
+	src := Overlay(project, global) // project first → higher precedence
 
 	list, err := src.List(context.Background())
 	if err != nil {
@@ -110,13 +110,13 @@ func TestMergePrecedence(t *testing.T) {
 		t.Errorf("shared description = %q, want the project copy (precedence)", sk.Description)
 	}
 
-	// A global-only skill is still reachable through the merge.
+	// A global-only skill is still reachable through the overlay.
 	if _, err := src.Load(context.Background(), "only-glob"); err != nil {
-		t.Errorf("Load only-glob via merge: %v", err)
+		t.Errorf("Load only-glob via overlay: %v", err)
 	}
 }
 
-func TestMergedDiscoveryReadsMetadataOnly(t *testing.T) {
+func TestOverlaidDiscoveryReadsMetadataOnly(t *testing.T) {
 	for _, sourceCount := range []int{1, 2} {
 		t.Run(fmt.Sprintf("sources_%d", sourceCount), func(t *testing.T) {
 			primary := &countingFS{FS: fstest.MapFS{"shared/SKILL.md": skillFile("shared", "primary", strings.Repeat("body", 4096))}}
@@ -132,7 +132,7 @@ func TestMergedDiscoveryReadsMetadataOnly(t *testing.T) {
 				}
 				sources = append(sources, repository)
 			}
-			source := Merge(sources...)
+			source := Overlay(sources...)
 			summaries, err := source.List(t.Context())
 			if err != nil || len(summaries) != sourceCount {
 				t.Fatalf("List = %v, %v", summaries, err)
@@ -154,13 +154,13 @@ func TestMergedDiscoveryReadsMetadataOnly(t *testing.T) {
 	}
 }
 
-func TestMergeDoesNotReplaceBundleMissingMetadata(t *testing.T) {
+func TestOverlayDoesNotReplaceBundleMissingMetadata(t *testing.T) {
 	primary := mustNewFS(fstest.MapFS{"shared/resource.txt": {Data: []byte("primary")}})
 	secondary := mustNewFS(fstest.MapFS{
 		"shared/SKILL.md":     skillFile("shared", "secondary", "body"),
 		"shared/resource.txt": {Data: []byte("secondary")},
 	})
-	source := Merge(primary, secondary)
+	source := Overlay(primary, secondary)
 	for _, lookup := range []func() error{
 		func() error { _, err := source.List(t.Context()); return err },
 		func() error { _, err := source.Lookup(t.Context(), "shared"); return err },
@@ -173,23 +173,23 @@ func TestMergeDoesNotReplaceBundleMissingMetadata(t *testing.T) {
 	}
 }
 
-func TestMergedDiscoveryPreservesCancellationDuringOwnershipLookup(t *testing.T) {
+func TestOverlaidDiscoveryPreservesCancellationDuringOwnershipLookup(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	primary := cancelAfterLookupSource{ResourceSource: mustNewFS(fstest.MapFS{}), cancel: cancel}
 	secondary := mustNewFS(fstest.MapFS{"shared/SKILL.md": skillFile("shared", "secondary", "body")})
-	_, err := Merge(primary, secondary).List(ctx)
+	_, err := Overlay(primary, secondary).List(ctx)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("ownership lookup hid cancellation as absence: %v", err)
 	}
 }
 
-func TestMergeDropsNilSources(t *testing.T) {
+func TestOverlayDropsNilSources(t *testing.T) {
 	only := mustNewFS(fstest.MapFS{})
 	var typedNil *panicResourceSource
 	for _, source := range []ResourceSource{
-		Merge(only),
-		Merge(nil, typedNil, only, typedNil, nil),
+		Overlay(only),
+		Overlay(nil, typedNil, only, typedNil, nil),
 	} {
 		got, err := source.List(t.Context())
 		if err != nil {
@@ -201,17 +201,17 @@ func TestMergeDropsNilSources(t *testing.T) {
 	}
 }
 
-func TestMergeRejectsInvalidSourceModels(t *testing.T) {
+func TestOverlayRejectsInvalidSourceModels(t *testing.T) {
 	t.Run("summary", func(t *testing.T) {
 		source := modelSource{summaries: []Summary{{Name: "broken"}}}
-		_, err := Merge(source).List(t.Context())
+		_, err := Overlay(source).List(t.Context())
 		if !errors.Is(err, ErrInvalidSkill) || !errors.Is(err, ErrDescriptionEmpty) {
 			t.Fatalf("List error = %v, want invalid empty-description summary", err)
 		}
 	})
 
 	t.Run("nil skill", func(t *testing.T) {
-		_, err := Merge(modelSource{}).Load(t.Context(), "broken")
+		_, err := Overlay(modelSource{}).Load(t.Context(), "broken")
 		if !errors.Is(err, ErrInvalidSkill) || !errors.Is(err, ErrNilSkill) {
 			t.Fatalf("Load error = %v, want invalid nil skill", err)
 		}
@@ -221,7 +221,7 @@ func TestMergeRejectsInvalidSourceModels(t *testing.T) {
 		skill := &Skill{}
 		skill.Frontmatter = Frontmatter{Name: "another", Description: "valid description"}
 		source := modelSource{skill: skill}
-		_, err := Merge(source).Load(t.Context(), "broken")
+		_, err := Overlay(source).Load(t.Context(), "broken")
 		if !errors.Is(err, ErrInvalidSkill) || !errors.Is(err, ErrNameMismatch) {
 			t.Fatalf("Load error = %v, want invalid mismatched skill", err)
 		}
@@ -245,10 +245,10 @@ func TestListMissingDir(t *testing.T) {
 	}
 }
 
-// TestMergeReadResource proves resources are served from the first source
+// TestOverlayReadResource proves resources are served from the first source
 // that can satisfy it: the project copy of a shared skill wins, and a
-// global-only skill's resource is still reachable through the merge.
-func TestMergeReadResource(t *testing.T) {
+// global-only skill's resource is still reachable through the overlay.
+func TestOverlayReadResource(t *testing.T) {
 	project := mustNewFS(fstest.MapFS{
 		"shared/SKILL.md":           skillFile("shared", "project shared", "x"),
 		"shared/references/note.md": {Data: []byte("PROJECT note")},
@@ -259,7 +259,7 @@ func TestMergeReadResource(t *testing.T) {
 		"glob-only/SKILL.md":        skillFile("glob-only", "global only", "z"),
 		"glob-only/assets/data.txt": {Data: []byte("global asset")},
 	})
-	src := Merge(project, global)
+	src := Overlay(project, global)
 
 	note, _, err := ReadResource(context.Background(), src, "shared", "references/note.md", DefaultMaxResourceBytes)
 	if err != nil {
@@ -278,7 +278,7 @@ func TestMergeReadResource(t *testing.T) {
 	}
 }
 
-func TestMergeKeepsResourcesWithWinningSkill(t *testing.T) {
+func TestOverlayKeepsResourcesWithWinningSkill(t *testing.T) {
 	project := mustNewFS(fstest.MapFS{
 		"shared/SKILL.md": skillFile("shared", "project shared", "project body without resource"),
 	})
@@ -287,13 +287,13 @@ func TestMergeKeepsResourcesWithWinningSkill(t *testing.T) {
 		"shared/references/note.md": {Data: []byte("GLOBAL note")},
 	})
 
-	_, _, err := ReadResource(t.Context(), Merge(project, global), "shared", "references/note.md", DefaultMaxResourceBytes)
+	_, _, err := ReadResource(t.Context(), Overlay(project, global), "shared", "references/note.md", DefaultMaxResourceBytes)
 	if !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("ReadResource error = %v, want project resource not found", err)
 	}
 }
 
-func TestMergeDoesNotMaskMalformedWinningSkill(t *testing.T) {
+func TestOverlayDoesNotMaskMalformedWinningSkill(t *testing.T) {
 	project := mustNewFS(fstest.MapFS{
 		"shared/SKILL.md": {Data: []byte("---\nname: shared\ndescription: \n---\nbroken")},
 	})
@@ -301,7 +301,7 @@ func TestMergeDoesNotMaskMalformedWinningSkill(t *testing.T) {
 		"shared/SKILL.md":           skillFile("shared", "global shared", "global body"),
 		"shared/references/note.md": {Data: []byte("GLOBAL note")},
 	})
-	for _, source := range []ResourceSource{Merge(project, global), Merge(Merge(project), global)} {
+	for _, source := range []ResourceSource{Overlay(project, global), Overlay(Overlay(project), global)} {
 		summaries, listErr := source.List(t.Context())
 		if len(summaries) != 0 || !errors.Is(listErr, ErrInvalidSkill) || !errors.Is(listErr, ErrDescriptionEmpty) {
 			t.Fatalf("List = %v, %v; want malformed winning skill diagnostic", summaries, listErr)
@@ -311,7 +311,7 @@ func TestMergeDoesNotMaskMalformedWinningSkill(t *testing.T) {
 		}
 	}
 
-	_, _, err := ReadResource(t.Context(), Merge(project, global), "shared", "references/note.md", DefaultMaxResourceBytes)
+	_, _, err := ReadResource(t.Context(), Overlay(project, global), "shared", "references/note.md", DefaultMaxResourceBytes)
 	if !errors.Is(err, ErrInvalidSkill) {
 		t.Fatalf("ReadResource error = %v, want ErrInvalidSkill from project skill", err)
 	}
@@ -320,21 +320,21 @@ func TestMergeDoesNotMaskMalformedWinningSkill(t *testing.T) {
 	}
 }
 
-func TestMergeTreatsEmptyMergedSourceAsNotFound(t *testing.T) {
+func TestOverlayTreatsEmptyOverlaidSourceAsNotFound(t *testing.T) {
 	global := mustNewFS(fstest.MapFS{
 		"global-skill/SKILL.md": skillFile("global-skill", "global skill", "body"),
 	})
 
-	skill, err := Merge(Merge(), global).Load(t.Context(), "global-skill")
+	skill, err := Overlay(Overlay(), global).Load(t.Context(), "global-skill")
 	if err != nil {
-		t.Fatalf("Load after empty merged source: %v", err)
+		t.Fatalf("Load after empty overlaid source: %v", err)
 	}
 	if skill.Name != "global-skill" {
 		t.Fatalf("loaded skill = %q, want global-skill", skill.Name)
 	}
 }
 
-func TestMergeObservesCancellationAfterSourceCalls(t *testing.T) {
+func TestOverlayObservesCancellationAfterSourceCalls(t *testing.T) {
 	base := mustNewFS(fstest.MapFS{
 		"safe-skill/SKILL.md":           skillFile("safe-skill", "safe skill", "body"),
 		"safe-skill/references/note.md": {Data: []byte("note")},
@@ -390,7 +390,7 @@ func TestMergeObservesCancellationAfterSourceCalls(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
-			source := Merge(test.source(cancel), fallback)
+			source := Overlay(test.source(cancel), fallback)
 			if err := test.call(ctx, source); !errors.Is(err, context.Canceled) {
 				t.Fatalf("error = %v, want context.Canceled", err)
 			}
@@ -398,14 +398,14 @@ func TestMergeObservesCancellationAfterSourceCalls(t *testing.T) {
 	}
 }
 
-// TestMergeNoSources proves the degenerate empty merge is well-behaved: List
+// TestOverlayNoSources proves the degenerate empty overlay is well-behaved: List
 // is empty, and Load reports the standard not-exist category rather than a
 // nil/nil result or a string-only private error.
-func TestMergeNoSources(t *testing.T) {
-	src := Merge() // no sources
+func TestOverlayNoSources(t *testing.T) {
+	src := Overlay() // no sources
 
 	if got, err := src.List(context.Background()); err != nil || len(got) != 0 {
-		t.Errorf("List on empty merge = (%v, %v), want (empty, nil)", got, err)
+		t.Errorf("List on empty overlay = (%v, %v), want (empty, nil)", got, err)
 	}
 
 	_, err := src.Load(context.Background(), "anything")
