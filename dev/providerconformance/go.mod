@@ -3,14 +3,14 @@ module github.com/Tangerg/scope/dev/providerconformance
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.20.1-0.20260912184949-d135b3f712c6
-	github.com/Tangerg/scope/models/assemblyai v0.20.1-0.20260912190035-e9b2b150867d
-	github.com/Tangerg/scope/models/blackforestlabs v0.20.1-0.20260912190035-e9b2b150867d
-	github.com/Tangerg/scope/models/gladia v0.20.1-0.20260912190035-e9b2b150867d
-	github.com/Tangerg/scope/models/luma v0.20.1-0.20260912190035-e9b2b150867d
-	github.com/Tangerg/scope/models/replicate v0.20.1-0.20260912190035-e9b2b150867d
-	github.com/Tangerg/scope/models/revai v0.20.1-0.20260912190035-e9b2b150867d
-	github.com/Tangerg/scope/tools v0.20.1-0.20260912190035-e9b2b150867d
+	github.com/Tangerg/scope/core v0.21.0
+	github.com/Tangerg/scope/models/assemblyai v0.21.0
+	github.com/Tangerg/scope/models/blackforestlabs v0.21.0
+	github.com/Tangerg/scope/models/gladia v0.21.0
+	github.com/Tangerg/scope/models/luma v0.21.0
+	github.com/Tangerg/scope/models/replicate v0.21.0
+	github.com/Tangerg/scope/models/revai v0.21.0
+	github.com/Tangerg/scope/tools v0.21.0
 )
 
 require (
