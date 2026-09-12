@@ -25,11 +25,11 @@ type Request struct {
 // Response is the LLM-facing return shape. Stdout/stderr are strings
 // (not []byte) because every consumer is a chat model.
 type Response struct {
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
-	ExitCode int    `json:"exit_code"`
-	Killed   bool   `json:"killed,omitempty"`
-	Duration string `json:"duration"`
+	Stdout               string `json:"stdout"`
+	Stderr               string `json:"stderr"`
+	ExitCode             int    `json:"exit_code"`
+	CancellationObserved bool   `json:"cancellation_observed,omitempty"`
+	Duration             string `json:"duration"`
 }
 
 var _ toolcontract.Tool = (*Tool)(nil)
@@ -87,11 +87,11 @@ func (t *Tool) run(ctx context.Context, req Request) (Response, error) {
 		Timeout: time.Duration(req.TimeoutMS) * time.Millisecond,
 	})
 	response := Response{
-		Stdout:   string(res.Stdout),
-		Stderr:   string(res.Stderr),
-		ExitCode: res.ExitCode,
-		Killed:   res.Killed,
-		Duration: res.Duration.String(),
+		Stdout:               string(res.Stdout),
+		Stderr:               string(res.Stderr),
+		ExitCode:             res.ExitCode,
+		CancellationObserved: res.CancellationObserved,
+		Duration:             res.Duration.String(),
 	}
 	if err == nil {
 		return response, nil

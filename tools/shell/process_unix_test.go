@@ -52,7 +52,7 @@ func TestCancellationTerminatesBackgroundChild(t *testing.T) {
 	cancel()
 	select {
 	case completed := <-finished:
-		if completed.err != nil || !completed.output.Killed {
+		if completed.err != nil || !completed.output.CancellationObserved {
 			t.Fatalf("Run() = %+v, error = %v", completed.output, completed.err)
 		}
 	case <-deadline.C:

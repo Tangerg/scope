@@ -120,7 +120,7 @@ func (l *LocalExecutor) Run(ctx context.Context, in Input) (Output, error) {
 	}
 
 	if runCtx.Err() != nil {
-		out.Killed = true
+		out.CancellationObserved = true
 	}
 	return out, cleanupErr
 }

@@ -36,7 +36,7 @@ type Output struct {
 	ExitCode int
 	Duration time.Duration
 
-	// Killed is true when the process was terminated by ctx or
-	// Input.Timeout rather than exiting on its own.
-	Killed bool
+	// CancellationObserved reports that cancellation or timeout was observed
+	// before returning; it does not establish why the process exited.
+	CancellationObserved bool
 }

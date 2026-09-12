@@ -22,7 +22,7 @@ func TestToolPreservesFailedExecutionOutput(t *testing.T) {
 	cause := errors.New("collection failed")
 	executable := mustTool(t, outputExecutor{output: Output{
 		Stdout: []byte("file written"), Stderr: []byte("partial stderr"), ExitCode: -1,
-		Duration: time.Second, Killed: true,
+		Duration: time.Second, CancellationObserved: true,
 	}, err: cause})
 	_, err := invokeTestTool(t.Context(), executable, `{"command":"write"}`)
 	failure, ok := errors.AsType[*tool.Failure](err)
@@ -33,7 +33,7 @@ func TestToolPreservesFailedExecutionOutput(t *testing.T) {
 	if err := json.Unmarshal(failure.Output().Details, &response); err != nil {
 		t.Fatal(err)
 	}
-	want := Response{Stdout: "file written", Stderr: "partial stderr", ExitCode: -1, Duration: "1s", Killed: true}
+	want := Response{Stdout: "file written", Stderr: "partial stderr", ExitCode: -1, Duration: "1s", CancellationObserved: true}
 	if response != want {
 		t.Fatalf("response = %#v, want %#v", response, want)
 	}

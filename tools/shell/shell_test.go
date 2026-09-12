@@ -29,8 +29,8 @@ func TestLocalExecutor_Run_HappyPath(t *testing.T) {
 	if out.ExitCode != 0 {
 		t.Errorf("ExitCode = %d, want 0", out.ExitCode)
 	}
-	if out.Killed {
-		t.Errorf("Killed = true, want false")
+	if out.CancellationObserved {
+		t.Errorf("CancellationObserved = true, want false")
 	}
 }
 
@@ -66,8 +66,8 @@ func TestLocalExecutor_Run_Timeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if !out.Killed {
-		t.Errorf("Killed = false, want true")
+	if !out.CancellationObserved {
+		t.Errorf("CancellationObserved = false, want true")
 	}
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Errorf("elapsed %v > 2s — timeout didn't kick in", elapsed)
