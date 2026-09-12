@@ -2,11 +2,13 @@ package workflow
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 
 	agent "github.com/Tangerg/scope/agent"
 )
@@ -36,22 +38,42 @@ type MapConfig[I, O any] struct {
 	MaxItems uint32
 }
 
-type mapStage struct {
-	binding          childBinding
-	windowSize       uint32
-	maxItems         uint32
-	itemInputSchema  agent.Schema
-	itemOutputSchema agent.Schema
-	count            func(json.RawMessage) (uint32, error)
-	windowInputs     func(json.RawMessage, uint32) ([]agent.Input, uint32, error)
-	collect          func([]json.RawMessage) (json.RawMessage, error)
+type mapSource struct {
+	binding    childBinding
+	codec      mapValueCodec
+	decodeItem func(jsontext.Value) (agent.Input, error)
 }
 
-func (m mapStage) valid() bool {
-	return m.binding.valid() && m.windowSize > 0 && m.maxItems > 0 &&
-		m.windowSize <= m.maxItems && m.itemInputSchema.Valid() &&
-		m.itemOutputSchema.Valid() &&
-		m.count != nil && m.windowInputs != nil && m.collect != nil
+func (m mapSource) count(raw json.RawMessage) (uint32, error) {
+	return m.codec.scan(raw, 0, 0, nil)
+}
+
+func (m mapSource) windowInputs(raw json.RawMessage, start, windowSize uint32) ([]agent.Input, uint32, error) {
+	if start > m.codec.maxItems {
+		return nil, 0, ErrInvalidExecutionState
+	}
+	end := start + min(windowSize, m.codec.maxItems-start)
+	var items []agent.Input
+	count, err := m.codec.scan(raw, start, end, func(value jsontext.Value) error {
+		input, err := m.decodeItem(value)
+		if err != nil {
+			return err
+		}
+		items = append(items, input)
+		return nil
+	})
+	if err != nil {
+		return nil, 0, errors.Join(ErrInvalidExecutionState, err)
+	}
+	return items, count, nil
+}
+
+func (m mapSource) member(index uint32) (fanoutMember, bool) {
+	return fanoutMember{id: strconv.FormatUint(uint64(index), 10), binding: m.binding}, true
+}
+
+func (m mapSource) topology(_ agent.Schema, outputSchema agent.Schema) ([]BindingTopology, uint32) {
+	return []BindingTopology{m.binding.topology(BindingRoleItem, "", m.codec.schemas.itemInput, outputSchema)}, m.codec.maxItems
 }
 
 // Map constructs one bounded managed item fan-out Stage. Empty input is valid
@@ -72,42 +94,20 @@ func Map[I, O any](config MapConfig[I, O]) (Stage, error) {
 		return Stage{}, fmt.Errorf("%w: Map %q child schema mismatch", ErrInvalidStage, config.ID)
 	}
 	codec := mapValueCodec{id: config.ID, maxItems: config.MaxItems, schemas: schemas}
-	count := func(raw json.RawMessage) (uint32, error) {
-		return codec.scan(raw, 0, 0, nil)
-	}
-	windowInputs := func(raw json.RawMessage, start uint32) ([]agent.Input, uint32, error) {
-		if start > config.MaxItems {
-			return nil, 0, ErrInvalidExecutionState
-		}
-		end := start + min(config.WindowSize, config.MaxItems-start)
-		var items []agent.Input
-		count, err := codec.scan(raw, start, end, func(value jsontext.Value) error {
-			input, err := codec.item[I](value)
-			if err != nil {
-				return err
-			}
-			items = append(items, input)
-			return nil
-		})
-		if err != nil {
-			return nil, 0, errors.Join(ErrInvalidExecutionState, err)
-		}
-		return items, count, nil
-	}
-	collect := func(raw []json.RawMessage) (json.RawMessage, error) {
+	collect := func(_ context.Context, raw []json.RawMessage) (json.RawMessage, error) {
 		return codec.collect[O](raw)
 	}
 	return Stage{
 		id: config.ID, kind: StageKindMap,
 		inputSchema: schemas.input, outputSchema: schemas.output,
-		mapper: mapStage{
-			binding: childBinding{
-				deploymentRef: config.Deployment.DeploymentRef(), budget: config.Budget,
-				capabilities: config.Capabilities,
+		fanout: fanoutStage{
+			source: mapSource{
+				binding: childBinding{
+					deploymentRef: config.Deployment.DeploymentRef(), budget: config.Budget, capabilities: config.Capabilities,
+				},
+				codec: codec, decodeItem: codec.item[I],
 			},
-			windowSize: config.WindowSize, maxItems: config.MaxItems,
-			itemInputSchema: schemas.itemInput, itemOutputSchema: schemas.itemOutput, count: count,
-			windowInputs: windowInputs, collect: collect,
+			windowSize: config.WindowSize, outputSchema: schemas.itemOutput, complete: collect,
 		},
 	}, nil
 }

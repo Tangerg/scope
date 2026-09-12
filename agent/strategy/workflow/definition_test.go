@@ -34,6 +34,7 @@ func TestDefinitionRequiresUniqueConnectedStages(t *testing.T) {
 
 	for name, stages := range map[string][]workflow.Stage{
 		"empty":        nil,
+		"zero":         {workflow.Stage{}},
 		"duplicate":    {first, duplicate},
 		"disconnected": {first, disconnected},
 	} {

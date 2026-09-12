@@ -100,21 +100,9 @@ func (s Stage) topology() StageTopology {
 				BindingRoleCase, candidate.id, s.inputSchema, s.outputSchema,
 			)
 		}
-	case StageKindFork:
-		projected.WindowSize = s.fork.windowSize
-		projected.Bindings = make([]BindingTopology, len(s.fork.branches))
-		for index, branch := range s.fork.branches {
-			projected.Bindings[index] = branch.binding.topology(
-				BindingRoleBranch, branch.id, s.inputSchema, s.fork.branchSchema,
-			)
-		}
-	case StageKindMap:
-		projected.WindowSize = s.mapper.windowSize
-		projected.MaxItems = s.mapper.maxItems
-		projected.Bindings = []BindingTopology{s.mapper.binding.topology(
-			BindingRoleItem, "",
-			s.mapper.itemInputSchema, s.mapper.itemOutputSchema,
-		)}
+	case StageKindFork, StageKindMap:
+		projected.WindowSize = s.fanout.windowSize
+		projected.Bindings, projected.MaxItems = s.fanout.source.topology(s.inputSchema, s.fanout.outputSchema)
 	case StageKindLoop:
 		projected.MaxIterations = s.loop.maxIterations
 		projected.Bindings = []BindingTopology{s.loop.binding.topology(

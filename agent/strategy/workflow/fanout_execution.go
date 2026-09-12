@@ -14,7 +14,7 @@ import (
 func (e *execution) startFanoutWindow(ctx context.Context, consumedSignals uint32) (agent.Transition, error) {
 	stage := e.stage()
 	start := e.state.fanoutWindowStart()
-	inputs, count, err := stage.fanoutWindowInputs(start, e.state.CurrentValue)
+	inputs, count, err := stage.fanout.source.windowInputs(e.state.CurrentValue, start, stage.fanout.windowSize)
 	if err != nil {
 		if _, exceeded := errors.AsType[mapMaxItemsExceededError](err); exceeded {
 			return e.failContract(consumedSignals, stage.failureCode("max_items_exceeded"),
@@ -22,12 +22,11 @@ func (e *execution) startFanoutWindow(ctx context.Context, consumedSignals uint3
 		}
 		return agent.Transition{}, err
 	}
-	if start > count || stage.fanoutWindowSize() == 0 ||
-		uint32(len(inputs)) != min(stage.fanoutWindowSize(), count-start) {
+	if start > count || uint32(len(inputs)) != min(stage.fanout.windowSize, count-start) {
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
 	if start == count {
-		value, err := stage.fanoutComplete(ctx, e.state.CompletedFanoutOutputs)
+		value, err := stage.fanout.complete(ctx, e.state.CompletedFanoutOutputs)
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -39,7 +38,7 @@ func (e *execution) startFanoutWindow(ctx context.Context, consumedSignals uint3
 	window := make([]fanoutChildState, end-start)
 	effects := make([]agent.Effect, 0, end-start)
 	for index := start; index < end; index++ {
-		binding, found := stage.fanoutBinding(index)
+		member, found := stage.fanout.source.member(index)
 		if !found {
 			return agent.Transition{}, ErrInvalidStage
 		}
@@ -49,8 +48,8 @@ func (e *execution) startFanoutWindow(ctx context.Context, consumedSignals uint3
 			return agent.Transition{}, err
 		}
 		effect, err := agent.StartChild(agent.ChildSpec{
-			Key: key, DeploymentRef: binding.deploymentRef, Input: input,
-			Budget: binding.budget, Capabilities: binding.capabilities,
+			Key: key, DeploymentRef: member.binding.deploymentRef, Input: input,
+			Budget: member.binding.budget, Capabilities: member.binding.capabilities,
 		})
 		if err != nil {
 			return agent.Transition{}, err
@@ -70,8 +69,7 @@ func (e *execution) acceptFanoutStarts(signals []agent.Signal) (agent.Transition
 	childIDs := make([]agent.ProcessID, 0, len(window))
 	for offset := range window {
 		index := e.state.fanoutWindowStart() + uint32(offset)
-		binding, found := e.stage().fanoutBinding(index)
-		memberID, identified := e.stage().fanoutMemberID(index)
+		member, found := e.stage().fanout.source.member(index)
 		result, err := agent.ParseChildStartResult(signals[offset])
 		key, keyErr := e.fanoutChildKey(index)
 		if err != nil {
@@ -80,11 +78,11 @@ func (e *execution) acceptFanoutStarts(signals []agent.Signal) (agent.Transition
 		if keyErr != nil {
 			return agent.Transition{}, fmt.Errorf("%w: fan-out child key: %w", ErrInvalidProtocol, keyErr)
 		}
-		if !found || !identified ||
-			!childcall.StartMatches(result, key, binding.deploymentRef) {
+		if !found ||
+			!childcall.StartMatches(result, key, member.binding.deploymentRef) {
 			return agent.Transition{}, fmt.Errorf(
 				"%w: %s Stage %q member %q start result mismatch",
-				ErrInvalidProtocol, e.stage().kind, e.stage().id, memberID,
+				ErrInvalidProtocol, e.stage().kind, e.stage().id, member.id,
 			)
 		}
 		if failure, failed := result.Failure(); failed {
@@ -218,7 +216,7 @@ func (e *execution) fanoutOutcome(
 		)
 		return &failure, nil, err
 	}
-	if err := e.stage().fanoutOutputSchema().ValidateOutput(output); err != nil {
+	if err := e.stage().fanout.outputSchema.ValidateOutput(output); err != nil {
 		failure, failureErr := agent.NewFailure(
 			agent.FailureKindContract, e.stage().fanoutFailureCode("output_invalid"),
 			e.fanoutFailureMessage(index, "violated its Output contract"),
@@ -253,11 +251,11 @@ func (e *execution) fanoutStartedChildren() []agent.ProcessID {
 }
 
 func (e *execution) fanoutChildKey(index uint32) (agent.ChildKey, error) {
-	memberID, found := e.stage().fanoutMemberID(index)
+	member, found := e.stage().fanout.source.member(index)
 	if !found {
 		return agent.ChildKey{}, ErrInvalidExecutionState
 	}
-	return workflowChildKey(string(e.stage().kind), e.stage().id, memberID)
+	return workflowChildKey(string(e.stage().kind), e.stage().id, member.id)
 }
 
 func (e *execution) fanoutWaitKey() (agent.WaitKey, error) {

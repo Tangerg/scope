@@ -4,121 +4,35 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 
 	agent "github.com/Tangerg/scope/agent"
 )
 
-func (s Stage) fanoutCount(raw json.RawMessage) (uint32, error) {
-	switch s.kind {
-	case StageKindFork:
-		if !s.fork.valid() {
-			return 0, ErrInvalidStage
-		}
-		return uint32(len(s.fork.branches)), nil
-	case StageKindMap:
-		if !s.mapper.valid() {
-			return 0, ErrInvalidStage
-		}
-		return s.mapper.count(raw)
-	default:
-		return 0, ErrInvalidStage
-	}
+// fanoutSource supplies members and their inputs; window settlement and output
+// handling belong to fanoutStage for both fixed branches and repeated items.
+// Its unexported methods keep the Workflow operation set closed.
+type fanoutSource interface {
+	count(json.RawMessage) (uint32, error)
+	windowInputs(json.RawMessage, uint32, uint32) ([]agent.Input, uint32, error)
+	member(uint32) (fanoutMember, bool)
+	topology(agent.Schema, agent.Schema) ([]BindingTopology, uint32)
 }
 
-func (s Stage) fanoutWindowSize() uint32 {
-	switch s.kind {
-	case StageKindFork:
-		return s.fork.windowSize
-	case StageKindMap:
-		return s.mapper.windowSize
-	default:
-		return 0
-	}
+type fanoutMember struct {
+	id      string
+	binding childBinding
 }
 
-func (s Stage) fanoutBinding(index uint32) (childBinding, bool) {
-	switch s.kind {
-	case StageKindFork:
-		if uint64(index) >= uint64(len(s.fork.branches)) {
-			return childBinding{}, false
-		}
-		return s.fork.branches[index].binding, true
-	case StageKindMap:
-		return s.mapper.binding, s.mapper.valid()
-	default:
-		return childBinding{}, false
-	}
-}
-
-func (s Stage) fanoutWindowInputs(
-	start uint32,
-	raw json.RawMessage,
-) ([]agent.Input, uint32, error) {
-	switch s.kind {
-	case StageKindFork:
-		count := uint32(len(s.fork.branches))
-		if start > count {
-			return nil, 0, ErrInvalidExecutionState
-		}
-		input, err := agent.ParseInput(raw)
-		if err != nil {
-			return nil, 0, err
-		}
-		inputs := make([]agent.Input, min(s.fork.windowSize, count-start))
-		for index := range inputs {
-			inputs[index] = input
-		}
-		return inputs, count, nil
-	case StageKindMap:
-		return s.mapper.windowInputs(raw, start)
-	default:
-		return nil, 0, ErrInvalidStage
-	}
-}
-
-func (s Stage) fanoutOutputSchema() agent.Schema {
-	switch s.kind {
-	case StageKindFork:
-		return s.fork.branchSchema
-	case StageKindMap:
-		return s.mapper.itemOutputSchema
-	default:
-		return agent.Schema{}
-	}
-}
-
-func (s Stage) fanoutComplete(ctx context.Context, outputs []json.RawMessage) (json.RawMessage, error) {
-	switch s.kind {
-	case StageKindFork:
-		return s.fork.reduce(ctx, outputs)
-	case StageKindMap:
-		return s.mapper.collect(outputs)
-	default:
-		return nil, ErrInvalidStage
-	}
-}
-
-func (s Stage) fanoutMemberID(index uint32) (string, bool) {
-	switch s.kind {
-	case StageKindFork:
-		if uint64(index) >= uint64(len(s.fork.branches)) {
-			return "", false
-		}
-		return s.fork.branches[index].id, true
-	case StageKindMap:
-		return strconv.FormatUint(uint64(index), 10), true
-	default:
-		return "", false
-	}
+type fanoutStage struct {
+	source       fanoutSource
+	windowSize   uint32
+	outputSchema agent.Schema
+	complete     func(context.Context, []json.RawMessage) (json.RawMessage, error)
 }
 
 func (s Stage) fanoutMemberLabel(index uint32) string {
-	id, _ := s.fanoutMemberID(index)
-	if s.kind == StageKindFork {
-		return "branch " + id
-	}
-	return "item " + id
+	member, _ := s.fanout.source.member(index)
+	return s.fanoutMemberNoun() + " " + member.id
 }
 
 func (s Stage) fanoutFailureCode(suffix string) string {

@@ -148,12 +148,15 @@ func (e executionState) validateFanoutBoundary(definition *Definition) (Stage, e
 		return Stage{}, ErrInvalidExecutionState
 	}
 	stage := definition.stages[e.StageIndex]
-	count, err := stage.fanoutCount(e.CurrentValue)
-	windowSize := stage.fanoutWindowSize()
+	if stage.kind != StageKindFork && stage.kind != StageKindMap {
+		return Stage{}, ErrInvalidExecutionState
+	}
+	count, err := stage.fanout.source.count(e.CurrentValue)
+	windowSize := stage.fanout.windowSize
 	if err != nil {
 		return Stage{}, fmt.Errorf("%w: fan-out count: %w", ErrInvalidExecutionState, err)
 	}
-	if windowSize == 0 || uint64(len(e.CompletedFanoutOutputs)) >= uint64(count) {
+	if uint64(len(e.CompletedFanoutOutputs)) >= uint64(count) {
 		return Stage{}, ErrInvalidExecutionState
 	}
 	start := e.fanoutWindowStart()
@@ -194,7 +197,7 @@ func (e executionState) validateCompletedFanoutOutputs(stage Stage) error {
 		if err != nil {
 			return fmt.Errorf("%w: completed fan-out output: %w", ErrInvalidExecutionState, err)
 		}
-		if err := stage.fanoutOutputSchema().ValidateOutput(value); err != nil {
+		if err := stage.fanout.outputSchema.ValidateOutput(value); err != nil {
 			return fmt.Errorf("%w: completed fan-out output schema: %w", ErrInvalidExecutionState, err)
 		}
 	}

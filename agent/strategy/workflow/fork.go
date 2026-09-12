@@ -46,34 +46,41 @@ type ForkConfig[I, B, O any] struct {
 	Reduce ForkReducer[B, O]
 }
 
-type forkBranch struct {
-	id      string
-	binding childBinding
+type forkSource struct{ branches []fanoutMember }
+
+func (f forkSource) count(json.RawMessage) (uint32, error) {
+	return uint32(len(f.branches)), nil
 }
 
-type forkStage struct {
-	branches     []forkBranch
-	windowSize   uint32
-	branchSchema agent.Schema
-	reduce       func(context.Context, []json.RawMessage) (json.RawMessage, error)
+func (f forkSource) windowInputs(raw json.RawMessage, start, windowSize uint32) ([]agent.Input, uint32, error) {
+	count := uint32(len(f.branches))
+	if start > count {
+		return nil, 0, ErrInvalidExecutionState
+	}
+	input, err := agent.ParseInput(raw)
+	if err != nil {
+		return nil, 0, err
+	}
+	inputs := make([]agent.Input, min(windowSize, count-start))
+	for index := range inputs {
+		inputs[index] = input
+	}
+	return inputs, count, nil
 }
 
-func (f forkStage) valid() bool {
-	if len(f.branches) == 0 || f.windowSize == 0 || !f.branchSchema.Valid() ||
-		uint64(f.windowSize) > uint64(len(f.branches)) || f.reduce == nil {
-		return false
+func (f forkSource) member(index uint32) (fanoutMember, bool) {
+	if uint64(index) >= uint64(len(f.branches)) {
+		return fanoutMember{}, false
 	}
-	seen := make(map[string]struct{}, len(f.branches))
-	for _, branch := range f.branches {
-		if !validStageID(branch.id) || !branch.binding.valid() {
-			return false
-		}
-		if _, duplicate := seen[branch.id]; duplicate {
-			return false
-		}
-		seen[branch.id] = struct{}{}
+	return f.branches[index], true
+}
+
+func (f forkSource) topology(inputSchema, outputSchema agent.Schema) ([]BindingTopology, uint32) {
+	bindings := make([]BindingTopology, len(f.branches))
+	for index, branch := range f.branches {
+		bindings[index] = branch.binding.topology(BindingRoleBranch, branch.id, inputSchema, outputSchema)
 	}
-	return true
+	return bindings, 0
 }
 
 // Fork constructs one windowed managed fan-out Stage. Branch inputs and
@@ -97,7 +104,7 @@ func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
 	if err != nil {
 		return Stage{}, fmt.Errorf("%w: Fork %q output schema: %w", ErrInvalidStage, config.ID, err)
 	}
-	branches := make([]forkBranch, 0, len(config.Branches))
+	branches := make([]fanoutMember, 0, len(config.Branches))
 	seen := make(map[string]struct{}, len(config.Branches))
 	for index, branch := range config.Branches {
 		if !validStageID(branch.ID) || !branch.Deployment.Valid() ||
@@ -113,7 +120,7 @@ func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
 			return Stage{}, fmt.Errorf("%w: Fork %q branch %q schema mismatch", ErrInvalidStage, config.ID, branch.ID)
 		}
 		seen[branch.ID] = struct{}{}
-		branches = append(branches, forkBranch{
+		branches = append(branches, fanoutMember{
 			id: branch.ID,
 			binding: childBinding{
 				deploymentRef: branch.Deployment.DeploymentRef(), budget: branch.Budget,
@@ -146,9 +153,9 @@ func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
 	return Stage{
 		id: config.ID, kind: StageKindFork,
 		inputSchema: inputSchema, outputSchema: outputSchema,
-		fork: forkStage{
-			branches: branches, windowSize: config.WindowSize,
-			branchSchema: branchSchema, reduce: reduce,
+		fanout: fanoutStage{
+			source: forkSource{branches: branches}, windowSize: config.WindowSize,
+			outputSchema: branchSchema, complete: reduce,
 		},
 	}, nil
 }

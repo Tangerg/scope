@@ -6,6 +6,10 @@
 // identity, snapshot, budget, capabilities, cancellation, and tree recovery.
 // Ordinary in-process control flow belongs outside the Agent Framework.
 //
+// Stage constructors validate and freeze static bindings. Restore validates
+// execution progress against those bindings without reconstructing them.
+// Fork and Map share window admission, settlement, and ordered output handling.
+//
 // Child admission and execution Failures propagate unchanged, preserving their
 // kind, code, and complete diagnostic text. Fan-out waits for the active window
 // to drain and propagates its first failure in declaration order. The Process

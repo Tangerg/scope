@@ -50,27 +50,6 @@ type switchStage struct {
 	cases      []switchCase
 }
 
-func (s switchStage) valid() bool {
-	if s.selectCase == nil || len(s.cases) == 0 {
-		return false
-	}
-	seen := make(map[string]struct{}, len(s.cases))
-	for _, candidate := range s.cases {
-		if !validStageID(candidate.id) || !candidate.binding.valid() {
-			return false
-		}
-		if _, duplicate := seen[candidate.id]; duplicate {
-			return false
-		}
-		seen[candidate.id] = struct{}{}
-	}
-	return true
-}
-
-func (c childBinding) valid() bool {
-	return c.deploymentRef.Valid() && c.budget.Valid() && c.capabilities.Valid()
-}
-
 // Switch constructs one selected managed child-Process Stage. Every case must
 // accept the same I schema and produce one exactly matching output schema.
 func Switch[I any](config SwitchConfig[I]) (Stage, error) {

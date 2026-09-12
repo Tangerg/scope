@@ -55,11 +55,6 @@ type loopStage struct {
 	result        func(json.RawMessage, uint32, bool) (json.RawMessage, error)
 }
 
-func (l loopStage) valid() bool {
-	return l.binding.valid() && l.maxIterations > 0 && l.valueSchema.Valid() &&
-		l.predicate != nil && l.result != nil
-}
-
 // Loop constructs one at-least-once managed iteration Stage. Body must accept
 // and produce exactly T; the Stage itself produces LoopResult[T].
 func Loop[T any](config LoopConfig[T]) (Stage, error) {

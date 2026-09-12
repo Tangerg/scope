@@ -118,7 +118,7 @@ func (e *execution) singleChildBinding() (childBinding, bool) {
 	case StageKindSwitch:
 		return stage.switcher.binding(e.state.SelectedCaseID)
 	case StageKindLoop:
-		return stage.loop.binding, stage.loop.valid()
+		return stage.loop.binding, true
 	default:
 		return childBinding{}, false
 	}

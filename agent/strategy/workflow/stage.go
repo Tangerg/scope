@@ -54,8 +54,7 @@ type Stage struct {
 	transform    transformStage
 	call         childBinding
 	switcher     switchStage
-	fork         forkStage
-	mapper       mapStage
+	fanout       fanoutStage
 	loop         loopStage
 }
 
@@ -139,38 +138,8 @@ func Call(config CallConfig) (Stage, error) {
 	}, nil
 }
 
-func (s Stage) Valid() bool {
-	if !validStageID(s.id) || !s.inputSchema.Valid() || !s.outputSchema.Valid() {
-		return false
-	}
-	behaviorKind, exclusivelyOwned := s.behaviorKind()
-	return exclusivelyOwned && behaviorKind == s.kind
-}
-
-func (s Stage) behaviorKind() (StageKind, bool) {
-	behaviors := [...]struct {
-		kind   StageKind
-		active bool
-	}{
-		{kind: StageKindTransform, active: s.transform != nil},
-		{kind: StageKindCall, active: s.call.valid()},
-		{kind: StageKindSwitch, active: s.switcher.valid()},
-		{kind: StageKindFork, active: s.fork.valid()},
-		{kind: StageKindMap, active: s.mapper.valid()},
-		{kind: StageKindLoop, active: s.loop.valid()},
-	}
-	selected := StageKindInvalid
-	for _, behavior := range behaviors {
-		if !behavior.active {
-			continue
-		}
-		if selected != StageKindInvalid {
-			return StageKindInvalid, false
-		}
-		selected = behavior.kind
-	}
-	return selected, selected != StageKindInvalid
-}
+// Valid reports whether a constructor admitted this immutable Stage.
+func (s Stage) Valid() bool { return s.kind != StageKindInvalid }
 
 func (s Stage) hasIdenticalInputSchema(schema agent.Schema) bool {
 	return schema.Valid() && bytes.Equal(s.inputSchema.JSON(), schema.JSON())
