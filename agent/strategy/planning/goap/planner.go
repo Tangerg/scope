@@ -8,22 +8,34 @@ import (
 	"github.com/Tangerg/scope/agent/strategy/planning"
 )
 
-const defaultMaxExpansions uint32 = 10_000
+const (
+	defaultMaxExpansions     uint32 = 10_000
+	defaultMaxGeneratedNodes uint32 = 100_000
+)
 
 // ErrExpansionLimitReached distinguishes bounded search from an unsatisfiable goal.
 var ErrExpansionLimitReached = errors.New("goap: expansion limit reached")
 
+// ErrGenerationLimitReached means the search exhausted its node budget.
+var ErrGenerationLimitReached = errors.New("goap: generated node limit reached")
+
 // Config contains the bounded search policy for a GOAP Planner.
 type Config struct {
-	// MaxExpansions bounds states removed from the frontier. Zero selects a safe
-	// default of 10,000 expansions.
+	// MaxExpansions bounds non-stale nodes removed from the frontier.
+	// Zero selects a default of 10,000 expansions.
 	MaxExpansions uint32
+
+	// MaxGeneratedNodes bounds cumulative frontier insertions, including the
+	// initial node and cheaper replacements of discovered states. Zero selects
+	// 100,000 nodes. This bounds retained search entries, not their byte size.
+	MaxGeneratedNodes uint32
 }
 
 // Planner performs stateless uniform-cost search and is safe for concurrent
 // use after construction.
 type Planner struct {
-	maxExpansions uint32
+	maxExpansions     uint32
+	maxGeneratedNodes uint32
 }
 
 // New returns a planner whose search is bounded by configuration, because
@@ -34,11 +46,15 @@ func New(config Config) *Planner {
 	if limit == 0 {
 		limit = defaultMaxExpansions
 	}
-	return &Planner{maxExpansions: limit}
+	generated := config.MaxGeneratedNodes
+	if generated == 0 {
+		generated = defaultMaxGeneratedNodes
+	}
+	return &Planner{maxExpansions: limit, maxGeneratedNodes: generated}
 }
 
 func (p *Planner) Plan(ctx context.Context, problem planning.Problem) (planning.Plan, bool, error) {
-	if p == nil || p.maxExpansions == 0 || !problem.Valid() {
+	if p == nil || p.maxExpansions == 0 || p.maxGeneratedNodes == 0 || !problem.Valid() {
 		return planning.Plan{}, false, planning.ErrInvalidProblem
 	}
 	if err := ctx.Err(); err != nil {
@@ -48,7 +64,7 @@ func (p *Planner) Plan(ctx context.Context, problem planning.Problem) (planning.
 		plan, err := planning.NewPlan(nil, 0)
 		return plan, true, err
 	}
-	search := newSearch(problem, p.maxExpansions)
+	search := newSearch(problem, p.maxExpansions, p.maxGeneratedNodes)
 	producers, err := search.hasGoalProducers(ctx)
 	if err != nil {
 		return planning.Plan{}, false, err

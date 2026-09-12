@@ -3,6 +3,7 @@ package goap_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"slices"
 	"testing"
@@ -170,6 +171,55 @@ func TestPlannerHonorsCancellation(t *testing.T) {
 	_, found, err := goap.New(goap.Config{}).Plan(ctx, problem)
 	if found || !errors.Is(err, context.Canceled) {
 		t.Fatalf("found=%t error=%v", found, err)
+	}
+}
+
+func TestPlannerBoundsGeneratedNodesIndependentlyOfExpansions(t *testing.T) {
+	done := condition(t, "world.done", planning.True)
+	var actions []planning.Action
+	for index := range 32 {
+		fact := condition(t, fmt.Sprintf("world.branch_%d", index), planning.True)
+		actions = append(actions, action(t, fmt.Sprintf("action.branch_%d", index), nil, []planning.Condition{fact}, 1))
+	}
+	actions = append(actions, action(t, "action.finish", nil, []planning.Condition{done}, 100))
+	problem := mustProblem(t, planning.WorldState{}, goal(t, done), actions...)
+	_, found, err := goap.New(goap.Config{MaxExpansions: 1, MaxGeneratedNodes: 8}).Plan(t.Context(), problem)
+	if found || !errors.Is(err, goap.ErrGenerationLimitReached) || errors.Is(err, goap.ErrExpansionLimitReached) {
+		t.Fatalf("found=%t error=%v", found, err)
+	}
+}
+
+func TestPlannerCountsCheaperReplacementNodes(t *testing.T) {
+	done := condition(t, "world.done", planning.True)
+	problem := mustProblem(t, planning.WorldState{}, goal(t, done),
+		action(t, "action.expensive", nil, []planning.Condition{done}, 3),
+		action(t, "action.cheaper", nil, []planning.Condition{done}, 2),
+		action(t, "action.cheapest", nil, []planning.Condition{done}, 1),
+	)
+	for _, limit := range []uint32{1, 2, 3, 4} {
+		plan, found, err := goap.New(goap.Config{MaxGeneratedNodes: limit}).Plan(t.Context(), problem)
+		if limit < 4 {
+			if found || !errors.Is(err, goap.ErrGenerationLimitReached) {
+				t.Fatalf("limit=%d found=%t error=%v", limit, found, err)
+			}
+		} else if err != nil || !found || plan.TotalCost() != 1 || !slices.Equal(actionNames(plan), []string{"action.cheapest"}) {
+			t.Fatalf("limit=%d plan=%v found=%t error=%v", limit, plan, found, err)
+		}
+	}
+}
+
+func TestPlannerNodeBudgetPreservesSatisfiedAndUnreachableResults(t *testing.T) {
+	done := condition(t, "world.done", planning.True)
+	key := condition(t, "world.key", planning.True)
+	planner := goap.New(goap.Config{MaxGeneratedNodes: 1})
+	satisfied := mustProblem(t, world(t, done), goal(t, done))
+	if plan, found, err := planner.Plan(t.Context(), satisfied); err != nil || !found || len(plan.Actions()) != 0 {
+		t.Fatalf("satisfied plan=%v found=%t error=%v", plan, found, err)
+	}
+	unreachable := mustProblem(t, planning.WorldState{}, goal(t, done),
+		action(t, "action.blocked", []planning.Condition{key}, []planning.Condition{done}, 1))
+	if _, found, err := planner.Plan(t.Context(), unreachable); err != nil || found {
+		t.Fatalf("unreachable found=%t error=%v", found, err)
 	}
 }
 

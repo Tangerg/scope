@@ -34,7 +34,7 @@ func TestGoalProducerScanObservesCancellationInsideEffects(t *testing.T) {
 	if _, found, planErr := New(Config{}).Plan(cancellationAfterChecks(t, 8), problem); !errors.Is(planErr, context.Canceled) || found {
 		t.Fatalf("Planner lost preflight cancellation: found=%t error=%v", found, planErr)
 	}
-	search := newSearch(problem, 1)
+	search := newSearch(problem, 1, 1)
 	if produced, err := search.hasGoalProducers(cancellationAfterChecks(t, 8)); !errors.Is(err, context.Canceled) || produced {
 		t.Fatalf("producer scan ignored cancellation: produced=%t error=%v", produced, err)
 	}

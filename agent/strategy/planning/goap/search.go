@@ -48,24 +48,26 @@ type predecessor struct {
 }
 
 type search struct {
-	problem       planning.Problem
-	actions       []planning.Action
-	maxExpansions uint32
-	startKey      string
-	frontier      *frontier
-	bestCosts     map[string]float64
-	predecessors  map[string]predecessor
-	nextOrder     uint64
-	expansions    uint32
+	problem           planning.Problem
+	actions           []planning.Action
+	maxExpansions     uint32
+	maxGeneratedNodes uint32
+	startKey          string
+	frontier          *frontier
+	bestCosts         map[string]float64
+	predecessors      map[string]predecessor
+	nextOrder         uint64
+	expansions        uint32
 }
 
-func newSearch(problem planning.Problem, maxExpansions uint32) *search {
+func newSearch(problem planning.Problem, maxExpansions, maxGeneratedNodes uint32) *search {
 	start := problem.InitialState()
 	queue := &frontier{}
 	heap.Init(queue)
 	search := &search{
 		problem: problem, actions: problem.Actions(), maxExpansions: maxExpansions, startKey: start.Key(), frontier: queue,
 		bestCosts: map[string]float64{start.Key(): 0}, predecessors: make(map[string]predecessor),
+		maxGeneratedNodes: maxGeneratedNodes,
 	}
 	search.push(start, 0)
 	return search
@@ -130,6 +132,9 @@ func (s *search) expand(ctx context.Context, current *searchNode) error {
 		}
 		if best, known := s.bestCosts[nextKey]; known && cost >= best {
 			continue
+		}
+		if s.nextOrder == uint64(s.maxGeneratedNodes) {
+			return fmt.Errorf("%w: %d", ErrGenerationLimitReached, s.maxGeneratedNodes)
 		}
 		planned, err := planning.NewPlannedAction(action.Name())
 		if err != nil {
