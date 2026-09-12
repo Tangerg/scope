@@ -9,7 +9,8 @@
 // configuration digest must cover schemas, bounds, and decision policies.
 //
 // A competition selects among observed terminal results, in request order within
-// one satisfaction Signal. It does not arbitrate original input admission time.
+// one satisfaction Signal, after all candidate starts have settled. Slow
+// admission delays selection even when an earlier child has already completed.
 // Completing the competition cancels its remaining descendants. Use the drained
 // child-wait boundary or Process.Join before reusing their exclusive resources.
 //

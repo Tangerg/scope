@@ -30,6 +30,11 @@ type FirstSuccessConfig struct {
 // response, and completes with FirstSuccessResult. An empty Winner means every
 // candidate failed to satisfy Accept; it is an explicit business result.
 //
+// Every candidate's admission and initialization must settle before results are
+// considered. A slow later admission can therefore delay acceptance of an
+// already completed child. When multiple results are visible together, request
+// order determines the winner, independently of their completion timestamps.
+//
 // Results are observed at the terminal-result boundary. Completion starts
 // cancellation of remaining descendants; it does not establish their drain.
 type FirstSuccess struct {

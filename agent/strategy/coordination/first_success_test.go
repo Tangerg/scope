@@ -148,6 +148,66 @@ func TestFirstSuccessUsesRequestOrderWhenSeveralResultsAreAlreadyVisible(t *test
 	})
 }
 
+func TestFirstSuccessWaitsForAllAdmissionsBeforeAcceptingCompletedChild(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		timer := deadlineBinding(t, coordination.Timer{})
+		accepted := make(chan agent.ChildOutcome, 2)
+		definition := competition(t, func(_ context.Context, outcome agent.ChildOutcome) (bool, error) {
+			accepted <- outcome
+			return true, nil
+		}, 2)
+		entered, released := make(chan struct{}), make(chan struct{})
+		release := sync.OnceFunc(func() { close(released) })
+		defer release()
+		engine, err := agent.NewEngine(agent.EngineConfig{
+			DeploymentResolver: resolver{timer.DeploymentRef(): timer},
+			ProcessAdmitter: agent.ProcessAdmitterFunc(func(ctx context.Context, admission agent.ProcessAdmission) error {
+				key, child := admission.Relation().ChildKey()
+				if !child || key.String() != "slow-admission" {
+					return nil
+				}
+				close(entered)
+				select {
+				case <-released:
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		candidates := []agent.ChildSpec{
+			candidate(t, "completed-first", timer, encodedInput(t, time.Now().Add(-time.Second))),
+			candidate(t, "slow-admission", timer, encodedInput(t, time.Now().Add(time.Hour))),
+		}
+		root, err := engine.Start(t.Context(), bind(t, definition, nil), encodedInput(t, candidates))
+		if err != nil {
+			t.Fatal(err)
+		}
+		<-entered
+		if result(t, child(t, engine, root, "completed-first")).Status() != agent.StatusCompleted {
+			t.Fatal("first child did not complete")
+		}
+		synctest.Wait()
+		select {
+		case <-accepted:
+			t.Fatal("competition accepted a result before all admissions settled")
+		default:
+		}
+		release()
+		report := completedOutput[coordination.FirstSuccessResult](t, root)
+		if report.Winner == nil || report.Winner.String() != "completed-first" {
+			t.Fatalf("winner=%v", report.Winner)
+		}
+		if err := root.Join(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		closeEngine(t, engine)
+	})
+}
+
 func TestFirstSuccessRetainsFailedAdmissionAndAllRejectedResults(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		timer := deadlineBinding(t, coordination.Timer{})
