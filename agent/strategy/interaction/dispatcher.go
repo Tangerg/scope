@@ -158,19 +158,16 @@ func (d *Dispatcher) dispatchModel(
 	}
 	response, err := d.callModel(ctx, modelRequest, emit)
 	if err != nil {
-		if errors.Is(err, ErrHostFailure) {
-			return modelHostFailureSettlement(request.ID(), err)
-		}
-		return modelFailureSettlement(request.ID(), err)
+		return agent.Settlement{}, fmt.Errorf("interaction: model outcome unknown: %w", err)
 	}
 	if response == nil {
-		return modelFailureSettlement(request.ID(), errors.New("model returned a nil response"))
+		return agent.Settlement{}, errors.New("interaction: model outcome unknown: nil response")
 	}
 	if validateErr := response.Validate(); validateErr != nil {
-		return modelFailureSettlement(request.ID(), fmt.Errorf("invalid model response: %w", validateErr))
+		return agent.Settlement{}, fmt.Errorf("interaction: invalid model response: %w", validateErr)
 	}
 	d.observeModel(ctx, invocation, response)
-	result := &modelCallResult{Response: response.Clone()}
+	result := &modelCallResult{Response: response}
 	if d.contextReducer != nil && !reflect.DeepEqual(call.Request.Messages, modelRequest.Messages) {
 		result.ReplacementMessages = cloneMessages(modelRequest.Messages)
 	}
@@ -243,17 +240,6 @@ func (d *Dispatcher) callModel(
 		return nil, fmt.Errorf("complete model stream: %w", err)
 	}
 	return response, nil
-}
-
-func modelFailureSettlement(effectID agent.EffectID, cause error) (agent.Settlement, error) {
-	payload, err := encodeProtocol(signalEnvelope{
-		Operation:   operationModelCall,
-		ModelResult: &modelCallResult{Error: boundedDiagnostic(cause.Error())},
-	})
-	if err != nil {
-		return agent.Settlement{}, err
-	}
-	return agent.NewSettlement(effectID, agent.SettlementStatusFailed, payload)
 }
 
 func modelHostFailureSettlement(effectID agent.EffectID, cause error) (agent.Settlement, error) {

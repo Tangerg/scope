@@ -115,12 +115,43 @@ func TestManagedInteractionExecutesToolLoopInModelOrder(t *testing.T) {
 	}
 }
 
-func TestManagedInteractionTerminatesOnModelHostFailure(t *testing.T) {
-	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
-		return nil, interaction.HostFailure(errors.New("model boundary unavailable"))
-	})
-	result := runInteraction(t, newDeployment(t, model, nil, 2), "fail before provider")
-	assertInteractionHostFailure(t, result)
+func TestManagedInteractionPreservesUnknownModelOutcomes(t *testing.T) {
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded, interaction.HostFailure(errors.New("boundary unavailable")), errors.New("connection lost")} {
+		t.Run(cause.Error(), func(t *testing.T) {
+			model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return nil, cause })
+			deployment := newDeployment(t, model, nil, 2)
+			events := &agenttest.ObservationRecorder{}
+			engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver, EventListeners: []agent.EventListener{events}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if checkErr := engine.Close(context.Background()); checkErr != nil {
+					t.Error(checkErr)
+				}
+			}()
+			process, err := engine.Start(t.Context(), deployment.Deployment, interactionInput(t, "preserve uncertainty"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			event, err := events.AwaitEvent(ctx, func(event agent.Event) bool { return event.Name() == agent.EventEffectFinished })
+			if err != nil {
+				t.Fatal(err)
+			}
+			fact, ok := event.EffectFinished()
+			if !ok || fact.SettlementStatus() != agent.SettlementStatusUnknown {
+				t.Fatalf("settlement = %+v", fact)
+			}
+			if checkErr := process.Kill(ctx, "release unknown model call"); checkErr != nil {
+				t.Fatal(checkErr)
+			}
+			if checkErr := process.Join(ctx); checkErr != nil {
+				t.Fatal(checkErr)
+			}
+		})
+	}
 }
 
 func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {

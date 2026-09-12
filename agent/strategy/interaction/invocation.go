@@ -18,12 +18,18 @@ const (
 // ModelInvocation is the immutable execution attribution of one actual model
 // call. It contains no Engine handle or Host metadata.
 type ModelInvocation struct {
+	incarnationID         agent.TreeIncarnationID
 	relation              agent.ProcessRelation
 	deploymentRef         agent.DeploymentRef
 	effectID              agent.EffectID
 	stepSequence          uint64
 	modelCallSequence     uint32
 	appliedSteerSignalIDs []agent.SignalID
+}
+
+// TreeIncarnationID identifies the durable writer activation, when present.
+func (m ModelInvocation) TreeIncarnationID() (agent.TreeIncarnationID, bool) {
+	return m.incarnationID, m.incarnationID.Valid()
 }
 
 // Relation returns the Process tree location that owns the model call.
@@ -73,6 +79,7 @@ func ModelInvocationFromContext(ctx context.Context) (ModelInvocation, bool) {
 // ToolInvocation is the immutable execution attribution of one actual Tool
 // call. ToolCall is the exact model request being executed.
 type ToolInvocation struct {
+	incarnationID     agent.TreeIncarnationID
 	relation          agent.ProcessRelation
 	deploymentRef     agent.DeploymentRef
 	effectID          agent.EffectID
@@ -80,6 +87,11 @@ type ToolInvocation struct {
 	modelCallSequence uint32
 	toolCallIndex     uint32
 	toolCall          chat.ToolCall
+}
+
+// TreeIncarnationID identifies the durable writer activation, when present.
+func (t ToolInvocation) TreeIncarnationID() (agent.TreeIncarnationID, bool) {
+	return t.incarnationID, t.incarnationID.Valid()
 }
 
 // Relation returns the Process tree location that owns the Tool call.
@@ -128,8 +140,10 @@ func modelInvocationFromRequest(
 	modelCallSequence uint32,
 	appliedSteerSignalIDs []agent.SignalID,
 ) ModelInvocation {
+	incarnation, _ := request.TreeIncarnationID()
 	return ModelInvocation{
-		relation: request.Relation(), deploymentRef: request.DeploymentRef(),
+		incarnationID: incarnation,
+		relation:      request.Relation(), deploymentRef: request.DeploymentRef(),
 		effectID: request.ID(), stepSequence: request.StepSequence(),
 		modelCallSequence:     modelCallSequence,
 		appliedSteerSignalIDs: slices.Clone(appliedSteerSignalIDs),
@@ -142,8 +156,10 @@ func toolInvocationFromRequest(
 	toolCallIndex uint32,
 	toolCall chat.ToolCall,
 ) ToolInvocation {
+	incarnation, _ := request.TreeIncarnationID()
 	return ToolInvocation{
-		relation: request.Relation(), deploymentRef: request.DeploymentRef(),
+		incarnationID: incarnation,
+		relation:      request.Relation(), deploymentRef: request.DeploymentRef(),
 		effectID: request.ID(), stepSequence: request.StepSequence(),
 		modelCallSequence: modelCallSequence, toolCallIndex: toolCallIndex,
 		toolCall: toolCall,

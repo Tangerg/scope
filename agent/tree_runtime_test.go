@@ -283,3 +283,66 @@ func (t *treeRuntimeTestExecution) Snapshot() (ExecutionState, error) {
 	}
 	return NewExecutionState(treeRuntimeStateKind, payload)
 }
+
+func TestDiscardedStepAttemptsAlwaysClose(t *testing.T) {
+	deployment, _ := newTreeRuntimeTestDeployment(t)
+	events := make(chan Event, 64)
+	engine, err := NewEngine(EngineConfig{EventListeners: []EventListener{EventListenerFunc(func(_ context.Context, event Event) { events <- event })}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if checkErr := engine.Close(context.Background()); checkErr != nil {
+			t.Error(checkErr)
+		}
+	}()
+	input, _ := EncodeInput(treeRuntimeTestInput{Role: treeRuntimeRoleBlocked})
+	process, err := engine.Start(t.Context(), deployment, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	await := func(name string) Event {
+		t.Helper()
+		for {
+			event := receiveTreeRuntimeProbe(t, events)
+			if event.Name() == name {
+				return event
+			}
+		}
+	}
+	first := await(EventStepStarted)
+	if checkErr := process.Pause(t.Context(), "discard first attempt"); checkErr != nil {
+		t.Fatal(checkErr)
+	}
+	finish := await(EventStepFinished)
+	fact, ok := finish.StepFinished()
+	if !ok || fact.Status() != StepStatusDiscarded {
+		t.Fatalf("pause finish = %+v", fact)
+	}
+	await(EventProcessPaused)
+	if checkErr := process.Resume(t.Context()); checkErr != nil {
+		t.Fatal(checkErr)
+	}
+	second := await(EventStepStarted)
+	firstStep, _ := first.StepSequence()
+	secondStep, _ := second.StepSequence()
+	if firstStep != secondStep || second.ProcessSequence() <= finish.ProcessSequence() {
+		t.Fatal("logical sequence and physical attempts were conflated")
+	}
+	if checkErr := process.Kill(t.Context(), "discard second attempt"); checkErr != nil {
+		t.Fatal(checkErr)
+	}
+	finish = await(EventStepFinished)
+	fact, ok = finish.StepFinished()
+	if !ok || fact.Status() != StepStatusDiscarded {
+		t.Fatalf("kill finish = %+v", fact)
+	}
+	if checkErr := process.Join(t.Context()); checkErr != nil {
+		t.Fatal(checkErr)
+	}
+	for len(events) > 0 {
+		if event := <-events; event.Name() == EventStepFinished {
+			t.Fatal("duplicate attempt finish")
+		}
+	}
+}

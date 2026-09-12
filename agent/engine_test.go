@@ -1265,7 +1265,7 @@ func validEventPayload(event Event, result Result) bool {
 		return ok && fact.Target() == EffectTargetDispatcher
 	case EventStepFinished:
 		fact, ok := event.StepFinished()
-		return ok && fact.Duration() >= 0 && fact.Status() == StepStatusSucceeded
+		return ok && fact.WorkDuration() >= 0 && fact.AdoptionDelay() >= 0 && fact.Status() == StepStatusSucceeded
 	case EventEffectFinished:
 		fact, ok := event.EffectFinished()
 		return ok && fact.Duration() >= 0 && fact.SettlementStatus() == SettlementStatusSucceeded &&

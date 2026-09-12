@@ -17,10 +17,11 @@ type StepStatus string
 const (
 	StepStatusSucceeded StepStatus = "succeeded"
 	StepStatusFailed    StepStatus = "failed"
+	StepStatusDiscarded StepStatus = "discarded"
 )
 
 func (s StepStatus) Valid() bool {
-	return s == StepStatusSucceeded || s == StepStatusFailed
+	return s == StepStatusSucceeded || s == StepStatusFailed || s == StepStatusDiscarded
 }
 
 func (s StepStatus) String() string {
@@ -61,8 +62,9 @@ type runtimeStoppedEventPayload struct {
 }
 
 type stepFinishedEventPayload struct {
-	StepStatus StepStatus `json:"step_status"`
-	DurationMS *int64     `json:"duration_ms"`
+	StepStatus      StepStatus `json:"step_status"`
+	WorkDurationNS  *int64     `json:"work_duration_ns"`
+	AdoptionDelayNS *int64     `json:"adoption_delay_ns"`
 }
 
 type stepCommittedEventPayload struct {
@@ -177,17 +179,24 @@ func (s SignalAcceptedFact) Valid() bool {
 	return s.signalID.Valid() && (s.waitID == (WaitID{}) || s.waitID.Valid())
 }
 
-// StepFinishedFact is the immutable outcome of one Execution.Step attempt.
+// StepFinishedFact closes one physical attempt, including discarded candidates.
+// WorkDuration covers Step, Snapshot, and Restore in the worker. AdoptionDelay
+// covers completion delivery and waiting for the tree owner, including barriers.
+// Both use monotonic elapsed time, independent of lifecycle wall-clock stamps.
+// Attempts with the same logical StepSequence are paired in activation-local
+// event order; the previous attempt finishes before another starts.
 type StepFinishedFact struct {
-	status   StepStatus
-	duration time.Duration
+	status        StepStatus
+	workDuration  time.Duration
+	adoptionDelay time.Duration
 }
 
-func (s StepFinishedFact) Status() StepStatus { return s.status }
-
-func (s StepFinishedFact) Duration() time.Duration { return s.duration }
-
-func (s StepFinishedFact) Valid() bool { return s.status.Valid() && s.duration >= 0 }
+func (s StepFinishedFact) Status() StepStatus           { return s.status }
+func (s StepFinishedFact) WorkDuration() time.Duration  { return s.workDuration }
+func (s StepFinishedFact) AdoptionDelay() time.Duration { return s.adoptionDelay }
+func (s StepFinishedFact) Valid() bool {
+	return s.status.Valid() && s.workDuration >= 0 && s.adoptionDelay >= 0
+}
 
 // StepCommittedFact is the Process status installed by one committed Step.
 type StepCommittedFact struct{ status Status }
@@ -282,14 +291,10 @@ func decodeSignalAcceptedFact(payload json.RawMessage) (SignalAcceptedFact, erro
 
 func decodeStepFinishedFact(payload json.RawMessage) (StepFinishedFact, error) {
 	wire, err := wireJSON.decode[stepFinishedEventPayload](payload)
-	if err != nil || wire.DurationMS == nil || *wire.DurationMS < 0 {
+	if err != nil || wire.WorkDurationNS == nil || wire.AdoptionDelayNS == nil {
 		return StepFinishedFact{}, errors.New("invalid Step finished event payload")
 	}
-	duration, ok := durationFromMilliseconds(*wire.DurationMS)
-	if !ok {
-		return StepFinishedFact{}, errors.New("step duration overflows time.Duration")
-	}
-	fact := StepFinishedFact{status: wire.StepStatus, duration: duration}
+	fact := StepFinishedFact{status: wire.StepStatus, workDuration: time.Duration(*wire.WorkDurationNS), adoptionDelay: time.Duration(*wire.AdoptionDelayNS)}
 	if !fact.Valid() {
 		return StepFinishedFact{}, errors.New("invalid Step finished event fact")
 	}

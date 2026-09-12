@@ -75,7 +75,7 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 	}
 	for name, binding := range dispatcher.tools {
 		manifest.entries[name] = toolManifestEntry{
-			contract: binding.executable.Contract(), deferred: binding.deferred,
+			contract: binding.binding.Contract(), deferred: binding.deferred,
 			concurrent: binding.concurrent,
 		}
 	}

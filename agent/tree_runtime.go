@@ -176,6 +176,8 @@ type pendingProcessPublication struct {
 }
 
 type stepJobResult struct {
+	finishedAt       time.Time
+	workDuration     time.Duration
 	transition       Transition
 	deliveredSignals uint64
 	candidate        Execution
@@ -938,6 +940,7 @@ func (t *treeRuntime) publishChildOutcome(pending *pendingChildOutcome) error {
 			return errors.New("started child is missing from prospective tree")
 		}
 		t.engine.publishReservedProcess(child.handle)
+		t.publishEvent(child, EventProcessStarted, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
 	}
 	parent := t.processes[pending.parentID]
 	if pending.event.ProcessID().Valid() {
@@ -1714,6 +1717,7 @@ func (t *treeRuntime) startStep(process *processState) {
 		kind: processJobStep, attempt: attempt, cancel: cancel, startedAt: time.Now(),
 	})
 	go func() {
+		startedAt := time.Now()
 		transition, err := stepExecution(stepCtx, execution, signals)
 		result := stepJobResult{
 			transition: transition, deliveredSignals: uint64(len(signals)),
@@ -1732,6 +1736,8 @@ func (t *treeRuntime) startStep(process *processState) {
 		if result.err == nil {
 			result.stage = stepJobStageInvalid
 		}
+		result.finishedAt = time.Now()
+		result.workDuration = result.finishedAt.Sub(startedAt)
 		t.completions <- treeJobCompletion{
 			processID: process.handle.processID,
 			attempt:   attempt,
@@ -2003,6 +2009,9 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 	if job.cancel != nil {
 		job.cancel()
 	}
+	if completion.kind == processJobStep {
+		t.publishStepFinished(process, completion.step, job.stale || t.fault != nil)
+	}
 	if t.fault != nil {
 		return
 	}
@@ -2020,7 +2029,7 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 	}
 	switch completion.kind {
 	case processJobStep:
-		t.applyStepCompletion(process, job, completion.step)
+		t.applyStepCompletion(process, completion.step)
 	case processJobRestore:
 		if completion.restore.err != nil {
 			t.failProcess(process, failureKindForError(completion.restore.err), "execution.snapshot.unrestorable", completion.restore.err)
@@ -2175,22 +2184,24 @@ func (t *treeRuntime) failPreparedEffect(process *processState, code string, err
 	t.finishIfTerminal(process)
 }
 
+func (t *treeRuntime) publishStepFinished(process *processState, result stepJobResult, discarded bool) {
+	status := StepStatusSucceeded
+	if result.err != nil {
+		status = StepStatusFailed
+	}
+	if discarded {
+		status = StepStatusDiscarded
+	}
+	work, delay := int64(result.workDuration), int64(time.Since(result.finishedAt))
+	payload, _ := json.Marshal(stepFinishedEventPayload{StepStatus: status, WorkDurationNS: &work, AdoptionDelayNS: &delay})
+	t.publishEvent(process, EventStepFinished, EventPhaseAttempt, process.committedSteps+1, EffectID{}, payload)
+}
+
 func (t *treeRuntime) applyStepCompletion(
 	process *processState,
-	job *processJob,
 	result stepJobResult,
 ) {
-	stepStatus := StepStatusSucceeded
-	if result.err != nil {
-		stepStatus = StepStatusFailed
-	}
-	durationMS := time.Since(job.startedAt).Milliseconds()
-	payload, _ := json.Marshal(stepFinishedEventPayload{
-		StepStatus: stepStatus,
-		DurationMS: &durationMS,
-	})
 	sequence := process.committedSteps + 1
-	t.publishEvent(process, EventStepFinished, EventPhaseAttempt, sequence, EffectID{}, payload)
 	if result.err != nil {
 		code := "execution.step.failed"
 		switch result.stage {

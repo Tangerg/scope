@@ -149,7 +149,7 @@ func FuzzEventJSONRoundTrip(f *testing.F) {
 			FailureKind: FailureKindExternal, FailureCode: treeDurabilityFailureCode,
 		}},
 		{name: EventStepFinished, phase: EventPhaseAttempt, stepSequence: 1, payload: stepFinishedEventPayload{
-			StepStatus: StepStatusSucceeded, DurationMS: &durationMS,
+			StepStatus: StepStatusSucceeded, WorkDurationNS: &durationMS, AdoptionDelayNS: new(int64),
 		}},
 		{name: EventStepCommitted, phase: EventPhaseCommitted, stepSequence: 1, payload: stepCommittedEventPayload{
 			ProcessStatus: StatusRunning,

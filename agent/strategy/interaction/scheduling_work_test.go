@@ -121,3 +121,30 @@ func TestToolBatchClassifiesOnlyThroughNextBoundary(t *testing.T) {
 		t.Fatalf("classifications = %d, want %d", *classifications, 2*count-1)
 	}
 }
+
+func BenchmarkActiveToolBatchRestore(b *testing.B) {
+	for _, count := range []int{16, 64, 256} {
+		b.Run(fmt.Sprint(count), func(b *testing.B) {
+			execution, classifications := schedulingTestExecution(b, count)
+			entry := execution.definition.tools.entries["delegate_fuzz"]
+			entry.concurrent = func(tool.Invocation) (string, bool) { *classifications++; return "", true }
+			execution.definition.tools.entries["delegate_fuzz"] = entry
+
+			if _, err := execution.startToolChildren(b.Context(), 0, schedulingCalls(execution)); err != nil {
+				b.Fatal(err)
+			}
+			state, err := execution.Snapshot()
+			if err != nil {
+				b.Fatal(err)
+			}
+			*classifications = 0
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, err := execution.definition.Restore(state); err != nil {
+					b.Fatal(err)
+				}
+			}
+			b.ReportMetric(float64(*classifications)/float64(b.N), "classifications/op")
+		})
+	}
+}

@@ -18,6 +18,7 @@ type definitionConformanceDefinition struct {
 	descriptor agent.Descriptor
 	counter    atomic.Uint64
 	shared     *uint64
+	lossy      bool
 }
 
 func newDefinitionConformanceFixture(t *testing.T) *definitionConformanceDefinition {
@@ -58,16 +59,20 @@ func (d *definitionConformanceDefinition) Restore(state agent.ExecutionState) (a
 	if err := json.Unmarshal(state.Payload(), &value); err != nil {
 		return nil, err
 	}
-	return &definitionConformanceExecution{definition: d, value: value.Value}, nil
+	return &definitionConformanceExecution{definition: d, value: value.Value, restored: d.lossy}, nil
 }
 
 type definitionConformanceExecution struct {
 	definition *definitionConformanceDefinition
 	value      uint64
+	restored   bool
 	shared     *uint64
 }
 
 func (d *definitionConformanceExecution) Step(_ context.Context, _ []agent.Signal) (agent.Transition, error) {
+	if d.restored {
+		d.value += 10
+	}
 	if d.shared != nil {
 		*d.shared++
 	} else if d.definition.counter.Load() != 0 {
@@ -108,8 +113,9 @@ func TestRunDefinitionConformanceAcceptsIsolatedDeterministicDefinition(t *testi
 		t.Fatal(err)
 	}
 	RunDefinitionConformance(t, DefinitionConformanceConfig{
-		Definition: definition,
-		Input:      input,
+		Definition:       definition,
+		Input:            input,
+		FollowingSignals: [][]agent.Signal{nil, nil},
 		RestoredCases: []ExecutionConformanceCase{{
 			Name: "after one Step", State: restoredState,
 		}},
@@ -146,5 +152,18 @@ func TestDefinitionConformanceDetectsSharedExecutionState(t *testing.T) {
 	})
 	if !errors.Is(err, errConformanceExecutionsShareState) {
 		t.Fatalf("shared mutable state error = %v", err)
+	}
+}
+
+func TestDefinitionConformanceRejectsLossyBehaviorRestore(t *testing.T) {
+	definition := newDefinitionConformanceFixture(t)
+	definition.lossy = true
+	input, err := agent.EncodeInput(definitionConformanceInput{Value: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = verifyFreshExecutions(DefinitionConformanceConfig{Definition: definition, Input: input})
+	if !errors.Is(err, errConformanceValuesDiffer) {
+		t.Fatalf("lossy restore = %v", err)
 	}
 }

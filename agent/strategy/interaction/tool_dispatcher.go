@@ -11,7 +11,7 @@ import (
 )
 
 type boundTool struct {
-	executable tool.Binding
+	binding    tool.Binding
 	deferred   bool
 	direct     bool
 	concurrent func(tool.Invocation) (string, bool)
@@ -85,7 +85,7 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
 		return err
 	}
 	t.tools[definition.Name] = boundTool{
-		executable: binding, deferred: deferred,
+		binding: binding, deferred: deferred,
 		direct: direct, concurrent: concurrent,
 	}
 	if deferred {
@@ -141,7 +141,7 @@ func (t *toolDispatcher) callTool(
 			err = fmt.Errorf("tool panicked: %v", recovered)
 		}
 	}()
-	output, err := binding.executable.Call(ctx, prepared.invocation)
+	output, err := binding.binding.Call(ctx, prepared.invocation)
 	if isHostOrContextError(err) {
 		return chat.ToolResult{}, nil, nil, err
 	}
@@ -173,7 +173,7 @@ func (t *toolDispatcher) prepareToolCall(call chat.ToolCall) preparedToolCall {
 		return prepared
 	}
 	prepared.binding = &binding
-	invocation, err := binding.executable.Contract().Prepare(call)
+	invocation, err := binding.binding.Contract().Prepare(call)
 	if err != nil {
 		result := rejectedToolResult(call, "invalid arguments: "+boundedDiagnostic(err.Error()))
 		prepared.rejection = &result

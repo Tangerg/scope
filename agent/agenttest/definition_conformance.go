@@ -31,6 +31,9 @@ type DefinitionConformanceConfig struct {
 	Input agent.Input
 	// InitialSignals are delivered to each fresh Execution created from Input.
 	InitialSignals []agent.Signal
+	// FollowingSignals exercises the original instance and each restored copy
+	// through a representative multi-Step suffix.
+	FollowingSignals [][]agent.Signal
 	// RestoredCases exercise additional previously captured states.
 	RestoredCases []ExecutionConformanceCase
 }
@@ -42,7 +45,8 @@ type ExecutionConformanceCase struct {
 	// State is an exact state previously produced by the Definition.
 	State agent.ExecutionState
 	// Signals are the ordered Signal prefix delivered to Step.
-	Signals []agent.Signal
+	Signals          []agent.Signal
+	FollowingSignals [][]agent.Signal
 }
 
 // RunDefinitionConformance verifies descriptor stability, concurrent Start
@@ -184,7 +188,7 @@ func verifyFreshExecutions(config DefinitionConformanceConfig) error {
 		config.Definition,
 		values[0].execution,
 		values[1].execution,
-		config.InitialSignals,
+		config.InitialSignals, config.FollowingSignals...,
 	); pairErr != nil {
 		return pairErr
 	}
@@ -216,10 +220,22 @@ func verifyRestoredExecutions(
 	if err := requireEquivalent("restored state", sample.State, leftState); err != nil {
 		return err
 	}
-	return verifyExecutionPair(definition, left, right, sample.Signals)
+	return verifyExecutionPair(definition, left, right, sample.Signals, sample.FollowingSignals...)
 }
 
-func verifyExecutionPair(
+func verifyExecutionPair(definition agent.Definition, left, right agent.Execution, signals []agent.Signal, following ...[]agent.Signal) error {
+	for _, batch := range append([][]agent.Signal{signals}, following...) {
+		if err := validateConformanceSignals(batch); err != nil {
+			return err
+		}
+		if err := verifyExecutionStep(definition, left, right, batch); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func verifyExecutionStep(
 	definition agent.Definition,
 	left agent.Execution,
 	right agent.Execution,
@@ -243,6 +259,10 @@ func verifyExecutionPair(
 		return restoreErr
 	}
 
+	restored, err := callRestore(definition, leftBefore)
+	if err != nil {
+		return err
+	}
 	leftTransition, err := callStep(left, slices.Clone(signals))
 	if err != nil {
 		return err
@@ -267,6 +287,17 @@ func verifyExecutionPair(
 	if comparisonErr := requireEquivalent("Step Transition", leftTransition, rightTransition); comparisonErr != nil {
 		return comparisonErr
 	}
+	restoredTransition, err := callStep(restored, slices.Clone(signals))
+	if err != nil {
+		return err
+	}
+	if checkErr := requireEquivalent("original versus restored Step Transition", leftTransition, restoredTransition); checkErr != nil {
+		return checkErr
+	}
+	restoredAfter, err := callSnapshot(restored)
+	if err != nil {
+		return err
+	}
 
 	leftAfter, err := callSnapshot(left)
 	if err != nil {
@@ -276,8 +307,11 @@ func verifyExecutionPair(
 	if err != nil {
 		return err
 	}
-	if err := requireEquivalent("resulting Execution state", leftAfter, rightAfter); err != nil {
-		return err
+	if checkErr := requireEquivalent("resulting Execution state", leftAfter, rightAfter); checkErr != nil {
+		return checkErr
+	}
+	if checkErr := requireEquivalent("original versus restored resulting state", leftAfter, restoredAfter); checkErr != nil {
+		return checkErr
 	}
 	return verifyExactRestore(definition, leftAfter)
 }
