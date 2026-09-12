@@ -45,7 +45,7 @@ func TestChildBatchRequiresDrainedWaitBoundaries(t *testing.T) {
 					} else {
 						output, _ := agent.EncodeOutput(fuzzDelegateOutput{Result: "done"})
 						if kind == childCallsTool {
-							output, _ = agent.EncodeOutput(toolCallResult{Result: &chat.ToolResult{
+							output, _ = agent.EncodeOutput(toolCallResult{Result: chat.ToolResult{
 								ID: "call_batch", Name: "delegate_fuzz", Output: chat.NewTextToolOutput("done"),
 							}})
 						}

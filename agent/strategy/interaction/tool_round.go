@@ -52,7 +52,7 @@ func (t *toolCallRound) finishChildren(tools toolManifest, advertisedNames []str
 	results := make([]chat.ToolResult, 0, len(t.ChildBatch.Invocations))
 	direct := t.DirectResultEligible
 	for _, invocation := range t.ChildBatch.Invocations {
-		if invocation.Result == nil || invocation.Result.Result == nil {
+		if invocation.Result == nil {
 			return nil, ErrInvalidExecutionState
 		}
 		names, err := tools.mergeAdvertisements(advertisedNames, invocation.Result.AdvertisedToolNames)

@@ -57,7 +57,7 @@ func (e *execution) acceptChildStarts(ctx context.Context, signals []agent.Signa
 			return agent.Fail(consumed, failure)
 		}
 		result := delegateErrorResult(calls[index], "child start failed: "+failure.Code()+": "+failure.Message())
-		batch.Invocations[index].Result = &toolCallResult{Result: &result}
+		batch.Invocations[index].Result = &toolCallResult{Result: result}
 	}
 	if len(batch.children()) == 0 {
 		if err := e.finishChildBatch(); err != nil {

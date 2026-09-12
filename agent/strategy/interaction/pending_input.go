@@ -75,11 +75,8 @@ func PendingToolInputs(snapshot agent.TreeSnapshot) ([]PendingToolInput, error) 
 		if state.Phase != toolWaitingInput || !addressed || state.WaitID == nil || waitID != *state.WaitID {
 			return nil, ErrInvalidPendingToolInput
 		}
-		request, err := state.Checkpoint.InputRequest.inputRequest()
-		if err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrInvalidPendingToolInput, err)
-		}
-		pending = append(pending, PendingToolInput{processID: process.ProcessID(), waitID: waitID, prompt: request.Prompt(), responseSchema: request.responseSchema})
+		request := state.Checkpoint.InputRequest
+		pending = append(pending, PendingToolInput{processID: process.ProcessID(), waitID: waitID, prompt: request.prompt, responseSchema: request.responseSchema})
 	}
 	return pending, nil
 }

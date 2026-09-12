@@ -464,12 +464,6 @@ func checkpointWaitKey(modelCallCount uint32, toolCallID string, pauseCount uint
 	return agent.ParseWaitKey("interaction.input." + hex.EncodeToString(hash.Sum(nil)))
 }
 
-func sameInputRequest(left, right ToolInputRequest) bool {
-	return string(left.Prompt()) == string(right.Prompt()) &&
-		string(left.ResponseSchema()) == string(right.ResponseSchema()) &&
-		string(left.ContinuationState()) == string(right.ContinuationState())
-}
-
 func (e *execution) fail(
 	consumedSignals uint32,
 	kind agent.FailureKind,

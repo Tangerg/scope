@@ -40,12 +40,12 @@ func (e *execution) prepareDelegateChildren(ctx context.Context, calls []chat.To
 		input, err := agent.ParseInput([]byte(arguments))
 		if err != nil {
 			result := delegateErrorResult(call, "arguments are not valid JSON: "+err.Error())
-			batch.Invocations[index].Result = &toolCallResult{Result: &result}
+			batch.Invocations[index].Result = &toolCallResult{Result: result}
 			continue
 		}
 		if inputErr := delegate.validateInput(input); inputErr != nil {
 			result := delegateErrorResult(call, "arguments violate the delegated worker input contract: "+inputErr.Error())
-			batch.Invocations[index].Result = &toolCallResult{Result: &result}
+			batch.Invocations[index].Result = &toolCallResult{Result: result}
 			continue
 		}
 		key, err := DelegateChildKey(e.state.ModelCallCount, call)
@@ -74,7 +74,7 @@ func (e *execution) acceptDelegateOutcome(index int, call chat.ToolCall, result 
 			diagnostic += ": " + termination.Reason()
 		}
 		toolResult := delegateErrorResult(call, diagnostic)
-		e.state.ToolRound.ChildBatch.Invocations[index].Result = &toolCallResult{Result: &toolResult}
+		e.state.ToolRound.ChildBatch.Invocations[index].Result = &toolCallResult{Result: toolResult}
 		return nil
 	}
 	output, present := result.Output()
@@ -86,7 +86,7 @@ func (e *execution) acceptDelegateOutcome(index int, call chat.ToolCall, result 
 	if err != nil {
 		return fmt.Errorf("%w: encode Delegate Tool output: %w", ErrInvalidExecutionState, err)
 	}
-	e.state.ToolRound.ChildBatch.Invocations[index].Result = &toolCallResult{Result: &chat.ToolResult{
+	e.state.ToolRound.ChildBatch.Invocations[index].Result = &toolCallResult{Result: chat.ToolResult{
 		ID: call.ID, Name: call.Name, Output: toolOutput,
 	}}
 	e.state.ArtifactRecords = append(e.state.ArtifactRecords, artifactRecord{

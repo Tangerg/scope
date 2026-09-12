@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -70,6 +71,46 @@ func (t ToolInputRequest) ContinuationState() json.RawMessage {
 
 func (t ToolInputRequest) Valid() bool {
 	return len(t.prompt) > 0 && t.responseSchema.Valid() && len(t.continuationState) > 0
+}
+
+type toolInputRequestWire struct {
+	Prompt            json.RawMessage `json:"prompt"`
+	ResponseSchema    json.RawMessage `json:"response_schema"`
+	ContinuationState json.RawMessage `json:"continuation_state"`
+}
+
+func (t ToolInputRequest) MarshalJSON() ([]byte, error) {
+	if !t.Valid() {
+		return nil, ErrInvalidToolInputRequest
+	}
+	return json.Marshal(toolInputRequestWire{
+		Prompt: t.prompt, ResponseSchema: t.responseSchema.JSON(), ContinuationState: t.continuationState,
+	})
+}
+
+func (t *ToolInputRequest) UnmarshalJSON(data []byte) error {
+	if t == nil {
+		return fmt.Errorf("%w: nil receiver", ErrInvalidToolInputRequest)
+	}
+	var wire toolInputRequestWire
+	if err := jsonv2.Unmarshal(data, &wire, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return fmt.Errorf("%w: decode: %w", ErrInvalidToolInputRequest, err)
+	}
+	request, err := NewToolInputRequest(wire.Prompt, wire.ResponseSchema, wire.ContinuationState)
+	if err != nil {
+		return err
+	}
+	*t = request
+	return nil
+}
+
+// JSONSchemaAlias returns the typed JSON wire model owned by ToolInputRequest.
+func (ToolInputRequest) JSONSchemaAlias() any { return toolInputRequestWire{} }
+
+func (t ToolInputRequest) equal(other ToolInputRequest) bool {
+	return bytes.Equal(t.prompt, other.prompt) &&
+		bytes.Equal(t.responseSchema.JSON(), other.responseSchema.JSON()) &&
+		bytes.Equal(t.continuationState, other.continuationState)
 }
 
 func (t ToolInputRequest) validateResponse(response json.RawMessage) (json.RawMessage, error) {
@@ -159,9 +200,7 @@ func ToolInputContinuationFromContext(ctx context.Context) (ToolInputContinuatio
 	if !ok || len(continuation.state) == 0 || len(continuation.response) == 0 {
 		return ToolInputContinuation{}, false
 	}
-	return ToolInputContinuation{
-		state: bytes.Clone(continuation.state), response: bytes.Clone(continuation.response),
-	}, true
+	return continuation, true
 }
 
 // NewToolInputResponseSignal addresses an answer to the exact wait that asked

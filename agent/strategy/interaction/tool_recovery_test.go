@@ -116,7 +116,7 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 			if first.calls.Load() != 1 || uncertain.calls.Load() != 1 || last.calls.Load() != 0 {
 				t.Fatal("recovery replayed an established or unknown Tool attempt")
 			}
-			resolution, err := agent.NewSettlement(unknown[0], agent.SettlementStatusSucceeded, json.RawMessage(`{"operation":"tool_call","tool_result":{"result":{"id":"call_uncertain","name":"uncertain","output":{"content":[{"kind":"text","text":"resolved"}]}},"direct":false}}`))
+			resolution, err := agent.NewSettlement(unknown[0], agent.SettlementStatusSucceeded, json.RawMessage(`{"operation":"tool_call","tool_result":{"completion":{"result":{"id":"call_uncertain","name":"uncertain","output":{"content":[{"kind":"text","text":"resolved"}]}},"direct":false}}}`))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -185,13 +185,15 @@ func (t *toolSettlementCrash) CommitEffect(ctx context.Context, boundary agent.E
 	}
 	var envelope struct {
 		ToolCall *struct {
-			Call chat.ToolCall `json:"call"`
+			Invocation struct {
+				Call chat.ToolCall `json:"call"`
+			} `json:"invocation"`
 		} `json:"tool_call"`
 	}
 	if err := json.Unmarshal(boundary.Request().Effect().Payload(), &envelope); err != nil {
 		return err
 	}
-	if envelope.ToolCall != nil && envelope.ToolCall.Call.Name == "first" {
+	if envelope.ToolCall != nil && envelope.ToolCall.Invocation.Call.Name == "first" {
 		t.firstRequest = boundary.Request()
 		close(t.firstSettled)
 	}

@@ -26,12 +26,12 @@ func FuzzInteractionEffectProtocol(f *testing.F) {
 				AdvertisedToolNames: []string{"ask"}, AppliedSteerSignalIDs: []agent.SignalID{signalID},
 			},
 		},
-		{Operation: operationToolCall, ToolCall: &toolCall{ModelCallSequence: 1, Call: call}},
+		{Operation: operationToolCall, ToolCall: &toolDispatchRequest{Invocation: toolCall{ModelCallSequence: 1, Call: call}}},
 		{
 			Operation: operationToolCall,
-			ToolCall: &toolCall{
-				ModelCallSequence: 1, ToolCallIndex: 2, Call: call,
-				Checkpoint: fuzzToolCheckpoint(), InputResponse: json.RawMessage(`"Ada"`),
+			ToolCall: &toolDispatchRequest{
+				Invocation: toolCall{ModelCallSequence: 1, ToolCallIndex: 2, Call: call},
+				Resume:     &toolResume{Checkpoint: *fuzzToolCheckpoint(f), InputResponse: json.RawMessage(`"Ada"`)},
 			},
 		},
 	} {
@@ -72,9 +72,9 @@ func FuzzInteractionEffectProtocol(f *testing.F) {
 func FuzzInteractionSignalProtocol(f *testing.F) {
 	message := chat.NewAssistantMessage(chat.NewTextPart("done"))
 	response := &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonStop}}
-	result := &chat.ToolResult{ID: "call", Name: "ask", Output: chat.NewTextToolOutput("Ada")}
-	failed := &chat.ToolResult{ID: "call", Name: "ask", IsError: true, Output: chat.NewTextToolOutput("refused")}
-	checkpoint := fuzzToolCheckpoint()
+	result := chat.ToolResult{ID: "call", Name: "ask", Output: chat.NewTextToolOutput("Ada")}
+	failed := chat.ToolResult{ID: "call", Name: "ask", IsError: true, Output: chat.NewTextToolOutput("refused")}
+	checkpoint := fuzzToolCheckpoint(f)
 	for _, signal := range []signalEnvelope{
 		{Operation: operationModelCall, ModelResult: &modelCallResult{Response: response}},
 		{Operation: operationModelCall, ModelResult: &modelCallResult{
@@ -82,10 +82,10 @@ func FuzzInteractionSignalProtocol(f *testing.F) {
 		}},
 		{Operation: operationModelCall, ModelResult: &modelCallResult{Error: "provider unavailable"}},
 		{Operation: operationModelCall, ModelResult: &modelCallResult{HostError: "request preparation failed"}},
-		{Operation: operationToolCall, ToolResult: &toolCallResult{Result: result, AdvertisedToolNames: []string{"ask"}}},
-		{Operation: operationToolCall, ToolResult: &toolCallResult{Result: result, Direct: true}},
-		{Operation: operationToolCall, ToolResult: &toolCallResult{Result: failed}},
-		{Operation: operationToolCall, ToolResult: &toolCallResult{Checkpoint: checkpoint}},
+		{Operation: operationToolCall, ToolResult: &toolDispatchResult{Completion: &toolCallResult{Result: result, AdvertisedToolNames: []string{"ask"}}}},
+		{Operation: operationToolCall, ToolResult: &toolDispatchResult{Completion: &toolCallResult{Result: result, Direct: true}}},
+		{Operation: operationToolCall, ToolResult: &toolDispatchResult{Completion: &toolCallResult{Result: failed}}},
+		{Operation: operationToolCall, ToolResult: &toolDispatchResult{Checkpoint: checkpoint}},
 		{Operation: operationWaitOpened, WaitOpened: &checkpoint.InputRequest},
 		{Operation: operationInputResponse, InputResponse: json.RawMessage(`{"answer":9007199254740993}`)},
 		{Operation: operationSteer, Steer: &steerInput{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("continue"))}}},
@@ -125,13 +125,15 @@ func FuzzInteractionSignalProtocol(f *testing.F) {
 	})
 }
 
-func fuzzToolCheckpoint() *toolCheckpoint {
-	return &toolCheckpoint{
-		PauseCount: 2,
-		InputRequest: inputRequestWire{
-			Prompt:            json.RawMessage(`{"question":"Name?"}`),
-			ResponseSchema:    json.RawMessage(`{"type":"string","minLength":1}`),
-			ContinuationState: json.RawMessage(`{"stage":"name","id":9007199254740993}`),
-		},
+func fuzzToolCheckpoint(f *testing.F) *toolCheckpoint {
+	f.Helper()
+	request, err := NewToolInputRequest(
+		json.RawMessage(`{"question":"Name?"}`),
+		json.RawMessage(`{"type":"string","minLength":1}`),
+		json.RawMessage(`{"stage":"name","id":9007199254740993}`),
+	)
+	if err != nil {
+		f.Fatal(err)
 	}
+	return &toolCheckpoint{PauseCount: 2, InputRequest: request}
 }

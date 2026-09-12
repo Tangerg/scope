@@ -1,7 +1,6 @@
 package interaction
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -39,23 +38,27 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectReque
 	if envelope.Operation != operationToolCall || envelope.ToolCall == nil {
 		return agent.Settlement{}, errors.New("interaction: Tool dispatcher requires one tool_call")
 	}
-	call := envelope.ToolCall
-	if call.Checkpoint != nil {
-		continuation := ToolInputContinuation{state: bytes.Clone(call.Checkpoint.InputRequest.ContinuationState), response: bytes.Clone(call.InputResponse)}
-		ctx = withToolInputContinuation(ctx, continuation)
+	call := envelope.ToolCall.Invocation
+	resume := envelope.ToolCall.Resume
+	if resume != nil {
+		ctx = withToolInputContinuation(ctx, ToolInputContinuation{
+			state: resume.Checkpoint.InputRequest.continuationState, response: resume.InputResponse,
+		})
 	}
 	prepared := t.prepareToolCall(call.Call)
 	result, advertised, required, err := t.callTool(ctx, request, call.ModelCallSequence, call.ToolCallIndex, prepared)
 	if err != nil {
 		return agent.Settlement{}, err
 	}
-	outcome := toolCallResult{Result: &result, Direct: prepared.binding != nil && prepared.binding.direct && !result.IsError, AdvertisedToolNames: advertised}
+	outcome := toolDispatchResult{Completion: &toolCallResult{
+		Result: result, Direct: prepared.binding != nil && prepared.binding.direct && !result.IsError, AdvertisedToolNames: advertised,
+	}}
 	if required != nil {
 		count := uint32(0)
-		if call.Checkpoint != nil {
-			count = call.Checkpoint.PauseCount
+		if resume != nil {
+			count = resume.Checkpoint.PauseCount
 		}
-		outcome = toolCallResult{Checkpoint: &toolCheckpoint{PauseCount: count + 1, InputRequest: wireInputRequest(*required)}}
+		outcome = toolDispatchResult{Checkpoint: &toolCheckpoint{PauseCount: count + 1, InputRequest: *required}}
 	}
 	payload, err := encodeProtocol(signalEnvelope{Operation: operationToolCall, ToolResult: &outcome})
 	if err != nil {

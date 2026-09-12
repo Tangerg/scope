@@ -13,6 +13,9 @@
 // Each call owns one Effect, its result, and any input continuation. Completed
 // siblings retain their settlements when another call remains unknown or waits
 // for input. Model context receives the complete results in original call order.
+// A Tool child's input describes only its initial invocation, and its output
+// describes only completion. Resumption belongs to the child's dispatcher
+// protocol; its checkpoint retains one validated, immutable ToolInputRequest.
 //
 // Interaction requests ordinary Tool and Delegate children only through
 // Framework Effects. One child-call batch owns start confirmations, wait

@@ -19,10 +19,12 @@ func FuzzToolExecutionStateRestore(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	checkpoint := &toolCheckpoint{PauseCount: 1, InputRequest: inputRequestWire{
-		Prompt: json.RawMessage(`"confirm"`), ResponseSchema: json.RawMessage(`{"type":"boolean"}`), ContinuationState: json.RawMessage(`{}`),
-	}}
-	result := &toolCallResult{Result: &chat.ToolResult{ID: "call", Name: "inspect", Output: chat.NewTextToolOutput("done")}}
+	request, err := NewToolInputRequest(json.RawMessage(`"confirm"`), json.RawMessage(`{"type":"boolean"}`), json.RawMessage(`{}`))
+	if err != nil {
+		f.Fatal(err)
+	}
+	checkpoint := &toolCheckpoint{PauseCount: 1, InputRequest: request}
+	result := &toolCallResult{Result: chat.ToolResult{ID: "call", Name: "inspect", Output: chat.NewTextToolOutput("done")}}
 	for _, state := range []toolExecutionState{
 		{Phase: toolReady, Call: call},
 		{Phase: toolAwaitingResult, Call: call},

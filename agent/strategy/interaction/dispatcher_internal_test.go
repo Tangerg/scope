@@ -15,7 +15,7 @@ func TestFailedDirectResultCannotEnterProtocolOrRestore(t *testing.T) {
 	}
 	payload, err := encodeProtocol(signalEnvelope{
 		Operation:  operationToolCall,
-		ToolResult: &toolCallResult{Result: &result, Direct: true},
+		ToolResult: &toolDispatchResult{Completion: &toolCallResult{Result: result, Direct: true}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -78,10 +78,9 @@ func TestToolInputPauseCountDoesNotWrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	call := toolCall{
-		ModelCallSequence: 1, Call: chat.ToolCall{ID: "call", Name: "input", Arguments: `{}`},
-		Checkpoint:    &toolCheckpoint{PauseCount: math.MaxUint32, InputRequest: wireInputRequest(request)},
-		InputResponse: json.RawMessage(`"answer"`),
+	call := toolDispatchRequest{
+		Invocation: toolCall{ModelCallSequence: 1, Call: chat.ToolCall{ID: "call", Name: "input", Arguments: `{}`}},
+		Resume:     &toolResume{Checkpoint: toolCheckpoint{PauseCount: math.MaxUint32, InputRequest: request}, InputResponse: json.RawMessage(`"answer"`)},
 	}
 	if _, err := newToolEffect(call); err == nil {
 		t.Fatal("exhausted Tool input pause count admitted another call")

@@ -30,10 +30,7 @@ type toolExecutionState struct {
 }
 
 func (t toolExecutionState) validate() error {
-	if t.Call.Checkpoint != nil || len(t.Call.InputResponse) != 0 {
-		return fmt.Errorf("%w: original Tool call carries a continuation", ErrInvalidExecutionState)
-	}
-	if _, err := newToolEffect(t.Call); err != nil {
+	if err := t.Call.validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
 	if t.Checkpoint != nil {
@@ -140,7 +137,7 @@ func (t *toolExecution) Step(ctx context.Context, signals []agent.Signal) (agent
 		if len(signals) != 0 {
 			return agent.Transition{}, ErrInvalidExecutionState
 		}
-		return t.request(0, t.state.Call)
+		return t.request(0, toolDispatchRequest{Invocation: t.state.Call})
 	}
 	if len(signals) == 0 {
 		return agent.Transition{}, fmt.Errorf("%w: Tool expected a Signal", ErrInvalidExecutionState)
@@ -161,12 +158,7 @@ func (t *toolExecution) Step(ctx context.Context, signals []agent.Signal) (agent
 			return agent.Transition{}, ErrInvalidExecutionState
 		}
 		waitID, addressed := signal.WaitID()
-		want, err := t.state.Checkpoint.InputRequest.inputRequest()
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		got, err := envelope.WaitOpened.inputRequest()
-		if err != nil || !sameInputRequest(want, got) || !addressed {
+		if !addressed || !t.state.Checkpoint.InputRequest.equal(*envelope.WaitOpened) {
 			return agent.Transition{}, ErrInvalidExecutionState
 		}
 		t.state.WaitID = &waitID
@@ -177,17 +169,16 @@ func (t *toolExecution) Step(ctx context.Context, signals []agent.Signal) (agent
 		if envelope.Operation != operationInputResponse || !addressed || waitID != *t.state.WaitID {
 			return agent.Transition{}, ErrInvalidExecutionState
 		}
-		call := t.state.Call
-		checkpoint := t.state.Checkpoint.clone()
-		call.Checkpoint = &checkpoint
-		call.InputResponse = envelope.InputResponse
-		return t.request(1, call)
+		return t.request(1, toolDispatchRequest{
+			Invocation: t.state.Call,
+			Resume:     &toolResume{Checkpoint: *t.state.Checkpoint, InputResponse: envelope.InputResponse},
+		})
 	default:
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
 }
 
-func (t *toolExecution) request(consumed uint32, call toolCall) (agent.Transition, error) {
+func (t *toolExecution) request(consumed uint32, call toolDispatchRequest) (agent.Transition, error) {
 	envelope, err := newToolEffect(call)
 	if err != nil {
 		return agent.Transition{}, err
@@ -205,8 +196,8 @@ func (t *toolExecution) request(consumed uint32, call toolCall) (agent.Transitio
 	return agent.Continue(consumed, effect)
 }
 
-func (t *toolExecution) acceptResult(result toolCallResult) (agent.Transition, error) {
-	if checkpoint := result.Checkpoint; checkpoint != nil {
+func (t *toolExecution) acceptResult(outcome toolDispatchResult) (agent.Transition, error) {
+	if checkpoint := outcome.Checkpoint; checkpoint != nil {
 		previous := uint32(0)
 		if t.state.Checkpoint != nil {
 			previous = t.state.Checkpoint.PauseCount
@@ -230,6 +221,7 @@ func (t *toolExecution) acceptResult(result toolCallResult) (agent.Transition, e
 		t.state.Phase = toolAwaitingWaitOpen
 		return agent.Continue(1, effect)
 	}
+	result := outcome.Completion
 	if err := result.validateCall(t.state.Call.Call); err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
@@ -239,7 +231,7 @@ func (t *toolExecution) acceptResult(result toolCallResult) (agent.Transition, e
 	}
 	t.state.Checkpoint = nil
 	t.state.WaitID = nil
-	t.state.Result = &result
+	t.state.Result = result
 	t.state.Phase = toolCompleted
 	return agent.Complete(1, output)
 }

@@ -123,7 +123,7 @@ func TestToolInputAnswerQueuedBeforeWaitAdoptionSurvivesPauseAndRestore(t *testi
 				}
 				output, present := result.Output()
 				decoded, err := output.Decode[toolCallResult]()
-				if err != nil || !present || decoded.Result == nil {
+				if err != nil || !present {
 					t.Fatalf("Tool output is missing: %v", err)
 				}
 				text, isText := decoded.Result.Output.Text()

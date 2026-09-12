@@ -1,7 +1,6 @@
 package interaction
 
 import (
-	"bytes"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
@@ -28,9 +27,9 @@ func (o operation) valid() bool {
 }
 
 type effectEnvelope struct {
-	Operation operation  `json:"operation"`
-	ModelCall *modelCall `json:"model_call,omitempty"`
-	ToolCall  *toolCall  `json:"tool_call,omitempty"`
+	Operation operation            `json:"operation"`
+	ModelCall *modelCall           `json:"model_call,omitempty"`
+	ToolCall  *toolDispatchRequest `json:"tool_call,omitempty"`
 }
 
 type modelCall struct {
@@ -41,20 +40,38 @@ type modelCall struct {
 }
 
 type toolCall struct {
-	ModelCallSequence uint32          `json:"model_call_sequence"`
-	ToolCallIndex     uint32          `json:"tool_call_index"`
-	Call              chat.ToolCall   `json:"call"`
-	Checkpoint        *toolCheckpoint `json:"checkpoint,omitempty"`
-	InputResponse     json.RawMessage `json:"input_response,omitempty"`
+	ModelCallSequence uint32        `json:"model_call_sequence"`
+	ToolCallIndex     uint32        `json:"tool_call_index"`
+	Call              chat.ToolCall `json:"call"`
+}
+
+func (t toolCall) validate() error {
+	if t.ModelCallSequence == 0 {
+		return errors.New("interaction: Tool call sequence is required")
+	}
+	if err := t.Call.Validate(); err != nil {
+		return fmt.Errorf("interaction: tool_call: %w", err)
+	}
+	return nil
+}
+
+type toolDispatchRequest struct {
+	Invocation toolCall    `json:"invocation"`
+	Resume     *toolResume `json:"resume,omitempty"`
+}
+
+type toolResume struct {
+	Checkpoint    toolCheckpoint  `json:"checkpoint"`
+	InputResponse json.RawMessage `json:"input_response"`
 }
 
 type signalEnvelope struct {
-	Operation     operation         `json:"operation"`
-	ModelResult   *modelCallResult  `json:"model_result,omitempty"`
-	ToolResult    *toolCallResult   `json:"tool_result,omitempty"`
-	WaitOpened    *inputRequestWire `json:"wait_opened,omitempty"`
-	InputResponse json.RawMessage   `json:"input_response,omitempty"`
-	Steer         *steerInput       `json:"steer,omitempty"`
+	Operation     operation           `json:"operation"`
+	ModelResult   *modelCallResult    `json:"model_result,omitempty"`
+	ToolResult    *toolDispatchResult `json:"tool_result,omitempty"`
+	WaitOpened    *ToolInputRequest   `json:"wait_opened,omitempty"`
+	InputResponse json.RawMessage     `json:"input_response,omitempty"`
+	Steer         *steerInput         `json:"steer,omitempty"`
 }
 
 type modelCallResult struct {
@@ -69,32 +86,19 @@ type steerInput struct {
 }
 
 type toolCallResult struct {
-	Result              *chat.ToolResult `json:"result,omitempty"`
-	Direct              bool             `json:"direct"`
-	AdvertisedToolNames []string         `json:"advertised_tool_names,omitempty"`
-	Checkpoint          *toolCheckpoint  `json:"checkpoint,omitempty"`
+	Result              chat.ToolResult `json:"result"`
+	Direct              bool            `json:"direct"`
+	AdvertisedToolNames []string        `json:"advertised_tool_names,omitempty"`
+}
+
+type toolDispatchResult struct {
+	Completion *toolCallResult `json:"completion,omitempty"`
+	Checkpoint *toolCheckpoint `json:"checkpoint,omitempty"`
 }
 
 type toolCheckpoint struct {
 	PauseCount   uint32           `json:"pause_count"`
-	InputRequest inputRequestWire `json:"input_request"`
-}
-
-type inputRequestWire struct {
-	Prompt            json.RawMessage `json:"prompt"`
-	ResponseSchema    json.RawMessage `json:"response_schema"`
-	ContinuationState json.RawMessage `json:"continuation_state"`
-}
-
-func wireInputRequest(request ToolInputRequest) inputRequestWire {
-	return inputRequestWire{
-		Prompt: request.Prompt(), ResponseSchema: request.ResponseSchema(),
-		ContinuationState: request.ContinuationState(),
-	}
-}
-
-func (i inputRequestWire) inputRequest() (ToolInputRequest, error) {
-	return NewToolInputRequest(i.Prompt, i.ResponseSchema, i.ContinuationState)
+	InputRequest ToolInputRequest `json:"input_request"`
 }
 
 func newModelEffect(
@@ -132,7 +136,7 @@ func newModelEffect(
 	}, nil
 }
 
-func newToolEffect(call toolCall) (effectEnvelope, error) {
+func newToolEffect(call toolDispatchRequest) (effectEnvelope, error) {
 	envelope := effectEnvelope{Operation: operationToolCall, ToolCall: &call}
 	if err := envelope.validateToolCall(); err != nil {
 		return effectEnvelope{}, err
@@ -172,30 +176,23 @@ func (e effectEnvelope) validateModelCall() error {
 }
 
 func (e effectEnvelope) validateToolCall() error {
-	if e.ModelCall != nil || e.ToolCall == nil || e.ToolCall.ModelCallSequence == 0 {
+	if e.ModelCall != nil || e.ToolCall == nil {
 		return errors.New("interaction: tool_call effect has an invalid payload set")
 	}
-	call := e.ToolCall
-	if err := call.Call.Validate(); err != nil {
-		return fmt.Errorf("interaction: tool_call: %w", err)
+	if err := e.ToolCall.Invocation.validate(); err != nil {
+		return err
 	}
-	if call.Checkpoint == nil {
-		if len(call.InputResponse) != 0 {
-			return errors.New("interaction: tool_call input response requires a checkpoint")
-		}
+	resume := e.ToolCall.Resume
+	if resume == nil {
 		return nil
 	}
-	if err := call.Checkpoint.validate(); err != nil {
+	if err := resume.Checkpoint.validate(); err != nil {
 		return err
 	}
-	if call.Checkpoint.PauseCount == ^uint32(0) {
+	if resume.Checkpoint.PauseCount == ^uint32(0) {
 		return errors.New("interaction: Tool input pause count is exhausted")
 	}
-	request, err := call.Checkpoint.InputRequest.inputRequest()
-	if err != nil {
-		return err
-	}
-	_, err = request.validateResponse(call.InputResponse)
+	_, err := resume.Checkpoint.InputRequest.validateResponse(resume.InputResponse)
 	return err
 }
 
@@ -261,16 +258,17 @@ func (s signalEnvelope) validateToolResult() error {
 	return s.ToolResult.validate()
 }
 
-func (t toolCallResult) validate() error {
-	if (t.Result == nil) == (t.Checkpoint == nil) {
-		return errors.New("interaction: tool_result requires one result or checkpoint")
+func (t toolDispatchResult) validate() error {
+	if (t.Completion == nil) == (t.Checkpoint == nil) {
+		return errors.New("interaction: Tool dispatch requires one result or checkpoint")
 	}
 	if t.Checkpoint != nil {
-		if t.Direct || len(t.AdvertisedToolNames) != 0 {
-			return errors.New("interaction: paused tool_result must carry only its checkpoint")
-		}
 		return t.Checkpoint.validate()
 	}
+	return t.Completion.validate()
+}
+
+func (t toolCallResult) validate() error {
 	if err := t.Result.Validate(); err != nil {
 		return fmt.Errorf("interaction: tool_result: %w", err)
 	}
@@ -290,7 +288,7 @@ func (t toolCallResult) validateCall(call chat.ToolCall) error {
 	if err := t.validate(); err != nil {
 		return err
 	}
-	if t.Checkpoint != nil || t.Result == nil || t.Result.ID != call.ID || t.Result.Name != call.Name {
+	if t.Result.ID != call.ID || t.Result.Name != call.Name {
 		return errors.New("interaction: Tool result does not match its call")
 	}
 	return nil
@@ -300,8 +298,10 @@ func (s signalEnvelope) validateWaitOpened() error {
 	if s.ModelResult != nil || s.ToolResult != nil || s.WaitOpened == nil || len(s.InputResponse) != 0 || s.Steer != nil {
 		return errors.New("interaction: wait_opened signal has an invalid payload set")
 	}
-	_, err := s.WaitOpened.inputRequest()
-	return err
+	if !s.WaitOpened.Valid() {
+		return ErrInvalidToolInputRequest
+	}
+	return nil
 }
 
 func (s signalEnvelope) validateInputResponse() error {
@@ -321,20 +321,12 @@ func (s signalEnvelope) validateSteer() error {
 	return validateSteeringMessages(s.Steer.Messages)
 }
 
-func (t toolCheckpoint) clone() toolCheckpoint {
-	cloned := t
-	cloned.InputRequest.Prompt = bytes.Clone(t.InputRequest.Prompt)
-	cloned.InputRequest.ResponseSchema = bytes.Clone(t.InputRequest.ResponseSchema)
-	cloned.InputRequest.ContinuationState = bytes.Clone(t.InputRequest.ContinuationState)
-	return cloned
-}
-
 func (t toolCheckpoint) validate() error {
 	if t.PauseCount == 0 {
 		return errors.New("interaction: tool checkpoint pause count is required")
 	}
-	if _, err := t.InputRequest.inputRequest(); err != nil {
-		return fmt.Errorf("interaction: tool checkpoint input: %w", err)
+	if !t.InputRequest.Valid() {
+		return fmt.Errorf("interaction: tool checkpoint input: %w", ErrInvalidToolInputRequest)
 	}
 	return nil
 }
