@@ -209,7 +209,7 @@ func (e executionState) validateCurrentBatchArtifacts(definition *Definition) er
 		e.ArtifactRecords[len(e.ArtifactRecords)-1].ModelCallSequence != e.ModelCallCount {
 		return nil
 	}
-	calls, _, err := responseToolCalls(e.ToolRound.Response)
+	calls, err := validatedToolCalls(e.ToolRound.Response)
 	if err != nil {
 		return fmt.Errorf("%w: current-round artifact has no pending ToolCall batch", ErrInvalidExecutionState)
 	}
@@ -245,31 +245,26 @@ func cloneMessages(messages []chat.Message) []chat.Message {
 	return cloned
 }
 
-func responseToolCalls(response *chat.Response) ([]chat.ToolCall, *chat.Message, error) {
+func validatedToolCalls(response *chat.Response) ([]chat.ToolCall, error) {
 	if response == nil {
-		return nil, nil, errors.New("interaction: model returned a nil response")
+		return nil, errors.New("interaction: model returned a nil response")
 	}
 	if err := response.Validate(); err != nil {
-		return nil, nil, fmt.Errorf("interaction: invalid model response: %w", err)
+		return nil, fmt.Errorf("interaction: invalid model response: %w", err)
 	}
 	var calls []chat.ToolCall
-	var message *chat.Message
 	seenCallIDs := make(map[string]struct{})
 	if response.Output == nil || response.Output.Message == nil {
-		return nil, nil, nil
+		return nil, nil
 	}
 	for _, part := range response.Output.Message.Parts {
 		if part.Kind == chat.PartToolCall {
 			if _, duplicate := seenCallIDs[part.ToolCall.ID]; duplicate {
-				return nil, nil, fmt.Errorf("interaction: duplicate tool call ID %q", part.ToolCall.ID)
+				return nil, fmt.Errorf("interaction: duplicate tool call ID %q", part.ToolCall.ID)
 			}
 			seenCallIDs[part.ToolCall.ID] = struct{}{}
 			calls = append(calls, *part.ToolCall)
 		}
 	}
-	if len(calls) > 0 {
-		cloned := response.Output.Message.Clone()
-		message = &cloned
-	}
-	return calls, message, nil
+	return calls, nil
 }

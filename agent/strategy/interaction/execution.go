@@ -131,7 +131,7 @@ func (e *execution) acceptModel(ctx context.Context, signals []agent.Signal) (ag
 		e.state.WorkingContext = effective
 	}
 	response := envelope.ModelResult.Response.Clone()
-	calls, _, err := responseToolCalls(response)
+	calls, err := validatedToolCalls(response)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -291,17 +291,17 @@ func (e *execution) finishOrRetry(
 }
 
 func (e *execution) advanceToolCallBatch(ctx context.Context, consumedSignals uint32) (agent.Transition, error) {
+	calls, err := validatedToolCalls(e.state.ToolRound.Response)
+	if err != nil || uint64(len(calls)) > uint64(^uint32(0)) ||
+		uint64(e.state.ToolRound.nextCallIndex()) > uint64(len(calls)) {
+		return agent.Transition{}, fmt.Errorf("%w: invalid pending ToolCall batch", ErrInvalidExecutionState)
+	}
 	for {
 		if err := ctx.Err(); err != nil {
 			return agent.Transition{}, err
 		}
-		calls, assistant, err := responseToolCalls(e.state.ToolRound.Response)
-		if err != nil || uint64(len(calls)) > uint64(^uint32(0)) ||
-			uint64(e.state.ToolRound.nextCallIndex()) > uint64(len(calls)) {
-			return agent.Transition{}, fmt.Errorf("%w: invalid pending ToolCall batch", ErrInvalidExecutionState)
-		}
 		if e.state.ToolRound.nextCallIndex() == uint32(len(calls)) {
-			return e.finishToolCallBatch(consumedSignals, assistant)
+			return e.finishToolCallBatch(consumedSignals, e.state.ToolRound.Response.Output.Message)
 		}
 		call := calls[e.state.ToolRound.nextCallIndex()]
 		if _, delegated := e.definition.delegate(call.Name); delegated {

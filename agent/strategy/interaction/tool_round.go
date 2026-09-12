@@ -19,7 +19,7 @@ func (t *toolCallRound) activeCalls() ([]chat.ToolCall, error) {
 	if t == nil {
 		return nil, fmt.Errorf("%w: active call phase requires a tool round", ErrInvalidExecutionState)
 	}
-	calls, _, err := responseToolCalls(t.Response)
+	calls, err := validatedToolCalls(t.Response)
 	if err != nil || len(calls) == 0 || uint64(len(calls)) > uint64(^uint32(0)) {
 		return nil, fmt.Errorf("%w: tool round has no bounded unambiguous tool calls", ErrInvalidExecutionState)
 	}
