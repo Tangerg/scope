@@ -25,7 +25,7 @@ func TestComparisonSeparatesDifferentRubrics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dataset, err := eval.NewDataset(eval.Case[texteval.AnswerRelevanceSample]{ID: "same-case", Subject: texteval.AnswerRelevanceSample{Input: "question", Output: "unchanged answer"}})
+	dataset, err := eval.NewDataset("test-fixture", eval.Case[texteval.AnswerRelevanceSample]{ID: "same-case", Subject: texteval.AnswerRelevanceSample{Input: "question", Output: "unchanged answer"}})
 	if err != nil {
 		t.Fatal(err)
 	}

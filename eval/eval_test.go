@@ -220,7 +220,7 @@ func TestExperimentCollectsCasesAndBuildsDistribution(t *testing.T) {
 		{ID: "bad", Subject: 0},
 		{ID: "error", Subject: -1},
 	}
-	dataset, err := eval.NewDataset(cases...)
+	dataset, err := eval.NewDataset("test-fixture", cases...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestExperimentCollectsCasesAndBuildsDistribution(t *testing.T) {
 	}
 
 	duplicate := append(cases, eval.Case[float64]{ID: "good"})
-	if _, err := eval.NewDataset(duplicate...); !errors.Is(err, eval.ErrInvalidDataset) {
+	if _, err := eval.NewDataset("test-fixture", duplicate...); !errors.Is(err, eval.ErrInvalidDataset) {
 		t.Fatalf("duplicate dataset error = %v", err)
 	}
 }
@@ -266,7 +266,7 @@ func TestExperimentFailFastPreservesCaseIdentityAndStopsScheduling(t *testing.T)
 		}
 		return scoredReport("quality", eval.VerdictPass, 1), nil
 	})
-	dataset, err := eval.NewDataset(
+	dataset, err := eval.NewDataset("test-fixture",
 		eval.Case[int]{ID: "first", Subject: 1},
 		eval.Case[int]{ID: "second", Subject: 2},
 		eval.Case[int]{ID: "third", Subject: 3},
@@ -315,7 +315,7 @@ func TestExperimentDefaultConcurrencyIsBounded(t *testing.T) {
 	for index := range cases {
 		cases[index] = eval.Case[int]{ID: eval.CaseID(fmt.Sprintf("case-%d", index))}
 	}
-	dataset, err := eval.NewDataset(cases...)
+	dataset, err := eval.NewDataset("test-fixture", cases...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,7 +381,7 @@ func TestSuitePreservesHeterogeneousResultsAndExperimentSummarizesEachMetric(t *
 		t.Fatalf("suite metric identity = (%#v, %v, %v)", identity, found, err)
 	}
 
-	dataset, err := eval.NewDataset(eval.Case[string]{ID: "case", Subject: "subject"})
+	dataset, err := eval.NewDataset("test-fixture", eval.Case[string]{ID: "case", Subject: "subject"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -480,7 +480,7 @@ func TestDatasetAndExperimentOwnTheirMetadata(t *testing.T) {
 	if err := caseMetadata.Set("source", "original"); err != nil {
 		t.Fatal(err)
 	}
-	dataset, err := eval.NewDataset(eval.Case[string]{
+	dataset, err := eval.NewDataset("test-fixture", eval.Case[string]{
 		ID: "owned", Subject: "value", Metadata: caseMetadata,
 	})
 	if err != nil {
@@ -511,18 +511,19 @@ func TestDatasetAndExperimentOwnTheirMetadata(t *testing.T) {
 }
 
 func TestExperimentValidatesDatasetAndRuntimePolicy(t *testing.T) {
-	if _, err := eval.NewDataset(
+	if _, err := eval.NewDataset("test-fixture",
 		eval.Case[int]{ID: "duplicate"},
 		eval.Case[int]{ID: "duplicate"},
 	); !errors.Is(err, eval.ErrInvalidDataset) {
 		t.Fatalf("duplicate Dataset error = %v", err)
 	}
-	dataset, err := eval.NewDataset(eval.Case[int]{ID: "case"})
+	dataset, err := eval.NewDataset("test-fixture", eval.Case[int]{ID: "case"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var typedNil *nilEvaluator
 	for _, config := range []eval.ExperimentConfig[int]{
+		{Evaluator: validIntEvaluator()},
 		{Dataset: dataset},
 		{Dataset: dataset, Evaluator: typedNil},
 		{Dataset: dataset, Evaluator: validIntEvaluator(), MaxConcurrency: -1},
@@ -535,7 +536,7 @@ func TestExperimentValidatesDatasetAndRuntimePolicy(t *testing.T) {
 }
 
 func TestExperimentCancellationPreservesCaseIdentity(t *testing.T) {
-	dataset, err := eval.NewDataset(
+	dataset, err := eval.NewDataset("test-fixture",
 		eval.Case[int]{ID: "first"},
 		eval.Case[int]{ID: "second"},
 	)
@@ -578,7 +579,7 @@ func TestExperimentReportDoesNotExposeOwnedMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dataset, err := eval.NewDataset(eval.Case[int]{ID: "case"})
+	dataset, err := eval.NewDataset("test-fixture", eval.Case[int]{ID: "case"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -625,7 +626,7 @@ func TestExperimentReportDoesNotExposeOwnedMetadata(t *testing.T) {
 }
 
 func TestCompareReportsExactDeltasWithoutInventingSignificance(t *testing.T) {
-	dataset, err := eval.NewDataset(
+	dataset, err := eval.NewDataset("test-fixture",
 		eval.Case[float64]{ID: "low", Subject: 0.2},
 		eval.Case[float64]{ID: "high", Subject: 0.6},
 	)
@@ -675,7 +676,7 @@ func TestCompareReportsExactDeltasWithoutInventingSignificance(t *testing.T) {
 		t.Fatalf("Metric delta = %#v", comparison.Metrics[0])
 	}
 
-	otherDataset, err := eval.NewDataset(eval.Case[float64]{ID: "other", Subject: 0.2})
+	otherDataset, err := eval.NewDataset("test-fixture", eval.Case[float64]{ID: "other", Subject: 0.2})
 	if err != nil {
 		t.Fatal(err)
 	}

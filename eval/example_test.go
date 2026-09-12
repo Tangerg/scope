@@ -18,7 +18,7 @@ func ExampleExperiment_Run() {
 	evaluator := eval.EvaluatorFunc[string](func(_ context.Context, subject string) (eval.Report, error) {
 		return eval.Report{Metric: metric, Verdict: eval.VerdictPass}, nil
 	})
-	dataset, err := eval.NewDataset(
+	dataset, err := eval.NewDataset("test-fixture",
 		eval.Case[string]{ID: "first", Subject: "answer"},
 	)
 	if err != nil {

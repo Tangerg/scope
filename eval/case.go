@@ -44,15 +44,22 @@ func (c Case[T]) clone() Case[T] {
 	return c
 }
 
-// Dataset owns an ordered snapshot of case identities and metadata. Subjects
-// remain borrowed read-only values; callers and evaluators must not mutate
+// Dataset owns an ordered snapshot of case identities and metadata.
+// FixtureID identifies the exact subjects and expectations, as assigned by the Host.
+// Subjects remain borrowed read-only values; callers and evaluators must not mutate
 // referenced objects while the Dataset is in use.
-type Dataset[T any] struct{ cases []Case[T] }
+type Dataset[T any] struct {
+	fixtureID string
+	cases     []Case[T]
+}
 
 // NewDataset snapshots the case container and metadata, preserving Subject by
 // assignment. It rejects duplicate identity before experiment scheduling can
 // make result correlation ambiguous.
-func NewDataset[T any](cases ...Case[T]) (Dataset[T], error) {
+func NewDataset[T any](fixtureID string, cases ...Case[T]) (Dataset[T], error) {
+	if fixtureID == "" || strings.TrimSpace(fixtureID) != fixtureID {
+		return Dataset[T]{}, fmt.Errorf("%w: fixture identity is required", ErrInvalidDataset)
+	}
 	owned := slices.Clone(cases)
 	seen := make(map[CaseID]struct{}, len(owned))
 	for index, caseValue := range owned {
@@ -65,8 +72,10 @@ func NewDataset[T any](cases ...Case[T]) (Dataset[T], error) {
 		seen[caseValue.ID] = struct{}{}
 		owned[index] = caseValue.clone()
 	}
-	return Dataset[T]{cases: owned}, nil
+	return Dataset[T]{fixtureID: fixtureID, cases: owned}, nil
 }
+
+func (d Dataset[T]) FixtureID() string { return d.fixtureID }
 
 func (d Dataset[T]) Len() int { return len(d.cases) }
 

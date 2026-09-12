@@ -47,7 +47,7 @@ func TestComparisonRejectsUnrepresentableMeasurementDeltas(t *testing.T) {
 
 func measurementReport(t *testing.T, measurement float64) eval.ExperimentReport {
 	t.Helper()
-	dataset, err := eval.NewDataset(eval.Case[int]{ID: "same", Subject: 0})
+	dataset, err := eval.NewDataset("test-fixture", eval.Case[int]{ID: "same", Subject: 0})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestExperimentSummarizesFiniteMeasurements(t *testing.T) {
 		{name: "opposite", first: -math.MaxFloat64, second: math.MaxFloat64},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			dataset, err := eval.NewDataset(
+			dataset, err := eval.NewDataset("test-fixture",
 				eval.Case[float64]{ID: "first", Subject: testCase.first},
 				eval.Case[float64]{ID: "second", Subject: testCase.second},
 			)

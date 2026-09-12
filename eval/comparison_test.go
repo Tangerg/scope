@@ -18,7 +18,7 @@ func comparisonReport(t *testing.T, parameters string, fail bool) eval.Experimen
 	if err != nil {
 		t.Fatal(err)
 	}
-	dataset, err := eval.NewDataset(eval.Case[int]{ID: "same", Subject: 1})
+	dataset, err := eval.NewDataset("test-fixture", eval.Case[int]{ID: "same", Subject: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestComparisonRetainsUnjudgedMetricsWithoutNumericObservations(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	dataset, err := eval.NewDataset(eval.Case[int]{ID: "same", Subject: 1})
+	dataset, err := eval.NewDataset("test-fixture", eval.Case[int]{ID: "same", Subject: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,5 +131,38 @@ func TestMetricIdentityIgnoresJSONPresentationWithoutRoundingNumbers(t *testing.
 				t.Fatalf("different exact values merged: %#v", comparison.Metrics)
 			}
 		})
+	}
+}
+
+func TestComparisonRequiresTheSameFixture(t *testing.T) {
+	metric, err := eval.NewMetric(eval.MetricConfig{Name: "fixture_quality"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func(fixture string, subject int) eval.ExperimentReport {
+		t.Helper()
+		dataset, datasetErr := eval.NewDataset(fixture, eval.Case[int]{ID: "same", Subject: subject})
+		if datasetErr != nil {
+			t.Fatal(datasetErr)
+		}
+		experiment, experimentErr := eval.NewExperiment(eval.ExperimentConfig[int]{Dataset: dataset, Evaluator: eval.EvaluatorFunc[int](func(context.Context, int) (eval.Report, error) {
+			return eval.Report{Metric: metric, Verdict: eval.VerdictPass}, nil
+		})})
+		if experimentErr != nil {
+			t.Fatal(experimentErr)
+		}
+		report, runErr := experiment.Run(t.Context())
+		if runErr != nil {
+			t.Fatal(runErr)
+		}
+		return report
+	}
+	baseline := run("original-fixture", 1)
+	changed := run("changed-fixture", 2)
+	if _, compareErr := baseline.Compare(changed); !errors.Is(compareErr, eval.ErrInvalidComparison) {
+		t.Fatalf("changed fixture accepted: %v", compareErr)
+	}
+	if _, compareErr := baseline.Compare(run("original-fixture", 1)); compareErr != nil {
+		t.Fatal(compareErr)
 	}
 }

@@ -76,9 +76,13 @@ type ExperimentSummary struct {
 
 // ExperimentReport owns ordered case results and the summary derived from them.
 type ExperimentReport struct {
-	cases   []CaseResult
-	summary ExperimentSummary
+	fixtureID string
+	cases     []CaseResult
+	summary   ExperimentSummary
 }
+
+// FixtureID identifies the subjects and expectations evaluated by this run.
+func (e ExperimentReport) FixtureID() string { return e.fixtureID }
 
 // Cases returns owned results in Dataset order.
 func (e ExperimentReport) Cases() []CaseResult {
@@ -96,13 +100,17 @@ func (e ExperimentReport) Summary() ExperimentSummary {
 	return summary
 }
 
-// Compare compares runs over the same ordered Dataset identities. Execution
+// Compare requires the same explicit fixture identity and ordered Case IDs.
+// Hosts must change fixture identity when subjects or expectations change. Execution
 // counts remain comparable when evaluation fails. Metrics are matched by full
 // identity in baseline order, followed by candidate-only metrics; an absent
 // side remains explicit instead of preventing comparison of the whole run.
 // A mean difference outside the finite float64 range returns ErrInvalidComparison
 // without exposing a partial comparison.
 func (e ExperimentReport) Compare(candidate ExperimentReport) (Comparison, error) {
+	if e.fixtureID == "" || e.fixtureID != candidate.fixtureID {
+		return Comparison{}, fmt.Errorf("%w: fixture identities are absent or differ", ErrInvalidComparison)
+	}
 	if err := comparableCases(e.cases, candidate.cases); err != nil {
 		return Comparison{}, err
 	}

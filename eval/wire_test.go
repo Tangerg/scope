@@ -226,7 +226,7 @@ func TestCaseValidationCoversItsWholeIdentity(t *testing.T) {
 // change a dataset after construction, or an experiment would not be repeatable.
 func TestDatasetOwnsItsCases(t *testing.T) {
 	original := metadata.Map{"tag": json.RawMessage(`"a"`)}
-	dataset, err := eval.NewDataset(eval.Case[string]{ID: "one", Subject: "s", Metadata: original})
+	dataset, err := eval.NewDataset("test-fixture", eval.Case[string]{ID: "one", Subject: "s", Metadata: original})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +247,7 @@ func TestDatasetOwnsItsCases(t *testing.T) {
 }
 
 func TestNewDatasetRejectsDuplicateIdentities(t *testing.T) {
-	_, err := eval.NewDataset(
+	_, err := eval.NewDataset("test-fixture",
 		eval.Case[string]{ID: "one", Subject: "a"},
 		eval.Case[string]{ID: "one", Subject: "b"},
 	)

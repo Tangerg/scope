@@ -56,6 +56,9 @@ type Experiment[T any] struct {
 // NewExperiment binds the immutable Dataset and resolves bounded scheduling
 // before a run starts.
 func NewExperiment[T any](config ExperimentConfig[T]) (Experiment[T], error) {
+	if config.Dataset.fixtureID == "" {
+		return Experiment[T]{}, fmt.Errorf("%w: dataset fixture identity is required", ErrInvalidExperiment)
+	}
 	if lo.IsNil(config.Evaluator) {
 		return Experiment[T]{}, fmt.Errorf("%w: evaluator is nil", ErrInvalidExperiment)
 	}
@@ -80,13 +83,13 @@ func (e Experiment[T]) Run(ctx context.Context) (ExperimentReport, error) {
 	cases := e.dataset.cases
 	results := newCaseResults(cases)
 	if len(cases) == 0 {
-		return ExperimentReport{cases: results}, nil
+		return ExperimentReport{fixtureID: e.dataset.fixtureID, cases: results}, nil
 	}
 
 	attempted, runErr := e.execute(ctx, cases, results)
 	markUnevaluated(results, attempted, ctx.Err())
 	summary, summaryErr := summarize(results)
-	report := ExperimentReport{cases: results, summary: summary}
+	report := ExperimentReport{fixtureID: e.dataset.fixtureID, cases: results, summary: summary}
 	if runErr != nil {
 		return report, runErr
 	}
