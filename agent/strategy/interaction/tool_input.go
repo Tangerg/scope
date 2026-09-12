@@ -18,58 +18,37 @@ var (
 	ErrToolInputRequired       = errors.New("interaction: tool input required")
 )
 
-// ToolInputRequest is an immutable Tool request for external input. Prompt is an
-// owner-defined JSON value for a consumer, ResponseSchema is authoritative,
-// and ContinuationState is returned only to the same Tool when input arrives.
-// It contains no Process identity or WaitID; Engine owns those identities.
-type ToolInputRequest struct {
+// toolInputRequest freezes the checkpoint carried by RequireToolInput.
+// The Tool owns continuation state; Engine owns Process and wait identities.
+type toolInputRequest struct {
 	prompt            json.RawMessage
 	responseSchema    agent.Schema
 	continuationState json.RawMessage
 }
 
-// NewToolInputRequest lets a tool pause for external input while carrying its
-// own continuation state. The response schema is validated here so an answer
-// can be checked when it arrives; the request holds no Process or wait
-// identity, because those are minted by the Engine and would otherwise be
-// forgeable by a tool. JSON numbers retain their precision; each JSON value
-// must fit within one MiB before and after normalization.
-func NewToolInputRequest(
+func newToolInputRequest(
 	prompt json.RawMessage,
 	responseSchema json.RawMessage,
 	continuationState json.RawMessage,
-) (ToolInputRequest, error) {
+) (toolInputRequest, error) {
 	parsedPrompt, err := parseToolInputJSON(prompt)
 	if err != nil {
-		return ToolInputRequest{}, fmt.Errorf("%w: prompt: %w", ErrInvalidToolInputRequest, err)
+		return toolInputRequest{}, fmt.Errorf("%w: prompt: %w", ErrInvalidToolInputRequest, err)
 	}
 	schema, err := agent.ParseSchema(responseSchema)
 	if err != nil {
-		return ToolInputRequest{}, fmt.Errorf("%w: response schema: %w", ErrInvalidToolInputRequest, err)
+		return toolInputRequest{}, fmt.Errorf("%w: response schema: %w", ErrInvalidToolInputRequest, err)
 	}
 	continuation, err := parseToolInputJSON(continuationState)
 	if err != nil {
-		return ToolInputRequest{}, fmt.Errorf("%w: continuation state: %w", ErrInvalidToolInputRequest, err)
+		return toolInputRequest{}, fmt.Errorf("%w: continuation state: %w", ErrInvalidToolInputRequest, err)
 	}
-	return ToolInputRequest{
+	return toolInputRequest{
 		prompt: parsedPrompt.JSON(), responseSchema: schema, continuationState: continuation.JSON(),
 	}, nil
 }
 
-// Prompt returns an independently owned consumer-facing JSON value.
-func (t ToolInputRequest) Prompt() json.RawMessage { return bytes.Clone(t.prompt) }
-
-// ResponseSchema returns the authoritative JSON Schema for an answer.
-func (t ToolInputRequest) ResponseSchema() json.RawMessage {
-	return t.responseSchema.JSON()
-}
-
-// ContinuationState returns opaque state owned by the requesting Tool.
-func (t ToolInputRequest) ContinuationState() json.RawMessage {
-	return bytes.Clone(t.continuationState)
-}
-
-func (t ToolInputRequest) Valid() bool {
+func (t toolInputRequest) valid() bool {
 	return len(t.prompt) > 0 && t.responseSchema.Valid() && len(t.continuationState) > 0
 }
 
@@ -79,8 +58,8 @@ type toolInputRequestWire struct {
 	ContinuationState json.RawMessage `json:"continuation_state"`
 }
 
-func (t ToolInputRequest) MarshalJSON() ([]byte, error) {
-	if !t.Valid() {
+func (t toolInputRequest) MarshalJSON() ([]byte, error) {
+	if !t.valid() {
 		return nil, ErrInvalidToolInputRequest
 	}
 	return json.Marshal(toolInputRequestWire{
@@ -88,7 +67,7 @@ func (t ToolInputRequest) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func (t *ToolInputRequest) UnmarshalJSON(data []byte) error {
+func (t *toolInputRequest) UnmarshalJSON(data []byte) error {
 	if t == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidToolInputRequest)
 	}
@@ -96,7 +75,7 @@ func (t *ToolInputRequest) UnmarshalJSON(data []byte) error {
 	if err := jsonv2.Unmarshal(data, &wire, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidToolInputRequest, err)
 	}
-	request, err := NewToolInputRequest(wire.Prompt, wire.ResponseSchema, wire.ContinuationState)
+	request, err := newToolInputRequest(wire.Prompt, wire.ResponseSchema, wire.ContinuationState)
 	if err != nil {
 		return err
 	}
@@ -104,17 +83,14 @@ func (t *ToolInputRequest) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// JSONSchemaAlias returns the typed JSON wire model owned by ToolInputRequest.
-func (ToolInputRequest) JSONSchemaAlias() any { return toolInputRequestWire{} }
-
-func (t ToolInputRequest) equal(other ToolInputRequest) bool {
+func (t toolInputRequest) equal(other toolInputRequest) bool {
 	return bytes.Equal(t.prompt, other.prompt) &&
 		bytes.Equal(t.responseSchema.JSON(), other.responseSchema.JSON()) &&
 		bytes.Equal(t.continuationState, other.continuationState)
 }
 
-func (t ToolInputRequest) validateResponse(response json.RawMessage) (json.RawMessage, error) {
-	if !t.Valid() {
+func (t toolInputRequest) validateResponse(response json.RawMessage) (json.RawMessage, error) {
+	if !t.valid() {
 		return nil, ErrInvalidToolInputRequest
 	}
 	return validateToolInputResponse(t.responseSchema, response)
@@ -131,10 +107,10 @@ func validateToolInputResponse(schema agent.Schema, response json.RawMessage) (j
 	return input.JSON(), nil
 }
 
-// ToolInputRequiredError carries one validated, snapshot-safe ToolInputRequest across
+// toolInputRequiredError carries one validated, snapshot-safe toolInputRequest across
 // a Tool boundary. It is control flow, not a failed ToolResult.
-type ToolInputRequiredError struct {
-	request ToolInputRequest
+type toolInputRequiredError struct {
+	request toolInputRequest
 }
 
 // RequireToolInput validates the request and returns an error matching
@@ -142,27 +118,34 @@ type ToolInputRequiredError struct {
 // storing enough ContinuationState to prove safe re-entry. A HostFailure,
 // cancellation, or deadline in the same error chain takes precedence: the Effect
 // remains unknown instead of committing an input checkpoint.
+//
+// Prompt is a Tool-defined JSON value for the consumer; responseSchema governs
+// its answer. ContinuationState is returned only to the requesting Tool through
+// ToolInputContinuationFromContext. The request freezes all three values and
+// holds no Process or wait identity. JSON numbers retain their precision; prompt
+// and continuationState must each fit within one MiB before and after normalization.
+// Use errors.Is with ErrToolInputRequired to classify this control outcome.
 func RequireToolInput(
 	prompt json.RawMessage,
 	responseSchema json.RawMessage,
 	continuationState json.RawMessage,
 ) error {
-	request, err := NewToolInputRequest(prompt, responseSchema, continuationState)
+	request, err := newToolInputRequest(prompt, responseSchema, continuationState)
 	if err != nil {
 		return err
 	}
-	return &ToolInputRequiredError{request: request}
+	return &toolInputRequiredError{request: request}
 }
 
-func (*ToolInputRequiredError) Error() string {
+func (*toolInputRequiredError) Error() string {
 	return ErrToolInputRequired.Error()
 }
 
-func (*ToolInputRequiredError) Unwrap() error { return ErrToolInputRequired }
+func (*toolInputRequiredError) Unwrap() error { return ErrToolInputRequired }
 
-func (t *ToolInputRequiredError) inputRequest() (ToolInputRequest, bool) {
-	if t == nil || !t.request.Valid() {
-		return ToolInputRequest{}, false
+func (t *toolInputRequiredError) inputRequest() (toolInputRequest, bool) {
+	if t == nil || !t.request.valid() {
+		return toolInputRequest{}, false
 	}
 	return t.request, true
 }

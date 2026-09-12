@@ -171,7 +171,7 @@ func (d *Definition) Restore(state agent.ExecutionState) (agent.Execution, error
 	if err := jsonv2.Unmarshal(state.Payload(), &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return nil, fmt.Errorf("%w: decode: %w", ErrInvalidExecutionState, err)
 	}
-	if err := decoded.Validate(d); err != nil {
+	if err := decoded.validate(d); err != nil {
 		return nil, err
 	}
 	return &execution{definition: d, state: decoded}, nil

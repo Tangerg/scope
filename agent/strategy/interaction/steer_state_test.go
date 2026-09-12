@@ -13,7 +13,7 @@ import (
 func TestPendingSteerSurvivesExecutionStateRestoreWithExactSignalOrder(t *testing.T) {
 	definition := fuzzInteractionDefinition(t)
 	state := pendingSteerTestState(t)
-	if err := state.Validate(definition); err != nil {
+	if err := state.validate(definition); err != nil {
 		t.Fatal(err)
 	}
 	encoded, err := state.snapshot()
@@ -71,7 +71,7 @@ func TestExecutionStateRejectsIncompleteOrDuplicatePendingSteer(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			state := pendingSteerTestState(t)
 			state.PendingSteer = pending
-			if err := state.Validate(definition); !errors.Is(err, ErrInvalidExecutionState) {
+			if err := state.validate(definition); !errors.Is(err, ErrInvalidExecutionState) {
 				t.Fatalf("Validate error = %v, want ErrInvalidExecutionState", err)
 			}
 		})

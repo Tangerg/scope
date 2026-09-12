@@ -19,7 +19,7 @@ func FuzzToolExecutionStateRestore(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	request, err := NewToolInputRequest(json.RawMessage(`"confirm"`), json.RawMessage(`{"type":"boolean"}`), json.RawMessage(`{}`))
+	request, err := newToolInputRequest(json.RawMessage(`"confirm"`), json.RawMessage(`{"type":"boolean"}`), json.RawMessage(`{}`))
 	if err != nil {
 		f.Fatal(err)
 	}

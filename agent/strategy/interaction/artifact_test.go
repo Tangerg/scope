@@ -89,7 +89,7 @@ func validateCandidateOwnership(candidate interaction.CompletionCandidate) error
 }
 
 func validatedArtifact(candidate interaction.CompletionCandidate) (interaction.Artifact, error) {
-	artifacts := candidate.Artifacts().All()
+	artifacts := candidate.Artifacts()
 	if len(artifacts) != 1 {
 		return interaction.Artifact{}, fmt.Errorf("artifact count = %d", len(artifacts))
 	}
@@ -98,7 +98,7 @@ func validatedArtifact(candidate interaction.CompletionCandidate) (interaction.A
 		return interaction.Artifact{}, errors.New("artifact Delegate identity is incorrect")
 	}
 	artifacts[0] = interaction.Artifact{}
-	if candidate.Artifacts().All()[0].DelegateName() != "delegate_artifact" {
+	if candidate.Artifacts()[0].DelegateName() != "delegate_artifact" {
 		return interaction.Artifact{}, errors.New("Artifact snapshot aliases validator-owned slice")
 	}
 	return artifact, nil
@@ -196,7 +196,7 @@ func TestCompletionValidatorCanRejectDirectToolResult(t *testing.T) {
 	}
 	model := &directCompletionValidationModel{}
 	validator := func(candidate interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
-		if candidate.Artifacts().Len() != 0 {
+		if len(candidate.Artifacts()) != 0 {
 			return interaction.CompletionDecision{}, errors.New("ordinary Tool produced a Delegate Artifact")
 		}
 		if candidate.Output().Source == interaction.CompletionSourceDirectToolResults {

@@ -52,7 +52,7 @@ type artifactRecord struct {
 	Output            agent.Output `json:"output"`
 }
 
-func (e executionState) Validate(definition *Definition) error {
+func (e executionState) validate(definition *Definition) error {
 	if !definition.valid() {
 		return ErrInvalidExecutionState
 	}

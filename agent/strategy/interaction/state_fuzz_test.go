@@ -225,7 +225,7 @@ func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.Executi
 	}
 	encoded := make([]agent.ExecutionState, 0, len(states))
 	for _, state := range states {
-		if err := state.Validate(definition); err != nil {
+		if err := state.validate(definition); err != nil {
 			f.Fatal(err)
 		}
 		payload, err := json.Marshal(state)

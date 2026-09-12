@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -14,22 +15,16 @@ import (
 	"github.com/Tangerg/scope/core/tool"
 )
 
-func TestToolInputRequestPreservesJSONNumbers(t *testing.T) {
-	for _, value := range []string{"9007199254740993", "18446744073709551615", "1.234567890123456789", "1e400"} {
-		t.Run(value, func(t *testing.T) {
-			schema := `{"const":` + value + `}`
-			request, err := interaction.NewToolInputRequest(json.RawMessage(value), json.RawMessage(schema), json.RawMessage(value))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if string(request.Prompt()) != value || string(request.ResponseSchema()) != schema || string(request.ContinuationState()) != value {
-				t.Fatalf("request changed JSON numbers: prompt=%s schema=%s continuation=%s", request.Prompt(), request.ResponseSchema(), request.ContinuationState())
-			}
-		})
+func TestRequireToolInputSupportsErrorClassification(t *testing.T) {
+	err := interaction.RequireToolInput(
+		json.RawMessage(`"continue?"`), json.RawMessage(`{"type":"boolean"}`), json.RawMessage(`{"step":2}`),
+	)
+	if !errors.Is(fmt.Errorf("tool paused: %w", err), interaction.ErrToolInputRequired) {
+		t.Fatalf("wrapped input request = %v, want ErrToolInputRequired", err)
 	}
 }
 
-func TestToolInputRequestRejectsInvalidAndOversizedJSON(t *testing.T) {
+func TestRequireToolInputRejectsInvalidAndOversizedJSON(t *testing.T) {
 	for name, value := range map[string]string{
 		"duplicate member": `{"answer":1,"answer":2}`,
 		"trailing value":   `1 2`,
@@ -37,7 +32,7 @@ func TestToolInputRequestRejectsInvalidAndOversizedJSON(t *testing.T) {
 		"normalized size":  `"` + strings.Repeat("<", (1<<20)/6+1) + `"`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := interaction.NewToolInputRequest(json.RawMessage(value), json.RawMessage(`true`), json.RawMessage(`null`))
+			err := interaction.RequireToolInput(json.RawMessage(value), json.RawMessage(`true`), json.RawMessage(`null`))
 			if !errors.Is(err, interaction.ErrInvalidToolInputRequest) {
 				t.Fatalf("error = %v, want ErrInvalidToolInputRequest", err)
 			}

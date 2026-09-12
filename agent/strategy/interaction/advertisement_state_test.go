@@ -21,7 +21,7 @@ func TestAdvertisedToolNamesSurviveExecutionStateRestore(t *testing.T) {
 		ModelCallCount:      1,
 		AdvertisedToolNames: []string{"first", "second"},
 	}
-	if validateErr := state.Validate(definition); validateErr != nil {
+	if validateErr := state.validate(definition); validateErr != nil {
 		t.Fatal(validateErr)
 	}
 	encoded, err := state.snapshot()

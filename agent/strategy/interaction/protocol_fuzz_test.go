@@ -127,7 +127,7 @@ func FuzzInteractionSignalProtocol(f *testing.F) {
 
 func fuzzToolCheckpoint(f *testing.F) *toolCheckpoint {
 	f.Helper()
-	request, err := NewToolInputRequest(
+	request, err := newToolInputRequest(
 		json.RawMessage(`{"question":"Name?"}`),
 		json.RawMessage(`{"type":"string","minLength":1}`),
 		json.RawMessage(`{"stage":"name","id":9007199254740993}`),

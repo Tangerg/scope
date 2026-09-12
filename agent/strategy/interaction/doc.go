@@ -15,7 +15,7 @@
 // for input. Model context receives the complete results in original call order.
 // A Tool child's input describes only its initial invocation, and its output
 // describes only completion. Resumption belongs to the child's dispatcher
-// protocol; its checkpoint retains one validated, immutable ToolInputRequest.
+// protocol; its checkpoint retains the validated input request and Tool-owned continuation.
 //
 // Interaction requests ordinary Tool and Delegate children only through
 // Framework Effects. One child-call batch owns start confirmations, wait

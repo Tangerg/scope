@@ -82,7 +82,7 @@ type signalEnvelope struct {
 	Operation     operation           `json:"operation"`
 	ModelResult   *modelCallResult    `json:"model_result,omitempty"`
 	ToolResult    *toolDispatchResult `json:"tool_result,omitempty"`
-	WaitOpened    *ToolInputRequest   `json:"wait_opened,omitempty"`
+	WaitOpened    *toolInputRequest   `json:"wait_opened,omitempty"`
 	InputResponse json.RawMessage     `json:"input_response,omitempty"`
 	Steer         *steerInput         `json:"steer,omitempty"`
 }
@@ -111,7 +111,7 @@ type toolDispatchResult struct {
 
 type toolCheckpoint struct {
 	PauseCount   uint32           `json:"pause_count"`
-	InputRequest ToolInputRequest `json:"input_request"`
+	InputRequest toolInputRequest `json:"input_request"`
 }
 
 func newModelEffect(
@@ -311,7 +311,7 @@ func (s signalEnvelope) validateWaitOpened() error {
 	if s.ModelResult != nil || s.ToolResult != nil || s.WaitOpened == nil || len(s.InputResponse) != 0 || s.Steer != nil {
 		return errors.New("interaction: wait_opened signal has an invalid payload set")
 	}
-	if !s.WaitOpened.Valid() {
+	if !s.WaitOpened.valid() {
 		return ErrInvalidToolInputRequest
 	}
 	return nil
@@ -338,7 +338,7 @@ func (t toolCheckpoint) validate() error {
 	if t.PauseCount == 0 {
 		return errors.New("interaction: tool checkpoint pause count is required")
 	}
-	if !t.InputRequest.Valid() {
+	if !t.InputRequest.valid() {
 		return fmt.Errorf("interaction: tool checkpoint input: %w", ErrInvalidToolInputRequest)
 	}
 	return nil

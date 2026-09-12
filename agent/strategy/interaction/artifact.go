@@ -47,19 +47,7 @@ func (a Artifact) valid() bool {
 		a.delegateName != "" && a.output.Valid()
 }
 
-// Artifacts is an immutable, ordered snapshot of successful Delegate outputs.
-// All returns defensive copies, so a validator cannot mutate Execution state.
-type Artifacts struct {
-	values []Artifact
-}
-
-// Len returns the number of successful Delegate outputs accumulated so far.
-func (a Artifacts) Len() int { return len(a.values) }
-
-// All returns Artifacts in original model ToolCall order across model calls.
-func (a Artifacts) All() []Artifact { return slices.Clone(a.values) }
-
-func newArtifacts(records []artifactRecord) Artifacts {
+func newArtifacts(records []artifactRecord) []Artifact {
 	values := make([]Artifact, len(records))
 	for index, record := range records {
 		values[index] = Artifact{
@@ -67,7 +55,7 @@ func newArtifacts(records []artifactRecord) Artifacts {
 			delegateName: record.DelegateName, output: record.Output,
 		}
 	}
-	return Artifacts{values: values}
+	return values
 }
 
 // CompletionCandidate is the immutable model context and semantic output
@@ -76,7 +64,7 @@ func newArtifacts(records []artifactRecord) Artifacts {
 type CompletionCandidate struct {
 	workingContext *chat.Request
 	output         Output
-	artifacts      Artifacts
+	artifacts      []Artifact
 }
 
 // WorkingContext returns an independently owned copy of the model context
@@ -89,8 +77,9 @@ func (c CompletionCandidate) WorkingContext() *chat.Request {
 // Output returns an independently owned candidate Output.
 func (c CompletionCandidate) Output() Output { return c.output.clone() }
 
-// Artifacts returns the immutable Delegate output snapshot.
-func (c CompletionCandidate) Artifacts() Artifacts { return c.artifacts }
+// Artifacts returns an independently owned slice of successful Delegate outputs
+// in original model ToolCall order across model calls. Each Artifact is immutable.
+func (c CompletionCandidate) Artifacts() []Artifact { return slices.Clone(c.artifacts) }
 
 // CompletionDecision is the explicit result of a CompletionValidator.
 // Accepted=true requires empty Feedback. Accepted=false requires concise,

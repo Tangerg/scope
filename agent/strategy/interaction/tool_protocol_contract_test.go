@@ -68,7 +68,7 @@ func TestToolProtocolRejectsSupersededAndIncompleteShapes(t *testing.T) {
 }
 
 func TestToolInputRequestJSONOwnsValidationAndIsolation(t *testing.T) {
-	request, err := NewToolInputRequest(json.RawMessage(`{"id":9007199254740993}`), json.RawMessage(`{"type":"boolean"}`), json.RawMessage(`{"step":2}`))
+	request, err := newToolInputRequest(json.RawMessage(`{"id":9007199254740993}`), json.RawMessage(`{"type":"boolean"}`), json.RawMessage(`{"step":2}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,14 +76,15 @@ func TestToolInputRequestJSONOwnsValidationAndIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var restored ToolInputRequest
+	const want = `{"prompt":{"id":9007199254740993},"response_schema":{"type":"boolean"},"continuation_state":{"step":2}}`
+	if string(encoded) != want {
+		t.Fatalf("checkpoint JSON = %s, want %s", encoded, want)
+	}
+	var restored toolInputRequest
 	if err = json.Unmarshal(encoded, &restored); err != nil || !restored.equal(request) {
 		t.Fatalf("request round trip: %s, %v", encoded, err)
 	}
 	clear(encoded)
-	clear(restored.Prompt())
-	clear(restored.ResponseSchema())
-	clear(restored.ContinuationState())
 	if !restored.equal(request) {
 		t.Fatal("outward JSON mutated an immutable request")
 	}
@@ -99,11 +100,26 @@ func TestToolInputRequestJSONOwnsValidationAndIsolation(t *testing.T) {
 			t.Fatal("failed decode changed the admitted request")
 		}
 	}
-	if _, err = json.Marshal(ToolInputRequest{}); !errors.Is(err, ErrInvalidToolInputRequest) {
+	if _, err = json.Marshal(toolInputRequest{}); !errors.Is(err, ErrInvalidToolInputRequest) {
 		t.Fatalf("zero request encoded: %v", err)
 	}
-	var absent *ToolInputRequest
+	var absent *toolInputRequest
 	if err = absent.UnmarshalJSON([]byte(`{}`)); !errors.Is(err, ErrInvalidToolInputRequest) {
 		t.Fatalf("nil receiver: %v", err)
+	}
+}
+
+func TestToolInputRequestPreservesJSONNumbers(t *testing.T) {
+	for _, value := range []string{"9007199254740993", "18446744073709551615", "1.234567890123456789", "1e400"} {
+		t.Run(value, func(t *testing.T) {
+			schema := `{"const":` + value + `}`
+			request, err := newToolInputRequest(json.RawMessage(value), json.RawMessage(schema), json.RawMessage(value))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(request.prompt) != value || string(request.responseSchema.JSON()) != schema || string(request.continuationState) != value {
+				t.Fatalf("request changed JSON numbers: prompt=%s schema=%s continuation=%s", request.prompt, request.responseSchema.JSON(), request.continuationState)
+			}
+		})
 	}
 }

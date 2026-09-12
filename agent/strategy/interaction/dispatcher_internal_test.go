@@ -70,7 +70,7 @@ func TestModelHostFailureSignalModesAreExclusive(t *testing.T) {
 }
 
 func TestToolInputPauseCountDoesNotWrap(t *testing.T) {
-	request, err := NewToolInputRequest(
+	request, err := newToolInputRequest(
 		json.RawMessage(`"provide another value"`),
 		json.RawMessage(`{"type":"string"}`),
 		json.RawMessage(`{"continuation":true}`),

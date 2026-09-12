@@ -105,7 +105,7 @@ func (t *toolDispatcher) callTool(
 ) (
 	result chat.ToolResult,
 	advertisedToolNames []string,
-	required *ToolInputRequest,
+	required *toolInputRequest,
 	err error,
 ) {
 	call := prepared.call
@@ -146,7 +146,7 @@ func (t *toolDispatcher) callTool(
 		return chat.ToolResult{}, nil, nil, err
 	}
 	if err != nil {
-		if inputRequired, ok := errors.AsType[*ToolInputRequiredError](err); ok {
+		if inputRequired, ok := errors.AsType[*toolInputRequiredError](err); ok {
 			request, valid := inputRequired.inputRequest()
 			if !valid {
 				return chat.ToolResult{}, nil, nil, ErrInvalidToolInputRequest
@@ -154,7 +154,7 @@ func (t *toolDispatcher) callTool(
 			return chat.ToolResult{}, nil, &request, nil
 		}
 	}
-	result, err = ModelToolResult(call, output, err)
+	result, err = modelToolResult(call, output, err)
 	if err != nil {
 		return chat.ToolResult{}, nil, nil, err
 	}
