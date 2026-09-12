@@ -153,3 +153,30 @@ func mapReplayDefinition(t testing.TB, count, window uint32) *workflow.Definitio
 	}
 	return definition
 }
+
+func BenchmarkMapEmptyInput(b *testing.B) {
+	for _, window := range []uint32{8, 65536} {
+		b.Run(fmt.Sprint(window), func(b *testing.B) {
+			definition := mapReplayDefinition(b, window, window)
+			input, err := agent.EncodeInput([]int{})
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				execution, err := definition.Start(input)
+				if err != nil {
+					b.Fatal(err)
+				}
+				transition, err := execution.Step(b.Context(), nil)
+				if err != nil {
+					b.Fatal(err)
+				}
+				output, ok := transition.Output()
+				if !ok || string(output.JSON()) != "[]" {
+					b.Fatal("unexpected result")
+				}
+			}
+		})
+	}
+}

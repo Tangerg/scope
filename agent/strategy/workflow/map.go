@@ -80,7 +80,7 @@ func Map[I, O any](config MapConfig[I, O]) (Stage, error) {
 			return nil, 0, ErrInvalidExecutionState
 		}
 		end := start + min(config.WindowSize, config.MaxItems-start)
-		items := make([]agent.Input, 0, end-start)
+		var items []agent.Input
 		count, err := codec.scan(raw, start, end, func(value jsontext.Value) error {
 			input, err := codec.item[I](value)
 			if err != nil {
