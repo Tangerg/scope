@@ -76,19 +76,18 @@ func NewSystemMessage(text string) Message {
 	return Message{Role: RoleSystem, Parts: []Part{NewTextPart(text)}}
 }
 
-// NewUserMessage snapshots ordered text and media input parts.
+// NewUserMessage copies the parts container and borrows nested values.
 func NewUserMessage(parts ...Part) Message {
 	return Message{Role: RoleUser, Parts: slices.Clone(parts)}
 }
 
-// NewAssistantMessage snapshots ordered model output parts without collapsing
-// reasoning, refusals, or tool calls into text.
+// NewAssistantMessage copies the parts container and borrows nested values.
 func NewAssistantMessage(parts ...Part) Message {
 	return Message{Role: RoleAssistant, Parts: slices.Clone(parts)}
 }
 
 // NewToolMessage preserves one result part per call so a provider can correlate
-// a returned batch without inspecting untyped content.
+// a returned batch without inspecting untyped content. Nested output is borrowed.
 func NewToolMessage(results ...ToolResult) Message {
 	parts := make([]Part, len(results))
 	for i := range results {

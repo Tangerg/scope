@@ -58,7 +58,7 @@ func TestToolOutputPreservesStructuredAndMediaContent(t *testing.T) {
 		t.Fatalf("structured Text = %q, %v", text, ok)
 	}
 
-	mediaOutput := chat.ToolOutput{Content: []chat.Part{chat.NewMediaPart(mustImage(t))}}
+	mediaOutput := chat.ToolOutput{Content: []chat.ToolContent{{Kind: chat.PartMedia, Media: mustImage(t)}}}
 	if err := mediaOutput.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestToolOutputPreservesStructuredAndMediaContent(t *testing.T) {
 		t.Fatal("media output reported a lossless text projection")
 	}
 
-	invalid := chat.ToolOutput{Content: []chat.Part{chat.NewToolCallPart(validToolCall())}}
+	invalid := chat.ToolOutput{Content: []chat.ToolContent{{Kind: chat.PartToolCall}}}
 	if err := invalid.Validate(); err == nil {
 		t.Fatal("nested tool call was accepted as Tool output content")
 	}
@@ -107,7 +107,7 @@ func TestToolOutputJSONOwnsValidation(t *testing.T) {
 		t.Fatalf("round-trip Text = %q, %v", text, ok)
 	}
 
-	invalid := chat.ToolOutput{Content: []chat.Part{chat.NewToolCallPart(validToolCall())}}
+	invalid := chat.ToolOutput{Content: []chat.ToolContent{{Kind: chat.PartToolCall}}}
 	if _, err := json.Marshal(invalid); !errors.Is(err, chat.ErrInvalidToolOutput) {
 		t.Fatalf("Marshal error = %v, want ErrInvalidToolOutput", err)
 	}

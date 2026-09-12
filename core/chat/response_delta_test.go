@@ -69,7 +69,7 @@ func TestResponseDeltaCloneOwnsNestedValues(t *testing.T) {
 	state := []byte("state")
 	delta := &chat.ResponseDelta{
 		Parts:    []chat.PartDelta{chat.NewReasoningDelta("thinking", state)},
-		Metadata: &chat.ResponseMetadata{Usage: chat.Usage{OutputTokens: 1}},
+		Metadata: &chat.ResponseMetadata{Usage: &chat.Usage{OutputTokens: 1}},
 	}
 	clone := delta.Clone()
 	clone.Parts[0].ReasoningState[0] = 'X'

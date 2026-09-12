@@ -154,7 +154,7 @@ func TestResponseCloneOwnsNestedProtocolValues(t *testing.T) {
 	reasoningTokens := int64(2)
 	response, err := chat.NewResponse(assistantResult("original"), &chat.ResponseMetadata{
 		Model: "model",
-		Usage: chat.Usage{OutputTokens: 2, ReasoningTokens: &reasoningTokens},
+		Usage: &chat.Usage{OutputTokens: 2, ReasoningTokens: &reasoningTokens},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -207,7 +207,7 @@ func TestResponseValidateRejectsInvalidValues(t *testing.T) {
 		{name: "ID whitespace", response: &chat.Response{Output: assistantResult("x"), Metadata: &chat.ResponseMetadata{ID: " id"}}},
 		{name: "model whitespace", response: &chat.Response{Output: assistantResult("x"), Metadata: &chat.ResponseMetadata{Model: "model "}}},
 		{name: "invalid output", response: &chat.Response{Output: &chat.Output{}}},
-		{name: "invalid usage", response: &chat.Response{Output: assistantResult("x"), Metadata: &chat.ResponseMetadata{Usage: invalidUsage}}, also: chat.ErrInvalidUsage},
+		{name: "invalid usage", response: &chat.Response{Output: assistantResult("x"), Metadata: &chat.ResponseMetadata{Usage: &invalidUsage}}, also: chat.ErrInvalidUsage},
 		{name: "invalid metadata", response: &chat.Response{Output: assistantResult("x"), Metadata: &chat.ResponseMetadata{Extra: metadata.Map{"bad": json.RawMessage(`{`)}}}},
 	}
 	for _, tt := range tests {
@@ -229,7 +229,7 @@ func TestResponseJSONRoundTrip(t *testing.T) {
 	response, err := chat.NewResponse(assistantResult("hello"), &chat.ResponseMetadata{
 		ID:    "response-1",
 		Model: "model",
-		Usage: chat.Usage{InputTokens: 10, OutputTokens: 6, ReasoningTokens: &reasoning, CacheReadInputTokens: &cacheRead},
+		Usage: &chat.Usage{InputTokens: 10, OutputTokens: 6, ReasoningTokens: &reasoning, CacheReadInputTokens: &cacheRead},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -273,6 +273,30 @@ func TestResponseProtocolFieldsExcludeToolLoopState(t *testing.T) {
 	for i, name := range want {
 		if typ.Field(i).Name != name {
 			t.Errorf("Response field[%d] = %s, want %s", i, typ.Field(i).Name, name)
+		}
+	}
+}
+
+func TestResponseMetadataDistinguishesMissingAndZeroUsage(t *testing.T) {
+	for _, test := range []struct {
+		wire  string
+		known bool
+	}{
+		{`{"id":"response"}`, false}, {`{"id":"response","usage":{}}`, true},
+	} {
+		var metadata chat.ResponseMetadata
+		if err := json.Unmarshal([]byte(test.wire), &metadata); err != nil {
+			t.Fatal(err)
+		}
+		if (metadata.Usage != nil) != test.known {
+			t.Fatalf("usage presence in %s = %+v", test.wire, metadata.Usage)
+		}
+		encoded, err := json.Marshal(metadata)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(encoded) != test.wire {
+			t.Fatalf("round trip = %s, want %s", encoded, test.wire)
 		}
 	}
 }

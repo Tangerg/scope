@@ -14,10 +14,10 @@ import (
 
 func TestCapabilitiesRemainSmall(t *testing.T) {
 	want := map[reflect.Type][]string{
-		reflect.TypeFor[tokenizer.TextEstimator](): {"EstimateText"},
-		reflect.TypeFor[tokenizer.Encoder]():       {"Encode"},
-		reflect.TypeFor[tokenizer.Decoder]():       {"Decode"},
-		reflect.TypeFor[tokenizer.Tokenizer]():     {"Decode", "Encode"},
+		reflect.TypeFor[tokenizer.TextCounter](): {"CountText"},
+		reflect.TypeFor[tokenizer.Encoder]():     {"Encode"},
+		reflect.TypeFor[tokenizer.Decoder]():     {"Decode"},
+		reflect.TypeFor[tokenizer.Tokenizer]():   {"Decode", "Encode"},
 	}
 	for capability, methods := range want {
 		if capability.NumMethod() != len(methods) {

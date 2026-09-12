@@ -276,3 +276,15 @@ func TestRequestProtocolFieldsContainNoInterfaces(t *testing.T) {
 		}
 	}
 }
+
+func TestRequestStructureAllowsClippedToolHistory(t *testing.T) {
+	result := chat.ToolResult{ID: "call", Name: "tool", Output: chat.NewTextToolOutput("answer")}
+	request, err := chat.NewRequest(chat.NewToolMessage(result))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result.Output.Content[0].Text = "reused"
+	if request.Messages[0].Parts[0].ToolResult.Output.Content[0].Text != "answer" {
+		t.Fatal("request borrowed retained tool content")
+	}
+}

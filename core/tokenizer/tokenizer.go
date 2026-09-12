@@ -2,13 +2,13 @@ package tokenizer
 
 import "context"
 
-// TextEstimator reports the token count a model would assign to text.
+// TextCounter reports the token count a model would assign to text.
 // Implementations may use a local vocabulary or a provider API.
-type TextEstimator interface {
-	// EstimateText returns a non-negative count under the implementation's
+type TextCounter interface {
+	// CountText returns a non-negative count under the implementation's
 	// explicitly selected vocabulary or provider model. Remote implementations
 	// must honor cancellation and preserve context errors.
-	EstimateText(ctx context.Context, text string) (int, error)
+	CountText(ctx context.Context, text string) (int, error)
 }
 
 // Encoder converts text into vocabulary token IDs.
@@ -26,7 +26,7 @@ type Decoder interface {
 }
 
 // Tokenizer combines the encoding capabilities required by token-aware text
-// splitters. Providers that only count tokens should implement TextEstimator
+// splitters. Providers that only count tokens should implement TextCounter
 // instead.
 type Tokenizer interface {
 	Encoder

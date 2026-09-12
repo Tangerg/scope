@@ -60,11 +60,6 @@ func (u Usage) clone() Usage {
 	return clone
 }
 
-func (u Usage) isZero() bool {
-	return u.InputTokens == 0 && u.OutputTokens == 0 && u.ReasoningTokens == nil &&
-		u.CacheReadInputTokens == nil && u.CacheWriteInputTokens == nil
-}
-
 func validateTokenSubset(name string, value *int64, total int64) error {
 	if value == nil {
 		return nil

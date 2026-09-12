@@ -162,3 +162,23 @@ func TestCitationValidate(t *testing.T) {
 		}
 	}
 }
+
+func TestCitationsBelongOnlyToText(t *testing.T) {
+	for _, part := range []chat.Part{
+		chat.NewMediaPart(mustImage(t)), chat.NewReasoningPart("reason", nil),
+		chat.NewRefusalPart("refused"), chat.NewToolCallPart(validToolCall()),
+		chat.NewToolResultPart(chat.ToolResult{ID: "call", Name: "tool"}),
+	} {
+		t.Run(string(part.Kind), func(t *testing.T) {
+			for _, citation := range []chat.Citation{{}, {Source: chat.CitationSource{Kind: chat.CitationSourceReference, Value: "source"}}} {
+				part.Citations = []chat.Citation{citation}
+				if err := part.Validate(); !errors.Is(err, chat.ErrInvalidPart) {
+					t.Fatalf("Validate = %v", err)
+				}
+				if _, err := json.Marshal(part); !errors.Is(err, chat.ErrInvalidPart) {
+					t.Fatalf("Marshal = %v", err)
+				}
+			}
+		})
+	}
+}

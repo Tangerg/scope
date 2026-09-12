@@ -53,7 +53,7 @@ func TestResponseGolden(t *testing.T) {
 	}
 	reasoning := int64(4)
 	cacheRead := int64(8)
-	response.Metadata.Usage = chat.Usage{InputTokens: 32, OutputTokens: 12, ReasoningTokens: &reasoning, CacheReadInputTokens: &cacheRead}
+	response.Metadata.Usage = &chat.Usage{InputTokens: 32, OutputTokens: 12, ReasoningTokens: &reasoning, CacheReadInputTokens: &cacheRead}
 	if err := response.Metadata.Extra.Set("openai/system_fingerprint", "fp-1"); err != nil {
 		t.Fatal(err)
 	}

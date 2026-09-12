@@ -10,13 +10,13 @@ import (
 
 type wordEstimator struct{}
 
-func (wordEstimator) EstimateText(_ context.Context, text string) (int, error) {
+func (wordEstimator) CountText(_ context.Context, text string) (int, error) {
 	return len(strings.Fields(text)), nil
 }
 
 func Example() {
-	var estimator tokenizer.TextEstimator = wordEstimator{}
-	count, err := estimator.EstimateText(context.Background(), "small stable contract")
+	var estimator tokenizer.TextCounter = wordEstimator{}
+	count, err := estimator.CountText(context.Background(), "small stable contract")
 	if err != nil {
 		panic(err)
 	}

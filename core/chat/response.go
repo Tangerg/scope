@@ -17,9 +17,11 @@ var ErrInvalidResponse = errors.New("chat: invalid response")
 
 // ResponseMetadata holds provider identity, usage, and response-scoped extras.
 type ResponseMetadata struct {
-	ID        string       `json:"id,omitempty"`
-	Model     string       `json:"model,omitempty"`
-	Usage     Usage        `json:"usage,omitzero"`
+	ID    string `json:"id,omitempty"`
+	Model string `json:"model,omitempty"`
+	// Usage is nil when token accounting was not reported. A non-nil zero
+	// value records an explicitly reported zero total.
+	Usage     *Usage       `json:"usage,omitempty"`
 	CreatedAt time.Time    `json:"created_at,omitzero"`
 	Extra     metadata.Map `json:"extra,omitzero"`
 }
@@ -34,8 +36,10 @@ func (r *ResponseMetadata) validate() error {
 	if r.Model != "" && strings.TrimSpace(r.Model) != r.Model {
 		return fmt.Errorf("%w: response metadata model must not have surrounding whitespace", ErrInvalidResponse)
 	}
-	if err := r.Usage.Validate(); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidResponse, err)
+	if r.Usage != nil {
+		if err := r.Usage.Validate(); err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidResponse, err)
+		}
 	}
 	if err := r.Extra.Validate(); err != nil {
 		return fmt.Errorf("%w: response metadata: %w", ErrInvalidResponse, err)
@@ -50,8 +54,8 @@ func (r *ResponseMetadata) mergeValidated(src ResponseMetadata) {
 	if src.Model != "" {
 		r.Model = src.Model
 	}
-	if !src.Usage.isZero() {
-		r.Usage = src.Usage.clone()
+	if src.Usage != nil {
+		r.Usage = new(src.Usage.clone())
 	}
 	if !src.CreatedAt.IsZero() {
 		r.CreatedAt = src.CreatedAt
@@ -61,7 +65,9 @@ func (r *ResponseMetadata) mergeValidated(src ResponseMetadata) {
 
 func (r ResponseMetadata) clone() *ResponseMetadata {
 	clone := r
-	clone.Usage = r.Usage.clone()
+	if r.Usage != nil {
+		clone.Usage = new(r.Usage.clone())
+	}
 	clone.Extra = r.Extra.Clone()
 	return &clone
 }

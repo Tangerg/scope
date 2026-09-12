@@ -43,11 +43,9 @@ func (t ToolCallDelta) Validate() error {
 // for structured consumers; providers use its encoded JSON as the model-visible
 // fallback only when Content is empty.
 //
-// Content deliberately reuses Part so media has one representation across the
-// chat protocol. Only text and media parts are valid here; reasoning, calls,
-// refusals, and results are rejected.
+// Content cannot contain chat control payloads or recursively contain results.
 type ToolOutput struct {
-	Content []Part          `json:"content,omitempty"`
+	Content []ToolContent   `json:"content,omitempty"`
 	Details json.RawMessage `json:"details,omitempty"`
 }
 
@@ -57,7 +55,7 @@ func NewTextToolOutput(text string) ToolOutput {
 	if text == "" {
 		return ToolOutput{}
 	}
-	return ToolOutput{Content: []Part{NewTextPart(text)}}
+	return ToolOutput{Content: []ToolContent{{Kind: PartText, Text: text}}}
 }
 
 // NewJSONToolOutput returns a structured output whose exact JSON encoding is
@@ -72,7 +70,7 @@ func NewJSONToolOutput(value json.RawMessage) (ToolOutput, error) {
 func (t ToolOutput) Clone() ToolOutput {
 	clone := ToolOutput{Details: bytes.Clone(t.Details)}
 	if t.Content != nil {
-		clone.Content = make([]Part, len(t.Content))
+		clone.Content = make([]ToolContent, len(t.Content))
 		for index := range t.Content {
 			clone.Content[index] = t.Content[index].Clone()
 		}
@@ -108,9 +106,6 @@ func (t *ToolOutput) UnmarshalJSON(data []byte) error {
 func (t ToolOutput) Validate() error {
 	for index := range t.Content {
 		part := t.Content[index]
-		if part.Kind != PartText && part.Kind != PartMedia {
-			return fmt.Errorf("%w: content[%d]: unsupported part kind %q", ErrInvalidToolOutput, index, part.Kind)
-		}
 		if err := part.Validate(); err != nil {
 			return fmt.Errorf("%w: content[%d]: %w", ErrInvalidToolOutput, index, err)
 		}

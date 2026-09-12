@@ -5,7 +5,6 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"slices"
 )
 
 // ErrInvalidRequest identifies an invalid complete model input.
@@ -42,17 +41,15 @@ func (r *Request) Clone() *Request {
 	return clone
 }
 
-// NewRequest snapshots and validates a complete conversation, including its
-// leading system prefix and tool-call consistency.
+// NewRequest validates message structure and the leading system prefix, then
+// snapshots all nested values. Cross-message call/result pairing is outside
+// this structural contract; providers own their conversation sequencing rules.
 func NewRequest(messages ...Message) (*Request, error) {
-	r := &Request{Messages: slices.Clone(messages)}
-	for index := range r.Messages {
-		r.Messages[index] = r.Messages[index].Clone()
-	}
+	r := &Request{Messages: messages}
 	if err := r.Validate(); err != nil {
 		return nil, err
 	}
-	return r, nil
+	return r.Clone(), nil
 }
 
 func (r *Request) Validate() error {

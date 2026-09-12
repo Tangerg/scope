@@ -163,8 +163,8 @@ func TestClientOutputRejectsDuplicateOrInvalidFormat(t *testing.T) {
 		t.Fatalf("zero output format = %v, want ErrInvalidOutputFormat", err)
 	}
 	var zeroClient Client
-	if _, err := zeroClient.Output(t.Context(), textRequest("hello"), JSON[recipe]()); !errors.Is(err, ErrNilClient) {
-		t.Fatalf("nil client = %v, want ErrNilClient", err)
+	if _, err := zeroClient.Output(t.Context(), textRequest("hello"), JSON[recipe]()); !errors.Is(err, ErrInvalidClient) {
+		t.Fatalf("nil client = %v, want ErrInvalidClient", err)
 	}
 }
 

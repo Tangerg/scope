@@ -13,8 +13,8 @@ import (
 var (
 	// ErrNilModel rejects a client whose only required capability is absent.
 	ErrNilModel = errors.New("chatclient: nil model")
-	// ErrNilClient identifies use of a zero-value Client.
-	ErrNilClient = errors.New("chatclient: nil client")
+	// ErrInvalidClient identifies use of a zero-value Client.
+	ErrInvalidClient = errors.New("chatclient: uninitialized client")
 )
 
 // Client is an immutable, concurrency-safe composition of chat capabilities
@@ -47,7 +47,7 @@ func New(model chat.Model, config Config) (Client, error) {
 func (c Client) Output[T any](ctx context.Context, req *chat.Request, format OutputFormat[T]) (T, error) {
 	var zero T
 	if !c.valid() {
-		return zero, ErrNilClient
+		return zero, ErrInvalidClient
 	}
 	if err := format.validate(); err != nil {
 		return zero, err
@@ -59,7 +59,7 @@ func (c Client) Output[T any](ctx context.Context, req *chat.Request, format Out
 // Call snapshots and validates req before the middleware and model boundary.
 func (c Client) Call(ctx context.Context, req *chat.Request) (*chat.Response, error) {
 	if !c.valid() {
-		return nil, ErrNilClient
+		return nil, ErrInvalidClient
 	}
 	return c.call(ctx, req, nil)
 }
@@ -79,12 +79,12 @@ func prepareRequest(request *chat.Request, outputFormat *chat.OutputFormat) (*ch
 	if outputFormat != nil && request.Options.OutputFormat != nil {
 		return nil, fmt.Errorf("%w: request options already define output_format", ErrInvalidOutputFormat)
 	}
+	if err := request.Validate(); err != nil {
+		return nil, err
+	}
 	prepared := request.Clone()
 	if outputFormat != nil {
 		prepared.Options.OutputFormat = outputFormat.Clone()
-	}
-	if err := prepared.Validate(); err != nil {
-		return nil, err
 	}
 	return prepared, nil
 }

@@ -84,14 +84,12 @@ func NewTextPart(text string) Part {
 	return Part{Kind: PartText, Text: text}
 }
 
-// NewMediaPart keeps media typed instead of encoding it into provider-specific
-// message text.
+// NewMediaPart borrows value. Use Clone when independent ownership is needed.
 func NewMediaPart(value *media.Media) Part {
 	return Part{Kind: PartMedia, Media: value}
 }
 
-// NewReasoningPart snapshots opaque replay state independently from visible
-// reasoning text.
+// NewReasoningPart copies opaque replay state alongside visible reasoning.
 func NewReasoningPart(text string, state []byte) Part {
 	return Part{Kind: PartReasoning, Text: text, ReasoningState: slices.Clone(state)}
 }
@@ -102,7 +100,7 @@ func NewToolCallPart(call ToolCall) Part {
 	return Part{Kind: PartToolCall, ToolCall: new(call)}
 }
 
-// NewToolResultPart preserves tool correlation and output as typed tool content.
+// NewToolResultPart copies result and borrows its nested content.
 func NewToolResultPart(result ToolResult) Part {
 	return Part{Kind: PartToolResult, ToolResult: new(result)}
 }
@@ -115,6 +113,9 @@ func NewRefusalPart(text string) Part {
 func (p Part) Validate() error {
 	if !p.Kind.Valid() {
 		return fmt.Errorf("%w: unknown kind %q", ErrInvalidPart, p.Kind)
+	}
+	if len(p.Citations) != 0 && p.Kind != PartText {
+		return fmt.Errorf("%w: kind %q cannot carry citations", ErrInvalidPart, p.Kind)
 	}
 	if err := p.Metadata.Validate(); err != nil {
 		return fmt.Errorf("%w: metadata: %w", ErrInvalidPart, err)
@@ -171,9 +172,6 @@ func (p Part) validateTextPayload(payload partPayload) error {
 }
 
 func (p Part) validateMediaPayload(payload partPayload) error {
-	if len(p.Citations) != 0 {
-		return fmt.Errorf("%w: kind %q cannot carry citations", ErrInvalidPart, p.Kind)
-	}
 	if payload != payloadMedia {
 		return fmt.Errorf("%w: kind %q requires media and no other payload", ErrInvalidPart, p.Kind)
 	}
@@ -184,9 +182,6 @@ func (p Part) validateMediaPayload(payload partPayload) error {
 }
 
 func (p Part) validateReasoningPayload(payload partPayload) error {
-	if len(p.Citations) != 0 {
-		return fmt.Errorf("%w: kind %q cannot carry citations", ErrInvalidPart, p.Kind)
-	}
 	const allowed = payloadText | payloadReasoningState
 	if payload == 0 || payload&^allowed != 0 {
 		return fmt.Errorf("%w: kind %q requires text or reasoning state and no other payload", ErrInvalidPart, p.Kind)
@@ -195,7 +190,7 @@ func (p Part) validateReasoningPayload(payload partPayload) error {
 }
 
 func (p Part) validateRefusalPayload(payload partPayload) error {
-	if len(p.Citations) != 0 || payload != payloadText {
+	if payload != payloadText {
 		return fmt.Errorf("%w: kind %q requires non-empty text and no other payload", ErrInvalidPart, p.Kind)
 	}
 	return nil

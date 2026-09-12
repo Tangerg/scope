@@ -28,7 +28,7 @@ func TestResponseAccumulatorPromotesTerminalStream(t *testing.T) {
 			},
 			FinishReason:   chat.FinishReasonToolCalls,
 			OutputMetadata: &chat.OutputMetadata{},
-			Metadata:       &chat.ResponseMetadata{Model: "model-final", Usage: chat.Usage{InputTokens: 12, OutputTokens: 5}},
+			Metadata:       &chat.ResponseMetadata{Model: "model-final", Usage: &chat.Usage{InputTokens: 12, OutputTokens: 5}},
 		},
 	}
 	chunks[0].Metadata.Extra = metadata.Map{}
@@ -155,8 +155,8 @@ func TestResponseAccumulatorPromotesCompleteMediaDelta(t *testing.T) {
 func TestResponseAccumulatorUsesLatestUsageSnapshot(t *testing.T) {
 	reasoning := int64(2)
 	chunks := []*chat.ResponseDelta{
-		{Metadata: &chat.ResponseMetadata{Usage: chat.Usage{InputTokens: 8}}},
-		{Metadata: &chat.ResponseMetadata{Usage: chat.Usage{InputTokens: 8, OutputTokens: 3, ReasoningTokens: &reasoning}}, FinishReason: chat.FinishReasonStop},
+		{Metadata: &chat.ResponseMetadata{Usage: &chat.Usage{InputTokens: 8}}},
+		{Metadata: &chat.ResponseMetadata{Usage: &chat.Usage{InputTokens: 8, OutputTokens: 3, ReasoningTokens: &reasoning}}, FinishReason: chat.FinishReasonStop},
 	}
 	var accumulator chat.ResponseAccumulator
 	for _, chunk := range chunks {
@@ -339,5 +339,30 @@ func TestResponseAccumulatorRejectsConflictingNewToolWithinDelta(t *testing.T) {
 	response, err := accumulator.Response()
 	if err != nil || response.Text() != "clean" || len(response.Output.Message.Parts) != 1 {
 		t.Fatalf("response = %#v, error = %v", response, err)
+	}
+}
+
+func TestUsagePresenceSurvivesStreamingAndExplicitZero(t *testing.T) {
+	for _, test := range []struct {
+		final *chat.Usage
+		want  int64
+	}{{nil, 8}, {&chat.Usage{}, 0}} {
+		var accumulator chat.ResponseAccumulator
+		for _, delta := range []*chat.ResponseDelta{
+			{Metadata: &chat.ResponseMetadata{Usage: &chat.Usage{InputTokens: 8}}},
+			{Metadata: &chat.ResponseMetadata{ID: "response-without-accounting"}},
+			{FinishReason: chat.FinishReasonStop, Metadata: &chat.ResponseMetadata{Usage: test.final}},
+		} {
+			if err := accumulator.Add(delta); err != nil {
+				t.Fatal(err)
+			}
+		}
+		response, err := accumulator.Response()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response.Metadata.Usage == nil || response.Metadata.Usage.InputTokens != test.want {
+			t.Fatalf("usage = %+v, want %d", response.Metadata.Usage, test.want)
+		}
 	}
 }

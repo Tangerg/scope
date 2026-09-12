@@ -125,7 +125,7 @@ func TestModelConstructorsTakeAContext(t *testing.T) {
 	clients := map[string]struct{}{
 		"NewChat": {}, "NewMessages": {}, "NewResponses": {},
 		"NewChatCompletions": {}, "NewCompatibleChatCompletions": {},
-		"NewCompatibleMessages": {}, "NewTextEstimator": {},
+		"NewCompatibleMessages": {}, "NewTextCounter": {},
 	}
 
 	root := filepath.Join(repositoryRoot(t), "models")

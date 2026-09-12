@@ -15,7 +15,7 @@ import (
 func TestFailurePreservesCauseAndOwnedOutput(t *testing.T) {
 	cause := errors.New("operation failed")
 	output := chat.ToolOutput{
-		Content: []chat.Part{chat.NewTextPart("first"), chat.NewTextPart("second")},
+		Content: []chat.ToolContent{{Kind: chat.PartText, Text: "first"}, {Kind: chat.PartText, Text: "second"}},
 		Details: json.RawMessage(`{"committed":["one"]}`),
 	}
 	want := output.Clone()
