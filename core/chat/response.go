@@ -43,7 +43,7 @@ func (r *ResponseMetadata) validate() error {
 	return nil
 }
 
-func (r *ResponseMetadata) merge(src ResponseMetadata) error {
+func (r *ResponseMetadata) mergeValidated(src ResponseMetadata) {
 	if src.ID != "" {
 		r.ID = src.ID
 	}
@@ -56,10 +56,7 @@ func (r *ResponseMetadata) merge(src ResponseMetadata) error {
 	if !src.CreatedAt.IsZero() {
 		r.CreatedAt = src.CreatedAt
 	}
-	if err := r.Extra.Merge(src.Extra); err != nil {
-		return fmt.Errorf("merge extras: %w", err)
-	}
-	return nil
+	mergeValidatedMetadata(&r.Extra, src.Extra)
 }
 
 func (r ResponseMetadata) clone() *ResponseMetadata {

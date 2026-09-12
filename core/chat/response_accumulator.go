@@ -1,24 +1,47 @@
 package chat
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
-	"maps"
+	"strings"
+
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 // ResponseAccumulator is the only promotion path from transport deltas to a
-// complete Response. Its zero value is ready to use and Add is atomic.
+// complete Response. Its zero value is ready to use. It must not be copied after
+// first use and is not safe for concurrent use.
 type ResponseAccumulator struct {
-	metadata       *ResponseMetadata
-	message        *Message
-	outputMetadata *OutputMetadata
-	finishReason   FinishReason
-	toolParts      map[string]int
-	seen           bool
+	metadata        *ResponseMetadata
+	parts           []accumulatedPart
+	messageMetadata metadata.Map
+	outputMetadata  *OutputMetadata
+	finishReason    FinishReason
+	toolParts       map[string]int
+	seen            bool
+	hasMessage      bool
+}
+
+// accumulatedPart keeps growing text or tool arguments out of immutable strings.
+// The complete Part is materialized only at the outward snapshot boundary.
+type accumulatedPart struct {
+	part    Part
+	content []byte
+}
+
+func (a accumulatedPart) snapshot() Part {
+	part := a.part.Clone()
+	if part.Kind == PartToolCall {
+		part.ToolCall.Arguments = string(a.content)
+	} else {
+		part.Text = string(a.content)
+	}
+	return part
 }
 
 // Add validates and applies one delta atomically; a failed merge leaves the
-// accumulated stream unchanged.
+// accumulated stream unchanged. Atomicity does not imply concurrency safety.
 func (r *ResponseAccumulator) Add(delta *ResponseDelta) error {
 	if r == nil {
 		return errors.New("chat: nil response accumulator")
@@ -26,25 +49,30 @@ func (r *ResponseAccumulator) Add(delta *ResponseDelta) error {
 	if err := delta.Validate(); err != nil {
 		return fmt.Errorf("chat: accumulate: %w", err)
 	}
-	next := r.clone()
-	if err := next.merge(delta); err != nil {
+	if err := r.preflight(delta); err != nil {
 		return fmt.Errorf("chat: accumulate: %w: %w", ErrInvalidResponse, err)
 	}
-	*r = next
+	r.merge(delta)
 	return nil
 }
 
 // Text returns the currently accumulated visible text without manufacturing a
 // partial Response.
 func (r *ResponseAccumulator) Text() string {
-	if r == nil || r.message == nil {
+	if r == nil {
 		return ""
 	}
-	return r.message.Text()
+	var text strings.Builder
+	for _, part := range r.parts {
+		if part.part.Kind == PartText {
+			text.Write(part.content)
+		}
+	}
+	return text.String()
 }
 
 // Response promotes the accumulated stream only after a terminal finish reason
-// has been observed.
+// has been observed and returns an independently owned snapshot.
 func (r *ResponseAccumulator) Response() (*Response, error) {
 	if r == nil || !r.seen {
 		return nil, fmt.Errorf("%w: stream produced no deltas", ErrInvalidResponse)
@@ -53,9 +81,12 @@ func (r *ResponseAccumulator) Response() (*Response, error) {
 		return nil, fmt.Errorf("%w: stream ended without a finish reason", ErrInvalidResponse)
 	}
 	output := &Output{FinishReason: r.finishReason}
-	if r.message != nil {
-		message := r.message.Clone()
-		output.Message = &message
+	if r.hasMessage {
+		message := &Message{Role: RoleAssistant, Metadata: r.messageMetadata.Clone(), Parts: make([]Part, len(r.parts))}
+		for index := range r.parts {
+			message.Parts[index] = r.parts[index].snapshot()
+		}
+		output.Message = message
 	}
 	if r.outputMetadata != nil {
 		output.Metadata = r.outputMetadata.clone()
@@ -70,130 +101,130 @@ func (r *ResponseAccumulator) Response() (*Response, error) {
 	return response, nil
 }
 
-func (r *ResponseAccumulator) merge(delta *ResponseDelta) error {
+// All cross-delta failures are checked before any owned state changes. The
+// temporary identities cover tool calls introduced earlier in the same delta.
+func (r *ResponseAccumulator) preflight(delta *ResponseDelta) error {
 	if r.finishReason != "" {
 		return errors.New("stream emitted a delta after its finish reason")
 	}
+	var last PartKind
+	if len(r.parts) > 0 {
+		last = r.parts[len(r.parts)-1].part.Kind
+	}
+	var introduced map[string]string
+	for index, part := range delta.Parts {
+		switch part.Kind {
+		case PartDeltaCitation:
+			if last != PartText {
+				return fmt.Errorf("part %d: citation delta does not follow text", index)
+			}
+		case PartDeltaToolCall:
+			call := part.ToolCall
+			name, exists := introduced[call.ID]
+			if position, found := r.toolParts[call.ID]; found {
+				name, exists = r.parts[position].part.ToolCall.Name, true
+			}
+			if exists {
+				if name != call.Name {
+					return fmt.Errorf("part %d: tool call %q changed name from %q to %q", index, call.ID, name, call.Name)
+				}
+				continue
+			}
+			if introduced == nil {
+				introduced = make(map[string]string)
+			}
+			introduced[call.ID] = call.Name
+			last = PartToolCall
+		case PartDeltaText:
+			last = PartText
+		case PartDeltaReasoning:
+			last = PartReasoning
+		case PartDeltaRefusal:
+			last = PartRefusal
+		case PartDeltaMedia:
+			last = PartMedia
+		}
+	}
+	return nil
+}
+
+func (r *ResponseAccumulator) merge(delta *ResponseDelta) {
 	r.seen = true
 	if delta.Metadata != nil {
 		if r.metadata == nil {
 			r.metadata = &ResponseMetadata{}
 		}
-		if err := r.metadata.merge(*delta.Metadata); err != nil {
-			return fmt.Errorf("chat: accumulate response metadata: %w", err)
-		}
+		r.metadata.mergeValidated(*delta.Metadata)
 	}
 	if delta.OutputMetadata != nil {
 		if r.outputMetadata == nil {
 			r.outputMetadata = &OutputMetadata{}
 		}
-		if err := r.outputMetadata.Extra.Merge(delta.OutputMetadata.Extra); err != nil {
-			return fmt.Errorf("chat: accumulate output metadata: %w", err)
-		}
+		mergeValidatedMetadata(&r.outputMetadata.Extra, delta.OutputMetadata.Extra)
 	}
-	if delta.FinishReason != "" {
-		r.finishReason = delta.FinishReason
-	}
+	r.finishReason = delta.FinishReason
 	if len(delta.Parts) == 0 && len(delta.MessageMetadata) == 0 {
-		return nil
+		return
 	}
-	if r.message == nil {
-		r.message = &Message{Role: RoleAssistant}
+	r.hasMessage = true
+	mergeValidatedMetadata(&r.messageMetadata, delta.MessageMetadata)
+	for _, part := range delta.Parts {
+		r.mergePart(part)
 	}
-	if err := r.message.Metadata.Merge(delta.MessageMetadata); err != nil {
-		return fmt.Errorf("chat: accumulate message metadata: %w", err)
-	}
-	if r.toolParts == nil {
-		r.toolParts = make(map[string]int)
-	}
-	for index := range delta.Parts {
-		if err := r.mergePart(delta.Parts[index]); err != nil {
-			return fmt.Errorf("chat: accumulate part %d: %w", index, err)
-		}
-	}
-	return nil
 }
 
-func (r *ResponseAccumulator) mergePart(delta PartDelta) error {
-	parts := &r.message.Parts
+func (r *ResponseAccumulator) mergePart(delta PartDelta) {
 	switch delta.Kind {
 	case PartDeltaText:
-		return r.mergeTextLike(parts, PartText, delta)
+		r.mergeTextLike(PartText, delta)
+	case PartDeltaRefusal:
+		r.mergeTextLike(PartRefusal, delta)
+	case PartDeltaReasoning:
+		r.mergeTextLike(PartReasoning, delta)
 	case PartDeltaMedia:
 		part := NewMediaPart(delta.Media.Clone())
 		part.Metadata = delta.Metadata.Clone()
-		*parts = append(*parts, part)
-		return nil
-	case PartDeltaReasoning:
-		if len(*parts) > 0 && (*parts)[len(*parts)-1].Kind == PartReasoning && (*parts)[len(*parts)-1].Metadata.Equal(delta.Metadata) {
-			last := &(*parts)[len(*parts)-1]
-			last.Text += delta.Text
-			last.ReasoningState = append(last.ReasoningState, delta.ReasoningState...)
-			return nil
-		}
-		part := NewReasoningPart(delta.Text, delta.ReasoningState)
-		part.Metadata = delta.Metadata.Clone()
-		*parts = append(*parts, part)
-		return nil
+		r.parts = append(r.parts, accumulatedPart{part: part})
 	case PartDeltaToolCall:
-		callDelta := delta.ToolCall
-		if position, exists := r.toolParts[callDelta.ID]; exists {
-			part := &(*parts)[position]
-			if part.ToolCall.Name != callDelta.Name {
-				return fmt.Errorf("tool call %q changed name from %q to %q", part.ToolCall.ID, part.ToolCall.Name, callDelta.Name)
-			}
-			part.ToolCall.Arguments += callDelta.Arguments
-			if err := part.Metadata.Merge(delta.Metadata); err != nil {
-				return fmt.Errorf("tool call %q metadata: %w", part.ToolCall.ID, err)
-			}
-			return nil
+		call := delta.ToolCall
+		if position, exists := r.toolParts[call.ID]; exists {
+			part := &r.parts[position]
+			part.content = append(part.content, call.Arguments...)
+			mergeValidatedMetadata(&part.part.Metadata, delta.Metadata)
+			return
 		}
-		part := NewToolCallPart(ToolCall{ID: callDelta.ID, Name: callDelta.Name, Arguments: callDelta.Arguments})
+		part := NewToolCallPart(ToolCall{ID: call.ID, Name: call.Name})
 		part.Metadata = delta.Metadata.Clone()
-		r.toolParts[callDelta.ID] = len(*parts)
-		*parts = append(*parts, part)
-		return nil
-	case PartDeltaCitation:
-		if len(*parts) == 0 || (*parts)[len(*parts)-1].Kind != PartText {
-			return errors.New("citation delta does not follow text")
+		if r.toolParts == nil {
+			r.toolParts = make(map[string]int)
 		}
-		(*parts)[len(*parts)-1].Citations = append((*parts)[len(*parts)-1].Citations, delta.Citation.Clone())
-		return nil
-	case PartDeltaRefusal:
-		return r.mergeTextLike(parts, PartRefusal, delta)
-	default:
-		return fmt.Errorf("unknown delta kind %q", delta.Kind)
+		r.toolParts[call.ID] = len(r.parts)
+		r.parts = append(r.parts, accumulatedPart{part: part, content: []byte(call.Arguments)})
+	case PartDeltaCitation:
+		part := &r.parts[len(r.parts)-1].part
+		part.Citations = append(part.Citations, delta.Citation.Clone())
 	}
 }
 
-func (r *ResponseAccumulator) mergeTextLike(parts *[]Part, kind PartKind, delta PartDelta) error {
-	if len(*parts) > 0 && (*parts)[len(*parts)-1].Kind == kind && (*parts)[len(*parts)-1].Metadata.Equal(delta.Metadata) {
-		(*parts)[len(*parts)-1].Text += delta.Text
-		return nil
+func (r *ResponseAccumulator) mergeTextLike(kind PartKind, delta PartDelta) {
+	if len(r.parts) == 0 || r.parts[len(r.parts)-1].part.Kind != kind || !r.parts[len(r.parts)-1].part.Metadata.Equal(delta.Metadata) {
+		r.parts = append(r.parts, accumulatedPart{part: Part{Kind: kind, Metadata: delta.Metadata.Clone()}})
 	}
-	part := Part{Kind: kind, Text: delta.Text, Metadata: delta.Metadata.Clone()}
-	*parts = append(*parts, part)
-	return nil
+	part := &r.parts[len(r.parts)-1]
+	part.content = append(part.content, delta.Text...)
+	part.part.ReasoningState = append(part.part.ReasoningState, delta.ReasoningState...)
 }
 
-func (r *ResponseAccumulator) clone() ResponseAccumulator {
-	if r == nil {
-		return ResponseAccumulator{}
+// The accumulator owns target and validates source at Add's admission boundary.
+// Only newly admitted bytes need copying or validation.
+func mergeValidatedMetadata(target *metadata.Map, source metadata.Map) {
+	if len(source) == 0 {
+		return
 	}
-	clone := ResponseAccumulator{
-		finishReason: r.finishReason,
-		toolParts:    maps.Clone(r.toolParts),
-		seen:         r.seen,
+	if *target == nil {
+		*target = make(metadata.Map, len(source))
 	}
-	if r.metadata != nil {
-		clone.metadata = r.metadata.clone()
+	for key, value := range source {
+		(*target)[key] = bytes.Clone(value)
 	}
-	if r.message != nil {
-		message := r.message.Clone()
-		clone.message = &message
-	}
-	if r.outputMetadata != nil {
-		clone.outputMetadata = r.outputMetadata.clone()
-	}
-	return clone
 }

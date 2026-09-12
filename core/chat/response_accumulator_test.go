@@ -273,3 +273,71 @@ func decode[T any](t *testing.T, values metadata.Map, key string) T {
 	}
 	return value
 }
+
+func TestResponseAccumulatorRejectsWholeDeltaBeforeMutation(t *testing.T) {
+	for _, last := range []chat.PartDelta{
+		chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call", Name: "different", Arguments: "bad"}),
+		chat.NewCitationDelta(chat.Citation{Source: chat.CitationSource{Kind: chat.CitationSourceURI, Value: "https://example.com"}}),
+	} {
+		var accumulator chat.ResponseAccumulator
+		initial := &chat.ResponseDelta{
+			Parts:           []chat.PartDelta{chat.NewTextDelta("before"), chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call", Name: "write", Arguments: "{"})},
+			Metadata:        &chat.ResponseMetadata{ID: "original", Extra: metadata.Map{"value": []byte(`"original"`)}},
+			MessageMetadata: metadata.Map{"value": []byte(`"original"`)},
+			OutputMetadata:  &chat.OutputMetadata{Extra: metadata.Map{"value": []byte(`"original"`)}},
+		}
+		if err := accumulator.Add(initial); err != nil {
+			t.Fatal(err)
+		}
+		rejected := &chat.ResponseDelta{
+			Parts: []chat.PartDelta{
+				chat.NewTextDelta("rejected"),
+				chat.NewToolCallDelta(chat.ToolCallDelta{ID: "new", Name: "new", Arguments: "{}"}), last,
+			},
+			FinishReason:    chat.FinishReasonToolCalls,
+			Metadata:        &chat.ResponseMetadata{ID: "rejected", Extra: metadata.Map{"value": []byte(`"rejected"`)}},
+			MessageMetadata: metadata.Map{"value": []byte(`"rejected"`)},
+			OutputMetadata:  &chat.OutputMetadata{Extra: metadata.Map{"value": []byte(`"rejected"`)}},
+		}
+		if err := accumulator.Add(rejected); !errors.Is(err, chat.ErrInvalidResponse) {
+			t.Fatalf("Add error = %v", err)
+		}
+		initial.Metadata.Extra["value"][1] = 'X'
+		initial.MessageMetadata["value"][1] = 'X'
+		initial.OutputMetadata.Extra["value"][1] = 'X'
+		if err := accumulator.Add(&chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call", Name: "write", Arguments: "}"})}, FinishReason: chat.FinishReasonToolCalls}); err != nil {
+			t.Fatal(err)
+		}
+		response, err := accumulator.Response()
+		if err != nil {
+			t.Fatal(err)
+		}
+		parts := response.Output.Message.Parts
+		if len(parts) != 2 || parts[0].Text != "before" || parts[1].ToolCall.Arguments != "{}" || response.Metadata.ID != "original" {
+			t.Fatalf("response = %#v, parts = %#v", response, parts)
+		}
+		for _, extra := range []metadata.Map{response.Metadata.Extra, response.Output.Message.Metadata, response.Output.Metadata.Extra} {
+			if got := decode[string](t, extra, "value"); got != "original" {
+				t.Fatalf("metadata = %q", got)
+			}
+		}
+	}
+}
+
+func TestResponseAccumulatorRejectsConflictingNewToolWithinDelta(t *testing.T) {
+	var accumulator chat.ResponseAccumulator
+	err := accumulator.Add(&chat.ResponseDelta{Parts: []chat.PartDelta{
+		chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call", Name: "first", Arguments: "{"}),
+		chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call", Name: "second", Arguments: "}"}),
+	}})
+	if !errors.Is(err, chat.ErrInvalidResponse) {
+		t.Fatalf("Add = %v", err)
+	}
+	if addErr := accumulator.Add(&chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewTextDelta("clean")}, FinishReason: chat.FinishReasonStop}); addErr != nil {
+		t.Fatal(addErr)
+	}
+	response, err := accumulator.Response()
+	if err != nil || response.Text() != "clean" || len(response.Output.Message.Parts) != 1 {
+		t.Fatalf("response = %#v, error = %v", response, err)
+	}
+}
