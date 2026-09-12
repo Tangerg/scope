@@ -1,5 +1,5 @@
-github.com/Tangerg/scope/core v0.19.0 h1:D1LOcRPUKY4O6JSOb2oWeH8hVDb2rqe+qr/17hwrQhA=
-github.com/Tangerg/scope/core v0.19.0/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
+github.com/Tangerg/scope/core v0.20.0 h1:u0egNNcjzZy6kz70z8ktPWqoVIr3HQdyR73hz/YmhQ4=
+github.com/Tangerg/scope/core v0.20.0/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
 github.com/bitly/go-hostpool v0.0.0-20171023180738-a3a6125de932 h1:mXoPYz/Ul5HYEDvkta6I8/rnYM5gSdSV2tJ6XbZuEtY=
 github.com/bitly/go-hostpool v0.0.0-20171023180738-a3a6125de932/go.mod h1:NOuUCSz6Q9T7+igc/hlvDOUdtWKryOrtFyIVABv/p7k=
 github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 h1:DDGfHa7BWjL4YnC6+E63dPcxHo2sUxDIu8g3QgEJdRY=
