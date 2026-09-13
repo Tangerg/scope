@@ -55,14 +55,25 @@ of clear behavior and lower overall complexity.
 - **LoD:** Depend on direct collaborators' public contracts, not their internal object graphs. Avoid
   forwarding layers that merely disguise coupling.
 
+### One fact, one owner
+
+- Every fact has exactly one representation that may advance it. Every other representation may encode,
+  cache, project, or render that fact, and none of them may create a competing transition.
+- When a fact appears in several places, name the owner before changing any of them. Storage records, wire
+  values, caches, read models, and user-interface state are projections; a projection that can also originate
+  a change is a second owner, whatever it is called.
+- A rule about which representation wins when two disagree is evidence that both can advance independently.
+  Repair the ownership instead of adding the arbitration rule.
+- Ownership is a property of the fact, not of the layer. A single implementation still deserves a boundary
+  when it owns a necessary guarantee; a boundary that owns nothing is a forwarding layer.
+
 ### Readability and state (Zen of Python)
 
 - Use the host language's idioms. Prefer explicit dependencies, flat control flow, readable spacing, and
   coherent namespaces over implicit magic or clever compression.
 - Represent necessary complexity behind clear boundaries. Keep justified exceptions local and prefer practical
   clarity over rigid uniformity.
-- Keep mutable state minimal, ownership explicit, and each fact authoritative in one place. Separate business
-  decisions from external I/O.
+- Keep mutable state minimal and separate business decisions from external I/O.
 - Prefer one clear path per behavior. Simplify hard-to-explain logic without fragmenting cohesive code into
   tiny helpers.
 - Make failures explicit; suppress only specific expected errors allowed by the contract. Never turn
