@@ -57,6 +57,7 @@ type ripgrepEventData struct {
 }
 
 type ripgrepDecoder struct {
+	sourcePath string
 	mode       GrepOutputMode
 	maxResults int
 	response   GrepResponse
@@ -101,6 +102,9 @@ func (r *ripgrepDecoder) acceptLine(event ripgrepEvent) error {
 	}
 	if path == "" {
 		return errors.New("ripgrep event contains an empty path")
+	}
+	if r.sourcePath != "" {
+		path = r.sourcePath
 	}
 	path, err = normalizeRipgrepPath(path)
 	if err != nil {

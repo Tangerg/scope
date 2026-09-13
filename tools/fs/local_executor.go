@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -33,17 +34,18 @@ const (
 //   - Glob uses the platform-neutral doublestar matcher and never follows
 //     directory symlinks while walking. Cancellation is checked between
 //     filesystem operations even when the pattern has no matches.
-//   - Grep consumes ripgrep's structured JSON protocol and returns
-//     [ErrRipgrepUnavailable] when rg is not installed.
-//   - Write and Edit serialize per file via [LocalExecutor.lockPath]
-//     so concurrent tool calls on the same path can't tear.
+//   - Grep opens files through os.Root and feeds their contents to ripgrep.
+//     It skips hidden entries and symlinks during traversal, uses doublestar
+//     path filters, and does not consult ignore files. Missing rg returns
+//     [ErrRipgrepUnavailable].
+//   - Mutations serialize within this executor and pin parent directories.
+//     Directory aliases are supported; leaf symlinks are rejected.
 //   - Read normalises CRLF→LF and strips UTF-8 BOM; Write and Edit
 //     restore both when the existing file uses them.
 type LocalExecutor struct {
 	root string
 
-	pathLocksMu sync.Mutex
-	pathLocks   map[string]*pathLock
+	mutations sync.Mutex
 }
 
 // NewLocalExecutor fixes one immutable directory-tree authority for every
@@ -119,39 +121,6 @@ func expandHome(path string) string {
 	return filepath.Join(home, path[len("~/"):])
 }
 
-type pathLock struct {
-	mutex sync.Mutex
-	users int
-}
-
-// lockPath returns a per-path mutex unlock func. Entries are reference-counted
-// and removed after the last holder/waiter leaves, so a long-running executor
-// does not retain every path ever touched.
-func (l *LocalExecutor) lockPath(path string) func() {
-	l.pathLocksMu.Lock()
-	if l.pathLocks == nil {
-		l.pathLocks = map[string]*pathLock{}
-	}
-	entry, ok := l.pathLocks[path]
-	if !ok {
-		entry = &pathLock{}
-		l.pathLocks[path] = entry
-	}
-	entry.users++
-	l.pathLocksMu.Unlock()
-
-	entry.mutex.Lock()
-	return func() {
-		entry.mutex.Unlock()
-		l.pathLocksMu.Lock()
-		entry.users--
-		if entry.users == 0 {
-			delete(l.pathLocks, path)
-		}
-		l.pathLocksMu.Unlock()
-	}
-}
-
 // Read does not lock — concurrent reads are fine and a slightly stale
 // read while another goroutine writes is acceptable (atomic-rename in
 // Write means the caller sees either the old file in full or the new file in
@@ -221,12 +190,18 @@ func (l *LocalExecutor) Write(ctx context.Context, in WriteRequest) (_ WriteResp
 	if err != nil {
 		return WriteResponse{}, err
 	}
-	defer func() {
-		err = errors.Join(err, root.Close())
-	}()
+	defer func(authority *os.Root) {
+		err = errors.Join(err, authority.Close())
+	}(root)
 
-	unlock := l.lockPath(path)
-	defer unlock()
+	l.mutations.Lock()
+	defer l.mutations.Unlock()
+	target, err := openMutationTarget(root, path, true)
+	if err != nil {
+		return WriteResponse{}, err
+	}
+	defer func() { err = errors.Join(err, target.parent.Close()) }()
+	root, path = target.parent, target.name
 	if cause := context.Cause(ctx); cause != nil {
 		return WriteResponse{}, cause
 	}
@@ -261,12 +236,18 @@ func (l *LocalExecutor) Edit(ctx context.Context, in EditRequest) (_ EditRespons
 	if err != nil {
 		return EditResponse{}, err
 	}
-	defer func() {
-		err = errors.Join(err, root.Close())
-	}()
+	defer func(authority *os.Root) {
+		err = errors.Join(err, authority.Close())
+	}(root)
 
-	unlock := l.lockPath(path)
-	defer unlock()
+	l.mutations.Lock()
+	defer l.mutations.Unlock()
+	target, err := openMutationTarget(root, path, false)
+	if err != nil {
+		return EditResponse{}, err
+	}
+	defer func() { err = errors.Join(err, target.parent.Close()) }()
+	root, path = target.parent, target.name
 
 	data, err := readBoundedRootFile(ctx, root, path, defaultMutationInputBytes)
 	if err != nil {
@@ -339,8 +320,7 @@ func (l *LocalExecutor) Grep(ctx context.Context, in GrepInput) (_ GrepResponse,
 		return GrepResponse{}, fmt.Errorf("fs.LocalExecutor.Grep: max_results exceeds %d", maximumSearchResults)
 	}
 	mode := in.OutputMode.Resolve()
-	args := in.ripgrepArguments(base, mode)
-	response, err := l.runRipgrep(ctx, executable, args, newRipgrepDecoder(mode, maxResults))
+	response, err := l.grepFiles(ctx, root, base, info, executable, in, newRipgrepDecoder(mode, maxResults))
 	if err != nil {
 		return GrepResponse{}, fmt.Errorf("fs.LocalExecutor.Grep: %w", err)
 	}
@@ -443,23 +423,32 @@ func (l *LocalExecutor) ApplyPatch(ctx context.Context, in ApplyPatchRequest) (_
 		err = errors.Join(err, root.Close())
 	}()
 
-	var locks []string
+	l.mutations.Lock()
+	defer l.mutations.Unlock()
+	targets := make(map[string]*mutationTarget)
+	defer func() {
+		for _, target := range targets {
+			err = errors.Join(err, target.parent.Close())
+		}
+	}()
 	for _, file := range resolved.files {
-		locks = append(locks, file.touches()...)
-	}
-
-	// Both endpoints of a move are locked: it removes one file and creates
-	// another, and holding only the destination would let a concurrent write to
-	// the origin land in a file this call is about to delete.
-	slices.Sort(locks)
-	for _, path := range locks {
-		unlock := l.lockPath(path)
-		defer unlock()
+		for _, path := range file.touches() {
+			target, openErr := openMutationTarget(root, path, path == file.newPath)
+			if openErr != nil {
+				return ApplyPatchResponse{}, openErr
+			}
+			for _, previous := range targets {
+				if target.same(previous) {
+					return ApplyPatchResponse{}, errors.Join(fmt.Errorf("fs.ApplyPatch: duplicate target %s and %s", previous.path, path), target.parent.Close())
+				}
+			}
+			targets[path] = target
+		}
 	}
 
 	prepared := make([]preparedPatch, len(resolved.files))
 	for i, file := range resolved.files {
-		next, err := l.preparePatch(ctx, root, file)
+		next, err := l.preparePatch(ctx, targets, file)
 		if err != nil {
 			return ApplyPatchResponse{}, err
 		}
@@ -471,7 +460,7 @@ func (l *LocalExecutor) ApplyPatch(ctx context.Context, in ApplyPatchRequest) (_
 		if err := ctx.Err(); err != nil {
 			return out, err
 		}
-		result, err := file.commit(root)
+		result, err := file.commit()
 		if result.Path != "" {
 			out.Files = append(out.Files, result)
 			out.Hunks += result.Hunks
@@ -514,13 +503,13 @@ func (l *LocalExecutor) resolvePatch(patch unifiedPatch) (unifiedPatch, error) {
 
 func (l *LocalExecutor) preparePatch(
 	ctx context.Context,
-	root *os.Root,
+	targets map[string]*mutationTarget,
 	file filePatch,
 ) (preparedPatch, error) {
 	// A patch may not land on a file it did not open. Create says so by having no
 	// origin; a move has one, but its destination is a new file all the same.
 	if file.created() || file.moved() {
-		if _, err := root.Stat(file.newPath); err == nil {
+		if _, err := targets[file.newPath].parent.Stat(targets[file.newPath].name); err == nil {
 			return preparedPatch{}, fmt.Errorf("fs.ApplyPatch: %s: file already exists", file.newPath)
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return preparedPatch{}, fmt.Errorf("fs.ApplyPatch: %s: %w", file.newPath, err)
@@ -531,12 +520,12 @@ func (l *LocalExecutor) preparePatch(
 	var source []byte
 	hadBOM, hadCRLF := false, false
 	if !file.created() {
-		info, err := root.Stat(file.oldPath)
+		info, err := targets[file.oldPath].parent.Stat(targets[file.oldPath].name)
 		if err != nil {
 			return preparedPatch{}, err
 		}
 		mode = info.Mode().Perm()
-		data, err := readBoundedRootFile(ctx, root, file.oldPath, defaultMutationInputBytes)
+		data, err := readBoundedRootFile(ctx, targets[file.oldPath].parent, targets[file.oldPath].name, defaultMutationInputBytes)
 		if err != nil {
 			return preparedPatch{}, err
 		}
@@ -557,7 +546,7 @@ func (l *LocalExecutor) preparePatch(
 			return preparedPatch{}, fmt.Errorf("fs.ApplyPatch: delete %s: patched content is not empty", file.path())
 		}
 		return preparedPatch{
-			source: file.oldPath,
+			source: targets[file.oldPath],
 			result: PatchFileResponse{Path: file.path(), Hunks: file.hunks(), Deleted: true},
 		}, nil
 	}
@@ -568,14 +557,14 @@ func (l *LocalExecutor) preparePatch(
 		Created: file.created(),
 	}
 	prepared := preparedPatch{
-		path: file.newPath,
-		data: restoreFormat(string(patched), hadBOM, hadCRLF),
-		mode: mode,
+		target: targets[file.newPath],
+		data:   restoreFormat(string(patched), hadBOM, hadCRLF),
+		mode:   mode,
 	}
 	if file.moved() {
 		// The origin is reported, not just the destination: "moved" without saying
 		// from where leaves the model to infer which file stopped existing.
-		prepared.source = file.oldPath
+		prepared.source = targets[file.oldPath]
 		result.MovedFrom = file.oldPath
 	}
 	prepared.result = result
@@ -586,10 +575,11 @@ func (l *LocalExecutor) runRipgrep(
 	ctx context.Context,
 	path string,
 	args []string,
+	input io.Reader,
 	decoder *ripgrepDecoder,
 ) (GrepResponse, error) {
 	command := exec.CommandContext(ctx, path, args...)
-	command.Dir = l.root
+	command.Stdin = input
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	stdout, err := command.StdoutPipe()
@@ -620,4 +610,95 @@ func (l *LocalExecutor) runRipgrep(
 		return GrepResponse{}, waitErr
 	}
 	return GrepResponse{}, fmt.Errorf("%w: %s", waitErr, message)
+}
+
+func (l *LocalExecutor) grepFiles(ctx context.Context, root *os.Root, base string, info os.FileInfo, executable string, in GrepInput, decoder *ripgrepDecoder) (GrepResponse, error) {
+	if in.Glob != "" {
+		if err := validateGlobPattern(in.Glob); err != nil {
+			return GrepResponse{}, err
+		}
+	}
+	var types []string
+	if in.FileType != "" {
+		data, err := exec.CommandContext(ctx, executable, "--no-config", "--type-list").Output()
+		if err != nil {
+			return GrepResponse{}, fmt.Errorf("read ripgrep file types: %w", err)
+		}
+		for line := range strings.SplitSeq(string(data), "\n") {
+			if patterns, found := strings.CutPrefix(line, in.FileType+": "); found {
+				types = strings.Split(patterns, ", ")
+				break
+			}
+		}
+		if len(types) == 0 {
+			return GrepResponse{}, fmt.Errorf("fs.Grep: unknown file type %q", in.FileType)
+		}
+	}
+	args := in.ripgrepArguments(decoder.mode)
+	// Validate the search even if file selection is empty.
+	if _, err := l.runRipgrep(ctx, executable, args, strings.NewReader(""), newRipgrepDecoder(decoder.mode, 1)); err != nil {
+		return GrepResponse{}, err
+	}
+	search := func(path string) (err error) {
+		name := filepath.ToSlash(path)
+		if in.Glob != "" {
+			candidate := name
+			if !strings.Contains(in.Glob, "/") {
+				candidate = filepath.Base(path)
+			}
+			matched, matchErr := doublestar.Match(in.Glob, candidate)
+			if matchErr != nil {
+				return matchErr
+			}
+			if !matched {
+				return nil
+			}
+		}
+		if len(types) > 0 {
+			matched := false
+			for _, pattern := range types {
+				if ok, _ := doublestar.Match(pattern, filepath.Base(path)); ok {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				return nil
+			}
+		}
+		file, _, err := openRegularRootFile(ctx, root, path)
+		if err != nil {
+			return err
+		}
+		defer func() { err = errors.Join(err, file.Close()) }()
+		decoder.sourcePath = name
+		_, err = l.runRipgrep(ctx, executable, args, file, decoder)
+		return err
+	}
+	if !info.IsDir() {
+		err := search(base)
+		return decoder.response, err
+	}
+	err := fs.WalkDir(globFilesystem{FS: root.FS(), ctx: ctx}, filepath.ToSlash(base), func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if path != filepath.ToSlash(base) && strings.HasPrefix(entry.Name(), ".") {
+			if entry.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+		return search(filepath.FromSlash(path))
+	})
+	return decoder.response, err
 }

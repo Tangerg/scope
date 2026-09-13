@@ -168,7 +168,7 @@ func (g GrepInput) contextLines() (before, after int) {
 	return cmp.Or(g.BeforeContext, g.Context), cmp.Or(g.AfterContext, g.Context)
 }
 
-func (g GrepInput) ripgrepArguments(root string, mode GrepOutputMode) []string {
+func (g GrepInput) ripgrepArguments(mode GrepOutputMode) []string {
 	args := []string{"--json", "--no-config", "--no-follow"}
 	if mode == GrepOutputContent {
 		before, after := g.contextLines()
@@ -185,13 +185,7 @@ func (g GrepInput) ripgrepArguments(root string, mode GrepOutputMode) []string {
 	if g.Multiline {
 		args = append(args, "--multiline", "--multiline-dotall")
 	}
-	if g.FileType != "" {
-		args = append(args, "--type", g.FileType)
-	}
-	if g.Glob != "" {
-		args = append(args, "--glob", g.Glob)
-	}
-	return append(args, "--regexp", g.Pattern, "--", root)
+	return append(args, "--regexp", g.Pattern, "--", "-")
 }
 
 // GrepLineKind distinguishes a matching line from requested surrounding

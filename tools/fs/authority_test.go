@@ -222,16 +222,3 @@ func TestLocalExecutorSearchSubtreeKeepsWorkspaceRelativePaths(t *testing.T) {
 		}
 	}
 }
-
-func TestLocalExecutorReclaimsIdlePathLocks(t *testing.T) {
-	rootPath := t.TempDir()
-	executor := mustLocalExecutor(t, rootPath)
-	if _, err := executor.Write(t.Context(), WriteRequest{Path: "file.txt", Content: "content"}); err != nil {
-		t.Fatal(err)
-	}
-	executor.pathLocksMu.Lock()
-	defer executor.pathLocksMu.Unlock()
-	if len(executor.pathLocks) != 0 {
-		t.Fatalf("idle path locks retained = %d, want 0", len(executor.pathLocks))
-	}
-}

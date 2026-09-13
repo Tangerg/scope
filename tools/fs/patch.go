@@ -148,33 +148,27 @@ func validatePatchPath(path string) error {
 // preparedPatch holds a validated file mutation. Preparation changes no files;
 // commit reports only effects acknowledged by the filesystem.
 type preparedPatch struct {
-	// path is where the content lands, empty for a delete.
-	path string
-	// source is the file to remove once the content has landed: a delete's own
-	// path, or the origin of a move. Empty when nothing is removed.
-	source string
+	target *mutationTarget
+	source *mutationTarget
 	data   []byte
 	mode   os.FileMode
 	result PatchFileResponse
 }
 
-// commit writes before it removes, so a failure between the two leaves the
-// content somewhere rather than nowhere.
-func (p preparedPatch) commit(root *os.Root) (PatchFileResponse, error) {
-	if p.path != "" {
-		if err := atomicWriteRootFile(root, p.path, p.data, p.mode); err != nil {
-			return PatchFileResponse{}, fmt.Errorf("fs.ApplyPatch: write %s: %w", p.path, err)
+// A move publishes before removing its source, preserving partial outcomes.
+func (p preparedPatch) commit() (PatchFileResponse, error) {
+	if p.target != nil {
+		if err := atomicWriteRootFile(p.target.parent, p.target.name, p.data, p.mode); err != nil {
+			return PatchFileResponse{}, fmt.Errorf("fs.ApplyPatch: write %s: %w", p.target.path, err)
 		}
 	}
-	if p.source != "" && p.source != p.path {
-		if err := root.Remove(p.source); err != nil {
+	if p.source != nil {
+		if err := p.source.parent.Remove(p.source.name); err != nil {
 			var result PatchFileResponse
-			if p.path != "" {
-				// A move whose removal fails created its destination but did not
-				// move the source. Report that actual effect rather than the plan.
-				result = PatchFileResponse{Path: p.path, Hunks: p.result.Hunks, Created: true}
+			if p.target != nil {
+				result = PatchFileResponse{Path: p.target.path, Hunks: p.result.Hunks, Created: true}
 			}
-			return result, fmt.Errorf("fs.ApplyPatch: remove %s: %w", p.source, err)
+			return result, fmt.Errorf("fs.ApplyPatch: remove %s: %w", p.source.path, err)
 		}
 	}
 	return p.result, nil
