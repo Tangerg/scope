@@ -224,7 +224,7 @@ func childBatchTestSignal(t testing.TB, waitID agent.WaitID, payload any) agent.
 		ID      string       `json:"id"`
 		WaitID  agent.WaitID `json:"wait_id"`
 		Payload any          `json:"payload"`
-	}{ID: "signal:child-batch", WaitID: waitID, Payload: payload})
+	}{ID: "signal:engine:child-batch", WaitID: waitID, Payload: payload})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -175,11 +175,7 @@ func (p preparedEffect) validateFramework() error {
 	case frameworkEffectWait:
 		return p.validateWait("wait Effect")
 	case frameworkEffectStartChild:
-		if p.WaitID != nil ||
-			p.Settlement != nil && p.Settlement.Status() == SettlementStatusUnknown {
-			return errors.New("child-start Effect has an invalid settlement")
-		}
-		return nil
+		return p.validateChildStart()
 	case frameworkEffectWaitChildren:
 		return p.validateWait("child-wait Effect")
 	case frameworkEffectSignalChild, frameworkEffectCancelChild:
@@ -221,6 +217,46 @@ func (p preparedEffect) validateWait(name string) error {
 	if (p.WaitID == nil) != (p.Phase != effectPhaseSettled) ||
 		p.Settlement != nil && p.Settlement.Status() == SettlementStatusUnknown {
 		return fmt.Errorf("%s has an incomplete or unknown settlement", name)
+	}
+	if p.Settlement != nil {
+		expected := preparedEffect{ID: p.ID, Effect: p.Effect, Phase: effectPhasePending}
+		if err := expected.settleFramework(); err != nil {
+			return err
+		}
+		if !p.Settlement.equal(*expected.Settlement) {
+			return fmt.Errorf("%s settlement differs from its request", name)
+		}
+	}
+	return nil
+}
+
+func (p preparedEffect) validateChildStart() error {
+	if p.WaitID != nil {
+		return ErrInvalidChildStart
+	}
+	if p.Settlement == nil {
+		return nil
+	}
+	spec, err := decodeChildStartEffect(p.Effect.Payload())
+	if err != nil {
+		return err
+	}
+	result, err := decodeChildStartResult(p.Settlement.Payload())
+	if err != nil {
+		return err
+	}
+	if result.Key() != spec.Key || result.DeploymentRef() != spec.DeploymentRef {
+		return ErrInvalidChildStart
+	}
+	status := SettlementStatusFailed
+	if id, started := result.ProcessID(); started {
+		if id != p.ID.childProcessID() {
+			return ErrInvalidChildStart
+		}
+		status = SettlementStatusSucceeded
+	}
+	if p.Settlement.Status() != status {
+		return ErrInvalidChildStart
 	}
 	return nil
 }

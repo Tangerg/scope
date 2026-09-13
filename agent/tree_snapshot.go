@@ -27,7 +27,8 @@ type TreeSnapshot struct {
 // one complete Process tree. Unknown members are rejected. Every active child
 // wait must have a registration belonging to its Process and matching its
 // opening Signal. Pending satisfaction Signals must agree with that boundary
-// and the terminal results in the captured tree.
+// and the terminal results in the captured tree. A retained successful child-start
+// settlement must identify a captured child matching the complete start request.
 func ParseTreeSnapshot(data json.RawMessage) (TreeSnapshot, error) {
 	if len(data) == 0 || len(data) > maxTreeSnapshotBytes {
 		return TreeSnapshot{}, fmt.Errorf(
@@ -299,7 +300,7 @@ func (t *treeSnapshotValidation) validateChildWaits() error {
 	return nil
 }
 
-func (t *treeSnapshotValidation) validateChildControls() error {
+func (t *treeSnapshotValidation) validateChildSettlements() error {
 	for _, parent := range t.processes {
 		if parent.Prepared == nil {
 			continue
@@ -312,13 +313,44 @@ func (t *treeSnapshotValidation) validateChildControls() error {
 			if err != nil {
 				return err
 			}
-			if operation != frameworkEffectSignalChild && operation != frameworkEffectCancelChild {
-				continue
-			}
-			if err := t.validateChildControl(parent.ProcessID, record); err != nil {
-				return fmt.Errorf("%w: child control: %w", ErrInvalidTreeSnapshot, err)
+			switch operation {
+			case frameworkEffectStartChild:
+				if err := t.validateChildStart(parent.ProcessID, record); err != nil {
+					return fmt.Errorf("%w: child start: %w", ErrInvalidTreeSnapshot, err)
+				}
+			case frameworkEffectSignalChild, frameworkEffectCancelChild:
+				if err := t.validateChildControl(parent.ProcessID, record); err != nil {
+					return fmt.Errorf("%w: child control: %w", ErrInvalidTreeSnapshot, err)
+				}
 			}
 		}
+	}
+	return nil
+}
+
+func (t *treeSnapshotValidation) validateChildStart(parentID ProcessID, record preparedEffect) error {
+	result, err := decodeChildStartResult(record.Settlement.Payload())
+	if err != nil {
+		return err
+	}
+	childID, started := result.ProcessID()
+	if !started {
+		return nil
+	}
+	spec, err := decodeChildStartEffect(record.Effect.Payload())
+	if err != nil {
+		return err
+	}
+	digest, err := spec.digest()
+	if err != nil {
+		return err
+	}
+	child, exists := t.processes[childID]
+	if !exists || child.Relation.ParentID == nil || *child.Relation.ParentID != parentID ||
+		child.Relation.ChildKey == nil || *child.Relation.ChildKey != spec.Key ||
+		child.DeploymentRef != spec.DeploymentRef || child.Budget != spec.Budget ||
+		!slices.Equal(child.Capabilities.Values(), spec.Capabilities.Values()) || child.ChildRequestDigest == nil || *child.ChildRequestDigest != digest {
+		return ErrInvalidChildStart
 	}
 	return nil
 }
@@ -437,7 +469,7 @@ func (t *treeSnapshotValidation) validate() error {
 	if err := t.validateChildAccounting(); err != nil {
 		return err
 	}
-	if err := t.validateChildControls(); err != nil {
+	if err := t.validateChildSettlements(); err != nil {
 		return err
 	}
 	return t.validateChildWaits()

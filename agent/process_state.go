@@ -308,6 +308,9 @@ func (p *processState) restorePreparedStep(stored *preparedStep, durable bool) e
 		return nil
 	}
 	prepared := stored.snapshot()
+	if err := p.validatePreparedWaits(&prepared); err != nil {
+		return fmt.Errorf("%w: prepared waits: %w", ErrInvalidSnapshot, err)
+	}
 	if output, completes := prepared.Transition.Output(); completes {
 		if err := p.deployment.Descriptor().ValidateOutput(output); err != nil {
 			return fmt.Errorf("%w: prepared output schema: %w", ErrInvalidSnapshot, err)
@@ -545,6 +548,7 @@ func (p *processState) validatePreparedWaits(prepared *preparedStep) error {
 		if operation != frameworkEffectWait && operation != frameworkEffectWaitChildren {
 			continue
 		}
+		record = preparedEffect{ID: record.ID, Effect: record.Effect, Phase: effectPhasePlanned}
 		if err := record.begin(); err != nil {
 			return err
 		}

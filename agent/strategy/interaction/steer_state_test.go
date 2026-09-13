@@ -184,7 +184,7 @@ func childWaitOpenedTestSignal(t testing.TB) agent.Signal {
 			"condition":{"kind":"all"}
 		}
 	}`)
-	id, err := agent.ParseSignalID("signal:delegate-wait-opened")
+	id, err := agent.ParseSignalID("signal:engine:delegate-wait-opened")
 	if err != nil {
 		t.Fatal(err)
 	}

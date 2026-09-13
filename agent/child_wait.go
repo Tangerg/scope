@@ -171,10 +171,10 @@ func (c ChildWaitOpened) Spec() ChildWaitSpec {
 func (c ChildWaitOpened) Valid() bool { return c.waitID.Valid() && c.spec.Valid() }
 
 // ParseChildWaitOpened decodes the settlement Signal produced by
-// WaitForChildren and verifies its Engine-attached WaitID.
+// WaitForChildren and verifies its Engine-owned Signal identity and attached WaitID.
 func ParseChildWaitOpened(signal Signal) (ChildWaitOpened, error) {
 	waitID, addressed := signal.WaitID()
-	if !signal.Valid() || !addressed {
+	if !signal.Valid() || !signal.id.engineOwned() || !addressed {
 		return ChildWaitOpened{}, ErrInvalidChildWait
 	}
 	wire, err := wireJSON.decode[childWaitOpenedWire](signal.Payload())
@@ -274,10 +274,10 @@ func (c ChildWaitSatisfied) Valid() bool {
 }
 
 // ParseChildWaitSatisfied decodes an Engine-generated, WaitID-addressed child
-// wait-satisfaction Signal.
+// wait-satisfaction Signal. Caller-owned Signal identities are rejected.
 func ParseChildWaitSatisfied(signal Signal) (ChildWaitSatisfied, error) {
 	waitID, addressed := signal.WaitID()
-	if !signal.Valid() || !addressed {
+	if !signal.Valid() || !signal.id.engineOwned() || !addressed {
 		return ChildWaitSatisfied{}, ErrInvalidChildWait
 	}
 	wire, err := wireJSON.decode[childWaitSatisfiedWire](signal.Payload())

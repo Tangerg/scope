@@ -245,7 +245,7 @@ func signal(t *testing.T, waitID string, payload any) agent.Signal {
 		ID      string `json:"id"`
 		WaitID  string `json:"wait_id,omitempty"`
 		Payload any    `json:"payload"`
-	}{"signal:childcall", waitID, payload})
+	}{"signal:engine:childcall", waitID, payload})
 	var value agent.Signal
 	if err := json.Unmarshal(data, &value); err != nil {
 		t.Fatal(err)

@@ -52,7 +52,7 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 			if err := schema.ValidateOutput(controlValue(ParseOutput(payload))); err != nil {
 				t.Fatal(err)
 			}
-			signal := controlValue(newSignal(controlValue(ParseSignalID("signal:receipt")), WaitID{}, payload))
+			signal := controlValue(newSignal(controlValue(ParseSignalID("signal:engine:receipt")), WaitID{}, payload))
 			if got, err := ParseChildControlResult(signal); err != nil || !got.Matches(effect) {
 				t.Fatal(err)
 			}

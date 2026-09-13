@@ -100,9 +100,10 @@ func (c *ChildControlResult) UnmarshalJSON(data []byte) error {
 
 func (ChildControlResult) JSONSchemaAlias() any { return childControlResultWire{} }
 
-// ParseChildControlResult decodes an unaddressed Framework control settlement.
+// ParseChildControlResult decodes an unaddressed Framework control settlement
+// carrying an Engine-owned Signal identity.
 func ParseChildControlResult(signal Signal) (ChildControlResult, error) {
-	if !signal.Valid() {
+	if !signal.Valid() || !signal.id.engineOwned() {
 		return ChildControlResult{}, ErrInvalidSignal
 	}
 	if _, addressed := signal.WaitID(); addressed {
