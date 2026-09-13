@@ -157,3 +157,51 @@ func (c checkFixture) run(t *testing.T, directory string, args ...string) (strin
 	output, err := command.CombinedOutput()
 	return string(output), err
 }
+
+func TestEnumerationFailureStopsChecks(t *testing.T) {
+	t.Parallel()
+	for _, partial := range []bool{false, true} {
+		for _, boundary := range []string{"workspace", "packages", "buildable"} {
+			t.Run(fmt.Sprintf("%s/partial=%t", boundary, partial), func(t *testing.T) {
+				fixture := newCheckFixture(t)
+				name := "module-packages.sh"
+				body := "#!/usr/bin/env bash\n"
+				if boundary == "workspace" {
+					name = "workspace-modules.sh"
+				}
+				if boundary == "buildable" {
+					body += "if [[ $1 != --buildable ]]; then echo github.com/Tangerg/scope/consumer; exit 0; fi\n"
+				}
+				if partial {
+					if boundary == "workspace" {
+						body += "echo consumer\n"
+					} else {
+						body += "echo github.com/Tangerg/scope/consumer\n"
+					}
+				}
+				body += "echo enumeration-failed >&2\nexit 23\n"
+				if err := os.WriteFile(filepath.Join(fixture.root, "scripts", name), []byte(body), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				output, err := fixture.run(t, "", "bash", "scripts/check.sh", "build")
+				if err == nil || !strings.Contains(output, "enumeration-failed") || strings.Contains(output, "all green") {
+					t.Fatalf("enumeration failure must stop checks: %v\n%s", err, output)
+				}
+			})
+		}
+	}
+}
+
+func TestModulePackagesPropagatesGoListFailure(t *testing.T) {
+	t.Parallel()
+	fixture := newCheckFixture(t)
+	if err := os.WriteFile(filepath.Join(fixture.root, "consumer", "broken.go"), []byte("package 123broken\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"consumer"}, {"--buildable", "consumer"}} {
+		output, err := fixture.run(t, "", append([]string{"bash", "scripts/module-packages.sh"}, args...)...)
+		if err == nil || !strings.Contains(output, "expected 'IDENT'") {
+			t.Fatalf("go list failure must propagate: %v\n%s", err, output)
+		}
+	}
+}

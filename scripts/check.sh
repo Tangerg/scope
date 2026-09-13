@@ -23,10 +23,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 ROOT=$PWD
+workspace_modules=$(scripts/workspace-modules.sh)
 MODULES=()
 while IFS= read -r module; do
   [[ -z "$module" ]] || MODULES+=("$module")
-done < <(scripts/workspace-modules.sh)
+done <<< "$workspace_modules"
 
 if [[ ${#MODULES[@]} -eq 0 ]]; then
   echo "no main modules found in go.work" >&2
@@ -119,18 +120,26 @@ for mod in "${MODULES[@]}"; do
     [[ "$check" == "build" ]] && needs_buildable_packages=1
   done
   if [[ $needs_packages -eq 1 ]]; then
+    if ! packages=$(scripts/module-packages.sh "$mod"); then
+      failed+=("$mod/packages")
+      continue
+    fi
     while IFS= read -r package; do
       [[ -z "$package" ]] || MODULE_PACKAGES+=("$package")
-    done < <(scripts/module-packages.sh "$mod")
+    done <<< "$packages"
     if [[ ${#MODULE_PACKAGES[@]} -eq 0 ]]; then
       echo "$mod: no Go packages found" >&2
       failed+=("$mod/packages")
       continue
     fi
     if [[ $needs_buildable_packages -eq 1 ]]; then
+      if ! build_packages=$(scripts/module-packages.sh --buildable "$mod"); then
+        failed+=("$mod/build-packages")
+        continue
+      fi
       while IFS= read -r package; do
         [[ -z "$package" ]] || MODULE_BUILD_PACKAGES+=("$package")
-      done < <(scripts/module-packages.sh --buildable "$mod")
+      done <<< "$build_packages"
     fi
   fi
   for check in "${CHECKS[@]}"; do

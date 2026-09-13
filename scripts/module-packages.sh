@@ -14,12 +14,13 @@ if [[ -z "$module" ]]; then
   exit 2
 fi
 
+workspace_modules=$("$root/scripts/workspace-modules.sh")
 known=0
 while IFS= read -r workspace_module; do
   if [[ "$workspace_module" == "$module" ]]; then
     known=1
   fi
-done < <("$root/scripts/workspace-modules.sh")
+done <<< "$workspace_modules"
 if [[ $known -eq 0 ]]; then
   echo "unknown workspace module: $module" >&2
   exit 2
@@ -34,9 +35,10 @@ fi
 # dependency can therefore contribute incidental Go source to a Wails module.
 # Resolve the module's packages once and keep third-party frontend trees out of
 # every build, vet, test, race, and vulnerability gate.
+packages=$(cd "$module_dir" && go list -f "$template" ./...)
 while IFS= read -r package; do
   case "$package" in
     */node_modules/*) ;;
     *) printf '%s\n' "$package" ;;
   esac
-done < <(cd "$module_dir" && go list -f "$template" ./...)
+done <<< "$packages"
