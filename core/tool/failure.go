@@ -14,7 +14,8 @@ var ErrInvalidFailure = errors.New("tool: invalid failure")
 // Failure preserves a known tool failure's complete model-visible output and
 // its original cause. It assigns no retry or control-flow policy. Runtimes may
 // expose Output as an error ToolResult after applying their control-plane rules.
-// Ordinary errors remain appropriate when no structured failure output exists.
+// A plain-text failure is also a definite outcome and uses NewFailure. Ordinary
+// errors do not establish whether the operation completed.
 type Failure struct {
 	cause  error
 	output chat.ToolOutput

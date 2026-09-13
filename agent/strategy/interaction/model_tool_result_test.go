@@ -30,24 +30,14 @@ func TestModelToolResultPolicy(t *testing.T) {
 	}
 	invalidOutput := chat.ToolOutput{Details: json.RawMessage(`{`)}
 	invalid, resultErr := modelToolResult(call, invalidOutput, nil)
-	wantInvalid := chat.ToolResult{
-		ID: call.ID, Name: call.Name, IsError: true,
-		Output: chat.NewTextToolOutput("error: tool \"" + call.Name +
-			"\" failed: tool returned invalid output: chat: invalid tool output: details must be one valid RFC 7493 JSON document"),
-	}
-	if resultErr != nil || !reflect.DeepEqual(invalid, wantInvalid) {
+	if !errors.Is(resultErr, chat.ErrInvalidToolOutput) || !reflect.DeepEqual(invalid, chat.ToolResult{}) {
 		t.Fatalf("invalid output result = %#v, error = %v", invalid, resultErr)
 	}
 
-	diagnostic := strings.Repeat("x", 3_000)
-	failure, resultErr := modelToolResult(call, chat.NewTextToolOutput("ignored"), errors.New(diagnostic))
-	wantFailure := chat.ToolResult{
-		ID: call.ID, Name: call.Name,
-		Output:  chat.NewTextToolOutput("error: tool \"" + call.Name + "\" failed: " + diagnostic[:2_048]),
-		IsError: true,
-	}
-	if resultErr != nil || !reflect.DeepEqual(failure, wantFailure) {
-		t.Fatalf("failure = %#v, error = %v", failure, resultErr)
+	cause := errors.New(strings.Repeat("x", 3_000))
+	failure, resultErr := modelToolResult(call, chat.NewTextToolOutput("ignored"), cause)
+	if !errors.Is(resultErr, cause) || !reflect.DeepEqual(failure, chat.ToolResult{}) {
+		t.Fatalf("unknown outcome = %#v, error = %v", failure, resultErr)
 	}
 	completeFailure, err := tool.NewFailure(errors.New("partial execution"), structured)
 	if err != nil {

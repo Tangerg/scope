@@ -44,8 +44,8 @@
 // refer to bound deferred Tools, including during restoration. Model preparation
 // errors settle as definite host failures before external work begins.
 //
-// An ordinary Tool error produces a model-visible ToolResult. Host failures,
-// cancellation, deadlines, and panics that produce no definite ToolResult leave
+// A tool.Failure produces a model-visible error ToolResult. Ordinary errors,
+// invalid output, cancellation, deadlines, and panics without a definite result leave
 // the Tool Effect unknown. The Engine retains that identity across tree capture
 // and restoration and requires explicit settlement before execution continues.
 // Terminating the Process retains unresolved identities in its Result; it does

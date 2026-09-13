@@ -162,10 +162,12 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 		t.Fatal(inputRequired)
 	}
 	for _, testCase := range []struct {
-		name   string
-		cause  error
-		panics bool
+		name          string
+		cause         error
+		panics        bool
+		invalidOutput bool
 	}{
+		{name: "transport failure", cause: errors.New("response lost after execution")},
 		{name: "host failure", cause: interaction.HostFailure(errors.New("tool boundary unavailable"))},
 		{name: "cancellation", cause: context.Canceled},
 		{name: "deadline", cause: context.DeadlineExceeded},
@@ -173,6 +175,7 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 		{name: "cancellation with input request", cause: errors.Join(inputRequired, context.Canceled)},
 		{name: "deadline with input request", cause: errors.Join(context.DeadlineExceeded, inputRequired)},
 		{name: "panic", panics: true},
+		{name: "invalid output", invalidOutput: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			type input struct{}
@@ -189,9 +192,13 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 			}
 			model := &singleToolCallModel{call: chat.ToolCall{ID: "call_unknown", Name: "failing", Arguments: `{}`}}
 			observer := &toolSettlementObserver{settlements: make(chan interaction.ToolSettlement, 1)}
+			var executable tool.Tool = failing
+			if testCase.invalidOutput {
+				executable = &invalidOutputTool{Tool: failing}
+			}
 			deployment := configuredInteraction(t, interaction.DefinitionConfig{
 				Name: "interaction.unknown_tool", Description: "Preserve unknown Tool outcomes.", MaxModelCalls: 2,
-			}, interaction.DispatcherConfig{Model: model}, interaction.ToolSetConfig{Tools: []tool.Tool{failing}, Observer: observer})
+			}, interaction.DispatcherConfig{Model: model}, interaction.ToolSetConfig{Tools: []tool.Tool{executable}, Observer: observer})
 			events := &agenttest.ObservationRecorder{}
 			engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver, EventListeners: []agent.EventListener{events}})
 			if err != nil {

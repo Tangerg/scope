@@ -8,11 +8,8 @@ import (
 	"github.com/Tangerg/scope/core/tool"
 )
 
-// modelToolResult applies Interaction's model-feedback policy to one Tool call.
-// It borrows output and returns an independently owned result. Invalid output
-// becomes an error ToolResult. Host, context, and input-control failures return
-// their original error without entering model context. An invalid call is also
-// returned as an error because no model result can be attributed to it.
+// modelToolResult projects only definite outcomes into model context. Unclassified
+// errors and invalid output retain uncertainty at the Effect boundary.
 func modelToolResult(call chat.ToolCall, output chat.ToolOutput, cause error) (chat.ToolResult, error) {
 	if err := call.Validate(); err != nil {
 		return chat.ToolResult{}, errors.Join(fmt.Errorf("interaction: invalid tool call: %w", err), cause)
@@ -36,11 +33,7 @@ func modelToolResult(call chat.ToolCall, output chat.ToolOutput, cause error) (c
 	if failure, ok := errors.AsType[*tool.Failure](cause); ok {
 		return chat.ToolResult{ID: call.ID, Name: call.Name, Output: failure.Output(), IsError: true}, nil
 	}
-	return chat.ToolResult{
-		ID: call.ID, Name: call.Name,
-		Output:  chat.NewTextToolOutput(fmt.Sprintf("error: tool %q failed: %s", call.Name, boundedDiagnostic(cause.Error()))),
-		IsError: true,
-	}, nil
+	return chat.ToolResult{}, cause
 }
 
 func rejectedToolResult(call chat.ToolCall, diagnostic string) chat.ToolResult {

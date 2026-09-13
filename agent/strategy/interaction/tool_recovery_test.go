@@ -163,7 +163,7 @@ func (r *recoveryTool) Call(ctx context.Context, _ tool.Invocation) (chat.ToolOu
 		}
 	}
 	if r.unknown {
-		return chat.ToolOutput{}, interaction.HostFailure(errors.New("external outcome unavailable"))
+		return chat.ToolOutput{}, errors.New("external outcome unavailable")
 	}
 	return chat.NewTextToolOutput(r.name), nil
 }

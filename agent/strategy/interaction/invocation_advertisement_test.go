@@ -168,44 +168,37 @@ func TestAdvertiseToolsRejectsUnavailableAndInvalidNames(t *testing.T) {
 }
 
 func TestUnsuccessfulToolCallDiscardsStagedAdvertisements(t *testing.T) {
-	for _, invalidOutput := range []bool{false, true} {
-		t.Run(fmt.Sprintf("invalid_output=%t", invalidOutput), func(t *testing.T) {
-			failing := &callbackTool{
-				name: "failing",
-				call: func(ctx context.Context, _ string) (string, error) {
-					if err := interaction.AdvertiseTools(ctx, "hidden"); err != nil {
-						return "", err
-					}
-					if invalidOutput {
-						return "", nil
-					}
-					return "", errors.New("external failure")
-				},
+	failing := &callbackTool{
+		name: "failing",
+		call: func(ctx context.Context, _ string) (string, error) {
+			if err := interaction.AdvertiseTools(ctx, "hidden"); err != nil {
+				return "", err
 			}
-			hidden := &callbackTool{name: "hidden", call: func(context.Context, string) (string, error) {
-				return "hidden", nil
-			}}
-			model := &manifestScriptModel{scripts: []manifestScript{
-				{wantTools: []string{"failing"}, response: toolCallResponse(chat.ToolCall{ID: "call_failing", Name: "failing", Arguments: `{}`})},
-				{wantTools: []string{"failing"}, response: textResponse("recovered")},
-			}}
-			var executable tool.Tool = failing
-			if invalidOutput {
-				executable = &invalidOutputTool{Tool: failing}
-			}
-			deployment := newDeferredDeployment(t, model, []tool.Tool{executable}, []tool.Tool{hidden}, 0)
-			process, engine := startDeferredInteraction(t, deployment)
-			result, err := process.Await(context.Background())
+			failure, err := tool.NewFailure(errors.New("business failure"), chat.NewTextToolOutput("business failure"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
-				t.Fatal(err)
-			}
-			if result.Status() != agent.StatusCompleted {
-				t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
-			}
-		})
+			return "", failure
+		},
+	}
+	hidden := &callbackTool{name: "hidden", call: func(context.Context, string) (string, error) {
+		return "hidden", nil
+	}}
+	model := &manifestScriptModel{scripts: []manifestScript{
+		{wantTools: []string{"failing"}, response: toolCallResponse(chat.ToolCall{ID: "call_failing", Name: "failing", Arguments: `{}`})},
+		{wantTools: []string{"failing"}, response: textResponse("recovered")},
+	}}
+	deployment := newDeferredDeployment(t, model, []tool.Tool{failing}, []tool.Tool{hidden}, 0)
+	process, engine := startDeferredInteraction(t, deployment)
+	result, err := process.Await(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+	if result.Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
 	}
 }
 
