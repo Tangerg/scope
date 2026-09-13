@@ -110,7 +110,7 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 		if err != nil {
 			t.Fatal(err)
 		}
-		signalID, err := ParseSignalID(fmt.Sprintf("signal:waiting-%d", index))
+		signalID, err := ParseSignalID(fmt.Sprintf("signal:engine:waiting-%d", index))
 		if err != nil {
 			t.Fatal(err)
 		}

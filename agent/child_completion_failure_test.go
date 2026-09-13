@@ -93,7 +93,7 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 	parent.status = StatusWaiting
 	waitID, _ := ParseWaitID("wait:oversized-children")
 	waitKey, _ := ParseWaitKey("children")
-	if err := parent.mailbox.openWait(waitKey, mustMailboxSignal(t, "signal:oversized-opened", waitID, []byte(`{}`)), true); err != nil {
+	if err := parent.mailbox.openWait(waitKey, mustMailboxSignal(t, "signal:engine:oversized-opened", waitID, []byte(`{}`)), true); err != nil {
 		t.Fatal(err)
 	}
 	parent.currentWaitID = waitID

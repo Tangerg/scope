@@ -236,7 +236,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 			if restoreErr != nil {
 				t.Fatal(restoreErr)
 			}
-			opened := mustMailboxSignal(t, "signal:foreign-wait", registration.WaitID, json.RawMessage(`{}`))
+			opened := mustMailboxSignal(t, "signal:engine:foreign-wait", registration.WaitID, json.RawMessage(`{}`))
 			if openErr := mailbox.openWait(registration.Spec.Key, opened, false); openErr != nil {
 				t.Fatal(openErr)
 			}

@@ -13,7 +13,7 @@ type signalAdmission struct {
 }
 
 func newAdmissionRecord(signal Signal, source signalSource) (signalRecord, error) {
-	if !signal.Valid() || (source != signalSourceExternal && source != signalSourceChildWait && source != signalSourceSettlement) {
+	if !signal.Valid() || !source.accepts(signal.ID()) {
 		return signalRecord{}, fmt.Errorf("%w: %w", ErrSignalRejected, ErrInvalidSignal)
 	}
 	record := newSignalRecord(signal, false)

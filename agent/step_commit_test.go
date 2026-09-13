@@ -58,14 +58,14 @@ func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 	secondWait, _ := ParseWaitID("wait:second")
 	firstKey, _ := ParseWaitKey("first")
 	secondKey, _ := ParseWaitKey("second")
-	if err := mailbox.openWait(firstKey, mustMailboxSignal(t, "signal:first-opened", firstWait, json.RawMessage(`{}`)), false); err != nil {
+	if err := mailbox.openWait(firstKey, mustMailboxSignal(t, "signal:engine:first-opened", firstWait, json.RawMessage(`{}`)), false); err != nil {
 		t.Fatal(err)
 	}
-	if err := mailbox.openWait(secondKey, mustMailboxSignal(t, "signal:second-opened", secondWait, json.RawMessage(`{}`)), false); err != nil {
+	if err := mailbox.openWait(secondKey, mustMailboxSignal(t, "signal:engine:second-opened", secondWait, json.RawMessage(`{}`)), false); err != nil {
 		t.Fatal(err)
 	}
-	firstSignalID, _ := ParseSignalID("signal:first")
-	secondSignalID, _ := ParseSignalID("signal:second")
+	firstSignalID, _ := ParseSignalID("signal:engine:first")
+	secondSignalID, _ := ParseSignalID("signal:engine:second")
 	firstSignal, _ := newSignal(firstSignalID, firstWait, json.RawMessage(`{}`))
 	secondSignal, _ := newSignal(secondSignalID, secondWait, json.RawMessage(`{}`))
 	finalization := &preparedStepFinalization{

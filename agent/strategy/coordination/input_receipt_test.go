@@ -1,6 +1,7 @@
 package coordination_test
 
 import (
+	"errors"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -30,9 +31,8 @@ func TestSignalReceiptsRetainInputAfterFinalSignalWindow(t *testing.T) {
 		synctest.Wait()
 		waitID, _ := inspect(t, engine, process).Snapshot.WaitID()
 		openingReceipt := inspect(t, engine, process).Snapshot.SignalReceipts()[0]
-		openingReplay, err := agent.NewSignalRequest(openingReceipt.ID(), waitID, []byte(`"request"`))
-		if err != nil {
-			t.Fatal(err)
+		if _, requestErr := agent.NewSignalRequest(openingReceipt.ID(), waitID, []byte(`"request"`)); !errors.Is(requestErr, agent.ErrInvalidSignalRequest) {
+			t.Fatalf("opening identity accepted as external request: %v", requestErr)
 		}
 		answerID, err := agent.ParseSignalID("signal:answer")
 		if err != nil {
@@ -86,7 +86,7 @@ func TestSignalReceiptsRetainInputAfterFinalSignalWindow(t *testing.T) {
 			if len(receipts) != 3 || !receipts[0].Consumed() || !receipts[1].Consumed() || receipts[2].Consumed() {
 				t.Fatalf("terminal receipt facts=%+v", receipts)
 			}
-			if receipts[0].Matches(openingReplay) {
+			if receipts[0].Matches(answer) || receipts[0].Matches(late) {
 				t.Fatal("wait opening proved an external delivery")
 			}
 			if !receipts[1].Matches(answer) || !receipts[2].Matches(late) || receipts[2].PayloadDigest() != agent.ComputeDigest(late.Payload()) {

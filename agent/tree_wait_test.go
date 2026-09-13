@@ -163,7 +163,7 @@ func waitingOwnerFixture(b testing.TB, parents int) (*treeRuntime, *processState
 		if err != nil {
 			b.Fatal(err)
 		}
-		opening := mustMailboxSignal(b, fmt.Sprintf("signal:parent-%d", index), waitID, payload)
+		opening := mustMailboxSignal(b, fmt.Sprintf("signal:engine:parent-%d", index), waitID, payload)
 		if err := parent.mailbox.openWait(key, opening, false); err != nil {
 			b.Fatal(err)
 		}

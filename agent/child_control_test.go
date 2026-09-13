@@ -129,7 +129,7 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 }
 
 func TestSignalRequestWireSchemaAndOpeningIdentity(t *testing.T) {
-	id := controlValue(ParseSignalID("signal:opening"))
+	id := controlValue(ParseSignalID("signal:request"))
 	wait := controlValue(newProcessID()).effectID(1, 0).waitID()
 	request := controlValue(NewSignalRequest(id, wait, []byte(`"request"`)))
 	payload := controlValue(json.Marshal(request))
@@ -154,11 +154,11 @@ func TestSignalRequestWireSchemaAndOpeningIdentity(t *testing.T) {
 		t.Fatal("accepted unknown member")
 	}
 	mailbox := newSignalMailbox()
-	signal := controlValue(request.signal())
+	signal := controlValue(newSignal(controlValue(ParseSignalID("signal:engine:opening")), wait, request.Payload()))
 	if err := mailbox.openWait(controlValue(ParseWaitKey("answer")), signal, true); err != nil {
 		t.Fatal(err)
 	}
-	if accepted, err := mailbox.enqueue(StatusWaiting, signal, signalSourceExternal); accepted || !errors.Is(err, ErrSignalConflict) {
+	if accepted, err := mailbox.enqueue(StatusWaiting, signal, signalSourceExternal); accepted || !errors.Is(err, ErrSignalRejected) {
 		t.Fatalf("opening masqueraded as an answer: %t %v", accepted, err)
 	}
 }
@@ -314,34 +314,11 @@ func TestDescriptorParticipatesInTypedWireSchemas(t *testing.T) {
 	}
 }
 
-func TestControlSnapshotRejectsChildWaitAsExternalAdmission(t *testing.T) {
-	parentID := controlValue(newProcessID())
+func TestSignalChildRejectsEngineSignalIdentity(t *testing.T) {
 	childID := controlValue(newProcessID())
-	id := parentID.effectID(1, 0)
 	waitID := childID.effectID(1, 0).waitID()
-	request := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:child-answer")), waitID, []byte(`"done"`)))
-	result := ChildControlResult{childID: childID, operation: frameworkEffectSignalChild, signalID: request.ID()}
-	record := preparedEffect{ID: id, Effect: controlValue(SignalChild(childID, request)), Phase: effectPhaseSettled,
-		Settlement: new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(json.Marshal(result)))))}
-	mailbox := newSignalMailbox()
-	opening := mustMailboxSignal(t, "signal:child-opening", waitID, []byte(`"opened"`))
-	if err := mailbox.openWait(controlValue(ParseWaitKey("children")), opening, false); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := mailbox.enqueue(StatusRunning, controlValue(request.signal()), signalSourceChildWait); err != nil {
-		t.Fatal(err)
-	}
-	for _, consumed := range []bool{false, true} {
-		if consumed {
-			if _, err := mailbox.commit(2); err != nil {
-				t.Fatal(err)
-			}
-		}
-		child := processSnapshotWire{ProcessID: childID, Status: StatusRunning,
-			Relation: processRelationWire{ParentID: &parentID}, Mailbox: mailbox.snapshot()}
-		validation := treeSnapshotValidation{processes: map[ProcessID]processSnapshotWire{childID: child}}
-		if err := validation.validateChildControl(parentID, record); !errors.Is(err, ErrInvalidChildControl) {
-			t.Fatalf("consumed=%t: child-wait receipt proved external admission: %v", consumed, err)
-		}
+	internal := controlValue(newSignal(waitID.childWaitSignalID(), waitID, []byte(`"done"`)))
+	if _, err := SignalChild(childID, SignalRequest(internal)); !errors.Is(err, ErrInvalidChildControl) {
+		t.Fatalf("child control accepted Engine identity: %v", err)
 	}
 }

@@ -18,12 +18,12 @@ type SignalRequest struct {
 	payload json.RawMessage
 }
 
-// NewSignalRequest requires a caller-chosen signal identity so that
-// resubmitting the same delivery is exactly one logical consumption. Without
+// NewSignalRequest rejects the reserved signal:engine: namespace and requires
+// a caller-chosen signal identity so that resubmitting the same delivery is exactly one logical consumption. Without
 // it, a host retry after an ambiguous network failure would be
 // indistinguishable from a second answer.
 func NewSignalRequest(id SignalID, waitID WaitID, payload json.RawMessage) (SignalRequest, error) {
-	if !id.Valid() {
+	if !signalSourceExternal.accepts(id) {
 		return SignalRequest{}, fmt.Errorf("%w: signal ID: %w", ErrInvalidSignalRequest, ErrInvalidIdentity)
 	}
 	normalized, err := wireJSON.normalize(payload, maxWireBytes)
@@ -42,7 +42,7 @@ func (s SignalRequest) WaitID() (WaitID, bool) { return s.waitID, s.waitID.Valid
 // Payload returns an independently owned Strategy-defined value.
 func (s SignalRequest) Payload() json.RawMessage { return bytes.Clone(s.payload) }
 
-func (s SignalRequest) Valid() bool { return s.id.Valid() && len(s.payload) > 0 }
+func (s SignalRequest) Valid() bool { return signalSourceExternal.accepts(s.id) && len(s.payload) > 0 }
 
 func (s SignalRequest) signal() (Signal, error) {
 	if !s.Valid() {
@@ -67,7 +67,11 @@ func (s *SignalRequest) UnmarshalJSON(data []byte) error {
 	if err := signal.UnmarshalJSON(data); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidSignalRequest, err)
 	}
-	*s = SignalRequest(signal)
+	request, err := NewSignalRequest(signal.id, signal.waitID, signal.payload)
+	if err != nil {
+		return err
+	}
+	*s = request
 	return nil
 }
 

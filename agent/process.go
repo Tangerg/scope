@@ -66,9 +66,8 @@ func (p *Process) StartedAt() time.Time {
 // mailbox remains unchanged. Reusing a SignalID with different normalized
 // payload bytes or a different WaitID returns ErrSignalConflict. If any SignalID
 // repeats with identical content, accepted is false with nil error and the
-// whole batch is unchanged, including resource usage. Internal settlement and
-// child-wait SignalIDs cannot reconcile external delivery and return
-// ErrSignalRejected when their content is identical. A batch exceeding mailbox,
+// whole batch is unchanged, including resource usage. Engine-reserved SignalIDs
+// are invalid SignalRequests. A batch exceeding mailbox,
 // work-budget, Process snapshot, or tree snapshot capacity returns
 // ErrResourceLimitExceeded before changing the mailbox.
 // In durable mode, accepted is true only after the mailbox and budget changes

@@ -89,6 +89,17 @@ const (
 	signalSourceSettlement signalSource = "settlement"
 )
 
+func (s signalSource) accepts(id SignalID) bool {
+	switch s {
+	case signalSourceExternal:
+		return id.Valid() && !id.engineOwned()
+	case signalSourceSettlement, signalSourceChildWait:
+		return id.Valid() && id.engineOwned()
+	default:
+		return false
+	}
+}
+
 func (s *signalMailbox) enqueue(status Status, signal Signal, source signalSource) (bool, error) {
 	record, err := newAdmissionRecord(signal, source)
 	if err != nil {
@@ -156,6 +167,9 @@ func (s *signalMailbox) openWait(key WaitKey, signal Signal, externallyAddressab
 
 func (s *signalMailbox) openWaitRecord(key WaitKey, record signalRecord, externallyAddressable bool) error {
 	id := record.waitID
+	if !signalSourceSettlement.accepts(record.id) {
+		return fmt.Errorf("%w: opening Signal requires Engine identity", errWaitState)
+	}
 	if _, exists := s.waits[id]; exists {
 		return fmt.Errorf("%w: duplicate wait ID", errWaitState)
 	}
@@ -441,7 +455,7 @@ func restoreSignalMailbox(wire mailboxWire, status Status) (signalMailbox, error
 }
 
 func (s signalRecordWire) restore(sequence, cursor uint64) (signalRecord, error) {
-	if s.Source != signalSourceExternal && s.Source != signalSourceChildWait && s.Source != signalSourceSettlement ||
+	if !s.Source.accepts(s.ID) ||
 		s.OpensWait && s.Source != signalSourceSettlement ||
 		!s.OpensWait && s.Source == signalSourceSettlement && s.WaitID != nil {
 		return signalRecord{}, fmt.Errorf("%w: invalid signal source", errMailboxCursor)

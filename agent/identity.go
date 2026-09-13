@@ -3,14 +3,15 @@ package agent
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 const (
-	maxIdentityBytes = 256
-	processIDPrefix  = "process:"
-	effectIDPrefix   = "effect:"
-	waitIDPrefix     = "wait:"
-	signalIDPrefix   = "signal:"
+	maxIdentityBytes     = 256
+	processIDPrefix      = "process:"
+	effectIDPrefix       = "effect:"
+	waitIDPrefix         = "wait:"
+	engineSignalIDPrefix = "signal:engine:"
 )
 
 var ErrInvalidIdentity = errors.New("agent: invalid identity")
@@ -92,11 +93,14 @@ func (p ProcessID) effectID(step uint64, index int) EffectID {
 type SignalID struct{ identity }
 
 // ParseSignalID validates an externally supplied Signal delivery identity.
-// Parsing does not accept or deliver the Signal.
+// Parsing does not accept or deliver the Signal. The signal:engine: namespace
+// is reserved for Engine-generated delivery and cannot be used in SignalRequest.
 func ParseSignalID(value string) (SignalID, error) {
 	id, err := parseIdentity("signal ID", value)
 	return SignalID{id}, err
 }
+
+func (s SignalID) engineOwned() bool { return strings.HasPrefix(s.String(), engineSignalIDPrefix) }
 
 func (s *SignalID) UnmarshalText(text []byte) error {
 	if s == nil {
@@ -134,7 +138,7 @@ func (w *WaitID) UnmarshalText(text []byte) error {
 
 func (w WaitID) childWaitSignalID() SignalID {
 	digest := digestBytes([]byte("child-wait-satisfied\x00" + w.String()))
-	id, err := ParseSignalID(signalIDPrefix + digest.hex())
+	id, err := ParseSignalID(engineSignalIDPrefix + digest.hex())
 	if err != nil {
 		panic(err)
 	}
@@ -173,7 +177,7 @@ func (e EffectID) waitID() WaitID {
 
 func (e EffectID) settlementSignalID() SignalID {
 	digest := digestBytes([]byte("signal\x00" + e.String()))
-	id, err := ParseSignalID(signalIDPrefix + digest.hex())
+	id, err := ParseSignalID(engineSignalIDPrefix + digest.hex())
 	if err != nil {
 		panic(err)
 	}

@@ -75,7 +75,7 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	opening := mustMailboxSignal(t, "signal:completed-child-opened", waitID, payload)
+	opening := mustMailboxSignal(t, "signal:engine:completed-child-opened", waitID, payload)
 	if openErr := parent.mailbox.openWait(waitKey, opening, false); openErr != nil {
 		t.Fatal(openErr)
 	}
