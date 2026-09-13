@@ -110,6 +110,10 @@ func (p preparedStep) snapshot() preparedStep {
 		clone.Effects[index] = preparedEffect{
 			ID: effect.ID, Effect: effect.Effect.clone(), Phase: effect.Phase,
 		}
+		if effect.Diagnostic != nil {
+			diagnostic := *effect.Diagnostic
+			clone.Effects[index].Diagnostic = &diagnostic
+		}
 		if effect.WaitID != nil {
 			waitID := *effect.WaitID
 			clone.Effects[index].WaitID = &waitID

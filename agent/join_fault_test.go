@@ -79,7 +79,6 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	if openErr := parent.mailbox.openWait(waitKey, opening, false); openErr != nil {
 		t.Fatal(openErr)
 	}
-	parent.usage.AcceptedSignals++
 	parent.currentWaitID = waitID
 	parent.status = StatusWaiting
 	runtime.childWaits[parent.handle.processID] = map[WaitID]*childWaitRegistration{waitID: {waitID: waitID, spec: spec}}
@@ -95,7 +94,7 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	runtime.completeProcessBookkeeping(parent)
 	clear(runtime.queued)
 	runtime.processQueue = nil
-	beforeUsage := parent.usage
+	beforeUsage := parent.usage()
 	runtime.publishJoins()
 	if !handle.joinDone() || handle.joinError() != nil {
 		t.Fatal("completed child's local join did not succeed")
@@ -103,7 +102,7 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	if !parent.handle.joinDone() || !errors.Is(parent.handle.joinError(), cause) {
 		t.Fatal("parent lost its runtime failure")
 	}
-	if parent.usage != beforeUsage || parent.mailbox.contains(waitID.childWaitSignalID()) || len(runtime.pendingPublications) != 0 {
+	if parent.usage() != beforeUsage || parent.mailbox.contains(waitID.childWaitSignalID()) || len(runtime.pendingPublications) != 0 {
 		t.Fatal("join published new strategy input after the tree runtime failed")
 	}
 	if !runtime.canStop() {

@@ -167,7 +167,6 @@ func waitingOwnerFixture(b testing.TB, parents int) (*treeRuntime, *processState
 		if err := parent.mailbox.openWait(key, opening, false); err != nil {
 			b.Fatal(err)
 		}
-		parent.usage.AcceptedSignals++
 		if _, err := parent.mailbox.commit(1); err != nil {
 			b.Fatal(err)
 		}

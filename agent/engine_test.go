@@ -615,6 +615,10 @@ func TestUnknownSettlementRequiresExplicitResolutionAndSurvivesRestore(t *testin
 	snapshot := waitForUnknownSettlement(t, process)
 	wire, _ := snapshot.wire()
 	effectID := wire.Prepared.Effects[0].ID
+	diagnostic, present := snapshot.EffectDiagnostic(effectID)
+	if !present || diagnostic.Code() != "engine.dispatch.failed" {
+		t.Fatalf("diagnostic without listener = %+v, %t", diagnostic, present)
+	}
 	tree, err := engine.CaptureTree(context.Background(), process.ID())
 	if err != nil {
 		t.Fatal(err)
@@ -625,7 +629,12 @@ func TestUnknownSettlementRequiresExplicitResolutionAndSurvivesRestore(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	unknown := inspectProcessSnapshot(t, restored).UnknownEffectIDs()
+	restoredSnapshot := inspectProcessSnapshot(t, restored)
+	restoredDiagnostic, present := restoredSnapshot.EffectDiagnostic(effectID)
+	if !present || restoredDiagnostic != diagnostic {
+		t.Fatal("tree restoration lost dispatch diagnostic")
+	}
+	unknown := restoredSnapshot.UnknownEffectIDs()
 	if len(unknown) != 1 || unknown[0] != effectID {
 		t.Fatalf("unknown Effects=%v", unknown)
 	}

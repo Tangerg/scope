@@ -34,6 +34,7 @@ type preparedEffect struct {
 	Phase      effectPhase `json:"phase"`
 	WaitID     *WaitID     `json:"wait_id,omitempty"`
 	Settlement *Settlement `json:"settlement,omitempty"`
+	Diagnostic *Failure    `json:"diagnostic,omitempty"`
 }
 
 // preparedEffects owns the sequential execution frontier. An uncertain result
@@ -70,6 +71,9 @@ func (p preparedEffects) next() (int, error) {
 }
 
 func (p preparedEffect) validatePhase() error {
+	if p.Diagnostic != nil && (!p.Diagnostic.Valid() || p.Phase != effectPhaseSettled) {
+		return errors.New("invalid effect diagnostic")
+	}
 	if !p.Phase.valid() || (p.Phase == effectPhaseSettled) != (p.Settlement != nil) ||
 		p.Settlement != nil && (!p.Settlement.Valid() || p.Settlement.EffectID() != p.ID) {
 		return errors.New("prepared Effect phase and settlement disagree")
@@ -95,13 +99,17 @@ func (p *preparedEffect) revokeDispatch() {
 	p.Phase = effectPhasePlanned
 }
 
-func (p *preparedEffect) settle(settlement Settlement) error {
+func (p *preparedEffect) settle(settlement Settlement, cause error) error {
 	if p == nil || p.Phase != effectPhasePending || p.Settlement != nil ||
 		!settlement.Valid() || settlement.EffectID() != p.ID {
 		return errors.New("effect is not pending or settlement does not match")
 	}
 	p.Phase = effectPhaseSettled
 	p.Settlement = &settlement
+	if cause != nil {
+		diagnostic := dispatchFailure(cause)
+		p.Diagnostic = &diagnostic
+	}
 	return nil
 }
 
@@ -115,7 +123,7 @@ func (p *preparedEffect) settleUnknown() error {
 	if err != nil {
 		return err
 	}
-	return p.settle(settlement)
+	return p.settle(settlement, nil)
 }
 
 func (p *preparedEffect) resolveUnknown(settlement Settlement) error {
@@ -249,7 +257,7 @@ func (p *preparedEffect) settleFramework() error {
 	if err != nil {
 		return err
 	}
-	if err := p.settle(settlement); err != nil {
+	if err := p.settle(settlement, nil); err != nil {
 		return err
 	}
 	waitID := p.ID.waitID()
@@ -260,7 +268,7 @@ func (p *preparedEffect) settleFramework() error {
 func (p *preparedEffect) settleChildStart(result ChildStartResult) error {
 	payload, err := encodeChildStartResult(result)
 	if err != nil {
-		return p.settleUnknown()
+		return err
 	}
 	status := SettlementStatusSucceeded
 	if _, failed := result.Failure(); failed {
@@ -268,7 +276,7 @@ func (p *preparedEffect) settleChildStart(result ChildStartResult) error {
 	}
 	settlement, err := NewSettlement(p.ID, status, payload)
 	if err != nil {
-		return p.settleUnknown()
+		return err
 	}
-	return p.settle(settlement)
+	return p.settle(settlement, nil)
 }

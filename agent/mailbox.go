@@ -26,12 +26,13 @@ type signalRecord struct {
 	payloadDigest   Digest
 	payload         json.RawMessage
 	opensWait       bool
+	source          signalSource
 }
 
 func newSignalRecord(signal Signal, opensWait bool) signalRecord {
 	return signalRecord{
 		id: signal.id, waitID: signal.waitID, payload: signal.payload,
-		payloadDigest: ComputeDigest(signal.payload), opensWait: opensWait,
+		payloadDigest: ComputeDigest(signal.payload), opensWait: opensWait, source: signalSourceExternal,
 	}
 }
 
@@ -42,7 +43,7 @@ func (s signalRecord) sameContent(other signalRecord) bool {
 func (s signalRecord) snapshot() signalRecordWire {
 	wire := signalRecordWire{
 		ArrivalSequence: s.arrivalSequence, ID: s.id,
-		PayloadDigest: s.payloadDigest, Payload: bytes.Clone(s.payload), OpensWait: s.opensWait,
+		PayloadDigest: s.payloadDigest, Payload: bytes.Clone(s.payload), OpensWait: s.opensWait, Source: s.source,
 	}
 	if s.waitID.Valid() {
 		wire.WaitID = &s.waitID
@@ -80,11 +81,12 @@ func newSignalMailbox() signalMailbox {
 	}
 }
 
-type signalSource uint8
+type signalSource string
 
 const (
-	signalSourceExternal signalSource = iota + 1
-	signalSourceChildWait
+	signalSourceExternal   signalSource = "external"
+	signalSourceChildWait  signalSource = "child_wait"
+	signalSourceSettlement signalSource = "settlement"
 )
 
 func (s *signalMailbox) enqueue(status Status, signal Signal, source signalSource) (bool, error) {
@@ -92,11 +94,11 @@ func (s *signalMailbox) enqueue(status Status, signal Signal, source signalSourc
 	if err != nil {
 		return false, err
 	}
-	return s.enqueueRecord(status, record, source)
+	return s.enqueueRecord(status, record)
 }
 
-func (s *signalMailbox) enqueueRecord(status Status, record signalRecord, source signalSource) (bool, error) {
-	accepted, err := s.validateRecord(status, record, source)
+func (s *signalMailbox) enqueueRecord(status Status, record signalRecord) (bool, error) {
+	accepted, err := s.validateRecord(status, record)
 	if err != nil || !accepted {
 		return accepted, err
 	}
@@ -104,10 +106,14 @@ func (s *signalMailbox) enqueueRecord(status Status, record signalRecord, source
 	return true, nil
 }
 
-func (s signalMailbox) validateRecord(status Status, record signalRecord, source signalSource) (bool, error) {
+func (s signalMailbox) validateRecord(status Status, record signalRecord) (bool, error) {
+	source := record.source
 	if index, exists := s.seen[record.id]; exists {
 		if !s.records[index].sameContent(record) {
 			return false, ErrSignalConflict
+		}
+		if s.records[index].source != source {
+			return false, ErrSignalRejected
 		}
 		if record.waitID.Valid() && s.waits[record.waitID].externallyAddressable != (source == signalSourceExternal) {
 			return false, ErrSignalRejected
@@ -123,7 +129,7 @@ func (s signalMailbox) validateRecord(status Status, record signalRecord, source
 			!acceptsAnswer {
 			return false, ErrSignalRejected
 		}
-	} else if source != signalSourceExternal || (status != StatusRunning && status != StatusPaused && status != StatusWaiting) {
+	} else if source == signalSourceChildWait || (status != StatusRunning && status != StatusPaused && status != StatusWaiting) {
 		return false, ErrSignalRejected
 	}
 	return true, nil
@@ -143,7 +149,9 @@ func (s *signalMailbox) openWait(key WaitKey, signal Signal, externallyAddressab
 	if !key.Valid() || !signal.Valid() || !addressed {
 		return fmt.Errorf("%w: wait key and addressed opening Signal are required", errWaitState)
 	}
-	return s.openWaitRecord(key, newSignalRecord(signal, true), externallyAddressable)
+	record := newSignalRecord(signal, true)
+	record.source = signalSourceSettlement
+	return s.openWaitRecord(key, record, externallyAddressable)
 }
 
 func (s *signalMailbox) openWaitRecord(key WaitKey, record signalRecord, externallyAddressable bool) error {
@@ -266,6 +274,7 @@ type signalRecordWire struct {
 	PayloadDigest   Digest          `json:"payload_digest"`
 	Payload         json.RawMessage `json:"payload,omitempty"`
 	OpensWait       bool            `json:"opens_wait,omitempty"`
+	Source          signalSource    `json:"source"`
 }
 
 type waitRecordWire struct {
@@ -283,16 +292,12 @@ type mailboxWire struct {
 }
 
 func (m mailboxWire) receipts() []SignalReceipt {
-	externalWaits := make(map[WaitID]bool, len(m.Waits))
-	for _, wait := range m.Waits {
-		externalWaits[wait.WaitID] = wait.ExternallyAddressable
-	}
 	receipts := make([]SignalReceipt, 0, len(m.Signals))
 	for _, record := range m.Signals {
 		receipt := SignalReceipt{
 			id: record.ID, waitID: snapshotWaitID(record.WaitID), payloadDigest: record.PayloadDigest,
 			arrivalSequence: record.ArrivalSequence, consumed: record.ArrivalSequence <= m.SignalCursor,
-			external: !record.OpensWait && (record.WaitID == nil || externalWaits[*record.WaitID]),
+			external: record.Source == signalSourceExternal,
 		}
 		if !receipt.consumed {
 			receipt.pending = Signal{id: receipt.id, waitID: receipt.waitID, payload: record.Payload}
@@ -344,7 +349,7 @@ func (s signalMailbox) prepareAdmission(status Status, currentWaitID WaitID, sig
 			admission.duplicate = true
 			continue
 		}
-		accepted, err := s.validateRecord(admission.status, record, source)
+		accepted, err := s.validateRecord(admission.status, record)
 		if err != nil {
 			return signalAdmission{}, err
 		}
@@ -409,11 +414,7 @@ func restoreSignalMailbox(wire mailboxWire, status Status) (signalMailbox, error
 				return signalMailbox{}, err
 			}
 		} else {
-			source := signalSourceExternal
-			if record.waitID.Valid() && !waits[record.waitID].ExternallyAddressable {
-				source = signalSourceChildWait
-			}
-			accepted, err := mailbox.enqueueRecord(StatusRunning, record, source)
+			accepted, err := mailbox.enqueueRecord(StatusRunning, record)
 			if err != nil || !accepted {
 				return signalMailbox{}, errors.Join(err, errors.New("invalid mailbox Signal history"))
 			}
@@ -440,12 +441,17 @@ func restoreSignalMailbox(wire mailboxWire, status Status) (signalMailbox, error
 }
 
 func (s signalRecordWire) restore(sequence, cursor uint64) (signalRecord, error) {
+	if s.Source != signalSourceExternal && s.Source != signalSourceChildWait && s.Source != signalSourceSettlement ||
+		s.OpensWait && s.Source != signalSourceSettlement ||
+		!s.OpensWait && s.Source == signalSourceSettlement && s.WaitID != nil {
+		return signalRecord{}, fmt.Errorf("%w: invalid signal source", errMailboxCursor)
+	}
 	if s.ArrivalSequence != sequence || !s.ID.Valid() || !s.PayloadDigest.Valid() ||
 		(s.WaitID != nil && !s.WaitID.Valid()) || (s.OpensWait && s.WaitID == nil) {
 		return signalRecord{}, fmt.Errorf("%w: invalid Signal record", errMailboxCursor)
 	}
 	record := signalRecord{
-		arrivalSequence: sequence, id: s.ID, payloadDigest: s.PayloadDigest, opensWait: s.OpensWait,
+		arrivalSequence: sequence, id: s.ID, payloadDigest: s.PayloadDigest, opensWait: s.OpensWait, source: s.Source,
 	}
 	if s.WaitID != nil {
 		record.waitID = *s.WaitID

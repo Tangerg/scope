@@ -141,7 +141,7 @@ func (p ProcessSnapshot) Usage() Usage {
 	if p.state == nil {
 		return Usage{}
 	}
-	return p.state.Usage
+	return p.state.usage()
 }
 
 // UnknownEffectIDs returns Effects whose captured settlement requires explicit
@@ -256,12 +256,12 @@ type processSnapshotWire struct {
 	FinishedAt              *time.Time          `json:"finished_at,omitempty"`
 	Status                  Status              `json:"status"`
 	CommittedSteps          uint64              `json:"committed_steps"`
-	Limits                  Limits              `json:"limits"`
+	MaxPendingSignals       uint64              `json:"max_pending_signals"`
 	TreeLimits              TreeLimits          `json:"tree_limits"`
 	Budget                  Budget              `json:"budget"`
 	ReservedBudget          Budget              `json:"reserved_child_budget"`
 	Capabilities            CapabilitySet       `json:"capabilities"`
-	Usage                   Usage               `json:"usage"`
+	Counters                processCounters     `json:"counters"`
 	CommittedExecutionState ExecutionState      `json:"committed_execution_state"`
 	Mailbox                 mailboxWire         `json:"mailbox"`
 	Prepared                *preparedStep       `json:"prepared,omitempty"`
@@ -318,13 +318,9 @@ func (p processSnapshotWire) clone() processSnapshotWire {
 func (p processSnapshotWire) validateContract() error {
 	if !p.ProcessID.Valid() || !p.DeploymentRef.Valid() || p.StartedAt.IsZero() ||
 		!p.Status.Valid() || p.Status == StatusNotStarted || !p.CommittedExecutionState.Valid() ||
-		!p.Limits.Valid() || !p.TreeLimits.Valid() || !p.Budget.Valid() ||
-		!p.Capabilities.Valid() || !p.Usage.validFor(p.Limits) ||
-		p.Usage.CommittedSteps != p.CommittedSteps ||
-		p.Limits.MaxSteps != p.Budget.Steps ||
-		p.Limits.MaxEffects != p.Budget.Effects ||
-		p.Limits.MaxSignals != p.Budget.Signals ||
-		!p.Budget.contains(p.Usage, p.ReservedBudget) {
+		p.MaxPendingSignals == 0 || p.MaxPendingSignals > p.Budget.Signals || !p.TreeLimits.Valid() || !p.Budget.Valid() ||
+		!p.Capabilities.Valid() ||
+		!p.Budget.contains(p.usage(), p.ReservedBudget) {
 		return fmt.Errorf("%w: incomplete Process identity or state", ErrInvalidSnapshot)
 	}
 	return nil
@@ -343,9 +339,6 @@ func (p processSnapshotWire) validateRelation() error {
 }
 
 func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
-	if p.Usage.AcceptedSignals != mailbox.arrivalSequence() {
-		return fmt.Errorf("%w: accepted Signal count does not match mailbox", ErrInvalidSnapshot)
-	}
 	remainingPending := mailbox.pendingCount()
 	var reserved uint64
 	var preparedSteps uint64
@@ -370,7 +363,7 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 				return fmt.Errorf("%w: terminal Process cannot retain pending Effects", ErrInvalidSnapshot)
 			}
 		}
-		if p.Usage.PreparedEffects < p.Prepared.settlementSignalCount() {
+		if p.usage().PreparedEffects < p.Prepared.settlementSignalCount() {
 			return fmt.Errorf("%w: prepared Effect identities exceed recorded usage", ErrInvalidSnapshot)
 		}
 		if !p.Status.Terminal() {
@@ -379,9 +372,9 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 			preparedSteps = 1
 		}
 	}
-	if !resourceQuantitiesFit(p.Limits.MaxPendingSignals, mailbox.pendingCount()) ||
-		!resourceQuantitiesFit(p.Limits.MaxPendingSignals, remainingPending, reserved) ||
-		!resourceQuantitiesFit(p.Budget.Signals, p.Usage.AcceptedSignals, p.ReservedBudget.Signals, reserved) ||
+	if !resourceQuantitiesFit(p.MaxPendingSignals, mailbox.pendingCount()) ||
+		!resourceQuantitiesFit(p.MaxPendingSignals, remainingPending, reserved) ||
+		!resourceQuantitiesFit(p.Budget.Signals, p.usage().AcceptedSignals, p.ReservedBudget.Signals, reserved) ||
 		!resourceQuantitiesFit(p.Budget.Steps, p.CommittedSteps, p.ReservedBudget.Steps, preparedSteps) {
 		return fmt.Errorf("%w: execution capacity exceeds limits or budget", ErrInvalidSnapshot)
 	}
@@ -459,4 +452,23 @@ func (p processSnapshotWire) validateLifecycle(mailbox signalMailbox) error {
 		}
 	}
 	return nil
+}
+
+func (p processSnapshotWire) usage() Usage {
+	return Usage{CommittedSteps: p.CommittedSteps, AcceptedSignals: uint64(len(p.Mailbox.Signals)), PreparedEffects: p.Counters.PreparedEffects, DroppedDeltas: p.Counters.DroppedDeltas}
+}
+
+// EffectDiagnostic returns the bounded diagnostic retained for an uncertain
+// dispatch attempt while its prepared Step remains captured, including after
+// restoration or explicit resolution. It does not establish failure of the
+// external operation or authorize replay.
+func (p ProcessSnapshot) EffectDiagnostic(id EffectID) (Failure, bool) {
+	if p.state != nil && p.state.Prepared != nil {
+		for _, effect := range p.state.Prepared.Effects {
+			if effect.ID == id && effect.Diagnostic != nil {
+				return *effect.Diagnostic, true
+			}
+		}
+	}
+	return Failure{}, false
 }

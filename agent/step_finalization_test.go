@@ -126,7 +126,7 @@ func (h *heldChildWaitExecution) Step(ctx context.Context, signals []Signal) (Tr
 	return h.childTestExecution.Step(ctx, signals)
 }
 
-func TestFinalizationFailureRetainsSettlementsWithoutAdoptingCandidate(t *testing.T) {
+func TestWaitConflictsAreRejectedBeforeDispatch(t *testing.T) {
 	for _, durable := range []bool{false, true} {
 		name := "ephemeral"
 		if durable {
@@ -170,7 +170,7 @@ func TestFinalizationFailureRetainsSettlementsWithoutAdoptingCandidate(t *testin
 			}
 			result := mustAwait(t, process)
 			failure, failed := result.Termination().Failure()
-			if result.Status() != StatusFailed || !failed || failure.Code() != "engine.finalize.invalid" {
+			if result.Status() != StatusFailed || !failed || failure.Code() != "execution.effect.invalid" {
 				t.Fatalf("finalization result=%s failure=%+v", result.Status(), failure)
 			}
 			snapshot := inspectProcessSnapshot(t, process)
@@ -178,16 +178,11 @@ func TestFinalizationFailureRetainsSettlementsWithoutAdoptingCandidate(t *testin
 			if err != nil {
 				t.Fatal(err)
 			}
-			if wire.Prepared == nil || len(wire.Prepared.Effects) != 3 {
-				t.Fatal("failed finalization erased the performed operations")
-			}
-			settled := wire.Prepared.Effects[0]
-			if !settled.definitelySettled() || settled.Settlement.Status() != SettlementStatusSucceeded ||
-				string(settled.Settlement.Payload()) != `{"kind":"result","value":"retained:done"}` {
-				t.Fatalf("external settlement changed: %+v", settled)
+			if wire.Prepared != nil {
+				t.Fatal("invalid batch was prepared")
 			}
 			state, err := wireJSON.decode[engineTestState](wire.CommittedExecutionState.Payload())
-			if err != nil || state.Phase != "ready" || wire.Usage != (Usage{PreparedEffects: 3}) ||
+			if err != nil || state.Phase != "ready" || wire.usage() != (Usage{}) ||
 				wire.Mailbox.SignalCursor != 0 || len(wire.Mailbox.Signals) != 0 || len(wire.Mailbox.Waits) != 0 {
 				t.Fatalf("failed finalization adopted candidate state: %+v, %v", wire, err)
 			}
@@ -204,7 +199,7 @@ func TestFinalizationFailureRetainsSettlementsWithoutAdoptingCandidate(t *testin
 			if got := mustAwait(t, restored); got.Status() != result.Status() || got.Usage() != result.Usage() {
 				t.Fatalf("restored failure changed: %+v", got)
 			}
-			if !bytes.Equal(inspectProcessSnapshot(t, restored).JSON(), snapshot.JSON()) || dispatcher.calls.Load() != 1 {
+			if !bytes.Equal(inspectProcessSnapshot(t, restored).JSON(), snapshot.JSON()) || dispatcher.calls.Load() != 0 {
 				t.Fatal("restoration changed settlement evidence or repeated the external operation")
 			}
 		})

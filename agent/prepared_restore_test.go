@@ -150,7 +150,7 @@ func TestRestorePreparedOutputUsesDeploymentSchema(t *testing.T) {
 				t.Fatal(err)
 			}
 			wire.Prepared.Effects = nil
-			wire.Usage.PreparedEffects = 0
+			wire.Counters.PreparedEffects = 0
 			prepared, err := newProcessSnapshot(wire)
 			if err != nil {
 				t.Fatal(err)

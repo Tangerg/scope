@@ -480,7 +480,7 @@ func (t *treeRuntime) advanceOne() bool {
 func (t *treeRuntime) advancePrepared(process *processState) {
 	index, record, err := process.prepared.nextEffect()
 	if err != nil {
-		t.failPreparedEffect(process, "engine.effect.phase.invalid", err)
+		t.failPreparedEffect(process, failureCodeEngineEffectPhaseInvalid, err)
 		return
 	}
 	if process.pendingControl.hasTerminalIntent() {
@@ -509,9 +509,9 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 	}
 	if err := t.finalizePrepared(process); err != nil {
 		if errors.Is(err, ErrResourceLimitExceeded) {
-			process.recordFailure(FailureKindExecution, "engine.limit.child_wait_signal", err)
+			process.recordFailure(FailureKindExecution, failureCodeEngineLimitChildWaitSignal, err)
 		} else {
-			process.recordFailure(FailureKindContract, "engine.finalize.invalid", err)
+			process.recordFailure(FailureKindContract, failureCodeEngineFinalizeInvalid, err)
 		}
 		t.terminatePrepared(process)
 	}
@@ -525,7 +525,7 @@ func (t *treeRuntime) nextAttempt(process *processState) (processAttempt, bool) 
 	if process.attemptSequence == math.MaxUint64 {
 		t.failProcess(process,
 			FailureKindContract,
-			"engine.process.attempt_exhausted",
+			failureCodeEngineProcessAttemptExhausted,
 			errors.New("process attempt sequence is exhausted"),
 		)
 		t.finishIfTerminal(process)
@@ -601,7 +601,7 @@ func (t *treeRuntime) prepareChildStart(
 			process.releaseProvisionalChildBudget(spec.Budget)
 		}
 	}()
-	childLimits, err := spec.Budget.limits(process.limits.MaxPendingSignals)
+	childLimits, err := spec.Budget.limits(process.pendingSignalLimit)
 	if err != nil {
 		return childStartPreparation{result: failedChildStart(
 			spec, FailureKindExecution, childBudgetInvalidCode, err,
@@ -640,7 +640,7 @@ func (t *treeRuntime) controlChild(parent *processState, index uint32, record *p
 	request, err := decodeChildControlEffect(record.Effect.Payload())
 	if err != nil {
 		record.revokeDispatch()
-		t.failPreparedEffect(parent, "engine.child.control.invalid", err)
+		t.failPreparedEffect(parent, failureCodeEngineChildControlInvalid, err)
 		return
 	}
 	result := request.result()
@@ -660,11 +660,11 @@ func (t *treeRuntime) controlChild(parent *processState, index uint32, record *p
 		var settlement Settlement
 		settlement, err = NewSettlement(record.ID, status, payload)
 		if err == nil {
-			err = record.settle(settlement)
+			err = record.settle(settlement, nil)
 		}
 	}
 	if err != nil {
-		t.failPreparedEffect(parent, "engine.child.control.settlement.invalid", err)
+		t.failPreparedEffect(parent, failureCodeEngineChildControlSettlementInvalid, err)
 		return
 	}
 	t.publishSettlementEvent(parent, record.ID, EffectTargetFramework, record.Settlement.Status(), startedAt, nil)
@@ -704,7 +704,7 @@ func (t *treeRuntime) applyChildControl(child *processState, request childContro
 		result.failure = newEngineFailure(FailureKindContract, childSignalRejectedCode, err)
 		return result
 	}
-	accepted, err := child.admitSignals([]Signal{signal}, signalSourceExternal)
+	accepted, err := t.admitSignals(child, []Signal{signal}, signalSourceExternal)
 	if err != nil {
 		result.failure = newEngineFailure(FailureKindExecution, childSignalRejectedCode, err)
 		return result
@@ -912,10 +912,10 @@ func (t *treeRuntime) discardChildStart(plan *childStartPlan) {
 	parentID, _ := plan.relation.ParentID()
 	parent := t.processes[parentID]
 	if child := t.processes[plan.childID]; child != nil {
-		t.removeProcess(plan.childID)
 		if parent != nil {
 			parent.releaseCommittedChildBudget(plan.spec.Budget)
 		}
+		t.removeProcess(plan.childID)
 	} else if parent != nil {
 		parent.releaseProvisionalChildBudget(plan.spec.Budget)
 	}
@@ -1299,11 +1299,7 @@ func (t *treeRuntime) freezeBlockedByJob() bool {
 }
 
 func (t *treeRuntime) captureTree() (TreeSnapshot, error) {
-	wire := treeSnapshotWire{RootID: t.rootID}
-	if t.incarnation.Valid() {
-		incarnation := t.incarnation
-		wire.IncarnationID = &incarnation
-	}
+	wire := t.snapshotHeader()
 	for _, process := range t.processes {
 		snapshot, err := process.capture()
 		if err != nil {
@@ -1311,16 +1307,21 @@ func (t *treeRuntime) captureTree() (TreeSnapshot, error) {
 		}
 		wire.ProcessSnapshots = append(wire.ProcessSnapshots, snapshot)
 	}
+	return treeSnapshotFromWire(wire)
+}
+
+func (t *treeRuntime) snapshotHeader() treeSnapshotWire {
+	wire := treeSnapshotWire{RootID: t.rootID, ProcessSnapshots: []ProcessSnapshot{}}
+	if t.incarnation.Valid() {
+		incarnation := t.incarnation
+		wire.IncarnationID = &incarnation
+	}
 	for parentID, registrations := range t.childWaits {
 		for _, registration := range registrations {
-			wire.ChildWaits = append(wire.ChildWaits, childWaitSnapshotWire{
-				ParentProcessID: parentID,
-				WaitID:          registration.waitID,
-				Spec:            registration.spec.wire(),
-			})
+			wire.ChildWaits = append(wire.ChildWaits, childWaitSnapshotWire{ParentProcessID: parentID, WaitID: registration.waitID, Spec: registration.spec.wire()})
 		}
 	}
-	return treeSnapshotFromWire(wire)
+	return wire
 }
 
 func (t *treeRuntime) releaseFreeze(freeze *treeFreeze) error {
@@ -1391,12 +1392,12 @@ func (t *treeRuntime) applyPendingControl(process *processState) bool {
 }
 
 func (t *treeRuntime) deliverChildWaitSatisfied(process *processState, signal Signal) bool {
-	accepted, err := process.admitSignals([]Signal{signal}, signalSourceChildWait)
+	accepted, err := t.admitSignals(process, []Signal{signal}, signalSourceChildWait)
 	if err != nil {
 		if errors.Is(err, ErrResourceLimitExceeded) {
-			process.recordFailure(FailureKindExecution, "engine.limit.child_wait_signal", err)
+			process.recordFailure(FailureKindExecution, failureCodeEngineLimitChildWaitSignal, err)
 		} else {
-			process.recordFailure(FailureKindContract, "engine.child.wait.satisfaction.invalid", err)
+			process.recordFailure(FailureKindContract, failureCodeEngineChildWaitSatisfactionInvalid, err)
 		}
 		return false
 	}
@@ -1423,7 +1424,7 @@ func (t *treeRuntime) deliverSignals(process *processState, command processComma
 		}
 		signals = append(signals, signal)
 	}
-	accepted, err := process.admitSignals(signals, signalSourceExternal)
+	accepted, err := t.admitSignals(process, signals, signalSourceExternal)
 	if err != nil || !accepted {
 		command.reply(processResponse{err: err})
 		return
@@ -1558,7 +1559,8 @@ func (t *treeRuntime) prepareSettlementEvent(
 	cause error,
 ) (Event, bool) {
 	durationMS := time.Since(startedAt).Milliseconds()
-	failureKind, failureCode := dispatchFailure(cause)
+	failure := dispatchFailure(cause)
+	failureKind, failureCode := failure.Kind(), failure.Code()
 	payload, err := json.Marshal(effectFinishedEventPayload{
 		EffectTarget: target, SettlementStatus: status,
 		DurationMS: &durationMS, FailureKind: failureKind, FailureCode: failureCode,
@@ -1770,7 +1772,7 @@ func (t *treeRuntime) startRestore(process *processState) {
 func (t *treeRuntime) startPreparedEffect(process *processState, index int, record *preparedEffect) {
 	if record.Phase == effectPhasePlanned {
 		if err := record.begin(); err != nil {
-			t.failPreparedEffect(process, "engine.effect.phase.invalid", err)
+			t.failPreparedEffect(process, failureCodeEngineEffectPhaseInvalid, err)
 			return
 		}
 		if record.Effect.Target() == EffectTargetDispatcher && t.engine.durability != nil {
@@ -1801,7 +1803,7 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int, reco
 		if err := record.settleFramework(); err != nil {
 			// Local wait preparation performed no external work.
 			record.revokeDispatch()
-			t.failPreparedEffect(process, "engine.framework_effect.settlement.invalid", err)
+			t.failPreparedEffect(process, failureCodeEngineFrameworkEffectSettlementInvalid, err)
 			return
 		}
 		t.publishSettlementEvent(process, record.ID, EffectTargetFramework, record.Settlement.Status(), startedAt, nil)
@@ -1842,7 +1844,7 @@ func (t *treeRuntime) recoverPendingEffect(
 		t.startDispatch(process, batchIndex, *record)
 	case ReplayPolicyNever:
 		if err := record.settleUnknown(); err != nil {
-			t.failPreparedEffect(process, "engine.effect.recovery.invalid", err)
+			t.failPreparedEffect(process, failureCodeEngineEffectRecoveryInvalid, err)
 			return
 		}
 		if t.engine.durability == nil {
@@ -1872,7 +1874,7 @@ func (t *treeRuntime) recoverPendingEffect(
 		}, boundary)
 	default:
 		t.failPreparedEffect(
-			process, "engine.effect.recovery.invalid", errInvalidReplayPolicy,
+			process, failureCodeEngineEffectRecoveryInvalid, errInvalidReplayPolicy,
 		)
 	}
 }
@@ -1885,7 +1887,7 @@ func (t *treeRuntime) startChild(
 	spec, err := decodeChildStartEffect(record.Effect.Payload())
 	if err != nil {
 		record.revokeDispatch()
-		t.failPreparedEffect(process, "engine.framework_effect.settlement.invalid", err)
+		t.failPreparedEffect(process, failureCodeEngineFrameworkEffectSettlementInvalid, err)
 		return
 	}
 	attempt, ok := t.nextAttempt(process)
@@ -2032,7 +2034,7 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 		t.applyStepCompletion(process, completion.step)
 	case processJobRestore:
 		if completion.restore.err != nil {
-			t.failProcess(process, failureKindForError(completion.restore.err), "execution.snapshot.unrestorable", completion.restore.err)
+			t.failProcess(process, failureKindForError(completion.restore.err), failureCodeExecutionSnapshotUnrestorable, completion.restore.err)
 		} else {
 			process.execution = completion.restore.execution
 		}
@@ -2203,12 +2205,12 @@ func (t *treeRuntime) applyStepCompletion(
 ) {
 	sequence := process.committedSteps + 1
 	if result.err != nil {
-		code := "execution.step.failed"
+		code := failureCodeExecutionStepFailed
 		switch result.stage {
 		case stepJobStageSnapshot:
-			code = "execution.snapshot.failed"
+			code = failureCodeExecutionSnapshotFailed
 		case stepJobStageRestore:
-			code = "execution.snapshot.unrestorable"
+			code = failureCodeExecutionSnapshotUnrestorable
 		}
 		t.failProcess(process, failureKindForError(result.err), code, result.err)
 		return
@@ -2231,14 +2233,14 @@ func (t *treeRuntime) applyDispatchCompletion(
 		return
 	}
 	settlement := result.settlement
-	if err := record.settle(settlement); err != nil {
-		t.failPreparedEffect(process, "engine.effect.settlement.invalid", err)
+	if err := record.settle(settlement, result.err); err != nil {
+		t.failPreparedEffect(process, failureCodeEngineEffectSettlementInvalid, err)
 		return
 	}
 	var events []Event
 	if result.dropped > 0 {
-		process.usage.DroppedDeltas = saturatingCountAdd(
-			process.usage.DroppedDeltas,
+		process.counters.DroppedDeltas = saturatingCountAdd(
+			process.counters.DroppedDeltas,
 			result.dropped,
 		)
 		t.publishEphemeralStatus(process)
@@ -2431,7 +2433,7 @@ func (t *treeRuntime) notifyChildWaits(processID ProcessID, boundary ChildWaitBo
 		}
 		signal, err := encodeChildWaitSatisfied(registration.waitID, registration.spec.Key, boundary, outcomes)
 		if err != nil {
-			parent.recordFailure(FailureKindExecution, "engine.child.wait.satisfaction.encoding_failed", err)
+			parent.recordFailure(FailureKindExecution, failureCodeEngineChildWaitSatisfactionEncodingFailed, err)
 			t.stopProcessTree(parent)
 			continue
 		}
@@ -2639,7 +2641,7 @@ func (t *treeRuntime) finalizePrepared(process *processState) error {
 	if err := finalization.prepareTransition(time.Now().Round(0).UTC()); err != nil {
 		return err
 	}
-	finalization.adopt()
+	process.adopt(finalization)
 	adopted = true
 	for _, waitID := range finalization.consumedChildWaits {
 		t.unregisterChildWait(process.handle.processID, waitID)
@@ -2681,3 +2683,39 @@ func (t *treeRuntime) installTerminationWithUnresolved(process *processState, ou
 }
 
 func emptyEventPayload() json.RawMessage { return json.RawMessage("{}") }
+
+func (t *treeRuntime) admitSignals(process *processState, signals []Signal, source signalSource) (bool, error) {
+	candidate := *process
+	accepted, err := candidate.admitSignals(signals, source)
+	if err != nil || !accepted {
+		return accepted, err
+	}
+	header, err := json.Marshal(t.snapshotHeader())
+	if err != nil {
+		return false, err
+	}
+	// The header contains an empty JSON array. Adding raw object encodings and
+	// separators gives the exact tree size without validating a half-installed
+	// child-control or child-wait transition.
+	size := len(header)
+	index := 0
+	for _, member := range t.processes {
+		if member == process {
+			member = &candidate
+		}
+		encoded, err := json.Marshal(member.snapshotWire())
+		if err != nil {
+			return false, err
+		}
+		if index > 0 {
+			size++
+		}
+		size += len(encoded)
+		if size > maxTreeSnapshotBytes {
+			return false, ErrResourceLimitExceeded
+		}
+		index++
+	}
+	process.mailbox, process.status, process.currentWaitID = candidate.mailbox, candidate.status, candidate.currentWaitID
+	return true, nil
+}

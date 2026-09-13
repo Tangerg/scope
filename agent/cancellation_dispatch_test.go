@@ -92,8 +92,8 @@ func TestTerminationCancelsDispatchAndStopsPreparedBatch(t *testing.T) {
 					}
 					state, err := wireJSON.decode[engineTestState](wire.CommittedExecutionState.Payload())
 					if err != nil || state.Phase != "ready" || wire.CommittedSteps != 0 ||
-						wire.Mailbox.SignalCursor != 0 || wire.Usage.AcceptedSignals != 0 || wire.Usage.PreparedEffects != 2 {
-						t.Errorf("interrupted candidate changed committed facts: state=%+v usage=%+v cursor=%d error=%v", state, wire.Usage, wire.Mailbox.SignalCursor, err)
+						wire.Mailbox.SignalCursor != 0 || wire.usage().AcceptedSignals != 0 || wire.usage().PreparedEffects != 2 {
+						t.Errorf("interrupted candidate changed committed facts: state=%+v usage=%+v cursor=%d error=%v", state, wire.usage(), wire.Mailbox.SignalCursor, err)
 					}
 					if status != SettlementStatusUnknown && string(settled.Settlement.Payload()) != `{"done":true}` {
 						t.Errorf("settlement payload = %s", settled.Settlement.Payload())

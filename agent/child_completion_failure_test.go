@@ -97,7 +97,6 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	parent.currentWaitID = waitID
-	parent.usage.AcceptedSignals++
 	output, err := EncodeOutput(strings.Repeat("x", 32<<20))
 	if err != nil {
 		t.Fatal(err)
@@ -167,7 +166,7 @@ func TestPendingFailureRetainsUnknownExternalEffect(t *testing.T) {
 		t.Fatal(err)
 	}
 	parent.prepared = &preparedStep{Effects: []preparedEffect{record}}
-	parent.usage.PreparedEffects = 1
+	parent.counters.PreparedEffects = 1
 	runtime.advancePrepared(parent)
 	result := mustAwait(t, &Process{handle: parent.handle})
 	if result.Status() != StatusFailed || !slices.Equal(result.Termination().UnresolvedEffectIDs(), []EffectID{id}) {

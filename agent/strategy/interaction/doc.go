@@ -53,4 +53,6 @@
 // and never replace the Engine's authoritative settlement boundary. When a Tool
 // child terminates, its Failure propagates unchanged to the parent. Cancellation
 // and timeout diagnostics retain the child identity and termination cause.
+// Delegate termination with unresolved Effects fails the parent without another
+// model call. Drained child work does not prove a definite external outcome.
 package interaction

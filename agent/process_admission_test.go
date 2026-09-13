@@ -280,7 +280,7 @@ func TestRestoreDoesNotReadmitPreviouslyAdmittedProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	after, err := inspectProcessSnapshot(t, restored).wire()
-	if err != nil || before.Limits != after.Limits || before.TreeLimits != after.TreeLimits || before.Usage != after.Usage {
+	if err != nil || before.MaxPendingSignals != after.MaxPendingSignals || before.TreeLimits != after.TreeLimits || before.usage() != after.usage() {
 		t.Fatalf("restoration changed captured resource facts: %v", err)
 	}
 	if err := restoredEngine.Close(context.WithoutCancel(t.Context())); err != nil {

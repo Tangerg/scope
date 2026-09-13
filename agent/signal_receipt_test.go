@@ -14,6 +14,7 @@ func TestSignalReceiptsReconcileOnlyExternalAdmissions(t *testing.T) {
 		{name: "unaddressed", external: true},
 		{name: "external wait", wait: true, external: true},
 		{name: "child wait", wait: true},
+		{name: "dispatcher settlement"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			mailbox := newSignalMailbox()
@@ -29,7 +30,10 @@ func TestSignalReceiptsReconcileOnlyExternalAdmissions(t *testing.T) {
 			answer := mustMailboxSignal(t, "signal:answer", waitID, []byte(`{"value":"answer"}`))
 			source := signalSourceExternal
 			if !test.external {
-				source = signalSourceChildWait
+				source = signalSourceSettlement
+				if test.wait {
+					source = signalSourceChildWait
+				}
 			}
 			if accepted, err := mailbox.enqueue(StatusRunning, answer, source); !accepted || err != nil {
 				t.Fatalf("admission = %t, %v", accepted, err)

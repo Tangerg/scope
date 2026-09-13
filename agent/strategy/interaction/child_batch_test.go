@@ -269,3 +269,28 @@ func TestToolChildTerminationPreservesFailureAndCause(t *testing.T) {
 		})
 	}
 }
+
+func TestDelegateUnresolvedEffectsStopParent(t *testing.T) {
+	execution := childBatchTestExecution(t, childCallsDelegate, phaseWaitingChildren)
+	batch := execution.state.ToolRound.ChildBatch
+	wait, err := batch.waitSpec(1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcomes := make([]childOutcomeTestWire, len(batch.Invocations))
+	for index, invocation := range batch.Invocations {
+		outcomes[index] = childOutcomeTestWire{Key: *invocation.ChildKey, Result: childResultTestWire{
+			ProcessID: *invocation.ProcessID, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0),
+			Termination: json.RawMessage(`{"status":"killed","cause":"engine_kill","reason":"operator stopped child","unresolved_effect_ids":["effect:remote-write"]}`),
+		}}
+	}
+	signal := childBatchTestSignal(t, *batch.WaitID, childCompletionTestPayload{Operation: "child_wait_satisfied", Key: wait.Key, Boundary: agent.ChildWaitBoundaryDrained, Outcomes: outcomes})
+	transition, err := execution.Step(t.Context(), []agent.Signal{signal})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure, failed := transition.Failure()
+	if !failed || failure.Code() != "interaction.delegate.unresolved_effects" || !strings.Contains(failure.Message(), "effect:remote-write") || len(transition.Effects()) != 0 {
+		t.Fatalf("unresolved Delegate continued: %+v", transition)
+	}
+}

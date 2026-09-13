@@ -182,8 +182,13 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 			}
 			request := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:control")), WaitID{}, []byte(`"steer"`)))
 			effect := controlValue(SignalChild(recipient, request))
-			id := parent.handle.processID.effectID(1, 0)
-			parent.prepared = &preparedStep{StepSequence: 1, Effects: preparedEffects{{ID: id, Effect: effect, Phase: effectPhasePending}}}
+			transition := controlValue(Continue(0, effect))
+			if failure := parent.prepareStepResult(stepJobResult{transition: transition, candidate: parent.execution, candidateState: parent.committedExecutionState}); failure != nil {
+				t.Fatal(failure.cause)
+			}
+			if err := parent.prepared.Effects[0].begin(); err != nil {
+				t.Fatal(err)
+			}
 			record := &parent.prepared.Effects[0]
 			runtime.controlChild(parent, 0, record, time.Now())
 			if !record.definitelySettled() {
@@ -197,12 +202,12 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 				}
 				return
 			}
-			if failed || child.mailbox.pendingCount() != 1 || child.usage.AcceptedSignals != 1 {
-				t.Fatalf("delivery=%+v usage=%+v", result, child.usage)
+			if failed || child.mailbox.pendingCount() != 1 || child.usage().AcceptedSignals != 1 {
+				t.Fatalf("delivery=%+v usage=%+v", result, child.usage())
 			}
 			wire := controlValue(decodeChildControlEffect(effect.Payload()))
 			duplicate := runtime.applyChildControl(child, wire)
-			if !duplicate.Matches(effect) || child.usage.AcceptedSignals != 1 {
+			if !duplicate.Matches(effect) || child.usage().AcceptedSignals != 1 {
 				t.Fatal("deduplication changed accounting")
 			}
 			child.status = StatusPaused
@@ -249,10 +254,13 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 		"wrong payload": func(child *processSnapshotWire) {
 			child.Mailbox.Signals[0].PayloadDigest = ComputeDigest([]byte(`"other"`))
 		},
-		"opening receipt": func(child *processSnapshotWire) { child.Mailbox.Signals[0].OpensWait = true },
-		"wrong wait":      func(child *processSnapshotWire) { child.Mailbox.Signals[0].WaitID = new(id.waitID()) },
-		"wrong parent":    func(child *processSnapshotWire) { child.Relation.ParentID = new(controlValue(newProcessID())) },
-		"not a child":     func(child *processSnapshotWire) { child.Relation.ParentID = nil },
+		"opening receipt": func(child *processSnapshotWire) {
+			child.Mailbox.Signals[0].OpensWait = true
+			child.Mailbox.Signals[0].Source = signalSourceSettlement
+		},
+		"wrong wait":   func(child *processSnapshotWire) { child.Mailbox.Signals[0].WaitID = new(id.waitID()) },
+		"wrong parent": func(child *processSnapshotWire) { child.Relation.ParentID = new(controlValue(newProcessID())) },
+		"not a child":  func(child *processSnapshotWire) { child.Relation.ParentID = nil },
 	} {
 		t.Run(name, func(t *testing.T) {
 			altered := child

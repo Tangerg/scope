@@ -20,16 +20,13 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 		CapabilitySet{}, DefaultTreeLimits(), time.Now(), StatusRunning,
 	)
 	process := &processState{
-		handle:         handle,
-		status:         StatusRunning,
-		committedSteps: maxUint64 - 1,
-		limits: Limits{
-			MaxSteps: maxUint64, MaxEffects: maxUint64,
-			MaxSignals: maxUint64, MaxPendingSignals: maxUint64,
-		},
-		budget:         Budget{Steps: maxUint64, Effects: maxUint64, Signals: maxUint64},
-		reservedBudget: Budget{Steps: 1, Effects: 1, Signals: 1},
-		mailbox:        newSignalMailbox(),
+		handle:             handle,
+		status:             StatusRunning,
+		committedSteps:     maxUint64 - 1,
+		pendingSignalLimit: maxUint64,
+		budget:             Budget{Steps: maxUint64, Effects: maxUint64, Signals: maxUint64},
+		reservedBudget:     Budget{Steps: 1, Effects: 1, Signals: 1},
+		mailbox:            newSignalMailbox(),
 	}
 
 	schedulingFailure := process.stepSchedulingFailure()
@@ -53,8 +50,8 @@ func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 		MaxSteps: 10, MaxEffects: 10, MaxSignals: 3, MaxPendingSignals: 10,
 	}
 	process := &processState{
-		limits: limits,
-		budget: limits.budget(),
+		pendingSignalLimit: limits.MaxPendingSignals,
+		budget:             limits.budget(),
 	}
 	mailbox := newSignalMailbox()
 	firstWait, _ := ParseWaitID("wait:first")
@@ -127,7 +124,7 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 		parent.treeLimits, parent.startedAt, StatusRunning,
 	)
 	runtime.addProcess(newProcessState(handle, parent.deployment, parent.execution,
-		parent.committedExecutionState, parent.startedAt, parent.limits))
+		parent.committedExecutionState, parent.startedAt, controlValue(parent.budget.limits(parent.pendingSignalLimit))))
 	missingID, _ := ParseProcessID("process:missing-child")
 	var specs []ChildWaitSpec
 	var effects []Effect

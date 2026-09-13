@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -145,6 +146,35 @@ func BenchmarkActiveToolBatchRestore(b *testing.B) {
 				}
 			}
 			b.ReportMetric(float64(*classifications)/float64(b.N), "classifications/op")
+		})
+	}
+}
+
+func BenchmarkSequentialToolLifecycleValidation(b *testing.B) {
+	for _, count := range []int{16, 64, 256} {
+		b.Run(fmt.Sprint(count), func(b *testing.B) {
+			execution, _ := schedulingTestExecution(b, count)
+			for index := range execution.state.ToolRound.Response.Output.Message.Parts {
+				execution.state.ToolRound.Response.Output.Message.Parts[index].ToolCall.Arguments = `{"task":"` + strings.Repeat("x", 4<<10) + `"}`
+			}
+			calls := schedulingCalls(execution)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				execution.state.ToolRound.Results = nil
+				execution.state.ToolRound.ChildBatch = nil
+				for range count {
+					if _, err := execution.startToolChildren(b.Context(), 0, calls); err != nil {
+						b.Fatal(err)
+					}
+					for range 3 {
+						if _, err := execution.state.ToolRound.activeCalls(); err != nil {
+							b.Fatal(err)
+						}
+					}
+					finishSchedulingTestBatch(execution)
+				}
+			}
 		})
 	}
 }

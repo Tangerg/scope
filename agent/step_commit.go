@@ -86,7 +86,7 @@ func (p *preparedStepFinalization) applySettlement(record preparedEffect) error 
 			return errors.New("unsupported prepared framework Effect")
 		}
 	}
-	accepted, err := p.mailbox.enqueue(StatusRunning, signal, signalSourceExternal)
+	accepted, err := p.mailbox.enqueue(StatusRunning, signal, signalSourceSettlement)
 	if err != nil || !accepted {
 		return errors.Join(err, errors.New("internal settlement Signal was not accepted"))
 	}
@@ -111,13 +111,10 @@ func (p *preparedStepFinalization) enqueueImmediateChildSignals() error {
 	for index, signal := range p.immediateChildSignals {
 		acceptedSignals := uint64(index) + 1
 		if !resourceQuantitiesFit(
-			p.process.limits.MaxSignals,
-			p.process.usage.AcceptedSignals, preparedSignals, acceptedSignals,
-		) || !resourceQuantitiesFit(
-			p.process.limits.MaxPendingSignals, p.mailbox.pendingCount(), 1,
+			p.process.pendingSignalLimit, p.mailbox.pendingCount(), 1,
 		) || !resourceQuantitiesFit(
 			p.process.budget.Signals,
-			p.process.usage.AcceptedSignals, reservedBudget.Signals,
+			p.process.usage().AcceptedSignals, reservedBudget.Signals,
 			preparedSignals, acceptedSignals,
 		) {
 			return ErrResourceLimitExceeded
@@ -179,24 +176,4 @@ func (p *preparedStepFinalization) prepareTermination(outcome stepOutcome, finis
 	p.transition.status = p.transition.termination.Status()
 	p.transition.finishedAt = finishedAt
 	p.transition.closedChildWaits = p.mailbox.closeAllWaits()
-}
-
-func (p *preparedStepFinalization) adopt() {
-	process := p.process
-	process.execution = process.preparedExecution
-	process.preparedExecution = nil
-	process.committedExecutionState = p.prepared.CandidateState
-	process.mailbox = p.mailbox
-	process.committedSteps = p.prepared.StepSequence
-	process.usage.CommittedSteps = process.committedSteps
-	process.usage.AcceptedSignals += p.prepared.settlementSignalCount()
-	process.usage.AcceptedSignals += uint64(len(p.immediateChildSignals))
-	process.prepared = nil
-	if p.transition.termination.Valid() {
-		process.installTermination(p.transition.termination, p.transition.finalOutput, p.transition.finishedAt)
-	} else {
-		process.status = p.transition.status
-		process.currentWaitID = p.transition.currentWaitID
-		process.pauseReason = p.transition.pauseReason
-	}
 }

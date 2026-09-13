@@ -95,6 +95,18 @@ func TestDispatcherUnknownRetainsControlledFailureObservation(t *testing.T) {
 					kind != test.kind || code != test.code || present != test.kind.Valid() {
 					t.Fatalf("Unknown classification: fact=%+v failure=%s/%s/%t", fact, kind, code, present)
 				}
+				diagnostic, hasDiagnostic := snapshot.EffectDiagnostic(snapshot.UnknownEffectIDs()[0])
+				if hasDiagnostic != test.kind.Valid() || hasDiagnostic && (diagnostic.Kind() != test.kind || diagnostic.Code() != test.code || diagnostic.Message() == "" || len(diagnostic.Message()) > maxFailureMessageBytes) {
+					t.Fatalf("snapshot diagnostic=%+v present=%t", diagnostic, hasDiagnostic)
+				}
+				parsed, parseErr := ParseProcessSnapshot(snapshot.JSON())
+				if parseErr != nil {
+					t.Fatal(parseErr)
+				}
+				restoredDiagnostic, present := parsed.EffectDiagnostic(snapshot.UnknownEffectIDs()[0])
+				if present != hasDiagnostic || restoredDiagnostic != diagnostic {
+					t.Fatal("diagnostic changed during snapshot round trip")
+				}
 				wire, err := snapshot.wire()
 				if err != nil || string(wire.Prepared.Effects[0].Settlement.Payload()) != "null" {
 					t.Fatalf("Unknown settlement changed its model-visible payload: %v", err)
@@ -148,7 +160,11 @@ func TestPreparedContractFailureRetainsRestorableSettlementEvidence(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	transition, err := Continue(0, wait, wait)
+	second, err := RequestWait(controlValue(ParseWaitKey("second")), []byte(`{"prompt":"second"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	transition, err := Continue(0, wait, second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +185,7 @@ func TestPreparedContractFailureRetainsRestorableSettlementEvidence(t *testing.T
 	}
 	if wire.Status != StatusFailed || wire.Prepared.Effects[0].Settlement.Status() != SettlementStatusSucceeded ||
 		wire.Prepared.Effects[1].Phase != effectPhasePlanned || len(wire.Mailbox.Signals) != 0 ||
-		wire.Usage != (Usage{PreparedEffects: 2}) || len(wire.Termination.UnresolvedEffectIDs()) != 0 {
+		wire.usage() != (Usage{PreparedEffects: 2}) || len(wire.Termination.UnresolvedEffectIDs()) != 0 {
 		t.Fatalf("contract failure changed settled evidence or adopted candidate: %+v", wire)
 	}
 	restoredEngine, err := NewEngine(EngineConfig{})
@@ -181,7 +197,7 @@ func TestPreparedContractFailureRetainsRestorableSettlementEvidence(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result := mustAwait(t, restored); result.Status() != StatusFailed || result.Usage() != wire.Usage {
+	if result := mustAwait(t, restored); result.Status() != StatusFailed || result.Usage() != wire.usage() {
 		t.Fatalf("restoration changed contract failure: %+v", result)
 	}
 	if !bytes.Equal(inspectProcessSnapshot(t, restored).JSON(), snapshot.ProcessSnapshots()[0].JSON()) {

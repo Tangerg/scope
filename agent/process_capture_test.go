@@ -59,7 +59,7 @@ func TestRepeatedCaptureTracksControlSignalsAndReservations(t *testing.T) {
 	if accepted, err := process.admitSignals([]Signal{signal}, signalSourceExternal); err != nil || !accepted {
 		t.Fatalf("signal admission = %t, %v", accepted, err)
 	}
-	if wire := captureChange(); wire.Usage.AcceptedSignals != 1 || len(wire.Mailbox.Signals) != 1 {
+	if wire := captureChange(); wire.usage().AcceptedSignals != 1 || len(wire.Mailbox.Signals) != 1 {
 		t.Fatal("accepted signal is absent")
 	}
 	budget := Budget{Steps: 1, Effects: 1, Signals: 1}
@@ -146,7 +146,7 @@ func TestRepeatedCaptureTracksEffectSettlement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settleErr := record.settle(settlement); settleErr != nil {
+	if settleErr := record.settle(settlement, nil); settleErr != nil {
 		t.Fatal(settleErr)
 	}
 	settled, err := process.capture()
@@ -171,4 +171,18 @@ func TestRepeatedCaptureTracksEffectSettlement(t *testing.T) {
 	if wire, err := pending.wire(); err != nil || wire.Prepared.Effects[0].Settlement != nil {
 		t.Fatalf("settlement mutated the earlier capture: %v", err)
 	}
+}
+
+func TestChildBudgetUnderflowFailsBeforeMutation(t *testing.T) {
+	original := Budget{Steps: 3, Effects: 2, Signals: 1}
+	process := &processState{reservedBudget: original}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("budget underflow was silently accepted")
+		}
+		if process.reservedBudget != original {
+			t.Fatal("failed release mutated reservation")
+		}
+	}()
+	process.releaseCommittedChildBudget(Budget{Steps: 1, Effects: 3, Signals: 1})
 }

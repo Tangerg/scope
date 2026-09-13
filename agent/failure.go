@@ -150,3 +150,29 @@ func (f Failure) termination() Termination {
 	}
 	return Termination{status: StatusFailed, cause: cause, reason: f.Message(), failure: f}
 }
+
+const (
+	failureCodeEngineCapabilityDenied                    = "engine.capability.denied"
+	failureCodeEngineChildControlInvalid                 = "engine.child.control.invalid"
+	failureCodeEngineChildControlSettlementInvalid       = "engine.child.control.settlement.invalid"
+	failureCodeEngineChildWaitSatisfactionEncodingFailed = "engine.child.wait.satisfaction.encoding_failed"
+	failureCodeEngineChildWaitSatisfactionInvalid        = "engine.child.wait.satisfaction.invalid"
+	failureCodeEngineCommittedExecutionStateInvalid      = "engine.committed_execution_state.invalid"
+	failureCodeEngineEffectPhaseInvalid                  = "engine.effect.phase.invalid"
+	failureCodeEngineEffectRecoveryInvalid               = "engine.effect.recovery.invalid"
+	failureCodeEngineEffectSettlementInvalid             = "engine.effect.settlement.invalid"
+	failureCodeEngineFinalizeInvalid                     = "engine.finalize.invalid"
+	failureCodeEngineFrameworkEffectSettlementInvalid    = "engine.framework_effect.settlement.invalid"
+	failureCodeEngineLimitChildWaitSignal                = "engine.limit.child_wait_signal"
+	failureCodeEngineLimitEffects                        = "engine.limit.effects"
+	failureCodeEngineLimitSignals                        = "engine.limit.signals"
+	failureCodeEngineLimitSteps                          = "engine.limit.steps"
+	failureCodeEngineProcessAttemptExhausted             = "engine.process.attempt_exhausted"
+	failureCodeEngineTerminationInvalid                  = "engine.termination.invalid"
+	failureCodeExecutionEffectInvalid                    = "execution.effect.invalid"
+	failureCodeExecutionOutputInvalid                    = "execution.output.invalid"
+	failureCodeExecutionStepFailed                       = "execution.step.failed"
+	failureCodeExecutionTransitionInvalid                = "execution.transition.invalid"
+	failureCodeExecutionSnapshotFailed                   = "execution.snapshot.failed"
+	failureCodeExecutionSnapshotUnrestorable             = "execution.snapshot.unrestorable"
+)

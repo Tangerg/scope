@@ -408,7 +408,7 @@ func (t *treeSnapshotValidation) matchesChildWaitOutcome(outcome ChildOutcome, b
 	}
 	expected := resultWire{
 		ProcessID: child.ProcessID, StartedAt: child.StartedAt, FinishedAt: *child.FinishedAt,
-		Output: child.Output, Termination: *child.Termination, Usage: child.Usage,
+		Output: child.Output, Termination: *child.Termination, Usage: child.usage(),
 	}
 	expectedJSON, expectedErr := json.Marshal(expected)
 	actualJSON, actualErr := json.Marshal(outcome.result.wire())

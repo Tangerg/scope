@@ -241,7 +241,6 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 				t.Fatal(openErr)
 			}
 			child.Mailbox = mailbox.snapshot()
-			child.Usage.AcceptedSignals = mailbox.arrivalSequence()
 			child.Status = StatusWaiting
 			child.PauseReason = ""
 			child.CurrentWaitID = &registration.WaitID

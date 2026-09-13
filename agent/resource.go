@@ -108,12 +108,6 @@ type Usage struct {
 	DroppedDeltas uint64 `json:"dropped_deltas"`
 }
 
-func (u Usage) validFor(limits Limits) bool {
-	return u.CommittedSteps <= limits.MaxSteps &&
-		u.PreparedEffects <= limits.MaxEffects &&
-		u.AcceptedSignals <= limits.MaxSignals
-}
-
 // Budget is a non-renewable allocation of Framework-owned work units. A child
 // allocation is permanently transferred from its parent's remaining budget;
 // unused units are not silently reclaimed or duplicated. Remaining budget
@@ -255,4 +249,10 @@ func (t TreeLimits) validate() error {
 	default:
 		return nil
 	}
+}
+
+// Only counters without an authoritative lifecycle record are stored separately.
+type processCounters struct {
+	PreparedEffects uint64 `json:"prepared_effects"`
+	DroppedDeltas   uint64 `json:"dropped_deltas"`
 }

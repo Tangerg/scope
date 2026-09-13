@@ -175,10 +175,9 @@ func TestSnapshotRejectsUnfundedSignalReservations(t *testing.T) {
 		name   string
 		modify func(*processSnapshotWire)
 	}{
-		{name: "pending mailbox", modify: func(wire *processSnapshotWire) { wire.Limits.MaxPendingSignals = 1 }},
+		{name: "pending mailbox", modify: func(wire *processSnapshotWire) { wire.MaxPendingSignals = 1 }},
 		{name: "lifetime signals", modify: func(wire *processSnapshotWire) {
-			wire.Limits.MaxSignals = 1
-			wire.Limits.MaxPendingSignals = 1
+			wire.MaxPendingSignals = 1
 			wire.Budget.Signals = 1
 		}},
 		{name: "child allocation", modify: func(wire *processSnapshotWire) {
@@ -204,7 +203,6 @@ func TestSnapshotRejectsUnfundedSignalReservations(t *testing.T) {
 				t.Fatalf("enqueue=%t error=%v", accepted, enqueueErr)
 			}
 			wire.Mailbox = mailbox.snapshot()
-			wire.Usage.AcceptedSignals++
 			test.modify(&wire)
 			data, err := json.Marshal(wire)
 			if err != nil {

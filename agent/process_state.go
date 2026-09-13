@@ -37,13 +37,13 @@ type processState struct {
 
 	// Allocation and authority stay adjacent because every child reservation
 	// must update both before it can become observable.
-	limits                 Limits
+	pendingSignalLimit     uint64
 	treeLimits             TreeLimits
 	budget                 Budget
 	reservedBudget         Budget
 	provisionalChildBudget Budget
 	capabilities           CapabilitySet
-	usage                  Usage
+	counters               processCounters
 
 	// Restore bookkeeping is consumed by the owner goroutine before admitting
 	// new work, preventing recovered effects from racing fresh execution.
@@ -80,7 +80,7 @@ func newProcessState(
 	return &processState{
 		handle: handle, deployment: deployment, execution: execution,
 		startedAt: startedAt, status: StatusRunning, committedExecutionState: state,
-		mailbox: newSignalMailbox(), limits: limits, treeLimits: handle.treeLimits,
+		mailbox: newSignalMailbox(), pendingSignalLimit: limits.MaxPendingSignals, treeLimits: handle.treeLimits,
 		budget: handle.budget, capabilities: handle.capabilities,
 	}
 }
@@ -133,20 +133,29 @@ func (p *processState) admitSignals(signals []Signal, source signalSource) (bool
 	remainingPending := p.mailbox.pendingCount()
 	remainingPending -= p.prepared.consumedSignals()
 	reservedBudget := p.effectiveReservedBudget()
-	if !resourceQuantitiesFit(p.limits.MaxSignals, p.usage.AcceptedSignals, reserved, count) ||
-		!resourceQuantitiesFit(p.limits.MaxPendingSignals, p.mailbox.pendingCount(), count) ||
-		!resourceQuantitiesFit(p.limits.MaxPendingSignals, remainingPending, reserved, count) ||
-		!resourceQuantitiesFit(p.budget.Signals, p.usage.AcceptedSignals, reservedBudget.Signals, reserved, count) {
+	if !resourceQuantitiesFit(p.pendingSignalLimit, p.mailbox.pendingCount(), count) ||
+		!resourceQuantitiesFit(p.pendingSignalLimit, remainingPending, reserved, count) ||
+		!resourceQuantitiesFit(p.budget.Signals, p.usage().AcceptedSignals, reservedBudget.Signals, reserved, count) {
 		return false, ErrResourceLimitExceeded
 	}
+	candidate := *p
+	candidate.mailbox = p.mailbox.clone()
 	for _, record := range admission.records {
-		p.mailbox.acceptRecord(record)
+		candidate.mailbox.acceptRecord(record)
 	}
-	if p.status == StatusWaiting && admission.status == StatusRunning {
-		p.status = StatusRunning
-		p.currentWaitID = WaitID{}
+	if candidate.status == StatusWaiting && admission.status == StatusRunning {
+		candidate.status = StatusRunning
+		candidate.currentWaitID = WaitID{}
 	}
-	p.usage.AcceptedSignals += count
+	encoded, err := json.Marshal(candidate.snapshotWire())
+	if err != nil {
+		return false, err
+	}
+	if len(encoded) > maxSnapshotBytes {
+		return false, ErrResourceLimitExceeded
+	}
+	p.mailbox, p.status, p.currentWaitID = candidate.mailbox, candidate.status, candidate.currentWaitID
+
 	return true, nil
 }
 
@@ -219,7 +228,7 @@ func (p *processState) reserveProvisionalChildBudget(requested Budget) bool {
 	reserved, ok := p.reservedBudget.add(Budget{
 		Steps: 1, Signals: p.prepared.settlementSignalCount(),
 	})
-	if !ok || !p.budget.canAllocate(p.usage, reserved, requested) {
+	if !ok || !p.budget.canAllocate(p.usage(), reserved, requested) {
 		return false
 	}
 	p.provisionalChildBudget = requested
@@ -249,7 +258,7 @@ func (p *processState) releaseCommittedChildBudget(released Budget) {
 	if released.Steps > p.reservedBudget.Steps ||
 		released.Effects > p.reservedBudget.Effects ||
 		released.Signals > p.reservedBudget.Signals {
-		return
+		panic("agent: committed child budget exceeds its reservation")
 	}
 	p.reservedBudget.Steps -= released.Steps
 	p.reservedBudget.Effects -= released.Effects
@@ -268,41 +277,7 @@ func (p *processState) capture() (ProcessSnapshot, error) {
 	if p.snapshotDrained {
 		return p.snapshot, nil
 	}
-	wire := processSnapshotWire{
-		ProcessID:     p.handle.processID,
-		Relation:      p.handle.relation.wire(),
-		DeploymentRef: p.deployment.DeploymentRef(), StartedAt: p.startedAt,
-		Status: p.status, CommittedSteps: p.committedSteps,
-		Limits: p.limits, TreeLimits: p.treeLimits,
-		Budget: p.budget, ReservedBudget: p.reservedBudget,
-		Capabilities: p.capabilities, Usage: p.usage,
-		CommittedExecutionState: p.committedExecutionState, Mailbox: p.mailbox.snapshot(),
-		PauseReason: p.pauseReason, PendingControl: p.pendingControl.wire(),
-	}
-	if p.handle.childRequestDigest.Valid() {
-		digest := p.handle.childRequestDigest
-		wire.ChildRequestDigest = &digest
-	}
-	if !p.finishedAt.IsZero() {
-		finishedAt := p.finishedAt
-		wire.FinishedAt = &finishedAt
-	}
-	if p.currentWaitID.Valid() {
-		waitID := p.currentWaitID
-		wire.CurrentWaitID = &waitID
-	}
-	if p.finalOutput.Valid() {
-		output := p.finalOutput
-		wire.Output = &output
-	}
-	if p.termination.Valid() {
-		termination := p.termination
-		wire.Termination = &termination
-	}
-	if p.prepared != nil {
-		prepared := p.prepared.snapshot()
-		wire.Prepared = &prepared
-	}
+	wire := p.snapshotWire()
 	// Compare every persisted fact, including mailbox and Effect contents. This
 	// avoids a second mutation protocol whose invalidation could miss a control,
 	// reservation, or settlement while reusing the already validated value.
@@ -324,7 +299,7 @@ func (p *processState) result() Result {
 	return Result{
 		processID: p.handle.processID, startedAt: p.startedAt,
 		finishedAt: p.finishedAt, output: p.finalOutput,
-		termination: p.termination, usage: p.usage,
+		termination: p.termination, usage: p.usage(),
 	}
 }
 
@@ -388,12 +363,11 @@ func (p *processState) restorePreparedStep(stored *preparedStep, durable bool) e
 
 func (p *processState) stepSchedulingFailure() *stepPreparationFailure {
 	reservedBudget := p.effectiveReservedBudget()
-	if resourceQuantitiesFit(p.limits.MaxSteps, p.committedSteps, 1) &&
-		resourceQuantitiesFit(p.budget.Steps, p.committedSteps, reservedBudget.Steps, 1) {
+	if resourceQuantitiesFit(p.budget.Steps, p.committedSteps, reservedBudget.Steps, 1) {
 		return nil
 	}
 	return &stepPreparationFailure{
-		kind: FailureKindExecution, code: "engine.limit.steps", cause: ErrResourceLimitExceeded,
+		kind: FailureKindExecution, code: failureCodeEngineLimitSteps, cause: ErrResourceLimitExceeded,
 	}
 }
 
@@ -401,53 +375,51 @@ func (p *processState) prepareStepResult(result stepJobResult) *stepPreparationF
 	transition := result.transition
 	if !transition.Valid() || uint64(transition.ConsumedSignals()) > result.deliveredSignals {
 		return &stepPreparationFailure{
-			kind: FailureKindContract, code: "execution.transition.invalid", cause: ErrInvalidTransition,
+			kind: FailureKindContract, code: failureCodeExecutionTransitionInvalid, cause: ErrInvalidTransition,
 		}
 	}
 	effects := transition.Effects()
 	for _, effect := range effects {
 		if err := p.deployment.validateEffect(effect); err != nil {
 			return &stepPreparationFailure{
-				kind: FailureKindContract, code: "execution.effect.invalid", cause: err,
+				kind: FailureKindContract, code: failureCodeExecutionEffectInvalid, cause: err,
 			}
 		}
 		if !p.capabilities.Allows(effect.RequiredCapabilities()) {
 			return &stepPreparationFailure{
-				kind: FailureKindContract, code: "engine.capability.denied", cause: ErrInvalidCapability,
+				kind: FailureKindContract, code: failureCodeEngineCapabilityDenied, cause: ErrInvalidCapability,
 			}
 		}
 	}
 	effectCount := uint64(len(effects))
 	reservedBudget := p.effectiveReservedBudget()
-	if !resourceQuantitiesFit(p.limits.MaxEffects, p.usage.PreparedEffects, effectCount) ||
-		!resourceQuantitiesFit(
-			p.budget.Effects, p.usage.PreparedEffects, reservedBudget.Effects, effectCount,
-		) {
+	if !resourceQuantitiesFit(
+		p.budget.Effects, p.counters.PreparedEffects, reservedBudget.Effects, effectCount,
+	) {
 		return &stepPreparationFailure{
-			kind: FailureKindExecution, code: "engine.limit.effects", cause: ErrResourceLimitExceeded,
+			kind: FailureKindExecution, code: failureCodeEngineLimitEffects, cause: ErrResourceLimitExceeded,
 		}
 	}
 	remainingPending := p.mailbox.pendingCount() - uint64(transition.ConsumedSignals())
-	if !resourceQuantitiesFit(p.limits.MaxSignals, p.usage.AcceptedSignals, effectCount) ||
-		!resourceQuantitiesFit(p.limits.MaxPendingSignals, remainingPending, effectCount) ||
+	if !resourceQuantitiesFit(p.pendingSignalLimit, remainingPending, effectCount) ||
 		!resourceQuantitiesFit(
-			p.budget.Signals, p.usage.AcceptedSignals, reservedBudget.Signals, effectCount,
+			p.budget.Signals, p.usage().AcceptedSignals, reservedBudget.Signals, effectCount,
 		) {
 		return &stepPreparationFailure{
-			kind: FailureKindExecution, code: "engine.limit.signals", cause: ErrResourceLimitExceeded,
+			kind: FailureKindExecution, code: failureCodeEngineLimitSignals, cause: ErrResourceLimitExceeded,
 		}
 	}
 	if output, completes := transition.Output(); completes {
 		if validateOutputErr := p.deployment.Descriptor().ValidateOutput(output); validateOutputErr != nil {
 			return &stepPreparationFailure{
-				kind: FailureKindContract, code: "execution.output.invalid", cause: validateOutputErr,
+				kind: FailureKindContract, code: failureCodeExecutionOutputInvalid, cause: validateOutputErr,
 			}
 		}
 	}
 	digest, err := p.committedExecutionState.digest()
 	if err != nil {
 		return &stepPreparationFailure{
-			kind: FailureKindContract, code: "engine.committed_execution_state.invalid", cause: err,
+			kind: FailureKindContract, code: failureCodeEngineCommittedExecutionStateInvalid, cause: err,
 		}
 	}
 	sequence := p.committedSteps + 1
@@ -462,9 +434,12 @@ func (p *processState) prepareStepResult(result stepJobResult) *stepPreparationF
 			Phase: effectPhasePlanned,
 		})
 	}
+	if err := p.validatePreparedWaits(&prepared); err != nil {
+		return &stepPreparationFailure{kind: FailureKindContract, code: failureCodeExecutionEffectInvalid, cause: err}
+	}
 	p.prepared = &prepared
 	p.preparedExecution = result.candidate
-	p.usage.PreparedEffects += effectCount
+	p.counters.PreparedEffects += effectCount
 	return nil
 }
 
@@ -499,7 +474,7 @@ func (p *processState) resolveStepTermination(outcome stepOutcome) Termination {
 		cancellation: p.pendingControl.cancellation, outcome: outcome,
 	}).resolve()
 	if err != nil {
-		failure, _ := NewFailure(FailureKindContract, "engine.termination.invalid", err.Error())
+		failure, _ := NewFailure(FailureKindContract, failureCodeEngineTerminationInvalid, err.Error())
 		termination = failure.termination()
 	}
 	return termination
@@ -513,7 +488,7 @@ func (p *processState) effectiveTermination() Termination {
 }
 
 func (p *processState) terminalEventPayload() json.RawMessage {
-	usage := p.usage
+	usage := p.usage()
 	eventPayload := processFinishedEventPayload{
 		ProcessStatus:    p.status,
 		TerminationCause: p.termination.Cause(),
@@ -547,6 +522,97 @@ func (p pendingControl) wire() pendingControlWire {
 	if p.cancellation.valid() {
 		wire.CancellationOwner = p.cancellation.owner
 		wire.CancellationReason = p.cancellation.reason
+	}
+	return wire
+}
+
+// Pure wait conflicts must be rejected before any dispatcher receives permission.
+func (p *processState) validatePreparedWaits(prepared *preparedStep) error {
+	candidate := *p
+	candidate.prepared = prepared
+	finalization, err := newPreparedStepFinalization(&candidate)
+	if err != nil {
+		return err
+	}
+	for _, record := range prepared.Effects {
+		if record.Effect.Target() != EffectTargetFramework {
+			continue
+		}
+		operation, err := decodeFrameworkEffectOperation(record.Effect.Payload())
+		if err != nil {
+			return err
+		}
+		if operation != frameworkEffectWait && operation != frameworkEffectWaitChildren {
+			continue
+		}
+		if err := record.begin(); err != nil {
+			return err
+		}
+		if err := record.settleFramework(); err != nil {
+			return err
+		}
+		if err := finalization.applySettlement(record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *processState) usage() Usage {
+	return Usage{CommittedSteps: p.committedSteps, AcceptedSignals: p.mailbox.arrivalSequence(), PreparedEffects: p.counters.PreparedEffects, DroppedDeltas: p.counters.DroppedDeltas}
+}
+
+func (p *processState) adopt(finalization *preparedStepFinalization) {
+	p.execution = p.preparedExecution
+	p.preparedExecution = nil
+	p.committedExecutionState = finalization.prepared.CandidateState
+	p.mailbox = finalization.mailbox
+	p.committedSteps = finalization.prepared.StepSequence
+	p.prepared = nil
+	if finalization.transition.termination.Valid() {
+		p.installTermination(finalization.transition.termination, finalization.transition.finalOutput, finalization.transition.finishedAt)
+	} else {
+		p.status = finalization.transition.status
+		p.currentWaitID = finalization.transition.currentWaitID
+		p.pauseReason = finalization.transition.pauseReason
+	}
+}
+
+func (p *processState) snapshotWire() processSnapshotWire {
+	wire := processSnapshotWire{
+		ProcessID:     p.handle.processID,
+		Relation:      p.handle.relation.wire(),
+		DeploymentRef: p.deployment.DeploymentRef(), StartedAt: p.startedAt,
+		Status: p.status, CommittedSteps: p.committedSteps,
+		MaxPendingSignals: p.pendingSignalLimit, TreeLimits: p.treeLimits,
+		Budget: p.budget, ReservedBudget: p.reservedBudget,
+		Capabilities: p.capabilities, Counters: p.counters,
+		CommittedExecutionState: p.committedExecutionState, Mailbox: p.mailbox.snapshot(),
+		PauseReason: p.pauseReason, PendingControl: p.pendingControl.wire(),
+	}
+	if p.handle.childRequestDigest.Valid() {
+		digest := p.handle.childRequestDigest
+		wire.ChildRequestDigest = &digest
+	}
+	if !p.finishedAt.IsZero() {
+		finishedAt := p.finishedAt
+		wire.FinishedAt = &finishedAt
+	}
+	if p.currentWaitID.Valid() {
+		waitID := p.currentWaitID
+		wire.CurrentWaitID = &waitID
+	}
+	if p.finalOutput.Valid() {
+		output := p.finalOutput
+		wire.Output = &output
+	}
+	if p.termination.Valid() {
+		termination := p.termination
+		wire.Termination = &termination
+	}
+	if p.prepared != nil {
+		prepared := p.prepared.snapshot()
+		wire.Prepared = &prepared
 	}
 	return wire
 }

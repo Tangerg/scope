@@ -37,7 +37,6 @@ func TestProcessSnapshotOwnsMutableWire(t *testing.T) {
 	}
 	prepared.Mailbox.Signals = []signalRecordWire{newSignalRecord(signal, false).snapshot()}
 	prepared.Mailbox.Signals[0].ArrivalSequence = 1
-	prepared.Usage.AcceptedSignals = 1
 	failure, _ := NewFailure(FailureKindContract, "test.pending.failure", "pending failure")
 	prepared.PendingControl.Failure = &failure
 	completed, err := completedEngineTestSnapshot(t).wire()
@@ -128,22 +127,19 @@ func TestPreparedSnapshotBindsCommittedExecutionState(t *testing.T) {
 	}
 }
 
-func TestSnapshotRejectsAcceptedSignalCountThatDisagreesWithMailbox(t *testing.T) {
+func TestSnapshotRejectsRetiredUsageRepresentation(t *testing.T) {
 	snapshot := completedEngineTestSnapshot(t)
-	wire, err := snapshot.wire()
-	if err != nil {
+	var wire map[string]json.RawMessage
+	if err := json.Unmarshal(snapshot.JSON(), &wire); err != nil {
 		t.Fatal(err)
 	}
-	if wire.Usage.AcceptedSignals == 0 {
-		t.Fatal("test fixture contains no accepted Signal")
-	}
-	wire.Usage.AcceptedSignals--
+	wire["usage"] = json.RawMessage(`{"accepted_signals":0}`)
 	data, err := json.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ParseProcessSnapshot(data); !errors.Is(err, ErrInvalidSnapshot) {
-		t.Fatalf("accepted Signal mismatch error = %v, want ErrInvalidSnapshot", err)
+		t.Fatalf("retired usage accepted: %v", err)
 	}
 }
 
@@ -157,8 +153,6 @@ func TestSnapshotRejectsPreparedStepSequenceOverflow(t *testing.T) {
 		t.Fatalf("prepared fixture = %#v", wire.Prepared)
 	}
 	wire.CommittedSteps = math.MaxUint64
-	wire.Usage.CommittedSteps = math.MaxUint64
-	wire.Limits.MaxSteps = math.MaxUint64
 	wire.Budget.Steps = math.MaxUint64
 	wire.Prepared.StepSequence = 0
 	wire.Prepared.Effects[0].ID = wire.ProcessID.effectID(0, 0)
@@ -178,7 +172,7 @@ func TestSnapshotAccountsForPreparedEffectIdentities(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, count := range []uint64{0, 1, 2} {
-		wire.Usage.PreparedEffects = count
+		wire.Counters.PreparedEffects = count
 		data, encodeErr := json.Marshal(wire)
 		if encodeErr != nil {
 			t.Fatal(encodeErr)
@@ -211,7 +205,7 @@ func TestPreparedEffectPhaseOwnsMonotonicTransitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settleErr := record.settle(settlement); settleErr != nil || !record.unknown() {
+	if settleErr := record.settle(settlement, nil); settleErr != nil || !record.unknown() {
 		t.Fatalf("settle phase = %s, unknown = %t, error = %v", record.Phase, record.unknown(), settleErr)
 	}
 	definite, err := NewSettlement(record.ID, SettlementStatusSucceeded, json.RawMessage(`{"ok":true}`))
@@ -298,7 +292,7 @@ func TestSnapshotEnforcesSequentialEffectProgress(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wire.Usage.PreparedEffects = uint64(len(effects))
+			wire.Counters.PreparedEffects = uint64(len(effects))
 			data, err := json.Marshal(wire)
 			if err != nil {
 				t.Fatal(err)

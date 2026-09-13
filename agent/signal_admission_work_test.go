@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func BenchmarkSignalAdmissionHistory(b *testing.B) {
@@ -27,7 +28,6 @@ func BenchmarkSignalAdmissionHistory(b *testing.B) {
 					if !replay {
 						delete(process.mailbox.seen, signal.ID())
 						process.mailbox.records = process.mailbox.records[:history]
-						process.usage.AcceptedSignals--
 					}
 				}
 			})
@@ -40,7 +40,19 @@ func admissionTestProcess(t testing.TB, history int) *processState {
 	limits := DefaultLimits()
 	limits.MaxSignals = 100000
 	limits.MaxPendingSignals = 100000
-	process := &processState{status: StatusRunning, mailbox: newSignalMailbox(), limits: limits, budget: limits.budget()}
+	deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), &engineTestDispatcher{})
+	input, err := EncodeInput(engineTestInput{Value: "admission"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution, state, _, err := initializeExecution(deployment.Definition(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	id := controlValue(newProcessID())
+	handle := newProcessHandleState(rootProcessRelation(id), deployment.DeploymentRef(), limits.budget(), CapabilitySet{}, DefaultTreeLimits(), now, StatusRunning)
+	process := newProcessState(handle, deployment, execution, state, now, limits)
 	for index := range history {
 		signal := mustMailboxSignal(t, fmt.Sprintf("signal:%d", index), WaitID{}, json.RawMessage(`{}`))
 		if accepted, err := process.mailbox.enqueue(StatusRunning, signal, signalSourceExternal); err != nil || !accepted {
@@ -50,7 +62,6 @@ func admissionTestProcess(t testing.TB, history int) *processState {
 	if _, err := process.mailbox.commit(uint32(history)); err != nil {
 		t.Fatal(err)
 	}
-	process.usage.AcceptedSignals = uint64(history)
 	return process
 }
 
@@ -87,7 +98,7 @@ func TestSignalAdmissionRejectsWholeBatchWithoutChangingHistoryOrWaits(t *testin
 		}},
 		{name: "answer exceeds budget", want: ErrResourceLimitExceeded, prepare: func(t *testing.T, process *processState) []Signal {
 			wait := admissionTestWait(t, process)
-			process.budget.Signals = process.usage.AcceptedSignals
+			process.budget.Signals = process.usage().AcceptedSignals
 			return []Signal{mustMailboxSignal(t, "signal:answer", wait, json.RawMessage(`{}`))}
 		}},
 	} {
@@ -100,7 +111,7 @@ func TestSignalAdmissionRejectsWholeBatchWithoutChangingHistoryOrWaits(t *testin
 			if accepted || !errors.Is(err, test.want) {
 				t.Fatalf("admission = %t, %v; want false, %v", accepted, err, test.want)
 			}
-			if !reflect.DeepEqual(before.mailbox, process.mailbox) || before.status != process.status || before.currentWaitID != process.currentWaitID || before.usage != process.usage {
+			if !reflect.DeepEqual(before.mailbox, process.mailbox) || before.status != process.status || before.currentWaitID != process.currentWaitID || before.usage() != process.usage() {
 				t.Fatal("rejected batch changed Process state")
 			}
 		})
@@ -115,8 +126,8 @@ func TestSignalAdmissionAppliesWaitAnswerAndFollowingSignalTogether(t *testing.T
 	if accepted, err := process.admitSignals([]Signal{answer, steer}, signalSourceExternal); err != nil || !accepted {
 		t.Fatalf("admission = %t, %v", accepted, err)
 	}
-	if process.status != StatusRunning || process.currentWaitID.Valid() || !process.mailbox.waits[wait].answered || process.usage.AcceptedSignals != 13 {
-		t.Fatalf("batch did not atomically resume and charge the Process: status=%s usage=%+v", process.status, process.usage)
+	if process.status != StatusRunning || process.currentWaitID.Valid() || !process.mailbox.waits[wait].answered || process.usage().AcceptedSignals != 13 {
+		t.Fatalf("batch did not atomically resume and charge the Process: status=%s usage=%+v", process.status, process.usage())
 	}
 	if got := process.mailbox.records[11:]; len(got) != 2 || got[0].id != answer.ID() || got[1].id != steer.ID() {
 		t.Fatal("accepted batch lost arrival order")
@@ -128,7 +139,7 @@ func TestSignalAdmissionAppliesWaitAnswerAndFollowingSignalTogether(t *testing.T
 	if accepted, err := process.admitSignals([]Signal{answer, steer}, signalSourceExternal); err != nil || accepted {
 		t.Fatalf("replay after restore = %t, %v", accepted, err)
 	}
-	if !reflect.DeepEqual(before.mailbox, process.mailbox) || before.status != process.status || before.currentWaitID != process.currentWaitID || before.usage != process.usage {
+	if !reflect.DeepEqual(before.mailbox, process.mailbox) || before.status != process.status || before.currentWaitID != process.currentWaitID || before.usage() != process.usage() {
 		t.Fatal("restored replay changed Process state")
 	}
 }
@@ -141,7 +152,6 @@ func admissionTestWait(t *testing.T, process *processState) WaitID {
 	if err := process.mailbox.openWait(key, signal, true); err != nil {
 		t.Fatal(err)
 	}
-	process.usage.AcceptedSignals++
 	process.status, process.currentWaitID = StatusWaiting, wait
 	return wait
 }

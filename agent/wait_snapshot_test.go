@@ -62,7 +62,6 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 			mutate: func(wire *processSnapshotWire) {
 				wire.Mailbox.Signals = nil
 				wire.Mailbox.SignalCursor = 0
-				wire.Usage.AcceptedSignals = 0
 			},
 		},
 		{
@@ -80,7 +79,6 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 				wire.Mailbox.Signals = append(wire.Mailbox.Signals, mailboxRecordWire(2, signal))
 				wire.Mailbox.Waits[0].Answered = true
 				wire.Mailbox.Waits[0].Closed = true
-				wire.Usage.AcceptedSignals++
 				wire.Status = StatusPaused
 				wire.PauseReason = "pending answer"
 				wire.CurrentWaitID = nil
@@ -103,7 +101,6 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 				signal, _ := answer.signal()
 				wire.Mailbox.Signals = append(wire.Mailbox.Signals, mailboxRecordWire(2, signal))
 				wire.Mailbox.Waits[0].Answered = true
-				wire.Usage.AcceptedSignals++
 			},
 		},
 		{
@@ -113,7 +110,6 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 				request, _ := NewSignalRequest(secondID, waitID, answer.Payload())
 				signal, _ := request.signal()
 				wire.Mailbox.Signals = append(wire.Mailbox.Signals, mailboxRecordWire(3, signal))
-				wire.Usage.AcceptedSignals++
 			},
 		},
 	}

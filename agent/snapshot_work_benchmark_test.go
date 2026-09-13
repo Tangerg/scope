@@ -18,7 +18,6 @@ func BenchmarkWaitingTreeCapture(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				root.committedSteps++
-				root.usage.CommittedSteps++
 				var err error
 				benchmarkTreeSnapshotSink, err = runtime.captureTree()
 				if err != nil {
@@ -123,7 +122,6 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 			t.Fatal(err)
 		}
 		child.status, child.currentWaitID = StatusWaiting, waitID
-		child.usage.AcceptedSignals = 1
 		var ok bool
 		root.reservedBudget, ok = root.reservedBudget.add(budget)
 		if !ok {

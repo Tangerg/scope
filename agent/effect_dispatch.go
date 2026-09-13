@@ -48,21 +48,23 @@ func (d dispatcherPanicError) Error() string {
 	return fmt.Sprintf("dispatcher panicked: %v", d.value)
 }
 
-func dispatchFailure(err error) (FailureKind, string) {
+// Diagnostics cross persistence and observation boundaries; arbitrary error
+// text does not. The original error remains available to the dispatch caller.
+func dispatchFailure(err error) Failure {
 	if err == nil {
-		return FailureKindInvalid, ""
+		return Failure{}
 	}
 	if _, panicked := errors.AsType[dispatcherPanicError](err); panicked {
-		return FailureKindPanic, "engine.dispatch.panicked"
+		return newEngineFailure(FailureKindPanic, "engine.dispatch.panicked", errors.New("Dispatcher panicked without a definite outcome"))
 	}
 	switch {
 	case errors.Is(err, ErrInvalidSettlement):
-		return FailureKindContract, "engine.dispatch.settlement.invalid"
+		return newEngineFailure(FailureKindContract, "engine.dispatch.settlement.invalid", errors.New("Dispatcher returned an invalid settlement"))
 	case errors.Is(err, context.DeadlineExceeded):
-		return FailureKindExternal, "engine.dispatch.deadline"
+		return newEngineFailure(FailureKindExternal, "engine.dispatch.deadline", errors.New("Dispatcher deadline expired without a definite outcome"))
 	case errors.Is(err, context.Canceled):
-		return FailureKindExternal, "engine.dispatch.canceled"
+		return newEngineFailure(FailureKindExternal, "engine.dispatch.canceled", errors.New("Dispatcher was canceled without a definite outcome"))
 	default:
-		return FailureKindExternal, "engine.dispatch.failed"
+		return newEngineFailure(FailureKindExternal, "engine.dispatch.failed", errors.New("Dispatcher returned an error without a definite outcome"))
 	}
 }

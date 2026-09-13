@@ -140,7 +140,7 @@ func TestCancellationPreservesPreparedInputInAFullMailbox(t *testing.T) {
 		beforeSignals, _ := json.Marshal(before.Mailbox.Signals)
 		afterSignals, _ := json.Marshal(after.Mailbox.Signals)
 		if !bytes.Equal(beforeSignals, afterSignals) || before.Mailbox.SignalCursor != after.Mailbox.SignalCursor ||
-			before.Usage != after.Usage || !bytes.Equal(before.CommittedExecutionState.Payload(), after.CommittedExecutionState.Payload()) {
+			before.usage() != after.usage() || !bytes.Equal(before.CommittedExecutionState.Payload(), after.CommittedExecutionState.Payload()) {
 			t.Errorf("cancellation changed committed input or state: before=%+v after=%+v", before, after)
 		}
 		if after.Prepared == nil || !after.Prepared.Effects[0].definitelySettled() {
