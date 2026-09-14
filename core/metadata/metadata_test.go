@@ -324,3 +324,22 @@ func TestMetadataRejectsLossyJSONAtomically(t *testing.T) {
 		}
 	}
 }
+
+func TestMetadataPreservesAbsentAndExplicitlyEmptyValues(t *testing.T) {
+	for _, test := range []struct {
+		value metadata.Map
+		json  string
+	}{{nil, "null"}, {metadata.Map{}, "{}"}} {
+		encoded, err := json.Marshal(test.value)
+		if err != nil || string(encoded) != test.json {
+			t.Fatalf("metadata = %s, %v; want %s", encoded, err, test.json)
+		}
+		var decoded metadata.Map
+		if decodeErr := json.Unmarshal(encoded, &decoded); decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		if (test.value == nil) != (decoded == nil) || len(decoded) != 0 {
+			t.Fatalf("metadata presence changed during round trip: %#v", decoded)
+		}
+	}
+}

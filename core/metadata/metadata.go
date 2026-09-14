@@ -22,7 +22,8 @@ var (
 // clients from entering DTOs unnoticed. Its zero value is writable through
 // Set; Clone and Merge copy encoded bytes, and Merge validates both sides before
 // changing the receiver. Equal intentionally compares the encoded form rather
-// than performing semantic JSON normalization.
+// than performing semantic JSON normalization. JSON preserves nil as null and
+// an explicitly empty map as an object, so missing metadata remains distinct.
 type Map map[string]json.RawMessage
 
 // FromValues is the boundary where untyped decoded JSON becomes a validated
@@ -172,7 +173,7 @@ func (m Map) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireMap Map
-	return jsonv2.Marshal(wireMap(m), jsonv2.Deterministic(true))
+	return jsonv2.Marshal(wireMap(m), jsonv2.Deterministic(true), jsonv2.FormatNilMapAsNull(true))
 }
 
 func (m *Map) UnmarshalJSON(data []byte) error {
