@@ -1,7 +1,7 @@
 github.com/Tangerg/scope/agent v0.21.1-0.20260914074411-66d46eeca931 h1:ih3Do12cNxO5OhCEpz8jDkt5Q2lBIl43SzLOM9ht9Bo=
 github.com/Tangerg/scope/agent v0.21.1-0.20260914074411-66d46eeca931/go.mod h1:6VuB6BRPzmicqQimBDaQ+eCztnfPsgP247RJSIEjjI0=
-github.com/Tangerg/scope/core v0.21.1-0.20260914073819-96bb79d578fd h1:ieiUpE4VYXUzKEk6DZyXKil5wi6lgGMpQ47A2m+t8Cc=
-github.com/Tangerg/scope/core v0.21.1-0.20260914073819-96bb79d578fd/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
+github.com/Tangerg/scope/core v0.21.1-0.20260914081036-e56d076c457e h1:fVkFWBuluaaSByA5+arun1qWi1XmY6tNDEbBpeNTQMI=
+github.com/Tangerg/scope/core v0.21.1-0.20260914081036-e56d076c457e/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
 github.com/Tangerg/scope/mcp v0.21.0 h1:MyjdFFpENSrp63lkayOSUDRhwLTE67BF8TRZsVyitIM=
 github.com/Tangerg/scope/mcp v0.21.0/go.mod h1:zNDft+QwwjEtPMcE+4ePJtFfiSmmqZJrGgsFIai3xd0=
 github.com/Tangerg/scope/tools v0.21.1-0.20260914073839-c2c8ff6bc8f5 h1:DgZ/7DBIwRWJ+tqlbg8TdzO3pKEvgwsKGH7l0Alss98=
