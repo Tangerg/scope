@@ -1,6 +1,7 @@
 package trajectory_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -18,9 +19,34 @@ func trajectoryConfig(recorded trajectory.Trajectory) trajectory.Config {
 
 func coveredInteraction(t *testing.T) trajectory.Trajectory {
 	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
 	recorder := &trajectory.Recorder{}
-	process := runRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{})
-	recorded, err := recorder.Take(t.Context(), process, nil)
+	release := make(chan struct{})
+	process, engine := startRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{release: release}, 2)
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	// Complete after wait registration so this fixture always exercises signal arrival.
+	for {
+		inspection, err := engine.InspectTree(ctx, process.ID())
+		if err != nil {
+			t.Fatal(err)
+		}
+		root, found := inspection.Process(process.ID())
+		if !found || root.Snapshot.Status().Terminal() {
+			t.Fatal("fixture ended before waiting for its Tool child")
+		}
+		if kind, waiting := root.Snapshot.WaitKind(); waiting && kind == agent.WaitKindChildren {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		case <-ticker.C:
+		}
+	}
+	close(release)
+	recorded, err := recorder.Take(ctx, process, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

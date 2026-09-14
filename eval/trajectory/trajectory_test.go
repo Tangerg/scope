@@ -430,7 +430,10 @@ func (*fixtureInteractionClient) Stream(
 	return func(func(*chat.ResponseDelta, error) bool) {}
 }
 
-type fixtureWeatherTool struct{ failure error }
+type fixtureWeatherTool struct {
+	failure error
+	release <-chan struct{}
+}
 
 func (fixtureWeatherTool) Definition() chat.ToolDefinition {
 	return chat.ToolDefinition{
@@ -444,7 +447,14 @@ func (fixtureWeatherTool) Definition() chat.ToolDefinition {
 	}
 }
 
-func (f fixtureWeatherTool) Call(context.Context, tool.Invocation) (chat.ToolOutput, error) {
+func (f fixtureWeatherTool) Call(ctx context.Context, _ tool.Invocation) (chat.ToolOutput, error) {
+	if f.release != nil {
+		select {
+		case <-ctx.Done():
+			return chat.ToolOutput{}, ctx.Err()
+		case <-f.release:
+		}
+	}
 	if f.failure != nil {
 		return chat.ToolOutput{}, f.failure
 	}
