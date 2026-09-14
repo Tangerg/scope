@@ -17,6 +17,10 @@ import (
 // ErrInvalidContextBudget identifies an invalid context window or token measurement.
 var ErrInvalidContextBudget = errors.New("rag: invalid context token budget")
 
+// ErrContextBudgetExceeded means retrieved evidence exists but no complete
+// candidate fits the configured context budget.
+var ErrContextBudgetExceeded = errors.New("rag: context token budget cannot admit evidence")
+
 // Keeping evidence as JSON data and explicitly marking it untrusted reduces
 // the chance that retrieved document text is interpreted as prompt control.
 const contextualDefaultTemplate = `Retrieved context is provided below as JSON data.
@@ -59,7 +63,8 @@ type ContextualAugmenterConfig struct {
 
 	// MaxContextTokens limits the encoded evidence block. Zero leaves context
 	// unbounded. A positive value requires TokenCounter. Only complete
-	// candidates are included, in retrieval order.
+	// candidates are included, in retrieval order. If none fits, Augment returns
+	// ErrContextBudgetExceeded regardless of AllowEmptyContext.
 	MaxContextTokens int
 
 	// TokenCounter measures the exact encoded evidence block against
@@ -179,9 +184,6 @@ func (c *ContextualAugmenter) Augment(ctx context.Context, query rag.Query, cand
 	if err != nil {
 		return rag.Augmentation{}, err
 	}
-	if len(citations) == 0 {
-		return c.handleEmptyContext(query)
-	}
 
 	rendered, err := c.promptTemplate.Render(contextualPromptVariables{
 		Context: encodedContext,
@@ -241,7 +243,7 @@ func (c *ContextualAugmenter) formatContext(ctx context.Context, candidates rag.
 	}
 
 	if len(evidence) == 0 {
-		return "", nil, nil
+		return "", nil, ErrContextBudgetExceeded
 	}
 	if !c.budget.limited() {
 		contextEncoding, err := json.Marshal(evidence)

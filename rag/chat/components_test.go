@@ -569,3 +569,33 @@ func TestTranslationTransformer_PropagatesError(t *testing.T) {
 		t.Fatal("error must propagate")
 	}
 }
+
+func TestContextualAugmenterRejectsUnusableEvidenceBudget(t *testing.T) {
+	for _, allowEmpty := range []bool{false, true} {
+		augmenter, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{
+			MaxContextTokens: 1, TokenCounter: fixedContextTokenCounter(2), AllowEmptyContext: allowEmpty,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc, err := document.NewDocument("relevant evidence", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		augmentation, err := augmenter.Augment(t.Context(), mustQuery(t, "question"), rag.Candidates{candidate(doc)})
+		if !errors.Is(err, ragchat.ErrContextBudgetExceeded) || augmentation.Text() != "" {
+			t.Fatalf("allow empty=%v: augmentation=%q error=%v", allowEmpty, augmentation.Text(), err)
+		}
+		preparer, err := ragchat.NewPreparer(ragchat.PreparerConfig{Retriever: &stubRetriever{docs: rag.Candidates{candidate(doc)}}, Augmenter: augmenter})
+		if err != nil {
+			t.Fatal(err)
+		}
+		request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("question")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := preparer.Prepare(t.Context(), request); !errors.Is(err, ragchat.ErrContextBudgetExceeded) {
+			t.Fatalf("preparer admitted unusable evidence: %v", err)
+		}
+	}
+}
