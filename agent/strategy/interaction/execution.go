@@ -39,6 +39,8 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 			return agent.Transition{}, err
 		}
 		return e.requestModel(consumedSignals, appliedSteerSignalIDs)
+	case phaseAwaitingResultCommit:
+		return e.acceptResultCommit(signals)
 	case phaseAwaitingModel:
 		return e.acceptModel(ctx, signals)
 	case phaseAwaitingChildStarts:
@@ -147,11 +149,7 @@ func (e *execution) acceptModel(ctx context.Context, signals []agent.Signal) (ag
 	if len(calls) == 0 {
 		return e.acceptFinalModelResponse(consumedSignals, response)
 	}
-	if response.Output.FinishReason == chat.FinishReasonLength {
-		return e.rejectTruncatedToolCalls(ctx, consumedSignals, response, calls)
-	}
-
-	e.state.ToolRound = &toolCallRound{Response: response, DirectResultEligible: true}
+	e.state.ToolRound = &toolCallRound{Response: response}
 	return e.advanceToolCallBatch(ctx, consumedSignals)
 }
 
@@ -184,45 +182,40 @@ func (e *execution) acceptFinalModelResponse(
 	return e.requestModel(consumedSignals, appliedSteerSignalIDs)
 }
 
-func (e *execution) rejectTruncatedToolCalls(
-	ctx context.Context,
-	consumedSignals uint32,
-	response *chat.Response,
-	calls []chat.ToolCall,
-) (agent.Transition, error) {
-	if response == nil || response.Output == nil || response.Output.Message == nil || len(calls) == 0 {
-		return agent.Transition{}, fmt.Errorf("%w: invalid truncated ToolCall response", ErrInvalidExecutionState)
-	}
-	results := make([]chat.ToolResult, len(calls))
-	for index := range calls {
-		if err := ctx.Err(); err != nil {
-			return agent.Transition{}, err
-		}
-		call := calls[index]
-		results[index] = chat.ToolResult{
-			ID: call.ID, Name: call.Name, IsError: true,
-			Output: chat.NewTextToolOutput(fmt.Sprintf(
-				"error: tool %q was not executed because model output reached its token limit; emit the complete call again",
-				call.Name,
-			)),
-		}
-	}
-	request := e.state.WorkingContext.Clone()
-	request.Messages = append(
-		request.Messages,
-		response.Output.Message.Clone(),
-		chat.NewToolMessage(results...),
-	)
-	e.state.WorkingContext = request
-	appliedSteerSignalIDs, err := e.applyPendingSteer()
+func (e *execution) requestResultCommit(consumedSignals uint32) (agent.Transition, error) {
+	publication, err := e.state.ToolRound.publication(e.state.ModelCallCount)
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if err := e.state.WorkingContext.Validate(); err != nil {
-		return agent.Transition{}, fmt.Errorf("%w: truncated ToolCall continuation: %w", ErrInvalidExecutionState, err)
+	payload, err := encodeProtocol(effectEnvelope{Operation: operationResultCommit, ResultCommit: &publication})
+	if err != nil {
+		return agent.Transition{}, err
 	}
-	e.state.Phase = phaseReadyModel
-	return e.requestModel(consumedSignals, appliedSteerSignalIDs)
+	effect, err := agent.NewDispatcherEffect(payload)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	e.state.Phase = phaseAwaitingResultCommit
+	return agent.Continue(consumedSignals, effect)
+}
+
+func (e *execution) acceptResultCommit(signals []agent.Signal) (agent.Transition, error) {
+	envelope, steer, consumedSignals, err := collectExpectedSignal(signals, operationResultCommit)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	publication, err := e.state.ToolRound.publication(e.state.ModelCallCount)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	digest, err := publication.digest()
+	if err != nil || envelope.Receipt.Digest != digest {
+		return agent.Transition{}, fmt.Errorf("%w: result receipt content differs from pending results", ErrInvalidExecutionState)
+	}
+	if err := e.addSteer(steer); err != nil {
+		return agent.Transition{}, err
+	}
+	return e.finishToolCallBatch(consumedSignals, e.state.ToolRound.Response.Output.Message)
 }
 
 func (e *execution) complete(consumedSignals uint32, output Output) (agent.Transition, error) {
@@ -298,10 +291,18 @@ func (e *execution) advanceToolCallBatch(ctx context.Context, consumedSignals ui
 			return agent.Transition{}, err
 		}
 		if e.state.ToolRound.nextCallIndex() == uint32(len(calls)) {
-			return e.finishToolCallBatch(consumedSignals, e.state.ToolRound.Response.Output.Message)
+			return e.requestResultCommit(consumedSignals)
 		}
 		call := calls[e.state.ToolRound.nextCallIndex()]
-		if _, delegated := e.definition.delegate(call.Name); delegated {
+		if e.state.ToolRound.Response.Output.FinishReason == chat.FinishReasonLength {
+			e.state.ToolRound.reject(call, fmt.Sprintf("tool %q was not executed because model output reached its token limit; emit the complete call again", call.Name))
+			continue
+		}
+		if delegate, delegated := e.definition.delegate(call.Name); delegated {
+			if _, err := delegate.prepareInput(call); err != nil {
+				e.state.ToolRound.reject(call, err.Error())
+				continue
+			}
 			effects, prepareErr := e.prepareDelegateChildren(ctx, calls)
 			if prepareErr != nil {
 				return agent.Transition{}, prepareErr
@@ -316,7 +317,7 @@ func (e *execution) advanceToolCallBatch(ctx context.Context, consumedSignals ui
 			continue
 		}
 		if _, found := e.definition.tools.entries[call.Name]; !found {
-			e.state.ToolRound.rejectCall(call, fmt.Sprintf("tool %q is not available", call.Name))
+			e.state.ToolRound.reject(call, fmt.Sprintf("tool %q is not available", call.Name))
 			continue
 		}
 		return e.startToolChildren(ctx, consumedSignals, calls)
@@ -327,9 +328,13 @@ func (e *execution) finishToolCallBatch(
 	consumedSignals uint32,
 	assistant *chat.Message,
 ) (agent.Transition, error) {
-	results := cloneToolResults(e.state.ToolRound.Results)
+	results := make([]chat.ToolResult, len(e.state.ToolRound.Results))
+	direct := e.state.PendingSteer == nil
+	for index, result := range e.state.ToolRound.Results {
+		results[index] = result.Result.Clone()
+		direct = direct && result.Direct
+	}
 	completionContext := []chat.Message{assistant.Clone(), chat.NewToolMessage(results...)}
-	direct := e.state.ToolRound.DirectResultEligible && e.state.PendingSteer == nil
 	e.state.ToolRound = nil
 	e.state.Phase = phaseReadyModel
 	if direct {
@@ -517,7 +522,7 @@ func (e *execution) acceptChildStarts(ctx context.Context, signals []agent.Signa
 			return agent.Fail(consumed, failure)
 		}
 		result := delegateErrorResult(calls[index], "child start failed: "+failure.Code()+": "+failure.Message())
-		batch.Invocations[index].Result = &toolCallResult{Result: result}
+		batch.Invocations[index].Result = &toolCallResult{Result: result, Rejected: true}
 	}
 	if len(batch.children()) == 0 {
 		if err := e.finishChildBatch(); err != nil {
@@ -647,7 +652,11 @@ func (e *execution) prepareDelegateChildren(ctx context.Context, calls []chat.To
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if _, delegated := e.definition.delegate(calls[end].Name); !delegated {
+		delegate, delegated := e.definition.delegate(calls[end].Name)
+		if !delegated {
+			break
+		}
+		if _, err := delegate.prepareInput(calls[end]); err != nil {
 			break
 		}
 		end++
@@ -661,20 +670,9 @@ func (e *execution) prepareDelegateChildren(ctx context.Context, calls []chat.To
 		}
 		call := calls[start+uint32(index)]
 		delegate, _ := e.definition.delegate(call.Name)
-		arguments := strings.TrimSpace(call.Arguments)
-		if arguments == "" {
-			arguments = "{}"
-		}
-		input, err := agent.ParseInput([]byte(arguments))
+		input, err := delegate.prepareInput(call)
 		if err != nil {
-			result := delegateErrorResult(call, "arguments are not valid JSON: "+err.Error())
-			batch.Invocations[index].Result = &toolCallResult{Result: result}
-			continue
-		}
-		if inputErr := delegate.validateInput(input); inputErr != nil {
-			result := delegateErrorResult(call, "arguments violate the delegated worker input contract: "+inputErr.Error())
-			batch.Invocations[index].Result = &toolCallResult{Result: result}
-			continue
+			return nil, err
 		}
 		key, err := DelegateChildKey(e.state.ModelCallCount, call)
 		if err != nil {

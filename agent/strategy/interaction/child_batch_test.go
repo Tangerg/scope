@@ -77,8 +77,8 @@ func TestChildBatchRequiresDrainedWaitBoundaries(t *testing.T) {
 						if got, waiting := transition.WaitID(); !waiting || got != waitID {
 							t.Fatal("wait opening lost the Engine wait identity")
 						}
-					} else if execution.state.ToolRound != nil || execution.state.Phase != phaseAwaitingModel {
-						t.Fatal("settled child batch did not continue the model loop")
+					} else if execution.state.ToolRound == nil || execution.state.Phase != phaseAwaitingResultCommit {
+						t.Fatal("settled child batch bypassed result publication")
 					}
 					captured, err := execution.Snapshot()
 					if err != nil {
@@ -187,7 +187,7 @@ func childBatchTestExecution(t testing.TB, kind childCallKind, stage phase) *exe
 		Phase: stage, ModelCallCount: 1,
 		WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}},
 		ToolRound: &toolCallRound{Response: &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonToolCalls}},
-			DirectResultEligible: kind == childCallsTool, ChildBatch: batch},
+			ChildBatch: batch},
 	}
 	captured, err := state.snapshot()
 	if err != nil {

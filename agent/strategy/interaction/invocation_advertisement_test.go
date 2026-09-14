@@ -62,7 +62,7 @@ func TestInvocationAttributionAndDeferredToolAdvertisement(t *testing.T) {
 	if len(models) != 3 || len(tools) != 2 {
 		t.Fatalf("model/tool invocations = %d/%d, want 3/2", len(models), len(tools))
 	}
-	wantModelSteps := []uint64{1, 5, 9}
+	wantModelSteps := []uint64{1, 6, 11}
 	for index, invocation := range models {
 		assertRootInvocation(t, invocation.Relation(), invocation.DeploymentRef(), result.ProcessID(), deployment.DeploymentRef())
 		if invocation.ModelCallSequence() != uint32(index+1) || invocation.StepSequence() != wantModelSteps[index] {

@@ -44,6 +44,18 @@
 // refer to bound deferred Tools, including during restoration. Model preparation
 // errors settle as definite host failures before external work begins.
 //
+// Every known Tool and Delegate result, including validation, availability,
+// truncation, authorization, and child-admission rejections, crosses one
+// publication Effect per model response. ResultCommitter receives the complete
+// ordered call set and exact outputs. Scope adopts them only after verifying
+// its ResultReceipt. Tool execution and result publication have separate Effect
+// identities: a lost publication receipt cannot turn a known result into an
+// unknown execution or cause the Tool to run again. Pending snapshots retain
+// the exact results. Nil ResultCommitter acknowledges in memory only; durable
+// recovery additionally requires the Engine's TreeDurability and host storage.
+// This changes the current execution schema; older snapshots must be drained or
+// discarded by their host before deploying the new binding.
+//
 // A tool.Failure produces a model-visible error ToolResult, even when its cause
 // is cancellation or a deadline. An explicit HostFailure still declares that no
 // definite ToolResult is available. Ordinary errors,

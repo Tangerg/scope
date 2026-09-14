@@ -80,11 +80,46 @@ func TestRestoreRejectsIncompleteLifecycleStates(t *testing.T) {
 	}
 }
 
+func TestRestoreValidatesPendingResultPublication(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		change func(*executionState)
+	}{
+		{"complete", func(*executionState) {}},
+		{"missing result", func(state *executionState) { state.ToolRound.Results = nil }},
+		{"foreign result", func(state *executionState) { state.ToolRound.Results[0].Result.ID = "other" }},
+		{"rejected success", func(state *executionState) { state.ToolRound.Results[0].Rejected = true }},
+		{"direct failure", func(state *executionState) {
+			state.ToolRound.Results[0].Direct = true
+			state.ToolRound.Results[0].Result.IsError = true
+		}},
+		{"truncated execution", func(state *executionState) { state.ToolRound.Response.Output.FinishReason = chat.FinishReasonLength }},
+		{"unfinished child", func(state *executionState) { state.ToolRound.ChildBatch = &childCallBatch{} }},
+		{"completed output", func(state *executionState) { state.FinalOutput = &Output{} }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			execution := childBatchTestExecution(t, childCallsTool, phaseAwaitingChildStarts)
+			execution.state.Phase = phaseAwaitingResultCommit
+			execution.state.ToolRound.ChildBatch = nil
+			execution.state.ToolRound.Results = []toolCallResult{{Result: chat.ToolResult{ID: "call_batch", Name: "delegate_fuzz", Output: chat.NewTextToolOutput("done")}}}
+			test.change(&execution.state)
+			state, err := execution.state.snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, restoreErr := execution.definition.Restore(state)
+			if test.name == "complete" && restoreErr != nil || test.name != "complete" && !errors.Is(restoreErr, ErrInvalidExecutionState) {
+				t.Fatalf("restore pending publication: %v", restoreErr)
+			}
+		})
+	}
+}
+
 func TestChildBatchSettlementIsAtomic(t *testing.T) {
 	tools := advertisementTestDefinition(t).tools
 	first := chat.ToolResult{ID: "first", Name: "tool", Output: chat.NewTextToolOutput("first result")}
 	second := chat.ToolResult{ID: "second", Name: "tool", Output: chat.NewTextToolOutput("second result")}
-	round := &toolCallRound{DirectResultEligible: true, ChildBatch: &childCallBatch{
+	round := &toolCallRound{ChildBatch: &childCallBatch{
 		Kind: childCallsTool, Invocations: []childInvocationState{
 			{Result: &toolCallResult{Result: first, Direct: true, AdvertisedToolNames: []string{"first"}}},
 			{Result: &toolCallResult{Result: second, AdvertisedToolNames: []string{"duplicate", "duplicate"}}},
@@ -107,7 +142,7 @@ func TestChildBatchSettlementIsAtomic(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !slices.Equal(names, []string{"existing", "first", "second"}) || round.ChildBatch != nil ||
-		round.DirectResultEligible || len(round.Results) != 2 || round.Results[0].ID != first.ID || round.Results[1].ID != second.ID {
+		len(round.Results) != 2 || round.Results[0].Result.ID != first.ID || round.Results[1].Result.ID != second.ID {
 		t.Fatalf("settlement lost order, advertisement, or direct-result eligibility: %+v, %v", round, names)
 	}
 }

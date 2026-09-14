@@ -46,12 +46,12 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectReque
 		})
 	}
 	prepared := t.prepareToolCall(call.Call)
-	result, advertised, required, err := t.callTool(ctx, request, call.ModelCallSequence, call.ToolCallIndex, prepared)
+	result, advertised, required, rejected, err := t.callTool(ctx, request, call.ModelCallSequence, call.ToolCallIndex, prepared)
 	if err != nil {
 		return agent.Settlement{}, err
 	}
 	outcome := toolDispatchResult{Completion: &toolCallResult{
-		Result: result, Direct: prepared.binding != nil && prepared.binding.direct && !result.IsError, AdvertisedToolNames: advertised,
+		Result: result, Rejected: rejected, Direct: prepared.binding != nil && prepared.binding.direct && !result.IsError, AdvertisedToolNames: advertised,
 	}}
 	if required != nil {
 		count := uint32(0)
@@ -106,11 +106,12 @@ func (t *toolDispatcher) callTool(
 	result chat.ToolResult,
 	advertisedToolNames []string,
 	required *toolInputRequest,
+	rejected bool,
 	err error,
 ) {
 	call := prepared.call
 	if prepared.rejection != nil {
-		return prepared.rejection.Clone(), nil, nil, nil
+		return prepared.rejection.Clone(), nil, nil, true, nil
 	}
 	invocation := toolInvocationFromRequest(
 		request, modelCallSequence, toolCallIndex, call,
@@ -142,17 +143,18 @@ func (t *toolDispatcher) callTool(
 		}
 	}()
 	output, err := binding.binding.Call(ctx, prepared.invocation)
+	rejected = errors.Is(err, tool.ErrAuthorizationDenied)
 	result, required, err = modelToolResult(call, output, err)
 	if err != nil {
-		return chat.ToolResult{}, nil, nil, err
+		return chat.ToolResult{}, nil, nil, false, err
 	}
 	if required != nil {
-		return chat.ToolResult{}, nil, required, nil
+		return chat.ToolResult{}, nil, required, false, nil
 	}
 	if result.IsError {
-		return result, nil, nil, nil
+		return result, nil, nil, rejected, nil
 	}
-	return result, advertiser.advertisedNames(), nil, nil
+	return result, advertiser.advertisedNames(), nil, false, nil
 }
 
 func (t *toolDispatcher) prepareToolCall(call chat.ToolCall) preparedToolCall {

@@ -13,6 +13,7 @@ import (
 type phase string
 
 const (
+	phaseAwaitingResultCommit  phase = "awaiting_result_commit"
 	phaseReadyModel            phase = "ready_model"
 	phaseAwaitingModel         phase = "awaiting_model"
 	phaseAwaitingChildStarts   phase = "awaiting_child_starts"
@@ -23,7 +24,7 @@ const (
 
 func (p phase) valid() bool {
 	switch p {
-	case phaseReadyModel, phaseAwaitingModel, phaseAwaitingChildStarts,
+	case phaseAwaitingResultCommit, phaseReadyModel, phaseAwaitingModel, phaseAwaitingChildStarts,
 		phaseAwaitingChildWaitOpen, phaseWaitingChildren, phaseCompleted:
 		return true
 	default:
@@ -97,6 +98,12 @@ func (e executionState) validateEnvelope() error {
 
 func (e executionState) validatePhaseState(definition *Definition) error {
 	switch e.Phase {
+	case phaseAwaitingResultCommit:
+		if e.FinalOutput != nil {
+			return ErrInvalidExecutionState
+		}
+		_, err := e.ToolRound.publication(e.ModelCallCount)
+		return err
 	case phaseReadyModel:
 		return e.validateReadyModelState()
 	case phaseAwaitingModel:
@@ -142,10 +149,6 @@ func (e executionState) activeChildCalls() ([]chat.ToolCall, error) {
 	}
 	if err := e.ToolRound.ChildBatch.validate(e.Phase, active, e.ModelCallCount); err != nil {
 		return nil, err
-	}
-	if !e.ToolRound.DirectResultEligible && e.ToolRound.nextCallIndex() == 0 &&
-		e.Phase == phaseAwaitingChildStarts && e.ToolRound.ChildBatch.Kind == childCallsTool {
-		return nil, fmt.Errorf("%w: fresh Tool batch lost its direct-result candidate", ErrInvalidExecutionState)
 	}
 	return active, nil
 }
@@ -229,7 +232,7 @@ func (e executionState) validateCurrentBatchArtifacts(definition *Definition) er
 		if _, found := definition.delegate(call.Name); !found {
 			return fmt.Errorf("%w: current-round artifact is not a Delegate output", ErrInvalidExecutionState)
 		}
-		result := e.ToolRound.Results[artifact.ToolCallIndex]
+		result := e.ToolRound.Results[artifact.ToolCallIndex].Result
 		if result.IsError || result.ID != call.ID || result.Name != call.Name ||
 			!bytes.Equal(result.Output.Details, artifact.Output.JSON()) || len(result.Output.Content) != 0 {
 			return fmt.Errorf("%w: current-round artifact does not match settled result", ErrInvalidExecutionState)

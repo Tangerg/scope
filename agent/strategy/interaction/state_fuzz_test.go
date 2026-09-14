@@ -63,7 +63,7 @@ func FuzzExecutionStateRestore(f *testing.F) {
 	})
 }
 
-func TestRestoreRejectsNonToolCompletionInPendingBatch(t *testing.T) {
+func TestRestoreValidatesFinishReasonInPendingRound(t *testing.T) {
 	definition := fuzzInteractionDefinition(t)
 	for _, seed := range fuzzInteractionStates(t, definition) {
 		var state executionState
@@ -84,8 +84,10 @@ func TestRestoreRejectsNonToolCompletionInPendingBatch(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if _, err := definition.Restore(captured); !errors.Is(err, ErrInvalidExecutionState) {
-					t.Fatalf("Restore error = %v, want ErrInvalidExecutionState", err)
+				_, restoreErr := definition.Restore(captured)
+				validRejection := state.Phase == phaseAwaitingResultCommit && reason == chat.FinishReasonLength
+				if validRejection && restoreErr != nil || !validRejection && !errors.Is(restoreErr, ErrInvalidExecutionState) {
+					t.Fatalf("Restore error = %v, valid rejection = %t", restoreErr, validRejection)
 				}
 			})
 		}
@@ -200,6 +202,12 @@ func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.Executi
 	steerSignalID, _ := agent.ParseSignalID("signal:fuzz-steer")
 	artifactOutput, _ := agent.EncodeOutput(fuzzDelegateOutput{Result: "settled"})
 	states := []executionState{
+		{
+			Phase: phaseAwaitingResultCommit, WorkingContext: request.Clone(), ModelCallCount: 1,
+			ToolRound: &toolCallRound{Response: response.Clone(), Results: []toolCallResult{{
+				Result: chat.ToolResult{ID: call.ID, Name: call.Name, IsError: true, Output: chat.NewTextToolOutput("worker unavailable")}, Rejected: true,
+			}}},
+		},
 		{
 			Phase: phaseAwaitingChildStarts, WorkingContext: request.Clone(), ModelCallCount: 1,
 			ToolRound: &toolCallRound{Response: response.Clone(),

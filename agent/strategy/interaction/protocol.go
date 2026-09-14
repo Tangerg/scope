@@ -17,6 +17,7 @@ import (
 type operation string
 
 const (
+	operationResultCommit  operation = "result_commit"
 	operationModelCall     operation = "model_call"
 	operationToolCall      operation = "tool_call"
 	operationWaitOpened    operation = "wait_opened"
@@ -25,14 +26,15 @@ const (
 )
 
 func (o operation) valid() bool {
-	return o == operationModelCall || o == operationToolCall ||
+	return o == operationResultCommit || o == operationModelCall || o == operationToolCall ||
 		o == operationWaitOpened || o == operationInputResponse || o == operationSteer
 }
 
 type effectEnvelope struct {
-	Operation operation            `json:"operation"`
-	ModelCall *modelCall           `json:"model_call,omitempty"`
-	ToolCall  *toolDispatchRequest `json:"tool_call,omitempty"`
+	ResultCommit *resultCommit        `json:"result_commit,omitempty"`
+	Operation    operation            `json:"operation"`
+	ModelCall    *modelCall           `json:"model_call,omitempty"`
+	ToolCall     *toolDispatchRequest `json:"tool_call,omitempty"`
 }
 
 type modelCall struct {
@@ -79,6 +81,7 @@ type toolResume struct {
 }
 
 type signalEnvelope struct {
+	Receipt       *ResultReceipt      `json:"receipt,omitempty"`
 	Operation     operation           `json:"operation"`
 	ModelResult   *modelCallResult    `json:"model_result,omitempty"`
 	ToolResult    *toolDispatchResult `json:"tool_result,omitempty"`
@@ -99,6 +102,7 @@ type steerInput struct {
 }
 
 type toolCallResult struct {
+	Rejected            bool            `json:"rejected,omitempty"`
 	Result              chat.ToolResult `json:"result"`
 	Direct              bool            `json:"direct"`
 	AdvertisedToolNames []string        `json:"advertised_tool_names,omitempty"`
@@ -158,6 +162,16 @@ func newToolEffect(call toolDispatchRequest) (effectEnvelope, error) {
 }
 
 func (e effectEnvelope) validate() error {
+	if e.Operation == operationResultCommit {
+		if e.ResultCommit == nil || e.ModelCall != nil || e.ToolCall != nil {
+			return errors.New("interaction: invalid result commit effect")
+		}
+		return e.ResultCommit.validate()
+	}
+	if e.ResultCommit != nil {
+		return errors.New("interaction: unexpected result commit")
+	}
+
 	if e.Operation != operationModelCall && e.Operation != operationToolCall {
 		return errors.New("interaction: unsupported effect protocol")
 	}
@@ -210,6 +224,16 @@ func (e effectEnvelope) validateToolCall() error {
 }
 
 func (s signalEnvelope) validate() error {
+	if s.Operation == operationResultCommit {
+		if s.Receipt == nil || s.ModelResult != nil || s.ToolResult != nil || s.WaitOpened != nil || len(s.InputResponse) != 0 || s.Steer != nil {
+			return errors.New("interaction: invalid result receipt")
+		}
+		return s.Receipt.Validate()
+	}
+	if s.Receipt != nil {
+		return errors.New("interaction: unexpected result receipt")
+	}
+
 	if !s.Operation.valid() {
 		return errors.New("interaction: unsupported signal protocol")
 	}
@@ -281,7 +305,16 @@ func (t toolDispatchResult) validate() error {
 	return t.Completion.validate()
 }
 
+func (t toolCallResult) clone() toolCallResult {
+	t.Result = t.Result.Clone()
+	t.AdvertisedToolNames = slices.Clone(t.AdvertisedToolNames)
+	return t
+}
+
 func (t toolCallResult) validate() error {
+	if t.Rejected && !t.Result.IsError {
+		return errors.New("interaction: rejected result must be an error")
+	}
 	if err := t.Result.Validate(); err != nil {
 		return fmt.Errorf("interaction: tool_result: %w", err)
 	}

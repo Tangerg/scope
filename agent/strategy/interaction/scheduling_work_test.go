@@ -48,31 +48,6 @@ func BenchmarkRejectedToolBatch(b *testing.B) {
 	}
 }
 
-func TestRejectedToolBatchPreservesContinuationOrder(t *testing.T) {
-	const count = 256
-	execution, _ := schedulingTestExecution(t, count)
-	delete(execution.definition.tools.entries, "delegate_fuzz")
-	response := execution.state.ToolRound.Response
-	initialMessages := len(execution.state.WorkingContext.Messages)
-	if _, err := execution.advanceToolCallBatch(t.Context(), 0); err != nil {
-		t.Fatal(err)
-	}
-	messages := execution.state.WorkingContext.Messages[initialMessages:]
-	if len(messages) != 2 || len(messages[0].Parts) != count || len(messages[1].Parts) != count {
-		t.Fatalf("continuation = %+v", messages)
-	}
-	for index := range count {
-		call := response.Output.Message.Parts[index].ToolCall
-		gotCall := messages[0].Parts[index].ToolCall
-		result := messages[1].Parts[index].ToolResult
-		if gotCall == nil || *gotCall != *call || result == nil || result.ID != call.ID ||
-			result.Name != call.Name || !result.IsError ||
-			result.Output.Content[0].Text != "error: tool \"delegate_fuzz\" is not available" {
-			t.Fatalf("continuation item %d = %+v / %+v", index, gotCall, result)
-		}
-	}
-}
-
 func schedulingTestExecution(t testing.TB, count int) (*execution, *int) {
 	t.Helper()
 	execution := childBatchTestExecution(t, childCallsTool, phaseAwaitingChildStarts)
@@ -86,7 +61,7 @@ func schedulingTestExecution(t testing.TB, count int) (*execution, *int) {
 		parts = append(parts, chat.NewToolCallPart(chat.ToolCall{ID: fmt.Sprintf("call_%d", index), Name: "delegate_fuzz", Arguments: `{"task":"check"}`}))
 	}
 	message := chat.NewAssistantMessage(parts...)
-	execution.state.ToolRound = &toolCallRound{Response: &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonToolCalls}}, DirectResultEligible: true}
+	execution.state.ToolRound = &toolCallRound{Response: &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonToolCalls}}}
 	return execution, classifications
 }
 
@@ -101,7 +76,7 @@ func schedulingCalls(execution *execution) []chat.ToolCall {
 
 func finishSchedulingTestBatch(execution *execution) {
 	call := execution.state.ToolRound.Response.Output.Message.Parts[execution.state.ToolRound.nextCallIndex()].ToolCall
-	execution.state.ToolRound.Results = append(execution.state.ToolRound.Results, chat.ToolResult{ID: call.ID, Name: call.Name, Output: chat.NewTextToolOutput("done")})
+	execution.state.ToolRound.Results = append(execution.state.ToolRound.Results, toolCallResult{Result: chat.ToolResult{ID: call.ID, Name: call.Name, Output: chat.NewTextToolOutput("done")}})
 	execution.state.ToolRound.ChildBatch = nil
 }
 

@@ -36,8 +36,8 @@ func TestDefinitionConformance(t *testing.T) {
 		modelCalls int
 		effects    uint64
 	}{
-		{interaction.CompletionSourceModelResponse, add, 2, 4},
-		{interaction.CompletionSourceDirectToolResults, directTool{Tool: add}, 1, 3},
+		{interaction.CompletionSourceModelResponse, add, 2, 5},
+		{interaction.CompletionSourceDirectToolResults, directTool{Tool: add}, 1, 4},
 	} {
 		t.Run(string(test.source), func(t *testing.T) {
 			toolSet := testToolSet(t, interaction.ToolSetConfig{Tools: []tool.Tool{test.executable}})
