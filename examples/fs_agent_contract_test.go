@@ -35,7 +35,13 @@ func TestFilesystemEditOutcomeThroughInteraction(t *testing.T) {
 			if err := os.WriteFile(path, []byte("original"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			var editor fs.Editor = contractValue(fs.NewLocalExecutor(directory))
+			backend := contractValue(fs.NewLocalExecutor(directory))
+			t.Cleanup(func() {
+				if err := backend.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			var editor fs.Editor = backend
 			if unknown {
 				editor = uncertainEditor{}
 			}
