@@ -21,6 +21,9 @@ func TestProcessCancellationPropagatesThroughSubtreeAndResumesParentStrategy(t *
 	if len(output.CompletedKeys) != 1 || output.CompletedKeys[0] != "target" {
 		t.Fatalf("parent received child outcomes %v", output.CompletedKeys)
 	}
+	if joinErr := root.Join(t.Context()); joinErr != nil {
+		t.Fatal(joinErr)
+	}
 	mustCloseEngine(t, engine)
 }
 
@@ -76,6 +79,9 @@ func TestProcessCancellationPreservesUnsatisfiedSiblingWait(t *testing.T) {
 		if len(output.CompletedKeys) != 2 || output.CompletedKeys[0] != "target" || output.CompletedKeys[1] != "sibling" {
 			t.Fatalf("completed child keys=%v", output.CompletedKeys)
 		}
+		if joinErr := pair[0].Join(t.Context()); joinErr != nil {
+			t.Fatal(joinErr)
+		}
 	}
 	mustCloseEngine(t, restoredEngine)
 	mustCloseEngine(t, engine)
@@ -106,6 +112,9 @@ func TestSubtreeCancellationPublishesOnlyAfterCheckpointAcknowledgment(t *testin
 		release()
 		assertCanceledSubtree(t, target, descendant)
 		_ = childTestResult(t, mustAwait(t, root))
+		if joinErr := root.Join(t.Context()); joinErr != nil {
+			t.Fatal(joinErr)
+		}
 		checkpoints := durability.treeCheckpoints()
 		last := checkpoints[len(checkpoints)-1]
 		if last.Kind() != TreeCheckpointTerminal {
