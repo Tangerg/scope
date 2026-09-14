@@ -165,7 +165,7 @@ func (i *inputGateExecution) Step(ctx context.Context, signals []agent.Signal) (
 			return agent.Transition{}, fmt.Errorf("%w: input gate opening is missing", ErrInvalidProtocol)
 		}
 		waitID, addressed := signals[0].WaitID()
-		if !addressed || !bytes.Equal(signals[0].Payload(), i.state.Request.JSON()) {
+		if !signals[0].EngineOwned() || !addressed || !bytes.Equal(signals[0].Payload(), i.state.Request.JSON()) {
 			return agent.Transition{}, fmt.Errorf("%w: input gate opening disagrees with its request", ErrInvalidProtocol)
 		}
 		i.state.WaitID = &waitID

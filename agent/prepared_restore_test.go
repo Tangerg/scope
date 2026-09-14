@@ -99,7 +99,7 @@ func TestPreparedSnapshotEnforcesEffectCapabilities(t *testing.T) {
 		t.Fatal(err)
 	}
 	wire.Prepared.Effects[0].Effect = effect
-	wire.Prepared.Transition, err = Continue(0, effect)
+	wire.Prepared.Intent, err = Continue(0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestRestorePreparedOutputUsesDeploymentSchema(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wire.Prepared.Transition, err = Complete(0, output)
+			wire.Prepared.Intent, err = Complete(0, output)
 			if err != nil {
 				t.Fatal(err)
 			}

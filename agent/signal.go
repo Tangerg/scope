@@ -34,6 +34,11 @@ func newSignal(id SignalID, waitID WaitID, payload json.RawMessage) (Signal, err
 // ID returns the stable delivery and deduplication identity.
 func (s Signal) ID() SignalID { return s.id }
 
+// EngineOwned reports whether the Engine produced this Signal as execution
+// evidence. Ordinary delivery cannot use this authority. Like all restored
+// execution facts, a decoded Signal is trustworthy only from trusted storage.
+func (s Signal) EngineOwned() bool { return s.Valid() && s.id.engineOwned() }
+
 // WaitID returns the addressed wait and true, or a zero WaitID and false for a
 // Signal queued at the next Strategy-safe boundary.
 func (s Signal) WaitID() (WaitID, bool) { return s.waitID, s.waitID.Valid() }

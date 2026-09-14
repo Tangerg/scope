@@ -2,7 +2,6 @@ package interaction
 
 import (
 	"context"
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 
@@ -122,7 +121,7 @@ func decodeToolState(state agent.ExecutionState) (toolExecutionState, error) {
 type toolExecution struct{ state toolExecutionState }
 
 func (t *toolExecution) Snapshot() (agent.ExecutionState, error) {
-	payload, err := json.Marshal(t.state)
+	payload, err := jsonv2.Marshal(t.state, jsonv2.Deterministic(true))
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
@@ -149,12 +148,13 @@ func (t *toolExecution) Step(ctx context.Context, signals []agent.Signal) (agent
 	}
 	switch t.state.Phase {
 	case toolAwaitingResult:
-		if envelope.Operation != operationToolCall {
+		_, addressed := signal.WaitID()
+		if !signal.EngineOwned() || addressed || envelope.Operation != operationToolCall {
 			return agent.Transition{}, ErrInvalidExecutionState
 		}
 		return t.acceptResult(*envelope.ToolResult)
 	case toolAwaitingWaitOpen:
-		if envelope.Operation != operationWaitOpened {
+		if !signal.EngineOwned() || envelope.Operation != operationWaitOpened {
 			return agent.Transition{}, ErrInvalidExecutionState
 		}
 		waitID, addressed := signal.WaitID()

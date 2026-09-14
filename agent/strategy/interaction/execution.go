@@ -431,6 +431,9 @@ func collectExpectedSignal(
 				return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 			}
 		case expected:
+			if !signal.EngineOwned() {
+				return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: %q Signal requires Engine authority", ErrInvalidExecutionState, expected)
+			}
 			if found {
 				return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: duplicate %q Signal", ErrInvalidExecutionState, expected)
 			}
@@ -578,6 +581,21 @@ func (e *execution) acceptChildCompletions(ctx context.Context, signals []agent.
 	if err != nil {
 		return agent.Transition{}, err
 	}
+	for _, outcome := range completed.Outcomes() {
+		result := outcome.Result()
+		if batch.Kind == childCallsDelegate {
+			if unresolved, _ := outcome.SubtreeUnresolvedEffects(); len(unresolved) > 0 {
+				return e.fail(consumed, agent.FailureKindExternal, "interaction.delegate.unresolved_effects", fmt.Sprintf("Delegate subtree %s ended with unresolved Effects %v", result.ProcessID(), unresolved))
+			}
+		} else if result.Status() != agent.StatusCompleted {
+			termination := result.Termination()
+			if failure, failed := termination.Failure(); failed {
+				return agent.Fail(consumed, failure)
+			}
+			diagnostic := fmt.Sprintf("Tool child %s ended with %s (%s): %s", result.ProcessID(), result.Status(), termination.Cause(), termination.Reason())
+			return e.fail(consumed, agent.FailureKindExecution, "interaction.tool.process_failed", diagnostic)
+		}
+	}
 	for offset, outcome := range completed.Outcomes() {
 		if err := ctx.Err(); err != nil {
 			return agent.Transition{}, err
@@ -585,21 +603,10 @@ func (e *execution) acceptChildCompletions(ctx context.Context, signals []agent.
 		index := indices[offset]
 		result := outcome.Result()
 		if batch.Kind == childCallsDelegate {
-			if unresolved, _ := outcome.SubtreeUnresolvedEffects(); len(unresolved) > 0 {
-				return e.fail(consumed, agent.FailureKindExternal, "interaction.delegate.unresolved_effects", fmt.Sprintf("Delegate subtree %s ended with unresolved Effects %v", result.ProcessID(), unresolved))
-			}
 			if err := e.acceptDelegateOutcome(index, calls[index], result); err != nil {
 				return agent.Transition{}, err
 			}
 			continue
-		}
-		if result.Status() != agent.StatusCompleted {
-			termination := result.Termination()
-			if failure, failed := termination.Failure(); failed {
-				return agent.Fail(consumed, failure)
-			}
-			diagnostic := fmt.Sprintf("Tool child %s ended with %s (%s): %s", result.ProcessID(), result.Status(), termination.Cause(), termination.Reason())
-			return e.fail(consumed, agent.FailureKindExecution, "interaction.tool.process_failed", diagnostic)
 		}
 		encoded, present := result.Output()
 		if !present {

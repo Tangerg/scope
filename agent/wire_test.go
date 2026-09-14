@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+
+	"github.com/Tangerg/scope/core/chat"
 )
 
 type wireFixture struct {
@@ -98,4 +100,57 @@ func FuzzInputJSONRoundTrip(f *testing.F) {
 			t.Fatalf("round trip = %s, want %s", decoded.JSON(), input.JSON())
 		}
 	})
+}
+
+// Custom codecs remain responsible for their data; the wire boundary must still
+// reject malformed bytes returned by them instead of repairing their output.
+type malformedWireString struct{}
+
+func (malformedWireString) MarshalJSON() ([]byte, error) { return []byte{'"', 0xff, '"'}, nil }
+
+func TestTypedWireRejectsInvalidUTF8BeforeEncoding(t *testing.T) {
+	invalid := string([]byte{0xff})
+	for name, value := range map[string]any{
+		"primitive":           invalid,
+		"field":               wireFixture{Message: invalid},
+		"map key":             map[string]string{invalid: "value"},
+		"nested":              []wireFixture{{Message: invalid}},
+		"custom codec":        malformedWireString{},
+		"chat text":           chat.NewUserMessage(chat.NewTextPart(invalid)),
+		"chat tool arguments": chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: "call", Name: "read", Arguments: invalid})),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := EncodeInput(value); !errors.Is(err, ErrInvalidInput) {
+				t.Fatalf("input accepted invalid UTF-8: %v", err)
+			}
+			if _, err := EncodeOutput(value); !errors.Is(err, ErrInvalidOutput) {
+				t.Fatalf("output accepted invalid UTF-8: %v", err)
+			}
+		})
+	}
+	want := wireFixture{Message: "中文 🌍 \ufffd"}
+	input, err := EncodeInput(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := input.Decode[wireFixture]()
+	if err != nil || got != want {
+		t.Fatalf("Unicode changed: %+v, %v", got, err)
+	}
+	for _, number := range []json.Number{"9007199254740993", "1e400", "1.234567890123456789"} {
+		input, err := EncodeInput(number)
+		if err != nil || string(input.JSON()) != string(number) {
+			t.Fatalf("number changed: %s, %v", input.JSON(), err)
+		}
+	}
+}
+
+func TestTextBearingProtocolConstructorsRejectInvalidUTF8(t *testing.T) {
+	invalid := string([]byte{0xff})
+	if _, err := Pause(0, invalid); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("Pause accepted invalid text: %v", err)
+	}
+	if _, err := NewDescriptor(DescriptorConfig{Name: "test", Description: invalid, InputSchema: controlValue(SchemaFor[wireFixture]()), OutputSchema: controlValue(SchemaFor[wireFixture]())}); !errors.Is(err, ErrInvalidDescriptor) {
+		t.Fatalf("Descriptor accepted invalid text: %v", err)
+	}
 }

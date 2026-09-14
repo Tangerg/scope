@@ -85,6 +85,8 @@ func (p *Process) DeliverSignals(ctx context.Context, requests ...SignalRequest)
 
 // Pause requests a scheduling pause at the next safe Step boundary. An
 // in-flight Effect is allowed to settle before the pause becomes visible.
+// An accepted pause discards an unadopted Wait candidate without consuming its
+// Signals; Resume recomputes that Step from committed state.
 // A nil error acknowledges the local control intent, not its durable publication
 // or completion; [Engine.InspectTree] reports StatusPaused only after a tree
 // commit acknowledges the paused state in durable mode.
@@ -160,6 +162,9 @@ func (p *Process) Kill(ctx context.Context, reason string) error {
 
 // ResolveUnknownEffect supplies a definite result after an Effect attempt became
 // unknown. The Engine never converts unknown into retry or success implicitly.
+// A definite result exceeding Process or tree snapshot capacity returns
+// ErrResourceLimitExceeded without changing the Unknown record or durable head;
+// the caller can then supply a smaller result.
 // Terminal intent or a committed terminal result returns ErrProcessFinished;
 // retained interrupted-batch evidence cannot resume a terminated execution.
 func (p *Process) ResolveUnknownEffect(ctx context.Context, settlement Settlement) error {

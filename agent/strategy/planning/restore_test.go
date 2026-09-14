@@ -208,7 +208,7 @@ func TestExecutionPreservesSignalDecodeCause(t *testing.T) {
 		t.Fatal(err)
 	}
 	var signal agent.Signal
-	if decodeErr := json.Unmarshal([]byte(`{"id":"signal","payload":{"unknown":true}}`), &signal); decodeErr != nil {
+	if decodeErr := json.Unmarshal([]byte(`{"id":"signal:engine:sense","payload":{"unknown":true}}`), &signal); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
 	_, err = execution.Step(t.Context(), []agent.Signal{signal})

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 const maxPauseReasonBytes = 4096
@@ -81,8 +82,8 @@ func Wait(consumedSignals uint32, waitID WaitID) (Transition, error) {
 
 // Pause requests an explicit scheduling pause with a bounded diagnostic reason.
 func Pause(consumedSignals uint32, reason string) (Transition, error) {
-	if reason == "" || strings.TrimSpace(reason) != reason || len(reason) > maxPauseReasonBytes {
-		return Transition{}, fmt.Errorf("%w: pause reason must be non-empty, trimmed, and at most %d bytes", ErrInvalidTransition, maxPauseReasonBytes)
+	if reason == "" || !utf8.ValidString(reason) || strings.TrimSpace(reason) != reason || len(reason) > maxPauseReasonBytes {
+		return Transition{}, fmt.Errorf("%w: pause reason must be non-empty, trimmed UTF-8, and at most %d bytes", ErrInvalidTransition, maxPauseReasonBytes)
 	}
 	return Transition{kind: TransitionKindPause, consumedSignals: consumedSignals, reason: reason}, nil
 }

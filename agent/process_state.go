@@ -147,12 +147,8 @@ func (p *processState) admitSignals(signals []Signal, source signalSource) (bool
 		candidate.status = StatusRunning
 		candidate.currentWaitID = WaitID{}
 	}
-	encoded, err := json.Marshal(candidate.snapshotWire())
-	if err != nil {
+	if _, err := candidate.snapshotAdmissionSize(); err != nil {
 		return false, err
-	}
-	if len(encoded) > maxSnapshotBytes {
-		return false, ErrResourceLimitExceeded
 	}
 	p.mailbox, p.status, p.currentWaitID = candidate.mailbox, candidate.status, candidate.currentWaitID
 
@@ -209,9 +205,22 @@ func (p *processState) requestKill(reason string) error {
 	return nil
 }
 
-func (p *processState) resolveEffect(settlement Settlement) error {
-	_, _, err := p.prepared.resolveUnknown(settlement)
-	return err
+func (p *processState) resolveEffect(settlement Settlement) (int, error) {
+	if p.prepared == nil {
+		return 0, ErrEffectNotPending
+	}
+	prepared := p.prepared.snapshot()
+	index, _, err := prepared.resolveUnknown(settlement)
+	if err != nil {
+		return 0, err
+	}
+	candidate := *p
+	candidate.prepared = &prepared
+	if _, err := candidate.snapshotAdmissionSize(); err != nil {
+		return 0, err
+	}
+	p.prepared = &prepared
+	return index, nil
 }
 
 func (p *processState) unknownEffectIDs() []EffectID {
@@ -311,7 +320,7 @@ func (p *processState) restorePreparedStep(stored *preparedStep, durable bool) e
 	if err := p.validatePreparedWaits(&prepared); err != nil {
 		return fmt.Errorf("%w: prepared waits: %w", ErrInvalidSnapshot, err)
 	}
-	if output, completes := prepared.Transition.Output(); completes {
+	if output, completes := prepared.Intent.Output(); completes {
 		if err := p.deployment.Descriptor().ValidateOutput(output); err != nil {
 			return fmt.Errorf("%w: prepared output schema: %w", ErrInvalidSnapshot, err)
 		}
@@ -426,10 +435,11 @@ func (p *processState) prepareStepResult(result stepJobResult) *stepPreparationF
 		}
 	}
 	sequence := p.committedSteps + 1
+	transition.effects = nil
 	prepared := preparedStep{
 		StepSequence: sequence, CommittedExecutionStateDigest: digest, CandidateState: result.candidateState,
 		SignalCursor: p.mailbox.committedSignalCursor() + uint64(transition.ConsumedSignals()),
-		Transition:   transition,
+		Intent:       transition,
 	}
 	for index, effect := range effects {
 		prepared.Effects = append(prepared.Effects, preparedEffect{
@@ -440,10 +450,52 @@ func (p *processState) prepareStepResult(result stepJobResult) *stepPreparationF
 	if err := p.validatePreparedWaits(&prepared); err != nil {
 		return &stepPreparationFailure{kind: FailureKindContract, code: failureCodeExecutionEffectInvalid, cause: err}
 	}
-	p.prepared = &prepared
-	p.preparedExecution = result.candidate
-	p.counters.PreparedEffects += effectCount
+	candidate := *p
+	candidate.prepared = &prepared
+	candidate.preparedExecution = result.candidate
+	candidate.counters.PreparedEffects += effectCount
+	if _, err := candidate.snapshotAdmissionSize(); err != nil {
+		return &stepPreparationFailure{kind: FailureKindExecution, code: failureCodeEngineLimitSnapshot, cause: err}
+	}
+	*p = candidate
 	return nil
+}
+
+func (p *processState) snapshotAdmissionSize() (int, error) {
+	wire := p.snapshotWire()
+	if wire.Prepared != nil {
+		// Local waits have a fully known settlement. Reserve its representation
+		// before any earlier dispatcher Effect can receive permission to run.
+		for index := range wire.Prepared.Effects {
+			record := &wire.Prepared.Effects[index]
+			if record.Settlement != nil || record.Effect.Target() != EffectTargetFramework {
+				continue
+			}
+			operation, err := decodeFrameworkEffectOperation(record.Effect.Payload())
+			if err != nil {
+				return 0, err
+			}
+			if operation != frameworkEffectWait && operation != frameworkEffectWaitChildren {
+				continue
+			}
+			if record.Phase == effectPhasePlanned {
+				if err := record.begin(); err != nil {
+					return 0, err
+				}
+			}
+			if err := record.settleFramework(); err != nil {
+				return 0, err
+			}
+		}
+	}
+	encoded, err := json.Marshal(wire)
+	if err != nil {
+		return 0, err
+	}
+	if len(encoded) > maxSnapshotBytes {
+		return 0, ErrResourceLimitExceeded
+	}
+	return len(encoded), nil
 }
 
 // Asynchronous failures wait for accepted external effects to settle before

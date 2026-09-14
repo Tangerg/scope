@@ -109,8 +109,8 @@ func (d *deadlineExecution) Step(ctx context.Context, signals []agent.Signal) (a
 		d.state.Phase = deadlineAwaiting
 		return agent.Continue(0, effect)
 	case deadlineAwaiting:
-		if len(signals) != 1 {
-			return agent.Transition{}, fmt.Errorf("%w: deadline requires one timer settlement", ErrInvalidProtocol)
+		if len(signals) != 1 || !signals[0].EngineOwned() {
+			return agent.Transition{}, fmt.Errorf("%w: deadline requires one Engine-owned timer settlement", ErrInvalidProtocol)
 		}
 		if _, addressed := signals[0].WaitID(); addressed {
 			return agent.Transition{}, fmt.Errorf("%w: timer settlement cannot address a wait", ErrInvalidProtocol)

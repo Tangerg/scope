@@ -427,7 +427,7 @@ func (e *Engine) reserveRootStart(reservation processStartReservation) error {
 	return nil
 }
 
-// Hold e.mu so child identity and all tree limits are reserved atomically.
+// The tree owner admits resources; e.mu reserves global identities atomically.
 func (e *Engine) reserveChildStart(reservation processStartReservation) error {
 	relation := reservation.relation
 	treeLimits := reservation.treeLimits
@@ -456,46 +456,10 @@ func (e *Engine) reserveChildStart(reservation processStartReservation) error {
 	if treeLimits != parent.treeLimits || relation.depth > treeLimits.MaxDepth {
 		return ErrResourceLimitExceeded
 	}
-	childCount, activeChildCount, treeProcessCount := e.reservedTreeCounts(relation.rootID, parentID)
-	if childCount >= treeLimits.MaxChildren ||
-		activeChildCount >= treeLimits.MaxActiveChildren ||
-		treeProcessCount >= treeLimits.MaxTreeProcesses {
-		return ErrResourceLimitExceeded
-	}
 	processID := relation.ProcessID()
 	e.startReservations[processID] = reservation
 	e.childStartReservations[identity] = processID
 	return nil
-}
-
-// Hold e.mu so published Processes and pending reservations contribute to one
-// consistent limit check.
-func (e *Engine) reservedTreeCounts(rootID, parentID ProcessID) (
-	childCount uint32,
-	activeChildCount uint32,
-	treeProcessCount uint32,
-) {
-	for _, existing := range e.processes {
-		if existing.relation.rootID == rootID {
-			treeProcessCount++
-		}
-		if existing.relation.parentID == parentID {
-			childCount++
-			if !existing.status().Terminal() {
-				activeChildCount++
-			}
-		}
-	}
-	for _, pending := range e.startReservations {
-		if pending.relation.rootID == rootID {
-			treeProcessCount++
-		}
-		if pending.relation.parentID == parentID {
-			childCount++
-			activeChildCount++
-		}
-	}
-	return childCount, activeChildCount, treeProcessCount
 }
 
 func (e *Engine) discardProcessStartReservation(processID ProcessID) {

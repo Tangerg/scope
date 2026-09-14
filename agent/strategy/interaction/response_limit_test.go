@@ -25,10 +25,10 @@ func TestModelResponseLimitIncludesEncodingAndReplacementContext(t *testing.T) {
 		stream                  bool
 		beforeCall              bool
 	}{
-		{name: "aggregate escaped text", text: strings.Repeat("<", 100)},
-		{name: "stream escaped text", text: strings.Repeat("<", 100), stream: true},
+		{name: "aggregate escaped text", text: strings.Repeat("\x01", 100)},
+		{name: "stream escaped text", text: strings.Repeat("\x01", 100), stream: true},
 		{name: "replacement plus response", text: strings.Repeat("x", 200), replacement: strings.Repeat("y", 200)},
-		{name: "replacement exceeds budget before call", text: "unused", replacement: strings.Repeat("<", 100), beforeCall: true},
+		{name: "replacement exceeds budget before call", text: "unused", replacement: strings.Repeat("\x01", 100), beforeCall: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)

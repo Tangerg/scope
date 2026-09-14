@@ -118,7 +118,7 @@ func (ChildStartResult) JSONSchemaAlias() any { return childStartResultWire{} }
 // ParseChildStartResult decodes a Framework-owned child-start settlement
 // Signal. The Signal must carry an Engine-owned identity and must not address a wait.
 func ParseChildStartResult(signal Signal) (ChildStartResult, error) {
-	if !signal.Valid() || !signal.id.engineOwned() {
+	if !signal.EngineOwned() {
 		return ChildStartResult{}, ErrInvalidSignal
 	}
 	if _, addressed := signal.WaitID(); addressed {

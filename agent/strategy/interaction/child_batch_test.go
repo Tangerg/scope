@@ -1,10 +1,12 @@
 package interaction
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -150,7 +152,7 @@ func childBatchTestExecution(t testing.TB, kind childCallKind, stage phase) *exe
 		}
 		tools, err := NewToolSet(ToolSetConfig{
 			Name: "interaction.child_batch.tools", Description: "Exercise the child call protocol.",
-			Tools:                []tool.Tool{executable},
+			Tools:                []tool.Tool{batchConcurrentTool{executable}},
 			ImplementationDigest: agent.ComputeDigest([]byte("child-batch-tool")),
 			ConfigurationDigest:  agent.ComputeDigest([]byte("child-batch-config")),
 		})
@@ -159,7 +161,7 @@ func childBatchTestExecution(t testing.TB, kind childCallKind, stage phase) *exe
 		}
 		definition, err = NewDefinition(DefinitionConfig{
 			Name: "interaction.child_batch", Description: "Exercise the child call protocol.",
-			MaxModelCalls: 2, Tools: tools, ToolBudget: agent.Budget{Steps: 10, Effects: 10, Signals: 10},
+			MaxModelCalls: 2, MaxConcurrentToolCalls: 3, Tools: tools, ToolBudget: agent.Budget{Steps: 10, Effects: 10, Signals: 10},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -295,4 +297,83 @@ func TestDelegateUnresolvedEffectsStopParent(t *testing.T) {
 	if !failed || failure.Code() != "interaction.delegate.unresolved_effects" || !strings.Contains(failure.Message(), "effect:remote-write") || len(transition.Effects()) != 0 {
 		t.Fatalf("unresolved Delegate continued: %+v", transition)
 	}
+}
+
+func TestBatchFailureAfterSuccessPrefixRemainsRestorable(t *testing.T) {
+	for _, kind := range []childCallKind{childCallsDelegate, childCallsTool} {
+		for failedIndex := range 3 {
+			t.Run(fmt.Sprintf("%s/failure_%d", kind, failedIndex), func(t *testing.T) {
+				execution := childBatchTestExecution(t, kind, phaseWaitingChildren)
+				batch := execution.state.ToolRound.ChildBatch
+				batch.Invocations = nil
+				batch.NextStartIndex = 3
+				message := chat.NewAssistantMessage()
+				outcomes := make([]childOutcomeTestWire, 3)
+				for index := range 3 {
+					call := chat.ToolCall{ID: fmt.Sprintf("call_%d", index), Name: "delegate_fuzz", Arguments: `{"task":"check"}`}
+					message.Parts = append(message.Parts, chat.NewToolCallPart(call))
+					key, err := batch.childKey(1, call)
+					if err != nil {
+						t.Fatal(err)
+					}
+					id, _ := agent.ParseProcessID(fmt.Sprintf("process:batch-%d", index))
+					batch.Invocations = append(batch.Invocations, childInvocationState{ChildKey: &key, ProcessID: &id})
+					output, _ := agent.EncodeOutput(fuzzDelegateOutput{Result: "done"})
+					if kind == childCallsTool {
+						output, _ = agent.EncodeOutput(toolCallResult{Result: chat.ToolResult{ID: call.ID, Name: call.Name, Output: chat.NewTextToolOutput("done")}})
+					}
+					outcomes[index] = childOutcomeTestWire{Key: key, SubtreeUnresolvedEffects: []agent.UnresolvedEffect{}, Result: childResultTestWire{ProcessID: id, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0), Output: output, Termination: json.RawMessage(`{"status":"completed","cause":"completion"}`)}}
+				}
+				execution.state.ToolRound.Response.Output.Message = &message
+				if kind == childCallsDelegate {
+					effectID, _ := agent.ParseEffectID("effect:remote-write")
+					outcomes[failedIndex].SubtreeUnresolvedEffects = []agent.UnresolvedEffect{{ProcessID: outcomes[failedIndex].Result.ProcessID, EffectID: effectID}}
+					outcomes[failedIndex].Result.Termination = json.RawMessage(`{"status":"killed","cause":"engine_kill","reason":"stopped","unresolved_effect_ids":["effect:remote-write"]}`)
+				} else {
+					outcomes[failedIndex].Result.Termination = json.RawMessage(`{"status":"killed","cause":"engine_kill","reason":"stopped"}`)
+				}
+				outcomes[failedIndex].Result.Output = agent.Output{}
+				before, err := execution.Snapshot()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, restoreErr := execution.definition.Restore(before); restoreErr != nil {
+					t.Fatal(restoreErr)
+				}
+				wait, err := batch.waitSpec(1, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				signal := childBatchTestSignal(t, *batch.WaitID, childCompletionTestPayload{Operation: "child_wait_satisfied", Key: wait.Key, Boundary: agent.ChildWaitBoundaryDrained, Outcomes: outcomes})
+				transition, err := execution.Step(t.Context(), []agent.Signal{signal})
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantCode := "interaction.delegate.unresolved_effects"
+				if kind == childCallsTool {
+					wantCode = "interaction.tool.process_failed"
+				}
+				failure, failed := transition.Failure()
+				if !failed || failure.Code() != wantCode || len(transition.Effects()) != 0 {
+					t.Fatalf("failure = %+v", transition)
+				}
+				after, err := execution.Snapshot()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := execution.definition.Restore(after); err != nil {
+					t.Fatalf("failure candidate cannot restore: %v", err)
+				}
+				if !bytes.Equal(before.Payload(), after.Payload()) {
+					t.Fatal("failure installed a partial batch")
+				}
+			})
+		}
+	}
+}
+
+type batchConcurrentTool struct{ tool.Tool }
+
+func (b batchConcurrentTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) {
+	return func(tool.Invocation) (string, bool) { return "", true }
 }

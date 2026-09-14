@@ -288,7 +288,7 @@ func TestSnapshotEnforcesSequentialEffectProgress(t *testing.T) {
 				}
 				wire.Prepared.Effects[index] = record
 			}
-			wire.Prepared.Transition, err = Continue(wire.Prepared.Transition.ConsumedSignals(), effects...)
+			wire.Prepared.Intent, err = Continue(wire.Prepared.Intent.ConsumedSignals())
 			if err != nil {
 				t.Fatal(err)
 			}

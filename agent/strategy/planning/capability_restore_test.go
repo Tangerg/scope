@@ -74,8 +74,6 @@ func TestRestoredPlanningEffectsCannotDropBindingCapabilities(t *testing.T) {
 			if omitRequired {
 				processWire["capabilities"] = []any{}
 				delete(record["effect"].(map[string]any), "required_capabilities")
-				transition := prepared["transition"].(map[string]any)
-				delete(transition["effects"].([]any)[0].(map[string]any), "required_capabilities")
 			}
 			snapshot, err := agent.ParseTreeSnapshot(mustJSON(t, wire))
 			if err != nil {

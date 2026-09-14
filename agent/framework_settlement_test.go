@@ -54,7 +54,7 @@ func TestWaitSettlementMustMatchDeclaredRequest(t *testing.T) {
 		for _, mutation := range []string{"status", "payload"} {
 			t.Run(string(effect.Payload())+"/"+mutation, func(t *testing.T) {
 				candidate := wire.clone()
-				candidate.Prepared.Transition = controlValue(Continue(0, effect))
+				candidate.Prepared.Intent = controlValue(Continue(0))
 				record := preparedEffect{ID: candidate.ProcessID.effectID(1, 0), Effect: effect, Phase: effectPhasePending}
 				if err := record.settleFramework(); err != nil {
 					t.Fatal(err)
@@ -88,7 +88,7 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 	if err := record.settleChildStart(ChildStartResult{key: spec.Key, processID: record.ID.childProcessID(), deploymentRef: spec.DeploymentRef}); err != nil {
 		t.Fatal(err)
 	}
-	wire.Prepared.Transition = controlValue(Continue(0, effect))
+	wire.Prepared.Intent = controlValue(Continue(0))
 	wire.Prepared.Effects = preparedEffects{record}
 	for _, mutation := range []string{"key", "deployment", "process", "status", "payload", "invalid identity"} {
 		t.Run(mutation, func(t *testing.T) {
@@ -165,7 +165,7 @@ func TestRestoreRejectsWaitConflictBeforeDispatch(t *testing.T) {
 	wire := controlValue(preparedEngineTestSnapshot(t).wire())
 	wait := controlValue(RequestWait(controlValue(ParseWaitKey("duplicate")), []byte(`"answer"`)))
 	effects := []Effect{wire.Prepared.Effects[0].Effect, wait, wait}
-	wire.Prepared.Transition = controlValue(Continue(0, effects...))
+	wire.Prepared.Intent = controlValue(Continue(0))
 	wire.Prepared.Effects = nil
 	for index, effect := range effects {
 		wire.Prepared.Effects = append(wire.Prepared.Effects, preparedEffect{ID: wire.ProcessID.effectID(1, index), Effect: effect, Phase: effectPhasePlanned})

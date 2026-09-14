@@ -101,7 +101,7 @@ func TestPreparedCompletionDoesNotRetainOutputWhenKillWins(t *testing.T) {
 	}
 	finalization := &preparedStepFinalization{
 		process:  &processState{pendingControl: pendingControl{kill: kill}},
-		prepared: &preparedStep{Transition: transition},
+		prepared: &preparedStep{Intent: transition},
 	}
 	if err := finalization.prepareTransition(time.Now()); err != nil {
 		t.Fatal(err)
@@ -143,7 +143,7 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prepared := &preparedStep{Transition: transition}
+	prepared := &preparedStep{Intent: transition}
 	for index, effect := range effects {
 		record := preparedEffect{
 			ID: parent.handle.processID.effectID(2, index), Effect: effect, Phase: effectPhasePending,

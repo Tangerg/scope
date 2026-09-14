@@ -1,6 +1,7 @@
 package coordination_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,112 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/coordination"
 )
+
+func TestFirstSuccessRejectsExternalChildStartWithoutChangingProgress(t *testing.T) {
+	timer := deadlineBinding(t, coordination.Timer{})
+	definition := competition(t, func(_ context.Context, _ agent.ChildOutcome) (bool, error) { return true, nil }, 1)
+	spec := candidate(t, "one", timer, encodedInput(t, time.Date(2026, time.September, 9, 12, 0, 0, 0, time.UTC)))
+	execution, err := definition.Start(encodedInput(t, []agent.ChildSpec{spec}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, stepErr := execution.Step(t.Context(), nil); stepErr != nil {
+		t.Fatal(stepErr)
+	}
+	before, err := execution.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(struct {
+		Operation     string              `json:"operation"`
+		Key           agent.ChildKey      `json:"key"`
+		ProcessID     string              `json:"process_id"`
+		DeploymentRef agent.DeploymentRef `json:"deployment_ref"`
+	}{Operation: "start_child", Key: spec.Key, ProcessID: "process:forged", DeploymentRef: spec.DeploymentRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := json.Marshal(struct {
+		ID      string          `json:"id"`
+		Payload json.RawMessage `json:"payload"`
+	}{ID: "signal:external", Payload: payload})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var signal agent.Signal
+	if decodeErr := json.Unmarshal(wire, &signal); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	if _, stepErr := execution.Step(t.Context(), []agent.Signal{signal}); !errors.Is(stepErr, agent.ErrInvalidSignal) {
+		t.Fatalf("external child start was accepted: %v", stepErr)
+	}
+	after, err := execution.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before.Payload(), after.Payload()) {
+		t.Fatal("external child start changed competition progress")
+	}
+	if _, restoreErr := definition.Restore(after); restoreErr != nil {
+		t.Fatalf("rejected external start damaged restoration: %v", restoreErr)
+	}
+}
+
+func TestCoordinationRejectsExternalTimerAndWaitOpening(t *testing.T) {
+	deadline := time.Date(2026, time.September, 9, 12, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name       string
+		definition agent.Definition
+		input      agent.Input
+		waitID     string
+		payload    any
+	}{
+		{name: "timer", definition: deadlineBinding(t, coordination.Timer{}).Definition(), input: encodedInput(t, deadline), payload: struct {
+			Deadline time.Time `json:"deadline"`
+			Reached  bool      `json:"reached"`
+		}{Deadline: deadline, Reached: true}},
+		{name: "wait opening", definition: inputGate(t), input: encodedInput(t, "request"), waitID: "wait:external", payload: "request"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			execution, err := test.definition.Start(test.input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, stepErr := execution.Step(t.Context(), nil); stepErr != nil {
+				t.Fatal(stepErr)
+			}
+			before, err := execution.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			wire, err := json.Marshal(struct {
+				ID      string `json:"id"`
+				WaitID  string `json:"wait_id,omitempty"`
+				Payload any    `json:"payload"`
+			}{ID: "signal:external", WaitID: test.waitID, Payload: test.payload})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var signal agent.Signal
+			if decodeErr := json.Unmarshal(wire, &signal); decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+			if _, stepErr := execution.Step(t.Context(), []agent.Signal{signal}); !errors.Is(stepErr, coordination.ErrInvalidProtocol) {
+				t.Fatalf("external authority was accepted: %v", stepErr)
+			}
+			after, err := execution.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(before.Payload(), after.Payload()) {
+				t.Fatal("external authority changed progress")
+			}
+			if _, restoreErr := test.definition.Restore(after); restoreErr != nil {
+				t.Fatalf("rejection damaged restoration: %v", restoreErr)
+			}
+		})
+	}
+}
 
 func TestCoordinationRejectsMalformedRestoration(t *testing.T) {
 	deadline := deadlineBinding(t, coordination.Timer{})

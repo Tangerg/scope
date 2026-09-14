@@ -3,7 +3,6 @@ package planning
 import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
-	"errors"
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -155,7 +154,7 @@ func decodeSignal(payload json.RawMessage) (signalEnvelope, error) {
 }
 
 func encodeProtocol(value any) (json.RawMessage, error) {
-	payload, err := json.Marshal(value)
+	payload, err := jsonv2.Marshal(value, jsonv2.Deterministic(true))
 	if err != nil {
 		return nil, fmt.Errorf("%w: encode: %w", ErrInvalidProtocol, err)
 	}
@@ -163,11 +162,11 @@ func encodeProtocol(value any) (json.RawMessage, error) {
 }
 
 func oneSignal(signals []agent.Signal) (agent.Signal, error) {
-	if len(signals) != 1 || !signals[0].Valid() {
-		return agent.Signal{}, errors.New("planning: exactly one valid settlement Signal is required")
+	if len(signals) != 1 || !signals[0].EngineOwned() {
+		return agent.Signal{}, fmt.Errorf("%w: exactly one Engine-owned settlement Signal is required", ErrInvalidProtocol)
 	}
 	if _, addressed := signals[0].WaitID(); addressed {
-		return agent.Signal{}, errors.New("planning: dispatcher settlement Signal must not address a wait")
+		return agent.Signal{}, fmt.Errorf("%w: dispatcher settlement Signal must not address a wait", ErrInvalidProtocol)
 	}
 	return signals[0], nil
 }

@@ -151,10 +151,9 @@ func (p preparedEffect) validateIdentity(
 	processID ProcessID,
 	sequence uint64,
 	index int,
-	effect Effect,
 ) error {
 	wantID := processID.effectID(sequence, index)
-	if p.ID != wantID || !p.Effect.equal(effect) {
+	if p.ID != wantID || !p.Effect.Valid() {
 		return errors.New("prepared Effect identity or payload changed")
 	}
 	if p.Effect.Target() != EffectTargetFramework {

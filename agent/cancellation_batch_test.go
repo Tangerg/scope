@@ -121,7 +121,7 @@ func TestCancellationPreservesPreparedInputInAFullMailbox(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if before.Prepared == nil || before.Prepared.Transition.ConsumedSignals() != 1 || len(before.Mailbox.Signals) == 0 {
+		if before.Prepared == nil || before.Prepared.Intent.ConsumedSignals() != 1 || len(before.Mailbox.Signals) == 0 {
 			t.Fatalf("fixture did not prepare input consumption: %+v", before)
 		}
 		if killErr := process.Kill(t.Context(), "retain input at cancellation"); killErr != nil {

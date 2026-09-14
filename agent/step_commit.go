@@ -33,7 +33,7 @@ type preparedTransitionState struct {
 
 func newPreparedStepFinalization(process *processState) (*preparedStepFinalization, error) {
 	mailbox := process.mailbox.clone()
-	consumedChildWaits, err := mailbox.commit(process.prepared.Transition.ConsumedSignals())
+	consumedChildWaits, err := mailbox.commit(process.prepared.Intent.ConsumedSignals())
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +128,7 @@ func (p *preparedStepFinalization) enqueueImmediateChildSignals() error {
 }
 
 func (p *preparedStepFinalization) prepareTransition(finishedAt time.Time) error {
-	transition := p.prepared.Transition
+	transition := p.prepared.Intent
 	switch transition.Kind() {
 	case TransitionKindContinue:
 		p.transition.status = StatusRunning

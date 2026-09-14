@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"math"
 	"slices"
 	"sync"
@@ -500,6 +501,13 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 		t.finishIfTerminal(process)
 		return
 	}
+	if process.pendingControl.pauseReason != "" && process.prepared.Intent.Kind() == TransitionKindWait {
+		process.prepared = nil
+		process.preparedExecution = nil
+		t.startRestore(process)
+		t.applyPendingControl(process)
+		return
+	}
 	if record != nil {
 		if record.unknown() {
 			return
@@ -590,6 +598,11 @@ func (t *treeRuntime) prepareChildStart(
 			spec, FailureKindContract, childCapabilityEscalationCode, ErrInvalidCapability,
 		)}
 	}
+	if !t.canStartChild(process) {
+		return childStartPreparation{result: failedChildStart(
+			spec, FailureKindExecution, childTreeLimitCode, ErrResourceLimitExceeded,
+		)}
+	}
 	if !process.reserveProvisionalChildBudget(spec.Budget) {
 		return childStartPreparation{result: failedChildStart(
 			spec, FailureKindExecution, childBudgetExhaustedCode, ErrResourceLimitExceeded,
@@ -632,6 +645,36 @@ func (t *treeRuntime) prepareChildStart(
 		limits: childLimits, treeLimits: process.treeLimits,
 		requestDigest: requestDigest,
 	}}
+}
+
+// Membership and in-flight child jobs are the resource facts. A completed job
+// installs its child before scheduling resumes; durable publication blocks that
+// scheduling lane until acknowledgment. No parallel reservation counter exists.
+func (t *treeRuntime) canStartChild(parent *processState) bool {
+	limits := parent.treeLimits
+	if parent.handle.relation.Depth() >= limits.MaxDepth {
+		return false
+	}
+	children := t.childrenByParent[parent.handle.processID]
+	childCount, treeCount := uint64(len(children)), uint64(len(t.processes))
+	var active uint64
+	for _, childID := range children {
+		if !t.processes[childID].status.Terminal() {
+			active++
+		}
+	}
+	for _, job := range t.jobs {
+		if job.childStart == nil || t.processes[job.childStart.childID] != nil {
+			continue
+		}
+		treeCount++
+		if parentID, _ := job.childStart.relation.ParentID(); parentID == parent.handle.processID {
+			childCount++
+			active++
+		}
+	}
+	return childCount < uint64(limits.MaxChildren) && active < uint64(limits.MaxActiveChildren) &&
+		treeCount < uint64(limits.MaxTreeProcesses)
 }
 
 // A tree-local control and its receipt change one authoritative cut. The target
@@ -778,11 +821,9 @@ func (t *treeRuntime) startEffectCommit(
 func (t *treeRuntime) startUnknownResolutionCommit(
 	process *processState,
 	command processCommand,
+	index int,
 ) error {
-	index, record, err := process.prepared.resolveUnknown(command.settlement)
-	if err != nil {
-		return err
-	}
+	record := &process.prepared.Effects[index]
 	var events []Event
 	if event, ok := t.prepareSettlementEvent(process,
 		record.ID, record.Effect.Target(), command.settlement.Status(),
@@ -1232,16 +1273,24 @@ func (t *treeRuntime) resolveUnknownEffect(process *processState, command proces
 		command.reply(processResponse{err: ErrProcessFinished})
 		return
 	}
+	candidate := *process
+	index, err := candidate.resolveEffect(command.settlement)
+	if err == nil {
+		err = t.validateSnapshotCapacity(&candidate)
+	}
+	if err != nil {
+		command.reply(processResponse{err: err})
+		return
+	}
+	process.prepared = candidate.prepared
 	if t.engine.durability == nil {
-		command.reply(processResponse{err: process.resolveEffect(command.settlement)})
+		command.reply(processResponse{})
 		t.enqueueProcess(process.handle.processID)
 		return
 	}
-	if err := t.startUnknownResolutionCommit(process, command); err != nil {
+	if err := t.startUnknownResolutionCommit(process, command, index); err != nil {
 		command.reply(processResponse{err: err})
-		if !errors.Is(err, ErrEffectNotPending) {
-			t.failDurability(err, process.handle.processID, command.settlement.EffectID())
-		}
+		t.failDurability(err, process.handle.processID, command.settlement.EffectID())
 	}
 }
 
@@ -2118,7 +2167,13 @@ func (t *treeRuntime) applyChildOutcome(pending *pendingChildOutcome) error {
 		return errors.New("child outcome parent is missing")
 	}
 	if pending.result.started() {
-		if err := parent.commitProvisionalChildBudget(pending.plan.spec.Budget); err != nil {
+		candidate := *parent
+		if candidate.prepared == nil {
+			return errors.New("child outcome parent has no prepared Step")
+		}
+		prepared := candidate.prepared.snapshot()
+		candidate.prepared = &prepared
+		if err := candidate.commitProvisionalChildBudget(pending.plan.spec.Budget); err != nil {
 			return err
 		}
 		handle := newProcessHandleState(
@@ -2135,14 +2190,29 @@ func (t *treeRuntime) applyChildOutcome(pending *pendingChildOutcome) error {
 			handle, pending.result.deployment, pending.result.execution,
 			pending.result.state, pending.result.startedAt, pending.plan.limits,
 		)
+		if _, err := t.applyChildStartSettlement(&candidate, pending.effectID, pending.result.result); err != nil {
+			return err
+		}
+		if err := t.validateSnapshotCapacity(&candidate, child); err != nil {
+			if !errors.Is(err, ErrResourceLimitExceeded) {
+				return err
+			}
+			pending.result = childStartJobResult{result: failedChildStart(
+				pending.plan.spec, FailureKindExecution, childTreeLimitCode, err,
+			)}
+			t.discardChildStart(pending.plan)
+			_, err = t.applyChildStartSettlement(parent, pending.effectID, pending.result.result)
+			return err
+		}
+		*parent = candidate
 		t.addProcess(child)
 		if parent.pendingControl.hasTerminalIntent() || parent.status.Terminal() {
 			child.recordParentTermination(parent.effectiveTermination())
 			t.stopProcessTree(child)
 		}
-	} else {
-		t.discardChildStart(pending.plan)
+		return nil
 	}
+	t.discardChildStart(pending.plan)
 	_, err := t.applyChildStartSettlement(parent, pending.effectID, pending.result.result)
 	return err
 }
@@ -2215,10 +2285,16 @@ func (t *treeRuntime) applyStepCompletion(
 		t.failProcess(process, failureKindForError(result.err), code, result.err)
 		return
 	}
-	if failure := process.prepareStepResult(result); failure != nil {
+	candidate := *process
+	if failure := candidate.prepareStepResult(result); failure != nil {
 		t.failProcess(process, failure.kind, failure.code, failure.cause)
 		return
 	}
+	if err := t.validateSnapshotCapacity(&candidate); err != nil {
+		t.failProcess(process, FailureKindExecution, failureCodeEngineLimitSnapshot, err)
+		return
+	}
+	*process = candidate
 	t.publishEphemeralStatus(process)
 	t.publishEvent(process, EventStepPrepared, EventPhaseAttempt, sequence, EffectID{}, emptyEventPayload())
 }
@@ -2710,32 +2786,40 @@ func (t *treeRuntime) admitSignals(process *processState, signals []Signal, sour
 	if err != nil || !accepted {
 		return accepted, err
 	}
-	header, err := json.Marshal(t.snapshotHeader())
-	if err != nil {
+	if err := t.validateSnapshotCapacity(&candidate); err != nil {
 		return false, err
 	}
+	process.mailbox, process.status, process.currentWaitID = candidate.mailbox, candidate.status, candidate.currentWaitID
+	return true, nil
+}
+
+func (t *treeRuntime) validateSnapshotCapacity(candidates ...*processState) error {
+	header, err := json.Marshal(t.snapshotHeader())
+	if err != nil {
+		return err
+	}
 	// The header contains an empty JSON array. Adding raw object encodings and
-	// separators gives the exact tree size without validating a half-installed
+	// separators also reserves known wait settlements without validating a half-installed
 	// child-control or child-wait transition.
 	size := len(header)
 	index := 0
-	for _, member := range t.processes {
-		if member == process {
-			member = &candidate
-		}
-		encoded, err := json.Marshal(member.snapshotWire())
+	members := maps.Clone(t.processes)
+	for _, candidate := range candidates {
+		members[candidate.handle.processID] = candidate
+	}
+	for _, member := range members {
+		memberSize, err := member.snapshotAdmissionSize()
 		if err != nil {
-			return false, err
+			return err
 		}
 		if index > 0 {
 			size++
 		}
-		size += len(encoded)
+		size += memberSize
 		if size > maxTreeSnapshotBytes {
-			return false, ErrResourceLimitExceeded
+			return ErrResourceLimitExceeded
 		}
 		index++
 	}
-	process.mailbox, process.status, process.currentWaitID = candidate.mailbox, candidate.status, candidate.currentWaitID
-	return true, nil
+	return nil
 }

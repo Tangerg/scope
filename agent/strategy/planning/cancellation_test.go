@@ -101,7 +101,7 @@ func TestPlannerCancellationRemainsAnError(t *testing.T) {
 			raw, err := json.Marshal(struct {
 				ID      string          `json:"id"`
 				Payload json.RawMessage `json:"payload"`
-			}{ID: "signal:sense", Payload: payload})
+			}{ID: "signal:engine:sense", Payload: payload})
 			if err != nil {
 				t.Fatal(err)
 			}

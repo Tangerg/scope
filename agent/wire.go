@@ -34,9 +34,11 @@ func ParseInput(data json.RawMessage) (Input, error) {
 	return Input{data: normalized}, nil
 }
 
-// EncodeInput converts a typed value into an independently owned Input.
+// EncodeInput strictly encodes a typed value into an independently owned Input.
+// Invalid UTF-8 and duplicate JSON names are rejected, including custom codec
+// output. Custom codecs are responsible for preserving their source values.
 func EncodeInput[T any](value T) (Input, error) {
-	data, err := json.Marshal(value)
+	data, err := jsonv2.Marshal(value, jsonv2.Deterministic(true))
 	if err != nil {
 		return Input{}, fmt.Errorf("%w: encode: %w", ErrInvalidInput, err)
 	}
@@ -94,9 +96,10 @@ func ParseOutput(data json.RawMessage) (Output, error) {
 	return Output{data: normalized}, nil
 }
 
-// EncodeOutput converts a typed value into an independently owned Output.
+// EncodeOutput strictly encodes a typed value into an independently owned Output.
+// It uses the same lossless encoding contract as EncodeInput.
 func EncodeOutput[T any](value T) (Output, error) {
-	data, err := json.Marshal(value)
+	data, err := jsonv2.Marshal(value, jsonv2.Deterministic(true))
 	if err != nil {
 		return Output{}, fmt.Errorf("%w: encode: %w", ErrInvalidOutput, err)
 	}

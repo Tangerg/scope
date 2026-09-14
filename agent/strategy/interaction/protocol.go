@@ -345,7 +345,7 @@ func (t toolCheckpoint) validate() error {
 }
 
 func encodeProtocol(value any) (json.RawMessage, error) {
-	payload, err := json.Marshal(value)
+	payload, err := jsonv2.Marshal(value, jsonv2.Deterministic(true))
 	if err != nil {
 		return nil, fmt.Errorf("interaction: encode protocol payload: %w", err)
 	}

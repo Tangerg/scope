@@ -167,6 +167,7 @@ const (
 	failureCodeEngineLimitEffects                        = "engine.limit.effects"
 	failureCodeEngineLimitSignals                        = "engine.limit.signals"
 	failureCodeEngineLimitSteps                          = "engine.limit.steps"
+	failureCodeEngineLimitSnapshot                       = "engine.limit.snapshot"
 	failureCodeEngineProcessAttemptExhausted             = "engine.process.attempt_exhausted"
 	failureCodeEngineTerminationInvalid                  = "engine.termination.invalid"
 	failureCodeExecutionEffectInvalid                    = "execution.effect.invalid"

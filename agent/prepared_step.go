@@ -12,7 +12,7 @@ type preparedStep struct {
 	CommittedExecutionStateDigest Digest          `json:"committed_execution_state_digest"`
 	CandidateState                ExecutionState  `json:"candidate_state"`
 	SignalCursor                  uint64          `json:"signal_cursor"`
-	Transition                    Transition      `json:"transition"`
+	Intent                        Transition      `json:"intent"`
 	Effects                       preparedEffects `json:"effects,omitempty"`
 }
 
@@ -66,7 +66,7 @@ func (p *preparedStep) consumedSignals() uint64 {
 	if p == nil {
 		return 0
 	}
-	return uint64(p.Transition.ConsumedSignals())
+	return uint64(p.Intent.ConsumedSignals())
 }
 
 func (p *preparedStep) hasUnknownSettlement() bool {
@@ -79,7 +79,7 @@ func (p *preparedStep) hasUnknownSettlement() bool {
 }
 
 func (p preparedStep) validate(processID ProcessID, sequence uint64, committedState ExecutionState, mailbox signalMailbox) error {
-	if p.StepSequence != sequence || !p.CandidateState.Valid() || !p.Transition.Valid() ||
+	if p.StepSequence != sequence || !p.CandidateState.Valid() || !p.Intent.Valid() ||
 		p.SignalCursor < mailbox.committedSignalCursor() || p.SignalCursor > mailbox.arrivalSequence() {
 		return errors.New("invalid prepared Step boundary")
 	}
@@ -90,12 +90,11 @@ func (p preparedStep) validate(processID ProcessID, sequence uint64, committedSt
 	if p.SignalCursor != mailbox.committedSignalCursor()+p.consumedSignals() {
 		return errors.New("prepared Step consumption does not match Transition")
 	}
-	effects := p.Transition.Effects()
-	if len(effects) != len(p.Effects) {
-		return errors.New("prepared Effect count does not match Transition")
+	if len(p.Intent.effects) != 0 || len(p.Effects) != 0 && p.Intent.Kind() != TransitionKindContinue {
+		return errors.New("prepared Effects must belong only to the execution records of a continue intent")
 	}
 	for index, record := range p.Effects {
-		if effectErr := record.validateIdentity(processID, sequence, index, effects[index]); effectErr != nil {
+		if effectErr := record.validateIdentity(processID, sequence, index); effectErr != nil {
 			return effectErr
 		}
 	}

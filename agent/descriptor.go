@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -35,8 +36,8 @@ func (d DescriptorConfig) validate() error {
 	if !validQualifiedName(d.Name) {
 		return fmt.Errorf("%w: name must start with a lowercase letter and contain only lowercase letters, digits, '.', '_' or '-'", ErrInvalidDescriptor)
 	}
-	if d.Description == "" || strings.TrimSpace(d.Description) != d.Description || len(d.Description) > maxDescriptionBytes {
-		return fmt.Errorf("%w: description must be non-empty, trimmed, and at most %d bytes", ErrInvalidDescriptor, maxDescriptionBytes)
+	if d.Description == "" || !utf8.ValidString(d.Description) || strings.TrimSpace(d.Description) != d.Description || len(d.Description) > maxDescriptionBytes {
+		return fmt.Errorf("%w: description must be non-empty, trimmed UTF-8, and at most %d bytes", ErrInvalidDescriptor, maxDescriptionBytes)
 	}
 	if !d.InputSchema.Valid() {
 		return fmt.Errorf("%w: input schema: %w", ErrInvalidDescriptor, ErrInvalidSchema)

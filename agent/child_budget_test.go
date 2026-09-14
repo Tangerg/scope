@@ -106,8 +106,7 @@ func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 	if !result.started() {
 		t.Fatalf("initialize child failed: %+v", result.result)
 	}
-	// Reject settlement after initialization to exercise cleanup after the
-	// child's budget and prospective Process have both been installed.
+	// Initialization succeeded, but no pending Effect can accept its settlement.
 	runtime.applyChildStartCompletion(parent, &processJob{
 		childStart: prepared.plan, effectID: effectID, startedAt: result.startedAt,
 	}, result)
@@ -126,4 +125,41 @@ func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 		t.Fatalf("released child identity and key could not be reserved again: %v", err)
 	}
 	engine.discardProcessStartReservation(prepared.plan.childID)
+}
+
+func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *testing.T) {
+	runtime := newWaitingSnapshotTree(t, 3)
+	root := runtime.processes[runtime.rootID]
+	children := runtime.childrenByParent[runtime.rootID]
+	first, second := runtime.processes[children[0]], runtime.processes[children[1]]
+	limits := TreeLimits{MaxDepth: 2, MaxChildren: 2, MaxActiveChildren: 1, MaxTreeProcesses: 4}
+	for _, process := range runtime.processes {
+		process.treeLimits = limits
+	}
+	if !runtime.canStartChild(first) || !runtime.canStartChild(second) {
+		t.Fatal("free tree slot was rejected")
+	}
+	childID := first.handle.processID.effectID(1, 0).childProcessID()
+	relation := childProcessRelation(childID, first.handle.relation, controlValue(ParseChildKey("worker")))
+	runtime.jobs[first.handle.processID] = &processJob{kind: processJobChildStart, childStart: &childStartPlan{childID: childID, relation: relation}}
+	if runtime.canStartChild(second) {
+		t.Fatal("sibling start ignored the last in-flight tree slot")
+	}
+	for _, process := range runtime.processes {
+		process.treeLimits.MaxTreeProcesses = 5
+	}
+	if runtime.canStartChild(first) || !runtime.canStartChild(second) {
+		t.Fatal("in-flight start did not retain its parent's active-child slot")
+	}
+	handle := newProcessHandleState(relation, first.deployment.DeploymentRef(), first.budget, first.capabilities, first.treeLimits, root.startedAt, StatusRunning)
+	child := newProcessState(handle, first.deployment, first.execution, first.committedExecutionState, root.startedAt, runtime.engine.limits)
+	runtime.addProcess(child)
+	if !runtime.canStartChild(second) {
+		t.Fatal("installed child and its pending publication were counted twice")
+	}
+	delete(runtime.jobs, first.handle.processID)
+	runtime.removeProcess(childID)
+	if !runtime.canStartChild(first) || !runtime.canStartChild(second) {
+		t.Fatal("discarded child retained a resource reservation")
+	}
 }
