@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -21,7 +20,7 @@ type ResponseMetadata struct {
 	Model string `json:"model,omitempty"`
 	// Usage is nil when token accounting was not reported. A non-nil zero
 	// value records an explicitly reported zero total.
-	Usage     *Usage       `json:"usage,omitempty"`
+	Usage     *Usage       `json:"usage,omitzero"`
 	CreatedAt time.Time    `json:"created_at,omitzero"`
 	Extra     metadata.Map `json:"extra,omitzero"`
 }
@@ -77,7 +76,7 @@ func (r ResponseMetadata) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireResponseMetadata ResponseMetadata
-	return json.Marshal(wireResponseMetadata(r))
+	return jsonv2.Marshal(wireResponseMetadata(r), jsonv2.Deterministic(true))
 }
 
 func (r *ResponseMetadata) UnmarshalJSON(data []byte) error {
@@ -99,8 +98,8 @@ func (r *ResponseMetadata) UnmarshalJSON(data []byte) error {
 
 // Response is one complete provider output with exactly one generation output.
 type Response struct {
-	Output   *Output           `json:"output,omitempty"`
-	Metadata *ResponseMetadata `json:"metadata,omitempty"`
+	Output   *Output           `json:"output,omitzero"`
+	Metadata *ResponseMetadata `json:"metadata,omitzero"`
 }
 
 // NewResponse validates one complete output and its response-scoped metadata.
@@ -157,7 +156,7 @@ func (r Response) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireResponse Response
-	return json.Marshal(wireResponse(r))
+	return jsonv2.Marshal(wireResponse(r), jsonv2.Deterministic(true))
 }
 
 func (r *Response) UnmarshalJSON(data []byte) error {

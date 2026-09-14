@@ -3,9 +3,12 @@ package metadata
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
+	"unicode/utf8"
 )
 
 var (
@@ -77,7 +80,10 @@ func (m *Map) Set(key string, value any) error {
 		return ErrEmptyKey
 	}
 
-	encoded, err := json.Marshal(value)
+	if !utf8.ValidString(key) {
+		return ErrInvalidValue
+	}
+	encoded, err := jsonv2.Marshal(value, jsonv2.Deterministic(true))
 	if err != nil {
 		return fmt.Errorf("metadata: encode %q: %w", key, err)
 	}
@@ -119,12 +125,12 @@ func (m Map) Decode[T any](key string) (T, bool, error) {
 	if !ok {
 		return zero, false, nil
 	}
-	if !json.Valid(raw) {
+	if !utf8.ValidString(key) || !jsontext.Value(raw).IsValid() {
 		return zero, true, fmt.Errorf("metadata: decode %q: %w", key, ErrInvalidValue)
 	}
 
 	var value T
-	if err := json.Unmarshal(raw, &value); err != nil {
+	if err := jsonv2.Unmarshal(raw, &value); err != nil {
 		return zero, true, fmt.Errorf("metadata: decode %q: %w", key, err)
 	}
 	return value, true, nil
@@ -154,7 +160,7 @@ func (m Map) Validate() error {
 		if key == "" {
 			return ErrEmptyKey
 		}
-		if !json.Valid(value) {
+		if !utf8.ValidString(key) || !jsontext.Value(value).IsValid() {
 			return fmt.Errorf("metadata: key %q: %w", key, ErrInvalidValue)
 		}
 	}
@@ -166,7 +172,7 @@ func (m Map) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireMap Map
-	return json.Marshal(wireMap(m))
+	return jsonv2.Marshal(wireMap(m), jsonv2.Deterministic(true))
 }
 
 func (m *Map) UnmarshalJSON(data []byte) error {
@@ -175,7 +181,7 @@ func (m *Map) UnmarshalJSON(data []byte) error {
 	}
 
 	var decoded map[string]json.RawMessage
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		return fmt.Errorf("metadata: decode map: %w", err)
 	}
 	candidate := Map(decoded)

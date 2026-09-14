@@ -83,7 +83,7 @@ func (t ToolOutput) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireToolOutput ToolOutput
-	return json.Marshal(wireToolOutput(t))
+	return jsonv2.Marshal(wireToolOutput(t), jsonv2.Deterministic(true))
 }
 
 func (t *ToolOutput) UnmarshalJSON(data []byte) error {
@@ -149,7 +149,7 @@ type ToolResult struct {
 	ID      string     `json:"id"`
 	Name    string     `json:"name"`
 	Output  ToolOutput `json:"output"`
-	IsError bool       `json:"is_error,omitempty"`
+	IsError bool       `json:"is_error,omitzero"`
 }
 
 func (t ToolResult) Clone() ToolResult {

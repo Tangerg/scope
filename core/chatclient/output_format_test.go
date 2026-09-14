@@ -84,7 +84,7 @@ func TestOutputFormatDecodeRejectsLossyOrAmbiguousJSON(t *testing.T) {
 		`{"name":"tea","name":"coffee","steps":[]}`,
 		string([]byte{'{', '"', 'n', 'a', 'm', 'e', '"', ':', '"', 0xff, '"', ',', '"', 's', 't', 'e', 'p', 's', '"', ':', '[', ']', '}'}),
 	} {
-		if _, err := JSON[recipe]().decodeResponse(responseWithText(t, raw), nil); !errors.Is(err, ErrInvalidOutput) {
+		if _, err := JSON[recipe]().decodeText(raw); !errors.Is(err, ErrInvalidOutput) {
 			t.Fatalf("Decode(%q) error = %v, want ErrInvalidOutput", raw, err)
 		}
 	}

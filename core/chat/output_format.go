@@ -141,7 +141,7 @@ func (o OutputFormat) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireOutputFormat OutputFormat
-	return json.Marshal(wireOutputFormat(o))
+	return jsonv2.Marshal(wireOutputFormat(o), jsonv2.Deterministic(true))
 }
 
 func (o *OutputFormat) UnmarshalJSON(data []byte) error {

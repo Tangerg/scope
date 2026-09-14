@@ -300,3 +300,27 @@ func TestValuesPreservesJSONNumbers(t *testing.T) {
 		})
 	}
 }
+
+func TestMetadataRejectsLossyJSONAtomically(t *testing.T) {
+	invalid := string([]byte{0xff})
+	value := metadata.Map{"retained": json.RawMessage(`true`)}
+	for _, test := range []struct {
+		key   string
+		value any
+	}{{invalid, "value"}, {"value", invalid}, {"value", json.RawMessage(`{"key":1,"key":2}`)}} {
+		if err := value.Set(test.key, test.value); err == nil {
+			t.Fatal("metadata admitted lossy JSON")
+		}
+		if len(value) != 1 || string(value["retained"]) != "true" {
+			t.Fatal("rejection mutated metadata")
+		}
+	}
+	for _, raw := range [][]byte{[]byte(`{"value":{"key":1,"key":2}}`), {'{', '"', 0xff, '"', ':', '1', '}'}} {
+		if err := json.Unmarshal(raw, &value); err == nil {
+			t.Fatal("metadata parsed lossy JSON")
+		}
+		if len(value) != 1 || string(value["retained"]) != "true" {
+			t.Fatal("failed parsing mutated metadata")
+		}
+	}
+}

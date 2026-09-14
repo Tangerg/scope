@@ -51,7 +51,7 @@ func (t ToolDefinition) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireToolDefinition ToolDefinition
-	return json.Marshal(wireToolDefinition(t))
+	return jsonv2.Marshal(wireToolDefinition(t), jsonv2.Deterministic(true))
 }
 
 func (t *ToolDefinition) UnmarshalJSON(data []byte) error {

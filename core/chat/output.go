@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 
@@ -84,7 +83,7 @@ func (o OutputMetadata) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireOutputMetadata OutputMetadata
-	return json.Marshal(wireOutputMetadata(o))
+	return jsonv2.Marshal(wireOutputMetadata(o), jsonv2.Deterministic(true))
 }
 
 func (o *OutputMetadata) UnmarshalJSON(data []byte) error {
@@ -108,9 +107,9 @@ func (o *OutputMetadata) UnmarshalJSON(data []byte) error {
 // Message may be nil when the provider completed without a portable content
 // item, but FinishReason is always present.
 type Output struct {
-	Message      *Message        `json:"message,omitempty"`
+	Message      *Message        `json:"message,omitzero"`
 	FinishReason FinishReason    `json:"finish_reason,omitempty"`
-	Metadata     *OutputMetadata `json:"metadata,omitempty"`
+	Metadata     *OutputMetadata `json:"metadata,omitzero"`
 }
 
 // NewOutput validates the single stable generation promoted from a provider
@@ -167,7 +166,7 @@ func (o Output) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireOutput Output
-	return json.Marshal(wireOutput(o))
+	return jsonv2.Marshal(wireOutput(o), jsonv2.Deterministic(true))
 }
 
 func (o *Output) UnmarshalJSON(data []byte) error {

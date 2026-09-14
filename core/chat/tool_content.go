@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
@@ -16,7 +15,7 @@ import (
 type ToolContent struct {
 	Kind      PartKind     `json:"kind"`
 	Text      string       `json:"text,omitempty"`
-	Media     *media.Media `json:"media,omitempty"`
+	Media     *media.Media `json:"media,omitzero"`
 	Citations []Citation   `json:"citations,omitempty"`
 	Metadata  metadata.Map `json:"metadata,omitzero"`
 }
@@ -40,7 +39,7 @@ func (t ToolContent) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wire ToolContent
-	return json.Marshal(wire(t))
+	return jsonv2.Marshal(wire(t), jsonv2.Deterministic(true))
 }
 
 func (t *ToolContent) UnmarshalJSON(data []byte) error {

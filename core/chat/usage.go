@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -17,11 +16,11 @@ var ErrInvalidUsage = errors.New("chat: invalid usage")
 type Usage struct {
 	// InputTokens is the total processed input count. Provider cache-read and
 	// cache-write counts, when reported, are breakdowns included in this total.
-	InputTokens           int64  `json:"input_tokens,omitempty"`
-	OutputTokens          int64  `json:"output_tokens,omitempty"`
-	ReasoningTokens       *int64 `json:"reasoning_tokens,omitempty"`
-	CacheReadInputTokens  *int64 `json:"cache_read_input_tokens,omitempty"`
-	CacheWriteInputTokens *int64 `json:"cache_write_input_tokens,omitempty"`
+	InputTokens           int64  `json:"input_tokens,omitzero"`
+	OutputTokens          int64  `json:"output_tokens,omitzero"`
+	ReasoningTokens       *int64 `json:"reasoning_tokens,omitzero"`
+	CacheReadInputTokens  *int64 `json:"cache_read_input_tokens,omitzero"`
+	CacheWriteInputTokens *int64 `json:"cache_write_input_tokens,omitzero"`
 }
 
 // TotalTokens returns the provider-reported input and output totals without
@@ -75,7 +74,7 @@ func (u Usage) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireUsage Usage
-	return json.Marshal(wireUsage(u))
+	return jsonv2.Marshal(wireUsage(u), jsonv2.Deterministic(true))
 }
 
 func (u *Usage) UnmarshalJSON(data []byte) error {

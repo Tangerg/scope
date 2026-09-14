@@ -1,7 +1,6 @@
 package media
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -200,7 +199,7 @@ func (m Media) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireMedia Media
-	return json.Marshal(wireMedia(m))
+	return jsonv2.Marshal(wireMedia(m), jsonv2.Deterministic(true))
 }
 
 func (m *Media) UnmarshalJSON(data []byte) error {

@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -40,15 +39,15 @@ const (
 // capability gap rather than a value to approximate.
 type Options struct {
 	Model            string              `json:"model,omitempty"`
-	OutputFormat     *OutputFormat       `json:"output_format,omitempty"`
-	FrequencyPenalty *float64            `json:"frequency_penalty,omitempty"`
-	MaxOutputTokens  *int64              `json:"max_output_tokens,omitempty"`
-	PresencePenalty  *float64            `json:"presence_penalty,omitempty"`
+	OutputFormat     *OutputFormat       `json:"output_format,omitzero"`
+	FrequencyPenalty *float64            `json:"frequency_penalty,omitzero"`
+	MaxOutputTokens  *int64              `json:"max_output_tokens,omitzero"`
+	PresencePenalty  *float64            `json:"presence_penalty,omitzero"`
 	ReasoningEffort  ReasoningEffort     `json:"reasoning_effort,omitempty"`
 	Stop             []string            `json:"stop,omitzero"`
-	Temperature      *float64            `json:"temperature,omitempty"`
-	TopK             *int64              `json:"top_k,omitempty"`
-	TopP             *float64            `json:"top_p,omitempty"`
+	Temperature      *float64            `json:"temperature,omitzero"`
+	TopK             *int64              `json:"top_k,omitzero"`
+	TopP             *float64            `json:"top_p,omitzero"`
 	Extensions       metadata.Extensions `json:"extensions,omitzero"`
 }
 
@@ -176,7 +175,7 @@ func (o Options) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireOptions Options
-	return json.Marshal(wireOptions(o))
+	return jsonv2.Marshal(wireOptions(o), jsonv2.Deterministic(true))
 }
 
 func (o *Options) UnmarshalJSON(data []byte) error {

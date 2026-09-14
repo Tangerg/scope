@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -153,7 +152,7 @@ func (m Message) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireMessage Message
-	return json.Marshal(wireMessage(m))
+	return jsonv2.Marshal(wireMessage(m), jsonv2.Deterministic(true))
 }
 
 func (m *Message) UnmarshalJSON(data []byte) error {

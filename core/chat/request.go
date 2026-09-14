@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -18,7 +17,7 @@ var ErrInvalidRequest = errors.New("chat: invalid request")
 type Request struct {
 	Messages   []Message        `json:"messages"`
 	Tools      []ToolDefinition `json:"tools,omitempty"`
-	ToolChoice *ToolChoice      `json:"tool_choice,omitempty"`
+	ToolChoice *ToolChoice      `json:"tool_choice,omitzero"`
 	Options    Options          `json:"options,omitzero"`
 }
 
@@ -102,7 +101,7 @@ func (r Request) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireRequest Request
-	return json.Marshal(wireRequest(r))
+	return jsonv2.Marshal(wireRequest(r), jsonv2.Deterministic(true))
 }
 
 func (r *Request) UnmarshalJSON(data []byte) error {

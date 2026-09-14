@@ -1,10 +1,10 @@
 package chat
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
+	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
@@ -44,10 +44,10 @@ func (p PartKind) Valid() bool {
 type Part struct {
 	Kind           PartKind     `json:"kind"`
 	Text           string       `json:"text,omitempty"`
-	Media          *media.Media `json:"media,omitempty"`
+	Media          *media.Media `json:"media,omitzero"`
 	ReasoningState []byte       `json:"reasoning_state,omitempty"`
-	ToolCall       *ToolCall    `json:"tool_call,omitempty"`
-	ToolResult     *ToolResult  `json:"tool_result,omitempty"`
+	ToolCall       *ToolCall    `json:"tool_call,omitzero"`
+	ToolResult     *ToolResult  `json:"tool_result,omitzero"`
 	Citations      []Citation   `json:"citations,omitempty"`
 	Metadata       metadata.Map `json:"metadata,omitzero"`
 }
@@ -111,6 +111,9 @@ func NewRefusalPart(text string) Part {
 }
 
 func (p Part) Validate() error {
+	if !utf8.ValidString(p.Text) {
+		return fmt.Errorf("%w: text is not valid UTF-8", ErrInvalidPart)
+	}
 	if !p.Kind.Valid() {
 		return fmt.Errorf("%w: unknown kind %q", ErrInvalidPart, p.Kind)
 	}
@@ -201,7 +204,7 @@ func (p Part) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wirePart Part
-	return json.Marshal(wirePart(p))
+	return jsonv2.Marshal(wirePart(p), jsonv2.Deterministic(true))
 }
 
 func (p *Part) UnmarshalJSON(data []byte) error {

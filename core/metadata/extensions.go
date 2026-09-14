@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
 	"unicode"
@@ -66,7 +67,7 @@ func (e Extensions) MarshalJSON() ([]byte, error) {
 	if err := e.Validate(); err != nil {
 		return nil, err
 	}
-	return json.Marshal(e.values)
+	return jsonv2.Marshal(e.values, jsonv2.Deterministic(true))
 }
 
 func (e *Extensions) UnmarshalJSON(data []byte) error {

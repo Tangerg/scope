@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
@@ -40,10 +39,10 @@ func (p PartDeltaKind) Valid() bool {
 type PartDelta struct {
 	Kind           PartDeltaKind  `json:"kind"`
 	Text           string         `json:"text,omitempty"`
-	Media          *media.Media   `json:"media,omitempty"`
+	Media          *media.Media   `json:"media,omitzero"`
 	ReasoningState []byte         `json:"reasoning_state,omitempty"`
-	ToolCall       *ToolCallDelta `json:"tool_call,omitempty"`
-	Citation       *Citation      `json:"citation,omitempty"`
+	ToolCall       *ToolCallDelta `json:"tool_call,omitzero"`
+	Citation       *Citation      `json:"citation,omitzero"`
 	Metadata       metadata.Map   `json:"metadata,omitzero"`
 }
 
@@ -140,7 +139,7 @@ func (p PartDelta) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wirePartDelta PartDelta
-	return json.Marshal(wirePartDelta(p))
+	return jsonv2.Marshal(wirePartDelta(p), jsonv2.Deterministic(true))
 }
 
 func (p *PartDelta) UnmarshalJSON(data []byte) error {
@@ -166,8 +165,8 @@ type ResponseDelta struct {
 	Parts           []PartDelta       `json:"parts,omitempty"`
 	MessageMetadata metadata.Map      `json:"message_metadata,omitzero"`
 	FinishReason    FinishReason      `json:"finish_reason,omitempty"`
-	OutputMetadata  *OutputMetadata   `json:"output_metadata,omitempty"`
-	Metadata        *ResponseMetadata `json:"metadata,omitempty"`
+	OutputMetadata  *OutputMetadata   `json:"output_metadata,omitzero"`
+	Metadata        *ResponseMetadata `json:"metadata,omitzero"`
 }
 
 func (r *ResponseDelta) Clone() *ResponseDelta {
@@ -236,7 +235,7 @@ func (r ResponseDelta) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireResponseDelta ResponseDelta
-	return json.Marshal(wireResponseDelta(r))
+	return jsonv2.Marshal(wireResponseDelta(r), jsonv2.Deterministic(true))
 }
 
 func (r *ResponseDelta) UnmarshalJSON(data []byte) error {
