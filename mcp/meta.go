@@ -14,8 +14,10 @@ type RequestMetaFunc func(ctx context.Context) sdkmcp.Meta
 
 type requestMetaContextKey struct{}
 
-// WithRequestMeta stores a defensive snapshot because request metadata may be
-// read after the caller reuses or mutates its original map.
+// WithRequestMeta copies the top-level map so its keys may be reused or changed
+// by the caller. Nested maps, slices, and other reference values remain shared;
+// callers must keep them immutable while this context or its derived contexts
+// may be read.
 func WithRequestMeta(ctx context.Context, meta sdkmcp.Meta) context.Context {
 	if len(meta) == 0 {
 		return ctx
@@ -24,7 +26,8 @@ func WithRequestMeta(ctx context.Context, meta sdkmcp.Meta) context.Context {
 }
 
 // RequestMetaFromContext returns a shallow copy of metadata stored by
-// [WithRequestMeta], or nil. Its signature matches [RequestMetaFunc]:
+// [WithRequestMeta], or nil. The returned nested values must remain immutable.
+// Its signature matches [RequestMetaFunc]:
 //
 //	config := mcp.ToolDiscoveryConfig{RequestMeta: mcp.RequestMetaFromContext}
 func RequestMetaFromContext(ctx context.Context) sdkmcp.Meta {
