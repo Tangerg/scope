@@ -157,6 +157,14 @@ func (e *execution) acceptOutcomes(signals []agent.Signal) (agent.Transition, er
 	if e.state.Turn.Outcome == nil {
 		return e.openWait(1)
 	}
+	if e.state.Turn.unresolved() {
+		failure, failureErr := agent.NewFailure(agent.FailureKindExternal, "collaboration.coordinator.unresolved_effects", "Coordinator subtree has unresolved Effects")
+		if failureErr != nil {
+			return agent.Transition{}, failureErr
+		}
+		e.state.Phase = phaseFailed
+		return agent.Fail(1, failure)
+	}
 	if e.state.Mode == Wait {
 		return e.startTurn(1)
 	}

@@ -28,6 +28,14 @@ type turnExecution struct {
 	Outcome *agent.ChildOutcome     `json:"outcome,omitempty"`
 }
 
+func (t turnExecution) unresolved() bool {
+	if t.Outcome == nil {
+		return false
+	}
+	effects, known := t.Outcome.SubtreeUnresolvedEffects()
+	return !known || len(effects) != 0
+}
+
 func (t turnExecution) failure() (agent.Failure, bool) {
 	if t.Outcome != nil {
 		return t.Outcome.Result().Termination().Failure()
@@ -221,7 +229,7 @@ func (e executionState) validate(d *Definition) error {
 			return nil
 		}
 	case phaseFailed:
-		if _, failed := e.Turn.failure(); failed && e.Mode == "" {
+		if _, failed := e.Turn.failure(); (failed || e.Turn.unresolved()) && e.Mode == "" {
 			return nil
 		}
 	}
@@ -281,7 +289,7 @@ func (e executionState) validateTurn(d *Definition, ids []agent.ProcessID) error
 }
 
 func (e executionState) validateAppliedDecision(d *Definition) error {
-	if e.Turn.Outcome == nil {
+	if e.Turn.Outcome == nil || e.Turn.unresolved() {
 		return ErrInvalidState
 	}
 	result := e.Turn.Outcome.Result()

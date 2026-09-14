@@ -14,6 +14,8 @@
 // those facts appear in its successor's Turn without preempting a decision.
 // Start failures, task failures, and control rejections remain explicit facts.
 // A failed coordinator or exhausted turn bound fails the collaboration.
+// A coordinator subtree with unresolved Effects cannot authorize a Decision.
+// Worker outcomes retain their complete subtree evidence for coordinator policy.
 // Coordinator admission and execution failures preserve the original Failure
 // kind, code, and diagnostic; the failed turn remains restorable evidence.
 // A rejected worker start counts toward MaxTasks. Admitted tasks count toward

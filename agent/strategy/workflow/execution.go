@@ -166,7 +166,7 @@ func (e *execution) advanceChild(ctx context.Context, signals []agent.Signal) (a
 		if completeErr != nil {
 			return agent.Transition{}, fmt.Errorf("%w: Stage %q child completion: %w", ErrInvalidProtocol, e.stage().id, completeErr)
 		}
-		return e.acceptChildCompletion(ctx, outcome.Result())
+		return e.acceptChildCompletion(ctx, outcome)
 	}
 }
 
@@ -189,7 +189,11 @@ func (e *execution) acceptChildStart(signal agent.Signal, key agent.ChildKey, wa
 	return agent.Continue(1, effect)
 }
 
-func (e *execution) acceptChildCompletion(ctx context.Context, result agent.Result) (agent.Transition, error) {
+func (e *execution) acceptChildCompletion(ctx context.Context, outcome agent.ChildOutcome) (agent.Transition, error) {
+	if unresolved, known := outcome.SubtreeUnresolvedEffects(); !known || len(unresolved) != 0 {
+		return e.fail(1, e.stage().failureCode("unresolved_effects"), "Child subtree has unresolved Effects", agent.FailureKindExternal)
+	}
+	result := outcome.Result()
 	if result.Status() != agent.StatusCompleted {
 		if failure, failed := result.Termination().Failure(); failed {
 			return agent.Fail(1, failure)
@@ -467,7 +471,7 @@ func (e *execution) acceptFanoutCompletion(ctx context.Context, signals []agent.
 		if !childcall.OutcomeMatches(outcome, wantChildKey, *child.ChildProcessID) {
 			return agent.Transition{}, fmt.Errorf("%w: fan-out member outcome mismatch", ErrInvalidProtocol)
 		}
-		failure, output, outcomeErr := e.fanoutOutcome(index, outcome.Result())
+		failure, output, outcomeErr := e.fanoutOutcome(index, outcome)
 		if outcomeErr != nil {
 			return agent.Transition{}, outcomeErr
 		}
@@ -488,8 +492,13 @@ func (e *execution) acceptFanoutCompletion(ctx context.Context, signals []agent.
 
 func (e *execution) fanoutOutcome(
 	index uint32,
-	result agent.Result,
+	outcome agent.ChildOutcome,
 ) (*agent.Failure, json.RawMessage, error) {
+	if unresolved, known := outcome.SubtreeUnresolvedEffects(); !known || len(unresolved) != 0 {
+		failure, err := agent.NewFailure(agent.FailureKindExternal, e.stage().fanoutFailureCode("unresolved_effects"), e.fanoutFailureMessage(index, "has unresolved subtree Effects"))
+		return &failure, nil, err
+	}
+	result := outcome.Result()
 	if result.Status() != agent.StatusCompleted {
 		if failure, failed := result.Termination().Failure(); failed {
 			return &failure, nil, nil

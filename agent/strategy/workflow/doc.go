@@ -15,6 +15,8 @@
 // to drain and propagates its first failure in declaration order. The Process
 // tree retains the child identity and Stage binding; Workflow-owned decisions
 // use workflow-prefixed failure codes.
+// Every Stage rejects output adoption when the drained subtree retains unresolved
+// Effects; no subsequent Stage, Loop iteration, or fan-out window starts.
 // Single-child Stages also wait for the child subtree to drain. Restoring any
 // handshake boundary resumes the same invocation and its Engine-assigned wait.
 //
