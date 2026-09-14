@@ -129,7 +129,7 @@ func TestDispatchCompletionRetainsOriginalError(t *testing.T) {
 	}
 	record := preparedEffect{ID: process.handle.processID.effectID(1, 0), Effect: effect, Phase: effectPhasePending}
 	process.prepared = &preparedStep{StepSequence: 1, Effects: preparedEffects{record}}
-	runtime.startDispatch(process, 0, record)
+	runtime.startDispatch(process, 0, record, nil)
 	completion := receiveTreeRuntimeProbe(t, runtime.completions)
 	if !errors.Is(completion.dispatch.err, cause) || completion.dispatch.settlement.Status() != SettlementStatusUnknown {
 		t.Fatalf("completion lost dispatch cause: %+v", completion.dispatch)

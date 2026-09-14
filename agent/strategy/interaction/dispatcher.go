@@ -157,11 +157,17 @@ func (d *Dispatcher) Dispatch(
 	}
 }
 
-// ReplayPolicy is deliberately conservative: model calls may incur cost and
-// produce a different answer. Publication may have committed before its receipt
-// was lost. Recovery requires explicit Process resolution with verified evidence;
-// it never re-executes a Tool to repair publication.
+// ReplayPolicy permits only idempotent result publication. The committer must
+// reconcile a previous transaction before writing. Models and Tools cannot be
+// re-executed to repair publication; settled Unknowns require an explicit
+// Process.ReplayUnknownEffect or a verified receipt via ResolveUnknownEffect.
 func (*Dispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
+	if effect.Target() == agent.EffectTargetDispatcher {
+		envelope, err := decodeEffect(effect.Payload())
+		if err == nil && envelope.Operation == operationResultCommit {
+			return agent.ReplayPolicySameIdentity
+		}
+	}
 	return agent.ReplayPolicyNever
 }
 

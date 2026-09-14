@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 	"unicode/utf8"
 
@@ -219,133 +221,208 @@ func TestRejectionCommitFailureStopsBeforeAnotherModelCall(t *testing.T) {
 // completion where there is no following model call to expose early adoption.
 func TestResultPublicationRecoveryNeverReexecutesKnownTools(t *testing.T) {
 	for _, direct := range []bool{false, true} {
-		for _, cut := range []string{"write_failed", "receipt_lost", "wrong_receipt", "settlement_receipt_lost"} {
+		for _, cut := range []string{"before_commit", "write_failed", "receipt_lost", "wrong_receipt", "settlement_receipt_lost"} {
 			t.Run(fmt.Sprintf("direct_%t/%s", direct, cut), func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 				defer cancel()
-				var executions, publications, modelCalls atomic.Int32
-				output := chat.ToolOutput{Content: []chat.ToolContent{{Kind: chat.PartText, Text: "exact result\n"}}, Details: json.RawMessage(`{"value":42}`)}
-				executable := &publicationTool{output: output, executions: &executions}
-				var bound tool.Tool = executable
-				if direct {
-					bound = directTool{Tool: executable}
+				witness := &publicationWitness{MemoryTreeDurability: agenttest.NewMemoryTreeDurability()}
+				head := crashPublication(t, ctx, witness, direct, cut)
+				var snapshot agent.TreeSnapshot
+				if decodeErr := json.Unmarshal(head, &snapshot); decodeErr != nil {
+					t.Fatal(decodeErr)
 				}
-				var pending interaction.ResultBatch
-				var stored *interaction.ResultReceipt
-				var storedResult chat.ToolResult
-				committer := &resultCommitter{commit: func(_ context.Context, batch interaction.ResultBatch) (interaction.ResultReceipt, error) {
-					publications.Add(1)
-					pending = batch
-					entries := batch.Entries()
-					if len(entries) != 1 || entries[0].Disposition != interaction.ResultSucceeded || executions.Load() != 1 {
-						return interaction.ResultReceipt{}, errors.New("invalid execution evidence")
-					}
-					if !reflect.DeepEqual(entries[0].Result.Output, output) {
-						return interaction.ResultReceipt{}, errors.New("publication changed executor output")
-					}
-					receipt := batch.Receipt()
-					if cut == "write_failed" {
-						return interaction.ResultReceipt{}, errors.New("write rejected")
-					}
-					stored, storedResult = new(receipt), entries[0].Result
-					if cut == "receipt_lost" {
-						return interaction.ResultReceipt{}, errors.New("host receipt lost")
-					}
-					if cut == "wrong_receipt" {
-						receipt.Digest = agent.ComputeDigest([]byte("wrong content"))
-					}
-					return receipt, nil
-				}}
-				model := chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
-					if modelCalls.Add(1) == 1 {
-						return toolCallResponse(chat.ToolCall{ID: "provider_reused", Name: "work", Arguments: `{}`}), nil
-					}
-					result := request.Messages[len(request.Messages)-1].Parts[0].ToolResult
-					if stored == nil || result == nil || !reflect.DeepEqual(*result, storedResult) {
-						return nil, errors.New("uncommitted or changed result reached model")
-					}
-					return textResponse("accepted"), nil
-				})
-				deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "publication.recovery", Description: "Recover only result publication.", MaxModelCalls: 2}, interaction.DispatcherConfig{Model: model, ResultCommitter: committer}, interaction.ToolSetConfig{Tools: []tool.Tool{bound}})
-				store := agenttest.NewMemoryTreeDurability()
-				crash := &resultPublicationCrash{MemoryTreeDurability: store}
-				engine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: crash, DeploymentResolver: deployment.resolver})
-				if err != nil {
-					t.Fatal(err)
-				}
-				root, err := engine.Start(ctx, deployment.Deployment, interactionInput(t, "work"))
-				if err != nil {
-					t.Fatal(err)
-				}
-				result, err := root.Await(ctx)
-				if _, stopped := errors.AsType[*agent.RuntimeError](err); !stopped || result.Valid() {
-					t.Fatalf("crash returned result=%s err=%v", result.Status(), err)
-				}
-				head, found, err := store.LoadTree(ctx, root.ID())
-				if err != nil || !found {
-					t.Fatalf("head=%t err=%v", found, err)
-				}
-				if executions.Load() != 1 || publications.Load() != 1 || modelCalls.Load() != 1 {
-					t.Fatal("publication boundary was bypassed")
-				}
-				if releaseErr := engine.ReleaseTree(ctx, root.ID()); releaseErr != nil {
-					t.Fatal(releaseErr)
-				}
-				if closeErr := engine.Close(context.WithoutCancel(ctx)); closeErr != nil {
-					t.Fatal(closeErr)
-				}
-				restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: store, DeploymentResolver: deployment.resolver})
+				// Only durable bytes and independent external witnesses cross the restart.
+				deployment := publicationDeployment(t, witness, direct, &resultCommitter{commit: witness.commit})
+				engine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: witness, DeploymentResolver: deployment.resolver})
 				if err != nil {
 					t.Fatal(err)
 				}
 				t.Cleanup(func() {
-					if closeErr := restoredEngine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
+					if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 						t.Error(closeErr)
 					}
 				})
-				restored, err := restoredEngine.RestoreTree(ctx, deployment.Deployment, head)
+				root, err := engine.RestoreTree(ctx, deployment.Deployment, snapshot)
 				if err != nil {
 					t.Fatal(err)
 				}
-				if cut != "settlement_receipt_lost" {
-					snapshot := inspectProcessSnapshot(t, restoredEngine, restored)
-					if ids := snapshot.UnknownEffectIDs(); len(ids) != 1 || ids[0] != pending.Receipt().EffectID {
-						t.Fatalf("publication identity=%v", ids)
+				if cut != "before_commit" && cut != "settlement_receipt_lost" {
+					ids := inspectProcessSnapshot(t, engine, root).UnknownEffectIDs()
+					if len(ids) != 1 {
+						t.Fatalf("unknown publications=%v", ids)
 					}
-					if stored == nil {
-						receipt := pending.Receipt()
-						stored = &receipt
-						storedResult = pending.Entries()[0].Result
-					}
-					settlement, settlementErr := stored.Settlement()
-					if settlementErr != nil {
-						t.Fatal(settlementErr)
-					}
-					if resolveErr := restored.ResolveUnknownEffect(ctx, settlement); resolveErr != nil {
-						t.Fatal(resolveErr)
+					if replayErr := root.ReplayUnknownEffect(ctx, ids[0]); replayErr != nil {
+						t.Fatal(replayErr)
 					}
 				}
-				completed, err := restored.Await(ctx)
+				completed, err := root.Await(ctx)
 				if err != nil || completed.Status() != agent.StatusCompleted {
-					t.Fatalf("recovered status=%s termination=%v err=%v", completed.Status(), completed.Termination(), err)
+					t.Fatalf("status=%s termination=%v err=%v", completed.Status(), completed.Termination(), err)
+				}
+				if joinErr := root.Join(ctx); joinErr != nil {
+					t.Fatal(joinErr)
 				}
 				wantCalls := int32(2)
 				if direct {
 					wantCalls = 1
 				}
-				if executions.Load() != 1 || publications.Load() != 1 || modelCalls.Load() != wantCalls {
-					t.Fatal("recovery repeated external work or publication")
+				if witness.executions.Load() != 1 || witness.writes.Load() != 1 || witness.modelCalls.Load() != wantCalls {
+					t.Fatalf("executions=%d writes=%d model=%d", witness.executions.Load(), witness.writes.Load(), witness.modelCalls.Load())
 				}
 				if direct {
 					encoded, _ := completed.Output()
 					output, err := encoded.Decode[interaction.Output]()
-					if err != nil || len(output.DirectToolResults) != 1 || !reflect.DeepEqual(output.DirectToolResults[0], storedResult) {
-						t.Fatalf("direct result changed: %+v err=%v", output, err)
+					stored := witness.record()
+					if err != nil || len(output.DirectToolResults) != 1 || !reflect.DeepEqual(output.DirectToolResults[0], stored.Result) {
+						t.Fatalf("direct output=%+v err=%v", output, err)
 					}
 				}
 			})
 		}
 	}
+}
+
+type publicationRecord struct {
+	Receipt interaction.ResultReceipt
+	Result  chat.ToolResult
+}
+
+type publicationWitness struct {
+	*agenttest.MemoryTreeDurability
+	mu          sync.Mutex
+	publication []byte
+	executions  atomic.Int32
+	writes      atomic.Int32
+	modelCalls  atomic.Int32
+}
+
+// Publication and writer activation share one transaction lock, so a writer
+// cannot pass the fence and then commit after another incarnation takes over.
+func (p *publicationWitness) ActivateTree(ctx context.Context, activation agent.TreeActivation) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.MemoryTreeDurability.ActivateTree(ctx, activation)
+}
+
+func (p *publicationWitness) record() publicationRecord {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var record publicationRecord
+	if len(p.publication) != 0 {
+		if decodeErr := json.Unmarshal(p.publication, &record); decodeErr != nil {
+			panic(decodeErr)
+		}
+	}
+	return record
+}
+
+func (p *publicationWitness) commit(ctx context.Context, batch interaction.ResultBatch) (interaction.ResultReceipt, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	head, found, err := p.LoadTree(ctx, batch.Relation().RootID())
+	if err != nil || !found {
+		return interaction.ResultReceipt{}, errors.New("missing authoritative tree")
+	}
+	writer, _ := head.IncarnationID()
+	requestedWriter, _ := batch.TreeIncarnationID()
+	if writer != requestedWriter {
+		return interaction.ResultReceipt{}, agent.ErrTreeIncarnationConflict
+	}
+	entries := batch.Entries()
+	if batch.ModelCallSequence() != 1 || len(entries) != 1 || entries[0].ToolCallIndex != 0 || entries[0].Disposition != interaction.ResultSucceeded || p.executions.Load() != 1 {
+		return interaction.ResultReceipt{}, errors.New("incorrect recovered batch")
+	}
+	if len(p.publication) != 0 {
+		var stored publicationRecord
+		if decodeErr := json.Unmarshal(p.publication, &stored); decodeErr != nil {
+			return interaction.ResultReceipt{}, decodeErr
+		}
+		if stored.Receipt != batch.Receipt() || !reflect.DeepEqual(stored.Result, entries[0].Result) {
+			return interaction.ResultReceipt{}, errors.New("conflicting publication")
+		}
+		return stored.Receipt, nil
+	}
+	p.publication, err = json.Marshal(publicationRecord{Receipt: batch.Receipt(), Result: entries[0].Result})
+	if err != nil {
+		return interaction.ResultReceipt{}, err
+	}
+	p.writes.Add(1)
+	return batch.Receipt(), nil
+}
+
+func publicationDeployment(t *testing.T, witness *publicationWitness, direct bool, committer interaction.ResultCommitter) interactionDeployment {
+	t.Helper()
+	executable := &publicationTool{output: chat.ToolOutput{Content: []chat.ToolContent{{Kind: chat.PartText, Text: "exact result\n"}}, Details: json.RawMessage(`{"value":42}`)}, executions: &witness.executions}
+	var bound tool.Tool = executable
+	if direct {
+		bound = directTool{Tool: executable}
+	}
+	model := chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+		if witness.modelCalls.Add(1) == 1 {
+			return toolCallResponse(chat.ToolCall{ID: "provider_reused", Name: "work", Arguments: `{}`}), nil
+		}
+		stored := witness.record()
+		result := request.Messages[len(request.Messages)-1].Parts[0].ToolResult
+		if stored.Receipt.Validate() != nil || result == nil || !reflect.DeepEqual(*result, stored.Result) {
+			return nil, errors.New("uncommitted or changed result reached model")
+		}
+		return textResponse("accepted"), nil
+	})
+	return configuredInteraction(t, interaction.DefinitionConfig{Name: "publication.recovery", Description: "Recover only result publication.", MaxModelCalls: 2}, interaction.DispatcherConfig{Model: model, ResultCommitter: committer}, interaction.ToolSetConfig{Tools: []tool.Tool{bound}})
+}
+
+func crashPublication(t *testing.T, ctx context.Context, witness *publicationWitness, direct bool, cut string) []byte {
+	t.Helper()
+	var publications atomic.Int32
+	committer := &resultCommitter{commit: func(ctx context.Context, batch interaction.ResultBatch) (interaction.ResultReceipt, error) {
+		publications.Add(1)
+		if cut == "write_failed" {
+			return interaction.ResultReceipt{}, errors.New("write rejected")
+		}
+		receipt, err := witness.commit(ctx, batch)
+		if err != nil {
+			return interaction.ResultReceipt{}, err
+		}
+		if cut == "receipt_lost" {
+			return interaction.ResultReceipt{}, errors.New("receipt lost")
+		}
+		if cut == "wrong_receipt" {
+			receipt.Digest = agent.ComputeDigest([]byte("wrong content"))
+		}
+		return receipt, nil
+	}}
+	deployment := publicationDeployment(t, witness, direct, committer)
+	crash := &resultPublicationCrash{MemoryTreeDurability: witness.MemoryTreeDurability, beforeCommit: cut == "before_commit"}
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: crash, DeploymentResolver: deployment.resolver})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := engine.Start(ctx, deployment.Deployment, interactionInput(t, "work"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := root.Await(ctx)
+	if _, stopped := errors.AsType[*agent.RuntimeError](err); !stopped || result.Valid() {
+		t.Fatalf("crash result=%s err=%v", result.Status(), err)
+	}
+	head, found, err := witness.LoadTree(ctx, root.ID())
+	if err != nil || !found {
+		t.Fatalf("head=%t err=%v", found, err)
+	}
+	wantPublications := int32(1)
+	if cut == "before_commit" {
+		wantPublications = 0
+	}
+	if witness.executions.Load() != 1 || publications.Load() != wantPublications || witness.modelCalls.Load() != 1 {
+		t.Fatal("publication boundary bypassed")
+	}
+	if err := engine.ReleaseTree(ctx, root.ID()); err != nil {
+		t.Fatal(err)
+	}
+	if closeErr := engine.Close(context.WithoutCancel(ctx)); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	return head.JSON()
 }
 
 func TestResultPublicationCoversMixedToolAndDelegatePaths(t *testing.T) {
@@ -460,6 +537,7 @@ func TestResultPublicationCoversMixedToolAndDelegatePaths(t *testing.T) {
 
 type resultPublicationCrash struct {
 	*agenttest.MemoryTreeDurability
+	beforeCommit bool
 }
 
 type publicationTool struct {
@@ -483,11 +561,91 @@ func (r *resultPublicationCrash) CommitEffect(ctx context.Context, boundary agen
 	var intent struct {
 		Operation string `json:"operation"`
 	}
-	if err := json.Unmarshal(boundary.Request().Effect().Payload(), &intent); err != nil {
-		return err
+	if decodeErr := json.Unmarshal(boundary.Request().Effect().Payload(), &intent); decodeErr != nil {
+		return decodeErr
 	}
-	if _, settled := boundary.Settlement(); settled && intent.Operation == "result_commit" {
+	_, settled := boundary.Settlement()
+	if intent.Operation == "result_commit" && (r.beforeCommit && boundary.Kind() == agent.EffectBoundaryPending || !r.beforeCommit && settled) {
 		return errors.New("crash after publication settlement committed")
 	}
 	return nil
+}
+
+func TestPublicationReplaySurvivesWriterTakeover(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		witness := &publicationWitness{MemoryTreeDurability: agenttest.NewMemoryTreeDurability()}
+		var snapshot agent.TreeSnapshot
+		if decodeErr := json.Unmarshal(crashPublication(t, t.Context(), witness, false, "write_failed"), &snapshot); decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		entered, release := make(chan struct{}), make(chan struct{})
+		unblock := sync.OnceFunc(func() { close(release) })
+		defer unblock()
+		oldDeployment := publicationDeployment(t, witness, false, &resultCommitter{commit: func(ctx context.Context, batch interaction.ResultBatch) (interaction.ResultReceipt, error) {
+			close(entered)
+			<-release
+			return witness.commit(ctx, batch)
+		}})
+		oldEngine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: witness, DeploymentResolver: oldDeployment.resolver})
+		if err != nil {
+			t.Fatal(err)
+		}
+		oldRoot, err := oldEngine.RestoreTree(t.Context(), oldDeployment.Deployment, snapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids := inspectProcessSnapshot(t, oldEngine, oldRoot).UnknownEffectIDs()
+		if len(ids) != 1 {
+			t.Fatal(ids)
+		}
+		replayed := make(chan error, 1)
+		go func() { replayed <- oldRoot.ReplayUnknownEffect(t.Context(), ids[0]) }()
+		<-entered
+		synctest.Wait()
+		head, found, err := witness.LoadTree(t.Context(), oldRoot.ID())
+		if err != nil || !found {
+			t.Fatalf("head=%t err=%v", found, err)
+		}
+		if decodeErr := json.Unmarshal(head.JSON(), &snapshot); decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		newDeployment := publicationDeployment(t, witness, false, &resultCommitter{commit: witness.commit})
+		newEngine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: witness, DeploymentResolver: newDeployment.resolver})
+		if err != nil {
+			t.Fatal(err)
+		}
+		newRoot, err := newEngine.RestoreTree(t.Context(), newDeployment.Deployment, snapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if replayErr := newRoot.ReplayUnknownEffect(t.Context(), ids[0]); replayErr != nil {
+			t.Fatal(replayErr)
+		}
+		result, err := newRoot.Await(t.Context())
+		if err != nil || result.Status() != agent.StatusCompleted {
+			t.Fatalf("new writer: %s %v", result.Status(), err)
+		}
+		if joinErr := newRoot.Join(t.Context()); joinErr != nil {
+			t.Fatal(joinErr)
+		}
+		unblock()
+		if err := <-replayed; !errors.Is(err, agent.ErrTreeIncarnationConflict) || !errors.Is(err, agent.ErrEffectOutcomeUnknown) {
+			t.Fatalf("stale writer replay: %v", err)
+		}
+		if witness.writes.Load() != 1 || witness.executions.Load() != 1 || witness.modelCalls.Load() != 2 {
+			t.Fatal("takeover repeated business work")
+		}
+		if killErr := oldRoot.Kill(t.Context(), "retire stale writer"); killErr != nil {
+			t.Fatal(killErr)
+		}
+		if _, awaitErr := oldRoot.Await(t.Context()); awaitErr == nil {
+			t.Fatal("stale writer committed termination")
+		}
+		if closeErr := oldEngine.Close(t.Context()); closeErr != nil {
+			t.Fatal(closeErr)
+		}
+		if closeErr := newEngine.Close(t.Context()); closeErr != nil {
+			t.Fatal(closeErr)
+		}
+	})
 }

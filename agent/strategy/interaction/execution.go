@@ -439,6 +439,9 @@ func collectExpectedSignal(
 			if !signal.EngineOwned() {
 				return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: %q Signal requires Engine authority", ErrInvalidExecutionState, expected)
 			}
+			if expected == operationResultCommit && !signal.Settles(envelope.Receipt.EffectID) {
+				return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: result receipt does not identify its settlement Effect", ErrInvalidExecutionState)
+			}
 			if found {
 				return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: duplicate %q Signal", ErrInvalidExecutionState, expected)
 			}

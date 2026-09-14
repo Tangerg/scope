@@ -13,7 +13,8 @@ type ReplayPolicy string
 const (
 	// ReplayPolicyInvalid is the invalid zero value.
 	ReplayPolicyInvalid ReplayPolicy = ""
-	// ReplayPolicyNever forbids automatic replay of a restored pending Effect.
+	// ReplayPolicyNever forbids both restored pending replay and explicit
+	// replay of an Unknown. A host can still supply a definite settlement.
 	ReplayPolicyNever ReplayPolicy = "never"
 	// ReplayPolicySameIdentity permits replay only with the original EffectID.
 	ReplayPolicySameIdentity ReplayPolicy = "same_identity"
@@ -139,8 +140,8 @@ type Dispatcher interface {
 	Dispatch(ctx context.Context, request EffectRequest, emit DeltaEmitter) (Settlement, error)
 	// ReplayPolicy declares, without I/O or mutable side effects, whether this
 	// exact Effect can be repeated under its original EffectID when restoring
-	// a pending attempt. A settled Unknown requires explicit adjudication, and
-	// terminal intent forbids replay. The answer is deterministic for equivalent
-	// Effects.
+	// a pending attempt or through Process.ReplayUnknownEffect. A settled Unknown
+	// requires an explicit host request; terminal intent forbids starting replay.
+	// The answer is deterministic for equivalent Effects.
 	ReplayPolicy(effect Effect) ReplayPolicy
 }

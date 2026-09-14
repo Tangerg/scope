@@ -12,6 +12,8 @@ var (
 	ErrProcessFinished       = errors.New("agent: process has finished")
 	ErrProcessNotRunning     = errors.New("agent: process is not running")
 	ErrEffectNotPending      = errors.New("agent: effect does not require resolution")
+	ErrEffectReplayForbidden = errors.New("agent: effect cannot be replayed under the same identity")
+	ErrEffectOutcomeUnknown  = errors.New("agent: effect outcome remains unknown")
 	ErrInvalidProcessControl = errors.New("agent: invalid process control request")
 	errNilContext            = errors.New("agent: nil Context")
 )
@@ -172,6 +174,23 @@ func (p *Process) ResolveUnknownEffect(ctx context.Context, settlement Settlemen
 	return err
 }
 
+// ReplayUnknownEffect explicitly repeats an uncertain Dispatcher Effect under
+// its original identity and immutable intent. Only ReplayPolicySameIdentity
+// permits this operation. The Dispatcher must reconcile or idempotently repeat
+// the external operation using the current writer; this is not a declaration
+// that the previous attempt did no work.
+//
+// The Engine owns the attempt, cancellation and settlement. Unknown evidence
+// remains authoritative until a definite settlement commits, including if the
+// host crashes or cancellation intervenes. A nil error confirms that settlement;
+// an uncertain attempt returns ErrEffectOutcomeUnknown and remains unresolved.
+// Canceling ctx stops only the caller's wait. Terminal intent rejects new
+// attempts, and concurrent replay or resolution returns ErrEffectNotPending.
+func (p *Process) ReplayUnknownEffect(ctx context.Context, effectID EffectID) error {
+	_, err := p.request(ctx, processCommand{kind: commandReplayUnknownEffect, effectID: effectID})
+	return err
+}
+
 // Await waits for the immutable terminal result and the Engine's immediate
 // parent/child bookkeeping for that termination. Canceling ctx stops only the
 // wait; Process cancellation is explicit or follows the context passed to Start.
@@ -325,6 +344,7 @@ const (
 	commandCancel
 	commandKill
 	commandResolveUnknownEffect
+	commandReplayUnknownEffect
 	commandHostTerminated
 )
 
@@ -332,6 +352,7 @@ type processCommand struct {
 	kind               commandKind
 	signalRequests     []SignalRequest
 	settlement         Settlement
+	effectID           EffectID
 	hostErr            error
 	cancellationIntent cancellationIntent
 	reason             string

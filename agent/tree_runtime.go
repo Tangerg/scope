@@ -116,6 +116,7 @@ type processJob struct {
 	effectID   EffectID
 	childStart *childStartPlan
 	startedAt  time.Time
+	response   chan processResponse
 }
 
 type treeJobCompletion struct {
@@ -1254,6 +1255,9 @@ func (t *treeRuntime) applyProcessCommand(process *processState, command process
 	case commandResolveUnknownEffect:
 		t.resolveUnknownEffect(process, command)
 		return
+	case commandReplayUnknownEffect:
+		t.replayUnknownEffect(process, command)
+		return
 	default:
 		command.reply(processResponse{err: ErrInvalidProcessControl})
 	}
@@ -1273,6 +1277,14 @@ func (t *treeRuntime) resolveUnknownEffect(process *processState, command proces
 		command.reply(processResponse{err: ErrProcessFinished})
 		return
 	}
+	if t.jobs[process.handle.processID] != nil {
+		command.reply(processResponse{err: ErrEffectNotPending})
+		return
+	}
+	t.commitResolution(process, command)
+}
+
+func (t *treeRuntime) commitResolution(process *processState, command processCommand) {
 	candidate := *process
 	index, err := candidate.resolveEffect(command.settlement)
 	if err == nil {
@@ -1292,6 +1304,31 @@ func (t *treeRuntime) resolveUnknownEffect(process *processState, command proces
 		command.reply(processResponse{err: err})
 		t.failDurability(err, process.handle.processID, command.settlement.EffectID())
 	}
+}
+
+func (t *treeRuntime) replayUnknownEffect(process *processState, command processCommand) {
+	if process.pendingControl.hasTerminalIntent() {
+		command.reply(processResponse{err: ErrProcessFinished})
+		return
+	}
+	if process.prepared == nil || t.jobs[process.handle.processID] != nil {
+		command.reply(processResponse{err: ErrEffectNotPending})
+		return
+	}
+	index, record, err := process.prepared.nextEffect()
+	if err != nil || record == nil || record.ID != command.effectID || !record.unknown() {
+		command.reply(processResponse{err: ErrEffectNotPending})
+		return
+	}
+	policy, err := dispatcherReplayPolicy(process.deployment.effectDispatcher(), record.Effect)
+	if err != nil || record.Effect.Target() != EffectTargetDispatcher || policy != ReplayPolicySameIdentity {
+		command.reply(processResponse{err: errors.Join(ErrEffectReplayForbidden, err)})
+		return
+	}
+	// The committed Unknown already retains the exact uncertain operation.
+	// Keep it intact while the same logical operation is reconciled: revoking
+	// an unused new attempt must never erase evidence of an earlier attempt.
+	t.startDispatch(process, uint32(index), *record, command.response)
 }
 
 func (t *treeRuntime) acquireFreeze(acquisition *treeFreezeAcquisition) {
@@ -1859,7 +1896,7 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int, reco
 		t.enqueueProcess(process.handle.processID)
 		return
 	}
-	t.startDispatch(process, uint32(index), *record)
+	t.startDispatch(process, uint32(index), *record, nil)
 }
 
 func (t *treeRuntime) recoverPendingEffect(
@@ -1890,7 +1927,7 @@ func (t *treeRuntime) recoverPendingEffect(
 	}
 	switch decision.replayPolicy {
 	case ReplayPolicySameIdentity:
-		t.startDispatch(process, batchIndex, *record)
+		t.startDispatch(process, batchIndex, *record, nil)
 	case ReplayPolicyNever:
 		if err := record.settleUnknown(); err != nil {
 			t.failPreparedEffect(process, failureCodeEngineEffectRecoveryInvalid, err)
@@ -1973,6 +2010,7 @@ func (t *treeRuntime) startDispatch(
 	process *processState,
 	batchIndex uint32,
 	record preparedEffect,
+	response chan processResponse,
 ) {
 	attempt, ok := t.nextAttempt(process)
 	if !ok {
@@ -1987,6 +2025,7 @@ func (t *treeRuntime) startDispatch(
 		cancel:    cancel,
 		effectID:  record.ID,
 		startedAt: startedAt,
+		response:  response,
 	}
 	t.setProcessJob(process.handle.processID, job)
 	var deltaMu sync.Mutex
@@ -2026,13 +2065,9 @@ func (t *treeRuntime) startDispatch(
 			err = ErrInvalidSettlement
 		}
 		if err != nil {
-			pending := record
-			if settleErr := pending.settleUnknown(); settleErr == nil {
-				settlement = *pending.Settlement
-			} else {
-				settlement = Settlement{}
-				err = errors.Join(err, settleErr)
-			}
+			var settlementErr error
+			settlement, settlementErr = NewSettlement(record.ID, SettlementStatusUnknown, json.RawMessage(nullJSON))
+			err = errors.Join(err, settlementErr)
 		}
 		t.completions <- treeJobCompletion{
 			processID: process.handle.processID,
@@ -2304,14 +2339,17 @@ func (t *treeRuntime) applyDispatchCompletion(
 	job *processJob,
 	result dispatchJobResult,
 ) {
-	index, record := process.prepared.pendingEffect(result.effectID)
-	if record == nil {
+	index, record, err := process.prepared.nextEffect()
+	if err != nil || record == nil || record.ID != result.effectID {
 		return
 	}
 	settlement := result.settlement
-	if err := record.settle(settlement, result.err); err != nil {
-		t.failPreparedEffect(process, failureCodeEngineEffectSettlementInvalid, err)
-		return
+	replaying := record.unknown()
+	if !replaying {
+		if err := record.settle(settlement, result.err); err != nil {
+			t.failPreparedEffect(process, failureCodeEngineEffectSettlementInvalid, err)
+			return
+		}
 	}
 	var events []Event
 	if result.dropped > 0 {
@@ -2333,6 +2371,20 @@ func (t *treeRuntime) applyDispatchCompletion(
 				process.prepared.StepSequence, record.ID, payload,
 			)
 		}
+	}
+	if replaying {
+		for _, event := range events {
+			t.publishPreparedEvent(process, event)
+		}
+		command := processCommand{settlement: settlement, response: job.response}
+		if result.err != nil || settlement.Status() == SettlementStatusUnknown {
+			t.publishSettlementEvent(process, result.effectID, EffectTargetDispatcher,
+				SettlementStatusUnknown, job.startedAt, result.err)
+			command.reply(processResponse{err: errors.Join(ErrEffectOutcomeUnknown, result.err)})
+			return
+		}
+		t.commitResolution(process, command)
+		return
 	}
 	if t.engine.durability != nil {
 		if event, ok := t.prepareSettlementEvent(process,

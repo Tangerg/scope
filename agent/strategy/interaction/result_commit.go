@@ -15,11 +15,15 @@ import (
 // durable. An error or a mismatched receipt leaves this publication Effect
 // unknown and prevents both model continuation and direct completion.
 //
-// Store EffectID and Digest atomically with the results: the same identity and
-// content denotes the same publication, while different content is a conflict.
-// Durable hosts must fence writers using the current TreeIncarnationID. Scope
-// never automatically retries publication; a host may resolve its unknown
-// Effect with a stored receipt after verifying its durable record and authority.
+// CommitResults must be idempotent by EffectID: atomically store the receipt
+// with the results, return the stored receipt for identical content, and reject
+// different content. Before writing after an uncertain attempt, reconcile the
+// authoritative transaction; if its outcome remains uncertain, return an error.
+// Durable hosts must fence every transaction with the current TreeIncarnationID.
+// Scope may replay a pending publication after restore. A settled Unknown is
+// replayed only through Process.ReplayUnknownEffect. Both paths reconstruct the
+// entire batch from the authoritative tree, retaining EffectID and exact results
+// while supplying the current writer. Neither path executes Tools or Delegates.
 type ResultCommitter interface {
 	CommitResults(ctx context.Context, batch ResultBatch) (ResultReceipt, error)
 }

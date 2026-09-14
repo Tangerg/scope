@@ -39,6 +39,14 @@ func (s Signal) ID() SignalID { return s.id }
 // execution facts, a decoded Signal is trustworthy only from trusted storage.
 func (s Signal) EngineOwned() bool { return s.Valid() && s.id.engineOwned() }
 
+// Settles reports whether the Engine minted this delivery for effectID's
+// settlement. Strategies can bind an opaque receipt to its source without
+// interpreting the private delivery identity. As with EngineOwned, decoded
+// Signals must come from trusted storage.
+func (s Signal) Settles(effectID EffectID) bool {
+	return s.EngineOwned() && effectID.Valid() && s.id == effectID.settlementSignalID()
+}
+
 // WaitID returns the addressed wait and true, or a zero WaitID and false for a
 // Signal queued at the next Strategy-safe boundary.
 func (s Signal) WaitID() (WaitID, bool) { return s.waitID, s.waitID.Valid() }

@@ -61,6 +61,7 @@ func TestProcessRejectsNilContextBeforeControl(t *testing.T) {
 		"RequestCancellation":  func() { _ = process.RequestCancellation(nilContext, "cancel") },
 		"Kill":                 func() { _ = process.Kill(nilContext, "kill") },
 		"ResolveUnknownEffect": func() { _ = process.ResolveUnknownEffect(nilContext, Settlement{}) },
+		"ReplayUnknownEffect":  func() { _ = process.ReplayUnknownEffect(nilContext, EffectID{}) },
 		"Await":                func() { _, _ = process.Await(nilContext) },
 		"Join":                 func() { _ = process.Join(nilContext) },
 	} {

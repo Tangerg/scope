@@ -130,6 +130,10 @@
 // settlement stays observable and awaits explicit adjudication. It is never
 // silently replayed and never assumed successful. Ephemeral mode runs the same
 // state machine without calling the durability port.
+// Process.ReplayUnknownEffect explicitly requests a same-identity attempt only
+// when the Dispatcher guarantees idempotence. The original Unknown remains
+// authoritative throughout that attempt; a definite result uses the existing
+// resolved boundary. Cancellation still collects an already started attempt.
 // A prepared batch has one execution frontier: definitely settled Effects
 // precede at most one pending or unknown Effect, followed only by planned
 // Effects. Runtime scheduling and snapshot admission enforce this same order.

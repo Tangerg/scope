@@ -53,8 +53,13 @@
 // unknown execution or cause the Tool to run again. Pending snapshots retain
 // the exact results. Nil ResultCommitter acknowledges in memory only; durable
 // recovery additionally requires the Engine's TreeDurability and host storage.
-// This changes the current execution schema; older snapshots must be drained or
-// discarded by their host before deploying the new binding.
+// ResultCommitter must reconcile and publish idempotently under the original
+// EffectID, with current-writer fencing. Pending publication can replay on
+// restore; settled Unknown publication requires Process.ReplayUnknownEffect or
+// ResolveUnknownEffect with a verified stored receipt. A fresh Dispatcher
+// reconstructs ResultBatch from the persisted intent, without rerunning Tools
+// or reading old host memory. If the transaction remains uncertain, adoption
+// stays blocked. Receipt validation binds both content and settlement identity.
 //
 // A tool.Failure produces a model-visible error ToolResult, even when its cause
 // is cancellation or a deadline. An explicit HostFailure still declares that no
