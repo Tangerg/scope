@@ -218,6 +218,9 @@ func (e executionState) validate(d *Definition) error {
 		if e.Turn.Start == nil {
 			break
 		}
+		if e.Mode == Wait && e.hasUnseenOutcome() {
+			break
+		}
 		if e.Turn.Outcome == nil && e.Mode != "" || e.Turn.Outcome != nil && e.Mode != Wait {
 			break
 		}
@@ -363,7 +366,7 @@ func (e executionState) validateDecision(definition *Definition, decision Decisi
 			return fmt.Errorf("%w: %w", ErrInvalidDecision, err)
 		}
 	}
-	if decision.Mode == Wait && len(e.remaining())+len(decision.Tasks) == 0 && !e.turnHadOutstandingTask() {
+	if decision.Mode == Wait && len(e.remaining())+len(decision.Tasks) == 0 && !e.hasUnseenOutcome() {
 		return fmt.Errorf("%w: wait has no outstanding tasks", ErrInvalidDecision)
 	}
 	return nil
@@ -384,15 +387,12 @@ func (e executionState) controlEffect(control Control) (agent.Effect, error) {
 	return agent.CancelChild(id, *control.CancelReason)
 }
 
-func (e executionState) turnHadOutstandingTask() bool {
+func (e executionState) hasUnseenOutcome() bool {
 	if e.Turn == nil {
 		return false
 	}
-	for _, task := range e.Turn.Input.Tasks {
-		if task.Start == nil || task.Outcome != nil {
-			continue
-		}
-		if _, started := task.Start.ProcessID(); started {
+	for index, task := range e.Tasks {
+		if task.Outcome != nil && (index >= len(e.Turn.Input.Tasks) || e.Turn.Input.Tasks[index].Outcome == nil) {
 			return true
 		}
 	}

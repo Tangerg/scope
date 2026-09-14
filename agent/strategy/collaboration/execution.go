@@ -231,7 +231,7 @@ func (e *execution) acceptActions(signals []agent.Signal) (agent.Transition, err
 }
 
 func (e *execution) afterActions(consumed uint32) (agent.Transition, error) {
-	if e.state.Mode == Wait && len(e.state.remaining()) != 0 {
+	if e.state.Mode == Wait && !e.state.hasUnseenOutcome() && len(e.state.remaining()) != 0 {
 		return e.openWait(consumed)
 	}
 	return e.startTurn(consumed)

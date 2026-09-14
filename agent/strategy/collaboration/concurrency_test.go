@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -34,81 +35,140 @@ func modelDeployment(name string, model chat.Model) agent.Deployment {
 }
 
 func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		entered, release := make(chan struct{}), make(chan struct{})
-		unblock := sync.OnceFunc(func() { close(release) })
-		defer unblock()
-		model := modelDeployment("test.coordinator_model", modelFunc(func(ctx context.Context, modelRequest *chat.Request) (*chat.Response, error) {
-			turn := require(require(agent.ParseInput([]byte(modelRequest.Messages[0].Text()))).Decode[Turn]())
-			var decision Decision
-			switch turn.Number {
-			case 1:
-				decision = Decision{Mode: Continue, State: turn.State, Tasks: []TaskRequest{request("input", "test.gate", "answer")}}
-			case 2:
-				if len(turn.Tasks) != 1 || turn.Tasks[0].Outcome != nil {
-					return nil, errors.New("task already observed before held decision")
-				}
-				close(entered)
-				select {
-				case <-release:
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				}
-				decision = Decision{Mode: Wait, State: turn.State}
-			case 3:
-				if turn.Tasks[0].Outcome == nil {
-					return nil, errors.New("completion during model call was lost")
-				}
-				decision = finish(turn, "observed during decision")
-			default:
-				return nil, errors.New("unexpected turn")
-			}
-			return textResponse(string(require(json.Marshal(decision))))
-		}))
-		render := require(workflow.Transform("render", func(_ context.Context, turn Turn) (interaction.Input, error) {
-			return interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart(string(require(json.Marshal(turn)))))}}, nil
-		}))
-		call := require(workflow.Call(workflow.CallConfig{ID: "call", Deployment: model, Budget: agent.Budget{Steps: 16, Effects: 8, Signals: 16}}))
-		decode := require(workflow.Transform("decode", func(_ context.Context, output interaction.Output) (Decision, error) {
-			if output.ModelResponse == nil {
-				return Decision{}, errors.New("missing model response")
-			}
-			value, err := agent.ParseOutput([]byte(output.ModelResponse.Text()))
-			if err != nil {
-				return Decision{}, err
-			}
-			return value.Decode[Decision]()
-		}))
-		coordinator := binding(require(workflow.NewDefinition(workflow.DefinitionConfig{Name: "test.model_coordinator", Description: "Adapt a model decision.", Stages: []workflow.Stage{render, call, decode}})))
-		config, deployments := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "unused"), nil }, gate())
-		delete(deployments, config.Coordinator.Deployment.DeploymentRef())
-		config.Coordinator = WorkerConfig{Deployment: coordinator, Budget: agent.Budget{Steps: 64, Effects: 32, Signals: 64}}
-		definition := require(NewDefinition(config))
-		deployments[model.DeploymentRef()], deployments[coordinator.DeploymentRef()] = model, coordinator
-		engine, process := run(t, definition, deployments, agenttest.NewMemoryTreeDurability())
-		<-entered
-		synctest.Wait()
-		tree := require(engine.InspectTree(t.Context(), process.ID()))
-		for _, fact := range tree.Processes {
-			if fact.Snapshot.DeploymentRef().Name() != "test.gate" {
-				continue
-			}
-			wait, present := fact.Snapshot.WaitID()
-			if !present {
-				t.Fatal("gate has not opened")
-			}
-			child, _ := engine.Process(fact.Snapshot.ProcessID())
-			signal := require(agent.NewSignalRequest(require(agent.ParseSignalID("signal:during-decision")), wait, []byte(`"answer"`)))
-			if accepted, err := child.DeliverSignals(t.Context(), signal); err != nil || !accepted {
-				t.Fatalf("input=%t %v", accepted, err)
-			}
+	for _, mode := range []string{"ephemeral", "durable", "restored"} {
+		for _, count := range []int{1, 2} {
+			t.Run(fmt.Sprintf("%s/tasks_%d", mode, count), func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					var observed bool
+					entered, release := make(chan struct{}), make(chan struct{})
+					unblock := sync.OnceFunc(func() { close(release) })
+					defer unblock()
+					model := modelDeployment("test.coordinator_model", modelFunc(func(ctx context.Context, modelRequest *chat.Request) (*chat.Response, error) {
+						turn := require(require(agent.ParseInput([]byte(modelRequest.Messages[0].Text()))).Decode[Turn]())
+						var decision Decision
+						switch turn.Number {
+						case 1:
+							tasks := []TaskRequest{request("input", "test.gate", "answer")}
+							if count == 2 {
+								tasks = append(tasks, request("other", "test.gate", "waiting"))
+							}
+							decision = Decision{Mode: Continue, State: turn.State, Tasks: tasks}
+						case 2:
+							if len(turn.Tasks) != count || turn.Tasks[0].Outcome != nil {
+								return nil, errors.New("task already observed before held decision")
+							}
+							close(entered)
+							select {
+							case <-release:
+							case <-ctx.Done():
+								return nil, ctx.Err()
+							}
+							decision = Decision{Mode: Wait, State: turn.State}
+						case 3:
+							if turn.Tasks[0].Outcome == nil {
+								return nil, errors.New("completion during model call was lost")
+							}
+							if count == 2 && turn.Tasks[1].Outcome != nil {
+								return nil, errors.New("other task unexpectedly completed")
+							}
+							observed = true
+							decision = finish(turn, "observed during decision")
+						default:
+							return nil, errors.New("unexpected turn")
+						}
+						return textResponse(string(require(json.Marshal(decision))))
+					}))
+					render := require(workflow.Transform("render", func(_ context.Context, turn Turn) (interaction.Input, error) {
+						return interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart(string(require(json.Marshal(turn)))))}}, nil
+					}))
+					call := require(workflow.Call(workflow.CallConfig{ID: "call", Deployment: model, Budget: agent.Budget{Steps: 16, Effects: 8, Signals: 16}}))
+					decode := require(workflow.Transform("decode", func(_ context.Context, output interaction.Output) (Decision, error) {
+						if output.ModelResponse == nil {
+							return Decision{}, errors.New("missing model response")
+						}
+						value, err := agent.ParseOutput([]byte(output.ModelResponse.Text()))
+						if err != nil {
+							return Decision{}, err
+						}
+						return value.Decode[Decision]()
+					}))
+					coordinator := binding(require(workflow.NewDefinition(workflow.DefinitionConfig{Name: "test.model_coordinator", Description: "Adapt a model decision.", Stages: []workflow.Stage{render, call, decode}})))
+					config, deployments := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "unused"), nil }, gate())
+					delete(deployments, config.Coordinator.Deployment.DeploymentRef())
+					config.Coordinator = WorkerConfig{Deployment: coordinator, Budget: agent.Budget{Steps: 64, Effects: 32, Signals: 64}}
+					definition := require(NewDefinition(config))
+					deployments[model.DeploymentRef()], deployments[coordinator.DeploymentRef()] = model, coordinator
+					var durability agent.TreeDurability
+					store := agenttest.NewMemoryTreeDurability()
+					if mode != "ephemeral" {
+						durability = store
+					}
+					if mode == "restored" {
+						durability = &coordinatorSettlementCrash{MemoryTreeDurability: store}
+					}
+					engine, process := run(t, definition, deployments, durability)
+					<-entered
+					synctest.Wait()
+					tree := require(engine.InspectTree(t.Context(), process.ID()))
+					for _, fact := range tree.Processes {
+						key, _ := fact.Snapshot.Relation().ChildKey()
+						if fact.Snapshot.DeploymentRef().Name() != "test.gate" || key.String() != "input" {
+							continue
+						}
+						wait, present := fact.Snapshot.WaitID()
+						if !present {
+							t.Fatal("gate has not opened")
+						}
+						child, _ := engine.Process(fact.Snapshot.ProcessID())
+						signal := require(agent.NewSignalRequest(require(agent.ParseSignalID("signal:during-decision")), wait, []byte(`"answer"`)))
+						if accepted, err := child.DeliverSignals(t.Context(), signal); err != nil || !accepted {
+							t.Fatalf("input=%t %v", accepted, err)
+						}
+					}
+					synctest.Wait()
+					if mode == "restored" {
+						inspection := require(engine.InspectTree(t.Context(), process.ID()))
+						root, _ := inspection.Process(process.ID())
+						var state executionState
+						if err := json.Unmarshal(root.Snapshot.CommittedExecutionState().Payload(), &state); err != nil {
+							t.Fatal(err)
+						}
+						if state.Turn.Outcome != nil || state.Tasks[0].Outcome == nil || !state.hasUnseenOutcome() {
+							t.Fatal("crash cut does not retain an unseen worker outcome")
+						}
+					}
+					unblock()
+					if mode == "restored" {
+						if result, err := process.Await(t.Context()); result.Valid() || err == nil {
+							t.Fatalf("crash result=%v err=%v", result.Status(), err)
+						}
+						head, found, err := store.LoadTree(t.Context(), process.ID())
+						if err != nil || !found {
+							t.Fatalf("head=%t err=%v", found, err)
+						}
+						var restoredHead agent.TreeSnapshot
+						if err := json.Unmarshal(head.JSON(), &restoredHead); err != nil {
+							t.Fatal(err)
+						}
+						restoredEngine := require(agent.NewEngine(agent.EngineConfig{TreeDurability: store, DeploymentResolver: deployments}))
+						defer func() {
+							if err := restoredEngine.Close(t.Context()); err != nil {
+								t.Error(err)
+							}
+						}()
+						process = require(restoredEngine.RestoreTree(t.Context(), binding(definition), restoredHead))
+					}
+					synctest.Wait()
+					if !observed {
+						t.Fatal("coordinator did not consume the new outcome while another task remained active")
+					}
+					if got := completed(t, process); got != "observed during decision" {
+						t.Fatal(got)
+					}
+				})
+			})
 		}
-		synctest.Wait()
-		unblock()
-		if got := completed(t, process); got != "observed during decision" {
-			t.Fatal(got)
-		}
-	})
+	}
 }
 
 func TestCoordinatorSteersInteractionThroughItsCanonicalSignalContract(t *testing.T) {
@@ -180,4 +240,27 @@ func TestCoordinatorSteersInteractionThroughItsCanonicalSignalContract(t *testin
 			t.Fatal(got)
 		}
 	})
+}
+
+// Stop after the second coordinator's model result is durable but before the
+// collaboration can adopt its decision. Worker outcomes are already committed.
+type coordinatorSettlementCrash struct {
+	*agenttest.MemoryTreeDurability
+}
+
+func (c *coordinatorSettlementCrash) CommitEffect(ctx context.Context, boundary agent.EffectBoundary) error {
+	if err := c.MemoryTreeDurability.CommitEffect(ctx, boundary); err != nil {
+		return err
+	}
+	if boundary.Kind() != agent.EffectBoundarySettled || boundary.Request().DeploymentRef().Name() != "test.coordinator_model" {
+		return nil
+	}
+	parent, _ := boundary.Request().Relation().ParentID()
+	for _, snapshot := range boundary.TreeSnapshot().ProcessSnapshots() {
+		key, _ := snapshot.Relation().ChildKey()
+		if snapshot.ProcessID() == parent && key.String() == "collaboration.turn.2" {
+			return errors.New("crash after coordinator settlement")
+		}
+	}
+	return nil
 }
