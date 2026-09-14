@@ -2,14 +2,34 @@ package bedrock
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 )
+
+// SDK transport metadata has no JSON contract. Response data keeps its SDK
+// field names, while Smithy documents use their own serialization contract.
+type converseResponseFields struct {
+	Metrics                       *types.ConverseMetrics
+	Output                        types.ConverseOutput
+	StopReason                    types.StopReason
+	Usage                         *types.TokenUsage
+	AdditionalModelResponseFields document.Interface
+	PerformanceConfig             *types.PerformanceConfiguration
+	ServiceTier                   *types.ServiceTier
+	Trace                         *types.ConverseTrace
+}
+
+func marshalProtocolJSON(value any) ([]byte, error) {
+	return jsonv2.Marshal(value, jsonv2.Deterministic(true),
+		jsonv2.WithMarshalers(jsonv2.MarshalFunc(document.Interface.MarshalSmithyDocument)))
+}
 
 func mapProtocolConverseResponse(model string, output *bedrockruntime.ConverseOutput) (*corechat.Response, error) {
 	if output == nil || output.Output == nil {
@@ -30,15 +50,23 @@ func mapProtocolConverseResponse(model string, output *bedrockruntime.ConverseOu
 	}
 	if modelOutput.FinishReason == corechat.FinishReasonOther {
 		modelOutput.Metadata = &corechat.OutputMetadata{}
-		if err := modelOutput.Metadata.Extra.Set(chatNativeFinishReasonKey, string(output.StopReason)); err != nil {
-			return nil, err
+		if metadataErr := modelOutput.Metadata.Extra.Set(chatNativeFinishReasonKey, string(output.StopReason)); metadataErr != nil {
+			return nil, metadataErr
 		}
 	}
 	response := &corechat.Response{
 		Output:   modelOutput,
 		Metadata: &corechat.ResponseMetadata{Model: model, Usage: mapProtocolUsage(output.Usage)},
 	}
-	if err := response.Metadata.Extra.Set(ChatResponseExtensionKey, output); err != nil {
+	native, err := marshalProtocolJSON(converseResponseFields{
+		Metrics: output.Metrics, Output: output.Output, StopReason: output.StopReason, Usage: output.Usage,
+		AdditionalModelResponseFields: output.AdditionalModelResponseFields, PerformanceConfig: output.PerformanceConfig,
+		ServiceTier: output.ServiceTier, Trace: output.Trace,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("bedrock: encode native response: %w", err)
+	}
+	if err := response.Metadata.Extra.Set(ChatResponseExtensionKey, json.RawMessage(native)); err != nil {
 		return nil, fmt.Errorf("bedrock: preserve native response: %w", err)
 	}
 	if err := response.Validate(); err != nil {
@@ -110,10 +138,10 @@ func mapProtocolReasoningContent(block types.ReasoningContentBlock) (corechat.Pa
 }
 
 func mapProtocolToolUse(value types.ToolUseBlock) (corechat.Part, error) {
-	if value.ToolUseId == nil || value.Name == nil {
-		return corechat.Part{}, errors.New("tool use lacks ID or name")
+	if value.ToolUseId == nil || value.Name == nil || value.Input == nil {
+		return corechat.Part{}, errors.New("tool use lacks ID, name, or input")
 	}
-	arguments, err := json.Marshal(value.Input)
+	arguments, err := marshalProtocolJSON(value.Input)
 	if err != nil {
 		return corechat.Part{}, fmt.Errorf("tool arguments: %w", err)
 	}

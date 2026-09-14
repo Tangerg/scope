@@ -19,7 +19,8 @@ import (
 const (
 	// ChatRequestExtensionKey stores [ChatRequestOptions] in a Core request.
 	ChatRequestExtensionKey = "bedrock/request"
-	// ChatResponseExtensionKey preserves the complete official Converse output.
+	// ChatResponseExtensionKey preserves Converse response data using SDK field
+	// names and JSON document values. SDK transport metadata is excluded.
 	ChatResponseExtensionKey  = "bedrock/response"
 	chatReasoningKindKey      = "bedrock/reasoning_kind"
 	chatReasoningText         = "reasoning_text"

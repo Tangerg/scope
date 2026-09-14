@@ -89,6 +89,7 @@ func TestMapProtocolConverseResponse(t *testing.T) {
 		Usage: &types.TokenUsage{
 			InputTokens: aws.Int32(11), OutputTokens: aws.Int32(7), CacheReadInputTokens: aws.Int32(3),
 		},
+		AdditionalModelResponseFields: toBedrockDocument(map[string]any{"provider_count": int64(9007199254740993)}),
 	}
 
 	response, err := mapProtocolConverseResponse("model", output)
@@ -104,6 +105,31 @@ func TestMapProtocolConverseResponse(t *testing.T) {
 		if parts[index].Kind != want {
 			t.Fatalf("part[%d] = %q, want %q", index, parts[index].Kind, want)
 		}
+	}
+	if parts[3].ToolCall.Arguments != `{"city":"Paris"}` {
+		t.Fatalf("Smithy tool arguments were lost: %s", parts[3].ToolCall.Arguments)
+	}
+	native, found, err := response.Metadata.Extra.Decode[map[string]json.RawMessage](ChatResponseExtensionKey)
+	if err != nil || !found {
+		t.Fatalf("native response is missing: %v", err)
+	}
+	if _, present := native["ResultMetadata"]; present {
+		t.Fatal("SDK runtime metadata entered the portable response")
+	}
+	if string(native["AdditionalModelResponseFields"]) != `{"provider_count":9007199254740993}` {
+		t.Fatalf("native document was changed: %s", native["AdditionalModelResponseFields"])
+	}
+	var nativeOutput struct {
+		Value struct {
+			Content []struct{ Value json.RawMessage }
+		}
+	}
+	if decodeErr := json.Unmarshal(native["Output"], &nativeOutput); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	var toolUse struct{ Input map[string]string }
+	if decodeErr := json.Unmarshal(nativeOutput.Value.Content[3].Value, &toolUse); decodeErr != nil || toolUse.Input["city"] != "Paris" {
+		t.Fatalf("native tool document was lost: %+v, %v", toolUse, decodeErr)
 	}
 	kind, found, err := ReasoningBlockKindOf(parts[1])
 	if err != nil || !found || kind != ReasoningBlockRedacted || string(parts[1].ReasoningState) != "opaque" {
@@ -143,6 +169,27 @@ func TestProtocolChunkAccumulatorRetainsToolIdentity(t *testing.T) {
 	call := response.Parts[0].ToolCall
 	if call.ID != "call-1" || call.Name != "weather" || call.Arguments != arguments {
 		t.Fatalf("tool call = %#v", call)
+	}
+}
+
+func TestConverseRejectsUnrepresentableDocuments(t *testing.T) {
+	for _, toolInput := range []bool{false, true} {
+		message := &types.ConverseOutputMemberMessage{Value: types.Message{
+			Role: types.ConversationRoleAssistant, Content: []types.ContentBlock{&types.ContentBlockMemberText{Value: "answer"}},
+		}}
+		output := &bedrockruntime.ConverseOutput{Output: message, StopReason: types.StopReasonEndTurn}
+		unsupported := toBedrockDocument(make(chan int))
+		if toolInput {
+			message.Value.Content = []types.ContentBlock{&types.ContentBlockMemberToolUse{Value: types.ToolUseBlock{
+				ToolUseId: aws.String("call"), Name: aws.String("tool"), Input: unsupported,
+			}}}
+			output.StopReason = types.StopReasonToolUse
+		} else {
+			output.AdditionalModelResponseFields = unsupported
+		}
+		if response, err := mapProtocolConverseResponse("model", output); err == nil || response != nil {
+			t.Fatalf("unrepresentable document produced a response: %+v, %v", response, err)
+		}
 	}
 }
 
