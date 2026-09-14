@@ -43,13 +43,16 @@ const (
 //   - Read normalises CRLF→LF and strips UTF-8 BOM; Write and Edit
 //     restore both when the existing file uses them.
 type LocalExecutor struct {
-	root string
+	rootPath string
+	root     *os.Root
 
 	mutations sync.Mutex
 }
 
 // NewLocalExecutor fixes one immutable directory-tree authority for every
-// operation performed by the returned backend.
+// operation performed by the returned backend. The directory must exist and
+// remains the authority even if its original path is renamed or replaced.
+// The caller must Close the executor when it is no longer needed.
 func NewLocalExecutor(root string) (*LocalExecutor, error) {
 	if root == "" {
 		return nil, ErrInvalidRoot
@@ -59,8 +62,16 @@ func NewLocalExecutor(root string) (*LocalExecutor, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fs.NewLocalExecutor: resolve root %q: %w", root, err)
 	}
-	return &LocalExecutor{root: filepath.Clean(absolute)}, nil
+	directory, err := os.OpenRoot(absolute)
+	if err != nil {
+		return nil, fmt.Errorf("fs.NewLocalExecutor: open root %q: %w", absolute, err)
+	}
+	return &LocalExecutor{rootPath: filepath.Clean(absolute), root: directory}, nil
 }
+
+// Close releases the directory authority and prevents new operations. Operations
+// that already acquired their own directory handle may finish independently.
+func (l *LocalExecutor) Close() error { return l.root.Close() }
 
 // authorize returns a root-relative path accepted by os.Root. Relative inputs
 // must be local. Absolute inputs are accepted only when they are lexically
@@ -77,7 +88,7 @@ func (l *LocalExecutor) authorize(path string, allowRoot bool) (string, error) {
 	}
 	path = expandHome(path)
 	if filepath.IsAbs(path) {
-		relative, err := filepath.Rel(l.root, filepath.Clean(path))
+		relative, err := filepath.Rel(l.rootPath, filepath.Clean(path))
 		if err != nil {
 			return "", fmt.Errorf("fs: resolve %q beneath root: %w", path, err)
 		}
@@ -94,9 +105,9 @@ func (l *LocalExecutor) openRoot() (*os.Root, error) {
 	if l == nil {
 		return nil, ErrNilExecutor
 	}
-	root, err := os.OpenRoot(l.root)
+	root, err := l.root.OpenRoot(".")
 	if err != nil {
-		return nil, fmt.Errorf("fs: open executor root %q: %w", l.root, err)
+		return nil, fmt.Errorf("fs: open executor root %q: %w", l.rootPath, err)
 	}
 	return root, nil
 }

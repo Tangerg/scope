@@ -20,6 +20,11 @@ func TestLocalGlobRejectsCancellationWithoutMatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		if err := executor.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()
 	expired, stop := context.WithDeadline(t.Context(), time.Time{})

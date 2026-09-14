@@ -36,13 +36,13 @@ func FuzzLocalExecutorAuthorize(f *testing.F) {
 			t.Fatalf("authorize(%q) granted the root for a file operation", untrusted)
 		}
 
-		joined := filepath.Join(executor.root, authorized)
-		relative, err := filepath.Rel(executor.root, joined)
+		joined := filepath.Join(executor.rootPath, authorized)
+		relative, err := filepath.Rel(executor.rootPath, joined)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !filepath.IsLocal(relative) {
-			t.Fatalf("authorize(%q) escaped %q as %q", untrusted, executor.root, joined)
+			t.Fatalf("authorize(%q) escaped %q as %q", untrusted, executor.rootPath, joined)
 		}
 	})
 }

@@ -11,6 +11,7 @@ func ExampleNewReadTool() {
 	if err != nil {
 		panic(err)
 	}
+	defer executor.Close()
 	read, err := toolfs.NewReadTool(executor)
 	if err != nil {
 		panic(err)

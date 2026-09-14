@@ -8,6 +8,11 @@ func mustLocalExecutor(t testing.TB, root string) *LocalExecutor {
 	if err != nil {
 		t.Fatalf("NewLocalExecutor(%q): %v", root, err)
 	}
+	t.Cleanup(func() {
+		if err := executor.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	return executor
 }
 
