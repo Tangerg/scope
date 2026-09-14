@@ -20,6 +20,8 @@ func TestEditRejectsInvalidReplacementsWithoutChangingFile(t *testing.T) {
 		{name: "trailing whitespace", content: "alpha   \nbeta\n", old: "alpha\nbeta", replacement: "x\ny"},
 		{name: "internal whitespace", content: "total = a  +  b\n", old: "total = a + b", replacement: "total = a - b"},
 		{name: "string literal whitespace", content: "value = \"a  b\"\n", old: "value = \"a b\"", replacement: "value = \"changed\""},
+		{name: "empty original", content: "hello", old: "", replacement: "new"},
+		{name: "ambiguous", content: "hello hello", old: "hello", replacement: "new"},
 		{name: "unchanged", content: "hello", old: "hello", replacement: "hello"},
 		{name: "binary replacement", content: "hello", old: "hello", replacement: "a\x00b", binary: true},
 	}
@@ -53,8 +55,17 @@ func TestEditRejectsInvalidReplacementsWithoutChangingFile(t *testing.T) {
 				} else {
 					_, err = executor.Edit(t.Context(), request)
 				}
-				if err == nil {
-					t.Fatal("invalid replacement succeeded")
+				if !errors.Is(err, ErrEditRejected) {
+					t.Fatalf("invalid replacement error = %v, want ErrEditRejected", err)
+				}
+				if viaTool {
+					failure, ok := errors.AsType[*toolcontract.Failure](err)
+					if !ok {
+						t.Fatalf("tool lost definite rejection: %v", err)
+					}
+					if text, _ := failure.Output().Text(); text == "" {
+						t.Fatal("tool lost rejection feedback")
+					}
 				}
 				if test.binary && !errors.Is(err, ErrBinaryFile) {
 					t.Fatalf("error = %v, want ErrBinaryFile", err)

@@ -208,10 +208,10 @@ func (l *LocalExecutor) Write(ctx context.Context, in WriteRequest) (_ WriteResp
 
 	// Detect existing format + permissions so an overwrite preserves
 	// CRLF / BOM / mode instead of silently flipping them.
-	mode := defaultFileMode
+	var mode *os.FileMode
 	hadBOM, hadCRLF := false, false
 	if info, statErr := root.Stat(path); statErr == nil {
-		mode = info.Mode().Perm()
+		mode = new(info.Mode().Perm())
 		hadBOM, hadCRLF, err = detectRootFormat(ctx, root, path)
 		if err != nil {
 			return WriteResponse{}, err
@@ -221,7 +221,7 @@ func (l *LocalExecutor) Write(ctx context.Context, in WriteRequest) (_ WriteResp
 	}
 
 	out := restoreFormat(in.Content, hadBOM, hadCRLF)
-	if err := atomicWriteRootFile(root, path, out, mode); err != nil {
+	if err := target.write(ctx, out, mode); err != nil {
 		return WriteResponse{}, err
 	}
 	return WriteResponse{BytesWritten: len(out)}, nil
@@ -254,7 +254,7 @@ func (l *LocalExecutor) Edit(ctx context.Context, in EditRequest) (_ EditRespons
 		return EditResponse{}, err
 	}
 	if looksBinary(data) {
-		return EditResponse{}, ErrBinaryFile
+		return EditResponse{}, fmt.Errorf("%w: %w", ErrEditRejected, ErrBinaryFile)
 	}
 
 	content, hadBOM, hadCRLF := normalizeText(data)
@@ -264,17 +264,17 @@ func (l *LocalExecutor) Edit(ctx context.Context, in EditRequest) (_ EditRespons
 		ReplaceAll: in.ReplaceAll,
 	}).apply(content, in.Path)
 	if err != nil {
-		return EditResponse{}, err
+		return EditResponse{}, fmt.Errorf("%w: %w", ErrEditRejected, err)
 	}
 
 	info, err := root.Stat(path)
 	if err != nil {
 		return EditResponse{}, fmt.Errorf("fs: stat edited file %q: %w", in.Path, err)
 	}
-	mode := info.Mode().Perm()
+	mode := new(info.Mode().Perm())
 
 	out := restoreFormat(updated, hadBOM, hadCRLF)
-	if err := atomicWriteRootFile(root, path, out, mode); err != nil {
+	if err := target.write(ctx, out, mode); err != nil {
 		return EditResponse{}, err
 	}
 	return EditResponse{Replacements: replacements}, nil
@@ -438,7 +438,7 @@ func (l *LocalExecutor) ApplyPatch(ctx context.Context, in ApplyPatchRequest) (_
 				return ApplyPatchResponse{}, openErr
 			}
 			for _, previous := range targets {
-				if target.same(previous) {
+				if target.overlaps(previous) {
 					return ApplyPatchResponse{}, errors.Join(fmt.Errorf("fs.ApplyPatch: duplicate target %s and %s", previous.path, path), target.parent.Close())
 				}
 			}
@@ -460,7 +460,7 @@ func (l *LocalExecutor) ApplyPatch(ctx context.Context, in ApplyPatchRequest) (_
 		if err := ctx.Err(); err != nil {
 			return out, err
 		}
-		result, err := file.commit()
+		result, err := file.commit(ctx)
 		if result.Path != "" {
 			out.Files = append(out.Files, result)
 			out.Hunks += result.Hunks
@@ -516,7 +516,7 @@ func (l *LocalExecutor) preparePatch(
 		}
 	}
 
-	mode := defaultFileMode
+	var mode *os.FileMode
 	var source []byte
 	hadBOM, hadCRLF := false, false
 	if !file.created() {
@@ -524,7 +524,7 @@ func (l *LocalExecutor) preparePatch(
 		if err != nil {
 			return preparedPatch{}, err
 		}
-		mode = info.Mode().Perm()
+		mode = new(info.Mode().Perm())
 		data, err := readBoundedRootFile(ctx, targets[file.oldPath].parent, targets[file.oldPath].name, defaultMutationInputBytes)
 		if err != nil {
 			return preparedPatch{}, err

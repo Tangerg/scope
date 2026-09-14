@@ -52,65 +52,69 @@ func TestNewScriptedDispatcherRejectsContradictorySteps(t *testing.T) {
 }
 
 func TestScriptedDispatcherRunsThroughPublicEngineBoundary(t *testing.T) {
-	effect, err := agent.NewDispatcherEffect(json.RawMessage(`{"operation":"scripted"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	dispatcher, err := agenttest.NewScriptedDispatcher(agenttest.ScriptedDispatcherConfig{
-		ReplayPolicy: agent.ReplayPolicySameIdentity,
-		Steps: []agenttest.DispatchStep{{
-			ExpectedEffect:    &effect,
-			Deltas:            []json.RawMessage{json.RawMessage(`{"token":"hello"}`)},
-			SettlementStatus:  agent.SettlementStatusSucceeded,
-			SettlementPayload: json.RawMessage(`{"ok":true}`),
-		}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition := newScriptedEffectDefinition(t, effect)
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition:           definition,
-		Dispatcher:           dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("agenttest scripted fixture implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("agenttest scripted fixture configuration")),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	recorder := &agenttest.ObservationRecorder{}
-	engine, err := agent.NewEngine(agent.EngineConfig{
-		EventListeners: []agent.EventListener{recorder},
-		DeltaListeners: []agent.DeltaListener{recorder},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	input, err := agent.EncodeInput("start")
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := engine.Run(t.Context(), deployment, input)
-	if err != nil || result.Status() != agent.StatusCompleted {
-		t.Fatalf("Run result=%+v error=%v", result, err)
-	}
+	for _, status := range []agent.SettlementStatus{agent.SettlementStatusSucceeded, agent.SettlementStatusFailed} {
+		t.Run(string(status), func(t *testing.T) {
+			effect, err := agent.NewDispatcherEffect(json.RawMessage(`{"operation":"scripted"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			dispatcher, err := agenttest.NewScriptedDispatcher(agenttest.ScriptedDispatcherConfig{
+				ReplayPolicy: agent.ReplayPolicySameIdentity,
+				Steps: []agenttest.DispatchStep{{
+					ExpectedEffect:    &effect,
+					Deltas:            []json.RawMessage{json.RawMessage(`{"token":"hello"}`)},
+					SettlementStatus:  status,
+					SettlementPayload: json.RawMessage(`{"ok":true}`),
+				}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			definition := newScriptedEffectDefinition(t, effect)
+			deployment, err := agent.NewDeployment(agent.DeploymentConfig{
+				Definition:           definition,
+				Dispatcher:           dispatcher,
+				ImplementationDigest: agent.ComputeDigest([]byte("agenttest scripted fixture implementation")),
+				ConfigurationDigest:  agent.ComputeDigest([]byte("agenttest scripted fixture configuration")),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			recorder := &agenttest.ObservationRecorder{}
+			engine, err := agent.NewEngine(agent.EngineConfig{
+				EventListeners: []agent.EventListener{recorder},
+				DeltaListeners: []agent.DeltaListener{recorder},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			input, err := agent.EncodeInput("start")
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := engine.Run(t.Context(), deployment, input)
+			if err != nil || result.Status() != agent.StatusCompleted {
+				t.Fatalf("Run result=%+v error=%v", result, err)
+			}
 
-	awaitCtx, cancel := context.WithTimeout(t.Context(), time.Second)
-	defer cancel()
-	if _, err := recorder.AwaitEvent(awaitCtx, func(event agent.Event) bool {
-		return event.Name() == agent.EventProcessFinished
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
-		t.Fatal(err)
-	}
-	if dispatcher.Remaining() != 0 || len(dispatcher.Requests()) != 1 {
-		t.Fatalf("remaining=%d requests=%d", dispatcher.Remaining(), len(dispatcher.Requests()))
-	}
-	deltas := recorder.Deltas()
-	if len(deltas) != 1 || string(deltas[0].Payload()) != `{"token":"hello"}` {
-		t.Fatalf("deltas=%v", deltas)
+			awaitCtx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			if _, err := recorder.AwaitEvent(awaitCtx, func(event agent.Event) bool {
+				return event.Name() == agent.EventProcessFinished
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+				t.Fatal(err)
+			}
+			if dispatcher.Remaining() != 0 || len(dispatcher.Requests()) != 1 {
+				t.Fatalf("remaining=%d requests=%d", dispatcher.Remaining(), len(dispatcher.Requests()))
+			}
+			deltas := recorder.Deltas()
+			if len(deltas) != 1 || string(deltas[0].Payload()) != `{"token":"hello"}` {
+				t.Fatalf("deltas=%v", deltas)
+			}
+		})
 	}
 }
 
@@ -187,4 +191,19 @@ func (s *scriptedEffectExecution) Snapshot() (agent.ExecutionState, error) {
 		return agent.ExecutionState{}, err
 	}
 	return agent.NewExecutionState("agenttest.scripted_effect", payload)
+}
+
+func TestScriptedDispatcherSettlementStatuses(t *testing.T) {
+	for _, status := range []agent.SettlementStatus{agent.SettlementStatusSucceeded, agent.SettlementStatusFailed, agent.SettlementStatusUnknown, "", "t", "failure"} {
+		t.Run(string(status), func(t *testing.T) {
+			_, err := agenttest.NewScriptedDispatcher(agenttest.ScriptedDispatcherConfig{
+				ReplayPolicy: agent.ReplayPolicyNever,
+				Steps:        []agenttest.DispatchStep{{SettlementStatus: status, SettlementPayload: json.RawMessage(`{}`)}},
+			})
+			valid := status == agent.SettlementStatusSucceeded || status == agent.SettlementStatusFailed || status == agent.SettlementStatusUnknown
+			if valid && err != nil || !valid && !errors.Is(err, agenttest.ErrInvalidDispatchScript) {
+				t.Fatalf("status=%q error=%v", status, err)
+			}
+		})
+	}
 }

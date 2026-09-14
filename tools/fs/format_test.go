@@ -81,9 +81,9 @@ func TestAtomicWriteFile_WritesAndPreservesMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer root.Close()
-	const relativePath = "sub/file.txt"
-	path := filepath.Join(dir, relativePath) // sub doesn't exist
-	if writeErr := atomicWriteRootFile(root, relativePath, []byte("hello"), 0o600); writeErr != nil {
+	const relativePath = "file.txt"
+	path := filepath.Join(dir, relativePath)
+	if writeErr := atomicWriteRootFile(root, relativePath, []byte("hello"), new(os.FileMode(0o600))); writeErr != nil {
 		t.Fatalf("atomicWriteRootFile: %v", writeErr)
 	}
 	data, err := os.ReadFile(path)
@@ -109,7 +109,7 @@ func TestAtomicWriteFile_NoLeftoverTemp(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer root.Close()
-	if writeErr := atomicWriteRootFile(root, "file.txt", []byte("x"), 0o644); writeErr != nil {
+	if writeErr := atomicWriteRootFile(root, "file.txt", []byte("x"), nil); writeErr != nil {
 		t.Fatalf("atomicWriteRootFile: %v", writeErr)
 	}
 	entries, err := os.ReadDir(dir)

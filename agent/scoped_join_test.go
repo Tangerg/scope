@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -168,7 +170,8 @@ func TestScopedJoinSeparatesResultsFromDescendantCleanup(t *testing.T) {
 					if !durable {
 						return
 					}
-					recoveredEngine, err := NewEngine(EngineConfig{TreeDurability: &recordingTreeDurability{}})
+					recoveredDurability := &recordingTreeDurability{}
+					recoveredEngine, err := NewEngine(EngineConfig{TreeDurability: recoveredDurability})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -185,6 +188,45 @@ func TestScopedJoinSeparatesResultsFromDescendantCleanup(t *testing.T) {
 						t.Errorf("restored cleanup discarded remote uncertainty: %+v", result)
 					}
 					waitForStatus(t, recoveredRoot, StatusPaused)
+					checkpoints := recoveredDurability.treeCheckpoints()
+					captured := checkpoints[len(checkpoints)-1].TreeSnapshot()
+					parsed := controlValue(ParseTreeSnapshot(captured.JSON()))
+					var state scopeJoinState
+					rootSnapshot := inspectProcessSnapshot(t, recoveredRoot)
+					if decodeErr := json.Unmarshal(rootSnapshot.CommittedExecutionState().Payload(), &state); decodeErr != nil {
+						t.Fatal(decodeErr)
+					}
+					if state.Outcome == nil {
+						t.Fatal("child outcome was not retained")
+					}
+					unresolved, known := state.Outcome.SubtreeUnresolvedEffects()
+					if boundary == ChildWaitBoundaryResult {
+						if known {
+							t.Fatal("terminal result claimed subtree certainty")
+						}
+					} else {
+						cleanupResult := mustAwait(t, cleanup)
+						want := []UnresolvedEffect{{ProcessID: cleanup.ID(), EffectID: cleanupResult.Termination().UnresolvedEffectIDs()[0]}}
+						if !known || !slices.Equal(unresolved, want) || len(state.Outcome.Result().Termination().UnresolvedEffectIDs()) != 0 {
+							t.Fatalf("subtree projection=%v known=%v local result=%+v", unresolved, known, state.Outcome.Result())
+						}
+						validation := controlValue(newTreeSnapshotValidation(parsed.state))
+						if !validation.matchesChildWaitOutcome(*state.Outcome, boundary) {
+							t.Fatal("valid subtree projection rejected")
+						}
+						for _, forged := range [][]UnresolvedEffect{{}, {{ProcessID: recoveredScope.ID(), EffectID: want[0].EffectID}}} {
+							outcome := *state.Outcome
+							outcome.subtreeUnresolvedEffects = forged
+							if validation.matchesChildWaitOutcome(outcome, boundary) {
+								t.Fatal("forged subtree projection accepted")
+							}
+						}
+						unresolved[0] = UnresolvedEffect{}
+						if unchanged, _ := state.Outcome.SubtreeUnresolvedEffects(); !slices.Equal(unchanged, want) {
+							t.Fatal("caller mutated owned subtree projection")
+						}
+					}
+
 					if operationErr := recoveredRoot.Kill(t.Context(), "finish the recovered fixture"); operationErr != nil {
 						t.Fatal(operationErr)
 					}

@@ -1,7 +1,6 @@
 package interaction
 
 import (
-	"context"
 	"errors"
 )
 
@@ -28,10 +27,4 @@ func HostFailure(cause error) error {
 		return cause
 	}
 	return hostFailureError{cause: cause}
-}
-
-func isHostOrContextError(cause error) bool {
-	return errors.Is(cause, ErrHostFailure) ||
-		errors.Is(cause, context.Canceled) ||
-		errors.Is(cause, context.DeadlineExceeded)
 }

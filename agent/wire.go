@@ -9,7 +9,9 @@ import (
 	"fmt"
 )
 
-const maxWireBytes = 64 << 20
+// MaxPayloadBytes is the maximum encoded JSON size of an individual Agent
+// input, output, Effect, Signal, or settlement payload.
+const MaxPayloadBytes = 64 << 20
 
 var (
 	ErrInvalidInput  = errors.New("agent: invalid input")
@@ -25,7 +27,7 @@ type Input struct {
 
 // ParseInput validates one JSON value and returns an independently owned Input.
 func ParseInput(data json.RawMessage) (Input, error) {
-	normalized, err := wireJSON.normalize(data, maxWireBytes)
+	normalized, err := wireJSON.normalize(data, MaxPayloadBytes)
 	if err != nil {
 		return Input{}, fmt.Errorf("%w: %w", ErrInvalidInput, err)
 	}
@@ -85,7 +87,7 @@ type Output struct {
 
 // ParseOutput validates one JSON value and returns an independently owned Output.
 func ParseOutput(data json.RawMessage) (Output, error) {
-	normalized, err := wireJSON.normalize(data, maxWireBytes)
+	normalized, err := wireJSON.normalize(data, MaxPayloadBytes)
 	if err != nil {
 		return Output{}, fmt.Errorf("%w: %w", ErrInvalidOutput, err)
 	}

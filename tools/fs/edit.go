@@ -2,6 +2,7 @@ package fs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -67,7 +68,15 @@ func (e *EditTool) Call(ctx context.Context, invocation toolcontract.Invocation)
 func (e *EditTool) edit(ctx context.Context, req EditRequest) (EditResponse, error) {
 	res, err := e.executor.Edit(ctx, req)
 	if err != nil {
-		return EditResponse{}, fmt.Errorf("fs.edit: %w", err)
+		cause := fmt.Errorf("fs.edit: %w", err)
+		if !errors.Is(err, ErrEditRejected) {
+			return EditResponse{}, cause
+		}
+		failure, failureErr := toolcontract.NewFailure(cause, chat.NewTextToolOutput(cause.Error()))
+		if failureErr != nil {
+			return EditResponse{}, errors.Join(cause, failureErr)
+		}
+		return EditResponse{}, failure
 	}
 	return res, nil
 }

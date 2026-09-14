@@ -90,24 +90,25 @@ func (s *Single) AcceptOpening(signal agent.Signal, key agent.WaitKey, boundary 
 	return s.waitID, nil
 }
 
-// Complete extracts one exactly correlated result without interpreting its
-// termination. The Strategy retires the invocation after applying its policy.
-func (s Single) Complete(signal agent.Signal, key agent.ChildKey, waitKey agent.WaitKey, boundary agent.ChildWaitBoundary) (agent.Result, error) {
+// Complete extracts one exactly correlated outcome without interpreting its
+// termination or subtree facts. The Strategy retires the invocation after
+// applying its policy.
+func (s Single) Complete(signal agent.Signal, key agent.ChildKey, waitKey agent.WaitKey, boundary agent.ChildWaitBoundary) (agent.ChildOutcome, error) {
 	if s.Phase() != AwaitingCompletion {
-		return agent.Result{}, errors.New("childcall: completion requires an open wait")
+		return agent.ChildOutcome{}, errors.New("childcall: completion requires an open wait")
 	}
 	completed, err := agent.ParseChildWaitSatisfied(signal)
 	if err != nil {
-		return agent.Result{}, err
+		return agent.ChildOutcome{}, err
 	}
 	if !CompletionMatches(completed, s.waitID, waitKey, boundary) {
-		return agent.Result{}, errors.New("childcall: completion does not match the active wait")
+		return agent.ChildOutcome{}, errors.New("childcall: completion does not match the active wait")
 	}
 	outcomes := completed.Outcomes()
 	if len(outcomes) != 1 || !OutcomeMatches(outcomes[0], key, s.processID) {
-		return agent.Result{}, errors.New("childcall: completion does not identify the single child")
+		return agent.ChildOutcome{}, errors.New("childcall: completion does not identify the single child")
 	}
-	return outcomes[0].Result(), nil
+	return outcomes[0], nil
 }
 
 type singleWire struct {

@@ -394,7 +394,7 @@ func (t *treeSnapshotValidation) validateChildWaitSignals(mailbox mailboxWire, w
 	if err != nil {
 		return fmt.Errorf("%w: encode child wait: %w", ErrInvalidTreeSnapshot, err)
 	}
-	opened, err = wireJSON.normalize(opened, maxWireBytes)
+	opened, err = wireJSON.normalize(opened, MaxPayloadBytes)
 	if err != nil {
 		return fmt.Errorf("%w: normalize child wait: %w", ErrInvalidTreeSnapshot, err)
 	}
@@ -447,7 +447,31 @@ func (t *treeSnapshotValidation) matchesChildWaitOutcome(outcome ChildOutcome, b
 	if expectedErr != nil || actualErr != nil || !bytes.Equal(expectedJSON, actualJSON) {
 		return false
 	}
-	return boundary != ChildWaitBoundaryDrained || t.subtreeTerminal(child.ProcessID)
+	if boundary != ChildWaitBoundaryDrained {
+		return outcome.subtreeUnresolvedEffects == nil
+	}
+	if !t.subtreeTerminal(child.ProcessID) {
+		return false
+	}
+	return slices.Equal(outcome.subtreeUnresolvedEffects, t.subtreeUnresolvedEffects(child.ProcessID))
+}
+
+func (t *treeSnapshotValidation) subtreeUnresolvedEffects(processID ProcessID) []UnresolvedEffect {
+	effects := make([]UnresolvedEffect, 0)
+	var visit func(ProcessID)
+	visit = func(id ProcessID) {
+		for _, effectID := range t.processes[id].Termination.UnresolvedEffectIDs() {
+			effects = append(effects, UnresolvedEffect{ProcessID: id, EffectID: effectID})
+		}
+		for _, child := range t.processes {
+			if child.Relation.ParentID != nil && *child.Relation.ParentID == id {
+				visit(child.ProcessID)
+			}
+		}
+	}
+	visit(processID)
+	slices.SortFunc(effects, UnresolvedEffect.compare)
+	return effects
 }
 
 func (t *treeSnapshotValidation) subtreeTerminal(processID ProcessID) bool {

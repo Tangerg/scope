@@ -24,7 +24,7 @@ func newSignal(id SignalID, waitID WaitID, payload json.RawMessage) (Signal, err
 	if !id.Valid() {
 		return Signal{}, fmt.Errorf("%w: %w", ErrInvalidSignal, ErrInvalidIdentity)
 	}
-	normalized, err := wireJSON.normalize(payload, maxWireBytes)
+	normalized, err := wireJSON.normalize(payload, MaxPayloadBytes)
 	if err != nil {
 		return Signal{}, fmt.Errorf("%w: payload: %w", ErrInvalidSignal, err)
 	}

@@ -24,6 +24,8 @@ type Writer interface {
 }
 
 // Editor keeps read-modify-write atomic inside the filesystem authority owner.
+// ErrEditRejected reports a definite rejection with no mutation. Other errors
+// do not establish the outcome and must not be treated as safe to retry.
 type Editor interface {
 	Edit(ctx context.Context, request EditRequest) (EditResponse, error)
 }

@@ -12,12 +12,24 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
+// ErrModelResponseTooLarge reports response resource admission failure.
+// After model execution starts, the incomplete response is discarded and its
+// Effect remains unknown. Oversize replacement context is rejected before calling
+// the model and settles as a definite host failure.
+var ErrModelResponseTooLarge = errors.New("interaction: model response exceeds byte limit")
+
 // DispatcherConfig binds external capabilities for one Deployment.
 type DispatcherConfig struct {
 	// Exactly one of Model and Streamer is required. The selected capability
 	// owns the entire response lifecycle; streaming is accumulated before settlement.
 	Model    chat.Model
 	Streamer chat.Streamer
+
+	// MaxResponseBytes bounds both the complete encoded result envelope and the
+	// cumulative encoded stream deltas, including replacement context. Stream
+	// framing counts toward the cumulative limit. Zero uses agent.MaxPayloadBytes;
+	// positive values may lower that limit. No partial response is promoted.
+	MaxResponseBytes int
 
 	// Observer receives exact model response facts. Nil disables observation.
 	// It is separate from Engine Events/Deltas, which describe execution mechanics.
@@ -42,6 +54,7 @@ type Dispatcher struct {
 	observer            ModelObserver
 	observationFailures observationFailureCounters
 	contextReducer      ModelContextReducer
+	maxResponseBytes    int
 }
 
 // ObservationFailures returns a concurrency-safe snapshot of ModelObserver
@@ -71,9 +84,17 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 	if config.ModelContextReducer != nil && lo.IsNil(config.ModelContextReducer) {
 		return nil, fmt.Errorf("%w: ModelContextReducer is typed nil", ErrInvalidDispatcherConfig)
 	}
+	limit := config.MaxResponseBytes
+	if limit < 0 || limit > agent.MaxPayloadBytes {
+		return nil, fmt.Errorf("%w: MaxResponseBytes must be between 0 and %d", ErrInvalidDispatcherConfig, agent.MaxPayloadBytes)
+	}
+	if limit == 0 {
+		limit = agent.MaxPayloadBytes
+	}
 	dispatcher := &Dispatcher{
 		model: config.Model, streamer: config.Streamer, observer: config.Observer,
 		contextReducer:     config.ModelContextReducer,
+		maxResponseBytes:   limit,
 		initialDefinitions: cloneDefinitions(definition.tools.initialDefinitions),
 		tools:              definition.tools,
 	}
@@ -156,7 +177,18 @@ func (d *Dispatcher) dispatchModel(
 			)
 		}
 	}
-	response, err := d.callModel(ctx, modelRequest, emit)
+	result := &modelCallResult{}
+	if d.contextReducer != nil && !reflect.DeepEqual(call.Request.Messages, modelRequest.Messages) {
+		result.ReplacementMessages = cloneMessages(modelRequest.Messages)
+	}
+	base, err := encodeProtocol(signalEnvelope{Operation: operationModelCall, ModelResult: result})
+	if err != nil {
+		return modelHostFailureSettlement(request.ID(), err)
+	}
+	if len(base) >= d.maxResponseBytes {
+		return modelHostFailureSettlement(request.ID(), ErrModelResponseTooLarge)
+	}
+	response, err := d.callModel(ctx, modelRequest, emit, d.maxResponseBytes-len(base))
 	if err != nil {
 		return agent.Settlement{}, fmt.Errorf("interaction: model outcome unknown: %w", err)
 	}
@@ -166,17 +198,17 @@ func (d *Dispatcher) dispatchModel(
 	if validateErr := response.Validate(); validateErr != nil {
 		return agent.Settlement{}, fmt.Errorf("interaction: invalid model response: %w", validateErr)
 	}
-	d.observeModel(ctx, invocation, response)
-	result := &modelCallResult{Response: response}
-	if d.contextReducer != nil && !reflect.DeepEqual(call.Request.Messages, modelRequest.Messages) {
-		result.ReplacementMessages = cloneMessages(modelRequest.Messages)
-	}
+	result.Response = response
 	payload, err := encodeProtocol(signalEnvelope{
 		Operation: operationModelCall, ModelResult: result,
 	})
 	if err != nil {
 		return agent.Settlement{}, err
 	}
+	if len(payload) > d.maxResponseBytes {
+		return agent.Settlement{}, ErrModelResponseTooLarge
+	}
+	d.observeModel(ctx, invocation, response)
 	return agent.NewSettlement(request.ID(), agent.SettlementStatusSucceeded, payload)
 }
 
@@ -203,6 +235,7 @@ func (d *Dispatcher) callModel(
 	ctx context.Context,
 	request *chat.Request,
 	emit agent.DeltaEmitter,
+	remainingBytes int,
 ) (*chat.Response, error) {
 	if d.streamer == nil {
 		return d.model.Call(ctx, request)
@@ -220,15 +253,19 @@ func (d *Dispatcher) callModel(
 		if delta == nil {
 			return nil, errors.New("model stream yielded a nil response Delta")
 		}
+		payload, err := encodeModelResponseDelta(delta)
+		if err != nil {
+			return nil, err
+		}
+		if len(payload) > remainingBytes {
+			return nil, ErrModelResponseTooLarge
+		}
+		remainingBytes -= len(payload)
 		if err := accumulator.Add(delta); err != nil {
 			return nil, fmt.Errorf("accumulate model stream: %w", err)
 		}
 		seen = true
 		if emit != nil {
-			payload, err := encodeModelResponseDelta(delta)
-			if err != nil {
-				return nil, err
-			}
 			emit(payload)
 		}
 	}

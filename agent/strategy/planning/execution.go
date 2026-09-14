@@ -236,10 +236,14 @@ func (e *execution) advanceChild(signals []agent.Signal) (agent.Transition, erro
 		}
 		return agent.Wait(1, waitID)
 	}
-	result, err := e.state.Child.Complete(signals[0], key, waitKey, agent.ChildWaitBoundaryDrained)
+	outcome, err := e.state.Child.Complete(signals[0], key, waitKey, agent.ChildWaitBoundaryDrained)
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: child completion: %w", ErrInvalidProtocol, err)
 	}
+	if unresolved, _ := outcome.SubtreeUnresolvedEffects(); len(unresolved) > 0 {
+		return e.fail(1, agent.FailureKindExternal, "planning.child.unresolved_effects", fmt.Sprintf("child subtree %s ended with unresolved Effects %v", outcome.Result().ProcessID(), unresolved))
+	}
+	result := outcome.Result()
 	e.state.Child = nil
 	if result.Status() != agent.StatusCompleted {
 		e.state.recordFailedAction(result.Termination().Reason())

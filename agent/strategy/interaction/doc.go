@@ -44,7 +44,9 @@
 // refer to bound deferred Tools, including during restoration. Model preparation
 // errors settle as definite host failures before external work begins.
 //
-// A tool.Failure produces a model-visible error ToolResult. Ordinary errors,
+// A tool.Failure produces a model-visible error ToolResult, even when its cause
+// is cancellation or a deadline. An explicit HostFailure still declares that no
+// definite ToolResult is available. Ordinary errors,
 // invalid output, cancellation, deadlines, and panics without a definite result leave
 // the Tool Effect unknown. The Engine retains that identity across tree capture
 // and restoration and requires explicit settlement before execution continues.
@@ -53,6 +55,6 @@
 // and never replace the Engine's authoritative settlement boundary. When a Tool
 // child terminates, its Failure propagates unchanged to the parent. Cancellation
 // and timeout diagnostics retain the child identity and termination cause.
-// Delegate termination with unresolved Effects fails the parent without another
-// model call. Drained child work does not prove a definite external outcome.
+// A drained Delegate subtree with unresolved Effects fails the parent without
+// another model call. ChildOutcome preserves their owning ProcessID and EffectID. Drained child work does not prove a definite external outcome.
 package interaction

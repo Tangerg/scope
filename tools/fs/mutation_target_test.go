@@ -67,8 +67,8 @@ func TestMutationRetainsParentAcrossDirectoryReplacement(t *testing.T) {
 	if checkErr := root.Mkdir("selected", 0o700); checkErr != nil {
 		t.Fatal(checkErr)
 	}
-	prepared := preparedPatch{target: target, data: []byte("new"), mode: 0o600, result: PatchFileResponse{Path: target.path, Created: true}}
-	if _, checkErr := prepared.commit(); checkErr != nil {
+	prepared := preparedPatch{target: target, data: []byte("new"), mode: new(os.FileMode(0o600)), result: PatchFileResponse{Path: target.path, Created: true}}
+	if _, checkErr := prepared.commit(t.Context()); checkErr != nil {
 		t.Fatal(checkErr)
 	}
 	data, err := root.ReadFile("original/file")
@@ -96,5 +96,29 @@ func TestGrepConfinedSelectionPreservesFilters(t *testing.T) {
 	}
 	if _, err := executor.Grep(t.Context(), GrepInput{Pattern: "needle", FileType: "unknown-type"}); err == nil {
 		t.Fatal("unknown type accepted")
+	}
+}
+
+func TestMissingAliasParentsAreValidatedBeforeMutation(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "real"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real", filepath.Join(root, "alias")); err != nil {
+		t.Skip(err)
+	}
+	for _, paths := range [][2]string{{"real/new/file", "alias/new/file"}, {"real/new", "alias/new/file"}} {
+		patch := ""
+		for _, path := range paths {
+			patch += "--- /dev/null\n+++ " + path + "\n@@ -0,0 +1 @@\n+new\n"
+		}
+		result, err := mustLocalExecutor(t, root).ApplyPatch(t.Context(), ApplyPatchRequest{Patch: patch})
+		if err == nil || len(result.Files) != 0 {
+			t.Fatalf("alias collision was admitted: %+v %v", result, err)
+		}
+		entries, err := os.ReadDir(filepath.Join(root, "real"))
+		if err != nil || len(entries) != 0 {
+			t.Fatalf("alias validation mutated directory: %v %v", entries, err)
+		}
 	}
 }

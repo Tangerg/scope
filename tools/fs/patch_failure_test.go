@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -118,5 +119,47 @@ func TestApplyPatchInterruptedMoveReportsCreatedDestination(t *testing.T) {
 		if content, readErr := os.ReadFile(filepath.Join(root, path)); readErr != nil || string(content) != "old\n" {
 			t.Fatalf("%s = %q, %v", path, content, readErr)
 		}
+	}
+}
+
+func TestPatchPreparationDoesNotCreateDirectories(t *testing.T) {
+	for _, suffix := range []string{
+		"--- existing\n+++ existing\n@@ -1 +1 @@\n-stale\n+new\n",
+		"--- missing\n+++ missing\n@@ -1 +1 @@\n-old\n+new\n",
+		"--- /dev/null\n+++ existing\n@@ -0,0 +1 @@\n+new\n",
+	} {
+		root := t.TempDir()
+		writeTemp(t, root, "existing", "old\n")
+		out, err := mustLocalExecutor(t, root).ApplyPatch(t.Context(), ApplyPatchRequest{
+			Patch: "--- /dev/null\n+++ newdir/nested/file\n@@ -0,0 +1 @@\n+first\n" + suffix,
+		})
+		if err == nil || len(out.Files) != 0 {
+			t.Fatalf("rejected patch: %+v, %v", out, err)
+		}
+		entries, err := os.ReadDir(root)
+		if err != nil || len(entries) != 1 || entries[0].Name() != "existing" {
+			t.Fatalf("preparation mutated directory: %v, %v", entries, err)
+		}
+		data, err := os.ReadFile(filepath.Join(root, "existing"))
+		if err != nil || string(data) != "old\n" {
+			t.Fatalf("preparation mutated file: %q, %v", data, err)
+		}
+	}
+}
+
+func TestCanceledMutationsDoNotCreateDirectories(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	root := t.TempDir()
+	executor := mustLocalExecutor(t, root)
+	if _, err := executor.Write(ctx, WriteRequest{Path: "write/nested/file", Content: "new"}); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	if _, err := executor.ApplyPatch(ctx, ApplyPatchRequest{Patch: "--- /dev/null\n+++ patch/nested/file\n@@ -0,0 +1 @@\n+new\n"}); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("canceled mutations created directories: %v, %v", entries, err)
 	}
 }

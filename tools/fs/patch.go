@@ -2,6 +2,7 @@ package fs
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -151,14 +152,14 @@ type preparedPatch struct {
 	target *mutationTarget
 	source *mutationTarget
 	data   []byte
-	mode   os.FileMode
+	mode   *os.FileMode
 	result PatchFileResponse
 }
 
 // A move publishes before removing its source, preserving partial outcomes.
-func (p preparedPatch) commit() (PatchFileResponse, error) {
+func (p preparedPatch) commit(ctx context.Context) (PatchFileResponse, error) {
 	if p.target != nil {
-		if err := atomicWriteRootFile(p.target.parent, p.target.name, p.data, p.mode); err != nil {
+		if err := p.target.write(ctx, p.data, p.mode); err != nil {
 			return PatchFileResponse{}, fmt.Errorf("fs.ApplyPatch: write %s: %w", p.target.path, err)
 		}
 	}

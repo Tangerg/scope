@@ -585,8 +585,8 @@ func (e *execution) acceptChildCompletions(ctx context.Context, signals []agent.
 		index := indices[offset]
 		result := outcome.Result()
 		if batch.Kind == childCallsDelegate {
-			if unresolved := result.Termination().UnresolvedEffectIDs(); len(unresolved) > 0 {
-				return e.fail(consumed, agent.FailureKindExternal, "interaction.delegate.unresolved_effects", fmt.Sprintf("Delegate child %s ended with unresolved Effects %v", result.ProcessID(), unresolved))
+			if unresolved, _ := outcome.SubtreeUnresolvedEffects(); len(unresolved) > 0 {
+				return e.fail(consumed, agent.FailureKindExternal, "interaction.delegate.unresolved_effects", fmt.Sprintf("Delegate subtree %s ended with unresolved Effects %v", result.ProcessID(), unresolved))
 			}
 			if err := e.acceptDelegateOutcome(index, calls[index], result); err != nil {
 				return agent.Transition{}, err

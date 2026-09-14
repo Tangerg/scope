@@ -24,7 +24,7 @@ func NewExecutionState(kind string, payload json.RawMessage) (ExecutionState, er
 	if !validQualifiedName(kind) {
 		return ExecutionState{}, fmt.Errorf("%w: kind must be a lowercase qualified name", ErrInvalidExecutionState)
 	}
-	normalized, err := wireJSON.normalize(payload, maxWireBytes)
+	normalized, err := wireJSON.normalize(payload, MaxPayloadBytes)
 	if err != nil {
 		return ExecutionState{}, fmt.Errorf("%w: payload: %w", ErrInvalidExecutionState, err)
 	}

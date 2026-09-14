@@ -142,21 +142,12 @@ func (t *toolDispatcher) callTool(
 		}
 	}()
 	output, err := binding.binding.Call(ctx, prepared.invocation)
-	if isHostOrContextError(err) {
-		return chat.ToolResult{}, nil, nil, err
-	}
-	if err != nil {
-		if inputRequired, ok := errors.AsType[*toolInputRequiredError](err); ok {
-			request, valid := inputRequired.inputRequest()
-			if !valid {
-				return chat.ToolResult{}, nil, nil, ErrInvalidToolInputRequest
-			}
-			return chat.ToolResult{}, nil, &request, nil
-		}
-	}
-	result, err = modelToolResult(call, output, err)
+	result, required, err = modelToolResult(call, output, err)
 	if err != nil {
 		return chat.ToolResult{}, nil, nil, err
+	}
+	if required != nil {
+		return chat.ToolResult{}, nil, required, nil
 	}
 	if result.IsError {
 		return result, nil, nil, nil

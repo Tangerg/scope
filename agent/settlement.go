@@ -65,7 +65,7 @@ func NewSettlement(effectID EffectID, status SettlementStatus, payload json.RawM
 	if !status.Valid() {
 		return Settlement{}, fmt.Errorf("%w: status is required", ErrInvalidSettlement)
 	}
-	normalized, err := wireJSON.normalize(payload, maxWireBytes)
+	normalized, err := wireJSON.normalize(payload, MaxPayloadBytes)
 	if err != nil {
 		return Settlement{}, fmt.Errorf("%w: payload: %w", ErrInvalidSettlement, err)
 	}

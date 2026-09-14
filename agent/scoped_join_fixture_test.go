@@ -59,9 +59,10 @@ func (s *scopeJoinDefinition) Restore(state ExecutionState) (Execution, error) {
 }
 
 type scopeJoinState struct {
-	Role   string `json:"role"`
-	Phase  string `json:"phase"`
-	WaitID WaitID `json:"wait_id,omitzero"`
+	Role    string        `json:"role"`
+	Phase   string        `json:"phase"`
+	WaitID  WaitID        `json:"wait_id,omitzero"`
+	Outcome *ChildOutcome `json:"outcome,omitempty"`
 }
 
 type scopeJoinExecution struct {
@@ -133,6 +134,7 @@ func (s *scopeJoinExecution) Step(_ context.Context, signals []Signal) (Transiti
 		if err != nil || satisfied.Boundary() != s.definition.boundary || len(satisfied.Outcomes()) != 1 {
 			return Transition{}, errors.New("scope wait did not establish its requested boundary")
 		}
+		s.state.Outcome = new(satisfied.Outcomes()[0])
 		s.state.Phase = "satisfied"
 		return Pause(consumed, "scope boundary reached; sibling remains active")
 	}

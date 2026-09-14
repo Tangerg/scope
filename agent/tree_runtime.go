@@ -2460,11 +2460,31 @@ func (t *treeRuntime) childWaitOutcomes(
 		}
 		if ready {
 			key, _ := child.handle.relation.ChildKey()
-			outcomes = append(outcomes, ChildOutcome{key: key, result: child.result()})
+			outcome := ChildOutcome{key: key, result: child.result()}
+			if registration.spec.Boundary == ChildWaitBoundaryDrained {
+				outcome.subtreeUnresolvedEffects = t.subtreeUnresolvedEffects(childID)
+			}
+			outcomes = append(outcomes, outcome)
 		}
 	}
 	required, err := registration.spec.Condition.required(len(registration.spec.Children))
 	return outcomes, err == nil && uint32(len(outcomes)) >= required
+}
+
+func (t *treeRuntime) subtreeUnresolvedEffects(processID ProcessID) []UnresolvedEffect {
+	effects := make([]UnresolvedEffect, 0)
+	var visit func(ProcessID)
+	visit = func(id ProcessID) {
+		for _, effectID := range t.processes[id].result().Termination().UnresolvedEffectIDs() {
+			effects = append(effects, UnresolvedEffect{ProcessID: id, EffectID: effectID})
+		}
+		for _, childID := range t.childrenByParent[id] {
+			visit(childID)
+		}
+	}
+	visit(processID)
+	slices.SortFunc(effects, UnresolvedEffect.compare)
+	return effects
 }
 
 func (t *treeRuntime) registerChildWait(

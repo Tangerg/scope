@@ -162,11 +162,11 @@ func (e *execution) advanceChild(ctx context.Context, signals []agent.Signal) (a
 		}
 		return agent.Wait(1, waitID)
 	default:
-		result, completeErr := e.state.Child.Complete(signals[0], key, waitKey, agent.ChildWaitBoundaryDrained)
+		outcome, completeErr := e.state.Child.Complete(signals[0], key, waitKey, agent.ChildWaitBoundaryDrained)
 		if completeErr != nil {
 			return agent.Transition{}, fmt.Errorf("%w: Stage %q child completion: %w", ErrInvalidProtocol, e.stage().id, completeErr)
 		}
-		return e.acceptChildCompletion(ctx, result)
+		return e.acceptChildCompletion(ctx, outcome.Result())
 	}
 }
 

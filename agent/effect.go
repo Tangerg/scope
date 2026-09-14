@@ -63,7 +63,7 @@ func RequestWait(key WaitKey, signalPayload json.RawMessage) (Effect, error) {
 	if !key.Valid() {
 		return Effect{}, fmt.Errorf("%w: wait key: %w", ErrInvalidEffect, ErrInvalidIdentity)
 	}
-	normalized, err := wireJSON.normalize(signalPayload, maxWireBytes)
+	normalized, err := wireJSON.normalize(signalPayload, MaxPayloadBytes)
 	if err != nil {
 		return Effect{}, fmt.Errorf("%w: wait signal payload: %w", ErrInvalidEffect, err)
 	}
@@ -93,7 +93,7 @@ func newEffectWithCapabilities(
 	if !requirements.Valid() || target == EffectTargetFramework && len(requirements.values) != 0 {
 		return Effect{}, fmt.Errorf("%w: invalid required capabilities", ErrInvalidEffect)
 	}
-	normalized, err := wireJSON.normalize(payload, maxWireBytes)
+	normalized, err := wireJSON.normalize(payload, MaxPayloadBytes)
 	if err != nil {
 		return Effect{}, fmt.Errorf("%w: payload: %w", ErrInvalidEffect, err)
 	}
@@ -208,7 +208,7 @@ func decodeWaitRequestPayload(payload json.RawMessage) (WaitKey, json.RawMessage
 	if wire.Operation != frameworkEffectWait || !wire.Key.Valid() {
 		return WaitKey{}, nil, fmt.Errorf("%w: unsupported Framework Effect", ErrInvalidEffect)
 	}
-	normalized, err := wireJSON.normalize(wire.SignalPayload, maxWireBytes)
+	normalized, err := wireJSON.normalize(wire.SignalPayload, MaxPayloadBytes)
 	if err != nil {
 		return WaitKey{}, nil, fmt.Errorf("%w: framework Effect signal payload: %w", ErrInvalidEffect, err)
 	}

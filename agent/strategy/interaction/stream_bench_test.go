@@ -35,7 +35,7 @@ func BenchmarkModelStreamObservation(b *testing.B) {
 			}
 			b.ReportAllocs()
 			for b.Loop() {
-				response, err := dispatcher.callModel(b.Context(), nil, emit)
+				response, err := dispatcher.callModel(b.Context(), nil, emit, agent.MaxPayloadBytes)
 				if err != nil || len(response.Text()) != 1024*len("increment") {
 					b.Fatalf("response: %v", err)
 				}

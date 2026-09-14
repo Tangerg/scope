@@ -19,7 +19,7 @@ func TestFrameworkParsersRejectCallerOwnedSignals(t *testing.T) {
 	failure := controlValue(NewFailure(FailureKindExecution, "test.failed", "test failure"))
 	now := time.Now().UTC()
 	result := Result{processID: childID, startedAt: now, finishedAt: now, termination: failure.termination()}
-	completed := controlValue(encodeChildWaitSatisfied(waitID, spec.Key, spec.Boundary, []ChildOutcome{{key: key, result: result}}))
+	completed := controlValue(encodeChildWaitSatisfied(waitID, spec.Key, spec.Boundary, []ChildOutcome{{key: key, result: result, subtreeUnresolvedEffects: []UnresolvedEffect{}}}))
 	for _, test := range []struct {
 		name   string
 		signal Signal

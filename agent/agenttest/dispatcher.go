@@ -109,8 +109,7 @@ func freezeDispatchStep(source DispatchStep) (dispatchStep, error) {
 		}
 		return step, nil
 	}
-	if source.SettlementStatus < agent.SettlementStatusSucceeded ||
-		source.SettlementStatus > agent.SettlementStatusUnknown {
+	if !source.SettlementStatus.Valid() {
 		return dispatchStep{}, errors.New("settlement status is required")
 	}
 	if !json.Valid(source.SettlementPayload) {

@@ -51,11 +51,13 @@ const (
 // atomicWriteRootFile writes data to path through a sibling temp file +
 // rename. On POSIX the rename is atomic as long as both paths are on
 // the same filesystem — so partial writes never leave a half-written
-// file visible to readers.
-func atomicWriteRootFile(root *os.Root, path string, data []byte, mode os.FileMode) (err error) {
+// file visible to readers. A nil preservedMode creates with defaultFileMode
+// subject to umask; an existing file supplies its exact permissions.
+func atomicWriteRootFile(root *os.Root, path string, data []byte, preservedMode *os.FileMode) (err error) {
 	dir := filepath.Dir(path)
-	if err = root.MkdirAll(dir, defaultDirectoryMode); err != nil {
-		return err
+	mode := defaultFileMode
+	if preservedMode != nil {
+		mode = *preservedMode
 	}
 	name, err := temporaryWriteName()
 	if err != nil {
@@ -88,8 +90,10 @@ func atomicWriteRootFile(root *os.Root, path string, data []byte, mode os.FileMo
 	if err = tmp.Close(); err != nil {
 		return err
 	}
-	if err = root.Chmod(tmpPath, mode); err != nil {
-		return err
+	if preservedMode != nil {
+		if err = root.Chmod(tmpPath, *preservedMode); err != nil {
+			return err
+		}
 	}
 	return root.Rename(tmpPath, path)
 }

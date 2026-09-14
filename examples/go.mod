@@ -6,11 +6,14 @@ require (
 	github.com/Tangerg/scope/agent v0.21.0
 	github.com/Tangerg/scope/core v0.21.0
 	github.com/Tangerg/scope/mcp v0.21.0
+	github.com/Tangerg/scope/tools v0.21.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 )
 
 require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
+	github.com/bluekeyes/go-gitdiff v0.9.0 // indirect
+	github.com/bmatcuk/doublestar/v4 v4.10.0 // indirect
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect

@@ -16,4 +16,6 @@
 // A delegated Action waits for its child subtree to drain before reobserving
 // the world. A child start or execution failure records a failed attempt;
 // it does not bypass sensing or directly establish the Action's effects.
+// Drained child subtrees with unresolved Effects fail the Process before any
+// further sensing or action. Join alone does not prove external outcomes.
 package planning
