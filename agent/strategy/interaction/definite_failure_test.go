@@ -19,7 +19,7 @@ func TestDefiniteToolFailureSurvivesCancellationCauseAndTreeRestore(t *testing.T
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 			output := chat.NewTextToolOutput("first write completed; second write did not start")
-			failure, err := tool.NewFailure(cause, output)
+			failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: cause, Output: output})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -85,7 +85,7 @@ func TestProcessCancellationRetainsDefiniteToolSettlement(t *testing.T) {
 	executable, err := tool.NewFunc(tool.FuncConfig{Name: "cancel_after_write", Description: "Report a known outcome after cancellation."}, func(ctx context.Context, _ struct{}) (string, error) {
 		close(started)
 		<-ctx.Done()
-		failure, err := tool.NewFailure(ctx.Err(), chat.NewTextToolOutput("write completed before cancellation"))
+		failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: ctx.Err(), Output: chat.NewTextToolOutput("write completed before cancellation")})
 		if err != nil {
 			return "", err
 		}

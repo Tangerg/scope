@@ -61,9 +61,11 @@
 // or reading old host memory. If the transaction remains uncertain, adoption
 // stays blocked. Receipt validation binds both content and settlement identity.
 //
-// A tool.Failure produces a model-visible error ToolResult, even when its cause
-// is cancellation or a deadline. An explicit HostFailure still declares that no
-// definite ToolResult is available. Ordinary errors,
+// A valid tool.Failure produces its complete model-visible error ToolResult and
+// rejection disposition. Its diagnostic Cause cannot issue cancellation, input,
+// or host-control signals; an outer HostFailure still declares that no definite
+// ToolResult is available. Guard authorization errors do not carry a decision or
+// expose the policy's internal outcome. Ordinary errors,
 // invalid output, cancellation, deadlines, and panics without a definite result leave
 // the Tool Effect unknown. The Engine retains that identity across tree capture
 // and restoration and requires explicit settlement before execution continues.

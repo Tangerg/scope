@@ -174,7 +174,7 @@ func TestUnsuccessfulToolCallDiscardsStagedAdvertisements(t *testing.T) {
 			if err := interaction.AdvertiseTools(ctx, "hidden"); err != nil {
 				return "", err
 			}
-			failure, err := tool.NewFailure(errors.New("business failure"), chat.NewTextToolOutput("business failure"))
+			failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: errors.New("business failure"), Output: chat.NewTextToolOutput("business failure")})
 			if err != nil {
 				t.Fatal(err)
 			}

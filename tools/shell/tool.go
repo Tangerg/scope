@@ -103,7 +103,7 @@ func (t *Tool) run(ctx context.Context, req Request) (Response, error) {
 	}
 	output := chat.NewTextToolOutput(fmt.Sprintf("%s\nCaptured execution output: %s", cause, encoded))
 	output.Details = encoded
-	failure, failureErr := toolcontract.NewFailure(cause, output)
+	failure, failureErr := toolcontract.NewFailure(toolcontract.FailureConfig{Kind: toolcontract.FailureKindFailed, Cause: cause, Output: output})
 	if failureErr != nil {
 		return Response{}, errors.Join(cause, failureErr)
 	}

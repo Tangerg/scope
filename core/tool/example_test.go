@@ -2,6 +2,7 @@ package tool_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -45,4 +46,59 @@ func Example() {
 	// Output:
 	// add
 	// 5
+}
+
+func ExampleNewFailure() {
+	failure, err := tool.NewFailure(tool.FailureConfig{
+		Kind: tool.FailureKindRejected, Cause: errors.New("internal authorization diagnostic"),
+		Output: chat.NewTextToolOutput("this operation is not permitted"),
+	})
+	if err != nil {
+		panic(err)
+	}
+	wrapped := fmt.Errorf("tool call: %w", failure)
+	result, found := errors.AsType[*tool.Failure](wrapped)
+	if !found {
+		panic("missing definite outcome")
+	}
+	text, _ := result.Output().Text()
+	fmt.Println(result.Kind(), text)
+	fmt.Println(errors.Is(wrapped, result.Cause()))
+	// Output:
+	// rejected this operation is not permitted
+	// false
+}
+
+func ExampleNewGuard() {
+	executable, err := tool.NewFunc(tool.FuncConfig{Name: "inspect"}, func(context.Context, struct{}) (string, error) {
+		return "inspected", nil
+	})
+	if err != nil {
+		panic(err)
+	}
+	guard, err := tool.NewGuard(tool.GuardConfig{
+		Tool: executable,
+		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
+			return false, nil
+		}),
+	})
+	if err != nil {
+		panic(err)
+	}
+	binding, err := tool.Bind(guard)
+	if err != nil {
+		panic(err)
+	}
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`})
+	if err != nil {
+		panic(err)
+	}
+	_, err = binding.Call(context.Background(), invocation)
+	failure, found := errors.AsType[*tool.Failure](err)
+	if !found {
+		panic(err)
+	}
+	fmt.Println(failure.Kind())
+	// Output:
+	// rejected
 }

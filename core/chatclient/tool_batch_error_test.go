@@ -17,7 +17,7 @@ func TestToolBatchErrorPreservesCompletedEffectsAndFailedCall(t *testing.T) {
 	}{{name: "execution failure"}, {name: "invalid output", invalidOutput: true}} {
 		t.Run(test.name, func(t *testing.T) {
 			cause := errors.New("write failed after partial progress")
-			failure, err := tool.NewFailure(cause, chat.NewTextToolOutput("partial write acknowledged"))
+			failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: cause, Output: chat.NewTextToolOutput("partial write acknowledged")})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -57,7 +57,7 @@ func TestToolBatchErrorPreservesCompletedEffectsAndFailedCall(t *testing.T) {
 			if !ok || response != nil || modelCalls != 1 || len(executed) != 2 {
 				t.Fatalf("response = %v, error = %v, model calls = %d, executed = %v", response, err, modelCalls, executed)
 			}
-			if !test.invalidOutput && (!errors.Is(err, cause) || !errors.Is(err, failure)) {
+			if !test.invalidOutput && (!errors.Is(failure.Cause(), cause) || !errors.Is(err, failure) || errors.Is(err, cause)) {
 				t.Fatalf("error lost failure cause: %v", err)
 			}
 			if test.invalidOutput && !errors.Is(err, chat.ErrInvalidToolOutput) {

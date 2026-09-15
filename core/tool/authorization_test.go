@@ -15,9 +15,9 @@ func TestGuardFreezesDefinitionAndLeavesCompilationToBinding(t *testing.T) {
 	executable.definition.InputSchema = json.RawMessage(`{"type":"object","properties":{"query":{"type":"invalid"}}}`)
 	guard, err := tool.NewGuard(tool.GuardConfig{
 		Tool: executable,
-		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) error {
+		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
 			t.Fatal("invalid schema must fail before authorization")
-			return nil
+			return true, nil
 		}),
 	})
 	if err != nil {
@@ -34,9 +34,9 @@ func TestGuardAuthorizesValidatedInvocationBeforeExecution(t *testing.T) {
 	var inspected tool.Authorization
 	guard, err := tool.NewGuard(tool.GuardConfig{
 		Tool: executable,
-		Authorizer: tool.AuthorizerFunc(func(_ context.Context, authorization tool.Authorization) error {
+		Authorizer: tool.AuthorizerFunc(func(_ context.Context, authorization tool.Authorization) (bool, error) {
 			inspected = authorization
-			return nil
+			return true, nil
 		}),
 	})
 	if err != nil {
@@ -72,13 +72,12 @@ func TestGuardAuthorizesValidatedInvocationBeforeExecution(t *testing.T) {
 	}
 }
 
-func TestGuardDenialPreservesCauseAndSkipsExecution(t *testing.T) {
-	denied := errors.New("tenant policy")
+func TestGuardDenialSkipsExecution(t *testing.T) {
 	executable := &countingTool{name: "search"}
 	guard, err := tool.NewGuard(tool.GuardConfig{
 		Tool: executable,
-		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) error {
-			return denied
+		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
+			return false, nil
 		}),
 	})
 	if err != nil {
@@ -95,7 +94,8 @@ func TestGuardDenialPreservesCauseAndSkipsExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = binding.Call(t.Context(), invocation)
-	if !errors.Is(err, tool.ErrAuthorizationDenied) || !errors.Is(err, denied) {
+	failure, found := errors.AsType[*tool.Failure](err)
+	if !found || failure.Kind() != tool.FailureKindRejected || failure.Cause() != nil {
 		t.Fatalf("Call error = %v", err)
 	}
 	if executable.calls.Load() != 0 {
@@ -108,9 +108,9 @@ func TestGuardHonorsCancellationBeforePolicy(t *testing.T) {
 	executable := &countingTool{name: "search"}
 	guard, err := tool.NewGuard(tool.GuardConfig{
 		Tool: executable,
-		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) error {
+		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
 			authorizations++
-			return nil
+			return true, nil
 		}),
 	})
 	if err != nil {
@@ -136,12 +136,12 @@ func TestGuardHonorsCancellationBeforePolicy(t *testing.T) {
 	}
 }
 
-func TestGuardPreservesPolicyCancellationSemantics(t *testing.T) {
+func TestGuardKeepsPolicyDeadlineBehindAuthorizationBoundary(t *testing.T) {
 	executable := &countingTool{name: "search"}
 	guard, err := tool.NewGuard(tool.GuardConfig{
 		Tool: executable,
-		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) error {
-			return context.DeadlineExceeded
+		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
+			return false, context.DeadlineExceeded
 		}),
 	})
 	if err != nil {
@@ -158,7 +158,8 @@ func TestGuardPreservesPolicyCancellationSemantics(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = binding.Call(t.Context(), invocation)
-	if !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, tool.ErrAuthorizationDenied) {
+	failure, found := errors.AsType[*tool.AuthorizationError](err)
+	if !found || !errors.Is(failure.Cause(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Call error = %v", err)
 	}
 	if executable.calls.Load() != 0 {
@@ -168,7 +169,7 @@ func TestGuardPreservesPolicyCancellationSemantics(t *testing.T) {
 
 func TestGuardValidatesConstructionAndPreservesCapabilities(t *testing.T) {
 	var nilAuthorizer tool.AuthorizerFunc
-	allow := tool.AuthorizerFunc(func(context.Context, tool.Authorization) error { return nil })
+	allow := tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) { return true, nil })
 	for _, config := range []tool.GuardConfig{
 		{},
 		{Authorizer: allow},
@@ -182,8 +183,8 @@ func TestGuardValidatesConstructionAndPreservesCapabilities(t *testing.T) {
 
 	guard, err := tool.NewGuard(tool.GuardConfig{
 		Tool: markedTool{},
-		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) error {
-			return nil
+		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
+			return true, nil
 		}),
 	})
 	if err != nil {

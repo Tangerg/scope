@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -118,7 +119,7 @@ func TestRegister_RoundTrip(t *testing.T) {
 	assert.Equal(t, "round trip", tc.Text)
 }
 
-func TestRegister_ErrorBecomesIsError(t *testing.T) {
+func TestRegisterUnknownOutcomeRemainsProtocolError(t *testing.T) {
 	ctx := t.Context()
 
 	failing := testTool{
@@ -136,13 +137,12 @@ func TestRegister_ErrorBecomesIsError(t *testing.T) {
 	defer cleanup()
 
 	res, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{Name: "boom", Arguments: map[string]any{}})
-	// Tool errors must NOT bubble up as protocol errors; they are reported
-	// via IsError + TextContent so the LLM can self-correct.
-	require.NoError(t, err)
-	require.True(t, res.IsError)
-	require.Len(t, res.Content, 1)
-	tc := res.Content[0].(*sdkmcp.TextContent)
-	assert.Contains(t, tc.Text, "kaboom from scope tool")
+	require.Nil(t, res)
+	protocolError, found := errors.AsType[*jsonrpc.Error](err)
+	require.True(t, found, "call error = %v", err)
+	assert.Equal(t, jsonrpc.CodeInternalError, int(protocolError.Code))
+	assert.Equal(t, "tool call did not produce a valid result", protocolError.Message)
+	assert.Empty(t, protocolError.Data)
 }
 
 func TestToolFailureSurvivesProtocolRoundTrip(t *testing.T) {
@@ -150,7 +150,7 @@ func TestToolFailureSurvivesProtocolRoundTrip(t *testing.T) {
 		Content: []corechat.ToolContent{{Kind: corechat.PartText, Text: "failed"}, {Kind: corechat.PartText, Text: "one file was committed"}},
 		Details: json.RawMessage(`{"files":["one"],"complete":false}`),
 	}
-	failure, err := tool.NewFailure(errors.New("partial execution"), want)
+	failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: errors.New("partial execution"), Output: want})
 	require.NoError(t, err)
 	executable := testTool{
 		definition: corechat.ToolDefinition{Name: "partial", InputSchema: json.RawMessage(`{"type":"object"}`)},

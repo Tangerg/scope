@@ -148,21 +148,20 @@ func TestNonToolCompletionNeverReachesCapabilitiesOrExecution(t *testing.T) {
 	}
 }
 
-func TestAuthorizationUsesManagedInvocationWithoutLeakingPolicyCause(t *testing.T) {
-	const policySecret = "workspace internal role billing-admin"
+func TestAuthorizationUsesManagedInvocationAndRefusesExecution(t *testing.T) {
 	var calls atomic.Int32
 	var authorizations atomic.Int32
 	executable := &trustBoundaryTool{name: "inspect", calls: &calls, capabilities: new(atomic.Int32)}
 	guard, err := tool.NewGuard(tool.GuardConfig{
 		Tool: executable,
-		Authorizer: tool.AuthorizerFunc(func(ctx context.Context, authorization tool.Authorization) error {
+		Authorizer: tool.AuthorizerFunc(func(ctx context.Context, authorization tool.Authorization) (bool, error) {
 			authorizations.Add(1)
 			invocation, present := interaction.ToolInvocationFromContext(ctx)
 			if !present || invocation.ToolCall().ID != "call_denied" ||
 				invocation.ToolCall().Name != authorization.Definition().Name {
-				return errors.New("managed invocation attribution is unavailable")
+				return false, errors.New("managed invocation attribution is unavailable")
 			}
-			return errors.New(policySecret)
+			return false, nil
 		}),
 	})
 	if err != nil {
@@ -181,7 +180,7 @@ func TestAuthorizationUsesManagedInvocationWithoutLeakingPolicyCause(t *testing.
 			result := message.Parts[0].ToolResult
 			text, ok := toolResultText(result)
 			if result == nil || !ok || !result.IsError ||
-				!strings.Contains(text, "not authorized") || strings.Contains(text, policySecret) {
+				text != "error: tool \"inspect\" is not authorized" {
 				return nil, errors.New("authorization feedback leaked policy details")
 			}
 			return textResponse("done"), nil

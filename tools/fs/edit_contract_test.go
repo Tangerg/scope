@@ -55,9 +55,7 @@ func TestEditRejectsInvalidReplacementsWithoutChangingFile(t *testing.T) {
 				} else {
 					_, err = executor.Edit(t.Context(), request)
 				}
-				if !errors.Is(err, ErrEditRejected) {
-					t.Fatalf("invalid replacement error = %v, want ErrEditRejected", err)
-				}
+				diagnostic := err
 				if viaTool {
 					failure, ok := errors.AsType[*toolcontract.Failure](err)
 					if !ok {
@@ -66,8 +64,12 @@ func TestEditRejectsInvalidReplacementsWithoutChangingFile(t *testing.T) {
 					if text, _ := failure.Output().Text(); text == "" {
 						t.Fatal("tool lost rejection feedback")
 					}
+					diagnostic = failure.Cause()
 				}
-				if test.binary && !errors.Is(err, ErrBinaryFile) {
+				if !errors.Is(diagnostic, ErrEditRejected) {
+					t.Fatalf("invalid replacement cause = %v, want ErrEditRejected", diagnostic)
+				}
+				if test.binary && !errors.Is(diagnostic, ErrBinaryFile) {
 					t.Fatalf("error = %v, want ErrBinaryFile", err)
 				}
 				got, readErr := os.ReadFile(path)

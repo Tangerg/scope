@@ -31,7 +31,7 @@ func (r remoteResult) unwrap() (chat.ToolOutput, error) {
 	if len(output.Content) == 0 && len(output.Details) == 0 {
 		output = chat.NewTextToolOutput(cause.Error())
 	}
-	failure, err := tool.NewFailure(cause, output)
+	failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: cause, Output: output})
 	if err != nil {
 		return chat.ToolOutput{}, err
 	}

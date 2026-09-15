@@ -284,9 +284,9 @@ func TestFuncAdmitsCustomDecoderConstraintsBeforeExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	guard, err := tool.NewGuard(tool.GuardConfig{Tool: function, Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) error {
+	guard, err := tool.NewGuard(tool.GuardConfig{Tool: function, Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
 		t.Fatal("admission invoked authorization")
-		return nil
+		return true, nil
 	})})
 	if err != nil {
 		t.Fatal(err)

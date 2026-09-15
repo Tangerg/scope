@@ -11,7 +11,11 @@
 // messages. Callers still receive the complete protocol error details.
 // Remote IsError results use core/tool.Failure to preserve every content part
 // and structured detail. Register projects that same failure value back into
-// the MCP result without flattening it to an error string.
+// the MCP result without flattening it to an error string. MCP does not encode
+// refusal separately: remote IsError maps to FailureKindFailed, which does not
+// imply that execution began. Unknown local outcomes and authorization errors
+// become generic protocol errors, never model-visible internal diagnostics or
+// definite Tool results. Input validation remains public Tool error feedback.
 //
 // # Naming
 //

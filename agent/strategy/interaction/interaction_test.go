@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -161,11 +162,18 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 	if !errors.Is(inputRequired, interaction.ErrToolInputRequired) {
 		t.Fatal(inputRequired)
 	}
+	privateOutcome, err := tool.NewFailure(tool.FailureConfig{
+		Kind: tool.FailureKindRejected, Output: chat.NewTextToolOutput("private authorization dependency"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, testCase := range []struct {
 		name          string
 		cause         error
 		panics        bool
 		invalidOutput bool
+		authorization bool
 	}{
 		{name: "transport failure", cause: errors.New("response lost after execution")},
 		{name: "host failure", cause: interaction.HostFailure(errors.New("tool boundary unavailable"))},
@@ -176,12 +184,19 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 		{name: "deadline with input request", cause: errors.Join(context.DeadlineExceeded, inputRequired)},
 		{name: "panic", panics: true},
 		{name: "invalid output", invalidOutput: true},
+		{name: "authorization failed", cause: errors.New("private policy failure"), authorization: true},
+		{name: "authorization nested refusal", cause: privateOutcome, authorization: true},
+		{name: "authorization canceled refusal", cause: errors.Join(context.DeadlineExceeded, privateOutcome), authorization: true},
+		{name: "authorization input request", cause: inputRequired, authorization: true},
+		{name: "authorization host failure", cause: interaction.HostFailure(privateOutcome), authorization: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			type input struct{}
+			var calls atomic.Int32
 			failing, err := tool.NewFunc(tool.FuncConfig{
 				Name: "failing", Description: "Lose the result at the Tool boundary.",
 			}, func(context.Context, input) (string, error) {
+				calls.Add(1)
 				if testCase.panics {
 					panic("tool result unavailable")
 				}
@@ -193,6 +208,18 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 			model := &singleToolCallModel{call: chat.ToolCall{ID: "call_unknown", Name: "failing", Arguments: `{}`}}
 			observer := &toolSettlementObserver{settlements: make(chan interaction.ToolSettlement, 1)}
 			var executable tool.Tool = failing
+			if testCase.authorization {
+				guard, guardErr := tool.NewGuard(tool.GuardConfig{
+					Tool: failing,
+					Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
+						return true, testCase.cause
+					}),
+				})
+				if guardErr != nil {
+					t.Fatal(guardErr)
+				}
+				executable = guard
+			}
 			if testCase.invalidOutput {
 				executable = &invalidOutputTool{Tool: failing}
 			}
@@ -253,6 +280,9 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 			}
 			if inspectProcessSnapshot(t, engine, process).Status().Terminal() || model.Calls() != 1 {
 				t.Fatalf("status=%s model calls=%d", inspectProcessSnapshot(t, engine, process).Status(), model.Calls())
+			}
+			if testCase.authorization && calls.Load() != 0 {
+				t.Fatalf("failed authorization executed the Tool %d times", calls.Load())
 			}
 			if killErr := process.Kill(ctx, "retain unresolved outcome in terminal result"); killErr != nil {
 				t.Fatal(killErr)

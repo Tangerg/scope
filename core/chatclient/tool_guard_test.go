@@ -22,12 +22,12 @@ func TestGuardedFuncToolMiddleware(t *testing.T) {
 	}
 	guard, err := tool.NewGuard(tool.GuardConfig{
 		Tool: executable,
-		Authorizer: tool.AuthorizerFunc(func(_ context.Context, authorization tool.Authorization) error {
+		Authorizer: tool.AuthorizerFunc(func(_ context.Context, authorization tool.Authorization) (bool, error) {
 			authorizations++
 			if authorization.Definition().Name != "lookup" || string(authorization.Arguments()) != `{"query":"scope"}` {
 				t.Fatalf("authorization = %v, %s", authorization.Definition(), authorization.Arguments())
 			}
-			return nil
+			return true, nil
 		}),
 	})
 	if err != nil {

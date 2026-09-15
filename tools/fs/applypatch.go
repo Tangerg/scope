@@ -90,7 +90,7 @@ func (a *ApplyPatchTool) apply(ctx context.Context, req ApplyPatchRequest) (Appl
 		}
 		output := chat.NewTextToolOutput(fmt.Sprintf("%s\nAcknowledged file mutations: %s", cause, encoded))
 		output.Details = encoded
-		failure, failureErr := toolcontract.NewFailure(cause, output)
+		failure, failureErr := toolcontract.NewFailure(toolcontract.FailureConfig{Kind: toolcontract.FailureKindFailed, Cause: cause, Output: output})
 		if failureErr != nil {
 			return ApplyPatchResponse{}, errors.Join(cause, failureErr)
 		}

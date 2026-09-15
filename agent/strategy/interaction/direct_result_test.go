@@ -23,7 +23,7 @@ func TestDirectResultToolFailuresReturnToModel(t *testing.T) {
 			}, func(_ context.Context, value input) (string, error) {
 				calls++
 				if value.Index == failedIndex {
-					failure, err := tool.NewFailure(errors.New("execution failed"), chat.NewTextToolOutput("execution failed"))
+					failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: errors.New("execution failed"), Output: chat.NewTextToolOutput("execution failed")})
 					if err != nil {
 						t.Fatal(err)
 					}

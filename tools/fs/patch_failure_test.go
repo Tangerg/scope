@@ -83,6 +83,7 @@ func TestApplyPatchCommitFailurePreservesAcknowledgedChanges(t *testing.T) {
 			if !strings.Contains(text, `"path":"created"`) {
 				t.Fatalf("model-visible failure lost acknowledged files: %s", text)
 			}
+			err = failure.Cause()
 		} else {
 			out, err = executor.ApplyPatch(t.Context(), request)
 		}

@@ -447,14 +447,20 @@ func TestResultPublicationCoversMixedToolAndDelegatePaths(t *testing.T) {
 		delegates = append(delegates, delegate)
 	}
 	partialOutput := chat.NewTextToolOutput("one external write completed\n" + strings.Repeat("界", 900))
-	partial, err := tool.NewFailure(errors.New("remaining writes failed"), partialOutput)
+	partial, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: errors.New("remaining writes failed"), Output: partialOutput})
 	if err != nil {
 		t.Fatal(err)
 	}
 	tools := []tool.Tool{
 		&callbackTool{name: "success", call: func(context.Context, string) (string, error) { toolsExecuted.Add(1); return "ordinary output", nil }},
 		&callbackTool{name: "partial", call: func(context.Context, string) (string, error) { toolsExecuted.Add(1); return "", partial }},
-		&callbackTool{name: "denied", call: func(context.Context, string) (string, error) { return "", tool.ErrAuthorizationDenied }},
+		&callbackTool{name: "denied", call: func(context.Context, string) (string, error) {
+			failure, failureErr := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindRejected, Output: chat.NewTextToolOutput("operation not permitted")})
+			if failureErr != nil {
+				return "", failureErr
+			}
+			return "", failure
+		}},
 	}
 	calls := []chat.ToolCall{
 		{ID: "ordinary", Name: "success", Arguments: `{}`},

@@ -26,8 +26,8 @@ func TestToolPreservesFailedExecutionOutput(t *testing.T) {
 	}, err: cause})
 	_, err := invokeTestTool(t.Context(), executable, `{"command":"write"}`)
 	failure, ok := errors.AsType[*tool.Failure](err)
-	if !ok || !errors.Is(err, cause) {
-		t.Fatalf("error = %v, want Failure wrapping cause", err)
+	if !ok || !errors.Is(failure.Cause(), cause) {
+		t.Fatalf("error = %v, want Failure retaining diagnostic cause", err)
 	}
 	var response Response
 	if err := json.Unmarshal(failure.Output().Details, &response); err != nil {

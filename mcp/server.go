@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -94,33 +95,45 @@ func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (*s
 		ID: "mcp/" + toolName, Name: toolName, Arguments: rawArgs,
 	})
 	if err != nil {
-		return s.errorResult(span, err), nil
+		recordSpanError(span, err)
+		return &sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error()}},
+			IsError: true,
+		}, nil
 	}
 	output, err := s.executable.Call(ctx, invocation)
 	if err != nil {
-		return s.errorResult(span, err), nil
+		return s.callError(span, err)
 	}
 	result, err := mapServerToolOutput(output)
 	if err != nil {
-		return s.errorResult(span, err), nil
+		return s.callError(span, err)
 	}
 	return result, nil
 }
 
-func (s serverTool) errorResult(span trace.Span, err error) *sdkmcp.CallToolResult {
+func (s serverTool) callError(span trace.Span, err error) (*sdkmcp.CallToolResult, error) {
 	recordSpanError(span, err)
-	if failure, ok := errors.AsType[*toolcontract.Failure](err); ok {
-		result, mappingErr := mapServerToolOutput(failure.Output())
-		if mappingErr == nil {
-			result.IsError = true
-			return result
-		}
-		err = errors.Join(err, mappingErr)
+	// No definite public output exists. A protocol failure preserves uncertainty
+	// at the remote Tool boundary without publishing an internal diagnostic.
+	protocolError := &jsonrpc.Error{
+		Code: jsonrpc.CodeInternalError, Message: "tool call did not produce a valid result",
 	}
-	return &sdkmcp.CallToolResult{
-		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error()}},
-		IsError: true,
+	failure, found := errors.AsType[*toolcontract.Failure](err)
+	if !found {
+		return nil, protocolError
 	}
+	if validationErr := failure.Validate(); validationErr != nil {
+		recordSpanError(span, validationErr)
+		return nil, protocolError
+	}
+	result, err := mapServerToolOutput(failure.Output())
+	if err != nil {
+		recordSpanError(span, err)
+		return nil, protocolError
+	}
+	result.IsError = true
+	return result, nil
 }
 
 func mapServerToolOutput(output corechat.ToolOutput) (*sdkmcp.CallToolResult, error) {

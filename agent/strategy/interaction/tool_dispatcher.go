@@ -143,8 +143,7 @@ func (t *toolDispatcher) callTool(
 		}
 	}()
 	output, err := binding.binding.Call(ctx, prepared.invocation)
-	rejected = errors.Is(err, tool.ErrAuthorizationDenied)
-	result, required, err = modelToolResult(call, output, err)
+	result, required, rejected, err = modelToolResult(call, output, err)
 	if err != nil {
 		return chat.ToolResult{}, nil, nil, false, err
 	}

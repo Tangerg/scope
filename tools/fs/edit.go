@@ -72,7 +72,7 @@ func (e *EditTool) edit(ctx context.Context, req EditRequest) (EditResponse, err
 		if !errors.Is(err, ErrEditRejected) {
 			return EditResponse{}, cause
 		}
-		failure, failureErr := toolcontract.NewFailure(cause, chat.NewTextToolOutput(cause.Error()))
+		failure, failureErr := toolcontract.NewFailure(toolcontract.FailureConfig{Kind: toolcontract.FailureKindFailed, Cause: cause, Output: chat.NewTextToolOutput(cause.Error())})
 		if failureErr != nil {
 			return EditResponse{}, errors.Join(cause, failureErr)
 		}

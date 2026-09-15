@@ -10,9 +10,6 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-// ErrAuthorizationDenied marks a policy refusal rather than a tool failure.
-var ErrAuthorizationDenied = errors.New("tool: authorization denied")
-
 // Authorization carries only the frozen model-visible contract and validated
 // arguments, so policy code cannot bypass Contract validation or execute the invocation.
 type Authorization struct {
@@ -33,16 +30,20 @@ func (a Authorization) Arguments() []byte {
 
 // Authorizer is deliberately smaller than an application permission system:
 // identity, consent, tenancy, and policy storage remain caller-owned context.
-// Returning any error denies execution and preserves that cause.
+// A nil error establishes a decision: true permits execution, false refuses it.
+// Any error means the decision could not be completed; its boolean is ignored.
+// The Tool never executes after refusal or an authorization error.
+// Guard seals policy errors in AuthorizationError; only cancellation of the
+// execution context itself remains an errors.Is-visible control signal.
 type Authorizer interface {
-	Authorize(ctx context.Context, authorization Authorization) error
+	Authorize(ctx context.Context, authorization Authorization) (bool, error)
 }
 
 // AuthorizerFunc adapts a plain function to [Authorizer], so a one-off policy
 // does not require a named type.
-type AuthorizerFunc func(context.Context, Authorization) error
+type AuthorizerFunc func(context.Context, Authorization) (bool, error)
 
-func (a AuthorizerFunc) Authorize(ctx context.Context, authorization Authorization) error {
+func (a AuthorizerFunc) Authorize(ctx context.Context, authorization Authorization) (bool, error) {
 	return a(ctx, authorization)
 }
 
@@ -56,6 +57,8 @@ type GuardConfig struct {
 
 // Guard keeps authorization at the universal Tool.Call boundary, which makes
 // the same policy work for direct calls, registries, and managed runtimes.
+// Refusal produces a generic FailureKindRejected result. A Tool that owns more
+// specific public feedback uses NewFailure at its own invocation boundary.
 type Guard struct {
 	tool       Tool
 	definition chat.ToolDefinition
@@ -97,13 +100,22 @@ func (g Guard) Call(ctx context.Context, invocation Invocation) (chat.ToolOutput
 	authorization := Authorization{
 		definition: g.definition.Clone(), arguments: invocation.Arguments(),
 	}
-	if err := g.authorizer.Authorize(ctx, authorization); err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	allowed, err := g.authorizer.Authorize(ctx, authorization)
+	if err != nil {
+		return chat.ToolOutput{}, errors.Join(ctx.Err(), &AuthorizationError{name: g.definition.Name, cause: err})
+	}
+	if err := ctx.Err(); err != nil {
+		return chat.ToolOutput{}, err
+	}
+	if !allowed {
+		failure, err := NewFailure(FailureConfig{
+			Kind:   FailureKindRejected,
+			Output: chat.NewTextToolOutput(fmt.Sprintf("error: tool %q is not authorized", g.definition.Name)),
+		})
+		if err != nil {
 			return chat.ToolOutput{}, err
 		}
-		return chat.ToolOutput{}, fmt.Errorf(
-			"%w: tool %q: %w", ErrAuthorizationDenied, g.definition.Name, err,
-		)
+		return chat.ToolOutput{}, failure
 	}
 	return g.tool.Call(ctx, invocation)
 }
