@@ -155,3 +155,19 @@ func admissionTestWait(t *testing.T, process *processState) WaitID {
 	process.status, process.currentWaitID = StatusWaiting, wait
 	return wait
 }
+
+func BenchmarkMailboxCandidateCommittedHistory(b *testing.B) {
+	for _, history := range []int{1_000, 10_000, 100_000} {
+		b.Run(fmt.Sprint(history), func(b *testing.B) {
+			process := admissionTestProcess(b, history)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				candidate := process.candidate()
+				if candidate.mailbox.pendingCount() != 0 || len(candidate.mailbox.records) != history {
+					b.Fatal("candidate lost committed signal history")
+				}
+			}
+		})
+	}
+}
