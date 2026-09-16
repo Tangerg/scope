@@ -441,7 +441,7 @@ func (o *Observer) finishProcess(ctx context.Context, event agent.Event) {
 			processActivationAttribute.String(string(record.activation)),
 		)
 	}
-	if failureKind, failureCode, failed := fact.Failure(); failed {
+	if failureKind, failureCode, failed := fact.FailureClassification(); failed {
 		attributes = append(attributes,
 			processFailureKindAttribute.String(failureKind.String()),
 			processFailureCodeAttribute.String(failureCode),
@@ -461,7 +461,7 @@ func (o *Observer) finishProcess(ctx context.Context, event agent.Event) {
 		processActivationAttribute.String(string(record.activation)),
 	}
 	observedError := processFactError{status: fact.Status(), cause: fact.Cause()}
-	if failureKind, failureCode, failed := fact.Failure(); failed {
+	if failureKind, failureCode, failed := fact.FailureClassification(); failed {
 		observedError.failureKind = failureKind
 		observedError.failureCode = failureCode
 	}
@@ -476,7 +476,7 @@ func (o *Observer) finishProcess(ctx context.Context, event agent.Event) {
 		processStatusAttribute.String(fact.Status().String()),
 		processCauseAttribute.String(fact.Cause().String()),
 	}
-	if failureKind, failureCode, failed := fact.Failure(); failed {
+	if failureKind, failureCode, failed := fact.FailureClassification(); failed {
 		spanAttributes = append(spanAttributes,
 			processFailureKindAttribute.String(failureKind.String()),
 			processFailureCodeAttribute.String(failureCode),

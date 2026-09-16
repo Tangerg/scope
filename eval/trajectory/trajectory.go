@@ -239,7 +239,7 @@ func (t Trajectory) matchesRootOutcome(fact agent.ProcessFinishedFact) bool {
 	if !failed {
 		return true
 	}
-	kind, code, _ := fact.Failure()
+	kind, code, _ := fact.FailureClassification()
 	return kind == failure.Kind() && code == failure.Code()
 }
 

@@ -77,7 +77,7 @@ func behaviorTerminationOf(termination agent.Termination) behaviorTermination {
 
 func (b *behaviorEvent) apply(event agent.Event) {
 	if fact, present := event.ProcessFinished(); present {
-		failureKind, failureCode, failed := fact.Failure()
+		failureKind, failureCode, failed := fact.FailureClassification()
 		b.ProcessStatus = fact.Status()
 		b.TerminationCause = fact.Cause()
 		if failed {

@@ -78,7 +78,7 @@ func TestStrategiesRejectUnresolvedDelegateSubtrees(t *testing.T) {
 			}
 			prepare := contractValue(workflow.Transform("candidates", func(context.Context, struct{}) ([]agent.ChildSpec, error) { return candidates, nil }))
 			call := contractValue(workflow.Call(workflow.CallConfig{ID: "race", Deployment: race, Budget: agent.Budget{Steps: 64, Effects: 48, Signals: 64}}))
-			delegate := contractDeployment(contractValue(workflow.NewDefinition(workflow.DefinitionConfig{Name: "contract.composite", Description: "Return a successful competition output.", Stages: []workflow.Stage{prepare, call}})), nil)
+			delegate := contractDeployment(contractValue(workflow.NewDefinition(workflow.DefinitionConfig{Name: "contract.composite", Description: "Reject unsafe competition output.", Stages: []workflow.Stage{prepare, call}})), nil)
 			var rootCalls atomic.Int32
 			var root agent.Deployment
 			var input agent.Input
@@ -150,10 +150,27 @@ func TestStrategiesRejectUnresolvedDelegateSubtrees(t *testing.T) {
 				t.Fatalf("termination=%+v root calls=%d", result.Termination(), rootCalls.Load())
 			}
 			snapshot := contractValue(engine.CaptureTree(ctx, process.ID()))
+			var failedDelegates, completedCompetitions, unresolvedEffects int
 			for _, child := range snapshot.ProcessSnapshots() {
-				if child.DeploymentRef() == delegate.DeploymentRef() && child.Status() != agent.StatusCompleted {
-					t.Fatalf("direct delegate status=%s", child.Status())
+				unresolvedEffects += len(child.UnknownEffectIDs())
+				if child.DeploymentRef() == race.DeploymentRef() && child.Status() == agent.StatusCompleted {
+					completedCompetitions++
 				}
+				if child.DeploymentRef() == delegate.DeploymentRef() {
+					delegateProcess, found := engine.Process(child.ProcessID())
+					if !found {
+						t.Fatal("direct delegate Process is missing")
+					}
+					delegateResult := contractValue(delegateProcess.Await(ctx))
+					delegateFailure, failed := delegateResult.Termination().Failure()
+					if child.Status() != agent.StatusFailed || !failed || delegateFailure.Code() != "workflow.call.unresolved_effects" {
+						t.Fatalf("direct delegate termination=%+v", delegateResult.Termination())
+					}
+					failedDelegates++
+				}
+			}
+			if failedDelegates != 1 || completedCompetitions != 1 || unresolvedEffects != 1 {
+				t.Fatalf("subtree evidence: failed delegates=%d completed competitions=%d unresolved Effects=%d", failedDelegates, completedCompetitions, unresolvedEffects)
 			}
 			restoredEngine := contractValue(agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver}))
 			defer restoredEngine.Close(context.WithoutCancel(ctx))
