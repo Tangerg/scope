@@ -23,7 +23,11 @@ func TestSignalReceiptsReconcileOnlyExternalAdmissions(t *testing.T) {
 			if test.wait {
 				waitID = controlValue(ParseWaitID("wait:receipt"))
 				opening = mustMailboxSignal(t, "signal:engine:opening", waitID, []byte(`"opened"`))
-				if err := mailbox.openWait(controlValue(ParseWaitKey("receipt")), opening, test.external); err != nil {
+				kind := WaitKindChildren
+				if test.external {
+					kind = WaitKindExternal
+				}
+				if err := mailbox.openWait(controlValue(ParseWaitKey("receipt")), opening, kind); err != nil {
 					t.Fatal(err)
 				}
 			}

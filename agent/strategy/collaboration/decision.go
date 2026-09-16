@@ -28,8 +28,8 @@ type TaskRequest struct {
 // Start is pending admission; a successful Start without Outcome is outstanding.
 type Task struct {
 	Request TaskRequest             `json:"request"`
-	Start   *agent.ChildStartResult `json:"start,omitempty"`
-	Outcome *agent.ChildOutcome     `json:"outcome,omitempty"`
+	Start   *agent.ChildStartResult `json:"start,omitzero"`
+	Outcome *agent.ChildOutcome     `json:"outcome,omitzero"`
 }
 
 // Control targets an already admitted task. Exactly one of Signal and
@@ -37,14 +37,14 @@ type Task struct {
 // caller-stable identity; cancellation is intent, not proof of resource release.
 type Control struct {
 	Task         agent.ChildKey       `json:"task"`
-	Signal       *agent.SignalRequest `json:"signal,omitempty"`
-	CancelReason *string              `json:"cancel_reason,omitempty"`
+	Signal       *agent.SignalRequest `json:"signal,omitzero"`
+	CancelReason *string              `json:"cancel_reason,omitzero"`
 }
 
 // ControlReceipt preserves both the declared action and its admission result.
 type ControlReceipt struct {
 	Control Control                   `json:"control"`
-	Result  *agent.ChildControlResult `json:"result,omitempty"`
+	Result  *agent.ChildControlResult `json:"result,omitzero"`
 }
 
 // Turn is the coordinator's complete portable input. Tasks are cumulative and
@@ -68,5 +68,5 @@ type Decision struct {
 	State    agent.Input   `json:"state"`
 	Tasks    []TaskRequest `json:"tasks,omitempty"`
 	Controls []Control     `json:"controls,omitempty"`
-	Output   *agent.Output `json:"output,omitempty"`
+	Output   *agent.Output `json:"output,omitzero"`
 }

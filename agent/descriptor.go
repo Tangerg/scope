@@ -33,7 +33,7 @@ type DescriptorConfig struct {
 }
 
 func (d DescriptorConfig) validate() error {
-	if !validQualifiedName(d.Name) {
+	if !ValidQualifiedName(d.Name) {
 		return fmt.Errorf("%w: name must start with a lowercase letter and contain only lowercase letters, digits, '.', '_' or '-'", ErrInvalidDescriptor)
 	}
 	if d.Description == "" || !utf8.ValidString(d.Description) || strings.TrimSpace(d.Description) != d.Description || len(d.Description) > maxDescriptionBytes {
@@ -102,14 +102,20 @@ func (d Descriptor) ValidateInput(input Input) error {
 	if !d.Valid() {
 		return ErrInvalidDescriptor
 	}
-	return d.inputSchema.ValidateInput(input)
+	if err := d.inputSchema.Validate(input.data); err != nil {
+		return fmt.Errorf("%w: schema validation: %w", ErrInvalidInput, err)
+	}
+	return nil
 }
 
 func (d Descriptor) ValidateOutput(output Output) error {
 	if !d.Valid() {
 		return ErrInvalidDescriptor
 	}
-	return d.outputSchema.ValidateOutput(output)
+	if err := d.outputSchema.Validate(output.data); err != nil {
+		return fmt.Errorf("%w: schema validation: %w", ErrInvalidOutput, err)
+	}
+	return nil
 }
 
 // EncodeInput converts value into an Input and validates it against this

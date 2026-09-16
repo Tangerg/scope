@@ -276,10 +276,10 @@ func TestCompletionValidatorFailureClassification(t *testing.T) {
 		{
 			name: "long invalid error encoding",
 			validator: func(interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
-				return interaction.CompletionDecision{}, errors.New("\xff" + strings.Repeat("a", 2048))
+				return interaction.CompletionDecision{}, errors.New("\xff" + strings.Repeat("a", agent.MaxDiagnosticBytes))
 			},
 			cause: agent.TerminationCauseExecutionFailure, kind: agent.FailureKindExecution,
-			code: "interaction.completion.validator_failed", message: "\ufffd" + strings.Repeat("a", 2045),
+			code: "interaction.completion.validator_failed", message: "\ufffd" + strings.Repeat("a", agent.MaxDiagnosticBytes-3),
 		},
 		{
 			name: "panic",

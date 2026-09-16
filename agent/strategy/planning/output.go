@@ -3,6 +3,8 @@ package planning
 import (
 	"errors"
 	"fmt"
+
+	agent "github.com/Tangerg/scope/agent"
 )
 
 // Outcome is the Planning-owned semantic reason a Goal-directed execution
@@ -52,8 +54,10 @@ type Attempt struct {
 	Diagnostic string `json:"diagnostic,omitempty" jsonschema:"minLength=1,maxLength=4096"`
 }
 
+func (a Attempt) excluded() bool { return a.Status != AttemptSucceeded }
+
 func (a Attempt) Validate() error {
-	if !validName(a.ActionName) || !a.Status.Valid() {
+	if !agent.ValidQualifiedName(a.ActionName) || !a.Status.Valid() {
 		return errors.New("planning: invalid Action attempt identity or status")
 	}
 	if a.Status == AttemptSucceeded {
@@ -62,7 +66,7 @@ func (a Attempt) Validate() error {
 		}
 		return nil
 	}
-	if !validDiagnostic(a.Diagnostic) {
+	if !agent.ValidDiagnostic(a.Diagnostic) {
 		return errors.New("planning: failed or unconfirmed Action attempt requires a bounded diagnostic")
 	}
 	return nil

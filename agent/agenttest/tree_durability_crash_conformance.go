@@ -133,9 +133,9 @@ func (t *treeDurabilityCommitGate) CommitCheckpoint(
 	switch checkpoint.Kind() {
 	case agent.TreeCheckpointStart:
 		kind = crashCommitRootStart
-	case agent.TreeCheckpointChild:
+	case agent.TreeCheckpointChildStart:
 		kind = crashCommitCheckpointChild
-	case agent.TreeCheckpointInput:
+	case agent.TreeCheckpointSignals:
 		kind = crashCommitCheckpointInput
 	case agent.TreeCheckpointParked:
 		kind = crashCommitCheckpointParked

@@ -9,7 +9,7 @@ import (
 type toolCallRound struct {
 	Response   *chat.Response   `json:"response"`
 	Results    []toolCallResult `json:"results,omitempty"`
-	ChildBatch *childCallBatch  `json:"child_batch,omitempty"`
+	ChildBatch *childCallBatch  `json:"child_batch,omitzero"`
 }
 
 func (t *toolCallRound) nextCallIndex() uint32 { return uint32(len(t.Results)) }

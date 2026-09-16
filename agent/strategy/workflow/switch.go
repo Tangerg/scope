@@ -53,7 +53,7 @@ type switchStage struct {
 // Switch constructs one selected managed child-Process Stage. Every case must
 // accept the same I schema and produce one exactly matching output schema.
 func Switch[I any](config SwitchConfig[I]) (Stage, error) {
-	if !validStageID(config.ID) || config.Select == nil || len(config.Cases) == 0 {
+	if !agent.ValidQualifiedName(config.ID) || config.Select == nil || len(config.Cases) == 0 {
 		return Stage{}, ErrInvalidStage
 	}
 	inputSchema, err := agent.SchemaFor[I]()
@@ -64,7 +64,7 @@ func Switch[I any](config SwitchConfig[I]) (Stage, error) {
 	indices := make(map[string]int, len(config.Cases))
 	var outputSchema agent.Schema
 	for index, candidate := range config.Cases {
-		if !validStageID(candidate.ID) || !candidate.Deployment.Valid() ||
+		if !agent.ValidQualifiedName(candidate.ID) || !candidate.Deployment.Valid() ||
 			!candidate.Budget.Valid() || !candidate.Capabilities.Valid() {
 			return Stage{}, fmt.Errorf("%w: Switch %q Cases[%d]", ErrInvalidStage, config.ID, index)
 		}
@@ -95,7 +95,7 @@ func Switch[I any](config SwitchConfig[I]) (Stage, error) {
 		if err != nil {
 			return "", err
 		}
-		if validateInputErr := inputSchema.ValidateInput(input); validateInputErr != nil {
+		if validateInputErr := inputSchema.Validate(input.JSON()); validateInputErr != nil {
 			return "", validateInputErr
 		}
 		decoded, err := input.Decode[I]()

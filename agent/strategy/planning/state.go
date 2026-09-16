@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strings"
-	"unicode/utf8"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
@@ -39,12 +37,15 @@ type executionState struct {
 	PlanningPasses    uint32            `json:"planning_passes"`
 	Attempts          []Attempt         `json:"attempts,omitempty"`
 	CurrentActionName string            `json:"current_action_name,omitempty"`
-	Child             *childcall.Single `json:"child,omitempty"`
+	Child             *childcall.Single `json:"child,omitzero"`
 }
 
 func (e executionState) validate(definition *Definition) error {
-	if !e.Phase.valid() || !definition.valid() {
-		return ErrInvalidExecutionState
+	if !definition.valid() {
+		return fmt.Errorf("%w: valid Definition is required", ErrInvalidExecutionState)
+	}
+	if !e.Phase.valid() {
+		return fmt.Errorf("%w: unknown phase %q", ErrInvalidExecutionState, e.Phase)
 	}
 	input, err := agent.ParseInput(e.Input)
 	if err != nil {
@@ -70,7 +71,7 @@ func (e executionState) validateAttemptFacts(definition *Definition) error {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
 	if e.attemptCount() > uint64(definition.maxActionAttempts) {
-		return ErrInvalidExecutionState
+		return fmt.Errorf("%w: action attempt count exceeds configured limit", ErrInvalidExecutionState)
 	}
 	return nil
 }
@@ -91,7 +92,7 @@ func (e executionState) validateCurrentAction(definition *Definition) error {
 	if !found {
 		return fmt.Errorf("%w: unknown current Action %q", ErrInvalidExecutionState, e.CurrentActionName)
 	}
-	if definition.actionExcluded(e.Attempts, e.CurrentActionName) {
+	if e.actionExcluded(e.CurrentActionName) {
 		return fmt.Errorf("%w: current Action is excluded", ErrInvalidExecutionState)
 	}
 	if e.Phase == phaseAwaitingAction && binding.target != bindingTargetDispatcher ||
@@ -113,7 +114,7 @@ func (e executionState) validateProgress(definition *Definition) error {
 	switch e.Phase {
 	case phaseReadySense:
 		if attempts != 0 || passes != 0 {
-			return ErrInvalidExecutionState
+			return fmt.Errorf("%w: ready_sense requires zero attempts and planning passes", ErrInvalidExecutionState)
 		}
 	case phaseAwaitingSense:
 		if e.awaitingConfirmation() && passes != attempts+1 ||
@@ -130,17 +131,17 @@ func (e executionState) validateProgress(definition *Definition) error {
 
 func (e executionState) validatePhase() error {
 	if (e.Child != nil) != (e.Phase == phaseChild) {
-		return ErrInvalidExecutionState
+		return fmt.Errorf("%w: child state disagrees with execution phase", ErrInvalidExecutionState)
 	}
 	hasAction := e.CurrentActionName != ""
 	switch e.Phase {
 	case phaseReadySense, phaseCompleted:
 		if hasAction {
-			return ErrInvalidExecutionState
+			return fmt.Errorf("%w: phase %q cannot have a current Action", ErrInvalidExecutionState, e.Phase)
 		}
 	case phaseAwaitingAction, phaseChild:
 		if !hasAction {
-			return ErrInvalidExecutionState
+			return fmt.Errorf("%w: phase %q requires a current Action", ErrInvalidExecutionState, e.Phase)
 		}
 	}
 	return nil
@@ -162,7 +163,7 @@ func (e *executionState) confirmAction(action Action) {
 
 func (e *executionState) recordFailedAction(reason string) {
 	e.Attempts = append(e.Attempts, Attempt{
-		ActionName: e.CurrentActionName, Status: AttemptFailed, Diagnostic: diagnostic(reason),
+		ActionName: e.CurrentActionName, Status: AttemptFailed, Diagnostic: agent.NormalizeDiagnostic(reason),
 	})
 	e.CurrentActionName = ""
 }
@@ -203,34 +204,14 @@ func (e executionState) input() (agent.Input, error) {
 }
 
 func (e executionState) snapshot() (agent.ExecutionState, error) {
-	payload, err := json.Marshal(e)
-	if err != nil {
-		return agent.ExecutionState{}, fmt.Errorf("planning: encode execution state: %w", err)
-	}
-	return agent.NewExecutionState(executionStateKind, payload)
+	return agent.EncodeExecutionState(executionStateKind, e)
 }
 
-func diagnostic(value string) string {
-	value = strings.ToValidUTF8(value, "�")
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "external operation failed"
+func (e executionState) actionExcluded(name string) bool {
+	for _, attempt := range e.Attempts {
+		if attempt.ActionName == name && attempt.excluded() {
+			return true
+		}
 	}
-	if len(value) <= maxDescriptionBytes {
-		return value
-	}
-	value = value[:maxDescriptionBytes]
-	for !utf8.ValidString(value) {
-		value = value[:len(value)-1]
-	}
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "external operation failed"
-	}
-	return value
-}
-
-func validDiagnostic(value string) bool {
-	return value != "" && utf8.ValidString(value) && strings.TrimSpace(value) == value &&
-		len(value) <= maxDescriptionBytes
+	return false
 }

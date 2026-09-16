@@ -97,8 +97,8 @@ const (
 type inputGateState struct {
 	Phase   gatePhase     `json:"phase"`
 	Request agent.Input   `json:"request"`
-	WaitID  *agent.WaitID `json:"wait_id,omitempty"`
-	Answer  *agent.Signal `json:"answer,omitempty"`
+	WaitID  *agent.WaitID `json:"wait_id,omitzero"`
+	Answer  *agent.Signal `json:"answer,omitzero"`
 }
 
 func (i inputGateState) validate(definition *InputGate) error {
@@ -134,7 +134,7 @@ func (i inputGateState) acceptsAnswer(definition *InputGate, signal agent.Signal
 	if err != nil {
 		return err
 	}
-	if err := definition.answerSchema.ValidateInput(payload); err != nil {
+	if err := definition.answerSchema.Validate(payload.JSON()); err != nil {
 		return fmt.Errorf("%w: answer schema: %w", ErrInvalidProtocol, err)
 	}
 	return nil
@@ -196,5 +196,7 @@ func (i *inputGateExecution) Step(ctx context.Context, signals []agent.Signal) (
 }
 
 func (i *inputGateExecution) Snapshot() (agent.ExecutionState, error) {
-	return encodeState(inputGateStateKind, i.state)
+	return agent.EncodeExecutionState(inputGateStateKind, i.state)
 }
+
+var _ agent.Execution = (*inputGateExecution)(nil)

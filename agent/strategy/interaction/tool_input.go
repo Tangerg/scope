@@ -101,7 +101,7 @@ func validateToolInputResponse(schema agent.Schema, response json.RawMessage) (j
 	if err != nil {
 		return nil, fmt.Errorf("%w: response: %w", ErrInvalidToolInputRequest, err)
 	}
-	if err := schema.ValidateInput(input); err != nil {
+	if err := schema.Validate(input.JSON()); err != nil {
 		return nil, fmt.Errorf("%w: response: %w", ErrInvalidToolInputRequest, err)
 	}
 	return input.JSON(), nil

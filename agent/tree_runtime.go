@@ -860,7 +860,7 @@ func (t *treeRuntime) startSignalCommit(process *processState, command processCo
 	return t.startCheckpoint(&treeCommit{
 		kind: treeCommitSignals, processID: process.handle.processID,
 		snapshot: snapshot, response: command.response, events: events,
-	}, TreeCheckpointInput)
+	}, TreeCheckpointSignals)
 }
 
 func (t *treeRuntime) startCheckpoint(commit *treeCommit, kind TreeCheckpointKind) error {
@@ -2150,7 +2150,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 			err = t.startCheckpoint(&treeCommit{
 				kind: treeCommitChildStart, processID: pending.parentID,
 				effectID: pending.effectID, snapshot: snapshot, child: pending,
-			}, TreeCheckpointChild)
+			}, TreeCheckpointChildStart)
 		}
 		checkpointErr = err
 		transferred = err == nil

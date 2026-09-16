@@ -152,6 +152,27 @@ func TestSingleLeavesStartFailureToStrategy(t *testing.T) {
 	}
 }
 
+func TestSingleDrainedCompletionRequiresKnownSubtreeState(t *testing.T) {
+	ref, key, waitKey := invocation(t)
+	var progress childcall.Single
+	if _, err := progress.AcceptStart(startSignal(t, ref, key, "child", nil), key, ref); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := progress.AcceptOpening(openingSignal(t, "wait", "children", "subtree_drained", []string{"child"}, "all"), waitKey, agent.ChildWaitBoundaryDrained); err != nil {
+		t.Fatal(err)
+	}
+	before := string(encoded(t, progress))
+	completion := completionSignal(t, "wait", "children", "subtree_drained", "call", "child")
+	payload := strings.Replace(string(completion.Payload()), `"subtree_unresolved_effects":[]`, `"subtree_unresolved_effects":null`, 1)
+	unknown := signal(t, "wait", json.RawMessage(payload))
+	if _, err := progress.Complete(unknown, key, waitKey, agent.ChildWaitBoundaryDrained); err == nil {
+		t.Fatal("drained completion accepted an unknown subtree")
+	}
+	if string(encoded(t, progress)) != before {
+		t.Fatal("rejected completion changed progress")
+	}
+}
+
 func TestSingleRestoreRejectsMalformedProgressAtomically(t *testing.T) {
 	for _, payload := range []string{
 		`null`, `[]`, `{"wait_id":"wait"}`, `{"process_id":"bad/id"}`,

@@ -75,7 +75,7 @@ func (p *preparedStepFinalization) applySettlement(record preparedEffect) error 
 			if decodeErr != nil {
 				return decodeErr
 			}
-			return p.mailbox.openWait(key, signal, true)
+			return p.mailbox.openWait(key, signal, WaitKindExternal)
 		case frameworkEffectWaitChildren:
 			return p.openChildWait(record, signal)
 		case frameworkEffectStartChild, frameworkEffectSignalChild, frameworkEffectCancelChild:
@@ -98,7 +98,7 @@ func (p *preparedStepFinalization) openChildWait(record preparedEffect, signal S
 	if err != nil || record.WaitID == nil {
 		return errors.New("invalid child-wait Effect")
 	}
-	if err := p.mailbox.openWait(spec.Key, signal, false); err != nil {
+	if err := p.mailbox.openWait(spec.Key, signal, WaitKindChildren); err != nil {
 		return err
 	}
 	p.openedChildWaits = append(p.openedChildWaits, ChildWaitOpened{waitID: *record.WaitID, spec: spec})

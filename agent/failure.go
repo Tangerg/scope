@@ -4,14 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
-	"unicode/utf8"
 )
 
-const (
-	maxFailureCodeBytes    = 128
-	maxFailureMessageBytes = 4096
-)
+const maxFailureCodeBytes = 128
 
 var ErrInvalidFailure = errors.New("agent: invalid failure")
 
@@ -61,11 +56,11 @@ func NewFailure(kind FailureKind, code, message string) (Failure, error) {
 	if !kind.Valid() {
 		return Failure{}, fmt.Errorf("%w: kind is required", ErrInvalidFailure)
 	}
-	if !validQualifiedName(code) || len(code) > maxFailureCodeBytes {
+	if !ValidQualifiedName(code) || len(code) > maxFailureCodeBytes {
 		return Failure{}, fmt.Errorf("%w: code must be a lowercase qualified name containing at most %d bytes", ErrInvalidFailure, maxFailureCodeBytes)
 	}
-	if message == "" || strings.TrimSpace(message) != message || !utf8.ValidString(message) || len(message) > maxFailureMessageBytes {
-		return Failure{}, fmt.Errorf("%w: message must be non-empty, trimmed UTF-8 within %d bytes", ErrInvalidFailure, maxFailureMessageBytes)
+	if !ValidDiagnostic(message) {
+		return Failure{}, fmt.Errorf("%w: message must be non-empty, trimmed UTF-8 within %d bytes", ErrInvalidFailure, MaxDiagnosticBytes)
 	}
 	return Failure{kind: kind, code: code, message: message}, nil
 }
@@ -78,28 +73,17 @@ func (f Failure) Message() string { return f.message }
 
 func (f Failure) Valid() bool {
 	return f.kind.Valid() &&
-		validQualifiedName(f.code) && f.message != ""
+		ValidQualifiedName(f.code) && f.message != ""
 }
 
 // Kernel classifications are fixed by their owning boundary. An invalid kind or
 // code is a programming error; substituting another Failure would hide its cause.
 func newEngineFailure(kind FailureKind, code string, err error) Failure {
-	message := "unknown error"
+	message := ""
 	if err != nil {
-		// Go errors can contain arbitrary bytes; persisted diagnostics must
-		// preserve their value when strict JSON decoding runs during recovery.
-		message = strings.TrimSpace(strings.ToValidUTF8(err.Error(), "\ufffd"))
+		message = err.Error()
 	}
-	if message == "" {
-		message = "unknown error"
-	}
-	if len(message) > maxFailureMessageBytes {
-		message = message[:maxFailureMessageBytes]
-		for !utf8.ValidString(message) {
-			message = message[:len(message)-1]
-		}
-		message = strings.TrimSpace(message)
-	}
+	message = NormalizeDiagnostic(message)
 	failure, failureErr := NewFailure(kind, code, message)
 	if failureErr != nil {
 		panic(failureErr)

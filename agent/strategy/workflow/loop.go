@@ -58,7 +58,7 @@ type loopStage struct {
 // Loop constructs one at-least-once managed iteration Stage. Body must accept
 // and produce exactly T; the Stage itself produces LoopResult[T].
 func Loop[T any](config LoopConfig[T]) (Stage, error) {
-	if !validStageID(config.ID) || !config.Body.Valid() || !config.Budget.Valid() ||
+	if !agent.ValidQualifiedName(config.ID) || !config.Body.Valid() || !config.Budget.Valid() ||
 		!config.Capabilities.Valid() || config.MaxIterations == 0 || config.Predicate == nil {
 		return Stage{}, ErrInvalidStage
 	}
@@ -81,7 +81,7 @@ func Loop[T any](config LoopConfig[T]) (Stage, error) {
 		if err != nil {
 			return false, err
 		}
-		if validateOutputErr := valueSchema.ValidateOutput(output); validateOutputErr != nil {
+		if validateOutputErr := valueSchema.Validate(output.JSON()); validateOutputErr != nil {
 			return false, validateOutputErr
 		}
 		value, err := output.Decode[T]()
@@ -111,7 +111,7 @@ func Loop[T any](config LoopConfig[T]) (Stage, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := resultSchema.ValidateOutput(erased); err != nil {
+		if err := resultSchema.Validate(erased.JSON()); err != nil {
 			return nil, err
 		}
 		return erased.JSON(), nil

@@ -87,7 +87,7 @@ func (f forkSource) topology(inputSchema, outputSchema agent.Schema) ([]BindingT
 // outputs are homogeneous; heterogeneous work can be wrapped by child
 // Workflows that expose a shared contract.
 func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
-	if !validStageID(config.ID) || len(config.Branches) == 0 ||
+	if !agent.ValidQualifiedName(config.ID) || len(config.Branches) == 0 ||
 		uint64(len(config.Branches)) > math.MaxUint32 || config.Reduce == nil ||
 		config.WindowSize == 0 || uint64(config.WindowSize) > uint64(len(config.Branches)) {
 		return Stage{}, ErrInvalidStage
@@ -107,7 +107,7 @@ func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
 	branches := make([]fanoutMember, 0, len(config.Branches))
 	seen := make(map[string]struct{}, len(config.Branches))
 	for index, branch := range config.Branches {
-		if !validStageID(branch.ID) || !branch.Deployment.Valid() ||
+		if !agent.ValidQualifiedName(branch.ID) || !branch.Deployment.Valid() ||
 			!branch.Budget.Valid() || !branch.Capabilities.Valid() {
 			return Stage{}, fmt.Errorf("%w: Fork %q Branches[%d]", ErrInvalidStage, config.ID, index)
 		}
@@ -145,7 +145,7 @@ func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
 		if err != nil {
 			return nil, fmt.Errorf("Fork %q encode result: %w", config.ID, err)
 		}
-		if err := outputSchema.ValidateOutput(erased); err != nil {
+		if err := outputSchema.Validate(erased.JSON()); err != nil {
 			return nil, fmt.Errorf("Fork %q result contract: %w", config.ID, err)
 		}
 		return erased.JSON(), nil

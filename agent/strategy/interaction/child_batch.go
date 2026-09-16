@@ -18,9 +18,9 @@ const (
 )
 
 type childInvocationState struct {
-	ChildKey  *agent.ChildKey  `json:"child_key,omitempty"`
-	ProcessID *agent.ProcessID `json:"process_id,omitempty"`
-	Result    *toolCallResult  `json:"result,omitempty"`
+	ChildKey  *agent.ChildKey  `json:"child_key,omitzero"`
+	ProcessID *agent.ProcessID `json:"process_id,omitzero"`
+	Result    *toolCallResult  `json:"result,omitzero"`
 }
 
 // One batch owns child admission, the active wait, and ordered settlements.
@@ -29,7 +29,7 @@ type childCallBatch struct {
 	Kind           childCallKind          `json:"kind"`
 	Invocations    []childInvocationState `json:"invocations"`
 	NextStartIndex uint32                 `json:"next_start_index"`
-	WaitID         *agent.WaitID          `json:"wait_id,omitempty"`
+	WaitID         *agent.WaitID          `json:"wait_id,omitzero"`
 }
 
 func (c childCallBatch) validate(current phase, calls []chat.ToolCall, modelSequence uint32) error {

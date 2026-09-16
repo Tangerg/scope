@@ -24,8 +24,8 @@ const (
 
 type turnExecution struct {
 	Input   Turn                    `json:"input"`
-	Start   *agent.ChildStartResult `json:"start,omitempty"`
-	Outcome *agent.ChildOutcome     `json:"outcome,omitempty"`
+	Start   *agent.ChildStartResult `json:"start,omitzero"`
+	Outcome *agent.ChildOutcome     `json:"outcome,omitzero"`
 }
 
 func (t turnExecution) unresolved() bool {
@@ -52,11 +52,11 @@ type executionState struct {
 	State        agent.Input      `json:"state"`
 	Tasks        []Task           `json:"tasks,omitempty"`
 	Controls     []ControlReceipt `json:"controls,omitempty"`
-	Turn         *turnExecution   `json:"turn,omitempty"`
+	Turn         *turnExecution   `json:"turn,omitzero"`
 	Mode         Mode             `json:"mode,omitempty"`
 	WaitSequence uint64           `json:"wait_sequence"`
-	WaitID       *agent.WaitID    `json:"wait_id,omitempty"`
-	Output       *agent.Output    `json:"output,omitempty"`
+	WaitID       *agent.WaitID    `json:"wait_id,omitzero"`
+	Output       *agent.Output    `json:"output,omitzero"`
 }
 
 func (e executionState) task(key agent.ChildKey) *Task {

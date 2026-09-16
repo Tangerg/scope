@@ -8,7 +8,10 @@ import (
 	corejsonschema "github.com/Tangerg/scope/core/jsonschema"
 )
 
-var ErrInvalidSchema = errors.New("agent: invalid schema")
+var (
+	ErrInvalidSchema    = errors.New("agent: invalid schema")
+	ErrSchemaValidation = errors.New("agent: schema validation failed")
+)
 
 // Schema is an immutable, resolved JSON Schema used by Framework input and
 // output contracts. Its zero value is invalid.
@@ -41,25 +44,16 @@ func (s Schema) JSON() json.RawMessage { return s.contract.JSON() }
 
 func (s Schema) Valid() bool { return s.contract.Valid() }
 
-func (s Schema) ValidateInput(input Input) error {
-	if err := s.validate(input.data); err != nil {
-		return fmt.Errorf("%w: schema validation: %w", ErrInvalidInput, err)
-	}
-	return nil
-}
-
-func (s Schema) ValidateOutput(output Output) error {
-	if err := s.validate(output.data); err != nil {
-		return fmt.Errorf("%w: schema validation: %w", ErrInvalidOutput, err)
-	}
-	return nil
-}
-
-func (s Schema) validate(data []byte) error {
+// Validate checks one JSON value against this schema, independently of its role.
+// Invalid schemas return ErrInvalidSchema; rejected values return ErrSchemaValidation.
+func (s Schema) Validate(value json.RawMessage) error {
 	if !s.Valid() {
 		return ErrInvalidSchema
 	}
-	return s.contract.Validate(data)
+	if err := s.contract.Validate(value); err != nil {
+		return fmt.Errorf("%w: %w", ErrSchemaValidation, err)
+	}
+	return nil
 }
 
 func (s Schema) MarshalJSON() ([]byte, error) {

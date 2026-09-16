@@ -1,7 +1,6 @@
 package coordination
 
 import (
-	"cmp"
 	"fmt"
 	"slices"
 
@@ -24,8 +23,8 @@ type firstSuccessState struct {
 	Candidates []agent.ChildSpec        `json:"candidates"`
 	Starts     []agent.ChildStartResult `json:"starts,omitempty"`
 	Outcomes   []agent.ChildOutcome     `json:"outcomes,omitempty"`
-	WaitID     *agent.WaitID            `json:"wait_id,omitempty"`
-	Winner     *agent.ChildKey          `json:"winner,omitempty"`
+	WaitID     *agent.WaitID            `json:"wait_id,omitzero"`
+	Winner     *agent.ChildKey          `json:"winner,omitzero"`
 }
 
 func (f firstSuccessState) validate(maxCandidates uint32) error {
@@ -114,22 +113,33 @@ func (f *firstSuccessState) recordOutcomes(outcomes []agent.ChildOutcome) error 
 	if len(outcomes) == 0 || !validObservedOutcomes(f.Starts, outcomes) {
 		return fmt.Errorf("%w: candidate outcomes are empty, unordered, or foreign", ErrInvalidProtocol)
 	}
-	for _, outcome := range outcomes {
-		if observedProcess(f.Outcomes, outcome.Result().ProcessID()) {
+	// Both collections follow Starts. Merge in that order without searching
+	// the full start list for each sorting comparison.
+	merged := make([]agent.ChildOutcome, 0, len(f.Outcomes)+len(outcomes))
+	prior, incoming := 0, 0
+	for _, started := range f.Starts {
+		hasPrior := prior < len(f.Outcomes) && outcomeMatchesStart(f.Outcomes[prior], started)
+		hasIncoming := incoming < len(outcomes) && outcomeMatchesStart(outcomes[incoming], started)
+		if hasPrior && hasIncoming {
 			return fmt.Errorf("%w: candidate outcome was already observed", ErrInvalidProtocol)
 		}
+		if hasPrior {
+			merged = append(merged, f.Outcomes[prior])
+			prior++
+		}
+		if hasIncoming {
+			merged = append(merged, outcomes[incoming])
+			incoming++
+		}
 	}
-	f.Outcomes = append(f.Outcomes, outcomes...)
-	slices.SortFunc(f.Outcomes, func(left, right agent.ChildOutcome) int {
-		return cmp.Compare(matchingStart(f.Starts, left), matchingStart(f.Starts, right))
-	})
+	f.Outcomes = merged
 	return nil
 }
 
 func (f firstSuccessState) result() FirstSuccessResult {
-	result := FirstSuccessResult{
-		Starts: slices.Clone(f.Starts), Outcomes: append([]agent.ChildOutcome{}, f.Outcomes...),
-	}
+	outcomes := make([]agent.ChildOutcome, len(f.Outcomes))
+	copy(outcomes, f.Outcomes)
+	result := FirstSuccessResult{Starts: slices.Clone(f.Starts), Outcomes: outcomes}
 	if f.Winner != nil {
 		winner := *f.Winner
 		result.Winner = &winner

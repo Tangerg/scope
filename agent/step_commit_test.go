@@ -57,10 +57,10 @@ func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 	secondWait, _ := ParseWaitID("wait:second")
 	firstKey, _ := ParseWaitKey("first")
 	secondKey, _ := ParseWaitKey("second")
-	if err := mailbox.openWait(firstKey, mustMailboxSignal(t, "signal:engine:first-opened", firstWait, json.RawMessage(`{}`)), false); err != nil {
+	if err := mailbox.openWait(firstKey, mustMailboxSignal(t, "signal:engine:first-opened", firstWait, json.RawMessage(`{}`)), WaitKindChildren); err != nil {
 		t.Fatal(err)
 	}
-	if err := mailbox.openWait(secondKey, mustMailboxSignal(t, "signal:engine:second-opened", secondWait, json.RawMessage(`{}`)), false); err != nil {
+	if err := mailbox.openWait(secondKey, mustMailboxSignal(t, "signal:engine:second-opened", secondWait, json.RawMessage(`{}`)), WaitKindChildren); err != nil {
 		t.Fatal(err)
 	}
 	firstSignalID, _ := ParseSignalID("signal:engine:first")

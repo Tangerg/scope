@@ -5,25 +5,7 @@ import (
 	"unicode/utf8"
 )
 
-const (
-	maxNameBytes        = 128
-	maxDescriptionBytes = 4096
-)
-
-func validName(name string) bool {
-	if len(name) == 0 || len(name) > maxNameBytes || name[0] < 'a' || name[0] > 'z' {
-		return false
-	}
-	for index := 1; index < len(name); index++ {
-		character := name[index]
-		if character >= 'a' && character <= 'z' || character >= '0' && character <= '9' ||
-			character == '.' || character == '_' || character == '-' {
-			continue
-		}
-		return false
-	}
-	return true
-}
+const maxDescriptionBytes = 4096
 
 func validDescription(description string) bool {
 	return description != "" && len(description) <= maxDescriptionBytes &&

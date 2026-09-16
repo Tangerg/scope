@@ -97,7 +97,7 @@ func (d *DeploymentRef) UnmarshalJSON(data []byte) error {
 		configurationDigest:  wire.ConfigurationDigest,
 		digest:               wire.Digest,
 	}
-	if !validQualifiedName(value.name) || !value.contractDigest.Valid() || !value.implementationDigest.Valid() ||
+	if !ValidQualifiedName(value.name) || !value.contractDigest.Valid() || !value.implementationDigest.Valid() ||
 		!value.configurationDigest.Valid() || !value.digest.Valid() {
 		return fmt.Errorf("%w: identity components are required", ErrInvalidDeploymentRef)
 	}

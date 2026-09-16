@@ -65,6 +65,9 @@ func (m mapSource) windowInputs(raw json.RawMessage, start, windowSize uint32) (
 	if err != nil {
 		return nil, 0, errors.Join(ErrInvalidExecutionState, err)
 	}
+	if start > count {
+		return nil, 0, fmt.Errorf("%w: window start %d exceeds item count %d", ErrInvalidExecutionState, start, count)
+	}
 	return items, count, nil
 }
 
@@ -79,7 +82,7 @@ func (m mapSource) topology(_ agent.Schema, outputSchema agent.Schema) ([]Bindin
 // Map constructs one bounded managed item fan-out Stage. Empty input is valid
 // and produces a non-nil empty []O without creating child Processes.
 func Map[I, O any](config MapConfig[I, O]) (Stage, error) {
-	if !validStageID(config.ID) || !config.Deployment.Valid() ||
+	if !agent.ValidQualifiedName(config.ID) || !config.Deployment.Valid() ||
 		!config.Budget.Valid() || !config.Capabilities.Valid() ||
 		config.WindowSize == 0 || config.MaxItems == 0 || config.WindowSize > config.MaxItems {
 		return Stage{}, ErrInvalidStage
@@ -197,7 +200,7 @@ func (m mapValueCodec) item[I any](raw jsontext.Value) (agent.Input, error) {
 	if err != nil {
 		return agent.Input{}, err
 	}
-	if err := m.schemas.itemInput.ValidateInput(item); err != nil {
+	if err := m.schemas.itemInput.Validate(item.JSON()); err != nil {
 		return agent.Input{}, err
 	}
 	return item, nil
@@ -215,7 +218,7 @@ func (m mapValueCodec) collect[O any](raw []json.RawMessage) (json.RawMessage, e
 	if err != nil {
 		return nil, fmt.Errorf("Map %q encode result: %w", m.id, err)
 	}
-	if err := m.schemas.output.ValidateOutput(erased); err != nil {
+	if err := m.schemas.output.Validate(erased.JSON()); err != nil {
 		return nil, fmt.Errorf("Map %q result contract: %w", m.id, err)
 	}
 	return erased.JSON(), nil

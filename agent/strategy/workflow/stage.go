@@ -9,8 +9,6 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-const maxStageIDBytes = 128
-
 // StageKind is the operation kind owned by a sealed Workflow Stage.
 type StageKind string
 
@@ -91,7 +89,7 @@ type CallConfig struct {
 // Transform constructs one typed pure Stage. JSON schemas derived from I and O
 // remain the authoritative erased boundary used by the Workflow Definition.
 func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error) {
-	if !validStageID(id) || transform == nil {
+	if !agent.ValidQualifiedName(id) || transform == nil {
 		return Stage{}, ErrInvalidStage
 	}
 	inputSchema, err := agent.SchemaFor[I]()
@@ -107,7 +105,7 @@ func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error
 		if err != nil {
 			return nil, fmt.Errorf("transform %q input: %w", id, err)
 		}
-		if validateInputErr := inputSchema.ValidateInput(input); validateInputErr != nil {
+		if validateInputErr := inputSchema.Validate(input.JSON()); validateInputErr != nil {
 			return nil, fmt.Errorf("transform %q input contract: %w", id, validateInputErr)
 		}
 		decoded, err := input.Decode[I]()
@@ -122,7 +120,7 @@ func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error
 		if err != nil {
 			return nil, fmt.Errorf("transform %q encode output: %w", id, err)
 		}
-		if err := outputSchema.ValidateOutput(erased); err != nil {
+		if err := outputSchema.Validate(erased.JSON()); err != nil {
 			return nil, fmt.Errorf("transform %q output contract: %w", id, err)
 		}
 		return erased.JSON(), nil
@@ -136,7 +134,7 @@ func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error
 // Call constructs one managed child-Process Stage. No child Process is created
 // until the Workflow Execution returns a Framework StartChild Effect.
 func Call(config CallConfig) (Stage, error) {
-	if !validStageID(config.ID) || !config.Deployment.Valid() ||
+	if !agent.ValidQualifiedName(config.ID) || !config.Deployment.Valid() ||
 		!config.Budget.Valid() || !config.Capabilities.Valid() {
 		return Stage{}, ErrInvalidStage
 	}
@@ -205,19 +203,4 @@ func (s Stage) topology() StageTopology {
 		)}
 	}
 	return projected
-}
-
-func validStageID(value string) bool {
-	if len(value) == 0 || len(value) > maxStageIDBytes || value[0] < 'a' || value[0] > 'z' {
-		return false
-	}
-	for index := 1; index < len(value); index++ {
-		character := value[index]
-		if character >= 'a' && character <= 'z' || character >= '0' && character <= '9' ||
-			character == '.' || character == '_' || character == '-' {
-			continue
-		}
-		return false
-	}
-	return true
 }

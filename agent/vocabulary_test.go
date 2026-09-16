@@ -124,7 +124,7 @@ func TestStableEnumVocabulary(t *testing.T) {
 		},
 		"tree checkpoint kind": {
 			invalid: agent.TreeCheckpointInvalid,
-			valid:   []any{agent.TreeCheckpointStart, agent.TreeCheckpointChild, agent.TreeCheckpointInput, agent.TreeCheckpointProgress, agent.TreeCheckpointParked, agent.TreeCheckpointTerminal},
+			valid:   []any{agent.TreeCheckpointStart, agent.TreeCheckpointChildStart, agent.TreeCheckpointSignals, agent.TreeCheckpointProgress, agent.TreeCheckpointParked, agent.TreeCheckpointTerminal},
 		},
 		"child wait boundary": {
 			invalid: agent.ChildWaitBoundary(""),

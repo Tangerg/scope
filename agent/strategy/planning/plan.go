@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math"
 	"slices"
+
+	agent "github.com/Tangerg/scope/agent"
 )
 
 // PlannedAction is one immutable Action reference in Planner-selected order.
@@ -17,7 +19,7 @@ type PlannedAction struct {
 // NewPlannedAction references an Action by name so the Plan remains portable.
 // The Definition supplies the authoritative Action behavior and metadata.
 func NewPlannedAction(name string) (PlannedAction, error) {
-	if !validName(name) {
+	if !agent.ValidQualifiedName(name) {
 		return PlannedAction{}, fmt.Errorf("%w: invalid Action name %q", ErrInvalidPlan, name)
 	}
 	return PlannedAction{name: name}, nil
@@ -26,7 +28,7 @@ func NewPlannedAction(name string) (PlannedAction, error) {
 // Name returns the referenced Action identity.
 func (p PlannedAction) Name() string { return p.name }
 
-func (p PlannedAction) Valid() bool { return validName(p.name) }
+func (p PlannedAction) Valid() bool { return agent.ValidQualifiedName(p.name) }
 
 func (p PlannedAction) MarshalJSON() ([]byte, error) {
 	if !p.Valid() {

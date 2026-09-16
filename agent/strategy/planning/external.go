@@ -93,7 +93,7 @@ func ActionSucceeded() ActionResult { return ActionResult{succeeded: true, valid
 // ActionFailed constructs a definite failed Action result with a bounded
 // diagnostic suitable for a portable Planning attempt record.
 func ActionFailed(diagnostic string) (ActionResult, error) {
-	if !validDiagnostic(diagnostic) {
+	if !agent.ValidDiagnostic(diagnostic) {
 		return ActionResult{}, errors.New("planning: Action failure diagnostic must be non-empty, trimmed, and bounded")
 	}
 	return ActionResult{diagnostic: diagnostic, valid: true}, nil
@@ -108,7 +108,7 @@ func (a ActionResult) Diagnostic() string { return a.diagnostic }
 
 func (a ActionResult) Valid() bool {
 	return a.valid && (a.succeeded && a.diagnostic == "" ||
-		!a.succeeded && validDiagnostic(a.diagnostic))
+		!a.succeeded && agent.ValidDiagnostic(a.diagnostic))
 }
 
 // NewActionSettlement converts an executor result into the kernel settlement
@@ -138,7 +138,7 @@ func validateSenseRequest(request SenseRequest) error {
 }
 
 func validateActionRequest(request ActionRequest) error {
-	if !request.EffectID.Valid() || !request.Input.Valid() || !validName(request.ActionName) ||
+	if !request.EffectID.Valid() || !request.Input.Valid() || !agent.ValidQualifiedName(request.ActionName) ||
 		!validDescription(request.ActionDescription) {
 		return fmt.Errorf("planning: invalid Action request for %q", request.ActionName)
 	}

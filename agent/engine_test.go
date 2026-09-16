@@ -1051,7 +1051,7 @@ func TestStepFailureDiscardsMutatedExecutionAndPreservesCursor(t *testing.T) {
 			}
 		}
 	}
-	kind, code, failed := finished.Failure()
+	kind, code, failed := finished.FailureClassification()
 	if !failed || kind != FailureKindExecution || code != "execution.step.failed" {
 		t.Fatalf("finished failure = %s/%q present=%t", kind, code, failed)
 	}

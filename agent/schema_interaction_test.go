@@ -44,7 +44,7 @@ func TestSchemaForAcceptsInteractionProviderMetadataAndReasoningSignature(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := schema.ValidateOutput(output); err != nil {
-		t.Fatalf("ValidateOutput(provider response) error = %v; schema = %s", err, schema.JSON())
+	if err := schema.Validate(output.JSON()); err != nil {
+		t.Fatalf("Validate(provider response) error = %v; schema = %s", err, schema.JSON())
 	}
 }

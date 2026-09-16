@@ -125,7 +125,7 @@ func (t *toolDispatcher) callTool(
 		case result.ID != "":
 			settlement.Result = &result
 		case err != nil:
-			settlement.Failure = boundedDiagnostic(err.Error())
+			settlement.Failure = agent.NormalizeDiagnostic(err.Error())
 			settlement.Unknown = true
 		}
 		t.observeToolSettled(ctx, invocation, settlement)
@@ -167,7 +167,7 @@ func (t *toolDispatcher) prepareToolCall(call chat.ToolCall) preparedToolCall {
 	prepared.binding = &binding
 	invocation, err := binding.binding.Contract().Prepare(call)
 	if err != nil {
-		result := rejectedToolResult(call, "invalid arguments: "+boundedDiagnostic(err.Error()))
+		result := rejectedToolResult(call, "invalid arguments: "+agent.NormalizeDiagnostic(err.Error()))
 		prepared.rejection = &result
 		return prepared
 	}

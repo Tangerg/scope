@@ -118,7 +118,8 @@ func (p ProcessFinishedFact) Status() Status { return p.status }
 
 func (p ProcessFinishedFact) Cause() TerminationCause { return p.cause }
 
-func (p ProcessFinishedFact) Failure() (FailureKind, string, bool) {
+// FailureClassification contains stable kind and code without diagnostic text.
+func (p ProcessFinishedFact) FailureClassification() (FailureKind, string, bool) {
 	return p.failureKind, p.failureCode, p.status == StatusFailed
 }
 
@@ -129,7 +130,7 @@ func (p ProcessFinishedFact) Valid() bool {
 		return false
 	}
 	failed := p.status == StatusFailed
-	if failed != (p.failureKind.Valid() && validQualifiedName(p.failureCode) && len(p.failureCode) <= maxFailureCodeBytes) {
+	if failed != (p.failureKind.Valid() && ValidQualifiedName(p.failureCode) && len(p.failureCode) <= maxFailureCodeBytes) {
 		return false
 	}
 	if !failed && (p.failureKind != FailureKindInvalid || p.failureCode != "") {
@@ -178,7 +179,7 @@ func (r RuntimeStoppedFact) FailureKind() FailureKind { return r.failureKind }
 func (r RuntimeStoppedFact) FailureCode() string { return r.failureCode }
 
 func (r RuntimeStoppedFact) Valid() bool {
-	return r.failureKind.Valid() && validQualifiedName(r.failureCode) && len(r.failureCode) <= maxFailureCodeBytes
+	return r.failureKind.Valid() && ValidQualifiedName(r.failureCode) && len(r.failureCode) <= maxFailureCodeBytes
 }
 
 func decodeRuntimeStoppedFact(payload json.RawMessage) (RuntimeStoppedFact, error) {
@@ -257,10 +258,10 @@ func (e EffectFinishedFact) SettlementStatus() SettlementStatus { return e.settl
 
 func (e EffectFinishedFact) Duration() time.Duration { return e.duration }
 
-// Failure classifies a Dispatcher error that made its outcome Unknown. It
+// FailureClassification classifies a Dispatcher error that made its outcome Unknown. It
 // contains no diagnostic message and does not change the settlement semantics.
 // An Unknown returned directly by the Dispatcher has no error classification.
-func (e EffectFinishedFact) Failure() (FailureKind, string, bool) {
+func (e EffectFinishedFact) FailureClassification() (FailureKind, string, bool) {
 	return e.failureKind, e.failureCode, e.failureKind.Valid()
 }
 
@@ -272,7 +273,7 @@ func (e EffectFinishedFact) Valid() bool {
 		return true
 	}
 	return e.target == EffectTargetDispatcher && e.settlement == SettlementStatusUnknown &&
-		e.failureKind.Valid() && validQualifiedName(e.failureCode) && len(e.failureCode) <= maxFailureCodeBytes
+		e.failureKind.Valid() && ValidQualifiedName(e.failureCode) && len(e.failureCode) <= maxFailureCodeBytes
 }
 
 // DeltaDroppedFact reports the number of increments rejected during one Effect

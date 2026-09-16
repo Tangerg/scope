@@ -2,7 +2,6 @@ package interaction
 
 import (
 	"context"
-	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -23,9 +22,9 @@ const (
 type toolExecutionState struct {
 	Phase      toolPhase       `json:"phase"`
 	Call       toolCall        `json:"call"`
-	Checkpoint *toolCheckpoint `json:"checkpoint,omitempty"`
-	WaitID     *agent.WaitID   `json:"wait_id,omitempty"`
-	Result     *toolCallResult `json:"result,omitempty"`
+	Checkpoint *toolCheckpoint `json:"checkpoint,omitzero"`
+	WaitID     *agent.WaitID   `json:"wait_id,omitzero"`
+	Result     *toolCallResult `json:"result,omitzero"`
 }
 
 func (t toolExecutionState) validate() error {
@@ -122,11 +121,7 @@ func decodeToolState(state agent.ExecutionState) (toolExecutionState, error) {
 type toolExecution struct{ state toolExecutionState }
 
 func (t *toolExecution) Snapshot() (agent.ExecutionState, error) {
-	payload, err := jsonv2.Marshal(t.state, jsonv2.Deterministic(true))
-	if err != nil {
-		return agent.ExecutionState{}, err
-	}
-	return agent.NewExecutionState(toolExecutionStateKind, payload)
+	return agent.EncodeExecutionState(toolExecutionStateKind, t.state)
 }
 
 func (t *toolExecution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {

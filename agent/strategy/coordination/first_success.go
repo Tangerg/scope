@@ -255,5 +255,7 @@ func (f *firstSuccessExecution) continueCompetition(consumed uint32) (agent.Tran
 }
 
 func (f *firstSuccessExecution) Snapshot() (agent.ExecutionState, error) {
-	return encodeState(firstSuccessStateKind, f.state)
+	return agent.EncodeExecutionState(firstSuccessStateKind, f.state)
 }
+
+var _ agent.Execution = (*firstSuccessExecution)(nil)

@@ -315,7 +315,7 @@ func (d *Dispatcher) callModel(
 func modelHostFailureSettlement(effectID agent.EffectID, cause error) (agent.Settlement, error) {
 	payload, err := encodeProtocol(signalEnvelope{
 		Operation:   operationModelCall,
-		ModelResult: &modelCallResult{HostError: boundedDiagnostic(cause.Error())},
+		ModelResult: &modelCallResult{HostError: agent.NormalizeDiagnostic(cause.Error())},
 	})
 	if err != nil {
 		return agent.Settlement{}, err

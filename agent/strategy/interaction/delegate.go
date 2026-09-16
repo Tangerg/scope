@@ -80,13 +80,13 @@ func (d Delegate) validateInput(input agent.Input) error {
 	if !d.Valid() {
 		return ErrInvalidDelegate
 	}
-	return d.inputSchema.ValidateInput(input)
+	return d.inputSchema.Validate(input.JSON())
 }
 
 func delegateErrorResult(call chat.ToolCall, diagnostic string) chat.ToolResult {
 	return chat.ToolResult{
 		ID: call.ID, Name: call.Name,
-		Output: chat.NewTextToolOutput("error: delegated worker " + boundedDiagnostic(diagnostic)), IsError: true,
+		Output: chat.NewTextToolOutput("error: delegated worker " + agent.NormalizeDiagnostic(diagnostic)), IsError: true,
 	}
 }
 

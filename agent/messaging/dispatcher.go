@@ -96,3 +96,5 @@ func (d *Dispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, 
 	}
 	return agent.NewSettlement(request.ID(), agent.SettlementStatusSucceeded, payload)
 }
+
+var _ agent.Dispatcher = (*Dispatcher)(nil)

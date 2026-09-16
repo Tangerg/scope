@@ -294,7 +294,7 @@ func (e *execution) fail(
 	code string,
 	message string,
 ) (agent.Transition, error) {
-	failure, err := agent.NewFailure(kind, code, diagnostic(message))
+	failure, err := agent.NewFailure(kind, code, agent.NormalizeDiagnostic(message))
 	if err != nil {
 		return agent.Transition{}, err
 	}

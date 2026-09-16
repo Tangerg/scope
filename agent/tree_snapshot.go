@@ -275,7 +275,7 @@ func (t *treeSnapshotValidation) validateChildWaits() error {
 			return fmt.Errorf("%w: duplicate child WaitID", ErrInvalidTreeSnapshot)
 		}
 		waitRecord, exists := parent.Mailbox.waitRecord(encoded.WaitID)
-		if !exists || waitRecord.ExternallyAddressable || waitRecord.Closed || waitRecord.WaitKey != spec.Key {
+		if !exists || waitRecord.Kind != WaitKindChildren || waitRecord.Closed || waitRecord.WaitKey != spec.Key {
 			return fmt.Errorf("%w: child wait is absent from parent mailbox", ErrInvalidTreeSnapshot)
 		}
 		if err := t.validateChildWaitSignals(parent.Mailbox, encoded.WaitID, spec); err != nil {
@@ -296,7 +296,7 @@ func (t *treeSnapshotValidation) validateChildWaits() error {
 	}
 	for _, processWire := range t.processes {
 		for _, wait := range processWire.Mailbox.Waits {
-			if !wait.ExternallyAddressable && !wait.Closed {
+			if wait.Kind == WaitKindChildren && !wait.Closed {
 				if waitOwners[wait.WaitID] != processWire.ProcessID {
 					return fmt.Errorf("%w: active child wait registration does not belong to Process", ErrInvalidTreeSnapshot)
 				}

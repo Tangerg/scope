@@ -12,10 +12,12 @@ import (
 // handling belong to fanoutStage for both fixed branches and repeated items.
 // Its unexported methods keep the Workflow operation set closed.
 type fanoutSource interface {
-	count(json.RawMessage) (uint32, error)
-	windowInputs(json.RawMessage, uint32, uint32) ([]agent.Input, uint32, error)
-	member(uint32) (fanoutMember, bool)
-	topology(agent.Schema, agent.Schema) ([]BindingTopology, uint32)
+	count(raw json.RawMessage) (uint32, error)
+	// windowInputs rejects start beyond the source count and returns the
+	// ordered window plus the total count. A start at count returns an empty window.
+	windowInputs(raw json.RawMessage, start, windowSize uint32) (inputs []agent.Input, count uint32, err error)
+	member(index uint32) (fanoutMember, bool)
+	topology(inputSchema, outputSchema agent.Schema) ([]BindingTopology, uint32)
 }
 
 type fanoutMember struct {
@@ -44,7 +46,7 @@ func (f fanoutOutputDecoder) decode[T any](encodedOutputs []json.RawMessage) ([]
 		if err != nil {
 			return nil, fmt.Errorf("%s %q %s %d output: %w", f.stageName, f.stageID, f.memberName, index, err)
 		}
-		if validateOutputErr := f.schema.ValidateOutput(output); validateOutputErr != nil {
+		if validateOutputErr := f.schema.Validate(output.JSON()); validateOutputErr != nil {
 			return nil, fmt.Errorf("%s %q %s %d output contract: %w", f.stageName, f.stageID, f.memberName, index, validateOutputErr)
 		}
 		decoded, err := output.Decode[T]()

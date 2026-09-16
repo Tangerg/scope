@@ -5,6 +5,8 @@ import (
 	"math"
 	"slices"
 	"strings"
+
+	agent "github.com/Tangerg/scope/agent"
 )
 
 // CostFunc lets an action's cost depend on the world state it would run in,
@@ -57,7 +59,7 @@ type Action struct {
 // can search over actions without the risk of running one, and the same action
 // can be bound to different executors.
 func NewAction(config ActionConfig) (Action, error) {
-	if !validName(config.Name) {
+	if !agent.ValidQualifiedName(config.Name) {
 		return Action{}, fmt.Errorf("%w: invalid name %q", ErrInvalidAction, config.Name)
 	}
 	if !validDescription(config.Description) {

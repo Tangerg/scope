@@ -23,6 +23,10 @@ const (
 	WaitKindChildren WaitKind = "children"
 )
 
+func (w WaitKind) Valid() bool {
+	return w == WaitKindExternal || w == WaitKindChildren
+}
+
 // ProcessSnapshot is an immutable diagnostic capture of one Engine-owned
 // Process. Strategy state and Effect payloads remain opaque. A ProcessSnapshot
 // is not a recovery unit; only a complete TreeSnapshot can be restored.
@@ -187,10 +191,7 @@ func (p ProcessSnapshot) WaitKind() (WaitKind, bool) {
 	if !found {
 		return "", false
 	}
-	if wait.ExternallyAddressable {
-		return WaitKindExternal, true
-	}
-	return WaitKindChildren, true
+	return wait.Kind, true
 }
 
 func (p ProcessSnapshot) Valid() bool {

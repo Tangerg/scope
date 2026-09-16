@@ -133,7 +133,7 @@ func newEventFact(spec eventSpec) (eventFact, error) {
 	if spec.incarnationID != (TreeIncarnationID{}) && !spec.incarnationID.Valid() {
 		return eventFact{}, fmt.Errorf("%w: tree incarnation is invalid", ErrInvalidEvent)
 	}
-	if !validQualifiedName(spec.name) {
+	if !ValidQualifiedName(spec.name) {
 		return eventFact{}, fmt.Errorf("%w: name must be a lowercase qualified name", ErrInvalidEvent)
 	}
 	if !spec.phase.Valid() {

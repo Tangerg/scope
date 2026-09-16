@@ -9,9 +9,10 @@ import (
 // before selection. Both slices retain request order. Children absent from
 // Outcomes may still be settling when this result is published.
 type FirstSuccessResult struct {
-	Winner   *agent.ChildKey          `json:"winner,omitempty"`
-	Starts   []agent.ChildStartResult `json:"starts"`
-	Outcomes []agent.ChildOutcome     `json:"outcomes"`
+	Winner *agent.ChildKey          `json:"winner,omitempty"`
+	Starts []agent.ChildStartResult `json:"starts"`
+	// Outcomes is a non-nil ordered collection, including when every start failed.
+	Outcomes []agent.ChildOutcome `json:"outcomes"`
 }
 
 func (f FirstSuccessResult) Valid() bool {
@@ -50,28 +51,25 @@ func (f FirstSuccessResult) Valid() bool {
 }
 
 func validObservedOutcomes(starts []agent.ChildStartResult, outcomes []agent.ChildOutcome) bool {
-	previous := -1
+	next := 0
 	for _, outcome := range outcomes {
-		index := matchingStart(starts, outcome)
-		if index <= previous {
+		if !outcome.Valid() {
 			return false
 		}
-		previous = index
+		for next < len(starts) && !outcomeMatchesStart(outcome, starts[next]) {
+			next++
+		}
+		if next == len(starts) {
+			return false
+		}
+		next++
 	}
 	return true
 }
 
-func matchingStart(starts []agent.ChildStartResult, outcome agent.ChildOutcome) int {
-	if !outcome.Valid() {
-		return -1
-	}
-	for index, started := range starts {
-		id, present := started.ProcessID()
-		if present && childcall.OutcomeMatches(outcome, started.Key(), id) {
-			return index
-		}
-	}
-	return -1
+func outcomeMatchesStart(outcome agent.ChildOutcome, start agent.ChildStartResult) bool {
+	id, present := start.ProcessID()
+	return present && childcall.OutcomeMatches(outcome, start.Key(), id)
 }
 
 func observedProcess(outcomes []agent.ChildOutcome, processID agent.ProcessID) bool {

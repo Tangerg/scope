@@ -59,6 +59,7 @@ type Definition struct {
 	descriptor             agent.Descriptor
 	maxModelCalls          uint32
 	delegates              []Delegate
+	delegatesByName        map[string]int
 	completionValidator    CompletionValidator
 	tools                  toolManifest
 	toolBudget             agent.Budget
@@ -101,7 +102,7 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 		return nil, fmt.Errorf("%w: descriptor: %w", ErrInvalidDefinitionConfig, err)
 	}
 	delegates := slices.Clone(config.Delegates)
-	names := make(map[string]struct{}, len(delegates))
+	names := make(map[string]int, len(delegates))
 	for index, delegate := range delegates {
 		if !delegate.Valid() {
 			return nil, fmt.Errorf("%w: Delegates[%d]: %w", ErrInvalidDefinitionConfig, index, ErrInvalidDelegate)
@@ -113,11 +114,12 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 		if _, duplicate := names[name]; duplicate {
 			return nil, fmt.Errorf("%w: duplicate Delegate name %q", ErrInvalidDefinitionConfig, name)
 		}
-		names[name] = struct{}{}
+		names[name] = index
 	}
 	return &Definition{
 		descriptor: descriptor, maxModelCalls: config.MaxModelCalls,
 		delegates:           delegates,
+		delegatesByName:     names,
 		completionValidator: config.CompletionValidator,
 		tools:               config.Tools.manifest, toolBudget: config.ToolBudget,
 		toolCapabilities:       config.ToolCapabilities,
@@ -186,10 +188,9 @@ func (d *Definition) delegate(name string) (Delegate, bool) {
 	if d == nil {
 		return Delegate{}, false
 	}
-	for _, delegate := range d.delegates {
-		if delegate.definition.Name == name {
-			return delegate, true
-		}
+	index, found := d.delegatesByName[name]
+	if !found {
+		return Delegate{}, false
 	}
-	return Delegate{}, false
+	return d.delegates[index], true
 }

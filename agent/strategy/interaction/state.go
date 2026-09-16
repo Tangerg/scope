@@ -3,7 +3,6 @@ package interaction
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -40,10 +39,10 @@ type executionState struct {
 	WorkingContext      *chat.Request    `json:"working_context"`
 	ModelCallCount      uint32           `json:"model_call_count"`
 	AdvertisedToolNames []string         `json:"advertised_tool_names,omitempty"`
-	ToolRound           *toolCallRound   `json:"tool_round,omitempty"`
-	PendingSteer        *steerBatch      `json:"pending_steer,omitempty"`
+	ToolRound           *toolCallRound   `json:"tool_round,omitzero"`
+	PendingSteer        *steerBatch      `json:"pending_steer,omitzero"`
 	ArtifactRecords     []artifactRecord `json:"artifact_records,omitempty"`
-	FinalOutput         *Output          `json:"final_output,omitempty"`
+	FinalOutput         *Output          `json:"final_output,omitzero"`
 }
 
 type artifactRecord struct {
@@ -56,7 +55,7 @@ type artifactRecord struct {
 
 func (e executionState) validate(ctx context.Context, definition *Definition) error {
 	if !definition.valid() {
-		return ErrInvalidExecutionState
+		return fmt.Errorf("%w: valid Definition is required", ErrInvalidExecutionState)
 	}
 	if e.ModelCallCount > definition.maxModelCalls {
 		return fmt.Errorf("%w: model call count exceeds configured limit", ErrInvalidExecutionState)
@@ -101,7 +100,7 @@ func (e executionState) validatePhaseState(ctx context.Context, definition *Defi
 	switch e.Phase {
 	case phaseAwaitingResultCommit:
 		if e.FinalOutput != nil {
-			return ErrInvalidExecutionState
+			return fmt.Errorf("%w: awaiting_result_commit cannot have final Output", ErrInvalidExecutionState)
 		}
 		_, err := e.ToolRound.publication(e.ModelCallCount)
 		return err
@@ -142,7 +141,7 @@ func (e executionState) validateActiveCallState(ctx context.Context, definition 
 func (e executionState) activeChildCalls() ([]chat.ToolCall, error) {
 	if e.Phase != phaseAwaitingChildStarts && e.Phase != phaseAwaitingChildWaitOpen && e.Phase != phaseWaitingChildren ||
 		e.FinalOutput != nil || e.ModelCallCount == 0 {
-		return nil, ErrInvalidExecutionState
+		return nil, fmt.Errorf("%w: active children require an active call phase, a model call, and no final Output", ErrInvalidExecutionState)
 	}
 	active, err := e.ToolRound.activeCalls()
 	if err != nil {
@@ -200,7 +199,7 @@ func (e executionState) validateArtifacts(definition *Definition) error {
 			return fmt.Errorf("%w: duplicate artifact ToolCall identity", ErrInvalidExecutionState)
 		}
 		seen[identity] = struct{}{}
-		if err := delegate.outputSchema.ValidateOutput(artifact.Output); err != nil {
+		if err := delegate.outputSchema.Validate(artifact.Output.JSON()); err != nil {
 			return fmt.Errorf("%w: artifact %d violates Delegate output contract", ErrInvalidExecutionState, index)
 		}
 		previousModelCallSequence = artifact.ModelCallSequence
@@ -243,11 +242,7 @@ func (e executionState) validateCurrentBatchArtifacts(definition *Definition) er
 }
 
 func (e executionState) snapshot() (agent.ExecutionState, error) {
-	payload, err := json.Marshal(e)
-	if err != nil {
-		return agent.ExecutionState{}, fmt.Errorf("interaction: encode execution state: %w", err)
-	}
-	return agent.NewExecutionState(executionStateKind, payload)
+	return agent.EncodeExecutionState(executionStateKind, e)
 }
 
 func cloneMessages(messages []chat.Message) []chat.Message {

@@ -148,18 +148,18 @@ func (e EffectBoundary) matchesProspectiveTree() bool {
 type TreeCheckpointKind string
 
 const (
-	TreeCheckpointInvalid  TreeCheckpointKind = ""
-	TreeCheckpointStart    TreeCheckpointKind = "start"
-	TreeCheckpointChild    TreeCheckpointKind = "child"
-	TreeCheckpointInput    TreeCheckpointKind = "input"
-	TreeCheckpointProgress TreeCheckpointKind = "progress"
-	TreeCheckpointParked   TreeCheckpointKind = "parked"
-	TreeCheckpointTerminal TreeCheckpointKind = "terminal"
+	TreeCheckpointInvalid    TreeCheckpointKind = ""
+	TreeCheckpointStart      TreeCheckpointKind = "start"
+	TreeCheckpointChildStart TreeCheckpointKind = "child_start"
+	TreeCheckpointSignals    TreeCheckpointKind = "signals"
+	TreeCheckpointProgress   TreeCheckpointKind = "progress"
+	TreeCheckpointParked     TreeCheckpointKind = "parked"
+	TreeCheckpointTerminal   TreeCheckpointKind = "terminal"
 )
 
 func (t TreeCheckpointKind) Valid() bool {
 	switch t {
-	case TreeCheckpointStart, TreeCheckpointChild, TreeCheckpointInput, TreeCheckpointProgress, TreeCheckpointParked, TreeCheckpointTerminal:
+	case TreeCheckpointStart, TreeCheckpointChildStart, TreeCheckpointSignals, TreeCheckpointProgress, TreeCheckpointParked, TreeCheckpointTerminal:
 		return true
 	default:
 		return false
@@ -223,7 +223,7 @@ func (t TreeCheckpoint) matchesSafeCut() bool {
 		snapshots := t.treeSnapshot.state.ProcessSnapshots
 		return len(snapshots) == 1 && snapshots[0].Status() == StatusRunning
 	}
-	if t.kind == TreeCheckpointInput || t.kind == TreeCheckpointChild {
+	if t.kind == TreeCheckpointSignals || t.kind == TreeCheckpointChildStart {
 		return true
 	}
 	allTerminal := true

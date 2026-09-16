@@ -104,7 +104,12 @@ func (w WorldState) apply(effects []Condition) WorldState {
 
 // Key returns a stable identity derived only from canonical known truths.
 func (w WorldState) Key() string {
+	var size int
+	for _, condition := range w.conditions {
+		size += len(condition.key) + 3
+	}
 	var key strings.Builder
+	key.Grow(size)
 	for _, condition := range w.conditions {
 		key.WriteString(condition.key)
 		key.WriteByte('=')

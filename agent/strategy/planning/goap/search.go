@@ -62,11 +62,12 @@ type search struct {
 
 func newSearch(problem planning.Problem, maxExpansions, maxGeneratedNodes uint32) *search {
 	start := problem.InitialState()
+	startKey := start.Key()
 	queue := &frontier{}
 	heap.Init(queue)
 	search := &search{
-		problem: problem, actions: problem.Actions(), maxExpansions: maxExpansions, startKey: start.Key(), frontier: queue,
-		bestCosts: map[string]float64{start.Key(): 0}, predecessors: make(map[string]predecessor),
+		problem: problem, actions: problem.Actions(), maxExpansions: maxExpansions, startKey: startKey, frontier: queue,
+		bestCosts: map[string]float64{startKey: 0}, predecessors: make(map[string]predecessor),
 		maxGeneratedNodes: maxGeneratedNodes,
 	}
 	search.push(start, 0)
@@ -95,15 +96,14 @@ func (s *search) run(ctx context.Context) (searchNode, bool, error) {
 		if s.problem.Goal().SatisfiedBy(current.state) {
 			return *current, true, nil
 		}
-		if err := s.expand(ctx, current); err != nil {
+		if err := s.expand(ctx, current, currentKey); err != nil {
 			return searchNode{}, false, err
 		}
 	}
 	return searchNode{}, false, nil
 }
 
-func (s *search) expand(ctx context.Context, current *searchNode) error {
-	currentKey := current.state.Key()
+func (s *search) expand(ctx context.Context, current *searchNode, currentKey string) error {
 	for _, action := range s.actions {
 		if err := ctx.Err(); err != nil {
 			return err

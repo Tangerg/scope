@@ -209,7 +209,7 @@ func (e *execution) acceptChildCompletion(ctx context.Context, outcome agent.Chi
 	if !present {
 		return e.failContract(1, e.stage().failureCode("output_missing"), "Completed child Process returned no Output")
 	}
-	if err := e.singleChildOutputSchema().ValidateOutput(output); err != nil {
+	if err := e.singleChildOutputSchema().Validate(output.JSON()); err != nil {
 		return e.failContract(1, e.stage().failureCode("output_invalid"), "Child Process Output violated the Stage contract")
 	}
 	if e.stage().kind == StageKindLoop {
@@ -317,7 +317,7 @@ func (e *execution) startFanoutWindow(ctx context.Context, consumedSignals uint3
 		}
 		return agent.Transition{}, err
 	}
-	if start > count || uint32(len(inputs)) != min(stage.fanout.windowSize, count-start) {
+	if uint32(len(inputs)) != min(stage.fanout.windowSize, count-start) {
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
 	if start == count {
@@ -516,7 +516,7 @@ func (e *execution) fanoutOutcome(
 		)
 		return &failure, nil, err
 	}
-	if err := e.stage().fanout.outputSchema.ValidateOutput(output); err != nil {
+	if err := e.stage().fanout.outputSchema.Validate(output.JSON()); err != nil {
 		failure, failureErr := agent.NewFailure(
 			agent.FailureKindContract, e.stage().fanoutFailureCode("output_invalid"),
 			e.fanoutFailureMessage(index, "violated its Output contract"),

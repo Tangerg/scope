@@ -3,6 +3,8 @@ package planning
 import (
 	"fmt"
 	"slices"
+
+	agent "github.com/Tangerg/scope/agent"
 )
 
 // GoalConfig contains the complete immutable description of a Planning goal.
@@ -28,7 +30,7 @@ type Goal struct {
 // what lets the planner decide the route and re-plan when observed facts
 // change.
 func NewGoal(config GoalConfig) (Goal, error) {
-	if !validName(config.Name) {
+	if !agent.ValidQualifiedName(config.Name) {
 		return Goal{}, fmt.Errorf("%w: invalid name %q", ErrInvalidGoal, config.Name)
 	}
 	if !validDescription(config.Description) {

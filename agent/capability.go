@@ -17,7 +17,7 @@ type Capability struct{ name string }
 
 // ParseCapability validates a lowercase qualified capability name.
 func ParseCapability(name string) (Capability, error) {
-	if !validQualifiedName(name) {
+	if !ValidQualifiedName(name) {
 		return Capability{}, ErrInvalidCapability
 	}
 	return Capability{name: name}, nil
@@ -25,7 +25,7 @@ func ParseCapability(name string) (Capability, error) {
 
 func (c Capability) String() string { return c.name }
 
-func (c Capability) Valid() bool { return validQualifiedName(c.name) }
+func (c Capability) Valid() bool { return ValidQualifiedName(c.name) }
 
 func (c Capability) MarshalText() ([]byte, error) {
 	if !c.Valid() {

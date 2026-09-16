@@ -4,9 +4,36 @@ import (
 	"encoding/json"
 	"encoding/json/jsontext"
 	"errors"
+	"math"
 	"slices"
 	"testing"
+
+	"github.com/Tangerg/scope/agent"
 )
+
+func TestFanoutSourcesOwnWindowBounds(t *testing.T) {
+	for name, source := range map[string]fanoutSource{
+		"map": mapSource{
+			codec:      mapValueCodec{id: "items", maxItems: 4},
+			decodeItem: func(value jsontext.Value) (agent.Input, error) { return agent.ParseInput(value) },
+		},
+		"fork": forkSource{branches: make([]fanoutMember, 2)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, start := range []uint32{3, 5, math.MaxUint32} {
+				if inputs, _, err := source.windowInputs(json.RawMessage(`[1,2]`), start, math.MaxUint32); !errors.Is(err, ErrInvalidExecutionState) || len(inputs) != 0 {
+					t.Fatalf("start %d: inputs=%v error=%v", start, inputs, err)
+				}
+			}
+			for _, start := range []uint32{0, 1, 2} {
+				inputs, count, err := source.windowInputs(json.RawMessage(`[1,2]`), start, math.MaxUint32)
+				if err != nil || count != 2 || len(inputs) != int(2-start) {
+					t.Fatalf("start %d: inputs=%v count=%d error=%v", start, inputs, count, err)
+				}
+			}
+		})
+	}
+}
 
 func TestMapScanSelectsOnlyTheRequestedWindow(t *testing.T) {
 	codec := mapValueCodec{id: "items", maxItems: 4}

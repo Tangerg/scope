@@ -149,5 +149,7 @@ func (d *deadlineExecution) Step(ctx context.Context, signals []agent.Signal) (a
 }
 
 func (d *deadlineExecution) Snapshot() (agent.ExecutionState, error) {
-	return encodeState(deadlineStateKind, d.state)
+	return agent.EncodeExecutionState(deadlineStateKind, d.state)
 }
+
+var _ agent.Execution = (*deadlineExecution)(nil)

@@ -2,7 +2,6 @@ package collaboration
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"slices"
 
@@ -279,9 +278,7 @@ func (e *execution) applyDecision(decision Decision, consumed uint32) (agent.Tra
 }
 
 func (e *execution) Snapshot() (agent.ExecutionState, error) {
-	payload, err := json.Marshal(e.state)
-	if err != nil {
-		return agent.ExecutionState{}, err
-	}
-	return agent.NewExecutionState(stateKind, payload)
+	return agent.EncodeExecutionState(stateKind, e.state)
 }
+
+var _ agent.Execution = (*execution)(nil)

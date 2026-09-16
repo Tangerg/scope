@@ -61,7 +61,7 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 		}
 	}
 	for name, executor := range config.ActionExecutors {
-		if !validName(name) || lo.IsNil(executor) {
+		if !agent.ValidQualifiedName(name) || lo.IsNil(executor) {
 			return nil, fmt.Errorf("%w: invalid executor %q", ErrInvalidDispatcherConfig, name)
 		}
 		if _, found := executors[name]; !found {

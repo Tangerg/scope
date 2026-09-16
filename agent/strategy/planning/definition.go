@@ -49,6 +49,7 @@ type Definition struct {
 	descriptor        agent.Descriptor
 	goal              Goal
 	bindings          []ActionBinding
+	bindingsByName    map[string]int
 	planner           Planner
 	maxActionAttempts uint32
 }
@@ -62,7 +63,7 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 		return nil, ErrInvalidDefinitionConfig
 	}
 	bindings := slices.Clone(config.Actions)
-	names := make(map[string]struct{}, len(bindings))
+	names := make(map[string]int, len(bindings))
 	for index, binding := range bindings {
 		if !binding.Valid() {
 			return nil, fmt.Errorf("%w: Actions[%d]", ErrInvalidDefinitionConfig, index)
@@ -71,7 +72,7 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 		if _, duplicate := names[name]; duplicate {
 			return nil, fmt.Errorf("%w: duplicate Action %q", ErrInvalidDefinitionConfig, name)
 		}
-		names[name] = struct{}{}
+		names[name] = index
 	}
 	outputSchema, err := agent.SchemaFor[Output]()
 	if err != nil {
@@ -85,7 +86,7 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 		return nil, fmt.Errorf("%w: descriptor: %w", ErrInvalidDefinitionConfig, err)
 	}
 	return &Definition{
-		descriptor: descriptor, goal: config.Goal, bindings: bindings,
+		descriptor: descriptor, goal: config.Goal, bindings: bindings, bindingsByName: names,
 		planner: config.Planner, maxActionAttempts: config.MaxActionAttempts,
 	}, nil
 }
@@ -136,42 +137,34 @@ func (d *Definition) valid() bool {
 }
 
 func (d *Definition) binding(name string) (ActionBinding, bool) {
-	for _, binding := range d.bindings {
-		if binding.action.name == name {
-			return binding, true
-		}
+	index, found := d.bindingsByName[name]
+	if !found {
+		return ActionBinding{}, false
 	}
-	return ActionBinding{}, false
+	return d.bindings[index], true
 }
 
 func (d *Definition) problem(state executionState) (Problem, error) {
+	excluded := make(map[string]struct{}, len(state.Attempts))
+	for _, attempt := range state.Attempts {
+		if attempt.excluded() {
+			excluded[attempt.ActionName] = struct{}{}
+		}
+	}
 	actions := make([]Action, 0, len(d.bindings))
 	for _, binding := range d.bindings {
-		if !d.actionExcluded(state.Attempts, binding.action.name) {
+		if _, found := excluded[binding.action.name]; !found {
 			actions = append(actions, binding.action)
 		}
 	}
 	return NewProblem(state.WorldState, d.goal, actions...)
 }
 
-func (d *Definition) actionExcluded(attempts []Attempt, name string) bool {
-	for _, attempt := range attempts {
-		if attempt.ActionName == name && d.excludes(attempt) {
-			return true
-		}
-	}
-	return false
-}
-
-func (d *Definition) excludes(attempt Attempt) bool {
-	return attempt.Status != AttemptSucceeded
-}
-
 func (d *Definition) validateActionHistory(attempts []Attempt) error {
 	if err := validateAttempts(attempts); err != nil {
 		return err
 	}
-	excluded := make(map[string]struct{})
+	excluded := make(map[string]struct{}, len(attempts))
 	for _, attempt := range attempts {
 		if _, found := d.binding(attempt.ActionName); !found {
 			return fmt.Errorf("attempt references unknown Action %q", attempt.ActionName)
@@ -179,7 +172,7 @@ func (d *Definition) validateActionHistory(attempts []Attempt) error {
 		if _, present := excluded[attempt.ActionName]; present {
 			return fmt.Errorf("Action %q was attempted after exclusion", attempt.ActionName)
 		}
-		if d.excludes(attempt) {
+		if attempt.excluded() {
 			excluded[attempt.ActionName] = struct{}{}
 		}
 	}

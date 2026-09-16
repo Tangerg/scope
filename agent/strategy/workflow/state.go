@@ -34,16 +34,16 @@ type executionState struct {
 	StageIndex             uint32             `json:"stage_index"`
 	CurrentValue           json.RawMessage    `json:"current_value"`
 	SelectedCaseID         string             `json:"selected_case_id,omitempty"`
-	Child                  *childcall.Single  `json:"child,omitempty"`
-	FanoutWaitID           *agent.WaitID      `json:"fanout_wait_id,omitempty"`
+	Child                  *childcall.Single  `json:"child,omitzero"`
+	FanoutWaitID           *agent.WaitID      `json:"fanout_wait_id,omitzero"`
 	ActiveFanoutWindow     []fanoutChildState `json:"active_fanout_window,omitempty"`
 	CompletedFanoutOutputs []json.RawMessage  `json:"completed_fanout_outputs,omitempty"`
 	LoopIteration          uint32             `json:"loop_iteration,omitempty"`
 }
 
 type fanoutChildState struct {
-	ChildProcessID *agent.ProcessID `json:"child_process_id,omitempty"`
-	Failure        *agent.Failure   `json:"failure,omitempty"`
+	ChildProcessID *agent.ProcessID `json:"child_process_id,omitzero"`
+	Failure        *agent.Failure   `json:"failure,omitzero"`
 }
 
 func (e executionState) validate(definition *Definition) error {
@@ -61,7 +61,7 @@ func (e executionState) validate(definition *Definition) error {
 		return fmt.Errorf("%w: current value: %w", ErrInvalidExecutionState, err)
 	}
 	if e.StageIndex < uint32(len(definition.stages)) {
-		if err := definition.stages[e.StageIndex].inputSchema.ValidateInput(input); err != nil {
+		if err := definition.stages[e.StageIndex].inputSchema.Validate(input.JSON()); err != nil {
 			return fmt.Errorf("%w: current value does not satisfy current Stage: %w", ErrInvalidExecutionState, err)
 		}
 	} else {
@@ -203,7 +203,7 @@ func (e executionState) validateCompletedFanoutOutputs(stage Stage) error {
 		if err != nil {
 			return fmt.Errorf("%w: completed fan-out output %d: %w", ErrInvalidExecutionState, index, err)
 		}
-		if err := stage.fanout.outputSchema.ValidateOutput(value); err != nil {
+		if err := stage.fanout.outputSchema.Validate(value.JSON()); err != nil {
 			return fmt.Errorf("%w: completed fan-out output %d schema: %w", ErrInvalidExecutionState, index, err)
 		}
 	}
@@ -236,9 +236,5 @@ func (e executionState) validateFanoutPhase(resolved, started int) error {
 }
 
 func (e executionState) snapshot() (agent.ExecutionState, error) {
-	payload, err := json.Marshal(e)
-	if err != nil {
-		return agent.ExecutionState{}, fmt.Errorf("workflow: encode execution state: %w", err)
-	}
-	return agent.NewExecutionState(executionStateKind, payload)
+	return agent.EncodeExecutionState(executionStateKind, e)
 }

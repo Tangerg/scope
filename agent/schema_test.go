@@ -7,6 +7,21 @@ import (
 	"testing"
 )
 
+func TestSchemaValidationSeparatesSchemaAndValueFailures(t *testing.T) {
+	if err := (Schema{}).Validate(json.RawMessage(`1`)); !errors.Is(err, ErrInvalidSchema) {
+		t.Fatalf("zero schema error = %v", err)
+	}
+	schema, err := SchemaFor[int]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{`"one"`, `{`, `1 2`, `{"a":1,"a":2}`} {
+		if err := schema.Validate(json.RawMessage(raw)); !errors.Is(err, ErrSchemaValidation) {
+			t.Fatalf("Validate(%q) error = %v", raw, err)
+		}
+	}
+}
+
 type jsonWireFixture struct {
 	Metadata  map[string]json.RawMessage `json:"metadata"`
 	Signature []byte                     `json:"signature"`
@@ -21,15 +36,15 @@ func TestSchemaForValidatesTypedWireValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if validateInputErr := schema.ValidateInput(valid); validateInputErr != nil {
-		t.Fatalf("ValidateInput(valid) error = %v", validateInputErr)
+	if validateInputErr := schema.Validate(valid.JSON()); validateInputErr != nil {
+		t.Fatalf("Validate(valid) error = %v", validateInputErr)
 	}
 	invalid, err := ParseInput([]byte(`{"message":3}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := schema.ValidateInput(invalid); !errors.Is(err, ErrInvalidInput) {
-		t.Fatalf("ValidateInput(invalid) error = %v, want ErrInvalidInput; schema = %s", err, schema.JSON())
+	if err := schema.Validate(invalid.JSON()); !errors.Is(err, ErrSchemaValidation) {
+		t.Fatalf("Validate(invalid) error = %v, want ErrSchemaValidation; schema = %s", err, schema.JSON())
 	}
 }
 
@@ -51,7 +66,7 @@ func TestSchemaForChildSpecUsesItsPublicWireContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if validationErr := schema.ValidateInput(encoded); validationErr != nil {
+	if validationErr := schema.Validate(encoded.JSON()); validationErr != nil {
 		t.Fatalf("a canonical child request cannot cross a typed strategy input: %v; schema=%s", validationErr, schema.JSON())
 	}
 }
@@ -75,24 +90,24 @@ func TestSchemaForMatchesEncodingJSONWireTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if validateOutputErr := schema.ValidateOutput(valid); validateOutputErr != nil {
-		t.Fatalf("ValidateOutput(valid JSON wire values) error = %v; schema = %s", validateOutputErr, schema.JSON())
+	if validateOutputErr := schema.Validate(valid.JSON()); validateOutputErr != nil {
+		t.Fatalf("Validate(valid JSON wire values) error = %v; schema = %s", validateOutputErr, schema.JSON())
 	}
 
 	nilSignature, err := EncodeOutput(jsonWireFixture{Metadata: map[string]json.RawMessage{}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if validateOutputErr := schema.ValidateOutput(nilSignature); validateOutputErr != nil {
-		t.Fatalf("ValidateOutput(nil byte slice) error = %v; schema = %s", validateOutputErr, schema.JSON())
+	if validateOutputErr := schema.Validate(nilSignature.JSON()); validateOutputErr != nil {
+		t.Fatalf("Validate(nil byte slice) error = %v; schema = %s", validateOutputErr, schema.JSON())
 	}
 
 	arraySignature, err := ParseOutput([]byte(`{"metadata":{"provider":"deepseek"},"signature":[1,2,3]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if validateOutputErr := schema.ValidateOutput(arraySignature); !errors.Is(validateOutputErr, ErrInvalidOutput) {
-		t.Fatalf("ValidateOutput(array signature) error = %v, want ErrInvalidOutput", validateOutputErr)
+	if validateOutputErr := schema.Validate(arraySignature.JSON()); !errors.Is(validateOutputErr, ErrSchemaValidation) {
+		t.Fatalf("Validate(array signature) error = %v, want ErrSchemaValidation", validateOutputErr)
 	}
 	if !bytes.Contains(schema.JSON(), []byte(`"contentEncoding":"base64"`)) {
 		t.Fatalf("derived schema does not identify the byte-slice encoding: %s", schema.JSON())

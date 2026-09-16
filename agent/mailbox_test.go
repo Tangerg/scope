@@ -149,7 +149,7 @@ func TestMailboxRoutesWaitAnswersAndHandlesEarlyArrival(t *testing.T) {
 	key, _ := ParseWaitKey("approval:1")
 	waitID, _ := ParseWaitID("wait:1")
 	opened := mustMailboxSignal(t, "signal:engine:opened", waitID, json.RawMessage(`{}`))
-	if err := mailbox.openWait(key, opened, true); err != nil {
+	if err := mailbox.openWait(key, opened, WaitKindExternal); err != nil {
 		t.Fatal(err)
 	}
 	answerID, _ := ParseSignalID("signal:answer")
@@ -205,7 +205,7 @@ func TestMailboxSnapshotRestoresDeduplicationCursorAndWaitFacts(t *testing.T) {
 	key, _ := ParseWaitKey("approval:1")
 	waitID, _ := ParseWaitID("wait:1")
 	opened := mustMailboxSignal(t, "signal:engine:opened", waitID, json.RawMessage(`{}`))
-	if err := mailbox.openWait(key, opened, true); err != nil {
+	if err := mailbox.openWait(key, opened, WaitKindExternal); err != nil {
 		t.Fatal(err)
 	}
 	answer := mustMailboxSignal(t, "signal:answer", waitID, json.RawMessage(`{"approved":true}`))
@@ -249,7 +249,7 @@ func TestMailboxWaitOpenedSignalDoesNotAnswerOrCloseWait(t *testing.T) {
 	key, _ := ParseWaitKey("approval:1")
 	waitID, _ := ParseWaitID("wait:1")
 	opened := mustMailboxSignal(t, "signal:engine:opened", waitID, json.RawMessage(`{"kind":"wait_opened"}`))
-	if err := mailbox.openWait(key, opened, true); err != nil {
+	if err := mailbox.openWait(key, opened, WaitKindExternal); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := mailbox.commit(1); err != nil {
@@ -265,7 +265,7 @@ func TestMailboxCommitReportsOnlyConsumedChildWaits(t *testing.T) {
 	key, _ := ParseWaitKey("children")
 	waitID, _ := ParseWaitID("wait:children")
 	opened := mustMailboxSignal(t, "signal:engine:opened", waitID, json.RawMessage(`{}`))
-	if err := mailbox.openWait(key, opened, false); err != nil {
+	if err := mailbox.openWait(key, opened, WaitKindChildren); err != nil {
 		t.Fatal(err)
 	}
 	answer := mustMailboxSignal(t, "signal:engine:answer", waitID, json.RawMessage(`{}`))
@@ -304,19 +304,42 @@ func TestMailboxRestoreRejectsInvalidWire(t *testing.T) {
 	}
 }
 
+func TestMailboxRejectsUnknownWaitAuthorityAtomically(t *testing.T) {
+	mailbox := newSignalMailbox()
+	key := controlValue(ParseWaitKey("authority"))
+	id := controlValue(ParseWaitID("wait:authority"))
+	opening := mustMailboxSignal(t, "signal:engine:authority", id, json.RawMessage(`{}`))
+	for _, kind := range []WaitKind{"", "unowned"} {
+		if err := mailbox.openWait(key, opening, kind); !errors.Is(err, errWaitState) {
+			t.Fatalf("openWait(%q) error = %v", kind, err)
+		}
+		if mailbox.arrivalSequence() != 0 || len(mailbox.waits) != 0 {
+			t.Fatal("invalid wait authority changed mailbox")
+		}
+	}
+	if err := mailbox.openWait(key, opening, WaitKindExternal); err != nil {
+		t.Fatal(err)
+	}
+	wire := mailbox.wire()
+	wire.Waits[0].Kind = ""
+	if _, err := restoreSignalMailbox(wire, StatusRunning); !errors.Is(err, errWaitState) {
+		t.Fatalf("restore unknown authority error = %v", err)
+	}
+}
+
 func TestMailboxRestoresWaitLifecycleAtEveryBoundary(t *testing.T) {
-	for _, external := range []bool{true, false} {
-		t.Run(strconv.FormatBool(external), func(t *testing.T) {
+	for _, kind := range []WaitKind{WaitKindExternal, WaitKindChildren} {
+		t.Run(string(kind), func(t *testing.T) {
 			mailbox := newSignalMailbox()
 			key, _ := ParseWaitKey("reusable")
 			source := signalSourceChildWait
-			if external {
+			if kind == WaitKindExternal {
 				source = signalSourceExternal
 			}
 			for index := range 3 {
 				id, _ := ParseWaitID("wait:" + strconv.Itoa(index))
 				opened := mustMailboxSignal(t, "signal:engine:opened-"+strconv.Itoa(index), id, json.RawMessage(`{}`))
-				if err := mailbox.openWait(key, opened, external); err != nil {
+				if err := mailbox.openWait(key, opened, kind); err != nil {
 					t.Fatal(err)
 				}
 				mailbox = restoredMailbox(t, mailbox, StatusRunning)
@@ -324,7 +347,7 @@ func TestMailboxRestoresWaitLifecycleAtEveryBoundary(t *testing.T) {
 					t.Fatalf("unanswered wait=%t error=%v", shouldWait, err)
 				}
 				answerID := "signal:answer-" + strconv.Itoa(index)
-				if !external {
+				if kind == WaitKindChildren {
 					answerID = "signal:engine:answer-" + strconv.Itoa(index)
 				}
 				answer := mustMailboxSignal(t, answerID, id, json.RawMessage(`{}`))

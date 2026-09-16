@@ -237,7 +237,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 				t.Fatal(restoreErr)
 			}
 			opened := mustMailboxSignal(t, "signal:engine:foreign-wait", registration.WaitID, json.RawMessage(`{}`))
-			if openErr := mailbox.openWait(registration.Spec.Key, opened, false); openErr != nil {
+			if openErr := mailbox.openWait(registration.Spec.Key, opened, WaitKindChildren); openErr != nil {
 				t.Fatal(openErr)
 			}
 			child.Mailbox = mailbox.wire()
@@ -498,7 +498,7 @@ func TestDurableChildOutcomeCommitsWholeProspectiveTree(t *testing.T) {
 	}
 	var childCheckpoint TreeCheckpoint
 	for _, checkpoint := range durability.treeCheckpoints() {
-		if checkpoint.Kind() == TreeCheckpointChild {
+		if checkpoint.Kind() == TreeCheckpointChildStart {
 			childCheckpoint = checkpoint
 			break
 		}

@@ -90,7 +90,7 @@ func decodeEffect(payload json.RawMessage) (effectEnvelope, error) {
 			return effectEnvelope{}, ErrInvalidProtocol
 		}
 	case operationAction:
-		if envelope.Action == nil || !validName(envelope.Action.Name) ||
+		if envelope.Action == nil || !agent.ValidQualifiedName(envelope.Action.Name) ||
 			!validDescription(envelope.Action.Description) {
 			return effectEnvelope{}, ErrInvalidProtocol
 		}
@@ -101,7 +101,7 @@ func decodeEffect(payload json.RawMessage) (effectEnvelope, error) {
 func senseSignal(state WorldState, cause error) (json.RawMessage, error) {
 	result := &senseResult{}
 	if cause != nil {
-		result.Error = diagnostic(cause.Error())
+		result.Error = agent.NormalizeDiagnostic(cause.Error())
 	} else {
 		cloned := state
 		result.WorldState = &cloned
@@ -137,7 +137,7 @@ func decodeSignal(payload json.RawMessage) (signalEnvelope, error) {
 			(envelope.Sensing.WorldState == nil) == (envelope.Sensing.Error == "") {
 			return signalEnvelope{}, ErrInvalidProtocol
 		}
-		if envelope.Sensing.Error != "" && diagnostic(envelope.Sensing.Error) != envelope.Sensing.Error {
+		if envelope.Sensing.Error != "" && !agent.ValidDiagnostic(envelope.Sensing.Error) {
 			return signalEnvelope{}, ErrInvalidProtocol
 		}
 	case operationAction:
@@ -145,8 +145,7 @@ func decodeSignal(payload json.RawMessage) (signalEnvelope, error) {
 			return signalEnvelope{}, ErrInvalidProtocol
 		}
 		if envelope.Action.Succeeded && envelope.Action.Diagnostic != "" ||
-			!envelope.Action.Succeeded && (envelope.Action.Diagnostic == "" ||
-				diagnostic(envelope.Action.Diagnostic) != envelope.Action.Diagnostic) {
+			!envelope.Action.Succeeded && !agent.ValidDiagnostic(envelope.Action.Diagnostic) {
 			return signalEnvelope{}, ErrInvalidProtocol
 		}
 	}

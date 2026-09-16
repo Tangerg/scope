@@ -60,10 +60,10 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 		{name: "pending", effect: EffectBoundaryPending},
 		{name: "settled", effect: EffectBoundarySettled},
 		{name: "resolved", effect: EffectBoundaryResolved},
-		{name: "child", checkpoint: TreeCheckpointChild, mode: "parent"},
+		{name: "child", checkpoint: TreeCheckpointChildStart, mode: "parent"},
 		{name: "parked", checkpoint: TreeCheckpointParked, mode: "leaf_pause"},
 		{name: "terminal", checkpoint: TreeCheckpointTerminal, mode: "leaf"},
-		{name: "input", checkpoint: TreeCheckpointInput, mode: "leaf_pause"},
+		{name: "input", checkpoint: TreeCheckpointSignals, mode: "leaf_pause"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			durability := &inspectionDurability{
@@ -108,7 +108,7 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 				operation = done
 				go func() { done <- root.ResolveUnknownEffect(t.Context(), settlement) }()
 			}
-			if scenario.checkpoint == TreeCheckpointInput {
+			if scenario.checkpoint == TreeCheckpointSignals {
 				waitForStatus(t, root, StatusPaused)
 				id, _ := ParseSignalID("signal:inspection-input")
 				request, requestErr := NewSignalRequest(id, WaitID{}, []byte(`{"value":"queued"}`))
@@ -145,7 +145,7 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 			if len(durability.treeCheckpoints()) != checkpoints || len(durability.effectBoundaries()) != effects {
 				t.Fatal("inspection produced a durability write")
 			}
-			if scenario.checkpoint == TreeCheckpointChild && len(commit.next.ProcessSnapshots()) != 2 {
+			if scenario.checkpoint == TreeCheckpointChildStart && len(commit.next.ProcessSnapshots()) != 2 {
 				t.Fatal("child probe did not include a prospective child")
 			}
 			if scenario.effect == EffectBoundaryResolved && len(first.UnknownEffectIDs()) != 1 {
@@ -184,7 +184,7 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 			if !stopped.Stopped || stopped.CommitPending || stopped.HeadDigest != commit.previous || len(stopped.Processes) != 1 {
 				t.Fatalf("stopped inspection=%+v", stopped)
 			}
-			if scenario.checkpoint == TreeCheckpointChild {
+			if scenario.checkpoint == TreeCheckpointChildStart {
 				if err := root.Join(t.Context()); !errors.Is(err, durability.failure) {
 					t.Fatalf("child rollback join error=%v", err)
 				}

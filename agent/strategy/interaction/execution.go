@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
-	"unicode/utf8"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
@@ -468,7 +466,7 @@ func (e *execution) fail(
 	code string,
 	message string,
 ) (agent.Transition, error) {
-	message = boundedDiagnostic(message)
+	message = agent.NormalizeDiagnostic(message)
 	failure, err := agent.NewFailure(kind, code, message)
 	if err != nil {
 		return agent.Transition{}, err
@@ -708,7 +706,7 @@ func (e *execution) acceptDelegateOutcome(index int, call chat.ToolCall, result 
 	}
 	output, present := result.Output()
 	delegate, found := e.definition.delegate(call.Name)
-	if !present || !found || delegate.outputSchema.ValidateOutput(output) != nil {
+	if !present || !found || delegate.outputSchema.Validate(output.JSON()) != nil {
 		return fmt.Errorf("%w: Delegate child output violates its frozen contract", ErrInvalidExecutionState)
 	}
 	toolOutput, err := chat.NewJSONToolOutput(output.JSON())
@@ -787,27 +785,6 @@ func (e *execution) scheduleToolChildren(ctx context.Context, consumed uint32) (
 		return agent.Transition{}, err
 	}
 	return e.advanceToolCallBatch(ctx, consumed)
-}
-
-func boundedDiagnostic(message string) string {
-	message = strings.ToValidUTF8(message, "\ufffd")
-	message = strings.TrimSpace(message)
-	if message == "" {
-		return "Interaction operation failed"
-	}
-	const limit = 2048
-	if len(message) <= limit {
-		return message
-	}
-	message = message[:limit]
-	for !utf8.ValidString(message) {
-		message = message[:len(message)-1]
-	}
-	message = strings.TrimSpace(message)
-	if message == "" {
-		return "Interaction operation failed"
-	}
-	return message
 }
 
 var _ agent.Execution = (*execution)(nil)

@@ -149,7 +149,7 @@ func admissionTestWait(t *testing.T, process *processState) WaitID {
 	wait, _ := ParseWaitID("wait:approval")
 	key, _ := ParseWaitKey("approval")
 	signal := mustMailboxSignal(t, "signal:engine:opened", wait, json.RawMessage(`{}`))
-	if err := process.mailbox.openWait(key, signal, true); err != nil {
+	if err := process.mailbox.openWait(key, signal, WaitKindExternal); err != nil {
 		t.Fatal(err)
 	}
 	process.status, process.currentWaitID = StatusWaiting, wait

@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 )
@@ -21,7 +22,7 @@ type ExecutionState struct {
 // exists so a snapshot can be rejected when restored into the wrong strategy;
 // the payload stays opaque so adding a strategy never widens the kernel.
 func NewExecutionState(kind string, payload json.RawMessage) (ExecutionState, error) {
-	if !validQualifiedName(kind) {
+	if !ValidQualifiedName(kind) {
 		return ExecutionState{}, fmt.Errorf("%w: kind must be a lowercase qualified name", ErrInvalidExecutionState)
 	}
 	normalized, err := normalizeJSON(payload, MaxPayloadBytes)
@@ -29,6 +30,16 @@ func NewExecutionState(kind string, payload json.RawMessage) (ExecutionState, er
 		return ExecutionState{}, fmt.Errorf("%w: payload: %w", ErrInvalidExecutionState, err)
 	}
 	return ExecutionState{kind: kind, payload: normalized}, nil
+}
+
+// EncodeExecutionState strictly encodes a typed strategy state and seals it with
+// NewExecutionState. Invalid UTF-8 and duplicate JSON names are rejected.
+func EncodeExecutionState[T any](kind string, value T) (ExecutionState, error) {
+	payload, err := jsonv2.Marshal(value, jsonv2.Deterministic(true))
+	if err != nil {
+		return ExecutionState{}, fmt.Errorf("%w: encode: %w", ErrInvalidExecutionState, err)
+	}
+	return NewExecutionState(kind, payload)
 }
 
 // Kind returns the Strategy that exclusively interprets Payload.
@@ -52,7 +63,7 @@ func (e ExecutionState) Decode[T any](kind string) (T, error) {
 }
 
 func (e ExecutionState) Valid() bool {
-	return validQualifiedName(e.kind) && len(e.payload) > 0
+	return ValidQualifiedName(e.kind) && len(e.payload) > 0
 }
 
 func (e ExecutionState) clone() ExecutionState {

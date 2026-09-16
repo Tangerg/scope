@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
+
+	agent "github.com/Tangerg/scope/agent"
 )
 
 // Condition is one immutable known truth requirement or prediction. Unknown is
@@ -19,7 +21,7 @@ type Condition struct {
 // to compare and combine them without executing anything.
 func NewCondition(key string, truth Truth) (Condition, error) {
 	condition := Condition{key: key, truth: truth}
-	if !validName(key) || !truth.known() {
+	if !agent.ValidQualifiedName(key) || !truth.known() {
 		return Condition{}, fmt.Errorf("%w: key %q and truth %s", ErrInvalidCondition, key, truth)
 	}
 	return condition, nil
