@@ -175,6 +175,47 @@ func batchStart(t *testing.T, signal agent.Signal) agent.ChildStartResult {
 	return start
 }
 
+func TestBatchStructuralErrorsPrecedePhaseErrors(t *testing.T) {
+	_, key, waitKey := invocation(t)
+	id, _ := agent.ParseProcessID("child")
+	waitID, _ := agent.ParseWaitID("wait")
+	for _, batch := range []childcall.Batch{
+		{Children: []childcall.Child{{}}},
+		{Children: []childcall.Child{{Key: key}, {Key: key}}},
+		{Children: []childcall.Child{{Key: key, ProcessID: id}, {Key: key, ProcessID: id}}, WaitID: waitID},
+	} {
+		want := batch.Validate()
+		if want == nil {
+			t.Fatal("fixture must be structurally invalid")
+		}
+		_, startErr := batch.AcceptStarts(nil)
+		_, specErr := batch.WaitSpec(waitKey, agent.ChildWaitBoundaryDrained, agent.AllChildren())
+		_, openErr := batch.AcceptOpening(agent.ChildWaitOpened{}, waitKey, agent.ChildWaitBoundaryDrained, agent.AllChildren())
+		_, completionErr := batch.Complete(agent.ChildWaitSatisfied{}, waitKey, agent.ChildWaitBoundaryDrained, agent.AllChildren())
+		_, outcomeErr := batch.MatchOutcomes(nil)
+		for operation, err := range map[string]error{"start": startErr, "wait": specErr, "opening": openErr, "completion": completionErr, "outcomes": outcomeErr} {
+			if err == nil || err.Error() != want.Error() {
+				t.Errorf("%s error = %v, want structural error %v", operation, err, want)
+			}
+		}
+	}
+}
+
+func TestBatchMatchesRetainedOutcomesWithoutAWait(t *testing.T) {
+	_, key, _ := invocation(t)
+	id, _ := agent.ParseProcessID("child")
+	batch := childcall.Batch{Children: []childcall.Child{{Key: key, ProcessID: id}}}
+	outcomes := batchCompletion(t, "wait", "children", "subtree_drained", [][2]string{{"call", "child"}}).Outcomes()
+	if indices, err := batch.MatchOutcomes(outcomes); err != nil || !slices.Equal(indices, []int{0}) {
+		t.Fatalf("retained outcomes = %v, %v", indices, err)
+	}
+	for _, invalid := range [][]agent.ChildOutcome{{{}}, {outcomes[0], outcomes[0]}} {
+		if indices, err := batch.MatchOutcomes(invalid); err == nil || indices != nil {
+			t.Fatalf("invalid outcomes = %v, %v", indices, err)
+		}
+	}
+}
+
 func batchCompletion(t *testing.T, waitID, key, boundary string, children [][2]string) agent.ChildWaitSatisfied {
 	t.Helper()
 	var outcomes []agent.ChildOutcome

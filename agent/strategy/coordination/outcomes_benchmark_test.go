@@ -13,20 +13,20 @@ func BenchmarkRecordOutcomes(b *testing.B) {
 		b.Run(fmt.Sprint(count), func(b *testing.B) {
 			starts, outcomes := competitionOutcomes(b, count)
 			var prior, incoming []agent.ChildOutcome
+			var indices []int
 			for index, outcome := range outcomes {
 				if index%2 == 0 {
 					prior = append(prior, outcome)
 				} else {
 					incoming = append(incoming, outcome)
+					indices = append(indices, index)
 				}
 			}
 			state := firstSuccessState{Starts: starts}
 			b.ReportAllocs()
 			for b.Loop() {
 				state.Outcomes = append(state.Outcomes[:0], prior...)
-				if err := state.recordOutcomes(incoming); err != nil {
-					b.Fatal(err)
-				}
+				state.recordOutcomes(indices, incoming)
 			}
 		})
 	}

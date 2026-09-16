@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
@@ -125,31 +126,47 @@ func (e executionState) waitSpec(d *Definition) (agent.ChildWaitSpec, error) {
 	return e.batch(d).WaitSpec(key, agent.ChildWaitBoundaryDrained, agent.AnyChild())
 }
 
-func matchesOutcome(start *agent.ChildStartResult, outcome *agent.ChildOutcome) bool {
-	if outcome == nil {
-		return true
+func (e *executionState) recordStart(index int, start agent.ChildStartResult) {
+	if index == len(e.Tasks) {
+		e.Turn.Start = &start
+		return
 	}
-	if start == nil || !outcome.Valid() {
-		return false
-	}
-	id, present := start.ProcessID()
-	return present && outcome.Matches(start.Key(), id)
+	e.Tasks[index].Start = &start
 }
 
-func (e *executionState) recordOutcome(outcome agent.ChildOutcome) bool {
-	if e.Turn != nil && e.Turn.Start != nil && e.Turn.Start.Key() == outcome.Key() {
-		if e.Turn.Outcome != nil || !matchesOutcome(e.Turn.Start, &outcome) {
-			return false
-		}
+func (e *executionState) recordOutcome(index int, outcome agent.ChildOutcome) {
+	if index == len(e.Tasks) {
 		e.Turn.Outcome = &outcome
-		return true
+		return
 	}
-	task := e.task(outcome.Key())
-	if task == nil || task.Outcome != nil || !matchesOutcome(task.Start, &outcome) {
-		return false
+	e.Tasks[index].Outcome = &outcome
+}
+
+func (e executionState) validateOutcomes(d *Definition) error {
+	batch := e.batch(d)
+	batch.WaitID = agent.WaitID{}
+	var outcomes []agent.ChildOutcome
+	var expected []int
+	for index, task := range e.Tasks {
+		if task.Outcome != nil {
+			batch.Children[index].Done = false
+			outcomes = append(outcomes, *task.Outcome)
+			expected = append(expected, index)
+		}
 	}
-	task.Outcome = &outcome
-	return true
+	if e.Turn != nil && e.Turn.Outcome != nil {
+		batch.Children[len(e.Tasks)].Done = false
+		outcomes = append(outcomes, *e.Turn.Outcome)
+		expected = append(expected, len(e.Tasks))
+	}
+	indices, err := batch.MatchOutcomes(outcomes)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidState, err)
+	}
+	if !slices.Equal(indices, expected) {
+		return fmt.Errorf("%w: outcome belongs to another child", ErrInvalidState)
+	}
+	return nil
 }
 
 func (e executionState) validate(d *Definition) error {
@@ -161,6 +178,9 @@ func (e executionState) validate(d *Definition) error {
 	}
 	if e.WaitSequence > uint64(e.Number)+uint64(len(e.Tasks)) {
 		return fmt.Errorf("%w: wait sequence exceeds declared turns and tasks", ErrInvalidState)
+	}
+	if err := e.validateOutcomes(d); err != nil {
+		return err
 	}
 	pending, ids, err := e.validateTasks(d)
 	if err != nil {
@@ -259,9 +279,6 @@ func (e executionState) validateTasks(d *Definition) (int, map[agent.ProcessID]s
 				}
 			}
 		}
-		if !matchesOutcome(task.Start, task.Outcome) {
-			return 0, nil, fmt.Errorf("%w: task %d outcome does not match its start", ErrInvalidState, index)
-		}
 		if task.Outcome != nil {
 			if output, completed := task.Outcome.Result().Output(); completed {
 				if err := worker.descriptor.ValidateOutput(output); err != nil {
@@ -345,9 +362,6 @@ func (e executionState) validateTurn(d *Definition, ids map[agent.ProcessID]stru
 		if !present && e.Phase != phaseFailed || reused {
 			return fmt.Errorf("%w: turn process is absent or reused by a task", ErrInvalidState)
 		}
-	}
-	if !matchesOutcome(e.Turn.Start, e.Turn.Outcome) {
-		return fmt.Errorf("%w: turn outcome does not match its start", ErrInvalidState)
 	}
 	if e.Mode == Undecided {
 		if e.Turn.Outcome != nil && e.Phase != phaseFailed || len(e.Tasks) != len(e.Turn.Input.Tasks) ||

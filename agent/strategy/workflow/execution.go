@@ -422,7 +422,7 @@ func (e *execution) acceptFanoutStarts(signals []agent.Signal) (agent.Transition
 	}
 	spec, err := batch.WaitSpec(key, agent.ChildWaitBoundaryDrained, agent.AllChildren())
 	if err != nil {
-		return agent.Transition{}, err
+		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
 	effect, err := agent.NewChildWaitEffect(spec)
 	if err != nil {

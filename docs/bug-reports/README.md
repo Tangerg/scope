@@ -2,7 +2,11 @@
 
 One living document per module, holding only what is still open.
 
-There are currently no open findings.
+| Document | Scope |
+|---|---|
+| [`agent-open-findings.md`](agent-open-findings.md) | `agent` and every subpackage |
+
+No open findings are recorded.
 
 ## Why one document
 

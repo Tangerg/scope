@@ -230,6 +230,19 @@ func TestCompletedSnapshotRejectsForgedOutputAndWorkerSchema(t *testing.T) {
 			outcome := tasks[0].(map[string]any)["outcome"].(map[string]any)
 			outcome["result"].(map[string]any)["output"] = 42
 		},
+		func(wire map[string]any) {
+			task := wire["tasks"].([]any)[0].(map[string]any)
+			task["outcome"] = wire["turn"].(map[string]any)["outcome"]
+		},
+		func(wire map[string]any) {
+			task := wire["tasks"].([]any)[0].(map[string]any)
+			delete(task, "start")
+		},
+		func(wire map[string]any) {
+			task := wire["tasks"].([]any)[0].(map[string]any)
+			outcome := task["outcome"].(map[string]any)
+			outcome["result"].(map[string]any)["process_id"] = "foreign"
+		},
 	} {
 		var wire map[string]any
 		if err := json.Unmarshal(state.Payload(), &wire); err != nil {

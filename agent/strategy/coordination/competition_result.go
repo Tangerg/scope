@@ -2,6 +2,7 @@ package coordination
 
 import (
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
 // FirstSuccessResult preserves child-start facts and the terminal outcomes seen
@@ -18,19 +19,15 @@ func (f FirstSuccessResult) Valid() bool {
 	if len(f.Starts) == 0 || f.Outcomes == nil {
 		return false
 	}
+	batch := childcall.Batch{Children: make([]childcall.Child, len(f.Starts))}
 	for index, started := range f.Starts {
 		if !started.Valid() {
 			return false
 		}
 		id, present := started.ProcessID()
-		for _, previous := range f.Starts[:index] {
-			previousID, previousPresent := previous.ProcessID()
-			if previous.Key() == started.Key() || present && previousPresent && previousID == id {
-				return false
-			}
-		}
+		batch.Children[index] = childcall.Child{Key: started.Key(), ProcessID: id, Done: !present}
 	}
-	if !validObservedOutcomes(f.Starts, f.Outcomes) {
+	if _, err := batch.MatchOutcomes(f.Outcomes); err != nil {
 		return false
 	}
 	if f.Winner != nil {
@@ -47,28 +44,6 @@ func (f FirstSuccessResult) Valid() bool {
 		}
 	}
 	return true
-}
-
-func validObservedOutcomes(starts []agent.ChildStartResult, outcomes []agent.ChildOutcome) bool {
-	next := 0
-	for _, outcome := range outcomes {
-		if !outcome.Valid() {
-			return false
-		}
-		for next < len(starts) && !outcomeMatchesStart(outcome, starts[next]) {
-			next++
-		}
-		if next == len(starts) {
-			return false
-		}
-		next++
-	}
-	return true
-}
-
-func outcomeMatchesStart(outcome agent.ChildOutcome, start agent.ChildStartResult) bool {
-	id, present := start.ProcessID()
-	return present && outcome.Matches(start.Key(), id)
 }
 
 func observedProcess(outcomes []agent.ChildOutcome, processID agent.ProcessID) bool {

@@ -20,8 +20,9 @@ type Child struct {
 
 // Batch owns ordered handshake validation over a Strategy's current invocation
 // facts. It is a temporary view, never a second persisted state machine. Methods
-// validate the whole response before returning indices for the Strategy to adopt;
-// they never mutate the supplied facts. Scheduling and result policy stay with
+// validate structure before phase, then the whole response before returning
+// indices for the Strategy to adopt; they never mutate the supplied facts.
+// Scheduling and result policy stay with
 // the Strategy, including partial admissions and refilling a bounded window.
 type Batch struct {
 	Children []Child
@@ -135,12 +136,12 @@ func (b Batch) WaitSpec(key agent.WaitKey, boundary agent.ChildWaitBoundary, con
 }
 
 func (b Batch) AcceptOpening(opened agent.ChildWaitOpened, key agent.WaitKey, boundary agent.ChildWaitBoundary, condition agent.ChildWaitCondition) (agent.WaitID, error) {
-	if b.Phase() != AwaitingOpening {
-		return agent.WaitID{}, errors.New("childcall: opening is out of phase")
-	}
 	spec, err := b.WaitSpec(key, boundary, condition)
 	if err != nil {
 		return agent.WaitID{}, err
+	}
+	if b.Phase() != AwaitingOpening {
+		return agent.WaitID{}, errors.New("childcall: opening is out of phase")
 	}
 	if !opened.Matches(spec) {
 		return agent.WaitID{}, errors.New("childcall: opening does not match the declared wait")
@@ -151,17 +152,26 @@ func (b Batch) AcceptOpening(opened agent.ChildWaitOpened, key agent.WaitKey, bo
 // Complete validates the wait, count, order, keys, and Process identities before
 // returning the matching child indices. No earlier outcome is adopted on error.
 func (b Batch) Complete(completed agent.ChildWaitSatisfied, key agent.WaitKey, boundary agent.ChildWaitBoundary, condition agent.ChildWaitCondition) ([]int, error) {
-	if b.Phase() != AwaitingCompletion {
-		return nil, errors.New("childcall: completion is out of phase")
-	}
 	spec, err := b.WaitSpec(key, boundary, condition)
 	if err != nil {
 		return nil, err
 	}
+	if b.Phase() != AwaitingCompletion {
+		return nil, errors.New("childcall: completion is out of phase")
+	}
 	if !completed.Matches(b.WaitID, spec) {
 		return nil, errors.New("childcall: completion does not match the declared wait")
 	}
-	outcomes := completed.Outcomes()
+	return b.MatchOutcomes(completed.Outcomes())
+}
+
+// MatchOutcomes validates an ordered subset of unhandled child outcomes without
+// a live wait. Restore and result validators use it to check retained evidence;
+// live callers use Complete to establish the wait boundary first.
+func (b Batch) MatchOutcomes(outcomes []agent.ChildOutcome) ([]int, error) {
+	if err := b.Validate(); err != nil {
+		return nil, err
+	}
 	indices := make([]int, 0, len(outcomes))
 	next := 0
 	for _, outcome := range outcomes {

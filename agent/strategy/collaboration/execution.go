@@ -72,10 +72,11 @@ func (e *execution) acceptTurnStart(signals []agent.Signal) (agent.Transition, e
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if _, err := e.state.batch(e.definition).AcceptStarts([]agent.ChildStartResult{started}); err != nil {
+	indices, err := e.state.batch(e.definition).AcceptStarts([]agent.ChildStartResult{started})
+	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
-	e.state.Turn.Start = &started
+	e.state.recordStart(indices[0], started)
 	if failure, failed := started.Failure(); failed {
 		e.state.Phase = phaseFailed
 		return agent.Fail(1, failure)
@@ -131,13 +132,12 @@ func (e *execution) acceptOutcomes(signals []agent.Signal) (agent.Transition, er
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if _, completionErr := e.state.batch(e.definition).Complete(satisfied, want.Key, want.Boundary, want.Condition); completionErr != nil {
+	indices, completionErr := e.state.batch(e.definition).Complete(satisfied, want.Key, want.Boundary, want.Condition)
+	if completionErr != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, completionErr)
 	}
-	for _, outcome := range satisfied.Outcomes() {
-		if !e.state.recordOutcome(outcome) {
-			return agent.Transition{}, ErrInvalidProtocol
-		}
+	for offset, outcome := range satisfied.Outcomes() {
+		e.state.recordOutcome(indices[offset], outcome)
 	}
 	e.state.WaitID = nil
 	if e.state.Turn.Outcome == nil {
@@ -190,7 +190,7 @@ func (e *execution) acceptActions(signals []agent.Signal) (agent.Transition, err
 			return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 		}
 		for offset, index := range indices {
-			e.state.Tasks[index].Start = &starts[offset]
+			e.state.recordStart(index, starts[offset])
 		}
 	}
 	consumed := uint32(count)

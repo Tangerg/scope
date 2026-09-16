@@ -158,10 +158,14 @@ func (f *firstSuccessExecution) acceptStarts(signals []agent.Signal) (agent.Tran
 		}
 		starts[index] = started
 	}
-	if _, err := f.state.batch().AcceptStarts(starts); err != nil {
+	indices, err := f.state.batch().AcceptStarts(starts)
+	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
-	f.state.Starts = append(f.state.Starts, starts...)
+	f.state.Starts = append(f.state.Starts, make([]agent.ChildStartResult, len(indices))...)
+	for offset, index := range indices {
+		f.state.Starts[index] = starts[offset]
+	}
 	consumed := uint32(count)
 	if len(f.state.Starts) != len(f.state.Candidates) {
 		return agent.Continue(consumed)
@@ -202,13 +206,12 @@ func (f *firstSuccessExecution) acceptOutcomes(ctx context.Context, signals []ag
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if _, err := f.state.batch().Complete(satisfied, wait.Key, wait.Boundary, wait.Condition); err != nil {
+	indices, err := f.state.batch().Complete(satisfied, wait.Key, wait.Boundary, wait.Condition)
+	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
 	outcomes := satisfied.Outcomes()
-	if err := f.state.recordOutcomes(outcomes); err != nil {
-		return agent.Transition{}, err
-	}
+	f.state.recordOutcomes(indices, outcomes)
 	for _, outcome := range outcomes {
 		if err := ctx.Err(); err != nil {
 			return agent.Transition{}, err

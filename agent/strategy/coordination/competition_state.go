@@ -48,8 +48,10 @@ func (f firstSuccessState) validate(maxCandidates uint32) error {
 			return fmt.Errorf("%w: %w", ErrInvalidState, err)
 		}
 	}
-	if !validObservedOutcomes(f.Starts, f.Outcomes) {
-		return fmt.Errorf("%w: observed outcomes disagree with candidate order or identities", ErrInvalidState)
+	unobserved := f
+	unobserved.Outcomes, unobserved.WaitID = nil, nil
+	if _, err := unobserved.batch().MatchOutcomes(f.Outcomes); err != nil {
+		return fmt.Errorf("%w: observed outcomes: %w", ErrInvalidState, err)
 	}
 	if f.Phase != competitionCompleted && f.Winner != nil {
 		return fmt.Errorf("%w: unfinished competition contains a winner", ErrInvalidState)
@@ -130,34 +132,21 @@ func (f firstSuccessState) waitSpec() (agent.ChildWaitSpec, error) {
 	return f.batch().WaitSpec(key, agent.ChildWaitBoundaryResult, agent.AnyChild())
 }
 
-func (f *firstSuccessState) recordOutcomes(outcomes []agent.ChildOutcome) error {
-	if len(outcomes) == 0 || !validObservedOutcomes(f.Starts, outcomes) {
-		return fmt.Errorf("%w: candidate outcomes are empty, unordered, or foreign", ErrInvalidProtocol)
-	}
-	// Both collections follow Starts. Merge in that order without searching
-	// the full start list for each sorting comparison.
+func (f *firstSuccessState) recordOutcomes(indices []int, outcomes []agent.ChildOutcome) {
+	// Complete supplies ordered, previously unobserved candidate indices. The
+	// Strategy owns only merging those facts into its request-ordered history.
 	merged := make([]agent.ChildOutcome, 0, len(f.Outcomes)+len(outcomes))
 	prior, incoming := 0, 0
-	for _, started := range f.Starts {
-		hasPrior := prior < len(f.Outcomes) && outcomeMatchesStart(f.Outcomes[prior], started)
-		hasIncoming := incoming < len(outcomes) && outcomeMatchesStart(outcomes[incoming], started)
-		if hasPrior && hasIncoming {
-			return fmt.Errorf("%w: candidate outcome was already observed", ErrInvalidProtocol)
-		}
-		if hasPrior {
+	for index, started := range f.Starts {
+		if incoming < len(indices) && indices[incoming] == index {
+			merged = append(merged, outcomes[incoming])
+			incoming++
+		} else if prior < len(f.Outcomes) && f.Outcomes[prior].Key() == started.Key() {
 			merged = append(merged, f.Outcomes[prior])
 			prior++
 		}
-		if hasIncoming {
-			merged = append(merged, outcomes[incoming])
-			incoming++
-		}
-	}
-	if prior != len(f.Outcomes) || incoming != len(outcomes) {
-		return fmt.Errorf("%w: candidate outcomes could not be merged", ErrInvalidProtocol)
 	}
 	f.Outcomes = merged
-	return nil
 }
 
 func (f firstSuccessState) result() FirstSuccessResult {
