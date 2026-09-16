@@ -122,8 +122,7 @@ func (e Effect) Valid() bool {
 }
 
 func (e Effect) clone() Effect {
-	requirements, _ := NewCapabilitySet(e.requirements.values...)
-	return Effect{target: e.target, payload: bytes.Clone(e.payload), requirements: requirements}
+	return Effect{target: e.target, payload: bytes.Clone(e.payload), requirements: e.requirements}
 }
 
 func (e Effect) MarshalJSON() ([]byte, error) {

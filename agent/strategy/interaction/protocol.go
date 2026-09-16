@@ -25,11 +25,6 @@ const (
 	operationSteer         operation = "steer"
 )
 
-func (o operation) valid() bool {
-	return o == operationResultCommit || o == operationModelCall || o == operationToolCall ||
-		o == operationWaitOpened || o == operationInputResponse || o == operationSteer
-}
-
 type effectEnvelope struct {
 	ResultCommit *resultCommit        `json:"result_commit,omitempty"`
 	Operation    operation            `json:"operation"`
@@ -172,16 +167,14 @@ func (e effectEnvelope) validate() error {
 		return errors.New("interaction: unexpected result commit")
 	}
 
-	if e.Operation != operationModelCall && e.Operation != operationToolCall {
-		return errors.New("interaction: unsupported effect protocol")
-	}
 	switch e.Operation {
 	case operationModelCall:
 		return e.validateModelCall()
 	case operationToolCall:
 		return e.validateToolCall()
+	default:
+		return errors.New("interaction: unsupported effect protocol")
 	}
-	return nil
 }
 
 func (e effectEnvelope) validateModelCall() error {
@@ -234,9 +227,6 @@ func (s signalEnvelope) validate() error {
 		return errors.New("interaction: unexpected result receipt")
 	}
 
-	if !s.Operation.valid() {
-		return errors.New("interaction: unsupported signal protocol")
-	}
 	switch s.Operation {
 	case operationModelCall:
 		return s.validateModelResult()
@@ -248,8 +238,9 @@ func (s signalEnvelope) validate() error {
 		return s.validateInputResponse()
 	case operationSteer:
 		return s.validateSteer()
+	default:
+		return errors.New("interaction: unsupported signal protocol")
 	}
-	return nil
 }
 
 func (s signalEnvelope) validateModelResult() error {

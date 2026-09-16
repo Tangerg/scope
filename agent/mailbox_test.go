@@ -26,7 +26,7 @@ func TestMailboxConsumptionDropsPayloadOnlyFromAdoptedCandidate(t *testing.T) {
 	if pending := mailbox.pending(); len(pending) != 1 || !bytes.Equal(pending[0].Payload(), payload) {
 		t.Fatal("candidate consumption changed the authoritative pending input")
 	}
-	encoded, err := json.Marshal(candidate.snapshot())
+	encoded, err := json.Marshal(candidate.wire())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestMailboxRejectsConflictingIdentityAfterConsumptionAndRestore(t *testing.
 	if _, err := mailbox.commit(1); err != nil {
 		t.Fatal(err)
 	}
-	restored, err := restoreSignalMailbox(mailbox.snapshot(), StatusRunning)
+	restored, err := restoreSignalMailbox(mailbox.wire(), StatusRunning)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestMailboxSnapshotRestoresDeduplicationCursorAndWaitFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wire := mailbox.snapshot()
+	wire := mailbox.wire()
 	data, err := json.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
@@ -358,7 +358,7 @@ func TestMailboxRestoresWaitLifecycleAtEveryBoundary(t *testing.T) {
 
 func restoredMailbox(t testing.TB, mailbox signalMailbox, status Status) signalMailbox {
 	t.Helper()
-	wire := mailbox.snapshot()
+	wire := mailbox.wire()
 	restored, err := restoreSignalMailbox(wire, status)
 	if err != nil {
 		t.Fatal(err)
@@ -367,7 +367,7 @@ func restoredMailbox(t testing.TB, mailbox signalMailbox, status Status) signalM
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := json.Marshal(restored.snapshot())
+	got, err := json.Marshal(restored.wire())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,5 +393,5 @@ func mustMailboxSignal(t testing.TB, value string, waitID WaitID, payload json.R
 func mailboxRecordWire(sequence uint64, signal Signal) signalRecordWire {
 	record := newSignalRecord(signal, false)
 	record.arrivalSequence = sequence
-	return record.snapshot()
+	return record.wire()
 }

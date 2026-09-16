@@ -22,12 +22,3 @@ func orderedChildWaitRegistrations(
 	})
 	return ordered
 }
-
-func containsProcessID(processes []ProcessID, processID ProcessID) bool {
-	for _, candidate := range processes {
-		if candidate == processID {
-			return true
-		}
-	}
-	return false
-}

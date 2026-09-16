@@ -19,8 +19,8 @@ func TestTreeSchedulingMakesProgressUnderContinuousRequests(t *testing.T) {
 		for len(runtime.inspections) < cap(runtime.inspections) {
 			runtime.inspections <- responses
 		}
-		for len(runtime.commands) < cap(runtime.commands) {
-			runtime.commands <- newTreeProcessCommand(process.handle.processID, processCommand{
+		for len(runtime.processCommands) < cap(runtime.processCommands) {
+			runtime.processCommands <- newTreeProcessCommand(process.handle.processID, processCommand{
 				kind: commandResume, response: commandResponses,
 			})
 		}
@@ -85,7 +85,7 @@ func TestTreeSchedulingHonorsControlBeforeAdoptingReadyWork(t *testing.T) {
 	completion := receiveTreeRuntimeProbe(t, runtime.completions)
 	runtime.completions <- completion
 	response := make(chan processResponse, 1)
-	runtime.commands <- newTreeProcessCommand(process.handle.processID, processCommand{
+	runtime.processCommands <- newTreeProcessCommand(process.handle.processID, processCommand{
 		kind: commandKill, reason: "stop before adopting the ready Step", response: response,
 	})
 	for range schedulingProgressTurns {

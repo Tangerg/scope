@@ -140,7 +140,7 @@ func (p *Process) RequestCancellation(ctx context.Context, reason string) error 
 		return err
 	}
 	select {
-	case runtime.commands <- newTreeProcessCommand(
+	case runtime.processCommands <- newTreeProcessCommand(
 		p.handle.processID,
 		processCommand{kind: commandCancel, cancellationIntent: intent},
 	):
@@ -253,7 +253,7 @@ func (p *Process) request(ctx context.Context, command processCommand) (processR
 	}
 	command.response = make(chan processResponse, 1)
 	select {
-	case runtime.commands <- newTreeProcessCommand(p.handle.processID, command):
+	case runtime.processCommands <- newTreeProcessCommand(p.handle.processID, command):
 	case <-p.handle.outcomePublished:
 		return processResponse{}, p.handle.closedRequestError()
 	case <-ctx.Done():

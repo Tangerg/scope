@@ -202,7 +202,7 @@ func TestSnapshotRejectsUnfundedSignalReservations(t *testing.T) {
 			if accepted, enqueueErr := mailbox.enqueue(StatusRunning, signal, signalSourceExternal); enqueueErr != nil || !accepted {
 				t.Fatalf("enqueue=%t error=%v", accepted, enqueueErr)
 			}
-			wire.Mailbox = mailbox.snapshot()
+			wire.Mailbox = mailbox.wire()
 			test.modify(&wire)
 			data, err := json.Marshal(wire)
 			if err != nil {

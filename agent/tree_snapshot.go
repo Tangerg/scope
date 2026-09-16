@@ -508,7 +508,7 @@ type treeFreeze struct {
 func (t *treeFreeze) release() error {
 	response := make(chan error, 1)
 	select {
-	case t.runtime.controls <- treeCommand{
+	case t.runtime.freezeCommands <- treeCommand{
 		kind: treeCommandReleaseFreeze, freeze: t, response: response,
 	}:
 	case <-t.runtime.done:

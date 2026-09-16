@@ -309,7 +309,7 @@ func (p processSnapshotWire) clone() processSnapshotWire {
 	}
 	clone.Mailbox.Waits = slices.Clone(p.Mailbox.Waits)
 	if p.Prepared != nil {
-		prepared := p.Prepared.snapshot()
+		prepared := p.Prepared.clone()
 		clone.Prepared = &prepared
 	}
 	return clone

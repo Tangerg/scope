@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"math"
 	"slices"
@@ -31,13 +32,13 @@ type treeRuntime struct {
 	// External readers need scheduling liveness without acquiring execution
 	// state. Atomics expose that view while commands and completions preserve
 	// one mutation owner.
-	inFlightWork atomic.Int64
-	freezeActive atomic.Bool
-	context      context.Context
-	commands     chan treeCommand
-	controls     chan treeCommand
-	completions  chan treeJobCompletion
-	inspections  chan chan treeInspectionResponse
+	inFlightWork    atomic.Int64
+	freezeActive    atomic.Bool
+	context         context.Context
+	processCommands chan treeCommand
+	freezeCommands  chan treeCommand
+	completions     chan treeJobCompletion
+	inspections     chan chan treeInspectionResponse
 
 	// Everything below is owner-line state. Keeping it lock-free makes commit,
 	// scheduling, freeze, and checkpoint order a single explicit state machine.
@@ -136,7 +137,7 @@ const (
 	treeCommitEffectPending
 	treeCommitEffectSettled
 	treeCommitEffectResolved
-	treeCommitChildOutcome
+	treeCommitChildStart
 	treeCommitCheckpoint
 	treeCommitSignals
 )
@@ -148,7 +149,7 @@ type treeCommit struct {
 	snapshot  TreeSnapshot
 	response  chan processResponse
 	events    []Event
-	child     *pendingChildOutcome
+	child     *pendingChildStartPublication
 }
 
 func (t *treeCommit) reply(response processResponse) {
@@ -157,7 +158,7 @@ func (t *treeCommit) reply(response processResponse) {
 	}
 }
 
-type pendingChildOutcome struct {
+type pendingChildStartPublication struct {
 	parentID  ProcessID
 	effectID  EffectID
 	plan      *childStartPlan
@@ -166,7 +167,7 @@ type pendingChildOutcome struct {
 	event     Event
 }
 
-func (p *pendingChildOutcome) childSettlementStatus() SettlementStatus {
+func (p *pendingChildStartPublication) childSettlementStatus() SettlementStatus {
 	if _, failed := p.result.result.Failure(); failed {
 		return SettlementStatusFailed
 	}
@@ -225,8 +226,8 @@ func newTreeRuntime(
 		engine:              engine,
 		rootID:              rootID,
 		context:             context.WithoutCancel(requireContext(ctx)),
-		commands:            make(chan treeCommand, treeCommandBufferCapacity),
-		controls:            make(chan treeCommand, treeCommandBufferCapacity),
+		processCommands:     make(chan treeCommand, treeCommandBufferCapacity),
+		freezeCommands:      make(chan treeCommand, treeCommandBufferCapacity),
 		completions:         make(chan treeJobCompletion),
 		inspections:         make(chan chan treeInspectionResponse, treeCommandBufferCapacity),
 		processes:           make(map[ProcessID]*processState, len(processes)),
@@ -303,7 +304,7 @@ func (t *treeRuntime) publishInitialProcessEvents() {
 func (t *treeRuntime) watchHostTermination(rootContext context.Context) func() bool {
 	return context.AfterFunc(rootContext, func() {
 		select {
-		case t.commands <- newTreeProcessCommand(
+		case t.processCommands <- newTreeProcessCommand(
 			t.rootID,
 			processCommand{kind: commandHostTerminated, hostErr: rootContext.Err()},
 		):
@@ -318,8 +319,8 @@ func (t *treeRuntime) advanceReadyWork() bool {
 	// because an earlier operation can acquire a freeze or start a commit.
 	advanced := t.tryCommitCompletion()
 	advanced = t.tryFreezeCancellation() || advanced
-	advanced = t.tryControl() || advanced
-	advanced = t.tryCommand() || advanced
+	advanced = t.tryFreezeCommand() || advanced
+	advanced = t.tryProcessCommand() || advanced
 	advanced = t.tryCompletion() || advanced
 	advanced = t.advanceOne() || advanced
 	advanced = t.publishJoins() || advanced
@@ -330,17 +331,17 @@ func (t *treeRuntime) waitForWork() {
 	// Nil channels disable blocked lanes without duplicating event dispatch.
 	// These are local selections; only the owner changes the actual barriers.
 	commitDone := t.commitDone
-	controls := t.controls
-	commands := t.commands
+	freezeCommands := t.freezeCommands
+	processCommands := t.processCommands
 	completions := t.completions
-	freezeCanceled := t.freezeCanceled()
+	freezeCancellation := t.freezeCancellation()
 	if t.mutationsBlocked() {
-		commands = nil
+		processCommands = nil
 		completions = nil
 	}
 	if t.commit != nil {
-		controls = nil
-		freezeCanceled = nil
+		freezeCommands = nil
+		freezeCancellation = nil
 	} else {
 		commitDone = nil
 	}
@@ -349,16 +350,16 @@ func (t *treeRuntime) waitForWork() {
 		select {
 		case completion := <-commitDone:
 			t.applyTreeCommitCompletion(completion)
-		case command := <-controls:
+		case command := <-freezeCommands:
 			t.applyCommand(command)
 		case response := <-t.inspections:
 			t.replyInspection(response)
 			continue
-		case command := <-commands:
+		case command := <-processCommands:
 			t.applyCommand(command)
 		case completion := <-completions:
 			t.applyCompletion(completion)
-		case <-freezeCanceled:
+		case <-freezeCancellation:
 			t.releaseCurrentFreeze()
 		}
 		return
@@ -378,7 +379,7 @@ func (t *treeRuntime) tryCommitCompletion() bool {
 	}
 }
 
-func (t *treeRuntime) freezeCanceled() <-chan struct{} {
+func (t *treeRuntime) freezeCancellation() <-chan struct{} {
 	if t.freeze == nil || t.freeze.acquisition == nil {
 		return nil
 	}
@@ -386,7 +387,7 @@ func (t *treeRuntime) freezeCanceled() <-chan struct{} {
 }
 
 func (t *treeRuntime) tryFreezeCancellation() bool {
-	canceled := t.freezeCanceled()
+	canceled := t.freezeCancellation()
 	if canceled == nil {
 		return false
 	}
@@ -399,12 +400,12 @@ func (t *treeRuntime) tryFreezeCancellation() bool {
 	}
 }
 
-func (t *treeRuntime) tryControl() bool {
+func (t *treeRuntime) tryFreezeCommand() bool {
 	if t.commit != nil {
 		return false
 	}
 	select {
-	case command := <-t.controls:
+	case command := <-t.freezeCommands:
 		t.applyCommand(command)
 		return true
 	default:
@@ -412,12 +413,12 @@ func (t *treeRuntime) tryControl() bool {
 	}
 }
 
-func (t *treeRuntime) tryCommand() bool {
+func (t *treeRuntime) tryProcessCommand() bool {
 	if t.mutationsBlocked() {
 		return false
 	}
 	select {
-	case command := <-t.commands:
+	case command := <-t.processCommands:
 		t.applyCommand(command)
 		return true
 	default:
@@ -531,7 +532,7 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 	}
 }
 
-func (t *treeRuntime) nextAttempt(process *processState) (processAttempt, bool) {
+func (t *treeRuntime) allocateAttempt(process *processState) (processAttempt, bool) {
 	if process.attemptSequence == math.MaxUint64 {
 		t.failProcess(process,
 			FailureKindContract,
@@ -756,7 +757,7 @@ func (t *treeRuntime) applyChildControl(child *processState, request childContro
 	if accepted {
 		t.publishEphemeralStatus(child)
 		for _, event := range t.prepareSignalEvents(child, []Signal{signal}) {
-			t.publishPreparedEventAfterCommit(child, event)
+			t.stagePreparedEvent(child, event)
 		}
 		t.enqueueProcess(child.handle.processID)
 	}
@@ -899,7 +900,7 @@ func (t *treeRuntime) applyFailedTreeCommit(commit *treeCommit, commitErr error)
 	if commit.kind == treeCommitEffectPending {
 		unresolvedEffectID = EffectID{}
 	}
-	if commit.kind == treeCommitChildOutcome {
+	if commit.kind == treeCommitChildStart {
 		t.discardChildStart(commit.child.plan)
 	}
 	t.failDurability(commitErr, commit.processID, unresolvedEffectID)
@@ -920,8 +921,8 @@ func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 	case treeCommitEffectResolved:
 		commit.reply(processResponse{})
 		t.enqueueProcess(commit.processID)
-	case treeCommitChildOutcome:
-		if err := t.publishChildOutcome(commit.child); err != nil {
+	case treeCommitChildStart:
+		if err := t.publishChildStart(commit.child); err != nil {
 			t.discardChildStart(commit.child.plan)
 			t.failDurability(err, commit.processID, commit.effectID)
 			return
@@ -961,9 +962,9 @@ func (t *treeRuntime) discardChildStart(plan *childStartPlan) {
 	t.engine.discardProcessStartReservation(plan.childID)
 }
 
-func (t *treeRuntime) publishChildOutcome(pending *pendingChildOutcome) error {
+func (t *treeRuntime) publishChildStart(pending *pendingChildStartPublication) error {
 	if pending == nil || pending.plan == nil {
-		return errors.New("child outcome is incomplete")
+		return errors.New("child start publication is incomplete")
 	}
 	if pending.result.started() {
 		child := t.processes[pending.plan.childID]
@@ -1204,13 +1205,13 @@ func (t *treeRuntime) applyCommand(command treeCommand) {
 	case treeCommandProcess:
 	default:
 		if command.response != nil {
-			command.response <- ErrEngineQuiescenceUnavailable
+			command.response <- errors.New("agent: invalid tree command")
 		}
 		return
 	}
 	process := t.processes[command.processID]
 	if process == nil {
-		command.process.reply(processResponse{err: ErrProcessNotRunning})
+		command.process.reply(processResponse{err: fmt.Errorf("%w: Process %q is not owned by this tree", ErrInvalidProcessControl, command.processID)})
 		return
 	}
 	t.applyProcessCommand(process, command.process)
@@ -1241,7 +1242,7 @@ func (t *treeRuntime) applyProcessCommand(process *processState, command process
 		err := process.resume()
 		if err == nil {
 			t.publishEphemeralStatus(process)
-			t.publishEventAfterCommit(process, EventProcessResumed, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
+			t.stageEvent(process, EventProcessResumed, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
 		}
 		command.reply(processResponse{err: err})
 	case commandCancel:
@@ -1295,7 +1296,7 @@ func (t *treeRuntime) commitResolution(process *processState, command processCom
 	payload, _ := json.Marshal(effectResolvedEventPayload{
 		EffectTarget: record.Effect.Target(), SettlementStatus: command.settlement.Status(),
 	})
-	t.publishEventAfterCommit(process, EventEffectResolved, EventPhaseCommitted,
+	t.stageEvent(process, EventEffectResolved, EventPhaseCommitted,
 		process.prepared.StepSequence, record.ID, payload)
 	if t.engine.durability == nil {
 		command.reply(processResponse{})
@@ -1387,7 +1388,7 @@ func (t *treeRuntime) freezeBlockedByJob() bool {
 }
 
 func (t *treeRuntime) captureTree() (TreeSnapshot, error) {
-	wire := t.snapshotHeader()
+	wire := t.treeSnapshotBase()
 	for _, process := range t.processes {
 		snapshot, err := process.capture()
 		if err != nil {
@@ -1398,7 +1399,7 @@ func (t *treeRuntime) captureTree() (TreeSnapshot, error) {
 	return treeSnapshotFromWire(wire)
 }
 
-func (t *treeRuntime) snapshotHeader() treeSnapshotWire {
+func (t *treeRuntime) treeSnapshotBase() treeSnapshotWire {
 	wire := treeSnapshotWire{RootID: t.rootID, ProcessSnapshots: []ProcessSnapshot{}}
 	if t.incarnation.Valid() {
 		incarnation := t.incarnation
@@ -1475,7 +1476,7 @@ func (t *treeRuntime) applyPendingControl(process *processState) bool {
 		return false
 	}
 	t.publishEphemeralStatus(process)
-	t.publishEventAfterCommit(process, EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
+	t.stageEvent(process, EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
 	return true
 }
 
@@ -1492,7 +1493,7 @@ func (t *treeRuntime) deliverChildWaitSatisfied(process *processState, signal Si
 	if accepted {
 		t.publishEphemeralStatus(process)
 		for _, event := range t.prepareSignalEvents(process, []Signal{signal}) {
-			t.publishPreparedEventAfterCommit(process, event)
+			t.stagePreparedEvent(process, event)
 		}
 	}
 	return accepted || process.mailbox.contains(signal.ID())
@@ -1547,7 +1548,7 @@ func (t *treeRuntime) publishEvent(
 	t.publishPreparedEvent(process, event)
 }
 
-func (t *treeRuntime) publishEventAfterCommit(
+func (t *treeRuntime) stageEvent(
 	process *processState,
 	name string,
 	phase EventPhase,
@@ -1559,10 +1560,10 @@ func (t *treeRuntime) publishEventAfterCommit(
 	if !ok {
 		return
 	}
-	t.publishPreparedEventAfterCommit(process, event)
+	t.stagePreparedEvent(process, event)
 }
 
-func (t *treeRuntime) publishPreparedEventAfterCommit(process *processState, event Event) {
+func (t *treeRuntime) stagePreparedEvent(process *processState, event Event) {
 	if t.engine.durability == nil {
 		t.publishPreparedEvent(process, event)
 		return
@@ -1612,7 +1613,7 @@ func (t *treeRuntime) publishPreparedEvent(process *processState, event Event) {
 	t.engine.observation.publishEvent(context.WithoutCancel(t.context), event)
 }
 
-func (t *treeRuntime) publishEffectStarted(
+func (t *treeRuntime) beginEffectAttempt(
 	process *processState,
 	step uint64,
 	effectID EffectID,
@@ -1790,7 +1791,7 @@ func (t *treeRuntime) startStep(process *processState) {
 		t.finishIfTerminal(process)
 		return
 	}
-	attempt, ok := t.nextAttempt(process)
+	attempt, ok := t.allocateAttempt(process)
 	if !ok {
 		return
 	}
@@ -1836,7 +1837,7 @@ func (t *treeRuntime) startStep(process *processState) {
 }
 
 func (t *treeRuntime) startRestore(process *processState) {
-	attempt, ok := t.nextAttempt(process)
+	attempt, ok := t.allocateAttempt(process)
 	if !ok {
 		return
 	}
@@ -1876,7 +1877,7 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int, reco
 	}
 	if record.Effect.Target() == EffectTargetFramework {
 		process.restoredPending = restoredPendingEffect{}
-		startedAt := t.publishEffectStarted(process, process.prepared.StepSequence, record.ID, EffectTargetFramework)
+		startedAt := t.beginEffectAttempt(process, process.prepared.StepSequence, record.ID, EffectTargetFramework)
 		operation, err := decodeFrameworkEffectOperation(record.Effect.Payload())
 		if err == nil && operation == frameworkEffectStartChild {
 			t.startChild(process, record, startedAt)
@@ -1973,7 +1974,7 @@ func (t *treeRuntime) startChild(
 		t.failProcessContract(process, failureCodeEngineFrameworkEffectSettlementInvalid, err)
 		return
 	}
-	attempt, ok := t.nextAttempt(process)
+	attempt, ok := t.allocateAttempt(process)
 	if !ok {
 		return
 	}
@@ -2009,12 +2010,12 @@ func (t *treeRuntime) startDispatch(
 	record preparedEffect,
 	response chan processResponse,
 ) {
-	attempt, ok := t.nextAttempt(process)
+	attempt, ok := t.allocateAttempt(process)
 	if !ok {
 		return
 	}
 	request := t.effectRequestFor(process, batchIndex, record)
-	startedAt := t.publishEffectStarted(process, process.prepared.StepSequence, record.ID, EffectTargetDispatcher)
+	startedAt := t.beginEffectAttempt(process, process.prepared.StepSequence, record.ID, EffectTargetDispatcher)
 	dispatchCtx, cancel := context.WithCancel(t.context)
 	job := &processJob{
 		kind:      processJobDispatch,
@@ -2147,23 +2148,23 @@ func (t *treeRuntime) applyChildStartCompletion(
 		}
 		return
 	}
-	pending := &pendingChildOutcome{
+	pending := &pendingChildStartPublication{
 		parentID: parent.handle.processID, effectID: job.effectID,
 		plan: plan, result: result, startedAt: job.startedAt,
 	}
 	transferred := false
-	var outcomeErr, checkpointErr error
+	var publicationErr, checkpointErr error
 	defer func() {
 		if !transferred {
 			t.discardChildStart(plan)
 		}
-		if outcomeErr != nil {
-			t.failProcessContract(parent, childSettlementInvalidCode, outcomeErr)
+		if publicationErr != nil {
+			t.failProcessContract(parent, childSettlementInvalidCode, publicationErr)
 		} else if checkpointErr != nil {
 			t.failDurability(checkpointErr, parent.handle.processID, job.effectID)
 		}
 	}()
-	if outcomeErr = t.applyChildOutcome(pending); outcomeErr != nil {
+	if publicationErr = t.applyChildStart(pending); publicationErr != nil {
 		return
 	}
 	if t.engine.durability != nil {
@@ -2176,7 +2177,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 		snapshot, err := t.captureTree()
 		if err == nil {
 			err = t.startCheckpoint(&treeCommit{
-				kind: treeCommitChildOutcome, processID: pending.parentID,
+				kind: treeCommitChildStart, processID: pending.parentID,
 				effectID: pending.effectID, snapshot: snapshot, child: pending,
 			}, TreeCheckpointChild)
 		}
@@ -2184,26 +2185,26 @@ func (t *treeRuntime) applyChildStartCompletion(
 		transferred = err == nil
 		return
 	}
-	if outcomeErr = t.publishChildOutcome(pending); outcomeErr != nil {
+	if publicationErr = t.publishChildStart(pending); publicationErr != nil {
 		return
 	}
 	transferred = true
 }
 
-func (t *treeRuntime) applyChildOutcome(pending *pendingChildOutcome) error {
+func (t *treeRuntime) applyChildStart(pending *pendingChildStartPublication) error {
 	if pending == nil || pending.plan == nil {
-		return errors.New("child outcome is incomplete")
+		return errors.New("child start publication is incomplete")
 	}
 	parent := t.processes[pending.parentID]
 	if parent == nil {
-		return errors.New("child outcome parent is missing")
+		return errors.New("child start parent is missing")
 	}
 	if pending.result.started() {
 		candidate := *parent
 		if candidate.prepared == nil {
-			return errors.New("child outcome parent has no prepared Step")
+			return errors.New("child start parent has no prepared Step")
 		}
-		prepared := candidate.prepared.snapshot()
+		prepared := candidate.prepared.clone()
 		candidate.prepared = &prepared
 		if err := candidate.commitProvisionalChildBudget(pending.plan.spec.Budget); err != nil {
 			return err
@@ -2540,7 +2541,7 @@ func (t *treeRuntime) notifyChildWaits(processID ProcessID, boundary ChildWaitBo
 	}
 	parent := t.processes[parentID]
 	for _, registration := range orderedChildWaitRegistrations(t.childWaits[parentID]) {
-		if registration.spec.Boundary != boundary || !containsProcessID(registration.spec.Children, processID) {
+		if registration.spec.Boundary != boundary || !slices.Contains(registration.spec.Children, processID) {
 			continue
 		}
 		if parent == nil || parent.status.Terminal() || parent.pendingControl.hasTerminalIntent() ||
@@ -2718,7 +2719,7 @@ func (t *treeRuntime) acquireTreeFreeze(
 		canceled: make(chan struct{}),
 	}
 	select {
-	case t.controls <- treeCommand{
+	case t.freezeCommands <- treeCommand{
 		kind: treeCommandAcquireFreeze, acquisition: acquisition,
 	}:
 	case <-t.done:
@@ -2794,9 +2795,9 @@ func (t *treeRuntime) finalizePrepared(process *processState) error {
 	}
 	t.publishEphemeralStatus(process)
 	payload, _ := json.Marshal(stepCommittedEventPayload{ProcessStatus: process.status})
-	t.publishEventAfterCommit(process, EventStepCommitted, EventPhaseCommitted, process.committedSteps, EffectID{}, payload)
+	t.stageEvent(process, EventStepCommitted, EventPhaseCommitted, process.committedSteps, EffectID{}, payload)
 	if process.status == StatusPaused {
-		t.publishEventAfterCommit(process, EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
+		t.stageEvent(process, EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
 	}
 	return nil
 }
@@ -2862,7 +2863,7 @@ func (t *treeRuntime) admitSignals(process *processState, signals []Signal, sour
 }
 
 func (t *treeRuntime) validateSnapshotCapacity(candidates ...*processState) error {
-	header, err := json.Marshal(t.snapshotHeader())
+	header, err := json.Marshal(t.treeSnapshotBase())
 	if err != nil {
 		return err
 	}

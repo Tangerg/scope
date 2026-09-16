@@ -240,7 +240,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 			if openErr := mailbox.openWait(registration.Spec.Key, opened, false); openErr != nil {
 				t.Fatal(openErr)
 			}
-			child.Mailbox = mailbox.snapshot()
+			child.Mailbox = mailbox.wire()
 			child.Status = StatusWaiting
 			child.PauseReason = ""
 			child.CurrentWaitID = &registration.WaitID

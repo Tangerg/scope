@@ -12,19 +12,19 @@ func TestTreeCommandCapacityAppliesDuringCommitAndFreeze(t *testing.T) {
 				runtime.freeze = &activeTreeFreeze{ready: true, freeze: &treeFreeze{runtime: runtime}, acquisition: &treeFreezeAcquisition{canceled: make(chan struct{})}}
 			}
 			for range treeCommandBufferCapacity {
-				runtime.commands <- treeCommand{kind: treeCommandProcess}
-				if runtime.tryCommand() {
+				runtime.processCommands <- treeCommand{kind: treeCommandProcess}
+				if runtime.tryProcessCommand() {
 					t.Fatal("barrier drained a Process command into unbounded storage")
 				}
 			}
 			select {
-			case runtime.commands <- treeCommand{kind: treeCommandProcess}:
+			case runtime.processCommands <- treeCommand{kind: treeCommandProcess}:
 				t.Fatal("command beyond the configured capacity was accepted")
 			default:
 			}
 			if barrier == "freeze" {
 				response := make(chan error, 1)
-				runtime.controls <- treeCommand{kind: treeCommandReleaseFreeze, freeze: runtime.freeze.freeze, response: response}
+				runtime.freezeCommands <- treeCommand{kind: treeCommandReleaseFreeze, freeze: runtime.freeze.freeze, response: response}
 				runtime.waitForWork()
 				if err := <-response; err != nil || runtime.freeze != nil {
 					t.Fatalf("full Process queue prevented freeze release: %v", err)

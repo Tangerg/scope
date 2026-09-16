@@ -102,7 +102,7 @@ func (p preparedStep) validate(processID ProcessID, sequence uint64, committedSt
 	return err
 }
 
-func (p preparedStep) snapshot() preparedStep {
+func (p preparedStep) clone() preparedStep {
 	clone := p
 	clone.Effects = make([]preparedEffect, len(p.Effects))
 	for index, effect := range p.Effects {

@@ -40,7 +40,7 @@ func (s signalRecord) sameContent(other signalRecord) bool {
 	return s.id == other.id && s.waitID == other.waitID && s.payloadDigest == other.payloadDigest && s.opensWait == other.opensWait
 }
 
-func (s signalRecord) snapshot() signalRecordWire {
+func (s signalRecord) wire() signalRecordWire {
 	wire := signalRecordWire{
 		ArrivalSequence: s.arrivalSequence, ID: s.id,
 		PayloadDigest: s.payloadDigest, Payload: bytes.Clone(s.payload), OpensWait: s.opensWait, Source: s.source,
@@ -330,10 +330,10 @@ func (m mailboxWire) waitRecord(id WaitID) (waitRecordWire, bool) {
 	return waitRecordWire{}, false
 }
 
-func (s *signalMailbox) snapshot() mailboxWire {
+func (s *signalMailbox) wire() mailboxWire {
 	wire := mailboxWire{SignalCursor: s.signalCursor}
 	for _, record := range s.records {
-		wire.Signals = append(wire.Signals, record.snapshot())
+		wire.Signals = append(wire.Signals, record.wire())
 	}
 	for _, record := range s.waits {
 		wire.Waits = append(wire.Waits, waitRecordWire{

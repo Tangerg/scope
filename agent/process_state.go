@@ -33,7 +33,7 @@ type processState struct {
 	finalOutput             Output
 	termination             Termination
 	snapshot                ProcessSnapshot
-	snapshotDrained         bool
+	snapshotSealed          bool
 
 	// Allocation and authority stay adjacent because every child reservation
 	// must update both before it can become observable.
@@ -209,7 +209,7 @@ func (p *processState) resolveEffect(settlement Settlement) (int, error) {
 	if p.prepared == nil {
 		return 0, ErrEffectNotPending
 	}
-	prepared := p.prepared.snapshot()
+	prepared := p.prepared.clone()
 	index, _, err := prepared.resolveUnknown(settlement)
 	if err != nil {
 		return 0, err
@@ -283,7 +283,7 @@ func (p *processState) effectiveReservedBudget() Budget {
 }
 
 func (p *processState) capture() (ProcessSnapshot, error) {
-	if p.snapshotDrained {
+	if p.snapshotSealed {
 		return p.snapshot, nil
 	}
 	wire := p.snapshotWire()
@@ -291,7 +291,7 @@ func (p *processState) capture() (ProcessSnapshot, error) {
 	// avoids a second mutation protocol whose invalidation could miss a control,
 	// reservation, or settlement while reusing the already validated value.
 	if p.snapshot.state != nil && reflect.DeepEqual(wire, *p.snapshot.state) {
-		p.snapshotDrained = p.status.Terminal() && p.handle.joinDone()
+		p.snapshotSealed = p.status.Terminal() && p.handle.joinDone()
 		return p.snapshot, nil
 	}
 	snapshot, err := processSnapshotFromWire(wire)
@@ -299,7 +299,7 @@ func (p *processState) capture() (ProcessSnapshot, error) {
 		p.snapshot = snapshot
 		// Join proves that descendant work and child budget accounting have
 		// drained; only a capture at that boundary can become permanent.
-		p.snapshotDrained = p.status.Terminal() && p.handle.joinDone()
+		p.snapshotSealed = p.status.Terminal() && p.handle.joinDone()
 	}
 	return snapshot, err
 }
@@ -316,7 +316,7 @@ func (p *processState) restorePreparedStep(stored *preparedStep, durable bool) e
 	if stored == nil {
 		return nil
 	}
-	prepared := stored.snapshot()
+	prepared := stored.clone()
 	if err := p.validatePreparedWaits(&prepared); err != nil {
 		return fmt.Errorf("%w: prepared waits: %w", ErrInvalidSnapshot, err)
 	}
@@ -646,7 +646,7 @@ func (p *processState) snapshotWire() processSnapshotWire {
 		MaxPendingSignals: p.pendingSignalLimit, TreeLimits: p.treeLimits,
 		Budget: p.budget, ReservedBudget: p.reservedBudget,
 		Capabilities: p.capabilities, Counters: p.counters,
-		CommittedExecutionState: p.committedExecutionState, Mailbox: p.mailbox.snapshot(),
+		CommittedExecutionState: p.committedExecutionState, Mailbox: p.mailbox.wire(),
 		PauseReason: p.pauseReason, PendingControl: p.pendingControl.wire(),
 	}
 	if p.handle.childRequestDigest.Valid() {
@@ -670,7 +670,7 @@ func (p *processState) snapshotWire() processSnapshotWire {
 		wire.Termination = &termination
 	}
 	if p.prepared != nil {
-		prepared := p.prepared.snapshot()
+		prepared := p.prepared.clone()
 		wire.Prepared = &prepared
 	}
 	return wire

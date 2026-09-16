@@ -246,8 +246,8 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 		t.Fatalf("child initialization failed: %+v", result.result)
 	}
 	reserved := root.reservedBudget
-	pending := &pendingChildOutcome{parentID: root.handle.processID, effectID: effectID, plan: preparation.plan, result: result}
-	if err := runtime.applyChildOutcome(pending); err != nil {
+	pending := &pendingChildStartPublication{parentID: root.handle.processID, effectID: effectID, plan: preparation.plan, result: result}
+	if err := runtime.applyChildStart(pending); err != nil {
 		t.Fatalf("capacity rejection became a runtime fault: %v", err)
 	}
 	failure, failed := pending.result.result.Failure()
