@@ -512,11 +512,6 @@ type activationProcess struct {
 	process     agent.ProcessID
 	incarnation agent.TreeIncarnationID
 }
-type observedEffect struct {
-	process     agent.ProcessID
-	incarnation agent.TreeIncarnationID
-	effect      agent.EffectID
-}
 
 func eventIncarnation(event agent.Event) agent.TreeIncarnationID {
 	value, _ := event.TreeIncarnationID()
@@ -574,16 +569,17 @@ func (t Trajectory) validateCoverage() error {
 	if t.coverage == nil {
 		return fmt.Errorf("%w: semantic coverage is undeclared", ErrIncompleteRecording)
 	}
-	if err := t.coverage.Validate(); err != nil {
+	classifications, err := t.coverage.classifications()
+	if err != nil {
 		return err
 	}
-	models := make(map[observedEffect]int)
-	tools := make(map[observedEffect]int)
+	models := make(map[EffectReference]int)
+	tools := make(map[EffectReference]int)
 	for _, call := range t.modelCalls {
-		models[observedEffect{call.ProcessID, call.TreeIncarnationID, call.EffectID}]++
+		models[EffectReference{call.ProcessID, call.TreeIncarnationID, call.EffectID}]++
 	}
 	for _, call := range t.toolCalls {
-		tools[observedEffect{call.ProcessID, call.TreeIncarnationID, call.EffectID}]++
+		tools[EffectReference{call.ProcessID, call.TreeIncarnationID, call.EffectID}]++
 	}
 	for _, event := range t.events {
 		fact, ok := event.EffectStarted()
@@ -591,23 +587,26 @@ func (t Trajectory) validateCoverage() error {
 			continue
 		}
 		effect, _ := event.EffectID()
-		key := observedEffect{event.ProcessID(), eventIncarnation(event), effect}
-		reference := event.DeploymentRef()
-		switch {
-		case slices.Contains(t.coverage.Models, reference):
+		key := EffectReference{event.ProcessID(), eventIncarnation(event), effect}
+		switch classifications[key] {
+		case effectRoleModel:
 			if models[key] != 1 {
 				return fmt.Errorf("%w: model effect %s lacks exactly one response", ErrIncompleteRecording, effect)
 			}
 			delete(models, key)
-		case slices.Contains(t.coverage.Tools, reference):
+		case effectRoleTool:
 			if tools[key] != 1 {
 				return fmt.Errorf("%w: tool effect %s lacks exactly one call", ErrIncompleteRecording, effect)
 			}
 			delete(tools, key)
-		case slices.Contains(t.coverage.Other, reference):
+		case effectRoleOther:
 		default:
-			return fmt.Errorf("%w: dispatcher deployment %s is unclassified", ErrIncompleteRecording, reference.Name())
+			return fmt.Errorf("%w: dispatcher Effect %s is unclassified", ErrIncompleteRecording, effect)
 		}
+		delete(classifications, key)
+	}
+	if len(classifications) != 0 {
+		return fmt.Errorf("%w: coverage names an unobserved dispatcher Effect", ErrIncompleteRecording)
 	}
 	if len(models) != 0 || len(tools) != 0 {
 		return fmt.Errorf("%w: semantic observations have no matching dispatcher attempt", ErrIncompleteRecording)

@@ -609,7 +609,7 @@ func (testDefinition) Start(input agent.Input) (agent.Execution, error) {
 	return &testExecution{Value: value.Value}, nil
 }
 
-func (testDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (testDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
 	if state.Kind() != "test.otel" {
 		return nil, agent.ErrInvalidExecutionState
 	}

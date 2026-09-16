@@ -3,8 +3,8 @@ module github.com/Tangerg/scope/otel
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/agent v0.22.0
-	github.com/Tangerg/scope/core v0.22.0
+	github.com/Tangerg/scope/agent v0.25.1-0.20260916072421-3e5ffc01b41d
+	github.com/Tangerg/scope/core v0.23.0
 	github.com/Tangerg/scope/eval v0.22.0
 	github.com/Tangerg/scope/rag v0.22.0
 	github.com/samber/lo v1.53.0

@@ -11,7 +11,7 @@ import (
 
 func TestTrajectoryRequiresAgreementWithRootFinishedEvent(t *testing.T) {
 	recorder := &trajectory.Recorder{}
-	process, _ := startRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{}, 1)
+	process, _, _ := startRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{}, 1)
 	_, err := process.Await(t.Context())
 	if err != nil {
 		t.Fatal(err)

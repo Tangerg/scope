@@ -7,16 +7,30 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-// Coverage is the Host's exhaustive classification of dispatcher deployments
-// in this recording. Models and Tools require semantic observations for every
-// dispatched effect. Other deployments assert that they perform neither kind
-// of call. Nil coverage leaves semantic completeness unknown; an empty value
-// asserts that the tree performs no dispatcher effects.
-// The Host owns classification of custom strategies and observer installation.
+// EffectReference identifies one dispatcher Effect in one runtime activation.
+// TreeIncarnationID is zero for an ephemeral runtime.
+type EffectReference struct {
+	ProcessID         agent.ProcessID         `json:"process_id"`
+	TreeIncarnationID agent.TreeIncarnationID `json:"tree_incarnation_id,omitzero"`
+	EffectID          agent.EffectID          `json:"effect_id"`
+}
+
+func (e EffectReference) Valid() bool {
+	return e.ProcessID.Valid() && e.EffectID.Valid() &&
+		(e.TreeIncarnationID == (agent.TreeIncarnationID{}) || e.TreeIncarnationID.Valid())
+}
+
+// Coverage is the Host's exhaustive classification of dispatcher Effects in
+// this recording. One Deployment may perform several kinds of operation.
+// Models and Tools require exactly one semantic observation for each Effect;
+// Other asserts that an Effect performs neither kind of call. The Host must
+// classify requests independently of the observations being checked. Deriving
+// coverage from recorded responses would conceal missing observations.
+// Nil coverage leaves completeness unknown; an empty value asserts no dispatch.
 type Coverage struct {
-	Models []agent.DeploymentRef `json:"models,omitempty"`
-	Tools  []agent.DeploymentRef `json:"tools,omitempty"`
-	Other  []agent.DeploymentRef `json:"other,omitempty"`
+	Models []EffectReference `json:"models,omitempty"`
+	Tools  []EffectReference `json:"tools,omitempty"`
+	Other  []EffectReference `json:"other,omitempty"`
 }
 
 func (c *Coverage) clone() *Coverage {
@@ -27,14 +41,33 @@ func (c *Coverage) clone() *Coverage {
 }
 
 func (c Coverage) Validate() error {
-	seen := make(map[agent.DeploymentRef]bool)
-	for _, group := range [][]agent.DeploymentRef{c.Models, c.Tools, c.Other} {
-		for _, reference := range group {
-			if !reference.Valid() || seen[reference] {
-				return fmt.Errorf("%w: coverage requires unique valid deployments", ErrInvalidTrajectory)
+	_, err := c.classifications()
+	return err
+}
+
+type effectRole uint8
+
+const (
+	effectRoleInvalid effectRole = iota
+	effectRoleModel
+	effectRoleTool
+	effectRoleOther
+)
+
+func (c Coverage) classifications() (map[EffectReference]effectRole, error) {
+	seen := make(map[EffectReference]effectRole, len(c.Models)+len(c.Tools)+len(c.Other))
+	for _, group := range []struct {
+		role    effectRole
+		effects []EffectReference
+	}{
+		{effectRoleModel, c.Models}, {effectRoleTool, c.Tools}, {effectRoleOther, c.Other},
+	} {
+		for _, reference := range group.effects {
+			if !reference.Valid() || seen[reference] != effectRoleInvalid {
+				return nil, fmt.Errorf("%w: coverage requires unique valid Effect references", ErrInvalidTrajectory)
 			}
-			seen[reference] = true
+			seen[reference] = group.role
 		}
 	}
-	return nil
+	return seen, nil
 }
