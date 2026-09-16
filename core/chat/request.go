@@ -40,15 +40,15 @@ func (r *Request) Clone() *Request {
 	return clone
 }
 
-// NewRequest validates message structure and the leading system prefix, then
-// snapshots all nested values. Cross-message call/result pairing is outside
+// NewRequest snapshots all nested values, then validates message structure and
+// the leading system prefix. Cross-message call/result pairing is outside
 // this structural contract; providers own their conversation sequencing rules.
 func NewRequest(messages ...Message) (*Request, error) {
-	r := &Request{Messages: messages}
+	r := (&Request{Messages: messages}).Clone()
 	if err := r.Validate(); err != nil {
 		return nil, err
 	}
-	return r.Clone(), nil
+	return r, nil
 }
 
 func (r *Request) Validate() error {

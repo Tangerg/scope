@@ -45,11 +45,10 @@ type Failure struct {
 // may be a policy decision without an error. Wrapping the returned Failure with
 // %w preserves its outcome; inspect Cause explicitly for internal diagnostics.
 func NewFailure(config FailureConfig) (*Failure, error) {
-	failure := &Failure{kind: config.Kind, cause: config.Cause, output: config.Output}
+	failure := &Failure{kind: config.Kind, cause: config.Cause, output: config.Output.Clone()}
 	if err := failure.Validate(); err != nil {
 		return nil, err
 	}
-	failure.output = config.Output.Clone()
 	return failure, nil
 }
 
