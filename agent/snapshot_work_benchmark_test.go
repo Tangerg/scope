@@ -41,7 +41,7 @@ func BenchmarkTreeDurabilityFailure(b *testing.B) {
 			for b.Loop() {
 				b.StopTimer()
 				runtime.fault = nil
-				runtime.head = &treeHead{snapshot: snapshot, advanced: make(chan struct{})}
+				runtime.head = snapshot
 				clear(runtime.joinCandidates)
 				for _, process := range runtime.processes {
 					process.handle.outcomePublished = make(chan struct{})
@@ -134,4 +134,50 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 		t.Fatal(err)
 	}
 	return runtime
+}
+
+func BenchmarkIdleDurableTreeInspection(b *testing.B) {
+	for _, count := range []int{1, 100, 1000} {
+		b.Run(fmt.Sprintf("processes_%d", count), func(b *testing.B) {
+			runtime := newWaitingSnapshotTree(b, count)
+			root := runtime.processes[runtime.rootID]
+			root.status, root.pauseReason = StatusPaused, "inspection benchmark"
+			runtime.engine.durability = &recordingTreeDurability{}
+			incarnation, err := newTreeIncarnationID()
+			if err != nil {
+				b.Fatal(err)
+			}
+			runtime.incarnation = incarnation
+			snapshot, err := runtime.captureTree()
+			if err != nil {
+				b.Fatal(err)
+			}
+			runtime.establishDurableHead(incarnation, snapshot)
+			ctx, cancel := context.WithCancel(b.Context())
+			go runtime.run(ctx)
+			b.Cleanup(func() { cancel(); <-runtime.done })
+			for {
+				inspection, err := runtime.inspect(b.Context())
+				if err != nil {
+					b.Fatal(err)
+				}
+				idle := true
+				for _, process := range inspection.Processes {
+					if process.Work != ProcessWorkIdle {
+						idle = false
+					}
+				}
+				if idle {
+					break
+				}
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				inspection, err := runtime.inspect(b.Context())
+				if err != nil || len(inspection.Processes) != count {
+					b.Fatalf("inspection: %v", err)
+				}
+			}
+		})
+	}
 }

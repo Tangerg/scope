@@ -47,8 +47,7 @@ func (d Digest) hex() string {
 func (d Digest) String() string { return d.value }
 
 func (d Digest) Valid() bool {
-	_, err := ParseDigest(d.value)
-	return err == nil
+	return d.value != ""
 }
 
 func (Digest) JSONSchemaAlias() any { return "" }

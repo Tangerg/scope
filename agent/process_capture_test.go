@@ -105,7 +105,7 @@ func TestDurabilityFailureDiscardsOnlyUnacknowledgedChildren(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime.head = &treeHead{snapshot: head, advanced: make(chan struct{})}
+	runtime.head = head
 	cause := errors.New("child checkpoint was not acknowledged")
 	runtime.failDurability(cause, ProcessID{}, EffectID{})
 	if len(runtime.processes) != 1 || runtime.processes[runtime.rootID] != root {

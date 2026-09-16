@@ -112,3 +112,29 @@ func testDescriptorForFuzz(f *testing.F) Descriptor {
 	}
 	return descriptor
 }
+
+func TestDeploymentRefRejectsInvalidIdentityWithMatchingDigest(t *testing.T) {
+	reference, err := newDeploymentRef(testDescriptor(t), ComputeDigest([]byte("implementation")), ComputeDigest([]byte("configuration")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"", "Invalid.Name", "invalid name"} {
+		identity := reference.identityWire()
+		identity.Name = name
+		encodedIdentity, err := json.Marshal(identity)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(deploymentRefWire{deploymentIdentityWire: identity, Digest: ComputeDigest(encodedIdentity)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded := reference
+		if err := json.Unmarshal(encoded, &decoded); !errors.Is(err, ErrInvalidDeploymentRef) {
+			t.Fatalf("invalid identity %q accepted: %v", name, err)
+		}
+		if decoded != reference {
+			t.Fatal("rejected identity changed the existing reference")
+		}
+	}
+}

@@ -699,6 +699,7 @@ func (e *Engine) RestoreTree(
 			e.discardRestoredTree(&restoration)
 		}
 	}()
+	var restoredHead TreeSnapshot
 	if engineIsDurable {
 		incarnation, incarnationErr := newTreeIncarnationID()
 		if incarnationErr != nil {
@@ -719,8 +720,9 @@ func (e *Engine) RestoreTree(
 			return nil, activationErr
 		}
 		restoration.wire = wire
+		restoredHead = prospectiveSnapshot
 	}
-	restoration.prepareRuntime(ctx)
+	restoration.prepareRuntime(ctx, restoredHead)
 	e.publishRestoredTree(&restoration)
 	published = true
 	return e.startRestoredTree(ctx, &restoration), nil

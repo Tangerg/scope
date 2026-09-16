@@ -21,18 +21,14 @@ type treeRestoration struct {
 	runtime     *treeRuntime
 }
 
-func (t *treeRestoration) prepareRuntime(ctx context.Context) {
+func (t *treeRestoration) prepareRuntime(ctx context.Context, head TreeSnapshot) {
 	states := make([]*processState, 0, len(t.processes))
 	for index := range t.processes {
 		states = append(states, t.processes[index].state)
 	}
 	t.runtime = newTreeRuntime(t.engine, t.wire.RootID, ctx, states...)
-	if incarnation, durable := treeSnapshotIncarnation(t.wire.IncarnationID); durable {
-		snapshot, err := newTreeSnapshot(t.wire)
-		if err != nil {
-			panic(err)
-		}
-		t.runtime.establishDurableHead(incarnation, snapshot)
+	if incarnation, durable := head.IncarnationID(); durable {
+		t.runtime.establishDurableHead(incarnation, head)
 	}
 	t.runtime.childWaits = t.childWaits
 }

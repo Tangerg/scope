@@ -26,7 +26,7 @@ type treeRuntime struct {
 	engine      *Engine
 	rootID      ProcessID
 	incarnation TreeIncarnationID
-	head        *treeHead
+	head        TreeSnapshot
 
 	// External readers need scheduling liveness without acquiring execution
 	// state. Atomics expose that view while commands and completions preserve
@@ -272,8 +272,9 @@ func (t *treeRuntime) run(rootContext context.Context) {
 		if t.canStop() {
 			return
 		}
-		inspected := t.tryInspection()
-		if !advanced && !inspected {
+		if advanced {
+			t.tryInspection()
+		} else {
 			t.waitForWork()
 		}
 	}
@@ -343,19 +344,24 @@ func (t *treeRuntime) waitForWork() {
 	} else {
 		commitDone = nil
 	}
-	select {
-	case completion := <-commitDone:
-		t.applyTreeCommitCompletion(completion)
-	case command := <-controls:
-		t.applyCommand(command)
-	case response := <-t.inspections:
-		t.replyInspection(response)
-	case command := <-commands:
-		t.applyCommand(command)
-	case completion := <-completions:
-		t.applyCompletion(completion)
-	case <-freezeCanceled:
-		t.releaseCurrentFreeze()
+	// Read-only queries cannot make checkpoint or scheduling work ready.
+	for {
+		select {
+		case completion := <-commitDone:
+			t.applyTreeCommitCompletion(completion)
+		case command := <-controls:
+			t.applyCommand(command)
+		case response := <-t.inspections:
+			t.replyInspection(response)
+			continue
+		case command := <-commands:
+			t.applyCommand(command)
+		case completion := <-completions:
+			t.applyCompletion(completion)
+		case <-freezeCanceled:
+			t.releaseCurrentFreeze()
+		}
+		return
 	}
 }
 
@@ -714,7 +720,7 @@ func (t *treeRuntime) controlChild(parent *processState, index uint32, record *p
 	if err == nil {
 		var boundary EffectBoundary
 		boundary, err = newEffectBoundary(EffectBoundarySettled, t.effectRequestFor(parent, index, *record),
-			*record.Settlement, t.head.digest(), snapshot)
+			*record.Settlement, t.head.Digest(), snapshot)
 		if err == nil {
 			t.startEffectCommit(&treeCommit{
 				kind: treeCommitEffectSettled, processID: parent.handle.processID,
@@ -785,7 +791,7 @@ func (t *treeRuntime) startPendingEffectCommit(
 		return err
 	}
 	boundary, err := newEffectBoundary(
-		EffectBoundaryPending, request, Settlement{}, t.head.digest(), snapshot,
+		EffectBoundaryPending, request, Settlement{}, t.head.Digest(), snapshot,
 	)
 	if err != nil {
 		return err
@@ -825,7 +831,7 @@ func (t *treeRuntime) startUnknownResolutionCommit(
 	}
 	request := t.effectRequestFor(process, uint32(index), *record)
 	boundary, err := newEffectBoundary(
-		EffectBoundaryResolved, request, command.settlement, t.head.digest(), snapshot,
+		EffectBoundaryResolved, request, command.settlement, t.head.Digest(), snapshot,
 	)
 	if err != nil {
 		return err
@@ -858,7 +864,7 @@ func (t *treeRuntime) startSignalCommit(process *processState, command processCo
 }
 
 func (t *treeRuntime) startCheckpoint(commit *treeCommit, kind TreeCheckpointKind) error {
-	checkpoint, err := newTreeCheckpoint(kind, t.head.digest(), commit.snapshot)
+	checkpoint, err := newTreeCheckpoint(kind, t.head.Digest(), commit.snapshot)
 	if err != nil {
 		return err
 	}
@@ -1002,7 +1008,7 @@ func (t *treeRuntime) tryStartCheckpoint() bool {
 		t.failDurability(err, ProcessID{}, EffectID{})
 		return true
 	}
-	if snapshot.Digest() == t.head.digest() {
+	if snapshot.Digest() == t.head.Digest() {
 		// Control changes can return to the acknowledged state without changing
 		// its recovery cut. Publishing those facts must not require another write.
 		pending := len(t.pendingPublications) != 0
@@ -1099,8 +1105,10 @@ func (t *treeRuntime) failDurability(
 	if t.fault != nil {
 		return
 	}
+	if !t.head.Valid() {
+		panic("agent: durability failure requires an acknowledged tree")
+	}
 	t.fault = cause
-	t.head.finish(cause)
 	unresolvedByProcess := make(map[ProcessID][]EffectID, len(t.processes))
 	for candidateID, process := range t.processes {
 		unresolvedByProcess[candidateID] = process.unknownEffectIDs()
@@ -1130,8 +1138,8 @@ func (t *treeRuntime) failDurability(
 	clear(t.pendingPublications)
 	clear(t.queued)
 	t.processQueue = nil
-	acknowledgedByID := make(map[ProcessID]ProcessSnapshot, len(t.head.snapshot.state.ProcessSnapshots))
-	for _, snapshot := range t.head.snapshot.state.ProcessSnapshots {
+	acknowledgedByID := make(map[ProcessID]ProcessSnapshot, len(t.head.state.ProcessSnapshots))
+	for _, snapshot := range t.head.state.ProcessSnapshots {
 		acknowledgedByID[snapshot.ProcessID()] = snapshot
 	}
 	for _, process := range orderedProcesses(t.processes) {
@@ -1155,7 +1163,7 @@ func (t *treeRuntime) failDurability(
 		})
 		t.publishEvent(process, EventRuntimeStopped, EventPhaseAttempt, 0, EffectID{}, payload)
 		process.handle.publishRuntimeFailure(&RuntimeError{
-			processID: processID, incarnationID: t.incarnation, headDigest: t.head.digest(),
+			processID: processID, incarnationID: t.incarnation, headDigest: t.head.Digest(),
 			unresolvedEffectIDs: canonicalEffectIDs(unresolvedByProcess[processID]), cause: cause,
 		}, acknowledged)
 		t.completeProcessBookkeeping(process)
@@ -1673,17 +1681,15 @@ func (t *treeRuntime) publishEphemeralStatus(process *processState) {
 }
 
 func (t *treeRuntime) advanceHead(snapshot TreeSnapshot) {
-	if t.head.digest() == snapshot.Digest() {
+	if t.head.Digest() == snapshot.Digest() {
 		return
 	}
-	previous := t.head
-	t.head = &treeHead{snapshot: snapshot, advanced: make(chan struct{})}
+	t.head = snapshot
 	for _, snapshot := range snapshot.ProcessSnapshots() {
 		if process := t.processes[snapshot.ProcessID()]; process != nil {
 			process.handle.updateStatus(snapshot.Status())
 		}
 	}
-	previous.finish(nil)
 }
 
 func (t *treeRuntime) inspect(ctx context.Context) (TreeInspection, error) {
@@ -1727,7 +1733,7 @@ func (t *treeRuntime) replyInspection(response chan treeInspectionResponse) {
 
 func (t *treeRuntime) buildInspection() (TreeInspection, error) {
 	inspection := TreeInspection{
-		RootID: t.rootID, IncarnationID: t.incarnation, HeadDigest: t.head.digest(),
+		RootID: t.rootID, IncarnationID: t.incarnation, HeadDigest: t.head.Digest(),
 		CommitPending: t.commit != nil, Freeze: TreeFreezeNone,
 	}
 	if t.freeze != nil {
@@ -1737,8 +1743,8 @@ func (t *treeRuntime) buildInspection() (TreeInspection, error) {
 		}
 	}
 	var snapshots []ProcessSnapshot
-	if t.head != nil {
-		snapshots = t.head.snapshot.ProcessSnapshots()
+	if t.head.Valid() {
+		snapshots = t.head.ProcessSnapshots()
 	} else {
 		for _, process := range orderedProcesses(t.processes) {
 			snapshot, err := process.capture()
@@ -1939,7 +1945,7 @@ func (t *treeRuntime) recoverPendingEffect(
 			EffectBoundarySettled,
 			t.effectRequestFor(process, batchIndex, *record),
 			settlement,
-			t.head.digest(),
+			t.head.Digest(),
 			snapshot,
 		)
 		if err != nil {
@@ -2385,7 +2391,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 		}
 		request := t.effectRequestFor(process, uint32(index), *record)
 		boundary, err := newEffectBoundary(
-			EffectBoundarySettled, request, settlement, t.head.digest(), snapshot,
+			EffectBoundarySettled, request, settlement, t.head.Digest(), snapshot,
 		)
 		if err != nil {
 			t.failDurability(err, process.handle.processID, record.ID)
@@ -2461,7 +2467,7 @@ func (t *treeRuntime) publishJoin(process *processState) bool {
 	if failed {
 		joinErr = &RuntimeError{
 			processID: process.handle.processID, incarnationID: t.incarnation,
-			headDigest: t.head.digest(), unresolvedEffectIDs: canonicalEffectIDs(unresolved), cause: t.fault,
+			headDigest: t.head.Digest(), unresolvedEffectIDs: canonicalEffectIDs(unresolved), cause: t.fault,
 		}
 	}
 	process.handle.finishJoin(joinErr)

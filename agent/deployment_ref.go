@@ -69,12 +69,7 @@ func (d DeploymentRef) String() string {
 }
 
 func (d DeploymentRef) Valid() bool {
-	if !validQualifiedName(d.name) || !d.contractDigest.Valid() || !d.implementationDigest.Valid() ||
-		!d.configurationDigest.Valid() || !d.digest.Valid() {
-		return false
-	}
-	want, err := d.computeDigest()
-	return err == nil && want == d.digest
+	return d.digest.Valid()
 }
 
 func (d DeploymentRef) MarshalJSON() ([]byte, error) {
@@ -102,7 +97,15 @@ func (d *DeploymentRef) UnmarshalJSON(data []byte) error {
 		configurationDigest:  wire.ConfigurationDigest,
 		digest:               wire.Digest,
 	}
-	if !value.Valid() {
+	if !validQualifiedName(value.name) || !value.contractDigest.Valid() || !value.implementationDigest.Valid() ||
+		!value.configurationDigest.Valid() || !value.digest.Valid() {
+		return fmt.Errorf("%w: identity components are required", ErrInvalidDeploymentRef)
+	}
+	want, err := value.computeDigest()
+	if err != nil {
+		return fmt.Errorf("%w: digest: %w", ErrInvalidDeploymentRef, err)
+	}
+	if want != value.digest {
 		return fmt.Errorf("%w: digest or identity component does not match", ErrInvalidDeploymentRef)
 	}
 	*d = value

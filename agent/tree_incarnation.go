@@ -45,8 +45,7 @@ func newTreeIncarnationID() (TreeIncarnationID, error) {
 func (t TreeIncarnationID) String() string { return t.value }
 
 func (t TreeIncarnationID) Valid() bool {
-	_, err := ParseTreeIncarnationID(t.value)
-	return err == nil
+	return t.value != ""
 }
 
 func (t TreeIncarnationID) MarshalText() ([]byte, error) {
