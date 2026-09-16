@@ -70,8 +70,42 @@ func TestRequestOwnsInputAndOptionsResolve(t *testing.T) {
 	if !value {
 		t.Fatal("Resolve aliases base extensions")
 	}
+	if err := overrideExtensions.Set("provider/request", "changed"); err != nil {
+		t.Fatal(err)
+	}
+	if value, ok, err := resolved.Extensions.Decode[string]("provider/request"); err != nil || !ok || value != "value" {
+		t.Fatalf("Resolve aliases override extensions: %q, %t, %v", value, ok, err)
+	}
 	if got := (rerank.Options{}).ResultLimit(2); got != 2 {
 		t.Fatalf("zero TopK limit = %d, want 2", got)
+	}
+}
+
+func TestOptionsResolveValidatesTheEffectiveValue(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		base, override rerank.Options
+		want           rerank.Options
+		invalid        bool
+	}{
+		{name: "preserve base", base: rerank.Options{Model: "base", TopK: 2}, want: rerank.Options{Model: "base", TopK: 2}},
+		{name: "invalid base", base: rerank.Options{TopK: -1}, invalid: true},
+		{name: "invalid override", base: rerank.Options{TopK: 2}, override: rerank.Options{TopK: -1}, invalid: true},
+		{name: "invalid model", override: rerank.Options{Model: " model "}, invalid: true},
+		{name: "override repairs base", base: rerank.Options{TopK: -1}, override: rerank.Options{TopK: 2}, want: rerank.Options{TopK: 2}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := test.base.Resolve(test.override)
+			if test.invalid {
+				if !errors.Is(err, rerank.ErrInvalidOptions) || !reflect.DeepEqual(got, rerank.Options{}) {
+					t.Fatalf("Resolve = %+v, %v; want zero options and ErrInvalidOptions", got, err)
+				}
+				return
+			}
+			if err != nil || !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("Resolve = %+v, %v; want %+v", got, err, test.want)
+			}
+		})
 	}
 }
 

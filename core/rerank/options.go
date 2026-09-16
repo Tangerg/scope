@@ -23,21 +23,28 @@ func (o Options) Clone() Options {
 
 func (o Options) Resolve(override Options) (Options, error) {
 	effective := o.Clone()
-	if override.Model != "" {
-		effective.Model = override.Model
-	}
-	if override.TopK != 0 {
-		effective.TopK = override.TopK
-	}
-	if !override.Extensions.IsZero() {
-		if err := effective.Extensions.Merge(override.Extensions); err != nil {
-			return Options{}, fmt.Errorf("rerank: resolve options: %w: merge extensions: %w", ErrInvalidOptions, err)
-		}
+	if err := effective.applyOverride(override); err != nil {
+		return Options{}, fmt.Errorf("rerank: resolve options: %w: %w", ErrInvalidOptions, err)
 	}
 	if err := effective.Validate(); err != nil {
 		return Options{}, fmt.Errorf("rerank: resolve options: %w", err)
 	}
 	return effective, nil
+}
+
+func (o *Options) applyOverride(override Options) error {
+	if override.Model != "" {
+		o.Model = override.Model
+	}
+	if override.TopK != 0 {
+		o.TopK = override.TopK
+	}
+	if !override.Extensions.IsZero() {
+		if err := o.Extensions.Merge(override.Extensions); err != nil {
+			return fmt.Errorf("merge extensions: %w", err)
+		}
+	}
+	return nil
 }
 
 func (o Options) Validate() error {
