@@ -47,7 +47,7 @@ func (e *execution) startTurn(consumed uint32) (agent.Transition, error) {
 	for _, worker := range e.definition.workers {
 		turn.Workers = append(turn.Workers, worker.descriptor)
 	}
-	input, err := agent.EncodeInput(turn)
+	input, err := agent.EncodePayload(turn)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -55,12 +55,12 @@ func (e *execution) startTurn(consumed uint32) (agent.Transition, error) {
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	effect, err := agent.StartChild(e.definition.coordinator.spec(key, input))
+	effect, err := agent.NewChildStartEffect(e.definition.coordinator.spec(key, input))
 	if err != nil {
 		return agent.Transition{}, err
 	}
 	e.state.Turn = &turnExecution{Input: turn}
-	e.state.Mode = ""
+	e.state.Mode = Undecided
 	e.state.WaitID = nil
 	e.state.Phase = phaseStartingTurn
 	return agent.Continue(consumed, effect)
@@ -78,7 +78,7 @@ func (e *execution) acceptTurnStart(signals []agent.Signal) (agent.Transition, e
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if !childcall.StartMatches(started, key, e.definition.coordinator.deploymentRef) {
+	if !(started).Matches(key, e.definition.coordinator.deploymentRef) {
 		return agent.Transition{}, ErrInvalidProtocol
 	}
 	e.state.Turn.Start = &started
@@ -96,7 +96,7 @@ func (e *execution) openWait(consumed uint32) (agent.Transition, error) {
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	effect, err := agent.WaitForChildren(spec)
+	effect, err := agent.NewChildWaitEffect(spec)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -201,7 +201,7 @@ func (e *execution) acceptActions(signals []agent.Signal) (agent.Transition, err
 			return agent.Transition{}, err
 		}
 		worker, _ := e.definition.worker(task.Request.Worker)
-		if !childcall.StartMatches(started, task.Request.Key, worker.deploymentRef) {
+		if !(started).Matches(task.Request.Key, worker.deploymentRef) {
 			return agent.Transition{}, ErrInvalidProtocol
 		}
 		task.Start = &started
@@ -243,7 +243,7 @@ func (e *execution) applyDecision(decision Decision, consumed uint32) (agent.Tra
 	effects := make([]agent.Effect, 0, len(decision.Tasks)+len(decision.Controls))
 	for _, request := range decision.Tasks {
 		worker, _ := e.definition.worker(request.Worker)
-		effect, err := agent.StartChild(worker.spec(request.Key, request.Input))
+		effect, err := agent.NewChildStartEffect(worker.spec(request.Key, request.Input))
 		if err != nil {
 			return agent.Transition{}, err
 		}

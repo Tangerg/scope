@@ -88,7 +88,7 @@ func TestScriptedDispatcherRunsThroughPublicEngineBoundary(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			input, err := agent.EncodeInput("start")
+			input, err := agent.EncodePayload("start")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -143,7 +143,7 @@ func (s *scriptedEffectDefinition) Descriptor() agent.Descriptor {
 	return s.descriptor
 }
 
-func (s *scriptedEffectDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (s *scriptedEffectDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	if err := s.descriptor.ValidateInput(input); err != nil {
 		return nil, err
 	}
@@ -178,7 +178,7 @@ func (s *scriptedEffectExecution) Step(
 		s.dispatched = true
 		return agent.Continue(0, s.effect)
 	}
-	output, err := agent.EncodeOutput("done")
+	output, err := agent.EncodePayload("done")
 	if err != nil {
 		return agent.Transition{}, err
 	}

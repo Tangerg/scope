@@ -47,7 +47,7 @@ func (e executionState) validate(definition *Definition) error {
 	if !e.Phase.valid() {
 		return fmt.Errorf("%w: unknown phase %q", ErrInvalidExecutionState, e.Phase)
 	}
-	input, err := agent.ParseInput(e.Input)
+	input, err := agent.ParsePayload(e.Input)
 	if err != nil {
 		return fmt.Errorf("%w: Input: %w", ErrInvalidExecutionState, err)
 	}
@@ -199,8 +199,8 @@ func (e executionState) output(definition *Definition) Output {
 	}
 }
 
-func (e executionState) input() (agent.Input, error) {
-	return agent.ParseInput(bytes.Clone(e.Input))
+func (e executionState) input() (agent.Payload, error) {
+	return agent.ParsePayload(bytes.Clone(e.Input))
 }
 
 func (e executionState) snapshot() (agent.ExecutionState, error) {

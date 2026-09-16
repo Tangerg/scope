@@ -114,7 +114,7 @@ func validatePlanningCompletion(candidate interaction.CompletionCandidate) (inte
 
 func runPlanningDelegate(t *testing.T, engine *agent.Engine, root agent.Deployment) agent.Result {
 	t.Helper()
-	input, err := agent.EncodeInput(interaction.Input{Messages: []chat.Message{
+	input, err := agent.EncodePayload(interaction.Input{Messages: []chat.Message{
 		chat.NewUserMessage(chat.NewTextPart("plan both reviews, then synthesize")),
 	}})
 	if err != nil {

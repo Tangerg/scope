@@ -45,7 +45,7 @@ func TestProcessInitializationOutcomesConcludeAcceptedRootAndChildAdmissions(t *
 			if err != nil {
 				t.Fatal(err)
 			}
-			input, _ := EncodeInput(struct{}{})
+			input, _ := EncodePayload(struct{}{})
 			parent, err := engine.Start(t.Context(), parentDeployment, input)
 			if err != nil {
 				t.Fatal(err)
@@ -124,7 +124,7 @@ func TestProcessInitializationOutcomeReportsPostAdmissionInitializationFailure(t
 			if err != nil {
 				t.Fatal(err)
 			}
-			input, _ := EncodeInput(childTestInput{Mode: "leaf"})
+			input, _ := EncodePayload(childTestInput{Mode: "leaf"})
 			process, err := engine.Start(t.Context(), deployment, input)
 			if process != nil || !errors.Is(err, initializationErr) {
 				t.Fatalf("Start process=%v error=%v", process, err)
@@ -171,7 +171,7 @@ func TestProcessInitializationOutcomeReportsChildInitializationFailure(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(struct{}{})
+	input, _ := EncodePayload(struct{}{})
 	parent, err := engine.Start(t.Context(), parentDeployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -215,7 +215,7 @@ func TestRejectingInitializedProcessOutcomePreventsPublication(t *testing.T) {
 		t.Fatal(err)
 	}
 	deployment := newChildTestDeployment(t)
-	input, _ := EncodeInput(childTestInput{Mode: "leaf"})
+	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
 	process, err := engine.Start(t.Context(), deployment, input)
 	if process != nil || !errors.Is(err, rejection) {
 		t.Fatalf("Start process=%v error=%v", process, err)
@@ -244,7 +244,7 @@ func TestRejectingFailedProcessInitializationOutcomePreservesBothFailures(t *tes
 		t.Fatal(err)
 	}
 	deployment := failingStartDeployment(t, initializationErr)
-	input, _ := EncodeInput(childTestInput{Mode: "leaf"})
+	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
 	process, err := engine.Start(t.Context(), deployment, input)
 	if process != nil || !errors.Is(err, initializationErr) || !errors.Is(err, acknowledgmentErr) {
 		t.Fatalf("Start process=%v error=%v", process, err)
@@ -285,7 +285,7 @@ func TestRejectingInitializedChildOutcomePreventsChildPublication(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			input, _ := EncodeInput(struct{}{})
+			input, _ := EncodePayload(struct{}{})
 			parent, err := engine.Start(t.Context(), parentDeployment, input)
 			if err != nil {
 				t.Fatal(err)
@@ -332,7 +332,7 @@ func TestProcessInitializationOutcomeAcknowledgerPanicAndTypedNilAreContained(t 
 		t.Fatal(err)
 	}
 	deployment := newChildTestDeployment(t)
-	input, _ := EncodeInput(childTestInput{Mode: "leaf"})
+	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
 	if process, err := engine.Start(t.Context(), deployment, input); process != nil || err == nil {
 		t.Fatalf("panicking acknowledger process=%v error=%v", process, err)
 	}
@@ -359,7 +359,7 @@ func TestEngineCannotCloseWhileProcessInitializationOutcomeIsPending(t *testing.
 		t.Fatal(err)
 	}
 	deployment := newChildTestDeployment(t)
-	input, _ := EncodeInput(childTestInput{Mode: "leaf"})
+	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
 	type startResult struct {
 		process *Process
 		err     error
@@ -402,7 +402,7 @@ func TestRejectedAdmissionProducesNoProcessInitializationOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	deployment := newChildTestDeployment(t)
-	input, _ := EncodeInput(childTestInput{Mode: "leaf"})
+	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
 	if process, err := engine.Start(t.Context(), deployment, input); process != nil ||
 		!errors.Is(err, ErrProcessAdmissionRejected) {
 		t.Fatalf("Start process=%v error=%v", process, err)
@@ -430,7 +430,7 @@ type failingInitializationDefinition struct {
 	err   error
 }
 
-func (f *failingInitializationDefinition) Start(input Input) (Execution, error) {
+func (f *failingInitializationDefinition) Start(input Payload) (Execution, error) {
 	if f.stage == failDefinitionStart {
 		return nil, f.err
 	}
@@ -472,7 +472,7 @@ func failingInitializationDeployment(
 		Definition: &failingInitializationDefinition{
 			Definition: base.Definition(), stage: stage, err: initializationErr,
 		},
-		Dispatcher:           base.effectDispatcher(),
+		Dispatcher:           base.dispatcher,
 		ImplementationDigest: ComputeDigest([]byte("failing-initialization-implementation")),
 		ConfigurationDigest:  ComputeDigest([]byte("failing-initialization-configuration")),
 	})

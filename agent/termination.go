@@ -248,6 +248,8 @@ func (t TerminationCause) String() string {
 }
 
 // Termination is the immutable result of applying the terminal priority matrix.
+// Only the Engine creates terminal facts from validated control intents and
+// Step outcomes; callers obtain this observation from Result or decode it.
 type Termination struct {
 	status              Status
 	cause               TerminationCause
@@ -305,7 +307,7 @@ func (t Termination) Valid() bool {
 	}
 	for index, effectID := range t.unresolvedEffectIDs {
 		if !effectID.Valid() || index > 0 &&
-			t.unresolvedEffectIDs[index-1].String() >= effectID.String() {
+			cmp.Compare(t.unresolvedEffectIDs[index-1].String(), effectID.String()) >= 0 {
 			return false
 		}
 	}
@@ -317,7 +319,7 @@ func (t Termination) Valid() bool {
 		if !t.failure.Valid() || t.reason != t.failure.Message() {
 			return false
 		}
-		return t.cause == t.failure.termination().cause
+		return t.cause == t.failure.terminationCause()
 	case StatusCanceled:
 		return (t.cause == TerminationCauseParentCancellation || t.cause == TerminationCauseHostCancellation) &&
 			!t.failure.Valid()

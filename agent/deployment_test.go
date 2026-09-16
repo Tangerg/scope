@@ -55,7 +55,7 @@ func TestDeploymentBindsExactDefinitionAndDispatcher(t *testing.T) {
 		request.Relation() != relation || string(request.Effect().Payload()) != `{"operation":"test"}` {
 		t.Fatalf("EffectRequest did not freeze Effect: %+v", request)
 	}
-	settlement, err := deployment.effectDispatcher().Dispatch(context.Background(), request, func(json.RawMessage) {})
+	settlement, err := deployment.dispatcher.Dispatch(context.Background(), request, func(json.RawMessage) {})
 	if err != nil || settlement.EffectID() != request.ID() {
 		t.Fatalf("Dispatch settlement = %+v, %v", settlement, err)
 	}
@@ -90,7 +90,7 @@ func TestDeploymentWithoutDispatcherRunsAndRestoresFrameworkEffects(t *testing.T
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { mustCloseEngine(t, engine) })
-	input, _ := EncodeInput(engineTestInput{Value: "question"})
+	input, _ := EncodePayload(engineTestInput{Value: "question"})
 	process, err := engine.Start(t.Context(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +136,7 @@ func TestDeploymentWithoutDispatcherRejectsWholeExternalEffectBatch(t *testing.T
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { mustCloseEngine(t, engine) })
-	input, _ := EncodeInput(engineTestInput{Value: "request"})
+	input, _ := EncodePayload(engineTestInput{Value: "request"})
 	result, err := engine.Run(t.Context(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -157,7 +157,7 @@ func TestDeploymentWithoutDispatcherRejectsRestoredExternalEffect(t *testing.T) 
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { mustCloseEngine(t, engine) })
-	input, _ := EncodeInput(engineTestInput{Value: "request"})
+	input, _ := EncodePayload(engineTestInput{Value: "request"})
 	process, err := engine.Start(t.Context(), deployment, input)
 	if err != nil {
 		t.Fatal(err)

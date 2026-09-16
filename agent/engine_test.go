@@ -18,7 +18,7 @@ func TestEngineStartRejectsNilContextBeforePublication(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = engine.Close(context.WithoutCancel(t.Context())) })
-	input, err := EncodeInput(childTestInput{Mode: "leaf"})
+	input, err := EncodePayload(childTestInput{Mode: "leaf"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,8 +29,8 @@ func TestEngineStartRejectsNilContextBeforePublication(t *testing.T) {
 		return nil
 	}()
 	recoveredErr, isError := recovered.(error)
-	if !isError || !errors.Is(recoveredErr, errNilContext) {
-		t.Fatalf("Start nil-context panic = %v, want %v", recovered, errNilContext)
+	if !isError || !errors.Is(recoveredErr, ErrNilContext) {
+		t.Fatalf("Start nil-context panic = %v, want %v", recovered, ErrNilContext)
 	}
 	engine.mu.RLock()
 	defer engine.mu.RUnlock()
@@ -45,7 +45,7 @@ func TestProcessRejectsNilContextBeforeControl(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { mustCloseEngine(t, engine) })
-	input, err := EncodeInput(childTestInput{Mode: "leaf"})
+	input, err := EncodePayload(childTestInput{Mode: "leaf"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,8 +68,8 @@ func TestProcessRejectsNilContextBeforeControl(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			defer func() {
 				cause, ok := recover().(error)
-				if !ok || !errors.Is(cause, errNilContext) {
-					t.Fatalf("nil-context panic = %v, want %v", cause, errNilContext)
+				if !ok || !errors.Is(cause, ErrNilContext) {
+					t.Fatalf("nil-context panic = %v, want %v", cause, ErrNilContext)
 				}
 			}()
 			call()
@@ -95,7 +95,7 @@ func TestResumeRunningProcessReportsInvalidControl(t *testing.T) {
 		mustCloseEngine(t, engine)
 	})
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{})
-	input, _ := EncodeInput(engineTestInput{Value: "running"})
+	input, _ := EncodePayload(engineTestInput{Value: "running"})
 	process, err := engine.Start(t.Context(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +132,7 @@ func TestStepCannotConsumeSignalsThatArriveDuringItsExecution(t *testing.T) {
 			release := sync.OnceFunc(func() { close(definition.release) })
 			t.Cleanup(release)
 			deployment := engineTestDeployment(t, definition, &engineTestDispatcher{})
-			input, _ := EncodeInput(engineTestInput{Value: "original"})
+			input, _ := EncodePayload(engineTestInput{Value: "original"})
 			process, err := engine.Start(t.Context(), deployment, input)
 			if err != nil {
 				t.Fatal(err)
@@ -180,7 +180,7 @@ type signalWindowDefinition struct {
 	consumed uint32
 }
 
-func (s *signalWindowDefinition) Start(input Input) (Execution, error) {
+func (s *signalWindowDefinition) Start(input Payload) (Execution, error) {
 	execution, err := s.engineTestDefinition.Start(input)
 	if err != nil {
 		return nil, err
@@ -209,7 +209,7 @@ func (s *signalWindowExecution) Step(ctx context.Context, signals []Signal) (Tra
 		return Transition{}, ctx.Err()
 	}
 	s.state.Phase = "done"
-	output, err := EncodeOutput(engineTestOutput{Value: s.state.Value})
+	output, err := EncodePayload(engineTestOutput{Value: s.state.Value})
 	if err != nil {
 		return Transition{}, err
 	}
@@ -262,7 +262,7 @@ func newEngineTestDefinition(t testing.TB, name, mode string) *engineTestDefinit
 
 func (e *engineTestDefinition) Descriptor() Descriptor { return e.descriptor }
 
-func (e *engineTestDefinition) Start(input Input) (Execution, error) {
+func (e *engineTestDefinition) Start(input Payload) (Execution, error) {
 	value, err := input.Decode[engineTestInput]()
 	if err != nil {
 		return nil, err
@@ -326,7 +326,7 @@ func (e *engineTestExecution) stepBatch(signals []Signal) (Transition, error) {
 			return Transition{}, err
 		}
 		e.state.Phase = "done"
-		output, _ := EncodeOutput(engineTestOutput{Value: first.Value + "+" + second.Value})
+		output, _ := EncodePayload(engineTestOutput{Value: first.Value + "+" + second.Value})
 		return Complete(2, output)
 	default:
 		return Transition{}, errors.New("batch execution cannot advance")
@@ -355,7 +355,7 @@ func (e *engineTestExecution) stepEffect(signals []Signal) (Transition, error) {
 			return Transition{}, err
 		}
 		e.state.Phase = "done"
-		output, _ := EncodeOutput(engineTestOutput{Value: message.Value})
+		output, _ := EncodePayload(engineTestOutput{Value: message.Value})
 		return Complete(1, output)
 	default:
 		return Transition{}, errors.New("effect execution cannot advance")
@@ -368,7 +368,7 @@ func (e *engineTestExecution) stepWait(signals []Signal) (Transition, error) {
 		e.state.Phase = "wait_id"
 		key, _ := ParseWaitKey("approval")
 		payload, _ := json.Marshal(engineTestMessage{Kind: "wait_opened"})
-		effect, err := RequestWait(key, payload)
+		effect, err := NewWaitEffect(key, payload)
 		if err != nil {
 			return Transition{}, err
 		}
@@ -397,7 +397,7 @@ func (e *engineTestExecution) stepWait(signals []Signal) (Transition, error) {
 			return Transition{}, err
 		}
 		e.state.Phase = "done"
-		output, _ := EncodeOutput(engineTestOutput{Value: message.Value})
+		output, _ := EncodePayload(engineTestOutput{Value: message.Value})
 		return Complete(1, output)
 	default:
 		return Transition{}, errors.New("wait execution cannot advance")
@@ -513,7 +513,7 @@ func TestEngineRunsEffectToValidatedOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(engineTestInput{Value: "hello"})
+	input, _ := EncodePayload(engineTestInput{Value: "hello"})
 	result, err := engine.Run(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -538,7 +538,7 @@ func TestEngineMintsWaitIDAndRequiresAddressedAnswer(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.wait", "wait")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
 	engine, _ := NewEngine(EngineConfig{})
-	input, _ := EncodeInput(engineTestInput{Value: "question"})
+	input, _ := EncodePayload(engineTestInput{Value: "question"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -582,7 +582,7 @@ func TestEngineCommitsPendingTreeBeforeDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(engineTestInput{Value: "durable"})
+	input, _ := EncodePayload(engineTestInput{Value: "durable"})
 	result, err := engine.Run(context.Background(), deployment, input)
 	if err != nil || result.Status() != StatusCompleted {
 		t.Fatalf("result=%+v err=%v", result, err)
@@ -605,7 +605,7 @@ func TestUnknownSettlementRequiresExplicitResolutionAndSurvivesRestore(t *testin
 	dispatcher := &failingEngineTestDispatcher{}
 	deployment := engineTestDeployment(t, definition, dispatcher)
 	engine, _ := NewEngine(EngineConfig{})
-	input, _ := EncodeInput(engineTestInput{Value: "uncertain"})
+	input, _ := EncodePayload(engineTestInput{Value: "uncertain"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -659,7 +659,7 @@ func TestPartialEffectBatchPreservesSettlementsAndDeclarationOrder(t *testing.T)
 	dispatcher := &partialBatchDispatcher{}
 	deployment := engineTestDeployment(t, definition, dispatcher)
 	engine, _ := NewEngine(EngineConfig{})
-	input, _ := EncodeInput(engineTestInput{Value: "batch"})
+	input, _ := EncodePayload(engineTestInput{Value: "batch"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -713,7 +713,7 @@ func TestPausedProcessCapturesRestoresAndResumesAtSafeBoundary(t *testing.T) {
 	}
 	deployment := engineTestDeployment(t, definition, dispatcher)
 	engine, _ := NewEngine(EngineConfig{})
-	input, _ := EncodeInput(engineTestInput{Value: "paused"})
+	input, _ := EncodePayload(engineTestInput{Value: "paused"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -756,7 +756,7 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 	limits := Limits{MaxSteps: 3, MaxEffects: 1, MaxSignals: 2, MaxPendingSignals: 2}
 	engine, _ := NewEngine(EngineConfig{Limits: limits})
 	t.Cleanup(func() { _ = engine.Close(context.WithoutCancel(t.Context())) })
-	input, _ := EncodeInput(engineTestInput{Value: "question"})
+	input, _ := EncodePayload(engineTestInput{Value: "question"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -827,7 +827,7 @@ func TestRestoredPreparedEffectReplaysOnlyWithSameIdentityPolicy(t *testing.T) {
 	dispatcher := &engineTestDispatcher{policy: ReplayPolicySameIdentity}
 	deployment := engineTestDeployment(t, definition, dispatcher)
 	engine, _ := NewEngine(EngineConfig{TreeDurability: durability})
-	input, _ := EncodeInput(engineTestInput{Value: "replay"})
+	input, _ := EncodePayload(engineTestInput{Value: "replay"})
 	if _, err := engine.Run(context.Background(), deployment, input); err != nil {
 		t.Fatal(err)
 	}
@@ -920,7 +920,7 @@ func TestStartContextCancellationMapsToHostCancellation(t *testing.T) {
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
 	engine, _ := NewEngine(EngineConfig{})
 	ctx, cancel := context.WithCancel(context.Background())
-	input, _ := EncodeInput(engineTestInput{Value: "cancel"})
+	input, _ := EncodePayload(engineTestInput{Value: "cancel"})
 	process, err := engine.Start(ctx, deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -943,7 +943,7 @@ func TestRequestCancellationReturnsAfterSubmissionAndSurvivesContextCancellation
 	}
 	deployment := engineTestDeployment(t, definition, dispatcher)
 	engine, _ := NewEngine(EngineConfig{})
-	input, _ := EncodeInput(engineTestInput{Value: "cancel after submission"})
+	input, _ := EncodePayload(engineTestInput{Value: "cancel after submission"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -970,7 +970,7 @@ func TestRequestCancellationRejectsAnAlreadyCanceledSubmissionContext(t *testing
 	definition := newEngineTestDefinition(t, "engine.wait", "wait")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
 	engine, _ := NewEngine(EngineConfig{})
-	input, _ := EncodeInput(engineTestInput{Value: "remain waiting"})
+	input, _ := EncodePayload(engineTestInput{Value: "remain waiting"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -1002,7 +1002,7 @@ func TestKillWaitsForInflightEffectSettlement(t *testing.T) {
 	}
 	deployment := engineTestDeployment(t, definition, dispatcher)
 	engine, _ := NewEngine(EngineConfig{})
-	input, _ := EncodeInput(engineTestInput{Value: "slow"})
+	input, _ := EncodePayload(engineTestInput{Value: "slow"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -1026,7 +1026,7 @@ func TestStepFailureDiscardsMutatedExecutionAndPreservesCursor(t *testing.T) {
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
 	listener := &recordingEventListener{}
 	engine, _ := NewEngine(EngineConfig{EventListeners: []EventListener{listener}})
-	input, _ := EncodeInput(engineTestInput{Value: "stable"})
+	input, _ := EncodePayload(engineTestInput{Value: "stable"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -1069,7 +1069,7 @@ func TestEngineEnforcesStepLimitAndReportsMonotonicUsage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(engineTestInput{Value: "bounded"})
+	input, _ := EncodePayload(engineTestInput{Value: "bounded"})
 	result, err := engine.Run(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -1146,7 +1146,7 @@ func TestDeltaBufferDropsAreObservableAndListenerPanicIsIsolated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(engineTestInput{Value: "stream"})
+	input, _ := EncodePayload(engineTestInput{Value: "stream"})
 	result, err := engine.Run(context.Background(), deployment, input)
 	if err != nil || result.Status() != StatusCompleted {
 		t.Fatalf("result=%+v err=%v", result, err)
@@ -1178,7 +1178,7 @@ func TestFlushDeltasWaitsForAcceptedListenerDelivery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(engineTestInput{Value: "stream"})
+	input, _ := EncodePayload(engineTestInput{Value: "stream"})
 	result, err := engine.Run(context.Background(), deployment, input)
 	if err != nil || result.Status() != StatusCompleted {
 		t.Fatalf("result=%+v err=%v", result, err)
@@ -1212,7 +1212,7 @@ func TestEventLifecycleCarriesExactBindingAndAttemptDurations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(engineTestInput{Value: "events"})
+	input, _ := EncodePayload(engineTestInput{Value: "events"})
 	result, err := engine.Run(context.Background(), deployment, input)
 	if err != nil || result.Status() != StatusCompleted {
 		t.Fatalf("result=%+v err=%v", result, err)
@@ -1296,7 +1296,7 @@ func TestFrameworkEffectPublishesTheSameLifecycleContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "parent"})
+	input, _ := EncodePayload(childTestInput{Mode: "parent"})
 	root, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -1414,7 +1414,7 @@ func TestCanceledControlDoesNotEnterTheRuntime(t *testing.T) {
 	}
 	deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)
 	engine, _ := NewEngine(EngineConfig{})
-	input, _ := EncodeInput(engineTestInput{Value: "complete normally"})
+	input, _ := EncodePayload(engineTestInput{Value: "complete normally"})
 	process, err := engine.Start(t.Context(), deployment, input)
 	if err != nil {
 		t.Fatal(err)

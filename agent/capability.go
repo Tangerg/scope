@@ -25,6 +25,8 @@ func ParseCapability(name string) (Capability, error) {
 
 func (c Capability) String() string { return c.name }
 
+func (c Capability) compare(other Capability) int { return strings.Compare(c.name, other.name) }
+
 func (c Capability) Valid() bool { return ValidQualifiedName(c.name) }
 
 func (c Capability) MarshalText() ([]byte, error) {
@@ -62,9 +64,7 @@ func NewCapabilitySet(capabilities ...Capability) (CapabilitySet, error) {
 			return CapabilitySet{}, ErrInvalidCapability
 		}
 	}
-	slices.SortFunc(values, func(left, right Capability) int {
-		return strings.Compare(left.name, right.name)
-	})
+	slices.SortFunc(values, Capability.compare)
 	values = slices.Compact(values)
 	return CapabilitySet{values: values}, nil
 }
@@ -77,9 +77,7 @@ func (c CapabilitySet) Contains(capability Capability) bool {
 	if !capability.Valid() {
 		return false
 	}
-	_, found := slices.BinarySearchFunc(c.values, capability, func(left, right Capability) int {
-		return strings.Compare(left.name, right.name)
-	})
+	_, found := slices.BinarySearchFunc(c.values, capability, Capability.compare)
 	return found
 }
 
@@ -98,7 +96,7 @@ func (c CapabilitySet) Allows(requested CapabilitySet) bool {
 
 func (c CapabilitySet) Valid() bool {
 	for index, capability := range c.values {
-		if !capability.Valid() || index > 0 && c.values[index-1].name >= capability.name {
+		if !capability.Valid() || index > 0 && c.values[index-1].compare(capability) >= 0 {
 			return false
 		}
 	}
@@ -117,6 +115,8 @@ func (c CapabilitySet) MarshalJSON() ([]byte, error) {
 
 func (CapabilitySet) JSONSchemaAlias() any { return []Capability{} }
 
+// UnmarshalJSON rejects duplicate grants and null; ordering is normalized.
+// Construction accepts duplicates because its arguments describe a set.
 func (c *CapabilitySet) UnmarshalJSON(data []byte) error {
 	if c == nil {
 		return ErrInvalidCapability

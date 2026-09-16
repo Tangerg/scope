@@ -24,7 +24,7 @@ func TestCancellationRevokesAcknowledgedButUnusedDispatchPermission(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		input, _ := EncodeInput(engineTestInput{Value: "never dispatched"})
+		input, _ := EncodePayload(engineTestInput{Value: "never dispatched"})
 		process, err := engine.Start(t.Context(), deployment, input)
 		if err != nil {
 			t.Fatal(err)
@@ -74,7 +74,7 @@ func TestRestoredCancellationNeverReplaysAnUncertainDispatch(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		input, _ := EncodeInput(engineTestInput{Value: "recover cancellation"})
+		input, _ := EncodePayload(engineTestInput{Value: "recover cancellation"})
 		process, err := engine.Start(t.Context(), deployment, input)
 		if err != nil {
 			t.Fatal(err)

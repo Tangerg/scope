@@ -196,7 +196,7 @@ func (c *childCallBatch) acceptStarts(starts []agent.ChildStartResult, bindings 
 	}
 	for offset, index := range pending {
 		start := starts[offset]
-		if !childcall.StartMatches(start, *c.Invocations[index].ChildKey, bindings[index]) {
+		if !(start).Matches(*c.Invocations[index].ChildKey, bindings[index]) {
 			return nil, fmt.Errorf("%w: child start does not match its binding", ErrInvalidExecutionState)
 		}
 		if processID, started := start.ProcessID(); started {

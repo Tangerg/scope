@@ -17,7 +17,7 @@ const (
 // ChildInputFunc derives a child Process input from the parent input and the
 // current world state, so a plan step can be parameterized by facts discovered
 // during execution rather than only by what the plan was started with.
-type ChildInputFunc func(processInput agent.Input, worldState WorldState) (agent.Input, error)
+type ChildInputFunc func(processInput agent.Payload, worldState WorldState) (agent.Payload, error)
 
 // DispatcherBindingConfig binds a predictive Action to the Planning
 // Dispatcher. RequiredCapabilities are enforced by Engine before dispatch.
@@ -104,7 +104,7 @@ func (a ActionBinding) Valid() bool {
 	}
 }
 
-func (a ActionBinding) childSpec(key agent.ChildKey, input agent.Input) agent.ChildSpec {
+func (a ActionBinding) childSpec(key agent.ChildKey, input agent.Payload) agent.ChildSpec {
 	spec := a.child
 	spec.Key = key
 	spec.Input = input

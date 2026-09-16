@@ -9,7 +9,7 @@ import (
 
 type multipleWaitDefinition struct{ *engineTestDefinition }
 
-func (m *multipleWaitDefinition) Start(input Input) (Execution, error) {
+func (m *multipleWaitDefinition) Start(input Payload) (Execution, error) {
 	execution, err := m.engineTestDefinition.Start(input)
 	if err != nil {
 		return nil, err
@@ -36,7 +36,7 @@ func (m *multipleWaitExecution) Step(ctx context.Context, signals []Signal) (Tra
 	switch phase {
 	case "ready":
 		key, _ := ParseWaitKey("secondary")
-		effect, err := RequestWait(key, []byte(`{"kind":"wait_opened"}`))
+		effect, err := NewWaitEffect(key, []byte(`{"kind":"wait_opened"}`))
 		if err != nil {
 			return Transition{}, err
 		}
@@ -67,7 +67,7 @@ func TestWaitingSignalBatchMustFirstAddressCurrentWait(t *testing.T) {
 			})
 			definition := &multipleWaitDefinition{newEngineTestDefinition(t, "engine.wait", "wait")}
 			deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
-			input, _ := EncodeInput(engineTestInput{Value: "waiting"})
+			input, _ := EncodePayload(engineTestInput{Value: "waiting"})
 			process, err := engine.Start(t.Context(), deployment, input)
 			if err != nil {
 				t.Fatal(err)

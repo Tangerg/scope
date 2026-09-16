@@ -59,6 +59,9 @@ type waitRecord struct {
 	closed   bool
 }
 
+// signalMailbox has reference semantics. candidate must clone it before any
+// speculative mutation: commit may advance a prefix before returning an error,
+// and that candidate must then be discarded in full.
 type signalMailbox struct {
 	records      []signalRecord
 	seen         map[SignalID]int
@@ -66,7 +69,7 @@ type signalMailbox struct {
 	signalCursor uint64
 }
 
-func (s signalMailbox) clone() signalMailbox {
+func (s *signalMailbox) clone() signalMailbox {
 	clone := signalMailbox{
 		records: slices.Clone(s.records), seen: maps.Clone(s.seen),
 		waits: maps.Clone(s.waits), signalCursor: s.signalCursor,
@@ -117,7 +120,7 @@ func (s *signalMailbox) enqueueRecord(status Status, record signalRecord) (bool,
 	return true, nil
 }
 
-func (s signalMailbox) validateRecord(status Status, record signalRecord) (bool, error) {
+func (s *signalMailbox) validateRecord(status Status, record signalRecord) (bool, error) {
 	source := record.source
 	if index, exists := s.seen[record.id]; exists {
 		if !s.records[index].sameContent(record) {
@@ -190,6 +193,7 @@ func (s *signalMailbox) openWaitRecord(key WaitKey, record signalRecord, kind Wa
 }
 
 func (s *signalMailbox) appendRecord(record signalRecord) {
+	// seen stores zero-based indexes; persisted arrival sequences start at one.
 	s.seen[record.id] = len(s.records)
 	record.arrivalSequence = uint64(len(s.records) + 1)
 	s.records = append(s.records, record)
@@ -242,6 +246,7 @@ func (s *signalMailbox) pending() []Signal {
 	signals := make([]Signal, len(pending))
 	for index := range pending {
 		record := pending[index]
+		// Admission already normalized these immutable, mailbox-owned bytes.
 		signals[index] = Signal{id: record.id, waitID: record.waitID, payload: record.payload}
 	}
 	return signals
@@ -271,12 +276,12 @@ func (s *signalMailbox) commit(consumedSignals uint32) ([]WaitID, error) {
 	return childWaits, nil
 }
 
-func (s *signalMailbox) arrivalSequence() uint64 { return uint64(len(s.records)) }
+func (s *signalMailbox) acceptedCount() uint64 { return uint64(len(s.records)) }
 
 func (s *signalMailbox) committedSignalCursor() uint64 { return s.signalCursor }
 
 func (s *signalMailbox) pendingCount() uint64 {
-	return s.arrivalSequence() - s.signalCursor
+	return s.acceptedCount() - s.signalCursor
 }
 
 func (s *signalMailbox) contains(id SignalID) bool {
@@ -350,7 +355,7 @@ func (s *signalMailbox) wire() mailboxWire {
 	return wire
 }
 
-func (s signalMailbox) prepareAdmission(status Status, currentWaitID WaitID, signals []Signal, source signalSource) (signalAdmission, error) {
+func (s *signalMailbox) prepareAdmission(status Status, currentWaitID WaitID, signals []Signal, source signalSource) (signalAdmission, error) {
 	admission := signalAdmission{records: make([]signalRecord, 0, len(signals)), status: status}
 	seen := make(map[SignalID]signalRecord, len(signals))
 	answered := make(map[WaitID]struct{})

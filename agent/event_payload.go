@@ -12,6 +12,7 @@ import (
 type StepStatus string
 
 const (
+	StepStatusInvalid   StepStatus = ""
 	StepStatusSucceeded StepStatus = "succeeded"
 	StepStatusFailed    StepStatus = "failed"
 	StepStatusDiscarded StepStatus = "discarded"

@@ -43,7 +43,7 @@ func (d *definitionConformanceDefinition) Descriptor() agent.Descriptor {
 	return d.descriptor
 }
 
-func (d *definitionConformanceDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (d *definitionConformanceDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	value, err := input.Decode[definitionConformanceInput]()
 	if err != nil {
 		return nil, err
@@ -97,7 +97,7 @@ func (d *definitionConformanceExecution) Snapshot() (agent.ExecutionState, error
 
 func TestRunDefinitionConformanceAcceptsIsolatedDeterministicDefinition(t *testing.T) {
 	definition := newDefinitionConformanceFixture(t)
-	input, err := agent.EncodeInput(definitionConformanceInput{Value: 7})
+	input, err := agent.EncodePayload(definitionConformanceInput{Value: 7})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestRunDefinitionConformanceAcceptsIsolatedDeterministicDefinition(t *testi
 func TestDefinitionConformanceDetectsHiddenMutableInput(t *testing.T) {
 	definition := newDefinitionConformanceFixture(t)
 	definition.counter.Store(1)
-	input, err := agent.EncodeInput(definitionConformanceInput{Value: 7})
+	input, err := agent.EncodePayload(definitionConformanceInput{Value: 7})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestDefinitionConformanceDetectsSharedExecutionState(t *testing.T) {
 	definition := newDefinitionConformanceFixture(t)
 	shared := uint64(7)
 	definition.shared = &shared
-	input, err := agent.EncodeInput(definitionConformanceInput{Value: 7})
+	input, err := agent.EncodePayload(definitionConformanceInput{Value: 7})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestDefinitionConformanceDetectsSharedExecutionState(t *testing.T) {
 func TestDefinitionConformanceRejectsLossyBehaviorRestore(t *testing.T) {
 	definition := newDefinitionConformanceFixture(t)
 	definition.lossy = true
-	input, err := agent.EncodeInput(definitionConformanceInput{Value: 7})
+	input, err := agent.EncodePayload(definitionConformanceInput{Value: 7})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -165,7 +165,7 @@ func TestRestoreTreeRejectsDurabilityModeMismatch(t *testing.T) {
 	}
 
 	runningEngine, _ := NewEngine(EngineConfig{TreeDurability: durability})
-	input, _ := EncodeInput(engineTestInput{Value: "durable"})
+	input, _ := EncodePayload(engineTestInput{Value: "durable"})
 	result, err := runningEngine.Run(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -197,7 +197,7 @@ func TestRestoreTreeRejectsLocalRegistrationBeforeActivation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(engineTestInput{Value: "restore reservation"})
+	input, _ := EncodePayload(engineTestInput{Value: "restore reservation"})
 	original, err := source.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -320,7 +320,7 @@ func TestDurableEffectCommitFailuresStopTheTreeAtTheCorrectBoundary(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			input, _ := EncodeInput(engineTestInput{Value: "durability"})
+			input, _ := EncodePayload(engineTestInput{Value: "durability"})
 			process, err := engine.Start(context.Background(), deployment, input)
 			if err != nil {
 				t.Fatal(err)
@@ -397,7 +397,7 @@ func TestTreeDurabilityFaultPreservesEveryConcurrentEffectForReconciliation(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := EncodeInput(childTestInput{Mode: "wait:all"})
+	input, err := EncodePayload(childTestInput{Mode: "wait:all"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,7 +483,7 @@ func TestTreeDurabilityFaultReleasesConcurrentChildAdmissionOwnership(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := EncodeInput(childTestInput{Mode: "wait:all"})
+	input, err := EncodePayload(childTestInput{Mode: "wait:all"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -559,7 +559,7 @@ func TestDurableUnknownResolutionCommitsAResolvedBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(engineTestInput{Value: "resolve"})
+	input, _ := EncodePayload(engineTestInput{Value: "resolve"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -729,7 +729,7 @@ func durablePendingTreeSnapshot(
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(engineTestInput{Value: "pending recovery"})
+	input, _ := EncodePayload(engineTestInput{Value: "pending recovery"})
 	if _, err := engine.Run(context.Background(), deployment, input); err != nil {
 		t.Fatal(err)
 	}
@@ -748,7 +748,7 @@ func TestKillPreservesUnknownEffectIdentityInTermination(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(t, definition, dispatcher)
 	engine, _ := NewEngine(EngineConfig{})
-	input, _ := EncodeInput(engineTestInput{Value: "unknown"})
+	input, _ := EncodePayload(engineTestInput{Value: "unknown"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -771,7 +771,7 @@ func TestDurableTreeRejectsCallerDrivenCapture(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.wait", "wait")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
 	engine, _ := NewEngine(EngineConfig{TreeDurability: durability})
-	input, _ := EncodeInput(engineTestInput{Value: "capture"})
+	input, _ := EncodePayload(engineTestInput{Value: "capture"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -797,7 +797,7 @@ func TestEngineCloseRejectsUnpublishedTerminalCheckpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(engineTestInput{Value: "terminal checkpoint"})
+	input, _ := EncodePayload(engineTestInput{Value: "terminal checkpoint"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -842,7 +842,7 @@ func TestDurableObservationsCarryCurrentIncarnation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(engineTestInput{Value: "observation"})
+	input, _ := EncodePayload(engineTestInput{Value: "observation"})
 	result, err := engine.Run(context.Background(), deployment, input)
 	if err != nil || result.Status() != StatusCompleted {
 		t.Fatalf("result=%+v error=%v", result, err)
@@ -931,7 +931,7 @@ func TestDurableStartSeparatesInitializationAcceptanceFromCheckpoint(t *testing.
 			if test.initializationErr != nil {
 				deployment = failingStartDeployment(t, test.initializationErr)
 			}
-			input, err := EncodeInput(childTestInput{Mode: "leaf"})
+			input, err := EncodePayload(childTestInput{Mode: "leaf"})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -111,7 +111,7 @@ func requestProcessAdmission(
 			)
 		}
 	}()
-	if err := admitter.Admit(requireContext(ctx), admission); err != nil {
+	if err := admitter.Admit(RequireContext(ctx), admission); err != nil {
 		return fmt.Errorf("%w: %w", ErrProcessAdmissionRejected, err)
 	}
 	return nil

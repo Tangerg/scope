@@ -69,7 +69,7 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 		}
 	})
 	deployment := newChildTestDeployment(t)
-	input, err := EncodeInput(childTestInput{Mode: "leaf"})
+	input, err := EncodePayload(childTestInput{Mode: "leaf"})
 	if err != nil {
 		t.Fatal(err)
 	}

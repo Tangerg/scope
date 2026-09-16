@@ -25,7 +25,7 @@ func TestChildCompletionPreservesParentSchedulingAcrossRestore(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { mustCloseEngine(t, engine) })
-			input, _ := EncodeInput(childTestInput{Mode: test.mode})
+			input, _ := EncodePayload(childTestInput{Mode: test.mode})
 			root, err := engine.Start(t.Context(), deployment, input)
 			if err != nil {
 				t.Fatal(err)
@@ -97,7 +97,7 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	parent.currentWaitID = waitID
-	output, err := EncodeOutput(strings.Repeat("x", 32<<20))
+	output, err := EncodePayload(strings.Repeat("x", 32<<20))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func newChildCompletionTestProcess(t *testing.T) (*treeRuntime, *processState) {
 	}
 	t.Cleanup(func() { mustCloseEngine(t, engine) })
 	deployment := newChildTestDeployment(t)
-	input, _ := EncodeInput(childTestInput{Mode: "leaf"})
+	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
 	execution, state, _, err := initializeExecution(t.Context(), deployment.Definition(), input)
 	if err != nil {
 		t.Fatal(err)

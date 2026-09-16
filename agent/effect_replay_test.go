@@ -64,7 +64,7 @@ func TestReplayUnknownEffectRetainsEvidenceAndSerializesResolution(t *testing.T)
 					}
 					defer mustCloseEngine(t, engine)
 					deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)
-					input, _ := EncodeInput(engineTestInput{Value: "original"})
+					input, _ := EncodePayload(engineTestInput{Value: "original"})
 					process, err := engine.Start(t.Context(), deployment, input)
 					if err != nil {
 						t.Fatal(err)
@@ -176,7 +176,7 @@ func TestReplayUnknownEffectRequiresSameIdentityPolicy(t *testing.T) {
 		}
 		defer mustCloseEngine(t, engine)
 		deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)
-		input, _ := EncodeInput(engineTestInput{Value: "original"})
+		input, _ := EncodePayload(engineTestInput{Value: "original"})
 		process, err := engine.Start(t.Context(), deployment, input)
 		if err != nil {
 			t.Fatal(err)

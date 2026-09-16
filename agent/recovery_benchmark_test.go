@@ -135,7 +135,7 @@ func benchmarkRecoverableProcess(
 			b.Error(closeErr)
 		}
 	})
-	input, err := EncodeInput(executionReplayBenchmarkState{Payload: strings.Repeat("x", sample.contextBytes)})
+	input, err := EncodePayload(executionReplayBenchmarkState{Payload: strings.Repeat("x", sample.contextBytes)})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -220,7 +220,7 @@ type treeRecoveryBenchmarkDefinition struct {
 
 func (t *treeRecoveryBenchmarkDefinition) Descriptor() Descriptor { return t.descriptor }
 
-func (t *treeRecoveryBenchmarkDefinition) Start(input Input) (Execution, error) {
+func (t *treeRecoveryBenchmarkDefinition) Start(input Payload) (Execution, error) {
 	state, err := input.Decode[executionReplayBenchmarkState]()
 	if err != nil {
 		return nil, err
@@ -249,7 +249,7 @@ func (t *treeRecoveryBenchmarkExecution) Step(_ context.Context, signals []Signa
 	if t.state.Sequence == 1 && len(t.definition.children) != 0 {
 		effects := make([]Effect, len(t.definition.children))
 		for index, child := range t.definition.children {
-			effect, err := StartChild(child)
+			effect, err := NewChildStartEffect(child)
 			if err != nil {
 				return Transition{}, err
 			}

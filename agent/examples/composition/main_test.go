@@ -46,7 +46,7 @@ func TestDefinitionsRejectInvalidBoundaryValues(t *testing.T) {
 	}
 	for _, deployment := range []agent.Deployment{local, composition} {
 		t.Run(deployment.Descriptor().Name(), func(t *testing.T) {
-			input, err := agent.ParseInput([]byte(`{}`))
+			input, err := agent.ParsePayload([]byte(`{}`))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -393,7 +393,7 @@ type recordingDefinition struct {
 	samples []agenttest.ExecutionConformanceCase
 }
 
-func (r *recordingDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (r *recordingDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	execution, err := r.Definition.Start(input)
 	if err != nil {
 		return nil, err
@@ -488,7 +488,7 @@ func TestCompositionPreservesChildFailures(t *testing.T) {
 
 type failingDefinition struct{ agent.Definition }
 
-func (f failingDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (f failingDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	execution, err := f.Definition.Start(input)
 	if err != nil {
 		return nil, err

@@ -19,7 +19,7 @@ func Run(
 	t *testing.T,
 	deploymentConfig agent.DeploymentConfig,
 	engineConfig agent.EngineConfig,
-	input agent.Input,
+	input agent.Payload,
 ) agent.Result {
 	t.Helper()
 	definition := deploymentConfig.Definition
@@ -62,7 +62,7 @@ type recordingDefinition struct {
 
 func (r *recordingDefinition) Descriptor() agent.Descriptor { return r.definition.Descriptor() }
 
-func (r *recordingDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (r *recordingDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	execution, err := r.definition.Start(input)
 	if err != nil {
 		return nil, err
@@ -103,3 +103,5 @@ func (r *recordingExecution) Step(ctx context.Context, signals []agent.Signal) (
 	})
 	return transition, nil
 }
+
+var _ agent.Definition = (*recordingDefinition)(nil)

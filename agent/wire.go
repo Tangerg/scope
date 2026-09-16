@@ -10,135 +10,78 @@ import (
 )
 
 // MaxPayloadBytes is the maximum encoded JSON size of an individual Agent
-// input, output, Effect, Signal, or settlement payload.
+// input, output, Effect, Signal, or settlement payload. Both the supplied bytes
+// and the canonical encoding must fit. Canonical payloads use RFC 7493 JSON,
+// omit whitespace, sort object names by UTF-16 code units (RFC 8785 section
+// 3.2.3), preserve number literals verbatim, and escape <, >, &, U+2028 and
+// U+2029. Strings otherwise use their shortest JSON encoding. Digests over
+// payloads and persisted payload bytes use this form; this is not RFC 8785
+// number canonicalization.
 const MaxPayloadBytes = 64 << 20
 
-var (
-	ErrInvalidInput  = errors.New("agent: invalid input")
-	ErrInvalidOutput = errors.New("agent: invalid output")
-)
+var ErrInvalidPayload = errors.New("agent: invalid payload")
 
-// Input is the immutable JSON value used to start a Process. Its zero value is
-// invalid. ParseInput and EncodeInput take ownership by copying and normalizing
-// their input.
-type Input struct {
+// Payload is an immutable canonical JSON value. Its zero value is invalid.
+// ParsePayload and EncodePayload copy and normalize their input. Descriptor
+// schemas define its role as Process input or final output; streamed Deltas
+// never become final output implicitly.
+type Payload struct {
 	data json.RawMessage
 }
 
-// ParseInput validates one JSON value and returns an independently owned Input.
-func ParseInput(data json.RawMessage) (Input, error) {
+// ParsePayload validates one JSON value and returns an independently owned Payload.
+func ParsePayload(data json.RawMessage) (Payload, error) {
 	normalized, err := normalizeJSON(data, MaxPayloadBytes)
 	if err != nil {
-		return Input{}, fmt.Errorf("%w: %w", ErrInvalidInput, err)
+		return Payload{}, fmt.Errorf("%w: %w", ErrInvalidPayload, err)
 	}
-	return Input{data: normalized}, nil
+	return Payload{data: normalized}, nil
 }
 
-// EncodeInput strictly encodes a typed value into an independently owned Input.
+// EncodePayload strictly encodes a typed value into an independently owned Payload.
 // Invalid UTF-8 and duplicate JSON names are rejected, including custom codec
 // output. Custom codecs are responsible for preserving their source values.
-func EncodeInput[T any](value T) (Input, error) {
+func EncodePayload[T any](value T) (Payload, error) {
 	data, err := jsonv2.Marshal(value, jsonv2.Deterministic(true))
 	if err != nil {
-		return Input{}, fmt.Errorf("%w: encode: %w", ErrInvalidInput, err)
+		return Payload{}, fmt.Errorf("%w: encode: %w", ErrInvalidPayload, err)
 	}
-	return ParseInput(data)
+	return ParsePayload(data)
 }
 
-// Decode strictly decodes i into a typed value. Unknown object fields are
+// Decode strictly decodes p into a typed value. Unknown object fields are
 // rejected when T is a struct.
-func (i Input) Decode[T any]() (T, error) {
-	value, err := decodeJSON[T](i.data)
+func (p Payload) Decode[T any]() (T, error) {
+	value, err := decodeJSON[T](p.data)
 	if err != nil {
-		return value, fmt.Errorf("%w: decode: %w", ErrInvalidInput, err)
+		return value, fmt.Errorf("%w: decode: %w", ErrInvalidPayload, err)
 	}
 	return value, nil
 }
 
 // JSON returns an independently owned JSON representation.
-func (i Input) JSON() json.RawMessage { return bytes.Clone(i.data) }
+func (p Payload) JSON() json.RawMessage { return bytes.Clone(p.data) }
 
-func (i Input) Valid() bool { return len(i.data) > 0 }
+func (p Payload) Valid() bool { return len(p.data) > 0 }
 
-func (Input) JSONSchemaAlias() any { return json.RawMessage{} }
+func (Payload) JSONSchemaAlias() any { return json.RawMessage{} }
 
-func (i Input) MarshalJSON() ([]byte, error) {
-	if !i.Valid() {
-		return nil, ErrInvalidInput
+func (p Payload) MarshalJSON() ([]byte, error) {
+	if !p.Valid() {
+		return nil, ErrInvalidPayload
 	}
-	return bytes.Clone(i.data), nil
+	return bytes.Clone(p.data), nil
 }
 
-func (i *Input) UnmarshalJSON(data []byte) error {
-	if i == nil {
-		return fmt.Errorf("%w: nil receiver", ErrInvalidInput)
+func (p *Payload) UnmarshalJSON(data []byte) error {
+	if p == nil {
+		return fmt.Errorf("%w: nil receiver", ErrInvalidPayload)
 	}
-	value, err := ParseInput(data)
+	value, err := ParsePayload(data)
 	if err != nil {
 		return err
 	}
-	*i = value
-	return nil
-}
-
-// Output is the immutable final semantic result of a completed Process. Its
-// zero value is invalid and it never represents streamed Delta content.
-type Output struct {
-	data json.RawMessage
-}
-
-// ParseOutput validates one JSON value and returns an independently owned Output.
-func ParseOutput(data json.RawMessage) (Output, error) {
-	normalized, err := normalizeJSON(data, MaxPayloadBytes)
-	if err != nil {
-		return Output{}, fmt.Errorf("%w: %w", ErrInvalidOutput, err)
-	}
-	return Output{data: normalized}, nil
-}
-
-// EncodeOutput strictly encodes a typed value into an independently owned Output.
-// It uses the same lossless encoding contract as EncodeInput.
-func EncodeOutput[T any](value T) (Output, error) {
-	data, err := jsonv2.Marshal(value, jsonv2.Deterministic(true))
-	if err != nil {
-		return Output{}, fmt.Errorf("%w: encode: %w", ErrInvalidOutput, err)
-	}
-	return ParseOutput(data)
-}
-
-// Decode strictly decodes o into a typed value. Unknown object fields are
-// rejected when T is a struct.
-func (o Output) Decode[T any]() (T, error) {
-	value, err := decodeJSON[T](o.data)
-	if err != nil {
-		return value, fmt.Errorf("%w: decode: %w", ErrInvalidOutput, err)
-	}
-	return value, nil
-}
-
-// JSON returns an independently owned JSON representation.
-func (o Output) JSON() json.RawMessage { return bytes.Clone(o.data) }
-
-func (o Output) Valid() bool { return len(o.data) > 0 }
-
-func (Output) JSONSchemaAlias() any { return json.RawMessage{} }
-
-func (o Output) MarshalJSON() ([]byte, error) {
-	if !o.Valid() {
-		return nil, ErrInvalidOutput
-	}
-	return bytes.Clone(o.data), nil
-}
-
-func (o *Output) UnmarshalJSON(data []byte) error {
-	if o == nil {
-		return fmt.Errorf("%w: nil receiver", ErrInvalidOutput)
-	}
-	value, err := ParseOutput(data)
-	if err != nil {
-		return err
-	}
-	*o = value
+	*p = value
 	return nil
 }
 
@@ -149,23 +92,14 @@ func normalizeJSON(data []byte, limit int) (json.RawMessage, error) {
 	if len(data) > limit {
 		return nil, fmt.Errorf("JSON value exceeds %d bytes", limit)
 	}
-	if !jsontext.Value(data).IsValid() {
-		return nil, errors.New("JSON value is not valid RFC 7493 JSON")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	var value any
-	if err := decoder.Decode(&value); err != nil {
-		return nil, fmt.Errorf("decode JSON value: %w", err)
-	}
-	normalized, err := json.Marshal(value)
-	if err != nil {
-		return nil, fmt.Errorf("normalize JSON value: %w", err)
+	normalized := jsontext.Value(bytes.Clone(data))
+	if err := normalized.Format(jsontext.ReorderRawObjects(true), jsontext.EscapeForHTML(true), jsontext.EscapeForJS(true)); err != nil {
+		return nil, fmt.Errorf("JSON value is not valid RFC 7493 JSON: %w", err)
 	}
 	if len(normalized) > limit {
 		return nil, fmt.Errorf("normalized JSON value exceeds %d bytes", limit)
 	}
-	return normalized, nil
+	return json.RawMessage(normalized), nil
 }
 
 func decodeJSON[T any](data []byte) (T, error) {

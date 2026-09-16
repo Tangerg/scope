@@ -200,7 +200,7 @@ func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.Executi
 	processID, _ := agent.ParseProcessID("process:fuzz-child")
 	waitID, _ := agent.ParseWaitID("wait:fuzz-child")
 	steerSignalID, _ := agent.ParseSignalID("signal:fuzz-steer")
-	artifactOutput, _ := agent.EncodeOutput(fuzzDelegateOutput{Result: "settled"})
+	artifactOutput, _ := agent.EncodePayload(fuzzDelegateOutput{Result: "settled"})
 	states := []executionState{
 		{
 			Phase: phaseAwaitingResultCommit, WorkingContext: request.Clone(), ModelCallCount: 1,

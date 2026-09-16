@@ -29,7 +29,7 @@ type revisionExecution struct {
 }
 
 func (r revisionDefinition) Descriptor() agent.Descriptor { return r.descriptor }
-func (r revisionDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (r revisionDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	request, err := input.Decode[revisionRequest]()
 	if err != nil {
 		return nil, err
@@ -40,7 +40,7 @@ func (r revisionDefinition) Restore(ctx context.Context, state agent.ExecutionSt
 	if state.Kind() != "example.revision" {
 		return nil, agent.ErrInvalidExecutionState
 	}
-	input, err := agent.ParseInput(state.Payload())
+	input, err := agent.ParsePayload(state.Payload())
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +55,7 @@ func (r *revisionExecution) Step(ctx context.Context, signals []agent.Signal) (a
 		return agent.Transition{}, err
 	}
 	if !r.Requested {
-		payload, err := agent.EncodeInput(r.Request)
+		payload, err := agent.EncodePayload(r.Request)
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -69,14 +69,14 @@ func (r *revisionExecution) Step(ctx context.Context, signals []agent.Signal) (a
 	if len(signals) != 1 {
 		return agent.Transition{}, errors.New("revision update requires one observation")
 	}
-	output, err := agent.ParseOutput(signals[0].Payload())
+	output, err := agent.ParsePayload(signals[0].Payload())
 	if err != nil {
 		return agent.Transition{}, err
 	}
 	return agent.Complete(1, output)
 }
 func (r *revisionExecution) Snapshot() (agent.ExecutionState, error) {
-	payload, err := agent.EncodeInput(r)
+	payload, err := agent.EncodePayload(r)
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
@@ -103,7 +103,7 @@ func (r *revisionStore) Dispatch(ctx context.Context, request agent.EffectReques
 	if err := ctx.Err(); err != nil {
 		return agent.Settlement{}, err
 	}
-	input, err := agent.ParseInput(request.Effect().Payload())
+	input, err := agent.ParsePayload(request.Effect().Payload())
 	if err != nil {
 		return agent.Settlement{}, err
 	}
@@ -128,7 +128,7 @@ func (r *revisionStore) Dispatch(ctx context.Context, request agent.EffectReques
 		observation.Value = update.Value
 		r.current = observation
 	}
-	payload, err := agent.EncodeOutput(observation)
+	payload, err := agent.EncodePayload(observation)
 	if err != nil {
 		return agent.Settlement{}, err
 	}
@@ -177,7 +177,7 @@ func TestSharedStateCoordinationRestoresObservedRevisionInsteadOfCurrentState(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodeInput(revisionRequest{Value: "first"})
+	input, err := agent.EncodePayload(revisionRequest{Value: "first"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestSharedStateCoordinationRestoresObservedRevisionInsteadOfCurrentState(t 
 	}
 	var competitors []*agent.Process
 	for _, value := range []string{"first", "second"} {
-		request, encodeErr := agent.EncodeInput(revisionRequest{Value: value})
+		request, encodeErr := agent.EncodePayload(revisionRequest{Value: value})
 		if encodeErr != nil {
 			t.Fatal(encodeErr)
 		}
@@ -218,7 +218,7 @@ func TestSharedStateCoordinationRestoresObservedRevisionInsteadOfCurrentState(t 
 	if failed == nil {
 		t.Fatal("lost acknowledgment did not stop one runtime")
 	}
-	laterInput, err := agent.EncodeInput(revisionRequest{Expected: 1, Value: "later value"})
+	laterInput, err := agent.EncodePayload(revisionRequest{Expected: 1, Value: "later value"})
 	if err != nil {
 		t.Fatal(err)
 	}

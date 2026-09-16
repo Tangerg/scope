@@ -13,7 +13,19 @@ const (
 	TreeFreezeNone      TreeFreezePhase = "none"
 	TreeFreezeAcquiring TreeFreezePhase = "acquiring"
 	TreeFreezeHeld      TreeFreezePhase = "held"
+	TreeFreezeInvalid   TreeFreezePhase = ""
 )
+
+func (t TreeFreezePhase) Valid() bool {
+	return t == TreeFreezeNone || t == TreeFreezeAcquiring || t == TreeFreezeHeld
+}
+
+func (t TreeFreezePhase) String() string {
+	if !t.Valid() {
+		return "invalid"
+	}
+	return string(t)
+}
 
 // ProcessWork describes work owned by the current runtime, independently of
 // the lifecycle state in its last acknowledged snapshot. Queued means waiting
@@ -28,7 +40,19 @@ const (
 	ProcessWorkRestore    ProcessWork = "restore"
 	ProcessWorkDispatch   ProcessWork = "dispatch"
 	ProcessWorkChildStart ProcessWork = "child_start"
+	ProcessWorkInvalid    ProcessWork = ""
 )
+
+func (p ProcessWork) Valid() bool {
+	return p == ProcessWorkIdle || p == ProcessWorkQueued || p == ProcessWorkStep || p == ProcessWorkRestore || p == ProcessWorkDispatch || p == ProcessWorkChildStart
+}
+
+func (p ProcessWork) String() string {
+	if !p.Valid() {
+		return "invalid"
+	}
+	return string(p)
+}
 
 // ProcessInspection combines an existing execution capture with current work.
 // A stale job is still draining but cannot publish its result. RuntimeError

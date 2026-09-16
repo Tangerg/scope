@@ -243,7 +243,7 @@ func TestManagedPlanningRestoresExactBoundaryState(t *testing.T) {
 	definition := newManagedDefinition(t, managedDeploymentConfig{
 		goal: mustGoal(t, done), bindings: []planning.ActionBinding{mustDispatcherBinding(t, action)},
 	})
-	input, err := agent.EncodeInput(struct{}{})
+	input, err := agent.EncodePayload(struct{}{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +298,7 @@ func TestManagedPlanningUnknownActionRequiresExplicitResolution(t *testing.T) {
 			t.Errorf("Close: %v", closeErr)
 		}
 	})
-	input, _ := agent.EncodeInput(struct{}{})
+	input, _ := agent.EncodePayload(struct{}{})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -361,10 +361,10 @@ func TestManagedPlanningExecutesChildProcessAction(t *testing.T) {
 	var inputCalls int
 	childBinding, err := planning.NewChildBinding(planning.ChildBindingConfig{
 		Action: delegate, DeploymentRef: childDeployment.DeploymentRef(), Budget: budget,
-		Input: func(input agent.Input, observed planning.WorldState) (agent.Input, error) {
+		Input: func(input agent.Payload, observed planning.WorldState) (agent.Payload, error) {
 			inputCalls++
 			if !input.Valid() || observed.Truth("world.done") != planning.Unknown {
-				return agent.Input{}, errors.New("unexpected child input source")
+				return agent.Payload{}, errors.New("unexpected child input source")
 			}
 			return input, nil
 		},
@@ -592,7 +592,7 @@ func runManaged(t testing.TB, config agent.EngineConfig, deployment agent.Deploy
 			t.Errorf("Close: %v", closeErr)
 		}
 	}()
-	input, err := agent.EncodeInput(struct{}{})
+	input, err := agent.EncodePayload(struct{}{})
 	if err != nil {
 		t.Fatal(err)
 	}

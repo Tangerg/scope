@@ -5,7 +5,6 @@ import (
 	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
 type competitionPhase string
@@ -43,7 +42,7 @@ func (f firstSuccessState) validate(maxCandidates uint32) error {
 	}
 	for index, started := range f.Starts {
 		candidate := f.Candidates[index]
-		if !started.Valid() || !childcall.StartMatches(started, candidate.Key, candidate.DeploymentRef) {
+		if !started.Valid() || !(started).Matches(candidate.Key, candidate.DeploymentRef) {
 			return fmt.Errorf("%w: start fact disagrees with its candidate", ErrInvalidState)
 		}
 		if id, present := started.ProcessID(); present {
@@ -62,27 +61,40 @@ func (f firstSuccessState) validate(maxCandidates uint32) error {
 	}
 	switch f.Phase {
 	case competitionReady:
-		if len(f.Starts) == 0 && len(f.Outcomes) == 0 && f.WaitID == nil {
-			return nil
+		if len(f.Starts) != 0 || len(f.Outcomes) != 0 || f.WaitID != nil {
+			return fmt.Errorf("%w: ready competition retains progress", ErrInvalidState)
 		}
 	case competitionAwaitingStarts:
-		if len(f.Starts) < len(f.Candidates) && len(f.Outcomes) == 0 && f.WaitID == nil {
-			return nil
+		if len(f.Starts) >= len(f.Candidates) {
+			return fmt.Errorf("%w: awaiting starts has no pending candidate", ErrInvalidState)
+		}
+		if len(f.Outcomes) != 0 || f.WaitID != nil {
+			return fmt.Errorf("%w: outcomes or wait precede completed starts", ErrInvalidState)
 		}
 	case competitionAwaitingOpen, competitionWaiting:
-		validWait := f.WaitID == nil
-		if f.Phase == competitionWaiting {
-			validWait = f.WaitID != nil && f.WaitID.Valid()
+		if len(f.Starts) != len(f.Candidates) {
+			return fmt.Errorf("%w: competition wait precedes completed starts", ErrInvalidState)
 		}
-		if validWait && len(f.Starts) == len(f.Candidates) && len(f.remaining()) != 0 {
-			return nil
+		if len(f.remaining()) == 0 {
+			return fmt.Errorf("%w: competition wait has no remaining candidate", ErrInvalidState)
+		}
+		if f.Phase == competitionAwaitingOpen && f.WaitID != nil {
+			return fmt.Errorf("%w: unopened wait already has a WaitID", ErrInvalidState)
+		}
+		if f.Phase == competitionWaiting && (f.WaitID == nil || !f.WaitID.Valid()) {
+			return fmt.Errorf("%w: waiting competition requires a valid WaitID", ErrInvalidState)
 		}
 	case competitionCompleted:
-		if len(f.Starts) == len(f.Candidates) && f.WaitID == nil && f.result().Valid() {
-			return nil
+		if len(f.Starts) != len(f.Candidates) || f.WaitID != nil {
+			return fmt.Errorf("%w: completed competition retains pending starts or wait", ErrInvalidState)
 		}
+		if !f.result().Valid() {
+			return fmt.Errorf("%w: completed competition has an invalid result", ErrInvalidState)
+		}
+	default:
+		return fmt.Errorf("%w: unknown competition phase %q", ErrInvalidState, f.Phase)
 	}
-	return fmt.Errorf("%w: competition phase disagrees with its progress", ErrInvalidState)
+	return nil
 }
 
 func (f firstSuccessState) remaining() []agent.ProcessID {
@@ -131,6 +143,9 @@ func (f *firstSuccessState) recordOutcomes(outcomes []agent.ChildOutcome) error 
 			merged = append(merged, outcomes[incoming])
 			incoming++
 		}
+	}
+	if prior != len(f.Outcomes) || incoming != len(outcomes) {
+		return fmt.Errorf("%w: candidate outcomes could not be merged", ErrInvalidProtocol)
 	}
 	f.Outcomes = merged
 	return nil

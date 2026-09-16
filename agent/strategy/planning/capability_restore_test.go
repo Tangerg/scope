@@ -50,7 +50,7 @@ func TestRestoredPlanningEffectsCannotDropBindingCapabilities(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			input, err := agent.EncodeInput(struct{}{})
+			input, err := agent.EncodePayload(struct{}{})
 			if err != nil {
 				t.Fatal(err)
 			}

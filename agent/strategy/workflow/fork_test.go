@@ -65,7 +65,7 @@ func testForkUsesBoundedWindowsAndDeclarationOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := agent.EncodeInput(forkInput{Value: 7})
+	input, _ := agent.EncodePayload(forkInput{Value: 7})
 	resultChannel := make(chan agent.Result, 1)
 	errorChannel := make(chan error, 1)
 	go func() {
@@ -128,7 +128,7 @@ func TestForkPropagatesLowestFailingBranch(t *testing.T) {
 	}
 	deployment := mustDeployment(t, mustDefinition(t, "test.workflow.fork_failure", stage), "fork-failure")
 	engine, _ := agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver})
-	input, _ := agent.EncodeInput(forkInput{Value: 1})
+	input, _ := agent.EncodePayload(forkInput{Value: 1})
 	result, err := engine.Run(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -176,7 +176,7 @@ func TestForkPreservesFailedAdmissionWhileDrainingSiblings(t *testing.T) {
 			t.Error(closeErr)
 		}
 	})
-	input, err := agent.EncodeInput(forkInput{Value: 1})
+	input, err := agent.EncodePayload(forkInput{Value: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func (m *managedBranchDefinition) Descriptor() agent.Descriptor {
 	return m.descriptor
 }
 
-func (m *managedBranchDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (m *managedBranchDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	decoded, err := input.Decode[forkInput]()
 	if err != nil {
 		return nil, err
@@ -342,7 +342,7 @@ func (m *managedBranchExecution) Step(_ context.Context, signals []agent.Signal)
 		if len(signals) != 1 {
 			return agent.Transition{}, errors.New("managed branch expected one settlement Signal")
 		}
-		output, err := agent.ParseOutput(signals[0].Payload())
+		output, err := agent.ParsePayload(signals[0].Payload())
 		if err != nil {
 			return agent.Transition{}, err
 		}

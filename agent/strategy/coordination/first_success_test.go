@@ -245,7 +245,7 @@ func TestFirstSuccessBoundsAndDefinitionConformance(t *testing.T) {
 	definition := competition(t, func(_ context.Context, _ agent.ChildOutcome) (bool, error) { return true, nil }, 1)
 	spec := candidate(t, "candidate", timer, encodedInput(t, time.Date(2026, time.September, 9, 12, 0, 0, 0, time.UTC)))
 	for _, candidates := range [][]agent.ChildSpec{nil, {}, {spec, spec}} {
-		if _, err := definition.Start(encodedInput(t, candidates)); !errors.Is(err, agent.ErrInvalidInput) {
+		if _, err := definition.Start(encodedInput(t, candidates)); !errors.Is(err, agent.ErrInvalidPayload) {
 			t.Fatalf("invalid candidate set = %v", err)
 		}
 	}

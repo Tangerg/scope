@@ -9,11 +9,6 @@ import (
 	"github.com/Tangerg/scope/agent"
 )
 
-// StartMatches binds a parsed start result to its exact declared child.
-func StartMatches(result agent.ChildStartResult, key agent.ChildKey, deployment agent.DeploymentRef) bool {
-	return result.Key() == key && result.DeploymentRef() == deployment
-}
-
 // OpeningMatches binds an acknowledgement to the complete declared wait,
 // including child order and the boundary that releases the parent.
 func OpeningMatches(opened agent.ChildWaitOpened, want agent.ChildWaitSpec) bool {

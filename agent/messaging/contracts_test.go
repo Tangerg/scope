@@ -86,7 +86,7 @@ func TestSenderConformsAndMessageEffectOwnsRecipient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	frozenInput, err := agent.ParseInput(effect.Payload())
+	frozenInput, err := agent.ParsePayload(effect.Payload())
 	if err != nil {
 		t.Fatal(err)
 	}

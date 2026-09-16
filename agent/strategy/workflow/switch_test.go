@@ -50,7 +50,7 @@ func TestSwitchRunsOnlyTheSelectedManagedChild(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			input, _ := agent.EncodeInput(switchInput{Case: test.selected, Value: 3})
+			input, _ := agent.EncodePayload(switchInput{Case: test.selected, Value: 3})
 			result, err := engine.Run(context.Background(), deployment, input)
 			if err != nil {
 				t.Fatal(err)
@@ -81,7 +81,7 @@ func TestSwitchRejectsUndeclaredSelection(t *testing.T) {
 	}
 	deployment := mustDeployment(t, mustDefinition(t, "test.workflow.switch_unknown", stage), "switch-unknown")
 	engine, _ := agent.NewEngine(agent.EngineConfig{})
-	input, _ := agent.EncodeInput(switchInput{Case: "missing", Value: 1})
+	input, _ := agent.EncodePayload(switchInput{Case: "missing", Value: 1})
 	result, err := engine.Run(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)

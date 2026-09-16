@@ -12,7 +12,7 @@ func TestCapturesKeepDrainedChildrenStableWhileParentChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := EncodeInput(childTestInput{Mode: "wait:paused"})
+	input, err := EncodePayload(childTestInput{Mode: "wait:paused"})
 	if err != nil {
 		t.Fatal(err)
 	}

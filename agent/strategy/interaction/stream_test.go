@@ -200,9 +200,9 @@ func newStreamingDeployment(t *testing.T, streamer chat.Streamer) interactionDep
 	return toolInteractionDeployment(deployment, interaction.ToolSet{})
 }
 
-func interactionInput(t *testing.T, text string) agent.Input {
+func interactionInput(t *testing.T, text string) agent.Payload {
 	t.Helper()
-	input, err := agent.EncodeInput(interaction.Input{
+	input, err := agent.EncodePayload(interaction.Input{
 		Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart(text))},
 	})
 	if err != nil {

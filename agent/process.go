@@ -15,7 +15,7 @@ var (
 	ErrEffectReplayForbidden = errors.New("agent: effect cannot be replayed under the same identity")
 	ErrEffectOutcomeUnknown  = errors.New("agent: effect outcome remains unknown")
 	ErrInvalidProcessControl = errors.New("agent: invalid process control request")
-	errNilContext            = errors.New("agent: nil Context")
+	ErrNilContext            = errors.New("agent: nil Context")
 )
 
 // A bounded buffer lets control-plane callers submit while the tree owner is
@@ -76,7 +76,7 @@ func (p *Process) StartedAt() time.Time {
 // commit to the authoritative tree head. A caller timeout does not revoke an
 // admitted command; retry the identical batch to reconcile uncertain delivery.
 func (p *Process) DeliverSignals(ctx context.Context, requests ...SignalRequest) (accepted bool, err error) {
-	ctx = requireContext(ctx)
+	ctx = RequireContext(ctx)
 	if len(requests) == 0 {
 		return false, ErrInvalidSignalRequest
 	}
@@ -124,7 +124,7 @@ func (p *Process) Resume(ctx context.Context) error {
 // and its Strategy decides how to continue. Await reports this Process's
 // acknowledged terminal result; every descendant retains its own settlement.
 func (p *Process) RequestCancellation(ctx context.Context, reason string) error {
-	ctx = requireContext(ctx)
+	ctx = RequireContext(ctx)
 	intent, err := newCancellationIntent(cancellationOwnerHost, reason)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidProcessControl, err)
@@ -136,7 +136,7 @@ func (p *Process) RequestCancellation(ctx context.Context, reason string) error 
 	if runtime == nil {
 		return p.handle.closedRequestError()
 	}
-	if err := runtime.checkListenerReentrancy(ctx, "RequestCancellation"); err != nil {
+	if err := runtime.checkEventListenerReentrancy(ctx, "RequestCancellation"); err != nil {
 		return err
 	}
 	select {
@@ -201,9 +201,9 @@ func (p *Process) ReplayUnknownEffect(ctx context.Context, effectID EffectID) er
 // Result. A failed logical execution returns a valid Result and nil error.
 // Descendants may still be settling after this Process's result is ready.
 func (p *Process) Await(ctx context.Context) (Result, error) {
-	ctx = requireContext(ctx)
+	ctx = RequireContext(ctx)
 	if runtime := p.handle.runtime.Load(); runtime != nil {
-		if err := runtime.checkListenerReentrancy(ctx, "Await"); err != nil {
+		if err := runtime.checkEventListenerReentrancy(ctx, "Await"); err != nil {
 			return Result{}, err
 		}
 	}
@@ -223,11 +223,11 @@ func (p *Process) Await(ctx context.Context) (Result, error) {
 // this subtree returns a RuntimeError after its local jobs have returned, even
 // when this Process published its result before a descendant failed.
 // Join makes no claim that a remote operation or a previous writer has stopped.
-// Strategies wait without blocking a Dispatcher through WaitForChildren.
+// Strategies wait without blocking a Dispatcher through NewChildWaitEffect.
 func (p *Process) Join(ctx context.Context) error {
-	ctx = requireContext(ctx)
+	ctx = RequireContext(ctx)
 	if runtime := p.handle.runtime.Load(); runtime != nil {
-		if err := runtime.checkListenerReentrancy(ctx, "Join"); err != nil {
+		if err := runtime.checkEventListenerReentrancy(ctx, "Join"); err != nil {
 			return err
 		}
 	}
@@ -240,7 +240,7 @@ func (p *Process) Join(ctx context.Context) error {
 }
 
 func (p *Process) request(ctx context.Context, command processCommand) (processResponse, error) {
-	ctx = requireContext(ctx)
+	ctx = RequireContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return processResponse{}, err
 	}
@@ -248,7 +248,7 @@ func (p *Process) request(ctx context.Context, command processCommand) (processR
 	if runtime == nil {
 		return processResponse{}, p.handle.closedRequestError()
 	}
-	if err := runtime.checkListenerReentrancy(ctx, "process control"); err != nil {
+	if err := runtime.checkEventListenerReentrancy(ctx, "process control"); err != nil {
 		return processResponse{}, err
 	}
 	command.response = make(chan processResponse, 1)
@@ -280,7 +280,7 @@ type Result struct {
 	processID   ProcessID
 	startedAt   time.Time
 	finishedAt  time.Time
-	output      Output
+	output      Payload
 	termination Termination
 	usage       Usage
 }
@@ -305,7 +305,7 @@ func (r Result) Termination() Termination { return r.termination }
 func (r Result) Usage() Usage { return r.usage }
 
 // Output returns the final semantic result only for StatusCompleted.
-func (r Result) Output() (Output, bool) { return r.output, r.output.Valid() }
+func (r Result) Output() (Payload, bool) { return r.output, r.output.Valid() }
 
 func (r Result) Valid() bool {
 	if !r.processID.Valid() || r.startedAt.IsZero() || r.finishedAt.IsZero() || !r.termination.Valid() {
@@ -374,9 +374,11 @@ func (p processCommand) reply(response processResponse) {
 	p.response <- response
 }
 
-func requireContext(ctx context.Context) context.Context {
+// RequireContext enforces the non-nil Context contract shared by Agent boundaries.
+// It panics with ErrNilContext for a programming error and otherwise returns ctx.
+func RequireContext(ctx context.Context) context.Context {
 	if ctx == nil {
-		panic(errNilContext)
+		panic(ErrNilContext)
 	}
 	return ctx
 }

@@ -21,10 +21,10 @@ func TestRestoreIdentifiesInvalidTurnState(t *testing.T) {
 		{
 			name: "turn input schema",
 			mutate: func(state *executionState) {
-				state.Turn.Input.State = require(agent.EncodeInput(42))
+				state.Turn.Input.State = require(agent.EncodePayload(42))
 			},
 			context: "turn input state",
-			cause:   agent.ErrInvalidInput,
+			cause:   agent.ErrInvalidPayload,
 		},
 		{
 			name: "worker binding",

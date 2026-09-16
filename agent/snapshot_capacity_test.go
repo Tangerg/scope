@@ -15,7 +15,7 @@ type capacityDefinition struct {
 	effects []Effect
 }
 
-func (c *capacityDefinition) Start(input Input) (Execution, error) {
+func (c *capacityDefinition) Start(input Payload) (Execution, error) {
 	execution, err := c.engineTestDefinition.Start(input)
 	if err != nil {
 		return nil, err
@@ -49,7 +49,7 @@ func (c *capacityExecution) Step(_ context.Context, signals []Signal) (Transitio
 		return Transition{}, err
 	}
 	c.state.Phase = "done"
-	output, err := EncodeOutput(engineTestOutput{Value: message.Value})
+	output, err := EncodePayload(engineTestOutput{Value: message.Value})
 	if err != nil {
 		return Transition{}, err
 	}
@@ -71,7 +71,7 @@ func TestOversizedStepRejectedBeforeDispatcherPermission(t *testing.T) {
 			dispatcher := &engineTestDispatcher{}
 			definition := &capacityDefinition{engineTestDefinition: newEngineTestDefinition(t, "engine.effect", "effect"), effects: []Effect{effect, effect, effect}}
 			deployment := engineTestDeployment(t, definition, dispatcher)
-			process := controlValue(engine.Start(t.Context(), deployment, controlValue(EncodeInput(engineTestInput{Value: "bounded"}))))
+			process := controlValue(engine.Start(t.Context(), deployment, controlValue(EncodePayload(engineTestInput{Value: "bounded"}))))
 			result, err := process.Await(t.Context())
 			if err != nil {
 				t.Fatalf("pure candidate caused runtime fault: %v", err)
@@ -104,7 +104,7 @@ func TestOversizedUnknownResolutionPreservesHeadAndAllowsSmallerResult(t *testin
 			dispatcher := &failingEngineTestDispatcher{}
 			effect := controlValue(NewDispatcherEffect(json.RawMessage(`{}`)))
 			definition := &capacityDefinition{engineTestDefinition: newEngineTestDefinition(t, "engine.effect", "effect"), effects: []Effect{effect}}
-			process := controlValue(engine.Start(t.Context(), engineTestDeployment(t, definition, dispatcher), controlValue(EncodeInput(engineTestInput{Value: "bounded"}))))
+			process := controlValue(engine.Start(t.Context(), engineTestDeployment(t, definition, dispatcher), controlValue(EncodePayload(engineTestInput{Value: "bounded"}))))
 			defer func() {
 				_ = process.Kill(context.WithoutCancel(t.Context()), "cleanup")
 				_ = process.Join(context.WithoutCancel(t.Context()))
@@ -187,8 +187,8 @@ func TestTreeCapacityRejectsIndividuallyRepresentableProcesses(t *testing.T) {
 func TestKnownWaitSettlementsAreAdmittedBeforeEarlierDispatcher(t *testing.T) {
 	process := admissionTestProcess(t, 0)
 	payload := json.RawMessage(`"` + strings.Repeat("x", 33<<20) + `"`)
-	first := controlValue(RequestWait(controlValue(ParseWaitKey("first")), payload))
-	second := controlValue(RequestWait(controlValue(ParseWaitKey("second")), payload))
+	first := controlValue(NewWaitEffect(controlValue(ParseWaitKey("first")), payload))
+	second := controlValue(NewWaitEffect(controlValue(ParseWaitKey("second")), payload))
 	dispatch := controlValue(NewDispatcherEffect(json.RawMessage(`{}`)))
 	before := controlValue(process.capture())
 	transition := controlValue(Continue(0, dispatch, first, second))
@@ -225,9 +225,9 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	effectID := root.handle.processID.effectID(1, 0)
 	spec := ChildSpec{
 		Key: controlValue(ParseChildKey("large-child")), DeploymentRef: deployment.DeploymentRef(),
-		Input: controlValue(EncodeInput(engineTestInput{Value: strings.Repeat("x", 22<<20)})), Budget: Budget{Steps: 2, Effects: 2, Signals: 2},
+		Input: controlValue(EncodePayload(engineTestInput{Value: strings.Repeat("x", 22<<20)})), Budget: Budget{Steps: 2, Effects: 2, Signals: 2},
 	}
-	root.prepared.Effects = preparedEffects{{ID: effectID, Effect: controlValue(StartChild(spec)), Phase: effectPhasePending}}
+	root.prepared.Effects = preparedEffects{{ID: effectID, Effect: controlValue(NewChildStartEffect(spec)), Phase: effectPhasePending}}
 	root.counters.PreparedEffects = 1
 	if err := runtime.validateSnapshotCapacity(); err != nil {
 		t.Fatalf("parent and existing tree must fit before initialization: %v", err)
@@ -235,7 +235,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	if err := runtime.engine.reserveProcessStart(root.handle.relation, deployment.DeploymentRef(), limits, Digest{}); err != nil {
 		t.Fatal(err)
 	}
-	runtime.engine.publishReservedProcess(root.handle)
+	runtime.engine.publishProcessStart(root.handle)
 	t.Cleanup(func() { delete(runtime.engine.processes, root.handle.processID) })
 	preparation := runtime.prepareChildStart(root, effectID, spec)
 	if preparation.plan == nil {
@@ -250,6 +250,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	if err := runtime.applyChildStart(pending); err != nil {
 		t.Fatalf("capacity rejection became a runtime fault: %v", err)
 	}
+	runtime.discardChildStart(preparation.plan)
 	failure, failed := pending.result.result.Failure()
 	if !failed || failure.Code() != childTreeLimitCode || pending.result.started() || len(runtime.processes) != 5 {
 		t.Fatalf("oversize child was installed: failure=%+v, members=%d", failure, len(runtime.processes))
@@ -260,5 +261,69 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	assertNoPendingProcessStarts(t, runtime.engine)
 	if err := runtime.validateSnapshotCapacity(); err != nil {
 		t.Fatalf("rejection left an unrepresentable tree: %v", err)
+	}
+}
+
+func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
+	for _, mode := range []string{"ephemeral", "committed", "commit_failed", "capture_failed", "checkpoint_failed"} {
+		t.Run(mode, func(t *testing.T) {
+			runtime := newWaitingSnapshotTree(t, 1)
+			root := runtime.processes[runtime.rootID]
+			limits := TreeLimits{MaxDepth: 1, MaxChildren: 1, MaxActiveChildren: 1, MaxTreeProcesses: 2}
+			root.treeLimits, root.handle.treeLimits = limits, limits
+			effectID := root.handle.processID.effectID(1, 0)
+			spec := ChildSpec{
+				Key: controlValue(ParseChildKey("rejected")), DeploymentRef: root.deployment.DeploymentRef(),
+				Input: controlValue(EncodePayload(childTestInput{Mode: "leaf"})), Budget: Budget{Steps: 2, Effects: 2, Signals: 2},
+			}
+			root.prepared = &preparedStep{
+				StepSequence: 1, CommittedExecutionStateDigest: controlValue(root.committedExecutionState.digest()),
+				CandidateState: root.committedExecutionState, Intent: controlValue(Continue(0)),
+				Effects: preparedEffects{{ID: effectID, Effect: controlValue(NewChildStartEffect(spec)), Phase: effectPhasePending}},
+			}
+			root.counters.PreparedEffects = 1
+			if err := runtime.engine.reserveProcessStart(root.handle.relation, root.deployment.DeploymentRef(), limits, Digest{}); err != nil {
+				t.Fatal(err)
+			}
+			runtime.engine.publishProcessStart(root.handle)
+			t.Cleanup(func() { delete(runtime.engine.processes, root.handle.processID) })
+			if mode != "ephemeral" {
+				runtime.engine.durability = &recordingTreeDurability{}
+				runtime.incarnation = controlValue(newTreeIncarnationID())
+				runtime.head = controlValue(runtime.captureTree())
+			}
+			preparation := runtime.prepareChildStart(root, effectID, spec)
+			if preparation.plan == nil {
+				t.Fatalf("preparation failed: %+v", preparation.result)
+			}
+			if mode == "capture_failed" {
+				root.committedExecutionState = ExecutionState{}
+			}
+			if mode == "checkpoint_failed" {
+				runtime.commit = &treeCommit{kind: treeCommitCheckpoint}
+			}
+			result := childStartJobResult{result: failedChildStart(spec, FailureKindExternal, childAdmissionRejectedCode, errors.New("admission refused"))}
+			runtime.applyChildStartCompletion(root, &processJob{childStart: preparation.plan, effectID: effectID}, result)
+			if root.provisionalChildBudget != (Budget{}) || root.reservedBudget != (Budget{}) || len(runtime.processes) != 1 {
+				t.Fatal("rejection retained child resources")
+			}
+			assertNoPendingProcessStarts(t, runtime.engine)
+			if mode == "committed" || mode == "commit_failed" {
+				completion := <-runtime.commitDone
+				if completion.commit.child != nil {
+					t.Fatal("rejected start transferred child reservation ownership")
+				}
+				if mode == "commit_failed" {
+					completion.err = errors.New("checkpoint refused")
+				}
+				runtime.applyTreeCommitCompletion(completion)
+			}
+			if wantFault := mode == "commit_failed" || mode == "capture_failed" || mode == "checkpoint_failed"; (runtime.fault != nil) != wantFault {
+				t.Fatalf("runtime fault = %v, want failure %t", runtime.fault, wantFault)
+			}
+			if root.prepared.Effects[0].Settlement.Status() != SettlementStatusFailed {
+				t.Fatal("rejection lost its failed settlement")
+			}
+		})
 	}
 }

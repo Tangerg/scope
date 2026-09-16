@@ -32,7 +32,7 @@ func TestInitializationRestoreHonorsCallerCancellation(t *testing.T) {
 		type hostKey struct{}
 		ctx, cancel := context.WithCancel(context.WithValue(t.Context(), hostKey{}, "unrecorded"))
 		defer cancel()
-		input, err := EncodeInput(engineTestInput{Value: "cancel"})
+		input, err := EncodePayload(engineTestInput{Value: "cancel"})
 		if err != nil {
 			t.Fatal(err)
 		}

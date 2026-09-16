@@ -80,7 +80,7 @@ func benchmarkCompletedTree(b *testing.B, sample treeSnapshotBenchmarkCase) Tree
 	if err != nil {
 		b.Fatal(err)
 	}
-	input, err := EncodeInput(childTestInput{Mode: sample.mode})
+	input, err := EncodePayload(childTestInput{Mode: sample.mode})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func newExecutionReplayBenchmarkDefinition(b *testing.B) executionReplayBenchmar
 
 func (e executionReplayBenchmarkDefinition) Descriptor() Descriptor { return e.descriptor }
 
-func (executionReplayBenchmarkDefinition) Start(input Input) (Execution, error) {
+func (executionReplayBenchmarkDefinition) Start(input Payload) (Execution, error) {
 	state, err := input.Decode[executionReplayBenchmarkState]()
 	if err != nil {
 		return nil, err
@@ -223,7 +223,7 @@ func BenchmarkTreeRuntimeFastSiblingLatency(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		input, err := EncodeInput(treeRuntimeTestInput{Role: treeRuntimeRoleRoot})
+		input, err := EncodePayload(treeRuntimeTestInput{Role: treeRuntimeRoleRoot})
 		if err != nil {
 			b.Fatal(err)
 		}

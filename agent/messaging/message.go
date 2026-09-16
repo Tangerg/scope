@@ -15,7 +15,7 @@ var ErrInvalidMessage = errors.New("messaging: invalid message")
 type Message struct {
 	Recipient agent.ProcessID `json:"recipient"`
 	WaitID    *agent.WaitID   `json:"wait_id,omitempty"`
-	Payload   agent.Input     `json:"payload"`
+	Payload   agent.Payload   `json:"payload"`
 }
 
 func (m Message) Valid() bool {
@@ -39,7 +39,7 @@ func decodeMessage(effect agent.Effect) (Message, error) {
 	if !effect.Valid() || effect.Target() != agent.EffectTargetDispatcher {
 		return Message{}, ErrInvalidMessage
 	}
-	input, err := agent.ParseInput(effect.Payload())
+	input, err := agent.ParsePayload(effect.Payload())
 	if err != nil {
 		return Message{}, err
 	}

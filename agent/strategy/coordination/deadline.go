@@ -43,7 +43,7 @@ func (d *Deadline) Descriptor() agent.Descriptor {
 	return d.descriptor
 }
 
-func (d *Deadline) Start(input agent.Input) (agent.Execution, error) {
+func (d *Deadline) Start(input agent.Payload) (agent.Execution, error) {
 	if d == nil || !d.descriptor.Valid() {
 		return nil, ErrInvalidConfig
 	}
@@ -52,10 +52,10 @@ func (d *Deadline) Start(input agent.Input) (agent.Execution, error) {
 	}
 	deadline, err := input.Decode[time.Time]()
 	if err != nil {
-		return nil, fmt.Errorf("%w: decode deadline: %w", agent.ErrInvalidInput, err)
+		return nil, fmt.Errorf("%w: decode deadline: %w", agent.ErrInvalidPayload, err)
 	}
 	if deadline.IsZero() {
-		return nil, fmt.Errorf("%w: absolute deadline is required", agent.ErrInvalidInput)
+		return nil, fmt.Errorf("%w: absolute deadline is required", agent.ErrInvalidPayload)
 	}
 	return &deadlineExecution{state: deadlineState{Deadline: deadline, Phase: deadlineReady}}, nil
 }
@@ -72,8 +72,8 @@ func (d *Deadline) Restore(ctx context.Context, state agent.ExecutionState) (age
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidState, err)
 	}
-	if !decoded.valid() {
-		return nil, fmt.Errorf("%w: deadline or phase is invalid", ErrInvalidState)
+	if err := decoded.validate(); err != nil {
+		return nil, err
 	}
 	return &deadlineExecution{state: decoded}, nil
 }
@@ -91,8 +91,14 @@ type deadlineState struct {
 	Phase    deadlinePhase `json:"phase"`
 }
 
-func (d deadlineState) valid() bool {
-	return !d.Deadline.IsZero() && (d.Phase == deadlineReady || d.Phase == deadlineAwaiting || d.Phase == deadlineCompleted)
+func (d deadlineState) validate() error {
+	if d.Deadline.IsZero() {
+		return fmt.Errorf("%w: absolute deadline is required", ErrInvalidState)
+	}
+	if d.Phase != deadlineReady && d.Phase != deadlineAwaiting && d.Phase != deadlineCompleted {
+		return fmt.Errorf("%w: unknown deadline phase %q", ErrInvalidState, d.Phase)
+	}
+	return nil
 }
 
 type deadlineExecution struct{ state deadlineState }
@@ -119,7 +125,7 @@ func (d *deadlineExecution) Step(ctx context.Context, signals []agent.Signal) (a
 		if _, addressed := signals[0].WaitID(); addressed {
 			return agent.Transition{}, fmt.Errorf("%w: timer settlement cannot address a wait", ErrInvalidProtocol)
 		}
-		payload, err := agent.ParseInput(signals[0].Payload())
+		payload, err := agent.ParsePayload(signals[0].Payload())
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -138,7 +144,7 @@ func (d *deadlineExecution) Step(ctx context.Context, signals []agent.Signal) (a
 			return agent.Fail(1, failure)
 		}
 		d.state.Phase = deadlineCompleted
-		output, err := agent.EncodeOutput(d.state.Deadline)
+		output, err := agent.EncodePayload(d.state.Deadline)
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -153,3 +159,5 @@ func (d *deadlineExecution) Snapshot() (agent.ExecutionState, error) {
 }
 
 var _ agent.Execution = (*deadlineExecution)(nil)
+
+var _ agent.Definition = (*Deadline)(nil)

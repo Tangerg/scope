@@ -27,7 +27,7 @@ func (e executionPanicError) Error() string {
 	return fmt.Sprintf("execution panicked: %v", e.value)
 }
 
-func startExecution(definition Definition, input Input) (execution Execution, err error) {
+func startExecution(definition Definition, input Payload) (execution Execution, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			execution = nil
@@ -85,7 +85,7 @@ func captureExecution(execution Execution) (state ExecutionState, err error) {
 func initializeExecution(
 	ctx context.Context,
 	definition Definition,
-	input Input,
+	input Payload,
 ) (Execution, ExecutionState, Failure, error) {
 	execution, err := startExecution(definition, input)
 	if err != nil {

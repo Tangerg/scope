@@ -180,7 +180,7 @@ func (e *execution) startAction(
 		if err != nil {
 			return agent.Transition{}, err
 		}
-		effect, err := agent.StartChild(binding.childSpec(key, childInput))
+		effect, err := agent.NewChildStartEffect(binding.childSpec(key, childInput))
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -240,7 +240,7 @@ func (e *execution) advanceChild(signals []agent.Signal) (agent.Transition, erro
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: child completion: %w", ErrInvalidProtocol, err)
 	}
-	if unresolved, _ := outcome.SubtreeUnresolvedEffects(); len(unresolved) > 0 {
+	if unresolved, known := outcome.SubtreeUnresolvedEffects(); !known || len(unresolved) > 0 {
 		return e.fail(1, agent.FailureKindExternal, "planning.child.unresolved_effects", fmt.Sprintf("child subtree %s ended with unresolved Effects %v", outcome.Result().ProcessID(), unresolved))
 	}
 	result := outcome.Result()
@@ -281,7 +281,7 @@ func (e *execution) complete(consumedSignals uint32) (agent.Transition, error) {
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	erased, err := agent.EncodeOutput(output)
+	erased, err := agent.EncodePayload(output)
 	if err != nil {
 		return agent.Transition{}, err
 	}

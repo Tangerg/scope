@@ -14,7 +14,7 @@ type fixtureReservationDefinition struct {
 }
 
 func (f *fixtureReservationDefinition) Descriptor() Descriptor { return f.base.Descriptor() }
-func (f *fixtureReservationDefinition) Start(input Input) (Execution, error) {
+func (f *fixtureReservationDefinition) Start(input Payload) (Execution, error) {
 	value, err := f.base.Start(input)
 	if err != nil {
 		return nil, err
@@ -52,7 +52,7 @@ func (f *fixtureReservationExecution) Step(ctx context.Context, signals []Signal
 	case "start_parent_effect":
 		return f.startEffect(0)
 	case "parent_effect":
-		output, err := EncodeOutput(childTestOutput{})
+		output, err := EncodePayload(childTestOutput{})
 		if err != nil {
 			return Transition{}, err
 		}
@@ -114,7 +114,7 @@ func TestChildCompletionPreservesSettlementCapacity(t *testing.T) {
 			})
 			releaseEffect := sync.OnceFunc(func() { close(release) })
 			t.Cleanup(releaseEffect)
-			input, err := EncodeInput(childTestInput{Mode: "nested_wait"})
+			input, err := EncodePayload(childTestInput{Mode: "nested_wait"})
 			if err != nil {
 				t.Fatal(err)
 			}

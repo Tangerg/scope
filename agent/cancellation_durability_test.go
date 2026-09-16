@@ -37,7 +37,7 @@ func TestCancellationPreservesSettlementAcknowledgment(t *testing.T) {
 					t.Fatal(err)
 				}
 				deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)
-				input, _ := EncodeInput(engineTestInput{Value: "settle before termination"})
+				input, _ := EncodePayload(engineTestInput{Value: "settle before termination"})
 				process, err := engine.Start(t.Context(), deployment, input)
 				if err != nil {
 					t.Fatal(err)

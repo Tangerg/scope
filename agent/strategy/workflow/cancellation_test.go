@@ -70,7 +70,7 @@ func TestWorkflowCallbacksReceiveProcessCancellation(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				input, _ := agent.EncodeInput(numberInput{Value: 3})
+				input, _ := agent.EncodePayload(numberInput{Value: 3})
 				process, err := engine.Start(t.Context(), deployment, input)
 				if err != nil {
 					t.Fatal(err)
@@ -108,7 +108,7 @@ func TestWorkflowRejectsCanceledStepBeforeCallingTransform(t *testing.T) {
 			return input, nil
 		}),
 	)
-	input, _ := agent.EncodeInput(numberInput{Value: 3})
+	input, _ := agent.EncodePayload(numberInput{Value: 3})
 	execution, err := definition.Start(input)
 	if err != nil {
 		t.Fatal(err)

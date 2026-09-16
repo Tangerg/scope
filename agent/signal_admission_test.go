@@ -25,7 +25,7 @@ func TestSignalBatchDeduplicatesBeforeChargingFullMailbox(t *testing.T) {
 	}
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(t, definition, dispatcher)
-	input, err := EncodeInput(engineTestInput{Value: "paused"})
+	input, err := EncodePayload(engineTestInput{Value: "paused"})
 	if err != nil {
 		t.Fatal(err)
 	}

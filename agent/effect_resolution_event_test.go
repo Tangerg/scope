@@ -49,7 +49,7 @@ func TestUnknownResolutionSeparatesAttemptsFromCommittedFacts(t *testing.T) {
 						return NewSettlement(request.ID(), SettlementStatusSucceeded, []byte(`{"kind":"result","value":"confirmed"}`))
 					}}
 					deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)
-					input, err := EncodeInput(engineTestInput{Value: "original"})
+					input, err := EncodePayload(engineTestInput{Value: "original"})
 					if err != nil {
 						t.Fatal(err)
 					}

@@ -59,7 +59,7 @@ func TestRestoredAdvertisementsDispatchAgainstBoundManifest(t *testing.T) {
 					t.Error(closeErr)
 				}
 			})
-			input, err := agent.EncodeInput(Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("resume"))}})
+			input, err := agent.EncodePayload(Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("resume"))}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -86,6 +86,6 @@ type restoredAdvertisementDefinition struct {
 	state agent.ExecutionState
 }
 
-func (r restoredAdvertisementDefinition) Start(agent.Input) (agent.Execution, error) {
+func (r restoredAdvertisementDefinition) Start(agent.Payload) (agent.Execution, error) {
 	return r.Restore(context.Background(), r.state)
 }

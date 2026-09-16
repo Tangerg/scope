@@ -128,7 +128,7 @@ func TestListenerMayInspectAnotherTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { mustCloseEngine(t, engine) })
-	input, err := EncodeInput(childTestInput{Mode: "leaf"})
+	input, err := EncodePayload(childTestInput{Mode: "leaf"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestNestedListenerRetainsTheActiveOuterTree(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { mustCloseEngine(t, inner) })
-		input, err := EncodeInput(childTestInput{Mode: "leaf"})
+		input, err := EncodePayload(childTestInput{Mode: "leaf"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -252,7 +252,7 @@ func startListenerProcess(t *testing.T, callback func(context.Context, *Engine, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := EncodeInput(childTestInput{Mode: "leaf"})
+	input, err := EncodePayload(childTestInput{Mode: "leaf"})
 	if err != nil {
 		t.Fatal(err)
 	}

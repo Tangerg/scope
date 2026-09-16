@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
 
@@ -85,7 +86,7 @@ func (e *execution) requestModel(
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	payload, err := encodeProtocol(envelope)
+	payload, err := jsonv2.Marshal(envelope, jsonv2.Deterministic(true))
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -185,7 +186,7 @@ func (e *execution) requestResultCommit(consumedSignals uint32) (agent.Transitio
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	payload, err := encodeProtocol(effectEnvelope{Operation: operationResultCommit, ResultCommit: &publication})
+	payload, err := jsonv2.Marshal(effectEnvelope{Operation: operationResultCommit, ResultCommit: &publication}, jsonv2.Deterministic(true))
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -220,7 +221,7 @@ func (e *execution) complete(consumedSignals uint32, output Output) (agent.Trans
 	if err := output.Validate(); err != nil {
 		return agent.Transition{}, err
 	}
-	encoded, err := agent.EncodeOutput(output)
+	encoded, err := agent.EncodePayload(output)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -539,7 +540,7 @@ func (e *execution) waitForChildren(consumed uint32) (agent.Transition, error) {
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	effect, err := agent.WaitForChildren(spec)
+	effect, err := agent.NewChildWaitEffect(spec)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -590,7 +591,7 @@ func (e *execution) acceptChildCompletions(ctx context.Context, signals []agent.
 	for _, outcome := range completed.Outcomes() {
 		result := outcome.Result()
 		if batch.Kind == childCallsDelegate {
-			if unresolved, _ := outcome.SubtreeUnresolvedEffects(); len(unresolved) > 0 {
+			if unresolved, known := outcome.SubtreeUnresolvedEffects(); !known || len(unresolved) > 0 {
 				return e.fail(consumed, agent.FailureKindExternal, "interaction.delegate.unresolved_effects", fmt.Sprintf("Delegate subtree %s ended with unresolved Effects %v", result.ProcessID(), unresolved))
 			}
 		} else if result.Status() != agent.StatusCompleted {
@@ -679,7 +680,7 @@ func (e *execution) prepareDelegateChildren(ctx context.Context, calls []chat.To
 		if err != nil {
 			return nil, err
 		}
-		effect, err := agent.StartChild(agent.ChildSpec{
+		effect, err := agent.NewChildStartEffect(agent.ChildSpec{
 			Key: key, DeploymentRef: delegate.deploymentRef, Input: input,
 			Budget: delegate.budget, Capabilities: delegate.capabilities,
 		})
@@ -756,13 +757,13 @@ func (e *execution) scheduleToolChildren(ctx context.Context, consumed uint32) (
 		if keyErr != nil {
 			return agent.Transition{}, keyErr
 		}
-		input, inputErr := agent.EncodeInput(toolCall{
+		input, inputErr := agent.EncodePayload(toolCall{
 			ModelCallSequence: e.state.ModelCallCount, ToolCallIndex: e.state.ToolRound.nextCallIndex() + index, Call: call,
 		})
 		if inputErr != nil {
 			return agent.Transition{}, inputErr
 		}
-		effect, effectErr := agent.StartChild(agent.ChildSpec{
+		effect, effectErr := agent.NewChildStartEffect(agent.ChildSpec{
 			Key: key, DeploymentRef: e.definition.tools.deploymentRef, Input: input,
 			Budget: e.definition.toolBudget, Capabilities: e.definition.toolCapabilities,
 		})

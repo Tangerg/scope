@@ -1,15 +1,13 @@
 package interaction
 
 import (
-	"errors"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
 )
-
-var ErrInvalidSteer = errors.New("interaction: invalid steer")
 
 type steerBatch struct {
 	Messages  []chat.Message   `json:"messages"`
@@ -86,10 +84,10 @@ func NewSteerSignal(id agent.SignalID, messages ...chat.Message) (agent.SignalRe
 	if err := validateSteeringMessages(messages); err != nil {
 		return agent.SignalRequest{}, err
 	}
-	payload, err := encodeProtocol(signalEnvelope{
+	payload, err := jsonv2.Marshal(signalEnvelope{
 		Operation: operationSteer,
 		Steer:     &steerInput{Messages: cloneMessages(messages)},
-	})
+	}, jsonv2.Deterministic(true))
 	if err != nil {
 		return agent.SignalRequest{}, err
 	}

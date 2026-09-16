@@ -18,9 +18,9 @@ const (
 func (o operation) valid() bool { return o == operationSense || o == operationAction }
 
 type effectEnvelope struct {
-	Operation operation   `json:"operation"`
-	Input     agent.Input `json:"input"`
-	Action    *actionCall `json:"action,omitempty"`
+	Operation operation     `json:"operation"`
+	Input     agent.Payload `json:"input"`
+	Action    *actionCall   `json:"action,omitempty"`
 }
 
 type actionCall struct {
@@ -45,31 +45,31 @@ type actionResultWire struct {
 	Diagnostic string `json:"diagnostic,omitempty"`
 }
 
-func newSenseEffect(input agent.Input) (agent.Effect, error) {
+func newSenseEffect(input agent.Payload) (agent.Effect, error) {
 	if !input.Valid() {
 		return agent.Effect{}, ErrInvalidProtocol
 	}
-	payload, err := encodeProtocol(effectEnvelope{
+	payload, err := jsonv2.Marshal(effectEnvelope{
 		Operation: operationSense, Input: input,
-	})
+	}, jsonv2.Deterministic(true))
 	if err != nil {
 		return agent.Effect{}, err
 	}
 	return agent.NewDispatcherEffect(payload)
 }
 
-func newActionEffect(input agent.Input, binding ActionBinding, state WorldState) (agent.Effect, error) {
+func newActionEffect(input agent.Payload, binding ActionBinding, state WorldState) (agent.Effect, error) {
 	if !input.Valid() || !binding.Valid() || binding.target != bindingTargetDispatcher ||
 		!binding.action.Applicable(state) {
 		return agent.Effect{}, ErrInvalidProtocol
 	}
-	payload, err := encodeProtocol(effectEnvelope{
+	payload, err := jsonv2.Marshal(effectEnvelope{
 		Operation: operationAction,
 		Input:     input,
 		Action: &actionCall{
 			Name: binding.action.name, Description: binding.action.description, WorldState: state,
 		},
-	})
+	}, jsonv2.Deterministic(true))
 	if err != nil {
 		return agent.Effect{}, err
 	}
@@ -91,7 +91,7 @@ func decodeEffect(payload json.RawMessage) (effectEnvelope, error) {
 		}
 	case operationAction:
 		if envelope.Action == nil || !agent.ValidQualifiedName(envelope.Action.Name) ||
-			!validDescription(envelope.Action.Description) {
+			!agent.ValidDescription(envelope.Action.Description) {
 			return effectEnvelope{}, ErrInvalidProtocol
 		}
 	}
@@ -106,21 +106,21 @@ func senseSignal(state WorldState, cause error) (json.RawMessage, error) {
 		cloned := state
 		result.WorldState = &cloned
 	}
-	return encodeProtocol(signalEnvelope{
+	return jsonv2.Marshal(signalEnvelope{
 		Operation: operationSense, Sensing: result,
-	})
+	}, jsonv2.Deterministic(true))
 }
 
 func actionSignal(result ActionResult) (json.RawMessage, error) {
 	if !result.Valid() {
 		return nil, ErrInvalidProtocol
 	}
-	return encodeProtocol(signalEnvelope{
+	return jsonv2.Marshal(signalEnvelope{
 		Operation: operationAction,
 		Action: &actionResultWire{
 			Succeeded: result.Succeeded(), Diagnostic: result.Diagnostic(),
 		},
-	})
+	}, jsonv2.Deterministic(true))
 }
 
 func decodeSignal(payload json.RawMessage) (signalEnvelope, error) {
@@ -150,14 +150,6 @@ func decodeSignal(payload json.RawMessage) (signalEnvelope, error) {
 		}
 	}
 	return envelope, nil
-}
-
-func encodeProtocol(value any) (json.RawMessage, error) {
-	payload, err := jsonv2.Marshal(value, jsonv2.Deterministic(true))
-	if err != nil {
-		return nil, fmt.Errorf("%w: encode: %w", ErrInvalidProtocol, err)
-	}
-	return payload, nil
 }
 
 func oneSignal(signals []agent.Signal) (agent.Signal, error) {

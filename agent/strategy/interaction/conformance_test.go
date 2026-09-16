@@ -13,7 +13,7 @@ import (
 )
 
 func TestDefinitionConformance(t *testing.T) {
-	input, err := agent.EncodeInput(interaction.Input{
+	input, err := agent.EncodePayload(interaction.Input{
 		Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("hello"))},
 	})
 	if err != nil {

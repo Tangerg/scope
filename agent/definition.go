@@ -4,7 +4,7 @@ import "context"
 
 // Definition is an immutable Agent behavior definition. Its methods may be
 // called concurrently for different Processes. Implementations create
-// a fresh Execution from validated Input or restore one from their own opaque
+// a fresh Execution from validated input or restore one from their own opaque
 // ExecutionState. Definition methods must not depend on Host product
 // identities, storage protocols, or mutable global registration.
 type Definition interface {
@@ -16,7 +16,10 @@ type Definition interface {
 	// Start validates input against Descriptor and creates a fresh, isolated
 	// Execution without performing external I/O. The returned Execution has not
 	// executed a Step and must not share mutable state with another Process.
-	Start(input Input) (Execution, error)
+	// Start must return promptly; it has no cancellation context because it only
+	// initializes fresh local state. Restore may validate substantial persisted
+	// state on every Step and therefore must cooperate with cancellation.
+	Start(input Payload) (Execution, error)
 	// Restore reconstructs one Execution from a state previously produced by
 	// Snapshot for this exact definition. The caller must supply the matching
 	// definition; Engine enforces this with the snapshot's exact DeploymentRef.

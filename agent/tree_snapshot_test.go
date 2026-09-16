@@ -14,7 +14,7 @@ import (
 
 func TestCaptureTreeRejectsAlreadyCanceledContext(t *testing.T) {
 	engine, _ := NewEngine(EngineConfig{})
-	input, _ := EncodeInput(childTestInput{Mode: "leaf"})
+	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
 	root, err := engine.Start(t.Context(), newChildTestDeployment(t), input)
 	if err != nil {
 		t.Fatal(err)
@@ -151,7 +151,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "wait:paused"})
+	input, _ := EncodePayload(childTestInput{Mode: "wait:paused"})
 	root, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -332,7 +332,7 @@ func TestTerminalTreeSnapshotClosesUnconsumedChildWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "wait:paused"})
+	input, _ := EncodePayload(childTestInput{Mode: "wait:paused"})
 	root, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -369,7 +369,7 @@ func testTreeCaptureWaitsForInflightChildEffectsToSettle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "wait:all"})
+	input, _ := EncodePayload(childTestInput{Mode: "wait:all"})
 	root, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -433,7 +433,7 @@ func TestTreeRestoreResolvesEveryExactDeployment(t *testing.T) {
 	parentDeployment := newCrossParentDeployment(t, childDeployment.DeploymentRef())
 	resolver := deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment}
 	engine, _ := NewEngine(EngineConfig{DeploymentResolver: resolver})
-	input, _ := EncodeInput(struct{}{})
+	input, _ := EncodePayload(struct{}{})
 	root, err := engine.Start(context.Background(), parentDeployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -482,7 +482,7 @@ func TestDurableChildOutcomeCommitsWholeProspectiveTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "parent"})
+	input, _ := EncodePayload(childTestInput{Mode: "parent"})
 	root, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -528,7 +528,7 @@ func TestDurableChildOutcomeCommitsWholeProspectiveTree(t *testing.T) {
 func TestTreeRestoreValidatesTerminalOutputAgainstExactDeployment(t *testing.T) {
 	deployment := newChildTestDeployment(t)
 	engine, _ := NewEngine(EngineConfig{})
-	input, _ := EncodeInput(childTestInput{Mode: "leaf"})
+	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
 	root, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -536,7 +536,7 @@ func TestTreeRestoreValidatesTerminalOutputAgainstExactDeployment(t *testing.T) 
 	_ = mustAwait(t, root)
 	snapshot := inspectProcessSnapshot(t, root)
 	wire, _ := snapshot.wire()
-	invalidOutput, _ := EncodeOutput(struct {
+	invalidOutput, _ := EncodePayload(struct {
 		Unexpected bool `json:"unexpected"`
 	}{Unexpected: true})
 	wire.Output = &invalidOutput
@@ -593,7 +593,7 @@ func completedTreeSnapshot(t testing.TB) TreeSnapshot {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(engineTestInput{Value: "tree"})
+	input, _ := EncodePayload(engineTestInput{Value: "tree"})
 	root, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -609,4 +609,43 @@ func completedTreeSnapshot(t testing.TB) TreeSnapshot {
 		t.Fatal(err)
 	}
 	return tree
+}
+
+func TestRestoreReservationAdmissionIsAtomicAndReleasesEveryIdentity(t *testing.T) {
+	runtime := newWaitingSnapshotTree(t, 3)
+	engine := runtime.engine
+	restoration := &treeRestoration{wire: treeSnapshotWire{RootID: runtime.rootID}}
+	for _, process := range orderedProcesses(runtime.processes) {
+		restoration.processes = append(restoration.processes, restoredTreeProcess{handle: process.handle})
+	}
+	waitID := controlValue(ParseWaitID("invalid-registration"))
+	restoration.childWaits = map[ProcessID]map[WaitID]*childWaitRegistration{runtime.rootID: {waitID: nil}}
+	if err := engine.reserveRestoredTree(restoration); !errors.Is(err, ErrInvalidChildWait) {
+		t.Fatalf("invalid reservation = %v", err)
+	}
+	checkStarts := func(want error) {
+		t.Helper()
+		for _, process := range restoration.processes {
+			id := process.handle.processID
+			err := engine.reserveProcessStart(rootProcessRelation(id), process.handle.deploymentRef, engine.treeLimits, Digest{})
+			if !errors.Is(err, want) {
+				t.Fatalf("admission for %s = %v, want %v", id, err, want)
+			}
+			if err == nil {
+				engine.discardProcessStart(id)
+			}
+		}
+	}
+	checkStarts(nil)
+	restoration.childWaits = nil
+	if err := engine.reserveRestoredTree(restoration); err != nil {
+		t.Fatal(err)
+	}
+	checkStarts(ErrProcessAlreadyExists)
+	engine.discardRestoredTree(restoration)
+	checkStarts(nil)
+	if err := engine.reserveRestoredTree(restoration); err != nil {
+		t.Fatalf("reservation could not be reused: %v", err)
+	}
+	engine.discardRestoredTree(restoration)
 }

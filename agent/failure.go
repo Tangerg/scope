@@ -122,7 +122,7 @@ type failureWire struct {
 
 func (Failure) JSONSchemaAlias() any { return failureWire{} }
 
-func (f Failure) termination() Termination {
+func (f Failure) terminationCause() TerminationCause {
 	cause := TerminationCauseExecutionFailure
 	switch f.Kind() {
 	case FailureKindContract:
@@ -132,7 +132,11 @@ func (f Failure) termination() Termination {
 	case FailureKindPanic:
 		cause = TerminationCausePanic
 	}
-	return Termination{status: StatusFailed, cause: cause, reason: f.Message(), failure: f}
+	return cause
+}
+
+func (f Failure) termination() Termination {
+	return Termination{status: StatusFailed, cause: f.terminationCause(), reason: f.Message(), failure: f}
 }
 
 const (

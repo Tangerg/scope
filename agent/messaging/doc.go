@@ -20,7 +20,7 @@
 // Pending Effects may replay under the same identity. Settled Unknown results
 // require explicit adjudication through Process.ResolveUnknownEffect.
 //
-// Strategies controlling their own direct children use agent.SignalChild for
+// Strategies controlling their own direct children use agent.NewChildSignalEffect for
 // one tree acknowledgment. This adapter serves Host-authorized delivery across
 // other ownership boundaries, including independent root trees.
 package messaging

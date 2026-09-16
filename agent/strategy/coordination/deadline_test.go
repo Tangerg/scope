@@ -111,7 +111,7 @@ func TestDeadlineCancellationStopsOwnedTimerWithoutAdvancingTime(t *testing.T) {
 func TestDeadlineAcceptsPastInstantAndRejectsZero(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		deployment := deadlineBinding(t, coordination.Timer{})
-		if _, err := deployment.Definition().Start(encodedInput(t, time.Time{})); !errors.Is(err, agent.ErrInvalidInput) {
+		if _, err := deployment.Definition().Start(encodedInput(t, time.Time{})); !errors.Is(err, agent.ErrInvalidPayload) {
 			t.Fatalf("zero deadline = %v", err)
 		}
 		engine, err := agent.NewEngine(agent.EngineConfig{})

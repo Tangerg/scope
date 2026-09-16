@@ -34,7 +34,7 @@ func TestEngineEnforcesDispatcherEffectCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(struct{}{})
+	input, _ := EncodePayload(struct{}{})
 
 	deniedEngine, err := NewEngine(EngineConfig{})
 	if err != nil {
@@ -92,7 +92,7 @@ func newCapabilityTestDefinition(t *testing.T, required Capability) *capabilityT
 
 func (c *capabilityTestDefinition) Descriptor() Descriptor { return c.descriptor }
 
-func (c *capabilityTestDefinition) Start(Input) (Execution, error) {
+func (c *capabilityTestDefinition) Start(Payload) (Execution, error) {
 	return &capabilityTestExecution{required: c.required}, nil
 }
 
@@ -119,7 +119,7 @@ func (c *capabilityTestExecution) Step(context.Context, []Signal) (Transition, e
 		return Continue(0, effect)
 	}
 	c.phase = 2
-	output, _ := EncodeOutput(struct{}{})
+	output, _ := EncodePayload(struct{}{})
 	return Complete(1, output)
 }
 

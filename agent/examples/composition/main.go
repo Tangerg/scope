@@ -125,7 +125,7 @@ func newUppercaseDeployment() (agent.Deployment, error) {
 
 func (u *uppercaseDefinition) Descriptor() agent.Descriptor { return u.descriptor }
 
-func (u *uppercaseDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (u *uppercaseDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	if err := u.descriptor.ValidateInput(input); err != nil {
 		return nil, err
 	}
@@ -157,7 +157,7 @@ func (u *uppercaseExecution) Step(_ context.Context, signals []agent.Signal) (ag
 		return agent.Transition{}, errors.New("uppercase execution already completed")
 	}
 	u.Done = true
-	value, err := agent.EncodeOutput(textOutput{Text: strings.ToUpper(u.Text)})
+	value, err := agent.EncodePayload(textOutput{Text: strings.ToUpper(u.Text)})
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -241,7 +241,7 @@ func newCompositionDeployment(local, model agent.DeploymentRef) (agent.Deploymen
 
 func (c *compositionDefinition) Descriptor() agent.Descriptor { return c.descriptor }
 
-func (c *compositionDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (c *compositionDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	if err := c.descriptor.ValidateInput(input); err != nil {
 		return nil, err
 	}
@@ -347,11 +347,11 @@ func (c *compositionExecution) Step(
 }
 
 func (c *compositionExecution) startChildren() (agent.Transition, error) {
-	localInput, err := agent.EncodeInput(textInput{Text: c.state.Prompt})
+	localInput, err := agent.EncodePayload(textInput{Text: c.state.Prompt})
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	modelInput, err := agent.EncodeInput(interaction.Input{Messages: []chat.Message{
+	modelInput, err := agent.EncodePayload(interaction.Input{Messages: []chat.Message{
 		chat.NewUserMessage(chat.NewTextPart(c.state.Prompt)),
 	}})
 	if err != nil {
@@ -369,13 +369,13 @@ func (c *compositionExecution) startChildren() (agent.Transition, error) {
 		Steps: compositionChildBudgetSteps, Effects: compositionChildBudgetEffects,
 		Signals: compositionChildBudgetSignals,
 	}
-	localEffect, err := agent.StartChild(agent.ChildSpec{
+	localEffect, err := agent.NewChildStartEffect(agent.ChildSpec{
 		Key: localKey, DeploymentRef: c.local, Input: localInput, Budget: budget,
 	})
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	modelEffect, err := agent.StartChild(agent.ChildSpec{
+	modelEffect, err := agent.NewChildStartEffect(agent.ChildSpec{
 		Key: modelKey, DeploymentRef: c.model, Input: modelInput, Budget: budget,
 	})
 	if err != nil {
@@ -420,7 +420,7 @@ func (c *compositionExecution) waitForChildren(signals []agent.Signal) (agent.Tr
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	waitEffect, err := agent.WaitForChildren(agent.ChildWaitSpec{
+	waitEffect, err := agent.NewChildWaitEffect(agent.ChildWaitSpec{
 		Boundary: agent.ChildWaitBoundaryDrained,
 		Key:      waitKey, Children: children, Condition: agent.AllChildren(),
 	})
@@ -486,7 +486,7 @@ func (c *compositionExecution) complete(
 			output.Model = decoded.ModelResponse.Text()
 		}
 	}
-	erased, err := agent.EncodeOutput(output)
+	erased, err := agent.EncodePayload(output)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -539,3 +539,7 @@ func decodeCompleted[T any](result agent.Result) (T, error) {
 	}
 	return erased.Decode[T]()
 }
+
+var _ agent.Definition = (*uppercaseDefinition)(nil)
+
+var _ agent.Definition = (*compositionDefinition)(nil)

@@ -191,7 +191,7 @@ type heldStepDefinition struct {
 	matches func(agent.Signal) bool
 }
 
-func (h *heldStepDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (h *heldStepDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	execution, err := h.Definition.Start(input)
 	if err != nil {
 		return nil, err

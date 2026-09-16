@@ -199,7 +199,7 @@ func TestRestorePreservesOutputSchemaError(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = stateTestDefinition(t).Restore(t.Context(), state)
-	if !errors.Is(err, ErrInvalidExecutionState) || !errors.Is(err, agent.ErrInvalidOutput) {
+	if !errors.Is(err, ErrInvalidExecutionState) || !errors.Is(err, agent.ErrInvalidPayload) {
 		t.Fatalf("Restore error = %v, want invalid state and invalid output", err)
 	}
 }

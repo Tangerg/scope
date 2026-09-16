@@ -38,7 +38,7 @@ func TestDefinitionRestoreRejectsUnknownCoreMembers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodeInput(interaction.Input{
+	input, err := agent.EncodePayload(interaction.Input{
 		Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("question"))},
 	})
 	if err != nil {

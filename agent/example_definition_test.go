@@ -29,7 +29,7 @@ type echoState struct {
 
 func (e echoDefinition) Descriptor() agent.Descriptor { return e.descriptor }
 
-func (e echoDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (e echoDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	if err := e.descriptor.ValidateInput(input); err != nil {
 		return nil, err
 	}
@@ -84,7 +84,7 @@ func (e *echoExecution) Step(ctx context.Context, signals []agent.Signal) (agent
 		if err := jsonv2.Unmarshal(signals[0].Payload(), &result, jsonv2.RejectUnknownMembers(true)); err != nil {
 			return agent.Transition{}, err
 		}
-		output, err := agent.EncodeOutput(result)
+		output, err := agent.EncodePayload(result)
 		if err != nil {
 			return agent.Transition{}, err
 		}

@@ -19,7 +19,7 @@ func TestOversizedSignalBatchLeavesDurableTreeUsable(t *testing.T) {
 	}
 	defer mustCloseEngine(t, engine)
 	deployment := newChildTestDeployment(t)
-	input := controlValue(EncodeInput(childTestInput{Mode: "leaf_pause"}))
+	input := controlValue(EncodePayload(childTestInput{Mode: "leaf_pause"}))
 	process, err := engine.Start(t.Context(), deployment, input)
 	if err != nil {
 		t.Fatal(err)

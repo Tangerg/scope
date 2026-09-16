@@ -15,7 +15,7 @@ type fanoutSource interface {
 	count(raw json.RawMessage) (uint32, error)
 	// windowInputs rejects start beyond the source count and returns the
 	// ordered window plus the total count. A start at count returns an empty window.
-	windowInputs(raw json.RawMessage, start, windowSize uint32) (inputs []agent.Input, count uint32, err error)
+	windowInputs(raw json.RawMessage, start, windowSize uint32) (inputs []agent.Payload, count uint32, err error)
 	member(index uint32) (fanoutMember, bool)
 	topology(inputSchema, outputSchema agent.Schema) ([]BindingTopology, uint32)
 }
@@ -42,7 +42,7 @@ type fanoutOutputDecoder struct {
 func (f fanoutOutputDecoder) decode[T any](encodedOutputs []json.RawMessage) ([]T, error) {
 	values := make([]T, len(encodedOutputs))
 	for index, encoded := range encodedOutputs {
-		output, err := agent.ParseOutput(encoded)
+		output, err := agent.ParsePayload(encoded)
 		if err != nil {
 			return nil, fmt.Errorf("%s %q %s %d output: %w", f.stageName, f.stageID, f.memberName, index, err)
 		}

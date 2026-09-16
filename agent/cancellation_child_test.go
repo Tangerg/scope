@@ -23,9 +23,9 @@ func TestCancellationReachesChildrenBeforeAncestorDispatchReturns(t *testing.T) 
 		defer releaseRoot()
 		defer releaseChild()
 		childDeployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), childDispatcher)
-		input, _ := EncodeInput(engineTestInput{Value: "owned"})
+		input, _ := EncodePayload(engineTestInput{Value: "owned"})
 		key, _ := ParseChildKey("worker")
-		childEffect, err := StartChild(childTestSpec(key, childDeployment.DeploymentRef(), input))
+		childEffect, err := NewChildStartEffect(childTestSpec(key, childDeployment.DeploymentRef(), input))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -118,7 +118,7 @@ func TestCancellationCollectsInFlightChildInitialization(t *testing.T) {
 					t.Fatal(err)
 				}
 				deployment := newChildTestDeployment(t)
-				input, _ := EncodeInput(childTestInput{Mode: "parent"})
+				input, _ := EncodePayload(childTestInput{Mode: "parent"})
 				root, err := engine.Start(t.Context(), deployment, input)
 				if err != nil {
 					t.Fatal(err)

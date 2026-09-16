@@ -100,7 +100,7 @@ func (d *Definition) Descriptor() agent.Descriptor {
 }
 
 // Start creates a fresh Planning Execution from validated opaque task input.
-func (d *Definition) Start(input agent.Input) (agent.Execution, error) {
+func (d *Definition) Start(input agent.Payload) (agent.Execution, error) {
 	if !d.valid() {
 		return nil, ErrInvalidDefinitionConfig
 	}
@@ -178,3 +178,5 @@ func (d *Definition) validateActionHistory(attempts []Attempt) error {
 	}
 	return nil
 }
+
+var _ agent.Definition = (*Definition)(nil)

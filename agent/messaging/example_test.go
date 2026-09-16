@@ -12,7 +12,7 @@ func ExampleMessage_Effect() {
 	if err != nil {
 		panic(err)
 	}
-	payload, err := agent.EncodeInput("The proposed budget needs revision.")
+	payload, err := agent.EncodePayload("The proposed budget needs revision.")
 	if err != nil {
 		panic(err)
 	}

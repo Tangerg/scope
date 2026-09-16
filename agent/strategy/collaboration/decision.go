@@ -6,6 +6,8 @@ import agent "github.com/Tangerg/scope/agent"
 type Mode string
 
 const (
+	// Undecided records the absence of a coordinator decision.
+	Undecided Mode = ""
 	// Continue starts the next turn after action receipts, while tasks run.
 	Continue Mode = "continue"
 	// Wait starts the next turn after at least one outstanding task drains.
@@ -15,13 +17,25 @@ const (
 	Complete Mode = "complete"
 )
 
+func (m Mode) Valid() bool { return m == Undecided || m == Continue || m == Wait || m == Complete }
+
+func (m Mode) String() string {
+	if !m.Valid() {
+		return "invalid"
+	}
+	if m == Undecided {
+		return "undecided"
+	}
+	return string(m)
+}
+
 // TaskRequest starts a new bounded execution of a configured worker. To follow
 // up on a completed task, choose a new Key and carry the previous result in
 // Input. Terminal Processes are immutable; continuation has a new lifecycle.
 type TaskRequest struct {
 	Key    agent.ChildKey `json:"key"`
 	Worker string         `json:"worker"`
-	Input  agent.Input    `json:"input"`
+	Input  agent.Payload  `json:"input"`
 }
 
 // Task retains one request and its canonical kernel lifecycle facts. A missing
@@ -54,7 +68,7 @@ type ControlReceipt struct {
 // Facts arriving while this turn runs are visible in the following turn.
 type Turn struct {
 	Number   uint32             `json:"number"`
-	State    agent.Input        `json:"state"`
+	State    agent.Payload      `json:"state"`
 	Workers  []agent.Descriptor `json:"workers"`
 	Tasks    []Task             `json:"tasks"`
 	Controls []ControlReceipt   `json:"controls"`
@@ -64,9 +78,9 @@ type Turn struct {
 // before any action is declared. Complete requires Output and no actions; other
 // modes prohibit Output. Input and Output retain the configured domain schemas.
 type Decision struct {
-	Mode     Mode          `json:"mode"`
-	State    agent.Input   `json:"state"`
-	Tasks    []TaskRequest `json:"tasks,omitempty"`
-	Controls []Control     `json:"controls,omitempty"`
-	Output   *agent.Output `json:"output,omitzero"`
+	Mode     Mode           `json:"mode"`
+	State    agent.Payload  `json:"state"`
+	Tasks    []TaskRequest  `json:"tasks,omitempty"`
+	Controls []Control      `json:"controls,omitempty"`
+	Output   *agent.Payload `json:"output,omitzero"`
 }

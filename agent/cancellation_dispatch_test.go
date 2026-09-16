@@ -38,7 +38,7 @@ func TestTerminationCancelsDispatchAndStopsPreparedBatch(t *testing.T) {
 					}
 					definition := newEngineTestDefinition(t, "engine.batch", "batch")
 					deployment := engineTestDeployment(t, definition, dispatcher)
-					input, _ := EncodeInput(engineTestInput{Value: "cancel batch"})
+					input, _ := EncodePayload(engineTestInput{Value: "cancel batch"})
 					process, err := engine.Start(t.Context(), deployment, input)
 					if err != nil {
 						t.Fatal(err)
@@ -151,7 +151,7 @@ func TestHostTerminationCancelsActiveDispatch(t *testing.T) {
 				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 				defer cancel()
 				deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)
-				input, _ := EncodeInput(engineTestInput{Value: "host termination"})
+				input, _ := EncodePayload(engineTestInput{Value: "host termination"})
 				process, err := engine.Start(ctx, deployment, input)
 				if err != nil {
 					t.Fatal(err)

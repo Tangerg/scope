@@ -65,9 +65,7 @@ func (d *Dispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
 
 // Dispatch requires a non-nil context and panics if ctx is nil.
 func (d *Dispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, _ agent.DeltaEmitter) (agent.Settlement, error) {
-	if ctx == nil {
-		panic(errors.New("messaging: nil Context"))
-	}
+	ctx = agent.RequireContext(ctx)
 	if d == nil || lo.IsNil(d.port) || !request.Valid() {
 		return agent.Settlement{}, ErrInvalidMessage
 	}

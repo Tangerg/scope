@@ -12,6 +12,7 @@ import (
 type Outcome string
 
 const (
+	OutcomeInvalid Outcome = ""
 	// OutcomeAchieved means the latest observed WorldState satisfies the Goal.
 	OutcomeAchieved Outcome = "achieved"
 	// OutcomeUnreachable means the initial complete planning search found no plan.
@@ -25,10 +26,18 @@ func (o Outcome) Valid() bool {
 	return o == OutcomeAchieved || o == OutcomeUnreachable || o == OutcomeStuck
 }
 
+func (o Outcome) String() string {
+	if !o.Valid() {
+		return "invalid"
+	}
+	return string(o)
+}
+
 // AttemptStatus records the observed result of one selected Action attempt.
 type AttemptStatus string
 
 const (
+	AttemptInvalid AttemptStatus = ""
 	// AttemptSucceeded means execution succeeded and reobservation established
 	// every predicted effect.
 	AttemptSucceeded AttemptStatus = "succeeded"
@@ -41,6 +50,13 @@ const (
 
 func (a AttemptStatus) Valid() bool {
 	return a == AttemptSucceeded || a == AttemptFailed || a == AttemptUnconfirmed
+}
+
+func (a AttemptStatus) String() string {
+	if !a.Valid() {
+		return "invalid"
+	}
+	return string(a)
 }
 
 // Attempt is one final, portable Action-attempt fact. Diagnostic is empty only

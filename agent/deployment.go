@@ -106,8 +106,6 @@ func definitionDescriptor(definition Definition) (descriptor Descriptor, err err
 	return definition.Descriptor(), nil
 }
 
-func (d Deployment) effectDispatcher() Dispatcher { return d.dispatcher }
-
 func (d Deployment) validateEffect(effect Effect) error {
 	if effect.Target() == EffectTargetDispatcher && d.dispatcher == nil {
 		return fmt.Errorf("%w: dispatcher Effect requires a bound dispatcher", ErrInvalidEffect)

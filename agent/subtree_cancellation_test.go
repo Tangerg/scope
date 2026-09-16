@@ -33,7 +33,7 @@ func TestProcessCancellationPreservesUnsatisfiedSiblingWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "wait:subtree_all"})
+	input, _ := EncodePayload(childTestInput{Mode: "wait:subtree_all"})
 	root, err := engine.Start(t.Context(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -175,7 +175,7 @@ func startWaitingSubtreeInEngine(
 	deployment Deployment,
 ) (*Process, *Process, *Process) {
 	t.Helper()
-	input, _ := EncodeInput(childTestInput{Mode: "wait:subtree"})
+	input, _ := EncodePayload(childTestInput{Mode: "wait:subtree"})
 	root, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)

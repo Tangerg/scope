@@ -25,7 +25,7 @@ func TestCaptureTreeAllowsTerminationWhileEffectsDrain(t *testing.T) {
 				hostContext, cancelHost := context.WithTimeout(t.Context(), time.Hour)
 				defer cancelHost()
 				deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)
-				input, err := EncodeInput(engineTestInput{Value: "capture cancellation"})
+				input, err := EncodePayload(engineTestInput{Value: "capture cancellation"})
 				if err != nil {
 					t.Fatal(err)
 				}

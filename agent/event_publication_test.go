@@ -46,7 +46,7 @@ func TestCommittedEventsWaitForDurabilityAcknowledgment(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				input, _ := EncodeInput(childTestInput{Mode: scenario.mode})
+				input, _ := EncodePayload(childTestInput{Mode: scenario.mode})
 				root, err := engine.Start(t.Context(), newChildTestDeployment(t), input)
 				if err != nil {
 					t.Fatal(err)
@@ -188,7 +188,7 @@ func TestChildEventsDescribeAcknowledgedTreeState(t *testing.T) {
 		}
 		dispatcher := newBlockingChildDispatcher("first", "second", "third")
 		t.Cleanup(dispatcher.ReleaseAll)
-		input, _ := EncodeInput(childTestInput{Mode: "wait:all"})
+		input, _ := EncodePayload(childTestInput{Mode: "wait:all"})
 		root, err := engine.Start(t.Context(), newChildTestDeploymentWithDispatcher(t, dispatcher), input)
 		if err != nil {
 			t.Fatal(err)
@@ -218,7 +218,7 @@ func TestRestoredProcessStartsANewPublicationSequence(t *testing.T) {
 	listener := &recordingEventListener{}
 	engine, _ := NewEngine(EngineConfig{EventListeners: []EventListener{listener}})
 	deployment := newChildTestDeployment(t)
-	input, _ := EncodeInput(childTestInput{Mode: "leaf_pause"})
+	input, _ := EncodePayload(childTestInput{Mode: "leaf_pause"})
 	root, err := engine.Start(t.Context(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -266,7 +266,7 @@ func TestEquivalentPausedStatePublishesWithoutAnotherCommit(t *testing.T) {
 		listener := &recordingEventListener{}
 		engine, _ := NewEngine(EngineConfig{TreeDurability: durability, EventListeners: []EventListener{listener}})
 		deployment, probe := newTreeRuntimeTestDeployment(t)
-		input, _ := EncodeInput(treeRuntimeTestInput{Role: treeRuntimeRoleBlocked})
+		input, _ := EncodePayload(treeRuntimeTestInput{Role: treeRuntimeRoleBlocked})
 		root, err := engine.Start(t.Context(), deployment, input)
 		if err != nil {
 			t.Fatal(err)

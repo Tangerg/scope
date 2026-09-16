@@ -27,7 +27,7 @@ func TestTreeRuntimeDoesNotLetSlowStepStarveSibling(t *testing.T) {
 	hostContext := context.WithValue(context.Background(), treeRuntimeContextKey{}, "host value")
 	hostContext, cancelHost := context.WithTimeout(hostContext, time.Minute)
 	defer cancelHost()
-	input, _ := EncodeInput(treeRuntimeTestInput{Role: treeRuntimeRoleRoot})
+	input, _ := EncodePayload(treeRuntimeTestInput{Role: treeRuntimeRoleRoot})
 	root, err := engine.Start(hostContext, deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -179,7 +179,7 @@ func newTreeRuntimeTestDeployment(t testing.TB) (Deployment, *treeRuntimeTestPro
 
 func (t *treeRuntimeTestDefinition) Descriptor() Descriptor { return t.descriptor }
 
-func (t *treeRuntimeTestDefinition) Start(input Input) (Execution, error) {
+func (t *treeRuntimeTestDefinition) Start(input Payload) (Execution, error) {
 	decoded, err := input.Decode[treeRuntimeTestInput]()
 	if err != nil {
 		return nil, err
@@ -239,10 +239,10 @@ func (t *treeRuntimeTestExecution) stepRoot(signals []Signal) (Transition, error
 	roles := []string{treeRuntimeRoleBlocked, treeRuntimeRoleFast}
 	effects := make([]Effect, 0, len(roles))
 	for _, role := range roles {
-		input, _ := EncodeInput(treeRuntimeTestInput{Role: role})
+		input, _ := EncodePayload(treeRuntimeTestInput{Role: role})
 		key, _ := ParseChildKey(role)
 		budget := Budget{Steps: 4, Effects: 4, Signals: 4}
-		effect, err := StartChild(ChildSpec{
+		effect, err := NewChildStartEffect(ChildSpec{
 			Key: key, DeploymentRef: t.definition.reference, Input: input, Budget: budget,
 		})
 		if err != nil {
@@ -272,7 +272,7 @@ func (t *treeRuntimeTestExecution) stepBlocked(ctx context.Context) (Transition,
 
 func (t *treeRuntimeTestExecution) complete() (Transition, error) {
 	t.state.Phase++
-	output, _ := EncodeOutput(treeRuntimeTestOutput{Role: t.state.Role})
+	output, _ := EncodePayload(treeRuntimeTestOutput{Role: t.state.Role})
 	return Complete(0, output)
 }
 
@@ -296,7 +296,7 @@ func TestDiscardedStepAttemptsAlwaysClose(t *testing.T) {
 			t.Error(checkErr)
 		}
 	}()
-	input, _ := EncodeInput(treeRuntimeTestInput{Role: treeRuntimeRoleBlocked})
+	input, _ := EncodePayload(treeRuntimeTestInput{Role: treeRuntimeRoleBlocked})
 	process, err := engine.Start(t.Context(), deployment, input)
 	if err != nil {
 		t.Fatal(err)

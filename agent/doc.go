@@ -22,7 +22,7 @@
 //
 //	type Definition interface {
 //		Descriptor() Descriptor
-//		Start(Input) (Execution, error)
+//		Start(Payload) (Execution, error)
 //		Restore(context.Context, ExecutionState) (Execution, error)
 //	}
 //
@@ -32,7 +32,7 @@
 //	}
 //
 // The waist is not generic, because the Engine holds heterogeneous definitions
-// homogeneously. [Input], [Output], [Signal], [Effect], and [ExecutionState]
+// homogeneously. [Payload], [Signal], [Effect], and [ExecutionState]
 // cross it as bounded, defensively copied JSON. Generics belong to edge
 // adapters that convert a Go input to raw input and raw output back to a Go
 // output; they never enter the contract the Engine has to hold.
@@ -101,8 +101,8 @@
 // An Effect is the only way an Execution requests work outside a Step. The
 // Engine derives a stable effect identity from the Process identity, step
 // sequence, and effect index, then freezes the payload. It interprets only its
-// own closed set of framework Effects: [RequestWait], [StartChild],
-// [WaitForChildren], [SignalChild], and [CancelChild]. It hands a
+// own closed set of framework Effects: [NewWaitEffect], [NewChildStartEffect],
+// [NewChildWaitEffect], [NewChildSignalEffect], and [NewChildCancelEffect]. It hands a
 // strategy effect whole to the dispatcher its [Deployment] bound. A Deployment
 // without a dispatcher admits only framework Effects, including during recovery.
 // A dispatcher never mutates an Execution; it produces deltas and one settlement
@@ -191,13 +191,13 @@
 // another WaitID. Only an answer to the current WaitID releases Waiting;
 // an explicit pause still requires Resume. Unaddressed Strategy input can also
 // queue while Paused or waiting for children without releasing either state.
-// [WaitForChildren] requires an explicit [ChildWaitBoundary]. The result boundary
+// [NewChildWaitEffect] requires an explicit [ChildWaitBoundary]. The result boundary
 // counts terminal children. The drained boundary counts children whose entire
 // subtree satisfies [Process.Join]. All, any, and quorum count those facts in
 // request order; none selects successful business outcomes or cancels losers.
 // [ChildWaitSatisfied] carries the chosen boundary with the terminal results.
 // Wait registration is nonblocking even when a child already reached its boundary.
-// [SignalChild] and [CancelChild] declare controls over an exact direct child.
+// [NewChildSignalEffect] and [NewChildCancelEffect] declare controls over an exact direct child.
 // The tree owner records the recipient change and [ChildControlResult] in one
 // durable Effect settlement. Rejected ownership or mailbox admission is a
 // definite failed receipt. Signals retain their caller-chosen deduplication
@@ -340,7 +340,7 @@
 // seals input routing, reconciles SignalReceipts, and binds explicit successor
 // state, Deployment, limits, and authority. Its Host transaction links the
 // successor identity with the initial tree checkpoint; a lost start response is
-// reconciled by restoring that identity. Calling Start with equal Input alone
+// reconciled by restoring that identity. Calling Start with equal input alone
 // does not provide idempotent successor admission. Retained unconsumed inputs
 // keep their predecessor address, and unresolved descendant Effects prevent the
 // example's safe boundary. Production Hosts implement the transaction and

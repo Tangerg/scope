@@ -138,12 +138,12 @@ func TestSettlementPreservesUnknownWithoutImplyingRetry(t *testing.T) {
 
 func TestWaitRequestKeepsEngineKeySeparateFromStrategySignalPayload(t *testing.T) {
 	key, _ := ParseWaitKey("approval:tool:1")
-	effect, err := RequestWait(key, json.RawMessage(`{"kind":"approval_opened","tool":"shell"}`))
+	effect, err := NewWaitEffect(key, json.RawMessage(`{"kind":"approval_opened","tool":"shell"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if effect.Target() != EffectTargetFramework {
-		t.Fatalf("RequestWait target = %s, want framework", effect.Target())
+		t.Fatalf("NewWaitEffect target = %s, want framework", effect.Target())
 	}
 	decodedKey, signalPayload, err := effect.waitRequest()
 	if err != nil {

@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -53,13 +54,13 @@ func NewDispatcherEffect(payload json.RawMessage, required ...Capability) (Effec
 	if err != nil {
 		return Effect{}, fmt.Errorf("%w: required capabilities: %w", ErrInvalidEffect, err)
 	}
-	return newEffectWithCapabilities(EffectTargetDispatcher, payload, requirements)
+	return freezeEffect(EffectTargetDispatcher, payload, requirements)
 }
 
-// RequestWait creates the Framework Effect that asks the Engine to mint one
+// NewWaitEffect creates the Framework Effect that asks the Engine to mint one
 // WaitID for key. signalPayload remains Strategy-owned and is returned unchanged
 // in the internal Signal that carries the minted WaitID back to the Execution.
-func RequestWait(key WaitKey, signalPayload json.RawMessage) (Effect, error) {
+func NewWaitEffect(key WaitKey, signalPayload json.RawMessage) (Effect, error) {
 	if !key.Valid() {
 		return Effect{}, fmt.Errorf("%w: wait key: %w", ErrInvalidEffect, ErrInvalidIdentity)
 	}
@@ -67,22 +68,23 @@ func RequestWait(key WaitKey, signalPayload json.RawMessage) (Effect, error) {
 	if err != nil {
 		return Effect{}, fmt.Errorf("%w: wait signal payload: %w", ErrInvalidEffect, err)
 	}
-	payload, err := json.Marshal(waitRequestWire{
-		Operation:     frameworkEffectWait,
-		Key:           key,
-		SignalPayload: normalized,
+	return newFrameworkEffect(waitRequestWire{
+		Operation: frameworkEffectWait, Key: key, SignalPayload: normalized,
 	})
+}
+
+// Typed Framework constructors validate their domain requests before encoding.
+// Only UnmarshalJSON crosses an untrusted protocol boundary and must decode
+// those fields again. freezeEffect owns JSON validity, size, and immutability.
+func newFrameworkEffect(request any) (Effect, error) {
+	payload, err := json.Marshal(request)
 	if err != nil {
-		return Effect{}, fmt.Errorf("%w: encode wait request: %w", ErrInvalidEffect, err)
+		return Effect{}, fmt.Errorf("%w: encode Framework request: %w", ErrInvalidEffect, err)
 	}
-	return newEffect(EffectTargetFramework, payload)
+	return freezeEffect(EffectTargetFramework, payload, CapabilitySet{})
 }
 
-func newEffect(target EffectTarget, payload json.RawMessage) (Effect, error) {
-	return newEffectWithCapabilities(target, payload, CapabilitySet{})
-}
-
-func newEffectWithCapabilities(
+func freezeEffect(
 	target EffectTarget,
 	payload json.RawMessage,
 	requirements CapabilitySet,
@@ -96,11 +98,6 @@ func newEffectWithCapabilities(
 	normalized, err := normalizeJSON(payload, MaxPayloadBytes)
 	if err != nil {
 		return Effect{}, fmt.Errorf("%w: payload: %w", ErrInvalidEffect, err)
-	}
-	if target == EffectTargetFramework {
-		if err := validateFrameworkEffectPayload(normalized); err != nil {
-			return Effect{}, err
-		}
 	}
 	return Effect{target: target, payload: normalized, requirements: requirements}, nil
 }
@@ -147,9 +144,14 @@ func (e *Effect) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("%w: required capabilities: %w", ErrInvalidEffect, err)
 	}
-	value, err := newEffectWithCapabilities(wire.Target, wire.Payload, requirements)
+	value, err := freezeEffect(wire.Target, wire.Payload, requirements)
 	if err != nil {
 		return err
+	}
+	if value.target == EffectTargetFramework {
+		if err := validateFrameworkEffectPayload(value.payload); err != nil {
+			return err
+		}
 	}
 	*e = value
 	return nil
@@ -207,11 +209,12 @@ func decodeWaitRequestPayload(payload json.RawMessage) (WaitKey, json.RawMessage
 	if wire.Operation != frameworkEffectWait || !wire.Key.Valid() {
 		return WaitKey{}, nil, fmt.Errorf("%w: unsupported Framework Effect", ErrInvalidEffect)
 	}
-	normalized, err := normalizeJSON(wire.SignalPayload, MaxPayloadBytes)
-	if err != nil {
-		return WaitKey{}, nil, fmt.Errorf("%w: framework Effect signal payload: %w", ErrInvalidEffect, err)
+	// The enclosing Effect owns canonicalization and the byte bound. Decoding
+	// its RawMessage preserves those bytes without a second normalization.
+	if len(wire.SignalPayload) == 0 {
+		return WaitKey{}, nil, ErrInvalidEffect
 	}
-	return wire.Key, normalized, nil
+	return wire.Key, wire.SignalPayload, nil
 }
 
 func validateFrameworkEffectPayload(payload json.RawMessage) error {
@@ -237,11 +240,15 @@ func validateFrameworkEffectPayload(payload json.RawMessage) error {
 	}
 }
 
+// The header deliberately accepts operation-owned fields; the selected strict
+// decoder below owns their validation.
+type frameworkEffectHeader struct {
+	Operation frameworkEffectOperation `json:"operation"`
+}
+
 func decodeFrameworkEffectOperation(payload json.RawMessage) (frameworkEffectOperation, error) {
-	var header struct {
-		Operation frameworkEffectOperation `json:"operation"`
-	}
-	if err := json.Unmarshal(payload, &header); err != nil {
+	var header frameworkEffectHeader
+	if err := jsonv2.Unmarshal(payload, &header); err != nil {
 		return "", fmt.Errorf("%w: decode Framework Effect header: %w", ErrInvalidEffect, err)
 	}
 	if !header.Operation.valid() {

@@ -36,7 +36,7 @@ func TestProcessAdmitterReceivesRootAndChildResourceContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(struct{}{})
+	input, _ := EncodePayload(struct{}{})
 	parent, err := engine.Start(context.Background(), parentDeployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +85,7 @@ func TestProcessAdmitterRejectsBeforeDefinitionStarts(t *testing.T) {
 	var starts atomic.Uint32
 	definition := &countingDefinition{Definition: base.Definition(), starts: &starts}
 	deployment, err := NewDeployment(DeploymentConfig{
-		Definition: definition, Dispatcher: base.effectDispatcher(),
+		Definition: definition, Dispatcher: base.dispatcher,
 		ImplementationDigest: ComputeDigest([]byte("admission-root-implementation")),
 		ConfigurationDigest:  ComputeDigest([]byte("admission-root-configuration")),
 	})
@@ -99,7 +99,7 @@ func TestProcessAdmitterRejectsBeforeDefinitionStarts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "leaf"})
+	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if process != nil || !errors.Is(err, ErrProcessAdmissionRejected) || !errors.Is(err, rejection) {
 		t.Fatalf("Start process=%v error=%v", process, err)
@@ -136,7 +136,7 @@ func TestProcessAdmitterRejectsChildWithoutPublishingIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(struct{}{})
+	input, _ := EncodePayload(struct{}{})
 	parent, err := engine.Start(context.Background(), parentDeployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -172,7 +172,7 @@ func TestProcessAdmitterCannotOverrideCapabilityAttenuation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "capability_escalation"})
+	input, _ := EncodePayload(childTestInput{Mode: "capability_escalation"})
 	root, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -202,7 +202,7 @@ func TestProcessAdmitterPanicAndTypedNilAreRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "leaf"})
+	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
 	if process, err := engine.Start(context.Background(), deployment, input); process != nil ||
 		!errors.Is(err, ErrProcessAdmissionRejected) {
 		t.Fatalf("panicking admitter process=%v error=%v", process, err)
@@ -226,7 +226,7 @@ func TestRestoreDoesNotReadmitPreviouslyAdmittedProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "leaf"})
+	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
 	process, err := first.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -303,7 +303,7 @@ func TestProcessAdmitterReceivesStartContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	deployment := newChildTestDeployment(t)
-	input, _ := EncodeInput(childTestInput{Mode: "leaf"})
+	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
 	ctx := context.WithValue(context.Background(), contextKey{}, want)
 	process, err := engine.Start(ctx, deployment, input)
 	if err != nil {
@@ -320,7 +320,7 @@ type countingDefinition struct {
 	starts *atomic.Uint32
 }
 
-func (c *countingDefinition) Start(input Input) (Execution, error) {
+func (c *countingDefinition) Start(input Payload) (Execution, error) {
 	c.starts.Add(1)
 	return c.Definition.Start(input)
 }

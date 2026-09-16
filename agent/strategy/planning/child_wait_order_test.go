@@ -16,7 +16,7 @@ type fixtureGatedDefinition struct {
 	gate <-chan struct{}
 }
 
-func (f fixtureGatedDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (f fixtureGatedDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	execution, err := f.Definition.Start(input)
 	return fixtureGatedExecution{execution, f.gate}, err
 }

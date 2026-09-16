@@ -21,9 +21,9 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 	for _, operation := range []frameworkEffectOperation{frameworkEffectSignalChild, frameworkEffectCancelChild} {
 		var effect Effect
 		if operation == frameworkEffectSignalChild {
-			effect = controlValue(SignalChild(child, request))
+			effect = controlValue(NewChildSignalEffect(child, request))
 		} else {
-			effect = controlValue(CancelChild(child, "stop work"))
+			effect = controlValue(NewChildCancelEffect(child, "stop work"))
 		}
 		var roundTrip Effect
 		if err := json.Unmarshal(controlValue(json.Marshal(effect)), &roundTrip); err != nil || !effect.equal(roundTrip) {
@@ -49,7 +49,7 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 				t.Fatal("incorrect failure presence")
 			}
 			schema := controlValue(SchemaFor[ChildControlResult]())
-			if err := schema.Validate((controlValue(ParseOutput(payload))).JSON()); err != nil {
+			if err := schema.Validate((controlValue(ParsePayload(payload))).JSON()); err != nil {
 				t.Fatal(err)
 			}
 			signal := controlValue(newSignal(controlValue(ParseSignalID("signal:engine:receipt")), WaitID{}, payload))
@@ -79,9 +79,9 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 				"addressed": func(record *preparedEffect) { record.WaitID = new(id.waitID()) },
 				"other recipient": func(record *preparedEffect) {
 					if operation == frameworkEffectSignalChild {
-						record.Effect = controlValue(SignalChild(other, request))
+						record.Effect = controlValue(NewChildSignalEffect(other, request))
 					} else {
-						record.Effect = controlValue(CancelChild(other, "stop"))
+						record.Effect = controlValue(NewChildCancelEffect(other, "stop"))
 					}
 				},
 			} {
@@ -95,16 +95,16 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 			}
 		}
 	}
-	if _, err := SignalChild(ProcessID{}, request); !errors.Is(err, ErrInvalidChildControl) {
+	if _, err := NewChildSignalEffect(ProcessID{}, request); !errors.Is(err, ErrInvalidChildControl) {
 		t.Fatal(err)
 	}
-	if _, err := SignalChild(child, SignalRequest{}); !errors.Is(err, ErrInvalidChildControl) {
+	if _, err := NewChildSignalEffect(child, SignalRequest{}); !errors.Is(err, ErrInvalidChildControl) {
 		t.Fatal(err)
 	}
-	if _, err := CancelChild(child, " "); !errors.Is(err, ErrInvalidChildControl) {
+	if _, err := NewChildCancelEffect(child, " "); !errors.Is(err, ErrInvalidChildControl) {
 		t.Fatal(err)
 	}
-	if _, err := CancelChild(ProcessID{}, "stop"); !errors.Is(err, ErrInvalidChildControl) {
+	if _, err := NewChildCancelEffect(ProcessID{}, "stop"); !errors.Is(err, ErrInvalidChildControl) {
 		t.Fatal(err)
 	}
 	if _, err := ParseChildControlResult(Signal{}); !errors.Is(err, ErrInvalidSignal) {
@@ -140,7 +140,7 @@ func TestSignalRequestWireSchemaAndOpeningIdentity(t *testing.T) {
 	if got, addressed := decoded.WaitID(); !addressed || got != wait {
 		t.Fatal("wait identity lost")
 	}
-	if err := controlValue(SchemaFor[SignalRequest]()).Validate((controlValue(ParseInput(payload))).JSON()); err != nil {
+	if err := controlValue(SchemaFor[SignalRequest]()).Validate((controlValue(ParsePayload(payload))).JSON()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := json.Marshal(SignalRequest{}); err == nil {
@@ -181,7 +181,7 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 				recipient = controlValue(newProcessID())
 			}
 			request := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:control")), WaitID{}, []byte(`"steer"`)))
-			effect := controlValue(SignalChild(recipient, request))
+			effect := controlValue(NewChildSignalEffect(recipient, request))
 			transition := controlValue(Continue(0, effect))
 			if failure := prepareTestStep(parent, stepJobResult{transition: transition, candidate: parent.execution, candidateState: parent.committedExecutionState}); failure != nil {
 				t.Fatal(failure.cause)
@@ -212,17 +212,17 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 			}
 			child.status = StatusPaused
 			second := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:paused")), WaitID{}, []byte(`"queued"`)))
-			paused := runtime.applyChildControl(child, controlValue(decodeChildControlEffect(controlValue(SignalChild(recipient, second)).Payload())))
+			paused := runtime.applyChildControl(child, controlValue(decodeChildControlEffect(controlValue(NewChildSignalEffect(recipient, second)).Payload())))
 			if _, failed := paused.Failure(); failed || child.status != StatusPaused {
 				t.Fatal("signal resumed paused child")
 			}
 			child.status = StatusCompleted
 			third := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:terminal")), WaitID{}, []byte(`"late"`)))
-			rejected := runtime.applyChildControl(child, controlValue(decodeChildControlEffect(controlValue(SignalChild(recipient, third)).Payload())))
+			rejected := runtime.applyChildControl(child, controlValue(decodeChildControlEffect(controlValue(NewChildSignalEffect(recipient, third)).Payload())))
 			if failure, failed := rejected.Failure(); !failed || failure.Code() != childSignalRejectedCode {
 				t.Fatal("terminal input admitted")
 			}
-			cancel := controlValue(CancelChild(recipient, "stop"))
+			cancel := controlValue(NewChildCancelEffect(recipient, "stop"))
 			result = runtime.applyChildControl(child, controlValue(decodeChildControlEffect(cancel.Payload())))
 			if _, failed := result.Failure(); failed || child.status != StatusCompleted {
 				t.Fatal("terminal cancellation changed result")
@@ -240,7 +240,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 	parentID := controlValue(newProcessID())
 	childID := controlValue(newProcessID())
 	request := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:cut")), WaitID{}, []byte(`"instruction"`)))
-	effect := controlValue(SignalChild(childID, request))
+	effect := controlValue(NewChildSignalEffect(childID, request))
 	result := ChildControlResult{childID: childID, operation: frameworkEffectSignalChild, signalID: request.ID()}
 	id := parentID.effectID(1, 0)
 	record := preparedEffect{ID: id, Effect: effect, Phase: effectPhaseSettled,
@@ -282,7 +282,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 	if err := validation.validateChildControl(parentID, record); err != nil {
 		t.Fatal("consumed receipt lost proof", err)
 	}
-	cancel := controlValue(CancelChild(childID, "stop"))
+	cancel := controlValue(NewChildCancelEffect(childID, "stop"))
 	canceled := ChildControlResult{childID: childID, operation: frameworkEffectCancelChild}
 	record.Effect = cancel
 	record.Settlement = new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(json.Marshal(canceled)))))
@@ -304,7 +304,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 
 func TestDescriptorParticipatesInTypedWireSchemas(t *testing.T) {
 	descriptor := newChildTestDeployment(t).Descriptor()
-	input := controlValue(EncodeInput(descriptor))
+	input := controlValue(EncodePayload(descriptor))
 	if err := controlValue(SchemaFor[Descriptor]()).Validate(input.JSON()); err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +318,7 @@ func TestSignalChildRejectsEngineSignalIdentity(t *testing.T) {
 	childID := controlValue(newProcessID())
 	waitID := childID.effectID(1, 0).waitID()
 	internal := controlValue(newSignal(waitID.childWaitSignalID(), waitID, []byte(`"done"`)))
-	if _, err := SignalChild(childID, SignalRequest(internal)); !errors.Is(err, ErrInvalidChildControl) {
+	if _, err := NewChildSignalEffect(childID, SignalRequest(internal)); !errors.Is(err, ErrInvalidChildControl) {
 		t.Fatalf("child control accepted Engine identity: %v", err)
 	}
 }

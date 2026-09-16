@@ -40,7 +40,7 @@ func ExampleDefinition() {
 		if output.Source != interaction.CompletionSourceModelResponse || output.ModelResponse == nil {
 			return collaboration.Decision{}, errors.New("coordinator produced no model response")
 		}
-		value, err := agent.ParseOutput([]byte(output.ModelResponse.Text()))
+		value, err := agent.ParsePayload([]byte(output.ModelResponse.Text()))
 		if err != nil {
 			return collaboration.Decision{}, err
 		}
@@ -74,7 +74,7 @@ func ExampleDefinition() {
 			panic(err)
 		}
 	}()
-	process := exampleValue(engine.Start(ctx, root, exampleValue(agent.EncodeInput("inspect deployment"))))
+	process := exampleValue(engine.Start(ctx, root, exampleValue(agent.EncodePayload("inspect deployment"))))
 	result := exampleValue(process.Await(ctx))
 	if err := process.Join(ctx); err != nil {
 		panic(err)
@@ -94,7 +94,7 @@ func (d decisionModel) Call(_ context.Context, request *chat.Request) (*chat.Res
 	if len(request.Messages) != 1 {
 		return nil, errors.New("expected one rendered turn")
 	}
-	input, err := agent.ParseInput([]byte(request.Messages[0].Text()))
+	input, err := agent.ParsePayload([]byte(request.Messages[0].Text()))
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +145,7 @@ func (d decisionModel) decide(turn collaboration.Turn) (collaboration.Decision, 
 		if err != nil {
 			return decision, err
 		}
-		final, err := agent.EncodeOutput("coordinator continued while input was pending; " + review)
+		final, err := agent.EncodePayload("coordinator continued while input was pending; " + review)
 		if err != nil {
 			return decision, err
 		}

@@ -14,7 +14,7 @@ func TestReleaseTreeRemovesRegistryAndPreservesTerminalHandles(t *testing.T) {
 	}
 	t.Cleanup(func() { mustCloseEngine(t, engine) })
 	deployment := newChildTestDeployment(t)
-	input, _ := EncodeInput(childTestInput{Mode: "recurse:1"})
+	input, _ := EncodePayload(childTestInput{Mode: "recurse:1"})
 	root, err := engine.Start(t.Context(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -33,7 +33,7 @@ func TestReleaseTreeRemovesRegistryAndPreservesTerminalHandles(t *testing.T) {
 	if releaseErr := engine.ReleaseTree(t.Context(), handles[1].ID()); !errors.Is(releaseErr, ErrInvalidProcessRelation) {
 		t.Fatalf("release child error = %v", releaseErr)
 	}
-	otherInput, _ := EncodeInput(childTestInput{Mode: "leaf"})
+	otherInput, _ := EncodePayload(childTestInput{Mode: "leaf"})
 	other, err := engine.Start(t.Context(), deployment, otherInput)
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +77,7 @@ func TestReleaseTreeCancellationLeavesWaitingTreeUsable(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { mustCloseEngine(t, engine) })
-	input, _ := EncodeInput(childTestInput{Mode: "external_wait"})
+	input, _ := EncodePayload(childTestInput{Mode: "external_wait"})
 	root, err := engine.Start(t.Context(), newChildTestDeployment(t), input)
 	if err != nil {
 		t.Fatal(err)

@@ -423,8 +423,7 @@ func (t *treeSnapshotValidation) validateChildWaitSignals(mailbox mailboxWire, w
 			satisfied.Key() != spec.Key || satisfied.Boundary() != spec.Boundary {
 			return fmt.Errorf("%w: child wait satisfaction disagrees with its registration", ErrInvalidTreeSnapshot)
 		}
-		required, _ := spec.Condition.required(len(spec.Children))
-		if uint32(len(satisfied.outcomes)) < required {
+		if uint32(len(satisfied.outcomes)) < spec.required() {
 			return fmt.Errorf("%w: child wait condition is unsatisfied", ErrInvalidTreeSnapshot)
 		}
 		previous := -1
@@ -454,7 +453,7 @@ func (t *treeSnapshotValidation) matchesChildWaitOutcome(outcome ChildOutcome, b
 		return false
 	}
 	if boundary != ChildWaitBoundaryDrained {
-		return outcome.subtreeUnresolvedEffects == nil
+		return outcome.boundary == boundary && len(outcome.subtreeUnresolvedEffects) == 0
 	}
 	if !t.subtreeTerminal(child.ProcessID) {
 		return false
@@ -463,7 +462,7 @@ func (t *treeSnapshotValidation) matchesChildWaitOutcome(outcome ChildOutcome, b
 }
 
 func (t *treeSnapshotValidation) subtreeUnresolvedEffects(processID ProcessID) []UnresolvedEffect {
-	effects := make([]UnresolvedEffect, 0)
+	var effects []UnresolvedEffect
 	var visit func(ProcessID)
 	visit = func(id ProcessID) {
 		for _, effectID := range t.processes[id].Termination.UnresolvedEffectIDs() {

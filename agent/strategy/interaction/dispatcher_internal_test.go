@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"math"
 	"testing"
@@ -13,10 +14,10 @@ func TestFailedDirectResultCannotEnterProtocolOrRestore(t *testing.T) {
 	result := chat.ToolResult{
 		ID: "failed", Name: "direct", IsError: true, Output: chat.NewTextToolOutput("failure"),
 	}
-	payload, err := encodeProtocol(signalEnvelope{
+	payload, err := jsonv2.Marshal(signalEnvelope{
 		Operation:  operationToolCall,
 		ToolResult: &toolDispatchResult{Completion: &toolCallResult{Result: result, Direct: true}},
-	})
+	}, jsonv2.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
 	}

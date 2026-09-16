@@ -54,7 +54,7 @@ func TestStaleStepRestoreDoesNotBlockTreeOwner(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { releaseFast(); releaseRestore(); mustCloseEngine(t, engine) }()
-		input, err := EncodeInput(treeRuntimeTestInput{Role: treeRuntimeRoleRoot})
+		input, err := EncodePayload(treeRuntimeTestInput{Role: treeRuntimeRoleRoot})
 		if err != nil {
 			t.Fatal(err)
 		}

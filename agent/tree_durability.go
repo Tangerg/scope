@@ -331,7 +331,7 @@ func activateTree(
 			err = fmt.Errorf("tree durability activation panicked: %v", recovered)
 		}
 	}()
-	return durability.ActivateTree(context.WithoutCancel(requireContext(ctx)), activation)
+	return durability.ActivateTree(context.WithoutCancel(RequireContext(ctx)), activation)
 }
 
 func commitEffectBoundary(
@@ -349,7 +349,7 @@ func commitEffectBoundary(
 			err = fmt.Errorf("tree durability Effect commit panicked: %v", recovered)
 		}
 	}()
-	return durability.CommitEffect(context.WithoutCancel(requireContext(ctx)), boundary)
+	return durability.CommitEffect(context.WithoutCancel(RequireContext(ctx)), boundary)
 }
 
 func commitTreeCheckpoint(
@@ -366,6 +366,6 @@ func commitTreeCheckpoint(
 		}
 	}()
 	return durability.CommitCheckpoint(
-		context.WithoutCancel(requireContext(ctx)), checkpoint,
+		context.WithoutCancel(RequireContext(ctx)), checkpoint,
 	)
 }

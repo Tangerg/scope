@@ -33,7 +33,7 @@ func TestMapUsesManagedChildrenAndPreservesItemOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := agent.EncodeInput([]forkInput{{Value: 3}, {Value: 1}, {Value: 2}})
+	input, _ := agent.EncodePayload([]forkInput{{Value: 3}, {Value: 1}, {Value: 2}})
 	result, err := engine.Run(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +62,7 @@ func TestMapEmptyInputProducesNonNilEmptyOutput(t *testing.T) {
 	}
 	deployment := mustDeployment(t, mustDefinition(t, "test.workflow.empty_map", stage), "empty-map")
 	engine, _ := agent.NewEngine(agent.EngineConfig{})
-	input, _ := agent.EncodeInput([]forkInput{})
+	input, _ := agent.EncodePayload([]forkInput{})
 	result, err := engine.Run(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +91,7 @@ func TestMapRejectsInputAboveMaxItemsBeforeStartingChildren(t *testing.T) {
 	}
 	deployment := mustDeployment(t, mustDefinition(t, "test.workflow.limited_map", stage), "limited-map")
 	engine, _ := agent.NewEngine(agent.EngineConfig{})
-	input, _ := agent.EncodeInput([]forkInput{{Value: 1}, {Value: 2}, {Value: 3}})
+	input, _ := agent.EncodePayload([]forkInput{{Value: 1}, {Value: 2}, {Value: 3}})
 	result, err := engine.Run(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)

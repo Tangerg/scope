@@ -18,7 +18,7 @@ type typedFixtureDefinition struct {
 
 func (t *typedFixtureDefinition) Descriptor() Descriptor { return t.descriptor }
 
-func (t *typedFixtureDefinition) Start(input Input) (Execution, error) {
+func (t *typedFixtureDefinition) Start(input Payload) (Execution, error) {
 	t.starts++
 	return &typedFixtureExecution{state: input.JSON()}, nil
 }
@@ -32,7 +32,7 @@ type typedFixtureExecution struct {
 }
 
 func (t *typedFixtureExecution) Step(context.Context, []Signal) (Transition, error) {
-	output, err := ParseOutput(t.state)
+	output, err := ParsePayload(t.state)
 	if err != nil {
 		return Transition{}, err
 	}
@@ -73,8 +73,8 @@ func TestDescriptorOwnsTypedEdges(t *testing.T) {
 
 func TestDescriptorRejectsTypedSchemaMismatchAtEdge(t *testing.T) {
 	definition := newTypedFixtureDefinition[wireFixture](t, "fixture.message")
-	if _, err := definition.Descriptor().EncodeInput(typedCount{Count: 3}); !errors.Is(err, ErrInvalidInput) {
-		t.Fatalf("EncodeInput schema mismatch error = %v, want ErrInvalidInput", err)
+	if _, err := definition.Descriptor().EncodeInput(typedCount{Count: 3}); !errors.Is(err, ErrInvalidPayload) {
+		t.Fatalf("EncodeInput schema mismatch error = %v, want ErrInvalidPayload", err)
 	}
 	if definition.starts != 0 {
 		t.Fatalf("Definition.Start called %d times after edge validation failed", definition.starts)
@@ -85,7 +85,7 @@ func TestInvalidDescriptorRejectsTypedEdges(t *testing.T) {
 	if _, err := (Descriptor{}).EncodeInput(wireFixture{}); !errors.Is(err, ErrInvalidDescriptor) {
 		t.Fatalf("EncodeInput error = %v, want ErrInvalidDescriptor", err)
 	}
-	output, err := EncodeOutput(wireFixture{})
+	output, err := EncodePayload(wireFixture{})
 	if err != nil {
 		t.Fatal(err)
 	}

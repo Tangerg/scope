@@ -16,7 +16,7 @@ func TestEngineStartsChildFromAnotherStrategyThroughExactResolver(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(struct{}{})
+	input, _ := EncodePayload(struct{}{})
 	parent, err := engine.Start(context.Background(), parentDeployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +48,7 @@ func TestEngineRejectsResolverBindingMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(struct{}{})
+	input, _ := EncodePayload(struct{}{})
 	parent, err := engine.Start(context.Background(), parentDeployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestEngineContainsDeploymentResolverPanic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(struct{}{})
+	input, _ := EncodePayload(struct{}{})
 	parent, err := engine.Start(context.Background(), parentDeployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -99,7 +99,7 @@ func TestEngineBypassesResolverForSameDeploymentChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "parent"})
+	input, _ := EncodePayload(childTestInput{Mode: "parent"})
 	parent, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +168,7 @@ func newCrossParentDeployment(t *testing.T, target DeploymentRef) Deployment {
 
 func (c *crossParentDefinition) Descriptor() Descriptor { return c.descriptor }
 
-func (c *crossParentDefinition) Start(Input) (Execution, error) {
+func (c *crossParentDefinition) Start(Payload) (Execution, error) {
 	return &crossParentExecution{target: c.target}, nil
 }
 
@@ -190,9 +190,9 @@ type crossParentExecution struct {
 
 func (c *crossParentExecution) Step(_ context.Context, signals []Signal) (Transition, error) {
 	if c.phase == 0 {
-		input, _ := EncodeInput(childTestInput{Mode: "leaf"})
+		input, _ := EncodePayload(childTestInput{Mode: "leaf"})
 		key, _ := ParseChildKey("other-strategy")
-		effect, err := StartChild(childTestSpec(key, c.target, input))
+		effect, err := NewChildStartEffect(childTestSpec(key, c.target, input))
 		if err != nil {
 			return Transition{}, err
 		}
@@ -214,7 +214,7 @@ func (c *crossParentExecution) Step(_ context.Context, signals []Signal) (Transi
 		output.FailureCodes = []string{failure.Code()}
 	}
 	c.phase = 2
-	erased, _ := EncodeOutput(output)
+	erased, _ := EncodePayload(output)
 	return Complete(1, erased)
 }
 

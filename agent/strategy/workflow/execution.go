@@ -91,7 +91,7 @@ func (e *execution) advance(ctx context.Context, signals []agent.Signal) (agent.
 }
 
 func (e *execution) startSingleChild(consumedSignals uint32, binding childBinding) (agent.Transition, error) {
-	input, err := agent.ParseInput(e.state.CurrentValue)
+	input, err := agent.ParsePayload(e.state.CurrentValue)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -99,7 +99,7 @@ func (e *execution) startSingleChild(consumedSignals uint32, binding childBindin
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	effect, err := agent.StartChild(agent.ChildSpec{
+	effect, err := agent.NewChildStartEffect(agent.ChildSpec{
 		Key: key, DeploymentRef: binding.deploymentRef, Input: input,
 		Budget: binding.budget, Capabilities: binding.capabilities,
 	})
@@ -230,7 +230,7 @@ func (e *execution) finishStage(consumedSignals uint32) (agent.Transition, error
 		e.state.Phase = phaseReady
 		return agent.Continue(consumedSignals)
 	}
-	output, err := agent.ParseOutput(e.state.CurrentValue)
+	output, err := agent.ParsePayload(e.state.CurrentValue)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -283,7 +283,7 @@ func (e *execution) singleChildOutputSchema() agent.Schema {
 func (e *execution) finishLoopIteration(
 	ctx context.Context,
 	consumedSignals uint32,
-	output agent.Output,
+	output agent.Payload,
 ) (agent.Transition, error) {
 	stage := e.stage()
 	satisfied, err := stage.loop.predicate(ctx, output.JSON())
@@ -342,7 +342,7 @@ func (e *execution) startFanoutWindow(ctx context.Context, consumedSignals uint3
 		if err != nil {
 			return agent.Transition{}, err
 		}
-		effect, err := agent.StartChild(agent.ChildSpec{
+		effect, err := agent.NewChildStartEffect(agent.ChildSpec{
 			Key: key, DeploymentRef: member.binding.deploymentRef, Input: input,
 			Budget: member.binding.budget, Capabilities: member.binding.capabilities,
 		})
@@ -374,7 +374,7 @@ func (e *execution) acceptFanoutStarts(signals []agent.Signal) (agent.Transition
 			return agent.Transition{}, fmt.Errorf("%w: fan-out child key: %w", ErrInvalidProtocol, keyErr)
 		}
 		if !found ||
-			!childcall.StartMatches(result, key, member.binding.deploymentRef) {
+			!(result).Matches(key, member.binding.deploymentRef) {
 			return agent.Transition{}, fmt.Errorf(
 				"%w: %s Stage %q member %q start result mismatch",
 				ErrInvalidProtocol, e.stage().kind, e.stage().id, member.id,
@@ -399,7 +399,7 @@ func (e *execution) acceptFanoutStarts(signals []agent.Signal) (agent.Transition
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	effect, err := agent.WaitForChildren(agent.ChildWaitSpec{
+	effect, err := agent.NewChildWaitEffect(agent.ChildWaitSpec{
 		Boundary: agent.ChildWaitBoundaryDrained,
 		Key:      waitKey, Children: childIDs, Condition: agent.AllChildren(),
 	})

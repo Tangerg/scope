@@ -24,7 +24,7 @@ func TestDeploymentValidityUsesFrozenContract(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { mustCloseEngine(t, engine) })
-			input, err := EncodeInput(engineTestInput{Value: "frozen contract"})
+			input, err := EncodePayload(engineTestInput{Value: "frozen contract"})
 			if err != nil {
 				t.Fatal(err)
 			}

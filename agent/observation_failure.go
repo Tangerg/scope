@@ -11,8 +11,9 @@ const (
 	maxListenerPanicStackBytes   = 64 << 10
 )
 
-// ListenerPanic identifies one isolated listener failure. ListenerIndex is the
-// zero-based position in EngineConfig.EventListeners or DeltaListeners, and
+// ListenerPanic identifies one isolated listener failure. The
+// returned value is a detached report; editing it cannot change Engine facts.
+// ListenerIndex is the zero-based position in EngineConfig.EventListeners or DeltaListeners, and
 // ListenerType is its Go type. Message retains at most 4 KiB of the formatted
 // panic value; Stack retains at most 64 KiB of the failing goroutine's stack.
 type ListenerPanic struct {

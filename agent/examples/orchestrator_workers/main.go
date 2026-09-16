@@ -49,7 +49,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 		err = errors.Join(err, engine.Close(context.WithoutCancel(ctx)))
 	}()
 
-	input, err := agent.EncodeInput(orchestrationGoal{Objective: "ship agent"})
+	input, err := agent.EncodePayload(orchestrationGoal{Objective: "ship agent"})
 	if err != nil {
 		return err
 	}

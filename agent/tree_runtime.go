@@ -225,7 +225,7 @@ func newTreeRuntime(
 	runtime := &treeRuntime{
 		engine:              engine,
 		rootID:              rootID,
-		context:             context.WithoutCancel(requireContext(ctx)),
+		context:             context.WithoutCancel(RequireContext(ctx)),
 		processCommands:     make(chan treeCommand, treeCommandBufferCapacity),
 		freezeCommands:      make(chan treeCommand, treeCommandBufferCapacity),
 		completions:         make(chan treeJobCompletion),
@@ -958,7 +958,7 @@ func (t *treeRuntime) discardChildStart(plan *childStartPlan) {
 			break
 		}
 	}
-	t.engine.discardProcessStartReservation(plan.childID)
+	t.engine.discardProcessStart(plan.childID)
 }
 
 func (t *treeRuntime) publishChildStart(pending *pendingChildStartPublication) error {
@@ -970,7 +970,7 @@ func (t *treeRuntime) publishChildStart(pending *pendingChildStartPublication) e
 		if child == nil {
 			return errors.New("started child is missing from prospective tree")
 		}
-		t.engine.publishReservedProcess(child.handle)
+		t.engine.publishProcessStart(child.handle)
 		t.publishEvent(child, EventProcessStarted, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
 	}
 	parent := t.processes[pending.parentID]
@@ -1136,23 +1136,24 @@ func (t *treeRuntime) failDurability(
 	clear(t.pendingPublications)
 	clear(t.queued)
 	t.processQueue = nil
-	acknowledgedByID := make(map[ProcessID]ProcessSnapshot, len(t.head.state.ProcessSnapshots))
+	acknowledgedByID := make(map[ProcessID]struct{}, len(t.head.state.ProcessSnapshots))
 	for _, snapshot := range t.head.state.ProcessSnapshots {
-		acknowledgedByID[snapshot.ProcessID()] = snapshot
+		acknowledgedByID[snapshot.ProcessID()] = struct{}{}
 	}
 	for _, process := range orderedProcesses(t.processes) {
-		select {
-		case <-process.handle.outcomePublished:
-			continue
-		default:
-		}
 		processID := process.handle.processID
-		acknowledged := acknowledgedByID[processID]
-		if !acknowledged.Valid() {
+		_, acknowledged := acknowledgedByID[processID]
+		if !acknowledged {
 			// A prospective child that never entered an acknowledged head has
 			// no published lifecycle to stop.
-			t.engine.discardProcessStartReservation(processID)
+			t.engine.discardProcessStart(processID)
 			t.removeProcess(processID)
+			continue
+		}
+		if !process.handle.publishRuntimeFailure(&RuntimeError{
+			processID: processID, incarnationID: t.incarnation, headDigest: t.head.Digest(),
+			unresolvedEffectIDs: canonicalEffectIDs(unresolvedByProcess[processID]), cause: cause,
+		}) {
 			continue
 		}
 		failure := newTreeDurabilityFailure(cause)
@@ -1160,10 +1161,6 @@ func (t *treeRuntime) failDurability(
 			FailureKind: failure.Kind(), FailureCode: failure.Code(),
 		})
 		t.publishEvent(process, EventRuntimeStopped, EventPhaseAttempt, 0, EffectID{}, payload)
-		process.handle.publishRuntimeFailure(&RuntimeError{
-			processID: processID, incarnationID: t.incarnation, headDigest: t.head.Digest(),
-			unresolvedEffectIDs: canonicalEffectIDs(unresolvedByProcess[processID]), cause: cause,
-		})
 		t.finishProcessBookkeeping(process)
 	}
 	if t.freeze != nil {
@@ -1318,7 +1315,7 @@ func (t *treeRuntime) replayUnknownEffect(process *processState, command process
 		command.reply(processResponse{err: ErrEffectNotPending})
 		return
 	}
-	policy, err := dispatcherReplayPolicy(process.deployment.effectDispatcher(), record.Effect)
+	policy, err := dispatcherReplayPolicy(process.deployment.dispatcher, record.Effect)
 	if err != nil || record.Effect.Target() != EffectTargetDispatcher || policy != ReplayPolicySameIdentity {
 		command.reply(processResponse{err: errors.Join(ErrEffectReplayForbidden, err)})
 		return
@@ -1650,8 +1647,8 @@ func (t *treeRuntime) prepareSignalEvents(process *processState, signals []Signa
 	return events
 }
 
-func (t *treeRuntime) checkListenerReentrancy(ctx context.Context, operation string) error {
-	return t.engine.observation.checkListenerReentrancy(ctx, t.rootID, operation)
+func (t *treeRuntime) checkEventListenerReentrancy(ctx context.Context, operation string) error {
+	return t.engine.observation.checkEventListenerReentrancy(ctx, t.rootID, operation)
 }
 
 func (t *treeRuntime) inspect(ctx context.Context) (TreeInspection, error) {
@@ -1978,7 +1975,7 @@ func (t *treeRuntime) startDispatch(
 	response chan processResponse,
 ) {
 	processID := process.handle.processID
-	dispatcher := process.deployment.effectDispatcher()
+	dispatcher := process.deployment.dispatcher
 
 	attempt, ok := t.allocateAttempt(process)
 	if !ok {
@@ -2147,19 +2144,23 @@ func (t *treeRuntime) applyChildStartCompletion(
 		)
 		snapshot, err := t.captureTree()
 		if err == nil {
-			err = t.startCheckpoint(&treeCommit{
-				kind: treeCommitChildStart, processID: pending.parentID,
-				effectID: pending.effectID, snapshot: snapshot, child: pending,
-			}, TreeCheckpointChildStart)
+			commit := &treeCommit{
+				kind: treeCommitEffectSettled, processID: pending.parentID,
+				effectID: pending.effectID, snapshot: snapshot, events: []eventFact{pending.event},
+			}
+			if pending.result.started() {
+				commit.kind, commit.child, commit.events = treeCommitChildStart, pending, nil
+			}
+			err = t.startCheckpoint(commit, TreeCheckpointChildStart)
 		}
 		checkpointErr = err
-		transferred = err == nil
+		transferred = err == nil && pending.result.started()
 		return
 	}
 	if publicationErr = t.publishChildStart(pending); publicationErr != nil {
 		return
 	}
-	transferred = true
+	transferred = pending.result.started()
 }
 
 func (t *treeRuntime) applyChildStart(pending *pendingChildStartPublication) error {
@@ -2200,7 +2201,6 @@ func (t *treeRuntime) applyChildStart(pending *pendingChildStartPublication) err
 			pending.result = childStartJobResult{result: failedChildStart(
 				pending.plan.spec, FailureKindExecution, childTreeLimitCode, err,
 			)}
-			t.discardChildStart(pending.plan)
 			_, err = t.applyChildStartSettlement(parent, pending.effectID, pending.result.result)
 			return err
 		}
@@ -2212,7 +2212,6 @@ func (t *treeRuntime) applyChildStart(pending *pendingChildStartPublication) err
 		}
 		return nil
 	}
-	t.discardChildStart(pending.plan)
 	_, err := t.applyChildStartSettlement(parent, pending.effectID, pending.result.result)
 	return err
 }
@@ -2434,7 +2433,9 @@ func (t *treeRuntime) publishJoin(process *processState) bool {
 			headDigest: t.head.Digest(), unresolvedEffectIDs: canonicalEffectIDs(unresolved), cause: t.fault,
 		}
 	}
-	process.handle.finishJoin(joinErr)
+	if !process.handle.finishJoin(joinErr) {
+		return true
+	}
 	if joinErr == nil {
 		t.notifyChildWaits(process.handle.processID, ChildWaitBoundaryDrained)
 	}
@@ -2470,15 +2471,12 @@ func (t *treeRuntime) finishIfTerminal(process *processState) {
 		t.stageTerminal(process)
 		return
 	}
-	select {
-	case <-process.handle.outcomePublished:
+	if !process.handle.publishResult(process.result()) {
 		return
-	default:
 	}
 	t.publishEvent(process, EventProcessFinished, EventPhaseCommitted, 0, EffectID{},
 		process.terminalEventPayload(),
 	)
-	process.handle.publishResult(process.result())
 	t.propagateProcessTermination(process)
 	t.finishProcessBookkeeping(process)
 }
@@ -2534,29 +2532,26 @@ func (t *treeRuntime) childWaitOutcomes(
 ) ([]ChildOutcome, bool) {
 	outcomes := make([]ChildOutcome, 0, len(registration.spec.Children))
 	for _, childID := range registration.spec.Children {
+		// Registration proves membership; children stay retained until tree release.
 		child := t.processes[childID]
-		if child == nil {
-			return nil, false
-		}
 		ready := child.status.Terminal()
 		if registration.spec.Boundary == ChildWaitBoundaryDrained {
 			ready = child.handle.joinDone() && child.handle.joinError() == nil
 		}
 		if ready {
 			key, _ := child.handle.relation.ChildKey()
-			outcome := ChildOutcome{key: key, result: child.result()}
+			outcome := ChildOutcome{key: key, result: child.result(), boundary: registration.spec.Boundary}
 			if registration.spec.Boundary == ChildWaitBoundaryDrained {
 				outcome.subtreeUnresolvedEffects = t.subtreeUnresolvedEffects(childID)
 			}
 			outcomes = append(outcomes, outcome)
 		}
 	}
-	required, err := registration.spec.Condition.required(len(registration.spec.Children))
-	return outcomes, err == nil && uint32(len(outcomes)) >= required
+	return outcomes, uint32(len(outcomes)) >= registration.spec.required()
 }
 
 func (t *treeRuntime) subtreeUnresolvedEffects(processID ProcessID) []UnresolvedEffect {
-	effects := make([]UnresolvedEffect, 0)
+	var effects []UnresolvedEffect
 	var visit func(ProcessID)
 	visit = func(id ProcessID) {
 		for _, effectID := range t.processes[id].result().Termination().UnresolvedEffectIDs() {
@@ -2670,7 +2665,7 @@ func (t *treeRuntime) removeProcess(processID ProcessID) {
 func (t *treeRuntime) acquireTreeFreeze(
 	ctx context.Context,
 ) (*treeFreeze, TreeSnapshot, error) {
-	ctx = requireContext(ctx)
+	ctx = RequireContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return nil, TreeSnapshot{}, err
 	}
@@ -2753,7 +2748,7 @@ func (t *treeRuntime) finalizePrepared(process *processState) error {
 	for _, waitID := range finalization.consumedChildWaits {
 		t.unregisterChildWait(process.handle.processID, waitID)
 	}
-	for _, waitID := range finalization.transition.closedChildWaits {
+	for _, waitID := range finalization.commit.closedChildWaits {
 		t.unregisterChildWait(process.handle.processID, waitID)
 	}
 
@@ -2776,12 +2771,17 @@ func (t *treeRuntime) terminatePreparedProcess(process *processState) {
 			continue
 		}
 		if process.restoredPending.matches(record.ID) {
+			// Recovery owns the next completion. Termination resumes here after it
+			// settles, retaining any permissions already revoked in this pass.
 			t.recoverPendingEffect(process, uint32(index), record)
 			return
 		}
 		// Completed attempts install their settlement before termination. Without
 		// a job or recovered uncertainty, this incarnation owns unused permission.
-		record.revokeDispatch()
+		if err := record.revokeDispatch(); err != nil {
+			process.recordFailure(FailureKindContract, failureCodeEngineEffectPhaseInvalid, err)
+			break
+		}
 	}
 	process.preparedExecution = nil
 	process.execution = nil
@@ -2803,7 +2803,7 @@ func (t *treeRuntime) installTermination(process *processState, outcome stepOutc
 
 func (t *treeRuntime) installTerminationWithUnresolved(process *processState, outcome stepOutcome, unresolvedEffectIDs []EffectID) {
 	termination := process.resolveStepTermination(outcome)
-	process.installTermination(termination.withUnresolvedEffectIDs(unresolvedEffectIDs), Output{}, time.Now().Round(0).UTC())
+	process.installTermination(termination.withUnresolvedEffectIDs(unresolvedEffectIDs), Payload{}, time.Now().Round(0).UTC())
 	for _, waitID := range process.mailbox.closeAllWaits() {
 		t.unregisterChildWait(process.handle.processID, waitID)
 	}

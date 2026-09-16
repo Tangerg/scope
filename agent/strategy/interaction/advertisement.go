@@ -2,16 +2,12 @@ package interaction
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"sync"
-)
 
-var (
-	ErrToolAdvertisementUnavailable = errors.New("interaction: tool advertisement unavailable")
-	ErrInvalidToolAdvertisement     = errors.New("interaction: invalid tool advertisement")
+	"github.com/Tangerg/scope/agent"
 )
 
 type toolAdvertisementContextKey struct{}
@@ -23,9 +19,7 @@ type toolAdvertisementContextKey struct{}
 // A nil ctx is invalid and panics; a context without an active Tool call returns
 // ErrToolAdvertisementUnavailable.
 func AdvertiseTools(ctx context.Context, names ...string) error {
-	if ctx == nil {
-		panic(errors.New("interaction: nil Context"))
-	}
+	ctx = agent.RequireContext(ctx)
 	advertiser, present := ctx.Value(toolAdvertisementContextKey{}).(*toolAdvertiser)
 	if !present || advertiser == nil {
 		return ErrToolAdvertisementUnavailable

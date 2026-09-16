@@ -182,7 +182,7 @@ func execute(
 		err = errors.Join(err, engine.Close(context.WithoutCancel(ctx)))
 	}()
 
-	input, err := agent.EncodeInput(request)
+	input, err := agent.EncodePayload(request)
 	if err != nil {
 		return optimizationReport{}, executionEvidence{}, err
 	}

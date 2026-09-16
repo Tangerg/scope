@@ -3,6 +3,7 @@ package planning
 import (
 	"bytes"
 	"context"
+	jsonv2 "encoding/json/v2"
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -44,7 +45,7 @@ func FuzzExecutionStateRestore(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	input, err := agent.EncodeInput(struct{}{})
+	input, err := agent.EncodePayload(struct{}{})
 	if err != nil {
 		f.Fatal(err)
 	}
@@ -101,7 +102,7 @@ func FuzzPlanningProtocol(f *testing.F) {
 	f.Add([]byte(`{"operation":"action","action":{"succeeded":true}}`))
 	f.Fuzz(func(t *testing.T, payload []byte) {
 		if effect, err := decodeEffect(payload); err == nil {
-			encoded, err := encodeProtocol(effect)
+			encoded, err := jsonv2.Marshal(effect, jsonv2.Deterministic(true))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -110,7 +111,7 @@ func FuzzPlanningProtocol(f *testing.F) {
 			}
 		}
 		if signal, err := decodeSignal(payload); err == nil {
-			encoded, err := encodeProtocol(signal)
+			encoded, err := jsonv2.Marshal(signal, jsonv2.Deterministic(true))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -122,7 +123,7 @@ func FuzzPlanningProtocol(f *testing.F) {
 }
 
 func TestDispatcherReplaysOnlyObservationEffects(t *testing.T) {
-	input, err := agent.EncodeInput(struct{}{})
+	input, err := agent.EncodePayload(struct{}{})
 	if err != nil {
 		t.Fatal(err)
 	}

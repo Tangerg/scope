@@ -21,7 +21,7 @@ func pausedWorker() agent.Deployment {
 	return binding(&pausedDefinition{descriptor: require(agent.NewDescriptor(agent.DescriptorConfig{Name: "test.paused", Description: "Pause before consuming a signal.", InputSchema: schema, OutputSchema: schema}))})
 }
 func (p *pausedDefinition) Descriptor() agent.Descriptor { return p.descriptor }
-func (p *pausedDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (p *pausedDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	if err := p.descriptor.ValidateInput(input); err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ func (p *pausedExecution) Step(ctx context.Context, signals []agent.Signal) (age
 	if len(signals) != 1 {
 		return agent.Transition{}, errors.New("one signal required")
 	}
-	return agent.Complete(1, require(agent.ParseOutput(signals[0].Payload())))
+	return agent.Complete(1, require(agent.ParsePayload(signals[0].Payload())))
 }
 func (p *pausedExecution) Snapshot() (agent.ExecutionState, error) {
 	return agent.NewExecutionState("test.paused", require(json.Marshal(p)))

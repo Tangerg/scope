@@ -33,7 +33,7 @@ func TestScopedJoinRequiresDescendantCheckpointAcknowledgment(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				input, _ := EncodeInput("root")
+				input, _ := EncodePayload("root")
 				root, err := engine.Start(t.Context(), newScopeJoinDeployment(t, ChildWaitBoundaryDrained, dispatcher), input)
 				if err != nil {
 					t.Fatal(err)
@@ -108,7 +108,7 @@ func TestScopedJoinSeparatesResultsFromDescendantCleanup(t *testing.T) {
 						t.Fatal(err)
 					}
 					deployment := newScopeJoinDeployment(t, boundary, dispatcher)
-					input, _ := EncodeInput("root")
+					input, _ := EncodePayload("root")
 					root, err := engine.Start(t.Context(), deployment, input)
 					if err != nil {
 						t.Fatal(err)
@@ -268,7 +268,7 @@ func TestJoinRetainsParentResultAndWaitsForFailedDescendantCleanup(t *testing.T)
 		if err != nil {
 			t.Fatal(err)
 		}
-		input, _ := EncodeInput("root")
+		input, _ := EncodePayload("root")
 		root, err := engine.Start(t.Context(), newScopeJoinDeployment(t, ChildWaitBoundaryDrained, dispatcher), input)
 		if err != nil {
 			t.Fatal(err)
@@ -322,7 +322,7 @@ func TestDurableChildResultDoesNotWaitForUnrelatedDispatch(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		input, _ := EncodeInput(childTestInput{Mode: "wait:all"})
+		input, _ := EncodePayload(childTestInput{Mode: "wait:all"})
 		root, err := engine.Start(t.Context(), newChildTestDeploymentWithDispatcher(t, dispatcher), input)
 		if err != nil {
 			t.Fatal(err)

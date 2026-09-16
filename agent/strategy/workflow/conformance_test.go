@@ -21,7 +21,7 @@ func TestDefinitionConformance(t *testing.T) {
 		t.Fatal(err)
 	}
 	definition := mustDefinition(t, "workflow.conformance", call)
-	input, err := agent.EncodeInput(numberInput{Value: 7})
+	input, err := agent.EncodePayload(numberInput{Value: 7})
 	if err != nil {
 		t.Fatal(err)
 	}

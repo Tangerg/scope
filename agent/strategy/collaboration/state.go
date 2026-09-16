@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
@@ -49,14 +48,14 @@ func (t turnExecution) failure() (agent.Failure, bool) {
 type executionState struct {
 	Phase        phase            `json:"phase"`
 	Number       uint32           `json:"number"`
-	State        agent.Input      `json:"state"`
+	State        agent.Payload    `json:"state"`
 	Tasks        []Task           `json:"tasks,omitempty"`
 	Controls     []ControlReceipt `json:"controls,omitempty"`
 	Turn         *turnExecution   `json:"turn,omitzero"`
 	Mode         Mode             `json:"mode,omitempty"`
 	WaitSequence uint64           `json:"wait_sequence"`
 	WaitID       *agent.WaitID    `json:"wait_id,omitzero"`
-	Output       *agent.Output    `json:"output,omitzero"`
+	Output       *agent.Payload   `json:"output,omitzero"`
 }
 
 func (e executionState) task(key agent.ChildKey) *Task {
@@ -110,7 +109,7 @@ func matchesOutcome(start *agent.ChildStartResult, outcome *agent.ChildOutcome) 
 }
 
 func (e *executionState) recordOutcome(outcome agent.ChildOutcome) bool {
-	if e.Turn.Start != nil && e.Turn.Start.Key() == outcome.Key() {
+	if e.Turn != nil && e.Turn.Start != nil && e.Turn.Start.Key() == outcome.Key() {
 		if e.Turn.Outcome != nil || !matchesOutcome(e.Turn.Start, &outcome) {
 			return false
 		}
@@ -135,67 +134,16 @@ func (e executionState) validate(d *Definition) error {
 	if e.WaitSequence > uint64(e.Number)+uint64(len(e.Tasks)) {
 		return fmt.Errorf("%w: wait sequence exceeds declared turns and tasks", ErrInvalidState)
 	}
-	pending, active := 0, 0
-	var ids []agent.ProcessID
-	for index, task := range e.Tasks {
-		if err := d.validateRequest(task.Request); err != nil {
-			return fmt.Errorf("%w: task %d request: %w", ErrInvalidState, index, err)
-		}
-		for _, previous := range e.Tasks[:index] {
-			if previous.Request.Key == task.Request.Key {
-				return fmt.Errorf("%w: task %d duplicates key %q", ErrInvalidState, index, task.Request.Key)
-			}
-		}
-		worker, _ := d.worker(task.Request.Worker)
-		if task.Start == nil {
-			pending++
-		} else {
-			if pending > 0 {
-				return fmt.Errorf("%w: task %d start follows a pending start", ErrInvalidState, index)
-			}
-			if !task.Start.Valid() || !childcall.StartMatches(*task.Start, task.Request.Key, worker.deploymentRef) {
-				return fmt.Errorf("%w: task %d start does not match its request", ErrInvalidState, index)
-			}
-			if id, present := task.Start.ProcessID(); present {
-				if slices.Contains(ids, id) {
-					return fmt.Errorf("%w: task %d reuses process %q", ErrInvalidState, index, id)
-				}
-				ids = append(ids, id)
-				if task.Outcome == nil {
-					active++
-				}
-			}
-		}
-		if !matchesOutcome(task.Start, task.Outcome) {
-			return fmt.Errorf("%w: task %d outcome does not match its start", ErrInvalidState, index)
-		}
-		if task.Outcome != nil {
-			if output, completed := task.Outcome.Result().Output(); completed {
-				if err := worker.descriptor.ValidateOutput(output); err != nil {
-					return fmt.Errorf("%w: task %d output: %w", ErrInvalidState, index, err)
-				}
-			}
-		}
+	pending, ids, err := e.validateTasks(d)
+	if err != nil {
+		return err
 	}
-	if uint64(active+pending) > uint64(d.maxConcurrentTasks) {
-		return fmt.Errorf("%w: active and pending tasks exceed concurrency bound", ErrInvalidState)
-	}
-	pendingControls := 0
-	for index, receipt := range e.Controls {
-		effect, err := e.controlEffect(receipt.Control)
-		if err != nil {
-			return fmt.Errorf("%w: control %d: %w", ErrInvalidState, index, err)
-		}
-		if receipt.Result == nil {
-			pendingControls++
-		} else if pending > 0 || pendingControls > 0 {
-			return fmt.Errorf("%w: control %d result precedes pending work", ErrInvalidState, index)
-		} else if !receipt.Result.Matches(effect) {
-			return fmt.Errorf("%w: control %d result does not match its effect", ErrInvalidState, index)
-		}
+	pendingControls, err := e.validateControls(pending)
+	if err != nil {
+		return err
 	}
 	if e.Phase == phaseReady {
-		if e.Number != 0 || len(e.Tasks)+len(e.Controls) != 0 || e.Turn != nil || e.Mode != "" || e.WaitSequence != 0 || e.WaitID != nil || e.Output != nil {
+		if e.Number != 0 || len(e.Tasks)+len(e.Controls) != 0 || e.Turn != nil || e.Mode != Undecided || e.WaitSequence != 0 || e.WaitID != nil || e.Output != nil {
 			return fmt.Errorf("%w: ready phase retains execution progress", ErrInvalidState)
 		}
 		return nil
@@ -214,7 +162,7 @@ func (e executionState) validate(d *Definition) error {
 	}
 	switch e.Phase {
 	case phaseStartingTurn:
-		if e.Turn.Start != nil || e.Turn.Outcome != nil || e.Mode != "" {
+		if e.Turn.Start != nil || e.Turn.Outcome != nil || e.Mode != Undecided {
 			return fmt.Errorf("%w: starting turn retains a start, outcome, or decision", ErrInvalidState)
 		}
 	case phaseApplying:
@@ -228,7 +176,7 @@ func (e executionState) validate(d *Definition) error {
 		if e.Mode == Wait && e.hasUnseenOutcome() {
 			return fmt.Errorf("%w: waiting decision has unseen task outcomes", ErrInvalidState)
 		}
-		if e.Turn.Outcome == nil && e.Mode != "" || e.Turn.Outcome != nil && e.Mode != Wait {
+		if e.Turn.Outcome == nil && e.Mode != Undecided || e.Turn.Outcome != nil && e.Mode != Wait {
 			return fmt.Errorf("%w: waiting mode contradicts turn outcome", ErrInvalidState)
 		}
 		if _, err := e.waitSpec(); err != nil {
@@ -242,7 +190,7 @@ func (e executionState) validate(d *Definition) error {
 			return fmt.Errorf("%w: completed output: %w", ErrInvalidState, err)
 		}
 	case phaseFailed:
-		if _, failed := e.Turn.failure(); !failed && !e.Turn.unresolved() || e.Mode != "" {
+		if _, failed := e.Turn.failure(); !failed && !e.Turn.unresolved() || e.Mode != Undecided {
 			return fmt.Errorf("%w: failed phase requires a failed or unresolved turn without a decision", ErrInvalidState)
 		}
 	default:
@@ -251,7 +199,74 @@ func (e executionState) validate(d *Definition) error {
 	return nil
 }
 
-func (e executionState) validateTurn(d *Definition, ids []agent.ProcessID) error {
+func (e executionState) validateTasks(d *Definition) (int, map[agent.ProcessID]struct{}, error) {
+	pending, active := 0, 0
+	ids := make(map[agent.ProcessID]struct{}, len(e.Tasks))
+	keys := make(map[agent.ChildKey]struct{}, len(e.Tasks))
+	for index, task := range e.Tasks {
+		if err := d.validateRequest(task.Request); err != nil {
+			return 0, nil, fmt.Errorf("%w: task %d request: %w", ErrInvalidState, index, err)
+		}
+		if _, duplicate := keys[task.Request.Key]; duplicate {
+			return 0, nil, fmt.Errorf("%w: task %d duplicates key %q", ErrInvalidState, index, task.Request.Key)
+		}
+		keys[task.Request.Key] = struct{}{}
+		worker, _ := d.worker(task.Request.Worker)
+		if task.Start == nil {
+			pending++
+		} else {
+			if pending > 0 {
+				return 0, nil, fmt.Errorf("%w: task %d start follows a pending start", ErrInvalidState, index)
+			}
+			if !task.Start.Matches(task.Request.Key, worker.deploymentRef) {
+				return 0, nil, fmt.Errorf("%w: task %d start does not match its request", ErrInvalidState, index)
+			}
+			if id, present := task.Start.ProcessID(); present {
+				if _, duplicate := ids[id]; duplicate {
+					return 0, nil, fmt.Errorf("%w: task %d reuses process %q", ErrInvalidState, index, id)
+				}
+				ids[id] = struct{}{}
+				if task.Outcome == nil {
+					active++
+				}
+			}
+		}
+		if !matchesOutcome(task.Start, task.Outcome) {
+			return 0, nil, fmt.Errorf("%w: task %d outcome does not match its start", ErrInvalidState, index)
+		}
+		if task.Outcome != nil {
+			if output, completed := task.Outcome.Result().Output(); completed {
+				if err := worker.descriptor.ValidateOutput(output); err != nil {
+					return 0, nil, fmt.Errorf("%w: task %d output: %w", ErrInvalidState, index, err)
+				}
+			}
+		}
+	}
+	if uint64(active+pending) > uint64(d.maxConcurrentTasks) {
+		return 0, nil, fmt.Errorf("%w: active and pending tasks exceed concurrency bound", ErrInvalidState)
+	}
+	return pending, ids, nil
+}
+
+func (e executionState) validateControls(pending int) (int, error) {
+	pendingControls := 0
+	for index, receipt := range e.Controls {
+		effect, err := e.controlEffect(receipt.Control)
+		if err != nil {
+			return 0, fmt.Errorf("%w: control %d: %w", ErrInvalidState, index, err)
+		}
+		if receipt.Result == nil {
+			pendingControls++
+		} else if pending > 0 || pendingControls > 0 {
+			return 0, fmt.Errorf("%w: control %d result precedes pending work", ErrInvalidState, index)
+		} else if !receipt.Result.Matches(effect) {
+			return 0, fmt.Errorf("%w: control %d result does not match its effect", ErrInvalidState, index)
+		}
+	}
+	return pendingControls, nil
+}
+
+func (e executionState) validateTurn(d *Definition, ids map[agent.ProcessID]struct{}) error {
 	if e.Turn == nil || e.Number == 0 || e.Turn.Input.Number != e.Number {
 		return fmt.Errorf("%w: turn is missing or its number does not match", ErrInvalidState)
 	}
@@ -261,12 +276,13 @@ func (e executionState) validateTurn(d *Definition, ids []agent.ProcessID) error
 	if err := d.descriptor.ValidateInput(e.Turn.Input.State); err != nil {
 		return fmt.Errorf("%w: turn input state: %w", ErrInvalidState, err)
 	}
-	var descriptors []agent.Descriptor
-	for _, worker := range d.workers {
-		descriptors = append(descriptors, worker.descriptor)
+	if len(e.Turn.Input.Workers) != len(d.workers) {
+		return fmt.Errorf("%w: turn workers do not match the definition: count differs", ErrInvalidState)
 	}
-	if !sameJSON(descriptors, e.Turn.Input.Workers) {
-		return fmt.Errorf("%w: turn workers do not match the definition", ErrInvalidState)
+	for index, worker := range d.workers {
+		if e.Turn.Input.Workers[index].Digest() != worker.descriptor.Digest() {
+			return fmt.Errorf("%w: turn worker %d does not match the definition", ErrInvalidState, index)
+		}
 	}
 	for index, task := range e.Turn.Input.Tasks {
 		current := e.Tasks[index]
@@ -293,18 +309,19 @@ func (e executionState) validateTurn(d *Definition, ids []agent.ProcessID) error
 		if err != nil {
 			return fmt.Errorf("%w: turn key: %w", ErrInvalidState, err)
 		}
-		if !e.Turn.Start.Valid() || !childcall.StartMatches(*e.Turn.Start, key, d.coordinator.deploymentRef) {
+		if !e.Turn.Start.Matches(key, d.coordinator.deploymentRef) {
 			return fmt.Errorf("%w: turn start does not match the coordinator request", ErrInvalidState)
 		}
 		id, present := e.Turn.Start.ProcessID()
-		if !present && e.Phase != phaseFailed || slices.Contains(ids, id) {
+		_, reused := ids[id]
+		if !present && e.Phase != phaseFailed || reused {
 			return fmt.Errorf("%w: turn process is absent or reused by a task", ErrInvalidState)
 		}
 	}
 	if !matchesOutcome(e.Turn.Start, e.Turn.Outcome) {
 		return fmt.Errorf("%w: turn outcome does not match its start", ErrInvalidState)
 	}
-	if e.Mode == "" {
+	if e.Mode == Undecided {
 		if e.Turn.Outcome != nil && e.Phase != phaseFailed || len(e.Tasks) != len(e.Turn.Input.Tasks) ||
 			!sameJSON(e.State, e.Turn.Input.State) || !sameJSON(e.Controls, nilIfEmpty(e.Turn.Input.Controls)) {
 			return fmt.Errorf("%w: turn without a decision changed state, tasks, or controls", ErrInvalidState)
@@ -405,9 +422,9 @@ func (e executionState) controlEffect(control Control) (agent.Effect, error) {
 		return agent.Effect{}, ErrInvalidDecision
 	}
 	if control.Signal != nil {
-		return agent.SignalChild(id, *control.Signal)
+		return agent.NewChildSignalEffect(id, *control.Signal)
 	}
-	return agent.CancelChild(id, *control.CancelReason)
+	return agent.NewChildCancelEffect(id, *control.CancelReason)
 }
 
 func (e executionState) hasUnseenOutcome() bool {

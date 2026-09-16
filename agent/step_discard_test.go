@@ -32,7 +32,7 @@ func TestPauseReportsCommittedStateRestorationFailure(t *testing.T) {
 					entered:    make(chan struct{}), restoreErr: cause,
 				}
 				deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
-				input, err := EncodeInput(engineTestInput{Value: "original state"})
+				input, err := EncodePayload(engineTestInput{Value: "original state"})
 				if err != nil {
 					t.Fatal(err)
 				}

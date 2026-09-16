@@ -13,6 +13,7 @@ import (
 type CompletionSource string
 
 const (
+	CompletionSourceInvalid CompletionSource = ""
 	// CompletionSourceModelResponse means the model produced a final response
 	// without requesting another tool round.
 	CompletionSourceModelResponse CompletionSource = "model_response"
@@ -24,6 +25,13 @@ const (
 
 func (c CompletionSource) Valid() bool {
 	return c == CompletionSourceModelResponse || c == CompletionSourceDirectToolResults
+}
+
+func (c CompletionSource) String() string {
+	if !c.Valid() {
+		return "invalid"
+	}
+	return string(c)
 }
 
 // Output is the final semantic Interaction result. Response is accumulated

@@ -334,7 +334,7 @@ func TestStepPausePublishesCommittedProcessPausedFact(t *testing.T) {
 		t.Fatal(err)
 	}
 	deployment := newChildTestDeployment(t)
-	input, err := EncodeInput(childTestInput{Mode: "leaf_pause"})
+	input, err := EncodePayload(childTestInput{Mode: "leaf_pause"})
 	if err != nil {
 		t.Fatal(err)
 	}

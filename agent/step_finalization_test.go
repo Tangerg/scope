@@ -41,7 +41,7 @@ func TestImmediateChildCompletionLimitReportsExecutionFailure(t *testing.T) {
 						t.Fatal(err)
 					}
 					defer mustCloseEngine(t, engine)
-					input, err := EncodeInput(childTestInput{Mode: "recurse:1"})
+					input, err := EncodePayload(childTestInput{Mode: "recurse:1"})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -146,7 +146,7 @@ func TestWaitConflictsAreRejectedBeforeDispatch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wait, err := RequestWait(key, []byte(`{"request":"answer"}`))
+			wait, err := NewWaitEffect(key, []byte(`{"request":"answer"}`))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -160,7 +160,7 @@ func TestWaitConflictsAreRejectedBeforeDispatch(t *testing.T) {
 			}
 			dispatcher := &engineTestDispatcher{policy: ReplayPolicySameIdentity}
 			deployment := engineTestDeployment(t, definition, dispatcher)
-			input, err := EncodeInput(engineTestInput{Value: "retained"})
+			input, err := EncodePayload(engineTestInput{Value: "retained"})
 			if err != nil {
 				t.Fatal(err)
 			}

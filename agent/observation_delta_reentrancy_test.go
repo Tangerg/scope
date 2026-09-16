@@ -113,7 +113,7 @@ func runDeltaListenerProcess(t *testing.T, callback func(context.Context, *Engin
 	}
 	t.Cleanup(func() { mustCloseEngine(t, engine) })
 	deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), &engineTestDispatcher{policy: ReplayPolicyNever})
-	input, err := EncodeInput(engineTestInput{Value: "stream"})
+	input, err := EncodePayload(engineTestInput{Value: "stream"})
 	if err != nil {
 		t.Fatal(err)
 	}

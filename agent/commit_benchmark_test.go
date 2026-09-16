@@ -91,7 +91,7 @@ func benchmarkSignalCommit(
 func benchmarkSignalCommitTree(b *testing.B, processCount int) (Deployment, EngineConfig, TreeSnapshot) {
 	b.Helper()
 	childDeployment := newChildTestDeployment(b)
-	childInput, err := EncodeInput(childTestInput{Mode: "leaf"})
+	childInput, err := EncodePayload(childTestInput{Mode: "leaf"})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func benchmarkSignalCommitTree(b *testing.B, processCount int) (Deployment, Engi
 			b.Error(closeErr)
 		}
 	})
-	input, err := EncodeInput(executionReplayBenchmarkState{Payload: "commit fixture"})
+	input, err := EncodePayload(executionReplayBenchmarkState{Payload: "commit fixture"})
 	if err != nil {
 		b.Fatal(err)
 	}

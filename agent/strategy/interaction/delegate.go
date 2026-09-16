@@ -76,7 +76,7 @@ func (d Delegate) Valid() bool {
 		d.budget.Valid() && d.capabilities.Valid()
 }
 
-func (d Delegate) validateInput(input agent.Input) error {
+func (d Delegate) validateInput(input agent.Payload) error {
 	if !d.Valid() {
 		return ErrInvalidDelegate
 	}
@@ -90,17 +90,17 @@ func delegateErrorResult(call chat.ToolCall, diagnostic string) chat.ToolResult 
 	}
 }
 
-func (d Delegate) prepareInput(call chat.ToolCall) (agent.Input, error) {
+func (d Delegate) prepareInput(call chat.ToolCall) (agent.Payload, error) {
 	arguments := strings.TrimSpace(call.Arguments)
 	if arguments == "" {
 		arguments = "{}"
 	}
-	input, err := agent.ParseInput([]byte(arguments))
+	input, err := agent.ParsePayload([]byte(arguments))
 	if err != nil {
-		return agent.Input{}, fmt.Errorf("arguments are not valid JSON: %w", err)
+		return agent.Payload{}, fmt.Errorf("arguments are not valid JSON: %w", err)
 	}
 	if err := d.validateInput(input); err != nil {
-		return agent.Input{}, fmt.Errorf("arguments violate the delegated worker input contract: %w", err)
+		return agent.Payload{}, fmt.Errorf("arguments violate the delegated worker input contract: %w", err)
 	}
 	return input, nil
 }

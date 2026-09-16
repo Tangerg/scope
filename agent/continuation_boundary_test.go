@@ -53,11 +53,11 @@ func TestEpisodeBoundaryRejectsUnresolvedDescendantAfterRootSuccess(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		workerInput, err := agent.EncodeInput(echoInput{Value: "uncertain work"})
+		workerInput, err := agent.EncodePayload(echoInput{Value: "uncertain work"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		gateInput, err := agent.EncodeInput("accepted input")
+		gateInput, err := agent.EncodePayload("accepted input")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -70,7 +70,7 @@ func TestEpisodeBoundaryRejectsUnresolvedDescendantAfterRootSuccess(t *testing.T
 			t.Fatal(err)
 		}
 		budget := agent.Budget{Steps: 16, Effects: 8, Signals: 16}
-		input, err := agent.EncodeInput([]agent.ChildSpec{
+		input, err := agent.EncodePayload([]agent.ChildSpec{
 			{Key: workerKey, DeploymentRef: workerBinding.DeploymentRef(), Input: workerInput, Budget: budget},
 			{Key: gateKey, DeploymentRef: gateBinding.DeploymentRef(), Input: gateInput, Budget: budget},
 		})

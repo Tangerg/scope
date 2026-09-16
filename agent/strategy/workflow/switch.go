@@ -91,7 +91,7 @@ func Switch[I any](config SwitchConfig[I]) (Stage, error) {
 	}
 	selector := config.Select
 	selectCase := func(ctx context.Context, raw json.RawMessage) (string, error) {
-		input, err := agent.ParseInput(raw)
+		input, err := agent.ParsePayload(raw)
 		if err != nil {
 			return "", err
 		}

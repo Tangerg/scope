@@ -54,3 +54,14 @@ func sameOutcome(left, right agent.ChildOutcome) bool {
 	return left.Key() == right.Key() && left.Result().ProcessID() == right.Result().ProcessID() &&
 		left.Result().Status() == right.Result().Status()
 }
+
+func TestCompetitionRejectsUnmergeableRetainedOutcomes(t *testing.T) {
+	starts, outcomes := competitionOutcomes(t, 3)
+	state := firstSuccessState{Starts: starts[:2], Outcomes: []agent.ChildOutcome{outcomes[2]}}
+	if err := state.recordOutcomes(outcomes[:1]); !errors.Is(err, ErrInvalidProtocol) {
+		t.Fatalf("unmergeable retained outcome was silently discarded: %v", err)
+	}
+	if len(state.Outcomes) != 1 || !sameOutcome(state.Outcomes[0], outcomes[2]) {
+		t.Fatal("failed merge changed retained evidence")
+	}
+}

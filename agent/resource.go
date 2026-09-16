@@ -88,6 +88,7 @@ func (l Limits) validate() error {
 	}
 }
 
+// Pending mailbox depth is renewable occupancy, not a transferable child allocation.
 func (l Limits) budget() Budget {
 	return Budget{Steps: l.MaxSteps, Effects: l.MaxEffects, Signals: l.MaxSignals}
 }
@@ -252,6 +253,8 @@ func (t TreeLimits) validate() error {
 }
 
 // Only counters without an authoritative lifecycle record are stored separately.
+// PreparedEffects enforces a hard allocation bound; overflow is an error.
+// DroppedDeltas is best-effort telemetry and saturates instead of stopping work.
 type processCounters struct {
 	PreparedEffects uint64 `json:"prepared_effects"`
 	DroppedDeltas   uint64 `json:"dropped_deltas"`

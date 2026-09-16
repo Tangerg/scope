@@ -23,7 +23,7 @@ func TestFanoutRestoreRejectsInvalidWindowState(t *testing.T) {
 		t.Fatal(err)
 	}
 	definition := mustDefinition(t, "test.workflow.window", stage)
-	input, err := agent.EncodeInput([]forkInput{{Value: 1}, {Value: 2}, {Value: 3}})
+	input, err := agent.EncodePayload([]forkInput{{Value: 1}, {Value: 2}, {Value: 3}})
 	if err != nil {
 		t.Fatal(err)
 	}

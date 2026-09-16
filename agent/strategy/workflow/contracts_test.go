@@ -60,7 +60,7 @@ func captureWaitingForkTree(
 ) (agent.TreeSnapshot, []agent.ProcessID) {
 	t.Helper()
 	engine, _ := agent.NewEngine(agent.EngineConfig{DeploymentResolver: fixture.resolver})
-	input, _ := agent.EncodeInput(forkInput{Value: 7})
+	input, _ := agent.EncodePayload(forkInput{Value: 7})
 	root, err := engine.Start(context.Background(), fixture.root, input)
 	if err != nil {
 		t.Fatal(err)
@@ -188,7 +188,7 @@ func TestWorkflowCancellationPropagatesToPausedChild(t *testing.T) {
 	engine, _ := agent.NewEngine(agent.EngineConfig{
 		DeploymentResolver: deploymentResolver{childDeployment.DeploymentRef(): childDeployment},
 	})
-	input, _ := agent.EncodeInput(forkInput{Value: 1})
+	input, _ := agent.EncodePayload(forkInput{Value: 1})
 	root, err := engine.Start(context.Background(), rootDeployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -266,7 +266,7 @@ func TestCallCannotEscalateBudgetOrCapabilities(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			input, _ := agent.EncodeInput(numberInput{Value: 1})
+			input, _ := agent.EncodePayload(numberInput{Value: 1})
 			result, err := engine.Run(context.Background(), root, input)
 			if err != nil {
 				t.Fatal(err)
@@ -360,7 +360,7 @@ func (p *pausingBranchDefinition) Descriptor() agent.Descriptor {
 	return p.descriptor
 }
 
-func (p *pausingBranchDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (p *pausingBranchDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	decoded, err := input.Decode[forkInput]()
 	if err != nil {
 		return nil, err
@@ -398,7 +398,7 @@ func (p *pausingBranchExecution) Step(_ context.Context, signals []agent.Signal)
 		return agent.Pause(0, "test branch is ready to resume")
 	case 1:
 		p.Phase = 2
-		output, _ := agent.EncodeOutput(branchOutput{Branch: p.Branch, Value: p.Value})
+		output, _ := agent.EncodePayload(branchOutput{Branch: p.Branch, Value: p.Value})
 		return agent.Complete(0, output)
 	default:
 		return agent.Transition{}, errors.New("pausing branch already completed")

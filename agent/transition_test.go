@@ -25,7 +25,7 @@ func TestTransitionConstructorsEnforceOwnedFields(t *testing.T) {
 	if wait, err := Wait(1, waitID); err != nil || wait.Kind() != TransitionKindWait {
 		t.Fatalf("Wait() = %+v, %v", wait, err)
 	}
-	output, _ := ParseOutput(json.RawMessage(`{"answer":42}`))
+	output, _ := ParsePayload(json.RawMessage(`{"answer":42}`))
 	if complete, err := Complete(0, output); err != nil || complete.Kind() != TransitionKindComplete {
 		t.Fatalf("Complete() = %+v, %v", complete, err)
 	}

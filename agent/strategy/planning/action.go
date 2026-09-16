@@ -62,8 +62,8 @@ func NewAction(config ActionConfig) (Action, error) {
 	if !agent.ValidQualifiedName(config.Name) {
 		return Action{}, fmt.Errorf("%w: invalid name %q", ErrInvalidAction, config.Name)
 	}
-	if !validDescription(config.Description) {
-		return Action{}, fmt.Errorf("%w: Description must be non-empty, trimmed UTF-8 within %d bytes", ErrInvalidAction, maxDescriptionBytes)
+	if !agent.ValidDescription(config.Description) {
+		return Action{}, fmt.Errorf("%w: Description must be non-empty, trimmed UTF-8 within %d bytes", ErrInvalidAction, agent.MaxDescriptionBytes)
 	}
 	preconditions, err := canonicalConditions(config.Preconditions)
 	if err != nil {

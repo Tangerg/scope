@@ -37,7 +37,7 @@ func BenchmarkPlanningReplayBoundary(b *testing.B) {
 	}
 	for _, size := range []int{1 << 10, 64 << 10} {
 		b.Run(fmt.Sprintf("input_bytes_%d", size), func(b *testing.B) {
-			input, err := agent.EncodeInput(strings.Repeat("x", size))
+			input, err := agent.EncodePayload(strings.Repeat("x", size))
 			if err != nil {
 				b.Fatal(err)
 			}

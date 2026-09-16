@@ -71,7 +71,7 @@ func (f *FirstSuccess) Descriptor() agent.Descriptor {
 	return f.descriptor
 }
 
-func (f *FirstSuccess) Start(input agent.Input) (agent.Execution, error) {
+func (f *FirstSuccess) Start(input agent.Payload) (agent.Execution, error) {
 	if !f.valid() {
 		return nil, ErrInvalidConfig
 	}
@@ -84,7 +84,7 @@ func (f *FirstSuccess) Start(input agent.Input) (agent.Execution, error) {
 	}
 	state := firstSuccessState{Phase: competitionReady, Candidates: candidates}
 	if err := state.validate(f.maxCandidates); err != nil {
-		return nil, fmt.Errorf("%w: %w", agent.ErrInvalidInput, err)
+		return nil, fmt.Errorf("%w: %w", agent.ErrInvalidPayload, err)
 	}
 	return &firstSuccessExecution{definition: f, state: state}, nil
 }
@@ -127,7 +127,7 @@ func (f *firstSuccessExecution) Step(ctx context.Context, signals []agent.Signal
 		}
 		effects := make([]agent.Effect, 0, len(f.state.Candidates))
 		for _, candidate := range f.state.Candidates {
-			effect, err := agent.StartChild(candidate)
+			effect, err := agent.NewChildStartEffect(candidate)
 			if err != nil {
 				return agent.Transition{}, err
 			}
@@ -160,7 +160,7 @@ func (f *firstSuccessExecution) acceptStarts(signals []agent.Signal) (agent.Tran
 			return agent.Transition{}, err
 		}
 		candidate := f.state.Candidates[len(f.state.Starts)]
-		if !childcall.StartMatches(started, candidate.Key, candidate.DeploymentRef) {
+		if !(started).Matches(candidate.Key, candidate.DeploymentRef) {
 			return agent.Transition{}, fmt.Errorf("%w: child start disagrees with its candidate", ErrInvalidProtocol)
 		}
 		f.state.Starts = append(f.state.Starts, started)
@@ -236,7 +236,7 @@ func (f *firstSuccessExecution) continueCompetition(consumed uint32) (agent.Tran
 	f.state.WaitID = nil
 	if f.state.Winner != nil || len(f.state.remaining()) == 0 {
 		f.state.Phase = competitionCompleted
-		output, err := agent.EncodeOutput(f.state.result())
+		output, err := agent.EncodePayload(f.state.result())
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -246,7 +246,7 @@ func (f *firstSuccessExecution) continueCompetition(consumed uint32) (agent.Tran
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	effect, err := agent.WaitForChildren(spec)
+	effect, err := agent.NewChildWaitEffect(spec)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -259,3 +259,5 @@ func (f *firstSuccessExecution) Snapshot() (agent.ExecutionState, error) {
 }
 
 var _ agent.Execution = (*firstSuccessExecution)(nil)
+
+var _ agent.Definition = (*FirstSuccess)(nil)

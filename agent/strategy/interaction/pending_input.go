@@ -3,13 +3,10 @@ package interaction
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
 )
-
-var ErrInvalidPendingToolInput = errors.New("interaction: invalid pending tool input")
 
 // PendingToolInput is the consumer-facing view of one current Tool input wait.
 // It deliberately excludes Tool continuation state and all application UI,

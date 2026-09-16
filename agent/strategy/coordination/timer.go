@@ -3,7 +3,6 @@ package coordination
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -37,7 +36,7 @@ func decodeTimerEffect(effect agent.Effect) (timerRequest, error) {
 	if !effect.Valid() || effect.Target() != agent.EffectTargetDispatcher {
 		return timerRequest{}, ErrInvalidProtocol
 	}
-	payload, err := agent.ParseInput(effect.Payload())
+	payload, err := agent.ParsePayload(effect.Payload())
 	if err != nil {
 		return timerRequest{}, err
 	}
@@ -60,9 +59,7 @@ func (Timer) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
 
 // Dispatch requires a non-nil context and panics if ctx is nil.
 func (Timer) Dispatch(ctx context.Context, request agent.EffectRequest, _ agent.DeltaEmitter) (agent.Settlement, error) {
-	if ctx == nil {
-		panic(errors.New("coordination: nil Context"))
-	}
+	ctx = agent.RequireContext(ctx)
 	if !request.Valid() {
 		return agent.Settlement{}, ErrInvalidProtocol
 	}

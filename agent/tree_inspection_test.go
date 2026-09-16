@@ -78,17 +78,17 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 				t.Fatal(err)
 			}
 			var deployment Deployment
-			var input Input
+			var input Payload
 			if scenario.mode != "" {
 				deployment = newChildTestDeployment(t)
-				input, err = EncodeInput(childTestInput{Mode: scenario.mode})
+				input, err = EncodePayload(childTestInput{Mode: scenario.mode})
 			} else {
 				var dispatcher Dispatcher = &engineTestDispatcher{policy: ReplayPolicyNever}
 				if scenario.effect == EffectBoundaryResolved {
 					dispatcher = &failingEngineTestDispatcher{}
 				}
 				deployment = engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)
-				input, err = EncodeInput(engineTestInput{Value: "inspect"})
+				input, err = EncodePayload(engineTestInput{Value: "inspect"})
 			}
 			if err != nil {
 				t.Fatal(err)

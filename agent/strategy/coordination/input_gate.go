@@ -53,7 +53,7 @@ func (i *InputGate) Descriptor() agent.Descriptor {
 	return i.descriptor
 }
 
-func (i *InputGate) Start(input agent.Input) (agent.Execution, error) {
+func (i *InputGate) Start(input agent.Payload) (agent.Execution, error) {
 	if !i.valid() {
 		return nil, ErrInvalidConfig
 	}
@@ -96,7 +96,7 @@ const (
 
 type inputGateState struct {
 	Phase   gatePhase     `json:"phase"`
-	Request agent.Input   `json:"request"`
+	Request agent.Payload `json:"request"`
 	WaitID  *agent.WaitID `json:"wait_id,omitzero"`
 	Answer  *agent.Signal `json:"answer,omitzero"`
 }
@@ -107,22 +107,27 @@ func (i inputGateState) validate(definition *InputGate) error {
 	}
 	switch i.Phase {
 	case gateReady, gateAwaitingOpen:
-		if i.WaitID == nil && i.Answer == nil {
-			return nil
+		if i.WaitID != nil || i.Answer != nil {
+			return fmt.Errorf("%w: unopened gate retains a wait or answer", ErrInvalidState)
 		}
 	case gateWaiting:
-		if i.WaitID != nil && i.WaitID.Valid() && i.Answer == nil {
-			return nil
+		if i.WaitID == nil || !i.WaitID.Valid() {
+			return fmt.Errorf("%w: waiting gate requires a valid WaitID", ErrInvalidState)
+		}
+		if i.Answer != nil {
+			return fmt.Errorf("%w: waiting gate already has an answer", ErrInvalidState)
 		}
 	case gateCompleted:
-		if i.WaitID != nil && i.Answer != nil {
-			if err := i.acceptsAnswer(definition, *i.Answer); err != nil {
-				return fmt.Errorf("%w: completed answer: %w", ErrInvalidState, err)
-			}
-			return nil
+		if i.WaitID == nil || !i.WaitID.Valid() || i.Answer == nil {
+			return fmt.Errorf("%w: completed gate requires a wait and answer", ErrInvalidState)
 		}
+		if err := i.acceptsAnswer(definition, *i.Answer); err != nil {
+			return fmt.Errorf("%w: completed answer: %w", ErrInvalidState, err)
+		}
+	default:
+		return fmt.Errorf("%w: unknown input gate phase %q", ErrInvalidState, i.Phase)
 	}
-	return fmt.Errorf("%w: invalid input gate phase or answer", ErrInvalidState)
+	return nil
 }
 
 func (i inputGateState) acceptsAnswer(definition *InputGate, signal agent.Signal) error {
@@ -130,7 +135,7 @@ func (i inputGateState) acceptsAnswer(definition *InputGate, signal agent.Signal
 	if !signal.Valid() || i.WaitID == nil || !addressed || waitID != *i.WaitID {
 		return fmt.Errorf("%w: answer does not address the input gate", ErrInvalidProtocol)
 	}
-	payload, err := agent.ParseInput(signal.Payload())
+	payload, err := agent.ParsePayload(signal.Payload())
 	if err != nil {
 		return err
 	}
@@ -158,7 +163,7 @@ func (i *inputGateExecution) Step(ctx context.Context, signals []agent.Signal) (
 		if err != nil {
 			return agent.Transition{}, err
 		}
-		effect, err := agent.RequestWait(key, i.state.Request.JSON())
+		effect, err := agent.NewWaitEffect(key, i.state.Request.JSON())
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -185,7 +190,7 @@ func (i *inputGateExecution) Step(ctx context.Context, signals []agent.Signal) (
 		}
 		i.state.Answer = &answer
 		i.state.Phase = gateCompleted
-		output, err := agent.EncodeOutput(answer)
+		output, err := agent.EncodePayload(answer)
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -200,3 +205,5 @@ func (i *inputGateExecution) Snapshot() (agent.ExecutionState, error) {
 }
 
 var _ agent.Execution = (*inputGateExecution)(nil)
+
+var _ agent.Definition = (*InputGate)(nil)

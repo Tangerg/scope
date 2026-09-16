@@ -46,11 +46,11 @@ type executionState struct {
 }
 
 type artifactRecord struct {
-	ModelCallSequence uint32       `json:"model_call_sequence"`
-	ToolCallIndex     uint32       `json:"tool_call_index"`
-	ToolCallID        string       `json:"tool_call_id"`
-	DelegateName      string       `json:"delegate_name"`
-	Output            agent.Output `json:"output"`
+	ModelCallSequence uint32        `json:"model_call_sequence"`
+	ToolCallIndex     uint32        `json:"tool_call_index"`
+	ToolCallID        string        `json:"tool_call_id"`
+	DelegateName      string        `json:"delegate_name"`
+	Output            agent.Payload `json:"output"`
 }
 
 func (e executionState) validate(ctx context.Context, definition *Definition) error {

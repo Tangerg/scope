@@ -64,7 +64,7 @@ func TestProcessSnapshotOwnsMutableWire(t *testing.T) {
 				}
 				if value.FinishedAt != nil {
 					*value.FinishedAt = value.StartedAt
-					*value.Output = Output{}
+					*value.Output = Payload{}
 					*value.Termination = Termination{}
 				}
 			}
@@ -338,7 +338,7 @@ func completedEngineTestSnapshot(t testing.TB) ProcessSnapshot {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := EncodeInput(engineTestInput{Value: "snapshot"})
+	input, err := EncodePayload(engineTestInput{Value: "snapshot"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +366,7 @@ func preparedEngineTestSnapshot(t testing.TB) ProcessSnapshot {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := EncodeInput(engineTestInput{Value: "prepared snapshot"})
+	input, err := EncodePayload(engineTestInput{Value: "prepared snapshot"})
 	if err != nil {
 		t.Fatal(err)
 	}

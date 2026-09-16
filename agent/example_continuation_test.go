@@ -47,7 +47,7 @@ func episodeBinding(definition agent.Definition) (agent.Deployment, error) {
 type successorRequest struct {
 	Predecessor   agent.ProcessID     `json:"predecessor"`
 	DeploymentRef agent.DeploymentRef `json:"deployment_ref"`
-	Input         agent.Input         `json:"input"`
+	Input         agent.Payload       `json:"input"`
 	Limits        agent.Limits        `json:"limits"`
 	TreeLimits    agent.TreeLimits    `json:"tree_limits"`
 	Capabilities  agent.CapabilitySet `json:"capabilities"`
@@ -57,7 +57,7 @@ func (s successorRequest) identity() (agent.Digest, error) {
 	if !s.Predecessor.Valid() || !s.DeploymentRef.Valid() || !s.Input.Valid() || !s.Limits.Valid() || !s.TreeLimits.Valid() || !s.Capabilities.Valid() {
 		return agent.Digest{}, errors.New("invalid successor request")
 	}
-	encoded, err := agent.EncodeInput(s)
+	encoded, err := agent.EncodePayload(s)
 	if err != nil {
 		return agent.Digest{}, err
 	}
@@ -84,7 +84,7 @@ func ExampleEngine_Start_successiveEpisodes() {
 			panic(closeErr)
 		}
 	}()
-	initial, err := agent.EncodeInput(episodeState{Summary: "reviewed plan"})
+	initial, err := agent.EncodePayload(episodeState{Summary: "reviewed plan"})
 	if err != nil {
 		panic(err)
 	}
@@ -104,7 +104,7 @@ func ExampleEngine_Start_successiveEpisodes() {
 	if err != nil {
 		panic(err)
 	}
-	transfer, err := agent.EncodeInput(state)
+	transfer, err := agent.EncodePayload(state)
 	if err != nil {
 		panic(err)
 	}

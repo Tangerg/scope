@@ -19,12 +19,20 @@ var ErrInvalidSnapshot = errors.New("agent: invalid process snapshot")
 type WaitKind string
 
 const (
+	WaitKindInvalid  WaitKind = ""
 	WaitKindExternal WaitKind = "external"
 	WaitKindChildren WaitKind = "children"
 )
 
 func (w WaitKind) Valid() bool {
 	return w == WaitKindExternal || w == WaitKindChildren
+}
+
+func (w WaitKind) String() string {
+	if !w.Valid() {
+		return invalidEnumName
+	}
+	return string(w)
 }
 
 // ProcessSnapshot is an immutable diagnostic capture of one Engine-owned
@@ -272,7 +280,7 @@ type processSnapshotWire struct {
 	CurrentWaitID           *WaitID             `json:"current_wait_id,omitempty"`
 	PauseReason             string              `json:"pause_reason,omitempty"`
 	PendingControl          pendingControlWire  `json:"pending_control"`
-	Output                  *Output             `json:"output,omitempty"`
+	Output                  *Payload            `json:"output,omitempty"`
 	Termination             *Termination        `json:"termination,omitempty"`
 }
 

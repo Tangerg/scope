@@ -141,7 +141,7 @@ func TestRestorePreparedOutputUsesDeploymentSchema(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			output, err := ParseOutput(json.RawMessage(test.payload))
+			output, err := ParsePayload(json.RawMessage(test.payload))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -193,7 +193,7 @@ func TestRestorePreparedOutputUsesDeploymentSchema(t *testing.T) {
 			if process != nil {
 				awaitResult(t, process)
 			}
-			if process != nil || !errors.Is(err, ErrInvalidTreeSnapshot) || !errors.Is(err, ErrInvalidOutput) {
+			if process != nil || !errors.Is(err, ErrInvalidTreeSnapshot) || !errors.Is(err, ErrInvalidPayload) {
 				t.Errorf("RestoreTree = %v, %v; want invalid output rejection", process, err)
 			}
 			if _, registered := engine.Process(tree.RootID()); registered {

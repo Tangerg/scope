@@ -41,19 +41,19 @@ type MapConfig[I, O any] struct {
 type mapSource struct {
 	binding    childBinding
 	codec      mapValueCodec
-	decodeItem func(jsontext.Value) (agent.Input, error)
+	decodeItem func(jsontext.Value) (agent.Payload, error)
 }
 
 func (m mapSource) count(raw json.RawMessage) (uint32, error) {
 	return m.codec.scan(raw, 0, 0, nil)
 }
 
-func (m mapSource) windowInputs(raw json.RawMessage, start, windowSize uint32) ([]agent.Input, uint32, error) {
+func (m mapSource) windowInputs(raw json.RawMessage, start, windowSize uint32) ([]agent.Payload, uint32, error) {
 	if start > m.codec.maxItems {
 		return nil, 0, ErrInvalidExecutionState
 	}
 	end := start + min(windowSize, m.codec.maxItems-start)
-	var items []agent.Input
+	var items []agent.Payload
 	count, err := m.codec.scan(raw, start, end, func(value jsontext.Value) error {
 		input, err := m.decodeItem(value)
 		if err != nil {
@@ -187,21 +187,21 @@ func (m mapValueCodec) scan(
 	return count, nil
 }
 
-func (m mapValueCodec) item[I any](raw jsontext.Value) (agent.Input, error) {
-	input, err := agent.ParseInput(json.RawMessage(raw))
+func (m mapValueCodec) item[I any](raw jsontext.Value) (agent.Payload, error) {
+	input, err := agent.ParsePayload(json.RawMessage(raw))
 	if err != nil {
-		return agent.Input{}, err
+		return agent.Payload{}, err
 	}
 	value, err := input.Decode[I]()
 	if err != nil {
-		return agent.Input{}, err
+		return agent.Payload{}, err
 	}
-	item, err := agent.EncodeInput(value)
+	item, err := agent.EncodePayload(value)
 	if err != nil {
-		return agent.Input{}, err
+		return agent.Payload{}, err
 	}
 	if err := m.schemas.itemInput.Validate(item.JSON()); err != nil {
-		return agent.Input{}, err
+		return agent.Payload{}, err
 	}
 	return item, nil
 }
@@ -214,7 +214,7 @@ func (m mapValueCodec) collect[O any](raw []json.RawMessage) (json.RawMessage, e
 	if err != nil {
 		return nil, err
 	}
-	erased, err := agent.EncodeOutput(values)
+	erased, err := agent.EncodePayload(values)
 	if err != nil {
 		return nil, fmt.Errorf("Map %q encode result: %w", m.id, err)
 	}

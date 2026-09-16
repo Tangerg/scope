@@ -43,12 +43,12 @@ func (s safetyResolver) Resolve(ref agent.DeploymentRef) (agent.Deployment, erro
 type safetyCompetition struct {
 	descriptor  agent.Descriptor
 	competition *coordination.FirstSuccess
-	candidates  agent.Input
-	output      agent.Output
+	candidates  agent.Payload
+	output      agent.Payload
 }
 
 func (s *safetyCompetition) Descriptor() agent.Descriptor { return s.descriptor }
-func (s *safetyCompetition) Start(input agent.Input) (agent.Execution, error) {
+func (s *safetyCompetition) Start(input agent.Payload) (agent.Execution, error) {
 	if err := s.descriptor.ValidateInput(input); err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func (s *safetyCompetition) Restore(ctx context.Context, state agent.ExecutionSt
 
 type safetyCompetitionExecution struct {
 	agent.Execution
-	output agent.Output
+	output agent.Payload
 }
 
 func (s *safetyCompetitionExecution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
@@ -105,15 +105,15 @@ func safetyChild[I, O any](output O) (agent.Deployment, safetyResolver) {
 	budget := agent.Budget{Steps: 16, Effects: 16, Signals: 16}
 	candidates := []agent.ChildSpec{}
 	for _, key := range []string{"winner", "loser"} {
-		candidates = append(candidates, agent.ChildSpec{Key: safetyValue(agent.ParseChildKey(key)), DeploymentRef: timer.DeploymentRef(), Input: safetyValue(agent.EncodeInput(time.Unix(1, 0).UTC())), Budget: budget})
+		candidates = append(candidates, agent.ChildSpec{Key: safetyValue(agent.ParseChildKey(key)), DeploymentRef: timer.DeploymentRef(), Input: safetyValue(agent.EncodePayload(time.Unix(1, 0).UTC())), Budget: budget})
 	}
 	definition := &safetyCompetition{descriptor: safetyValue(agent.NewDescriptor(agent.DescriptorConfig{Name: "safety.competition", Description: "Complete while a loser retains uncertainty.", InputSchema: safetyValue(agent.SchemaFor[I]()), OutputSchema: safetyValue(agent.SchemaFor[O]())})),
-		competition: safetyValue(coordination.NewFirstSuccess(coordination.FirstSuccessConfig{Name: "safety.first_success", Description: "Select a winner.", MaxCandidates: 2, Accept: func(context.Context, agent.ChildOutcome) (bool, error) { return true, nil }})), candidates: safetyValue(agent.EncodeInput(candidates)), output: safetyValue(agent.EncodeOutput(output))}
+		competition: safetyValue(coordination.NewFirstSuccess(coordination.FirstSuccessConfig{Name: "safety.first_success", Description: "Select a winner.", MaxCandidates: 2, Accept: func(context.Context, agent.ChildOutcome) (bool, error) { return true, nil }})), candidates: safetyValue(agent.EncodePayload(candidates)), output: safetyValue(agent.EncodePayload(output))}
 	child := safetyBinding(definition, nil)
 	return child, safetyResolver{child.DeploymentRef(): child, timer.DeploymentRef(): timer}
 }
 
-func assertSafetyFailure(t *testing.T, root agent.Deployment, resolver safetyResolver, input agent.Input, code string) agent.ExecutionState {
+func assertSafetyFailure(t *testing.T, root agent.Deployment, resolver safetyResolver, input agent.Payload, code string) agent.ExecutionState {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -169,7 +169,7 @@ func TestWorkflowRejectsUnresolvedFirstSuccessSubtrees(t *testing.T) {
 			child, resolver := safetyChild[string]("winner")
 			budget := agent.Budget{Steps: 128, Effects: 128, Signals: 128}
 			var stage, after workflow.Stage
-			input := safetyValue(agent.EncodeInput("work"))
+			input := safetyValue(agent.EncodePayload("work"))
 			failAfter := func(context.Context, string) (string, error) { return "", errors.New("next stage ran") }
 			after = safetyValue(workflow.Transform("after", failAfter))
 			switch kind {
@@ -186,7 +186,7 @@ func TestWorkflowRejectsUnresolvedFirstSuccessSubtrees(t *testing.T) {
 				stage = safetyValue(workflow.Fork(workflow.ForkConfig[string, string, string]{ID: kind, WindowSize: 1, Branches: []workflow.ForkBranch{{ID: "first", Deployment: child, Budget: budget}, {ID: "second", Deployment: child, Budget: budget}}, Reduce: func(context.Context, []string) (string, error) { return "", errors.New("fanout reduced unsafe output") }}))
 			case "map":
 				stage = safetyValue(workflow.Map(workflow.MapConfig[string, string]{ID: kind, Deployment: child, Budget: budget, WindowSize: 1, MaxItems: 2}))
-				input = safetyValue(agent.EncodeInput([]string{"one", "two"}))
+				input = safetyValue(agent.EncodePayload([]string{"one", "two"}))
 				after = safetyValue(workflow.Transform("after", func(context.Context, []string) (string, error) { return "", errors.New("next stage ran") }))
 			}
 			root := safetyBinding(safetyValue(workflow.NewDefinition(workflow.DefinitionConfig{Name: "safety.workflow", Description: "Reject unsafe outputs.", Stages: []workflow.Stage{stage, after}})), nil)
@@ -198,18 +198,18 @@ func TestWorkflowRejectsUnresolvedFirstSuccessSubtrees(t *testing.T) {
 func TestCollaborationRejectsUnresolvedCoordinatorDecision(t *testing.T) {
 	for _, mode := range []collaboration.Mode{collaboration.Continue, collaboration.Wait, collaboration.Complete} {
 		t.Run(string(mode), func(t *testing.T) {
-			output := safetyValue(agent.EncodeOutput("done"))
-			decision := collaboration.Decision{Mode: mode, State: safetyValue(agent.EncodeInput("initial"))}
+			output := safetyValue(agent.EncodePayload("done"))
+			decision := collaboration.Decision{Mode: mode, State: safetyValue(agent.EncodePayload("initial"))}
 			worker := safetyBinding(safetyValue(coordination.NewInputGate(coordination.InputGateConfig{Name: "safety.worker", Description: "Never admitted.", RequestSchema: safetyValue(agent.SchemaFor[string]()), AnswerSchema: safetyValue(agent.SchemaFor[string]())})), nil)
 			if mode == collaboration.Complete {
 				decision.Output = &output
 			} else {
-				decision.Tasks = []collaboration.TaskRequest{{Key: safetyValue(agent.ParseChildKey("new-work")), Worker: "safety.worker", Input: safetyValue(agent.EncodeInput("work"))}}
+				decision.Tasks = []collaboration.TaskRequest{{Key: safetyValue(agent.ParseChildKey("new-work")), Worker: "safety.worker", Input: safetyValue(agent.EncodePayload("work"))}}
 			}
 			child, resolver := safetyChild[collaboration.Turn](decision)
 			resolver[worker.DeploymentRef()] = worker
 			definition := safetyValue(collaboration.NewDefinition(collaboration.DefinitionConfig{Name: "safety.collaboration", Description: "Reject unsafe coordinator decisions.", Coordinator: collaboration.WorkerConfig{Deployment: child, Budget: agent.Budget{Steps: 128, Effects: 128, Signals: 128}}, Workers: []collaboration.WorkerConfig{{Deployment: worker, Budget: agent.Budget{Steps: 16, Effects: 16, Signals: 16}}}, StateSchema: safetyValue(agent.SchemaFor[string]()), OutputSchema: safetyValue(agent.SchemaFor[string]()), MaxTurns: 2, MaxTasks: 2, MaxConcurrentTasks: 2, MaxControlsPerTurn: 2}))
-			state := assertSafetyFailure(t, safetyBinding(definition, nil), resolver, safetyValue(agent.EncodeInput("initial")), "coordinator.unresolved_effects")
+			state := assertSafetyFailure(t, safetyBinding(definition, nil), resolver, safetyValue(agent.EncodePayload("initial")), "coordinator.unresolved_effects")
 			var wire map[string]json.RawMessage
 			if err := json.Unmarshal(state.Payload(), &wire); err != nil {
 				t.Fatal(err)

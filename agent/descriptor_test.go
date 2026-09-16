@@ -27,19 +27,19 @@ func TestDescriptorOwnsContractAndValidatesValues(t *testing.T) {
 	if !descriptor.Valid() || !descriptor.Digest().Valid() {
 		t.Fatalf("descriptor is not valid: %+v", descriptor)
 	}
-	input, err := EncodeInput(wireFixture{Message: "hello"})
+	input, err := EncodePayload(wireFixture{Message: "hello"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if validateInputErr := descriptor.ValidateInput(input); validateInputErr != nil {
 		t.Fatal(validateInputErr)
 	}
-	output, err := ParseOutput([]byte(`{"message":false}`))
+	output, err := ParsePayload([]byte(`{"message":false}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := descriptor.ValidateOutput(output); !errors.Is(err, ErrInvalidOutput) {
-		t.Fatalf("ValidateOutput error = %v, want ErrInvalidOutput", err)
+	if err := descriptor.ValidateOutput(output); !errors.Is(err, ErrInvalidPayload) {
+		t.Fatalf("ValidateOutput error = %v, want ErrInvalidPayload", err)
 	}
 }
 
@@ -155,5 +155,18 @@ func descriptorConfig(t *testing.T) DescriptorConfig {
 		Description:  "Runs one model and tool interaction.",
 		InputSchema:  inputSchema,
 		OutputSchema: outputSchema,
+	}
+}
+
+func TestDescriptorValidityMatchesConstructionRules(t *testing.T) {
+	descriptor := newEngineTestDefinition(t, "descriptor.valid", "complete").Descriptor()
+	for _, malformed := range []Descriptor{
+		{name: "Bad Name", description: descriptor.description, inputSchema: descriptor.inputSchema, outputSchema: descriptor.outputSchema, digest: descriptor.digest},
+		{name: descriptor.name, description: " leading", inputSchema: descriptor.inputSchema, outputSchema: descriptor.outputSchema, digest: descriptor.digest},
+		{name: descriptor.name, inputSchema: descriptor.inputSchema, outputSchema: descriptor.outputSchema, digest: descriptor.digest},
+	} {
+		if malformed.Valid() {
+			t.Fatal("descriptor accepted content its constructor rejects")
+		}
 	}
 }

@@ -41,7 +41,7 @@ func admissionTestProcess(t testing.TB, history int) *processState {
 	limits.MaxSignals = 100000
 	limits.MaxPendingSignals = 100000
 	deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), &engineTestDispatcher{})
-	input, err := EncodeInput(engineTestInput{Value: "admission"})
+	input, err := EncodePayload(engineTestInput{Value: "admission"})
 	if err != nil {
 		t.Fatal(err)
 	}

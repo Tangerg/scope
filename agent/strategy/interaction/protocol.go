@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
-	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -47,10 +46,10 @@ type toolCall struct {
 
 func (t toolCall) validate() error {
 	if t.ModelCallSequence == 0 {
-		return errors.New("interaction: Tool call sequence is required")
+		return fmt.Errorf("%w: Tool call sequence is required", ErrInvalidProtocol)
 	}
 	if err := t.Call.Validate(); err != nil {
-		return fmt.Errorf("interaction: tool_call: %w", err)
+		return fmt.Errorf("%w: tool_call: %w", ErrInvalidProtocol, err)
 	}
 	return nil
 }
@@ -120,22 +119,22 @@ func newModelEffect(
 	appliedSteerSignalIDs []agent.SignalID,
 ) (effectEnvelope, error) {
 	if request == nil {
-		return effectEnvelope{}, errors.New("interaction: model request is nil")
+		return effectEnvelope{}, fmt.Errorf("%w: model request is nil", ErrInvalidProtocol)
 	}
 	if modelCallSequence == 0 {
-		return effectEnvelope{}, errors.New("interaction: model call sequence is required")
+		return effectEnvelope{}, fmt.Errorf("%w: model call sequence is required", ErrInvalidProtocol)
 	}
 	if err := validateAdvertisedToolNames(advertisedToolNames); err != nil {
-		return effectEnvelope{}, fmt.Errorf("interaction: advertised Tools: %w", err)
+		return effectEnvelope{}, fmt.Errorf("%w: advertised Tools: %w", ErrInvalidProtocol, err)
 	}
 	if len(appliedSteerSignalIDs) > 0 {
 		if err := validateSteerSignalIDs(appliedSteerSignalIDs); err != nil {
-			return effectEnvelope{}, fmt.Errorf("interaction: applied steer SignalIDs: %w", err)
+			return effectEnvelope{}, fmt.Errorf("%w: applied steer SignalIDs: %w", ErrInvalidProtocol, err)
 		}
 	}
 	cloned := request.Clone()
 	if err := cloned.Validate(); err != nil {
-		return effectEnvelope{}, fmt.Errorf("interaction: model request: %w", err)
+		return effectEnvelope{}, fmt.Errorf("%w: model request: %w", ErrInvalidProtocol, err)
 	}
 	return effectEnvelope{
 		Operation: operationModelCall,
@@ -151,7 +150,7 @@ func newModelEffect(
 func newToolEffect(call toolDispatchRequest) (effectEnvelope, error) {
 	envelope := effectEnvelope{Operation: operationToolCall, ToolCall: &call}
 	if err := envelope.validateToolCall(); err != nil {
-		return effectEnvelope{}, err
+		return effectEnvelope{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
 	return envelope, nil
 }
@@ -159,12 +158,12 @@ func newToolEffect(call toolDispatchRequest) (effectEnvelope, error) {
 func (e effectEnvelope) validate() error {
 	if e.Operation == operationResultCommit {
 		if e.ResultCommit == nil || e.ModelCall != nil || e.ToolCall != nil {
-			return errors.New("interaction: invalid result commit effect")
+			return fmt.Errorf("%w: invalid result commit effect", ErrInvalidProtocol)
 		}
 		return e.ResultCommit.validate()
 	}
 	if e.ResultCommit != nil {
-		return errors.New("interaction: unexpected result commit")
+		return fmt.Errorf("%w: unexpected result commit", ErrInvalidProtocol)
 	}
 
 	switch e.Operation {
@@ -173,23 +172,23 @@ func (e effectEnvelope) validate() error {
 	case operationToolCall:
 		return e.validateToolCall()
 	default:
-		return errors.New("interaction: unsupported effect protocol")
+		return fmt.Errorf("%w: unsupported effect protocol", ErrInvalidProtocol)
 	}
 }
 
 func (e effectEnvelope) validateModelCall() error {
 	if e.ModelCall == nil || e.ToolCall != nil || e.ModelCall.ModelCallSequence == 0 {
-		return errors.New("interaction: model_call effect has an invalid payload set")
+		return fmt.Errorf("%w: model_call effect has an invalid payload set", ErrInvalidProtocol)
 	}
 	if err := e.ModelCall.Request.Validate(); err != nil {
-		return fmt.Errorf("interaction: model_call request: %w", err)
+		return fmt.Errorf("%w: model_call request: %w", ErrInvalidProtocol, err)
 	}
 	if err := validateAdvertisedToolNames(e.ModelCall.AdvertisedToolNames); err != nil {
-		return fmt.Errorf("interaction: model_call advertised Tools: %w", err)
+		return fmt.Errorf("%w: model_call advertised Tools: %w", ErrInvalidProtocol, err)
 	}
 	if len(e.ModelCall.AppliedSteerSignalIDs) > 0 {
 		if err := validateSteerSignalIDs(e.ModelCall.AppliedSteerSignalIDs); err != nil {
-			return fmt.Errorf("interaction: model_call applied steer SignalIDs: %w", err)
+			return fmt.Errorf("%w: model_call applied steer SignalIDs: %w", ErrInvalidProtocol, err)
 		}
 	}
 	return nil
@@ -197,7 +196,7 @@ func (e effectEnvelope) validateModelCall() error {
 
 func (e effectEnvelope) validateToolCall() error {
 	if e.ModelCall != nil || e.ToolCall == nil {
-		return errors.New("interaction: tool_call effect has an invalid payload set")
+		return fmt.Errorf("%w: tool_call effect has an invalid payload set", ErrInvalidProtocol)
 	}
 	if err := e.ToolCall.Invocation.validate(); err != nil {
 		return err
@@ -210,7 +209,7 @@ func (e effectEnvelope) validateToolCall() error {
 		return err
 	}
 	if resume.Checkpoint.PauseCount == ^uint32(0) {
-		return errors.New("interaction: Tool input pause count is exhausted")
+		return fmt.Errorf("%w: Tool input pause count is exhausted", ErrInvalidProtocol)
 	}
 	_, err := resume.Checkpoint.InputRequest.validateResponse(resume.InputResponse)
 	return err
@@ -219,12 +218,12 @@ func (e effectEnvelope) validateToolCall() error {
 func (s signalEnvelope) validate() error {
 	if s.Operation == operationResultCommit {
 		if s.Receipt == nil || s.ModelResult != nil || s.ToolResult != nil || s.WaitOpened != nil || len(s.InputResponse) != 0 || s.Steer != nil {
-			return errors.New("interaction: invalid result receipt")
+			return fmt.Errorf("%w: invalid result receipt", ErrInvalidProtocol)
 		}
 		return s.Receipt.Validate()
 	}
 	if s.Receipt != nil {
-		return errors.New("interaction: unexpected result receipt")
+		return fmt.Errorf("%w: unexpected result receipt", ErrInvalidProtocol)
 	}
 
 	switch s.Operation {
@@ -239,13 +238,13 @@ func (s signalEnvelope) validate() error {
 	case operationSteer:
 		return s.validateSteer()
 	default:
-		return errors.New("interaction: unsupported signal protocol")
+		return fmt.Errorf("%w: unsupported signal protocol", ErrInvalidProtocol)
 	}
 }
 
 func (s signalEnvelope) validateModelResult() error {
 	if s.ModelResult == nil || s.ToolResult != nil || s.WaitOpened != nil || len(s.InputResponse) != 0 || s.Steer != nil {
-		return errors.New("interaction: model_result signal has an invalid payload set")
+		return fmt.Errorf("%w: model_result signal has an invalid payload set", ErrInvalidProtocol)
 	}
 	result := s.ModelResult
 	modes := 0
@@ -259,36 +258,36 @@ func (s signalEnvelope) validateModelResult() error {
 		modes++
 	}
 	if modes != 1 {
-		return errors.New("interaction: model_result requires exactly one response, provider error, or host error")
+		return fmt.Errorf("%w: model_result requires exactly one response, provider error, or host error", ErrInvalidProtocol)
 	}
 	if result.Response != nil {
 		if err := result.Response.Validate(); err != nil {
-			return fmt.Errorf("interaction: model_result response: %w", err)
+			return fmt.Errorf("%w: model_result response: %w", ErrInvalidProtocol, err)
 		}
 		if result.ReplacementMessages != nil && len(result.ReplacementMessages) == 0 {
-			return errors.New("interaction: replacement messages must not be empty")
+			return fmt.Errorf("%w: replacement messages must not be empty", ErrInvalidProtocol)
 		}
 		for index := range result.ReplacementMessages {
 			if err := result.ReplacementMessages[index].Validate(); err != nil {
-				return fmt.Errorf("interaction: model_result replacement message %d: %w", index, err)
+				return fmt.Errorf("%w: model_result replacement message %d: %w", ErrInvalidProtocol, index, err)
 			}
 		}
 	} else if result.ReplacementMessages != nil {
-		return errors.New("interaction: failed model_result cannot carry replacement messages")
+		return fmt.Errorf("%w: failed model_result cannot carry replacement messages", ErrInvalidProtocol)
 	}
 	return nil
 }
 
 func (s signalEnvelope) validateToolResult() error {
 	if s.ModelResult != nil || s.ToolResult == nil || s.WaitOpened != nil || len(s.InputResponse) != 0 || s.Steer != nil {
-		return errors.New("interaction: tool_result signal has an invalid payload set")
+		return fmt.Errorf("%w: tool_result signal has an invalid payload set", ErrInvalidProtocol)
 	}
 	return s.ToolResult.validate()
 }
 
 func (t toolDispatchResult) validate() error {
 	if (t.Completion == nil) == (t.Checkpoint == nil) {
-		return errors.New("interaction: Tool dispatch requires one result or checkpoint")
+		return fmt.Errorf("%w: Tool dispatch requires one result or checkpoint", ErrInvalidProtocol)
 	}
 	if t.Checkpoint != nil {
 		return t.Checkpoint.validate()
@@ -304,19 +303,19 @@ func (t toolCallResult) clone() toolCallResult {
 
 func (t toolCallResult) validate() error {
 	if t.Rejected && !t.Result.IsError {
-		return errors.New("interaction: rejected result must be an error")
+		return fmt.Errorf("%w: rejected result must be an error", ErrInvalidProtocol)
 	}
 	if err := t.Result.Validate(); err != nil {
-		return fmt.Errorf("interaction: tool_result: %w", err)
+		return fmt.Errorf("%w: tool_result: %w", ErrInvalidProtocol, err)
 	}
 	if t.Direct && t.Result.IsError {
-		return errors.New("interaction: failed tool_result cannot be direct")
+		return fmt.Errorf("%w: failed tool_result cannot be direct", ErrInvalidProtocol)
 	}
 	if t.Result.IsError && len(t.AdvertisedToolNames) != 0 {
-		return errors.New("interaction: failed tool_result cannot advertise Tools")
+		return fmt.Errorf("%w: failed tool_result cannot advertise Tools", ErrInvalidProtocol)
 	}
 	if err := validateAdvertisedToolNames(t.AdvertisedToolNames); err != nil {
-		return fmt.Errorf("interaction: tool_result advertised Tools: %w", err)
+		return fmt.Errorf("%w: tool_result advertised Tools: %w", ErrInvalidProtocol, err)
 	}
 	return nil
 }
@@ -326,63 +325,55 @@ func (t toolCallResult) validateCall(call chat.ToolCall) error {
 		return err
 	}
 	if t.Result.ID != call.ID || t.Result.Name != call.Name {
-		return errors.New("interaction: Tool result does not match its call")
+		return fmt.Errorf("%w: Tool result does not match its call", ErrInvalidProtocol)
 	}
 	return nil
 }
 
 func (s signalEnvelope) validateWaitOpened() error {
 	if s.ModelResult != nil || s.ToolResult != nil || s.WaitOpened == nil || len(s.InputResponse) != 0 || s.Steer != nil {
-		return errors.New("interaction: wait_opened signal has an invalid payload set")
+		return fmt.Errorf("%w: wait_opened signal has an invalid payload set", ErrInvalidProtocol)
 	}
 	if !s.WaitOpened.valid() {
-		return ErrInvalidToolInputRequest
+		return fmt.Errorf("%w: %w", ErrInvalidProtocol, ErrInvalidToolInputRequest)
 	}
 	return nil
 }
 
 func (s signalEnvelope) validateInputResponse() error {
 	if s.ModelResult != nil || s.ToolResult != nil || s.WaitOpened != nil || len(s.InputResponse) == 0 || s.Steer != nil {
-		return errors.New("interaction: input_response signal has an invalid payload set")
+		return fmt.Errorf("%w: input_response signal has an invalid payload set", ErrInvalidProtocol)
 	}
 	if _, err := parseToolInputJSON(s.InputResponse); err != nil {
-		return fmt.Errorf("interaction: input_response: %w", err)
+		return fmt.Errorf("%w: input_response: %w", ErrInvalidProtocol, err)
 	}
 	return nil
 }
 
 func (s signalEnvelope) validateSteer() error {
 	if s.ModelResult != nil || s.ToolResult != nil || s.WaitOpened != nil || len(s.InputResponse) != 0 || s.Steer == nil {
-		return errors.New("interaction: steer signal has an invalid payload set")
+		return fmt.Errorf("%w: steer signal has an invalid payload set", ErrInvalidProtocol)
 	}
 	return validateSteeringMessages(s.Steer.Messages)
 }
 
 func (t toolCheckpoint) validate() error {
 	if t.PauseCount == 0 {
-		return errors.New("interaction: tool checkpoint pause count is required")
+		return fmt.Errorf("%w: tool checkpoint pause count is required", ErrInvalidProtocol)
 	}
 	if !t.InputRequest.valid() {
-		return fmt.Errorf("interaction: tool checkpoint input: %w", ErrInvalidToolInputRequest)
+		return fmt.Errorf("%w: tool checkpoint input: %w", ErrInvalidProtocol, ErrInvalidToolInputRequest)
 	}
 	return nil
-}
-
-func encodeProtocol(value any) (json.RawMessage, error) {
-	payload, err := jsonv2.Marshal(value, jsonv2.Deterministic(true))
-	if err != nil {
-		return nil, fmt.Errorf("interaction: encode protocol payload: %w", err)
-	}
-	return payload, nil
 }
 
 func decodeEffect(data json.RawMessage) (effectEnvelope, error) {
 	var envelope effectEnvelope
 	if err := jsonv2.Unmarshal(data, &envelope, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return effectEnvelope{}, fmt.Errorf("interaction: decode effect: %w", err)
+		return effectEnvelope{}, fmt.Errorf("%w: decode effect: %w", ErrInvalidProtocol, err)
 	}
 	if err := envelope.validate(); err != nil {
-		return effectEnvelope{}, err
+		return effectEnvelope{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
 	return envelope, nil
 }
@@ -390,10 +381,10 @@ func decodeEffect(data json.RawMessage) (effectEnvelope, error) {
 func decodeSignal(data json.RawMessage) (signalEnvelope, error) {
 	var envelope signalEnvelope
 	if err := jsonv2.Unmarshal(data, &envelope, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return signalEnvelope{}, fmt.Errorf("interaction: decode signal: %w", err)
+		return signalEnvelope{}, fmt.Errorf("%w: decode signal: %w", ErrInvalidProtocol, err)
 	}
 	if err := envelope.validate(); err != nil {
-		return signalEnvelope{}, err
+		return signalEnvelope{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
 	return envelope, nil
 }

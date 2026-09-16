@@ -5,18 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
-	"errors"
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
 )
 
 const maxInputProtocolBytes = 1 << 20
-
-var (
-	ErrInvalidToolInputRequest = errors.New("interaction: invalid tool input request")
-	ErrToolInputRequired       = errors.New("interaction: tool input required")
-)
 
 // toolInputRequest freezes the checkpoint carried by RequireToolInput.
 // The Tool owns continuation state; Engine owns Process and wait identities.
@@ -204,26 +198,26 @@ func NewToolInputResponseSignal(
 	if err != nil {
 		return agent.SignalRequest{}, fmt.Errorf("%w: response: %w", ErrInvalidToolInputRequest, err)
 	}
-	payload, err := encodeProtocol(signalEnvelope{
+	payload, err := jsonv2.Marshal(signalEnvelope{
 		Operation:     operationInputResponse,
 		InputResponse: input.JSON(),
-	})
+	}, jsonv2.Deterministic(true))
 	if err != nil {
 		return agent.SignalRequest{}, err
 	}
 	return agent.NewSignalRequest(id, waitID, payload)
 }
 
-func parseToolInputJSON(data json.RawMessage) (agent.Input, error) {
+func parseToolInputJSON(data json.RawMessage) (agent.Payload, error) {
 	if len(data) == 0 || len(data) > maxInputProtocolBytes {
-		return agent.Input{}, fmt.Errorf("JSON value must contain at most %d bytes", maxInputProtocolBytes)
+		return agent.Payload{}, fmt.Errorf("JSON value must contain at most %d bytes", maxInputProtocolBytes)
 	}
-	input, err := agent.ParseInput(data)
+	input, err := agent.ParsePayload(data)
 	if err != nil {
-		return agent.Input{}, err
+		return agent.Payload{}, err
 	}
 	if len(input.JSON()) > maxInputProtocolBytes {
-		return agent.Input{}, fmt.Errorf("normalized JSON value exceeds %d bytes", maxInputProtocolBytes)
+		return agent.Payload{}, fmt.Errorf("normalized JSON value exceeds %d bytes", maxInputProtocolBytes)
 	}
 	return input, nil
 }

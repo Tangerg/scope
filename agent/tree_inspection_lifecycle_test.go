@@ -19,7 +19,7 @@ func TestInspectTreeRemainsAvailableWhileFreezeOperationIsHeld(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(engineTestInput{Value: "frozen"})
+	input, _ := EncodePayload(engineTestInput{Value: "frozen"})
 	root, err := engine.Start(t.Context(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +87,7 @@ func TestInspectTreeFloodCannotDelayCompletionOrRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(engineTestInput{Value: "flood"})
+	input, _ := EncodePayload(engineTestInput{Value: "flood"})
 	root, err := engine.Start(t.Context(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -181,7 +181,7 @@ func TestInspectionWaitAuthoritySurvivesRestoreWithoutChangingFacts(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			input, _ := EncodeInput(childTestInput{Mode: scenario.mode})
+			input, _ := EncodePayload(childTestInput{Mode: scenario.mode})
 			root, err := engine.Start(t.Context(), deployment, input)
 			if err != nil {
 				t.Fatal(err)

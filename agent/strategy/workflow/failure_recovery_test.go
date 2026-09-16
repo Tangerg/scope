@@ -55,7 +55,7 @@ func TestNestedWorkflowPreservesMaximumFailureDiagnostic(t *testing.T) {
 			t.Error(closeErr)
 		}
 	})
-	input, err := agent.EncodeInput([]numberInput{{Value: 1}, {Value: 2}})
+	input, err := agent.EncodePayload([]numberInput{{Value: 1}, {Value: 2}})
 	if err != nil {
 		t.Fatal(err)
 	}

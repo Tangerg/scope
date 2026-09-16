@@ -20,7 +20,7 @@ func TestEngineStartsSameDeploymentChildWithStableRelation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "parent"})
+	input, _ := EncodePayload(childTestInput{Mode: "parent"})
 	root, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ func TestChildEffectPreservesStartContextValuesWithOwnedCancellation(t *testing.
 		}
 	})
 	ctx, cancel := context.WithCancel(context.WithValue(t.Context(), dispatcher.key, wantValue))
-	input, _ := EncodeInput(childTestInput{Mode: "wait:all"})
+	input, _ := EncodePayload(childTestInput{Mode: "wait:all"})
 	root, err := engine.Start(ctx, deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -112,7 +112,7 @@ func TestEngineRejectsDuplicateChildKeyInOneParent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "duplicate"})
+	input, _ := EncodePayload(childTestInput{Mode: "duplicate"})
 	root, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -165,7 +165,7 @@ func runChildWaitTest(t *testing.T, test childWaitTestCase) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: test.mode})
+	input, _ := EncodePayload(childTestInput{Mode: test.mode})
 	root, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -210,7 +210,7 @@ func TestEngineSupportsBoundedSameDefinitionRecursion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "recurse:3"})
+	input, _ := EncodePayload(childTestInput{Mode: "recurse:3"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -257,7 +257,7 @@ func testChildDepthLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "recurse:2"})
+	input, _ := EncodePayload(childTestInput{Mode: "recurse:2"})
 	root, err := engine.Start(context.Background(), newChildTestDeployment(t), input)
 	if err != nil {
 		t.Fatal(err)
@@ -279,7 +279,7 @@ func testChildLifetimeFanoutLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "fanout"})
+	input, _ := EncodePayload(childTestInput{Mode: "fanout"})
 	root, err := engine.Start(context.Background(), newChildTestDeployment(t), input)
 	if err != nil {
 		t.Fatal(err)
@@ -301,14 +301,14 @@ func testActiveChildLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "fanout_blocking"})
+	input, _ := EncodePayload(childTestInput{Mode: "fanout_blocking"})
 	root, err := engine.Start(context.Background(), newChildTestDeploymentWithDispatcher(t, dispatcher), input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// The admission decision is what this test asserts, and the root output
 	// carries it deterministically. Whether the admitted child also reaches the
-	// blocking dispatcher is a race this Definition does not WaitForChildren on:
+	// blocking dispatcher is a race this Definition does not NewChildWaitEffect on:
 	// once the root completes, the still-active child is canceled as a parent
 	// cancellation, so the dispatch may never happen. Waiting on it here — as
 	// this test used to — blocks forever whenever the root wins that race, which
@@ -329,7 +329,7 @@ func testTreeProcessLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "fanout"})
+	input, _ := EncodePayload(childTestInput{Mode: "fanout"})
 	root, err := engine.Start(context.Background(), newChildTestDeployment(t), input)
 	if err != nil {
 		t.Fatal(err)
@@ -358,7 +358,7 @@ func TestTreeProcessLimitBoundsRecursiveBinaryExpansion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "binary:8"})
+	input, _ := EncodePayload(childTestInput{Mode: "binary:8"})
 	root, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -394,7 +394,7 @@ func TestEngineAttenuatesChildBudgetAndCapabilities(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		input, _ := EncodeInput(childTestInput{Mode: "capability_child"})
+		input, _ := EncodePayload(childTestInput{Mode: "capability_child"})
 		root, err := engine.Start(context.Background(), deployment, input)
 		if err != nil {
 			t.Fatal(err)
@@ -424,7 +424,7 @@ func TestEngineAttenuatesChildBudgetAndCapabilities(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			input, _ := EncodeInput(childTestInput{Mode: test.mode})
+			input, _ := EncodePayload(childTestInput{Mode: test.mode})
 			root, err := engine.Start(context.Background(), deployment, input)
 			if err != nil {
 				t.Fatal(err)
@@ -482,7 +482,7 @@ func runParentTerminationTest(t *testing.T, test parentTerminationTestCase) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: mode})
+	input, _ := EncodePayload(childTestInput{Mode: mode})
 	parent, err := engine.Start(context.Background(), newChildTestDeploymentWithDispatcher(t, dispatcher), input)
 	if err != nil {
 		t.Fatal(err)
@@ -542,7 +542,7 @@ func TestParentDeadlinePropagatesAsParentDeadline(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 		defer cancel()
-		input, _ := EncodeInput(childTestInput{Mode: "wait:all"})
+		input, _ := EncodePayload(childTestInput{Mode: "wait:all"})
 		parent, err := engine.Start(ctx, deployment, input)
 		if err != nil {
 			t.Fatal(err)
@@ -576,7 +576,7 @@ func TestChildFailureRemainsExplicitStrategyInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "wait:failure"})
+	input, _ := EncodePayload(childTestInput{Mode: "wait:failure"})
 	result, err := engine.Run(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -599,7 +599,7 @@ func TestEngineRejectsWaitingOnDescendantThatIsNotDirectChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := EncodeInput(childTestInput{Mode: "recurse:2"})
+	input, _ := EncodePayload(childTestInput{Mode: "recurse:2"})
 	root, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
@@ -707,7 +707,7 @@ func newChildTestDeploymentWithDispatcher(t testing.TB, dispatcher Dispatcher) D
 
 func (c *childTestDefinition) Descriptor() Descriptor { return c.descriptor }
 
-func (c *childTestDefinition) Start(input Input) (Execution, error) {
+func (c *childTestDefinition) Start(input Payload) (Execution, error) {
 	decoded, err := input.Decode[childTestInput]()
 	if err != nil {
 		return nil, err
@@ -799,7 +799,7 @@ func (c *childTestExecution) start() (Transition, error) {
 func (c *childTestExecution) openExternalWait() (Transition, error) {
 	c.state.Phase = "external_wait_opened"
 	key, _ := ParseWaitKey("external_input")
-	effect, err := RequestWait(key, json.RawMessage(`{"kind":"external_input"}`))
+	effect, err := NewWaitEffect(key, json.RawMessage(`{"kind":"external_input"}`))
 	if err != nil {
 		return Transition{}, err
 	}
@@ -859,9 +859,9 @@ func (c *childTestExecution) waitChildMode(name string) string {
 }
 
 func (c *childTestExecution) childEffect(name, mode string) (Effect, error) {
-	childInput, _ := EncodeInput(childTestInput{Mode: mode})
+	childInput, _ := EncodePayload(childTestInput{Mode: mode})
 	key, _ := ParseChildKey(name)
-	return StartChild(childTestSpec(key, c.reference, childInput))
+	return NewChildStartEffect(childTestSpec(key, c.reference, childInput))
 }
 
 func (c *childTestExecution) startBinaryChildren() (Transition, error) {
@@ -872,11 +872,11 @@ func (c *childTestExecution) startBinaryChildren() (Transition, error) {
 	units := uint64(20*(1<<uint(depth-1)) - 10)
 	effects := make([]Effect, 0, 2)
 	for _, name := range []string{"left", "right"} {
-		childInput, _ := EncodeInput(childTestInput{Mode: fmt.Sprintf("binary:%d", depth-1)})
+		childInput, _ := EncodePayload(childTestInput{Mode: fmt.Sprintf("binary:%d", depth-1)})
 		key, _ := ParseChildKey(name)
 		spec := childTestSpec(key, c.reference, childInput)
 		spec.Budget = Budget{Steps: units, Effects: units, Signals: units}
-		effect, err := StartChild(spec)
+		effect, err := NewChildStartEffect(spec)
 		if err != nil {
 			return Transition{}, err
 		}
@@ -915,11 +915,11 @@ func (c *childTestExecution) startSingleChild() (Transition, error) {
 	if c.state.Mode == "nested_wait" {
 		childMode = "external_wait"
 	}
-	childInput, _ := EncodeInput(childTestInput{Mode: childMode})
+	childInput, _ := EncodePayload(childTestInput{Mode: childMode})
 	key, _ := ParseChildKey("worker")
 	spec := childTestSpec(key, c.reference, childInput)
 	c.configureSingleChild(&spec, recursiveDepth)
-	effect, err := StartChild(spec)
+	effect, err := NewChildStartEffect(spec)
 	if err != nil {
 		return Transition{}, err
 	}
@@ -968,7 +968,7 @@ func (c *childTestExecution) acceptChildStarts(signals []Signal) (Transition, er
 	}
 	if len(output.ChildIDs) == 0 || !c.requiresChildWait() {
 		c.state.Phase = "done"
-		erased, _ := EncodeOutput(output)
+		erased, _ := EncodePayload(output)
 		return Complete(uint32(len(signals)), erased)
 	}
 	return c.openChildWait(signals, output.ChildIDs)
@@ -997,7 +997,7 @@ func (c *childTestExecution) openChildWait(
 		condition, _ = ChildQuorum(2)
 	}
 	key, _ := ParseWaitKey("children")
-	effect, err := WaitForChildren(ChildWaitSpec{Boundary: ChildWaitBoundaryResult, Key: key, Children: children, Condition: condition})
+	effect, err := NewChildWaitEffect(ChildWaitSpec{Boundary: ChildWaitBoundaryResult, Key: key, Children: children, Condition: condition})
 	if err != nil {
 		return Transition{}, err
 	}
@@ -1072,7 +1072,7 @@ func (c *childTestExecution) completeAfterSignal(
 
 func (c *childTestExecution) completeEmpty(consumedSignals uint32) (Transition, error) {
 	c.state.Phase = "done"
-	output, _ := EncodeOutput(childTestOutput{})
+	output, _ := EncodePayload(childTestOutput{})
 	return Complete(consumedSignals, output)
 }
 
@@ -1097,11 +1097,11 @@ func (c *childTestExecution) completeChildren(signals []Signal, consumedSignals 
 		output.CompletedKeys = append(output.CompletedKeys, outcome.Key().String())
 	}
 	c.state.Phase = "done"
-	erased, _ := EncodeOutput(output)
+	erased, _ := EncodePayload(output)
 	return Complete(consumedSignals, erased)
 }
 
-func childTestSpec(key ChildKey, deployment DeploymentRef, input Input) ChildSpec {
+func childTestSpec(key ChildKey, deployment DeploymentRef, input Payload) ChildSpec {
 	budget := Budget{Steps: 20, Effects: 20, Signals: 40}
 	return ChildSpec{
 		Key: key, DeploymentRef: deployment, Input: input, Budget: budget,

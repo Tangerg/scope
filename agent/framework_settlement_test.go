@@ -19,13 +19,13 @@ func TestFrameworkParsersRejectCallerOwnedSignals(t *testing.T) {
 	failure := controlValue(NewFailure(FailureKindExecution, "test.failed", "test failure"))
 	now := time.Now().UTC()
 	result := Result{processID: childID, startedAt: now, finishedAt: now, termination: failure.termination()}
-	completed := controlValue(encodeChildWaitSatisfied(waitID, spec.Key, spec.Boundary, []ChildOutcome{{key: key, result: result, subtreeUnresolvedEffects: []UnresolvedEffect{}}}))
+	completed := controlValue(encodeChildWaitSatisfied(waitID, spec.Key, spec.Boundary, []ChildOutcome{{key: key, result: result, boundary: spec.Boundary, subtreeUnresolvedEffects: []UnresolvedEffect{}}}))
 	for _, test := range []struct {
 		name   string
 		signal Signal
 		parse  func(Signal) error
 	}{
-		{"start", controlValue(newSignal(effectID.settlementSignalID(), WaitID{}, controlValue(encodeChildStartResult(start)))), func(signal Signal) error { _, err := ParseChildStartResult(signal); return err }},
+		{"start", controlValue(newSignal(effectID.settlementSignalID(), WaitID{}, controlValue(start.MarshalJSON()))), func(signal Signal) error { _, err := ParseChildStartResult(signal); return err }},
 		{"control", controlValue(newSignal(effectID.settlementSignalID(), WaitID{}, controlValue(json.Marshal(control)))), func(signal Signal) error { _, err := ParseChildControlResult(signal); return err }},
 		{"opening", controlValue(newSignal(effectID.settlementSignalID(), waitID, controlValue(encodeChildWaitOpened(spec)))), func(signal Signal) error { _, err := ParseChildWaitOpened(signal); return err }},
 		{"completion", completed, func(signal Signal) error { _, err := ParseChildWaitSatisfied(signal); return err }},
@@ -48,8 +48,8 @@ func TestWaitSettlementMustMatchDeclaredRequest(t *testing.T) {
 	key := controlValue(ParseWaitKey("wait"))
 	childID := controlValue(ParseProcessID("process:child"))
 	for _, effect := range []Effect{
-		controlValue(RequestWait(key, []byte(`{"prompt":"original"}`))),
-		controlValue(WaitForChildren(ChildWaitSpec{Key: key, Children: []ProcessID{childID}, Boundary: ChildWaitBoundaryDrained, Condition: AllChildren()})),
+		controlValue(NewWaitEffect(key, []byte(`{"prompt":"original"}`))),
+		controlValue(NewChildWaitEffect(ChildWaitSpec{Key: key, Children: []ProcessID{childID}, Boundary: ChildWaitBoundaryDrained, Condition: AllChildren()})),
 	} {
 		for _, mutation := range []string{"status", "payload"} {
 			t.Run(string(effect.Payload())+"/"+mutation, func(t *testing.T) {
@@ -82,8 +82,8 @@ func TestWaitSettlementMustMatchDeclaredRequest(t *testing.T) {
 func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 	wire := controlValue(preparedEngineTestSnapshot(t).wire())
 	deployment := newChildTestDeployment(t)
-	spec := ChildSpec{Key: controlValue(ParseChildKey("child")), DeploymentRef: deployment.DeploymentRef(), Input: controlValue(EncodeInput(childTestInput{Mode: "leaf_pause"})), Budget: Budget{Steps: 1, Effects: 1, Signals: 1}, Capabilities: CapabilitySet{}}
-	effect := controlValue(StartChild(spec))
+	spec := ChildSpec{Key: controlValue(ParseChildKey("child")), DeploymentRef: deployment.DeploymentRef(), Input: controlValue(EncodePayload(childTestInput{Mode: "leaf_pause"})), Budget: Budget{Steps: 1, Effects: 1, Signals: 1}, Capabilities: CapabilitySet{}}
+	effect := controlValue(NewChildStartEffect(spec))
 	record := preparedEffect{ID: wire.ProcessID.effectID(1, 0), Effect: effect, Phase: effectPhasePending}
 	if err := record.settleChildStart(ChildStartResult{key: spec.Key, processID: record.ID.childProcessID(), deploymentRef: spec.DeploymentRef}); err != nil {
 		t.Fatal(err)
@@ -105,7 +105,7 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 			case "status":
 				status = SettlementStatusFailed
 			}
-			payload := controlValue(encodeChildStartResult(result))
+			payload := controlValue(result.MarshalJSON())
 			if mutation == "payload" {
 				payload = []byte(`{}`)
 			}
@@ -163,7 +163,7 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 
 func TestRestoreRejectsWaitConflictBeforeDispatch(t *testing.T) {
 	wire := controlValue(preparedEngineTestSnapshot(t).wire())
-	wait := controlValue(RequestWait(controlValue(ParseWaitKey("duplicate")), []byte(`"answer"`)))
+	wait := controlValue(NewWaitEffect(controlValue(ParseWaitKey("duplicate")), []byte(`"answer"`)))
 	effects := []Effect{wire.Prepared.Effects[0].Effect, wait, wait}
 	wire.Prepared.Intent = controlValue(Continue(0))
 	wire.Prepared.Effects = nil
@@ -183,5 +183,39 @@ func TestRestoreRejectsWaitConflictBeforeDispatch(t *testing.T) {
 	}
 	if process != nil || !errors.Is(err, ErrInvalidSnapshot) || dispatcher.calls.Load() != 0 {
 		t.Fatalf("invalid restored wait batch reached dispatch: process=%v error=%v calls=%d", process != nil, err, dispatcher.calls.Load())
+	}
+}
+
+func TestChildOutcomeBoundarySurvivesEmptySubtreeRoundTrip(t *testing.T) {
+	id := controlValue(ParseProcessID("child"))
+	now := time.Unix(1, 0).UTC()
+	failure := controlValue(NewFailure(FailureKindExecution, "test.failed", "failed"))
+	result := Result{processID: id, startedAt: now, finishedAt: now, termination: failure.termination()}
+	for _, boundary := range []ChildWaitBoundary{ChildWaitBoundaryResult, ChildWaitBoundaryDrained} {
+		for _, effects := range [][]UnresolvedEffect{nil, {}} {
+			outcome := ChildOutcome{key: controlValue(ParseChildKey("child")), result: result, boundary: boundary, subtreeUnresolvedEffects: effects}
+			data := controlValue(json.Marshal(outcome))
+			var restored ChildOutcome
+			if err := json.Unmarshal(data, &restored); err != nil {
+				t.Fatal(err)
+			}
+			unresolved, known := restored.SubtreeUnresolvedEffects()
+			if !restored.Valid() || restored.Boundary() != boundary || len(unresolved) != 0 || known != (boundary == ChildWaitBoundaryDrained) {
+				t.Fatalf("lost boundary: %s, known=%t", data, known)
+			}
+			wire := outcome.wire()
+			wire.Boundary = ChildWaitBoundaryInvalid
+			if err := json.Unmarshal(controlValue(json.Marshal(wire)), &restored); !errors.Is(err, ErrInvalidChildWait) {
+				t.Fatalf("outcome without its own boundary accepted: %v", err)
+			}
+			if restored.Boundary() != boundary {
+				t.Fatal("rejected decode changed the outcome")
+			}
+		}
+	}
+	outcome := ChildOutcome{key: controlValue(ParseChildKey("child")), result: result, boundary: ChildWaitBoundaryResult,
+		subtreeUnresolvedEffects: []UnresolvedEffect{{ProcessID: id, EffectID: id.effectID(1, 0)}}}
+	if outcome.Valid() {
+		t.Fatal("result boundary accepted subtree evidence")
 	}
 }

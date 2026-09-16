@@ -25,7 +25,6 @@ type processHandle struct {
 	// Join additionally waits for owned descendant work and acknowledgments.
 	outcomePublished chan struct{}
 	bookkeepingDone  chan struct{}
-	bookkeepingOnce  sync.Once
 	joined           chan struct{}
 
 	// mu protects the retained instance outcome.
@@ -53,23 +52,57 @@ func newProcessHandle(
 	}
 }
 
-func (p *processHandle) publishResult(result Result) {
-	p.mu.Lock()
+// Completion is monotonic. Repeated notifications leave the first published
+// fact intact, and later boundaries cannot precede their prerequisites.
+func (p *processHandle) publishResult(result Result) bool {
+	return p.publishOutcome(result, nil)
+}
 
-	p.result = result
-	p.mu.Unlock()
+func (p *processHandle) publishOutcome(result Result, err *RuntimeError) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	select {
+	case <-p.outcomePublished:
+		return false
+	default:
+	}
+	p.result, p.runtimeErr = result, err
 	close(p.outcomePublished)
+	return true
 }
 
 func (p *processHandle) finishBookkeeping() {
-	p.bookkeepingOnce.Do(func() { close(p.bookkeepingDone) })
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	select {
+	case <-p.outcomePublished:
+	default:
+		panic("agent: bookkeeping cannot precede outcome publication")
+	}
+	select {
+	case <-p.bookkeepingDone:
+		return
+	default:
+		close(p.bookkeepingDone)
+	}
 }
 
-func (p *processHandle) finishJoin(err *RuntimeError) {
+func (p *processHandle) finishJoin(err *RuntimeError) bool {
 	p.mu.Lock()
+	defer p.mu.Unlock()
+	select {
+	case <-p.bookkeepingDone:
+	default:
+		panic("agent: join cannot precede bookkeeping")
+	}
+	select {
+	case <-p.joined:
+		return false
+	default:
+	}
 	p.joinErr = err
-	p.mu.Unlock()
 	close(p.joined)
+	return true
 }
 
 func (p *processHandle) joinError() error {
@@ -99,12 +132,8 @@ func (p *processHandle) outcome() (Result, error) {
 	return p.result, nil
 }
 
-func (p *processHandle) publishRuntimeFailure(err *RuntimeError) {
-	p.mu.Lock()
-
-	p.runtimeErr = err
-	p.mu.Unlock()
-	close(p.outcomePublished)
+func (p *processHandle) publishRuntimeFailure(err *RuntimeError) bool {
+	return p.publishOutcome(Result{}, err)
 }
 
 func (p *processHandle) closedRequestError() error {

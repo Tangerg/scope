@@ -116,7 +116,7 @@ func clockSkewedTree(t *testing.T, durable, children bool) (Deployment, TreeSnap
 	if children {
 		mode, status = "wait:paused", StatusWaiting
 	}
-	input, err := EncodeInput(childTestInput{Mode: mode})
+	input, err := EncodePayload(childTestInput{Mode: mode})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -22,7 +22,7 @@
 // MaxConcurrentTasks until their drained outcomes are observed. MaxTurns and
 // MaxControlsPerTurn bound coordinator decisions and each control batch.
 //
-// Controls compile to agent.SignalChild and agent.CancelChild. Signals obey the
+// Controls compile to agent.NewChildSignalEffect and agent.NewChildCancelEffect. Signals obey the
 // recipient Strategy's protocol, including interaction steering at its safe
 // boundary. They do not preempt a model request or release an unrelated wait.
 // For input that must wake a waiting collaboration, configure a coordination

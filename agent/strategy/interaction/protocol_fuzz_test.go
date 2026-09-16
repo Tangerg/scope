@@ -3,6 +3,7 @@ package interaction
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -35,7 +36,7 @@ func FuzzInteractionEffectProtocol(f *testing.F) {
 			},
 		},
 	} {
-		encoded, err := encodeProtocol(effect)
+		encoded, err := jsonv2.Marshal(effect, jsonv2.Deterministic(true))
 		if err != nil {
 			f.Fatal(err)
 		}
@@ -51,7 +52,7 @@ func FuzzInteractionEffectProtocol(f *testing.F) {
 		if err != nil {
 			return
 		}
-		encoded, err := encodeProtocol(effect)
+		encoded, err := jsonv2.Marshal(effect, jsonv2.Deterministic(true))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -59,7 +60,7 @@ func FuzzInteractionEffectProtocol(f *testing.F) {
 		if err != nil {
 			t.Fatalf("accepted effect did not round trip: %v", err)
 		}
-		reencoded, err := encodeProtocol(restored)
+		reencoded, err := jsonv2.Marshal(restored, jsonv2.Deterministic(true))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -90,7 +91,7 @@ func FuzzInteractionSignalProtocol(f *testing.F) {
 		{Operation: operationInputResponse, InputResponse: json.RawMessage(`{"answer":9007199254740993}`)},
 		{Operation: operationSteer, Steer: &steerInput{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("continue"))}}},
 	} {
-		encoded, err := encodeProtocol(signal)
+		encoded, err := jsonv2.Marshal(signal, jsonv2.Deterministic(true))
 		if err != nil {
 			f.Fatal(err)
 		}
@@ -107,7 +108,7 @@ func FuzzInteractionSignalProtocol(f *testing.F) {
 		if err != nil {
 			return
 		}
-		encoded, err := encodeProtocol(signal)
+		encoded, err := jsonv2.Marshal(signal, jsonv2.Deterministic(true))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -115,7 +116,7 @@ func FuzzInteractionSignalProtocol(f *testing.F) {
 		if err != nil {
 			t.Fatalf("accepted signal did not round trip: %v", err)
 		}
-		reencoded, err := encodeProtocol(restored)
+		reencoded, err := jsonv2.Marshal(restored, jsonv2.Deterministic(true))
 		if err != nil {
 			t.Fatal(err)
 		}

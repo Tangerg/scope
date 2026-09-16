@@ -19,7 +19,7 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 	})
 	definition := newEngineTestDefinition(t, "engine.wait", "wait")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
-	input, _ := EncodeInput(engineTestInput{Value: "snapshot"})
+	input, _ := EncodePayload(engineTestInput{Value: "snapshot"})
 	process, err := engine.Start(t.Context(), deployment, input)
 	if err != nil {
 		t.Fatal(err)

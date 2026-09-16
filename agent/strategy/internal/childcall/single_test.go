@@ -163,7 +163,7 @@ func TestSingleDrainedCompletionRequiresKnownSubtreeState(t *testing.T) {
 	}
 	before := string(encoded(t, progress))
 	completion := completionSignal(t, "wait", "children", "subtree_drained", "call", "child")
-	payload := strings.Replace(string(completion.Payload()), `"subtree_unresolved_effects":[]`, `"subtree_unresolved_effects":null`, 1)
+	payload := strings.Replace(string(completion.Payload()), `"boundary":"subtree_drained"`, `"boundary":"terminal_result"`, 1)
 	unknown := signal(t, "wait", json.RawMessage(payload))
 	if _, err := progress.Complete(unknown, key, waitKey, agent.ChildWaitBoundaryDrained); err == nil {
 		t.Fatal("drained completion accepted an unknown subtree")
@@ -257,7 +257,7 @@ func openingSignal(t *testing.T, waitID, key, boundary string, children []string
 
 func completionSignal(t *testing.T, waitID, waitKey, boundary, childKey, processID string) agent.Signal {
 	t.Helper()
-	payload := fmt.Sprintf(`{"operation":"child_wait_satisfied","key":%q,"boundary":%q,"outcomes":[{"key":%q,"subtree_unresolved_effects":[],"result":{"process_id":%q,"started_at":"2026-01-01T00:00:00Z","finished_at":"2026-01-01T00:00:01Z","output":7,"termination":{"status":"completed","cause":"completion"},"usage":{}}}]}`, waitKey, boundary, childKey, processID)
+	payload := fmt.Sprintf(`{"operation":"child_wait_satisfied","key":%q,"boundary":%q,"outcomes":[{"boundary":%q,"key":%q,"subtree_unresolved_effects":[],"result":{"process_id":%q,"started_at":"2026-01-01T00:00:00Z","finished_at":"2026-01-01T00:00:01Z","output":7,"termination":{"status":"completed","cause":"completion"},"usage":{}}}]}`, waitKey, boundary, boundary, childKey, processID)
 	if boundary != "subtree_drained" {
 		payload = strings.Replace(payload, `"subtree_unresolved_effects":[],`, "", 1)
 	}

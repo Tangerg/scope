@@ -57,7 +57,7 @@ func TestConcurrentDeltaEmitterDeliversIncreasingSequences(t *testing.T) {
 	t.Cleanup(func() { mustCloseEngine(t, engine) })
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(t, definition, concurrentDeltaDispatcher{payloads: payloads})
-	input, err := EncodeInput(engineTestInput{Value: "stream"})
+	input, err := EncodePayload(engineTestInput{Value: "stream"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestEngineOnlySuppliesEmitterWithListeners(t *testing.T) {
 		t.Cleanup(func() { mustCloseEngine(t, engine) })
 		definition := newEngineTestDefinition(t, "engine.effect", "effect")
 		deployment := engineTestDeployment(t, definition, optionalDeltaDispatcher{observed: observed})
-		input, err := EncodeInput(engineTestInput{Value: "stream"})
+		input, err := EncodePayload(engineTestInput{Value: "stream"})
 		if err != nil {
 			t.Fatal(err)
 		}

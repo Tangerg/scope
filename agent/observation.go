@@ -135,7 +135,7 @@ func (o *observationBus) offerDelta(ctx context.Context, delta Delta) bool {
 	if len(o.deltas) == 0 {
 		return true
 	}
-	ctx = context.WithoutCancel(requireContext(ctx))
+	ctx = context.WithoutCancel(RequireContext(ctx))
 	o.deltaMu.RLock()
 	defer o.deltaMu.RUnlock()
 	if o.deltaClosed {
@@ -233,7 +233,7 @@ func (o *observationBus) checkDeltaListenerReentrancy(ctx context.Context, opera
 	return fmt.Errorf("%w: %s would wait for its active Delta listener", ErrListenerReentrancy, operation)
 }
 
-func (o *observationBus) checkListenerReentrancy(ctx context.Context, rootID ProcessID, operation string) error {
+func (o *observationBus) checkEventListenerReentrancy(ctx context.Context, rootID ProcessID, operation string) error {
 	active, ok := ctx.Value(observedTreeKey{bus: o, rootID: rootID}).(*atomic.Bool)
 	if !ok || !active.Load() {
 		return nil

@@ -68,7 +68,7 @@ func TestCoordinationRejectsExternalTimerAndWaitOpening(t *testing.T) {
 	for _, test := range []struct {
 		name       string
 		definition agent.Definition
-		input      agent.Input
+		input      agent.Payload
 		waitID     string
 		payload    any
 	}{
@@ -126,7 +126,7 @@ func TestCoordinationRejectsMalformedRestoration(t *testing.T) {
 	for _, sample := range []struct {
 		name       string
 		definition agent.Definition
-		input      agent.Input
+		input      agent.Payload
 	}{
 		{name: "gate", definition: inputGate(t), input: encodedInput(t, "request")},
 		{name: "deadline", definition: deadline.Definition(), input: spec.Input},
@@ -165,7 +165,7 @@ func TestCoordinationRejectsMalformedRestoration(t *testing.T) {
 			}
 		})
 	}
-	if _, err := first.Start(encodedInput(t, []agent.ChildSpec{spec, spec})); !errors.Is(err, agent.ErrInvalidInput) {
+	if _, err := first.Start(encodedInput(t, []agent.ChildSpec{spec, spec})); !errors.Is(err, agent.ErrInvalidPayload) {
 		t.Fatalf("duplicate candidate identity = %v", err)
 	}
 }

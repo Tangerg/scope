@@ -129,6 +129,8 @@ type DeltaEmitter func(payload json.RawMessage)
 // counters may count dispatch attempts, including replay; they do not count
 // distinct logical external operations. See the Definition example for a
 // concurrency-safe attempt counter around a bound Dispatcher.
+// Engine always supplies a non-nil context. Direct callers must do the same;
+// implementations can enforce that contract with RequireContext.
 type Dispatcher interface {
 	// Dispatch performs one frozen Strategy Effect outside Execution.Step.
 	// Settlement must address request.ID; a non-nil error means the external

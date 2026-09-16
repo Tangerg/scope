@@ -70,7 +70,7 @@ func TestToolChildFailuresRetainRestorableParentState(t *testing.T) {
 					t.Error(closeErr)
 				}
 			})
-			input, _ := agent.EncodeInput(interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}})
+			input, _ := agent.EncodePayload(interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}})
 			result, err := engine.Run(t.Context(), deployment, input)
 			if err != nil {
 				t.Fatal(err)

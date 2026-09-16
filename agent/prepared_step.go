@@ -78,9 +78,9 @@ func (p *preparedStep) hasUnknownSettlement() bool {
 	return false
 }
 
-func (p preparedStep) validate(processID ProcessID, sequence uint64, committedState ExecutionState, mailbox signalMailbox) error {
+func (p *preparedStep) validate(processID ProcessID, sequence uint64, committedState ExecutionState, mailbox signalMailbox) error {
 	if p.StepSequence != sequence || !p.CandidateState.Valid() || !p.Intent.Valid() ||
-		p.SignalCursor < mailbox.committedSignalCursor() || p.SignalCursor > mailbox.arrivalSequence() {
+		p.SignalCursor < mailbox.committedSignalCursor() || p.SignalCursor > mailbox.acceptedCount() {
 		return errors.New("invalid prepared Step boundary")
 	}
 	digest, err := committedState.digest()
@@ -102,8 +102,8 @@ func (p preparedStep) validate(processID ProcessID, sequence uint64, committedSt
 	return err
 }
 
-func (p preparedStep) clone() preparedStep {
-	clone := p
+func (p *preparedStep) clone() preparedStep {
+	clone := *p
 	clone.Effects = make([]preparedEffect, len(p.Effects))
 	for index, effect := range p.Effects {
 		clone.Effects[index] = preparedEffect{

@@ -123,6 +123,7 @@ func BenchmarkChildAdmissionAmongRetainedRoots(b *testing.B) {
 				b.Fatal(err)
 			}
 			b.Cleanup(func() {
+				parent.handle.publishRuntimeFailure(&RuntimeError{processID: parent.handle.processID, cause: context.Canceled})
 				parent.handle.finishBookkeeping()
 				if err := engine.Close(context.WithoutCancel(b.Context())); err != nil {
 					b.Error(err)
@@ -134,11 +135,12 @@ func BenchmarkChildAdmissionAmongRetainedRoots(b *testing.B) {
 				id := controlValue(newProcessID())
 				handle := newProcessHandle(rootProcessRelation(id), parent.handle.deploymentRef,
 					parent.budget, parent.capabilities, parent.treeLimits, parent.startedAt)
+				handle.publishRuntimeFailure(&RuntimeError{processID: id, cause: context.Canceled})
 				handle.finishBookkeeping()
 				engine.processes[id] = handle
 			}
 			key := controlValue(ParseChildKey("worker"))
-			input := controlValue(EncodeInput(engineTestInput{Value: "child"}))
+			input := controlValue(EncodePayload(engineTestInput{Value: "child"}))
 			spec := ChildSpec{Key: key, DeploymentRef: parent.deployment.DeploymentRef(), Input: input, Budget: Budget{Steps: 2, Effects: 2, Signals: 2}}
 			effectID := parent.handle.processID.effectID(1, 0)
 			b.ReportAllocs()
@@ -148,6 +150,35 @@ func BenchmarkChildAdmissionAmongRetainedRoots(b *testing.B) {
 					b.Fatalf("child admission failed: %+v", prepared.result)
 				}
 				runtime.discardChildStart(prepared.plan)
+			}
+		})
+	}
+}
+
+func BenchmarkStartAdmissionDuringTreeRestore(b *testing.B) {
+	for _, count := range []int{1, 128, 1024} {
+		b.Run(fmt.Sprint(count), func(b *testing.B) {
+			runtime := newWaitingSnapshotTree(b, count)
+			restoration := &treeRestoration{wire: treeSnapshotWire{RootID: runtime.rootID}}
+			for _, process := range orderedProcesses(runtime.processes) {
+				restoration.processes = append(restoration.processes, restoredTreeProcess{handle: process.handle})
+			}
+			if err := runtime.engine.reserveRestoredTree(restoration); err != nil {
+				b.Fatal(err)
+			}
+			b.Cleanup(func() { runtime.engine.discardRestoredTree(restoration) })
+			id, err := newProcessID()
+			if err != nil {
+				b.Fatal(err)
+			}
+			relation := rootProcessRelation(id)
+			ref := runtime.processes[runtime.rootID].handle.deploymentRef
+			b.ReportAllocs()
+			for b.Loop() {
+				if err := runtime.engine.reserveProcessStart(relation, ref, runtime.engine.treeLimits, Digest{}); err != nil {
+					b.Fatal(err)
+				}
+				runtime.engine.discardProcessStart(id)
 			}
 		})
 	}

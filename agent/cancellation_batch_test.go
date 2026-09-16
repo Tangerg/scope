@@ -13,13 +13,13 @@ func TestInterruptedBatchRetainsItsSettledPrefixAndUnstartedStructuralEffects(t 
 	synctest.Test(t, func(t *testing.T) {
 		childDeployment := newChildTestDeployment(t)
 		childKey, _ := ParseChildKey("unstarted")
-		childInput, _ := EncodeInput(childTestInput{Mode: "leaf"})
-		child, err := StartChild(childTestSpec(childKey, childDeployment.DeploymentRef(), childInput))
+		childInput, _ := EncodePayload(childTestInput{Mode: "leaf"})
+		child, err := NewChildStartEffect(childTestSpec(childKey, childDeployment.DeploymentRef(), childInput))
 		if err != nil {
 			t.Fatal(err)
 		}
 		waitKey, _ := ParseWaitKey("unopened")
-		wait, err := RequestWait(waitKey, json.RawMessage(`{}`))
+		wait, err := NewWaitEffect(waitKey, json.RawMessage(`{}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -40,7 +40,7 @@ func TestInterruptedBatchRetainsItsSettledPrefixAndUnstartedStructuralEffects(t 
 		if err != nil {
 			t.Fatal(err)
 		}
-		input, _ := EncodeInput(engineTestInput{Value: "batch"})
+		input, _ := EncodePayload(engineTestInput{Value: "batch"})
 		process, err := engine.Start(t.Context(), deployment, input)
 		if err != nil {
 			t.Fatal(err)
@@ -111,7 +111,7 @@ func TestCancellationPreservesPreparedInputInAFullMailbox(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		input, _ := EncodeInput(childTestInput{Mode: "nested_wait"})
+		input, _ := EncodePayload(childTestInput{Mode: "nested_wait"})
 		process, err := engine.Start(t.Context(), deployment, input)
 		if err != nil {
 			t.Fatal(err)
@@ -158,7 +158,7 @@ type effectSequenceDefinition struct {
 
 func (e *effectSequenceDefinition) Descriptor() Descriptor { return e.descriptor }
 
-func (e *effectSequenceDefinition) Start(input Input) (Execution, error) {
+func (e *effectSequenceDefinition) Start(input Payload) (Execution, error) {
 	value, err := input.Decode[engineTestInput]()
 	if err != nil {
 		return nil, err
@@ -184,7 +184,7 @@ func (e *effectSequenceExecution) Step(_ context.Context, signals []Signal) (Tra
 		e.state.Phase = "settled"
 		return Continue(uint32(len(signals)), e.definition.effects...)
 	}
-	output, err := EncodeOutput(engineTestOutput{Value: e.state.Value})
+	output, err := EncodePayload(engineTestOutput{Value: e.state.Value})
 	if err != nil {
 		return Transition{}, err
 	}

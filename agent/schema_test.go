@@ -32,14 +32,14 @@ func TestSchemaForValidatesTypedWireValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	valid, err := EncodeInput(wireFixture{Message: "hello"})
+	valid, err := EncodePayload(wireFixture{Message: "hello"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if validateInputErr := schema.Validate(valid.JSON()); validateInputErr != nil {
 		t.Fatalf("Validate(valid) error = %v", validateInputErr)
 	}
-	invalid, err := ParseInput([]byte(`{"message":3}`))
+	invalid, err := ParsePayload([]byte(`{"message":3}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestSchemaForChildSpecUsesItsPublicWireContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := EncodeInput(childTestInput{Mode: "leaf"})
+	input, err := EncodePayload(childTestInput{Mode: "leaf"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestSchemaForChildSpecUsesItsPublicWireContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := EncodeInput(spec)
+	encoded, err := EncodePayload(spec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestSchemaForMatchesEncodingJSONWireTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	valid, err := EncodeOutput(jsonWireFixture{
+	valid, err := EncodePayload(jsonWireFixture{
 		Metadata: map[string]json.RawMessage{
 			"array":   json.RawMessage(`[1,"two"]`),
 			"boolean": json.RawMessage(`true`),
@@ -94,7 +94,7 @@ func TestSchemaForMatchesEncodingJSONWireTypes(t *testing.T) {
 		t.Fatalf("Validate(valid JSON wire values) error = %v; schema = %s", validateOutputErr, schema.JSON())
 	}
 
-	nilSignature, err := EncodeOutput(jsonWireFixture{Metadata: map[string]json.RawMessage{}})
+	nilSignature, err := EncodePayload(jsonWireFixture{Metadata: map[string]json.RawMessage{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestSchemaForMatchesEncodingJSONWireTypes(t *testing.T) {
 		t.Fatalf("Validate(nil byte slice) error = %v; schema = %s", validateOutputErr, schema.JSON())
 	}
 
-	arraySignature, err := ParseOutput([]byte(`{"metadata":{"provider":"deepseek"},"signature":[1,2,3]}`))
+	arraySignature, err := ParsePayload([]byte(`{"metadata":{"provider":"deepseek"},"signature":[1,2,3]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,11 +113,11 @@ func TestSchemaForMatchesEncodingJSONWireTypes(t *testing.T) {
 		t.Fatalf("derived schema does not identify the byte-slice encoding: %s", schema.JSON())
 	}
 
-	_, err = EncodeOutput(jsonWireFixture{
+	_, err = EncodePayload(jsonWireFixture{
 		Metadata: map[string]json.RawMessage{"invalid": json.RawMessage(`{`)},
 	})
-	if !errors.Is(err, ErrInvalidOutput) {
-		t.Fatalf("EncodeOutput(invalid RawMessage) error = %v, want ErrInvalidOutput", err)
+	if !errors.Is(err, ErrInvalidPayload) {
+		t.Fatalf("EncodePayload(invalid RawMessage) error = %v, want ErrInvalidPayload", err)
 	}
 }
 

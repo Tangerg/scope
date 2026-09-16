@@ -20,7 +20,7 @@ func prepareEpisode(t testing.TB, store *episodeStore) (*agent.Engine, *agent.Pr
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodeInput(episodeState{Summary: "explicit state"})
+	input, err := agent.EncodePayload(episodeState{Summary: "explicit state"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,12 +36,8 @@ func prepareEpisode(t testing.TB, store *episodeStore) (*agent.Engine, *agent.Pr
 	if !present {
 		t.Fatal("previous episode has no output")
 	}
-	transfer, err := agent.ParseInput(output.JSON())
-	if err != nil {
-		t.Fatal(err)
-	}
 	return engine, previous, deployment, successorRequest{
-		Predecessor: previous.ID(), DeploymentRef: deployment.DeploymentRef(), Input: transfer,
+		Predecessor: previous.ID(), DeploymentRef: deployment.DeploymentRef(), Input: output,
 		Limits: agent.Limits{MaxSteps: 8, MaxEffects: 4, MaxSignals: 8, MaxPendingSignals: 8}, TreeLimits: agent.DefaultTreeLimits(),
 	}
 }
@@ -183,7 +179,7 @@ type episodeStartBarrier struct {
 	release chan struct{}
 }
 
-func (e *episodeStartBarrier) Start(input agent.Input) (agent.Execution, error) {
+func (e *episodeStartBarrier) Start(input agent.Payload) (agent.Execution, error) {
 	if e.started.CompareAndSwap(false, true) {
 		close(e.entered)
 		<-e.release
@@ -201,7 +197,7 @@ func TestSuccessorRequestCannotChangeAfterAdmission(t *testing.T) {
 	}
 	assertEpisodeResult(t, process, request, 2)
 	changed := request
-	changed.Input, err = agent.EncodeInput(episodeState{Revision: 2, Summary: "different state"})
+	changed.Input, err = agent.EncodePayload(episodeState{Revision: 2, Summary: "different state"})
 	if err != nil {
 		t.Fatal(err)
 	}

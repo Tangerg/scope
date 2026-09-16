@@ -33,8 +33,8 @@ func NewGoal(config GoalConfig) (Goal, error) {
 	if !agent.ValidQualifiedName(config.Name) {
 		return Goal{}, fmt.Errorf("%w: invalid name %q", ErrInvalidGoal, config.Name)
 	}
-	if !validDescription(config.Description) {
-		return Goal{}, fmt.Errorf("%w: Description must be non-empty, trimmed UTF-8 within %d bytes", ErrInvalidGoal, maxDescriptionBytes)
+	if !agent.ValidDescription(config.Description) {
+		return Goal{}, fmt.Errorf("%w: Description must be non-empty, trimmed UTF-8 within %d bytes", ErrInvalidGoal, agent.MaxDescriptionBytes)
 	}
 	conditions, err := canonicalConditions(config.Conditions)
 	if err != nil {

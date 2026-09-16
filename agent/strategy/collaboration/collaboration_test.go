@@ -62,12 +62,12 @@ func (r resolver) Resolve(ref agent.DeploymentRef) (agent.Deployment, error) {
 	return agent.Deployment{}, errors.New("deployment unavailable")
 }
 
-func input(value string) agent.Input { return require(agent.EncodeInput(value)) }
+func input(value string) agent.Payload { return require(agent.EncodePayload(value)) }
 func request(key, worker, value string) TaskRequest {
 	return TaskRequest{Key: require(agent.ParseChildKey(key)), Worker: worker, Input: input(value)}
 }
 func finish(turn Turn, text string) Decision {
-	output := require(agent.EncodeOutput(text))
+	output := require(agent.EncodePayload(text))
 	return Decision{Mode: Complete, State: turn.State, Output: &output}
 }
 func echo() agent.Deployment {

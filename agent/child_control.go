@@ -8,12 +8,12 @@ import (
 
 var ErrInvalidChildControl = errors.New("agent: invalid child control")
 
-// SignalChild declares delivery through the child's ordinary mailbox contract.
+// NewChildSignalEffect declares delivery through the child's ordinary mailbox contract.
 // It cannot release an unrelated wait or preempt in-flight external work.
 // Delivery and the parent Effect settlement share one tree acknowledgment.
 // The exact SignalRequest retains its caller-chosen deduplication identity.
 // Cross-tree delivery remains a Host-authorized messaging operation.
-func SignalChild(childID ProcessID, signal SignalRequest) (Effect, error) {
+func NewChildSignalEffect(childID ProcessID, signal SignalRequest) (Effect, error) {
 	if !childID.Valid() || !signal.Valid() {
 		return Effect{}, ErrInvalidChildControl
 	}
@@ -22,11 +22,11 @@ func SignalChild(childID ProcessID, signal SignalRequest) (Effect, error) {
 	}.effect()
 }
 
-// CancelChild declares cancellation of an exact direct child's subtree.
+// NewChildCancelEffect declares cancellation of an exact direct child's subtree.
 // The receipt confirms the recorded intent, not termination or resource release;
 // use a drained child wait before reusing exclusive resources. An already
 // terminal direct child succeeds without changing its result.
-func CancelChild(childID ProcessID, reason string) (Effect, error) {
+func NewChildCancelEffect(childID ProcessID, reason string) (Effect, error) {
 	if !childID.Valid() || validateTerminationReason(reason) != nil {
 		return Effect{}, ErrInvalidChildControl
 	}
@@ -134,11 +134,10 @@ func (c childControlEffectWire) valid() bool {
 }
 
 func (c childControlEffectWire) effect() (Effect, error) {
-	payload, err := json.Marshal(c)
-	if err != nil {
-		return Effect{}, err
+	if !c.valid() {
+		return Effect{}, ErrInvalidChildControl
 	}
-	return newEffect(EffectTargetFramework, payload)
+	return newFrameworkEffect(c)
 }
 
 func decodeChildControlEffect(payload json.RawMessage) (childControlEffectWire, error) {

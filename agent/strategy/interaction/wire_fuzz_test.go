@@ -25,7 +25,7 @@ func FuzzOutputJSON(f *testing.F) {
 			},
 		},
 	} {
-		encoded, err := agent.EncodeOutput(output)
+		encoded, err := agent.EncodePayload(output)
 		if err != nil {
 			f.Fatal(err)
 		}
@@ -42,7 +42,7 @@ func FuzzOutputJSON(f *testing.F) {
 	f.Add([]byte(`{"source":"model_response","model_calls":0}`))
 	f.Add([]byte(`{"source":"direct_tool_results","model_calls":1,"direct_tool_results":[]}`))
 	f.Fuzz(func(t *testing.T, payload []byte) {
-		erased, err := agent.ParseOutput(payload)
+		erased, err := agent.ParsePayload(payload)
 		if err != nil {
 			return
 		}
@@ -50,7 +50,7 @@ func FuzzOutputJSON(f *testing.F) {
 		if err != nil || output.Validate() != nil {
 			return
 		}
-		encoded, err := agent.EncodeOutput(output)
+		encoded, err := agent.EncodePayload(output)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -61,7 +61,7 @@ func FuzzOutputJSON(f *testing.F) {
 		if validationErr := restored.Validate(); validationErr != nil {
 			t.Fatalf("restored Output is invalid: %v", validationErr)
 		}
-		reencoded, err := agent.EncodeOutput(restored)
+		reencoded, err := agent.EncodePayload(restored)
 		if err != nil {
 			t.Fatal(err)
 		}

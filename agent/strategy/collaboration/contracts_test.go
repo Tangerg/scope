@@ -16,7 +16,7 @@ func TestRejectsDecisionBatchBeforeDeclaringActions(t *testing.T) {
 	definition, _ := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
 	for name, decision := range map[string]Decision{
 		"mode":               {Mode: "invalid", State: input("x")},
-		"state schema":       {Mode: Continue, State: require(agent.EncodeInput(1))},
+		"state schema":       {Mode: Continue, State: require(agent.EncodePayload(1))},
 		"missing output":     {Mode: Complete, State: input("x")},
 		"complete with task": {Mode: Complete, State: input("x"), Tasks: []TaskRequest{request("work", "test.echo", "x")}, Output: requireOutput("x")},
 		"output schema":      {Mode: Complete, State: input("x"), Output: requireOutput(1)},
@@ -24,7 +24,7 @@ func TestRejectsDecisionBatchBeforeDeclaringActions(t *testing.T) {
 		"unavailable worker": {Mode: Continue, State: input("x"), Tasks: []TaskRequest{request("work", "absent", "x")}},
 		"reserved key":       {Mode: Continue, State: input("x"), Tasks: []TaskRequest{request("collaboration.turn.1", "test.echo", "x")}},
 		"duplicate key":      {Mode: Continue, State: input("x"), Tasks: []TaskRequest{request("work", "test.echo", "x"), request("work", "test.echo", "y")}},
-		"input schema":       {Mode: Continue, State: input("x"), Tasks: []TaskRequest{{Key: require(agent.ParseChildKey("work")), Worker: "test.echo", Input: require(agent.EncodeInput(1))}}},
+		"input schema":       {Mode: Continue, State: input("x"), Tasks: []TaskRequest{{Key: require(agent.ParseChildKey("work")), Worker: "test.echo", Input: require(agent.EncodePayload(1))}}},
 		"empty wait":         {Mode: Wait, State: input("x")},
 		"foreign control":    {Mode: Continue, State: input("x"), Controls: []Control{{Task: require(agent.ParseChildKey("absent"))}}},
 		"concurrency bound":  {Mode: Continue, State: input("x"), Tasks: []TaskRequest{request("a", "test.echo", "x"), request("b", "test.echo", "x"), request("c", "test.echo", "x"), request("d", "test.echo", "x"), request("e", "test.echo", "x")}},
@@ -44,8 +44,8 @@ func TestRejectsDecisionBatchBeforeDeclaringActions(t *testing.T) {
 	}
 }
 
-func requireOutput[T any](value T) *agent.Output {
-	output := require(agent.EncodeOutput(value))
+func requireOutput[T any](value T) *agent.Payload {
+	output := require(agent.EncodePayload(value))
 	return &output
 }
 
@@ -79,7 +79,7 @@ func TestConfigurationAndProtocolContracts(t *testing.T) {
 	if _, err := missing.Restore(t.Context(), agent.ExecutionState{}); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatal(err)
 	}
-	if _, err := definition.Start(require(agent.EncodeInput(1))); !errors.Is(err, agent.ErrInvalidInput) {
+	if _, err := definition.Start(require(agent.EncodePayload(1))); !errors.Is(err, agent.ErrInvalidPayload) {
 		t.Fatal(err)
 	}
 	if _, err := definition.Restore(t.Context(), agent.ExecutionState{}); !errors.Is(err, ErrInvalidState) {
@@ -112,7 +112,7 @@ type tracedDefinition struct {
 	cases []agenttest.ExecutionConformanceCase
 }
 
-func (t *tracedDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (t *tracedDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	execution, err := t.Definition.Start(input)
 	return &tracedExecution{Execution: execution, owner: t}, err
 }
@@ -171,7 +171,7 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 		mutations := map[string]func(*executionState){
 			"unknown phase": func(state *executionState) { state.Phase = "unknown" },
 			"excess turns":  func(state *executionState) { state.Number = definition.maxTurns + 1 },
-			"changed state": func(state *executionState) { state.State = require(agent.EncodeInput(1)) },
+			"changed state": func(state *executionState) { state.State = require(agent.EncodePayload(1)) },
 		}
 		if state.Turn != nil {
 			mutations["changed turn number"] = func(state *executionState) { state.Turn.Input.Number++ }

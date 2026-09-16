@@ -71,7 +71,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, engine.Close(context.WithoutCancel(ctx))) }()
-	input, err := agent.EncodeInput(interaction.Input{Messages: []chat.Message{
+	input, err := agent.EncodePayload(interaction.Input{Messages: []chat.Message{
 		chat.NewUserMessage(chat.NewTextPart("What is 20 + 22?")),
 	}})
 	if err != nil {

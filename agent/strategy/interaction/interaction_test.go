@@ -36,7 +36,7 @@ func TestManagedInteractionCompletesFromModelResponse(t *testing.T) {
 		}
 	})
 
-	input, err := agent.EncodeInput(interaction.Input{
+	input, err := agent.EncodePayload(interaction.Input{
 		Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("finish"))},
 	})
 	if err != nil {
@@ -89,7 +89,7 @@ func TestManagedInteractionExecutesToolLoopInModelOrder(t *testing.T) {
 			t.Errorf("Close: %v", closeErr)
 		}
 	})
-	input, err := agent.EncodeInput(interaction.Input{
+	input, err := agent.EncodePayload(interaction.Input{
 		Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("add 2 and 3"))},
 	})
 	if err != nil {
@@ -354,7 +354,7 @@ func TestDefinitionRestoresCompleteWorkingContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodeInput(interaction.Input{
+	input, err := agent.EncodePayload(interaction.Input{
 		Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("persist me"))},
 	})
 	if err != nil {

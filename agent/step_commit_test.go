@@ -84,7 +84,7 @@ func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 }
 
 func TestPreparedCompletionDoesNotRetainOutputWhenKillWins(t *testing.T) {
-	output, err := EncodeOutput(struct {
+	output, err := EncodePayload(struct {
 		Value string `json:"value"`
 	}{Value: "superseded"})
 	if err != nil {
@@ -105,10 +105,10 @@ func TestPreparedCompletionDoesNotRetainOutputWhenKillWins(t *testing.T) {
 	if err := finalization.prepareTransition(time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if finalization.transition.status != StatusKilled {
-		t.Fatalf("resolved status=%s, want %s", finalization.transition.status, StatusKilled)
+	if finalization.commit.status != StatusKilled {
+		t.Fatalf("resolved status=%s, want %s", finalization.commit.status, StatusKilled)
 	}
-	if finalization.transition.finalOutput.Valid() {
+	if finalization.commit.finalOutput.Valid() {
 		t.Fatal("superseded completion output survived Kill priority")
 	}
 }
@@ -130,7 +130,7 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 		key, _ := ParseWaitKey(fmt.Sprintf("worker-result-%d", index))
 		spec := ChildWaitSpec{Key: key, Children: []ProcessID{id},
 			Boundary: ChildWaitBoundaryResult, Condition: AllChildren()}
-		effect, err := WaitForChildren(spec)
+		effect, err := NewChildWaitEffect(spec)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -37,7 +37,7 @@ func TestTransformAndCallRunAsManagedChildProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodeInput(numberInput{Value: 2})
+	input, err := agent.EncodePayload(numberInput{Value: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestCallPropagatesChildFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := agent.EncodeInput(numberInput{Value: 2})
+	input, _ := agent.EncodePayload(numberInput{Value: 2})
 	result, err := engine.Run(context.Background(), parent, input)
 	if err != nil {
 		t.Fatal(err)

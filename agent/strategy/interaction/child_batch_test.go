@@ -31,7 +31,7 @@ func TestChildBatchRequiresDrainedWaitBoundaries(t *testing.T) {
 					var payload any
 					if stage == phaseAwaitingChildWaitOpen {
 						want.Boundary = boundary
-						effect, effectErr := agent.WaitForChildren(want)
+						effect, effectErr := agent.NewChildWaitEffect(want)
 						if effectErr != nil {
 							t.Fatal(effectErr)
 						}
@@ -45,16 +45,16 @@ func TestChildBatchRequiresDrainedWaitBoundaries(t *testing.T) {
 						opening.Operation = "child_wait_opened"
 						payload = opening
 					} else {
-						output, _ := agent.EncodeOutput(fuzzDelegateOutput{Result: "done"})
+						output, _ := agent.EncodePayload(fuzzDelegateOutput{Result: "done"})
 						if kind == childCallsTool {
-							output, _ = agent.EncodeOutput(toolCallResult{Result: chat.ToolResult{
+							output, _ = agent.EncodePayload(toolCallResult{Result: chat.ToolResult{
 								ID: "call_batch", Name: "delegate_fuzz", Output: chat.NewTextToolOutput("done"),
 							}})
 						}
 						payload = childCompletionTestPayload{
 							Operation: "child_wait_satisfied", Key: want.Key, Boundary: boundary,
 							Outcomes: []childOutcomeTestWire{{
-								Key: *batch.Invocations[0].ChildKey, SubtreeUnresolvedEffects: []agent.UnresolvedEffect{},
+								Boundary: agent.ChildWaitBoundaryDrained, Key: *batch.Invocations[0].ChildKey, SubtreeUnresolvedEffects: []agent.UnresolvedEffect{},
 								Result: childResultTestWire{
 									ProcessID: want.Children[0], StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0),
 									Output: output, Termination: json.RawMessage(`{"status":"completed","cause":"completion"}`),
@@ -208,6 +208,7 @@ type childCompletionTestPayload struct {
 }
 
 type childOutcomeTestWire struct {
+	Boundary                 agent.ChildWaitBoundary  `json:"boundary"`
 	Key                      agent.ChildKey           `json:"key"`
 	Result                   childResultTestWire      `json:"result"`
 	SubtreeUnresolvedEffects []agent.UnresolvedEffect `json:"subtree_unresolved_effects"`
@@ -217,7 +218,7 @@ type childResultTestWire struct {
 	ProcessID   agent.ProcessID `json:"process_id"`
 	StartedAt   time.Time       `json:"started_at"`
 	FinishedAt  time.Time       `json:"finished_at"`
-	Output      agent.Output    `json:"output,omitzero"`
+	Output      agent.Payload   `json:"output,omitzero"`
 	Termination json.RawMessage `json:"termination"`
 }
 
@@ -257,7 +258,7 @@ func TestToolChildTerminationPreservesFailureAndCause(t *testing.T) {
 			}
 			signal := childBatchTestSignal(t, *batch.WaitID, childCompletionTestPayload{
 				Operation: "child_wait_satisfied", Key: wait.Key, Boundary: agent.ChildWaitBoundaryDrained,
-				Outcomes: []childOutcomeTestWire{{Key: *batch.Invocations[0].ChildKey, SubtreeUnresolvedEffects: []agent.UnresolvedEffect{}, Result: childResultTestWire{
+				Outcomes: []childOutcomeTestWire{{Boundary: agent.ChildWaitBoundaryDrained, Key: *batch.Invocations[0].ChildKey, SubtreeUnresolvedEffects: []agent.UnresolvedEffect{}, Result: childResultTestWire{
 					ProcessID: *batch.Invocations[0].ProcessID, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0), Termination: json.RawMessage(test.termination),
 				}}},
 			})
@@ -283,7 +284,7 @@ func TestDelegateUnresolvedEffectsStopParent(t *testing.T) {
 	outcomes := make([]childOutcomeTestWire, len(batch.Invocations))
 	for index, invocation := range batch.Invocations {
 		effectID, _ := agent.ParseEffectID("effect:remote-write")
-		outcomes[index] = childOutcomeTestWire{Key: *invocation.ChildKey, SubtreeUnresolvedEffects: []agent.UnresolvedEffect{{ProcessID: *invocation.ProcessID, EffectID: effectID}}, Result: childResultTestWire{
+		outcomes[index] = childOutcomeTestWire{Boundary: agent.ChildWaitBoundaryDrained, Key: *invocation.ChildKey, SubtreeUnresolvedEffects: []agent.UnresolvedEffect{{ProcessID: *invocation.ProcessID, EffectID: effectID}}, Result: childResultTestWire{
 			ProcessID: *invocation.ProcessID, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0),
 			Termination: json.RawMessage(`{"status":"killed","cause":"engine_kill","reason":"operator stopped child","unresolved_effect_ids":["effect:remote-write"]}`),
 		}}
@@ -318,11 +319,11 @@ func TestBatchFailureAfterSuccessPrefixRemainsRestorable(t *testing.T) {
 					}
 					id, _ := agent.ParseProcessID(fmt.Sprintf("process:batch-%d", index))
 					batch.Invocations = append(batch.Invocations, childInvocationState{ChildKey: &key, ProcessID: &id})
-					output, _ := agent.EncodeOutput(fuzzDelegateOutput{Result: "done"})
+					output, _ := agent.EncodePayload(fuzzDelegateOutput{Result: "done"})
 					if kind == childCallsTool {
-						output, _ = agent.EncodeOutput(toolCallResult{Result: chat.ToolResult{ID: call.ID, Name: call.Name, Output: chat.NewTextToolOutput("done")}})
+						output, _ = agent.EncodePayload(toolCallResult{Result: chat.ToolResult{ID: call.ID, Name: call.Name, Output: chat.NewTextToolOutput("done")}})
 					}
-					outcomes[index] = childOutcomeTestWire{Key: key, SubtreeUnresolvedEffects: []agent.UnresolvedEffect{}, Result: childResultTestWire{ProcessID: id, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0), Output: output, Termination: json.RawMessage(`{"status":"completed","cause":"completion"}`)}}
+					outcomes[index] = childOutcomeTestWire{Boundary: agent.ChildWaitBoundaryDrained, Key: key, SubtreeUnresolvedEffects: []agent.UnresolvedEffect{}, Result: childResultTestWire{ProcessID: id, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0), Output: output, Termination: json.RawMessage(`{"status":"completed","cause":"completion"}`)}}
 				}
 				execution.state.ToolRound.Response.Output.Message = &message
 				if kind == childCallsDelegate {
@@ -332,7 +333,7 @@ func TestBatchFailureAfterSuccessPrefixRemainsRestorable(t *testing.T) {
 				} else {
 					outcomes[failedIndex].Result.Termination = json.RawMessage(`{"status":"killed","cause":"engine_kill","reason":"stopped"}`)
 				}
-				outcomes[failedIndex].Result.Output = agent.Output{}
+				outcomes[failedIndex].Result.Output = agent.Payload{}
 				before, err := execution.Snapshot()
 				if err != nil {
 					t.Fatal(err)

@@ -44,7 +44,7 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 					unblock := sync.OnceFunc(func() { close(release) })
 					defer unblock()
 					model := modelDeployment("test.coordinator_model", modelFunc(func(ctx context.Context, modelRequest *chat.Request) (*chat.Response, error) {
-						turn := require(require(agent.ParseInput([]byte(modelRequest.Messages[0].Text()))).Decode[Turn]())
+						turn := require(require(agent.ParsePayload([]byte(modelRequest.Messages[0].Text()))).Decode[Turn]())
 						var decision Decision
 						switch turn.Number {
 						case 1:
@@ -86,7 +86,7 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 						if output.ModelResponse == nil {
 							return Decision{}, errors.New("missing model response")
 						}
-						value, err := agent.ParseOutput([]byte(output.ModelResponse.Text()))
+						value, err := agent.ParsePayload([]byte(output.ModelResponse.Text()))
 						if err != nil {
 							return Decision{}, err
 						}
@@ -197,7 +197,7 @@ func TestCoordinatorSteersInteractionThroughItsCanonicalSignalContract(t *testin
 		definition, deployments := fixture(func(_ context.Context, turn Turn) (Decision, error) {
 			switch turn.Number {
 			case 1:
-				input := require(agent.EncodeInput(interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("initial"))}}))
+				input := require(agent.EncodePayload(interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("initial"))}}))
 				return Decision{Mode: Continue, State: turn.State, Tasks: []TaskRequest{{Key: require(agent.ParseChildKey("writer")), Worker: "test.interaction", Input: input}}}, nil
 			case 2:
 				signal := require(interaction.NewSteerSignal(require(agent.ParseSignalID("signal:revise")), chat.NewUserMessage(chat.NewTextPart("revise"))))

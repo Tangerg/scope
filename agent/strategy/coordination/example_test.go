@@ -70,7 +70,7 @@ func ExampleFirstSuccess() {
 		exampleCandidate("input", gateDeployment, "replacement instruction"),
 		exampleCandidate("deadline", deadlineDeployment, time.Now().Add(time.Hour)),
 	}
-	input, err := agent.EncodeInput(requests)
+	input, err := agent.EncodePayload(requests)
 	if err != nil {
 		panic(err)
 	}
@@ -126,7 +126,7 @@ func exampleCandidate[T any](key string, deployment agent.Deployment, value T) a
 	if err != nil {
 		panic(err)
 	}
-	input, err := agent.EncodeInput(value)
+	input, err := agent.EncodePayload(value)
 	if err != nil {
 		panic(err)
 	}

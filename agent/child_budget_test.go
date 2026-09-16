@@ -37,7 +37,7 @@ func TestChildAllocationPreservesPreparedParentWork(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				input, err := EncodeInput(childTestInput{Mode: "parent"})
+				input, err := EncodePayload(childTestInput{Mode: "parent"})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -93,10 +93,10 @@ func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 	if err := engine.reserveProcessStart(parent.handle.relation, parent.deployment.DeploymentRef(), parent.treeLimits, Digest{}); err != nil {
 		t.Fatal(err)
 	}
-	engine.publishReservedProcess(parent.handle)
+	engine.publishProcessStart(parent.handle)
 	effectID := parent.handle.processID.effectID(1, 0)
 	key, _ := ParseChildKey("worker")
-	input, _ := EncodeInput(childTestInput{Mode: "leaf"})
+	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
 	spec := childTestSpec(key, parent.deployment.DeploymentRef(), input)
 	prepared := runtime.prepareChildStart(parent, effectID, spec)
 	if prepared.plan == nil {
@@ -124,7 +124,7 @@ func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 	if err := engine.reserveProcessStart(prepared.plan.relation, spec.DeploymentRef, parent.treeLimits, prepared.plan.requestDigest); err != nil {
 		t.Fatalf("released child identity and key could not be reserved again: %v", err)
 	}
-	engine.discardProcessStartReservation(prepared.plan.childID)
+	engine.discardProcessStart(prepared.plan.childID)
 }
 
 func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *testing.T) {

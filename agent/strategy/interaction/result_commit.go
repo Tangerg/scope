@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -83,10 +84,22 @@ func (r ResultBatch) Entries() []ResultEntry {
 type ResultDisposition string
 
 const (
+	ResultInvalid   ResultDisposition = ""
 	ResultSucceeded ResultDisposition = "succeeded"
 	ResultFailed    ResultDisposition = "failed"
 	ResultRejected  ResultDisposition = "rejected"
 )
+
+func (r ResultDisposition) Valid() bool {
+	return r == ResultSucceeded || r == ResultFailed || r == ResultRejected
+}
+
+func (r ResultDisposition) String() string {
+	if !r.Valid() {
+		return "invalid"
+	}
+	return string(r)
+}
 
 // ResultEntry keeps exact provider attribution and output together. Entries
 // returned by ResultBatch are independent copies and cannot alter its receipt.
@@ -116,7 +129,7 @@ func (r ResultReceipt) Settlement() (agent.Settlement, error) {
 	if err := r.Validate(); err != nil {
 		return agent.Settlement{}, err
 	}
-	payload, err := encodeProtocol(signalEnvelope{Operation: operationResultCommit, Receipt: &r})
+	payload, err := jsonv2.Marshal(signalEnvelope{Operation: operationResultCommit, Receipt: &r}, jsonv2.Deterministic(true))
 	if err != nil {
 		return agent.Settlement{}, err
 	}
@@ -153,7 +166,7 @@ func (r resultCommit) digest() (agent.Digest, error) {
 	if err := r.validate(); err != nil {
 		return agent.Digest{}, err
 	}
-	payload, err := encodeProtocol(r)
+	payload, err := jsonv2.Marshal(r, jsonv2.Deterministic(true))
 	if err != nil {
 		return agent.Digest{}, err
 	}

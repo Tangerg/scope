@@ -540,7 +540,7 @@ func (p *pausingDelegateDefinition) Descriptor() agent.Descriptor {
 	return p.descriptor
 }
 
-func (*pausingDelegateDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (*pausingDelegateDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	decoded, err := input.Decode[delegateRequest]()
 	if err != nil {
 		return nil, err
@@ -564,7 +564,7 @@ func (p *pausingDelegateExecution) Step(context.Context, []agent.Signal) (agent.
 		p.Ready = true
 		return agent.Pause(0, "test worker waits at a recoverable boundary")
 	}
-	output, err := agent.EncodeOutput(delegateResponse{Value: p.Input.Value})
+	output, err := agent.EncodePayload(delegateResponse{Value: p.Input.Value})
 	if err != nil {
 		return agent.Transition{}, err
 	}

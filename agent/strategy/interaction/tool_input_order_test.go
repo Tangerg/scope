@@ -60,7 +60,7 @@ func TestToolInputAnswerQueuedBeforeWaitAdoptionSurvivesPauseAndRestore(t *testi
 				if err != nil {
 					t.Fatal(err)
 				}
-				input, err := agent.EncodeInput(toolCall{ModelCallSequence: 1, Call: chat.ToolCall{ID: "call", Name: "confirm", Arguments: `{}`}})
+				input, err := agent.EncodePayload(toolCall{ModelCallSequence: 1, Call: chat.ToolCall{ID: "call", Name: "confirm", Arguments: `{}`}})
 				if err != nil {
 					t.Fatal(err)
 				}

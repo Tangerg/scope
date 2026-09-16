@@ -30,7 +30,7 @@ type processState struct {
 	currentWaitID           WaitID
 	pauseReason             string
 	pendingControl          pendingControl
-	finalOutput             Output
+	finalOutput             Payload
 	termination             Termination
 	snapshot                ProcessSnapshot
 	snapshotSealed          bool
@@ -305,18 +305,17 @@ func (p *processState) capture() (ProcessSnapshot, error) {
 	// Compare every persisted fact, including mailbox and Effect contents. This
 	// avoids a second mutation protocol whose invalidation could miss a control,
 	// reservation, or settlement while reusing the already validated value.
-	if p.snapshot.state != nil && reflect.DeepEqual(wire, *p.snapshot.state) {
-		p.snapshotSealed = p.status.Terminal() && p.handle.joinDone()
-		return p.snapshot, nil
-	}
-	snapshot, err := processSnapshotFromWire(wire)
-	if err == nil {
+	if p.snapshot.state == nil || !reflect.DeepEqual(wire, *p.snapshot.state) {
+		snapshot, err := processSnapshotFromWire(wire)
+		if err != nil {
+			return ProcessSnapshot{}, err
+		}
 		p.snapshot = snapshot
-		// Join proves that descendant work and child budget accounting have
-		// drained; only a capture at that boundary can become permanent.
-		p.snapshotSealed = p.status.Terminal() && p.handle.joinDone()
 	}
-	return snapshot, err
+	// Join proves descendant work and child accounting have drained; only a
+	// capture at that boundary can become permanent.
+	p.snapshotSealed = p.status.Terminal() && p.handle.joinDone()
+	return p.snapshot, nil
 }
 
 func (p *processState) result() Result {
@@ -367,7 +366,7 @@ func (p *processState) restorePreparedStep(ctx context.Context, stored *prepared
 			}
 		} else if !p.pendingControl.hasTerminalIntent() {
 			var err error
-			policy, err = dispatcherReplayPolicy(p.deployment.effectDispatcher(), record.Effect)
+			policy, err = dispatcherReplayPolicy(p.deployment.dispatcher, record.Effect)
 			if err != nil {
 				return fmt.Errorf("%w: restore pending Effect: %w", ErrInvalidSnapshot, err)
 			}
@@ -521,7 +520,7 @@ func (p *processState) recordFailure(kind FailureKind, code string, err error) {
 	p.pendingControl.failure = newEngineFailure(kind, code, err)
 }
 
-func (p *processState) installTermination(termination Termination, output Output, finishedAt time.Time) {
+func (p *processState) installTermination(termination Termination, output Payload, finishedAt time.Time) {
 	if p.status.Terminal() {
 		return
 	}
@@ -531,7 +530,7 @@ func (p *processState) installTermination(termination Termination, output Output
 	p.currentWaitID = WaitID{}
 	p.pauseReason = ""
 	p.pendingControl = pendingControl{}
-	p.finalOutput = Output{}
+	p.finalOutput = Payload{}
 	if p.status == StatusCompleted {
 		p.finalOutput = output
 	}
@@ -629,7 +628,7 @@ func (p *processState) validatePreparedWaits(prepared *preparedStep) error {
 }
 
 func (p *processState) usage() Usage {
-	return Usage{CommittedSteps: p.committedSteps, AcceptedSignals: p.mailbox.arrivalSequence(), PreparedEffects: p.counters.PreparedEffects, DroppedDeltas: p.counters.DroppedDeltas}
+	return Usage{CommittedSteps: p.committedSteps, AcceptedSignals: p.mailbox.acceptedCount(), PreparedEffects: p.counters.PreparedEffects, DroppedDeltas: p.counters.DroppedDeltas}
 }
 
 func (p *processState) adopt(finalization *preparedStepFinalization) {
@@ -639,12 +638,12 @@ func (p *processState) adopt(finalization *preparedStepFinalization) {
 	p.mailbox = finalization.mailbox
 	p.committedSteps = finalization.prepared.StepSequence
 	p.prepared = nil
-	if finalization.transition.termination.Valid() {
-		p.installTermination(finalization.transition.termination, finalization.transition.finalOutput, finalization.transition.finishedAt)
+	if finalization.commit.termination.Valid() {
+		p.installTermination(finalization.commit.termination, finalization.commit.finalOutput, finalization.commit.finishedAt)
 	} else {
-		p.status = finalization.transition.status
-		p.currentWaitID = finalization.transition.currentWaitID
-		p.pauseReason = finalization.transition.pauseReason
+		p.status = finalization.commit.status
+		p.currentWaitID = finalization.commit.currentWaitID
+		p.pauseReason = finalization.commit.pauseReason
 	}
 }
 

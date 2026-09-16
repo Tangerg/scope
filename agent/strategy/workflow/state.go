@@ -56,7 +56,7 @@ func (e executionState) validate(definition *Definition) error {
 	if uint64(e.StageIndex) > uint64(len(definition.stages)) {
 		return fmt.Errorf("%w: stage index %d exceeds stage count", ErrInvalidExecutionState, e.StageIndex)
 	}
-	input, err := agent.ParseInput(e.CurrentValue)
+	input, err := agent.ParsePayload(e.CurrentValue)
 	if err != nil {
 		return fmt.Errorf("%w: current value: %w", ErrInvalidExecutionState, err)
 	}
@@ -65,7 +65,7 @@ func (e executionState) validate(definition *Definition) error {
 			return fmt.Errorf("%w: current value does not satisfy current Stage: %w", ErrInvalidExecutionState, err)
 		}
 	} else {
-		output, err := agent.ParseOutput(e.CurrentValue)
+		output, err := agent.ParsePayload(e.CurrentValue)
 		if err != nil {
 			return fmt.Errorf("%w: final value: %w", ErrInvalidExecutionState, err)
 		}
@@ -199,7 +199,7 @@ func (e executionState) validateFanoutChildren() (int, int, error) {
 
 func (e executionState) validateCompletedFanoutOutputs(stage Stage) error {
 	for index, output := range e.CompletedFanoutOutputs {
-		value, err := agent.ParseOutput(output)
+		value, err := agent.ParsePayload(output)
 		if err != nil {
 			return fmt.Errorf("%w: completed fan-out output %d: %w", ErrInvalidExecutionState, index, err)
 		}

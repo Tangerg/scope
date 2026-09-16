@@ -31,7 +31,7 @@ func TestEngineCloseCancellationLeavesOwnedShutdownJoinable(t *testing.T) {
 			t.Fatal(err)
 		}
 		deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), &engineTestDispatcher{policy: ReplayPolicyNever, deltas: 2})
-		input, err := EncodeInput(engineTestInput{Value: "stream"})
+		input, err := EncodePayload(engineTestInput{Value: "stream"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -78,7 +78,7 @@ func TestEngineCloseRejectsAlreadyCanceledContextBeforeClosingAdmission(t *testi
 	if closeErr := engine.Close(ctx); !errors.Is(closeErr, context.Canceled) {
 		t.Errorf("Close = %v, want context canceled", closeErr)
 	}
-	input, err := EncodeInput(childTestInput{Mode: "leaf"})
+	input, err := EncodePayload(childTestInput{Mode: "leaf"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestConcurrentEngineCloseWaitsForObserverCompletion(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		input, err := EncodeInput(engineTestInput{Value: "close"})
+		input, err := EncodePayload(engineTestInput{Value: "close"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -155,7 +155,7 @@ func TestEngineCloseRejectsIncompleteTerminalPublication(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		input, err := EncodeInput(childTestInput{Mode: "leaf"})
+		input, err := EncodePayload(childTestInput{Mode: "leaf"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -200,7 +200,7 @@ func TestTerminalListenerCannotCloseItsOwnEngine(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			input, err := EncodeInput(childTestInput{Mode: "leaf"})
+			input, err := EncodePayload(childTestInput{Mode: "leaf"})
 			if err != nil {
 				t.Fatal(err)
 			}

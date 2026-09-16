@@ -28,7 +28,7 @@ type DefinitionConformanceConfig struct {
 	// Definition is the immutable behavior under test.
 	Definition agent.Definition
 	// Input is one valid value accepted by Definition.Start.
-	Input agent.Input
+	Input agent.Payload
 	// InitialSignals are delivered to each fresh Execution created from Input.
 	InitialSignals []agent.Signal
 	// FollowingSignals exercises the original instance and each restored copy
@@ -371,7 +371,7 @@ func callDescriptor(definition agent.Definition) (descriptor agent.Descriptor, e
 	return descriptor, nil
 }
 
-func callStart(definition agent.Definition, input agent.Input) (execution agent.Execution, err error) {
+func callStart(definition agent.Definition, input agent.Payload) (execution agent.Execution, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = fmt.Errorf("agenttest: Definition.Start panicked: %v", recovered)

@@ -421,7 +421,7 @@ func conformanceDeployment(t *testing.T, mode conformanceMode) agent.Deployment 
 
 func (c *conformanceDefinition) Descriptor() agent.Descriptor { return c.descriptor }
 
-func (c *conformanceDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (c *conformanceDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	value, err := input.Decode[conformanceInput]()
 	if err != nil {
 		return nil, err
@@ -491,7 +491,7 @@ func (c *conformanceExecution) stepEffect(signals []agent.Signal) (agent.Transit
 			return agent.Transition{}, err
 		}
 		c.state.Phase = conformancePhaseFinished
-		encoded, err := agent.EncodeOutput(output)
+		encoded, err := agent.EncodePayload(output)
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -643,3 +643,5 @@ func inspectConformanceProcess(t *testing.T, engine *agent.Engine, process *agen
 	}
 	return report.Snapshot
 }
+
+var _ agent.Definition = (*conformanceDefinition)(nil)

@@ -68,7 +68,7 @@ func TestDispatcherUnknownRetainsControlledFailureObservation(t *testing.T) {
 				defer mustCloseEngine(t, engine)
 				deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"),
 					effectFailureTestDispatcher{dispatch: test.dispatch})
-				input, _ := EncodeInput(engineTestInput{Value: "diagnostic"})
+				input, _ := EncodePayload(engineTestInput{Value: "diagnostic"})
 				process, err := engine.Start(context.WithoutCancel(t.Context()), deployment, input)
 				if err != nil {
 					t.Fatal(err)
@@ -156,11 +156,11 @@ func TestLocalFrameworkSettlementDoesNotInventUnknown(t *testing.T) {
 func TestPreparedContractFailureRetainsRestorableSettlementEvidence(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	key, _ := ParseWaitKey("answer")
-	wait, err := RequestWait(key, []byte(`{"prompt":"retained"}`))
+	wait, err := NewWaitEffect(key, []byte(`{"prompt":"retained"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := RequestWait(controlValue(ParseWaitKey("second")), []byte(`{"prompt":"second"}`))
+	second, err := NewWaitEffect(controlValue(ParseWaitKey("second")), []byte(`{"prompt":"second"}`))
 	if err != nil {
 		t.Fatal(err)
 	}

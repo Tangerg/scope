@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -83,7 +84,7 @@ func newToolDefinition(name, description string) (*toolDefinition, error) {
 
 func (t *toolDefinition) Descriptor() agent.Descriptor { return t.descriptor }
 
-func (t *toolDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (t *toolDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	call, err := input.Decode[toolCall]()
 	if err != nil {
 		return nil, fmt.Errorf("%w: Tool input: %w", ErrInvalidInput, err)
@@ -179,7 +180,7 @@ func (t *toolExecution) request(consumed uint32, call toolDispatchRequest) (agen
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	payload, err := encodeProtocol(envelope)
+	payload, err := jsonv2.Marshal(envelope, jsonv2.Deterministic(true))
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -201,7 +202,7 @@ func (t *toolExecution) acceptResult(outcome toolDispatchResult) (agent.Transiti
 		if previous == ^uint32(0) || checkpoint.PauseCount != previous+1 {
 			return agent.Transition{}, ErrInvalidExecutionState
 		}
-		payload, err := encodeProtocol(signalEnvelope{Operation: operationWaitOpened, WaitOpened: &checkpoint.InputRequest})
+		payload, err := jsonv2.Marshal(signalEnvelope{Operation: operationWaitOpened, WaitOpened: &checkpoint.InputRequest}, jsonv2.Deterministic(true))
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -209,7 +210,7 @@ func (t *toolExecution) acceptResult(outcome toolDispatchResult) (agent.Transiti
 		if err != nil {
 			return agent.Transition{}, err
 		}
-		effect, err := agent.RequestWait(key, payload)
+		effect, err := agent.NewWaitEffect(key, payload)
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -221,7 +222,7 @@ func (t *toolExecution) acceptResult(outcome toolDispatchResult) (agent.Transiti
 	if err := result.validateCall(t.state.Call.Call); err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
-	output, err := agent.EncodeOutput(result)
+	output, err := agent.EncodePayload(result)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -231,3 +232,5 @@ func (t *toolExecution) acceptResult(outcome toolDispatchResult) (agent.Transiti
 	t.state.Phase = toolCompleted
 	return agent.Complete(1, output)
 }
+
+var _ agent.Definition = (*toolDefinition)(nil)

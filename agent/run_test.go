@@ -124,7 +124,7 @@ func startRunScope(
 		t.Fatal(err)
 	}
 	deployment := newScopeJoinDeployment(t, ChildWaitBoundaryDrained, dispatcher)
-	input, err := EncodeInput("scope")
+	input, err := EncodePayload("scope")
 	if err != nil {
 		t.Fatal(err)
 	}

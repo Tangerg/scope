@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -28,9 +29,7 @@ type toolDispatcher struct {
 func (*toolDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy { return agent.ReplayPolicyNever }
 
 func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, _ agent.DeltaEmitter) (agent.Settlement, error) {
-	if ctx == nil {
-		panic(errors.New("interaction: nil Context"))
-	}
+	ctx = agent.RequireContext(ctx)
 	envelope, err := decodeEffect(request.Effect().Payload())
 	if err != nil {
 		return agent.Settlement{}, err
@@ -60,7 +59,7 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectReque
 		}
 		outcome = toolDispatchResult{Checkpoint: &toolCheckpoint{PauseCount: count + 1, InputRequest: *required}}
 	}
-	payload, err := encodeProtocol(signalEnvelope{Operation: operationToolCall, ToolResult: &outcome})
+	payload, err := jsonv2.Marshal(signalEnvelope{Operation: operationToolCall, ToolResult: &outcome}, jsonv2.Deterministic(true))
 	if err != nil {
 		return agent.Settlement{}, err
 	}

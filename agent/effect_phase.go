@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 )
 
 // effectPhase is the durable lifecycle of one Effect in a prepared batch.
@@ -26,8 +28,14 @@ func (e effectPhase) valid() bool {
 	}
 }
 
-func (e effectPhase) String() string { return string(e) }
+func (e effectPhase) String() string {
+	if !e.valid() {
+		return invalidEnumName
+	}
+	return string(e)
+}
 
+// preparedEffect is mutable owner-local state; readers and mutators share its identity.
 type preparedEffect struct {
 	ID         EffectID    `json:"id"`
 	Effect     Effect      `json:"effect"`
@@ -52,25 +60,25 @@ func (p preparedEffects) unknownEffectIDs() []EffectID {
 }
 
 func (p preparedEffects) next() (int, error) {
-	next := len(p)
+	next, found := len(p), false
 	for index, record := range p {
 		if err := record.validatePhase(); err != nil {
 			return 0, err
 		}
-		if next != len(p) {
+		if found {
 			if record.Phase != effectPhasePlanned {
 				return 0, errors.New("started Effect follows an incomplete Effect")
 			}
 			continue
 		}
 		if !record.definitelySettled() {
-			next = index
+			next, found = index, true
 		}
 	}
 	return next, nil
 }
 
-func (p preparedEffect) validatePhase() error {
+func (p *preparedEffect) validatePhase() error {
 	if p.Diagnostic != nil && (!p.Diagnostic.Valid() || p.Phase != effectPhaseSettled) {
 		return errors.New("invalid effect diagnostic")
 	}
@@ -92,11 +100,12 @@ func (p *preparedEffect) begin() error {
 // A pending boundary grants dispatch permission before I/O starts. Only the
 // owning incarnation can revoke an unused permission; recovery cannot prove it
 // was unused and must retain an uncertain outcome instead.
-func (p *preparedEffect) revokeDispatch() {
-	if p.Phase != effectPhasePending {
-		panic("agent: only a pending dispatch permission can be revoked")
+func (p *preparedEffect) revokeDispatch() error {
+	if p == nil || p.Phase != effectPhasePending || p.Settlement != nil {
+		return errors.New("only a pending dispatch permission can be revoked")
 	}
 	p.Phase = effectPhasePlanned
+	return nil
 }
 
 func (p *preparedEffect) settle(settlement Settlement, cause error) error {
@@ -137,17 +146,17 @@ func (p *preparedEffect) resolveUnknown(settlement Settlement) error {
 	return nil
 }
 
-func (p preparedEffect) unknown() bool {
+func (p *preparedEffect) unknown() bool {
 	return p.Phase == effectPhaseSettled && p.Settlement != nil &&
 		p.Settlement.Status() == SettlementStatusUnknown
 }
 
-func (p preparedEffect) definitelySettled() bool {
+func (p *preparedEffect) definitelySettled() bool {
 	return p.Phase == effectPhaseSettled && p.Settlement != nil &&
 		p.Settlement.Status() != SettlementStatusUnknown
 }
 
-func (p preparedEffect) validateIdentity(
+func (p *preparedEffect) validateIdentity(
 	processID ProcessID,
 	sequence uint64,
 	index int,
@@ -165,18 +174,18 @@ func (p preparedEffect) validateIdentity(
 	return p.validateFramework()
 }
 
-func (p preparedEffect) validateFramework() error {
+func (p *preparedEffect) validateFramework() error {
 	operation, err := decodeFrameworkEffectOperation(p.Effect.Payload())
 	if err != nil {
 		return err
 	}
 	switch operation {
 	case frameworkEffectWait:
-		return p.validateWait("wait Effect")
+		return p.validateWait(operation)
 	case frameworkEffectStartChild:
 		return p.validateChildStart()
 	case frameworkEffectWaitChildren:
-		return p.validateWait("child-wait Effect")
+		return p.validateWait(operation)
 	case frameworkEffectSignalChild, frameworkEffectCancelChild:
 		return p.validateChildControl()
 	default:
@@ -184,7 +193,7 @@ func (p preparedEffect) validateFramework() error {
 	}
 }
 
-func (p preparedEffect) validateChildControl() error {
+func (p *preparedEffect) validateChildControl() error {
 	if p.WaitID != nil {
 		return ErrInvalidChildControl
 	}
@@ -209,27 +218,51 @@ func (p preparedEffect) validateChildControl() error {
 	return nil
 }
 
-func (p preparedEffect) validateWait(name string) error {
+func (p *preparedEffect) validateWait(operation frameworkEffectOperation) error {
 	if p.WaitID != nil && *p.WaitID != p.ID.waitID() {
-		return fmt.Errorf("%s contains a non-derived WaitID", name)
+		return fmt.Errorf("%s Effect contains a non-derived WaitID", operation)
 	}
 	if (p.WaitID == nil) != (p.Phase != effectPhaseSettled) ||
 		p.Settlement != nil && p.Settlement.Status() == SettlementStatusUnknown {
-		return fmt.Errorf("%s has an incomplete or unknown settlement", name)
+		return fmt.Errorf("%s Effect has an incomplete or unknown settlement", operation)
 	}
-	if p.Settlement != nil {
-		expected := preparedEffect{ID: p.ID, Effect: p.Effect, Phase: effectPhasePending}
-		if err := expected.settleFramework(); err != nil {
+	if p.Settlement == nil {
+		return nil
+	}
+	if p.Settlement.Status() != SettlementStatusSucceeded {
+		return fmt.Errorf("%s Effect settlement is not successful", operation)
+	}
+	switch operation {
+	case frameworkEffectWait:
+		_, expected, err := p.Effect.waitRequest()
+		if err != nil {
 			return err
 		}
-		if !p.Settlement.equal(*expected.Settlement) {
-			return fmt.Errorf("%s settlement differs from its request", name)
+		if !bytes.Equal(p.Settlement.payload, expected) {
+			return errors.New("wait Effect settlement differs from its request")
+		}
+	case frameworkEffectWaitChildren:
+		spec, err := decodeChildWaitEffect(p.Effect.payload)
+		if err != nil {
+			return err
+		}
+		opened, err := decodeJSON[childWaitOpenedWire](p.Settlement.payload)
+		if err != nil {
+			return err
+		}
+		got, err := opened.Spec.value()
+		if err != nil {
+			return err
+		}
+		if opened.Operation != childSignalWaitOpened || got.Key != spec.Key || got.Boundary != spec.Boundary || got.Condition != spec.Condition || !slices.Equal(got.Children, spec.Children) {
+			return errors.New("child-wait Effect settlement differs from its request")
 		}
 	}
+
 	return nil
 }
 
-func (p preparedEffect) validateChildStart() error {
+func (p *preparedEffect) validateChildStart() error {
 	if p.WaitID != nil {
 		return ErrInvalidChildStart
 	}
@@ -301,7 +334,7 @@ func (p *preparedEffect) settleFramework() error {
 }
 
 func (p *preparedEffect) settleChildStart(result ChildStartResult) error {
-	payload, err := encodeChildStartResult(result)
+	payload, err := result.MarshalJSON()
 	if err != nil {
 		return err
 	}

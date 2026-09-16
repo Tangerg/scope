@@ -24,9 +24,9 @@ func bind(t testing.TB, definition agent.Definition, dispatcher agent.Dispatcher
 	return deployment
 }
 
-func input[T any](t testing.TB, value T) agent.Input {
+func input[T any](t testing.TB, value T) agent.Payload {
 	t.Helper()
-	encoded, err := agent.EncodeInput(value)
+	encoded, err := agent.EncodePayload(value)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func newSender(t testing.TB) senderDefinition {
 }
 
 func (s senderDefinition) Descriptor() agent.Descriptor { return s.descriptor }
-func (s senderDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (s senderDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	message, err := input.Decode[messaging.Message]()
 	if err != nil {
 		return nil, err
@@ -102,7 +102,7 @@ func (s senderDefinition) Restore(ctx context.Context, state agent.ExecutionStat
 	if state.Kind() != "test.sender" {
 		return nil, agent.ErrInvalidExecutionState
 	}
-	input, err := agent.ParseInput(state.Payload())
+	input, err := agent.ParsePayload(state.Payload())
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +130,7 @@ func (s *senderExecution) Step(ctx context.Context, signals []agent.Signal) (age
 	if len(signals) != 1 {
 		return agent.Transition{}, errors.New("review requires one receipt")
 	}
-	output, err := agent.ParseOutput(signals[0].Payload())
+	output, err := agent.ParsePayload(signals[0].Payload())
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -144,7 +144,7 @@ func (s *senderExecution) Step(ctx context.Context, signals []agent.Signal) (age
 	return agent.Complete(1, output)
 }
 func (s *senderExecution) Snapshot() (agent.ExecutionState, error) {
-	encoded, err := agent.EncodeInput(s.state)
+	encoded, err := agent.EncodePayload(s.state)
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
@@ -168,7 +168,7 @@ func (r *recipientPort) Deliver(ctx context.Context, sender, recipient agent.Pro
 	if !sender.Valid() || recipient != r.recipient.ID() {
 		return agent.ErrSignalRejected
 	}
-	payload, err := agent.ParseInput(signal.Payload())
+	payload, err := agent.ParsePayload(signal.Payload())
 	if err != nil {
 		return err
 	}

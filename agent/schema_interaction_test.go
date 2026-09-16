@@ -40,7 +40,7 @@ func TestSchemaForAcceptsInteractionProviderMetadataAndReasoningSignature(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	output, err := agent.EncodeOutput(value)
+	output, err := agent.EncodePayload(value)
 	if err != nil {
 		t.Fatal(err)
 	}

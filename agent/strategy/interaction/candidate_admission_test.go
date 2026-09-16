@@ -35,7 +35,7 @@ func TestEngineRejectsInvalidInteractionCandidateBeforeModelCall(t *testing.T) {
 			t.Error(closeErr)
 		}
 	})
-	input, err := agent.EncodeInput(Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}})
+	input, err := agent.EncodePayload(Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}})
 	if err != nil {
 		t.Fatal(err)
 	}

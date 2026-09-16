@@ -3,19 +3,10 @@ package collaboration
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
 	agent "github.com/Tangerg/scope/agent"
-)
-
-var (
-	ErrInvalidConfig   = errors.New("collaboration: invalid configuration")
-	ErrInvalidDecision = errors.New("collaboration: invalid decision")
-	ErrInvalidState    = errors.New("collaboration: invalid execution state")
-	ErrInvalidProtocol = errors.New("collaboration: invalid execution protocol")
-	ErrTurnLimit       = errors.New("collaboration: turn limit reached")
 )
 
 const stateKind = "collaboration"
@@ -47,7 +38,7 @@ type childBinding struct {
 	capabilities  agent.CapabilitySet
 }
 
-func (c childBinding) spec(key agent.ChildKey, input agent.Input) agent.ChildSpec {
+func (c childBinding) spec(key agent.ChildKey, input agent.Payload) agent.ChildSpec {
 	return agent.ChildSpec{Key: key, Input: input, DeploymentRef: c.deploymentRef,
 		Budget: c.budget, Capabilities: c.capabilities}
 }
@@ -133,7 +124,7 @@ func (d *Definition) Descriptor() agent.Descriptor {
 	return d.descriptor
 }
 
-func (d *Definition) Start(input agent.Input) (agent.Execution, error) {
+func (d *Definition) Start(input agent.Payload) (agent.Execution, error) {
 	if d == nil || !d.descriptor.Valid() {
 		return nil, ErrInvalidConfig
 	}
@@ -183,3 +174,5 @@ func (d *Definition) validateRequest(request TaskRequest) error {
 	}
 	return nil
 }
+
+var _ agent.Definition = (*Definition)(nil)

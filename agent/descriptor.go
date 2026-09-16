@@ -8,9 +8,13 @@ import (
 	"unicode/utf8"
 )
 
-const (
-	maxDescriptionBytes = 4096
-)
+// MaxDescriptionBytes bounds descriptions of advertised behavior.
+const MaxDescriptionBytes = 4096
+
+// ValidDescription checks descriptive text without repairing or reinterpreting it.
+func ValidDescription(description string) bool {
+	return description != "" && len(description) <= MaxDescriptionBytes && utf8.ValidString(description) && strings.TrimSpace(description) == description
+}
 
 var ErrInvalidDescriptor = errors.New("agent: invalid descriptor")
 
@@ -36,8 +40,8 @@ func (d DescriptorConfig) validate() error {
 	if !ValidQualifiedName(d.Name) {
 		return fmt.Errorf("%w: name must start with a lowercase letter and contain only lowercase letters, digits, '.', '_' or '-'", ErrInvalidDescriptor)
 	}
-	if d.Description == "" || !utf8.ValidString(d.Description) || strings.TrimSpace(d.Description) != d.Description || len(d.Description) > maxDescriptionBytes {
-		return fmt.Errorf("%w: description must be non-empty, trimmed UTF-8, and at most %d bytes", ErrInvalidDescriptor, maxDescriptionBytes)
+	if !ValidDescription(d.Description) {
+		return fmt.Errorf("%w: description must be non-empty, trimmed UTF-8, and at most %d bytes", ErrInvalidDescriptor, MaxDescriptionBytes)
 	}
 	if !d.InputSchema.Valid() {
 		return fmt.Errorf("%w: input schema: %w", ErrInvalidDescriptor, ErrInvalidSchema)
@@ -95,48 +99,51 @@ func (d Descriptor) OutputSchema() Schema { return d.outputSchema }
 func (d Descriptor) Digest() Digest { return d.digest }
 
 func (d Descriptor) Valid() bool {
-	return d.name != "" && d.inputSchema.Valid() && d.outputSchema.Valid() && d.digest.Valid()
+	return d.digest.Valid() && (DescriptorConfig{
+		Name: d.name, Description: d.description,
+		InputSchema: d.inputSchema, OutputSchema: d.outputSchema,
+	}).validate() == nil
 }
 
-func (d Descriptor) ValidateInput(input Input) error {
+func (d Descriptor) ValidateInput(input Payload) error {
 	if !d.Valid() {
 		return ErrInvalidDescriptor
 	}
 	if err := d.inputSchema.Validate(input.data); err != nil {
-		return fmt.Errorf("%w: schema validation: %w", ErrInvalidInput, err)
+		return fmt.Errorf("%w: schema validation: %w", ErrInvalidPayload, err)
 	}
 	return nil
 }
 
-func (d Descriptor) ValidateOutput(output Output) error {
+func (d Descriptor) ValidateOutput(output Payload) error {
 	if !d.Valid() {
 		return ErrInvalidDescriptor
 	}
 	if err := d.outputSchema.Validate(output.data); err != nil {
-		return fmt.Errorf("%w: schema validation: %w", ErrInvalidOutput, err)
+		return fmt.Errorf("%w: schema validation: %w", ErrInvalidPayload, err)
 	}
 	return nil
 }
 
-// EncodeInput converts value into an Input and validates it against this
+// EncodeInput converts value into a Payload and validates it against this
 // Descriptor's authoritative input schema.
-func (d Descriptor) EncodeInput[T any](value T) (Input, error) {
+func (d Descriptor) EncodeInput[T any](value T) (Payload, error) {
 	if !d.Valid() {
-		return Input{}, ErrInvalidDescriptor
+		return Payload{}, ErrInvalidDescriptor
 	}
-	input, err := EncodeInput(value)
+	input, err := EncodePayload(value)
 	if err != nil {
-		return Input{}, err
+		return Payload{}, err
 	}
 	if err := d.ValidateInput(input); err != nil {
-		return Input{}, err
+		return Payload{}, err
 	}
 	return input, nil
 }
 
 // DecodeOutput validates output against this Descriptor's authoritative
 // output schema and strictly decodes it into T.
-func (d Descriptor) DecodeOutput[T any](output Output) (T, error) {
+func (d Descriptor) DecodeOutput[T any](output Payload) (T, error) {
 	var zero T
 	if !d.Valid() {
 		return zero, ErrInvalidDescriptor

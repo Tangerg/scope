@@ -18,14 +18,14 @@ type preparedStepFinalization struct {
 	consumedChildWaits    []WaitID
 	openedChildWaits      []ChildWaitOpened
 	immediateChildSignals []Signal
-	transition            preparedTransitionState
+	commit                preparedStepCommit
 }
 
-type preparedTransitionState struct {
+type preparedStepCommit struct {
 	status           Status
 	currentWaitID    WaitID
 	pauseReason      string
-	finalOutput      Output
+	finalOutput      Payload
 	termination      Termination
 	finishedAt       time.Time
 	closedChildWaits []WaitID
@@ -131,17 +131,17 @@ func (p *preparedStepFinalization) prepareTransition(finishedAt time.Time) error
 	transition := p.prepared.Intent
 	switch transition.Kind() {
 	case TransitionKindContinue:
-		p.transition.status = StatusRunning
+		p.commit.status = StatusRunning
 	case TransitionKindWait:
 		return p.prepareWaitTransition(transition)
 	case TransitionKindPause:
-		p.transition.status = StatusPaused
-		p.transition.pauseReason, _ = transition.Reason()
+		p.commit.status = StatusPaused
+		p.commit.pauseReason, _ = transition.Reason()
 	case TransitionKindComplete:
 		output, _ := transition.Output()
 		p.prepareTermination(completedOutcome(), finishedAt)
-		if p.transition.status == StatusCompleted {
-			p.transition.finalOutput = output
+		if p.commit.status == StatusCompleted {
+			p.commit.finalOutput = output
 		}
 	case TransitionKindFail:
 		failure, _ := transition.Failure()
@@ -163,17 +163,17 @@ func (p *preparedStepFinalization) prepareWaitTransition(transition Transition) 
 		return err
 	}
 	if shouldWait {
-		p.transition.status = StatusWaiting
-		p.transition.currentWaitID = waitID
+		p.commit.status = StatusWaiting
+		p.commit.currentWaitID = waitID
 	} else {
-		p.transition.status = StatusRunning
+		p.commit.status = StatusRunning
 	}
 	return nil
 }
 
 func (p *preparedStepFinalization) prepareTermination(outcome stepOutcome, finishedAt time.Time) {
-	p.transition.termination = p.process.resolveStepTermination(outcome)
-	p.transition.status = p.transition.termination.Status()
-	p.transition.finishedAt = finishedAt
-	p.transition.closedChildWaits = p.mailbox.closeAllWaits()
+	p.commit.termination = p.process.resolveStepTermination(outcome)
+	p.commit.status = p.commit.termination.Status()
+	p.commit.finishedAt = finishedAt
+	p.commit.closedChildWaits = p.mailbox.closeAllWaits()
 }

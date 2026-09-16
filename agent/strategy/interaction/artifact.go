@@ -18,14 +18,14 @@ type Artifact struct {
 	modelCallSequence uint32
 	toolCallID        string
 	delegateName      string
-	output            agent.Output
+	output            agent.Payload
 }
 
 // DelegateName returns the exact model-facing Delegate name.
 func (a Artifact) DelegateName() string { return a.delegateName }
 
 // Output returns the immutable, schema-validated child output.
-func (a Artifact) Output() agent.Output { return a.output }
+func (a Artifact) Output() agent.Payload { return a.output }
 
 // Decode strictly decodes a's output into T. The output was already
 // validated against the exact Delegate Descriptor before the Artifact was

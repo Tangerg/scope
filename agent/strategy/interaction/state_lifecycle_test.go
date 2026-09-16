@@ -14,7 +14,7 @@ import (
 
 func TestCanceledStepPreservesRecoveryState(t *testing.T) {
 	definition := fuzzInteractionDefinition(t)
-	input, err := agent.EncodeInput(Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}})
+	input, err := agent.EncodePayload(Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}})
 	if err != nil {
 		t.Fatal(err)
 	}

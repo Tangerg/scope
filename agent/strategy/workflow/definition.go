@@ -73,7 +73,7 @@ func (d *Definition) Descriptor() agent.Descriptor {
 }
 
 // Start creates a fresh Workflow from validated caller input.
-func (d *Definition) Start(input agent.Input) (agent.Execution, error) {
+func (d *Definition) Start(input agent.Payload) (agent.Execution, error) {
 	if !d.valid() {
 		return nil, ErrInvalidDefinitionConfig
 	}
@@ -121,3 +121,5 @@ func (d *Definition) Topology() Topology {
 	}
 	return Topology{Descriptor: d.descriptor, Stages: stages}
 }
+
+var _ agent.Definition = (*Definition)(nil)

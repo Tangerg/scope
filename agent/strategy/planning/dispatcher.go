@@ -116,7 +116,7 @@ func (*Dispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
 func (d *Dispatcher) sense(
 	ctx context.Context,
 	effectID agent.EffectID,
-	input agent.Input,
+	input agent.Payload,
 ) (agent.Settlement, error) {
 	request := SenseRequest{EffectID: effectID, Input: input}
 	if err := validateSenseRequest(request); err != nil {
@@ -137,7 +137,7 @@ func (d *Dispatcher) sense(
 func (d *Dispatcher) execute(
 	ctx context.Context,
 	effectRequest agent.EffectRequest,
-	input agent.Input,
+	input agent.Payload,
 	call actionCall,
 ) (agent.Settlement, error) {
 	bound, found := d.executors[call.Name]

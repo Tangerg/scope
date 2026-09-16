@@ -8,6 +8,10 @@ import (
 // MaxDiagnosticBytes bounds persistable failure messages and strategy diagnostics.
 const MaxDiagnosticBytes = 4096
 
+// Descriptions express advertised behavior and deliberately retain their own
+// validation policy; diagnostics describe failures and may be normalized.
+// Equal size bounds do not make those independently evolving contracts one.
+//
 // ValidDiagnostic reports whether a diagnostic can be persisted without repair.
 func ValidDiagnostic(message string) bool {
 	return message != "" && len(message) <= MaxDiagnosticBytes &&

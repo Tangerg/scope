@@ -136,7 +136,7 @@ func (d *Definition) Descriptor() agent.Descriptor {
 }
 
 // Start creates a fresh Interaction from validated caller input.
-func (d *Definition) Start(input agent.Input) (agent.Execution, error) {
+func (d *Definition) Start(input agent.Payload) (agent.Execution, error) {
 	if !d.valid() {
 		return nil, ErrInvalidDefinitionConfig
 	}
@@ -194,3 +194,5 @@ func (d *Definition) delegate(name string) (Delegate, bool) {
 	}
 	return d.delegates[index], true
 }
+
+var _ agent.Definition = (*Definition)(nil)

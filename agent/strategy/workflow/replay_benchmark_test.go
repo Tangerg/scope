@@ -40,7 +40,7 @@ func BenchmarkWorkflowReplayBoundary(b *testing.B) {
 	}
 	for _, size := range []int{1 << 10, 64 << 10} {
 		b.Run(fmt.Sprintf("bytes_%d", size), func(b *testing.B) {
-			input, err := agent.EncodeInput(replayValue{Text: strings.Repeat("x", size)})
+			input, err := agent.EncodePayload(replayValue{Text: strings.Repeat("x", size)})
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -85,7 +85,7 @@ func BenchmarkMapReplayBoundary(b *testing.B) {
 				for index := range values {
 					values[index] = index
 				}
-				input, err := agent.EncodeInput(values)
+				input, err := agent.EncodePayload(values)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -158,7 +158,7 @@ func BenchmarkMapEmptyInput(b *testing.B) {
 	for _, window := range []uint32{8, 65536} {
 		b.Run(fmt.Sprint(window), func(b *testing.B) {
 			definition := mapReplayDefinition(b, window, window)
-			input, err := agent.EncodeInput([]int{})
+			input, err := agent.EncodePayload([]int{})
 			if err != nil {
 				b.Fatal(err)
 			}

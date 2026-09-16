@@ -15,7 +15,7 @@ func TestFanoutSourcesOwnWindowBounds(t *testing.T) {
 	for name, source := range map[string]fanoutSource{
 		"map": mapSource{
 			codec:      mapValueCodec{id: "items", maxItems: 4},
-			decodeItem: func(value jsontext.Value) (agent.Input, error) { return agent.ParseInput(value) },
+			decodeItem: func(value jsontext.Value) (agent.Payload, error) { return agent.ParsePayload(value) },
 		},
 		"fork": forkSource{branches: make([]fanoutMember, 2)},
 	} {

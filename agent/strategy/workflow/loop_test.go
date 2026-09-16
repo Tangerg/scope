@@ -50,7 +50,7 @@ func TestLoopRunsAtLeastOnceAndReportsSatisfiedOrExhausted(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			input, _ := agent.EncodeInput(loopValue{Value: test.initial})
+			input, _ := agent.EncodePayload(loopValue{Value: test.initial})
 			result, err := engine.Run(context.Background(), deployment, input)
 			if err != nil {
 				t.Fatal(err)
@@ -91,7 +91,7 @@ func TestLoopPropagatesBodyFailure(t *testing.T) {
 	engine, _ := agent.NewEngine(agent.EngineConfig{
 		DeploymentResolver: deploymentResolver{body.DeploymentRef(): body},
 	})
-	input, _ := agent.EncodeInput(loopValue{})
+	input, _ := agent.EncodePayload(loopValue{})
 	result, err := engine.Run(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)

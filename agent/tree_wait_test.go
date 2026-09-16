@@ -100,7 +100,7 @@ func waitingOwnerFixture(b testing.TB, parents int) (*treeRuntime, *processState
 		}
 	})
 	deployment := newChildTestDeployment(b)
-	input, err := EncodeInput(childTestInput{Mode: "leaf"})
+	input, err := EncodePayload(childTestInput{Mode: "leaf"})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func waitingOwnerFixture(b testing.TB, parents int) (*treeRuntime, *processState
 		for _, process := range []*processState{parent, first, second} {
 			runtime.addProcess(process)
 		}
-		output, err := EncodeOutput(childTestOutput{})
+		output, err := EncodePayload(childTestOutput{})
 		if err != nil {
 			b.Fatal(err)
 		}

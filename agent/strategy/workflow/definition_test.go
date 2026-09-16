@@ -83,7 +83,7 @@ func TestEngineOwnsExactRestoreBindingForCompatibleWorkflows(t *testing.T) {
 			t.Error(closeErr)
 		}
 	})
-	input, err := agent.EncodeInput(numberInput{Value: 7})
+	input, err := agent.EncodePayload(numberInput{Value: 7})
 	if err != nil {
 		t.Fatal(err)
 	}

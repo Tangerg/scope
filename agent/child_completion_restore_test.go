@@ -15,7 +15,7 @@ type fixtureCompletionDefinition struct {
 }
 
 func (f *fixtureCompletionDefinition) Descriptor() Descriptor { return f.base.Descriptor() }
-func (f *fixtureCompletionDefinition) Start(input Input) (Execution, error) {
+func (f *fixtureCompletionDefinition) Start(input Payload) (Execution, error) {
 	e, err := f.base.Start(input)
 	if err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ func TestRestoreDoesNotChargeExistingChildCompletion(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	input, _ := EncodeInput(childTestInput{Mode: "nested_wait"})
+	input, _ := EncodePayload(childTestInput{Mode: "nested_wait"})
 	root, err := engine.Start(ctx, deployment, input)
 	if err != nil {
 		t.Fatal(err)

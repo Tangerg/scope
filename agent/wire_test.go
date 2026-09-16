@@ -12,44 +12,44 @@ type wireFixture struct {
 	Message string `json:"message"`
 }
 
-func TestInputOwnsNormalizedJSON(t *testing.T) {
+func TestPayloadOwnsNormalizedJSON(t *testing.T) {
 	source := json.RawMessage(` { "message": "hello" } `)
-	input, err := ParseInput(source)
+	input, err := ParsePayload(source)
 	if err != nil {
 		t.Fatal(err)
 	}
 	source[3] = 'x'
 	if got := string(input.JSON()); got != `{"message":"hello"}` {
-		t.Fatalf("Input.JSON() = %s", got)
+		t.Fatalf("Payload.JSON() = %s", got)
 	}
 	copyOfJSON := input.JSON()
 	copyOfJSON[0] = '['
 	if got := string(input.JSON()); got != `{"message":"hello"}` {
-		t.Fatalf("Input shared returned bytes: %s", got)
+		t.Fatalf("Payload shared returned bytes: %s", got)
 	}
 }
 
-func TestInputRejectsMalformedMultipleAndDuplicateValues(t *testing.T) {
+func TestPayloadRejectsMalformedMultipleAndDuplicateValues(t *testing.T) {
 	for _, data := range []json.RawMessage{nil, []byte(`{"message":`), []byte(`{} {}`), []byte(`{"message":"first","message":"second"}`)} {
-		if _, err := ParseInput(data); !errors.Is(err, ErrInvalidInput) {
-			t.Fatalf("ParseInput(%q) error = %v, want ErrInvalidInput", data, err)
+		if _, err := ParsePayload(data); !errors.Is(err, ErrInvalidPayload) {
+			t.Fatalf("ParsePayload(%q) error = %v, want ErrInvalidPayload", data, err)
 		}
 	}
 }
 
-func TestTypedInputRejectsUnknownFields(t *testing.T) {
-	input, err := ParseInput([]byte(`{"message":"hello","unknown":true}`))
+func TestTypedPayloadRejectsUnknownFields(t *testing.T) {
+	input, err := ParsePayload([]byte(`{"message":"hello","unknown":true}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := input.Decode[wireFixture](); !errors.Is(err, ErrInvalidInput) {
-		t.Fatalf("DecodeInput error = %v, want ErrInvalidInput", err)
+	if _, err := input.Decode[wireFixture](); !errors.Is(err, ErrInvalidPayload) {
+		t.Fatalf("DecodePayload error = %v, want ErrInvalidPayload", err)
 	}
 }
 
-func TestOutputTypedRoundTrip(t *testing.T) {
+func TestPayloadTypedRoundTrip(t *testing.T) {
 	want := wireFixture{Message: "done"}
-	output, err := EncodeOutput(want)
+	output, err := EncodePayload(want)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,19 +58,16 @@ func TestOutputTypedRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != want {
-		t.Fatalf("DecodeOutput() = %+v, want %+v", got, want)
+		t.Fatalf("Payload.Decode() = %+v, want %+v", got, want)
 	}
 }
 
 func TestWireZeroValuesAreInvalid(t *testing.T) {
-	if (Input{}).Valid() || (Output{}).Valid() {
+	if (Payload{}).Valid() {
 		t.Fatal("zero wire values reported valid")
 	}
-	if _, err := json.Marshal(Input{}); !errors.Is(err, ErrInvalidInput) {
-		t.Fatalf("marshal Input error = %v, want ErrInvalidInput", err)
-	}
-	if _, err := json.Marshal(Output{}); !errors.Is(err, ErrInvalidOutput) {
-		t.Fatalf("marshal Output error = %v, want ErrInvalidOutput", err)
+	if _, err := json.Marshal(Payload{}); !errors.Is(err, ErrInvalidPayload) {
+		t.Fatalf("marshal Payload error = %v, want ErrInvalidPayload", err)
 	}
 }
 
@@ -80,11 +77,11 @@ func TestNormalizeJSONEnforcesNormalizedLimit(t *testing.T) {
 	}
 }
 
-func FuzzInputJSONRoundTrip(f *testing.F) {
+func FuzzPayloadJSONRoundTrip(f *testing.F) {
 	f.Add([]byte(`{"message":"hello"}`))
 	f.Add([]byte(`[1,true,null]`))
 	f.Fuzz(func(t *testing.T, data []byte) {
-		input, err := ParseInput(data)
+		input, err := ParsePayload(data)
 		if err != nil {
 			return
 		}
@@ -92,7 +89,7 @@ func FuzzInputJSONRoundTrip(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var decoded Input
+		var decoded Payload
 		if err := json.Unmarshal(encoded, &decoded); err != nil {
 			t.Fatal(err)
 		}
@@ -120,16 +117,13 @@ func TestTypedWireRejectsInvalidUTF8BeforeEncoding(t *testing.T) {
 		"chat tool arguments": chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: "call", Name: "read", Arguments: invalid})),
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := EncodeInput(value); !errors.Is(err, ErrInvalidInput) {
+			if _, err := EncodePayload(value); !errors.Is(err, ErrInvalidPayload) {
 				t.Fatalf("input accepted invalid UTF-8: %v", err)
-			}
-			if _, err := EncodeOutput(value); !errors.Is(err, ErrInvalidOutput) {
-				t.Fatalf("output accepted invalid UTF-8: %v", err)
 			}
 		})
 	}
 	want := wireFixture{Message: "中文 🌍 \ufffd"}
-	input, err := EncodeInput(want)
+	input, err := EncodePayload(want)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +132,7 @@ func TestTypedWireRejectsInvalidUTF8BeforeEncoding(t *testing.T) {
 		t.Fatalf("Unicode changed: %+v, %v", got, err)
 	}
 	for _, number := range []json.Number{"9007199254740993", "1e400", "1.234567890123456789"} {
-		input, err := EncodeInput(number)
+		input, err := EncodePayload(number)
 		if err != nil || string(input.JSON()) != string(number) {
 			t.Fatalf("number changed: %s, %v", input.JSON(), err)
 		}
@@ -152,5 +146,23 @@ func TestTextBearingProtocolConstructorsRejectInvalidUTF8(t *testing.T) {
 	}
 	if _, err := NewDescriptor(DescriptorConfig{Name: "test", Description: invalid, InputSchema: controlValue(SchemaFor[wireFixture]()), OutputSchema: controlValue(SchemaFor[wireFixture]())}); !errors.Is(err, ErrInvalidDescriptor) {
 		t.Fatalf("Descriptor accepted invalid text: %v", err)
+	}
+}
+
+func TestCanonicalPayloadBytes(t *testing.T) {
+	for _, test := range []struct{ source, canonical string }{
+		{` {"z":1e10,"a":[-0.0,1.0,9007199254740993,1e400]} `, `{"a":[-0.0,1.0,9007199254740993,1e400],"z":1e10}`},
+		{`{"text":"<>&\u2028\u2029\u0061\/"}`, `{"text":"\u003c\u003e\u0026\u2028\u2029a/"}`},
+		{`{"\ue000":0,"\ud800\udc00":1,"a":{"z":0,"a":1}}`, "{\"a\":{\"a\":1,\"z\":0},\"𐀀\":1,\"\ue000\":0}"},
+	} {
+		input, err := ParsePayload([]byte(test.source))
+		if err != nil || string(input.JSON()) != test.canonical {
+			t.Fatalf("canonical(%s) = %s, %v; want %s", test.source, input.JSON(), err, test.canonical)
+		}
+	}
+	for _, source := range [][]byte{[]byte(`{"a":1,"\u0061":2}`), []byte(`"\ud800"`), {'"', 0xff, '"'}, []byte(`{} []`)} {
+		if _, err := ParsePayload(source); !errors.Is(err, ErrInvalidPayload) {
+			t.Fatalf("invalid JSON accepted: %q: %v", source, err)
+		}
 	}
 }

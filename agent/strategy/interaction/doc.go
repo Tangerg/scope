@@ -35,7 +35,7 @@
 // mailbox. Steering accepted during model or child work applies at the next
 // safe model boundary after the current result batch; it does not preempt a
 // model request or answer a Tool input wait. A parent can deliver the same
-// SignalRequest through agent.SignalChild without another steering protocol.
+// SignalRequest through agent.NewChildSignalEffect without another steering protocol.
 //
 // Only FinishReasonToolCalls admits Tool and Delegate execution. Length-truncated
 // calls receive model-visible feedback for another bounded model attempt; calls

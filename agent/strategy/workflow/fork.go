@@ -52,16 +52,19 @@ func (f forkSource) count(json.RawMessage) (uint32, error) {
 	return uint32(len(f.branches)), nil
 }
 
-func (f forkSource) windowInputs(raw json.RawMessage, start, windowSize uint32) ([]agent.Input, uint32, error) {
+func (f forkSource) windowInputs(raw json.RawMessage, start, windowSize uint32) ([]agent.Payload, uint32, error) {
 	count := uint32(len(f.branches))
 	if start > count {
 		return nil, 0, ErrInvalidExecutionState
 	}
-	input, err := agent.ParseInput(raw)
+	input, err := agent.ParsePayload(raw)
 	if err != nil {
 		return nil, 0, err
 	}
-	inputs := make([]agent.Input, min(windowSize, count-start))
+	var inputs []agent.Payload
+	if size := min(windowSize, count-start); size > 0 {
+		inputs = make([]agent.Payload, size)
+	}
 	for index := range inputs {
 		inputs[index] = input
 	}
@@ -141,7 +144,7 @@ func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
 		if err != nil {
 			return nil, fmt.Errorf("Fork %q reducer: %w", config.ID, err)
 		}
-		erased, err := agent.EncodeOutput(result)
+		erased, err := agent.EncodePayload(result)
 		if err != nil {
 			return nil, fmt.Errorf("Fork %q encode result: %w", config.ID, err)
 		}

@@ -61,7 +61,7 @@ func competition(t testing.TB, accept coordination.SuccessPredicate, maximum uin
 	return definition
 }
 
-func candidate(t testing.TB, key string, deployment agent.Deployment, input agent.Input) agent.ChildSpec {
+func candidate(t testing.TB, key string, deployment agent.Deployment, input agent.Payload) agent.ChildSpec {
 	t.Helper()
 	childKey, err := agent.ParseChildKey(key)
 	if err != nil {
@@ -71,9 +71,9 @@ func candidate(t testing.TB, key string, deployment agent.Deployment, input agen
 	return agent.ChildSpec{Key: childKey, DeploymentRef: deployment.DeploymentRef(), Input: input, Budget: budget}
 }
 
-func encodedInput[T any](t testing.TB, value T) agent.Input {
+func encodedInput[T any](t testing.TB, value T) agent.Payload {
 	t.Helper()
-	input, err := agent.EncodeInput(value)
+	input, err := agent.EncodePayload(value)
 	if err != nil {
 		t.Fatal(err)
 	}

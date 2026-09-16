@@ -15,7 +15,7 @@ type SenseRequest struct {
 	// EffectID is the stable identity of the prepared sensing attempt.
 	EffectID agent.EffectID
 	// Input is the original immutable Planning Process input.
-	Input agent.Input
+	Input agent.Payload
 }
 
 // ActionRequest is one external dispatcher Action invocation selected against
@@ -24,7 +24,7 @@ type ActionRequest struct {
 	// EffectID is the stable identity of the prepared Action attempt.
 	EffectID agent.EffectID
 	// Input is the original immutable Planning Process input.
-	Input agent.Input
+	Input agent.Payload
 	// ActionName is the exact frozen Action identity.
 	ActionName string
 	// ActionDescription is the human-readable description of the exact bound Action.
@@ -139,7 +139,7 @@ func validateSenseRequest(request SenseRequest) error {
 
 func validateActionRequest(request ActionRequest) error {
 	if !request.EffectID.Valid() || !request.Input.Valid() || !agent.ValidQualifiedName(request.ActionName) ||
-		!validDescription(request.ActionDescription) {
+		!agent.ValidDescription(request.ActionDescription) {
 		return fmt.Errorf("planning: invalid Action request for %q", request.ActionName)
 	}
 	return nil

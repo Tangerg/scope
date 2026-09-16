@@ -48,29 +48,11 @@ func (c ChildWaitCondition) Valid() bool {
 		c.kind == childWaitQuorum && c.quorum > 0
 }
 
-func (c ChildWaitCondition) required(total int) (uint32, error) {
-	if !c.Valid() || total <= 0 || uint64(total) > uint64(^uint32(0)) {
-		return 0, ErrInvalidChildWait
-	}
-	switch c.kind {
-	case childWaitAll:
-		return uint32(total), nil
-	case childWaitAny:
-		return 1, nil
-	case childWaitQuorum:
-		if c.quorum > uint32(total) {
-			return 0, ErrInvalidChildWait
-		}
-		return c.quorum, nil
-	default:
-		return 0, ErrInvalidChildWait
-	}
-}
-
 // ChildWaitBoundary selects the lifecycle fact counted by a child wait.
 type ChildWaitBoundary string
 
 const (
+	ChildWaitBoundaryInvalid ChildWaitBoundary = ""
 	ChildWaitBoundaryResult  ChildWaitBoundary = "terminal_result"
 	ChildWaitBoundaryDrained ChildWaitBoundary = "subtree_drained"
 )
@@ -105,7 +87,7 @@ func (c ChildWaitSpec) Valid() bool {
 	if !c.Key.Valid() || !c.Boundary.Valid() {
 		return false
 	}
-	if _, err := c.Condition.required(len(c.Children)); err != nil {
+	if !c.Condition.Valid() || len(c.Children) == 0 || uint64(len(c.Children)) > uint64(^uint32(0)) || c.required() > uint32(len(c.Children)) {
 		return false
 	}
 	seen := make(map[ProcessID]struct{}, len(c.Children))
@@ -119,6 +101,18 @@ func (c ChildWaitSpec) Valid() bool {
 		seen[childID] = struct{}{}
 	}
 	return true
+}
+
+// required is total; Valid owns the child-count and condition constraints.
+func (c ChildWaitSpec) required() uint32 {
+	switch c.Condition.kind {
+	case childWaitAll:
+		return uint32(len(c.Children))
+	case childWaitAny:
+		return 1
+	default:
+		return c.Condition.quorum
+	}
 }
 
 func (c ChildWaitSpec) wire() childWaitSpecWire {
@@ -135,21 +129,14 @@ func (c ChildWaitSpec) clone() ChildWaitSpec {
 	return cloned
 }
 
-// WaitForChildren creates a Framework Effect that opens an Engine-owned wait
+// NewChildWaitEffect creates a Framework Effect that opens an Engine-owned wait
 // over direct children. Dispatch returns immediately with a WaitID; child work
 // never blocks Execution.Step or holds a prepared Step open.
-func WaitForChildren(spec ChildWaitSpec) (Effect, error) {
+func NewChildWaitEffect(spec ChildWaitSpec) (Effect, error) {
 	if !spec.Valid() {
 		return Effect{}, ErrInvalidChildWait
 	}
-	payload, err := json.Marshal(childWaitEffectWire{
-		Operation: frameworkEffectWaitChildren,
-		Spec:      spec.wire(),
-	})
-	if err != nil {
-		return Effect{}, fmt.Errorf("%w: encode request: %w", ErrInvalidChildWait, err)
-	}
-	return newEffect(EffectTargetFramework, payload)
+	return newFrameworkEffect(childWaitEffectWire{Operation: frameworkEffectWaitChildren, Spec: spec.wire()})
 }
 
 // ChildWaitOpened is the definite acknowledgement that the Engine registered
@@ -172,7 +159,7 @@ func (c ChildWaitOpened) Spec() ChildWaitSpec {
 func (c ChildWaitOpened) Valid() bool { return c.waitID.Valid() && c.spec.Valid() }
 
 // ParseChildWaitOpened decodes the settlement Signal produced by
-// WaitForChildren and verifies its Engine-owned Signal identity and attached WaitID.
+// NewChildWaitEffect and verifies its Engine-owned Signal identity and attached WaitID.
 func ParseChildWaitOpened(signal Signal) (ChildWaitOpened, error) {
 	waitID, addressed := signal.WaitID()
 	if !signal.EngineOwned() || !addressed {
@@ -212,6 +199,7 @@ func (u UnresolvedEffect) compare(other UnresolvedEffect) int {
 // ChildOutcome pairs a parent's logical ChildKey with the child's immutable
 // terminal Result and the subtree facts established by the wait boundary.
 type ChildOutcome struct {
+	boundary                 ChildWaitBoundary
 	key                      ChildKey
 	result                   Result
 	subtreeUnresolvedEffects []UnresolvedEffect
@@ -223,15 +211,19 @@ func (c ChildOutcome) Key() ChildKey { return c.key }
 // Result returns the child's immutable terminal result.
 func (c ChildOutcome) Result() Result { return c.result }
 
+// Boundary identifies the lifecycle fact established for this outcome.
+func (c ChildOutcome) Boundary() ChildWaitBoundary { return c.boundary }
+
 // SubtreeUnresolvedEffects returns an independent, ProcessID/EffectID-ordered
 // projection including this child and all descendants. The boolean is true only
 // for a Drained boundary; false must not be interpreted as an empty subtree.
 func (c ChildOutcome) SubtreeUnresolvedEffects() ([]UnresolvedEffect, bool) {
-	return slices.Clone(c.subtreeUnresolvedEffects), c.subtreeUnresolvedEffects != nil
+	return slices.Clone(c.subtreeUnresolvedEffects), c.boundary == ChildWaitBoundaryDrained
 }
 
 func (c ChildOutcome) Valid() bool {
-	if !c.key.Valid() || !c.result.Valid() {
+	if !c.key.Valid() || !c.result.Valid() || !c.boundary.Valid() ||
+		c.boundary == ChildWaitBoundaryResult && len(c.subtreeUnresolvedEffects) != 0 {
 		return false
 	}
 	var own []EffectID
@@ -243,7 +235,7 @@ func (c ChildOutcome) Valid() bool {
 			own = append(own, effect.EffectID)
 		}
 	}
-	if c.subtreeUnresolvedEffects != nil {
+	if c.boundary == ChildWaitBoundaryDrained {
 		expected := c.result.Termination().UnresolvedEffectIDs()
 		if len(own) != len(expected) {
 			return false
@@ -258,11 +250,10 @@ func (c ChildOutcome) Valid() bool {
 }
 
 func (c ChildOutcome) wire() childOutcomeWire {
-	wire := childOutcomeWire{Key: c.key, Result: c.result.wire()}
-	if c.subtreeUnresolvedEffects != nil {
-		wire.SubtreeUnresolvedEffects = new(slices.Clone(c.subtreeUnresolvedEffects))
+	return childOutcomeWire{
+		Key: c.key, Result: c.result.wire(), Boundary: c.boundary,
+		SubtreeUnresolvedEffects: slices.Clone(c.subtreeUnresolvedEffects),
 	}
-	return wire
 }
 
 func (c ChildOutcome) MarshalJSON() ([]byte, error) {
@@ -320,7 +311,7 @@ func (c ChildWaitSatisfied) Valid() bool {
 	}
 	seen := make(map[ProcessID]struct{}, len(c.outcomes))
 	for _, outcome := range c.outcomes {
-		if !outcome.Valid() || (c.boundary == ChildWaitBoundaryDrained) != (outcome.subtreeUnresolvedEffects != nil) {
+		if !outcome.Valid() || c.boundary != outcome.boundary {
 			return false
 		}
 		if _, duplicate := seen[outcome.result.ProcessID()]; duplicate {
@@ -396,16 +387,17 @@ type childWaitSatisfiedWire struct {
 }
 
 type childOutcomeWire struct {
-	Key                      ChildKey            `json:"key"`
-	Result                   resultWire          `json:"result"`
-	SubtreeUnresolvedEffects *[]UnresolvedEffect `json:"subtree_unresolved_effects,omitempty"`
+	Boundary                 ChildWaitBoundary  `json:"boundary"`
+	Key                      ChildKey           `json:"key"`
+	Result                   resultWire         `json:"result"`
+	SubtreeUnresolvedEffects []UnresolvedEffect `json:"subtree_unresolved_effects,omitempty"`
 }
 
 type resultWire struct {
 	ProcessID   ProcessID   `json:"process_id"`
 	StartedAt   time.Time   `json:"started_at"`
 	FinishedAt  time.Time   `json:"finished_at"`
-	Output      *Output     `json:"output,omitempty"`
+	Output      *Payload    `json:"output,omitempty"`
 	Termination Termination `json:"termination"`
 	Usage       Usage       `json:"usage"`
 }
@@ -448,10 +440,8 @@ func (c childOutcomeWire) value() (ChildOutcome, error) {
 	if err != nil {
 		return ChildOutcome{}, err
 	}
-	outcome := ChildOutcome{key: c.Key, result: result}
-	if c.SubtreeUnresolvedEffects != nil {
-		outcome.subtreeUnresolvedEffects = slices.Clone(*c.SubtreeUnresolvedEffects)
-	}
+	outcome := ChildOutcome{key: c.Key, result: result, boundary: c.Boundary,
+		subtreeUnresolvedEffects: slices.Clone(c.SubtreeUnresolvedEffects)}
 	if !outcome.Valid() {
 		return ChildOutcome{}, ErrInvalidChildWait
 	}
@@ -459,7 +449,7 @@ func (c childOutcomeWire) value() (ChildOutcome, error) {
 }
 
 func (r resultWire) value() (Result, error) {
-	var output Output
+	var output Payload
 	if r.Output != nil {
 		output = *r.Output
 	}

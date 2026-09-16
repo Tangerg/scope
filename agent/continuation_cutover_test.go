@@ -37,7 +37,7 @@ func TestEpisodeCutoverRetainsLateInputAndRecipientAfterSuccessorStart(t *testin
 		if err != nil {
 			t.Fatal(err)
 		}
-		initial, err := agent.EncodeInput(episodeState{Summary: "initial state"})
+		initial, err := agent.EncodePayload(episodeState{Summary: "initial state"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -58,7 +58,7 @@ func TestEpisodeCutoverRetainsLateInputAndRecipientAfterSuccessorStart(t *testin
 		if !waiting {
 			t.Fatal("previous episode did not wait")
 		}
-		payload, err := agent.EncodeInput(episodeState{Revision: 1, Summary: "explicit state"})
+		payload, err := agent.EncodePayload(episodeState{Revision: 1, Summary: "explicit state"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -119,7 +119,7 @@ func TestEpisodeCutoverRetainsLateInputAndRecipientAfterSuccessorStart(t *testin
 		if err != nil {
 			t.Fatal(err)
 		}
-		transfer, err := agent.ParseInput(consumed.Payload())
+		transfer, err := agent.ParsePayload(consumed.Payload())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -204,7 +204,7 @@ type episodeAnswerBarrier struct {
 	held     atomic.Bool
 }
 
-func (e *episodeAnswerBarrier) Start(input agent.Input) (agent.Execution, error) {
+func (e *episodeAnswerBarrier) Start(input agent.Payload) (agent.Execution, error) {
 	execution, err := e.Definition.Start(input)
 	if err != nil {
 		return nil, err

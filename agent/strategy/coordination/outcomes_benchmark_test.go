@@ -59,7 +59,7 @@ func competitionOutcomes(t testing.TB, count int) ([]agent.ChildStartResult, []a
 		if err := json.Unmarshal([]byte(start), &starts[index]); err != nil {
 			t.Fatal(err)
 		}
-		outcome := fmt.Sprintf(`{"key":%q,"result":{"process_id":%q,"started_at":"2026-01-01T00:00:00Z","finished_at":"2026-01-01T00:00:01Z","output":7,"termination":{"status":"completed","cause":"completion"},"usage":{}}}`, key, id)
+		outcome := fmt.Sprintf(`{"boundary":"terminal_result","key":%q,"result":{"process_id":%q,"started_at":"2026-01-01T00:00:00Z","finished_at":"2026-01-01T00:00:01Z","output":7,"termination":{"status":"completed","cause":"completion"},"usage":{}}}`, key, id)
 		if err := json.Unmarshal([]byte(outcome), &outcomes[index]); err != nil {
 			t.Fatal(err)
 		}

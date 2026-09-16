@@ -26,7 +26,7 @@ func TestToolDeploymentSeparatesInvocationAndCompletion(t *testing.T) {
 	for _, extra := range []string{`"checkpoint":null`, `"input_response":null`} {
 		raw := bytes.TrimSuffix(input.JSON(), []byte("}"))
 		raw = append(raw, []byte(","+extra+"}")...)
-		invalid, parseErr := agent.ParseInput(raw)
+		invalid, parseErr := agent.ParsePayload(raw)
 		if parseErr != nil {
 			t.Fatal(parseErr)
 		}
@@ -37,14 +37,14 @@ func TestToolDeploymentSeparatesInvocationAndCompletion(t *testing.T) {
 			t.Fatalf("Start accepted continuation: %s", raw)
 		}
 	}
-	output, err := agent.EncodeOutput(toolCallResult{Result: chat.ToolResult{ID: "call", Name: "ask", Output: chat.NewTextToolOutput("done")}})
+	output, err := agent.EncodePayload(toolCallResult{Result: chat.ToolResult{ID: "call", Name: "ask", Output: chat.NewTextToolOutput("done")}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = definition.Descriptor().ValidateOutput(output); err != nil {
 		t.Fatal(err)
 	}
-	paused, err := agent.ParseOutput(json.RawMessage(`{"checkpoint":{"pause_count":1},"direct":false}`))
+	paused, err := agent.ParsePayload(json.RawMessage(`{"checkpoint":{"pause_count":1},"direct":false}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,5 +121,20 @@ func TestToolInputRequestPreservesJSONNumbers(t *testing.T) {
 				t.Fatalf("request changed JSON numbers: prompt=%s schema=%s continuation=%s", request.prompt, request.responseSchema.JSON(), request.continuationState)
 			}
 		})
+	}
+}
+
+func TestProtocolRejectionsHaveStableClassification(t *testing.T) {
+	for _, payload := range []json.RawMessage{
+		[]byte(`{"operation":"unsupported"}`),
+		[]byte(`{"operation":"model_call","tool_call":{}}`),
+		[]byte(`{"operation":"model_call","extra":true}`),
+	} {
+		if _, err := decodeEffect(payload); !errors.Is(err, ErrInvalidProtocol) {
+			t.Fatalf("effect rejection has no protocol classification: %v", err)
+		}
+		if _, err := decodeSignal(payload); !errors.Is(err, ErrInvalidProtocol) {
+			t.Fatalf("signal rejection has no protocol classification: %v", err)
+		}
 	}
 }

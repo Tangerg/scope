@@ -19,7 +19,7 @@ const (
 )
 
 // Single owns the identities learned during one child invocation. Its zero
-// value awaits the StartChild settlement; absence of an invocation belongs to
+// value awaits the NewChildStartEffect settlement; absence of an invocation belongs to
 // the containing Strategy. Progress follows the identities already learned,
 // so there is no separately persisted phase to contradict them.
 type Single struct {
@@ -51,7 +51,7 @@ func (s *Single) AcceptStart(signal agent.Signal, key agent.ChildKey, deployment
 	if err != nil {
 		return agent.ChildStartResult{}, err
 	}
-	if !StartMatches(result, key, deployment) {
+	if !(result).Matches(key, deployment) {
 		return agent.ChildStartResult{}, errors.New("childcall: start does not match the declared child")
 	}
 	if processID, started := result.ProcessID(); started {
@@ -71,7 +71,7 @@ func (s Single) WaitEffect(key agent.WaitKey, boundary agent.ChildWaitBoundary) 
 	if s.Phase() != AwaitingOpening {
 		return agent.Effect{}, errors.New("childcall: wait requires a started child without an open wait")
 	}
-	return agent.WaitForChildren(s.waitSpec(key, boundary))
+	return agent.NewChildWaitEffect(s.waitSpec(key, boundary))
 }
 
 // AcceptOpening binds the Engine-assigned wait to the entire requested spec.

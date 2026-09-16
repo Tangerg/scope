@@ -89,8 +89,8 @@ func TestSignalRequestAndMailboxOwnPayloadAndDeduplicate(t *testing.T) {
 	if err != nil || accepted {
 		t.Fatalf("duplicate enqueue = %t, %v", accepted, err)
 	}
-	if mailbox.arrivalSequence() != 1 || len(mailbox.pending()) != 1 || string(mailbox.pending()[0].Payload()) != `{"kind":"steer"}` {
-		t.Fatalf("mailbox = sequence %d pending %+v", mailbox.arrivalSequence(), mailbox.pending())
+	if mailbox.acceptedCount() != 1 || len(mailbox.pending()) != 1 || string(mailbox.pending()[0].Payload()) != `{"kind":"steer"}` {
+		t.Fatalf("mailbox = sequence %d pending %+v", mailbox.acceptedCount(), mailbox.pending())
 	}
 }
 
@@ -139,7 +139,7 @@ func TestMailboxRejectsConflictingIdentityAfterConsumptionAndRestore(t *testing.
 			t.Fatalf("conflicting admission=%t %v", accepted, err)
 		}
 	}
-	if restored.arrivalSequence() != 1 || restored.committedSignalCursor() != 1 {
+	if restored.acceptedCount() != 1 || restored.committedSignalCursor() != 1 {
 		t.Fatal("conflicting admission changed mailbox history")
 	}
 }
@@ -313,7 +313,7 @@ func TestMailboxRejectsUnknownWaitAuthorityAtomically(t *testing.T) {
 		if err := mailbox.openWait(key, opening, kind); !errors.Is(err, errWaitState) {
 			t.Fatalf("openWait(%q) error = %v", kind, err)
 		}
-		if mailbox.arrivalSequence() != 0 || len(mailbox.waits) != 0 {
+		if mailbox.acceptedCount() != 0 || len(mailbox.waits) != 0 {
 			t.Fatal("invalid wait authority changed mailbox")
 		}
 	}

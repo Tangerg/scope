@@ -29,6 +29,17 @@ const (
 	StageKindLoop StageKind = "loop"
 )
 
+func (s StageKind) Valid() bool {
+	return s == StageKindTransform || s == StageKindCall || s == StageKindSwitch || s == StageKindFork || s == StageKindMap || s == StageKindLoop
+}
+
+func (s StageKind) String() string {
+	if !s.Valid() {
+		return "invalid"
+	}
+	return string(s)
+}
+
 // TransformFunc is a bounded, deterministic, side-effect-free reduction. It
 // must honor ctx cancellation during CPU work. External work belongs in a Call
 // stage that starts a child Process; ctx is not a source of domain input.
@@ -101,7 +112,7 @@ func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error
 		return Stage{}, fmt.Errorf("%w: transform %q output schema: %w", ErrInvalidStage, id, err)
 	}
 	apply := func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-		input, err := agent.ParseInput(raw)
+		input, err := agent.ParsePayload(raw)
 		if err != nil {
 			return nil, fmt.Errorf("transform %q input: %w", id, err)
 		}
@@ -116,7 +127,7 @@ func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error
 		if err != nil {
 			return nil, fmt.Errorf("transform %q: %w", id, err)
 		}
-		erased, err := agent.EncodeOutput(output)
+		erased, err := agent.EncodePayload(output)
 		if err != nil {
 			return nil, fmt.Errorf("transform %q encode output: %w", id, err)
 		}
@@ -132,7 +143,7 @@ func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error
 }
 
 // Call constructs one managed child-Process Stage. No child Process is created
-// until the Workflow Execution returns a Framework StartChild Effect.
+// until the Workflow Execution returns a Framework NewChildStartEffect Effect.
 func Call(config CallConfig) (Stage, error) {
 	if !agent.ValidQualifiedName(config.ID) || !config.Deployment.Valid() ||
 		!config.Budget.Valid() || !config.Capabilities.Valid() {
@@ -150,14 +161,17 @@ func Call(config CallConfig) (Stage, error) {
 }
 
 // Valid reports whether a constructor admitted this immutable Stage.
-func (s Stage) Valid() bool { return s.kind != StageKindInvalid }
+func (s Stage) Valid() bool { return s.kind.Valid() }
 
 func (s Stage) hasIdenticalInputSchema(schema agent.Schema) bool {
 	return schema.Valid() && bytes.Equal(s.inputSchema.JSON(), schema.JSON())
 }
 
 func (s Stage) fanoutMemberLabel(index uint32) string {
-	member, _ := s.fanout.source.member(index)
+	member, present := s.fanout.source.member(index)
+	if !present {
+		panic("workflow: fanout diagnostic refers to an absent member")
+	}
 	return s.fanoutMemberNoun() + " " + member.id
 }
 

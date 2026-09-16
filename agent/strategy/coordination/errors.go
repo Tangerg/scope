@@ -1,8 +1,6 @@
 package coordination
 
-import (
-	"errors"
-)
+import "errors"
 
 var (
 	ErrInvalidConfig   = errors.New("coordination: invalid configuration")

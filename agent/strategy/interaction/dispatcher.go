@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"reflect"
@@ -11,12 +12,6 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
 )
-
-// ErrModelResponseTooLarge reports response resource admission failure.
-// After model execution starts, the incomplete response is discarded and its
-// Effect remains unknown. Oversize replacement context is rejected before calling
-// the model and settles as a definite host failure.
-var ErrModelResponseTooLarge = errors.New("interaction: model response exceeds byte limit")
 
 // DispatcherConfig binds external capabilities for one Deployment.
 type DispatcherConfig struct {
@@ -122,9 +117,7 @@ func (d *Dispatcher) Dispatch(
 	request agent.EffectRequest,
 	emit agent.DeltaEmitter,
 ) (agent.Settlement, error) {
-	if ctx == nil {
-		panic(errors.New("interaction: nil Context"))
-	}
+	ctx = agent.RequireContext(ctx)
 	if d == nil || (lo.IsNil(d.model) && lo.IsNil(d.streamer)) {
 		return modelHostFailureSettlement(request.ID(), ErrInvalidDispatcherConfig)
 	}
@@ -214,7 +207,7 @@ func (d *Dispatcher) dispatchModel(
 	if d.contextReducer != nil && !reflect.DeepEqual(call.Request.Messages, modelRequest.Messages) {
 		result.ReplacementMessages = cloneMessages(modelRequest.Messages)
 	}
-	base, err := encodeProtocol(signalEnvelope{Operation: operationModelCall, ModelResult: result})
+	base, err := jsonv2.Marshal(signalEnvelope{Operation: operationModelCall, ModelResult: result}, jsonv2.Deterministic(true))
 	if err != nil {
 		return modelHostFailureSettlement(request.ID(), err)
 	}
@@ -232,9 +225,9 @@ func (d *Dispatcher) dispatchModel(
 		return agent.Settlement{}, fmt.Errorf("interaction: invalid model response: %w", validateErr)
 	}
 	result.Response = response
-	payload, err := encodeProtocol(signalEnvelope{
+	payload, err := jsonv2.Marshal(signalEnvelope{
 		Operation: operationModelCall, ModelResult: result,
-	})
+	}, jsonv2.Deterministic(true))
 	if err != nil {
 		return agent.Settlement{}, err
 	}
@@ -313,10 +306,10 @@ func (d *Dispatcher) callModel(
 }
 
 func modelHostFailureSettlement(effectID agent.EffectID, cause error) (agent.Settlement, error) {
-	payload, err := encodeProtocol(signalEnvelope{
+	payload, err := jsonv2.Marshal(signalEnvelope{
 		Operation:   operationModelCall,
 		ModelResult: &modelCallResult{HostError: agent.NormalizeDiagnostic(cause.Error())},
-	})
+	}, jsonv2.Deterministic(true))
 	if err != nil {
 		return agent.Settlement{}, err
 	}

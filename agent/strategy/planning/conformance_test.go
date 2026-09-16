@@ -31,7 +31,7 @@ func TestDefinitionConformance(t *testing.T) {
 			mustDispatcherBinding(t, refused), mustDispatcherBinding(t, unconfirmed), mustDispatcherBinding(t, successful),
 		},
 	})
-	input, err := agent.EncodeInput(struct{}{})
+	input, err := agent.EncodePayload(struct{}{})
 	if err != nil {
 		t.Fatal(err)
 	}

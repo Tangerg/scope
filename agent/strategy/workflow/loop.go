@@ -77,7 +77,7 @@ func Loop[T any](config LoopConfig[T]) (Stage, error) {
 	}
 	predicate := config.Predicate
 	evaluate := func(ctx context.Context, raw json.RawMessage) (bool, error) {
-		output, err := agent.ParseOutput(raw)
+		output, err := agent.ParsePayload(raw)
 		if err != nil {
 			return false, err
 		}
@@ -95,7 +95,7 @@ func Loop[T any](config LoopConfig[T]) (Stage, error) {
 		return satisfied, nil
 	}
 	result := func(raw json.RawMessage, iterations uint32, satisfied bool) (json.RawMessage, error) {
-		output, err := agent.ParseOutput(raw)
+		output, err := agent.ParsePayload(raw)
 		if err != nil {
 			return nil, err
 		}
@@ -107,7 +107,7 @@ func Loop[T any](config LoopConfig[T]) (Stage, error) {
 		if !loopResult.Valid() {
 			return nil, ErrInvalidExecutionState
 		}
-		erased, err := agent.EncodeOutput(loopResult)
+		erased, err := agent.EncodePayload(loopResult)
 		if err != nil {
 			return nil, err
 		}

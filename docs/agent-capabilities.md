@@ -92,7 +92,7 @@ Communication authority must also be explicit. A Process ID identifies a destina
 
 The runtime should understand the lifecycle of work without understanding what that work means to a particular agent. New model, tool, planning, and collaboration vocabularies remain in the packages that own them.
 
-The current structural operations are `RequestWait`, `StartChild`, `WaitForChildren`, `SignalChild`, and `CancelChild`. The last two control an exact direct child through the tree owner. A strategy requests other external work through its Deployment-bound Dispatcher. Transitions determine whether the Process continues, waits, pauses, completes, or fails. This is a shared execution protocol, not a registry of agent-specific hooks. See [Effects](../agent/effect.go), [child controls](../agent/child_control.go), and [transitions](../agent/transition.go).
+The current structural operations are `NewWaitEffect`, `NewChildStartEffect`, `NewChildWaitEffect`, `NewChildSignalEffect`, and `NewChildCancelEffect`. The last two control an exact direct child through the tree owner. A strategy requests other external work through its Deployment-bound Dispatcher. Transitions determine whether the Process continues, waits, pauses, completes, or fails. This is a shared execution protocol, not a registry of agent-specific hooks. See [Effects](../agent/effect.go), [child controls](../agent/child_control.go), and [transitions](../agent/transition.go).
 
 ### Decisions and inputs
 
@@ -170,7 +170,7 @@ flowchart TB
     H[Authorized input adapter] --> I
 ```
 
-The input gate uses `RequestWait`, records the returned WaitID, enters Waiting, and completes after consuming an addressed input. The coordinator uses `WaitForChildren` with `AnyChild`, inspects the reported results, and makes its next decision. A subsequent iteration can retain unfinished children and create replacements for completed gates.
+The input gate uses `NewWaitEffect`, records the returned WaitID, enters Waiting, and completes after consuming an addressed input. The coordinator uses `NewChildWaitEffect` with `AnyChild`, inspects the reported results, and makes its next decision. A subsequent iteration can retain unfinished children and create replacements for completed gates.
 
 Slow work belongs in worker children when the coordinator must remain responsive. A Process cannot run another Step while its own Dispatch job is in flight. Moving work to a child changes the lifecycle structure explicitly and reuses existing concurrent scheduling.
 
@@ -188,7 +188,7 @@ The [collaboration strategy](../agent/strategy/collaboration/doc.go) packages re
 
 A decision can continue with another coordinator turn while workers run, wait for at least one outstanding task to drain, or complete. Results observed during a coordinator call appear in the following turn. If every outstanding task drains while that call is running, its wait decision advances without opening an empty wait. Worker-start failures remain facts and consume the task-attempt bound. Per-turn controls, admitted concurrency, total attempts, and coordinator turns all have explicit finite bounds.
 
-An input gate can be an ordinary configured worker. An authorized Host answers that gate's exact ProcessID and WaitID; its completion wakes the collaboration through the existing child wait. Steering a running Interaction worker uses its canonical `NewSteerSignal` payload through `SignalChild`, and becomes model input only at the recipient's safe boundary. Neither path adds a second mailbox or preempts an in-flight model call.
+An input gate can be an ordinary configured worker. An authorized Host answers that gate's exact ProcessID and WaitID; its completion wakes the collaboration through the existing child wait. Steering a running Interaction worker uses its canonical `NewSteerSignal` payload through `NewChildSignalEffect`, and becomes model input only at the recipient's safe boundary. Neither path adds a second mailbox or preempts an in-flight model call.
 
 Completed tasks are immutable. Follow-up work creates a new logical task key and explicitly carries prior output in the new input. Completing the collaboration cancels unfinished descendants, while a drained wait or Join establishes local resource release. Product sessions and transitions between bounded root trees remain separate concerns.
 
@@ -206,7 +206,7 @@ A competition coordinator can own all competing workers. Completing that coordin
 
 Completion triggers the termination process; it does not establish that losing external operations have stopped. A composition that reuses an exclusive resource must establish that its previous work has drained before reuse. The lifecycle requirements below define this distinction.
 
-Dynamic cancellation of selected children uses `CancelChild`. The parent remains active and retains other children; `ChildControlResult` records acceptance or rejection of the exact operation. A successful receipt records cancellation intent, and a subsequent drained wait establishes when the selected subtree has stopped. Canceling an already terminal direct child succeeds without changing its result. [Child-control tests](../agent/child_control_test.go) protect direct ownership and recipient-side evidence; the [control recovery test](../agent/strategy/collaboration/recovery_test.go) restores a committed control before its acknowledgment without admitting the Signal twice.
+Dynamic cancellation of selected children uses `NewChildCancelEffect`. The parent remains active and retains other children; `ChildControlResult` records acceptance or rejection of the exact operation. A successful receipt records cancellation intent, and a subsequent drained wait establishes when the selected subtree has stopped. Canceling an already terminal direct child succeeds without changing its result. [Child-control tests](../agent/child_control_test.go) protect direct ownership and recipient-side evidence; the [control recovery test](../agent/strategy/collaboration/recovery_test.go) restores a committed control before its acknowledgment without admitting the Signal twice.
 
 ### Reliable intermediate communication
 
@@ -220,7 +220,7 @@ This construction can reuse durable input admission, but the sender's transition
 
 The [message recovery tests](../agent/messaging/delivery_test.go) restore a sender after the receiver has consumed the input and terminated, then reconcile the same delivery identity without a second admission. They also reject conflicting content and retargeting to a replacement recipient.
 
-`SignalChild` supplies one tree commit for an exact direct child and checks that ownership at admission. Messaging remains the reusable Host-authorized delivery adapter for peers and independent trees, with separate sender and recipient acknowledgments even when they share a tree. Neither protocol supplies runtime-attested payload origin or atomic broadcast. Those stronger guarantees require their own authority and recovery contracts. Broadcast membership and recipient-selection policy remain above delivery; a topic registry or separate message bus is not a prerequisite.
+`NewChildSignalEffect` supplies one tree commit for an exact direct child and checks that ownership at admission. Messaging remains the reusable Host-authorized delivery adapter for peers and independent trees, with separate sender and recipient acknowledgments even when they share a tree. Neither protocol supplies runtime-attested payload origin or atomic broadcast. Those stronger guarantees require their own authority and recovery contracts. Broadcast membership and recipient-selection policy remain above delivery; a topic registry or separate message bus is not a prerequisite.
 
 ### Domain coordination and shared state
 
@@ -247,7 +247,7 @@ The lifecycle has separate observable facts:
 
 `RequestCancellation` acknowledges submission. `Process.Await` waits for that Process's terminal result and immediate bookkeeping. `Process.Join` waits for its owned subtree calls and required acknowledgments in the current runtime. `Engine.ReleaseTree` waits for the complete root runtime to stop, then releases its in-memory registration. These operations must not be described as stronger barriers than their contracts state. See [Process control](../agent/process.go) and [tree release](../agent/engine.go).
 
-A strategy chooses terminal results or drained subtrees through `ChildWaitSpec.Boundary`, using the same `WaitForChildren` operation. The runtime owns the drain fact used by both this wait and Host `Join`; neither introduces another scheduler. A strategy replacing one task can therefore wait for that task's scope to drain while retaining independent siblings. See the [scoped join tests](../agent/scoped_join_test.go).
+A strategy chooses terminal results or drained subtrees through `ChildWaitSpec.Boundary`, using the same `NewChildWaitEffect` operation. The runtime owns the drain fact used by both this wait and Host `Join`; neither introduces another scheduler. A strategy replacing one task can therefore wait for that task's scope to drain while retaining independent siblings. See the [scoped join tests](../agent/scoped_join_test.go).
 
 The same contract must distinguish local drain from remote uncertainty. A canceled HTTP request can return while the remote service still processes an operation. Ending local execution does not justify reporting that operation as failed or reclaiming its identity for different work.
 
@@ -328,7 +328,7 @@ Stronger extensions remain defined by guarantees rather than names:
 | Candidate guarantee | Existing construction | Additional condition that could justify kernel work |
 | --- | --- | --- |
 | React to independent progress sources | Input and timer children with child waiting | Atomic arbitration over original input admission at one Process address |
-| Deliver reliable intermediate input | Direct-child `SignalChild` with one tree acknowledgment; Host-authorized messaging elsewhere | Atomic delivery across other ownership boundaries, runtime-attested origin, or atomic multi-recipient delivery |
+| Deliver reliable intermediate input | Direct-child `NewChildSignalEffect` with one tree acknowledgment; Host-authorized messaging elsewhere | Atomic delivery across other ownership boundaries, runtime-attested origin, or atomic multi-recipient delivery |
 | Cancel active external calls | Runtime-owned Process control and cancellable Dispatcher context | Remote outcome reconciliation remains distinct from local cancellation and drain |
 | Continue long-lived behavior | Explicit bounded episodes | A reusable successor admission and state-transfer contract that survives ambiguous starts |
 
@@ -382,7 +382,7 @@ Implementation establishes one coherent guarantee at a time, with its public con
 1. **Cancellation and settlement.** Active attempts receive cancellation; started work is collected and required acknowledgment is retained.
 2. **Results and drain.** Await, Join, and child-wait boundaries expose their distinct owned lifecycle facts.
 3. **Bounded coordination.** InputGate, Deadline, and FirstSuccess compose ordinary Definitions and Effects.
-4. **Direct-child controls.** SignalChild and CancelChild commit recipient changes with definite control receipts under one tree owner.
+4. **Direct-child controls.** NewChildSignalEffect and NewChildCancelEffect commit recipient changes with definite control receipts under one tree owner.
 5. **Bounded collaboration.** Coordinator decisions compose background tasks, direct-child controls, input gates, and drained waits without another runtime.
 6. **Reliable communication.** Frozen Message Effects, a narrow delivery authority, and authority-preserving mailbox receipts reconcile admission across acknowledgment loss.
 7. **Safe episode continuation.** Checked Host composition seals ingress, transfers explicit domain state, and admits one successor under a new allocation and authority decision.

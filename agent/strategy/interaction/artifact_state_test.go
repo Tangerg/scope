@@ -12,8 +12,8 @@ import (
 func TestArtifactStateRestoreRejectsInvalidProvenanceAndValue(t *testing.T) {
 	definition := fuzzInteractionDefinition(t)
 	request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("validate"))}}
-	validOutput, _ := agent.EncodeOutput(fuzzDelegateOutput{Result: "valid"})
-	wrongOutput, _ := agent.EncodeOutput(struct {
+	validOutput, _ := agent.EncodePayload(fuzzDelegateOutput{Result: "valid"})
+	wrongOutput, _ := agent.EncodePayload(struct {
 		Other string `json:"other"`
 	}{Other: "invalid"})
 

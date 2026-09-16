@@ -270,14 +270,14 @@ type crashTreeDefinition struct {
 
 func (c *crashTreeDefinition) Descriptor() agent.Descriptor { return c.descriptor }
 
-func (c *crashTreeDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (c *crashTreeDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	decoded, err := input.Decode[crashTreeInput]()
 	if err != nil {
 		return nil, err
 	}
 	state := crashTreeState{Role: decoded.Role, Phase: crashTreePhaseReady}
 	if !state.valid() {
-		return nil, agent.ErrInvalidInput
+		return nil, agent.ErrInvalidPayload
 	}
 	return &crashTreeExecution{definition: c, state: state}, nil
 }
@@ -336,7 +336,7 @@ func (c *crashTreeExecution) startRootChild(signals []agent.Signal) (agent.Trans
 		return agent.Transition{}, err
 	}
 	budget := agent.Budget{Steps: crashTreeChildStepBudget, Effects: crashTreeChildEffectBudget, Signals: crashTreeChildSignalBudget}
-	effect, err := agent.StartChild(agent.ChildSpec{
+	effect, err := agent.NewChildStartEffect(agent.ChildSpec{
 		Key: key, DeploymentRef: c.definition.reference, Input: input,
 		Budget: budget, Capabilities: agent.CapabilitySet{},
 	})
@@ -363,7 +363,7 @@ func (c *crashTreeExecution) openRootChildWait(signals []agent.Signal) (agent.Tr
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	effect, err := agent.WaitForChildren(agent.ChildWaitSpec{
+	effect, err := agent.NewChildWaitEffect(agent.ChildWaitSpec{
 		Boundary: agent.ChildWaitBoundaryResult,
 		Key:      key, Children: []agent.ProcessID{childID}, Condition: agent.AllChildren(),
 	})
@@ -396,7 +396,7 @@ func (c *crashTreeExecution) completeRoot(signals []agent.Signal) (agent.Transit
 		return agent.Transition{}, err
 	}
 	c.state.Phase = crashTreePhaseFinished
-	output, err := agent.EncodeOutput(crashTreeOutput{Completed: true})
+	output, err := agent.EncodePayload(crashTreeOutput{Completed: true})
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -419,7 +419,7 @@ func (c *crashTreeExecution) stepChild(signals []agent.Signal) (agent.Transition
 		if err != nil {
 			return agent.Transition{}, err
 		}
-		effect, err := agent.RequestWait(key, payload)
+		effect, err := agent.NewWaitEffect(key, payload)
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -441,7 +441,7 @@ func (c *crashTreeExecution) stepChild(signals []agent.Signal) (agent.Transition
 			return agent.Transition{}, errors.New("agenttest: external wait response is missing")
 		}
 		c.state.Phase = crashTreePhaseFinished
-		output, err := agent.EncodeOutput(crashTreeOutput{Completed: true})
+		output, err := agent.EncodePayload(crashTreeOutput{Completed: true})
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -521,3 +521,5 @@ func crashTreeChildID(
 	t.Fatal("parked tree has no direct child")
 	return agent.ProcessID{}
 }
+
+var _ agent.Definition = (*crashTreeDefinition)(nil)

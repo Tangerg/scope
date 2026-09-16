@@ -39,7 +39,7 @@ func newScopeJoinDeployment(t *testing.T, boundary ChildWaitBoundary, dispatcher
 
 func (s *scopeJoinDefinition) Descriptor() Descriptor { return s.descriptor }
 
-func (s *scopeJoinDefinition) Start(input Input) (Execution, error) {
+func (s *scopeJoinDefinition) Start(input Payload) (Execution, error) {
 	role, err := input.Decode[string]()
 	if err != nil {
 		return nil, err
@@ -95,7 +95,7 @@ func (s *scopeJoinExecution) Step(_ context.Context, signals []Signal) (Transiti
 		return Pause(consumed, "wait for explicit scope completion")
 	}
 	if s.state.Role != "root" || s.state.Phase == "satisfied" {
-		output, err := EncodeOutput(s.state.Role)
+		output, err := EncodePayload(s.state.Role)
 		if err != nil {
 			return Transition{}, err
 		}
@@ -113,7 +113,7 @@ func (s *scopeJoinExecution) Step(_ context.Context, signals []Signal) (Transiti
 			}
 		}
 		key, _ := ParseWaitKey("scope-boundary")
-		effect, err := WaitForChildren(ChildWaitSpec{
+		effect, err := NewChildWaitEffect(ChildWaitSpec{
 			Key: key, Children: []ProcessID{childID}, Boundary: s.definition.boundary, Condition: AllChildren(),
 		})
 		if err != nil {
@@ -140,12 +140,12 @@ func (s *scopeJoinExecution) Step(_ context.Context, signals []Signal) (Transiti
 
 func (s *scopeJoinExecution) child(role string) Effect {
 	key, _ := ParseChildKey(role)
-	input, _ := EncodeInput(role)
+	input, _ := EncodePayload(role)
 	budget := Budget{Steps: 20, Effects: 20, Signals: 40}
 	if role == "scope" {
 		budget = Budget{Steps: 40, Effects: 40, Signals: 80}
 	}
-	effect, err := StartChild(ChildSpec{
+	effect, err := NewChildStartEffect(ChildSpec{
 		Key: key, DeploymentRef: s.definition.reference, Input: input, Budget: budget,
 	})
 	if err != nil {
