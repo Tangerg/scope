@@ -84,8 +84,8 @@ func TestOutputRejectsUnfinishedCompletion(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if err := output.Validate(); err == nil {
-				t.Fatal("unfinished completion was accepted")
+			if err := output.Validate(); !errors.Is(err, interaction.ErrInvalidResult) {
+				t.Fatalf("unfinished completion error = %v", err)
 			}
 		})
 	}
@@ -136,5 +136,32 @@ func TestDirectResultCompletionFailurePreservesItsCause(t *testing.T) {
 				t.Fatalf("model calls = %d, Tool calls = %d, validations = %d; want one each", modelCalls, toolCalls, validations)
 			}
 		})
+	}
+}
+
+func TestPublicValidationPreservesResultClassificationAndCause(t *testing.T) {
+	for _, output := range []interaction.Output{
+		{},
+		{Source: interaction.CompletionSourceModelResponse},
+		{Source: interaction.CompletionSourceModelResponse, ModelCalls: 1},
+		{Source: interaction.CompletionSourceDirectToolResults, ModelCalls: 1},
+		{Source: interaction.CompletionSourceDirectToolResults, ModelCalls: 1, DirectToolResults: []chat.ToolResult{{}}},
+	} {
+		if err := output.Validate(); !errors.Is(err, interaction.ErrInvalidResult) {
+			t.Fatalf("result classification lost: %v", err)
+		}
+	}
+	output := interaction.Output{Source: interaction.CompletionSourceModelResponse, ModelCalls: 1, ModelResponse: &chat.Response{}}
+	if err := output.Validate(); !errors.Is(err, interaction.ErrInvalidResult) || !errors.Is(err, chat.ErrInvalidResponse) {
+		t.Fatalf("nested cause lost: %v", err)
+	}
+	if err := (interaction.ResultReceipt{}).Validate(); !errors.Is(err, interaction.ErrInvalidResult) {
+		t.Fatalf("receipt classification lost: %v", err)
+	}
+	if err := (interaction.Input{}).Validate(); !errors.Is(err, interaction.ErrInvalidInput) {
+		t.Fatalf("input classification lost: %v", err)
+	}
+	if (interaction.ToolSet{}).Configured() {
+		t.Fatal("absent tools are configured")
 	}
 }

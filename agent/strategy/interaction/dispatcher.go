@@ -58,9 +58,9 @@ type Dispatcher struct {
 
 // ObservationFailures returns a concurrency-safe snapshot of ModelObserver
 // panics isolated by this Dispatcher. The counts do not alter settlements.
-func (d *Dispatcher) ObservationFailures() ObservationFailureCounts {
+func (d *Dispatcher) ObservationFailures() ObservationFailures {
 	if d == nil {
-		return ObservationFailureCounts{}
+		return ObservationFailures{}
 	}
 	return d.observationFailures.snapshot()
 }
@@ -253,7 +253,7 @@ func (d *Dispatcher) observeModel(ctx context.Context, invocation ModelInvocatio
 	if d.observer == nil {
 		return
 	}
-	defer recordObserverPanic(&d.observationFailures.modelResponsePanics)
+	defer d.observationFailures.recordPanic(modelResponseCallback, d.observer, invocation.Relation().ProcessID(), invocation.EffectID())
 	d.observer.OnModelResponse(ctx, invocation, response.Clone())
 }
 

@@ -77,10 +77,10 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 	if config.MaxConcurrentToolCalls < 0 || !config.ToolCapabilities.Valid() {
 		return nil, fmt.Errorf("%w: invalid Tool scheduling policy", ErrInvalidDefinitionConfig)
 	}
-	if config.Tools.Valid() && !config.ToolBudget.Valid() {
+	if config.Tools.Configured() && !config.ToolBudget.Valid() {
 		return nil, fmt.Errorf("%w: ToolBudget is required with Tools", ErrInvalidDefinitionConfig)
 	}
-	if !config.Tools.Valid() && (config.Tools.dispatcher != nil || config.ToolBudget != (agent.Budget{}) ||
+	if !config.Tools.Configured() && (config.ToolBudget != (agent.Budget{}) ||
 		len(config.ToolCapabilities.Values()) != 0 || config.MaxConcurrentToolCalls != 0) {
 		return nil, fmt.Errorf("%w: Tool policy requires a valid ToolSet", ErrInvalidDefinitionConfig)
 	}

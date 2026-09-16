@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
 const firstSuccessStateKind = "coordination.first_success"
@@ -150,22 +149,20 @@ func (f *firstSuccessExecution) acceptStarts(signals []agent.Signal) (agent.Tran
 	if len(signals) == 0 {
 		return agent.Transition{}, fmt.Errorf("%w: child start results are missing", ErrInvalidProtocol)
 	}
-	var consumed uint32
-	for _, signal := range signals {
-		if len(f.state.Starts) == len(f.state.Candidates) {
-			break
-		}
-		started, err := agent.ParseChildStartResult(signal)
+	count := min(len(signals), f.state.batch().PendingStarts())
+	starts := make([]agent.ChildStartResult, count)
+	for index := range starts {
+		started, err := agent.ParseChildStartResult(signals[index])
 		if err != nil {
 			return agent.Transition{}, err
 		}
-		candidate := f.state.Candidates[len(f.state.Starts)]
-		if !(started).Matches(candidate.Key, candidate.DeploymentRef) {
-			return agent.Transition{}, fmt.Errorf("%w: child start disagrees with its candidate", ErrInvalidProtocol)
-		}
-		f.state.Starts = append(f.state.Starts, started)
-		consumed++
+		starts[index] = started
 	}
+	if _, err := f.state.batch().AcceptStarts(starts); err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
+	}
+	f.state.Starts = append(f.state.Starts, starts...)
+	consumed := uint32(count)
 	if len(f.state.Starts) != len(f.state.Candidates) {
 		return agent.Continue(consumed)
 	}
@@ -184,10 +181,10 @@ func (f *firstSuccessExecution) acceptWaitOpen(signals []agent.Signal) (agent.Tr
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if !childcall.OpeningMatches(opened, want) {
-		return agent.Transition{}, fmt.Errorf("%w: competition wait opening disagrees with remaining candidates", ErrInvalidProtocol)
+	waitID, err := f.state.batch().AcceptOpening(opened, want.Key, want.Boundary, want.Condition)
+	if err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
-	waitID := opened.WaitID()
 	f.state.WaitID = &waitID
 	f.state.Phase = competitionWaiting
 	return agent.Wait(1, waitID)
@@ -205,8 +202,8 @@ func (f *firstSuccessExecution) acceptOutcomes(ctx context.Context, signals []ag
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if !childcall.CompletionMatches(satisfied, *f.state.WaitID, wait.Key, wait.Boundary) {
-		return agent.Transition{}, fmt.Errorf("%w: competition satisfaction addresses a different wait", ErrInvalidProtocol)
+	if _, err := f.state.batch().Complete(satisfied, wait.Key, wait.Boundary, wait.Condition); err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
 	outcomes := satisfied.Outcomes()
 	if err := f.state.recordOutcomes(outcomes); err != nil {

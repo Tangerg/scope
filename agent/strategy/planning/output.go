@@ -1,7 +1,6 @@
 package planning
 
 import (
-	"errors"
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -74,16 +73,16 @@ func (a Attempt) excluded() bool { return a.Status != AttemptSucceeded }
 
 func (a Attempt) Validate() error {
 	if !agent.ValidQualifiedName(a.ActionName) || !a.Status.Valid() {
-		return errors.New("planning: invalid Action attempt identity or status")
+		return fmt.Errorf("%w: invalid Action attempt identity or status", ErrInvalidResult)
 	}
 	if a.Status == AttemptSucceeded {
 		if a.Diagnostic != "" {
-			return errors.New("planning: succeeded Action attempt has a diagnostic")
+			return fmt.Errorf("%w: succeeded Action attempt has a diagnostic", ErrInvalidResult)
 		}
 		return nil
 	}
 	if !agent.ValidDiagnostic(a.Diagnostic) {
-		return errors.New("planning: failed or unconfirmed Action attempt requires a bounded diagnostic")
+		return fmt.Errorf("%w: failed or unconfirmed Action attempt requires a bounded diagnostic", ErrInvalidResult)
 	}
 	return nil
 }
@@ -107,7 +106,7 @@ type Output struct {
 // Definition. A repeated Action name is a valid fact, even after a failed attempt.
 func (o Output) Validate() error {
 	if !o.Outcome.Valid() {
-		return errors.New("planning: invalid output outcome")
+		return fmt.Errorf("%w: invalid output outcome", ErrInvalidResult)
 	}
 	if err := validateAttempts(o.Attempts); err != nil {
 		return err
@@ -117,15 +116,15 @@ func (o Output) Validate() error {
 	switch o.Outcome {
 	case OutcomeAchieved:
 		if passes != attempts {
-			return errors.New("planning: achieved output requires one planning pass per attempt")
+			return fmt.Errorf("%w: achieved output requires one planning pass per attempt", ErrInvalidResult)
 		}
 	case OutcomeUnreachable:
 		if attempts != 0 || passes != 1 {
-			return errors.New("planning: unreachable output requires one initial planning pass and no attempts")
+			return fmt.Errorf("%w: unreachable output requires one initial planning pass and no attempts", ErrInvalidResult)
 		}
 	case OutcomeStuck:
 		if attempts == 0 || passes != attempts && passes != attempts+1 {
-			return errors.New("planning: stuck output requires attempted Actions and at most one final unsuccessful planning pass")
+			return fmt.Errorf("%w: stuck output requires attempted Actions and at most one final unsuccessful planning pass", ErrInvalidResult)
 		}
 	}
 	return nil
@@ -134,7 +133,7 @@ func (o Output) Validate() error {
 func validateAttempts(attempts []Attempt) error {
 	for index, attempt := range attempts {
 		if err := attempt.Validate(); err != nil {
-			return fmt.Errorf("planning: attempt %d: %w", index, err)
+			return fmt.Errorf("%w: attempt %d: %w", ErrInvalidResult, index, err)
 		}
 	}
 	return nil

@@ -61,7 +61,7 @@ type interactionDeployment struct {
 func configuredInteraction(t *testing.T, definitionConfig interaction.DefinitionConfig, dispatcherConfig interaction.DispatcherConfig, toolConfig interaction.ToolSetConfig) interactionDeployment {
 	t.Helper()
 	toolSet := testToolSet(t, toolConfig)
-	if toolSet.Valid() {
+	if toolSet.Configured() {
 		definitionConfig.Tools = toolSet
 		definitionConfig.ToolBudget = agent.Budget{Steps: 32, Effects: 16, Signals: 32}
 	}
@@ -102,7 +102,7 @@ func testToolSet(t *testing.T, config interaction.ToolSetConfig) interaction.Too
 
 func toolInteractionDeployment(deployment agent.Deployment, toolSet interaction.ToolSet) interactionDeployment {
 	fixture := interactionDeployment{Deployment: deployment, resolver: make(delegateResolver)}
-	if toolSet.Valid() {
+	if toolSet.Configured() {
 		child := toolSet.Deployment()
 		fixture.resolver[child.DeploymentRef()] = child
 	}

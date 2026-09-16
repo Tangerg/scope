@@ -178,7 +178,7 @@ func (t *toolDispatcher) observeToolStarted(ctx context.Context, invocation Tool
 	if t.observer == nil {
 		return
 	}
-	defer recordObserverPanic(&t.observationFailures.toolStartedPanics)
+	defer t.observationFailures.recordPanic(toolStartedCallback, t.observer, invocation.Relation().ProcessID(), invocation.EffectID())
 	t.observer.OnToolStarted(ctx, invocation)
 }
 
@@ -189,7 +189,7 @@ func (t *toolDispatcher) observeToolSettled(ctx context.Context, invocation Tool
 	if settlement.Result != nil {
 		settlement.Result = new(settlement.Result.Clone())
 	}
-	defer recordObserverPanic(&t.observationFailures.toolSettledPanics)
+	defer t.observationFailures.recordPanic(toolSettledCallback, t.observer, invocation.Relation().ProcessID(), invocation.EffectID())
 	t.observer.OnToolSettled(ctx, invocation, settlement)
 }
 

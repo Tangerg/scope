@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
 type competitionPhase string
@@ -40,17 +41,11 @@ func (f firstSuccessState) validate(maxCandidates uint32) error {
 			}
 		}
 	}
-	for index, started := range f.Starts {
-		candidate := f.Candidates[index]
-		if !started.Valid() || !(started).Matches(candidate.Key, candidate.DeploymentRef) {
-			return fmt.Errorf("%w: start fact disagrees with its candidate", ErrInvalidState)
-		}
-		if id, present := started.ProcessID(); present {
-			for _, previous := range f.Starts[:index] {
-				if previousID, present := previous.ProcessID(); present && previousID == id {
-					return fmt.Errorf("%w: duplicate candidate ProcessID", ErrInvalidState)
-				}
-			}
+	if len(f.Starts) > 0 {
+		pending := f
+		pending.Starts, pending.Outcomes, pending.WaitID = nil, nil, nil
+		if _, err := pending.batch().AcceptStarts(f.Starts); err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidState, err)
 		}
 	}
 	if !validObservedOutcomes(f.Starts, f.Outcomes) {
@@ -59,6 +54,10 @@ func (f firstSuccessState) validate(maxCandidates uint32) error {
 	if f.Phase != competitionCompleted && f.Winner != nil {
 		return fmt.Errorf("%w: unfinished competition contains a winner", ErrInvalidState)
 	}
+	return f.validatePhase()
+}
+
+func (f firstSuccessState) validatePhase() error {
 	switch f.Phase {
 	case competitionReady:
 		if len(f.Starts) != 0 || len(f.Outcomes) != 0 || f.WaitID != nil {
@@ -97,6 +96,22 @@ func (f firstSuccessState) validate(maxCandidates uint32) error {
 	return nil
 }
 
+func (f firstSuccessState) batch() childcall.Batch {
+	batch := childcall.Batch{Children: make([]childcall.Child, len(f.Candidates))}
+	if f.WaitID != nil {
+		batch.WaitID = *f.WaitID
+	}
+	for index, candidate := range f.Candidates {
+		child := &batch.Children[index]
+		child.Key, child.Deployment = candidate.Key, candidate.DeploymentRef
+		if index < len(f.Starts) {
+			id, started := f.Starts[index].ProcessID()
+			child.ProcessID, child.Done = id, !started || observedProcess(f.Outcomes, id)
+		}
+	}
+	return batch
+}
+
 func (f firstSuccessState) remaining() []agent.ProcessID {
 	var children []agent.ProcessID
 	for _, started := range f.Starts {
@@ -112,13 +127,7 @@ func (f firstSuccessState) waitSpec() (agent.ChildWaitSpec, error) {
 	if err != nil {
 		return agent.ChildWaitSpec{}, err
 	}
-	spec := agent.ChildWaitSpec{
-		Key: key, Children: f.remaining(), Boundary: agent.ChildWaitBoundaryResult, Condition: agent.AnyChild(),
-	}
-	if !spec.Valid() {
-		return agent.ChildWaitSpec{}, fmt.Errorf("%w: competition has no remaining child to wait for", ErrInvalidState)
-	}
-	return spec, nil
+	return f.batch().WaitSpec(key, agent.ChildWaitBoundaryResult, agent.AnyChild())
 }
 
 func (f *firstSuccessState) recordOutcomes(outcomes []agent.ChildOutcome) error {

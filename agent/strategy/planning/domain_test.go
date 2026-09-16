@@ -229,7 +229,7 @@ func TestOutputValidatesCompletedPlanningFacts(t *testing.T) {
 			if test.outcome == planning.OutcomeAchieved {
 				output.WorldState = mustWorldState(t, done)
 			}
-			if err := output.Validate(); (err == nil) != test.valid {
+			if err := output.Validate(); (err == nil) != test.valid || !test.valid && !errors.Is(err, planning.ErrInvalidResult) {
 				t.Fatalf("Validate = %v, want valid=%t", err, test.valid)
 			}
 		})
@@ -272,4 +272,22 @@ func mustAction(t *testing.T, config planning.ActionConfig) planning.Action {
 		t.Fatal(err)
 	}
 	return action
+}
+
+func TestAttemptAndOutputValidationShareResultClassification(t *testing.T) {
+	for _, attempt := range []planning.Attempt{
+		{},
+		{ActionName: "action", Status: planning.AttemptSucceeded, Diagnostic: "unexpected"},
+		{ActionName: "action", Status: planning.AttemptFailed},
+	} {
+		if err := attempt.Validate(); !errors.Is(err, planning.ErrInvalidResult) {
+			t.Fatalf("attempt classification lost: %v", err)
+		}
+		if err := (planning.Output{Outcome: planning.OutcomeAchieved, Attempts: []planning.Attempt{attempt}, PlanningPasses: 1}).Validate(); !errors.Is(err, planning.ErrInvalidResult) {
+			t.Fatalf("nested attempt classification lost: %v", err)
+		}
+	}
+	if err := (planning.Output{}).Validate(); !errors.Is(err, planning.ErrInvalidResult) {
+		t.Fatalf("output classification lost: %v", err)
+	}
 }

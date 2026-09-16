@@ -3,10 +3,8 @@ package collaboration
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
 type execution struct {
@@ -74,12 +72,8 @@ func (e *execution) acceptTurnStart(signals []agent.Signal) (agent.Transition, e
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	key, err := turnKey(e.state.Number)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	if !(started).Matches(key, e.definition.coordinator.deploymentRef) {
-		return agent.Transition{}, ErrInvalidProtocol
+	if _, err := e.state.batch(e.definition).AcceptStarts([]agent.ChildStartResult{started}); err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
 	e.state.Turn.Start = &started
 	if failure, failed := started.Failure(); failed {
@@ -92,7 +86,7 @@ func (e *execution) acceptTurnStart(signals []agent.Signal) (agent.Transition, e
 func (e *execution) openWait(consumed uint32) (agent.Transition, error) {
 	e.state.WaitSequence++
 	e.state.WaitID = nil
-	spec, err := e.state.waitSpec()
+	spec, err := e.state.waitSpec(e.definition)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -112,14 +106,14 @@ func (e *execution) acceptOpening(signals []agent.Signal) (agent.Transition, err
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	want, err := e.state.waitSpec()
+	want, err := e.state.waitSpec(e.definition)
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if !childcall.OpeningMatches(opened, want) {
-		return agent.Transition{}, ErrInvalidProtocol
+	id, err := e.state.batch(e.definition).AcceptOpening(opened, want.Key, want.Boundary, want.Condition)
+	if err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
-	id := opened.WaitID()
 	e.state.WaitID = &id
 	e.state.Phase = phaseWaiting
 	return agent.Wait(1, id)
@@ -133,24 +127,17 @@ func (e *execution) acceptOutcomes(signals []agent.Signal) (agent.Transition, er
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	want, err := e.state.waitSpec()
+	want, err := e.state.waitSpec(e.definition)
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if e.state.WaitID == nil || !childcall.CompletionMatches(satisfied, *e.state.WaitID, want.Key, want.Boundary) {
-		return agent.Transition{}, ErrInvalidProtocol
+	if _, completionErr := e.state.batch(e.definition).Complete(satisfied, want.Key, want.Boundary, want.Condition); completionErr != nil {
+		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, completionErr)
 	}
-	outcomes := satisfied.Outcomes()
-	last := -1
-	for _, outcome := range outcomes {
-		index := slices.Index(want.Children, outcome.Result().ProcessID())
-		if index <= last || !e.state.recordOutcome(outcome) {
+	for _, outcome := range satisfied.Outcomes() {
+		if !e.state.recordOutcome(outcome) {
 			return agent.Transition{}, ErrInvalidProtocol
 		}
-		last = index
-	}
-	if len(outcomes) == 0 {
-		return agent.Transition{}, ErrInvalidProtocol
 	}
 	e.state.WaitID = nil
 	if e.state.Turn.Outcome == nil {
@@ -174,7 +161,7 @@ func (e *execution) acceptOutcomes(signals []agent.Signal) (agent.Transition, er
 	}
 	output, present := result.Output()
 	if !present || result.Status() != agent.StatusCompleted {
-		return agent.Transition{}, fmt.Errorf("collaboration: coordinator ended with %s: %s", result.Status(), result.Termination().Reason())
+		return agent.Transition{}, fmt.Errorf("%w: coordinator ended with %s: %s", ErrInvalidDecision, result.Status(), result.Termination().Reason())
 	}
 	decision, err := output.Decode[Decision]()
 	if err != nil {
@@ -187,25 +174,28 @@ func (e *execution) acceptActions(signals []agent.Signal) (agent.Transition, err
 	if len(signals) == 0 {
 		return agent.Transition{}, ErrInvalidProtocol
 	}
-	var consumed uint32
-	for index := range e.state.Tasks {
-		task := &e.state.Tasks[index]
-		if task.Start != nil {
-			continue
-		}
-		if int(consumed) == len(signals) {
-			return agent.Continue(consumed)
-		}
-		started, err := agent.ParseChildStartResult(signals[consumed])
+	batch := e.state.batch(e.definition)
+	count := min(batch.PendingStarts(), len(signals))
+	starts := make([]agent.ChildStartResult, count)
+	for index := range starts {
+		started, err := agent.ParseChildStartResult(signals[index])
 		if err != nil {
 			return agent.Transition{}, err
 		}
-		worker, _ := e.definition.worker(task.Request.Worker)
-		if !(started).Matches(task.Request.Key, worker.deploymentRef) {
-			return agent.Transition{}, ErrInvalidProtocol
+		starts[index] = started
+	}
+	if count > 0 {
+		indices, err := batch.AcceptStarts(starts)
+		if err != nil {
+			return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 		}
-		task.Start = &started
-		consumed++
+		for offset, index := range indices {
+			e.state.Tasks[index].Start = &starts[offset]
+		}
+	}
+	consumed := uint32(count)
+	if count < batch.PendingStarts() {
+		return agent.Continue(consumed)
 	}
 	for index := range e.state.Controls {
 		receipt := &e.state.Controls[index]

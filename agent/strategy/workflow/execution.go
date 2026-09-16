@@ -356,130 +356,139 @@ func (e *execution) startFanoutWindow(ctx context.Context, consumedSignals uint3
 	return agent.Continue(consumedSignals, effects...)
 }
 
-func (e *execution) acceptFanoutStarts(signals []agent.Signal) (agent.Transition, error) {
-	window := e.state.ActiveFanoutWindow
-	if len(signals) < len(window) {
-		return agent.Transition{}, fmt.Errorf("%w: fan-out child starts require one settlement Signal per member", ErrInvalidProtocol)
+func (e *execution) fanoutBatch() (childcall.Batch, error) {
+	batch := childcall.Batch{Children: make([]childcall.Child, len(e.state.ActiveFanoutWindow))}
+	if e.state.FanoutWaitID != nil {
+		batch.WaitID = *e.state.FanoutWaitID
 	}
-	childIDs := make([]agent.ProcessID, 0, len(window))
-	for offset := range window {
+	for offset, progress := range e.state.ActiveFanoutWindow {
 		index := e.state.fanoutWindowStart() + uint32(offset)
 		member, found := e.stage().fanout.source.member(index)
-		result, err := agent.ParseChildStartResult(signals[offset])
-		key, keyErr := e.fanoutChildKey(index)
+		if !found {
+			return childcall.Batch{}, ErrInvalidStage
+		}
+		key, err := e.fanoutChildKey(index)
 		if err != nil {
-			return agent.Transition{}, fmt.Errorf("%w: fan-out child start: %w", ErrInvalidProtocol, err)
+			return childcall.Batch{}, err
 		}
-		if keyErr != nil {
-			return agent.Transition{}, fmt.Errorf("%w: fan-out child key: %w", ErrInvalidProtocol, keyErr)
+		child := &batch.Children[offset]
+		child.Key, child.Deployment = key, member.binding.deploymentRef
+		if progress.ChildProcessID != nil {
+			child.ProcessID = *progress.ChildProcessID
 		}
-		if !found ||
-			!(result).Matches(key, member.binding.deploymentRef) {
-			return agent.Transition{}, fmt.Errorf(
-				"%w: %s Stage %q member %q start result mismatch",
-				ErrInvalidProtocol, e.stage().kind, e.stage().id, member.id,
-			)
-		}
-		if failure, failed := result.Failure(); failed {
-			e.state.ActiveFanoutWindow[offset].Failure = &failure
-			continue
-		}
-		processID, started := result.ProcessID()
-		if !started {
-			return agent.Transition{}, fmt.Errorf("%w: fan-out child-start result has no Process", ErrInvalidProtocol)
-		}
-		e.state.ActiveFanoutWindow[offset].ChildProcessID = &processID
-		childIDs = append(childIDs, processID)
+		child.Done = progress.ChildProcessID == nil && progress.Failure != nil
 	}
-	consumedSignals := uint32(len(window))
-	if len(childIDs) == 0 {
-		return agent.Fail(consumedSignals, e.firstFanoutFailure())
-	}
-	waitKey, err := e.fanoutWaitKey()
+	return batch, nil
+}
+
+func (e *execution) acceptFanoutStarts(signals []agent.Signal) (agent.Transition, error) {
+	batch, err := e.fanoutBatch()
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	effect, err := agent.NewChildWaitEffect(agent.ChildWaitSpec{
-		Boundary: agent.ChildWaitBoundaryDrained,
-		Key:      waitKey, Children: childIDs, Condition: agent.AllChildren(),
-	})
+	count := batch.PendingStarts()
+	if len(signals) < count {
+		return agent.Transition{}, fmt.Errorf("%w: fan-out starts require one settlement per member", ErrInvalidProtocol)
+	}
+	starts := make([]agent.ChildStartResult, count)
+	for index := range starts {
+		starts[index], err = agent.ParseChildStartResult(signals[index])
+		if err != nil {
+			return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
+		}
+	}
+	indices, err := batch.AcceptStarts(starts)
+	if err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
+	}
+	for index, offset := range indices {
+		if failure, failed := starts[index].Failure(); failed {
+			e.state.ActiveFanoutWindow[offset].Failure = &failure
+		} else if id, started := starts[index].ProcessID(); started {
+			e.state.ActiveFanoutWindow[offset].ChildProcessID = &id
+		}
+	}
+	consumed := uint32(count)
+	if len(e.fanoutStartedChildren()) == 0 {
+		return agent.Fail(consumed, e.firstFanoutFailure())
+	}
+	batch, err = e.fanoutBatch()
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	key, err := e.fanoutWaitKey()
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	spec, err := batch.WaitSpec(key, agent.ChildWaitBoundaryDrained, agent.AllChildren())
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	effect, err := agent.NewChildWaitEffect(spec)
 	if err != nil {
 		return agent.Transition{}, err
 	}
 	e.state.Phase = phaseAwaitingFanoutWaitOpen
-	return agent.Continue(consumedSignals, effect)
+	return agent.Continue(consumed, effect)
 }
 
 func (e *execution) acceptFanoutWaitOpen(signals []agent.Signal) (agent.Transition, error) {
 	if len(signals) == 0 {
-		return agent.Transition{}, fmt.Errorf("%w: fan-out wait opening requires its settlement Signal", ErrInvalidProtocol)
+		return agent.Transition{}, ErrInvalidProtocol
 	}
 	opened, err := agent.ParseChildWaitOpened(signals[0])
-	wantKey, keyErr := e.fanoutWaitKey()
-	wantChildren := e.fanoutStartedChildren()
 	if err != nil {
-		return agent.Transition{}, fmt.Errorf("%w: fan-out child wait does not match Stage %q: %w", ErrInvalidProtocol, e.stage().id, err)
+		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
-	if keyErr != nil {
-		return agent.Transition{}, fmt.Errorf("%w: fan-out child wait does not match Stage %q: %w", ErrInvalidProtocol, e.stage().id, keyErr)
+	batch, err := e.fanoutBatch()
+	if err != nil {
+		return agent.Transition{}, err
 	}
-	if !childcall.OpeningMatches(opened, agent.ChildWaitSpec{
-		Key: wantKey, Boundary: agent.ChildWaitBoundaryDrained,
-		Children: wantChildren, Condition: agent.AllChildren(),
-	}) {
-		return agent.Transition{}, fmt.Errorf("%w: fan-out child wait does not match Stage %q", ErrInvalidProtocol, e.stage().id)
+	key, err := e.fanoutWaitKey()
+	if err != nil {
+		return agent.Transition{}, err
 	}
-	waitID := opened.WaitID()
+	waitID, err := batch.AcceptOpening(opened, key, agent.ChildWaitBoundaryDrained, agent.AllChildren())
+	if err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
+	}
 	e.state.FanoutWaitID = &waitID
 	e.state.Phase = phaseWaitingFanout
 	return agent.Wait(1, waitID)
 }
 
 func (e *execution) acceptFanoutCompletion(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
-	if len(signals) == 0 || e.state.FanoutWaitID == nil {
-		return agent.Transition{}, fmt.Errorf("%w: fan-out completion requires one active child wait Signal", ErrInvalidProtocol)
+	if len(signals) == 0 {
+		return agent.Transition{}, ErrInvalidProtocol
 	}
 	completed, err := agent.ParseChildWaitSatisfied(signals[0])
-	wantKey, keyErr := e.fanoutWaitKey()
 	if err != nil {
-		return agent.Transition{}, fmt.Errorf("%w: fan-out completion does not match Stage %q: %w", ErrInvalidProtocol, e.stage().id, err)
+		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
-	if keyErr != nil {
-		return agent.Transition{}, fmt.Errorf("%w: fan-out completion does not match Stage %q: %w", ErrInvalidProtocol, e.stage().id, keyErr)
+	batch, err := e.fanoutBatch()
+	if err != nil {
+		return agent.Transition{}, err
 	}
-	if !childcall.CompletionMatches(completed, *e.state.FanoutWaitID, wantKey, agent.ChildWaitBoundaryDrained) {
-		return agent.Transition{}, fmt.Errorf("%w: fan-out completion does not match Stage %q", ErrInvalidProtocol, e.stage().id)
+	key, err := e.fanoutWaitKey()
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	indices, err := batch.Complete(completed, key, agent.ChildWaitBoundaryDrained, agent.AllChildren())
+	if err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
 	outcomes := completed.Outcomes()
-	if len(outcomes) != len(e.fanoutStartedChildren()) {
-		return agent.Transition{}, fmt.Errorf("%w: fan-out completion outcome count mismatch", ErrInvalidProtocol)
-	}
 	windowOutputs := make([]json.RawMessage, len(e.state.ActiveFanoutWindow))
-	outcomeIndex := 0
-	for offset := range e.state.ActiveFanoutWindow {
-		child := &e.state.ActiveFanoutWindow[offset]
-		if child.ChildProcessID == nil {
-			continue
-		}
-		outcome := outcomes[outcomeIndex]
-		outcomeIndex++
-		index := e.state.fanoutWindowStart() + uint32(offset)
-		wantChildKey, fanoutChildKeyErr := e.fanoutChildKey(index)
-		if fanoutChildKeyErr != nil {
-			return agent.Transition{}, fmt.Errorf("%w: fan-out member outcome mismatch: %w", ErrInvalidProtocol, fanoutChildKeyErr)
-		}
-		if !childcall.OutcomeMatches(outcome, wantChildKey, *child.ChildProcessID) {
-			return agent.Transition{}, fmt.Errorf("%w: fan-out member outcome mismatch", ErrInvalidProtocol)
-		}
-		failure, output, outcomeErr := e.fanoutOutcome(index, outcome)
-		if outcomeErr != nil {
-			return agent.Transition{}, outcomeErr
+	for index, offset := range indices {
+		failure, output, err := e.fanoutOutcome(e.state.fanoutWindowStart()+uint32(offset), outcomes[index])
+		if err != nil {
+			return agent.Transition{}, err
 		}
 		if failure != nil {
-			child.Failure = failure
-			continue
+			e.state.ActiveFanoutWindow[offset].Failure = failure
+		} else {
+			windowOutputs[offset] = output
 		}
-		windowOutputs[offset] = output
 	}
 	if failure := e.firstFanoutFailure(); failure.Valid() {
 		return agent.Fail(1, failure)

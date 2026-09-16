@@ -85,16 +85,44 @@ func (e executionState) remaining() []agent.ProcessID {
 	return ids
 }
 
-func (e executionState) waitSpec() (agent.ChildWaitSpec, error) {
+func (e executionState) batch(d *Definition) childcall.Batch {
+	batch := childcall.Batch{Children: make([]childcall.Child, len(e.Tasks))}
+	if e.WaitID != nil {
+		batch.WaitID = *e.WaitID
+	}
+	for index, task := range e.Tasks {
+		worker, _ := d.worker(task.Request.Worker)
+		child := &batch.Children[index]
+		child.Key, child.Deployment = task.Request.Key, worker.deploymentRef
+		if task.Start != nil {
+			id, started := task.Start.ProcessID()
+			child.ProcessID, child.Done = id, !started || task.Outcome != nil
+		}
+	}
+	if e.Turn != nil {
+		key, err := turnKey(e.Number)
+		if err != nil {
+			panic(err)
+		}
+		child := childcall.Child{Key: key, Deployment: d.coordinator.deploymentRef}
+		if e.Turn.Start != nil {
+			id, started := e.Turn.Start.ProcessID()
+			child.ProcessID, child.Done = id, !started || e.Turn.Outcome != nil
+		}
+		batch.Children = append(batch.Children, child)
+	}
+	return batch
+}
+
+func (e executionState) waitSpec(d *Definition) (agent.ChildWaitSpec, error) {
 	key, err := agent.ParseWaitKey(fmt.Sprintf("collaboration.wait.%d", e.WaitSequence))
 	if err != nil {
 		return agent.ChildWaitSpec{}, err
 	}
-	spec := agent.ChildWaitSpec{Key: key, Children: e.remaining(), Boundary: agent.ChildWaitBoundaryDrained, Condition: agent.AnyChild()}
-	if e.WaitSequence == 0 || !spec.Valid() {
-		return agent.ChildWaitSpec{}, fmt.Errorf("%w: wait requires a sequence and outstanding children", ErrInvalidState)
+	if e.WaitSequence == 0 {
+		return agent.ChildWaitSpec{}, fmt.Errorf("%w: wait requires a sequence", ErrInvalidState)
 	}
-	return spec, nil
+	return e.batch(d).WaitSpec(key, agent.ChildWaitBoundaryDrained, agent.AnyChild())
 }
 
 func matchesOutcome(start *agent.ChildStartResult, outcome *agent.ChildOutcome) bool {
@@ -105,7 +133,7 @@ func matchesOutcome(start *agent.ChildStartResult, outcome *agent.ChildOutcome) 
 		return false
 	}
 	id, present := start.ProcessID()
-	return present && childcall.OutcomeMatches(*outcome, start.Key(), id)
+	return present && outcome.Matches(start.Key(), id)
 }
 
 func (e *executionState) recordOutcome(outcome agent.ChildOutcome) bool {
@@ -179,7 +207,7 @@ func (e executionState) validate(d *Definition) error {
 		if e.Turn.Outcome == nil && e.Mode != Undecided || e.Turn.Outcome != nil && e.Mode != Wait {
 			return fmt.Errorf("%w: waiting mode contradicts turn outcome", ErrInvalidState)
 		}
-		if _, err := e.waitSpec(); err != nil {
+		if _, err := e.waitSpec(d); err != nil {
 			return fmt.Errorf("%w: child wait: %w", ErrInvalidState, err)
 		}
 	case phaseCompleted:

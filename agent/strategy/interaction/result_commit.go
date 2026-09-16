@@ -120,7 +120,7 @@ type ResultReceipt struct {
 
 func (r ResultReceipt) Validate() error {
 	if !r.EffectID.Valid() || !r.Digest.Valid() {
-		return errors.New("interaction: invalid result receipt")
+		return fmt.Errorf("%w: receipt requires an EffectID and digest", ErrInvalidResult)
 	}
 	return nil
 }

@@ -1,3 +1,5 @@
+// Package childcall owns recoverable child handshake progress. Strategies own
+// invocation keys, signal consumption, result interpretation, and failure policy.
 package childcall
 
 import (
@@ -9,7 +11,7 @@ import (
 	"github.com/Tangerg/scope/agent"
 )
 
-// Phase is the next Framework response accepted by a Single invocation.
+// Phase identifies the next Framework response accepted by child invocation progress.
 type Phase uint8
 
 const (
@@ -51,7 +53,7 @@ func (s *Single) AcceptStart(signal agent.Signal, key agent.ChildKey, deployment
 	if err != nil {
 		return agent.ChildStartResult{}, err
 	}
-	if !(result).Matches(key, deployment) {
+	if !result.Matches(key, deployment) {
 		return agent.ChildStartResult{}, errors.New("childcall: start does not match the declared child")
 	}
 	if processID, started := result.ProcessID(); started {
@@ -83,7 +85,7 @@ func (s *Single) AcceptOpening(signal agent.Signal, key agent.WaitKey, boundary 
 	if err != nil {
 		return agent.WaitID{}, err
 	}
-	if !OpeningMatches(opened, s.waitSpec(key, boundary)) {
+	if !opened.Matches(s.waitSpec(key, boundary)) {
 		return agent.WaitID{}, errors.New("childcall: opening does not match the declared wait")
 	}
 	s.waitID = opened.WaitID()
@@ -101,11 +103,11 @@ func (s Single) Complete(signal agent.Signal, key agent.ChildKey, waitKey agent.
 	if err != nil {
 		return agent.ChildOutcome{}, err
 	}
-	if !CompletionMatches(completed, s.waitID, waitKey, boundary) {
+	if !completed.Matches(s.waitID, s.waitSpec(waitKey, boundary)) {
 		return agent.ChildOutcome{}, errors.New("childcall: completion does not match the active wait")
 	}
 	outcomes := completed.Outcomes()
-	if len(outcomes) != 1 || !OutcomeMatches(outcomes[0], key, s.processID) {
+	if len(outcomes) != 1 || !outcomes[0].Matches(key, s.processID) {
 		return agent.ChildOutcome{}, errors.New("childcall: completion does not identify the single child")
 	}
 	return outcomes[0], nil

@@ -2,8 +2,13 @@ package interaction
 
 import (
 	"context"
+	"fmt"
 	"math"
-	"sync/atomic"
+	"runtime"
+	"strings"
+	"sync"
+
+	"github.com/Tangerg/scope/agent"
 
 	"github.com/Tangerg/scope/core/chat"
 )
@@ -50,49 +55,108 @@ type ToolSettlement struct {
 	Unknown bool
 }
 
-// ObservationFailureCounts is an immutable snapshot of observer panics
-// isolated by one model Dispatcher or ToolSet. Counts are monotonic and
-// saturate at math.MaxUint64.
-type ObservationFailureCounts struct {
-	modelResponsePanics uint64
-	toolStartedPanics   uint64
-	toolSettledPanics   uint64
+// ObserverPanic is a detached diagnostic for one isolated callback failure.
+// Message retains at most 4 KiB of the formatted panic value and Stack retains
+// at most 64 KiB of the failing goroutine's stack. ProcessID and EffectID bind
+// the failure to the exact invocation without retaining its request or response.
+type ObserverPanic struct {
+	ObserverType string
+	ProcessID    agent.ProcessID
+	EffectID     agent.EffectID
+	Message      string
+	Stack        string
 }
 
-func (o ObservationFailureCounts) ModelResponsePanics() uint64 {
-	return o.modelResponsePanics
+// ObservationFailures snapshots panics isolated by one Dispatcher or ToolSet.
+// Counts saturate at math.MaxUint64. Only the latest panic per callback is kept;
+// editing a returned diagnostic cannot change the retained evidence.
+type ObservationFailures struct {
+	modelResponsePanics    uint64
+	toolStartedPanics      uint64
+	toolSettledPanics      uint64
+	lastModelResponsePanic *ObserverPanic
+	lastToolStartedPanic   *ObserverPanic
+	lastToolSettledPanic   *ObserverPanic
 }
 
-func (o ObservationFailureCounts) ToolStartedPanics() uint64 {
-	return o.toolStartedPanics
+func (o ObservationFailures) ModelResponsePanics() uint64 { return o.modelResponsePanics }
+func (o ObservationFailures) ToolStartedPanics() uint64   { return o.toolStartedPanics }
+func (o ObservationFailures) ToolSettledPanics() uint64   { return o.toolSettledPanics }
+
+func (o ObservationFailures) LastModelResponsePanic() (ObserverPanic, bool) {
+	if o.lastModelResponsePanic == nil {
+		return ObserverPanic{}, false
+	}
+	return *o.lastModelResponsePanic, true
 }
 
-func (o ObservationFailureCounts) ToolSettledPanics() uint64 {
-	return o.toolSettledPanics
+func (o ObservationFailures) LastToolStartedPanic() (ObserverPanic, bool) {
+	if o.lastToolStartedPanic == nil {
+		return ObserverPanic{}, false
+	}
+	return *o.lastToolStartedPanic, true
 }
+
+func (o ObservationFailures) LastToolSettledPanic() (ObserverPanic, bool) {
+	if o.lastToolSettledPanic == nil {
+		return ObserverPanic{}, false
+	}
+	return *o.lastToolSettledPanic, true
+}
+
+type observationCallback uint8
+
+const (
+	modelResponseCallback observationCallback = iota
+	toolStartedCallback
+	toolSettledCallback
+	maxObserverPanicMessageBytes = 4 << 10
+	maxObserverPanicStackBytes   = 64 << 10
+)
 
 type observationFailureCounters struct {
-	modelResponsePanics atomic.Uint64
-	toolStartedPanics   atomic.Uint64
-	toolSettledPanics   atomic.Uint64
+	mu       sync.Mutex
+	failures ObservationFailures
 }
 
-func (o *observationFailureCounters) snapshot() ObservationFailureCounts {
-	return ObservationFailureCounts{
-		modelResponsePanics: o.modelResponsePanics.Load(),
-		toolStartedPanics:   o.toolStartedPanics.Load(),
-		toolSettledPanics:   o.toolSettledPanics.Load(),
-	}
+func (o *observationFailureCounters) snapshot() ObservationFailures {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.failures
 }
 
-func recordObserverPanic(counter *atomic.Uint64) {
-	if recover() == nil {
+func (o *observationFailureCounters) recordPanic(callback observationCallback, observer any, processID agent.ProcessID, effectID agent.EffectID) {
+	value := recover()
+	if value == nil {
 		return
 	}
-	for {
-		current := counter.Load()
-		if current == math.MaxUint64 || counter.CompareAndSwap(current, current+1) {
-			return
-		}
+	message := fmt.Sprint(value)
+	if len(message) > maxObserverPanicMessageBytes {
+		message = strings.Clone(message[:maxObserverPanicMessageBytes])
+	}
+	stack := make([]byte, maxObserverPanicStackBytes)
+	size := runtime.Stack(stack, false)
+	diagnostic := &ObserverPanic{
+		ObserverType: fmt.Sprintf("%T", observer), ProcessID: processID, EffectID: effectID,
+		Message: message, Stack: string(stack[:size]),
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	var count *uint64
+	switch callback {
+	case modelResponseCallback:
+		count = &o.failures.modelResponsePanics
+		o.failures.lastModelResponsePanic = diagnostic
+	case toolStartedCallback:
+		count = &o.failures.toolStartedPanics
+		o.failures.lastToolStartedPanic = diagnostic
+	case toolSettledCallback:
+		count = &o.failures.toolSettledPanics
+		o.failures.lastToolSettledPanic = diagnostic
+	default:
+		panic("interaction: unknown observation callback")
+	}
+	if *count < math.MaxUint64 {
+		*count++
 	}
 }

@@ -187,6 +187,8 @@ func (m mapValueCodec) scan(
 	return count, nil
 }
 
+// Each child receives EncodePayload(I), including any typed codec behavior.
+// Forwarding the raw item would bypass that contract even for canonical JSON.
 func (m mapValueCodec) item[I any](raw jsontext.Value) (agent.Payload, error) {
 	input, err := agent.ParsePayload(json.RawMessage(raw))
 	if err != nil {

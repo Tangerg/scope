@@ -2,7 +2,6 @@ package coordination
 
 import (
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
 // FirstSuccessResult preserves child-start facts and the terminal outcomes seen
@@ -69,7 +68,7 @@ func validObservedOutcomes(starts []agent.ChildStartResult, outcomes []agent.Chi
 
 func outcomeMatchesStart(outcome agent.ChildOutcome, start agent.ChildStartResult) bool {
 	id, present := start.ProcessID()
-	return present && childcall.OutcomeMatches(outcome, start.Key(), id)
+	return present && outcome.Matches(start.Key(), id)
 }
 
 func observedProcess(outcomes []agent.ChildOutcome, processID agent.ProcessID) bool {

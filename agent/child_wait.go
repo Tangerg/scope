@@ -158,6 +158,12 @@ func (c ChildWaitOpened) Spec() ChildWaitSpec {
 
 func (c ChildWaitOpened) Valid() bool { return c.waitID.Valid() && c.spec.Valid() }
 
+// Matches binds the acknowledgment to the entire request, including child order.
+func (c ChildWaitOpened) Matches(spec ChildWaitSpec) bool {
+	return c.Valid() && c.spec.Key == spec.Key && c.spec.Boundary == spec.Boundary &&
+		c.spec.Condition == spec.Condition && slices.Equal(c.spec.Children, spec.Children)
+}
+
 // ParseChildWaitOpened decodes the settlement Signal produced by
 // NewChildWaitEffect and verifies its Engine-owned Signal identity and attached WaitID.
 func ParseChildWaitOpened(signal Signal) (ChildWaitOpened, error) {
@@ -198,6 +204,8 @@ func (u UnresolvedEffect) compare(other UnresolvedEffect) int {
 
 // ChildOutcome pairs a parent's logical ChildKey with the child's immutable
 // terminal Result and the subtree facts established by the wait boundary.
+// It retains that boundary when detached from its satisfaction envelope; the
+// envelope validates the copies against its single declared wait boundary.
 type ChildOutcome struct {
 	boundary                 ChildWaitBoundary
 	key                      ChildKey
@@ -247,6 +255,11 @@ func (c ChildOutcome) Valid() bool {
 		}
 	}
 	return true
+}
+
+// Matches correlates an outcome with the declared child and its created Process.
+func (c ChildOutcome) Matches(key ChildKey, processID ProcessID) bool {
+	return c.Valid() && c.key == key && c.result.ProcessID() == processID
 }
 
 func (c ChildOutcome) wire() childOutcomeWire {
@@ -318,6 +331,25 @@ func (c ChildWaitSatisfied) Valid() bool {
 			return false
 		}
 		seen[outcome.result.ProcessID()] = struct{}{}
+	}
+	return true
+}
+
+// Matches correlates a satisfaction with the entire active wait, including its
+// required count and request order. Logical child keys belong to the caller.
+func (c ChildWaitSatisfied) Matches(id WaitID, spec ChildWaitSpec) bool {
+	if !c.Valid() || !spec.Valid() || c.waitID != id || c.key != spec.Key || c.boundary != spec.Boundary || uint32(len(c.outcomes)) < spec.required() {
+		return false
+	}
+	next := 0
+	for _, outcome := range c.outcomes {
+		for next < len(spec.Children) && spec.Children[next] != outcome.Result().ProcessID() {
+			next++
+		}
+		if next == len(spec.Children) {
+			return false
+		}
+		next++
 	}
 	return true
 }

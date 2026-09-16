@@ -2,7 +2,11 @@ package interaction
 
 import "errors"
 
+// Invalid-value sentinels identify the boundary that rejected caller data.
+// ErrInvalidResult covers public result validators; protocol and restored-state
+// errors remain distinct because their recovery responsibilities differ.
 var (
+	ErrInvalidResult                = errors.New("interaction: invalid result")
 	ErrInvalidSteer                 = errors.New("interaction: invalid steer")
 	ErrInvalidToolInputRequest      = errors.New("interaction: invalid tool input request")
 	ErrToolInputRequired            = errors.New("interaction: tool input required")

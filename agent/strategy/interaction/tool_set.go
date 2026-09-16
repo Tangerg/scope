@@ -86,15 +86,13 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 // DeploymentResolver alongside any other explicitly referenced children.
 func (t ToolSet) Deployment() agent.Deployment { return t.deployment }
 
-func (t ToolSet) Valid() bool {
-	return t.deployment.Valid() && t.dispatcher != nil &&
-		t.manifest.deploymentRef == t.deployment.DeploymentRef() && len(t.manifest.entries) > 0
-}
+// Configured distinguishes a constructed ToolSet from the optional absence of Tools.
+func (t ToolSet) Configured() bool { return t.dispatcher != nil }
 
-// ObservationFailures returns isolated Tool observer panic counts.
-func (t ToolSet) ObservationFailures() ObservationFailureCounts {
+// ObservationFailures returns isolated Tool observer panic counts and diagnostics.
+func (t ToolSet) ObservationFailures() ObservationFailures {
 	if t.dispatcher == nil {
-		return ObservationFailureCounts{}
+		return ObservationFailures{}
 	}
 	return t.dispatcher.observationFailures.snapshot()
 }

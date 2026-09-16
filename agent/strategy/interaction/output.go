@@ -1,7 +1,6 @@
 package interaction
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -55,43 +54,43 @@ type Output struct {
 
 func (o Output) Validate() error {
 	if !o.Source.Valid() {
-		return errors.New("interaction: output source is invalid")
+		return fmt.Errorf("%w: output source is invalid", ErrInvalidResult)
 	}
 	if o.ModelCalls == 0 {
-		return errors.New("interaction: output model_calls must be positive")
+		return fmt.Errorf("%w: output model_calls must be positive", ErrInvalidResult)
 	}
 	switch o.Source {
 	case CompletionSourceModelResponse:
 		if o.ModelResponse == nil || len(o.DirectToolResults) != 0 {
-			return errors.New("interaction: model_response output requires only ModelResponse")
+			return fmt.Errorf("%w: model_response output requires only ModelResponse", ErrInvalidResult)
 		}
 		if err := o.ModelResponse.Validate(); err != nil {
-			return fmt.Errorf("interaction: output model response: %w", err)
+			return fmt.Errorf("%w: output model response: %w", ErrInvalidResult, err)
 		}
 		modelOutput := o.ModelResponse.Output
 		if modelOutput == nil || modelOutput.Message == nil || modelOutput.FinishReason == "" {
-			return errors.New("interaction: output has no finished assistant response")
+			return fmt.Errorf("%w: output has no finished assistant response", ErrInvalidResult)
 		}
 		for _, part := range modelOutput.Message.Parts {
 			if part.ToolCall != nil {
-				return errors.New("interaction: final model response contains a pending tool call")
+				return fmt.Errorf("%w: final model response contains a pending tool call", ErrInvalidResult)
 			}
 		}
 	case CompletionSourceDirectToolResults:
 		if o.ModelResponse != nil || len(o.DirectToolResults) == 0 {
-			return errors.New("interaction: direct_tool_results output requires only DirectToolResults")
+			return fmt.Errorf("%w: direct_tool_results output requires only DirectToolResults", ErrInvalidResult)
 		}
 		seen := make(map[string]struct{}, len(o.DirectToolResults))
 		for index := range o.DirectToolResults {
 			result := o.DirectToolResults[index]
 			if err := result.Validate(); err != nil {
-				return fmt.Errorf("interaction: direct tool result %d: %w", index, err)
+				return fmt.Errorf("%w: direct tool result %d: %w", ErrInvalidResult, index, err)
 			}
 			if result.IsError {
-				return fmt.Errorf("interaction: direct tool result %d failed", index)
+				return fmt.Errorf("%w: direct tool result %d failed", ErrInvalidResult, index)
 			}
 			if _, duplicate := seen[result.ID]; duplicate {
-				return fmt.Errorf("interaction: duplicate direct tool result ID %q", result.ID)
+				return fmt.Errorf("%w: duplicate direct tool result ID %q", ErrInvalidResult, result.ID)
 			}
 			seen[result.ID] = struct{}{}
 		}

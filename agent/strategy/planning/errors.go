@@ -2,7 +2,11 @@ package planning
 
 import "errors"
 
+// Invalid-value sentinels identify the boundary that rejected caller data.
+// ErrInvalidResult covers public result validators; protocol and restored-state
+// errors remain distinct because their recovery responsibilities differ.
 var (
+	ErrInvalidResult           = errors.New("planning: invalid result")
 	ErrInvalidCondition        = errors.New("planning: invalid condition")
 	ErrInvalidWorldState       = errors.New("planning: invalid world state")
 	ErrInvalidGoal             = errors.New("planning: invalid goal")

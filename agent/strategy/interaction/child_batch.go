@@ -3,7 +3,6 @@ package interaction
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
@@ -48,7 +47,9 @@ func (c childCallBatch) validate(current phase, calls []chat.ToolCall, modelSequ
 		return fmt.Errorf("%w: child start or wait opening already has a WaitID", ErrInvalidExecutionState)
 	}
 	pending, active := 0, 0
-	seen := make(map[agent.ProcessID]struct{})
+	if err := c.protocolBatch(nil).Validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
+	}
 	for index, invocation := range c.Invocations {
 		if index >= int(c.NextStartIndex) {
 			if invocation.ChildKey != nil || invocation.ProcessID != nil || invocation.Result != nil {
@@ -67,10 +68,6 @@ func (c childCallBatch) validate(current phase, calls []chat.ToolCall, modelSequ
 			if !invocation.ProcessID.Valid() {
 				return ErrInvalidExecutionState
 			}
-			if _, duplicate := seen[*invocation.ProcessID]; duplicate {
-				return fmt.Errorf("%w: duplicate child Process", ErrInvalidExecutionState)
-			}
-			seen[*invocation.ProcessID] = struct{}{}
 		}
 		if invocation.Result != nil {
 			if err := invocation.Result.validateCall(calls[index]); err != nil {
@@ -174,75 +171,60 @@ func (c childCallBatch) waitSpec(modelSequence, callIndex uint32) (agent.ChildWa
 	if c.Kind == childCallsDelegate {
 		condition = agent.AllChildren()
 	}
-	spec := agent.ChildWaitSpec{Boundary: agent.ChildWaitBoundaryDrained, Key: key, Children: c.children(), Condition: condition}
-	if !spec.Valid() {
-		return agent.ChildWaitSpec{}, ErrInvalidExecutionState
+	return c.protocolBatch(nil).WaitSpec(key, agent.ChildWaitBoundaryDrained, condition)
+}
+
+func (c childCallBatch) protocolBatch(bindings []agent.DeploymentRef) childcall.Batch {
+	batch := childcall.Batch{Children: make([]childcall.Child, len(c.Invocations))}
+	if c.WaitID != nil {
+		batch.WaitID = *c.WaitID
 	}
-	return spec, nil
+	for index, invocation := range c.Invocations {
+		child := &batch.Children[index]
+		child.Done = index >= int(c.NextStartIndex) || invocation.Result != nil
+		if invocation.ChildKey != nil {
+			child.Key = *invocation.ChildKey
+		}
+		if invocation.ProcessID != nil {
+			child.ProcessID = *invocation.ProcessID
+		}
+		if len(bindings) == len(c.Invocations) {
+			child.Deployment = bindings[index]
+		}
+	}
+	return batch
 }
 
 func (c *childCallBatch) acceptStarts(starts []agent.ChildStartResult, bindings []agent.DeploymentRef) ([]int, error) {
-	var pending []int
-	seen := make(map[agent.ProcessID]struct{})
-	for index, invocation := range c.Invocations {
-		if invocation.ProcessID != nil {
-			seen[*invocation.ProcessID] = struct{}{}
-		} else if invocation.ChildKey != nil && invocation.Result == nil {
-			pending = append(pending, index)
-		}
-	}
-	if len(starts) != len(pending) || len(bindings) != len(c.Invocations) {
+	batch := c.protocolBatch(bindings)
+	if len(bindings) != len(c.Invocations) || len(starts) != batch.PendingStarts() {
 		return nil, fmt.Errorf("%w: child start count does not match the pending batch", ErrInvalidExecutionState)
 	}
-	for offset, index := range pending {
-		start := starts[offset]
-		if !(start).Matches(*c.Invocations[index].ChildKey, bindings[index]) {
-			return nil, fmt.Errorf("%w: child start does not match its binding", ErrInvalidExecutionState)
-		}
-		if processID, started := start.ProcessID(); started {
-			if _, duplicate := seen[processID]; duplicate {
-				return nil, fmt.Errorf("%w: duplicate child Process", ErrInvalidExecutionState)
-			}
-			seen[processID] = struct{}{}
-		}
+	indices, err := batch.AcceptStarts(starts)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
-	for offset, index := range pending {
+	for offset, index := range indices {
 		if processID, started := starts[offset].ProcessID(); started {
 			c.Invocations[index].ProcessID = &processID
 		}
 	}
-	return pending, nil
+	return indices, nil
 }
 
 func (c *childCallBatch) acceptWaitOpened(opened agent.ChildWaitOpened, want agent.ChildWaitSpec) error {
-	if c.WaitID != nil || !childcall.OpeningMatches(opened, want) {
-		return fmt.Errorf("%w: child wait opening does not match the active batch", ErrInvalidExecutionState)
+	waitID, err := c.protocolBatch(nil).AcceptOpening(opened, want.Key, want.Boundary, want.Condition)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
-	waitID := opened.WaitID()
 	c.WaitID = &waitID
 	return nil
 }
 
 func (c childCallBatch) validateCompletions(completed agent.ChildWaitSatisfied, want agent.ChildWaitSpec) ([]int, error) {
-	if c.WaitID == nil || !childcall.CompletionMatches(completed, *c.WaitID, want.Key, want.Boundary) {
-		return nil, fmt.Errorf("%w: child completion wait mismatch", ErrInvalidExecutionState)
-	}
-	outcomes := completed.Outcomes()
-	if len(outcomes) == 0 || c.Kind == childCallsDelegate && len(outcomes) != len(want.Children) {
-		return nil, fmt.Errorf("%w: child completion count does not satisfy the active wait", ErrInvalidExecutionState)
-	}
-	indices := make([]int, 0, len(outcomes))
-	previous := -1
-	for _, outcome := range outcomes {
-		index := slices.IndexFunc(c.Invocations, func(invocation childInvocationState) bool {
-			return invocation.ProcessID != nil && *invocation.ProcessID == outcome.Result().ProcessID()
-		})
-		if index <= previous || c.Invocations[index].Result != nil ||
-			c.Invocations[index].ChildKey == nil || outcome.Key() != *c.Invocations[index].ChildKey {
-			return nil, fmt.Errorf("%w: child outcome does not match the active batch", ErrInvalidExecutionState)
-		}
-		indices = append(indices, index)
-		previous = index
+	indices, err := c.protocolBatch(nil).Complete(completed, want.Key, want.Boundary, want.Condition)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
 	return indices, nil
 }
