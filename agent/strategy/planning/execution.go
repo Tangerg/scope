@@ -50,9 +50,6 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 // Snapshot returns the complete, self-sufficient Planning state. It contains
 // only Strategy-owned portable values and Framework child identities.
 func (e *execution) Snapshot() (agent.ExecutionState, error) {
-	if e == nil || !e.definition.valid() {
-		return agent.ExecutionState{}, ErrInvalidExecutionState
-	}
 	return e.state.snapshot()
 }
 
@@ -99,10 +96,10 @@ func (e *execution) acceptSense(
 		e.state.confirmAction(binding.action)
 	}
 	if e.definition.goal.SatisfiedBy(e.state.WorldState) {
-		return e.complete(consumedSignals)
+		return e.complete(ctx, consumedSignals)
 	}
 	if e.state.attemptCount() >= uint64(e.definition.maxActionAttempts) {
-		return e.complete(consumedSignals)
+		return e.complete(ctx, consumedSignals)
 	}
 	if e.state.PlanningPasses == math.MaxUint32 {
 		return e.fail(
@@ -126,7 +123,7 @@ func (e *execution) acceptSense(
 	}
 	if !found {
 		e.state.PlanningPasses++
-		return e.complete(consumedSignals)
+		return e.complete(ctx, consumedSignals)
 	}
 	if err := problem.ValidatePlan(plan); err != nil {
 		return e.fail(consumedSignals, agent.FailureKindContract, failureCodePlanningPlannerContract, err.Error())
@@ -276,8 +273,8 @@ func (e *execution) acceptChildStart(signal agent.Signal, key agent.ChildKey) (a
 	return agent.Continue(1, effect)
 }
 
-func (e *execution) complete(consumedSignals uint32) (agent.Transition, error) {
-	output, err := e.state.complete(e.definition)
+func (e *execution) complete(ctx context.Context, consumedSignals uint32) (agent.Transition, error) {
+	output, err := e.state.complete(ctx, e.definition)
 	if err != nil {
 		return agent.Transition{}, err
 	}

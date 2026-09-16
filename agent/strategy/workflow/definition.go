@@ -99,7 +99,13 @@ func (d *Definition) Restore(ctx context.Context, state agent.ExecutionState) (a
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
-	if err := decoded.validate(d); err != nil {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := decoded.validate(ctx, d); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return &execution{definition: d, state: decoded}, nil

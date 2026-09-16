@@ -75,7 +75,13 @@ func (i *InputGate) Restore(ctx context.Context, state agent.ExecutionState) (ag
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidState, err)
 	}
-	if err := decoded.validate(i); err != nil {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := decoded.validate(ctx, i); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return &inputGateExecution{definition: i, state: decoded}, nil
@@ -101,7 +107,10 @@ type inputGateState struct {
 	Answer  *agent.Signal `json:"answer,omitzero"`
 }
 
-func (i inputGateState) validate(definition *InputGate) error {
+func (i inputGateState) validate(ctx context.Context, definition *InputGate) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := definition.descriptor.ValidateInput(i.Request); err != nil {
 		return fmt.Errorf("%w: opening request: %w", ErrInvalidState, err)
 	}
@@ -127,7 +136,7 @@ func (i inputGateState) validate(definition *InputGate) error {
 	default:
 		return fmt.Errorf("%w: unknown input gate phase %q", ErrInvalidState, i.Phase)
 	}
-	return nil
+	return ctx.Err()
 }
 
 func (i inputGateState) acceptsAnswer(definition *InputGate, signal agent.Signal) error {

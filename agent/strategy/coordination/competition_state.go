@@ -1,6 +1,7 @@
 package coordination
 
 import (
+	"context"
 	"fmt"
 	"slices"
 
@@ -27,15 +28,24 @@ type firstSuccessState struct {
 	Winner     *agent.ChildKey          `json:"winner,omitzero"`
 }
 
-func (f firstSuccessState) validate(maxCandidates uint32) error {
+func (f firstSuccessState) validate(ctx context.Context, maxCandidates uint32) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if len(f.Candidates) == 0 || uint64(len(f.Candidates)) > uint64(maxCandidates) || len(f.Starts) > len(f.Candidates) {
 		return fmt.Errorf("%w: candidate or start count exceeds its bound", ErrInvalidState)
 	}
 	for index, candidate := range f.Candidates {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if !candidate.Valid() {
 			return fmt.Errorf("%w: invalid candidate", ErrInvalidState)
 		}
 		for _, previous := range f.Candidates[:index] {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if candidate.Key == previous.Key {
 				return fmt.Errorf("%w: duplicate candidate key", ErrInvalidState)
 			}

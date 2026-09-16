@@ -105,6 +105,9 @@ func (t *toolDefinition) Restore(ctx context.Context, state agent.ExecutionState
 	if err != nil {
 		return nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return &toolExecution{state: decoded}, nil
 }
 

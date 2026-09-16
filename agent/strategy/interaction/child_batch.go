@@ -31,7 +31,7 @@ type childCallBatch struct {
 	WaitID         *agent.WaitID          `json:"wait_id,omitzero"`
 }
 
-func (c childCallBatch) validate(current phase, calls []chat.ToolCall, modelSequence uint32) error {
+func (c childCallBatch) validate(ctx context.Context, current phase, calls []chat.ToolCall, modelSequence uint32) error {
 	if c.Kind != childCallsTool && c.Kind != childCallsDelegate || len(calls) == 0 ||
 		len(c.Invocations) != len(calls) || c.NextStartIndex == 0 || uint64(c.NextStartIndex) > uint64(len(calls)) {
 		return fmt.Errorf("%w: invalid child call batch", ErrInvalidExecutionState)
@@ -51,6 +51,9 @@ func (c childCallBatch) validate(current phase, calls []chat.ToolCall, modelSequ
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
 	for index, invocation := range c.Invocations {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if index >= int(c.NextStartIndex) {
 			if invocation.ChildKey != nil || invocation.ProcessID != nil || invocation.Result != nil {
 				return fmt.Errorf("%w: unplanned call has child state", ErrInvalidExecutionState)
@@ -108,6 +111,9 @@ func (c childCallBatch) childKey(modelSequence uint32, call chat.ToolCall) (agen
 
 func (c childCallBatch) validateBindings(ctx context.Context, definition *Definition, calls []chat.ToolCall) error {
 	for _, call := range calls {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		_, delegated := definition.delegate(call.Name)
 		if delegated != (c.Kind == childCallsDelegate) {
 			return fmt.Errorf("%w: child batch mixes Tool and Delegate ownership", ErrInvalidExecutionState)
@@ -131,6 +137,9 @@ func (c childCallBatch) validateBindings(ctx context.Context, definition *Defini
 	}
 	active := 0
 	for _, invocation := range c.Invocations {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if invocation.Result != nil {
 			if err := definition.tools.validateAdvertisements(invocation.Result.AdvertisedToolNames); err != nil {
 				return fmt.Errorf("%w: child advertisements: %w", ErrInvalidExecutionState, err)

@@ -48,6 +48,9 @@ func Run(
 	if len(cases) < 2 {
 		t.Fatal("conformance scenario must exercise a continuation boundary")
 	}
+	for _, sample := range cases {
+		CheckRestoreCancellation(t, definition, sample.State)
+	}
 	agenttest.RunDefinitionConformance(t, agenttest.DefinitionConformanceConfig{
 		Definition: definition, Input: input, RestoredCases: cases,
 	})

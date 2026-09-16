@@ -126,7 +126,13 @@ func (d *Definition) Restore(ctx context.Context, state agent.ExecutionState) (a
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
-	if err := decoded.validate(d); err != nil {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := decoded.validate(ctx, d); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return &execution{definition: d, state: decoded}, nil
@@ -160,12 +166,18 @@ func (d *Definition) problem(state executionState) (Problem, error) {
 	return NewProblem(state.WorldState, d.goal, actions...)
 }
 
-func (d *Definition) validateActionHistory(attempts []Attempt) error {
-	if err := validateAttempts(attempts); err != nil {
+func (d *Definition) validateActionHistory(ctx context.Context, attempts []Attempt) error {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	excluded := make(map[string]struct{}, len(attempts))
-	for _, attempt := range attempts {
+	for index, attempt := range attempts {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := attempt.Validate(); err != nil {
+			return fmt.Errorf("%w: attempt %d: %w", ErrInvalidResult, index, err)
+		}
 		if _, found := d.binding(attempt.ActionName); !found {
 			return fmt.Errorf("attempt references unknown Action %q", attempt.ActionName)
 		}
@@ -176,7 +188,7 @@ func (d *Definition) validateActionHistory(attempts []Attempt) error {
 			excluded[attempt.ActionName] = struct{}{}
 		}
 	}
-	return nil
+	return ctx.Err()
 }
 
 var _ agent.Definition = (*Definition)(nil)

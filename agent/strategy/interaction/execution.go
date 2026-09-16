@@ -39,7 +39,7 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 		}
 		return e.requestModel(consumedSignals, appliedSteerSignalIDs)
 	case phaseAwaitingResultCommit:
-		return e.acceptResultCommit(signals)
+		return e.acceptResultCommit(ctx, signals)
 	case phaseAwaitingModel:
 		return e.acceptModel(ctx, signals)
 	case phaseAwaitingChildStarts:
@@ -58,9 +58,6 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 // Snapshot returns a complete, self-sufficient WorkingContext and checkpoint.
 // Restore owns full validation, including Engine admission of each candidate.
 func (e *execution) Snapshot() (agent.ExecutionState, error) {
-	if e == nil || !e.definition.valid() {
-		return agent.ExecutionState{}, ErrInvalidExecutionState
-	}
 	return e.state.snapshot()
 }
 
@@ -181,8 +178,8 @@ func (e *execution) acceptFinalModelResponse(
 	return e.requestModel(consumedSignals, appliedSteerSignalIDs)
 }
 
-func (e *execution) requestResultCommit(consumedSignals uint32) (agent.Transition, error) {
-	publication, err := e.state.ToolRound.publication(e.state.ModelCallCount)
+func (e *execution) requestResultCommit(ctx context.Context, consumedSignals uint32) (agent.Transition, error) {
+	publication, err := e.state.ToolRound.publication(ctx, e.state.ModelCallCount)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -198,12 +195,12 @@ func (e *execution) requestResultCommit(consumedSignals uint32) (agent.Transitio
 	return agent.Continue(consumedSignals, effect)
 }
 
-func (e *execution) acceptResultCommit(signals []agent.Signal) (agent.Transition, error) {
+func (e *execution) acceptResultCommit(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	envelope, steer, consumedSignals, err := collectExpectedSignal(signals, operationResultCommit)
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	publication, err := e.state.ToolRound.publication(e.state.ModelCallCount)
+	publication, err := e.state.ToolRound.publication(ctx, e.state.ModelCallCount)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -290,7 +287,7 @@ func (e *execution) advanceToolCallBatch(ctx context.Context, consumedSignals ui
 			return agent.Transition{}, err
 		}
 		if e.state.ToolRound.nextCallIndex() == uint32(len(calls)) {
-			return e.requestResultCommit(consumedSignals)
+			return e.requestResultCommit(ctx, consumedSignals)
 		}
 		call := calls[e.state.ToolRound.nextCallIndex()]
 		if e.state.ToolRound.Response.Output.FinishReason == chat.FinishReasonLength {
@@ -499,7 +496,7 @@ func (e *execution) acceptChildStarts(ctx context.Context, signals []agent.Signa
 	if steerErr := e.addSteer(steer); steerErr != nil {
 		return agent.Transition{}, steerErr
 	}
-	calls, err := e.state.ToolRound.activeCalls()
+	calls, err := e.state.ToolRound.activeCalls(ctx)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -575,7 +572,7 @@ func (e *execution) acceptChildCompletions(ctx context.Context, signals []agent.
 	if steerErr := e.addSteer(steer); steerErr != nil {
 		return agent.Transition{}, steerErr
 	}
-	calls, err := e.state.ToolRound.activeCalls()
+	calls, err := e.state.ToolRound.activeCalls(ctx)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -740,7 +737,7 @@ func (e *execution) startToolChildren(ctx context.Context, consumed uint32, call
 }
 
 func (e *execution) scheduleToolChildren(ctx context.Context, consumed uint32) (agent.Transition, error) {
-	calls, err := e.state.ToolRound.activeCalls()
+	calls, err := e.state.ToolRound.activeCalls(ctx)
 	if err != nil {
 		return agent.Transition{}, err
 	}

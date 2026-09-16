@@ -1,6 +1,7 @@
 package interaction
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -14,7 +15,7 @@ type toolCallRound struct {
 
 func (t *toolCallRound) nextCallIndex() uint32 { return uint32(len(t.Results)) }
 
-func (t *toolCallRound) activeCalls() ([]chat.ToolCall, error) {
+func (t *toolCallRound) activeCalls(ctx context.Context) ([]chat.ToolCall, error) {
 	if t == nil {
 		return nil, fmt.Errorf("%w: active call phase requires a tool round", ErrInvalidExecutionState)
 	}
@@ -29,7 +30,7 @@ func (t *toolCallRound) activeCalls() ([]chat.ToolCall, error) {
 		uint64(len(t.Results))+uint64(len(t.ChildBatch.Invocations)) > uint64(len(calls)) {
 		return nil, fmt.Errorf("%w: ToolCall cursor is inconsistent", ErrInvalidExecutionState)
 	}
-	if err := t.validateResults(calls); err != nil {
+	if err := t.validateResults(ctx, calls); err != nil {
 		return nil, err
 	}
 	return calls[t.nextCallIndex() : t.nextCallIndex()+uint32(len(t.ChildBatch.Invocations))], nil
@@ -57,16 +58,22 @@ func (t *toolCallRound) finishChildren(tools toolManifest, advertisedNames []str
 	return advertisedNames, nil
 }
 
-func (t *toolCallRound) validateResults(calls []chat.ToolCall) error {
+func (t *toolCallRound) validateResults(ctx context.Context, calls []chat.ToolCall) error {
 	if len(t.Results) > len(calls) {
 		return fmt.Errorf("%w: Tool results exceed calls", ErrInvalidExecutionState)
 	}
 	for index, result := range t.Results {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if result.Result.ID != calls[index].ID || result.Result.Name != calls[index].Name {
 			return fmt.Errorf("%w: tool result %d does not match call %q", ErrInvalidExecutionState, index, calls[index].ID)
 		}
 	}
 	for _, result := range t.Results {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := result.validate(); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 		}
@@ -78,7 +85,7 @@ func (t *toolCallRound) reject(call chat.ToolCall, diagnostic string) {
 	t.Results = append(t.Results, toolCallResult{Result: rejectedToolResult(call, diagnostic), Rejected: true})
 }
 
-func (t *toolCallRound) publication(sequence uint32) (resultCommit, error) {
+func (t *toolCallRound) publication(ctx context.Context, sequence uint32) (resultCommit, error) {
 	if t == nil || t.ChildBatch != nil || t.Response == nil || t.Response.Output == nil {
 		return resultCommit{}, ErrInvalidExecutionState
 	}
@@ -96,6 +103,9 @@ func (t *toolCallRound) publication(sequence uint32) (resultCommit, error) {
 	}
 	if finish == chat.FinishReasonLength {
 		for _, result := range t.Results {
+			if err := ctx.Err(); err != nil {
+				return resultCommit{}, err
+			}
 			if !result.Rejected {
 				return resultCommit{}, ErrInvalidExecutionState
 			}

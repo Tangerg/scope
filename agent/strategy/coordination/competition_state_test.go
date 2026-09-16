@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/internal/conformancetest"
 )
 
 func TestCompetitionMergesOutcomesInCandidateOrder(t *testing.T) {
@@ -99,7 +100,7 @@ func competitionExecution(t *testing.T, starts []agent.ChildStartResult) *firstS
 		}
 		state.Candidates = append(state.Candidates, agent.ChildSpec{Key: start.Key(), DeploymentRef: start.DeploymentRef(), Input: payload, Budget: agent.Budget{Steps: 16, Effects: 8, Signals: 16}})
 	}
-	if err := state.validate(definition.maxCandidates); err != nil {
+	if err := state.validate(t.Context(), definition.maxCandidates); err != nil {
 		t.Fatal(err)
 	}
 	return &firstSuccessExecution{definition: definition, state: state}
@@ -144,4 +145,16 @@ func competitionCompletion(t *testing.T, state firstSuccessState, outcomes []age
 func sameOutcome(left, right agent.ChildOutcome) bool {
 	return left.Key() == right.Key() && left.Result().ProcessID() == right.Result().ProcessID() &&
 		left.Result().Status() == right.Result().Status()
+}
+
+func TestRestoreStopsBetweenCandidates(t *testing.T) {
+	starts, _ := competitionOutcomes(t, 2)
+	execution := competitionExecution(t, starts)
+	state := execution.state
+	state.Candidates[1] = agent.ChildSpec{}
+	ctx, cancel := conformancetest.CancelAfterCheck(t.Context(), 2)
+	defer cancel()
+	if err := state.validate(ctx, 2); !errors.Is(err, context.Canceled) {
+		t.Fatalf("candidate validation = %v, want cancellation before malformed second candidate", err)
+	}
 }

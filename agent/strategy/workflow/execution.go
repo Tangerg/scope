@@ -42,9 +42,6 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 }
 
 func (e *execution) Snapshot() (agent.ExecutionState, error) {
-	if e == nil || !e.definition.valid() {
-		return agent.ExecutionState{}, ErrInvalidExecutionState
-	}
 	return e.state.snapshot()
 }
 

@@ -1,11 +1,13 @@
 package interaction
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	"github.com/Tangerg/scope/core/chat"
 )
 
@@ -68,5 +70,21 @@ func TestArtifactStateRestoreRejectsInvalidProvenanceAndValue(t *testing.T) {
 				t.Fatalf("Restore error=%v, want ErrInvalidExecutionState", err)
 			}
 		})
+	}
+}
+
+func TestRestoreStopsBetweenArtifacts(t *testing.T) {
+	definition := fuzzInteractionDefinition(t)
+	output, err := agent.EncodePayload(fuzzDelegateOutput{Result: "valid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := executionState{ModelCallCount: 1, ArtifactRecords: []artifactRecord{
+		{ModelCallSequence: 1, ToolCallIndex: 0, ToolCallID: "call_1", DelegateName: "delegate_fuzz", Output: output}, {},
+	}}
+	ctx, cancel := conformancetest.CancelAfterCheck(t.Context(), 2)
+	defer cancel()
+	if err := state.validateArtifacts(ctx, definition); !errors.Is(err, context.Canceled) {
+		t.Fatalf("artifact validation = %v, want cancellation before malformed second artifact", err)
 	}
 }

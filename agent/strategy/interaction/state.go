@@ -54,6 +54,9 @@ type artifactRecord struct {
 }
 
 func (e executionState) validate(ctx context.Context, definition *Definition) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !definition.valid() {
 		return fmt.Errorf("%w: valid Definition is required", ErrInvalidExecutionState)
 	}
@@ -66,7 +69,7 @@ func (e executionState) validate(ctx context.Context, definition *Definition) er
 	if err := definition.tools.validateAdvertisements(e.AdvertisedToolNames); err != nil {
 		return fmt.Errorf("%w: advertised Tools: %w", ErrInvalidExecutionState, err)
 	}
-	if err := e.validateArtifacts(definition); err != nil {
+	if err := e.validateArtifacts(ctx, definition); err != nil {
 		return err
 	}
 	return e.validatePhaseState(ctx, definition)
@@ -102,7 +105,7 @@ func (e executionState) validatePhaseState(ctx context.Context, definition *Defi
 		if e.FinalOutput != nil {
 			return fmt.Errorf("%w: awaiting_result_commit cannot have final Output", ErrInvalidExecutionState)
 		}
-		_, err := e.ToolRound.publication(e.ModelCallCount)
+		_, err := e.ToolRound.publication(ctx, e.ModelCallCount)
 		return err
 	case phaseReadyModel:
 		return e.validateReadyModelState()
@@ -131,23 +134,23 @@ func (e executionState) validateAwaitingModelState() error {
 }
 
 func (e executionState) validateActiveCallState(ctx context.Context, definition *Definition) error {
-	active, err := e.activeChildCalls()
+	active, err := e.activeChildCalls(ctx)
 	if err != nil {
 		return err
 	}
 	return e.ToolRound.ChildBatch.validateBindings(ctx, definition, active)
 }
 
-func (e executionState) activeChildCalls() ([]chat.ToolCall, error) {
+func (e executionState) activeChildCalls(ctx context.Context) ([]chat.ToolCall, error) {
 	if e.Phase != phaseAwaitingChildStarts && e.Phase != phaseAwaitingChildWaitOpen && e.Phase != phaseWaitingChildren ||
 		e.FinalOutput != nil || e.ModelCallCount == 0 {
 		return nil, fmt.Errorf("%w: active children require an active call phase, a model call, and no final Output", ErrInvalidExecutionState)
 	}
-	active, err := e.ToolRound.activeCalls()
+	active, err := e.ToolRound.activeCalls(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := e.ToolRound.ChildBatch.validate(e.Phase, active, e.ModelCallCount); err != nil {
+	if err := e.ToolRound.ChildBatch.validate(ctx, e.Phase, active, e.ModelCallCount); err != nil {
 		return nil, err
 	}
 	return active, nil
@@ -173,7 +176,10 @@ func (e executionState) validateCompletedState() error {
 	return nil
 }
 
-func (e executionState) validateArtifacts(definition *Definition) error {
+func (e executionState) validateArtifacts(ctx context.Context, definition *Definition) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	var previousModelCallSequence uint32
 	var previousToolCallIndex uint32
 	type artifactIdentity struct {
@@ -182,6 +188,9 @@ func (e executionState) validateArtifacts(definition *Definition) error {
 	}
 	seen := make(map[artifactIdentity]struct{}, len(e.ArtifactRecords))
 	for index, artifact := range e.ArtifactRecords {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		delegate, found := definition.delegate(artifact.DelegateName)
 		if artifact.ModelCallSequence == 0 || artifact.ModelCallSequence > e.ModelCallCount ||
 			artifact.ToolCallID == "" || !found || !artifact.Output.Valid() {
@@ -205,10 +214,13 @@ func (e executionState) validateArtifacts(definition *Definition) error {
 		previousModelCallSequence = artifact.ModelCallSequence
 		previousToolCallIndex = artifact.ToolCallIndex
 	}
-	return e.validateCurrentBatchArtifacts(definition)
+	return e.validateCurrentBatchArtifacts(ctx, definition)
 }
 
-func (e executionState) validateCurrentBatchArtifacts(definition *Definition) error {
+func (e executionState) validateCurrentBatchArtifacts(ctx context.Context, definition *Definition) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if e.ToolRound == nil || len(e.ArtifactRecords) == 0 ||
 		e.ArtifactRecords[len(e.ArtifactRecords)-1].ModelCallSequence != e.ModelCallCount {
 		return nil
@@ -218,6 +230,9 @@ func (e executionState) validateCurrentBatchArtifacts(definition *Definition) er
 		return fmt.Errorf("%w: current-round artifact has no pending ToolCall batch", ErrInvalidExecutionState)
 	}
 	for _, artifact := range e.ArtifactRecords {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if artifact.ModelCallSequence != e.ModelCallCount {
 			continue
 		}
@@ -238,7 +253,7 @@ func (e executionState) validateCurrentBatchArtifacts(definition *Definition) er
 			return fmt.Errorf("%w: current-round artifact does not match settled result", ErrInvalidExecutionState)
 		}
 	}
-	return nil
+	return ctx.Err()
 }
 
 func (e executionState) snapshot() (agent.ExecutionState, error) {

@@ -29,7 +29,7 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 	case phaseOpening:
 		return e.acceptOpening(signals)
 	case phaseWaiting:
-		return e.acceptOutcomes(signals)
+		return e.acceptOutcomes(ctx, signals)
 	default:
 		return agent.Transition{}, ErrInvalidProtocol
 	}
@@ -72,7 +72,11 @@ func (e *execution) acceptTurnStart(signals []agent.Signal) (agent.Transition, e
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	indices, err := e.state.batch(e.definition).AcceptStarts([]agent.ChildStartResult{started})
+	batch, err := e.state.batch(e.definition)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	indices, err := batch.AcceptStarts([]agent.ChildStartResult{started})
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
@@ -111,7 +115,11 @@ func (e *execution) acceptOpening(signals []agent.Signal) (agent.Transition, err
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	id, err := e.state.batch(e.definition).AcceptOpening(opened, want.Key, want.Boundary, want.Condition)
+	batch, err := e.state.batch(e.definition)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	id, err := batch.AcceptOpening(opened, want.Key, want.Boundary, want.Condition)
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
@@ -120,7 +128,7 @@ func (e *execution) acceptOpening(signals []agent.Signal) (agent.Transition, err
 	return agent.Wait(1, id)
 }
 
-func (e *execution) acceptOutcomes(signals []agent.Signal) (agent.Transition, error) {
+func (e *execution) acceptOutcomes(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if len(signals) == 0 {
 		return agent.Transition{}, ErrInvalidProtocol
 	}
@@ -132,7 +140,11 @@ func (e *execution) acceptOutcomes(signals []agent.Signal) (agent.Transition, er
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	indices, completionErr := e.state.batch(e.definition).Complete(satisfied, want.Key, want.Boundary, want.Condition)
+	batch, err := e.state.batch(e.definition)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	indices, completionErr := batch.Complete(satisfied, want.Key, want.Boundary, want.Condition)
 	if completionErr != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, completionErr)
 	}
@@ -167,14 +179,17 @@ func (e *execution) acceptOutcomes(signals []agent.Signal) (agent.Transition, er
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidDecision, err)
 	}
-	return e.applyDecision(decision, 1)
+	return e.applyDecision(ctx, decision, 1)
 }
 
 func (e *execution) acceptActions(signals []agent.Signal) (agent.Transition, error) {
 	if len(signals) == 0 {
 		return agent.Transition{}, ErrInvalidProtocol
 	}
-	batch := e.state.batch(e.definition)
+	batch, err := e.state.batch(e.definition)
+	if err != nil {
+		return agent.Transition{}, err
+	}
 	count := min(batch.PendingStarts(), len(signals))
 	starts := make([]agent.ChildStartResult, count)
 	for index := range starts {
@@ -226,8 +241,8 @@ func (e *execution) afterActions(consumed uint32) (agent.Transition, error) {
 	return e.startTurn(consumed)
 }
 
-func (e *execution) applyDecision(decision Decision, consumed uint32) (agent.Transition, error) {
-	if err := e.state.validateDecision(e.definition, decision); err != nil {
+func (e *execution) applyDecision(ctx context.Context, decision Decision, consumed uint32) (agent.Transition, error) {
+	if err := e.state.validateDecision(ctx, e.definition, decision); err != nil {
 		return agent.Transition{}, err
 	}
 	effects := make([]agent.Effect, 0, len(decision.Tasks)+len(decision.Controls))

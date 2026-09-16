@@ -2,6 +2,7 @@ package planning
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -40,7 +41,10 @@ type executionState struct {
 	Child             *childcall.Single `json:"child,omitzero"`
 }
 
-func (e executionState) validate(definition *Definition) error {
+func (e executionState) validate(ctx context.Context, definition *Definition) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !definition.valid() {
 		return fmt.Errorf("%w: valid Definition is required", ErrInvalidExecutionState)
 	}
@@ -54,7 +58,7 @@ func (e executionState) validate(definition *Definition) error {
 	if err := definition.descriptor.ValidateInput(input); err != nil {
 		return fmt.Errorf("%w: input schema: %w", ErrInvalidExecutionState, err)
 	}
-	if err := e.validateAttemptFacts(definition); err != nil {
+	if err := e.validateAttemptFacts(ctx, definition); err != nil {
 		return err
 	}
 	if err := e.validateCurrentAction(definition); err != nil {
@@ -66,14 +70,17 @@ func (e executionState) validate(definition *Definition) error {
 	return e.validatePhase()
 }
 
-func (e executionState) validateAttemptFacts(definition *Definition) error {
-	if err := definition.validateActionHistory(e.Attempts); err != nil {
+func (e executionState) validateAttemptFacts(ctx context.Context, definition *Definition) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := definition.validateActionHistory(ctx, e.Attempts); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
 	if e.attemptCount() > uint64(definition.maxActionAttempts) {
 		return fmt.Errorf("%w: action attempt count exceeds configured limit", ErrInvalidExecutionState)
 	}
-	return nil
+	return ctx.Err()
 }
 
 func (e executionState) attemptCount() uint64 {
@@ -168,12 +175,12 @@ func (e *executionState) recordFailedAction(reason string) {
 	e.CurrentActionName = ""
 }
 
-func (e *executionState) complete(definition *Definition) (Output, error) {
+func (e *executionState) complete(ctx context.Context, definition *Definition) (Output, error) {
 	candidate := *e
 	candidate.Phase = phaseCompleted
 	candidate.CurrentActionName = ""
 	candidate.Child = nil
-	if err := candidate.validate(definition); err != nil {
+	if err := candidate.validate(ctx, definition); err != nil {
 		return Output{}, err
 	}
 	output := candidate.output(definition)

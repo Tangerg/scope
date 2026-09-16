@@ -72,7 +72,13 @@ func (d *Deadline) Restore(ctx context.Context, state agent.ExecutionState) (age
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidState, err)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := decoded.validate(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return &deadlineExecution{state: decoded}, nil

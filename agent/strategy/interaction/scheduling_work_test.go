@@ -174,7 +174,7 @@ func BenchmarkSequentialToolLifecycleValidation(b *testing.B) {
 						b.Fatal(err)
 					}
 					for range 3 {
-						if _, err := execution.state.ToolRound.activeCalls(); err != nil {
+						if _, err := execution.state.ToolRound.activeCalls(context.Background()); err != nil {
 							b.Fatal(err)
 						}
 					}

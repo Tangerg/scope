@@ -43,7 +43,7 @@ func BenchmarkActionHistory(b *testing.B) {
 			}
 			b.ReportAllocs()
 			for b.Loop() {
-				if err := definition.validateActionHistory(attempts); err != nil {
+				if err := definition.validateActionHistory(context.Background(), attempts); err != nil {
 					b.Fatal(err)
 				}
 				problem, err := definition.problem(executionState{Attempts: attempts})

@@ -82,7 +82,7 @@ func (f *FirstSuccess) Start(input agent.Payload) (agent.Execution, error) {
 		return nil, err
 	}
 	state := firstSuccessState{Phase: competitionReady, Candidates: candidates}
-	if err := state.validate(f.maxCandidates); err != nil {
+	if err := state.validate(context.Background(), f.maxCandidates); err != nil {
 		return nil, fmt.Errorf("%w: %w", agent.ErrInvalidPayload, err)
 	}
 	return &firstSuccessExecution{definition: f, state: state}, nil
@@ -100,7 +100,13 @@ func (f *FirstSuccess) Restore(ctx context.Context, state agent.ExecutionState) 
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidState, err)
 	}
-	if err := decoded.validate(f.maxCandidates); err != nil {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := decoded.validate(ctx, f.maxCandidates); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return &firstSuccessExecution{definition: f, state: decoded}, nil

@@ -10,6 +10,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/agenttest"
+	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	"github.com/Tangerg/scope/agent/strategy/coordination"
 )
 
@@ -132,9 +133,19 @@ func TestDeadlineAcceptsPastInstantAndRejectsZero(t *testing.T) {
 
 func TestDeadlineDefinitionConformance(t *testing.T) {
 	deployment := deadlineBinding(t, coordination.Timer{})
-	agenttest.RunDefinitionConformance(t, agenttest.DefinitionConformanceConfig{
+	config := agenttest.DefinitionConformanceConfig{
 		Definition: deployment.Definition(), Input: encodedInput(t, time.Date(2026, time.September, 9, 12, 0, 0, 0, time.UTC)),
-	})
+	}
+	agenttest.RunDefinitionConformance(t, config)
+	execution, err := config.Definition.Start(config.Input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := execution.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	conformancetest.CheckRestoreCancellation(t, config.Definition, state)
 }
 
 type recordingTimer struct {

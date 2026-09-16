@@ -2,6 +2,7 @@ package collaboration
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -86,7 +87,7 @@ func (e executionState) remaining() []agent.ProcessID {
 	return ids
 }
 
-func (e executionState) batch(d *Definition) childcall.Batch {
+func (e executionState) batch(d *Definition) (childcall.Batch, error) {
 	batch := childcall.Batch{Children: make([]childcall.Child, len(e.Tasks))}
 	if e.WaitID != nil {
 		batch.WaitID = *e.WaitID
@@ -103,7 +104,7 @@ func (e executionState) batch(d *Definition) childcall.Batch {
 	if e.Turn != nil {
 		key, err := turnKey(e.Number)
 		if err != nil {
-			panic(err)
+			return childcall.Batch{}, err
 		}
 		child := childcall.Child{Key: key, Deployment: d.coordinator.deploymentRef}
 		if e.Turn.Start != nil {
@@ -112,7 +113,7 @@ func (e executionState) batch(d *Definition) childcall.Batch {
 		}
 		batch.Children = append(batch.Children, child)
 	}
-	return batch
+	return batch, nil
 }
 
 func (e executionState) waitSpec(d *Definition) (agent.ChildWaitSpec, error) {
@@ -123,7 +124,11 @@ func (e executionState) waitSpec(d *Definition) (agent.ChildWaitSpec, error) {
 	if e.WaitSequence == 0 {
 		return agent.ChildWaitSpec{}, fmt.Errorf("%w: wait requires a sequence", ErrInvalidState)
 	}
-	return e.batch(d).WaitSpec(key, agent.ChildWaitBoundaryDrained, agent.AnyChild())
+	batch, err := e.batch(d)
+	if err != nil {
+		return agent.ChildWaitSpec{}, err
+	}
+	return batch.WaitSpec(key, agent.ChildWaitBoundaryDrained, agent.AnyChild())
 }
 
 func (e *executionState) recordStart(index int, start agent.ChildStartResult) {
@@ -142,12 +147,21 @@ func (e *executionState) recordOutcome(index int, outcome agent.ChildOutcome) {
 	e.Tasks[index].Outcome = &outcome
 }
 
-func (e executionState) validateOutcomes(d *Definition) error {
-	batch := e.batch(d)
+func (e executionState) validateOutcomes(ctx context.Context, d *Definition) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	batch, err := e.batch(d)
+	if err != nil {
+		return err
+	}
 	batch.WaitID = agent.WaitID{}
 	var outcomes []agent.ChildOutcome
 	var expected []int
 	for index, task := range e.Tasks {
+		if cancelErr := ctx.Err(); cancelErr != nil {
+			return cancelErr
+		}
 		if task.Outcome != nil {
 			batch.Children[index].Done = false
 			outcomes = append(outcomes, *task.Outcome)
@@ -166,10 +180,13 @@ func (e executionState) validateOutcomes(d *Definition) error {
 	if !slices.Equal(indices, expected) {
 		return fmt.Errorf("%w: outcome belongs to another child", ErrInvalidState)
 	}
-	return nil
+	return ctx.Err()
 }
 
-func (e executionState) validate(d *Definition) error {
+func (e executionState) validate(ctx context.Context, d *Definition) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := d.descriptor.ValidateInput(e.State); err != nil {
 		return fmt.Errorf("%w: state: %w", ErrInvalidState, err)
 	}
@@ -179,14 +196,14 @@ func (e executionState) validate(d *Definition) error {
 	if e.WaitSequence > uint64(e.Number)+uint64(len(e.Tasks)) {
 		return fmt.Errorf("%w: wait sequence exceeds declared turns and tasks", ErrInvalidState)
 	}
-	if err := e.validateOutcomes(d); err != nil {
+	if err := e.validateOutcomes(ctx, d); err != nil {
 		return err
 	}
-	pending, ids, err := e.validateTasks(d)
+	pending, ids, err := e.validateTasks(ctx, d)
 	if err != nil {
 		return err
 	}
-	pendingControls, err := e.validateControls(pending)
+	pendingControls, err := e.validateControls(ctx, pending)
 	if err != nil {
 		return err
 	}
@@ -196,7 +213,7 @@ func (e executionState) validate(d *Definition) error {
 		}
 		return nil
 	}
-	if err := e.validateTurn(d, ids); err != nil {
+	if err := e.validateTurn(ctx, d, ids); err != nil {
 		return err
 	}
 	if e.Phase != phaseApplying && pending+pendingControls != 0 {
@@ -244,14 +261,20 @@ func (e executionState) validate(d *Definition) error {
 	default:
 		return fmt.Errorf("%w: unknown phase %q", ErrInvalidState, e.Phase)
 	}
-	return nil
+	return ctx.Err()
 }
 
-func (e executionState) validateTasks(d *Definition) (int, map[agent.ProcessID]struct{}, error) {
+func (e executionState) validateTasks(ctx context.Context, d *Definition) (int, map[agent.ProcessID]struct{}, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, nil, err
+	}
 	pending, active := 0, 0
 	ids := make(map[agent.ProcessID]struct{}, len(e.Tasks))
 	keys := make(map[agent.ChildKey]struct{}, len(e.Tasks))
 	for index, task := range e.Tasks {
+		if err := ctx.Err(); err != nil {
+			return 0, nil, err
+		}
 		if err := d.validateRequest(task.Request); err != nil {
 			return 0, nil, fmt.Errorf("%w: task %d request: %w", ErrInvalidState, index, err)
 		}
@@ -293,9 +316,15 @@ func (e executionState) validateTasks(d *Definition) (int, map[agent.ProcessID]s
 	return pending, ids, nil
 }
 
-func (e executionState) validateControls(pending int) (int, error) {
+func (e executionState) validateControls(ctx context.Context, pending int) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	pendingControls := 0
 	for index, receipt := range e.Controls {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
 		effect, err := e.controlEffect(receipt.Control)
 		if err != nil {
 			return 0, fmt.Errorf("%w: control %d: %w", ErrInvalidState, index, err)
@@ -311,7 +340,10 @@ func (e executionState) validateControls(pending int) (int, error) {
 	return pendingControls, nil
 }
 
-func (e executionState) validateTurn(d *Definition, ids map[agent.ProcessID]struct{}) error {
+func (e executionState) validateTurn(ctx context.Context, d *Definition, ids map[agent.ProcessID]struct{}) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if e.Turn == nil || e.Number == 0 || e.Turn.Input.Number != e.Number {
 		return fmt.Errorf("%w: turn is missing or its number does not match", ErrInvalidState)
 	}
@@ -325,11 +357,17 @@ func (e executionState) validateTurn(d *Definition, ids map[agent.ProcessID]stru
 		return fmt.Errorf("%w: turn workers do not match the definition: count differs", ErrInvalidState)
 	}
 	for index, worker := range d.workers {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if e.Turn.Input.Workers[index].Digest() != worker.descriptor.Digest() {
 			return fmt.Errorf("%w: turn worker %d does not match the definition", ErrInvalidState, index)
 		}
 	}
 	for index, task := range e.Turn.Input.Tasks {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		current := e.Tasks[index]
 		if !sameJSON(task.Request, current.Request) || task.Start == nil || !sameJSON(task.Start, current.Start) ||
 			task.Outcome != nil && !sameJSON(task.Outcome, current.Outcome) {
@@ -341,6 +379,9 @@ func (e executionState) validateTurn(d *Definition, ids map[agent.ProcessID]stru
 	}
 	captured := executionState{Tasks: e.Turn.Input.Tasks}
 	for index, receipt := range e.Turn.Input.Controls {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		effect, err := captured.controlEffect(receipt.Control)
 		if err != nil {
 			return fmt.Errorf("%w: turn control %d: %w", ErrInvalidState, index, err)
@@ -370,10 +411,13 @@ func (e executionState) validateTurn(d *Definition, ids map[agent.ProcessID]stru
 		}
 		return nil
 	}
-	return e.validateAppliedDecision(d)
+	return e.validateAppliedDecision(ctx, d)
 }
 
-func (e executionState) validateAppliedDecision(d *Definition) error {
+func (e executionState) validateAppliedDecision(ctx context.Context, d *Definition) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if e.Turn.Outcome == nil || e.Turn.unresolved() {
 		return fmt.Errorf("%w: applied decision requires a resolved turn outcome", ErrInvalidState)
 	}
@@ -392,24 +436,33 @@ func (e executionState) validateAppliedDecision(d *Definition) error {
 		return fmt.Errorf("%w: applied state does not match the coordinator decision", ErrInvalidState)
 	}
 	for index, request := range decision.Tasks {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if !sameJSON(request, e.Tasks[previousCount+index].Request) {
 			return fmt.Errorf("%w: applied task %d does not match the coordinator decision", ErrInvalidState, index)
 		}
 	}
 	for index, control := range decision.Controls {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if !sameJSON(control, e.Controls[index].Control) {
 			return fmt.Errorf("%w: applied control %d does not match the coordinator decision", ErrInvalidState, index)
 		}
 	}
 	before := e
 	before.Tasks = e.Tasks[:previousCount]
-	if err := before.validateDecision(d, decision); err != nil {
+	if err := before.validateDecision(ctx, d, decision); err != nil {
 		return fmt.Errorf("%w: applied decision: %w", ErrInvalidState, err)
 	}
-	return nil
+	return ctx.Err()
 }
 
-func (e executionState) validateDecision(definition *Definition, decision Decision) error {
+func (e executionState) validateDecision(ctx context.Context, definition *Definition, decision Decision) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := definition.descriptor.ValidateInput(decision.State); err != nil {
 		return fmt.Errorf("%w: state: %w", ErrInvalidDecision, err)
 	}
@@ -431,6 +484,9 @@ func (e executionState) validateDecision(definition *Definition, decision Decisi
 		return fmt.Errorf("%w: task or control bound exceeded", ErrInvalidDecision)
 	}
 	for index, request := range decision.Tasks {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := definition.validateRequest(request); err != nil {
 			return err
 		}
@@ -438,12 +494,18 @@ func (e executionState) validateDecision(definition *Definition, decision Decisi
 			return fmt.Errorf("%w: reused task key", ErrInvalidDecision)
 		}
 		for _, previous := range decision.Tasks[:index] {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if previous.Key == request.Key {
 				return fmt.Errorf("%w: duplicate task key", ErrInvalidDecision)
 			}
 		}
 	}
 	for _, control := range decision.Controls {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if _, err := e.controlEffect(control); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidDecision, err)
 		}
@@ -451,7 +513,7 @@ func (e executionState) validateDecision(definition *Definition, decision Decisi
 	if decision.Mode == Wait && len(e.remaining())+len(decision.Tasks) == 0 && !e.hasUnseenOutcome() {
 		return fmt.Errorf("%w: wait has no outstanding tasks", ErrInvalidDecision)
 	}
-	return nil
+	return ctx.Err()
 }
 
 func (e executionState) controlEffect(control Control) (agent.Effect, error) {

@@ -10,6 +10,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/agenttest"
+	"github.com/Tangerg/scope/agent/internal/conformancetest"
 )
 
 func TestRejectsDecisionBatchBeforeDeclaringActions(t *testing.T) {
@@ -32,7 +33,7 @@ func TestRejectsDecisionBatchBeforeDeclaringActions(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			execution := require(definition.Start(input("initial"))).(*execution)
 			before := require(execution.Snapshot())
-			transition, err := execution.applyDecision(decision, 0)
+			transition, err := execution.applyDecision(t.Context(), decision, 0)
 			if !errors.Is(err, ErrInvalidDecision) || transition.Valid() {
 				t.Fatalf("decision=%+v err=%v", transition, err)
 			}
@@ -205,6 +206,9 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 			t.Fatalf("phase %s untested", phase)
 		}
 	}
+	for _, sample := range cases {
+		conformancetest.CheckRestoreCancellation(t, definition, sample.State)
+	}
 	agenttest.RunDefinitionConformance(t, agenttest.DefinitionConformanceConfig{Definition: definition, Input: input("initial"), RestoredCases: cases})
 }
 
@@ -253,5 +257,15 @@ func TestCompletedSnapshotRejectsForgedOutputAndWorkerSchema(t *testing.T) {
 		if _, err := definition.Restore(t.Context(), altered); !errors.Is(err, ErrInvalidState) {
 			t.Fatal("forged completed state accepted", err)
 		}
+	}
+}
+
+func TestRestoreStopsBetweenTasks(t *testing.T) {
+	definition, _ := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
+	state := executionState{Tasks: []Task{{Request: request("work", "test.echo", "x")}, {}}}
+	ctx, cancel := conformancetest.CancelAfterCheck(t.Context(), 2)
+	defer cancel()
+	if _, _, err := state.validateTasks(ctx, definition); !errors.Is(err, context.Canceled) {
+		t.Fatalf("task validation = %v, want cancellation before malformed second task", err)
 	}
 }

@@ -37,6 +37,9 @@ type Definition interface {
 // random or global state, or start ownerless goroutines. External operations are
 // returned as Effects. Snapshot must fail rather than return partial state.
 //
+// Start and Restore own construction validity; Execution methods require the
+// initialized instance they returned. Nil and zero private implementations have
+// no protocol meaning.
 // The Engine is the sole caller and never invokes Step concurrently for the same
 // Execution. If Step or Snapshot fails, the instance is discarded and may only
 // be rebuilt from the committed ExecutionState.

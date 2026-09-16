@@ -1,6 +1,7 @@
 package interaction
 
 import (
+	"context"
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -67,7 +68,7 @@ func ActiveDelegateChildrenFromSnapshot(
 	if envelopeErr := state.validateEnvelope(); envelopeErr != nil {
 		return nil, false, envelopeErr
 	}
-	activeCalls, activeErr := state.activeChildCalls()
+	activeCalls, activeErr := state.activeChildCalls(context.Background())
 	if activeErr != nil {
 		return nil, false, fmt.Errorf("%w: active Delegate children: %w", ErrInvalidExecutionState, activeErr)
 	}
