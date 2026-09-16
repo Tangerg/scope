@@ -172,7 +172,7 @@ func (c *crossParentDefinition) Start(Input) (Execution, error) {
 	return &crossParentExecution{target: c.target}, nil
 }
 
-func (c *crossParentDefinition) Restore(state ExecutionState) (Execution, error) {
+func (c *crossParentDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
 	if state.Kind() != "test.cross_parent" {
 		return nil, ErrInvalidExecutionState
 	}

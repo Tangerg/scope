@@ -259,7 +259,7 @@ func TestManagedPlanningRestoresExactBoundaryState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := definition.Restore(before)
+	restored, err := definition.Restore(t.Context(), before)
 	if err != nil {
 		t.Fatal(err)
 	}

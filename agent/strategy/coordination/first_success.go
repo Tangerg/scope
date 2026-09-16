@@ -89,7 +89,11 @@ func (f *FirstSuccess) Start(input agent.Input) (agent.Execution, error) {
 	return &firstSuccessExecution{definition: f, state: state}, nil
 }
 
-func (f *FirstSuccess) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (f *FirstSuccess) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if !f.valid() {
 		return nil, ErrInvalidConfig
 	}

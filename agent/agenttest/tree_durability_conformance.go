@@ -432,7 +432,7 @@ func (c *conformanceDefinition) Start(input agent.Input) (agent.Execution, error
 	}, nil
 }
 
-func (c *conformanceDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (c *conformanceDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
 	value, err := state.Decode[conformanceState](c.descriptor.Name())
 	if err != nil {
 		return nil, err

@@ -60,7 +60,11 @@ func (d *Deadline) Start(input agent.Input) (agent.Execution, error) {
 	return &deadlineExecution{state: deadlineState{Deadline: deadline, Phase: deadlineReady}}, nil
 }
 
-func (d *Deadline) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (d *Deadline) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if d == nil || !d.descriptor.Valid() {
 		return nil, ErrInvalidConfig
 	}

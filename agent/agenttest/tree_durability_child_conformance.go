@@ -282,7 +282,7 @@ func (c *crashTreeDefinition) Start(input agent.Input) (agent.Execution, error) 
 	return &crashTreeExecution{definition: c, state: state}, nil
 }
 
-func (c *crashTreeDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (c *crashTreeDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
 	decoded, err := state.Decode[crashTreeState](c.descriptor.Name())
 	if err != nil {
 		return nil, err

@@ -38,7 +38,7 @@ func TestFailedDirectResultCannotEnterProtocolOrRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, restoreErr := definition.Restore(encoded); !errors.Is(restoreErr, ErrInvalidExecutionState) {
+	if _, restoreErr := definition.Restore(t.Context(), encoded); !errors.Is(restoreErr, ErrInvalidExecutionState) {
 		t.Fatalf("Restore = %v, want ErrInvalidExecutionState", restoreErr)
 	}
 	state.FinalOutput.DirectToolResults[0].IsError = false
@@ -46,7 +46,7 @@ func TestFailedDirectResultCannotEnterProtocolOrRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, restoreErr := definition.Restore(encoded); restoreErr != nil {
+	if _, restoreErr := definition.Restore(t.Context(), encoded); restoreErr != nil {
 		t.Fatalf("Restore successful direct result: %v", restoreErr)
 	}
 }

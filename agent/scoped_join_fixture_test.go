@@ -47,7 +47,7 @@ func (s *scopeJoinDefinition) Start(input Input) (Execution, error) {
 	return &scopeJoinExecution{definition: s, state: scopeJoinState{Role: role}}, nil
 }
 
-func (s *scopeJoinDefinition) Restore(state ExecutionState) (Execution, error) {
+func (s *scopeJoinDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
 	value, err := state.Decode[scopeJoinState](s.descriptor.Name())
 	if err != nil {
 		return nil, err

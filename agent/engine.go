@@ -240,7 +240,7 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Input) 
 		return nil, requestProcessAdmissionErr
 	}
 	startedAt := time.Now().Round(0).UTC()
-	execution, state, failure, err := initializeExecution(deployment.Definition(), input)
+	execution, state, failure, err := initializeExecution(ctx, deployment.Definition(), input)
 	if err != nil {
 		acknowledgeErr := acknowledgeProcessInitializationOutcome(ctx, e.initializationOutcomeAcknowledger, failedProcessInitializationOutcome(admission, failure))
 		return nil, errors.Join(fmt.Errorf("agent: initialize Process: %w", err), acknowledgeErr)
@@ -683,7 +683,7 @@ func (e *Engine) RestoreTree(
 		wire:        wire,
 		deployments: map[DeploymentRef]Deployment{rootDeployment.DeploymentRef(): rootDeployment},
 	}
-	if err := restoration.prepareProcesses(); err != nil {
+	if err := restoration.prepareProcesses(ctx); err != nil {
 		return nil, err
 	}
 	if err := restoration.prepareChildWaits(); err != nil {

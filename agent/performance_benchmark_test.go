@@ -142,7 +142,7 @@ func (executionReplayBenchmarkDefinition) Start(input Input) (Execution, error) 
 	return &executionReplayBenchmarkExecution{state: state}, nil
 }
 
-func (executionReplayBenchmarkDefinition) Restore(state ExecutionState) (Execution, error) {
+func (executionReplayBenchmarkDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
 	if state.Kind() != "benchmark.execution_replay" {
 		return nil, ErrInvalidExecutionState
 	}
@@ -187,7 +187,7 @@ func BenchmarkExecutionReplayBoundary(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
-				execution, restoreErr := restoreExecution(definition, state)
+				execution, restoreErr := restoreExecution(b.Context(), definition, state)
 				if restoreErr != nil {
 					b.Fatal(restoreErr)
 				}
@@ -201,7 +201,7 @@ func BenchmarkExecutionReplayBoundary(b *testing.B) {
 				if captureErr != nil {
 					b.Fatal(captureErr)
 				}
-				restored, restoreErr := restoreExecution(definition, candidate)
+				restored, restoreErr := restoreExecution(b.Context(), definition, candidate)
 				if restoreErr != nil {
 					b.Fatal(restoreErr)
 				}

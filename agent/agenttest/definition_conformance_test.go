@@ -54,7 +54,7 @@ func (d *definitionConformanceDefinition) Start(input agent.Input) (agent.Execut
 	return &definitionConformanceExecution{definition: d, value: value.Value}, nil
 }
 
-func (d *definitionConformanceDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (d *definitionConformanceDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
 	var value definitionConformanceInput
 	if err := json.Unmarshal(state.Payload(), &value); err != nil {
 		return nil, err
@@ -129,7 +129,7 @@ func TestDefinitionConformanceDetectsHiddenMutableInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = verifyFreshExecutions(DefinitionConformanceConfig{
+	err = verifyFreshExecutions(t.Context(), DefinitionConformanceConfig{
 		Definition: definition,
 		Input:      input,
 	})
@@ -146,7 +146,7 @@ func TestDefinitionConformanceDetectsSharedExecutionState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = verifyFreshExecutions(DefinitionConformanceConfig{
+	err = verifyFreshExecutions(t.Context(), DefinitionConformanceConfig{
 		Definition: definition,
 		Input:      input,
 	})
@@ -162,7 +162,7 @@ func TestDefinitionConformanceRejectsLossyBehaviorRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = verifyFreshExecutions(DefinitionConformanceConfig{Definition: definition, Input: input})
+	err = verifyFreshExecutions(t.Context(), DefinitionConformanceConfig{Definition: definition, Input: input})
 	if !errors.Is(err, errConformanceValuesDiffer) {
 		t.Fatalf("lossy restore = %v", err)
 	}

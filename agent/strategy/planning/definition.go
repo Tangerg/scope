@@ -1,6 +1,7 @@
 package planning
 
 import (
+	"context"
 	"fmt"
 	"slices"
 
@@ -112,7 +113,11 @@ func (d *Definition) Start(input agent.Input) (agent.Execution, error) {
 // Restore recreates a Planning Execution solely from its opaque state and this
 // exact Definition. A completed outcome must agree with the observed Goal
 // satisfaction.
-func (d *Definition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (d *Definition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if !d.valid() {
 		return nil, ErrInvalidDefinitionConfig
 	}

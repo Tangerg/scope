@@ -118,7 +118,7 @@ func waitingOwnerFixture(b testing.TB, parents int) (*treeRuntime, *processState
 			}
 			relation = childProcessRelation(id, parent.handle.relation, key)
 		}
-		execution, state, _, err := initializeExecution(deployment.Definition(), input)
+		execution, state, _, err := initializeExecution(b.Context(), deployment.Definition(), input)
 		if err != nil {
 			b.Fatal(err)
 		}

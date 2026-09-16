@@ -59,7 +59,7 @@ func TestCanceledStepDoesNotAdvancePlanning(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			execution, err := definition.Restore(before)
+			execution, err := definition.Restore(t.Context(), before)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -90,7 +90,7 @@ func TestPlannerCancellationRemainsAnError(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			execution, err := definition.Restore(state)
+			execution, err := definition.Restore(t.Context(), state)
 			if err != nil {
 				t.Fatal(err)
 			}

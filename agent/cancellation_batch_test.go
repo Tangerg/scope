@@ -166,7 +166,7 @@ func (e *effectSequenceDefinition) Start(input Input) (Execution, error) {
 	return &effectSequenceExecution{definition: e, state: engineTestState{Phase: "ready", Value: value.Value}}, nil
 }
 
-func (e *effectSequenceDefinition) Restore(state ExecutionState) (Execution, error) {
+func (e *effectSequenceDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
 	value, err := state.Decode[engineTestState](e.descriptor.Name())
 	if err != nil {
 		return nil, err

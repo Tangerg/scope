@@ -84,7 +84,7 @@ func TestChildBatchRequiresDrainedWaitBoundaries(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					if _, err := execution.definition.Restore(captured); err != nil {
+					if _, err := execution.definition.Restore(t.Context(), captured); err != nil {
 						t.Fatalf("accepted child boundary cannot be restored: %v", err)
 					}
 				})
@@ -110,7 +110,7 @@ func TestChildBatchRestoreRejectsUnknownMembers(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if _, err := execution.definition.Restore(invalid); !errors.Is(err, jsonv2.ErrUnknownName) {
+				if _, err := execution.definition.Restore(t.Context(), invalid); !errors.Is(err, jsonv2.ErrUnknownName) {
 					t.Fatalf("Restore error = %v, want unknown member rejection", err)
 				}
 			})
@@ -133,7 +133,7 @@ func TestChildBatchRestoreRequiresDeclaredBinding(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := execution.definition.Restore(captured); !errors.Is(err, ErrInvalidExecutionState) {
+			if _, err := execution.definition.Restore(t.Context(), captured); !errors.Is(err, ErrInvalidExecutionState) {
 				t.Fatalf("Restore admitted an unavailable child binding: %v", err)
 			}
 		})
@@ -193,7 +193,7 @@ func childBatchTestExecution(t testing.TB, kind childCallKind, stage phase) *exe
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := definition.Restore(captured)
+	restored, err := definition.Restore(t.Context(), captured)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +337,7 @@ func TestBatchFailureAfterSuccessPrefixRemainsRestorable(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if _, restoreErr := execution.definition.Restore(before); restoreErr != nil {
+				if _, restoreErr := execution.definition.Restore(t.Context(), before); restoreErr != nil {
 					t.Fatal(restoreErr)
 				}
 				wait, err := batch.waitSpec(1, 0)
@@ -361,7 +361,7 @@ func TestBatchFailureAfterSuccessPrefixRemainsRestorable(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if _, err := execution.definition.Restore(after); err != nil {
+				if _, err := execution.definition.Restore(t.Context(), after); err != nil {
 					t.Fatalf("failure candidate cannot restore: %v", err)
 				}
 				if !bytes.Equal(before.Payload(), after.Payload()) {

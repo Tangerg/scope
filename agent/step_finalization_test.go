@@ -101,8 +101,8 @@ type heldChildWaitDefinition struct {
 	release chan struct{}
 }
 
-func (h *heldChildWaitDefinition) Restore(state ExecutionState) (Execution, error) {
-	execution, err := h.childTestDefinition.Restore(state)
+func (h *heldChildWaitDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
+	execution, err := h.childTestDefinition.Restore(ctx, state)
 	if err != nil {
 		return nil, err
 	}

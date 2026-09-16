@@ -718,7 +718,7 @@ func (c *childTestDefinition) Start(input Input) (Execution, error) {
 	}, nil
 }
 
-func (c *childTestDefinition) Restore(state ExecutionState) (Execution, error) {
+func (c *childTestDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
 	if state.Kind() != "test.child" {
 		return nil, ErrInvalidExecutionState
 	}

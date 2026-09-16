@@ -189,7 +189,7 @@ func (t *treeRuntimeTestDefinition) Start(input Input) (Execution, error) {
 	}, nil
 }
 
-func (t *treeRuntimeTestDefinition) Restore(state ExecutionState) (Execution, error) {
+func (t *treeRuntimeTestDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
 	if state.Kind() != treeRuntimeStateKind {
 		return nil, ErrInvalidExecutionState
 	}

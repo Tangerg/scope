@@ -368,7 +368,7 @@ func (p *pausingBranchDefinition) Start(input agent.Input) (agent.Execution, err
 	return &pausingBranchExecution{Branch: p.branch, Value: decoded.Value}, nil
 }
 
-func (p *pausingBranchDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (p *pausingBranchDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
 	if state.Kind() != "test.workflow.pausing_branch" {
 		return nil, agent.ErrInvalidExecutionState
 	}

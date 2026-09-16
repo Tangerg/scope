@@ -27,7 +27,7 @@ func (p *pausedDefinition) Start(input agent.Input) (agent.Execution, error) {
 	}
 	return &pausedExecution{}, nil
 }
-func (p *pausedDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (p *pausedDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
 	var execution pausedExecution
 	if state.Kind() != "test.paused" {
 		return nil, errors.New("unexpected state")

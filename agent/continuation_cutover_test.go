@@ -212,8 +212,8 @@ func (e *episodeAnswerBarrier) Start(input agent.Input) (agent.Execution, error)
 	return &episodeAnswerExecution{Execution: execution, owner: e}, nil
 }
 
-func (e *episodeAnswerBarrier) Restore(state agent.ExecutionState) (agent.Execution, error) {
-	execution, err := e.Definition.Restore(state)
+func (e *episodeAnswerBarrier) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	execution, err := e.Definition.Restore(ctx, state)
 	if err != nil {
 		return nil, err
 	}

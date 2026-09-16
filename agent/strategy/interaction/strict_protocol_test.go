@@ -52,7 +52,7 @@ func TestDefinitionRestoreRejectsUnknownCoreMembers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, restoreErr := definition.Restore(snapshot); restoreErr != nil {
+	if _, restoreErr := definition.Restore(t.Context(), snapshot); restoreErr != nil {
 		t.Fatalf("restore valid snapshot: %v", restoreErr)
 	}
 	for name, marker := range map[string]string{
@@ -70,7 +70,7 @@ func TestDefinitionRestoreRejectsUnknownCoreMembers(t *testing.T) {
 			if stateErr != nil {
 				t.Fatal(stateErr)
 			}
-			if _, restoreErr := definition.Restore(invalid); !errors.Is(restoreErr, interaction.ErrInvalidExecutionState) || !errors.Is(restoreErr, jsonv2.ErrUnknownName) {
+			if _, restoreErr := definition.Restore(t.Context(), invalid); !errors.Is(restoreErr, interaction.ErrInvalidExecutionState) || !errors.Is(restoreErr, jsonv2.ErrUnknownName) {
 				t.Fatalf("restore error = %v, want invalid state with unknown object member", restoreErr)
 			}
 		})

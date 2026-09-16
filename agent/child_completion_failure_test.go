@@ -183,7 +183,7 @@ func newChildCompletionTestProcess(t *testing.T) (*treeRuntime, *processState) {
 	t.Cleanup(func() { mustCloseEngine(t, engine) })
 	deployment := newChildTestDeployment(t)
 	input, _ := EncodeInput(childTestInput{Mode: "leaf"})
-	execution, state, _, err := initializeExecution(deployment.Definition(), input)
+	execution, state, _, err := initializeExecution(t.Context(), deployment.Definition(), input)
 	if err != nil {
 		t.Fatal(err)
 	}

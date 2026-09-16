@@ -84,7 +84,7 @@ func TestToolChildFailuresRetainRestorableParentState(t *testing.T) {
 				t.Fatal("root Process is missing")
 			}
 			captured := inspectProcessSnapshot(t, engine, root).CommittedExecutionState()
-			if _, err := definition.Restore(captured); err != nil {
+			if _, err := definition.Restore(t.Context(), captured); err != nil {
 				t.Fatalf("terminal parent state cannot be restored: %v", err)
 			}
 		})

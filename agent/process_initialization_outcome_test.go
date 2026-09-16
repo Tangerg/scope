@@ -441,11 +441,11 @@ func (f *failingInitializationDefinition) Start(input Input) (Execution, error) 
 	return &failingInitialSnapshotExecution{Execution: execution, err: f.err}, nil
 }
 
-func (f *failingInitializationDefinition) Restore(state ExecutionState) (Execution, error) {
+func (f *failingInitializationDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
 	if f.stage == failInitialRestore {
 		return nil, f.err
 	}
-	return f.Definition.Restore(state)
+	return f.Definition.Restore(ctx, state)
 }
 
 type failingInitialSnapshotExecution struct {

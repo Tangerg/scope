@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,7 +54,7 @@ type artifactRecord struct {
 	Output            agent.Output `json:"output"`
 }
 
-func (e executionState) validate(definition *Definition) error {
+func (e executionState) validate(ctx context.Context, definition *Definition) error {
 	if !definition.valid() {
 		return ErrInvalidExecutionState
 	}
@@ -69,7 +70,7 @@ func (e executionState) validate(definition *Definition) error {
 	if err := e.validateArtifacts(definition); err != nil {
 		return err
 	}
-	return e.validatePhaseState(definition)
+	return e.validatePhaseState(ctx, definition)
 }
 
 func (e executionState) validateEnvelope() error {
@@ -96,7 +97,7 @@ func (e executionState) validateEnvelope() error {
 	return nil
 }
 
-func (e executionState) validatePhaseState(definition *Definition) error {
+func (e executionState) validatePhaseState(ctx context.Context, definition *Definition) error {
 	switch e.Phase {
 	case phaseAwaitingResultCommit:
 		if e.FinalOutput != nil {
@@ -109,7 +110,7 @@ func (e executionState) validatePhaseState(definition *Definition) error {
 	case phaseAwaitingModel:
 		return e.validateAwaitingModelState()
 	case phaseAwaitingChildStarts, phaseAwaitingChildWaitOpen, phaseWaitingChildren:
-		return e.validateActiveCallState(definition)
+		return e.validateActiveCallState(ctx, definition)
 	case phaseCompleted:
 		return e.validateCompletedState()
 	}
@@ -130,12 +131,12 @@ func (e executionState) validateAwaitingModelState() error {
 	return nil
 }
 
-func (e executionState) validateActiveCallState(definition *Definition) error {
+func (e executionState) validateActiveCallState(ctx context.Context, definition *Definition) error {
 	active, err := e.activeChildCalls()
 	if err != nil {
 		return err
 	}
-	return e.ToolRound.ChildBatch.validateBindings(definition, active)
+	return e.ToolRound.ChildBatch.validateBindings(ctx, definition, active)
 }
 
 func (e executionState) activeChildCalls() ([]chat.ToolCall, error) {

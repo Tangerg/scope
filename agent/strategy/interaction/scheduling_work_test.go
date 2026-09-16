@@ -1,6 +1,8 @@
 package interaction
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -8,6 +10,35 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
+
+func TestRestoreStopsToolClassificationWhenCanceled(t *testing.T) {
+	execution, _ := schedulingTestExecution(t, 16)
+	entry := execution.definition.tools.entries["delegate_fuzz"]
+	entry.concurrent = func(tool.Invocation) (string, bool) { return "", true }
+	execution.definition.tools.entries["delegate_fuzz"] = entry
+	if _, err := execution.startToolChildren(t.Context(), 0, schedulingCalls(execution)); err != nil {
+		t.Fatal(err)
+	}
+	state, err := execution.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	classifications := 0
+	entry.concurrent = func(tool.Invocation) (string, bool) {
+		classifications++
+		cancel()
+		return "", true
+	}
+	execution.definition.tools.entries["delegate_fuzz"] = entry
+	if _, err := execution.definition.Restore(ctx, state); !errors.Is(err, context.Canceled) {
+		t.Fatalf("restore error = %v, want cancellation", err)
+	}
+	if classifications != 1 {
+		t.Fatalf("classifications after cancellation = %d, want 1", classifications)
+	}
+}
 
 func BenchmarkToolBatchScheduling(b *testing.B) {
 	for _, count := range []int{100, 1000} {
@@ -116,7 +147,7 @@ func BenchmarkActiveToolBatchRestore(b *testing.B) {
 			*classifications = 0
 			b.ReportAllocs()
 			for b.Loop() {
-				if _, err := execution.definition.Restore(state); err != nil {
+				if _, err := execution.definition.Restore(b.Context(), state); err != nil {
 					b.Fatal(err)
 				}
 			}

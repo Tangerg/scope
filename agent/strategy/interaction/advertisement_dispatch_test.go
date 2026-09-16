@@ -87,5 +87,5 @@ type restoredAdvertisementDefinition struct {
 }
 
 func (r restoredAdvertisementDefinition) Start(agent.Input) (agent.Execution, error) {
-	return r.Restore(r.state)
+	return r.Restore(context.Background(), r.state)
 }

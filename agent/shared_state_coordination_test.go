@@ -36,7 +36,7 @@ func (r revisionDefinition) Start(input agent.Input) (agent.Execution, error) {
 	}
 	return &revisionExecution{Request: request}, nil
 }
-func (r revisionDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (r revisionDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
 	if state.Kind() != "example.revision" {
 		return nil, agent.ErrInvalidExecutionState
 	}

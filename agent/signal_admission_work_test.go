@@ -45,7 +45,7 @@ func admissionTestProcess(t testing.TB, history int) *processState {
 	if err != nil {
 		t.Fatal(err)
 	}
-	execution, state, _, err := initializeExecution(deployment.Definition(), input)
+	execution, state, _, err := initializeExecution(t.Context(), deployment.Definition(), input)
 	if err != nil {
 		t.Fatal(err)
 	}

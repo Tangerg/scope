@@ -47,7 +47,7 @@ func FuzzToolExecutionStateRestore(f *testing.F) {
 		if stateErr != nil {
 			return
 		}
-		execution, restoreErr := definition.Restore(state)
+		execution, restoreErr := definition.Restore(t.Context(), state)
 		if restoreErr != nil {
 			return
 		}
@@ -55,7 +55,7 @@ func FuzzToolExecutionStateRestore(f *testing.F) {
 		if captureErr != nil {
 			t.Fatalf("accepted state cannot be captured: %v", captureErr)
 		}
-		restored, restoreErr := definition.Restore(captured)
+		restored, restoreErr := definition.Restore(t.Context(), captured)
 		if restoreErr != nil {
 			t.Fatalf("captured state cannot be restored: %v", restoreErr)
 		}

@@ -63,7 +63,11 @@ func (i *InputGate) Start(input agent.Input) (agent.Execution, error) {
 	return &inputGateExecution{definition: i, state: inputGateState{Phase: gateReady, Request: input}}, nil
 }
 
-func (i *InputGate) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (i *InputGate) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if !i.valid() {
 		return nil, ErrInvalidConfig
 	}

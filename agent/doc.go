@@ -23,7 +23,7 @@
 //	type Definition interface {
 //		Descriptor() Descriptor
 //		Start(Input) (Execution, error)
-//		Restore(ExecutionState) (Execution, error)
+//		Restore(context.Context, ExecutionState) (Execution, error)
 //	}
 //
 //	type Execution interface {

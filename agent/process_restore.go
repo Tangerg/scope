@@ -1,10 +1,12 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 )
 
 func prepareRestoredProcess(
+	ctx context.Context,
 	durable bool,
 	deployment Deployment,
 	snapshot ProcessSnapshot,
@@ -25,7 +27,7 @@ func prepareRestoredProcess(
 			)
 		}
 	}
-	execution, err := restoreExecution(deployment.Definition(), wire.CommittedExecutionState)
+	execution, err := restoreExecution(ctx, deployment.Definition(), wire.CommittedExecutionState)
 	if err != nil {
 		return nil, nil, processSnapshotWire{}, fmt.Errorf(
 			"%w: restore Execution: %w", ErrInvalidSnapshot, err,
@@ -42,7 +44,7 @@ func prepareRestoredProcess(
 	handle := newProcessHandle(
 		relation, wire.DeploymentRef, wire.Budget, wire.Capabilities, wire.TreeLimits,
 		wire.StartedAt)
-	process, err := restoreProcessState(durable, handle, deployment, execution, mailbox, wire)
+	process, err := restoreProcessState(ctx, durable, handle, deployment, execution, mailbox, wire)
 	if err != nil {
 		return nil, nil, processSnapshotWire{}, err
 	}
@@ -50,6 +52,7 @@ func prepareRestoredProcess(
 }
 
 func restoreProcessState(
+	ctx context.Context,
 	durable bool,
 	handle *processHandle,
 	deployment Deployment,
@@ -85,7 +88,7 @@ func restoreProcessState(
 		return nil, fmt.Errorf("%w: pending control: %w", ErrInvalidSnapshot, err)
 	}
 	process.pendingControl = control
-	if err := process.restorePreparedStep(wire.Prepared, durable); err != nil {
+	if err := process.restorePreparedStep(ctx, wire.Prepared, durable); err != nil {
 		return nil, err
 	}
 	return process, nil

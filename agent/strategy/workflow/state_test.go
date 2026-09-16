@@ -27,7 +27,7 @@ func TestRestoreRejectsUnknownAndContradictoryState(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := definition.Restore(state); !errors.Is(err, ErrInvalidExecutionState) {
+			if _, err := definition.Restore(t.Context(), state); !errors.Is(err, ErrInvalidExecutionState) {
 				t.Fatalf("Restore error = %v", err)
 			}
 		})
@@ -37,7 +37,7 @@ func TestRestoreRejectsUnknownAndContradictoryState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := definition.Restore(state); !errors.Is(err, ErrInvalidExecutionState) {
+	if _, err := definition.Restore(t.Context(), state); !errors.Is(err, ErrInvalidExecutionState) {
 		t.Fatalf("Restore envelope error = %v", err)
 	}
 }
@@ -78,7 +78,7 @@ func TestExecutionRejectsMissingProtocolSignals(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			execution, err := test.definition.Restore(state)
+			execution, err := test.definition.Restore(t.Context(), state)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -101,7 +101,7 @@ func TestRestoreRejectsContradictorySingleChildProgress(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := definition.Restore(state); !errors.Is(err, ErrInvalidExecutionState) {
+		if _, err := definition.Restore(t.Context(), state); !errors.Is(err, ErrInvalidExecutionState) {
 			t.Fatalf("Restore(%s) error=%v", payload, err)
 		}
 	}
@@ -118,7 +118,7 @@ func FuzzWorkflowExecutionStateRestore(f *testing.F) {
 		if err != nil {
 			return
 		}
-		execution, err := definition.Restore(state)
+		execution, err := definition.Restore(t.Context(), state)
 		if err != nil {
 			return
 		}
@@ -126,7 +126,7 @@ func FuzzWorkflowExecutionStateRestore(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := definition.Restore(restored); err != nil {
+		if _, err := definition.Restore(t.Context(), restored); err != nil {
 			t.Fatalf("accepted state is not restorable: %v", err)
 		}
 	})
@@ -198,7 +198,7 @@ func TestRestorePreservesOutputSchemaError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = stateTestDefinition(t).Restore(state)
+	_, err = stateTestDefinition(t).Restore(t.Context(), state)
 	if !errors.Is(err, ErrInvalidExecutionState) || !errors.Is(err, agent.ErrInvalidOutput) {
 		t.Fatalf("Restore error = %v, want invalid state and invalid output", err)
 	}
@@ -223,7 +223,7 @@ func TestRestoreIdentifiesContradictoryFanoutProgress(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = definition.Restore(state)
+		_, err = definition.Restore(t.Context(), state)
 		if !errors.Is(err, ErrInvalidExecutionState) || !strings.Contains(err.Error(), test.context) {
 			t.Fatalf("Restore error = %v, want invalid state with %q", err, test.context)
 		}

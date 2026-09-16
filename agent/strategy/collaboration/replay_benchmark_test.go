@@ -16,7 +16,7 @@ func BenchmarkCollaborationReplayBoundary(b *testing.B) {
 			initial := require(require(definition.Start(input(strings.Repeat("x", size)))).Snapshot())
 			b.ReportAllocs()
 			for b.Loop() {
-				execution, err := definition.Restore(initial)
+				execution, err := definition.Restore(b.Context(), initial)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -28,7 +28,7 @@ func BenchmarkCollaborationReplayBoundary(b *testing.B) {
 				if err != nil {
 					b.Fatal(err)
 				}
-				if _, err := definition.Restore(state); err != nil {
+				if _, err := definition.Restore(b.Context(), state); err != nil {
 					b.Fatal(err)
 				}
 			}

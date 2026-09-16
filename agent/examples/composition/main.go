@@ -136,7 +136,7 @@ func (u *uppercaseDefinition) Start(input agent.Input) (agent.Execution, error) 
 	return &uppercaseExecution{Text: decoded.Text}, nil
 }
 
-func (*uppercaseDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (*uppercaseDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
 	execution, err := state.Decode[uppercaseExecution]("example.uppercase")
 	if err != nil {
 		return nil, err
@@ -255,7 +255,7 @@ func (c *compositionDefinition) Start(input agent.Input) (agent.Execution, error
 	}, nil
 }
 
-func (c *compositionDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (c *compositionDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
 	decoded, err := state.Decode[compositionState]("example.composition")
 	if err != nil {
 		return nil, err

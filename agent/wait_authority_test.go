@@ -17,8 +17,8 @@ func (m *multipleWaitDefinition) Start(input Input) (Execution, error) {
 	return &multipleWaitExecution{execution.(*engineTestExecution)}, nil
 }
 
-func (m *multipleWaitDefinition) Restore(state ExecutionState) (Execution, error) {
-	execution, err := m.engineTestDefinition.Restore(state)
+func (m *multipleWaitDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
+	execution, err := m.engineTestDefinition.Restore(ctx, state)
 	if err != nil {
 		return nil, err
 	}

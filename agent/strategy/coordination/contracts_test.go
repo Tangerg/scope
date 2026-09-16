@@ -58,7 +58,7 @@ func TestFirstSuccessRejectsExternalChildStartWithoutChangingProgress(t *testing
 	if !bytes.Equal(before.Payload(), after.Payload()) {
 		t.Fatal("external child start changed competition progress")
 	}
-	if _, restoreErr := definition.Restore(after); restoreErr != nil {
+	if _, restoreErr := definition.Restore(t.Context(), after); restoreErr != nil {
 		t.Fatalf("rejected external start damaged restoration: %v", restoreErr)
 	}
 }
@@ -112,7 +112,7 @@ func TestCoordinationRejectsExternalTimerAndWaitOpening(t *testing.T) {
 			if !bytes.Equal(before.Payload(), after.Payload()) {
 				t.Fatal("external authority changed progress")
 			}
-			if _, restoreErr := test.definition.Restore(after); restoreErr != nil {
+			if _, restoreErr := test.definition.Restore(t.Context(), after); restoreErr != nil {
 				t.Fatalf("rejection damaged restoration: %v", restoreErr)
 			}
 		})
@@ -145,13 +145,21 @@ func TestCoordinationRejectsMalformedRestoration(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			if _, restoreErr := sample.definition.Restore(ctx, state); !errors.Is(restoreErr, context.Canceled) {
+				t.Fatalf("canceled restoration = %v", restoreErr)
+			}
+			if _, restoreErr := sample.definition.Restore(t.Context(), state); restoreErr != nil {
+				t.Fatalf("cancellation damaged the immutable state: %v", restoreErr)
+			}
 			for _, invalid := range []agent.ExecutionState{
 				foreign,
 				mutatedState(t, state, "unexpected", true),
 				mutatedState(t, state, "phase", "waiting"),
 				mutatedState(t, state, "phase", "future-phase"),
 			} {
-				if _, restoreErr := sample.definition.Restore(invalid); !errors.Is(restoreErr, coordination.ErrInvalidState) {
+				if _, restoreErr := sample.definition.Restore(t.Context(), invalid); !errors.Is(restoreErr, coordination.ErrInvalidState) {
 					t.Fatalf("malformed state was not rejected: %v", restoreErr)
 				}
 			}

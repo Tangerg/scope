@@ -58,8 +58,8 @@ func (s *safetyCompetition) Start(input agent.Input) (agent.Execution, error) {
 	}
 	return &safetyCompetitionExecution{Execution: execution, output: s.output}, nil
 }
-func (s *safetyCompetition) Restore(state agent.ExecutionState) (agent.Execution, error) {
-	execution, err := s.competition.Restore(state)
+func (s *safetyCompetition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	execution, err := s.competition.Restore(ctx, state)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +221,7 @@ func TestCollaborationRejectsUnresolvedCoordinatorDecision(t *testing.T) {
 			wire["phase"] = json.RawMessage(`"completed"`)
 			wire["output"] = output.JSON()
 			forged := safetyValue(agent.NewExecutionState(state.Kind(), safetyValue(json.Marshal(wire))))
-			if _, err := definition.Restore(forged); !errors.Is(err, collaboration.ErrInvalidState) {
+			if _, err := definition.Restore(t.Context(), forged); !errors.Is(err, collaboration.ErrInvalidState) {
 				t.Fatal(fmt.Errorf("unsafe applied decision restored: %w", err))
 			}
 		})

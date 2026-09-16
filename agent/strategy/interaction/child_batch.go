@@ -109,7 +109,7 @@ func (c childCallBatch) childKey(modelSequence uint32, call chat.ToolCall) (agen
 	return toolChildKey(modelSequence, call)
 }
 
-func (c childCallBatch) validateBindings(definition *Definition, calls []chat.ToolCall) error {
+func (c childCallBatch) validateBindings(ctx context.Context, definition *Definition, calls []chat.ToolCall) error {
 	for _, call := range calls {
 		_, delegated := definition.delegate(call.Name)
 		if delegated != (c.Kind == childCallsDelegate) {
@@ -124,7 +124,7 @@ func (c childCallBatch) validateBindings(definition *Definition, calls []chat.To
 	if c.Kind == childCallsDelegate {
 		return nil
 	}
-	end, err := definition.tools.concurrentBatchEnd(context.Background(), calls)
+	end, err := definition.tools.concurrentBatchEnd(ctx, calls)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}

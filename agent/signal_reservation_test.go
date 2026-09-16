@@ -21,8 +21,8 @@ func (f *fixtureReservationDefinition) Start(input Input) (Execution, error) {
 	}
 	return &fixtureReservationExecution{base: value.(*childTestExecution), consumeWithEffect: f.consumeWithEffect}, nil
 }
-func (f *fixtureReservationDefinition) Restore(state ExecutionState) (Execution, error) {
-	value, err := f.base.Restore(state)
+func (f *fixtureReservationDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
+	value, err := f.base.Restore(ctx, state)
 	if err != nil {
 		return nil, err
 	}

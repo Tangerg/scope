@@ -241,8 +241,8 @@ type waitingStepDefinition struct {
 	once    sync.Once
 }
 
-func (w *waitingStepDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
-	execution, err := w.Definition.Restore(state)
+func (w *waitingStepDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	execution, err := w.Definition.Restore(ctx, state)
 	if err != nil {
 		return nil, err
 	}

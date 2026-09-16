@@ -70,8 +70,8 @@ func (r *recordingDefinition) Start(input agent.Input) (agent.Execution, error) 
 	return &recordingExecution{execution: execution, recorder: r}, nil
 }
 
-func (r *recordingDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
-	execution, err := r.definition.Restore(state)
+func (r *recordingDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	execution, err := r.definition.Restore(ctx, state)
 	if err != nil {
 		return nil, err
 	}

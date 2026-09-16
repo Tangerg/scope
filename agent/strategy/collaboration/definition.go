@@ -2,6 +2,7 @@ package collaboration
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -142,7 +143,11 @@ func (d *Definition) Start(input agent.Input) (agent.Execution, error) {
 	return &execution{definition: d, state: executionState{Phase: phaseReady, State: input}}, nil
 }
 
-func (d *Definition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (d *Definition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if d == nil || !d.descriptor.Valid() {
 		return nil, ErrInvalidConfig
 	}

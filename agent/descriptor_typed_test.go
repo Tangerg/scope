@@ -23,7 +23,7 @@ func (t *typedFixtureDefinition) Start(input Input) (Execution, error) {
 	return &typedFixtureExecution{state: input.JSON()}, nil
 }
 
-func (t *typedFixtureDefinition) Restore(state ExecutionState) (Execution, error) {
+func (t *typedFixtureDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
 	return &typedFixtureExecution{state: state.Payload()}, nil
 }
 

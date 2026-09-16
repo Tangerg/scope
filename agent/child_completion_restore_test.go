@@ -22,8 +22,8 @@ func (f *fixtureCompletionDefinition) Start(input Input) (Execution, error) {
 	}
 	return &fixtureCompletionExecution{definition: f, base: e.(*childTestExecution)}, nil
 }
-func (f *fixtureCompletionDefinition) Restore(state ExecutionState) (Execution, error) {
-	e, err := f.base.Restore(state)
+func (f *fixtureCompletionDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
+	e, err := f.base.Restore(ctx, state)
 	if err != nil {
 		return nil, err
 	}

@@ -41,14 +41,17 @@ func startExecution(definition Definition, input Input) (execution Execution, er
 	return execution, err
 }
 
-func restoreExecution(definition Definition, state ExecutionState) (execution Execution, err error) {
+func restoreExecution(ctx context.Context, definition Definition, state ExecutionState) (execution Execution, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			execution = nil
 			err = executionPanicError{value: recovered}
 		}
 	}()
-	execution, err = definition.Restore(state)
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
+	execution, err = definition.Restore(restoreContext{Context: ctx}, state)
 	if err == nil && lo.IsNil(execution) {
 		return nil, errors.New("definition.Restore returned nil execution")
 	}
@@ -80,6 +83,7 @@ func captureExecution(execution Execution) (state ExecutionState, err error) {
 }
 
 func initializeExecution(
+	ctx context.Context,
 	definition Definition,
 	input Input,
 ) (Execution, ExecutionState, Failure, error) {
@@ -97,7 +101,7 @@ func initializeExecution(
 		)
 		return nil, ExecutionState{}, failure, fmt.Errorf("capture initial Execution state: %w", err)
 	}
-	restored, err := restoreExecution(definition, state)
+	restored, err := restoreExecution(ctx, definition, state)
 	if err != nil {
 		failure := newEngineFailure(
 			failureKindForError(err), processSnapshotUnrestorableCode, err,

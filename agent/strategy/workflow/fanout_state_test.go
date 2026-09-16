@@ -38,7 +38,7 @@ func TestFanoutRestoreRejectsInvalidWindowState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := definition.Restore(snapshot); err != nil {
+	if _, err := definition.Restore(t.Context(), snapshot); err != nil {
 		t.Fatalf("Restore() rejected the initial window: %v", err)
 	}
 
@@ -113,7 +113,7 @@ func TestFanoutRestoreRejectsInvalidWindowState(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, restoreErr := definition.Restore(state)
+			_, restoreErr := definition.Restore(t.Context(), state)
 			if test.wantValid {
 				if restoreErr != nil {
 					t.Fatalf("Restore() rejected a valid window: %v", restoreErr)

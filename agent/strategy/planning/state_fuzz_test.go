@@ -72,7 +72,7 @@ func FuzzExecutionStateRestore(f *testing.F) {
 		if err != nil {
 			return
 		}
-		restored, err := definition.Restore(state)
+		restored, err := definition.Restore(t.Context(), state)
 		if err != nil {
 			return
 		}
@@ -80,7 +80,7 @@ func FuzzExecutionStateRestore(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		restoredAgain, err := definition.Restore(captured)
+		restoredAgain, err := definition.Restore(t.Context(), captured)
 		if err != nil {
 			t.Fatal(err)
 		}

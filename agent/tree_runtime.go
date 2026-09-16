@@ -1782,7 +1782,7 @@ func (t *treeRuntime) startStep(process *processState) {
 		}
 		if result.err == nil {
 			result.stage = stepJobStageRestore
-			result.candidate, result.err = restoreExecution(
+			result.candidate, result.err = restoreExecution(stepCtx,
 				definition, result.candidateState,
 			)
 		}
@@ -1808,11 +1808,12 @@ func (t *treeRuntime) startRestore(process *processState) {
 	processID := process.handle.processID
 	definition := process.deployment.Definition()
 	state := process.committedExecutionState
+	restoreCtx, cancel := context.WithCancel(context.Background())
 	t.setProcessJob(processID, &processJob{
-		kind: processJobRestore, attempt: attempt, startedAt: time.Now(),
+		kind: processJobRestore, attempt: attempt, cancel: cancel, startedAt: time.Now(),
 	})
 	go func() {
-		execution, err := restoreExecution(definition, state)
+		execution, err := restoreExecution(restoreCtx, definition, state)
 		t.completions <- treeJobCompletion{
 			processID: processID, attempt: attempt, kind: processJobRestore,
 			restore: restoreJobResult{execution: execution, err: err},

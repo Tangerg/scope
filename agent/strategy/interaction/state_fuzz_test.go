@@ -41,7 +41,7 @@ func FuzzExecutionStateRestore(f *testing.F) {
 		if err != nil {
 			return
 		}
-		execution, err := definition.Restore(state)
+		execution, err := definition.Restore(t.Context(), state)
 		if err != nil {
 			return
 		}
@@ -49,7 +49,7 @@ func FuzzExecutionStateRestore(f *testing.F) {
 		if err != nil {
 			t.Fatalf("restored state cannot be captured: %v", err)
 		}
-		restored, err := definition.Restore(captured)
+		restored, err := definition.Restore(t.Context(), captured)
 		if err != nil {
 			t.Fatalf("captured state cannot be restored: %v", err)
 		}
@@ -84,7 +84,7 @@ func TestRestoreValidatesFinishReasonInPendingRound(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				_, restoreErr := definition.Restore(captured)
+				_, restoreErr := definition.Restore(t.Context(), captured)
 				validRejection := state.Phase == phaseAwaitingResultCommit && reason == chat.FinishReasonLength
 				if validRejection && restoreErr != nil || !validRejection && !errors.Is(restoreErr, ErrInvalidExecutionState) {
 					t.Fatalf("Restore error = %v, valid rejection = %t", restoreErr, validRejection)
@@ -127,7 +127,7 @@ func TestRestoreRequiresOneCompletedResult(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			restored, err := definition.Restore(state)
+			restored, err := definition.Restore(t.Context(), state)
 			if !test.valid {
 				if !errors.Is(err, ErrInvalidExecutionState) {
 					t.Fatalf("Restore = %v, want ErrInvalidExecutionState", err)
@@ -233,7 +233,7 @@ func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.Executi
 	}
 	encoded := make([]agent.ExecutionState, 0, len(states))
 	for _, state := range states {
-		if err := state.validate(definition); err != nil {
+		if err := state.validate(f.Context(), definition); err != nil {
 			f.Fatal(err)
 		}
 		payload, err := json.Marshal(state)

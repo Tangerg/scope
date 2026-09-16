@@ -106,7 +106,7 @@ func TestRestoreValidatesPlanningFacts(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			restored, err := definition.Restore(state)
+			restored, err := definition.Restore(t.Context(), state)
 			if !test.valid {
 				if !errors.Is(err, planning.ErrInvalidExecutionState) {
 					t.Fatalf("Restore error=%v, want ErrInvalidExecutionState", err)
@@ -174,7 +174,7 @@ func TestRestoreCountsPendingActionTowardAttemptLimit(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			restored, err := definition.Restore(state)
+			restored, err := definition.Restore(t.Context(), state)
 			if !test.valid {
 				if !errors.Is(err, planning.ErrInvalidExecutionState) {
 					t.Fatalf("Restore admitted an Action beyond MaxActionAttempts: %v", err)
@@ -203,7 +203,7 @@ func TestExecutionPreservesSignalDecodeCause(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	execution, err := definition.Restore(state)
+	execution, err := definition.Restore(t.Context(), state)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +263,7 @@ func TestRestoreKeepsSingleChildProgressWithinItsAction(t *testing.T) {
 		if stateErr != nil {
 			t.Fatal(stateErr)
 		}
-		restored, restoreErr := definition.Restore(state)
+		restored, restoreErr := definition.Restore(t.Context(), state)
 		if !test.valid {
 			if !errors.Is(restoreErr, planning.ErrInvalidExecutionState) {
 				t.Fatalf("Restore(%s) error=%v", payload, restoreErr)
@@ -277,7 +277,7 @@ func TestRestoreKeepsSingleChildProgressWithinItsAction(t *testing.T) {
 		if snapshotErr != nil {
 			t.Fatal(snapshotErr)
 		}
-		if _, restoreAgainErr := definition.Restore(snapshot); restoreAgainErr != nil {
+		if _, restoreAgainErr := definition.Restore(t.Context(), snapshot); restoreAgainErr != nil {
 			t.Fatal(restoreAgainErr)
 		}
 	}

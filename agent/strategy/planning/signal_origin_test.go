@@ -33,7 +33,7 @@ func TestExternalSignalsCannotAdvanceSensingOrActions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			execution, err := definition.Restore(before)
+			execution, err := definition.Restore(t.Context(), before)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -58,7 +58,7 @@ func TestExternalSignalsCannotAdvanceSensingOrActions(t *testing.T) {
 			if !bytes.Equal(before.Payload(), after.Payload()) {
 				t.Fatal("external settlement changed planning progress")
 			}
-			if _, restoreErr := definition.Restore(after); restoreErr != nil {
+			if _, restoreErr := definition.Restore(t.Context(), after); restoreErr != nil {
 				t.Fatalf("rejection damaged restoration: %v", restoreErr)
 			}
 		})

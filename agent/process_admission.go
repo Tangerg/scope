@@ -50,6 +50,8 @@ func (p ProcessAdmission) Valid() bool {
 // prospective Process identity after recovery.
 // The runtime cancels an active child admission when its parent terminates;
 // an accepted admission still receives its required initialization outcome.
+// Cancellation during pure restoration produces a failed initialization outcome;
+// a successfully initialized child is published and then terminated with its parent.
 //
 // Implementations must respect ctx, return in bounded time, be safe for
 // concurrent calls when shared, and must not re-enter the Engine or a Process.

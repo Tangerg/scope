@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"sync/atomic"
@@ -15,16 +16,20 @@ type blockedRestoreDefinition struct {
 	release chan struct{}
 }
 
-func (b *blockedRestoreDefinition) Restore(state ExecutionState) (Execution, error) {
+func (b *blockedRestoreDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
 	var decoded treeRuntimeTestState
 	if err := json.Unmarshal(state.Payload(), &decoded); err != nil {
 		return nil, err
 	}
 	if decoded.Role == treeRuntimeRoleBlocked && b.armed.Swap(false) {
 		close(b.entered)
-		<-b.release
+		select {
+		case <-b.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
-	return b.Definition.Restore(state)
+	return b.Definition.Restore(ctx, state)
 }
 
 func TestStaleStepRestoreDoesNotBlockTreeOwner(t *testing.T) {
@@ -132,7 +137,9 @@ func TestStaleStepRestoreDoesNotBlockTreeOwner(t *testing.T) {
 		default:
 			t.Error("stale Step restoration blocked cancellation")
 		}
-		releaseRestore()
+		if err := blocked.Join(t.Context()); err != nil {
+			t.Fatal(err)
+		}
 		if result := mustAwait(t, blocked); result.Status() != StatusKilled {
 			t.Fatalf("restored stale result escaped cancellation: %s", result.Status())
 		}

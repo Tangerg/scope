@@ -68,7 +68,7 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 			if decoded.Phase != "failed" {
 				t.Fatalf("failed turn was not retained: %s", decoded.Phase)
 			}
-			if _, err := definition.Restore(state); err != nil {
+			if _, err := definition.Restore(t.Context(), state); err != nil {
 				t.Fatal(err)
 			}
 			for name, mutate := range map[string]func(*executionState){
@@ -83,7 +83,7 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 						t.Fatal(err)
 					}
 					mutate(&altered)
-					if _, err := definition.Restore(require(agent.NewExecutionState(stateKind, require(json.Marshal(altered))))); !errors.Is(err, ErrInvalidState) {
+					if _, err := definition.Restore(t.Context(), require(agent.NewExecutionState(stateKind, require(json.Marshal(altered))))); !errors.Is(err, ErrInvalidState) {
 						t.Fatalf("contradictory failure state accepted: %v", err)
 					}
 				})

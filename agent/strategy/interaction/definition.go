@@ -1,6 +1,7 @@
 package interaction
 
 import (
+	"context"
 	"fmt"
 	"slices"
 
@@ -159,7 +160,11 @@ func (d *Definition) Start(input agent.Input) (agent.Execution, error) {
 
 // Restore recreates an Interaction solely from its opaque state. It accepts
 // the current Interaction state schema and rejects unknown fields.
-func (d *Definition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (d *Definition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if !d.valid() {
 		return nil, ErrInvalidDefinitionConfig
 	}
@@ -167,7 +172,7 @@ func (d *Definition) Restore(state agent.ExecutionState) (agent.Execution, error
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
-	if err := decoded.validate(d); err != nil {
+	if err := decoded.validate(ctx, d); err != nil {
 		return nil, err
 	}
 	return &execution{definition: d, state: decoded}, nil

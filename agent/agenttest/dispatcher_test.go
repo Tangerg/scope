@@ -150,7 +150,7 @@ func (s *scriptedEffectDefinition) Start(input agent.Input) (agent.Execution, er
 	return &scriptedEffectExecution{effect: s.effect}, nil
 }
 
-func (s *scriptedEffectDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (s *scriptedEffectDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
 	if state.Kind() != "agenttest.scripted_effect" {
 		return nil, errors.New("unexpected scripted-effect state")
 	}

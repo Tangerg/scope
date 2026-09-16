@@ -305,7 +305,7 @@ func (m *managedBranchDefinition) Start(input agent.Input) (agent.Execution, err
 	return &managedBranchExecution{Branch: m.branch, Value: decoded.Value}, nil
 }
 
-func (m *managedBranchDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (m *managedBranchDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
 	if state.Kind() != "test.workflow.branch" {
 		return nil, agent.ErrInvalidExecutionState
 	}

@@ -327,7 +327,7 @@ func (p *processState) result() Result {
 	}
 }
 
-func (p *processState) restorePreparedStep(stored *preparedStep, durable bool) error {
+func (p *processState) restorePreparedStep(ctx context.Context, stored *preparedStep, durable bool) error {
 	if stored == nil {
 		return nil
 	}
@@ -343,7 +343,7 @@ func (p *processState) restorePreparedStep(stored *preparedStep, durable bool) e
 	var candidate Execution
 	if !p.status.Terminal() {
 		var err error
-		candidate, err = restoreExecution(p.deployment.Definition(), prepared.CandidateState)
+		candidate, err = restoreExecution(ctx, p.deployment.Definition(), prepared.CandidateState)
 		if err != nil {
 			return fmt.Errorf("%w: restore prepared Execution: %w", ErrInvalidSnapshot, err)
 		}

@@ -33,14 +33,14 @@ func (t *treeRestoration) prepareRuntime(ctx context.Context, head TreeSnapshot)
 	t.runtime.childWaits = t.childWaits
 }
 
-func (t *treeRestoration) prepareProcesses() error {
+func (t *treeRestoration) prepareProcesses(ctx context.Context) error {
 	t.processes = make([]restoredTreeProcess, 0, len(t.wire.ProcessSnapshots))
 	for _, processSnapshot := range t.wire.ProcessSnapshots {
 		deployment, err := t.deployment(processSnapshot.DeploymentRef())
 		if err != nil {
 			return err
 		}
-		handle, state, processWire, err := prepareRestoredProcess(
+		handle, state, processWire, err := prepareRestoredProcess(ctx,
 			t.engine.durability != nil, deployment, processSnapshot,
 		)
 		if err != nil {

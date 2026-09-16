@@ -51,7 +51,7 @@ func BenchmarkPlanningReplayBoundary(b *testing.B) {
 			}
 			b.ReportAllocs()
 			for b.Loop() {
-				execution, err := definition.Restore(initial)
+				execution, err := definition.Restore(b.Context(), initial)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -63,7 +63,7 @@ func BenchmarkPlanningReplayBoundary(b *testing.B) {
 				if err != nil {
 					b.Fatal(err)
 				}
-				if _, err := definition.Restore(state); err != nil {
+				if _, err := definition.Restore(b.Context(), state); err != nil {
 					b.Fatal(err)
 				}
 			}

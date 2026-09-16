@@ -76,13 +76,13 @@ func TestConfigurationAndProtocolContracts(t *testing.T) {
 	if _, err := missing.Start(input("x")); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatal(err)
 	}
-	if _, err := missing.Restore(agent.ExecutionState{}); !errors.Is(err, ErrInvalidConfig) {
+	if _, err := missing.Restore(t.Context(), agent.ExecutionState{}); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatal(err)
 	}
 	if _, err := definition.Start(require(agent.EncodeInput(1))); !errors.Is(err, agent.ErrInvalidInput) {
 		t.Fatal(err)
 	}
-	if _, err := definition.Restore(agent.ExecutionState{}); !errors.Is(err, ErrInvalidState) {
+	if _, err := definition.Restore(t.Context(), agent.ExecutionState{}); !errors.Is(err, ErrInvalidState) {
 		t.Fatal(err)
 	}
 	execution := require(definition.Start(input("x"))).(*execution)
@@ -116,8 +116,8 @@ func (t *tracedDefinition) Start(input agent.Input) (agent.Execution, error) {
 	execution, err := t.Definition.Start(input)
 	return &tracedExecution{Execution: execution, owner: t}, err
 }
-func (t *tracedDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
-	execution, err := t.Definition.Restore(state)
+func (t *tracedDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	execution, err := t.Definition.Restore(ctx, state)
 	return &tracedExecution{Execution: execution, owner: t}, err
 }
 
@@ -190,13 +190,13 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 				}
 				mutate(&altered)
 				encoded := require(agent.NewExecutionState(stateKind, require(json.Marshal(altered))))
-				if _, err := definition.Restore(encoded); !errors.Is(err, ErrInvalidState) {
+				if _, err := definition.Restore(t.Context(), encoded); !errors.Is(err, ErrInvalidState) {
 					t.Fatalf("forged snapshot accepted: %v", err)
 				}
 			})
 		}
 		payload := strings.TrimSuffix(string(cases[index].State.Payload()), "}") + `,"unknown":true}`
-		if _, err := definition.Restore(require(agent.NewExecutionState(stateKind, []byte(payload)))); !errors.Is(err, ErrInvalidState) {
+		if _, err := definition.Restore(t.Context(), require(agent.NewExecutionState(stateKind, []byte(payload)))); !errors.Is(err, ErrInvalidState) {
 			t.Fatal(err)
 		}
 	}
@@ -220,7 +220,7 @@ func TestCompletedSnapshotRejectsForgedOutputAndWorkerSchema(t *testing.T) {
 	tree := require(engine.InspectTree(t.Context(), process.ID()))
 	root, _ := tree.Process(process.ID())
 	state := root.Snapshot.CommittedExecutionState()
-	if _, err := definition.Restore(state); err != nil {
+	if _, err := definition.Restore(t.Context(), state); err != nil {
 		t.Fatal(err)
 	}
 	for _, mutate := range []func(map[string]any){
@@ -237,7 +237,7 @@ func TestCompletedSnapshotRejectsForgedOutputAndWorkerSchema(t *testing.T) {
 		}
 		mutate(wire)
 		altered := require(agent.NewExecutionState(stateKind, require(json.Marshal(wire))))
-		if _, err := definition.Restore(altered); !errors.Is(err, ErrInvalidState) {
+		if _, err := definition.Restore(t.Context(), altered); !errors.Is(err, ErrInvalidState) {
 			t.Fatal("forged completed state accepted", err)
 		}
 	}

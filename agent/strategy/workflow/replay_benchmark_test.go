@@ -59,7 +59,7 @@ func BenchmarkWorkflowReplayBoundary(b *testing.B) {
 					if snapshotErr != nil {
 						b.Fatal(snapshotErr)
 					}
-					execution, err = definition.Restore(snapshot)
+					execution, err = definition.Restore(b.Context(), snapshot)
 					if err != nil {
 						b.Fatal(err)
 					}
@@ -99,7 +99,7 @@ func BenchmarkMapReplayBoundary(b *testing.B) {
 				}
 				b.ReportAllocs()
 				for b.Loop() {
-					execution, err = definition.Restore(ready)
+					execution, err = definition.Restore(b.Context(), ready)
 					if err != nil {
 						b.Fatal(err)
 					}
@@ -110,7 +110,7 @@ func BenchmarkMapReplayBoundary(b *testing.B) {
 					if err != nil {
 						b.Fatal(err)
 					}
-					if _, err := definition.Restore(snapshot); err != nil {
+					if _, err := definition.Restore(b.Context(), snapshot); err != nil {
 						b.Fatal(err)
 					}
 				}

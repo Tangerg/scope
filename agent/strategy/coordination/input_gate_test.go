@@ -199,8 +199,8 @@ func (h *heldStepDefinition) Start(input agent.Input) (agent.Execution, error) {
 	return &heldStepExecution{Execution: execution, owner: h}, nil
 }
 
-func (h *heldStepDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
-	execution, err := h.Definition.Restore(state)
+func (h *heldStepDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	execution, err := h.Definition.Restore(ctx, state)
 	if err != nil {
 		return nil, err
 	}

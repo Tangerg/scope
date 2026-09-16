@@ -73,11 +73,11 @@ type discardFailureDefinition struct {
 	restores   atomic.Uint32
 }
 
-func (d *discardFailureDefinition) Restore(state ExecutionState) (Execution, error) {
+func (d *discardFailureDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
 	if d.restores.Add(1) > 1 {
 		return nil, d.restoreErr
 	}
-	execution, err := d.Definition.Restore(state)
+	execution, err := d.Definition.Restore(ctx, state)
 	if err != nil {
 		return nil, err
 	}

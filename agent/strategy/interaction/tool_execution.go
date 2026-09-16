@@ -96,7 +96,11 @@ func (t *toolDefinition) Start(input agent.Input) (agent.Execution, error) {
 	return &toolExecution{state: state}, nil
 }
 
-func (t *toolDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (t *toolDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	decoded, err := decodeToolState(state)
 	if err != nil {
 		return nil, err

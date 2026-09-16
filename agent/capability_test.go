@@ -96,7 +96,7 @@ func (c *capabilityTestDefinition) Start(Input) (Execution, error) {
 	return &capabilityTestExecution{required: c.required}, nil
 }
 
-func (c *capabilityTestDefinition) Restore(state ExecutionState) (Execution, error) {
+func (c *capabilityTestDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
 	var phase uint8
 	if err := json.Unmarshal(state.Payload(), &phase); err != nil {
 		return nil, err

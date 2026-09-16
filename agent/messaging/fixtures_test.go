@@ -98,7 +98,7 @@ func (s senderDefinition) Start(input agent.Input) (agent.Execution, error) {
 	}
 	return &senderExecution{state: senderState{Message: message}}, nil
 }
-func (s senderDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (s senderDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
 	if state.Kind() != "test.sender" {
 		return nil, agent.ErrInvalidExecutionState
 	}

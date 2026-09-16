@@ -66,14 +66,14 @@ func RunDefinitionConformance(t *testing.T, config DefinitionConformanceConfig) 
 		}
 	})
 	t.Run("fresh executions are isolated and deterministic", func(t *testing.T) {
-		if err := verifyFreshExecutions(config); err != nil {
+		if err := verifyFreshExecutions(t.Context(), config); err != nil {
 			t.Fatal(err)
 		}
 	})
 	for _, sample := range config.RestoredCases {
 		sample := sample
 		t.Run("restored "+sample.Name, func(t *testing.T) {
-			if err := verifyRestoredExecutions(config.Definition, sample); err != nil {
+			if err := verifyRestoredExecutions(t.Context(), config.Definition, sample); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -153,7 +153,7 @@ func verifyDescriptorStability(definition agent.Definition) error {
 	return nil
 }
 
-func verifyFreshExecutions(config DefinitionConformanceConfig) error {
+func verifyFreshExecutions(ctx context.Context, config DefinitionConformanceConfig) error {
 	descriptorBefore, descriptorErr := callDescriptor(config.Definition)
 	if descriptorErr != nil {
 		return descriptorErr
@@ -184,7 +184,7 @@ func verifyFreshExecutions(config DefinitionConformanceConfig) error {
 		}
 		values = append(values, value)
 	}
-	if pairErr := verifyExecutionPair(
+	if pairErr := verifyExecutionPair(ctx,
 		config.Definition,
 		values[0].execution,
 		values[1].execution,
@@ -202,14 +202,15 @@ func verifyFreshExecutions(config DefinitionConformanceConfig) error {
 }
 
 func verifyRestoredExecutions(
+	ctx context.Context,
 	definition agent.Definition,
 	sample ExecutionConformanceCase,
 ) error {
-	left, err := callRestore(definition, sample.State)
+	left, err := callRestore(ctx, definition, sample.State)
 	if err != nil {
 		return err
 	}
-	right, err := callRestore(definition, sample.State)
+	right, err := callRestore(ctx, definition, sample.State)
 	if err != nil {
 		return err
 	}
@@ -220,15 +221,15 @@ func verifyRestoredExecutions(
 	if err := requireEquivalent("restored state", sample.State, leftState); err != nil {
 		return err
 	}
-	return verifyExecutionPair(definition, left, right, sample.Signals, sample.FollowingSignals...)
+	return verifyExecutionPair(ctx, definition, left, right, sample.Signals, sample.FollowingSignals...)
 }
 
-func verifyExecutionPair(definition agent.Definition, left, right agent.Execution, signals []agent.Signal, following ...[]agent.Signal) error {
+func verifyExecutionPair(ctx context.Context, definition agent.Definition, left, right agent.Execution, signals []agent.Signal, following ...[]agent.Signal) error {
 	for _, batch := range append([][]agent.Signal{signals}, following...) {
 		if err := validateConformanceSignals(batch); err != nil {
 			return err
 		}
-		if err := verifyExecutionStep(definition, left, right, batch); err != nil {
+		if err := verifyExecutionStep(ctx, definition, left, right, batch); err != nil {
 			return err
 		}
 	}
@@ -236,6 +237,7 @@ func verifyExecutionPair(definition agent.Definition, left, right agent.Executio
 }
 
 func verifyExecutionStep(
+	ctx context.Context,
 	definition agent.Definition,
 	left agent.Execution,
 	right agent.Execution,
@@ -255,11 +257,11 @@ func verifyExecutionStep(
 	if comparisonErr := requireEquivalent("initial Execution state", leftBefore, rightBefore); comparisonErr != nil {
 		return comparisonErr
 	}
-	if restoreErr := verifyExactRestore(definition, leftBefore); restoreErr != nil {
+	if restoreErr := verifyExactRestore(ctx, definition, leftBefore); restoreErr != nil {
 		return restoreErr
 	}
 
-	restored, err := callRestore(definition, leftBefore)
+	restored, err := callRestore(ctx, definition, leftBefore)
 	if err != nil {
 		return err
 	}
@@ -313,11 +315,11 @@ func verifyExecutionStep(
 	if checkErr := requireEquivalent("original versus restored resulting state", leftAfter, restoredAfter); checkErr != nil {
 		return checkErr
 	}
-	return verifyExactRestore(definition, leftAfter)
+	return verifyExactRestore(ctx, definition, leftAfter)
 }
 
-func verifyExactRestore(definition agent.Definition, state agent.ExecutionState) error {
-	restored, err := callRestore(definition, state)
+func verifyExactRestore(ctx context.Context, definition agent.Definition, state agent.ExecutionState) error {
+	restored, err := callRestore(ctx, definition, state)
 	if err != nil {
 		return err
 	}
@@ -385,13 +387,13 @@ func callStart(definition agent.Definition, input agent.Input) (execution agent.
 	return execution, nil
 }
 
-func callRestore(definition agent.Definition, state agent.ExecutionState) (execution agent.Execution, err error) {
+func callRestore(ctx context.Context, definition agent.Definition, state agent.ExecutionState) (execution agent.Execution, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = fmt.Errorf("agenttest: Definition.Restore panicked: %v", recovered)
 		}
 	}()
-	execution, err = definition.Restore(state)
+	execution, err = definition.Restore(ctx, state)
 	if err != nil {
 		return nil, fmt.Errorf("agenttest: Definition.Restore: %w", err)
 	}

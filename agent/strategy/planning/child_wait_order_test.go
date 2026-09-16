@@ -20,8 +20,8 @@ func (f fixtureGatedDefinition) Start(input agent.Input) (agent.Execution, error
 	execution, err := f.Definition.Start(input)
 	return fixtureGatedExecution{execution, f.gate}, err
 }
-func (f fixtureGatedDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
-	execution, err := f.Definition.Restore(state)
+func (f fixtureGatedDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	execution, err := f.Definition.Restore(ctx, state)
 	return fixtureGatedExecution{execution, f.gate}, err
 }
 

@@ -45,12 +45,12 @@ func TestRestoreIdentifiesInvalidTurnState(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			execution := require(definition.Start(input("initial"))).(*execution)
 			require(execution.Step(t.Context(), nil))
-			if _, err := definition.Restore(require(execution.Snapshot())); err != nil {
+			if _, err := definition.Restore(t.Context(), require(execution.Snapshot())); err != nil {
 				t.Fatal(err)
 			}
 			test.mutate(&execution.state)
 			state := require(agent.NewExecutionState(stateKind, require(json.Marshal(execution.state))))
-			_, err := definition.Restore(state)
+			_, err := definition.Restore(t.Context(), state)
 			if !errors.Is(err, ErrInvalidState) || !strings.Contains(err.Error(), test.context) {
 				t.Fatalf("Restore error = %v, want invalid state with %q", err, test.context)
 			}

@@ -10,7 +10,7 @@ func TestPauseDiscardsUnadoptedWaitWithoutConsumingItsSignal(t *testing.T) {
 	process.deployment = engineTestDeployment(t, newEngineTestDefinition(t, "engine.wait", "wait"), nil)
 	process.handle.deploymentRef = process.deployment.DeploymentRef()
 	input := controlValue(EncodeInput(engineTestInput{Value: "pause"}))
-	execution, state, _, err := initializeExecution(process.deployment.Definition(), input)
+	execution, state, _, err := initializeExecution(t.Context(), process.deployment.Definition(), input)
 	if err != nil {
 		t.Fatal(err)
 	}

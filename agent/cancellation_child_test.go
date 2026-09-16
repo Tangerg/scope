@@ -150,11 +150,20 @@ func TestCancellationCollectsInFlightChildInitialization(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if stage == "rejected admission" {
+				switch stage {
+				case "rejected admission":
 					if len(children) != 0 || len(outcomes) != 0 || wire.ReservedBudget != (Budget{}) || wire.Prepared.Effects[0].Settlement.Status() != SettlementStatusFailed {
 						t.Errorf("rejected admission published resources: children=%v outcomes=%v snapshot=%+v", children, outcomes, wire)
 					}
-				} else {
+				case "accepted admission":
+					if len(children) != 0 || len(outcomes) != 1 || wire.ReservedBudget != (Budget{}) || wire.Prepared.Effects[0].Settlement.Status() != SettlementStatusFailed {
+						t.Fatalf("canceled initialization lost its failure acknowledgment or retained resources: children=%v outcomes=%d budget=%+v", children, len(outcomes), wire.ReservedBudget)
+					}
+					failure, failed := outcomes[0].Failure()
+					if !failed || failure.Code() != processSnapshotUnrestorableCode || failure.Message() != context.Canceled.Error() {
+						t.Fatalf("canceled initialization failure = %+v", failure)
+					}
+				case "outcome acknowledgment":
 					if len(children) != 1 || len(outcomes) != 1 || wire.ReservedBudget == (Budget{}) || wire.Prepared.Effects[0].Settlement.Status() != SettlementStatusSucceeded {
 						t.Fatalf("accepted initialization was lost: children=%v outcomes=%v snapshot=%+v", children, outcomes, wire)
 					}

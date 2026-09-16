@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"slices"
@@ -86,7 +87,11 @@ func (d *Definition) Start(input agent.Input) (agent.Execution, error) {
 // Restore recreates a Workflow solely from its opaque state and this exact
 // Definition. Phase-specific progress, window bounds, and unique child identities
 // are validated before admitting the restored Execution.
-func (d *Definition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (d *Definition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if !d.valid() {
 		return nil, ErrInvalidDefinitionConfig
 	}

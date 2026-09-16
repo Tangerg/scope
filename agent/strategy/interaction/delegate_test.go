@@ -548,7 +548,7 @@ func (*pausingDelegateDefinition) Start(input agent.Input) (agent.Execution, err
 	return &pausingDelegateExecution{Input: decoded}, nil
 }
 
-func (*pausingDelegateDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (*pausingDelegateDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
 	if state.Kind() != "test.pausing_delegate" {
 		return nil, errors.New("invalid pausing Delegate state")
 	}

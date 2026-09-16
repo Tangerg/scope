@@ -33,7 +33,7 @@ func TestCanceledStepPreservesRecoveryState(t *testing.T) {
 			t.Fatal(decodeErr)
 		}
 		t.Run(string(decoded.Phase), func(t *testing.T) {
-			restored, restoreErr := definition.Restore(state)
+			restored, restoreErr := definition.Restore(t.Context(), state)
 			if restoreErr != nil {
 				t.Fatal(restoreErr)
 			}
@@ -73,7 +73,7 @@ func TestRestoreRejectsIncompleteLifecycleStates(t *testing.T) {
 			if stateErr != nil {
 				t.Fatal(stateErr)
 			}
-			if _, restoreErr := execution.definition.Restore(state); !errors.Is(restoreErr, ErrInvalidExecutionState) {
+			if _, restoreErr := execution.definition.Restore(t.Context(), state); !errors.Is(restoreErr, ErrInvalidExecutionState) {
 				t.Fatalf("incomplete lifecycle state accepted: %v", restoreErr)
 			}
 		})
@@ -107,7 +107,7 @@ func TestRestoreValidatesPendingResultPublication(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, restoreErr := execution.definition.Restore(state)
+			_, restoreErr := execution.definition.Restore(t.Context(), state)
 			if test.name == "complete" && restoreErr != nil || test.name != "complete" && !errors.Is(restoreErr, ErrInvalidExecutionState) {
 				t.Fatalf("restore pending publication: %v", restoreErr)
 			}

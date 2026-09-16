@@ -73,7 +73,7 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 	if err != nil {
 		t.Fatal(err)
 	}
-	execution, state, _, err := initializeExecution(deployment.Definition(), input)
+	execution, state, _, err := initializeExecution(t.Context(), deployment.Definition(), input)
 	if err != nil {
 		t.Fatal(err)
 	}

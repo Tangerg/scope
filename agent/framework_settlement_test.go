@@ -126,7 +126,7 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 	if _, err := newTreeSnapshot(treeSnapshotWire{RootID: wire.ProcessID, ProcessSnapshots: []ProcessSnapshot{snapshot}}); !errors.Is(err, ErrInvalidTreeSnapshot) {
 		t.Fatalf("successful start without a child accepted: %v", err)
 	}
-	execution, state, _, err := initializeExecution(deployment.Definition(), spec.Input)
+	execution, state, _, err := initializeExecution(t.Context(), deployment.Definition(), spec.Input)
 	if err != nil {
 		t.Fatal(err)
 	}

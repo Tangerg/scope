@@ -159,8 +159,8 @@ type heldToolOpeningDefinition struct {
 	held    atomic.Bool
 }
 
-func (h *heldToolOpeningDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
-	execution, err := h.Definition.Restore(state)
+func (h *heldToolOpeningDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	execution, err := h.Definition.Restore(ctx, state)
 	if err != nil {
 		return nil, err
 	}

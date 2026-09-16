@@ -74,7 +74,7 @@ func (c *childStartPlan) execute(ctx context.Context) childStartJobResult {
 		)}
 	}
 	startedAt := time.Now().Round(0).UTC()
-	execution, state, failure, err := initializeExecution(deployment.Definition(), c.spec.Input)
+	execution, state, failure, err := initializeExecution(ctx, deployment.Definition(), c.spec.Input)
 	if err != nil {
 		acknowledgeErr := acknowledgeProcessInitializationOutcome(ctx, c.acknowledger, failedProcessInitializationOutcome(admission, failure))
 		return childStartJobResult{result: failedChildStart(

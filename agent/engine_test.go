@@ -188,8 +188,8 @@ func (s *signalWindowDefinition) Start(input Input) (Execution, error) {
 	return &signalWindowExecution{engineTestExecution: execution.(*engineTestExecution), definition: s}, nil
 }
 
-func (s *signalWindowDefinition) Restore(state ExecutionState) (Execution, error) {
-	execution, err := s.engineTestDefinition.Restore(state)
+func (s *signalWindowDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
+	execution, err := s.engineTestDefinition.Restore(ctx, state)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +270,7 @@ func (e *engineTestDefinition) Start(input Input) (Execution, error) {
 	return &engineTestExecution{mode: e.mode, state: engineTestState{Phase: "ready", Value: value.Value}}, nil
 }
 
-func (e *engineTestDefinition) Restore(state ExecutionState) (Execution, error) {
+func (e *engineTestDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
 	value, err := state.Decode[engineTestState](e.descriptor.Name())
 	if err != nil {
 		return nil, err

@@ -51,8 +51,8 @@ func TestEngineRejectsInvalidInteractionCandidateBeforeModelCall(t *testing.T) {
 
 type corruptingCandidateDefinition struct{ *Definition }
 
-func (c corruptingCandidateDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
-	restored, err := c.Definition.Restore(state)
+func (c corruptingCandidateDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	restored, err := c.Definition.Restore(ctx, state)
 	if err != nil {
 		return nil, err
 	}

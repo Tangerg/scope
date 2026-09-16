@@ -57,7 +57,7 @@ func TestDefinitionsRejectInvalidBoundaryValues(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := deployment.Definition().Restore(state); err == nil {
+			if _, err := deployment.Definition().Restore(t.Context(), state); err == nil {
 				t.Error("Restore accepted unknown state fields")
 			}
 		})
@@ -73,7 +73,7 @@ func TestDefinitionsRejectInvalidBoundaryValues(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := composition.Definition().Restore(state); err == nil {
+			if _, err := composition.Definition().Restore(t.Context(), state); err == nil {
 				t.Fatal("Restore accepted contradictory execution state")
 			}
 		})
@@ -338,7 +338,7 @@ func TestCompositionRestoresEverySignalBoundary(t *testing.T) {
 			completion = sample
 		}
 		t.Run(sample.Name+" rejects unexpected first signal", func(t *testing.T) {
-			execution, err := base.Definition().Restore(sample.State)
+			execution, err := base.Definition().Restore(t.Context(), sample.State)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -352,7 +352,7 @@ func TestCompositionRestoresEverySignalBoundary(t *testing.T) {
 	}
 	for _, sample := range []agenttest.ExecutionConformanceCase{opening, completion} {
 		t.Run(sample.Name+" consumes only its prefix", func(t *testing.T) {
-			execution, err := base.Definition().Restore(sample.State)
+			execution, err := base.Definition().Restore(t.Context(), sample.State)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -365,7 +365,7 @@ func TestCompositionRestoresEverySignalBoundary(t *testing.T) {
 			}
 		})
 		t.Run(sample.Name+" rejects unrelated wait", func(t *testing.T) {
-			execution, err := base.Definition().Restore(sample.State)
+			execution, err := base.Definition().Restore(t.Context(), sample.State)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -401,8 +401,8 @@ func (r *recordingDefinition) Start(input agent.Input) (agent.Execution, error) 
 	return &recordingExecution{Execution: execution, definition: r}, nil
 }
 
-func (r *recordingDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
-	execution, err := r.Definition.Restore(state)
+func (r *recordingDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	execution, err := r.Definition.Restore(ctx, state)
 	if err != nil {
 		return nil, err
 	}
@@ -496,8 +496,8 @@ func (f failingDefinition) Start(input agent.Input) (agent.Execution, error) {
 	return failingExecution{Execution: execution}, nil
 }
 
-func (f failingDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
-	execution, err := f.Definition.Restore(state)
+func (f failingDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	execution, err := f.Definition.Restore(ctx, state)
 	if err != nil {
 		return nil, err
 	}

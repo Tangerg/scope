@@ -68,7 +68,7 @@ func TestRestoreRejectsFailedToolAdvertisements(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := definition.Restore(encoded); !errors.Is(err, ErrInvalidExecutionState) {
+	if _, err := definition.Restore(t.Context(), encoded); !errors.Is(err, ErrInvalidExecutionState) {
 		t.Fatalf("Restore accepted a failed Tool advertisement: %v", err)
 	}
 }

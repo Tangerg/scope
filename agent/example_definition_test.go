@@ -40,7 +40,7 @@ func (e echoDefinition) Start(input agent.Input) (agent.Execution, error) {
 	return &echoExecution{state: echoState{Phase: "ready", Value: value.Value}}, nil
 }
 
-func (echoDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
+func (echoDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
 	value, err := state.Decode[echoState]("example.echo")
 	if err != nil {
 		return nil, err

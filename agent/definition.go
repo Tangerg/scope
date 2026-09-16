@@ -21,8 +21,11 @@ type Definition interface {
 	// Snapshot for this exact definition. The caller must supply the matching
 	// definition; Engine enforces this with the snapshot's exact DeploymentRef.
 	// Restore validates state structure and strategy invariants without replaying
-	// external work. Opaque state need not independently identify its deployment.
-	Restore(state ExecutionState) (Execution, error)
+	// external work. It must honor ctx during bounded CPU work and may not use
+	// context values as unrecorded inputs. Engine supplies a non-nil context with
+	// cancellation but without Host values. Opaque state need not independently
+	// identify its deployment.
+	Restore(ctx context.Context, state ExecutionState) (Execution, error)
 }
 
 // Execution is the single Strategy-owned state machine inside one Process.

@@ -228,7 +228,7 @@ func (t *treeRecoveryBenchmarkDefinition) Start(input Input) (Execution, error) 
 	return &treeRecoveryBenchmarkExecution{definition: t, state: state}, nil
 }
 
-func (t *treeRecoveryBenchmarkDefinition) Restore(state ExecutionState) (Execution, error) {
+func (t *treeRecoveryBenchmarkDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
 	if state.Kind() != t.descriptor.Name() {
 		return nil, ErrInvalidExecutionState
 	}

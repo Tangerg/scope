@@ -23,8 +23,8 @@ func (c *capacityDefinition) Start(input Input) (Execution, error) {
 	return &capacityExecution{engineTestExecution: execution.(*engineTestExecution), effects: c.effects}, nil
 }
 
-func (c *capacityDefinition) Restore(state ExecutionState) (Execution, error) {
-	execution, err := c.engineTestDefinition.Restore(state)
+func (c *capacityDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
+	execution, err := c.engineTestDefinition.Restore(ctx, state)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +208,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{})
 	state := controlValue(NewExecutionState("engine.effect", controlValue(json.Marshal(engineTestState{Phase: "ready", Value: strings.Repeat("x", 48<<20)}))))
-	execution := controlValue(definition.Restore(state))
+	execution := controlValue(definition.Restore(t.Context(), state))
 	limits := TreeLimits{MaxDepth: 1, MaxChildren: 5, MaxActiveChildren: 5, MaxTreeProcesses: 6}
 	for _, process := range runtime.processes {
 		process.deployment = deployment
