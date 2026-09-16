@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -200,5 +201,31 @@ func TestRestorePreservesOutputSchemaError(t *testing.T) {
 	_, err = stateTestDefinition(t).Restore(state)
 	if !errors.Is(err, ErrInvalidExecutionState) || !errors.Is(err, agent.ErrInvalidOutput) {
 		t.Fatalf("Restore error = %v, want invalid state and invalid output", err)
+	}
+}
+
+func TestRestoreIdentifiesContradictoryFanoutProgress(t *testing.T) {
+	_, definition := protocolTestDefinitions(t)
+	for _, test := range []struct {
+		payload string
+		context string
+	}{
+		{
+			payload: `{"phase":"awaiting_fanout_starts","stage_index":0,"current_value":{"value":1}}`,
+			context: "active fan-out window does not match source boundaries",
+		},
+		{
+			payload: `{"phase":"waiting_fanout","stage_index":0,"current_value":{"value":1},"active_fanout_window":[{"child_process_id":"child"}]}`,
+			context: "waiting phase requires a wait identity and settled starts",
+		},
+	} {
+		state, err := agent.NewExecutionState(executionStateKind, json.RawMessage(test.payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = definition.Restore(state)
+		if !errors.Is(err, ErrInvalidExecutionState) || !strings.Contains(err.Error(), test.context) {
+			t.Fatalf("Restore error = %v, want invalid state with %q", err, test.context)
+		}
 	}
 }
