@@ -8,6 +8,11 @@
 // which is what keeps a no-op [vectorstore.Closer] from passing as cleanup.
 // [VisitorConformance] exercises the common filter AST shapes, while
 // [VisitorLifecycle] verifies that a visitor can be safely reused.
+// [FilterConformance] executes an isolated backend fixture for each semantic
+// case and compares its selected IDs with [filter.Match] and exact expected
+// IDs, including LIKE case sensitivity and whole-value matching. Wire it to
+// actual backend queries; using Match in the callback would test only the
+// reference evaluator. Unsupported cases require explicit classified errors.
 //
 // Each vendor wires the suite up in a single test file:
 //
@@ -22,11 +27,9 @@
 //	    })
 //	}
 //
-// Output equivalence (the actual emitted SQL / filter struct) is NOT
-// covered by the suite — backends emit heterogeneous output types and
-// the vendor's own tests still own that responsibility. The suite
-// only guarantees "every valid AST shape visits without error; every
-// well-known invalid AST shape produces an error".
+// VisitorConformance checks acceptance and rejection, not emitted SQL or
+// provider structs. Vendor tests own exact wire assertions. FilterConformance
+// checks selection semantics independently of those heterogeneous wire types.
 //
 // # Field identifiers
 //
