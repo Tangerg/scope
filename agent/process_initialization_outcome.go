@@ -16,7 +16,12 @@ const (
 )
 
 func (p ProcessInitializationOutcomeStatus) Valid() bool {
-	return p == ProcessInitializationOutcomeStatusInitialized || p == ProcessInitializationOutcomeStatusFailed
+	switch p {
+	case ProcessInitializationOutcomeStatusInitialized, ProcessInitializationOutcomeStatusFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 func (p ProcessInitializationOutcomeStatus) String() string {

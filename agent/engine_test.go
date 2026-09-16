@@ -588,8 +588,8 @@ func TestEngineCommitsPendingTreeBeforeDispatch(t *testing.T) {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 	boundaries := durability.effectBoundaries()
-	if len(boundaries) < 2 || boundaries[0].Kind() != EffectBoundaryPending ||
-		boundaries[1].Kind() != EffectBoundarySettled {
+	if len(boundaries) < 2 || boundaries[0].Kind() != EffectBoundaryKindPending ||
+		boundaries[1].Kind() != EffectBoundaryKindSettled {
 		t.Fatalf("Effect boundaries = %#v", boundaries)
 	}
 	processSnapshots := boundaries[0].TreeSnapshot().ProcessSnapshots()

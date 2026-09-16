@@ -116,7 +116,7 @@ func TestControlAdmissionAndReceiptRecoverAsOneTreeCut(t *testing.T) {
 				engine, process := run(t, definition, deployments, store)
 				boundary := <-store.entered
 				synctest.Wait()
-				if boundary.Kind() != agent.EffectBoundarySettled {
+				if boundary.Kind() != agent.EffectBoundaryKindSettled {
 					t.Fatal("control used an external pending permission")
 				}
 				inspection := require(engine.InspectTree(t.Context(), process.ID()))

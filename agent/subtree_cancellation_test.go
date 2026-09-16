@@ -117,7 +117,7 @@ func TestSubtreeCancellationPublishesOnlyAfterCheckpointAcknowledgment(t *testin
 		}
 		checkpoints := durability.treeCheckpoints()
 		last := checkpoints[len(checkpoints)-1]
-		if last.Kind() != TreeCheckpointTerminal {
+		if last.Kind() != TreeCheckpointKindTerminal {
 			t.Fatalf("cancellation checkpoint=%s", last.Kind())
 		}
 		for _, snapshot := range last.TreeSnapshot().ProcessSnapshots() {

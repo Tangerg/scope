@@ -87,7 +87,7 @@ func (e *execution) acceptSense(
 	consumedSignals := uint32(len(signals))
 	if envelope.Sensing.Error != "" {
 		return e.fail(
-			consumedSignals, agent.FailureKindExternal, "planning.sensing.failed", envelope.Sensing.Error,
+			consumedSignals, agent.FailureKindExternal, failureCodePlanningSensingFailed, envelope.Sensing.Error,
 		)
 	}
 	e.state.WorldState = *envelope.Sensing.WorldState
@@ -106,13 +106,13 @@ func (e *execution) acceptSense(
 	}
 	if e.state.PlanningPasses == math.MaxUint32 {
 		return e.fail(
-			consumedSignals, agent.FailureKindExecution, "planning.limit.planning_passes",
+			consumedSignals, agent.FailureKindExecution, failureCodePlanningLimitPlanningPasses,
 			"Planning exhausted its representable planning-pass count",
 		)
 	}
 	problem, err := e.definition.problem(e.state)
 	if err != nil {
-		return e.fail(consumedSignals, agent.FailureKindContract, "planning.problem.invalid", err.Error())
+		return e.fail(consumedSignals, agent.FailureKindContract, failureCodePlanningProblemInvalid, err.Error())
 	}
 	plan, found, err := e.definition.planner.Plan(ctx, problem)
 	if cancelErr := ctx.Err(); cancelErr != nil {
@@ -122,20 +122,20 @@ func (e *execution) acceptSense(
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return agent.Transition{}, err
 		}
-		return e.fail(consumedSignals, agent.FailureKindExecution, "planning.planner.failed", err.Error())
+		return e.fail(consumedSignals, agent.FailureKindExecution, failureCodePlanningPlannerFailed, err.Error())
 	}
 	if !found {
 		e.state.PlanningPasses++
 		return e.complete(consumedSignals)
 	}
 	if err := problem.ValidatePlan(plan); err != nil {
-		return e.fail(consumedSignals, agent.FailureKindContract, "planning.planner.contract", err.Error())
+		return e.fail(consumedSignals, agent.FailureKindContract, failureCodePlanningPlannerContract, err.Error())
 	}
 	actions := plan.Actions()
 	binding, found := e.definition.binding(actions[0].Name())
 	if !found {
 		return e.fail(
-			consumedSignals, agent.FailureKindContract, "planning.planner.contract",
+			consumedSignals, agent.FailureKindContract, failureCodePlanningPlannerContract,
 			"Planner selected an Action outside the Planning Definition",
 		)
 	}
@@ -166,13 +166,13 @@ func (e *execution) startAction(
 			childInput, err = binding.childInput(input, e.state.WorldState)
 			if err != nil {
 				return e.fail(
-					consumedSignals, agent.FailureKindContract, "planning.child.input.failed", err.Error(),
+					consumedSignals, agent.FailureKindContract, failureCodePlanningChildInputFailed, err.Error(),
 				)
 			}
 		}
 		if !childInput.Valid() {
 			return e.fail(
-				consumedSignals, agent.FailureKindContract, "planning.child.input.invalid",
+				consumedSignals, agent.FailureKindContract, failureCodePlanningChildInputInvalid,
 				"Child input function returned an invalid Input",
 			)
 		}
@@ -241,7 +241,7 @@ func (e *execution) advanceChild(signals []agent.Signal) (agent.Transition, erro
 		return agent.Transition{}, fmt.Errorf("%w: child completion: %w", ErrInvalidProtocol, err)
 	}
 	if unresolved, known := outcome.SubtreeUnresolvedEffects(); !known || len(unresolved) > 0 {
-		return e.fail(1, agent.FailureKindExternal, "planning.child.unresolved_effects", fmt.Sprintf("child subtree %s ended with unresolved Effects %v", outcome.Result().ProcessID(), unresolved))
+		return e.fail(1, agent.FailureKindExternal, failureCodePlanningChildUnresolvedEffects, fmt.Sprintf("child subtree %s ended with unresolved Effects %v", outcome.Result().ProcessID(), unresolved))
 	}
 	result := outcome.Result()
 	e.state.Child = nil
@@ -320,3 +320,14 @@ func planningIdentity(action string, attempt uint32) string {
 	hash.Write([]byte(strconv.FormatUint(uint64(attempt), 10)))
 	return hex.EncodeToString(hash.Sum(nil))
 }
+
+const (
+	failureCodePlanningChildInputFailed       = "planning.child.input.failed"
+	failureCodePlanningChildInputInvalid      = "planning.child.input.invalid"
+	failureCodePlanningChildUnresolvedEffects = "planning.child.unresolved_effects"
+	failureCodePlanningLimitPlanningPasses    = "planning.limit.planning_passes"
+	failureCodePlanningPlannerContract        = "planning.planner.contract"
+	failureCodePlanningPlannerFailed          = "planning.planner.failed"
+	failureCodePlanningProblemInvalid         = "planning.problem.invalid"
+	failureCodePlanningSensingFailed          = "planning.sensing.failed"
+)

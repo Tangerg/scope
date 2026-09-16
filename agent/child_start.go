@@ -7,22 +7,6 @@ import (
 	"time"
 )
 
-const (
-	childRequestInvalidCode                      = "engine.child.request.invalid"
-	childIdentityConflictCode                    = "engine.child.identity_conflict"
-	childCapabilityEscalationCode                = "engine.child.capability_escalation"
-	childBudgetExhaustedCode                     = "engine.child.budget_exhausted"
-	childBudgetInvalidCode                       = "engine.child.budget_invalid"
-	childTreeLimitCode                           = "engine.child.tree_limit"
-	childStartUnavailableCode                    = "engine.child.start.unavailable"
-	childStartInterruptedCode                    = "engine.child.start.interrupted"
-	childDeploymentUnavailableCode               = "engine.child.deployment_unavailable"
-	childInputInvalidCode                        = "engine.child.input.invalid"
-	childAdmissionRejectedCode                   = "engine.child.admission.rejected"
-	childInitializationOutcomeUnacknowledgedCode = "engine.child.initialization_outcome.unacknowledged"
-	childSettlementInvalidCode                   = "engine.child.settlement.invalid"
-)
-
 type childStartPreparation struct {
 	plan   *childStartPlan
 	result ChildStartResult
@@ -59,18 +43,18 @@ func (c *childStartPlan) execute(ctx context.Context) childStartJobResult {
 	deployment, resolveErr := c.resolveDeployment()
 	if resolveErr != nil {
 		return childStartJobResult{result: failedChildStart(
-			c.spec, FailureKindExternal, childDeploymentUnavailableCode, resolveErr,
+			c.spec, FailureKindExternal, failureCodeEngineChildDeploymentUnavailable, resolveErr,
 		)}
 	}
 	if validateErr := deployment.Descriptor().ValidateInput(c.spec.Input); validateErr != nil {
 		return childStartJobResult{result: failedChildStart(
-			c.spec, FailureKindContract, childInputInvalidCode, validateErr,
+			c.spec, FailureKindContract, failureCodeEngineChildInputInvalid, validateErr,
 		)}
 	}
 	admission := newProcessAdmission(c.relation, deployment, c.spec.Budget, c.spec.Capabilities)
 	if admissionErr := requestProcessAdmission(ctx, c.admitter, admission); admissionErr != nil {
 		return childStartJobResult{result: failedChildStart(
-			c.spec, FailureKindExternal, childAdmissionRejectedCode, admissionErr,
+			c.spec, FailureKindExternal, failureCodeEngineChildAdmissionRejected, admissionErr,
 		)}
 	}
 	startedAt := time.Now().Round(0).UTC()
@@ -83,7 +67,7 @@ func (c *childStartPlan) execute(ctx context.Context) childStartJobResult {
 	}
 	if err := acknowledgeProcessInitializationOutcome(ctx, c.acknowledger, initializedProcessOutcome(admission, startedAt)); err != nil {
 		return childStartJobResult{result: failedChildStart(
-			c.spec, FailureKindExternal, childInitializationOutcomeUnacknowledgedCode, err,
+			c.spec, FailureKindExternal, failureCodeEngineChildInitializationOutcomeUnacknowledged, err,
 		)}
 	}
 	return childStartJobResult{

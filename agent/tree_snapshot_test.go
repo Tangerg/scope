@@ -498,7 +498,7 @@ func TestDurableChildOutcomeCommitsWholeProspectiveTree(t *testing.T) {
 	}
 	var childCheckpoint TreeCheckpoint
 	for _, checkpoint := range durability.treeCheckpoints() {
-		if checkpoint.Kind() == TreeCheckpointChildStart {
+		if checkpoint.Kind() == TreeCheckpointKindChildStart {
 			childCheckpoint = checkpoint
 			break
 		}

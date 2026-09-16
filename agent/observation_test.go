@@ -146,7 +146,7 @@ func FuzzEventJSONRoundTrip(f *testing.F) {
 			SignalID: "signal:event-fuzz",
 		}},
 		{name: EventRuntimeStopped, phase: EventPhaseAttempt, payload: runtimeStoppedEventPayload{
-			FailureKind: FailureKindExternal, FailureCode: treeDurabilityFailureCode,
+			FailureKind: FailureKindExternal, FailureCode: failureCodeEngineTreeDurabilityFailed,
 		}},
 		{name: EventStepFinished, phase: EventPhaseAttempt, stepSequence: 1, payload: stepFinishedEventPayload{
 			StepStatus: StepStatusSucceeded, WorkDurationNS: &durationMS, AdoptionDelayNS: new(int64),

@@ -144,7 +144,7 @@ func (e *execution) acceptOutcomes(signals []agent.Signal) (agent.Transition, er
 		return e.openWait(1)
 	}
 	if e.state.Turn.unresolved() {
-		failure, failureErr := agent.NewFailure(agent.FailureKindExternal, "collaboration.coordinator.unresolved_effects", "Coordinator subtree has unresolved Effects")
+		failure, failureErr := agent.NewFailure(agent.FailureKindExternal, failureCodeCollaborationCoordinatorUnresolvedEffects, "Coordinator subtree has unresolved Effects")
 		if failureErr != nil {
 			return agent.Transition{}, failureErr
 		}
@@ -272,3 +272,7 @@ func (e *execution) Snapshot() (agent.ExecutionState, error) {
 }
 
 var _ agent.Execution = (*execution)(nil)
+
+const (
+	failureCodeCollaborationCoordinatorUnresolvedEffects = "collaboration.coordinator.unresolved_effects"
+)

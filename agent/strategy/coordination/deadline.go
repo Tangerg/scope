@@ -137,7 +137,7 @@ func (d *deadlineExecution) Step(ctx context.Context, signals []agent.Signal) (a
 			return agent.Transition{}, fmt.Errorf("%w: timer settlement disagrees with its deadline", ErrInvalidProtocol)
 		}
 		if !result.Reached {
-			failure, failureErr := agent.NewFailure(agent.FailureKindExternal, "coordination.deadline.interrupted", "timer returned before its deadline")
+			failure, failureErr := agent.NewFailure(agent.FailureKindExternal, failureCodeCoordinationDeadlineInterrupted, "timer returned before its deadline")
 			if failureErr != nil {
 				return agent.Transition{}, failureErr
 			}
@@ -161,3 +161,5 @@ func (d *deadlineExecution) Snapshot() (agent.ExecutionState, error) {
 var _ agent.Execution = (*deadlineExecution)(nil)
 
 var _ agent.Definition = (*Deadline)(nil)
+
+const failureCodeCoordinationDeadlineInterrupted = "coordination.deadline.interrupted"

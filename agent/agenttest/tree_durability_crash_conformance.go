@@ -107,11 +107,11 @@ func (t *treeDurabilityCommitGate) CommitEffect(
 ) error {
 	kind := crashCommitInvalid
 	switch boundary.Kind() {
-	case agent.EffectBoundaryPending:
+	case agent.EffectBoundaryKindPending:
 		kind = crashCommitEffectPending
-	case agent.EffectBoundarySettled:
+	case agent.EffectBoundaryKindSettled:
 		kind = crashCommitEffectSettled
-	case agent.EffectBoundaryResolved:
+	case agent.EffectBoundaryKindResolved:
 		kind = crashCommitEffectResolved
 	}
 	observation := crashCommitObservation{
@@ -131,15 +131,15 @@ func (t *treeDurabilityCommitGate) CommitCheckpoint(
 ) error {
 	kind := crashCommitInvalid
 	switch checkpoint.Kind() {
-	case agent.TreeCheckpointStart:
+	case agent.TreeCheckpointKindStart:
 		kind = crashCommitRootStart
-	case agent.TreeCheckpointChildStart:
+	case agent.TreeCheckpointKindChildStart:
 		kind = crashCommitCheckpointChild
-	case agent.TreeCheckpointSignals:
+	case agent.TreeCheckpointKindSignals:
 		kind = crashCommitCheckpointInput
-	case agent.TreeCheckpointParked:
+	case agent.TreeCheckpointKindParked:
 		kind = crashCommitCheckpointParked
-	case agent.TreeCheckpointTerminal:
+	case agent.TreeCheckpointKindTerminal:
 		kind = crashCommitCheckpointTerminal
 	}
 	if t.point.kind == crashCommitCheckpointCancellation {

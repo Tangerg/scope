@@ -149,7 +149,7 @@ func (r *revisionLostAcknowledgment) CommitEffect(ctx context.Context, boundary 
 	if err := r.MemoryTreeDurability.CommitEffect(ctx, boundary); err != nil {
 		return err
 	}
-	if boundary.Kind() == agent.EffectBoundarySettled && r.lost.CompareAndSwap(false, true) {
+	if boundary.Kind() == agent.EffectBoundaryKindSettled && r.lost.CompareAndSwap(false, true) {
 		return errors.New("stored revision settlement acknowledgment lost")
 	}
 	return nil

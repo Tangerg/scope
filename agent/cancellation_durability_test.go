@@ -81,7 +81,7 @@ type cancellationSettlementDurability struct {
 }
 
 func (c *cancellationSettlementDurability) CommitEffect(ctx context.Context, boundary EffectBoundary) error {
-	if boundary.Kind() == EffectBoundarySettled {
+	if boundary.Kind() == EffectBoundaryKindSettled {
 		c.entered <- ctx
 		<-c.release
 		if c.failure != nil {

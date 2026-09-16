@@ -270,7 +270,7 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 		if captureErr != nil {
 			return nil, captureErr
 		}
-		checkpoint, err := newTreeCheckpoint(TreeCheckpointStart, Digest{}, baseSnapshot)
+		checkpoint, err := newTreeCheckpoint(TreeCheckpointKindStart, Digest{}, baseSnapshot)
 		if err != nil {
 			return nil, err
 		}

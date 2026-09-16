@@ -19,7 +19,12 @@ const (
 )
 
 func (s StepStatus) Valid() bool {
-	return s == StepStatusSucceeded || s == StepStatusFailed || s == StepStatusDiscarded
+	switch s {
+	case StepStatusSucceeded, StepStatusFailed, StepStatusDiscarded:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s StepStatus) String() string {

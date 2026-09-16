@@ -17,11 +17,11 @@ func TestCommittedEventsWaitForDurabilityAcknowledgment(t *testing.T) {
 		step  uint64
 		facts []string
 	}{
-		{name: "pause", mode: "leaf_pause", kind: TreeCheckpointParked, step: 1,
+		{name: "pause", mode: "leaf_pause", kind: TreeCheckpointKindParked, step: 1,
 			facts: []string{EventStepCommitted, EventProcessPaused, EventProcessFinished}},
-		{name: "completion", mode: "leaf", kind: TreeCheckpointTerminal, step: 1,
+		{name: "completion", mode: "leaf", kind: TreeCheckpointKindTerminal, step: 1,
 			facts: []string{EventStepCommitted, EventProcessFinished}},
-		{name: "resumption", mode: "leaf_pause", kind: TreeCheckpointTerminal, step: 2,
+		{name: "resumption", mode: "leaf_pause", kind: TreeCheckpointKindTerminal, step: 2,
 			facts: []string{EventProcessResumed, EventStepCommitted, EventProcessFinished}},
 	} {
 		for _, fail := range []bool{false, true} {
@@ -71,7 +71,7 @@ func TestCommittedEventsWaitForDurabilityAcknowledgment(t *testing.T) {
 					}
 				}
 				durability.unblock()
-				if !fail && scenario.kind == TreeCheckpointParked {
+				if !fail && scenario.kind == TreeCheckpointKindParked {
 					waitForStatus(t, root, StatusPaused)
 					if resumeErr := root.Resume(t.Context()); resumeErr != nil {
 						t.Fatal(resumeErr)
@@ -87,12 +87,12 @@ func TestCommittedEventsWaitForDurabilityAcknowledgment(t *testing.T) {
 				if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 					t.Fatal(err)
 				}
-				wantCheckpoints := []TreeCheckpointKind{TreeCheckpointStart}
+				wantCheckpoints := []TreeCheckpointKind{TreeCheckpointKindStart}
 				if scenario.mode == "leaf_pause" {
-					wantCheckpoints = append(wantCheckpoints, TreeCheckpointParked)
+					wantCheckpoints = append(wantCheckpoints, TreeCheckpointKindParked)
 				}
-				if !fail || scenario.kind == TreeCheckpointTerminal {
-					wantCheckpoints = append(wantCheckpoints, TreeCheckpointTerminal)
+				if !fail || scenario.kind == TreeCheckpointKindTerminal {
+					wantCheckpoints = append(wantCheckpoints, TreeCheckpointKindTerminal)
 				}
 				var checkpointKinds []TreeCheckpointKind
 				for _, checkpoint := range durability.treeCheckpoints() {
@@ -277,7 +277,7 @@ func TestEquivalentPausedStatePublishesWithoutAnotherCommit(t *testing.T) {
 		}
 		synctest.Wait()
 		checkpoints := durability.treeCheckpoints()
-		if len(checkpoints) != 2 || checkpoints[1].Kind() != TreeCheckpointParked {
+		if len(checkpoints) != 2 || checkpoints[1].Kind() != TreeCheckpointKindParked {
 			t.Fatal("initial pause was not acknowledged")
 		}
 		if resumeErr := root.Resume(t.Context()); resumeErr != nil {

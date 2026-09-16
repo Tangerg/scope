@@ -35,7 +35,7 @@ func (r *recordingTreeDurability) CommitEffect(
 	r.mu.Lock()
 	r.effects = append(r.effects, boundary)
 	r.mu.Unlock()
-	if boundary.Kind() == EffectBoundaryPending {
+	if boundary.Kind() == EffectBoundaryKindPending {
 		r.pending.Store(true)
 	}
 	return nil
@@ -110,7 +110,7 @@ func (b *blockingTerminalCheckpointDurability) CommitCheckpoint(
 	ctx context.Context,
 	checkpoint TreeCheckpoint,
 ) error {
-	if checkpoint.Kind() == TreeCheckpointTerminal {
+	if checkpoint.Kind() == TreeCheckpointKindTerminal {
 		b.once.Do(func() { close(b.entered) })
 		select {
 		case <-b.release:
@@ -203,7 +203,7 @@ func TestRestoreTreeRejectsLocalRegistrationBeforeActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForStatus(t, original, StatusWaiting)
-	parked := waitForDurableCheckpoint(t, durability, original.ID(), TreeCheckpointParked)
+	parked := waitForDurableCheckpoint(t, durability, original.ID(), TreeCheckpointKindParked)
 
 	destination, err := NewEngine(EngineConfig{TreeDurability: durability})
 	if err != nil {
@@ -286,25 +286,25 @@ func TestDurableEffectCommitFailuresStopTheTreeAtTheCorrectBoundary(t *testing.T
 		wantFailureCode  string
 	}{
 		{
-			name: "pending is definitely undispatched", kind: EffectBoundaryPending,
+			name: "pending is definitely undispatched", kind: EffectBoundaryKindPending,
 			cause:           errors.New("durability unavailable"),
-			wantFailureKind: FailureKindExternal, wantFailureCode: treeDurabilityFailureCode,
+			wantFailureKind: FailureKindExternal, wantFailureCode: failureCodeEngineTreeDurabilityFailed,
 		},
 		{
-			name: "settled preserves ambiguous Effect identity", kind: EffectBoundarySettled,
+			name: "settled preserves ambiguous Effect identity", kind: EffectBoundaryKindSettled,
 			cause: errors.New("durability unavailable"), wantDispatches: 1,
 			wantUnresolvedID: true, wantFailureKind: FailureKindExternal,
-			wantFailureCode: treeDurabilityFailureCode,
+			wantFailureCode: failureCodeEngineTreeDurabilityFailed,
 		},
 		{
-			name: "content conflict is a Host contract violation", kind: EffectBoundaryPending,
+			name: "content conflict is a Host contract violation", kind: EffectBoundaryKindPending,
 			cause: ErrDurabilityConflict, wantFailureKind: FailureKindContract,
-			wantFailureCode: treeDurabilityConflictCode,
+			wantFailureCode: failureCodeEngineTreeDurabilityConflict,
 		},
 		{
-			name: "stale writer is fenced", kind: EffectBoundaryPending,
+			name: "stale writer is fenced", kind: EffectBoundaryKindPending,
 			cause: ErrTreeIncarnationConflict, wantFailureKind: FailureKindExternal,
-			wantFailureCode: treeIncarnationConflictCode,
+			wantFailureCode: failureCodeEngineTreeIncarnationConflict,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -342,7 +342,7 @@ func TestDurableEffectCommitFailuresStopTheTreeAtTheCorrectBoundary(t *testing.T
 				t.Fatalf("runtime stop observations=%d, want 1", stopped)
 			}
 			head := recorder.treeCheckpoints()[0].TreeSnapshot()
-			if test.kind == EffectBoundarySettled {
+			if test.kind == EffectBoundaryKindSettled {
 				head = recorder.effectBoundaries()[0].TreeSnapshot()
 			}
 			if runtimeErr.HeadDigest() != head.Digest() || inspectProcessSnapshot(t, process).Status() != StatusRunning {
@@ -387,7 +387,7 @@ func TestTreeDurabilityFaultPreservesEveryConcurrentEffectForReconciliation(t *t
 	recorder := &recordingTreeDurability{}
 	durability := &rejectingEffectDurability{
 		recordingTreeDurability: recorder,
-		rejectedKind:            EffectBoundarySettled,
+		rejectedKind:            EffectBoundaryKindSettled,
 		err:                     errors.New("durability unavailable"),
 	}
 	dispatcher := newBlockingChildDispatcher("first", "second", "third")
@@ -472,7 +472,7 @@ func TestTreeDurabilityFaultReleasesConcurrentChildAdmissionOwnership(t *testing
 	})
 	durability := &rejectingEffectDurability{
 		recordingTreeDurability: &recordingTreeDurability{},
-		rejectedKind:            EffectBoundarySettled,
+		rejectedKind:            EffectBoundaryKindSettled,
 		err:                     errors.New("durability unavailable"),
 	}
 	deployment := newChildTestDeploymentWithDispatcher(t, dispatcher)
@@ -576,9 +576,9 @@ func TestDurableUnknownResolutionCommitsAResolvedBoundary(t *testing.T) {
 		t.Fatalf("result status=%s", result.Status())
 	}
 	boundaries := durability.effectBoundaries()
-	if len(boundaries) != 3 || boundaries[0].Kind() != EffectBoundaryPending ||
-		boundaries[1].Kind() != EffectBoundarySettled ||
-		boundaries[2].Kind() != EffectBoundaryResolved {
+	if len(boundaries) != 3 || boundaries[0].Kind() != EffectBoundaryKindPending ||
+		boundaries[1].Kind() != EffectBoundaryKindSettled ||
+		boundaries[2].Kind() != EffectBoundaryKindResolved {
 		t.Fatalf("Effect boundary order=%v", boundaries)
 	}
 	pending, present := boundaries[0].Settlement()
@@ -682,7 +682,7 @@ func assertRecoveryBoundary(
 	}
 	boundary := boundaries[0]
 	settlement, present := boundary.Settlement()
-	if boundary.Kind() != EffectBoundarySettled || !present ||
+	if boundary.Kind() != EffectBoundaryKindSettled || !present ||
 		boundary.Request().ID() != effectID || settlement.EffectID() != effectID ||
 		settlement.Status() != wantStatus {
 		t.Fatalf("recovery boundary=%+v settlement=%+v present=%t", boundary, settlement, present)
@@ -734,7 +734,7 @@ func durablePendingTreeSnapshot(
 		t.Fatal(err)
 	}
 	boundaries := durability.effectBoundaries()
-	if len(boundaries) == 0 || boundaries[0].Kind() != EffectBoundaryPending {
+	if len(boundaries) == 0 || boundaries[0].Kind() != EffectBoundaryKindPending {
 		t.Fatalf("pending boundary is missing: %v", boundaries)
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
@@ -887,7 +887,7 @@ func (r *rejectingStartCheckpointDurability) CommitCheckpoint(ctx context.Contex
 	if err := r.recordingTreeDurability.CommitCheckpoint(ctx, checkpoint); err != nil {
 		return err
 	}
-	if checkpoint.Kind() == TreeCheckpointStart {
+	if checkpoint.Kind() == TreeCheckpointKindStart {
 		return r.err
 	}
 	return nil
@@ -946,7 +946,7 @@ func TestDurableStartSeparatesInitializationAcceptanceFromCheckpoint(t *testing.
 			if len(checkpoints) != test.wantCheckpoints {
 				t.Fatalf("checkpoints=%d, want %d", len(checkpoints), test.wantCheckpoints)
 			}
-			if len(checkpoints) == 1 && (checkpoints[0].Kind() != TreeCheckpointStart || !checkpoints[0].Valid() || checkpoints[0].PreviousTreeDigest() != (Digest{})) {
+			if len(checkpoints) == 1 && (checkpoints[0].Kind() != TreeCheckpointKindStart || !checkpoints[0].Valid() || checkpoints[0].PreviousTreeDigest() != (Digest{})) {
 				t.Fatalf("invalid initial checkpoint: %+v", checkpoints[0])
 			}
 			assertNoPendingProcessStarts(t, engine)

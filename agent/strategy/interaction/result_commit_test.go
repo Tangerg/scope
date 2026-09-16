@@ -571,7 +571,7 @@ func (r *resultPublicationCrash) CommitEffect(ctx context.Context, boundary agen
 		return decodeErr
 	}
 	_, settled := boundary.Settlement()
-	if intent.Operation == "result_commit" && (r.beforeCommit && boundary.Kind() == agent.EffectBoundaryPending || !r.beforeCommit && settled) {
+	if intent.Operation == "result_commit" && (r.beforeCommit && boundary.Kind() == agent.EffectBoundaryKindPending || !r.beforeCommit && settled) {
 		return errors.New("crash after publication settlement committed")
 	}
 	return nil

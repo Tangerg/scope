@@ -139,7 +139,7 @@ type planningActionBoundary struct {
 }
 
 func (p *planningActionBoundary) CommitEffect(ctx context.Context, boundary agent.EffectBoundary) error {
-	if boundary.Kind() == agent.EffectBoundaryPending && len(boundary.Request().Effect().RequiredCapabilities().Values()) > 0 {
+	if boundary.Kind() == agent.EffectBoundaryKindPending && len(boundary.Request().Effect().RequiredCapabilities().Values()) > 0 {
 		p.snapshot = boundary.TreeSnapshot()
 		p.step = boundary.Request().StepSequence()
 		return p.cause

@@ -21,7 +21,12 @@ const (
 )
 
 func (r ReplayPolicy) Valid() bool {
-	return r == ReplayPolicyNever || r == ReplayPolicySameIdentity
+	switch r {
+	case ReplayPolicyNever, ReplayPolicySameIdentity:
+		return true
+	default:
+		return false
+	}
 }
 
 func (r ReplayPolicy) String() string {

@@ -18,15 +18,15 @@ var (
 type EffectBoundaryKind string
 
 const (
-	EffectBoundaryInvalid  EffectBoundaryKind = ""
-	EffectBoundaryPending  EffectBoundaryKind = "pending"
-	EffectBoundarySettled  EffectBoundaryKind = "settled"
-	EffectBoundaryResolved EffectBoundaryKind = "resolved"
+	EffectBoundaryKindInvalid  EffectBoundaryKind = ""
+	EffectBoundaryKindPending  EffectBoundaryKind = "pending"
+	EffectBoundaryKindSettled  EffectBoundaryKind = "settled"
+	EffectBoundaryKindResolved EffectBoundaryKind = "resolved"
 )
 
 func (e EffectBoundaryKind) Valid() bool {
 	switch e {
-	case EffectBoundaryPending, EffectBoundarySettled, EffectBoundaryResolved:
+	case EffectBoundaryKindPending, EffectBoundaryKindSettled, EffectBoundaryKindResolved:
 		return true
 	default:
 		return false
@@ -76,7 +76,7 @@ func (e EffectBoundary) Kind() EffectBoundaryKind { return e.kind }
 func (e EffectBoundary) Request() EffectRequest { return e.request.clone() }
 
 func (e EffectBoundary) Settlement() (Settlement, bool) {
-	return e.settlement.clone(), e.kind == EffectBoundarySettled || e.kind == EffectBoundaryResolved
+	return e.settlement.clone(), e.kind == EffectBoundaryKindSettled || e.kind == EffectBoundaryKindResolved
 }
 
 func (e EffectBoundary) PreviousTreeDigest() Digest { return e.previousTreeDigest }
@@ -97,12 +97,12 @@ func (e EffectBoundary) Valid() bool {
 		return false
 	}
 	switch e.kind {
-	case EffectBoundaryPending:
+	case EffectBoundaryKindPending:
 		return !e.settlement.Valid()
-	case EffectBoundarySettled:
+	case EffectBoundaryKindSettled:
 		return e.settlement.Valid() &&
 			e.settlement.EffectID() == e.request.ID()
-	case EffectBoundaryResolved:
+	case EffectBoundaryKindResolved:
 		return e.settlement.Valid() &&
 			e.settlement.Status() != SettlementStatusUnknown &&
 			e.settlement.EffectID() == e.request.ID()
@@ -133,7 +133,7 @@ func (e EffectBoundary) matchesProspectiveTree() bool {
 	if record.ID != e.request.ID() || !record.Effect.equal(e.request.effect) {
 		return false
 	}
-	if e.kind == EffectBoundaryPending {
+	if e.kind == EffectBoundaryKindPending {
 		return record.Phase == effectPhasePending && record.Settlement == nil
 	}
 	return record.Phase == effectPhaseSettled && record.Settlement != nil &&
@@ -148,18 +148,18 @@ func (e EffectBoundary) matchesProspectiveTree() bool {
 type TreeCheckpointKind string
 
 const (
-	TreeCheckpointInvalid    TreeCheckpointKind = ""
-	TreeCheckpointStart      TreeCheckpointKind = "start"
-	TreeCheckpointChildStart TreeCheckpointKind = "child_start"
-	TreeCheckpointSignals    TreeCheckpointKind = "signals"
-	TreeCheckpointProgress   TreeCheckpointKind = "progress"
-	TreeCheckpointParked     TreeCheckpointKind = "parked"
-	TreeCheckpointTerminal   TreeCheckpointKind = "terminal"
+	TreeCheckpointKindInvalid    TreeCheckpointKind = ""
+	TreeCheckpointKindStart      TreeCheckpointKind = "start"
+	TreeCheckpointKindChildStart TreeCheckpointKind = "child_start"
+	TreeCheckpointKindSignals    TreeCheckpointKind = "signals"
+	TreeCheckpointKindProgress   TreeCheckpointKind = "progress"
+	TreeCheckpointKindParked     TreeCheckpointKind = "parked"
+	TreeCheckpointKindTerminal   TreeCheckpointKind = "terminal"
 )
 
 func (t TreeCheckpointKind) Valid() bool {
 	switch t {
-	case TreeCheckpointStart, TreeCheckpointChildStart, TreeCheckpointSignals, TreeCheckpointProgress, TreeCheckpointParked, TreeCheckpointTerminal:
+	case TreeCheckpointKindStart, TreeCheckpointKindChildStart, TreeCheckpointKindSignals, TreeCheckpointKindProgress, TreeCheckpointKindParked, TreeCheckpointKindTerminal:
 		return true
 	default:
 		return false
@@ -207,7 +207,7 @@ func (t TreeCheckpoint) Valid() bool {
 	if !t.kind.Valid() || !t.treeSnapshot.Valid() {
 		return false
 	}
-	if t.kind == TreeCheckpointStart {
+	if t.kind == TreeCheckpointKindStart {
 		if t.previousTreeDigest != (Digest{}) {
 			return false
 		}
@@ -219,11 +219,11 @@ func (t TreeCheckpoint) Valid() bool {
 }
 
 func (t TreeCheckpoint) matchesSafeCut() bool {
-	if t.kind == TreeCheckpointStart {
+	if t.kind == TreeCheckpointKindStart {
 		snapshots := t.treeSnapshot.state.ProcessSnapshots
 		return len(snapshots) == 1 && snapshots[0].Status() == StatusRunning
 	}
-	if t.kind == TreeCheckpointSignals || t.kind == TreeCheckpointChildStart {
+	if t.kind == TreeCheckpointKindSignals || t.kind == TreeCheckpointKindChildStart {
 		return true
 	}
 	allTerminal := true
@@ -241,9 +241,9 @@ func (t TreeCheckpoint) matchesSafeCut() bool {
 			parked = false
 		}
 	}
-	return t.kind == TreeCheckpointTerminal && allTerminal ||
-		t.kind == TreeCheckpointParked && !allTerminal && parked ||
-		t.kind == TreeCheckpointProgress && !parked
+	return t.kind == TreeCheckpointKindTerminal && allTerminal ||
+		t.kind == TreeCheckpointKindParked && !allTerminal && parked ||
+		t.kind == TreeCheckpointKindProgress && !parked
 }
 
 // TreeActivation changes writer identity and recovery state together so the

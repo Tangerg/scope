@@ -6,12 +6,6 @@ import (
 	"slices"
 )
 
-const (
-	treeDurabilityConflictCode  = "engine.tree.durability_conflict"
-	treeDurabilityFailureCode   = "engine.tree.durability_failed"
-	treeIncarnationConflictCode = "engine.tree.incarnation_conflict"
-)
-
 func orderedProcesses(values map[ProcessID]*processState) []*processState {
 	processes := make([]*processState, 0, len(values))
 	for _, process := range values {
@@ -34,13 +28,13 @@ func orderedProcesses(values map[ProcessID]*processState) []*processState {
 
 func newTreeDurabilityFailure(cause error) Failure {
 	kind := FailureKindExternal
-	code := treeDurabilityFailureCode
+	code := failureCodeEngineTreeDurabilityFailed
 	switch {
 	case errors.Is(cause, ErrDurabilityConflict):
 		kind = FailureKindContract
-		code = treeDurabilityConflictCode
+		code = failureCodeEngineTreeDurabilityConflict
 	case errors.Is(cause, ErrTreeIncarnationConflict):
-		code = treeIncarnationConflictCode
+		code = failureCodeEngineTreeIncarnationConflict
 	}
 	return newEngineFailure(kind, code, cause)
 }

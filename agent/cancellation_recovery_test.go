@@ -52,7 +52,7 @@ func TestCancellationRevokesAcknowledgedButUnusedDispatchPermission(t *testing.T
 			t.Errorf("unused dispatch evidence = %+v", wire.Prepared)
 		}
 		boundaries := durability.effectBoundaries()
-		if len(boundaries) != 1 || boundaries[0].Kind() != EffectBoundaryPending {
+		if len(boundaries) != 1 || boundaries[0].Kind() != EffectBoundaryKindPending {
 			t.Errorf("unused permission created a settlement: %+v", boundaries)
 		}
 		mustCloseEngine(t, engine)
@@ -121,7 +121,7 @@ func TestRestoredCancellationNeverReplaysAnUncertainDispatch(t *testing.T) {
 				t.Errorf("canceled recovery called Dispatcher: calls=%d policy=%d", recoveredDispatcher.calls.Load(), recoveredDispatcher.queries.Load())
 			}
 			boundaries := recoveredDurability.effectBoundaries()
-			if len(boundaries) != 1 || boundaries[0].Kind() != EffectBoundarySettled {
+			if len(boundaries) != 1 || boundaries[0].Kind() != EffectBoundaryKindSettled {
 				t.Fatalf("recovery boundaries = %+v", boundaries)
 			}
 			settlement, _ := boundaries[0].Settlement()
@@ -140,7 +140,7 @@ type blockingPendingEffectDurability struct {
 }
 
 func (b *blockingPendingEffectDurability) CommitEffect(ctx context.Context, boundary EffectBoundary) error {
-	if boundary.Kind() == EffectBoundaryPending {
+	if boundary.Kind() == EffectBoundaryKindPending {
 		close(b.entered)
 		<-b.release
 	}

@@ -8,12 +8,6 @@ import (
 	"github.com/samber/lo"
 )
 
-const (
-	processStartFailedCode          = "engine.process.start.failed"
-	processSnapshotFailedCode       = "engine.process.snapshot.failed"
-	processSnapshotUnrestorableCode = "engine.process.snapshot.unrestorable"
-)
-
 func failureKindForError(err error) FailureKind {
 	if _, ok := errors.AsType[executionPanicError](err); ok {
 		return FailureKindPanic
@@ -90,21 +84,21 @@ func initializeExecution(
 	execution, err := startExecution(definition, input)
 	if err != nil {
 		failure := newEngineFailure(
-			failureKindForError(err), processStartFailedCode, err,
+			failureKindForError(err), failureCodeEngineProcessStartFailed, err,
 		)
 		return nil, ExecutionState{}, failure, fmt.Errorf("start Execution: %w", err)
 	}
 	state, err := captureExecution(execution)
 	if err != nil {
 		failure := newEngineFailure(
-			failureKindForError(err), processSnapshotFailedCode, err,
+			failureKindForError(err), failureCodeEngineProcessSnapshotFailed, err,
 		)
 		return nil, ExecutionState{}, failure, fmt.Errorf("capture initial Execution state: %w", err)
 	}
 	restored, err := restoreExecution(ctx, definition, state)
 	if err != nil {
 		failure := newEngineFailure(
-			failureKindForError(err), processSnapshotUnrestorableCode, err,
+			failureKindForError(err), failureCodeEngineProcessSnapshotUnrestorable, err,
 		)
 		return nil, ExecutionState{}, failure, fmt.Errorf("validate initial Execution state: %w", err)
 	}

@@ -374,7 +374,7 @@ func preparedEngineTestSnapshot(t testing.TB) ProcessSnapshot {
 		t.Fatal(runErr)
 	}
 	boundaries := durability.effectBoundaries()
-	if len(boundaries) == 0 || boundaries[0].Kind() != EffectBoundaryPending {
+	if len(boundaries) == 0 || boundaries[0].Kind() != EffectBoundaryKindPending {
 		t.Fatalf("pending Effect boundary is missing: %#v", boundaries)
 	}
 	snapshot := boundaries[0].TreeSnapshot().ProcessSnapshots()[0]

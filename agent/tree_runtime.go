@@ -13,11 +13,6 @@ import (
 	"time"
 )
 
-const (
-	childControlNotOwnedCode = "engine.child.control.not_owned"
-	childSignalRejectedCode  = "engine.child.signal.rejected"
-)
-
 // treeRuntime serializes authoritative changes because sibling jobs must not
 // publish incompatible tree cuts. Fenced completions let computation and dispatch
 // run concurrently without sharing commit authority.
@@ -577,7 +572,7 @@ func (t *treeRuntime) prepareChildStart(
 ) childStartPreparation {
 	if !spec.Valid() || !process.handle.relation.Valid() {
 		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindContract, childRequestInvalidCode, ErrInvalidChildStart,
+			spec, FailureKindContract, failureCodeEngineChildRequestInvalid, ErrInvalidChildStart,
 		)}
 	}
 	childID := effectID.childProcessID()
@@ -585,7 +580,7 @@ func (t *treeRuntime) prepareChildStart(
 	requestDigest, err := spec.digest()
 	if err != nil {
 		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindContract, childRequestInvalidCode, err,
+			spec, FailureKindContract, failureCodeEngineChildRequestInvalid, err,
 		)}
 	}
 	if existing, exists := t.engine.Process(childID); exists {
@@ -596,22 +591,22 @@ func (t *treeRuntime) prepareChildStart(
 			}}
 		}
 		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindContract, childIdentityConflictCode, ErrInvalidChildStart,
+			spec, FailureKindContract, failureCodeEngineChildIdentityConflict, ErrInvalidChildStart,
 		)}
 	}
 	if !process.capabilities.Allows(spec.Capabilities) {
 		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindContract, childCapabilityEscalationCode, ErrInvalidCapability,
+			spec, FailureKindContract, failureCodeEngineChildCapabilityEscalation, ErrInvalidCapability,
 		)}
 	}
 	if !t.canStartChild(process) {
 		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindExecution, childTreeLimitCode, ErrResourceLimitExceeded,
+			spec, FailureKindExecution, failureCodeEngineChildTreeLimit, ErrResourceLimitExceeded,
 		)}
 	}
 	if !process.reserveProvisionalChildBudget(spec.Budget) {
 		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindExecution, childBudgetExhaustedCode, ErrResourceLimitExceeded,
+			spec, FailureKindExecution, failureCodeEngineChildBudgetExhausted, ErrResourceLimitExceeded,
 		)}
 	}
 	transferred := false
@@ -623,7 +618,7 @@ func (t *treeRuntime) prepareChildStart(
 	childLimits, err := spec.Budget.limits(process.pendingSignalLimit)
 	if err != nil {
 		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindExecution, childBudgetInvalidCode, err,
+			spec, FailureKindExecution, failureCodeEngineChildBudgetInvalid, err,
 		)}
 	}
 	if reserveProcessStartErr := t.engine.reserveProcessStart(
@@ -631,16 +626,16 @@ func (t *treeRuntime) prepareChildStart(
 	); reserveProcessStartErr != nil {
 		if errors.Is(reserveProcessStartErr, ErrResourceLimitExceeded) {
 			return childStartPreparation{result: failedChildStart(
-				spec, FailureKindExecution, childTreeLimitCode, reserveProcessStartErr,
+				spec, FailureKindExecution, failureCodeEngineChildTreeLimit, reserveProcessStartErr,
 			)}
 		}
 		if errors.Is(reserveProcessStartErr, ErrEngineClosed) {
 			return childStartPreparation{result: failedChildStart(
-				spec, FailureKindExternal, childStartUnavailableCode, reserveProcessStartErr,
+				spec, FailureKindExternal, failureCodeEngineChildStartUnavailable, reserveProcessStartErr,
 			)}
 		}
 		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindContract, childIdentityConflictCode, reserveProcessStartErr,
+			spec, FailureKindContract, failureCodeEngineChildIdentityConflict, reserveProcessStartErr,
 		)}
 	}
 	transferred = true
@@ -694,7 +689,7 @@ func (t *treeRuntime) controlChild(parent *processState, index uint32, record *p
 	result := request.result()
 	child := t.processes[request.ChildID]
 	if child == nil || child.handle.relation.parentID != parent.handle.processID {
-		result.failure = newEngineFailure(FailureKindContract, childControlNotOwnedCode,
+		result.failure = newEngineFailure(FailureKindContract, failureCodeEngineChildControlNotOwned,
 			errors.New("control recipient is not a direct child"))
 	} else {
 		result = t.applyChildControl(child, request)
@@ -713,7 +708,7 @@ func (t *treeRuntime) controlChild(parent *processState, index uint32, record *p
 		t.failDurability(err, parent.handle.processID, record.ID)
 		return
 	}
-	boundary, err := newEffectBoundary(EffectBoundarySettled, t.effectRequestFor(parent, index, *record),
+	boundary, err := newEffectBoundary(EffectBoundaryKindSettled, t.effectRequestFor(parent, index, *record),
 		*record.Settlement, t.head.Digest(), snapshot)
 	if err != nil {
 		t.failDurability(err, parent.handle.processID, record.ID)
@@ -737,12 +732,12 @@ func (t *treeRuntime) applyChildControl(child *processState, request childContro
 	}
 	signal, err := request.Signal.signal()
 	if err != nil {
-		result.failure = newEngineFailure(FailureKindContract, childSignalRejectedCode, err)
+		result.failure = newEngineFailure(FailureKindContract, failureCodeEngineChildSignalRejected, err)
 		return result
 	}
 	accepted, err := t.admitSignals(child, []Signal{signal}, signalSourceExternal)
 	if err != nil {
-		result.failure = newEngineFailure(FailureKindExecution, childSignalRejectedCode, err)
+		result.failure = newEngineFailure(FailureKindExecution, failureCodeEngineChildSignalRejected, err)
 		return result
 	}
 	if accepted {
@@ -782,7 +777,7 @@ func (t *treeRuntime) startPendingEffectCommit(
 		return err
 	}
 	boundary, err := newEffectBoundary(
-		EffectBoundaryPending, request, Settlement{}, t.head.Digest(), snapshot,
+		EffectBoundaryKindPending, request, Settlement{}, t.head.Digest(), snapshot,
 	)
 	if err != nil {
 		return err
@@ -822,7 +817,7 @@ func (t *treeRuntime) startUnknownResolutionCommit(
 	}
 	request := t.effectRequestFor(process, uint32(index), *record)
 	boundary, err := newEffectBoundary(
-		EffectBoundaryResolved, request, command.settlement, t.head.Digest(), snapshot,
+		EffectBoundaryKindResolved, request, command.settlement, t.head.Digest(), snapshot,
 	)
 	if err != nil {
 		return err
@@ -851,7 +846,7 @@ func (t *treeRuntime) startSignalCommit(process *processState, command processCo
 	return t.startCheckpoint(&treeCommit{
 		kind: treeCommitSignals, processID: process.handle.processID,
 		snapshot: snapshot, response: command.response, events: events,
-	}, TreeCheckpointSignals)
+	}, TreeCheckpointKindSignals)
 }
 
 func (t *treeRuntime) startCheckpoint(commit *treeCommit, kind TreeCheckpointKind) error {
@@ -1023,12 +1018,12 @@ func (t *treeRuntime) checkpointKind() TreeCheckpointKind {
 			process.prepared != nil && process.prepared.hasUnknownSettlement() {
 			continue
 		}
-		return TreeCheckpointProgress
+		return TreeCheckpointKindProgress
 	}
 	if allTerminal {
-		return TreeCheckpointTerminal
+		return TreeCheckpointKindTerminal
 	}
-	return TreeCheckpointParked
+	return TreeCheckpointKindParked
 }
 
 func (t *treeRuntime) stageTerminal(process *processState) {
@@ -1687,12 +1682,12 @@ func (t *treeRuntime) replyInspection(response chan treeInspectionResponse) {
 func (t *treeRuntime) buildInspection() (TreeInspection, error) {
 	inspection := TreeInspection{
 		RootID: t.rootID, IncarnationID: t.incarnation, HeadDigest: t.head.Digest(),
-		CommitPending: t.commit != nil, Freeze: TreeFreezeNone,
+		CommitPending: t.commit != nil, Freeze: TreeFreezePhaseNone,
 	}
 	if t.freeze != nil {
-		inspection.Freeze = TreeFreezeAcquiring
+		inspection.Freeze = TreeFreezePhaseAcquiring
 		if t.freeze.ready {
-			inspection.Freeze = TreeFreezeHeld
+			inspection.Freeze = TreeFreezePhaseHeld
 		}
 	}
 	var snapshots []ProcessSnapshot
@@ -1866,12 +1861,12 @@ func (t *treeRuntime) recoverPendingEffect(
 		// run, so retain a failed start instead of claiming it never began.
 		spec, err := decodeChildStartEffect(record.Effect.Payload())
 		if err == nil {
-			result := failedChildStart(spec, FailureKindExecution, childStartInterruptedCode,
+			result := failedChildStart(spec, FailureKindExecution, failureCodeEngineChildStartInterrupted,
 				errors.New("child publication interrupted by parent termination"))
 			err = record.settleChildStart(result)
 		}
 		if err != nil {
-			t.failProcessContract(process, childSettlementInvalidCode, err)
+			t.failProcessContract(process, failureCodeEngineChildSettlementInvalid, err)
 			return
 		}
 		t.enqueueProcess(process.handle.processID)
@@ -1899,7 +1894,7 @@ func (t *treeRuntime) recoverPendingEffect(
 			return
 		}
 		boundary, err := newEffectBoundary(
-			EffectBoundarySettled,
+			EffectBoundaryKindSettled,
 			t.effectRequestFor(process, batchIndex, *record),
 			settlement,
 			t.head.Digest(),
@@ -1939,7 +1934,7 @@ func (t *treeRuntime) startChild(
 	preparation := t.prepareChildStart(process, record.ID, spec)
 	if preparation.plan == nil {
 		if err := t.settleChildStart(process, record.ID, preparation.result, startedAt); err != nil {
-			t.failProcessContract(process, childSettlementInvalidCode, err)
+			t.failProcessContract(process, failureCodeEngineChildSettlementInvalid, err)
 			return
 		}
 		t.enqueueProcess(processID)
@@ -2108,7 +2103,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 	plan := job.childStart
 	if plan == nil {
 		if err := parent.prepared.settleUnknown(job.effectID); err != nil {
-			t.failProcessContract(parent, childSettlementInvalidCode, err)
+			t.failProcessContract(parent, failureCodeEngineChildSettlementInvalid, err)
 		}
 		return
 	}
@@ -2123,7 +2118,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 			t.discardChildStart(plan)
 		}
 		if publicationErr != nil {
-			t.failProcessContract(parent, childSettlementInvalidCode, publicationErr)
+			t.failProcessContract(parent, failureCodeEngineChildSettlementInvalid, publicationErr)
 		} else if checkpointErr != nil {
 			t.failDurability(checkpointErr, parent.handle.processID, job.effectID)
 		}
@@ -2145,7 +2140,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 			if pending.result.started() {
 				commit.kind, commit.child, commit.events = treeCommitChildStart, pending, nil
 			}
-			err = t.startCheckpoint(commit, TreeCheckpointChildStart)
+			err = t.startCheckpoint(commit, TreeCheckpointKindChildStart)
 		}
 		checkpointErr = err
 		transferred = err == nil && pending.result.started()
@@ -2193,7 +2188,7 @@ func (t *treeRuntime) applyChildStart(pending *pendingChildStartPublication) err
 				return err
 			}
 			pending.result = childStartJobResult{result: failedChildStart(
-				pending.plan.spec, FailureKindExecution, childTreeLimitCode, err,
+				pending.plan.spec, FailureKindExecution, failureCodeEngineChildTreeLimit, err,
 			)}
 			_, err = t.applyChildStartSettlement(parent, pending.effectID, pending.result.result)
 			return err
@@ -2348,7 +2343,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 		}
 		request := t.effectRequestFor(process, uint32(index), *record)
 		boundary, err := newEffectBoundary(
-			EffectBoundarySettled, request, settlement, t.head.Digest(), snapshot,
+			EffectBoundaryKindSettled, request, settlement, t.head.Digest(), snapshot,
 		)
 		if err != nil {
 			t.failDurability(err, process.handle.processID, record.ID)

@@ -72,7 +72,7 @@ func (e *execution) requestModel(
 		return e.fail(
 			consumedSignals,
 			agent.FailureKindExecution,
-			"interaction.limit.model_calls",
+			failureCodeInteractionLimitModelCalls,
 			"Interaction reached its configured model-call limit before a final response",
 		)
 	}
@@ -108,7 +108,7 @@ func (e *execution) acceptModel(ctx context.Context, signals []agent.Signal) (ag
 		return e.fail(
 			consumedSignals,
 			agent.FailureKindExternal,
-			"interaction.host.failed",
+			failureCodeInteractionHostFailed,
 			envelope.ModelResult.HostError,
 		)
 	}
@@ -116,7 +116,7 @@ func (e *execution) acceptModel(ctx context.Context, signals []agent.Signal) (ag
 		return e.fail(
 			consumedSignals,
 			agent.FailureKindExternal,
-			"interaction.model.failed",
+			failureCodeInteractionModelFailed,
 			envelope.ModelResult.Error,
 		)
 	}
@@ -138,7 +138,7 @@ func (e *execution) acceptModel(ctx context.Context, signals []agent.Signal) (ag
 		return e.fail(
 			consumedSignals,
 			agent.FailureKindExternal,
-			"interaction.model.tool_calls_not_completed",
+			failureCodeInteractionModelToolCallsNotCompleted,
 			fmt.Sprintf("model output ended with %q; tool calls were not executed", response.Output.FinishReason),
 		)
 	}
@@ -250,7 +250,7 @@ func (e *execution) finishOrRetry(
 			return e.fail(
 				consumedSignals,
 				agent.FailureKindExecution,
-				"interaction.completion.validator_failed",
+				failureCodeInteractionCompletionValidatorFailed,
 				err.Error(),
 			)
 		}
@@ -259,7 +259,7 @@ func (e *execution) finishOrRetry(
 		return e.fail(
 			consumedSignals,
 			agent.FailureKindContract,
-			"interaction.completion.decision_invalid",
+			failureCodeInteractionCompletionDecisionInvalid,
 			"CompletionValidator returned an invalid decision",
 		)
 	}
@@ -592,7 +592,7 @@ func (e *execution) acceptChildCompletions(ctx context.Context, signals []agent.
 		result := outcome.Result()
 		if batch.Kind == childCallsDelegate {
 			if unresolved, known := outcome.SubtreeUnresolvedEffects(); !known || len(unresolved) > 0 {
-				return e.fail(consumed, agent.FailureKindExternal, "interaction.delegate.unresolved_effects", fmt.Sprintf("Delegate subtree %s ended with unresolved Effects %v", result.ProcessID(), unresolved))
+				return e.fail(consumed, agent.FailureKindExternal, failureCodeInteractionDelegateUnresolvedEffects, fmt.Sprintf("Delegate subtree %s ended with unresolved Effects %v", result.ProcessID(), unresolved))
 			}
 		} else if result.Status() != agent.StatusCompleted {
 			termination := result.Termination()
@@ -600,7 +600,7 @@ func (e *execution) acceptChildCompletions(ctx context.Context, signals []agent.
 				return agent.Fail(consumed, failure)
 			}
 			diagnostic := fmt.Sprintf("Tool child %s ended with %s (%s): %s", result.ProcessID(), result.Status(), termination.Cause(), termination.Reason())
-			return e.fail(consumed, agent.FailureKindExecution, "interaction.tool.process_failed", diagnostic)
+			return e.fail(consumed, agent.FailureKindExecution, failureCodeInteractionToolProcessFailed, diagnostic)
 		}
 	}
 	for offset, outcome := range completed.Outcomes() {
@@ -789,3 +789,14 @@ func (e *execution) scheduleToolChildren(ctx context.Context, consumed uint32) (
 }
 
 var _ agent.Execution = (*execution)(nil)
+
+const (
+	failureCodeInteractionCompletionDecisionInvalid  = "interaction.completion.decision_invalid"
+	failureCodeInteractionCompletionValidatorFailed  = "interaction.completion.validator_failed"
+	failureCodeInteractionDelegateUnresolvedEffects  = "interaction.delegate.unresolved_effects"
+	failureCodeInteractionHostFailed                 = "interaction.host.failed"
+	failureCodeInteractionLimitModelCalls            = "interaction.limit.model_calls"
+	failureCodeInteractionModelFailed                = "interaction.model.failed"
+	failureCodeInteractionModelToolCallsNotCompleted = "interaction.model.tool_calls_not_completed"
+	failureCodeInteractionToolProcessFailed          = "interaction.tool.process_failed"
+)

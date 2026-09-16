@@ -219,7 +219,7 @@ func (e *episodeAttempt) CommitCheckpoint(ctx context.Context, checkpoint agent.
 	e.store.mu.Lock()
 	defer e.store.mu.Unlock()
 	record := e.store.successors[e.predecessor]
-	if checkpoint.Kind() != agent.TreeCheckpointStart {
+	if checkpoint.Kind() != agent.TreeCheckpointKindStart {
 		if record.successor != checkpoint.TreeSnapshot().RootID() {
 			return errSuccessorConflict
 		}

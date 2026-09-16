@@ -123,14 +123,14 @@ func (m *MemoryTreeDurability) CommitCheckpoint(
 	key := memoryDurabilityFactKey{
 		checkpointKind: checkpoint.Kind(), rootID: prospective.RootID(), digest: prospective.Digest(),
 	}
-	if checkpoint.Kind() == agent.TreeCheckpointStart {
+	if checkpoint.Kind() == agent.TreeCheckpointKindStart {
 		// A second creation must conflict under the same root key even if its content differs.
 		key.digest = agent.Digest{}
 	}
 	content := prospective.Digest()
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if checkpoint.Kind() == agent.TreeCheckpointStart {
+	if checkpoint.Kind() == agent.TreeCheckpointKindStart {
 		return m.createHead(key, content, prospective)
 	}
 	return m.advanceHead(

@@ -160,7 +160,7 @@ func TestCancellationCollectsInFlightChildInitialization(t *testing.T) {
 						t.Fatalf("canceled initialization lost its failure acknowledgment or retained resources: children=%v outcomes=%d budget=%+v", children, len(outcomes), wire.ReservedBudget)
 					}
 					failure, failed := outcomes[0].Failure()
-					if !failed || failure.Code() != processSnapshotUnrestorableCode || failure.Message() != context.Canceled.Error() {
+					if !failed || failure.Code() != failureCodeEngineProcessSnapshotUnrestorable || failure.Message() != context.Canceled.Error() {
 						t.Fatalf("canceled initialization failure = %+v", failure)
 					}
 				case "outcome acknowledgment":
@@ -198,7 +198,7 @@ func TestCancellationCollectsInFlightChildInitialization(t *testing.T) {
 				}
 				start, err := decodeChildStartResult(settlement.Payload())
 				failure, failed := start.Failure()
-				if err != nil || !failed || failure.Code() != childStartInterruptedCode ||
+				if err != nil || !failed || failure.Code() != failureCodeEngineChildStartInterrupted ||
 					recoveredWire.ReservedBudget != (Budget{}) || len(directChildIDs(t, recoveredEngine, recovered.ID())) != 0 ||
 					len(outcomes) != priorOutcomes {
 					t.Errorf("recovery repeated or lost unpublished initialization: result=%+v error=%v budget=%+v outcomes=%d", start, err, recoveredWire.ReservedBudget, len(outcomes))

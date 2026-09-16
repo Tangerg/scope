@@ -21,7 +21,7 @@ func TestUnknownResolutionSeparatesAttemptsFromCommittedFacts(t *testing.T) {
 					config := EngineConfig{EventListeners: []EventListener{listener}}
 					durability := &inspectionDurability{
 						recordingTreeDurability: &recordingTreeDurability{},
-						effectKind:              EffectBoundaryResolved,
+						effectKind:              EffectBoundaryKindResolved,
 						entered:                 make(chan inspectionCommit, 1), release: make(chan struct{}),
 					}
 					if mode != "ephemeral" {

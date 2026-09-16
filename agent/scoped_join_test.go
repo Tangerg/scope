@@ -262,7 +262,7 @@ func TestJoinRetainsParentResultAndWaitsForFailedDescendantCleanup(t *testing.T)
 		defer dispatcher.ReleaseAll()
 		failure := errors.New("sibling settlement storage failed")
 		durability := &rejectingEffectDurability{
-			recordingTreeDurability: &recordingTreeDurability{}, rejectedKind: EffectBoundarySettled, err: failure,
+			recordingTreeDurability: &recordingTreeDurability{}, rejectedKind: EffectBoundaryKindSettled, err: failure,
 		}
 		engine, err := NewEngine(EngineConfig{TreeDurability: durability})
 		if err != nil {

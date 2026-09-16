@@ -26,7 +26,12 @@ const (
 )
 
 func (e EffectTarget) Valid() bool {
-	return e == EffectTargetFramework || e == EffectTargetDispatcher
+	switch e {
+	case EffectTargetFramework, EffectTargetDispatcher:
+		return true
+	default:
+		return false
+	}
 }
 
 func (e EffectTarget) String() string {

@@ -25,7 +25,12 @@ const (
 )
 
 func (w WaitKind) Valid() bool {
-	return w == WaitKindExternal || w == WaitKindChildren
+	switch w {
+	case WaitKindExternal, WaitKindChildren:
+		return true
+	default:
+		return false
+	}
 }
 
 func (w WaitKind) String() string {

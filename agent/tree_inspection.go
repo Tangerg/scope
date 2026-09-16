@@ -10,19 +10,24 @@ import (
 type TreeFreezePhase string
 
 const (
-	TreeFreezeNone      TreeFreezePhase = "none"
-	TreeFreezeAcquiring TreeFreezePhase = "acquiring"
-	TreeFreezeHeld      TreeFreezePhase = "held"
-	TreeFreezeInvalid   TreeFreezePhase = ""
+	TreeFreezePhaseInvalid   TreeFreezePhase = ""
+	TreeFreezePhaseNone      TreeFreezePhase = "none"
+	TreeFreezePhaseAcquiring TreeFreezePhase = "acquiring"
+	TreeFreezePhaseHeld      TreeFreezePhase = "held"
 )
 
 func (t TreeFreezePhase) Valid() bool {
-	return t == TreeFreezeNone || t == TreeFreezeAcquiring || t == TreeFreezeHeld
+	switch t {
+	case TreeFreezePhaseNone, TreeFreezePhaseAcquiring, TreeFreezePhaseHeld:
+		return true
+	default:
+		return false
+	}
 }
 
 func (t TreeFreezePhase) String() string {
 	if !t.Valid() {
-		return "invalid"
+		return invalidEnumName
 	}
 	return string(t)
 }
@@ -34,22 +39,27 @@ func (t TreeFreezePhase) String() string {
 type ProcessWork string
 
 const (
+	ProcessWorkInvalid    ProcessWork = ""
 	ProcessWorkIdle       ProcessWork = "idle"
 	ProcessWorkQueued     ProcessWork = "queued"
 	ProcessWorkStep       ProcessWork = "step"
 	ProcessWorkRestore    ProcessWork = "restore"
 	ProcessWorkDispatch   ProcessWork = "dispatch"
 	ProcessWorkChildStart ProcessWork = "child_start"
-	ProcessWorkInvalid    ProcessWork = ""
 )
 
 func (p ProcessWork) Valid() bool {
-	return p == ProcessWorkIdle || p == ProcessWorkQueued || p == ProcessWorkStep || p == ProcessWorkRestore || p == ProcessWorkDispatch || p == ProcessWorkChildStart
+	switch p {
+	case ProcessWorkIdle, ProcessWorkQueued, ProcessWorkStep, ProcessWorkRestore, ProcessWorkDispatch, ProcessWorkChildStart:
+		return true
+	default:
+		return false
+	}
 }
 
 func (p ProcessWork) String() string {
 	if !p.Valid() {
-		return "invalid"
+		return invalidEnumName
 	}
 	return string(p)
 }

@@ -153,7 +153,7 @@ func TestReplayUnknownEffectRetainsEvidenceAndSerializesResolution(t *testing.T)
 						if len(boundaries) != want {
 							t.Fatalf("boundaries=%d want=%d", len(boundaries), want)
 						}
-						if want == 3 && boundaries[2].Kind() != EffectBoundaryResolved {
+						if want == 3 && boundaries[2].Kind() != EffectBoundaryKindResolved {
 							t.Fatal("replay did not commit definite resolution")
 						}
 					}

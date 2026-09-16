@@ -138,7 +138,7 @@ func runConcurrentRestoreConformance(
 	}
 	waitForConformanceStatus(t, originalEngine, original, agent.StatusPaused)
 	head := waitForConformanceHeadStatus(t, driver, original.ID(), agent.StatusPaused)
-	probe.assertCheckpoints(t, agent.TreeCheckpointStart, agent.TreeCheckpointParked)
+	probe.assertCheckpoints(t, agent.TreeCheckpointKindStart, agent.TreeCheckpointKindParked)
 
 	results := make(chan conformanceRestoreResult, 2)
 	for range 2 {
@@ -326,13 +326,13 @@ func (c *conformanceDurabilityProbe) assertEffectLifecycle(t *testing.T) {
 	t.Helper()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.effects) != 3 || c.effects[0] != agent.EffectBoundaryPending ||
-		c.effects[1] != agent.EffectBoundarySettled ||
-		c.effects[2] != agent.EffectBoundaryResolved {
+	if len(c.effects) != 3 || c.effects[0] != agent.EffectBoundaryKindPending ||
+		c.effects[1] != agent.EffectBoundaryKindSettled ||
+		c.effects[2] != agent.EffectBoundaryKindResolved {
 		t.Fatalf("Effect boundary order=%v", c.effects)
 	}
 	if len(c.checkpoints) == 0 ||
-		c.checkpoints[len(c.checkpoints)-1] != agent.TreeCheckpointTerminal {
+		c.checkpoints[len(c.checkpoints)-1] != agent.TreeCheckpointKindTerminal {
 		t.Fatalf("checkpoint order=%v", c.checkpoints)
 	}
 }

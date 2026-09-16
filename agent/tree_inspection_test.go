@@ -57,13 +57,13 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 		checkpoint TreeCheckpointKind
 		mode       string
 	}{
-		{name: "pending", effect: EffectBoundaryPending},
-		{name: "settled", effect: EffectBoundarySettled},
-		{name: "resolved", effect: EffectBoundaryResolved},
-		{name: "child", checkpoint: TreeCheckpointChildStart, mode: "parent"},
-		{name: "parked", checkpoint: TreeCheckpointParked, mode: "leaf_pause"},
-		{name: "terminal", checkpoint: TreeCheckpointTerminal, mode: "leaf"},
-		{name: "input", checkpoint: TreeCheckpointSignals, mode: "leaf_pause"},
+		{name: "pending", effect: EffectBoundaryKindPending},
+		{name: "settled", effect: EffectBoundaryKindSettled},
+		{name: "resolved", effect: EffectBoundaryKindResolved},
+		{name: "child", checkpoint: TreeCheckpointKindChildStart, mode: "parent"},
+		{name: "parked", checkpoint: TreeCheckpointKindParked, mode: "leaf_pause"},
+		{name: "terminal", checkpoint: TreeCheckpointKindTerminal, mode: "leaf"},
+		{name: "input", checkpoint: TreeCheckpointKindSignals, mode: "leaf_pause"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			durability := &inspectionDurability{
@@ -84,7 +84,7 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 				input, err = EncodePayload(childTestInput{Mode: scenario.mode})
 			} else {
 				var dispatcher Dispatcher = &engineTestDispatcher{policy: ReplayPolicyNever}
-				if scenario.effect == EffectBoundaryResolved {
+				if scenario.effect == EffectBoundaryKindResolved {
 					dispatcher = &failingEngineTestDispatcher{}
 				}
 				deployment = engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)
@@ -98,7 +98,7 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 				t.Fatal(err)
 			}
 			var operation <-chan error
-			if scenario.effect == EffectBoundaryResolved {
+			if scenario.effect == EffectBoundaryKindResolved {
 				snapshot := waitForUnknownSettlement(t, root)
 				settlement, settlementErr := NewSettlement(snapshot.UnknownEffectIDs()[0], SettlementStatusSucceeded, []byte(`{"kind":"result","value":"resolved"}`))
 				if settlementErr != nil {
@@ -108,7 +108,7 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 				operation = done
 				go func() { done <- root.ResolveUnknownEffect(t.Context(), settlement) }()
 			}
-			if scenario.checkpoint == TreeCheckpointSignals {
+			if scenario.checkpoint == TreeCheckpointKindSignals {
 				waitForStatus(t, root, StatusPaused)
 				id, _ := ParseSignalID("signal:inspection-input")
 				request, requestErr := NewSignalRequest(id, WaitID{}, []byte(`{"value":"queued"}`))
@@ -128,7 +128,7 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 			var first ProcessSnapshot
 			for range 64 {
 				inspection := requireTreeInspection(t, engine, root.ID())
-				if !inspection.CommitPending || inspection.Stopped || inspection.Freeze != TreeFreezeNone ||
+				if !inspection.CommitPending || inspection.Stopped || inspection.Freeze != TreeFreezePhaseNone ||
 					inspection.HeadDigest != commit.previous || !inspection.IncarnationID.Valid() {
 					t.Fatalf("commit inspection=%+v", inspection)
 				}
@@ -145,10 +145,10 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 			if len(durability.treeCheckpoints()) != checkpoints || len(durability.effectBoundaries()) != effects {
 				t.Fatal("inspection produced a durability write")
 			}
-			if scenario.checkpoint == TreeCheckpointChildStart && len(commit.next.ProcessSnapshots()) != 2 {
+			if scenario.checkpoint == TreeCheckpointKindChildStart && len(commit.next.ProcessSnapshots()) != 2 {
 				t.Fatal("child probe did not include a prospective child")
 			}
-			if scenario.effect == EffectBoundaryResolved && len(first.UnknownEffectIDs()) != 1 {
+			if scenario.effect == EffectBoundaryKindResolved && len(first.UnknownEffectIDs()) != 1 {
 				t.Fatal("unacknowledged resolution removed the confirmed Unknown")
 			}
 			durability.unblock()
@@ -184,7 +184,7 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 			if !stopped.Stopped || stopped.CommitPending || stopped.HeadDigest != commit.previous || len(stopped.Processes) != 1 {
 				t.Fatalf("stopped inspection=%+v", stopped)
 			}
-			if scenario.checkpoint == TreeCheckpointChildStart {
+			if scenario.checkpoint == TreeCheckpointKindChildStart {
 				if err := root.Join(t.Context()); !errors.Is(err, durability.failure) {
 					t.Fatalf("child rollback join error=%v", err)
 				}

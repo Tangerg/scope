@@ -19,7 +19,7 @@ func BenchmarkEffectBoundaryCommit(b *testing.B) {
 				previous := ComputeDigest([]byte("previous tree"))
 				b.ReportAllocs()
 				for b.Loop() {
-					boundary, err := newEffectBoundary(EffectBoundaryPending, request, Settlement{}, previous, snapshot)
+					boundary, err := newEffectBoundary(EffectBoundaryKindPending, request, Settlement{}, previous, snapshot)
 					if err != nil {
 						b.Fatal(err)
 					}
@@ -68,7 +68,7 @@ func effectBoundaryFixture(t testing.TB, count, size int) (*treeRuntime, EffectR
 func TestEffectBoundaryConstructionRejectsMismatchedEffect(t *testing.T) {
 	_, request, snapshot := effectBoundaryFixture(t, 3, 64)
 	previous := ComputeDigest([]byte("previous tree"))
-	if _, err := newEffectBoundary(EffectBoundaryPending, request, Settlement{}, previous, snapshot); err != nil {
+	if _, err := newEffectBoundary(EffectBoundaryKindPending, request, Settlement{}, previous, snapshot); err != nil {
 		t.Fatal(err)
 	}
 	var err error
@@ -76,7 +76,7 @@ func TestEffectBoundaryConstructionRejectsMismatchedEffect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := newEffectBoundary(EffectBoundaryPending, request, Settlement{}, previous, snapshot); err == nil {
+	if _, err := newEffectBoundary(EffectBoundaryKindPending, request, Settlement{}, previous, snapshot); err == nil {
 		t.Fatal("mismatched effect was admitted")
 	}
 	if (EffectBoundary{}).Valid() {

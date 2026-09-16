@@ -252,7 +252,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	}
 	runtime.discardChildStart(preparation.plan)
 	failure, failed := pending.result.result.Failure()
-	if !failed || failure.Code() != childTreeLimitCode || pending.result.started() || len(runtime.processes) != 5 {
+	if !failed || failure.Code() != failureCodeEngineChildTreeLimit || pending.result.started() || len(runtime.processes) != 5 {
 		t.Fatalf("oversize child was installed: failure=%+v, members=%d", failure, len(runtime.processes))
 	}
 	if root.reservedBudget != reserved || root.provisionalChildBudget != (Budget{}) || root.prepared.Effects[0].Settlement.Status() != SettlementStatusFailed {
@@ -302,7 +302,7 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 			if mode == "checkpoint_failed" {
 				runtime.commit = &treeCommit{kind: treeCommitCheckpoint}
 			}
-			result := childStartJobResult{result: failedChildStart(spec, FailureKindExternal, childAdmissionRejectedCode, errors.New("admission refused"))}
+			result := childStartJobResult{result: failedChildStart(spec, FailureKindExternal, failureCodeEngineChildAdmissionRejected, errors.New("admission refused"))}
 			runtime.applyChildStartCompletion(root, &processJob{childStart: preparation.plan, effectID: effectID}, result)
 			if root.provisionalChildBudget != (Budget{}) || root.reservedBudget != (Budget{}) || len(runtime.processes) != 1 {
 				t.Fatal("rejection retained child resources")

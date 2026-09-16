@@ -252,7 +252,7 @@ func (c *coordinatorSettlementCrash) CommitEffect(ctx context.Context, boundary 
 	if err := c.MemoryTreeDurability.CommitEffect(ctx, boundary); err != nil {
 		return err
 	}
-	if boundary.Kind() != agent.EffectBoundarySettled || boundary.Request().DeploymentRef().Name() != "test.coordinator_model" {
+	if boundary.Kind() != agent.EffectBoundaryKindSettled || boundary.Request().DeploymentRef().Name() != "test.coordinator_model" {
 		return nil
 	}
 	parent, _ := boundary.Request().Relation().ParentID()

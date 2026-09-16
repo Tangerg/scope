@@ -144,7 +144,7 @@ func TestTreeSchedulingCommitsParkedStateUnderContinuousQueries(t *testing.T) {
 	}
 	runtime.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, runtime.commitDone))
 	checkpoints := durability.treeCheckpoints()
-	if len(checkpoints) != 1 || checkpoints[0].Kind() != TreeCheckpointParked ||
+	if len(checkpoints) != 1 || checkpoints[0].Kind() != TreeCheckpointKindParked ||
 		inspectionStatus(t, runtime, process.handle.processID) != StatusPaused {
 		t.Fatal("safe checkpoint did not publish the parked state")
 	}

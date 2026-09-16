@@ -55,16 +55,16 @@ func dispatchFailure(err error) Failure {
 		return Failure{}
 	}
 	if _, panicked := errors.AsType[dispatcherPanicError](err); panicked {
-		return newEngineFailure(FailureKindPanic, "engine.dispatch.panicked", errors.New("Dispatcher panicked without a definite outcome"))
+		return newEngineFailure(FailureKindPanic, failureCodeEngineDispatchPanicked, errors.New("Dispatcher panicked without a definite outcome"))
 	}
 	switch {
 	case errors.Is(err, ErrInvalidSettlement):
-		return newEngineFailure(FailureKindContract, "engine.dispatch.settlement.invalid", errors.New("Dispatcher returned an invalid settlement"))
+		return newEngineFailure(FailureKindContract, failureCodeEngineDispatchSettlementInvalid, errors.New("Dispatcher returned an invalid settlement"))
 	case errors.Is(err, context.DeadlineExceeded):
-		return newEngineFailure(FailureKindExternal, "engine.dispatch.deadline", errors.New("Dispatcher deadline expired without a definite outcome"))
+		return newEngineFailure(FailureKindExternal, failureCodeEngineDispatchDeadline, errors.New("Dispatcher deadline expired without a definite outcome"))
 	case errors.Is(err, context.Canceled):
-		return newEngineFailure(FailureKindExternal, "engine.dispatch.canceled", errors.New("Dispatcher was canceled without a definite outcome"))
+		return newEngineFailure(FailureKindExternal, failureCodeEngineDispatchCanceled, errors.New("Dispatcher was canceled without a definite outcome"))
 	default:
-		return newEngineFailure(FailureKindExternal, "engine.dispatch.failed", errors.New("Dispatcher returned an error without a definite outcome"))
+		return newEngineFailure(FailureKindExternal, failureCodeEngineDispatchFailed, errors.New("Dispatcher returned an error without a definite outcome"))
 	}
 }

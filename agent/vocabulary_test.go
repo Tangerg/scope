@@ -38,11 +38,11 @@ func TestStableEnumVocabulary(t *testing.T) {
 			},
 		},
 		"EffectBoundaryKind": {
-			invalid: agent.EffectBoundaryInvalid,
+			invalid: agent.EffectBoundaryKindInvalid,
 			valid: map[string]enumValue{
-				"pending":  agent.EffectBoundaryPending,
-				"settled":  agent.EffectBoundarySettled,
-				"resolved": agent.EffectBoundaryResolved,
+				"pending":  agent.EffectBoundaryKindPending,
+				"settled":  agent.EffectBoundaryKindSettled,
+				"resolved": agent.EffectBoundaryKindResolved,
 			},
 		},
 		"EffectTarget": {
@@ -149,22 +149,22 @@ func TestStableEnumVocabulary(t *testing.T) {
 			},
 		},
 		"TreeCheckpointKind": {
-			invalid: agent.TreeCheckpointInvalid,
+			invalid: agent.TreeCheckpointKindInvalid,
 			valid: map[string]enumValue{
-				"start":       agent.TreeCheckpointStart,
-				"child_start": agent.TreeCheckpointChildStart,
-				"signals":     agent.TreeCheckpointSignals,
-				"progress":    agent.TreeCheckpointProgress,
-				"parked":      agent.TreeCheckpointParked,
-				"terminal":    agent.TreeCheckpointTerminal,
+				"start":       agent.TreeCheckpointKindStart,
+				"child_start": agent.TreeCheckpointKindChildStart,
+				"signals":     agent.TreeCheckpointKindSignals,
+				"progress":    agent.TreeCheckpointKindProgress,
+				"parked":      agent.TreeCheckpointKindParked,
+				"terminal":    agent.TreeCheckpointKindTerminal,
 			},
 		},
 		"TreeFreezePhase": {
-			invalid: agent.TreeFreezeInvalid,
+			invalid: agent.TreeFreezePhaseInvalid,
 			valid: map[string]enumValue{
-				"none":      agent.TreeFreezeNone,
-				"acquiring": agent.TreeFreezeAcquiring,
-				"held":      agent.TreeFreezeHeld,
+				"none":      agent.TreeFreezePhaseNone,
+				"acquiring": agent.TreeFreezePhaseAcquiring,
+				"held":      agent.TreeFreezePhaseHeld,
 			},
 		},
 		"WaitKind": {

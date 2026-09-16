@@ -63,7 +63,12 @@ const (
 )
 
 func (e EventPhase) Valid() bool {
-	return e == EventPhaseAttempt || e == EventPhaseCommitted
+	switch e {
+	case EventPhaseAttempt, EventPhaseCommitted:
+		return true
+	default:
+		return false
+	}
 }
 
 func (e EventPhase) String() string {

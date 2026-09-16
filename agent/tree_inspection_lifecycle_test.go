@@ -46,7 +46,7 @@ func TestInspectTreeRemainsAvailableWhileFreezeOperationIsHeld(t *testing.T) {
 		if inspectErr != nil {
 			t.Fatal(inspectErr)
 		}
-		if inspection.Freeze == TreeFreezeAcquiring {
+		if inspection.Freeze == TreeFreezePhaseAcquiring {
 			if inspection.Processes[0].Work != ProcessWorkDispatch || !inspection.Processes[0].EffectID.Valid() {
 				t.Fatalf("acquiring freeze work=%+v", inspection.Processes[0])
 			}
@@ -60,7 +60,7 @@ func TestInspectTreeRemainsAvailableWhileFreezeOperationIsHeld(t *testing.T) {
 		t.Fatal(acquired.err)
 	}
 	held := requireTreeInspection(t, engine, root.ID())
-	if held.Freeze != TreeFreezeHeld || held.CommitPending || held.Processes[0].Work != ProcessWorkQueued {
+	if held.Freeze != TreeFreezePhaseHeld || held.CommitPending || held.Processes[0].Work != ProcessWorkQueued {
 		t.Fatalf("held freeze inspection=%+v", held)
 	}
 	if releaseErr := acquired.freeze.release(); releaseErr != nil {

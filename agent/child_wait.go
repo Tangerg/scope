@@ -58,7 +58,12 @@ const (
 )
 
 func (c ChildWaitBoundary) Valid() bool {
-	return c == ChildWaitBoundaryResult || c == ChildWaitBoundaryDrained
+	switch c {
+	case ChildWaitBoundaryResult, ChildWaitBoundaryDrained:
+		return true
+	default:
+		return false
+	}
 }
 
 func (c ChildWaitBoundary) String() string {

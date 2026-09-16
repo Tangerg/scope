@@ -197,7 +197,7 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 			result := controlValue(decodeChildControlResult(record.Settlement.Payload()))
 			failure, failed := result.Failure()
 			if target != "direct" {
-				if !failed || failure.Code() != childControlNotOwnedCode || child.mailbox.pendingCount() != 0 {
+				if !failed || failure.Code() != failureCodeEngineChildControlNotOwned || child.mailbox.pendingCount() != 0 {
 					t.Fatalf("authority failure=%+v", result)
 				}
 				return
@@ -219,7 +219,7 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 			child.status = StatusCompleted
 			third := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:terminal")), WaitID{}, []byte(`"late"`)))
 			rejected := runtime.applyChildControl(child, controlValue(decodeChildControlEffect(controlValue(NewChildSignalEffect(recipient, third)).Payload())))
-			if failure, failed := rejected.Failure(); !failed || failure.Code() != childSignalRejectedCode {
+			if failure, failed := rejected.Failure(); !failed || failure.Code() != failureCodeEngineChildSignalRejected {
 				t.Fatal("terminal input admitted")
 			}
 			cancel := controlValue(NewChildCancelEffect(recipient, "stop"))
