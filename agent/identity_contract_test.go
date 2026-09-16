@@ -9,6 +9,24 @@ import (
 	"github.com/Tangerg/scope/agent"
 )
 
+func valid(value any) bool {
+	type validator interface{ Valid() bool }
+	checker, ok := value.(validator)
+	if !ok {
+		return false
+	}
+	return checker.Valid()
+}
+
+func text(value any) string {
+	type stringer interface{ String() string }
+	printer, ok := value.(stringer)
+	if !ok {
+		return ""
+	}
+	return printer.String()
+}
+
 // identityKind names one identity type and how to parse and re-read it, so the
 // shared rules can be asserted once instead of drifting per type.
 type identityKind struct {

@@ -110,6 +110,9 @@ const (
 	modelResponseCallback observationCallback = iota
 	toolStartedCallback
 	toolSettledCallback
+)
+
+const (
 	maxObserverPanicMessageBytes = 4 << 10
 	maxObserverPanicStackBytes   = 64 << 10
 )
@@ -125,6 +128,7 @@ func (o *observationFailureCounters) snapshot() ObservationFailures {
 	return o.failures
 }
 
+// recordPanic must be deferred directly: recover cannot intercept a panic through a wrapper.
 func (o *observationFailureCounters) recordPanic(callback observationCallback, observer any, processID agent.ProcessID, effectID agent.EffectID) {
 	value := recover()
 	if value == nil {

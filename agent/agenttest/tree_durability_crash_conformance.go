@@ -477,7 +477,7 @@ func runCrashAfterTerminalCommit(t *testing.T, store TreeDurabilityConformanceDr
 	recorder := &ObservationRecorder{}
 	engine := newCrashEngine(t, gate, recorder)
 	original := startCrashProcess(t, engine, deployment)
-	awaited := awaitCrashProcessAsync(original)
+	awaited := awaitCrashProcessAsync(t.Context(), original)
 	observation := gate.await(t)
 	head := assertCrashHead(t, store, observation.rootID, observation.prospective.Digest())
 	select {
@@ -510,7 +510,7 @@ func runCrashAfterActivationCommit(t *testing.T, store TreeDurabilityConformance
 		kind: crashCommitActivation, phase: crashCommitAfter,
 	})
 	firstEngine := newCrashEngine(t, gate, nil)
-	firstRestore := restoreCrashTreeAsync(firstEngine, deployment, head)
+	firstRestore := restoreCrashTreeAsync(t.Context(), firstEngine, deployment, head)
 	observation := gate.await(t)
 	newHead := assertCrashHead(t, store, observation.rootID, observation.prospective.Digest())
 	if _, found := firstEngine.Process(source.ID()); found {
@@ -657,13 +657,14 @@ func restoreCrashTree(
 }
 
 func restoreCrashTreeAsync(
+	ctx context.Context,
 	engine *agent.Engine,
 	deployment agent.Deployment,
 	snapshot agent.TreeSnapshot,
 ) <-chan crashRestoreResult {
 	result := make(chan crashRestoreResult, 1)
 	go func() {
-		process, err := engine.RestoreTree(context.Background(), deployment, snapshot)
+		process, err := engine.RestoreTree(ctx, deployment, snapshot)
 		result <- crashRestoreResult{process: process, err: err}
 	}()
 	return result
@@ -756,10 +757,10 @@ func closeCrashEngine(t *testing.T, engine *agent.Engine) {
 	}
 }
 
-func awaitCrashProcessAsync(process *agent.Process) <-chan crashAwaitResult {
+func awaitCrashProcessAsync(ctx context.Context, process *agent.Process) <-chan crashAwaitResult {
 	result := make(chan crashAwaitResult, 1)
 	go func() {
-		value, err := process.Await(context.Background())
+		value, err := process.Await(ctx)
 		result <- crashAwaitResult{result: value, err: err}
 	}()
 	return result
@@ -767,7 +768,7 @@ func awaitCrashProcessAsync(process *agent.Process) <-chan crashAwaitResult {
 
 func awaitCrashProcess(t *testing.T, process *agent.Process) agent.Result {
 	t.Helper()
-	value := awaitCrashAwait(t, awaitCrashProcessAsync(process))
+	value := awaitCrashAwait(t, awaitCrashProcessAsync(t.Context(), process))
 	if value.err != nil {
 		t.Fatal(value.err)
 	}
@@ -776,7 +777,7 @@ func awaitCrashProcess(t *testing.T, process *agent.Process) agent.Result {
 
 func awaitCrashRuntimeError(t *testing.T, process *agent.Process, cause error) {
 	t.Helper()
-	assertCrashRuntimeError(t, process, awaitCrashAwait(t, awaitCrashProcessAsync(process)), cause)
+	assertCrashRuntimeError(t, process, awaitCrashAwait(t, awaitCrashProcessAsync(t.Context(), process)), cause)
 }
 
 func assertCrashRuntimeError(t *testing.T, process *agent.Process, value crashAwaitResult, cause error) {

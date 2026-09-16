@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -165,5 +166,73 @@ func TestDefinitionConformanceRejectsLossyBehaviorRestore(t *testing.T) {
 	err = verifyFreshExecutions(t.Context(), DefinitionConformanceConfig{Definition: definition, Input: input})
 	if !errors.Is(err, errConformanceValuesDiffer) {
 		t.Fatalf("lossy restore = %v", err)
+	}
+}
+
+func TestDefinitionConformanceValidatesEveryConfiguredSignalBatch(t *testing.T) {
+	definition := newDefinitionConformanceFixture(t)
+	input, err := agent.EncodePayload(definitionConformanceInput{Value: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution, err := definition.Start(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := execution.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*DefinitionConformanceConfig)
+		want   string
+	}{
+		{"initial", func(config *DefinitionConformanceConfig) { config.InitialSignals = []agent.Signal{{}} }, "fresh Signals: batch 0 signal 0 is invalid"},
+		{"following", func(config *DefinitionConformanceConfig) { config.FollowingSignals = [][]agent.Signal{nil, {{}}} }, "fresh Signals: batch 2 signal 0 is invalid"},
+		{"restored", func(config *DefinitionConformanceConfig) { config.RestoredCases[0].Signals = []agent.Signal{{}} }, "restored case \"sample\" Signals: batch 0 signal 0 is invalid"},
+		{"restored following", func(config *DefinitionConformanceConfig) {
+			config.RestoredCases[0].FollowingSignals = [][]agent.Signal{nil, {{}}}
+		}, "restored case \"sample\" Signals: batch 2 signal 0 is invalid"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			config := DefinitionConformanceConfig{Definition: definition, Input: input, RestoredCases: []ExecutionConformanceCase{{Name: "sample", State: state}}}
+			test.mutate(&config)
+			if err := validateDefinitionConformanceConfig(config); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("invalid config error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+type conformanceContextExecution struct {
+	seen context.Context
+}
+
+func (c *conformanceContextExecution) Step(ctx context.Context, _ []agent.Signal) (agent.Transition, error) {
+	c.seen = ctx
+	if err := ctx.Err(); err != nil {
+		return agent.Transition{}, err
+	}
+	return agent.Continue(0)
+}
+
+func (c *conformanceContextExecution) Snapshot() (agent.ExecutionState, error) {
+	return agent.EncodeExecutionState("test.context", 0)
+}
+
+func TestConformanceStepPreservesCallerCancellationAndClosesItsScope(t *testing.T) {
+	execution := &conformanceContextExecution{}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	if _, err := callStep(ctx, execution, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(execution.seen.Err(), context.Canceled) || ctx.Err() != nil {
+		t.Fatal("Step must close its own context without canceling the caller")
+	}
+	cancel()
+	if _, err := callStep(ctx, execution, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("caller cancellation did not reach Step: %v", err)
 	}
 }

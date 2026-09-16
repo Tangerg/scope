@@ -2,174 +2,261 @@ package agent_test
 
 import (
 	"encoding/json"
+	"go/importer"
+	"go/token"
+	"go/types"
+	"io"
+	"os"
+	"os/exec"
+	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/Tangerg/scope/agent"
 )
 
-// vocabulary describes one stable enum: the values that are legal on the wire
-// plus the zero value that must never be.
+type enumValue interface {
+	Valid() bool
+	String() string
+}
+
 type vocabulary struct {
-	invalid any
-	valid   []any
+	invalid enumValue
+	valid   map[string]enumValue
 }
 
-func valid(value any) bool {
-	type validator interface{ Valid() bool }
-	checker, ok := value.(validator)
-	if !ok {
-		return false
-	}
-	return checker.Valid()
-}
-
-func text(value any) string {
-	type stringer interface{ String() string }
-	printer, ok := value.(stringer)
-	if !ok {
-		return ""
-	}
-	return printer.String()
-}
-
-// TestStableEnumVocabulary pins every exported enum the Engine writes into a
-// snapshot or event. These strings are wire values: a rename silently
-// invalidates every persisted tree, and a zero value that reports Valid would
-// let an unset field travel as if it were a decision.
+// Exact literals protect persisted vocabulary; source discovery makes missing
+// types and members fail here when the public enum declarations change.
 func TestStableEnumVocabulary(t *testing.T) {
 	vocabularies := map[string]vocabulary{
-		"replay policy": {
-			invalid: agent.ReplayPolicyInvalid,
-			valid:   []any{agent.ReplayPolicyNever, agent.ReplayPolicySameIdentity},
-		},
-		"effect target": {
-			invalid: agent.EffectTargetInvalid,
-			valid:   []any{agent.EffectTargetFramework, agent.EffectTargetDispatcher},
-		},
-		"event phase": {
-			invalid: agent.EventPhaseInvalid,
-			valid:   []any{agent.EventPhaseAttempt, agent.EventPhaseCommitted},
-		},
-		"settlement status": {
-			invalid: agent.SettlementStatusInvalid,
-			valid: []any{
-				agent.SettlementStatusSucceeded,
-				agent.SettlementStatusFailed,
-				agent.SettlementStatusUnknown,
+		"ChildWaitBoundary": {
+			invalid: agent.ChildWaitBoundaryInvalid,
+			valid: map[string]enumValue{
+				"terminal_result": agent.ChildWaitBoundaryResult,
+				"subtree_drained": agent.ChildWaitBoundaryDrained,
 			},
 		},
-		"transition kind": {
-			invalid: agent.TransitionKindInvalid,
-			valid: []any{
-				agent.TransitionKindContinue,
-				agent.TransitionKindWait,
-				agent.TransitionKindPause,
-				agent.TransitionKindComplete,
-				agent.TransitionKindFail,
-			},
-		},
-		"failure kind": {
-			invalid: agent.FailureKindInvalid,
-			valid: []any{
-				agent.FailureKindExecution,
-				agent.FailureKindContract,
-				agent.FailureKindExternal,
-				agent.FailureKindPanic,
-			},
-		},
-		"status": {
-			invalid: agent.StatusInvalid,
-			valid: []any{
-				agent.StatusRunning,
-				agent.StatusWaiting,
-				agent.StatusPaused,
-				agent.StatusCompleted,
-				agent.StatusFailed,
-				agent.StatusCanceled,
-				agent.StatusTimedOut,
-				agent.StatusKilled,
-			},
-		},
-		"termination cause": {
-			invalid: agent.TerminationCauseInvalid,
-			valid: []any{
-				agent.TerminationCauseCompletion,
-				agent.TerminationCauseEngineKill,
-				agent.TerminationCauseProcessDeadline,
-				agent.TerminationCauseParentDeadline,
-				agent.TerminationCauseHostDeadline,
-				agent.TerminationCauseParentCancellation,
-				agent.TerminationCauseHostCancellation,
-				agent.TerminationCauseExecutionFailure,
-				agent.TerminationCauseContractFailure,
-				agent.TerminationCauseExternalFailure,
-				agent.TerminationCausePanic,
-			},
-		},
-		"process initialization outcome status": {
-			invalid: agent.ProcessInitializationOutcomeStatusInvalid,
-			valid: []any{
-				agent.ProcessInitializationOutcomeStatusInitialized,
-				agent.ProcessInitializationOutcomeStatusFailed,
-			},
-		},
-		"effect boundary kind": {
+		"EffectBoundaryKind": {
 			invalid: agent.EffectBoundaryInvalid,
-			valid: []any{
-				agent.EffectBoundaryPending,
-				agent.EffectBoundarySettled,
-				agent.EffectBoundaryResolved,
+			valid: map[string]enumValue{
+				"pending":  agent.EffectBoundaryPending,
+				"settled":  agent.EffectBoundarySettled,
+				"resolved": agent.EffectBoundaryResolved,
 			},
 		},
-		"tree checkpoint kind": {
+		"EffectTarget": {
+			invalid: agent.EffectTargetInvalid,
+			valid: map[string]enumValue{
+				"framework":  agent.EffectTargetFramework,
+				"dispatcher": agent.EffectTargetDispatcher,
+			},
+		},
+		"EventPhase": {
+			invalid: agent.EventPhaseInvalid,
+			valid: map[string]enumValue{
+				"attempt":   agent.EventPhaseAttempt,
+				"committed": agent.EventPhaseCommitted,
+			},
+		},
+		"FailureKind": {
+			invalid: agent.FailureKindInvalid,
+			valid: map[string]enumValue{
+				"execution": agent.FailureKindExecution,
+				"contract":  agent.FailureKindContract,
+				"external":  agent.FailureKindExternal,
+				"panic":     agent.FailureKindPanic,
+			},
+		},
+		"ProcessInitializationOutcomeStatus": {
+			invalid: agent.ProcessInitializationOutcomeStatusInvalid,
+			valid: map[string]enumValue{
+				"initialized": agent.ProcessInitializationOutcomeStatusInitialized,
+				"failed":      agent.ProcessInitializationOutcomeStatusFailed,
+			},
+		},
+		"ProcessWork": {
+			invalid: agent.ProcessWorkInvalid,
+			valid: map[string]enumValue{
+				"idle":        agent.ProcessWorkIdle,
+				"queued":      agent.ProcessWorkQueued,
+				"step":        agent.ProcessWorkStep,
+				"restore":     agent.ProcessWorkRestore,
+				"dispatch":    agent.ProcessWorkDispatch,
+				"child_start": agent.ProcessWorkChildStart,
+			},
+		},
+		"ReplayPolicy": {
+			invalid: agent.ReplayPolicyInvalid,
+			valid: map[string]enumValue{
+				"never":         agent.ReplayPolicyNever,
+				"same_identity": agent.ReplayPolicySameIdentity,
+			},
+		},
+		"SettlementStatus": {
+			invalid: agent.SettlementStatusInvalid,
+			valid: map[string]enumValue{
+				"succeeded": agent.SettlementStatusSucceeded,
+				"failed":    agent.SettlementStatusFailed,
+				"unknown":   agent.SettlementStatusUnknown,
+			},
+		},
+		"Status": {
+			invalid: agent.StatusInvalid,
+			valid: map[string]enumValue{
+				"running":   agent.StatusRunning,
+				"waiting":   agent.StatusWaiting,
+				"paused":    agent.StatusPaused,
+				"completed": agent.StatusCompleted,
+				"failed":    agent.StatusFailed,
+				"canceled":  agent.StatusCanceled,
+				"timed_out": agent.StatusTimedOut,
+				"killed":    agent.StatusKilled,
+			},
+		},
+		"StepStatus": {
+			invalid: agent.StepStatusInvalid,
+			valid: map[string]enumValue{
+				"succeeded": agent.StepStatusSucceeded,
+				"failed":    agent.StepStatusFailed,
+				"discarded": agent.StepStatusDiscarded,
+			},
+		},
+		"TerminationCause": {
+			invalid: agent.TerminationCauseInvalid,
+			valid: map[string]enumValue{
+				"completion":          agent.TerminationCauseCompletion,
+				"engine_kill":         agent.TerminationCauseEngineKill,
+				"process_deadline":    agent.TerminationCauseProcessDeadline,
+				"parent_deadline":     agent.TerminationCauseParentDeadline,
+				"host_deadline":       agent.TerminationCauseHostDeadline,
+				"parent_cancellation": agent.TerminationCauseParentCancellation,
+				"host_cancellation":   agent.TerminationCauseHostCancellation,
+				"execution_failure":   agent.TerminationCauseExecutionFailure,
+				"contract_failure":    agent.TerminationCauseContractFailure,
+				"external_failure":    agent.TerminationCauseExternalFailure,
+				"panic":               agent.TerminationCausePanic,
+			},
+		},
+		"TransitionKind": {
+			invalid: agent.TransitionKindInvalid,
+			valid: map[string]enumValue{
+				"continue": agent.TransitionKindContinue,
+				"wait":     agent.TransitionKindWait,
+				"pause":    agent.TransitionKindPause,
+				"complete": agent.TransitionKindComplete,
+				"fail":     agent.TransitionKindFail,
+			},
+		},
+		"TreeCheckpointKind": {
 			invalid: agent.TreeCheckpointInvalid,
-			valid:   []any{agent.TreeCheckpointStart, agent.TreeCheckpointChildStart, agent.TreeCheckpointSignals, agent.TreeCheckpointProgress, agent.TreeCheckpointParked, agent.TreeCheckpointTerminal},
+			valid: map[string]enumValue{
+				"start":       agent.TreeCheckpointStart,
+				"child_start": agent.TreeCheckpointChildStart,
+				"signals":     agent.TreeCheckpointSignals,
+				"progress":    agent.TreeCheckpointProgress,
+				"parked":      agent.TreeCheckpointParked,
+				"terminal":    agent.TreeCheckpointTerminal,
+			},
 		},
-		"child wait boundary": {
-			invalid: agent.ChildWaitBoundary(""),
-			valid:   []any{agent.ChildWaitBoundaryResult, agent.ChildWaitBoundaryDrained},
+		"TreeFreezePhase": {
+			invalid: agent.TreeFreezeInvalid,
+			valid: map[string]enumValue{
+				"none":      agent.TreeFreezeNone,
+				"acquiring": agent.TreeFreezeAcquiring,
+				"held":      agent.TreeFreezeHeld,
+			},
 		},
-		"step status": {
-			invalid: agent.StepStatus(""),
-			valid:   []any{agent.StepStatusSucceeded, agent.StepStatusFailed},
+		"WaitKind": {
+			invalid: agent.WaitKindInvalid,
+			valid: map[string]enumValue{
+				"external": agent.WaitKindExternal,
+				"children": agent.WaitKindChildren,
+			},
 		},
 	}
-
+	assertVocabularyCoverage(t, vocabularies)
 	for name, enum := range vocabularies {
 		t.Run(name, func(t *testing.T) {
-			if valid(enum.invalid) {
-				t.Errorf("the zero value reports itself valid")
+			typ := reflect.TypeOf(enum.invalid)
+			if typ.Name() != name || !reflect.ValueOf(enum.invalid).IsZero() {
+				t.Fatalf("invalid value = %T(%v), want zero %s", enum.invalid, enum.invalid, name)
 			}
-			if got := text(enum.invalid); got != "invalid" {
-				t.Errorf("invalid value prints %q, want %q", got, "invalid")
+			if enum.invalid.Valid() || enum.invalid.String() != "invalid" {
+				t.Fatalf("zero value = %q, valid = %t", enum.invalid.String(), enum.invalid.Valid())
 			}
-			seen := make(map[string]bool, len(enum.valid))
-			for _, value := range enum.valid {
-				if !valid(value) {
-					t.Errorf("%v reports itself invalid", value)
-					continue
-				}
-				printed := text(value)
-				if printed == "" || printed == "invalid" {
-					t.Errorf("%v prints %q", value, printed)
-				}
-				if seen[printed] {
-					t.Errorf("wire value %q is used twice", printed)
-				}
-				seen[printed] = true
+			for want, value := range enum.valid {
+				t.Run(want, func(t *testing.T) {
+					if reflect.TypeOf(value) != typ || !value.Valid() || value.String() != want {
+						t.Fatalf("value = %T(%q), valid = %t; want %s(%q)", value, value.String(), value.Valid(), name, want)
+					}
+					data, err := json.Marshal(value)
+					if err != nil || string(data) != strconv.Quote(want) {
+						t.Fatalf("JSON = %s, error = %v; want %q", data, err, want)
+					}
+					decoded := reflect.New(typ)
+					if err := json.Unmarshal(data, decoded.Interface()); err != nil {
+						t.Fatal(err)
+					}
+					if !reflect.DeepEqual(decoded.Elem().Interface(), value) {
+						t.Fatalf("JSON round trip = %v, want %v", decoded.Elem(), value)
+					}
+				})
 			}
 		})
 	}
 }
 
-// TestStepStatusPrintsItsWireValue is separate because StepStatus has no
-// declared invalid constant: its zero value is simply not a member.
-func TestStepStatusPrintsItsWireValue(t *testing.T) {
-	if agent.StepStatusSucceeded.String() != "succeeded" {
-		t.Errorf("StepStatusSucceeded prints %q", agent.StepStatusSucceeded)
+func assertVocabularyCoverage(t *testing.T, vocabularies map[string]vocabulary) {
+	t.Helper()
+	// Compiler export data includes inferred constant types and declarations
+	// across files; a syntax-only inventory can miss both.
+	command := exec.CommandContext(t.Context(), "go", "list", "-deps", "-export", "-f", "{{.ImportPath}}\t{{.Export}}", ".")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("load enum declarations: %v\n%s", err, output)
 	}
-	if agent.StepStatusFailed.String() != "failed" {
-		t.Errorf("StepStatusFailed prints %q", agent.StepStatusFailed)
+	exports := make(map[string]string)
+	for line := range strings.Lines(string(output)) {
+		path, archive, ok := strings.Cut(strings.TrimSpace(line), "\t")
+		if ok {
+			exports[path] = archive
+		}
+	}
+	compiler := importer.ForCompiler(token.NewFileSet(), "gc", func(path string) (io.ReadCloser, error) {
+		return os.Open(exports[path])
+	})
+	pkg, err := compiler.Import(reflect.TypeFor[agent.Status]().PkgPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	members := make(map[string]int)
+	for _, name := range pkg.Scope().Names() {
+		constant, ok := pkg.Scope().Lookup(name).(*types.Const)
+		if !ok || !constant.Exported() {
+			continue
+		}
+		typ, ok := constant.Type().(*types.Named)
+		if !ok || !typ.Obj().Exported() || typ.Obj().Pkg() != pkg {
+			continue
+		}
+		methods := types.NewMethodSet(types.NewPointer(typ))
+		if methods.Lookup(pkg, "Valid") != nil && methods.Lookup(pkg, "String") != nil {
+			members[typ.Obj().Name()]++
+		}
+	}
+	for name, count := range members {
+		enum, covered := vocabularies[name]
+		if !covered {
+			t.Errorf("exported enum %s has no pinned vocabulary", name)
+		} else if got := len(enum.valid) + 1; got != count {
+			t.Errorf("%s pins %d members including zero; source declares %d", name, got, count)
+		}
+	}
+	for name := range vocabularies {
+		if members[name] == 0 {
+			t.Errorf("stale vocabulary for %s", name)
+		}
 	}
 }
 
@@ -223,36 +310,5 @@ func TestCapabilityIsAQualifiedName(t *testing.T) {
 				t.Fatalf("UnmarshalText(%q) succeeded", invalid)
 			}
 		})
-	}
-}
-
-// TestEnumsSurviveJSON proves the wire vocabulary is what actually reaches a
-// snapshot, not just what String reports.
-func TestEnumsSurviveJSON(t *testing.T) {
-	type envelope struct {
-		Status      agent.Status           `json:"status"`
-		Transition  agent.TransitionKind   `json:"transition"`
-		Termination agent.TerminationCause `json:"termination"`
-	}
-	original := envelope{
-		Status:      agent.StatusWaiting,
-		Transition:  agent.TransitionKindWait,
-		Termination: agent.TerminationCauseHostCancellation,
-	}
-	encoded, err := json.Marshal(original)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := `{"status":"waiting","transition":"wait","termination":"host_cancellation"}`
-	if string(encoded) != want {
-		t.Fatalf("encoded = %s, want %s", encoded, want)
-	}
-
-	var decoded envelope
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
-		t.Fatal(err)
-	}
-	if decoded != original {
-		t.Fatalf("round trip = %#v, want %#v", decoded, original)
 	}
 }

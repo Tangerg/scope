@@ -42,7 +42,7 @@ func runSignalAdmissionConformance(t *testing.T, factory func() TreeDurabilityCo
 			if err != nil {
 				t.Fatal(err)
 			}
-			process, err := engine.Start(context.Background(), deployment, input)
+			process, err := engine.Start(t.Context(), deployment, input)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -65,7 +65,7 @@ func runSignalAdmissionConformance(t *testing.T, factory func() TreeDurabilityCo
 			}
 			delivered := make(chan signalDeliveryResult, 1)
 			go func() {
-				accepted, deliveryErr := process.DeliverSignals(context.Background(), request)
+				accepted, deliveryErr := process.DeliverSignals(t.Context(), request)
 				delivered <- signalDeliveryResult{accepted: accepted, err: deliveryErr}
 			}()
 			observation := gate.await(t)
@@ -114,7 +114,7 @@ func runSignalAdmissionConformance(t *testing.T, factory func() TreeDurabilityCo
 			if err != nil {
 				t.Fatal(err)
 			}
-			restored, err := restoredEngine.RestoreTree(context.Background(), deployment, head)
+			restored, err := restoredEngine.RestoreTree(t.Context(), deployment, head)
 			if err != nil {
 				t.Fatal(err)
 			}

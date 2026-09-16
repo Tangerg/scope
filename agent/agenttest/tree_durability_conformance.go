@@ -29,6 +29,8 @@ type TreeDurabilityConformanceDriver interface {
 // input consumption, budget preservation, and subtree cancellation recovery.
 // Each factory call must return an empty isolated store so prior head ownership
 // cannot mask a missing compare-and-swap or idempotency check.
+// Runtime and storage operations inherit the test context; cleanup may continue
+// after cancellation to join owned work.
 func RunTreeDurabilityConformance(
 	t *testing.T,
 	factory func() TreeDurabilityConformanceDriver,
@@ -72,7 +74,7 @@ func runEffectBoundaryConformance(
 	if err != nil {
 		t.Fatal(err)
 	}
-	process, err := engine.Start(context.Background(), deployment, input)
+	process, err := engine.Start(t.Context(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,14 +89,14 @@ func runEffectBoundaryConformance(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolveErr := process.ResolveUnknownEffect(context.Background(), settlement); resolveErr != nil {
+	if resolveErr := process.ResolveUnknownEffect(t.Context(), settlement); resolveErr != nil {
 		t.Fatal(resolveErr)
 	}
-	result, err := process.Await(context.Background())
+	result, err := process.Await(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	head, exists, err := driver.LoadTree(context.Background(), result.ProcessID())
+	head, exists, err := driver.LoadTree(t.Context(), result.ProcessID())
 	if err != nil || !exists || !head.Valid() {
 		t.Fatalf("authoritative terminal head exists=%t error=%v", exists, err)
 	}
@@ -130,7 +132,7 @@ func runConcurrentRestoreConformance(
 	if err != nil {
 		t.Fatal(err)
 	}
-	original, err := originalEngine.Start(context.Background(), deployment, input)
+	original, err := originalEngine.Start(t.Context(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,29 +142,30 @@ func runConcurrentRestoreConformance(
 
 	results := make(chan conformanceRestoreResult, 2)
 	for range 2 {
-		go restoreConformanceTree(probe, deployment, head, results)
+		go restoreConformanceTree(t.Context(), probe, deployment, head, results)
 	}
 	winner, conflicts := collectConformanceRestoreResults(t, results)
 	if winner.process == nil || conflicts != 1 {
 		t.Fatalf("restore winner=%v conflicts=%d", winner.process != nil, conflicts)
 	}
-	if err := winner.process.Kill(context.Background(), "conformance cleanup"); err != nil {
+	if err := winner.process.Kill(t.Context(), "conformance cleanup"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := winner.process.Await(context.Background()); err != nil {
+	if _, err := winner.process.Await(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if err := winner.engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	_ = original.Kill(context.Background(), "stale writer cleanup")
-	_, _ = original.Await(context.Background())
+	_ = original.Kill(t.Context(), "stale writer cleanup")
+	_, _ = original.Await(t.Context())
 	if err := originalEngine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func restoreConformanceTree(
+	ctx context.Context,
 	durability agent.TreeDurability,
 	deployment agent.Deployment,
 	head agent.TreeSnapshot,
@@ -173,7 +176,7 @@ func restoreConformanceTree(
 		results <- conformanceRestoreResult{err: err}
 		return
 	}
-	process, err := engine.RestoreTree(context.Background(), deployment, head)
+	process, err := engine.RestoreTree(ctx, deployment, head)
 	results <- conformanceRestoreResult{engine: engine, process: process, err: err}
 }
 
@@ -219,12 +222,12 @@ func runDelayedCommitConformance(
 	if err != nil {
 		t.Fatal(err)
 	}
-	original, err := originalEngine.Start(context.Background(), deployment, input)
+	original, err := originalEngine.Start(t.Context(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	blocking.await(t)
-	base, exists, err := driver.LoadTree(context.Background(), original.ID())
+	base, exists, err := driver.LoadTree(t.Context(), original.ID())
 	if err != nil || !exists || !base.Valid() {
 		t.Fatalf("authoritative base head exists=%t error=%v", exists, err)
 	}
@@ -233,11 +236,11 @@ func runDelayedCommitConformance(
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := restoredEngine.RestoreTree(context.Background(), deployment, base)
+	restored, err := restoredEngine.RestoreTree(t.Context(), deployment, base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result, awaitErr := restored.Await(context.Background()); awaitErr != nil ||
+	if result, awaitErr := restored.Await(t.Context()); awaitErr != nil ||
 		result.Status() != agent.StatusCompleted {
 		t.Fatalf("restored result status=%s error=%v", result.Status(), awaitErr)
 	}
@@ -247,7 +250,7 @@ func runDelayedCommitConformance(
 		t.Fatalf("winner did not publish a durable terminal head: exists=%t error=%v", exists, err)
 	}
 	blocking.continueCommit()
-	stale, err := original.Await(context.Background())
+	stale, err := original.Await(t.Context())
 	assertCrashRuntimeError(t, original, crashAwaitResult{result: stale, err: err}, agent.ErrTreeIncarnationConflict)
 	assertCrashHead(t, driver, original.ID(), winningHead.Digest())
 	if err := restoredEngine.Close(context.WithoutCancel(t.Context())); err != nil {
@@ -607,13 +610,13 @@ func waitForConformanceHeadStatus(
 	want agent.Status,
 ) agent.TreeSnapshot {
 	t.Helper()
-	deadline := time.NewTimer(conformanceStatusTimeout)
-	defer deadline.Stop()
+	ctx, cancel := context.WithTimeout(t.Context(), conformanceStatusTimeout)
+	defer cancel()
 	ticker := time.NewTicker(conformancePollInterval)
 	defer ticker.Stop()
 	var lastError error
 	for {
-		head, exists, err := driver.LoadTree(context.Background(), rootID)
+		head, exists, err := driver.LoadTree(ctx, rootID)
 		lastError = err
 		if err == nil && exists && head.Valid() {
 			root := conformanceSnapshotByID(head.ProcessSnapshots(), rootID)
@@ -623,7 +626,7 @@ func waitForConformanceHeadStatus(
 		}
 		select {
 		case <-ticker.C:
-		case <-deadline.C:
+		case <-ctx.Done():
 			t.Fatalf("authoritative root status did not become %s: last error=%v", want, lastError)
 		}
 	}

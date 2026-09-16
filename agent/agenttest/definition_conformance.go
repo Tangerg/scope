@@ -51,7 +51,10 @@ type ExecutionConformanceCase struct {
 
 // RunDefinitionConformance verifies descriptor stability, concurrent Start
 // isolation, exact Snapshot/Restore, and byte-equivalent Step results for the
-// supplied representative cases. Step cases must describe successful Steps;
+// supplied representative cases. All configured Signals are validated before
+// invoking the Definition. Restore and Step inherit the test context; each Step
+// receives a child context canceled when that call returns.
+// Step cases must describe successful Steps;
 // Strategy-specific failure and cancellation paths remain ordinary tests owned
 // by the Definition implementation.
 func RunDefinitionConformance(t *testing.T, config DefinitionConformanceConfig) {
@@ -71,7 +74,6 @@ func RunDefinitionConformance(t *testing.T, config DefinitionConformanceConfig) 
 		}
 	})
 	for _, sample := range config.RestoredCases {
-		sample := sample
 		t.Run("restored "+sample.Name, func(t *testing.T) {
 			if err := verifyRestoredExecutions(t.Context(), config.Definition, sample); err != nil {
 				t.Fatal(err)
@@ -87,8 +89,8 @@ func validateDefinitionConformanceConfig(config DefinitionConformanceConfig) err
 	if !config.Input.Valid() {
 		return errors.New("agenttest: Definition conformance Input is invalid")
 	}
-	if err := validateConformanceSignals(config.InitialSignals); err != nil {
-		return fmt.Errorf("agenttest: Definition conformance initial Signals: %w", err)
+	if err := validateConformanceSignals(config.InitialSignals, config.FollowingSignals...); err != nil {
+		return fmt.Errorf("agenttest: Definition conformance fresh Signals: %w", err)
 	}
 	names := make(map[string]struct{}, len(config.RestoredCases))
 	for index, sample := range config.RestoredCases {
@@ -102,17 +104,19 @@ func validateDefinitionConformanceConfig(config DefinitionConformanceConfig) err
 		if !sample.State.Valid() {
 			return fmt.Errorf("agenttest: Definition conformance restored case %q has an invalid state", sample.Name)
 		}
-		if err := validateConformanceSignals(sample.Signals); err != nil {
+		if err := validateConformanceSignals(sample.Signals, sample.FollowingSignals...); err != nil {
 			return fmt.Errorf("agenttest: Definition conformance restored case %q Signals: %w", sample.Name, err)
 		}
 	}
 	return nil
 }
 
-func validateConformanceSignals(signals []agent.Signal) error {
-	for index, signal := range signals {
-		if !signal.Valid() {
-			return fmt.Errorf("signal %d is invalid", index)
+func validateConformanceSignals(signals []agent.Signal, following ...[]agent.Signal) error {
+	for batchIndex, batch := range append([][]agent.Signal{signals}, following...) {
+		for index, signal := range batch {
+			if !signal.Valid() {
+				return fmt.Errorf("batch %d signal %d is invalid", batchIndex, index)
+			}
 		}
 	}
 	return nil
@@ -226,9 +230,6 @@ func verifyRestoredExecutions(
 
 func verifyExecutionPair(ctx context.Context, definition agent.Definition, left, right agent.Execution, signals []agent.Signal, following ...[]agent.Signal) error {
 	for _, batch := range append([][]agent.Signal{signals}, following...) {
-		if err := validateConformanceSignals(batch); err != nil {
-			return err
-		}
 		if err := verifyExecutionStep(ctx, definition, left, right, batch); err != nil {
 			return err
 		}
@@ -265,7 +266,7 @@ func verifyExecutionStep(
 	if err != nil {
 		return err
 	}
-	leftTransition, err := callStep(left, slices.Clone(signals))
+	leftTransition, err := callStep(ctx, left, slices.Clone(signals))
 	if err != nil {
 		return err
 	}
@@ -276,7 +277,7 @@ func verifyExecutionStep(
 	if comparisonErr := requireEquivalent("sibling Execution state after the first Step", rightBefore, rightStill); comparisonErr != nil {
 		return fmt.Errorf("%w: %w", errConformanceExecutionsShareState, comparisonErr)
 	}
-	rightTransition, err := callStep(right, slices.Clone(signals))
+	rightTransition, err := callStep(ctx, right, slices.Clone(signals))
 	if err != nil {
 		return err
 	}
@@ -289,7 +290,7 @@ func verifyExecutionStep(
 	if comparisonErr := requireEquivalent("Step Transition", leftTransition, rightTransition); comparisonErr != nil {
 		return comparisonErr
 	}
-	restoredTransition, err := callStep(restored, slices.Clone(signals))
+	restoredTransition, err := callStep(ctx, restored, slices.Clone(signals))
 	if err != nil {
 		return err
 	}
@@ -403,8 +404,8 @@ func callRestore(ctx context.Context, definition agent.Definition, state agent.E
 	return execution, nil
 }
 
-func callStep(execution agent.Execution, signals []agent.Signal) (transition agent.Transition, err error) {
-	ctx, cancel := context.WithCancel(context.Background())
+func callStep(ctx context.Context, execution agent.Execution, signals []agent.Signal) (transition agent.Transition, err error) {
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	defer func() {
 		if recovered := recover(); recovered != nil {
