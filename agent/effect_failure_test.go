@@ -174,7 +174,7 @@ func TestPreparedContractFailureRetainsRestorableSettlementEvidence(t *testing.T
 		t.Fatal(failure.cause)
 	}
 	runtime.startPreparedEffect(process, 0, &process.prepared.Effects[0])
-	runtime.failPreparedEffect(process, "engine.framework_effect.settlement.invalid", errors.New("local contract failed"))
+	runtime.failProcessContract(process, "engine.framework_effect.settlement.invalid", errors.New("local contract failed"))
 	snapshot, err := runtime.captureTree()
 	if err != nil {
 		t.Fatal(err)

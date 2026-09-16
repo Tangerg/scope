@@ -151,6 +151,12 @@ type treeCommit struct {
 	child     *pendingChildOutcome
 }
 
+func (t *treeCommit) reply(response processResponse) {
+	if t.response != nil {
+		t.response <- response
+	}
+}
+
 type pendingChildOutcome struct {
 	parentID  ProcessID
 	effectID  EffectID
@@ -482,23 +488,12 @@ func (t *treeRuntime) advanceOne() bool {
 func (t *treeRuntime) advancePrepared(process *processState) {
 	index, record, err := process.prepared.nextEffect()
 	if err != nil {
-		t.failPreparedEffect(process, failureCodeEngineEffectPhaseInvalid, err)
+		t.failProcessContract(process, failureCodeEngineEffectPhaseInvalid, err)
 		return
 	}
 	if process.pendingControl.hasTerminalIntent() {
 		t.stopProcessTree(process)
-		if record != nil {
-			if record.Phase == effectPhasePending {
-				if process.restoredPending.matches(record.ID) {
-					t.recoverPendingEffect(process, uint32(index), record)
-					return
-				}
-				// Only this incarnation can prove an unused dispatch permission.
-				// A framework wait has no external work to collect or replay.
-				record.revokeDispatch()
-			}
-		}
-		t.terminatePrepared(process)
+		t.terminatePreparedProcess(process)
 		t.finishIfTerminal(process)
 		return
 	}
@@ -522,7 +517,7 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 		} else {
 			process.recordFailure(FailureKindContract, failureCodeEngineFinalizeInvalid, err)
 		}
-		t.terminatePrepared(process)
+		t.terminatePreparedProcess(process)
 	}
 	t.finishIfTerminal(process)
 	if !process.status.Terminal() {
@@ -545,7 +540,7 @@ func (t *treeRuntime) nextAttempt(process *processState) (processAttempt, bool) 
 }
 
 func (t *treeRuntime) setProcessJob(processID ProcessID, job *processJob) {
-	if !processID.Valid() || job == nil || t.jobs[processID] != nil {
+	if !processID.Valid() || t.processes[processID] == nil || job == nil || t.jobs[processID] != nil {
 		panic("agent: invalid concurrent Process job")
 	}
 	t.jobs[processID] = job
@@ -683,8 +678,7 @@ func (t *treeRuntime) canStartChild(parent *processState) bool {
 func (t *treeRuntime) controlChild(parent *processState, index uint32, record *preparedEffect, startedAt time.Time) {
 	request, err := decodeChildControlEffect(record.Effect.Payload())
 	if err != nil {
-		record.revokeDispatch()
-		t.failPreparedEffect(parent, failureCodeEngineChildControlInvalid, err)
+		t.failProcessContract(parent, failureCodeEngineChildControlInvalid, err)
 		return
 	}
 	result := request.result()
@@ -708,7 +702,7 @@ func (t *treeRuntime) controlChild(parent *processState, index uint32, record *p
 		}
 	}
 	if err != nil {
-		t.failPreparedEffect(parent, failureCodeEngineChildControlSettlementInvalid, err)
+		t.failProcessContract(parent, failureCodeEngineChildControlSettlementInvalid, err)
 		return
 	}
 	t.publishSettlementEvent(parent, record.ID, EffectTargetFramework, record.Settlement.Status(), startedAt, nil)
@@ -894,9 +888,7 @@ func (t *treeRuntime) applyTreeCommitCompletion(completion treeCommitCompletion)
 }
 
 func (t *treeRuntime) applyFailedTreeCommit(commit *treeCommit, commitErr error) {
-	if commit.response != nil {
-		commit.response <- processResponse{err: commitErr}
-	}
+	commit.reply(processResponse{err: commitErr})
 	unresolvedEffectID := commit.effectID
 	if commit.kind == treeCommitEffectPending {
 		unresolvedEffectID = EffectID{}
@@ -920,9 +912,7 @@ func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 	case treeCommitEffectPending, treeCommitEffectSettled:
 		t.enqueueProcess(commit.processID)
 	case treeCommitEffectResolved:
-		if commit.response != nil {
-			commit.response <- processResponse{}
-		}
+		commit.reply(processResponse{})
 		t.enqueueProcess(commit.processID)
 	case treeCommitChildOutcome:
 		if err := t.publishChildOutcome(commit.child); err != nil {
@@ -933,7 +923,7 @@ func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 		t.enqueueProcess(commit.processID)
 	case treeCommitCheckpoint:
 	case treeCommitSignals:
-		commit.response <- processResponse{accepted: true}
+		commit.reply(processResponse{accepted: true})
 		t.enqueueProcess(commit.processID)
 	}
 }
@@ -1047,6 +1037,11 @@ func (t *treeRuntime) checkpointKind() TreeCheckpointKind {
 func (t *treeRuntime) stageTerminal(process *processState) {
 	if process == nil || !process.status.Terminal() {
 		return
+	}
+	select {
+	case <-process.handle.outcomePublished:
+		return
+	default:
 	}
 	processID := process.handle.processID
 	publication := t.pendingPublications[processID]
@@ -1857,7 +1852,7 @@ func (t *treeRuntime) startRestore(process *processState) {
 func (t *treeRuntime) startPreparedEffect(process *processState, index int, record *preparedEffect) {
 	if record.Phase == effectPhasePlanned {
 		if err := record.begin(); err != nil {
-			t.failPreparedEffect(process, failureCodeEngineEffectPhaseInvalid, err)
+			t.failProcessContract(process, failureCodeEngineEffectPhaseInvalid, err)
 			return
 		}
 		if record.Effect.Target() == EffectTargetDispatcher && t.engine.durability != nil {
@@ -1886,9 +1881,7 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int, reco
 			return
 		}
 		if err := record.settleFramework(); err != nil {
-			// Local wait preparation performed no external work.
-			record.revokeDispatch()
-			t.failPreparedEffect(process, failureCodeEngineFrameworkEffectSettlementInvalid, err)
+			t.failProcessContract(process, failureCodeEngineFrameworkEffectSettlementInvalid, err)
 			return
 		}
 		t.publishSettlementEvent(process, record.ID, EffectTargetFramework, record.Settlement.Status(), startedAt, nil)
@@ -1915,7 +1908,7 @@ func (t *treeRuntime) recoverPendingEffect(
 			err = record.settleChildStart(result)
 		}
 		if err != nil {
-			t.failPreparedEffect(process, childSettlementInvalidCode, err)
+			t.failProcessContract(process, childSettlementInvalidCode, err)
 			return
 		}
 		t.enqueueProcess(process.handle.processID)
@@ -1929,7 +1922,7 @@ func (t *treeRuntime) recoverPendingEffect(
 		t.startDispatch(process, batchIndex, *record, nil)
 	case ReplayPolicyNever:
 		if err := record.settleUnknown(); err != nil {
-			t.failPreparedEffect(process, failureCodeEngineEffectRecoveryInvalid, err)
+			t.failProcessContract(process, failureCodeEngineEffectRecoveryInvalid, err)
 			return
 		}
 		if t.engine.durability == nil {
@@ -1958,7 +1951,7 @@ func (t *treeRuntime) recoverPendingEffect(
 			effectID: record.ID, snapshot: snapshot,
 		}, boundary)
 	default:
-		t.failPreparedEffect(
+		t.failProcessContract(
 			process, failureCodeEngineEffectRecoveryInvalid, errInvalidReplayPolicy,
 		)
 	}
@@ -1971,8 +1964,7 @@ func (t *treeRuntime) startChild(
 ) {
 	spec, err := decodeChildStartEffect(record.Effect.Payload())
 	if err != nil {
-		record.revokeDispatch()
-		t.failPreparedEffect(process, failureCodeEngineFrameworkEffectSettlementInvalid, err)
+		t.failProcessContract(process, failureCodeEngineFrameworkEffectSettlementInvalid, err)
 		return
 	}
 	attempt, ok := t.nextAttempt(process)
@@ -1982,7 +1974,7 @@ func (t *treeRuntime) startChild(
 	preparation := t.prepareChildStart(process, record.ID, spec)
 	if preparation.plan == nil {
 		if err := t.settleChildStart(process, record.ID, preparation.result, startedAt); err != nil {
-			t.failPreparedEffect(process, childSettlementInvalidCode, err)
+			t.failProcessContract(process, childSettlementInvalidCode, err)
 			return
 		}
 		t.enqueueProcess(process.handle.processID)
@@ -2145,7 +2137,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 	plan := job.childStart
 	if plan == nil {
 		if err := parent.prepared.settleUnknown(job.effectID); err != nil {
-			t.failPreparedEffect(parent, childSettlementInvalidCode, err)
+			t.failProcessContract(parent, childSettlementInvalidCode, err)
 		}
 		return
 	}
@@ -2160,7 +2152,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 			t.discardChildStart(plan)
 		}
 		if outcomeErr != nil {
-			t.failPreparedEffect(parent, childSettlementInvalidCode, outcomeErr)
+			t.failProcessContract(parent, childSettlementInvalidCode, outcomeErr)
 		} else if checkpointErr != nil {
 			t.failDurability(checkpointErr, parent.handle.processID, job.effectID)
 		}
@@ -2280,13 +2272,8 @@ func (t *treeRuntime) applyChildStartSettlement(
 	return record.Settlement.Status(), nil
 }
 
-func (t *treeRuntime) failPreparedEffect(process *processState, code string, err error) {
-	process.recordFailure(FailureKindContract, code, err)
-	if process.prepared != nil {
-		t.terminatePrepared(process)
-	} else {
-		t.installTermination(process, stepOutcome{})
-	}
+func (t *treeRuntime) failProcessContract(process *processState, code string, err error) {
+	t.failProcess(process, FailureKindContract, code, err)
 	t.finishIfTerminal(process)
 }
 
@@ -2346,7 +2333,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 	replaying := record.unknown()
 	if !replaying {
 		if err := record.settle(settlement, result.err); err != nil {
-			t.failPreparedEffect(process, failureCodeEngineEffectSettlementInvalid, err)
+			t.failProcessContract(process, failureCodeEngineEffectSettlementInvalid, err)
 			return
 		}
 	}
@@ -2690,6 +2677,9 @@ func (t *treeRuntime) removeProcess(processID ProcessID) {
 	if process == nil {
 		return
 	}
+	if t.jobs[processID] != nil {
+		panic("agent: cannot remove a Process with owned work")
+	}
 	if parentID, child := process.handle.relation.ParentID(); child {
 		children := t.childrenByParent[parentID]
 		index := slices.Index(children, processID)
@@ -2805,7 +2795,24 @@ func (t *treeRuntime) finalizePrepared(process *processState) error {
 	return nil
 }
 
-func (t *treeRuntime) terminatePrepared(process *processState) {
+func (t *treeRuntime) terminatePreparedProcess(process *processState) {
+	if t.jobs[process.handle.processID] != nil {
+		t.stopProcessTree(process)
+		return
+	}
+	for index := range process.prepared.Effects {
+		record := &process.prepared.Effects[index]
+		if record.Phase != effectPhasePending {
+			continue
+		}
+		if process.restoredPending.matches(record.ID) {
+			t.recoverPendingEffect(process, uint32(index), record)
+			return
+		}
+		// Completed attempts install their settlement before termination. Without
+		// a job or recovered uncertainty, this incarnation owns unused permission.
+		record.revokeDispatch()
+	}
 	process.preparedExecution = nil
 	process.execution = nil
 	t.installTerminationWithUnresolved(process, stepOutcome{}, process.unknownEffectIDs())
@@ -2813,7 +2820,11 @@ func (t *treeRuntime) terminatePrepared(process *processState) {
 
 func (t *treeRuntime) failProcess(process *processState, kind FailureKind, code string, err error) {
 	process.recordFailure(kind, code, err)
-	t.installTermination(process, stepOutcome{})
+	if process.prepared != nil {
+		t.terminatePreparedProcess(process)
+	} else {
+		t.installTermination(process, stepOutcome{})
+	}
 }
 
 func (t *treeRuntime) installTermination(process *processState, outcome stepOutcome) {

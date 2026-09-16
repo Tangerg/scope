@@ -501,13 +501,16 @@ func (p *processState) snapshotAdmissionSize() (int, error) {
 // Asynchronous failures wait for accepted external effects to settle before
 // becoming terminal, just like cancellation and deadline intents.
 func (p *processState) recordFailure(kind FailureKind, code string, err error) {
-	if p.pendingControl.failure.Valid() {
+	if p.status.Terminal() || p.pendingControl.failure.Valid() {
 		return
 	}
 	p.pendingControl.failure = newEngineFailure(kind, code, err)
 }
 
 func (p *processState) installTermination(termination Termination, output Output, finishedAt time.Time) {
+	if p.status.Terminal() {
+		return
+	}
 	p.termination = termination
 	p.status = termination.Status()
 	p.finishedAt = finishedAt
