@@ -38,6 +38,9 @@ const (
 	EventEffectStarted = "agent.effect.started"
 	// EventEffectFinished reports a definite or unknown attempt settlement.
 	EventEffectFinished = "agent.effect.finished"
+	// EventEffectResolved reports an Unknown settlement replaced by a definite
+	// result, through host adjudication or an explicitly requested replay.
+	EventEffectResolved = "agent.effect.resolved"
 	// EventDeltaDropped reports best-effort increments lost to backpressure.
 	EventDeltaDropped = "agent.delta.dropped"
 )
@@ -254,6 +257,15 @@ func (e Event) EffectFinished() (EffectFinishedFact, bool) {
 	return fact, err == nil
 }
 
+// EffectResolved returns the committed resolution fact for EventEffectResolved.
+func (e Event) EffectResolved() (EffectResolvedFact, bool) {
+	if e.name != EventEffectResolved {
+		return EffectResolvedFact{}, false
+	}
+	fact, err := decodeEffectResolvedFact(e.payload)
+	return fact, err == nil
+}
+
 // DeltaDropped returns the typed loss fact for EventDeltaDropped.
 func (e Event) DeltaDropped() (DeltaDroppedFact, bool) {
 	if e.name != EventDeltaDropped {
@@ -385,6 +397,12 @@ func (e Event) validateContract() error {
 			return err
 		}
 		_, err := decodeDeltaDroppedFact(e.payload)
+		return err
+	case EventEffectResolved:
+		if err := e.validateIdentity(EventPhaseCommitted, eventIdentityEffect); err != nil {
+			return err
+		}
+		_, err := decodeEffectResolvedFact(e.payload)
 		return err
 	default:
 		return errors.New("unknown Framework event name")

@@ -825,13 +825,6 @@ func (t *treeRuntime) startUnknownResolutionCommit(
 	index int,
 ) error {
 	record := &process.prepared.Effects[index]
-	var events []Event
-	if event, ok := t.prepareSettlementEvent(process,
-		record.ID, record.Effect.Target(), command.settlement.Status(),
-		process.startedAt, nil,
-	); ok {
-		events = append(events, event)
-	}
 	snapshot, err := t.captureTree()
 	if err != nil {
 		return err
@@ -846,7 +839,7 @@ func (t *treeRuntime) startUnknownResolutionCommit(
 	commit := &treeCommit{
 		kind: treeCommitEffectResolved, processID: process.handle.processID,
 		effectID: record.ID, snapshot: snapshot,
-		response: command.response, events: events,
+		response: command.response,
 	}
 	t.startEffectCommit(commit, boundary)
 	return nil
@@ -1295,6 +1288,12 @@ func (t *treeRuntime) commitResolution(process *processState, command processCom
 		return
 	}
 	process.prepared = candidate.prepared
+	record := process.prepared.Effects[index]
+	payload, _ := json.Marshal(effectResolvedEventPayload{
+		EffectTarget: record.Effect.Target(), SettlementStatus: command.settlement.Status(),
+	})
+	t.publishEventAfterCommit(process, EventEffectResolved, EventPhaseCommitted,
+		process.prepared.StepSequence, record.ID, payload)
 	if t.engine.durability == nil {
 		command.reply(processResponse{})
 		t.enqueueProcess(process.handle.processID)
@@ -2377,9 +2376,9 @@ func (t *treeRuntime) applyDispatchCompletion(
 			t.publishPreparedEvent(process, event)
 		}
 		command := processCommand{settlement: settlement, response: job.response}
+		t.publishSettlementEvent(process, result.effectID, EffectTargetDispatcher,
+			settlement.Status(), job.startedAt, result.err)
 		if result.err != nil || settlement.Status() == SettlementStatusUnknown {
-			t.publishSettlementEvent(process, result.effectID, EffectTargetDispatcher,
-				SettlementStatusUnknown, job.startedAt, result.err)
 			command.reply(processResponse{err: errors.Join(ErrEffectOutcomeUnknown, result.err)})
 			return
 		}

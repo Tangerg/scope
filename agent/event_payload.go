@@ -43,6 +43,38 @@ type effectFinishedEventPayload struct {
 	FailureCode      string           `json:"failure_code,omitempty"`
 }
 
+type effectResolvedEventPayload struct {
+	EffectTarget     EffectTarget     `json:"effect_target"`
+	SettlementStatus SettlementStatus `json:"settlement_status"`
+}
+
+// EffectResolvedFact records the definite result that replaced an Unknown
+// settlement. It has no duration: adjudication is not an execution attempt.
+type EffectResolvedFact struct {
+	target     EffectTarget
+	settlement SettlementStatus
+}
+
+func (e EffectResolvedFact) Target() EffectTarget { return e.target }
+
+func (e EffectResolvedFact) SettlementStatus() SettlementStatus { return e.settlement }
+
+func (e EffectResolvedFact) Valid() bool {
+	return e.target.Valid() && e.settlement.Valid() && e.settlement != SettlementStatusUnknown
+}
+
+func decodeEffectResolvedFact(payload json.RawMessage) (EffectResolvedFact, error) {
+	wire, err := wireJSON.decode[effectResolvedEventPayload](payload)
+	if err != nil {
+		return EffectResolvedFact{}, err
+	}
+	fact := EffectResolvedFact{target: wire.EffectTarget, settlement: wire.SettlementStatus}
+	if !fact.Valid() {
+		return EffectResolvedFact{}, errors.New("invalid Effect resolution event fact")
+	}
+	return fact, nil
+}
+
 type signalAcceptedEventPayload struct {
 	SignalID string `json:"signal_id"`
 	WaitID   string `json:"wait_id,omitempty"`

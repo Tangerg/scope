@@ -157,6 +157,9 @@ func FuzzEventJSONRoundTrip(f *testing.F) {
 		{name: EventEffectStarted, phase: EventPhaseAttempt, stepSequence: 1, effectID: effectID, payload: effectStartedEventPayload{
 			EffectTarget: EffectTargetDispatcher,
 		}},
+		{name: EventEffectResolved, phase: EventPhaseCommitted, stepSequence: 1, effectID: effectID, payload: effectResolvedEventPayload{
+			EffectTarget: EffectTargetDispatcher, SettlementStatus: SettlementStatusSucceeded,
+		}},
 		{name: EventEffectFinished, phase: EventPhaseAttempt, stepSequence: 1, effectID: effectID, payload: effectFinishedEventPayload{
 			EffectTarget: EffectTargetDispatcher, SettlementStatus: SettlementStatusSucceeded, DurationMS: &durationMS,
 		}},

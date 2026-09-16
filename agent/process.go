@@ -164,6 +164,7 @@ func (p *Process) Kill(ctx context.Context, reason string) error {
 
 // ResolveUnknownEffect supplies a definite result after an Effect attempt became
 // unknown. The Engine never converts unknown into retry or success implicitly.
+// Acknowledged resolution publishes EventEffectResolved, not an attempt event.
 // A definite result exceeding Process or tree snapshot capacity returns
 // ErrResourceLimitExceeded without changing the Unknown record or durable head;
 // the caller can then supply a smaller result.
@@ -184,6 +185,8 @@ func (p *Process) ResolveUnknownEffect(ctx context.Context, settlement Settlemen
 // remains authoritative until a definite settlement commits, including if the
 // host crashes or cancellation intervenes. A nil error confirms that settlement;
 // an uncertain attempt returns ErrEffectOutcomeUnknown and remains unresolved.
+// Every replay publishes its own EffectStarted and EffectFinished attempt facts;
+// a committed definite result also publishes EventEffectResolved.
 // Canceling ctx stops only the caller's wait. Terminal intent rejects new
 // attempts, and concurrent replay or resolution returns ErrEffectNotPending.
 func (p *Process) ReplayUnknownEffect(ctx context.Context, effectID EffectID) error {
