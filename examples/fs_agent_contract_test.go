@@ -69,7 +69,7 @@ func TestFilesystemEditOutcomeThroughInteraction(t *testing.T) {
 			events := &agenttest.ObservationRecorder{}
 			engine := contractValue(agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver, EventListeners: []agent.EventListener{events}}))
 			defer engine.Close(context.WithoutCancel(ctx))
-			input := contractValue(agent.EncodeInput(interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("edit"))}}))
+			input := contractValue(agent.EncodePayload(interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("edit"))}}))
 			process := contractValue(engine.Start(ctx, root, input))
 			defer process.Kill(context.WithoutCancel(ctx), "test cleanup")
 			if unknown {

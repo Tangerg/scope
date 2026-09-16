@@ -198,11 +198,11 @@ func (l Limits) reports(actual Trajectory) ([]eval.Report, error) {
 // Expectation describes case-specific success without contaminating Metric
 // identity. Baseline is optional and enables deterministic replay comparison.
 type Expectation struct {
-	Status   agent.Status  `json:"status"`
-	Output   *agent.Output `json:"output,omitempty"`
-	Tools    *ToolSequence `json:"tools,omitempty"`
-	Baseline *Trajectory   `json:"baseline,omitempty"`
-	Limits   Limits        `json:"limits,omitzero"`
+	Status   agent.Status   `json:"status"`
+	Output   *agent.Payload `json:"output,omitempty"`
+	Tools    *ToolSequence  `json:"tools,omitempty"`
+	Baseline *Trajectory    `json:"baseline,omitempty"`
+	Limits   Limits         `json:"limits,omitzero"`
 }
 
 func (e Expectation) Validate() error {

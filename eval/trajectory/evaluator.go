@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
-
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/eval"
 )
@@ -38,7 +37,7 @@ const (
 // Resource counts cover the whole tree; unknown evidence returns an error.
 type Evaluator struct {
 	// OutputProjection selects the business output used by optional replay comparison.
-	OutputProjection eval.Projection[agent.Output, json.RawMessage]
+	OutputProjection eval.Projection[agent.Payload, json.RawMessage]
 }
 
 func (e Evaluator) Evaluate(ctx context.Context, sample Sample) (eval.Report, error) {

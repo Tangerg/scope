@@ -1,23 +1,29 @@
 # Bug reports
 
-Each report records one reproducible defect, its owning layer, and its current
-resolution. The report stays only while that diagnosis remains useful for
-preventing the same mistake.
+One living document per module, holding only what is still open.
 
-## File format
+There are currently no open findings.
 
-`NNN-short-slug.md`, with:
+## Why one document
 
-- **Module / package** and the symbol involved.
-- **Observed behavior**: what the code does now, with the input that shows it.
-- **Expected behavior**: the contract it comes from (GoDoc, a checked example,
-  an executable architecture guard, or a protocol rule).
-- **Blast radius**: who consumes the symbol, and whether a fix is a breaking
-  public API change.
-- **Suggested fix layer**: the root cause's layer, not the symptom's.
+A report that describes a past state goes stale and starts misleading. When a
+finding lands as a code change or an executable gate, **delete its entry** — the
+evidence for what changed is in the git history, not in a resolved-items
+archive. A document that has to be read with "which of these is still true?" in
+mind has stopped being useful.
 
-## Current status
+## What an entry contains
 
-| Report | Status |
-|---|---|
-| [001 — testActiveChildLimit deadlocks the whole agent package](001-active-child-limit-test-deadlock.md) | Fixed in the test; no implementation change needed |
+- **Symbols** with `file:line`, verified against a named HEAD.
+- **What is wrong**, with the input or path that shows it. A defect that is
+  currently unreachable says so and says what prevents it.
+- **Evidence** where the claim is quantitative: an A/B benchmark, a profile, or
+  a reproduction, not an estimate.
+- **Fix layer** — the layer that owns the cause, not the line that shows the
+  symptom.
+
+## Keeping it honest
+
+Re-verify every retained entry against the current HEAD before adding to the
+document, and record the HEAD at the top. An entry that turns out to be wrong is
+deleted and the correction noted, not quietly edited away.

@@ -45,7 +45,7 @@ func TestObservedTreeDurabilityRecordsAcknowledgedBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodeInput(testInput{Value: "private input"})
+	input, err := agent.EncodePayload(testInput{Value: "private input"})
 	if err != nil {
 		t.Fatal(err)
 	}

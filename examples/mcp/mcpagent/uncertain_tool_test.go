@@ -84,7 +84,7 @@ func TestLostMCPResponsePreservesUnknownInteractionEffect(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer engine.Close(context.WithoutCancel(ctx))
-	input, err := agent.EncodeInput(interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("write once"))}})
+	input, err := agent.EncodePayload(interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("write once"))}})
 	if err != nil {
 		t.Fatal(err)
 	}

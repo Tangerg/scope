@@ -28,7 +28,7 @@ const (
 type Trajectory struct {
 	rootProcessID agent.ProcessID
 	termination   agent.Termination
-	output        *agent.Output
+	output        *agent.Payload
 	rootUsage     agent.Usage
 	coverage      *Coverage
 	elapsed       *time.Duration
@@ -66,7 +66,7 @@ func New(config Config) (Trajectory, error) {
 type Config struct {
 	RootProcessID agent.ProcessID
 	Termination   agent.Termination
-	Output        *agent.Output
+	Output        *agent.Payload
 	RootUsage     agent.Usage
 	Coverage      *Coverage
 	Elapsed       *time.Duration
@@ -83,7 +83,7 @@ func (t Trajectory) RootProcessID() agent.ProcessID { return t.rootProcessID }
 
 func (t Trajectory) Termination() agent.Termination { return t.termination }
 
-func (t Trajectory) Output() *agent.Output { return cloneOutput(t.output) }
+func (t Trajectory) Output() *agent.Payload { return cloneOutput(t.output) }
 
 func (t Trajectory) RootUsage() agent.Usage { return t.rootUsage }
 
@@ -110,7 +110,7 @@ func (t Trajectory) config() Config {
 type trajectoryWire struct {
 	RootProcessID agent.ProcessID   `json:"root_process_id"`
 	Termination   agent.Termination `json:"termination"`
-	Output        *agent.Output     `json:"output,omitempty"`
+	Output        *agent.Payload    `json:"output,omitempty"`
 	RootUsage     agent.Usage       `json:"root_usage"`
 	Coverage      *Coverage         `json:"coverage,omitempty"`
 	Elapsed       *time.Duration    `json:"elapsed_ns,omitempty"`
@@ -290,7 +290,7 @@ func (t *Trajectory) canonicalize() error {
 // The required projection selects the semantic root output; the generic
 // recorder never guesses which opaque output fields are business data.
 // Complete event history and declared semantic coverage are required.
-func (t Trajectory) BehaviorDigest(project eval.Projection[agent.Output, json.RawMessage]) (string, error) {
+func (t Trajectory) BehaviorDigest(project eval.Projection[agent.Payload, json.RawMessage]) (string, error) {
 	if err := t.Validate(); err != nil {
 		return "", err
 	}
@@ -315,7 +315,7 @@ func (t Trajectory) BehaviorDigest(project eval.Projection[agent.Output, json.Ra
 	return hex.EncodeToString(digest[:]), nil
 }
 
-func (t Trajectory) behavior(project eval.Projection[agent.Output, json.RawMessage]) (behaviorProjection, error) {
+func (t Trajectory) behavior(project eval.Projection[agent.Payload, json.RawMessage]) (behaviorProjection, error) {
 	paths, err := processPaths(t.rootProcessID, t.events)
 	if err != nil {
 		return behaviorProjection{}, err
@@ -374,7 +374,7 @@ func (t Trajectory) behavior(project eval.Projection[agent.Output, json.RawMessa
 	return projection, nil
 }
 
-func (t Trajectory) consistencyReport(baseline Trajectory, project eval.Projection[agent.Output, json.RawMessage]) (eval.Report, error) {
+func (t Trajectory) consistencyReport(baseline Trajectory, project eval.Projection[agent.Payload, json.RawMessage]) (eval.Report, error) {
 	actualDigest, err := t.BehaviorDigest(project)
 	if err != nil {
 		return eval.Report{}, err
@@ -477,7 +477,7 @@ func processPaths(root agent.ProcessID, events []agent.Event) (map[agent.Process
 	return paths, nil
 }
 
-func cloneOutput(output *agent.Output) *agent.Output {
+func cloneOutput(output *agent.Payload) *agent.Payload {
 	if output == nil {
 		return nil
 	}

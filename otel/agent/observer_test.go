@@ -83,7 +83,7 @@ func runObservedProcess(t *testing.T, observer *agentotel.Observer) agent.Result
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodeInput(testInput{Value: "observed"})
+	input, err := agent.EncodePayload(testInput{Value: "observed"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestObserverRecordsStableProcessFailureAttribution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodeInput(testInput{Value: testValueProcessFailure})
+	input, err := agent.EncodePayload(testInput{Value: testValueProcessFailure})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestObserverRecordsStepAndEffectFactErrors(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			input, err := agent.EncodeInput(testInput{Value: test.value})
+			input, err := agent.EncodePayload(testInput{Value: test.value})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -307,7 +307,7 @@ func TestObserverDistinguishesRestoredProcessActivation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodeInput(testInput{Value: "pause"})
+	input, err := agent.EncodePayload(testInput{Value: "pause"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -401,7 +401,7 @@ func captureObserverEvents(t *testing.T) []agent.Event {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodeInput(testInput{Value: "closed observer"})
+	input, err := agent.EncodePayload(testInput{Value: "closed observer"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -601,7 +601,7 @@ type testDefinition struct {
 
 func (t testDefinition) Descriptor() agent.Descriptor { return t.descriptor }
 
-func (testDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (testDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	value, err := input.Decode[testInput]()
 	if err != nil {
 		return nil, err
@@ -657,7 +657,7 @@ func (t *testExecution) Step(context.Context, []agent.Signal) (agent.Transition,
 		t.Phase = 1
 		return agent.Continue(0, effect)
 	}
-	output, err := agent.EncodeOutput(testOutput{Value: t.Value})
+	output, err := agent.EncodePayload(testOutput{Value: t.Value})
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -752,7 +752,7 @@ func captureProcessStartedEvent(t *testing.T) agent.Event {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodeInput(testInput{Value: "capture start"})
+	input, err := agent.EncodePayload(testInput{Value: "capture start"})
 	if err != nil {
 		t.Fatal(err)
 	}

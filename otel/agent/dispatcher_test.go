@@ -22,7 +22,7 @@ func TestDispatcherCallsInheritTheirEffectSpan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodeInput(testInput{Value: "observed"})
+	input, err := agent.EncodePayload(testInput{Value: "observed"})
 	if err != nil {
 		t.Fatal(err)
 	}

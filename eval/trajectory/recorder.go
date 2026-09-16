@@ -206,7 +206,7 @@ func (r *Recorder) Take(ctx context.Context, process *agent.Process, coverage *C
 		}
 		calls = append(calls, observation.call)
 	}
-	var output *agent.Output
+	var output *agent.Payload
 	if value, ok := result.Output(); ok {
 		output = &value
 	}

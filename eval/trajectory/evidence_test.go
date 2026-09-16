@@ -129,7 +129,7 @@ func TestMissingChildTailIsNotACompleteTree(t *testing.T) {
 
 func TestSemanticProjectionCoversRealInteractionOutput(t *testing.T) {
 	base := coveredInteraction(t)
-	project := func(output agent.Output) (json.RawMessage, error) {
+	project := func(output agent.Payload) (json.RawMessage, error) {
 		value, err := output.Decode[interaction.Output]()
 		if err != nil {
 			return nil, err
@@ -142,7 +142,7 @@ func TestSemanticProjectionCoversRealInteractionOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	value.ModelResponse.Metadata = &chat.ResponseMetadata{ID: "another-response", CreatedAt: time.Now(), Usage: &chat.Usage{InputTokens: 800, OutputTokens: 300}}
-	output, err := agent.EncodeOutput(value)
+	output, err := agent.EncodePayload(value)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestSemanticProjectionCoversRealInteractionOutput(t *testing.T) {
 		t.Fatalf("accounting changed semantic digest: %s, %v", digest, err)
 	}
 	value.ModelResponse.Output.Message.Parts[0].Text = "rainy"
-	output, err = agent.EncodeOutput(value)
+	output, err = agent.EncodePayload(value)
 	if err != nil {
 		t.Fatal(err)
 	}

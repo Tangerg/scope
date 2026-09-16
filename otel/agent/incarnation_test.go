@@ -89,7 +89,7 @@ func TestObserverIsolatesOverlappingDurableIncarnations(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		input, err := agent.EncodeInput(testInput{Value: "overlap"})
+		input, err := agent.EncodePayload(testInput{Value: "overlap"})
 		if err != nil {
 			t.Fatal(err)
 		}

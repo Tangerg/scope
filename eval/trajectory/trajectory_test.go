@@ -150,7 +150,7 @@ func startRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, obser
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodeInput(interaction.Input{
+	input, err := agent.EncodePayload(interaction.Input{
 		Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("weather"))},
 	})
 	if err != nil {
@@ -342,7 +342,7 @@ type fixtureDefinition struct{ descriptor agent.Descriptor }
 
 func (f fixtureDefinition) Descriptor() agent.Descriptor { return f.descriptor }
 
-func (fixtureDefinition) Start(input agent.Input) (agent.Execution, error) {
+func (fixtureDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	value, err := input.Decode[fixtureInput]()
 	if err != nil {
 		return nil, err
@@ -368,7 +368,7 @@ func (f *fixtureExecution) Step(context.Context, []agent.Signal) (agent.Transiti
 		return agent.Transition{}, agent.ErrInvalidExecutionState
 	}
 	f.Done = true
-	output, err := agent.EncodeOutput(fixtureOutput{Value: f.Value})
+	output, err := agent.EncodePayload(fixtureOutput{Value: f.Value})
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -483,7 +483,7 @@ func runTrajectory(t *testing.T) trajectory.Trajectory {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = engine.Close(context.WithoutCancel(t.Context())) })
-	input, err := agent.EncodeInput(fixtureInput{Value: "done"})
+	input, err := agent.EncodePayload(fixtureInput{Value: "done"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,4 +512,4 @@ func (t trajectoryDeploymentResolver) Resolve(reference agent.DeploymentRef) (ag
 	return deployment, nil
 }
 
-func rawOutputProjection(output agent.Output) (json.RawMessage, error) { return output.JSON(), nil }
+func rawOutputProjection(output agent.Payload) (json.RawMessage, error) { return output.JSON(), nil }

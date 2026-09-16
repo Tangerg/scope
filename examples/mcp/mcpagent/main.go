@@ -151,7 +151,7 @@ func run(ctx context.Context) (err error) {
 		return fmt.Errorf("create JSON output format: %w", err)
 	}
 	prompt := fmt.Sprintf("Use %s to gather source URLs on %q.", researchQualifiedToolName, topic)
-	input, err := agent.EncodeInput(interaction.Input{Messages: []chat.Message{
+	input, err := agent.EncodePayload(interaction.Input{Messages: []chat.Message{
 		chat.NewSystemMessage(systemPrompt.String()),
 		chat.NewUserMessage(chat.NewTextPart(prompt)),
 	}, Options: chat.Options{OutputFormat: &outputFormat}})
