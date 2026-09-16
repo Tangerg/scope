@@ -317,14 +317,17 @@ func (t *treeRuntime) advanceReadyWork() bool {
 	// Service every eligible lane once so a continuously ready lane cannot
 	// prevent another from making progress. Each operation rechecks its barriers
 	// because an earlier operation can acquire a freeze or start a commit.
-	advanced := t.tryCommitCompletion()
-	advanced = t.tryFreezeCancellation() || advanced
-	advanced = t.tryFreezeCommand() || advanced
-	advanced = t.tryProcessCommand() || advanced
-	advanced = t.tryCompletion() || advanced
-	advanced = t.advanceOne() || advanced
-	advanced = t.publishJoins() || advanced
-	return t.tryStartCheckpoint() || advanced
+	lanes := [...]bool{
+		t.tryCommitCompletion(),
+		t.tryFreezeCancellation(),
+		t.tryFreezeCommand(),
+		t.tryProcessCommand(),
+		t.tryCompletion(),
+		t.advanceOne(),
+		t.publishJoins(),
+		t.tryStartCheckpoint(),
+	}
+	return slices.Contains(lanes[:], true)
 }
 
 func (t *treeRuntime) waitForWork() {
@@ -696,20 +699,8 @@ func (t *treeRuntime) controlChild(parent *processState, index uint32, record *p
 	} else {
 		result = t.applyChildControl(child, request)
 	}
-	payload, err := result.MarshalJSON()
-	if err == nil {
-		status := SettlementStatusSucceeded
-		if result.failure.Valid() {
-			status = SettlementStatusFailed
-		}
-		var settlement Settlement
-		settlement, err = NewSettlement(record.ID, status, payload)
-		if err == nil {
-			err = record.settle(settlement, nil)
-		}
-	}
-	if err != nil {
-		t.failProcessContract(parent, failureCodeEngineChildControlSettlementInvalid, err)
+	if settlementErr := record.settleChildControl(result); settlementErr != nil {
+		t.failProcessContract(parent, failureCodeEngineChildControlSettlementInvalid, settlementErr)
 		return
 	}
 	t.publishSettlementEvent(parent, record.ID, EffectTargetFramework, record.Settlement.Status(), startedAt, nil)
@@ -718,20 +709,20 @@ func (t *treeRuntime) controlChild(parent *processState, index uint32, record *p
 		return
 	}
 	snapshot, err := t.captureTree()
-	if err == nil {
-		var boundary EffectBoundary
-		boundary, err = newEffectBoundary(EffectBoundarySettled, t.effectRequestFor(parent, index, *record),
-			*record.Settlement, t.head.Digest(), snapshot)
-		if err == nil {
-			t.startEffectCommit(&treeCommit{
-				kind: treeCommitEffectSettled, processID: parent.handle.processID,
-				effectID: record.ID, snapshot: snapshot,
-			}, boundary)
-		}
-	}
 	if err != nil {
 		t.failDurability(err, parent.handle.processID, record.ID)
+		return
 	}
+	boundary, err := newEffectBoundary(EffectBoundarySettled, t.effectRequestFor(parent, index, *record),
+		*record.Settlement, t.head.Digest(), snapshot)
+	if err != nil {
+		t.failDurability(err, parent.handle.processID, record.ID)
+		return
+	}
+	t.startEffectCommit(&treeCommit{
+		kind: treeCommitEffectSettled, processID: parent.handle.processID,
+		effectID: record.ID, snapshot: snapshot,
+	}, boundary)
 }
 
 func (t *treeRuntime) applyChildControl(child *processState, request childControlEffectWire) ChildControlResult {
@@ -1366,7 +1357,10 @@ func (t *treeRuntime) freezeBlockedByJob() bool {
 	}
 	allTerminal := true
 	for _, process := range t.processes {
-		allTerminal = allTerminal && process.status.Terminal()
+		if !process.status.Terminal() {
+			allTerminal = false
+			break
+		}
 	}
 	if allTerminal {
 		return len(t.jobs) != 0

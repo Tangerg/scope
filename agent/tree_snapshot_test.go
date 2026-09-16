@@ -650,7 +650,7 @@ func TestRestoreReservationAdmissionIsAtomicAndReleasesEveryIdentity(t *testing.
 	engine.discardRestoredTree(restoration)
 }
 
-func TestTreeSnapshotReportsFirstRelationErrorInWireOrder(t *testing.T) {
+func TestTreeSnapshotReportsFirstRelationErrorInCanonicalOrder(t *testing.T) {
 	tree := completedTreeSnapshot(t)
 	base, err := tree.ProcessSnapshots()[0].wire()
 	if err != nil {
@@ -679,14 +679,19 @@ func TestTreeSnapshotReportsFirstRelationErrorInWireOrder(t *testing.T) {
 		detail    string
 	}{
 		{[]ProcessSnapshot{tree.ProcessSnapshots()[0], foreignSnapshot, orphanSnapshot}, "Process belongs to another tree contract"},
-		{[]ProcessSnapshot{tree.ProcessSnapshots()[0], orphanSnapshot, foreignSnapshot}, "child parent is absent"},
+		{[]ProcessSnapshot{tree.ProcessSnapshots()[0], orphanSnapshot, foreignSnapshot}, "Process belongs to another tree contract"},
 	} {
 		data, err := json.Marshal(treeSnapshotWire{RootID: tree.RootID(), ProcessSnapshots: test.snapshots})
 		if err != nil {
 			t.Fatal(err)
 		}
-		for range 64 {
-			_, err := ParseTreeSnapshot(data)
+		for _, capture := range []func() (TreeSnapshot, error){
+			func() (TreeSnapshot, error) { return ParseTreeSnapshot(data) },
+			func() (TreeSnapshot, error) {
+				return newTreeSnapshot(treeSnapshotWire{RootID: tree.RootID(), ProcessSnapshots: test.snapshots})
+			},
+		} {
+			_, err := capture()
 			if !errors.Is(err, ErrInvalidTreeSnapshot) || err.Error() != ErrInvalidTreeSnapshot.Error()+": "+test.detail {
 				t.Fatalf("nondeterministic relation diagnostic: %v", err)
 			}

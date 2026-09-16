@@ -47,14 +47,9 @@ func TestTreeSchedulingMakesProgressUnderContinuousRequests(t *testing.T) {
 		refill()
 	}
 
-	for range schedulingProgressTurns {
-		advance()
-		if process.attemptSequence != 0 {
-			break
-		}
-	}
+	advance()
 	if process.attemptSequence == 0 {
-		t.Fatal("continuous queries starved a queued Process")
+		t.Fatal("ready commands prevented queued work in the same owner turn")
 	}
 
 	// Hold the real Step result until it is ready, then keep the query lane full

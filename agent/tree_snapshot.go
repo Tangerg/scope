@@ -24,7 +24,8 @@ type TreeSnapshot struct {
 }
 
 // ParseTreeSnapshot validates the current wire shape and domain constraints of
-// one complete Process tree. Unknown members are rejected. Every active child
+// one complete Process tree. Validation follows canonical Process and wait order
+// regardless of input array order. Unknown members are rejected. Every active child
 // wait must have a registration belonging to its Process and matching its
 // opening Signal. Pending satisfaction Signals must agree with that boundary
 // and the terminal results in the captured tree. A retained successful child-start
@@ -47,6 +48,7 @@ func newTreeSnapshot(wire treeSnapshotWire) (TreeSnapshot, error) {
 }
 
 func treeSnapshotFromWire(wire treeSnapshotWire) (TreeSnapshot, error) {
+	wire.normalize()
 	validation, err := newTreeSnapshotValidation(wire)
 	if err != nil {
 		return TreeSnapshot{}, err
@@ -54,7 +56,6 @@ func treeSnapshotFromWire(wire treeSnapshotWire) (TreeSnapshot, error) {
 	if validateErr := validation.validate(); validateErr != nil {
 		return TreeSnapshot{}, validateErr
 	}
-	wire.normalize()
 	normalized, err := json.Marshal(wire)
 	if err != nil {
 		return TreeSnapshot{}, fmt.Errorf("%w: encode: %w", ErrInvalidTreeSnapshot, err)

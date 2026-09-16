@@ -135,6 +135,22 @@ func (p *preparedEffect) settleUnknown() error {
 	return p.settle(settlement, nil)
 }
 
+func (p *preparedEffect) settleChildControl(result ChildControlResult) error {
+	payload, err := result.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	status := SettlementStatusSucceeded
+	if result.failure.Valid() {
+		status = SettlementStatusFailed
+	}
+	settlement, err := NewSettlement(p.ID, status, payload)
+	if err != nil {
+		return err
+	}
+	return p.settle(settlement, nil)
+}
+
 func (p *preparedEffect) resolveUnknown(settlement Settlement) error {
 	if p == nil || p.Phase != effectPhaseSettled || p.Settlement == nil ||
 		p.Settlement.Status() != SettlementStatusUnknown ||
