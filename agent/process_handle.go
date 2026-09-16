@@ -52,12 +52,12 @@ func newProcessHandle(
 	}
 }
 
-// Completion is monotonic. Repeated notifications leave the first published
-// fact intact, and later boundaries cannot precede their prerequisites.
 func (p *processHandle) publishResult(result Result) bool {
 	return p.publishOutcome(result, nil)
 }
 
+// Completion is monotonic. Repeated notifications leave the first published
+// fact intact, and later boundaries cannot precede their prerequisites.
 func (p *processHandle) publishOutcome(result Result, err *RuntimeError) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()

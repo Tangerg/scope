@@ -55,7 +55,7 @@ func TestResolveTerminationPriorityMatrix(t *testing.T) {
 
 func TestStatusStrictJSONRoundTrip(t *testing.T) {
 	statuses := []Status{
-		StatusNotStarted, StatusRunning, StatusWaiting, StatusPaused,
+		StatusRunning, StatusWaiting, StatusPaused,
 		StatusCompleted, StatusFailed, StatusCanceled, StatusTimedOut, StatusKilled,
 	}
 	for _, status := range statuses {
@@ -110,5 +110,15 @@ func TestTerminationJSONRoundTripRejectsContradictoryState(t *testing.T) {
 	contradictory := []byte(`{"status":"completed","cause":"external_failure","reason":"failed","failure":{"kind":"external","code":"dispatcher.failed","message":"failed"}}`)
 	if err := json.Unmarshal(contradictory, &decoded); err == nil {
 		t.Fatal("Termination accepted contradictory status and cause")
+	}
+}
+
+func TestStatusRejectsUnoccupiedLifecycleState(t *testing.T) {
+	status := StatusRunning
+	if err := json.Unmarshal([]byte(`"not_started"`), &status); !errors.Is(err, ErrInvalidStatus) {
+		t.Fatalf("decode unoccupied state: %v", err)
+	}
+	if status != StatusRunning || Status("not_started").Valid() {
+		t.Fatal("invalid status changed a valid receiver or entered the lifecycle")
 	}
 }

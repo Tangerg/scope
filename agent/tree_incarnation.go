@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 const (
@@ -17,21 +16,16 @@ var ErrInvalidTreeIncarnationID = errors.New("agent: invalid tree incarnation id
 
 // TreeIncarnationID identifies the one active writer generation of a durable
 // Process tree. Its zero value is invalid.
-type TreeIncarnationID struct {
-	value string
-}
+type TreeIncarnationID struct{ identity }
 
 // ParseTreeIncarnationID validates the canonical wire representation of a
 // tree incarnation identity.
 func ParseTreeIncarnationID(value string) (TreeIncarnationID, error) {
-	encoded, ok := strings.CutPrefix(value, treeIncarnationIDPrefix)
-	if !ok || len(encoded) != treeIncarnationRandomBytes*2 || encoded != strings.ToLower(encoded) {
-		return TreeIncarnationID{}, ErrInvalidTreeIncarnationID
-	}
-	if _, err := hex.DecodeString(encoded); err != nil {
+	id, err := parseHexIdentity(value, treeIncarnationIDPrefix, treeIncarnationRandomBytes)
+	if err != nil {
 		return TreeIncarnationID{}, fmt.Errorf("%w: %w", ErrInvalidTreeIncarnationID, err)
 	}
-	return TreeIncarnationID{value: value}, nil
+	return TreeIncarnationID{id}, nil
 }
 
 func newTreeIncarnationID() (TreeIncarnationID, error) {
@@ -40,12 +34,6 @@ func newTreeIncarnationID() (TreeIncarnationID, error) {
 		return TreeIncarnationID{}, fmt.Errorf("agent: generate TreeIncarnationID: %w", err)
 	}
 	return ParseTreeIncarnationID(treeIncarnationIDPrefix + hex.EncodeToString(random[:]))
-}
-
-func (t TreeIncarnationID) String() string { return t.value }
-
-func (t TreeIncarnationID) Valid() bool {
-	return t.value != ""
 }
 
 func (t TreeIncarnationID) MarshalText() ([]byte, error) {

@@ -16,8 +16,6 @@ type Status string
 const (
 	// StatusInvalid is the invalid zero value.
 	StatusInvalid Status = ""
-	// StatusNotStarted identifies a Process before execution begins.
-	StatusNotStarted Status = "not_started"
 	// StatusRunning identifies a Process eligible to advance.
 	StatusRunning Status = "running"
 	// StatusWaiting identifies a Process awaiting a WaitID-addressed Signal.
@@ -53,7 +51,7 @@ func parseStatus(value string) (Status, error) {
 
 func (s Status) Valid() bool {
 	switch s {
-	case StatusNotStarted, StatusRunning, StatusWaiting, StatusPaused,
+	case StatusRunning, StatusWaiting, StatusPaused,
 		StatusCompleted, StatusFailed, StatusCanceled, StatusTimedOut, StatusKilled:
 		return true
 	default:

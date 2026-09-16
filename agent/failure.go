@@ -72,8 +72,7 @@ func (f Failure) Code() string { return f.code }
 func (f Failure) Message() string { return f.message }
 
 func (f Failure) Valid() bool {
-	return f.kind.Valid() &&
-		ValidQualifiedName(f.code) && f.message != ""
+	return f.kind.Valid()
 }
 
 // Kernel classifications are fixed by their owning boundary. An invalid kind or

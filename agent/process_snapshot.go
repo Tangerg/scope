@@ -45,7 +45,7 @@ func (w WaitKind) String() string {
 // [Engine.InspectTree] identifies the acknowledged head of its durable captures.
 type ProcessSnapshot struct {
 	data  json.RawMessage
-	state *processSnapshotWire
+	state processSnapshotWire
 }
 
 // ParseProcessSnapshot strictly validates one Process snapshot wire value,
@@ -81,7 +81,7 @@ func processSnapshotFromWire(wire processSnapshotWire) (ProcessSnapshot, error) 
 	if len(normalized) > maxSnapshotBytes {
 		return ProcessSnapshot{}, fmt.Errorf("%w: exceeds %d bytes", ErrInvalidSnapshot, maxSnapshotBytes)
 	}
-	return ProcessSnapshot{data: normalized, state: &wire}, nil
+	return ProcessSnapshot{data: normalized, state: wire}, nil
 }
 
 // JSON returns an independently owned snapshot representation.
@@ -93,32 +93,23 @@ func (p ProcessSnapshot) JSON() json.RawMessage { return bytes.Clone(p.data) }
 // same acknowledgment boundary as this snapshot; absence in an older capture
 // does not prove rejection. No mailbox or consumption authority is transferred.
 func (p ProcessSnapshot) SignalReceipts() []SignalReceipt {
-	if p.state == nil {
-		return nil
-	}
 	return p.state.Mailbox.receipts()
 }
 
 // ProcessID returns the captured Process identity.
 func (p ProcessSnapshot) ProcessID() ProcessID {
-	if p.state == nil {
-		return ProcessID{}
-	}
 	return p.state.ProcessID
 }
 
 // DeploymentRef returns the exact execution binding required for restoration.
 func (p ProcessSnapshot) DeploymentRef() DeploymentRef {
-	if p.state == nil {
-		return DeploymentRef{}
-	}
 	return p.state.DeploymentRef
 }
 
 // Relation returns the immutable parent/root/depth location captured with the
 // Process.
 func (p ProcessSnapshot) Relation() ProcessRelation {
-	if p.state == nil {
+	if !p.Valid() {
 		return ProcessRelation{}
 	}
 	return mustProcessRelation(p.state.ProcessID, p.state.Relation)
@@ -126,33 +117,21 @@ func (p ProcessSnapshot) Relation() ProcessRelation {
 
 // Budget returns the Process work allocation captured by this snapshot.
 func (p ProcessSnapshot) Budget() Budget {
-	if p.state == nil {
-		return Budget{}
-	}
 	return p.state.Budget
 }
 
 // Capabilities returns the Process authority set captured by this snapshot.
 func (p ProcessSnapshot) Capabilities() CapabilitySet {
-	if p.state == nil {
-		return CapabilitySet{}
-	}
 	return p.state.Capabilities
 }
 
 // Status returns the captured common lifecycle state.
 func (p ProcessSnapshot) Status() Status {
-	if p.state == nil {
-		return StatusInvalid
-	}
 	return p.state.Status
 }
 
 // Usage returns the Framework counters recorded in this capture.
 func (p ProcessSnapshot) Usage() Usage {
-	if p.state == nil {
-		return Usage{}
-	}
 	return p.state.usage()
 }
 
@@ -161,7 +140,7 @@ func (p ProcessSnapshot) Usage() Usage {
 // A terminal capture retains unresolved evidence; its Process cannot resume or
 // accept further resolution commands.
 func (p ProcessSnapshot) UnknownEffectIDs() []EffectID {
-	if p.state == nil || p.state.Prepared == nil {
+	if p.state.Prepared == nil {
 		return nil
 	}
 	return p.state.Prepared.Effects.unknownEffectIDs()
@@ -172,16 +151,13 @@ func (p ProcessSnapshot) UnknownEffectIDs() []EffectID {
 // Only the owning Definition or its typed inspection helpers may interpret the
 // returned state's payload.
 func (p ProcessSnapshot) CommittedExecutionState() ExecutionState {
-	if p.state == nil {
-		return ExecutionState{}
-	}
 	return p.state.CommittedExecutionState.clone()
 }
 
 // WaitID returns the current Engine-minted wait identity and true when the
 // captured Process is Waiting.
 func (p ProcessSnapshot) WaitID() (WaitID, bool) {
-	if p.state == nil || p.state.Status != StatusWaiting {
+	if p.state.Status != StatusWaiting {
 		return WaitID{}, false
 	}
 	waitID := snapshotWaitID(p.state.CurrentWaitID)
@@ -202,11 +178,7 @@ func (p ProcessSnapshot) WaitKind() (WaitKind, bool) {
 	return wait.Kind, true
 }
 
-func (p ProcessSnapshot) Valid() bool {
-	return p.state != nil && len(p.data) > 0 && p.state.ProcessID.Valid() && p.state.DeploymentRef.Valid() &&
-		p.state.Status.Valid() && p.state.CommittedExecutionState.Valid() && p.Relation().Valid() &&
-		p.state.Budget.Valid() && p.state.Capabilities.Valid()
-}
+func (p ProcessSnapshot) Valid() bool { return len(p.data) > 0 }
 
 func mustProcessRelation(processID ProcessID, wire processRelationWire) ProcessRelation {
 	relation, err := processRelationFromWire(processID, wire)
@@ -329,7 +301,7 @@ func (p processSnapshotWire) clone() processSnapshotWire {
 
 func (p processSnapshotWire) validateContract() error {
 	if !p.ProcessID.Valid() || !p.DeploymentRef.Valid() || p.StartedAt.IsZero() ||
-		!p.Status.Valid() || p.Status == StatusNotStarted || !p.CommittedExecutionState.Valid() ||
+		!p.Status.Valid() || !p.CommittedExecutionState.Valid() ||
 		p.MaxPendingSignals == 0 || p.MaxPendingSignals > p.Budget.Signals || !p.TreeLimits.Valid() || !p.Budget.Valid() ||
 		!p.Capabilities.Valid() ||
 		!p.Budget.contains(p.usage(), p.ReservedBudget) {
@@ -379,6 +351,8 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 			return fmt.Errorf("%w: prepared Effect identities exceed recorded usage", ErrInvalidSnapshot)
 		}
 		if !p.Status.Terminal() {
+			// Prepared validation bounds its cursor by accepted Signals and anchors
+			// consumption at the mailbox committed cursor, so this cannot underflow.
 			remainingPending -= p.Prepared.consumedSignals()
 			reserved = p.Prepared.settlementSignalCount()
 			preparedSteps = 1
@@ -475,7 +449,7 @@ func (p processSnapshotWire) usage() Usage {
 // restoration or explicit resolution. It does not establish failure of the
 // external operation or authorize replay.
 func (p ProcessSnapshot) EffectDiagnostic(id EffectID) (Failure, bool) {
-	if p.state != nil && p.state.Prepared != nil {
+	if p.state.Prepared != nil {
 		for _, effect := range p.state.Prepared.Effects {
 			if effect.ID == id && effect.Diagnostic != nil {
 				return *effect.Diagnostic, true

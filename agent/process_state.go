@@ -305,7 +305,7 @@ func (p *processState) capture() (ProcessSnapshot, error) {
 	// Compare every persisted fact, including mailbox and Effect contents. This
 	// avoids a second mutation protocol whose invalidation could miss a control,
 	// reservation, or settlement while reusing the already validated value.
-	if p.snapshot.state == nil || !reflect.DeepEqual(wire, *p.snapshot.state) {
+	if !p.snapshot.Valid() || !reflect.DeepEqual(wire, p.snapshot.state) {
 		snapshot, err := processSnapshotFromWire(wire)
 		if err != nil {
 			return ProcessSnapshot{}, err

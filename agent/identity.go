@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -27,6 +29,28 @@ func parseIdentity(kind, value string) (identity, error) {
 	return identity{value: value}, nil
 }
 
+// Canonical hexadecimal identities share the identity representation, but their
+// parsers own the prefix and width required by each domain.
+func parseHexIdentity(value, prefix string, size int) (identity, error) {
+	encoded, ok := strings.CutPrefix(value, prefix)
+	if !ok || len(encoded) != size*2 || encoded != strings.ToLower(encoded) {
+		return identity{}, ErrInvalidIdentity
+	}
+	if _, err := hex.DecodeString(encoded); err != nil {
+		return identity{}, fmt.Errorf("%w: %w", ErrInvalidIdentity, err)
+	}
+	return identity{value: value}, nil
+}
+
+// Tags, identity parts, and decimal coordinates cannot contain NUL. Separating
+// every component, including an explicit domain tag, makes their byte encoding
+// unambiguous before hashing. Only this boundary assembles derived identities.
+func deriveIdentity(prefix, tag string, parts ...string) identity {
+	encoded := append([]string{tag}, parts...)
+	digest := digestBytes([]byte(strings.Join(encoded, "\x00")))
+	return identity{value: prefix + digest.hex()}
+}
+
 func validIdentity(value string) bool {
 	if len(value) == 0 || len(value) > maxIdentityBytes {
 		return false
@@ -46,8 +70,10 @@ func validIdentity(value string) bool {
 
 func (i identity) String() string { return i.value }
 
-// Valid distinguishes a parsed identity from its invalid zero value. Parsing
-// and text decoding are the only boundaries that can install non-empty text.
+// Valid reports whether a value satisfies its invariant. For immutable values,
+// constructors and decoders establish content invariants; Valid distinguishes
+// their successful result from the invalid zero value without revalidating text.
+// Caller-mutable values and enums must check their current content instead.
 func (i identity) Valid() bool { return i.value != "" }
 
 func (i identity) MarshalText() ([]byte, error) {
@@ -81,12 +107,7 @@ func (p *ProcessID) UnmarshalText(text []byte) error {
 }
 
 func (p ProcessID) effectID(step uint64, index int) EffectID {
-	digest := digestBytes([]byte(fmt.Sprintf("%s\x00%d\x00%d", p.String(), step, index)))
-	id, err := ParseEffectID(effectIDPrefix + digest.hex())
-	if err != nil {
-		panic(err)
-	}
-	return id
+	return EffectID{deriveIdentity(effectIDPrefix, "effect", p.String(), strconv.FormatUint(step, 10), strconv.Itoa(index))}
 }
 
 // SignalID is the stable identity used to deduplicate one Signal delivery.
@@ -137,12 +158,7 @@ func (w *WaitID) UnmarshalText(text []byte) error {
 }
 
 func (w WaitID) childWaitSignalID() SignalID {
-	digest := digestBytes([]byte("child-wait-satisfied\x00" + w.String()))
-	id, err := ParseSignalID(engineSignalIDPrefix + digest.hex())
-	if err != nil {
-		panic(err)
-	}
-	return id
+	return SignalID{deriveIdentity(engineSignalIDPrefix, "child-wait-satisfied", w.String())}
 }
 
 // EffectID identifies one Effect at a stable Process, Step, and batch index.
@@ -167,30 +183,15 @@ func (e *EffectID) UnmarshalText(text []byte) error {
 }
 
 func (e EffectID) waitID() WaitID {
-	digest := digestBytes([]byte("wait\x00" + e.String()))
-	id, err := ParseWaitID(waitIDPrefix + digest.hex())
-	if err != nil {
-		panic(err)
-	}
-	return id
+	return WaitID{deriveIdentity(waitIDPrefix, "wait", e.String())}
 }
 
 func (e EffectID) settlementSignalID() SignalID {
-	digest := digestBytes([]byte("signal\x00" + e.String()))
-	id, err := ParseSignalID(engineSignalIDPrefix + digest.hex())
-	if err != nil {
-		panic(err)
-	}
-	return id
+	return SignalID{deriveIdentity(engineSignalIDPrefix, "signal", e.String())}
 }
 
 func (e EffectID) childProcessID() ProcessID {
-	digest := digestBytes([]byte("child\x00" + e.String()))
-	id, err := ParseProcessID(processIDPrefix + digest.hex())
-	if err != nil {
-		panic(err)
-	}
-	return id
+	return ProcessID{deriveIdentity(processIDPrefix, "child", e.String())}
 }
 
 // WaitKey is an Execution-owned logical key used to associate a requested wait

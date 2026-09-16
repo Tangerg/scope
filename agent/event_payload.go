@@ -234,7 +234,7 @@ type StepCommittedFact struct{ status Status }
 
 func (s StepCommittedFact) Status() Status { return s.status }
 
-func (s StepCommittedFact) Valid() bool { return s.status.Valid() && s.status != StatusNotStarted }
+func (s StepCommittedFact) Valid() bool { return s.status.Valid() }
 
 // EffectStartedFact identifies the target of one Effect attempt.
 type EffectStartedFact struct{ target EffectTarget }

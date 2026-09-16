@@ -51,11 +51,11 @@ func TestDerivedIdentitiesKeepTheirRecoveryKeys(t *testing.T) {
 		got  string
 		want string
 	}{
-		{"effect", effect.String(), "effect:bfa789c0c8ff3c09cf8407b0cea89dbb1ff2d24c68918bf612e527543ab73c25"},
-		{"wait", wait.String(), "wait:497ab3c74e18a145928f2dff14e543041549fe0b60e6a41abc054ed1ffb812ad"},
-		{"settlement", effect.settlementSignalID().String(), "signal:engine:ef156fb8bfbeca9caf77c35e9736b7bccccb0852ecb2a67c0e0d36eb5158493a"},
-		{"child", effect.childProcessID().String(), "process:bbab1849326e74684e98f5f39e26f4db6b4003e60f8c9e4d00d5c2d61437ae1f"},
-		{"child wait", wait.childWaitSignalID().String(), "signal:engine:0e9c6cb8b0a508f93227f10a7dd835ed0887cd0431afd21ff9c8f59b1b25da19"},
+		{"effect", effect.String(), "effect:d8cddbe8d7ad503ff7572edfba782c45be4db4202e268fc7a0f2ca811928dbea"},
+		{"wait", wait.String(), "wait:5d85909a182fa8637668521fe62d90a8d52f6a39ba536189fc7220be83e5dc05"},
+		{"settlement", effect.settlementSignalID().String(), "signal:engine:7f1581661209cd8d06489b89141ab8c4ee899201e76425274bbcb6916a1704d3"},
+		{"child", effect.childProcessID().String(), "process:03ff1c6bbd2c7dc9921bb773edb3d43f0ded05ecdfadadf71eebeb20a92d449c"},
+		{"child wait", wait.childWaitSignalID().String(), "signal:engine:8efa9947851ff38baf5240e39c88b2cfc9437964330b76557fe8a0ac9845cff0"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if test.got != test.want {

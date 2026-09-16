@@ -25,6 +25,9 @@ type memoryDurabilityFactKey struct {
 // MemoryTreeDurability is a concurrency-safe teaching and test adapter for the
 // TreeDurability CAS contract. It is intentionally in agenttest: production
 // Hosts should implement the same transaction with their own durable store.
+// This adapter retains every deduplication fact and one head per root forever.
+// Production stores need a retention policy that preserves replay protection
+// until no caller can retry the retired boundary or writer incarnation.
 type MemoryTreeDurability struct {
 	mu    sync.Mutex
 	heads map[agent.ProcessID]agent.TreeSnapshot
@@ -66,7 +69,7 @@ func (m *MemoryTreeDurability) ActivateTree(
 		rootID: rootID,
 		writer: activation.IncarnationID(),
 	}
-	content := agent.ComputeDigest(prospective.JSON())
+	content := prospective.Digest()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if previous, exists := m.facts[key]; exists {
@@ -124,7 +127,7 @@ func (m *MemoryTreeDurability) CommitCheckpoint(
 		// A second creation must conflict under the same root key even if its content differs.
 		key.digest = agent.Digest{}
 	}
-	content := agent.ComputeDigest(prospective.JSON())
+	content := prospective.Digest()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if checkpoint.Kind() == agent.TreeCheckpointStart {

@@ -282,3 +282,24 @@ func benchmarkReceive[T any](b *testing.B, values <-chan T) T {
 		return zero
 	}
 }
+
+func BenchmarkTreeSnapshotDigest(b *testing.B) {
+	for _, sample := range []treeSnapshotBenchmarkCase{
+		{mode: "leaf", processCount: 1, maxDepth: 1},
+		{mode: "binary:7", processCount: 255, maxDepth: 7},
+	} {
+		snapshot := benchmarkCompletedTree(b, sample)
+		b.Run(fmt.Sprintf("processes_%d/carried", sample.processCount), func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				_ = snapshot.Digest()
+			}
+		})
+		b.Run(fmt.Sprintf("processes_%d/recomputed", sample.processCount), func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				_ = ComputeDigest(snapshot.JSON())
+			}
+		})
+	}
+}

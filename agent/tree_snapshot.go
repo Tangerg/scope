@@ -188,7 +188,7 @@ func newTreeSnapshotValidation(wire treeSnapshotWire) (*treeSnapshotValidation, 
 			return nil, fmt.Errorf("%w: Process: %w", ErrInvalidTreeSnapshot, ErrInvalidSnapshot)
 		}
 		// Validation only reads facts already owned by the immutable snapshot.
-		processWire := *snapshot.state
+		processWire := snapshot.state
 		if _, duplicate := processes[processWire.ProcessID]; duplicate {
 			return nil, fmt.Errorf("%w: duplicate ProcessID", ErrInvalidTreeSnapshot)
 		}
@@ -215,7 +215,8 @@ func newTreeSnapshotValidation(wire treeSnapshotWire) (*treeSnapshotValidation, 
 }
 
 func (t *treeSnapshotValidation) validateRelations() error {
-	for id, processWire := range t.processes {
+	for _, snapshot := range t.wire.ProcessSnapshots {
+		id, processWire := snapshot.ProcessID(), snapshot.state
 		relation, _ := processRelationFromWire(id, processWire.Relation)
 		if relation.RootID() != t.wire.RootID || processWire.TreeLimits != t.root.TreeLimits {
 			return fmt.Errorf("%w: Process belongs to another tree contract", ErrInvalidTreeSnapshot)
@@ -253,7 +254,8 @@ func (t *treeSnapshotValidation) validateRelations() error {
 }
 
 func (t *treeSnapshotValidation) validateChildAccounting() error {
-	for id, processWire := range t.processes {
+	for _, snapshot := range t.wire.ProcessSnapshots {
+		id, processWire := snapshot.ProcessID(), snapshot.state
 		if t.childCounts[id] > processWire.TreeLimits.MaxChildren ||
 			t.activeChildCounts[id] > processWire.TreeLimits.MaxActiveChildren ||
 			t.allocatedBudgets[id] != processWire.ReservedBudget {
@@ -294,7 +296,8 @@ func (t *treeSnapshotValidation) validateChildWaits() error {
 		}
 		waitOwners[encoded.WaitID] = encoded.ParentProcessID
 	}
-	for _, processWire := range t.processes {
+	for _, snapshot := range t.wire.ProcessSnapshots {
+		processWire := snapshot.state
 		for _, wait := range processWire.Mailbox.Waits {
 			if wait.Kind == WaitKindChildren && !wait.Closed {
 				if waitOwners[wait.WaitID] != processWire.ProcessID {
@@ -307,7 +310,8 @@ func (t *treeSnapshotValidation) validateChildWaits() error {
 }
 
 func (t *treeSnapshotValidation) validateChildSettlements() error {
-	for _, parent := range t.processes {
+	for _, snapshot := range t.wire.ProcessSnapshots {
+		parent := snapshot.state
 		if parent.Prepared == nil {
 			continue
 		}

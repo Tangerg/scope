@@ -80,7 +80,6 @@ func TestStableEnumVocabulary(t *testing.T) {
 		"status": {
 			invalid: agent.StatusInvalid,
 			valid: []any{
-				agent.StatusNotStarted,
 				agent.StatusRunning,
 				agent.StatusWaiting,
 				agent.StatusPaused,

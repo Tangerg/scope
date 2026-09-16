@@ -13,20 +13,15 @@ const digestPrefix = "sha256:"
 var ErrInvalidDigest = errors.New("agent: invalid digest")
 
 // Digest is a canonical SHA-256 content identity. Its zero value is invalid.
-type Digest struct {
-	value string
-}
+type Digest struct{ identity }
 
 // ParseDigest validates a canonical sha256:<lowercase-hex> identity.
 func ParseDigest(value string) (Digest, error) {
-	encoded, ok := strings.CutPrefix(value, digestPrefix)
-	if !ok || len(encoded) != sha256.Size*2 || encoded != strings.ToLower(encoded) {
-		return Digest{}, ErrInvalidDigest
-	}
-	if _, err := hex.DecodeString(encoded); err != nil {
+	id, err := parseHexIdentity(value, digestPrefix, sha256.Size)
+	if err != nil {
 		return Digest{}, fmt.Errorf("%w: %w", ErrInvalidDigest, err)
 	}
-	return Digest{value: value}, nil
+	return Digest{id}, nil
 }
 
 // ComputeDigest returns the canonical SHA-256 identity of data. Callers that
@@ -34,23 +29,19 @@ func ParseDigest(value string) (Digest, error) {
 // canonical frozen configuration bytes.
 func ComputeDigest(data []byte) Digest { return digestBytes(data) }
 
+// Digests identify exact bytes, not semantic JSON equality. Payload constructors
+// normalize open JSON; typed protocol owners hash their deterministic encoding
+// (struct field order and normalized embedded values). TreeSnapshot retains that
+// encoding and its digest together, so durable stores use Digest without rehashing.
 func digestBytes(data []byte) Digest {
 	sum := sha256.Sum256(data)
-	return Digest{value: digestPrefix + hex.EncodeToString(sum[:])}
+	return Digest{identity{value: digestPrefix + hex.EncodeToString(sum[:])}}
 }
 
 func (d Digest) hex() string {
 	encoded, _ := strings.CutPrefix(d.value, digestPrefix)
 	return encoded
 }
-
-func (d Digest) String() string { return d.value }
-
-func (d Digest) Valid() bool {
-	return d.value != ""
-}
-
-func (Digest) JSONSchemaAlias() any { return "" }
 
 func (d Digest) MarshalText() ([]byte, error) {
 	if !d.Valid() {

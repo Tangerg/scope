@@ -209,7 +209,7 @@
 //
 // # Process lifecycle
 //
-// A Process moves through [StatusNotStarted], [StatusRunning], and then one of
+// A Process begins in [StatusRunning] and then moves to one of
 // [StatusWaiting], [StatusPaused], [StatusCompleted], [StatusFailed],
 // [StatusCanceled], [StatusTimedOut], or [StatusKilled].
 //

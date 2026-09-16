@@ -98,12 +98,7 @@ func (d Descriptor) OutputSchema() Schema { return d.outputSchema }
 // Digest returns the SHA-256 identity of the complete descriptor contract.
 func (d Descriptor) Digest() Digest { return d.digest }
 
-func (d Descriptor) Valid() bool {
-	return d.digest.Valid() && (DescriptorConfig{
-		Name: d.name, Description: d.description,
-		InputSchema: d.inputSchema, OutputSchema: d.outputSchema,
-	}).validate() == nil
-}
+func (d Descriptor) Valid() bool { return d.digest.Valid() }
 
 func (d Descriptor) ValidateInput(input Payload) error {
 	if !d.Valid() {

@@ -14,10 +14,10 @@ var ErrInvalidEventPredicate = errors.New("agenttest: invalid event predicate")
 // ObservationRecorder is a concurrency-safe EventListener and DeltaListener.
 // Its zero value is ready for use.
 type ObservationRecorder struct {
-	mu      sync.Mutex
-	events  []agent.Event
-	deltas  []agent.Delta
-	changed chan struct{}
+	mu            sync.Mutex
+	events        []agent.Event
+	deltas        []agent.Delta
+	eventRecorded chan struct{}
 }
 
 func (o *ObservationRecorder) OnEvent(_ context.Context, event agent.Event) {
@@ -27,7 +27,7 @@ func (o *ObservationRecorder) OnEvent(_ context.Context, event agent.Event) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.events = append(o.events, event)
-	o.notifyLocked()
+	o.notifyEventLocked()
 }
 
 func (o *ObservationRecorder) OnDelta(_ context.Context, delta agent.Delta) {
@@ -39,11 +39,11 @@ func (o *ObservationRecorder) OnDelta(_ context.Context, delta agent.Delta) {
 	o.deltas = append(o.deltas, delta)
 }
 
-func (o *ObservationRecorder) notifyLocked() {
-	if o.changed != nil {
-		close(o.changed)
+func (o *ObservationRecorder) notifyEventLocked() {
+	if o.eventRecorded != nil {
+		close(o.eventRecorded)
 	}
-	o.changed = make(chan struct{})
+	o.eventRecorded = make(chan struct{})
 }
 
 // Events returns recorded events in publication order.
@@ -80,10 +80,10 @@ func (o *ObservationRecorder) AwaitEvent(
 		o.mu.Lock()
 		batch := slices.Clone(o.events[next:])
 		next = len(o.events)
-		if o.changed == nil {
-			o.changed = make(chan struct{})
+		if o.eventRecorded == nil {
+			o.eventRecorded = make(chan struct{})
 		}
-		changed := o.changed
+		eventRecorded := o.eventRecorded
 		o.mu.Unlock()
 
 		for _, event := range batch {
@@ -95,7 +95,7 @@ func (o *ObservationRecorder) AwaitEvent(
 		select {
 		case <-ctx.Done():
 			return agent.Event{}, ctx.Err()
-		case <-changed:
+		case <-eventRecorded:
 		}
 	}
 }

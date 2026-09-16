@@ -47,11 +47,7 @@ func (c ChildSpec) digest() (Digest, error) {
 	if err != nil {
 		return Digest{}, err
 	}
-	normalized, err := normalizeJSON(payload, MaxPayloadBytes)
-	if err != nil {
-		return Digest{}, err
-	}
-	return digestBytes(normalized), nil
+	return digestBytes(payload), nil
 }
 
 // NewChildStartEffect creates a Framework-owned Effect requesting one independently

@@ -158,15 +158,24 @@ func descriptorConfig(t *testing.T) DescriptorConfig {
 	}
 }
 
-func TestDescriptorValidityMatchesConstructionRules(t *testing.T) {
+func TestDescriptorDecodingEnforcesConstructionRules(t *testing.T) {
 	descriptor := newEngineTestDefinition(t, "descriptor.valid", "complete").Descriptor()
-	for _, malformed := range []Descriptor{
-		{name: "Bad Name", description: descriptor.description, inputSchema: descriptor.inputSchema, outputSchema: descriptor.outputSchema, digest: descriptor.digest},
-		{name: descriptor.name, description: " leading", inputSchema: descriptor.inputSchema, outputSchema: descriptor.outputSchema, digest: descriptor.digest},
-		{name: descriptor.name, inputSchema: descriptor.inputSchema, outputSchema: descriptor.outputSchema, digest: descriptor.digest},
-	} {
-		if malformed.Valid() {
-			t.Fatal("descriptor accepted content its constructor rejects")
+	for _, description := range []string{" leading", "", "trailing "} {
+		wire := descriptorWire{descriptorContractWire: descriptor.contractWire(), Digest: descriptor.Digest()}
+		wire.Description = description
+		data, err := json.Marshal(wire)
+		if err != nil {
+			t.Fatal(err)
 		}
+		decoded := descriptor
+		if err := json.Unmarshal(data, &decoded); !errors.Is(err, ErrInvalidDescriptor) {
+			t.Fatalf("decode description %q: %v", description, err)
+		}
+		if !decoded.Valid() || decoded.Digest() != descriptor.Digest() {
+			t.Fatal("failed decoding changed the valid descriptor")
+		}
+	}
+	if (Descriptor{}).Valid() {
+		t.Fatal("zero Descriptor is valid")
 	}
 }
