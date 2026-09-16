@@ -89,7 +89,7 @@ func (v *visitor) visitHasExpr(expr *filter.BinaryExpr) error {
 // visitUnaryExpr maps NOT (op) onto the operator's inverse because
 // Typesense `filter_by` has no top-level NOT.
 func (v *visitor) visitUnaryExpr(expr *filter.UnaryExpr) error {
-	if !expr.Operator().Is(filter.OpNot) {
+	if expr.Operator() != filter.OpNot {
 		return fmt.Errorf("typesense: unsupported unary '%s'", expr.Operator().String())
 	}
 	bin, ok := expr.Right().(*filter.BinaryExpr)
@@ -113,7 +113,7 @@ func invertBinary(expr *filter.BinaryExpr) (*filter.BinaryExpr, error) {
 
 func (v *visitor) visitLogicalExpr(expr *filter.BinaryExpr) error {
 	op := " && "
-	if expr.Operator().Is(filter.OpOr) {
+	if expr.Operator() == filter.OpOr {
 		op = " || "
 	}
 	v.sql.WriteString("(")

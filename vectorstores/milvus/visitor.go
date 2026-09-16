@@ -56,11 +56,11 @@ func (v *visitor) compileBinary(expression *filter.BinaryExpr) (string, error) {
 		return v.compileLogical(expression)
 	case operator.IsComparisonOperator():
 		return v.compileComparison(expression)
-	case operator.Is(filter.OpIn):
+	case operator == filter.OpIn:
 		return v.compileIn(expression)
-	case operator.Is(filter.OpHas):
+	case operator == filter.OpHas:
 		return v.compileHas(expression)
-	case operator.Is(filter.OpLike):
+	case operator == filter.OpLike:
 		return v.compileLike(expression)
 	default:
 		return "", fmt.Errorf("milvus: unsupported binary operator '%s' at %s", operator, expression.Start())

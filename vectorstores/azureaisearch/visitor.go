@@ -97,7 +97,7 @@ func (v *visitor) visitHasExpr(expr *filter.BinaryExpr) error {
 }
 
 func (v *visitor) visitUnaryExpr(expr *filter.UnaryExpr) error {
-	if !expr.Operator().Is(filter.OpNot) {
+	if expr.Operator() != filter.OpNot {
 		return fmt.Errorf("azureaisearch: unsupported unary '%s'", expr.Operator().String())
 	}
 	v.sql.WriteString("not (")
@@ -110,7 +110,7 @@ func (v *visitor) visitUnaryExpr(expr *filter.UnaryExpr) error {
 
 func (v *visitor) visitLogicalExpr(expr *filter.BinaryExpr) error {
 	op := " and "
-	if expr.Operator().Is(filter.OpOr) {
+	if expr.Operator() == filter.OpOr {
 		op = " or "
 	}
 	v.sql.WriteString("(")

@@ -104,11 +104,11 @@ func (v *visitor) compileBinary(expression *filter.BinaryExpr) (v2.WhereClause, 
 		return v.compileEquality(expression)
 	case operator.IsOrderingOperator():
 		return v.compileOrdering(expression)
-	case operator.Is(filter.OpIn):
+	case operator == filter.OpIn:
 		return v.compileIn(expression)
-	case operator.Is(filter.OpHas):
+	case operator == filter.OpHas:
 		return nil, fmt.Errorf("chroma: HAS is not supported because Chroma metadata values are scalar (at %s)", expression.Start())
-	case operator.Is(filter.OpLike):
+	case operator == filter.OpLike:
 		return nil, fmt.Errorf("chroma: LIKE operator is not supported on metadata fields (at %s)", expression.Start())
 	default:
 		return nil, fmt.Errorf("chroma: unsupported binary operator %q at %s", operator, expression.Start())

@@ -56,9 +56,9 @@ func (v *visitor) translateBinary(expr *filter.BinaryExpr) (map[string]any, erro
 	switch {
 	case expr.Operator().IsLogicalOperator():
 		return v.translateLogical(expr)
-	case expr.Operator().Is(filter.OpIn):
+	case expr.Operator() == filter.OpIn:
 		return v.translateIn(expr)
-	case expr.Operator().Is(filter.OpHas):
+	case expr.Operator() == filter.OpHas:
 		return v.translateHas(expr)
 	case expr.Operator().IsNullOperator():
 		return v.translateNullTest(expr)
@@ -84,7 +84,7 @@ func (v *visitor) translateHas(expr *filter.BinaryExpr) (map[string]any, error) 
 }
 
 func (v *visitor) translateUnary(expr *filter.UnaryExpr) (map[string]any, error) {
-	if !expr.Operator().Is(filter.OpNot) {
+	if expr.Operator() != filter.OpNot {
 		return nil, fmt.Errorf("s3vectors: unsupported unary '%s'", expr.Operator().String())
 	}
 	inner, err := v.translate(expr.Right())
@@ -104,7 +104,7 @@ func (v *visitor) translateLogical(expr *filter.BinaryExpr) (map[string]any, err
 		return nil, err
 	}
 	op := "$and"
-	if expr.Operator().Is(filter.OpOr) {
+	if expr.Operator() == filter.OpOr {
 		op = "$or"
 	}
 	return map[string]any{op: []any{left, right}}, nil

@@ -94,7 +94,7 @@ func (v *visitor) visitHasExpr(expr *filter.BinaryExpr) error {
 }
 
 func (v *visitor) visitUnaryExpr(expr *filter.UnaryExpr) error {
-	if !expr.Operator().Is(filter.OpNot) {
+	if expr.Operator() != filter.OpNot {
 		return fmt.Errorf("neo4j: unsupported unary operator '%s' at %s",
 			expr.Operator().String(), expr.Start().String())
 	}
@@ -108,7 +108,7 @@ func (v *visitor) visitUnaryExpr(expr *filter.UnaryExpr) error {
 
 func (v *visitor) visitLogicalExpr(expr *filter.BinaryExpr) error {
 	op := " AND "
-	if expr.Operator().Is(filter.OpOr) {
+	if expr.Operator() == filter.OpOr {
 		op = " OR "
 	}
 	v.sql.WriteString("(")

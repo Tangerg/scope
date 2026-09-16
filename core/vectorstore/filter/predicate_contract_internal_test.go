@@ -52,7 +52,7 @@ func TestOperatorVocabulary(t *testing.T) {
 		if got := tt.op.IsUnaryOperator(); got != tt.unary {
 			t.Errorf("%q.IsUnaryOperator() = %t, want %t", tt.op, got, tt.unary)
 		}
-		if tt.op.String() != string(tt.op) || !tt.op.Is(tt.op) {
+		if tt.op.String() != string(tt.op) {
 			t.Errorf("%q string/identity helpers are inconsistent", tt.op)
 		}
 	}

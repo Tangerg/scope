@@ -206,7 +206,7 @@ func (v *visitor) visitNotExpr(expr *filter.UnaryExpr) error {
 func (v *visitor) buildNegatedExpr(expr filter.Expr) (map[string]any, error) {
 	switch node := expr.(type) {
 	case *filter.UnaryExpr:
-		if !node.Operator().Is(filter.OpNot) {
+		if node.Operator() != filter.OpNot {
 			return nil, fmt.Errorf("cannot negate unary operator %s", node.Operator().Name())
 		}
 		return v.buildNestedExpr(node.Right())
@@ -222,7 +222,7 @@ func (v *visitor) buildNegatedExpr(expr filter.Expr) (map[string]any, error) {
 				return nil, err
 			}
 			op := "$or"
-			if node.Operator().Is(filter.OpOr) {
+			if node.Operator() == filter.OpOr {
 				op = "$and"
 			}
 			return map[string]any{op: []any{left, right}}, nil
@@ -232,9 +232,9 @@ func (v *visitor) buildNegatedExpr(expr filter.Expr) (map[string]any, error) {
 				return nil, err
 			}
 			return v.buildNestedExpr(inverted)
-		case node.Operator().Is(filter.OpIn):
+		case node.Operator() == filter.OpIn:
 			return v.buildListMembershipExpr(node, "$nin")
-		case node.Operator().Is(filter.OpHas):
+		case node.Operator() == filter.OpHas:
 			return v.buildNegatedCollectionMembershipExpr(node)
 		case node.Operator().IsNullOperator():
 			// IS has no inverse operator to swap in, but its negation is

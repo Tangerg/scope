@@ -88,7 +88,7 @@ func (v *visitor) visitNotExpr(expr *filter.UnaryExpr) error {
 // of that mapping difference.
 func (v *visitor) visitLogicalExpr(expr *filter.BinaryExpr) error {
 	sep := " "
-	if expr.Operator().Is(filter.OpOr) {
+	if expr.Operator() == filter.OpOr {
 		sep = " | "
 	}
 	v.sql.WriteString("(")
@@ -119,7 +119,7 @@ func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 	}
 
 	op := expr.Operator()
-	negate := op.Is(filter.OpNotEqual)
+	negate := op == filter.OpNotEqual
 	if negate {
 		op = filter.OpEqual
 	}
@@ -130,7 +130,7 @@ func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 
 	switch kind {
 	case FieldTag:
-		if !op.Is(filter.OpEqual) {
+		if op != filter.OpEqual {
 			return fmt.Errorf("redis: TAG field '%s' only supports == / != / IN (got '%s')",
 				field, expr.Operator().String())
 		}
@@ -159,7 +159,7 @@ func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 		v.sql.WriteString("]")
 
 	case FieldText:
-		if !op.Is(filter.OpEqual) {
+		if op != filter.OpEqual {
 			return fmt.Errorf("redis: TEXT field '%s' only supports == / != / LIKE (got '%s')",
 				field, expr.Operator().String())
 		}

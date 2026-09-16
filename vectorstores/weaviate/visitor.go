@@ -111,11 +111,11 @@ func (v *visitor) compileBinary(expr *filter.BinaryExpr) (*filters.WhereBuilder,
 		return v.compileLogical(expr)
 	case expr.Operator().IsComparisonOperator():
 		return v.compileComparison(expr)
-	case expr.Operator().Is(filter.OpIn):
+	case expr.Operator() == filter.OpIn:
 		return v.compileIn(expr)
-	case expr.Operator().Is(filter.OpHas):
+	case expr.Operator() == filter.OpHas:
 		return v.compileHas(expr)
-	case expr.Operator().Is(filter.OpLike):
+	case expr.Operator() == filter.OpLike:
 		return v.compileLike(expr)
 	default:
 		return nil, fmt.Errorf("weaviate.filter: unsupported binary operator %q at %s",
@@ -124,7 +124,7 @@ func (v *visitor) compileBinary(expr *filter.BinaryExpr) (*filters.WhereBuilder,
 }
 
 func (v *visitor) compileUnary(expr *filter.UnaryExpr) (*filters.WhereBuilder, error) {
-	if !expr.Operator().Is(filter.OpNot) {
+	if expr.Operator() != filter.OpNot {
 		return nil, fmt.Errorf("weaviate.filter: unsupported unary operator %q at %s",
 			expr.Operator().String(), expr.Start())
 	}

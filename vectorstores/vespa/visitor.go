@@ -81,7 +81,7 @@ func (v *visitor) visitHasExpr(expr *filter.BinaryExpr) error {
 }
 
 func (v *visitor) visitUnaryExpr(expr *filter.UnaryExpr) error {
-	if !expr.Operator().Is(filter.OpNot) {
+	if expr.Operator() != filter.OpNot {
 		return fmt.Errorf("vespa: unsupported unary '%s'", expr.Operator().String())
 	}
 	v.sql.WriteString("!(")
@@ -94,7 +94,7 @@ func (v *visitor) visitUnaryExpr(expr *filter.UnaryExpr) error {
 
 func (v *visitor) visitLogicalExpr(expr *filter.BinaryExpr) error {
 	op := " and "
-	if expr.Operator().Is(filter.OpOr) {
+	if expr.Operator() == filter.OpOr {
 		op = " or "
 	}
 	v.sql.WriteString("(")
@@ -125,13 +125,13 @@ func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 
 	// String equality maps onto YQL `contains`; ordering / non-eq
 	// numeric ops use the standard relational operators.
-	if lit.IsString() && expr.Operator().Is(filter.OpEqual) {
+	if lit.IsString() && expr.Operator() == filter.OpEqual {
 		v.sql.WriteString(field)
 		v.sql.WriteString(" contains ")
 		v.sql.WriteString(term)
 		return nil
 	}
-	if lit.IsString() && expr.Operator().Is(filter.OpNotEqual) {
+	if lit.IsString() && expr.Operator() == filter.OpNotEqual {
 		v.sql.WriteString("!(")
 		v.sql.WriteString(field)
 		v.sql.WriteString(" contains ")

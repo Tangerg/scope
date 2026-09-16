@@ -70,7 +70,7 @@ func (v *visitor) visit(expr filter.Expr) error {
 }
 
 func (v *visitor) visitUnaryExpr(expr *filter.UnaryExpr) error {
-	if !expr.Operator().Is(filter.OpNot) {
+	if expr.Operator() != filter.OpNot {
 		return fmt.Errorf("vectara: unsupported unary '%s'", expr.Operator().String())
 	}
 	v.sql.WriteString("NOT (")
@@ -83,7 +83,7 @@ func (v *visitor) visitUnaryExpr(expr *filter.UnaryExpr) error {
 
 func (v *visitor) visitLogicalExpr(expr *filter.BinaryExpr) error {
 	op := " AND "
-	if expr.Operator().Is(filter.OpOr) {
+	if expr.Operator() == filter.OpOr {
 		op = " OR "
 	}
 	v.sql.WriteString("(")

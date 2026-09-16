@@ -74,7 +74,6 @@ func (o Operator) Name() string {
 		return "INVALID"
 	}
 }
-func (o Operator) Is(other Operator) bool   { return o == other }
 func (o Operator) IsEqualityOperator() bool { return o == OpEqual || o == OpNotEqual }
 func (o Operator) IsOrderingOperator() bool {
 	return o == OpLess || o == OpLessEqual || o == OpGreater || o == OpGreaterEqual

@@ -54,7 +54,7 @@ func (u *UnaryExpr) Accept(visitor Visitor) error { return accept(u, visitor) }
 func (u *UnaryExpr) String() string               { return formatPredicate(u) }
 
 func (u *UnaryExpr) Dispatch(onNot func(*UnaryExpr) error) error {
-	if u == nil || !u.operator.Is(OpNot) {
+	if u == nil || u.operator != OpNot {
 		return fmt.Errorf("filter: unsupported unary operator %q at %s", u.Operator(), u.Start())
 	}
 	if onNot == nil {

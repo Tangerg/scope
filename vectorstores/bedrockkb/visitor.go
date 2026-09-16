@@ -53,13 +53,13 @@ func (v *visitor) convertExpr(expr filter.Expr) (types.RetrievalFilter, error) {
 
 func (v *visitor) convertBinary(expr *filter.BinaryExpr) (types.RetrievalFilter, error) {
 	switch {
-	case expr.Operator().Is(filter.OpAnd), expr.Operator().Is(filter.OpOr):
+	case expr.Operator() == filter.OpAnd, expr.Operator() == filter.OpOr:
 		return v.convertLogical(expr)
-	case expr.Operator().Is(filter.OpIn):
+	case expr.Operator() == filter.OpIn:
 		return v.convertIn(expr)
-	case expr.Operator().Is(filter.OpHas):
+	case expr.Operator() == filter.OpHas:
 		return v.convertHas(expr)
-	case expr.Operator().Is(filter.OpLike):
+	case expr.Operator() == filter.OpLike:
 		return v.convertLike(expr)
 	case expr.Operator().IsEqualityOperator() || expr.Operator().IsOrderingOperator():
 		return v.convertComparison(expr)
@@ -71,14 +71,14 @@ func (v *visitor) convertBinary(expr *filter.BinaryExpr) (types.RetrievalFilter,
 // convertUnary handles NOT by rewriting the negated child into its
 // inverse, since Bedrock has no top-level NOT filter member.
 func (v *visitor) convertUnary(expr *filter.UnaryExpr) (types.RetrievalFilter, error) {
-	if !expr.Operator().Is(filter.OpNot) {
+	if expr.Operator() != filter.OpNot {
 		return nil, fmt.Errorf("bedrockkb: unsupported unary '%s'", expr.Operator().String())
 	}
 	bin, ok := expr.Right().(*filter.BinaryExpr)
 	if !ok {
 		return nil, errors.New("bedrockkb: NOT may only wrap a binary comparison")
 	}
-	if bin.Operator().Is(filter.OpIn) {
+	if bin.Operator() == filter.OpIn {
 		return v.convertNotIn(bin)
 	}
 	inverted, err := invertBinary(bin)
@@ -97,7 +97,7 @@ func (v *visitor) convertLogical(expr *filter.BinaryExpr) (types.RetrievalFilter
 	if err != nil {
 		return nil, err
 	}
-	if expr.Operator().Is(filter.OpOr) {
+	if expr.Operator() == filter.OpOr {
 		return &types.RetrievalFilterMemberOrAll{Value: []types.RetrievalFilter{left, right}}, nil
 	}
 	return &types.RetrievalFilterMemberAndAll{Value: []types.RetrievalFilter{left, right}}, nil

@@ -65,7 +65,7 @@ func (v *visitor) visit(expr filter.Expr) error {
 }
 
 func (v *visitor) visitLogicalExpr(expr *filter.BinaryExpr) error {
-	if expr.Operator().Is(filter.OpOr) {
+	if expr.Operator() == filter.OpOr {
 		return errors.New("cassandra: OR is not supported in CQL WHERE clauses")
 	}
 	if err := v.visit(expr.Left()); err != nil {

@@ -231,11 +231,11 @@ func (b *BinaryExpr) Dispatch(handlers BinaryHandlers) error {
 		handler = handlers.Logical
 	case b.operator.IsComparisonOperator():
 		handler = handlers.Comparison
-	case b.operator.Is(OpIn):
+	case b.operator == OpIn:
 		handler = handlers.In
-	case b.operator.Is(OpHas):
+	case b.operator == OpHas:
 		handler = handlers.Has
-	case b.operator.Is(OpLike):
+	case b.operator == OpLike:
 		handler = handlers.Like
 	case b.operator.IsNullOperator():
 		handler = handlers.NullTest
