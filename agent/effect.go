@@ -63,7 +63,7 @@ func RequestWait(key WaitKey, signalPayload json.RawMessage) (Effect, error) {
 	if !key.Valid() {
 		return Effect{}, fmt.Errorf("%w: wait key: %w", ErrInvalidEffect, ErrInvalidIdentity)
 	}
-	normalized, err := wireJSON.normalize(signalPayload, MaxPayloadBytes)
+	normalized, err := normalizeJSON(signalPayload, MaxPayloadBytes)
 	if err != nil {
 		return Effect{}, fmt.Errorf("%w: wait signal payload: %w", ErrInvalidEffect, err)
 	}
@@ -93,7 +93,7 @@ func newEffectWithCapabilities(
 	if !requirements.Valid() || target == EffectTargetFramework && len(requirements.values) != 0 {
 		return Effect{}, fmt.Errorf("%w: invalid required capabilities", ErrInvalidEffect)
 	}
-	normalized, err := wireJSON.normalize(payload, MaxPayloadBytes)
+	normalized, err := normalizeJSON(payload, MaxPayloadBytes)
 	if err != nil {
 		return Effect{}, fmt.Errorf("%w: payload: %w", ErrInvalidEffect, err)
 	}
@@ -140,7 +140,7 @@ func (e *Effect) UnmarshalJSON(data []byte) error {
 	if e == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidEffect)
 	}
-	wire, err := wireJSON.decode[effectWire](data)
+	wire, err := decodeJSON[effectWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidEffect, err)
 	}
@@ -201,14 +201,14 @@ type waitRequestWire struct {
 }
 
 func decodeWaitRequestPayload(payload json.RawMessage) (WaitKey, json.RawMessage, error) {
-	wire, err := wireJSON.decode[waitRequestWire](payload)
+	wire, err := decodeJSON[waitRequestWire](payload)
 	if err != nil {
 		return WaitKey{}, nil, fmt.Errorf("%w: decode Framework Effect: %w", ErrInvalidEffect, err)
 	}
 	if wire.Operation != frameworkEffectWait || !wire.Key.Valid() {
 		return WaitKey{}, nil, fmt.Errorf("%w: unsupported Framework Effect", ErrInvalidEffect)
 	}
-	normalized, err := wireJSON.normalize(wire.SignalPayload, MaxPayloadBytes)
+	normalized, err := normalizeJSON(wire.SignalPayload, MaxPayloadBytes)
 	if err != nil {
 		return WaitKey{}, nil, fmt.Errorf("%w: framework Effect signal payload: %w", ErrInvalidEffect, err)
 	}

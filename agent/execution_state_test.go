@@ -75,3 +75,37 @@ func FuzzExecutionStateJSONRoundTrip(f *testing.F) {
 		}
 	})
 }
+
+func TestExecutionStateDecodeEnforcesKindAndPayload(t *testing.T) {
+	type progress struct {
+		Round int `json:"round"`
+	}
+	state, err := NewExecutionState("strategy.progress", []byte(`{"round":2}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := state.Decode[progress]("strategy.progress")
+	if err != nil || value.Round != 2 {
+		t.Fatalf("decode=%+v error=%v", value, err)
+	}
+	for _, test := range []struct {
+		name, kind, payload string
+	}{
+		{name: "wrong kind", kind: "another.strategy", payload: `{"round":2}`},
+		{name: "unknown member", kind: "strategy.progress", payload: `{"round":2,"extra":true}`},
+		{name: "wrong type", kind: "strategy.progress", payload: `{"round":"two"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			state, err := NewExecutionState(test.kind, []byte(test.payload))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := state.Decode[progress]("strategy.progress"); !errors.Is(err, ErrInvalidExecutionState) {
+				t.Fatalf("decode error=%v", err)
+			}
+		})
+	}
+	if _, err := (ExecutionState{}).Decode[progress]("strategy.progress"); !errors.Is(err, ErrInvalidExecutionState) {
+		t.Fatalf("zero state error=%v", err)
+	}
+}

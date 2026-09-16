@@ -2,7 +2,6 @@ package coordination
 
 import (
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -21,15 +20,4 @@ func encodeState[T any](kind string, state T) (agent.ExecutionState, error) {
 		return agent.ExecutionState{}, fmt.Errorf("%w: encode: %w", ErrInvalidState, err)
 	}
 	return agent.NewExecutionState(kind, payload)
-}
-
-func decodeState[T any](kind string, state agent.ExecutionState) (T, error) {
-	var decoded T
-	if state.Kind() != kind {
-		return decoded, fmt.Errorf("%w: unexpected state kind", ErrInvalidState)
-	}
-	if err := jsonv2.Unmarshal(state.Payload(), &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return decoded, fmt.Errorf("%w: decode: %w", ErrInvalidState, err)
-	}
-	return decoded, nil
 }

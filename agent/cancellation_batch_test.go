@@ -167,10 +167,7 @@ func (e *effectSequenceDefinition) Start(input Input) (Execution, error) {
 }
 
 func (e *effectSequenceDefinition) Restore(state ExecutionState) (Execution, error) {
-	if state.Kind() != e.descriptor.Name() {
-		return nil, ErrInvalidExecutionState
-	}
-	value, err := wireJSON.decode[engineTestState](state.Payload())
+	value, err := state.Decode[engineTestState](e.descriptor.Name())
 	if err != nil {
 		return nil, err
 	}

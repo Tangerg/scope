@@ -142,7 +142,7 @@ func (c childControlEffectWire) effect() (Effect, error) {
 }
 
 func decodeChildControlEffect(payload json.RawMessage) (childControlEffectWire, error) {
-	wire, err := wireJSON.decode[childControlEffectWire](payload)
+	wire, err := decodeJSON[childControlEffectWire](payload)
 	if err != nil {
 		return childControlEffectWire{}, fmt.Errorf("%w: effect: %w", ErrInvalidChildControl, err)
 	}
@@ -160,7 +160,7 @@ type childControlResultWire struct {
 }
 
 func decodeChildControlResult(payload json.RawMessage) (ChildControlResult, error) {
-	wire, err := wireJSON.decode[childControlResultWire](payload)
+	wire, err := decodeJSON[childControlResultWire](payload)
 	if err != nil {
 		return ChildControlResult{}, fmt.Errorf("%w: result: %w", ErrInvalidChildControl, err)
 	}

@@ -129,7 +129,7 @@ func newEvent(spec eventSpec) (Event, error) {
 	if spec.occurredAt.IsZero() {
 		return Event{}, fmt.Errorf("%w: occurrence time is required", ErrInvalidEvent)
 	}
-	normalized, err := wireJSON.normalize(spec.payload, maxEventBytes)
+	normalized, err := normalizeJSON(spec.payload, maxEventBytes)
 	if err != nil {
 		return Event{}, fmt.Errorf("%w: payload: %w", ErrInvalidEvent, err)
 	}
@@ -312,7 +312,7 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	if e == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidEvent)
 	}
-	wire, err := wireJSON.decode[eventWire](data)
+	wire, err := decodeJSON[eventWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidEvent, err)
 	}
@@ -413,7 +413,7 @@ func (e Event) validateEmpty(wantPhase EventPhase, scope eventIdentityScope) err
 	if err := e.validateIdentity(wantPhase, scope); err != nil {
 		return err
 	}
-	_, err := wireJSON.decode[struct{}](e.payload)
+	_, err := decodeJSON[struct{}](e.payload)
 	return err
 }
 

@@ -2,7 +2,6 @@ package collaboration
 
 import (
 	"bytes"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -147,11 +146,8 @@ func (d *Definition) Restore(state agent.ExecutionState) (agent.Execution, error
 	if d == nil || !d.descriptor.Valid() {
 		return nil, ErrInvalidConfig
 	}
-	if state.Kind() != stateKind {
-		return nil, ErrInvalidState
-	}
-	var decoded executionState
-	if err := jsonv2.Unmarshal(state.Payload(), &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+	decoded, err := state.Decode[executionState](stateKind)
+	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidState, err)
 	}
 	if err := decoded.validate(d); err != nil {

@@ -271,10 +271,7 @@ func (e *engineTestDefinition) Start(input Input) (Execution, error) {
 }
 
 func (e *engineTestDefinition) Restore(state ExecutionState) (Execution, error) {
-	if state.Kind() != e.descriptor.Name() {
-		return nil, ErrInvalidExecutionState
-	}
-	value, err := wireJSON.decode[engineTestState](state.Payload())
+	value, err := state.Decode[engineTestState](e.descriptor.Name())
 	if err != nil {
 		return nil, err
 	}
@@ -320,11 +317,11 @@ func (e *engineTestExecution) stepBatch(signals []Signal) (Transition, error) {
 		if len(signals) != 2 {
 			return Transition{}, errors.New("batch phase requires two settlement Signals")
 		}
-		first, err := wireJSON.decode[engineTestMessage](signals[0].Payload())
+		first, err := decodeJSON[engineTestMessage](signals[0].Payload())
 		if err != nil {
 			return Transition{}, err
 		}
-		second, err := wireJSON.decode[engineTestMessage](signals[1].Payload())
+		second, err := decodeJSON[engineTestMessage](signals[1].Payload())
 		if err != nil {
 			return Transition{}, err
 		}
@@ -353,7 +350,7 @@ func (e *engineTestExecution) stepEffect(signals []Signal) (Transition, error) {
 		if len(signals) == 0 {
 			return Transition{}, errors.New("effect phase requires settlement Signal")
 		}
-		message, err := wireJSON.decode[engineTestMessage](signals[0].Payload())
+		message, err := decodeJSON[engineTestMessage](signals[0].Payload())
 		if err != nil {
 			return Transition{}, err
 		}
@@ -395,7 +392,7 @@ func (e *engineTestExecution) stepWait(signals []Signal) (Transition, error) {
 		if waitID.String() != e.state.WaitID {
 			return Transition{}, errors.New("answer addressed another wait")
 		}
-		message, err := wireJSON.decode[engineTestMessage](signals[0].Payload())
+		message, err := decodeJSON[engineTestMessage](signals[0].Payload())
 		if err != nil {
 			return Transition{}, err
 		}
@@ -450,7 +447,7 @@ func (e *engineTestDispatcher) Dispatch(
 	if e.block != nil {
 		<-e.block
 	}
-	message, err := wireJSON.decode[engineTestMessage](request.Effect().Payload())
+	message, err := decodeJSON[engineTestMessage](request.Effect().Payload())
 	if err != nil {
 		return Settlement{}, err
 	}
@@ -484,7 +481,7 @@ func (p *partialBatchDispatcher) Dispatch(
 	_ DeltaEmitter,
 ) (Settlement, error) {
 	p.calls.Add(1)
-	message, err := wireJSON.decode[engineTestMessage](request.Effect().Payload())
+	message, err := decodeJSON[engineTestMessage](request.Effect().Payload())
 	if err != nil {
 		return Settlement{}, err
 	}
@@ -1040,7 +1037,7 @@ func TestStepFailureDiscardsMutatedExecutionAndPreservesCursor(t *testing.T) {
 	}
 	snapshot := inspectProcessSnapshot(t, process)
 	wire, _ := snapshot.wire()
-	state, _ := wireJSON.decode[engineTestState](wire.CommittedExecutionState.Payload())
+	state, _ := decodeJSON[engineTestState](wire.CommittedExecutionState.Payload())
 	if state.Phase != "ready" || wire.Mailbox.SignalCursor != 0 || wire.Prepared != nil {
 		t.Fatalf("committed execution state=%+v cursor=%d prepared=%v", state, wire.Mailbox.SignalCursor, wire.Prepared)
 	}

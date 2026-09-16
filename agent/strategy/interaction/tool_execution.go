@@ -105,11 +105,8 @@ func (t *toolDefinition) Restore(state agent.ExecutionState) (agent.Execution, e
 }
 
 func decodeToolState(state agent.ExecutionState) (toolExecutionState, error) {
-	if state.Kind() != toolExecutionStateKind {
-		return toolExecutionState{}, ErrInvalidExecutionState
-	}
-	var decoded toolExecutionState
-	if err := jsonv2.Unmarshal(state.Payload(), &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+	decoded, err := state.Decode[toolExecutionState](toolExecutionStateKind)
+	if err != nil {
 		return toolExecutionState{}, fmt.Errorf("%w: Tool state: %w", ErrInvalidExecutionState, err)
 	}
 	if err := decoded.validate(); err != nil {

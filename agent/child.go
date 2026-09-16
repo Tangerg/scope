@@ -141,7 +141,7 @@ type childStartResultWire struct {
 }
 
 func decodeChildStartEffect(payload json.RawMessage) (ChildSpec, error) {
-	wire, err := wireJSON.decode[childStartEffectWire](payload)
+	wire, err := decodeJSON[childStartEffectWire](payload)
 	if err != nil {
 		return ChildSpec{}, fmt.Errorf("%w: decode start request: %w", ErrInvalidChildStart, err)
 	}
@@ -175,7 +175,7 @@ func encodeChildStartResult(result ChildStartResult) (json.RawMessage, error) {
 }
 
 func decodeChildStartResult(payload json.RawMessage) (ChildStartResult, error) {
-	wire, err := wireJSON.decode[childStartResultWire](payload)
+	wire, err := decodeJSON[childStartResultWire](payload)
 	if err != nil {
 		return ChildStartResult{}, fmt.Errorf("%w: decode start result: %w", ErrInvalidChildStart, err)
 	}

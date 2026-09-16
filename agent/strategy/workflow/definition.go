@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	jsonv2 "encoding/json/v2"
 	"fmt"
 	"math"
 	"slices"
@@ -91,12 +90,9 @@ func (d *Definition) Restore(state agent.ExecutionState) (agent.Execution, error
 	if !d.valid() {
 		return nil, ErrInvalidDefinitionConfig
 	}
-	if state.Kind() != executionStateKind {
-		return nil, fmt.Errorf("%w: unsupported kind", ErrInvalidExecutionState)
-	}
-	var decoded executionState
-	if err := jsonv2.Unmarshal(state.Payload(), &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return nil, fmt.Errorf("%w: decode: %w", ErrInvalidExecutionState, err)
+	decoded, err := state.Decode[executionState](executionStateKind)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
 	if err := decoded.validate(d); err != nil {
 		return nil, err

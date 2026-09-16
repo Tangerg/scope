@@ -75,8 +75,8 @@ func TestWireZeroValuesAreInvalid(t *testing.T) {
 }
 
 func TestNormalizeJSONEnforcesNormalizedLimit(t *testing.T) {
-	if _, err := wireJSON.normalize([]byte(`"<"`), 3); err == nil {
-		t.Fatal("wireJSON.normalize accepted a value that exceeded the limit after normalization")
+	if _, err := normalizeJSON([]byte(`"<"`), 3); err == nil {
+		t.Fatal("normalizeJSON accepted a value that exceeded the limit after normalization")
 	}
 }
 

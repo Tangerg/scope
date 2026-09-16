@@ -1,7 +1,6 @@
 package interaction
 
 import (
-	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -58,8 +57,8 @@ func ActiveDelegateChildrenFromSnapshot(
 	if stateEnvelope.Kind() != executionStateKind {
 		return nil, false, nil
 	}
-	var state executionState
-	if decodeErr := jsonv2.Unmarshal(stateEnvelope.Payload(), &state, jsonv2.RejectUnknownMembers(true)); decodeErr != nil {
+	state, decodeErr := stateEnvelope.Decode[executionState](executionStateKind)
+	if decodeErr != nil {
 		return nil, false, fmt.Errorf("%w: decode state: %w", ErrInvalidExecutionState, decodeErr)
 	}
 	if state.ToolRound == nil || state.ToolRound.ChildBatch == nil {

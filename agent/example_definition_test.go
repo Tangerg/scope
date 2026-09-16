@@ -41,11 +41,8 @@ func (e echoDefinition) Start(input agent.Input) (agent.Execution, error) {
 }
 
 func (echoDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
-	if !state.Valid() || state.Kind() != "example.echo" {
-		return nil, agent.ErrInvalidExecutionState
-	}
-	var value echoState
-	if err := jsonv2.Unmarshal(state.Payload(), &value, jsonv2.RejectUnknownMembers(true)); err != nil {
+	value, err := state.Decode[echoState]("example.echo")
+	if err != nil {
 		return nil, err
 	}
 	switch value.Phase {

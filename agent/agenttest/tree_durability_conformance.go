@@ -433,11 +433,8 @@ func (c *conformanceDefinition) Start(input agent.Input) (agent.Execution, error
 }
 
 func (c *conformanceDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
-	if state.Kind() != c.descriptor.Name() {
-		return nil, agent.ErrInvalidExecutionState
-	}
-	var value conformanceState
-	if err := json.Unmarshal(state.Payload(), &value); err != nil {
+	value, err := state.Decode[conformanceState](c.descriptor.Name())
+	if err != nil {
 		return nil, err
 	}
 	if !value.Phase.valid() {

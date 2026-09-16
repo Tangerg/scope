@@ -181,7 +181,7 @@ func TestWaitConflictsAreRejectedBeforeDispatch(t *testing.T) {
 			if wire.Prepared != nil {
 				t.Fatal("invalid batch was prepared")
 			}
-			state, err := wireJSON.decode[engineTestState](wire.CommittedExecutionState.Payload())
+			state, err := decodeJSON[engineTestState](wire.CommittedExecutionState.Payload())
 			if err != nil || state.Phase != "ready" || wire.usage() != (Usage{}) ||
 				wire.Mailbox.SignalCursor != 0 || len(wire.Mailbox.Signals) != 0 || len(wire.Mailbox.Waits) != 0 {
 				t.Fatalf("failed finalization adopted candidate state: %+v, %v", wire, err)

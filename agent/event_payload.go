@@ -64,7 +64,7 @@ func (e EffectResolvedFact) Valid() bool {
 }
 
 func decodeEffectResolvedFact(payload json.RawMessage) (EffectResolvedFact, error) {
-	wire, err := wireJSON.decode[effectResolvedEventPayload](payload)
+	wire, err := decodeJSON[effectResolvedEventPayload](payload)
 	if err != nil {
 		return EffectResolvedFact{}, err
 	}
@@ -185,7 +185,7 @@ func (r RuntimeStoppedFact) Valid() bool {
 }
 
 func decodeRuntimeStoppedFact(payload json.RawMessage) (RuntimeStoppedFact, error) {
-	wire, err := wireJSON.decode[runtimeStoppedEventPayload](payload)
+	wire, err := decodeJSON[runtimeStoppedEventPayload](payload)
 	if err != nil {
 		return RuntimeStoppedFact{}, err
 	}
@@ -287,7 +287,7 @@ func (d DeltaDroppedFact) Count() uint64 { return d.count }
 func (d DeltaDroppedFact) Valid() bool { return d.count > 0 }
 
 func decodeProcessFinishedFact(payload json.RawMessage) (ProcessFinishedFact, error) {
-	wire, err := wireJSON.decode[processFinishedEventPayload](payload)
+	wire, err := decodeJSON[processFinishedEventPayload](payload)
 	if err != nil || wire.Usage == nil {
 		return ProcessFinishedFact{}, errors.New("invalid Process finished event payload")
 	}
@@ -303,7 +303,7 @@ func decodeProcessFinishedFact(payload json.RawMessage) (ProcessFinishedFact, er
 }
 
 func decodeSignalAcceptedFact(payload json.RawMessage) (SignalAcceptedFact, error) {
-	wire, err := wireJSON.decode[signalAcceptedEventPayload](payload)
+	wire, err := decodeJSON[signalAcceptedEventPayload](payload)
 	if err != nil {
 		return SignalAcceptedFact{}, err
 	}
@@ -322,7 +322,7 @@ func decodeSignalAcceptedFact(payload json.RawMessage) (SignalAcceptedFact, erro
 }
 
 func decodeStepFinishedFact(payload json.RawMessage) (StepFinishedFact, error) {
-	wire, err := wireJSON.decode[stepFinishedEventPayload](payload)
+	wire, err := decodeJSON[stepFinishedEventPayload](payload)
 	if err != nil || wire.WorkDurationNS == nil || wire.AdoptionDelayNS == nil {
 		return StepFinishedFact{}, errors.New("invalid Step finished event payload")
 	}
@@ -334,7 +334,7 @@ func decodeStepFinishedFact(payload json.RawMessage) (StepFinishedFact, error) {
 }
 
 func decodeStepCommittedFact(payload json.RawMessage) (StepCommittedFact, error) {
-	wire, err := wireJSON.decode[stepCommittedEventPayload](payload)
+	wire, err := decodeJSON[stepCommittedEventPayload](payload)
 	if err != nil {
 		return StepCommittedFact{}, err
 	}
@@ -346,7 +346,7 @@ func decodeStepCommittedFact(payload json.RawMessage) (StepCommittedFact, error)
 }
 
 func decodeEffectStartedFact(payload json.RawMessage) (EffectStartedFact, error) {
-	wire, err := wireJSON.decode[effectStartedEventPayload](payload)
+	wire, err := decodeJSON[effectStartedEventPayload](payload)
 	if err != nil {
 		return EffectStartedFact{}, err
 	}
@@ -358,7 +358,7 @@ func decodeEffectStartedFact(payload json.RawMessage) (EffectStartedFact, error)
 }
 
 func decodeEffectFinishedFact(payload json.RawMessage) (EffectFinishedFact, error) {
-	wire, err := wireJSON.decode[effectFinishedEventPayload](payload)
+	wire, err := decodeJSON[effectFinishedEventPayload](payload)
 	if err != nil || wire.DurationMS == nil || *wire.DurationMS < 0 {
 		return EffectFinishedFact{}, errors.New("invalid Effect finished event payload")
 	}
@@ -377,7 +377,7 @@ func decodeEffectFinishedFact(payload json.RawMessage) (EffectFinishedFact, erro
 }
 
 func decodeDeltaDroppedFact(payload json.RawMessage) (DeltaDroppedFact, error) {
-	wire, err := wireJSON.decode[deltaDroppedEventPayload](payload)
+	wire, err := decodeJSON[deltaDroppedEventPayload](payload)
 	if err != nil {
 		return DeltaDroppedFact{}, err
 	}

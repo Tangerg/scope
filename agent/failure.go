@@ -118,7 +118,7 @@ func (f *Failure) UnmarshalJSON(data []byte) error {
 	if f == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidFailure)
 	}
-	wire, err := wireJSON.decode[failureWire](data)
+	wire, err := decodeJSON[failureWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidFailure, err)
 	}

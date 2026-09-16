@@ -283,11 +283,8 @@ func (c *crashTreeDefinition) Start(input agent.Input) (agent.Execution, error) 
 }
 
 func (c *crashTreeDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
-	if state.Kind() != c.descriptor.Name() {
-		return nil, agent.ErrInvalidExecutionState
-	}
-	var decoded crashTreeState
-	if err := json.Unmarshal(state.Payload(), &decoded); err != nil {
+	decoded, err := state.Decode[crashTreeState](c.descriptor.Name())
+	if err != nil {
 		return nil, err
 	}
 	if !decoded.valid() {

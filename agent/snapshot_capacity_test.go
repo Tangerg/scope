@@ -44,7 +44,7 @@ func (c *capacityExecution) Step(_ context.Context, signals []Signal) (Transitio
 	if len(signals) == 0 {
 		return Transition{}, errors.New("expected settlement")
 	}
-	message, err := wireJSON.decode[engineTestMessage](signals[len(signals)-1].Payload())
+	message, err := decodeJSON[engineTestMessage](signals[len(signals)-1].Payload())
 	if err != nil {
 		return Transition{}, err
 	}

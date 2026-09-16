@@ -24,7 +24,7 @@ func NewExecutionState(kind string, payload json.RawMessage) (ExecutionState, er
 	if !validQualifiedName(kind) {
 		return ExecutionState{}, fmt.Errorf("%w: kind must be a lowercase qualified name", ErrInvalidExecutionState)
 	}
-	normalized, err := wireJSON.normalize(payload, MaxPayloadBytes)
+	normalized, err := normalizeJSON(payload, MaxPayloadBytes)
 	if err != nil {
 		return ExecutionState{}, fmt.Errorf("%w: payload: %w", ErrInvalidExecutionState, err)
 	}
@@ -36,6 +36,20 @@ func (e ExecutionState) Kind() string { return e.kind }
 
 // Payload returns an independently owned copy of the opaque Strategy state.
 func (e ExecutionState) Payload() json.RawMessage { return bytes.Clone(e.payload) }
+
+// Decode checks the Strategy kind before decoding its payload into T. Unknown
+// object members are rejected; the Strategy still validates its domain state.
+func (e ExecutionState) Decode[T any](kind string) (T, error) {
+	if !e.Valid() || e.kind != kind {
+		var value T
+		return value, fmt.Errorf("%w: expected Strategy kind %q, got %q", ErrInvalidExecutionState, kind, e.kind)
+	}
+	value, err := decodeJSON[T](e.payload)
+	if err != nil {
+		return value, fmt.Errorf("%w: decode: %w", ErrInvalidExecutionState, err)
+	}
+	return value, nil
+}
 
 func (e ExecutionState) Valid() bool {
 	return validQualifiedName(e.kind) && len(e.payload) > 0
@@ -59,7 +73,7 @@ func (e *ExecutionState) UnmarshalJSON(data []byte) error {
 	if e == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidExecutionState)
 	}
-	wire, err := wireJSON.decode[executionStateWire](data)
+	wire, err := decodeJSON[executionStateWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidExecutionState, err)
 	}

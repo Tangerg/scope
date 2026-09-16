@@ -45,7 +45,7 @@ func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 	if len(data) == 0 || len(data) > maxSnapshotBytes {
 		return ProcessSnapshot{}, fmt.Errorf("%w: JSON must contain at most %d bytes", ErrInvalidSnapshot, maxSnapshotBytes)
 	}
-	wire, err := wireJSON.decode[processSnapshotWire](data)
+	wire, err := decodeJSON[processSnapshotWire](data)
 	if err != nil {
 		return ProcessSnapshot{}, fmt.Errorf("%w: decode: %w", ErrInvalidSnapshot, err)
 	}

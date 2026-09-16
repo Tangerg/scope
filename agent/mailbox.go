@@ -476,7 +476,7 @@ func (s signalRecordWire) restore(sequence, cursor uint64) (signalRecord, error)
 		}
 		return record, nil
 	}
-	payload, err := wireJSON.normalize(s.Payload, MaxPayloadBytes)
+	payload, err := normalizeJSON(s.Payload, MaxPayloadBytes)
 	if err != nil || ComputeDigest(payload) != s.PayloadDigest {
 		return signalRecord{}, fmt.Errorf("%w: pending Signal content disagrees with digest", errMailboxCursor)
 	}

@@ -91,7 +91,7 @@ func (d *DeploymentRef) UnmarshalJSON(data []byte) error {
 	if d == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidDeploymentRef)
 	}
-	wire, err := wireJSON.decode[deploymentRefWire](data)
+	wire, err := decodeJSON[deploymentRefWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidDeploymentRef, err)
 	}

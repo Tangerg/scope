@@ -67,9 +67,9 @@ func (i *InputGate) Restore(state agent.ExecutionState) (agent.Execution, error)
 	if !i.valid() {
 		return nil, ErrInvalidConfig
 	}
-	decoded, err := decodeState[inputGateState](inputGateStateKind, state)
+	decoded, err := state.Decode[inputGateState](inputGateStateKind)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrInvalidState, err)
 	}
 	if err := decoded.validate(i); err != nil {
 		return nil, err

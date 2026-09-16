@@ -178,7 +178,7 @@ func ParseChildWaitOpened(signal Signal) (ChildWaitOpened, error) {
 	if !signal.EngineOwned() || !addressed {
 		return ChildWaitOpened{}, ErrInvalidChildWait
 	}
-	wire, err := wireJSON.decode[childWaitOpenedWire](signal.Payload())
+	wire, err := decodeJSON[childWaitOpenedWire](signal.Payload())
 	if err != nil {
 		return ChildWaitOpened{}, fmt.Errorf("%w: decode opened Signal: %w", ErrInvalidChildWait, err)
 	}
@@ -276,7 +276,7 @@ func (c *ChildOutcome) UnmarshalJSON(data []byte) error {
 	if c == nil {
 		return ErrInvalidChildWait
 	}
-	wire, err := wireJSON.decode[childOutcomeWire](data)
+	wire, err := decodeJSON[childOutcomeWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode child outcome: %w", ErrInvalidChildWait, err)
 	}
@@ -338,7 +338,7 @@ func ParseChildWaitSatisfied(signal Signal) (ChildWaitSatisfied, error) {
 	if !signal.EngineOwned() || !addressed {
 		return ChildWaitSatisfied{}, ErrInvalidChildWait
 	}
-	wire, err := wireJSON.decode[childWaitSatisfiedWire](signal.Payload())
+	wire, err := decodeJSON[childWaitSatisfiedWire](signal.Payload())
 	if err != nil {
 		return ChildWaitSatisfied{}, fmt.Errorf("%w: decode completion Signal: %w", ErrInvalidChildWait, err)
 	}
@@ -423,7 +423,7 @@ func (c childWaitSpecWire) value() (ChildWaitSpec, error) {
 }
 
 func decodeChildWaitEffect(payload json.RawMessage) (ChildWaitSpec, error) {
-	wire, err := wireJSON.decode[childWaitEffectWire](payload)
+	wire, err := decodeJSON[childWaitEffectWire](payload)
 	if err != nil {
 		return ChildWaitSpec{}, fmt.Errorf("%w: decode request: %w", ErrInvalidChildWait, err)
 	}

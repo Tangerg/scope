@@ -48,10 +48,7 @@ func (s *scopeJoinDefinition) Start(input Input) (Execution, error) {
 }
 
 func (s *scopeJoinDefinition) Restore(state ExecutionState) (Execution, error) {
-	if state.Kind() != s.descriptor.Name() {
-		return nil, ErrInvalidExecutionState
-	}
-	value, err := wireJSON.decode[scopeJoinState](state.Payload())
+	value, err := state.Decode[scopeJoinState](s.descriptor.Name())
 	if err != nil {
 		return nil, err
 	}

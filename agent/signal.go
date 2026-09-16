@@ -24,7 +24,7 @@ func newSignal(id SignalID, waitID WaitID, payload json.RawMessage) (Signal, err
 	if !id.Valid() {
 		return Signal{}, fmt.Errorf("%w: %w", ErrInvalidSignal, ErrInvalidIdentity)
 	}
-	normalized, err := wireJSON.normalize(payload, MaxPayloadBytes)
+	normalized, err := normalizeJSON(payload, MaxPayloadBytes)
 	if err != nil {
 		return Signal{}, fmt.Errorf("%w: payload: %w", ErrInvalidSignal, err)
 	}
@@ -76,7 +76,7 @@ func (s *Signal) UnmarshalJSON(data []byte) error {
 	if s == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidSignal)
 	}
-	wire, err := wireJSON.decode[signalWire](data)
+	wire, err := decodeJSON[signalWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidSignal, err)
 	}

@@ -155,7 +155,7 @@ func (d *Descriptor) UnmarshalJSON(data []byte) error {
 	if d == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidDescriptor)
 	}
-	wire, err := wireJSON.decode[descriptorWire](data)
+	wire, err := decodeJSON[descriptorWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidDescriptor, err)
 	}

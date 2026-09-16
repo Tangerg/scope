@@ -35,7 +35,7 @@ func ParseTreeSnapshot(data json.RawMessage) (TreeSnapshot, error) {
 			"%w: JSON must contain at most %d bytes", ErrInvalidTreeSnapshot, maxTreeSnapshotBytes,
 		)
 	}
-	wire, err := wireJSON.decode[treeSnapshotWire](data)
+	wire, err := decodeJSON[treeSnapshotWire](data)
 	if err != nil {
 		return TreeSnapshot{}, fmt.Errorf("%w: decode: %w", ErrInvalidTreeSnapshot, err)
 	}
@@ -394,7 +394,7 @@ func (t *treeSnapshotValidation) validateChildWaitSignals(mailbox mailboxWire, w
 	if err != nil {
 		return fmt.Errorf("%w: encode child wait: %w", ErrInvalidTreeSnapshot, err)
 	}
-	opened, err = wireJSON.normalize(opened, MaxPayloadBytes)
+	opened, err = normalizeJSON(opened, MaxPayloadBytes)
 	if err != nil {
 		return fmt.Errorf("%w: normalize child wait: %w", ErrInvalidTreeSnapshot, err)
 	}

@@ -64,9 +64,9 @@ func (d *Deadline) Restore(state agent.ExecutionState) (agent.Execution, error) 
 	if d == nil || !d.descriptor.Valid() {
 		return nil, ErrInvalidConfig
 	}
-	decoded, err := decodeState[deadlineState](deadlineStateKind, state)
+	decoded, err := state.Decode[deadlineState](deadlineStateKind)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrInvalidState, err)
 	}
 	if !decoded.valid() {
 		return nil, fmt.Errorf("%w: deadline or phase is invalid", ErrInvalidState)

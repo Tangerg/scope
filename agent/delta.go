@@ -44,7 +44,7 @@ func newDelta(
 	if emittedAt.IsZero() {
 		return Delta{}, fmt.Errorf("%w: emission time is required", ErrInvalidDelta)
 	}
-	normalized, err := wireJSON.normalize(payload, maxDeltaBytes)
+	normalized, err := normalizeJSON(payload, maxDeltaBytes)
 	if err != nil {
 		return Delta{}, fmt.Errorf("%w: payload: %w", ErrInvalidDelta, err)
 	}
@@ -104,7 +104,7 @@ func (d *Delta) UnmarshalJSON(data []byte) error {
 	if d == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidDelta)
 	}
-	wire, err := wireJSON.decode[deltaWire](data)
+	wire, err := decodeJSON[deltaWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidDelta, err)
 	}

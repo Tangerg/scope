@@ -194,7 +194,7 @@ func (t *Transition) UnmarshalJSON(data []byte) error {
 	if t == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidTransition)
 	}
-	wire, err := wireJSON.decode[transitionWire](data)
+	wire, err := decodeJSON[transitionWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidTransition, err)
 	}

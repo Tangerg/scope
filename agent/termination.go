@@ -351,7 +351,7 @@ func (t *Termination) UnmarshalJSON(data []byte) error {
 	if t == nil {
 		return fmt.Errorf("%w: nil receiver", errInvalidTermination)
 	}
-	wire, err := wireJSON.decode[terminationWire](data)
+	wire, err := decodeJSON[terminationWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", errInvalidTermination, err)
 	}

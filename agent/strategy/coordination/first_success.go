@@ -93,9 +93,9 @@ func (f *FirstSuccess) Restore(state agent.ExecutionState) (agent.Execution, err
 	if !f.valid() {
 		return nil, ErrInvalidConfig
 	}
-	decoded, err := decodeState[firstSuccessState](firstSuccessStateKind, state)
+	decoded, err := state.Decode[firstSuccessState](firstSuccessStateKind)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrInvalidState, err)
 	}
 	if err := decoded.validate(f.maxCandidates); err != nil {
 		return nil, err

@@ -26,7 +26,7 @@ func NewSignalRequest(id SignalID, waitID WaitID, payload json.RawMessage) (Sign
 	if !signalSourceExternal.accepts(id) {
 		return SignalRequest{}, fmt.Errorf("%w: signal ID: %w", ErrInvalidSignalRequest, ErrInvalidIdentity)
 	}
-	normalized, err := wireJSON.normalize(payload, MaxPayloadBytes)
+	normalized, err := normalizeJSON(payload, MaxPayloadBytes)
 	if err != nil {
 		return SignalRequest{}, fmt.Errorf("%w: payload: %w", ErrInvalidSignalRequest, err)
 	}

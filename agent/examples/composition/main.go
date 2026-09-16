@@ -6,7 +6,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -138,11 +137,8 @@ func (u *uppercaseDefinition) Start(input agent.Input) (agent.Execution, error) 
 }
 
 func (*uppercaseDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
-	if !state.Valid() || state.Kind() != "example.uppercase" {
-		return nil, agent.ErrInvalidExecutionState
-	}
-	var execution uppercaseExecution
-	if err := jsonv2.Unmarshal(state.Payload(), &execution, jsonv2.RejectUnknownMembers(true)); err != nil {
+	execution, err := state.Decode[uppercaseExecution]("example.uppercase")
+	if err != nil {
 		return nil, err
 	}
 	return &execution, nil
@@ -260,11 +256,8 @@ func (c *compositionDefinition) Start(input agent.Input) (agent.Execution, error
 }
 
 func (c *compositionDefinition) Restore(state agent.ExecutionState) (agent.Execution, error) {
-	if !state.Valid() || state.Kind() != "example.composition" {
-		return nil, agent.ErrInvalidExecutionState
-	}
-	var decoded compositionState
-	if err := jsonv2.Unmarshal(state.Payload(), &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+	decoded, err := state.Decode[compositionState]("example.composition")
+	if err != nil {
 		return nil, err
 	}
 	if err := decoded.validate(); err != nil {
