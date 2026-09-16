@@ -23,7 +23,7 @@ type ReciprocalRankFusionConfig struct {
 	RankConstant int
 }
 
-func (r ReciprocalRankFusionConfig) normalized() (ReciprocalRankFusionConfig, error) {
+func (r ReciprocalRankFusionConfig) normalize() (ReciprocalRankFusionConfig, error) {
 	if r.RankConstant < 0 {
 		return ReciprocalRankFusionConfig{}, ErrInvalidRankConstant
 	}
@@ -47,7 +47,7 @@ type FusionRetrieverConfig struct {
 // retrievers commonly use incomparable score scales. Every retriever must
 // succeed; failures are reported in declaration order without partial results.
 func ReciprocalRankFusion(config FusionRetrieverConfig, retrievers ...Retriever) (Retriever, error) {
-	fusion, err := config.Fusion.normalized()
+	fusion, err := config.Fusion.normalize()
 	if err != nil {
 		return nil, err
 	}

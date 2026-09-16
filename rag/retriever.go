@@ -101,7 +101,7 @@ func WithExpander(config ExpansionConfig) (Retriever, error) {
 	if lo.IsNil(config.Expander) {
 		return nil, ErrNilExpander
 	}
-	fusion, err := config.Fusion.normalized()
+	fusion, err := config.Fusion.normalize()
 	if err != nil {
 		return nil, err
 	}

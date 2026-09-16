@@ -22,7 +22,7 @@ const (
 	ErrorFailFast ErrorPolicy = "fail_fast"
 )
 
-func (e ErrorPolicy) normalized() (ErrorPolicy, error) {
+func (e ErrorPolicy) normalize() (ErrorPolicy, error) {
 	if e == "" {
 		return ErrorCollect, nil
 	}
@@ -65,7 +65,7 @@ func NewExperiment[T any](config ExperimentConfig[T]) (Experiment[T], error) {
 	if config.MaxConcurrency < 0 {
 		return Experiment[T]{}, fmt.Errorf("%w: maximum concurrency must not be negative", ErrInvalidExperiment)
 	}
-	policy, err := config.ErrorPolicy.normalized()
+	policy, err := config.ErrorPolicy.normalize()
 	if err != nil {
 		return Experiment[T]{}, err
 	}

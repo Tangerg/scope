@@ -529,11 +529,11 @@ func TestGrepOutputModeOwnsDefaultAndValidation(t *testing.T) {
 			t.Errorf("%q should be valid", mode)
 		}
 	}
-	if resolved := (GrepOutputMode("")).Resolve(); resolved != GrepOutputContent {
-		t.Fatalf("zero mode resolved to %q, want %q", resolved, GrepOutputContent)
+	if normalized, err := (GrepOutputMode("")).Normalize(); err != nil || normalized != GrepOutputContent {
+		t.Fatalf("zero mode normalized to %q, %v; want %q", normalized, err, GrepOutputContent)
 	}
-	if mode := GrepOutputMode("bogus"); mode.Valid() || mode.Resolve() != mode {
-		t.Fatalf("invalid mode changed or passed validation: %q", mode)
+	if normalized, err := GrepOutputMode("bogus").Normalize(); normalized != "" || !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("invalid mode normalized to %q, %v", normalized, err)
 	}
 }
 

@@ -127,16 +127,20 @@ const (
 	GrepOutputCount GrepOutputMode = "count"
 )
 
-func (g GrepOutputMode) Resolve() GrepOutputMode {
+// Normalize applies the default and rejects unsupported output modes.
+func (g GrepOutputMode) Normalize() (GrepOutputMode, error) {
 	if g == "" {
-		return GrepOutputContent
+		g = GrepOutputContent
 	}
-	return g
+	if !g.Valid() {
+		return "", fmt.Errorf("%w: invalid output_mode %q", ErrInvalidInput, g)
+	}
+	return g, nil
 }
 
 func (g GrepOutputMode) Valid() bool {
-	switch g.Resolve() {
-	case GrepOutputContent, GrepOutputFilesWithMatches, GrepOutputCount:
+	switch g {
+	case "", GrepOutputContent, GrepOutputFilesWithMatches, GrepOutputCount:
 		return true
 	default:
 		return false

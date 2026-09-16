@@ -28,7 +28,7 @@ type TokenCountBatcherConfig struct {
 	Formatter Formatter
 }
 
-func (t TokenCountBatcherConfig) normalized() (TokenCountBatcherConfig, error) {
+func (t TokenCountBatcherConfig) normalize() (TokenCountBatcherConfig, error) {
 	if lo.IsNil(t.Counter) {
 		return TokenCountBatcherConfig{}, errors.New("etl: token counter is required")
 	}
@@ -81,7 +81,7 @@ type sizedDocument struct {
 // NewTokenCountBatcher validates budgets before any document reaches a load
 // boundary.
 func NewTokenCountBatcher(config TokenCountBatcherConfig) (*TokenCountBatcher, error) {
-	config, err := config.normalized()
+	config, err := config.normalize()
 	if err != nil {
 		return nil, err
 	}

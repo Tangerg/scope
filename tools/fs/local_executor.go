@@ -299,8 +299,9 @@ func (l *LocalExecutor) Grep(ctx context.Context, in GrepInput) (_ GrepResponse,
 	if in.Pattern == "" {
 		return GrepResponse{}, ErrEmptyPattern
 	}
-	if !in.OutputMode.Valid() {
-		return GrepResponse{}, fmt.Errorf("fs.LocalExecutor.Grep: invalid output_mode %q", in.OutputMode)
+	mode, err := in.OutputMode.Normalize()
+	if err != nil {
+		return GrepResponse{}, fmt.Errorf("fs.LocalExecutor.Grep: %w", err)
 	}
 	base, err := l.authorize(in.Path, true)
 	if err != nil {
@@ -330,7 +331,6 @@ func (l *LocalExecutor) Grep(ctx context.Context, in GrepInput) (_ GrepResponse,
 	} else if maxResults > maximumSearchResults {
 		return GrepResponse{}, fmt.Errorf("fs.LocalExecutor.Grep: max_results exceeds %d", maximumSearchResults)
 	}
-	mode := in.OutputMode.Resolve()
 	response, err := l.grepFiles(ctx, root, base, info, executable, in, newRipgrepDecoder(mode, maxResults))
 	if err != nil {
 		return GrepResponse{}, fmt.Errorf("fs.LocalExecutor.Grep: %w", err)

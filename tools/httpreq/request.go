@@ -26,7 +26,11 @@ func (r *Request) prepare() (*Request, error) {
 	}
 	prepared := *r
 	prepared.URL = strings.TrimSpace(r.URL)
-	prepared.Method = r.Method.Normalize()
+	method, err := r.Method.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	prepared.Method = method
 	prepared.Headers = maps.Clone(r.Headers)
 	prepared.Query = maps.Clone(r.Query)
 	if err := prepared.Validate(); err != nil {

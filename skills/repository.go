@@ -37,7 +37,7 @@ func NewRepository(fsys fs.FS, config RepositoryConfig) (*Repository, error) {
 	if lo.IsNil(fsys) {
 		return nil, ErrNilFilesystem
 	}
-	limits, err := config.resolve()
+	limits, err := config.normalize()
 	if err != nil {
 		return nil, err
 	}

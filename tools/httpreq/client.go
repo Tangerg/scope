@@ -62,7 +62,7 @@ func (c *Client) Do(ctx context.Context, request *Request) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	method := prepared.Method.Normalize()
+	method := prepared.Method
 	if _, allowed := c.allowedMethods[method]; !allowed {
 		return nil, fmt.Errorf("%w: %s", ErrMethodNotAllowed, method)
 	}

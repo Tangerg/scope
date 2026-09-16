@@ -51,7 +51,7 @@ type MultiQueryExpanderConfig struct {
 	PromptTemplate *chatclient.Template
 }
 
-func (m MultiQueryExpanderConfig) normalized() (MultiQueryExpanderConfig, error) {
+func (m MultiQueryExpanderConfig) normalize() (MultiQueryExpanderConfig, error) {
 	if m.NumberOfQueries < 0 {
 		return MultiQueryExpanderConfig{}, errors.New("rag: number of expanded queries must not be negative")
 	}
@@ -123,7 +123,7 @@ func (m multiQueryOutput) queries(source rag.Query, count int, includeOriginal b
 // NewMultiQueryExpander validates query-count bounds and freezes model prompt
 // policy.
 func NewMultiQueryExpander(config MultiQueryExpanderConfig) (*MultiQueryExpander, error) {
-	config, err := config.normalized()
+	config, err := config.normalize()
 	if err != nil {
 		return nil, err
 	}

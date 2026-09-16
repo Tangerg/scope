@@ -22,15 +22,20 @@ const (
 	PassAtLeast PassPolicy = "at_least"
 )
 
-func (p PassPolicy) resolve() PassPolicy {
+func (p PassPolicy) normalize() (PassPolicy, error) {
 	if p == "" {
-		return PassAll
+		p = PassAll
 	}
-	return p
+	switch p {
+	case PassAll, PassAny, PassAtLeast:
+		return p, nil
+	default:
+		return "", fmt.Errorf("%w: unsupported pass policy %q", ErrInvalidEvaluatorConfig, p)
+	}
 }
 
 func (p PassPolicy) minimum(componentCount, configured int) (int, error) {
-	switch p.resolve() {
+	switch p {
 	case PassAll:
 		if configured != 0 {
 			return 0, fmt.Errorf("%w: minimum passed is only valid with the at_least policy", ErrInvalidEvaluatorConfig)
@@ -103,7 +108,10 @@ func NewCompositeEvaluator[T any](config CompositeConfig[T]) (*CompositeEvaluato
 		components[index] = component
 	}
 
-	policy := config.PassPolicy.resolve()
+	policy, err := config.PassPolicy.normalize()
+	if err != nil {
+		return nil, err
+	}
 	minimumPassed, err := policy.minimum(len(components), config.MinimumPassed)
 	if err != nil {
 		return nil, err

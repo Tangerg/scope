@@ -25,7 +25,7 @@ type repositoryLimits struct {
 	maxSkillBytes       int64
 }
 
-func (r RepositoryConfig) resolve() (repositoryLimits, error) {
+func (r RepositoryConfig) normalize() (repositoryLimits, error) {
 	if r.MaxEntries < 0 || r.MaxFrontmatterBytes < 0 || r.MaxSkillBytes < 0 {
 		return repositoryLimits{}, fmt.Errorf("%w: repository limits must not be negative", ErrInvalidLimit)
 	}

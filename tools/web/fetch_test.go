@@ -144,8 +144,11 @@ func TestFetchToolRejectsInvalidProviderResponse(t *testing.T) {
 }
 
 func TestFetchContentFormat(t *testing.T) {
-	if got := ContentFormat("").Resolve(); got != FormatMarkdown {
-		t.Fatalf("empty ContentFormat.Resolve() = %q, want %q", got, FormatMarkdown)
+	if got, err := ContentFormat("").Normalize(); err != nil || got != FormatMarkdown {
+		t.Fatalf("empty ContentFormat.Normalize() = %q, %v; want %q", got, err, FormatMarkdown)
+	}
+	if got, err := ContentFormat("json").Normalize(); got != "" || !errors.Is(err, ErrInvalidFormat) {
+		t.Fatalf("ContentFormat(json).Normalize() = %q, %v", got, err)
 	}
 	if err := FormatText.Validate(); err != nil {
 		t.Fatalf("FormatText.Validate() error = %v", err)

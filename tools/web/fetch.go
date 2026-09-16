@@ -30,11 +30,15 @@ func (c ContentFormat) Validate() error {
 	}
 }
 
-func (c ContentFormat) Resolve() ContentFormat {
+// Normalize applies the default and rejects unsupported formats.
+func (c ContentFormat) Normalize() (ContentFormat, error) {
 	if c == "" {
-		return FormatMarkdown
+		c = FormatMarkdown
 	}
-	return c
+	if err := c.Validate(); err != nil {
+		return "", err
+	}
+	return c, nil
 }
 
 // FetchRequest is both the provider-neutral fetch contract and the
@@ -54,7 +58,11 @@ func (f *FetchRequest) Prepare() (*FetchRequest, error) {
 	}
 	prepared := *f
 	prepared.URL = strings.TrimSpace(f.URL)
-	prepared.Format = f.Format.Resolve()
+	format, err := f.Format.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	prepared.Format = format
 	if err := prepared.Validate(); err != nil {
 		return nil, err
 	}

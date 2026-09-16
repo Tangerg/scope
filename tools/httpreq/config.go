@@ -63,7 +63,10 @@ func (c clientPolicy) checkRedirect(request *http.Request, via []*http.Request) 
 	if !c.allowedHosts.Allows(host) {
 		return fmt.Errorf("%w: redirect target %q", ErrHostNotAllowed, host)
 	}
-	method := Method(request.Method).Normalize()
+	method, err := Method(request.Method).Normalize()
+	if err != nil {
+		return fmt.Errorf("%w: redirect method %q: %w", ErrMethodNotAllowed, request.Method, err)
+	}
 	if _, allowed := c.allowedMethods[method]; !allowed {
 		return fmt.Errorf("%w: redirect method %s", ErrMethodNotAllowed, method)
 	}
@@ -93,7 +96,8 @@ func (c ClientConfig) compilePolicy() (clientPolicy, error) {
 		if strings.TrimSpace(string(method)) == "" {
 			return clientPolicy{}, fmt.Errorf("%w: allowed method %d is blank", ErrInvalidClientConfig, index)
 		}
-		if err := method.Validate(); err != nil {
+		normalized, err := method.Normalize()
+		if err != nil {
 			return clientPolicy{}, fmt.Errorf(
 				"%w: allowed method %d %q: %w",
 				ErrInvalidClientConfig,
@@ -102,7 +106,7 @@ func (c ClientConfig) compilePolicy() (clientPolicy, error) {
 				err,
 			)
 		}
-		allowedMethods[method.Normalize()] = struct{}{}
+		allowedMethods[normalized] = struct{}{}
 	}
 	if c.DefaultTimeout < 0 || c.DefaultTimeout > MaxRequestTimeout {
 		return clientPolicy{}, fmt.Errorf("%w: default timeout must be between 0 and %s", ErrInvalidClientConfig, MaxRequestTimeout)

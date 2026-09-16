@@ -105,11 +105,14 @@ func TestRedirectPolicyRejectsNonHTTPURL(t *testing.T) {
 }
 
 func TestMethod(t *testing.T) {
-	if got := Method("").Normalize(); got != MethodGET {
-		t.Fatalf("empty Method.Normalize() = %q, want %q", got, MethodGET)
+	if got, err := Method("").Normalize(); err != nil || got != MethodGET {
+		t.Fatalf("empty Method.Normalize() = %q, %v; want %q", got, err, MethodGET)
 	}
-	if got := Method(" post ").Normalize(); got != MethodPOST {
-		t.Fatalf("Method(post).Normalize() = %q, want %q", got, MethodPOST)
+	if got, err := Method(" post ").Normalize(); err != nil || got != MethodPOST {
+		t.Fatalf("Method(post).Normalize() = %q, %v; want %q", got, err, MethodPOST)
+	}
+	if got, err := Method("CONNECT").Normalize(); got != "" || !errors.Is(err, ErrInvalidMethod) {
+		t.Fatalf("Method(CONNECT).Normalize() = %q, %v", got, err)
 	}
 	if err := Method("CONNECT").Validate(); !errors.Is(err, ErrInvalidMethod) {
 		t.Fatalf("Method(CONNECT).Validate() error = %v, want ErrInvalidMethod", err)
