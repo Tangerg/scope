@@ -1,12 +1,12 @@
 # Bug reports
 
-One living document per module, holding only what is still open.
+Living reports contain only unresolved findings within their stated scope.
 
 | Document | Scope |
 |---|---|
-| [`agent-open-findings.md`](agent-open-findings.md) | `agent` and every subpackage |
+| [`agent-open-findings.md`](agent-open-findings.md) | `core`, `etl`, `eval`, `rag`, `skills`, `tools` — the capability modules outside `agent`, excluding integrations |
 
-No open findings are recorded.
+No open findings are currently recorded in the reports above.
 
 ## Why one document
 
