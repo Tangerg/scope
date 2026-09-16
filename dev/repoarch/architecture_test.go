@@ -25,6 +25,21 @@ type repositoryModule struct {
 	layer int
 }
 
+func (r repositoryModule) isCapabilityModule() bool {
+	// Protocol and observability integrations adapt capabilities from outside.
+	// New modules are capabilities unless they belong to an explicit exemption.
+	protocolIntegrations := []string{"a2a", "mcp", "otel"}
+	if slices.Contains(protocolIntegrations, r.dir) || r.dir == "examples" {
+		return false
+	}
+	for _, family := range []string{"models/", "vectorstores/", "historystores/", "tokenizers/", "dev/"} {
+		if strings.HasPrefix(r.dir, family) {
+			return false
+		}
+	}
+	return true
+}
+
 type providerPackage struct {
 	family     string
 	relative   string
@@ -236,10 +251,37 @@ func TestETLFilesystemAdaptersStayOutsideRoot(t *testing.T) {
 func TestDomainCapabilityModulesDoNotOwnOpenTelemetry(t *testing.T) {
 	t.Parallel()
 	root := repositoryRoot(t)
-	for _, relativeDir := range []string{
-		"core", "agent", "etl", "eval", "rag", "skills", "tools",
+	for _, module := range discoverModules(t, root) {
+		if module.isCapabilityModule() {
+			assertNoOpenTelemetryImports(t, filepath.Join(root, module.dir))
+		}
+	}
+}
+
+func TestNewModulesDefaultToCapabilityClassification(t *testing.T) {
+	for _, test := range []struct {
+		dir        string
+		capability bool
+	}{
+		{dir: "newcapability", capability: true},
+		{dir: "newcapability/adapter", capability: true},
+		{dir: "etl/newformat", capability: true},
+		{dir: "eval/newmeasurement", capability: true},
+		{dir: "mcphelpers", capability: true},
+		{dir: "models-extra/provider", capability: true},
+		{dir: "a2a"},
+		{dir: "mcp"},
+		{dir: "otel"},
+		{dir: "models/newprovider"},
+		{dir: "vectorstores/newprovider"},
+		{dir: "historystores/newprovider"},
+		{dir: "tokenizers/newprovider"},
+		{dir: "examples"},
+		{dir: "dev/newcheck"},
 	} {
-		assertNoOpenTelemetryImports(t, filepath.Join(root, relativeDir))
+		if got := (repositoryModule{dir: test.dir}).isCapabilityModule(); got != test.capability {
+			t.Errorf("module %s classified as capability = %t, want %t", test.dir, got, test.capability)
+		}
 	}
 }
 
