@@ -89,6 +89,57 @@ func TestSubstringMatcherSnapshotsTermsAndSupportsDisclosurePolicy(t *testing.T)
 	}
 }
 
+func TestSubstringMatcherUnicodeCaseFolding(t *testing.T) {
+	for _, test := range []struct {
+		name, term, text string
+		want             bool
+	}{
+		{name: "final sigma", term: "κόσμος", text: "Ο ΚΌΣΜΟΣ", want: true},
+		{name: "medial sigma", term: "σ", text: "ς", want: true},
+		{name: "sharp s", term: "straße", text: "DIE STRASSE", want: true},
+		{name: "reverse expansion", term: "SS", text: "ß", want: true},
+		{name: "ligature", term: "office", text: "oﬃce", want: true},
+		{name: "distinct text", term: "κόσμος", text: "κόσμημα"},
+		{name: "no normalization", term: "é", text: "e\u0301"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			matcher := mustSubstring(t, test.term)
+			match, err := matcher.Match(t.Context(), test.text)
+			want := safeguard.Match{}
+			if test.want {
+				want = safeguard.Match{Found: true, Term: test.term}
+			}
+			if err != nil || match != want {
+				t.Fatalf("Match(%q) = %#v, %v; want %#v", test.text, match, err, want)
+			}
+		})
+	}
+
+	for _, config := range []safeguard.SubstringConfig{
+		{}, {CaseSensitive: true}, {HideMatch: true},
+	} {
+		matcher, err := safeguard.NewSubstringMatcher([]string{" Straße ", "STRASSE"}, config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := safeguard.Match{Found: true, Term: "Straße"}
+		if config.CaseSensitive {
+			want.Term = "STRASSE"
+		}
+		if config.HideMatch {
+			want.Term = ""
+		}
+		for range 8 {
+			t.Run("shared matcher", func(t *testing.T) {
+				t.Parallel()
+				if got, matchErr := matcher.Match(t.Context(), "STRASSE"); matchErr != nil || got != want {
+					t.Fatalf("Match = %#v, %v; want %#v", got, matchErr, want)
+				}
+			})
+		}
+	}
+}
+
 func TestCallBlocksInputBeforeModelAndReportsBlock(t *testing.T) {
 	matcher := mustSubstring(t, "secret")
 	var blocks []safeguard.Block

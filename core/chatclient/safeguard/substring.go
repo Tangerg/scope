@@ -4,11 +4,15 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"golang.org/x/text/cases"
 )
 
-// SubstringConfig controls matching and disclosure. Case-insensitive
-// matching is the default. HideMatch prevents a configured term from entering
-// UnsafeError or OnBlock.
+// SubstringConfig controls matching and disclosure. Matching uses Unicode case
+// folding by default, including multi-rune expansions such as ß to ss. It does
+// not normalize Unicode or equate visually similar characters. CaseSensitive
+// compares the original bytes. HideMatch prevents a configured term from
+// entering UnsafeError or OnBlock.
 type SubstringConfig struct {
 	CaseSensitive bool
 	HideMatch     bool
@@ -40,7 +44,7 @@ func NewSubstringMatcher(terms []string, config SubstringConfig) (*SubstringMatc
 		}
 		match := display
 		if !config.CaseSensitive {
-			match = strings.ToLower(match)
+			match = cases.Fold().String(match)
 		}
 		if _, duplicate := seen[match]; duplicate {
 			continue
@@ -63,7 +67,7 @@ func (s *SubstringMatcher) Match(ctx context.Context, text string) (Match, error
 	}
 	haystack := text
 	if !s.config.CaseSensitive {
-		haystack = strings.ToLower(haystack)
+		haystack = cases.Fold().String(haystack)
 	}
 	for _, term := range s.terms {
 		if !strings.Contains(haystack, term.match) {

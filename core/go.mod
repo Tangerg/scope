@@ -6,6 +6,7 @@ require (
 	github.com/invopop/jsonschema v0.14.0
 	github.com/samber/lo v1.53.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
+	golang.org/x/text v0.42.0
 )
 
 require (
@@ -15,5 +16,4 @@ require (
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.6 // indirect
-	golang.org/x/text v0.42.0 // indirect
 )
