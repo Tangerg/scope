@@ -188,6 +188,36 @@ func TestSemanticProjectionCoversRealInteractionOutput(t *testing.T) {
 	}
 }
 
+func TestBehaviorDigestIncludesAcknowledgedEffectResolution(t *testing.T) {
+	base := runTrajectory(t)
+	var digests []string
+	for _, status := range []agent.SettlementStatus{agent.SettlementStatusSucceeded, agent.SettlementStatusFailed} {
+		config := trajectoryConfig(base)
+		terminal := config.Events[len(config.Events)-1]
+		resolution := changeEvent(t, terminal, map[string]any{
+			"name": agent.EventEffectResolved, "phase": agent.EventPhaseCommitted,
+			"step_sequence": 1, "effect_id": "effect:resolution",
+			"payload": map[string]any{"effect_target": agent.EffectTargetDispatcher, "settlement_status": status},
+		})
+		config.Events[len(config.Events)-1] = resolution
+		config.Events = append(config.Events, changeEvent(t, terminal, map[string]any{
+			"process_sequence": terminal.ProcessSequence() + 1,
+		}))
+		candidate, err := trajectory.New(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest, err := candidate.BehaviorDigest(rawOutputProjection)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digests = append(digests, digest)
+	}
+	if digests[0] == digests[1] {
+		t.Fatal("acknowledged success and failure produced the same behavior digest")
+	}
+}
+
 func changeEvent(t *testing.T, event agent.Event, fields map[string]any) agent.Event {
 	t.Helper()
 	data, err := json.Marshal(event)

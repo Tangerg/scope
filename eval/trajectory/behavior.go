@@ -99,6 +99,10 @@ func (b *behaviorEvent) apply(event agent.Event) {
 		b.Settlement = fact.SettlementStatus()
 		return
 	}
+	if fact, present := event.EffectResolved(); present {
+		b.EffectTarget = fact.Target()
+		b.Settlement = fact.SettlementStatus()
+	}
 }
 
 func canonicalArguments(arguments string) (json.RawMessage, error) {
