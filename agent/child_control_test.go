@@ -183,7 +183,7 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 			request := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:control")), WaitID{}, []byte(`"steer"`)))
 			effect := controlValue(SignalChild(recipient, request))
 			transition := controlValue(Continue(0, effect))
-			if failure := parent.prepareStepResult(stepJobResult{transition: transition, candidate: parent.execution, candidateState: parent.committedExecutionState}); failure != nil {
+			if failure := prepareTestStep(parent, stepJobResult{transition: transition, candidate: parent.execution, candidateState: parent.committedExecutionState}); failure != nil {
 				t.Fatal(failure.cause)
 			}
 			if err := parent.prepared.Effects[0].begin(); err != nil {

@@ -82,7 +82,7 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 		t.Fatal(err)
 	}
 	now := time.Now().Round(0).UTC()
-	handle := newProcessHandleState(rootProcessRelation(rootID), deployment.DeploymentRef(), engine.limits.budget(), engine.capabilities, engine.treeLimits, now, StatusRunning)
+	handle := newProcessHandle(rootProcessRelation(rootID), deployment.DeploymentRef(), engine.limits.budget(), engine.capabilities, engine.treeLimits, now)
 	root := newProcessState(handle, deployment, execution, state, now, engine.limits)
 	processes := []*processState{root}
 	for index := 1; index < count; index++ {
@@ -99,7 +99,7 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 		if err != nil {
 			t.Fatal(err)
 		}
-		handle := newProcessHandleState(childProcessRelation(id, root.handle.relation, key), deployment.DeploymentRef(), budget, engine.capabilities, engine.treeLimits, now, StatusWaiting)
+		handle := newProcessHandle(childProcessRelation(id, root.handle.relation, key), deployment.DeploymentRef(), budget, engine.capabilities, engine.treeLimits, now)
 		handle.childRequestDigest = ComputeDigest([]byte(key.String()))
 		child := newProcessState(handle, deployment, execution, state, now, limits)
 		waitID, err := ParseWaitID(fmt.Sprintf("wait:waiting-%d", index))

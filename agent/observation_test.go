@@ -385,7 +385,7 @@ func TestProcessEventSequenceAdvancesOnlyAtPublication(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = engine.Close(context.WithoutCancel(t.Context())) })
 	process := &processState{
-		handle: &processHandleState{
+		handle: &processHandle{
 			processID: processID, relation: relation, deploymentRef: deployment.DeploymentRef(),
 		},
 		deployment: deployment,
@@ -393,9 +393,16 @@ func TestProcessEventSequenceAdvancesOnlyAtPublication(t *testing.T) {
 
 	runtime := &treeRuntime{engine: engine, context: context.Background()}
 	process.processEventSequence = 7
-	runtime.publishEvent(process, "invalid event name", EventPhaseAttempt,
-		0, EffectID{}, emptyEventPayload(),
-	)
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("invalid kernel fact was silently omitted")
+			}
+		}()
+		runtime.publishEvent(process, "invalid event name", EventPhaseAttempt,
+			0, EffectID{}, emptyEventPayload(),
+		)
+	}()
 	if process.processEventSequence != 7 || len(events) != 0 {
 		t.Fatalf("invalid Event changed sequence to %d or published %d facts", process.processEventSequence, len(events))
 	}
@@ -406,10 +413,7 @@ func TestProcessEventSequenceAdvancesOnlyAtPublication(t *testing.T) {
 	if process.processEventSequence != 8 || len(events) != 1 || events[0].ProcessSequence() != 8 {
 		t.Fatalf("valid Event sequence = %d, events = %#v", process.processEventSequence, events)
 	}
-	paused, ok := runtime.prepareEvent(process, EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
-	if !ok {
-		t.Fatal("could not prepare pause Event")
-	}
+	paused := runtime.prepareEvent(process, EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
 	if process.processEventSequence != 8 {
 		t.Error("preparing an unpublished Event advanced publication order")
 	}
@@ -423,7 +427,7 @@ func TestProcessEventSequenceAdvancesOnlyAtPublication(t *testing.T) {
 	runtime.publishEvent(process, EventProcessResumed, EventPhaseCommitted,
 		0, EffectID{}, emptyEventPayload(),
 	)
-	if process.processEventSequence != math.MaxUint64 || len(events) != 3 {
+	if process.processEventSequence != math.MaxUint64 || len(events) != 3 || engine.ObservationFailures().DroppedEvents() != 1 {
 		t.Fatalf("exhausted Event sequence wrapped to %d or published %d facts", process.processEventSequence, len(events))
 	}
 }

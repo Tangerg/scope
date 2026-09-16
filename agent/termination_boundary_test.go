@@ -19,7 +19,7 @@ func TestPreparedFailurePreservesDispatchEvidence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if failure := process.prepareStepResult(stepJobResult{
+			if failure := prepareTestStep(process, stepJobResult{
 				transition: transition, candidate: process.execution, candidateState: process.committedExecutionState,
 			}); failure != nil {
 				t.Fatal(failure.cause)
@@ -97,7 +97,7 @@ func TestTerminalOutcomeCannotBeReplacedOrRepublished(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			runtime.advanceHead(snapshot)
+			runtime.head = snapshot
 			runtime.publishAcknowledgedChanges()
 		}
 		before, err := runtime.captureTree()
@@ -148,5 +148,32 @@ func TestSignalCommitWithoutCallerStillCompletes(t *testing.T) {
 	runtime.applySuccessfulTreeCommit(&treeCommit{kind: treeCommitSignals, processID: process.handle.processID})
 	if _, queued := runtime.queued[process.handle.processID]; !queued {
 		t.Fatal("acknowledgment did not schedule the Process")
+	}
+}
+
+func TestCompletionRejectsOrphanedOwnedWork(t *testing.T) {
+	runtime, process := newChildCompletionTestProcess(t)
+	job := &processJob{kind: processJobRestore, attempt: 1}
+	runtime.setProcessJob(process.handle.processID, job)
+	delete(runtime.processes, process.handle.processID)
+	defer func() {
+		if recover() == nil {
+			t.Fatal("orphaned work was silently retained")
+		}
+	}()
+	runtime.applyCompletion(treeJobCompletion{
+		processID: process.handle.processID, kind: job.kind, attempt: job.attempt,
+	})
+}
+
+func TestStaleCompletionPreservesCurrentOwnedWork(t *testing.T) {
+	runtime, process := newChildCompletionTestProcess(t)
+	job := &processJob{kind: processJobRestore, attempt: 2}
+	runtime.setProcessJob(process.handle.processID, job)
+	runtime.applyCompletion(treeJobCompletion{
+		processID: process.handle.processID, kind: processJobRestore, attempt: 1,
+	})
+	if runtime.jobs[process.handle.processID] != job || runtime.inFlightWork.Load() != 1 {
+		t.Fatal("stale completion released the current attempt")
 	}
 }

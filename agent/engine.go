@@ -91,7 +91,7 @@ type Engine struct {
 	// Registry and reservation changes share this lock so publication cannot
 	// expose a Process whose admission still appears unreserved.
 	mu                      sync.RWMutex
-	processes               map[ProcessID]*processHandleState
+	processes               map[ProcessID]*processHandle
 	trees                   map[ProcessID]*treeRuntime
 	startReservations       map[ProcessID]processStartReservation
 	treeRestoreReservations map[ProcessID]*treeRestoration
@@ -190,7 +190,7 @@ func NewEngine(config EngineConfig) (*Engine, error) {
 		treeLimits:                        treeLimits,
 		capabilities:                      config.Capabilities,
 		treeOperations:                    make(map[ProcessID]*treeOperation),
-		processes:                         make(map[ProcessID]*processHandleState),
+		processes:                         make(map[ProcessID]*processHandle),
 		trees:                             make(map[ProcessID]*treeRuntime),
 		startReservations:                 make(map[ProcessID]processStartReservation),
 		treeRestoreReservations:           make(map[ProcessID]*treeRestoration),
@@ -248,11 +248,10 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Input) 
 	if err := acknowledgeProcessInitializationOutcome(ctx, e.initializationOutcomeAcknowledger, initializedProcessOutcome(admission, startedAt)); err != nil {
 		return nil, err
 	}
-	handle := newProcessHandleState(
+	handle := newProcessHandle(
 		relation, deployment.DeploymentRef(), budget, e.capabilities,
 		e.treeLimits,
-		startedAt, StatusRunning,
-	)
+		startedAt)
 	process := newProcessState(handle, deployment, execution, state, startedAt, e.limits)
 	runtime := newTreeRuntime(e, relation.RootID(), ctx, process)
 	if e.durability != nil {
@@ -479,7 +478,7 @@ func (e *Engine) discardProcessStartReservation(processID ProcessID) {
 	}
 }
 
-func (e *Engine) publishReservedProcess(handle *processHandleState) {
+func (e *Engine) publishReservedProcess(handle *processHandle) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	reservation, exists := e.startReservations[handle.processID]
@@ -741,7 +740,7 @@ func (e *Engine) startRestoredTree(ctx context.Context, restoration *treeRestora
 			continue
 		}
 		restoration.runtime.propagateProcessTermination(entry.state)
-		restoration.runtime.completeProcessBookkeeping(entry.state)
+		restoration.runtime.finishProcessBookkeeping(entry.state)
 	}
 	root := restoration.runtime.processes[restoration.wire.RootID].handle
 	go restoration.runtime.run(requireContext(ctx))

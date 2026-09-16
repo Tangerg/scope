@@ -392,3 +392,12 @@ func durationFromMilliseconds(milliseconds int64) (time.Duration, bool) {
 	}
 	return time.Duration(milliseconds) * time.Millisecond, true
 }
+
+// Kernel facts use closed payloads; failure to encode one is a programming error.
+func marshalEventPayload(payload any) json.RawMessage {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		panic(err)
+	}
+	return encoded
+}

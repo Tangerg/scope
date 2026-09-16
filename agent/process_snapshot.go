@@ -200,7 +200,10 @@ func (p ProcessSnapshot) Valid() bool {
 }
 
 func mustProcessRelation(processID ProcessID, wire processRelationWire) ProcessRelation {
-	relation, _ := processRelationFromWire(processID, wire)
+	relation, err := processRelationFromWire(processID, wire)
+	if err != nil {
+		panic(err)
+	}
 	return relation
 }
 

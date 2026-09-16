@@ -34,7 +34,7 @@ const treeCommandBufferCapacity = 32
 // a command enters the runtime queue, canceling ctx does not revoke it. A context
 // already canceled before submission never admits a command.
 type Process struct {
-	handle *processHandleState
+	handle *processHandle
 }
 
 // ID returns the stable Process identity.
@@ -136,7 +136,7 @@ func (p *Process) RequestCancellation(ctx context.Context, reason string) error 
 	if runtime == nil {
 		return p.handle.closedRequestError()
 	}
-	if err := runtime.engine.observation.checkListenerReentrancy(ctx, p.handle.relation.RootID(), "RequestCancellation"); err != nil {
+	if err := runtime.checkListenerReentrancy(ctx, "RequestCancellation"); err != nil {
 		return err
 	}
 	select {
@@ -203,7 +203,7 @@ func (p *Process) ReplayUnknownEffect(ctx context.Context, effectID EffectID) er
 func (p *Process) Await(ctx context.Context) (Result, error) {
 	ctx = requireContext(ctx)
 	if runtime := p.handle.runtime.Load(); runtime != nil {
-		if err := runtime.engine.observation.checkListenerReentrancy(ctx, p.handle.relation.RootID(), "Await"); err != nil {
+		if err := runtime.checkListenerReentrancy(ctx, "Await"); err != nil {
 			return Result{}, err
 		}
 	}
@@ -227,7 +227,7 @@ func (p *Process) Await(ctx context.Context) (Result, error) {
 func (p *Process) Join(ctx context.Context) error {
 	ctx = requireContext(ctx)
 	if runtime := p.handle.runtime.Load(); runtime != nil {
-		if err := runtime.engine.observation.checkListenerReentrancy(ctx, p.handle.relation.RootID(), "Join"); err != nil {
+		if err := runtime.checkListenerReentrancy(ctx, "Join"); err != nil {
 			return err
 		}
 	}
@@ -248,7 +248,7 @@ func (p *Process) request(ctx context.Context, command processCommand) (processR
 	if runtime == nil {
 		return processResponse{}, p.handle.closedRequestError()
 	}
-	if err := runtime.engine.observation.checkListenerReentrancy(ctx, p.handle.relation.RootID(), "process control"); err != nil {
+	if err := runtime.checkListenerReentrancy(ctx, "process control"); err != nil {
 		return processResponse{}, err
 	}
 	command.response = make(chan processResponse, 1)

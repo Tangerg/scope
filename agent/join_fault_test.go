@@ -51,8 +51,8 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	childID, _ := newProcessID()
 	key, _ := ParseChildKey("completed")
 	relation := childProcessRelation(childID, parent.handle.relation, key)
-	handle := newProcessHandleState(relation, parent.handle.deploymentRef,
-		parent.handle.budget, parent.handle.capabilities, parent.handle.treeLimits, parent.startedAt, StatusCompleted)
+	handle := newProcessHandle(relation, parent.handle.deploymentRef,
+		parent.handle.budget, parent.handle.capabilities, parent.handle.treeLimits, parent.startedAt)
 	output, err := EncodeOutput(childTestOutput{})
 	if err != nil {
 		t.Fatal(err)
@@ -67,7 +67,7 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	}
 	runtime.addProcess(child)
 	handle.publishResult(child.result())
-	runtime.completeProcessBookkeeping(child)
+	runtime.finishProcessBookkeeping(child)
 	waitID, _ := ParseWaitID("wait:completed-child-drain")
 	waitKey, _ := ParseWaitKey("completed-child-drain")
 	spec := ChildWaitSpec{Key: waitKey, Children: []ProcessID{childID}, Condition: AllChildren(), Boundary: ChildWaitBoundaryDrained}
@@ -82,7 +82,7 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	parent.currentWaitID = waitID
 	parent.status = StatusWaiting
 	runtime.childWaits[parent.handle.processID] = map[WaitID]*childWaitRegistration{waitID: {waitID: waitID, spec: spec}}
-	acknowledged, err := parent.capture()
+	_, err = parent.capture()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,8 +90,8 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	// before its local join is published. The parent's runtime has already failed.
 	cause := errors.New("sibling storage acknowledgment lost")
 	runtime.fault = cause
-	parent.handle.publishRuntimeFailure(&RuntimeError{processID: parent.handle.processID, cause: cause}, acknowledged)
-	runtime.completeProcessBookkeeping(parent)
+	parent.handle.publishRuntimeFailure(&RuntimeError{processID: parent.handle.processID, cause: cause})
+	runtime.finishProcessBookkeeping(parent)
 	clear(runtime.queued)
 	runtime.processQueue = nil
 	beforeUsage := parent.usage()

@@ -192,7 +192,7 @@ func TestKnownWaitSettlementsAreAdmittedBeforeEarlierDispatcher(t *testing.T) {
 	dispatch := controlValue(NewDispatcherEffect(json.RawMessage(`{}`)))
 	before := controlValue(process.capture())
 	transition := controlValue(Continue(0, dispatch, first, second))
-	failure := process.prepareStepResult(stepJobResult{transition: transition, candidate: process.execution, candidateState: process.committedExecutionState})
+	failure := prepareTestStep(process, stepJobResult{transition: transition, candidate: process.execution, candidateState: process.committedExecutionState})
 	if failure == nil || !errors.Is(failure.cause, ErrResourceLimitExceeded) || process.prepared != nil {
 		t.Fatalf("known settlement capacity was not reserved: %+v", failure)
 	}

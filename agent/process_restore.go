@@ -8,7 +8,7 @@ func prepareRestoredProcess(
 	durable bool,
 	deployment Deployment,
 	snapshot ProcessSnapshot,
-) (*processHandleState, *processState, processSnapshotWire, error) {
+) (*processHandle, *processState, processSnapshotWire, error) {
 	wire, err := snapshot.wire()
 	if err != nil {
 		return nil, nil, processSnapshotWire{}, err
@@ -39,10 +39,9 @@ func prepareRestoredProcess(
 	if err != nil {
 		return nil, nil, processSnapshotWire{}, fmt.Errorf("%w: relation: %w", ErrInvalidSnapshot, err)
 	}
-	handle := newProcessHandleState(
+	handle := newProcessHandle(
 		relation, wire.DeploymentRef, wire.Budget, wire.Capabilities, wire.TreeLimits,
-		wire.StartedAt, wire.Status,
-	)
+		wire.StartedAt)
 	process, err := restoreProcessState(durable, handle, deployment, execution, mailbox, wire)
 	if err != nil {
 		return nil, nil, processSnapshotWire{}, err
@@ -52,7 +51,7 @@ func prepareRestoredProcess(
 
 func restoreProcessState(
 	durable bool,
-	handle *processHandleState,
+	handle *processHandle,
 	deployment Deployment,
 	execution Execution,
 	mailbox signalMailbox,
@@ -89,7 +88,6 @@ func restoreProcessState(
 	if err := process.restorePreparedStep(wire.Prepared, durable); err != nil {
 		return nil, err
 	}
-	handle.updateStatus(process.status)
 	return process, nil
 }
 

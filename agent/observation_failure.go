@@ -23,15 +23,20 @@ type ListenerPanic struct {
 	Stack         string
 }
 
-// ObservationFailures is an immutable snapshot of listener panics isolated by
+// ObservationFailures is an immutable snapshot of event loss and listener panics isolated by
 // one Engine. Counts are monotonic and saturate at math.MaxUint64. Only the
 // latest event-listener panic and delta-listener panic are retained.
 type ObservationFailures struct {
+	droppedEvents       uint64
 	eventListenerPanics uint64
 	deltaListenerPanics uint64
 	lastEventPanic      *ListenerPanic
 	lastDeltaPanic      *ListenerPanic
 }
+
+// DroppedEvents counts events omitted because their Process publication sequence
+// exhausted uint64. It never wraps and does not change Process execution.
+func (o ObservationFailures) DroppedEvents() uint64 { return o.droppedEvents }
 
 func (o ObservationFailures) EventListenerPanics() uint64 { return o.eventListenerPanics }
 

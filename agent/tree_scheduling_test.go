@@ -144,13 +144,13 @@ func TestTreeSchedulingCommitsParkedStateUnderContinuousQueries(t *testing.T) {
 	if runtime.commit == nil {
 		t.Fatal("continuous queries prevented a safe checkpoint")
 	}
-	if process.handle.status() != StatusRunning {
+	if inspectionStatus(t, runtime, process.handle.processID) != StatusRunning {
 		t.Fatal("parked state was published before checkpoint acknowledgment")
 	}
 	runtime.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, runtime.commitDone))
 	checkpoints := durability.treeCheckpoints()
 	if len(checkpoints) != 1 || checkpoints[0].Kind() != TreeCheckpointParked ||
-		process.handle.status() != StatusPaused {
+		inspectionStatus(t, runtime, process.handle.processID) != StatusPaused {
 		t.Fatal("safe checkpoint did not publish the parked state")
 	}
 }
@@ -159,7 +159,7 @@ func TestTreeInspectionDoesNotWakePausedExecution(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	process.status = StatusPaused
 	process.pauseReason = "wait for explicit resumption"
-	runtime.publishEphemeralStatus(process)
+
 	runtime.dequeueProcess()
 	response := make(chan treeInspectionResponse, 1)
 	runtime.inspections <- response
@@ -172,4 +172,22 @@ func TestTreeInspectionDoesNotWakePausedExecution(t *testing.T) {
 	if runtime.advanceReadyWork() {
 		t.Fatal("read-only query introduced execution work for a paused Process")
 	}
+}
+
+func inspectionStatus(t *testing.T, runtime *treeRuntime, processID ProcessID) Status {
+	t.Helper()
+	response := make(chan treeInspectionResponse, 1)
+	runtime.inspections <- response
+	if !runtime.tryInspection() {
+		t.Fatal("inspection was not served")
+	}
+	reply := <-response
+	if reply.err != nil {
+		t.Fatal(reply.err)
+	}
+	process, ok := reply.inspection.Process(processID)
+	if !ok {
+		t.Fatal("Process missing from inspection")
+	}
+	return process.Snapshot.Status()
 }

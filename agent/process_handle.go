@@ -6,9 +6,9 @@ import (
 	"time"
 )
 
-// processHandleState is shared by the Process handles for one execution. The
-// tree runtime publishes status and outcomes here without transferring control.
-type processHandleState struct {
+// processHandle is shared by the Process handles for one execution. The
+// tree runtime publishes outcomes here without transferring control.
+type processHandle struct {
 	// Identity and allocation are immutable after Engine publishes the Process,
 	// so callers can inspect them without contending with the runtime owner goroutine.
 	processID          ProcessID
@@ -28,64 +28,51 @@ type processHandleState struct {
 	bookkeepingOnce  sync.Once
 	joined           chan struct{}
 
-	// mu protects the acknowledged status and retained instance outcome.
+	// mu protects the retained instance outcome.
 	// It is never held while running execution code or invoking listeners.
-	mu                 sync.RWMutex
-	acknowledgedStatus Status
-	result             Result
-	runtimeErr         *RuntimeError
-	joinErr            *RuntimeError
+	mu sync.RWMutex
+
+	result     Result
+	runtimeErr *RuntimeError
+	joinErr    *RuntimeError
 }
 
-func newProcessHandleState(
+func newProcessHandle(
 	relation ProcessRelation,
 	deploymentRef DeploymentRef,
 	budget Budget,
 	capabilities CapabilitySet,
 	treeLimits TreeLimits,
 	startedAt time.Time,
-	status Status,
-) *processHandleState {
-	return &processHandleState{
+) *processHandle {
+	return &processHandle{
 		processID: relation.ProcessID(), deploymentRef: deploymentRef, relation: relation,
 		budget: budget, capabilities: capabilities, treeLimits: treeLimits, startedAt: startedAt,
 		outcomePublished: make(chan struct{}),
-		bookkeepingDone:  make(chan struct{}), joined: make(chan struct{}), acknowledgedStatus: status,
+		bookkeepingDone:  make(chan struct{}), joined: make(chan struct{}),
 	}
 }
 
-func (p *processHandleState) status() Status {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.acknowledgedStatus
-}
-
-func (p *processHandleState) updateStatus(status Status) {
+func (p *processHandle) publishResult(result Result) {
 	p.mu.Lock()
-	p.acknowledgedStatus = status
-	p.mu.Unlock()
-}
 
-func (p *processHandleState) publishResult(result Result) {
-	p.mu.Lock()
-	p.acknowledgedStatus = result.Status()
 	p.result = result
 	p.mu.Unlock()
 	close(p.outcomePublished)
 }
 
-func (p *processHandleState) finishBookkeeping() {
+func (p *processHandle) finishBookkeeping() {
 	p.bookkeepingOnce.Do(func() { close(p.bookkeepingDone) })
 }
 
-func (p *processHandleState) finishJoin(err *RuntimeError) {
+func (p *processHandle) finishJoin(err *RuntimeError) {
 	p.mu.Lock()
 	p.joinErr = err
 	p.mu.Unlock()
 	close(p.joined)
 }
 
-func (p *processHandleState) joinError() error {
+func (p *processHandle) joinError() error {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	if p.joinErr != nil {
@@ -94,7 +81,7 @@ func (p *processHandleState) joinError() error {
 	return nil
 }
 
-func (p *processHandleState) joinDone() bool {
+func (p *processHandle) joinDone() bool {
 	select {
 	case <-p.joined:
 		return true
@@ -103,7 +90,7 @@ func (p *processHandleState) joinDone() bool {
 	}
 }
 
-func (p *processHandleState) outcome() (Result, error) {
+func (p *processHandle) outcome() (Result, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	if p.runtimeErr != nil {
@@ -112,15 +99,15 @@ func (p *processHandleState) outcome() (Result, error) {
 	return p.result, nil
 }
 
-func (p *processHandleState) publishRuntimeFailure(err *RuntimeError, snapshot ProcessSnapshot) {
+func (p *processHandle) publishRuntimeFailure(err *RuntimeError) {
 	p.mu.Lock()
-	p.acknowledgedStatus = snapshot.Status()
+
 	p.runtimeErr = err
 	p.mu.Unlock()
 	close(p.outcomePublished)
 }
 
-func (p *processHandleState) closedRequestError() error {
+func (p *processHandle) closedRequestError() error {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	if p.runtimeErr != nil {

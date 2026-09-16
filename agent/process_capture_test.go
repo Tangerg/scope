@@ -56,7 +56,7 @@ func TestRepeatedCaptureTracksControlSignalsAndReservations(t *testing.T) {
 		t.Fatal("resume is absent")
 	}
 	signal := mustMailboxSignal(t, "signal:capture", WaitID{}, []byte(`{"value":"new"}`))
-	if accepted, err := process.admitSignals([]Signal{signal}, signalSourceExternal); err != nil || !accepted {
+	if accepted, err := admitTestSignals(process, []Signal{signal}, signalSourceExternal); err != nil || !accepted {
 		t.Fatalf("signal admission = %t, %v", accepted, err)
 	}
 	if wire := captureChange(); wire.usage().AcceptedSignals != 1 || len(wire.Mailbox.Signals) != 1 {
@@ -129,7 +129,7 @@ func TestRepeatedCaptureTracksEffectSettlement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failure := process.prepareStepResult(stepJobResult{
+	if failure := prepareTestStep(process, stepJobResult{
 		transition: transition, candidate: process.execution, candidateState: process.committedExecutionState,
 	}); failure != nil {
 		t.Fatal(failure.cause)
@@ -185,4 +185,57 @@ func TestChildBudgetUnderflowFailsBeforeMutation(t *testing.T) {
 		}
 	}()
 	process.releaseCommittedChildBudget(Budget{Steps: 1, Effects: 3, Signals: 1})
+}
+
+func prepareTestStep(process *processState, result stepJobResult) *stepPreparationFailure {
+	candidate, failure := process.prepareStep(result)
+	if failure == nil {
+		process.adoptCandidate(candidate)
+	}
+	return failure
+}
+
+func admitTestSignals(process *processState, signals []Signal, source signalSource) (bool, error) {
+	candidate, err := process.prepareSignals(signals, source)
+	if err != nil || candidate == nil {
+		return false, err
+	}
+	process.adoptCandidate(candidate)
+	return true, nil
+}
+
+func TestPreparedCandidatesDoNotMutateTheirSource(t *testing.T) {
+	_, process := newChildCompletionTestProcess(t)
+	before := controlValue(process.capture())
+	signal := mustMailboxSignal(t, "signal:candidate", WaitID{}, []byte(`{}`))
+	candidate, err := process.prepareSignals([]Signal{signal}, signalSourceExternal)
+	if err != nil || candidate == nil {
+		t.Fatalf("candidate: %v", err)
+	}
+	if after := controlValue(process.capture()); !bytes.Equal(before.JSON(), after.JSON()) {
+		t.Fatal("unadopted signals changed the source Process")
+	}
+	process.adoptCandidate(candidate)
+	if process.mailbox.pendingCount() != 1 {
+		t.Fatal("candidate adoption lost the signal")
+	}
+	transition := controlValue(Continue(0, controlValue(NewDispatcherEffect([]byte(`{}`)))))
+	step, failure := process.prepareStep(stepJobResult{transition: transition, candidateState: process.committedExecutionState})
+	if failure != nil {
+		t.Fatal(failure.cause)
+	}
+	if process.prepared != nil || process.counters.PreparedEffects != 0 {
+		t.Fatal("unadopted Step changed execution state")
+	}
+	process.adoptCandidate(step)
+	other := process.candidate()
+	if err := other.prepared.Effects[0].begin(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.mailbox.commit(1); err != nil {
+		t.Fatal(err)
+	}
+	if process.prepared.Effects[0].Phase != effectPhasePlanned || process.mailbox.pendingCount() != 1 {
+		t.Fatal("candidate shared mutable protocol state with its source")
+	}
 }

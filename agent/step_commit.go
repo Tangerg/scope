@@ -31,14 +31,14 @@ type preparedTransitionState struct {
 	closedChildWaits []WaitID
 }
 
-func newPreparedStepFinalization(process *processState) (*preparedStepFinalization, error) {
+func newPreparedStepFinalization(process *processState, prepared *preparedStep) (*preparedStepFinalization, error) {
 	mailbox := process.mailbox.clone()
-	consumedChildWaits, err := mailbox.commit(process.prepared.Intent.ConsumedSignals())
+	consumedChildWaits, err := mailbox.commit(prepared.Intent.ConsumedSignals())
 	if err != nil {
 		return nil, err
 	}
 	return &preparedStepFinalization{
-		process: process, prepared: process.prepared, mailbox: mailbox,
+		process: process, prepared: prepared, mailbox: mailbox,
 		consumedChildWaits: consumedChildWaits,
 	}, nil
 }

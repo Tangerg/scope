@@ -21,7 +21,7 @@ func BenchmarkSignalAdmissionHistory(b *testing.B) {
 				b.ReportAllocs()
 				b.ResetTimer()
 				for b.Loop() {
-					accepted, err := process.admitSignals([]Signal{signal}, signalSourceExternal)
+					accepted, err := admitTestSignals(process, []Signal{signal}, signalSourceExternal)
 					if err != nil || accepted == replay {
 						b.Fatalf("admission = %t, %v", accepted, err)
 					}
@@ -51,7 +51,7 @@ func admissionTestProcess(t testing.TB, history int) *processState {
 	}
 	now := time.Now().UTC()
 	id := controlValue(newProcessID())
-	handle := newProcessHandleState(rootProcessRelation(id), deployment.DeploymentRef(), limits.budget(), CapabilitySet{}, DefaultTreeLimits(), now, StatusRunning)
+	handle := newProcessHandle(rootProcessRelation(id), deployment.DeploymentRef(), limits.budget(), CapabilitySet{}, DefaultTreeLimits(), now)
 	process := newProcessState(handle, deployment, execution, state, now, limits)
 	for index := range history {
 		signal := mustMailboxSignal(t, fmt.Sprintf("signal:%d", index), WaitID{}, json.RawMessage(`{}`))
@@ -107,7 +107,7 @@ func TestSignalAdmissionRejectsWholeBatchWithoutChangingHistoryOrWaits(t *testin
 			signals := test.prepare(t, process)
 			before := *process
 			before.mailbox = process.mailbox.clone()
-			accepted, err := process.admitSignals(signals, signalSourceExternal)
+			accepted, err := admitTestSignals(process, signals, signalSourceExternal)
 			if accepted || !errors.Is(err, test.want) {
 				t.Fatalf("admission = %t, %v; want false, %v", accepted, err, test.want)
 			}
@@ -123,7 +123,7 @@ func TestSignalAdmissionAppliesWaitAnswerAndFollowingSignalTogether(t *testing.T
 	wait := admissionTestWait(t, process)
 	answer := mustMailboxSignal(t, "signal:answer", wait, json.RawMessage(`{"approved":true}`))
 	steer := mustMailboxSignal(t, "signal:steer", WaitID{}, json.RawMessage(`{"next":"continue"}`))
-	if accepted, err := process.admitSignals([]Signal{answer, steer}, signalSourceExternal); err != nil || !accepted {
+	if accepted, err := admitTestSignals(process, []Signal{answer, steer}, signalSourceExternal); err != nil || !accepted {
 		t.Fatalf("admission = %t, %v", accepted, err)
 	}
 	if process.status != StatusRunning || process.currentWaitID.Valid() || !process.mailbox.waits[wait].answered || process.usage().AcceptedSignals != 13 {
@@ -136,7 +136,7 @@ func TestSignalAdmissionAppliesWaitAnswerAndFollowingSignalTogether(t *testing.T
 	process.mailbox = restored
 	before := *process
 	before.mailbox = process.mailbox.clone()
-	if accepted, err := process.admitSignals([]Signal{answer, steer}, signalSourceExternal); err != nil || accepted {
+	if accepted, err := admitTestSignals(process, []Signal{answer, steer}, signalSourceExternal); err != nil || accepted {
 		t.Fatalf("replay after restore = %t, %v", accepted, err)
 	}
 	if !reflect.DeepEqual(before.mailbox, process.mailbox) || before.status != process.status || before.currentWaitID != process.currentWaitID || before.usage() != process.usage() {

@@ -14,11 +14,10 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handle := newProcessHandleState(
+	handle := newProcessHandle(
 		rootProcessRelation(processID), DeploymentRef{},
 		Budget{Steps: maxUint64, Effects: maxUint64, Signals: maxUint64},
-		CapabilitySet{}, DefaultTreeLimits(), time.Now(), StatusRunning,
-	)
+		CapabilitySet{}, DefaultTreeLimits(), time.Now())
 	process := &processState{
 		handle:             handle,
 		status:             StatusRunning,
@@ -118,11 +117,10 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
 	childID := parent.handle.processID.effectID(1, 0).childProcessID()
 	childKey, _ := ParseChildKey("worker")
-	handle := newProcessHandleState(
+	handle := newProcessHandle(
 		childProcessRelation(childID, parent.handle.relation, childKey),
 		parent.deployment.DeploymentRef(), parent.budget, parent.capabilities,
-		parent.treeLimits, parent.startedAt, StatusRunning,
-	)
+		parent.treeLimits, parent.startedAt)
 	runtime.addProcess(newProcessState(handle, parent.deployment, parent.execution,
 		parent.committedExecutionState, parent.startedAt, controlValue(parent.budget.limits(parent.pendingSignalLimit))))
 	missingID, _ := ParseProcessID("process:missing-child")

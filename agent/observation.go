@@ -100,6 +100,12 @@ func newObservationBus(events []EventListener, deltas []DeltaListener, capacity 
 	return bus
 }
 
+func (o *observationBus) recordDroppedEvent() {
+	o.failureMu.Lock()
+	defer o.failureMu.Unlock()
+	o.failures.droppedEvents = saturatingCountAdd(o.failures.droppedEvents, 1)
+}
+
 func (o *observationBus) publishEvent(ctx context.Context, event Event) {
 	for index, listener := range o.events {
 		if failure := o.callEventListener(ctx, index, listener, event); failure != nil {

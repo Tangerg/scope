@@ -168,7 +168,7 @@ func TestPreparedContractFailureRetainsRestorableSettlementEvidence(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failure := process.prepareStepResult(stepJobResult{
+	if failure := prepareTestStep(process, stepJobResult{
 		transition: transition, candidate: process.execution, candidateState: process.committedExecutionState,
 	}); failure != nil {
 		t.Fatal(failure.cause)

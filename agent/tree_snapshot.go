@@ -226,9 +226,12 @@ func (t *treeSnapshotValidation) validateRelations() error {
 		parentID, child := relation.ParentID()
 		key, keyed := relation.ChildKey()
 		parent, parentExists := t.processes[parentID]
-		parentRelation, _ := processRelationFromWire(parentID, parent.Relation)
+		if !child || !keyed || !parentExists {
+			return fmt.Errorf("%w: child parent is absent", ErrInvalidTreeSnapshot)
+		}
+		parentRelation := mustProcessRelation(parentID, parent.Relation)
 		identity := childIdentity{parent: parentID, key: key}
-		if !child || !keyed || !parentExists || relation.Depth() != parentRelation.Depth()+1 ||
+		if relation.Depth() != parentRelation.Depth()+1 ||
 			!parent.Capabilities.Allows(processWire.Capabilities) {
 			return fmt.Errorf("%w: invalid child relation or attenuation", ErrInvalidTreeSnapshot)
 		}
@@ -280,9 +283,12 @@ func (t *treeSnapshotValidation) validateChildWaits() error {
 		}
 		for _, childID := range spec.Children {
 			child, exists := t.processes[childID]
-			relation, _ := processRelationFromWire(childID, child.Relation)
+			if !exists {
+				return fmt.Errorf("%w: wait references an absent child", ErrInvalidTreeSnapshot)
+			}
+			relation := mustProcessRelation(childID, child.Relation)
 			parentID, isChild := relation.ParentID()
-			if !exists || !isChild || parentID != encoded.ParentProcessID {
+			if !isChild || parentID != encoded.ParentProcessID {
 				return fmt.Errorf("%w: wait references a non-direct child", ErrInvalidTreeSnapshot)
 			}
 		}

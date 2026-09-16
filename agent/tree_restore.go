@@ -7,7 +7,7 @@ import (
 
 type restoredTreeProcess struct {
 	snapshot ProcessSnapshot
-	handle   *processHandleState
+	handle   *processHandle
 	state    *processState
 	wire     processSnapshotWire
 }

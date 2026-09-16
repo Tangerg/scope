@@ -151,7 +151,7 @@ func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *tes
 	if runtime.canStartChild(first) || !runtime.canStartChild(second) {
 		t.Fatal("in-flight start did not retain its parent's active-child slot")
 	}
-	handle := newProcessHandleState(relation, first.deployment.DeploymentRef(), first.budget, first.capabilities, first.treeLimits, root.startedAt, StatusRunning)
+	handle := newProcessHandle(relation, first.deployment.DeploymentRef(), first.budget, first.capabilities, first.treeLimits, root.startedAt)
 	child := newProcessState(handle, first.deployment, first.execution, first.committedExecutionState, root.startedAt, runtime.engine.limits)
 	runtime.addProcess(child)
 	if !runtime.canStartChild(second) {
@@ -161,5 +161,26 @@ func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *tes
 	runtime.removeProcess(childID)
 	if !runtime.canStartChild(first) || !runtime.canStartChild(second) {
 		t.Fatal("discarded child retained a resource reservation")
+	}
+}
+
+func TestProvisionalBudgetReleaseRequiresExactReservation(t *testing.T) {
+	_, process := newChildCompletionTestProcess(t)
+	budget := Budget{Steps: 1, Effects: 2, Signals: 3}
+	process.provisionalChildBudget = budget
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("mismatched release was silently ignored")
+			}
+		}()
+		process.releaseProvisionalChildBudget(Budget{Steps: 1, Effects: 2, Signals: 2})
+	}()
+	if process.provisionalChildBudget != budget {
+		t.Fatal("rejected release changed the reservation")
+	}
+	process.releaseProvisionalChildBudget(budget)
+	if process.provisionalChildBudget != (Budget{}) {
+		t.Fatal("exact release retained the reservation")
 	}
 }

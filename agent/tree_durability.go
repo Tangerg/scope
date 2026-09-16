@@ -141,7 +141,10 @@ func (e EffectBoundary) matchesProspectiveTree() bool {
 }
 
 // TreeCheckpointKind distinguishes absent-head creation from writer-fenced
-// updates, and stable owner cuts from fully parked or terminal trees.
+// updates and classifies the saved recovery cut, not live runtime work. Parked
+// means every nonterminal snapshot is waiting, paused, or blocked on an Unknown
+// settlement. A requested replay may be running against that unchanged cut;
+// TreeInspection reports that live work separately.
 type TreeCheckpointKind string
 
 const (
@@ -217,7 +220,7 @@ func (t TreeCheckpoint) Valid() bool {
 
 func (t TreeCheckpoint) matchesSafeCut() bool {
 	if t.kind == TreeCheckpointStart {
-		snapshots := t.treeSnapshot.ProcessSnapshots()
+		snapshots := t.treeSnapshot.state.ProcessSnapshots
 		return len(snapshots) == 1 && snapshots[0].Status() == StatusRunning
 	}
 	if t.kind == TreeCheckpointInput || t.kind == TreeCheckpointChild {
@@ -225,7 +228,7 @@ func (t TreeCheckpoint) matchesSafeCut() bool {
 	}
 	allTerminal := true
 	parked := true
-	for _, snapshot := range t.treeSnapshot.ProcessSnapshots() {
+	for _, snapshot := range t.treeSnapshot.state.ProcessSnapshots {
 		if snapshot.Status().Terminal() {
 			continue
 		}
@@ -354,7 +357,7 @@ func commitTreeCheckpoint(
 	durability TreeDurability,
 	checkpoint TreeCheckpoint,
 ) (err error) {
-	if durability == nil || !checkpoint.Valid() {
+	if durability == nil || !checkpoint.kind.Valid() {
 		return errors.New("invalid durable tree checkpoint")
 	}
 	defer func() {

@@ -122,8 +122,8 @@ func waitingOwnerFixture(b testing.TB, parents int) (*treeRuntime, *processState
 		if err != nil {
 			b.Fatal(err)
 		}
-		handle := newProcessHandleState(relation, deployment.DeploymentRef(),
-			engine.limits.budget(), engine.capabilities, engine.treeLimits, now, StatusRunning)
+		handle := newProcessHandle(relation, deployment.DeploymentRef(),
+			engine.limits.budget(), engine.capabilities, engine.treeLimits, now)
 		return newProcessState(handle, deployment, execution, state, now, engine.limits)
 	}
 	root := makeProcess(nil, "root")
@@ -146,7 +146,7 @@ func waitingOwnerFixture(b testing.TB, parents int) (*treeRuntime, *processState
 		}
 		first.installTermination(termination, output, now)
 		first.handle.publishResult(first.result())
-		runtime.completeProcessBookkeeping(first)
+		runtime.finishProcessBookkeeping(first)
 		waitID, err := ParseWaitID(fmt.Sprintf("wait:parent-%d", index))
 		if err != nil {
 			b.Fatal(err)

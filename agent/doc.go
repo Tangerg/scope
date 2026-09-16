@@ -133,7 +133,9 @@
 // Process.ReplayUnknownEffect explicitly requests a same-identity attempt only
 // when the Dispatcher guarantees idempotence. The original Unknown remains
 // authoritative throughout that attempt; a definite result uses the existing
-// resolved boundary. Cancellation still collects an already started attempt.
+// resolved boundary. Adjudication publishes EventEffectResolved after acknowledgment;
+// replay also publishes its own attempt facts. Cancellation still collects an
+// already started attempt.
 // A prepared batch has one execution frontier: definitely settled Effects
 // precede at most one pending or unknown Effect, followed only by planned
 // Effects. Runtime scheduling and snapshot admission enforce this same order.

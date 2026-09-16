@@ -12,7 +12,7 @@ import (
 type processState struct {
 	// These references establish ownership and remain fixed while the runtime
 	// owner goroutine mutates the execution fields below.
-	handle     *processHandleState
+	handle     *processHandle
 	deployment Deployment
 
 	// Only treeRuntime's owner goroutine mutates protocol and recovery state, keeping
@@ -37,10 +37,11 @@ type processState struct {
 
 	// Allocation and authority stay adjacent because every child reservation
 	// must update both before it can become observable.
-	pendingSignalLimit     uint64
-	treeLimits             TreeLimits
-	budget                 Budget
-	reservedBudget         Budget
+	pendingSignalLimit uint64
+	treeLimits         TreeLimits
+	budget             Budget
+	reservedBudget     Budget
+	// Pending child-start Effects re-establish this reservation on restore.
 	provisionalChildBudget Budget
 	capabilities           CapabilitySet
 	counters               processCounters
@@ -70,7 +71,7 @@ type pendingControl struct {
 }
 
 func newProcessState(
-	handle *processHandleState,
+	handle *processHandle,
 	deployment Deployment,
 	execution Execution,
 	state ExecutionState,
@@ -83,6 +84,25 @@ func newProcessState(
 		mailbox: newSignalMailbox(), pendingSignalLimit: limits.MaxPendingSignals, treeLimits: handle.treeLimits,
 		budget: handle.budget, capabilities: handle.capabilities,
 	}
+}
+
+// Candidates own mutable protocol containers. Execution instances remain borrowed:
+// only isolated worker jobs may call them, never a candidate transition.
+func (p *processState) candidate() *processState {
+	candidate := *p
+	candidate.mailbox = p.mailbox.clone()
+	if p.prepared != nil {
+		prepared := p.prepared.clone()
+		candidate.prepared = &prepared
+	}
+	return &candidate
+}
+
+func (p *processState) adoptCandidate(candidate *processState) {
+	if candidate.handle != p.handle {
+		panic("agent: candidate belongs to another Process")
+	}
+	*p = *candidate
 }
 
 func (p *processState) recordHostTermination(err error) {
@@ -120,13 +140,13 @@ func (p *processState) recordParentTermination(parent Termination) {
 }
 
 // Admission validates the complete batch before changing mailbox or wait state.
-func (p *processState) admitSignals(signals []Signal, source signalSource) (bool, error) {
+func (p *processState) prepareSignals(signals []Signal, source signalSource) (*processState, error) {
 	admission, err := p.mailbox.prepareAdmission(p.status, p.currentWaitID, signals, source)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	if admission.duplicate {
-		return false, nil
+		return nil, nil
 	}
 	count := uint64(len(signals))
 	reserved := p.prepared.settlementSignalCount()
@@ -136,10 +156,9 @@ func (p *processState) admitSignals(signals []Signal, source signalSource) (bool
 	if !resourceQuantitiesFit(p.pendingSignalLimit, p.mailbox.pendingCount(), count) ||
 		!resourceQuantitiesFit(p.pendingSignalLimit, remainingPending, reserved, count) ||
 		!resourceQuantitiesFit(p.budget.Signals, p.usage().AcceptedSignals, reservedBudget.Signals, reserved, count) {
-		return false, ErrResourceLimitExceeded
+		return nil, ErrResourceLimitExceeded
 	}
-	candidate := *p
-	candidate.mailbox = p.mailbox.clone()
+	candidate := p.candidate()
 	for _, record := range admission.records {
 		candidate.mailbox.acceptRecord(record)
 	}
@@ -148,11 +167,9 @@ func (p *processState) admitSignals(signals []Signal, source signalSource) (bool
 		candidate.currentWaitID = WaitID{}
 	}
 	if _, err := candidate.snapshotAdmissionSize(); err != nil {
-		return false, err
+		return nil, err
 	}
-	p.mailbox, p.status, p.currentWaitID = candidate.mailbox, candidate.status, candidate.currentWaitID
-
-	return true, nil
+	return candidate, nil
 }
 
 func (p *processState) requestPause(reason string) error {
@@ -205,22 +222,19 @@ func (p *processState) requestKill(reason string) error {
 	return nil
 }
 
-func (p *processState) resolveEffect(settlement Settlement) (int, error) {
+func (p *processState) prepareResolution(settlement Settlement) (*processState, int, error) {
 	if p.prepared == nil {
-		return 0, ErrEffectNotPending
+		return nil, 0, ErrEffectNotPending
 	}
-	prepared := p.prepared.clone()
-	index, _, err := prepared.resolveUnknown(settlement)
+	candidate := p.candidate()
+	index, _, err := candidate.prepared.resolveUnknown(settlement)
 	if err != nil {
-		return 0, err
+		return nil, 0, err
 	}
-	candidate := *p
-	candidate.prepared = &prepared
 	if _, err := candidate.snapshotAdmissionSize(); err != nil {
-		return 0, err
+		return nil, 0, err
 	}
-	p.prepared = &prepared
-	return index, nil
+	return candidate, index, nil
 }
 
 func (p *processState) unknownEffectIDs() []EffectID {
@@ -258,9 +272,10 @@ func (p *processState) commitProvisionalChildBudget(requested Budget) error {
 }
 
 func (p *processState) releaseProvisionalChildBudget(requested Budget) {
-	if p.provisionalChildBudget == requested {
-		p.provisionalChildBudget = Budget{}
+	if !requested.Valid() || p.provisionalChildBudget != requested {
+		panic("agent: provisional child budget does not match its reservation")
 	}
+	p.provisionalChildBudget = Budget{}
 }
 
 func (p *processState) releaseCommittedChildBudget(released Budget) {
@@ -383,22 +398,22 @@ func (p *processState) stepSchedulingFailure() *stepPreparationFailure {
 	}
 }
 
-func (p *processState) prepareStepResult(result stepJobResult) *stepPreparationFailure {
+func (p *processState) prepareStep(result stepJobResult) (*processState, *stepPreparationFailure) {
 	transition := result.transition
 	if !transition.Valid() || uint64(transition.ConsumedSignals()) > result.deliveredSignals {
-		return &stepPreparationFailure{
+		return nil, &stepPreparationFailure{
 			kind: FailureKindContract, code: failureCodeExecutionTransitionInvalid, cause: ErrInvalidTransition,
 		}
 	}
 	effects := transition.Effects()
 	for _, effect := range effects {
 		if err := p.deployment.validateEffect(effect); err != nil {
-			return &stepPreparationFailure{
+			return nil, &stepPreparationFailure{
 				kind: FailureKindContract, code: failureCodeExecutionEffectInvalid, cause: err,
 			}
 		}
 		if !p.capabilities.Allows(effect.RequiredCapabilities()) {
-			return &stepPreparationFailure{
+			return nil, &stepPreparationFailure{
 				kind: FailureKindContract, code: failureCodeEngineCapabilityDenied, cause: ErrInvalidCapability,
 			}
 		}
@@ -408,7 +423,7 @@ func (p *processState) prepareStepResult(result stepJobResult) *stepPreparationF
 	if !resourceQuantitiesFit(
 		p.budget.Effects, p.counters.PreparedEffects, reservedBudget.Effects, effectCount,
 	) {
-		return &stepPreparationFailure{
+		return nil, &stepPreparationFailure{
 			kind: FailureKindExecution, code: failureCodeEngineLimitEffects, cause: ErrResourceLimitExceeded,
 		}
 	}
@@ -417,20 +432,20 @@ func (p *processState) prepareStepResult(result stepJobResult) *stepPreparationF
 		!resourceQuantitiesFit(
 			p.budget.Signals, p.usage().AcceptedSignals, reservedBudget.Signals, effectCount,
 		) {
-		return &stepPreparationFailure{
+		return nil, &stepPreparationFailure{
 			kind: FailureKindExecution, code: failureCodeEngineLimitSignals, cause: ErrResourceLimitExceeded,
 		}
 	}
 	if output, completes := transition.Output(); completes {
 		if validateOutputErr := p.deployment.Descriptor().ValidateOutput(output); validateOutputErr != nil {
-			return &stepPreparationFailure{
+			return nil, &stepPreparationFailure{
 				kind: FailureKindContract, code: failureCodeExecutionOutputInvalid, cause: validateOutputErr,
 			}
 		}
 	}
 	digest, err := p.committedExecutionState.digest()
 	if err != nil {
-		return &stepPreparationFailure{
+		return nil, &stepPreparationFailure{
 			kind: FailureKindContract, code: failureCodeEngineCommittedExecutionStateInvalid, cause: err,
 		}
 	}
@@ -448,17 +463,16 @@ func (p *processState) prepareStepResult(result stepJobResult) *stepPreparationF
 		})
 	}
 	if err := p.validatePreparedWaits(&prepared); err != nil {
-		return &stepPreparationFailure{kind: FailureKindContract, code: failureCodeExecutionEffectInvalid, cause: err}
+		return nil, &stepPreparationFailure{kind: FailureKindContract, code: failureCodeExecutionEffectInvalid, cause: err}
 	}
-	candidate := *p
+	candidate := p.candidate()
 	candidate.prepared = &prepared
 	candidate.preparedExecution = result.candidate
 	candidate.counters.PreparedEffects += effectCount
 	if _, err := candidate.snapshotAdmissionSize(); err != nil {
-		return &stepPreparationFailure{kind: FailureKindExecution, code: failureCodeEngineLimitSnapshot, cause: err}
+		return nil, &stepPreparationFailure{kind: FailureKindExecution, code: failureCodeEngineLimitSnapshot, cause: err}
 	}
-	*p = candidate
-	return nil
+	return candidate, nil
 }
 
 func (p *processState) snapshotAdmissionSize() (int, error) {
@@ -532,7 +546,7 @@ func (p *processState) resolveStepTermination(outcome stepOutcome) Termination {
 		cancellation: p.pendingControl.cancellation, outcome: outcome,
 	}).resolve()
 	if err != nil {
-		failure, _ := NewFailure(FailureKindContract, failureCodeEngineTerminationInvalid, err.Error())
+		failure := newEngineFailure(FailureKindContract, failureCodeEngineTerminationInvalid, err)
 		termination = failure.termination()
 	}
 	return termination
@@ -556,8 +570,7 @@ func (p *processState) terminalEventPayload() json.RawMessage {
 		eventPayload.FailureKind = failure.Kind()
 		eventPayload.FailureCode = failure.Code()
 	}
-	payload, _ := json.Marshal(eventPayload)
-	return payload
+	return marshalEventPayload(eventPayload)
 }
 
 func (p pendingControl) hasTerminalIntent() bool {
@@ -586,9 +599,7 @@ func (p pendingControl) wire() pendingControlWire {
 
 // Pure wait conflicts must be rejected before any dispatcher receives permission.
 func (p *processState) validatePreparedWaits(prepared *preparedStep) error {
-	candidate := *p
-	candidate.prepared = prepared
-	finalization, err := newPreparedStepFinalization(&candidate)
+	finalization, err := newPreparedStepFinalization(p, prepared)
 	if err != nil {
 		return err
 	}

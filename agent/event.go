@@ -77,17 +77,22 @@ func (e EventPhase) String() string {
 // project or instrument it, but observer failure never changes Process state.
 // Payload is descriptive data, never a Signal or state mutation command.
 type Event struct {
+	eventFact
 	processSequence uint64
-	processID       ProcessID
-	deploymentRef   DeploymentRef
-	relation        ProcessRelation
-	incarnationID   TreeIncarnationID
-	stepSequence    uint64
-	effectID        EffectID
-	name            string
-	phase           EventPhase
-	occurredAt      time.Time
-	payload         json.RawMessage
+}
+
+// eventFact is validated before staging; publication alone assigns its sequence.
+type eventFact struct {
+	processID     ProcessID
+	deploymentRef DeploymentRef
+	relation      ProcessRelation
+	incarnationID TreeIncarnationID
+	stepSequence  uint64
+	effectID      EffectID
+	name          string
+	phase         EventPhase
+	occurredAt    time.Time
+	payload       json.RawMessage
 }
 
 type eventSpec struct {
@@ -108,48 +113,62 @@ func newEvent(spec eventSpec) (Event, error) {
 	if spec.processSequence == 0 {
 		return Event{}, fmt.Errorf("%w: Process sequence must be greater than zero", ErrInvalidEvent)
 	}
+	fact, err := newEventFact(spec)
+	if err != nil {
+		return Event{}, err
+	}
+	return fact.publish(spec.processSequence), nil
+}
+
+func newEventFact(spec eventSpec) (eventFact, error) {
 	if !spec.processID.Valid() {
-		return Event{}, fmt.Errorf("%w: process ID: %w", ErrInvalidEvent, ErrInvalidIdentity)
+		return eventFact{}, fmt.Errorf("%w: process ID: %w", ErrInvalidEvent, ErrInvalidIdentity)
 	}
 	if !spec.deploymentRef.Valid() {
-		return Event{}, fmt.Errorf("%w: deployment: %w", ErrInvalidEvent, ErrInvalidDeploymentRef)
+		return eventFact{}, fmt.Errorf("%w: deployment: %w", ErrInvalidEvent, ErrInvalidDeploymentRef)
 	}
 	if !spec.relation.Valid() || spec.relation.ProcessID() != spec.processID {
-		return Event{}, fmt.Errorf("%w: relation: %w", ErrInvalidEvent, ErrInvalidProcessRelation)
+		return eventFact{}, fmt.Errorf("%w: relation: %w", ErrInvalidEvent, ErrInvalidProcessRelation)
 	}
 	if spec.incarnationID != (TreeIncarnationID{}) && !spec.incarnationID.Valid() {
-		return Event{}, fmt.Errorf("%w: tree incarnation is invalid", ErrInvalidEvent)
+		return eventFact{}, fmt.Errorf("%w: tree incarnation is invalid", ErrInvalidEvent)
 	}
 	if !validQualifiedName(spec.name) {
-		return Event{}, fmt.Errorf("%w: name must be a lowercase qualified name", ErrInvalidEvent)
+		return eventFact{}, fmt.Errorf("%w: name must be a lowercase qualified name", ErrInvalidEvent)
 	}
 	if !spec.phase.Valid() {
-		return Event{}, fmt.Errorf("%w: phase is required", ErrInvalidEvent)
+		return eventFact{}, fmt.Errorf("%w: phase is required", ErrInvalidEvent)
 	}
 	if spec.occurredAt.IsZero() {
-		return Event{}, fmt.Errorf("%w: occurrence time is required", ErrInvalidEvent)
+		return eventFact{}, fmt.Errorf("%w: occurrence time is required", ErrInvalidEvent)
 	}
 	normalized, err := normalizeJSON(spec.payload, maxEventBytes)
 	if err != nil {
-		return Event{}, fmt.Errorf("%w: payload: %w", ErrInvalidEvent, err)
+		return eventFact{}, fmt.Errorf("%w: payload: %w", ErrInvalidEvent, err)
 	}
-	event := Event{
-		processSequence: spec.processSequence,
-		processID:       spec.processID,
-		deploymentRef:   spec.deploymentRef,
-		relation:        spec.relation,
-		incarnationID:   spec.incarnationID,
-		stepSequence:    spec.stepSequence,
-		effectID:        spec.effectID,
-		name:            spec.name,
-		phase:           spec.phase,
-		occurredAt:      spec.occurredAt.Round(0).UTC(),
-		payload:         normalized,
+	event := eventFact{
+		processID:     spec.processID,
+		deploymentRef: spec.deploymentRef,
+		relation:      spec.relation,
+		incarnationID: spec.incarnationID,
+		stepSequence:  spec.stepSequence,
+		effectID:      spec.effectID,
+		name:          spec.name,
+		phase:         spec.phase,
+		occurredAt:    spec.occurredAt.Round(0).UTC(),
+		payload:       normalized,
 	}
 	if err := event.validateContract(); err != nil {
-		return Event{}, fmt.Errorf("%w: %w", ErrInvalidEvent, err)
+		return eventFact{}, fmt.Errorf("%w: %w", ErrInvalidEvent, err)
 	}
 	return event, nil
+}
+
+func (e eventFact) publish(sequence uint64) Event {
+	if sequence == 0 || e.name == "" {
+		panic("agent: invalid Event publication")
+	}
+	return Event{eventFact: e, processSequence: sequence}
 }
 
 // ProcessSequence returns the Process-local publication order within one tree
@@ -276,12 +295,7 @@ func (e Event) DeltaDropped() (DeltaDroppedFact, bool) {
 }
 
 func (e Event) Valid() bool {
-	return e.processSequence > 0 && e.processID.Valid() && e.deploymentRef.Valid() &&
-		e.relation.Valid() && e.relation.ProcessID() == e.processID && validQualifiedName(e.name) &&
-		(e.incarnationID == (TreeIncarnationID{}) || e.incarnationID.Valid()) &&
-		e.phase.Valid() &&
-		!e.occurredAt.IsZero() && len(e.payload) > 0 &&
-		e.validateContract() == nil
+	return e.processSequence > 0 && e.name != ""
 }
 
 func (e Event) MarshalJSON() ([]byte, error) {
@@ -344,7 +358,7 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (e Event) validateContract() error {
+func (e eventFact) validateContract() error {
 	switch e.name {
 	case EventProcessStarted, EventProcessRestored, EventProcessPaused, EventProcessResumed:
 		return e.validateEmpty(EventPhaseCommitted, eventIdentityProcess)
@@ -409,7 +423,7 @@ func (e Event) validateContract() error {
 	}
 }
 
-func (e Event) validateEmpty(wantPhase EventPhase, scope eventIdentityScope) error {
+func (e eventFact) validateEmpty(wantPhase EventPhase, scope eventIdentityScope) error {
 	if err := e.validateIdentity(wantPhase, scope); err != nil {
 		return err
 	}
@@ -417,7 +431,7 @@ func (e Event) validateEmpty(wantPhase EventPhase, scope eventIdentityScope) err
 	return err
 }
 
-func (e Event) validateIdentity(wantPhase EventPhase, scope eventIdentityScope) error {
+func (e eventFact) validateIdentity(wantPhase EventPhase, scope eventIdentityScope) error {
 	if e.phase != wantPhase {
 		return errors.New("event phase does not match its Framework fact")
 	}
