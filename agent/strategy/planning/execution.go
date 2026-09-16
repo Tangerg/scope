@@ -13,6 +13,8 @@ import (
 	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
+const failureCodePlanningDispatchRejected = "planning.dispatch.rejected"
+
 type execution struct {
 	definition *Definition
 	state      executionState
@@ -77,6 +79,9 @@ func (e *execution) acceptSense(
 	envelope, err := decodeSignal(signal.Payload())
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: expected sensing Signal: %w", ErrInvalidProtocol, err)
+	}
+	if envelope.HostError != "" {
+		return e.fail(1, agent.FailureKindContract, failureCodePlanningDispatchRejected, envelope.HostError)
 	}
 	if envelope.Operation != operationSense {
 		return agent.Transition{}, fmt.Errorf("%w: expected sensing Signal", ErrInvalidProtocol)
@@ -199,6 +204,9 @@ func (e *execution) acceptAction(signals []agent.Signal) (agent.Transition, erro
 	envelope, err := decodeSignal(signal.Payload())
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: expected Action Signal: %w", ErrInvalidProtocol, err)
+	}
+	if envelope.HostError != "" {
+		return e.fail(1, agent.FailureKindContract, failureCodePlanningDispatchRejected, envelope.HostError)
 	}
 	if envelope.Operation != operationAction {
 		return agent.Transition{}, fmt.Errorf("%w: expected Action Signal", ErrInvalidProtocol)

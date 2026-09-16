@@ -118,7 +118,9 @@ func (e EffectRequest) Effect() Effect { return e.effect.clone() }
 type DeltaEmitter func(payload json.RawMessage)
 
 // Dispatcher executes Strategy-owned Effects outside Execution.Step. It must
-// return a Settlement addressed to request.ID. A returned error means the Engine
+// return a Settlement addressed to request.ID. Engine supplies valid requests;
+// direct callers must preserve that precondition. For valid requests, rejection
+// before external work starts is a definite Failed settlement. A returned error means the Engine
 // cannot prove the external result and records an unknown settlement. The same
 // Dispatcher may serve Processes concurrently; implementations must be
 // concurrency-safe, return in bounded time, not mutate an Execution, and not

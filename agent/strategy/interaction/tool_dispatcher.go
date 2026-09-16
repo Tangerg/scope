@@ -32,10 +32,10 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectReque
 	ctx = agent.RequireContext(ctx)
 	envelope, err := decodeEffect(request.Effect().Payload())
 	if err != nil {
-		return agent.Settlement{}, err
+		return protocolFailureSettlement(request.ID(), err)
 	}
 	if envelope.Operation != operationToolCall || envelope.ToolCall == nil {
-		return agent.Settlement{}, errors.New("interaction: Tool dispatcher requires one tool_call")
+		return protocolFailureSettlement(request.ID(), errors.New("interaction: Tool dispatcher requires one tool_call"))
 	}
 	call := envelope.ToolCall.Invocation
 	resume := envelope.ToolCall.Resume

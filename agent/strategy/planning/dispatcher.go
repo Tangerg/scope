@@ -2,6 +2,7 @@ package planning
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -77,20 +78,26 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 // and valid ActionResult failures are definite failed settlements; an
 // ActionExecutor error leaves the Effect outcome unknown. Action Effects must
 // declare every capability required by the frozen binding before execution.
+// Local protocol or binding rejection returns a Failed host_error settlement;
+// Execution consumes it as a contract failure without another external attempt.
 func (d *Dispatcher) Dispatch(
 	ctx context.Context,
 	request agent.EffectRequest,
 	_ agent.DeltaEmitter,
 ) (agent.Settlement, error) {
+	ctx = agent.RequireContext(ctx)
+	if !request.Valid() {
+		return agent.Settlement{}, ErrInvalidProtocol
+	}
 	if d == nil || !d.descriptor.Valid() || lo.IsNil(d.sensor) {
-		return agent.Settlement{}, ErrInvalidDispatcherConfig
+		return planningFailureSettlement(request.ID(), ErrInvalidDispatcherConfig)
 	}
 	envelope, err := decodeEffect(request.Effect().Payload())
 	if err != nil {
-		return agent.Settlement{}, err
+		return planningFailureSettlement(request.ID(), err)
 	}
 	if err := d.descriptor.ValidateInput(envelope.Input); err != nil {
-		return agent.Settlement{}, fmt.Errorf("%w: Effect Input: %w", ErrInvalidProtocol, err)
+		return planningFailureSettlement(request.ID(), fmt.Errorf("%w: Effect Input: %w", ErrInvalidProtocol, err))
 	}
 	switch envelope.Operation {
 	case operationSense:
@@ -98,7 +105,7 @@ func (d *Dispatcher) Dispatch(
 	case operationAction:
 		return d.execute(ctx, request, envelope.Input, *envelope.Action)
 	default:
-		return agent.Settlement{}, ErrInvalidProtocol
+		return planningFailureSettlement(request.ID(), ErrInvalidProtocol)
 	}
 }
 
@@ -120,12 +127,12 @@ func (d *Dispatcher) sense(
 ) (agent.Settlement, error) {
 	request := SenseRequest{EffectID: effectID, Input: input}
 	if err := validateSenseRequest(request); err != nil {
-		return agent.Settlement{}, err
+		return planningFailureSettlement(effectID, err)
 	}
 	state, senseErr := d.sensor.Sense(ctx, request)
 	payload, err := senseSignal(state, senseErr)
 	if err != nil {
-		return agent.Settlement{}, err
+		return planningFailureSettlement(effectID, err)
 	}
 	status := agent.SettlementStatusSucceeded
 	if senseErr != nil {
@@ -143,14 +150,14 @@ func (d *Dispatcher) execute(
 	bound, found := d.executors[call.Name]
 	if !found || bound.action.description != call.Description || !bound.action.Applicable(call.WorldState) ||
 		!effectRequest.Effect().RequiredCapabilities().Allows(bound.required) {
-		return agent.Settlement{}, fmt.Errorf("%w: Action %q does not match frozen binding", ErrInvalidProtocol, call.Name)
+		return planningFailureSettlement(effectRequest.ID(), fmt.Errorf("%w: Action %q does not match frozen binding", ErrInvalidProtocol, call.Name))
 	}
 	request := ActionRequest{
 		EffectID: effectRequest.ID(), Input: input, ActionName: call.Name,
 		ActionDescription: call.Description, WorldState: call.WorldState,
 	}
 	if err := validateActionRequest(request); err != nil {
-		return agent.Settlement{}, err
+		return planningFailureSettlement(effectRequest.ID(), err)
 	}
 	result, err := bound.executor.Execute(ctx, request)
 	if err != nil {
@@ -163,3 +170,11 @@ func (d *Dispatcher) execute(
 }
 
 var _ agent.Dispatcher = (*Dispatcher)(nil)
+
+func planningFailureSettlement(id agent.EffectID, cause error) (agent.Settlement, error) {
+	payload, err := json.Marshal(signalEnvelope{HostError: agent.NormalizeDiagnostic(cause.Error())})
+	if err != nil {
+		return agent.Settlement{}, err
+	}
+	return agent.NewSettlement(id, agent.SettlementStatusFailed, payload)
+}

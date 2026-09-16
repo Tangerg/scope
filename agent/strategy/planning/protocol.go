@@ -30,7 +30,8 @@ type actionCall struct {
 }
 
 type signalEnvelope struct {
-	Operation operation         `json:"operation"`
+	HostError string            `json:"host_error,omitempty"`
+	Operation operation         `json:"operation,omitempty"`
 	Sensing   *senseResult      `json:"sensing,omitempty"`
 	Action    *actionResultWire `json:"action,omitempty"`
 }
@@ -127,6 +128,12 @@ func decodeSignal(payload json.RawMessage) (signalEnvelope, error) {
 	var envelope signalEnvelope
 	if err := jsonv2.Unmarshal(payload, &envelope, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return signalEnvelope{}, fmt.Errorf("%w: decode Signal: %w", ErrInvalidProtocol, err)
+	}
+	if envelope.HostError != "" {
+		if !agent.ValidDiagnostic(envelope.HostError) || envelope.Operation != "" || envelope.Sensing != nil || envelope.Action != nil {
+			return signalEnvelope{}, ErrInvalidProtocol
+		}
+		return envelope, nil
 	}
 	if !envelope.Operation.valid() {
 		return signalEnvelope{}, ErrInvalidProtocol

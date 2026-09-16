@@ -35,6 +35,9 @@ type DispatcherConfig struct {
 
 // Dispatcher delivers each frozen Message under one Effect-derived SignalID.
 // It owns no retry loop, mailbox, routing registry, or background work.
+// For valid Engine requests, local rejection settles Failed with a JSON
+// diagnostic string. Success carries Receipt; every DeliveryPort error remains
+// unknown because it cannot disprove an earlier admission.
 type Dispatcher struct {
 	port DeliveryPort
 }
@@ -66,16 +69,19 @@ func (d *Dispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
 // Dispatch requires a non-nil context and panics if ctx is nil.
 func (d *Dispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, _ agent.DeltaEmitter) (agent.Settlement, error) {
 	ctx = agent.RequireContext(ctx)
-	if d == nil || lo.IsNil(d.port) || !request.Valid() {
+	if !request.Valid() {
 		return agent.Settlement{}, ErrInvalidMessage
+	}
+	if d == nil || lo.IsNil(d.port) {
+		return messageFailureSettlement(request.ID(), ErrInvalidMessage)
 	}
 	message, err := decodeMessage(request.Effect())
 	if err != nil {
-		return agent.Settlement{}, err
+		return messageFailureSettlement(request.ID(), err)
 	}
 	id, err := agent.ParseSignalID("signal:message:" + agent.ComputeDigest([]byte(request.ID().String())).String())
 	if err != nil {
-		return agent.Settlement{}, err
+		return messageFailureSettlement(request.ID(), err)
 	}
 	var waitID agent.WaitID
 	if message.WaitID != nil {
@@ -83,7 +89,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, 
 	}
 	signal, err := agent.NewSignalRequest(id, waitID, message.Payload.JSON())
 	if err != nil {
-		return agent.Settlement{}, err
+		return messageFailureSettlement(request.ID(), err)
 	}
 	if deliveryErr := d.port.Deliver(ctx, request.ProcessID(), message.Recipient, signal); deliveryErr != nil {
 		return agent.Settlement{}, deliveryErr
@@ -96,3 +102,12 @@ func (d *Dispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, 
 }
 
 var _ agent.Dispatcher = (*Dispatcher)(nil)
+
+// A failed payload carries a diagnostic string; a successful payload is Receipt.
+func messageFailureSettlement(id agent.EffectID, cause error) (agent.Settlement, error) {
+	payload, err := json.Marshal(agent.NormalizeDiagnostic(cause.Error()))
+	if err != nil {
+		return agent.Settlement{}, err
+	}
+	return agent.NewSettlement(id, agent.SettlementStatusFailed, payload)
+}

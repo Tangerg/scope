@@ -129,7 +129,7 @@ func (d *Dispatcher) Dispatch(
 	case operationResultCommit:
 		batch, batchErr := newResultBatch(request, *envelope.ResultCommit)
 		if batchErr != nil {
-			return agent.Settlement{}, batchErr
+			return protocolFailureSettlement(request.ID(), batchErr)
 		}
 		receipt := batch.Receipt()
 		if d.resultCommitter != nil {
@@ -325,3 +325,11 @@ func cloneDefinitions(definitions []chat.ToolDefinition) []chat.ToolDefinition {
 }
 
 var _ agent.Dispatcher = (*Dispatcher)(nil)
+
+func protocolFailureSettlement(id agent.EffectID, cause error) (agent.Settlement, error) {
+	payload, err := jsonv2.Marshal(agent.NormalizeDiagnostic(cause.Error()))
+	if err != nil {
+		return agent.Settlement{}, err
+	}
+	return agent.NewSettlement(id, agent.SettlementStatusFailed, payload)
+}

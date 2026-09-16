@@ -12,7 +12,9 @@ import (
 // Timer is the stateless Dispatcher for Deadline. Its call owns and stops its
 // timer. Waiting for the same absolute instant has no external side effect, so
 // pending recovery can safely repeat that operation with the same identity.
-// A settled Unknown still requires the Engine's explicit adjudication path.
+// Malformed timer payloads settle Failed with a JSON diagnostic string. Valid
+// timer operations settle with their absolute deadline and whether it was reached;
+// cancellation never leaves an unknown external outcome.
 type Timer struct{}
 
 type timerRequest struct {
@@ -65,7 +67,7 @@ func (Timer) Dispatch(ctx context.Context, request agent.EffectRequest, _ agent.
 	}
 	operation, err := decodeTimerEffect(request.Effect())
 	if err != nil {
-		return agent.Settlement{}, err
+		return timerFailureSettlement(request.ID(), err)
 	}
 	result := timerResult{Deadline: operation.Deadline}
 	if ctx.Err() == nil {
@@ -91,7 +93,15 @@ func (Timer) Dispatch(ctx context.Context, request agent.EffectRequest, _ agent.
 	}
 	payload, err := json.Marshal(result)
 	if err != nil {
-		return agent.Settlement{}, err
+		return timerFailureSettlement(request.ID(), err)
 	}
 	return agent.NewSettlement(request.ID(), status, payload)
+}
+
+func timerFailureSettlement(id agent.EffectID, cause error) (agent.Settlement, error) {
+	payload, err := json.Marshal(agent.NormalizeDiagnostic(cause.Error()))
+	if err != nil {
+		return agent.Settlement{}, err
+	}
+	return agent.NewSettlement(id, agent.SettlementStatusFailed, payload)
 }

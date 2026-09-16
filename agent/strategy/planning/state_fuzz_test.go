@@ -100,6 +100,7 @@ func FuzzPlanningProtocol(f *testing.F) {
 	f.Add([]byte(`{"operation":"action","input":{},"action":{"name":"action.finish","description":"Finish work.","world_state":{"conditions":[]}}}`))
 	f.Add([]byte(`{"operation":"sense","sensing":{"world_state":{"conditions":[]}}}`))
 	f.Add([]byte(`{"operation":"action","action":{"succeeded":true}}`))
+	f.Add([]byte(`{"host_error":"action binding rejected"}`))
 	f.Fuzz(func(t *testing.T, payload []byte) {
 		if effect, err := decodeEffect(payload); err == nil {
 			encoded, err := jsonv2.Marshal(effect, jsonv2.Deterministic(true))
@@ -120,6 +121,22 @@ func FuzzPlanningProtocol(f *testing.F) {
 			}
 		}
 	})
+}
+
+func TestPlanningHostFailureSignalIsExclusive(t *testing.T) {
+	if _, err := decodeSignal([]byte(`{"host_error":"action binding rejected"}`)); err != nil {
+		t.Fatal(err)
+	}
+	for _, payload := range []string{
+		`{"host_error":""}`,
+		`{"host_error":"invalid","operation":"sense"}`,
+		`{"host_error":"invalid","sensing":{"error":"sensor failed"}}`,
+		`{"host_error":"invalid","action":{"succeeded":true}}`,
+	} {
+		if _, err := decodeSignal([]byte(payload)); err == nil {
+			t.Fatalf("accepted invalid host failure: %s", payload)
+		}
+	}
 }
 
 func TestDispatcherReplaysOnlyObservationEffects(t *testing.T) {

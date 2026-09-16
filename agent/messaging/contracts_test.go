@@ -8,6 +8,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/agenttest"
+	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	"github.com/Tangerg/scope/agent/messaging"
 )
 
@@ -133,4 +134,29 @@ func TestCancellationCollectsUnacknowledgedDelivery(t *testing.T) {
 		}
 		closeEngine(t, engine)
 	})
+}
+
+func TestMalformedMessageSettlesBeforeDelivery(t *testing.T) {
+	dispatcher, err := messaging.NewDispatcher(messaging.DispatcherConfig{Port: rejectingDeliveryPort{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{`null`, `{}`, `{"recipient":"process:peer","payload":null,"unknown":true}`} {
+		effect, effectErr := agent.NewDispatcherEffect([]byte(raw))
+		if effectErr != nil {
+			t.Fatal(effectErr)
+		}
+		conformancetest.CheckDispatcherRejection(t, dispatcher, effect)
+	}
+	effect, err := agent.NewDispatcherEffect([]byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	conformancetest.CheckDispatcherRejection(t, &messaging.Dispatcher{}, effect)
+}
+
+type rejectingDeliveryPort struct{}
+
+func (rejectingDeliveryPort) Deliver(context.Context, agent.ProcessID, agent.ProcessID, agent.SignalRequest) error {
+	panic("malformed message reached delivery")
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	"github.com/Tangerg/scope/agent/strategy/coordination"
 )
 
@@ -276,4 +277,14 @@ func (interruptedTimer) Dispatch(ctx context.Context, request agent.EffectReques
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
 	return (coordination.Timer{}).Dispatch(canceled, request, emit)
+}
+
+func TestMalformedTimerSettlesWithoutUnknownOutcome(t *testing.T) {
+	for _, raw := range []string{`null`, `{}`, `{"deadline":"0001-01-01T00:00:00Z"}`, `{"deadline":"2026-09-09T00:00:00Z","unknown":true}`} {
+		effect, err := agent.NewDispatcherEffect([]byte(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		conformancetest.CheckDispatcherRejection(t, coordination.Timer{}, effect)
+	}
 }

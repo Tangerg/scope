@@ -7,8 +7,30 @@ import (
 	"math"
 	"testing"
 
+	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	"github.com/Tangerg/scope/core/chat"
 )
+
+func TestToolDispatcherSettlesLocalProtocolRejections(t *testing.T) {
+	model, err := newModelEffect(&chat.Request{
+		Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))},
+	}, 1, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	modelPayload, err := jsonv2.Marshal(model, jsonv2.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, payload := range [][]byte{[]byte(`null`), []byte(`{}`), modelPayload} {
+		effect, effectErr := agent.NewDispatcherEffect(payload)
+		if effectErr != nil {
+			t.Fatal(effectErr)
+		}
+		conformancetest.CheckDispatcherRejection(t, &toolDispatcher{}, effect)
+	}
+}
 
 func TestFailedDirectResultCannotEnterProtocolOrRestore(t *testing.T) {
 	result := chat.ToolResult{

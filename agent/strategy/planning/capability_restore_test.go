@@ -121,8 +121,13 @@ func TestRestoredPlanningEffectsCannotDropBindingCapabilities(t *testing.T) {
 				t.Fatal(err)
 			}
 			fact, present := settled.EffectFinished()
-			if !present || fact.SettlementStatus() != agent.SettlementStatusUnknown {
-				t.Errorf("invalid Action settlement = %s, want unknown", fact.SettlementStatus())
+			if !present || fact.SettlementStatus() != agent.SettlementStatusFailed {
+				t.Errorf("invalid Action settlement = %s, want failed", fact.SettlementStatus())
+			}
+			result, awaitErr := process.Await(ctx)
+			failure, failed := result.Termination().Failure()
+			if awaitErr != nil || result.Status() != agent.StatusFailed || !failed || failure.Code() != "planning.dispatch.rejected" || len(result.Termination().UnresolvedEffectIDs()) != 0 {
+				t.Fatalf("local rejection result = %+v, failure = %+v, error = %v", result, failure, awaitErr)
 			}
 			if world.truth("world.done") != planning.Unknown {
 				t.Error("restored Effect dropped its required capability and reached the Action executor")

@@ -74,3 +74,31 @@ func TestDefinitionConformance(t *testing.T) {
 		t.Fatalf("output=%+v observations=%d", output, world.observationCount())
 	}
 }
+
+func TestMalformedPlanningOperationSettlesBeforeExternalWork(t *testing.T) {
+	condition := mustCondition(t, "world.ready", planning.True)
+	definition := newManagedDefinition(t, managedDeploymentConfig{goal: mustGoal(t, condition)})
+	dispatcher, err := planning.NewDispatcher(definition, planning.DispatcherConfig{
+		Sensor: planning.SensorFunc(func(context.Context, planning.SenseRequest) (planning.WorldState, error) {
+			panic("invalid operation reached sensor")
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{
+		`null`, `{}`, `{"operation":"sense","input":"wrong-schema"}`,
+		`{"operation":"action","input":{},"action":{"name":"missing","description":"Missing action.","world_state":{}}}`,
+	} {
+		effect, effectErr := agent.NewDispatcherEffect([]byte(raw))
+		if effectErr != nil {
+			t.Fatal(effectErr)
+		}
+		conformancetest.CheckDispatcherRejection(t, dispatcher, effect)
+	}
+	effect, err := agent.NewDispatcherEffect([]byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	conformancetest.CheckDispatcherRejection(t, &planning.Dispatcher{}, effect)
+}
