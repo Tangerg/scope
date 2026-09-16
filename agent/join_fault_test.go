@@ -12,10 +12,7 @@ func TestCheckpointPreparationFailureCompletesJoinBeforeRuntimeStops(t *testing.
 	synctest.Test(t, func(t *testing.T) {
 		runtime, process := newChildCompletionTestProcess(t)
 		runtime.engine.durability = &recordingTreeDurability{}
-		incarnation, err := newTreeIncarnationID()
-		if err != nil {
-			t.Fatal(err)
-		}
+		incarnation := newTreeIncarnationID()
 		runtime.incarnation = incarnation
 		initial, err := runtime.captureTree()
 		if err != nil {
@@ -48,7 +45,7 @@ func TestCheckpointPreparationFailureCompletesJoinBeforeRuntimeStops(t *testing.
 func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
 	runtime.engine.durability = &recordingTreeDurability{}
-	childID, _ := newProcessID()
+	childID := newProcessID()
 	key, _ := ParseChildKey("completed")
 	relation := childProcessRelation(childID, parent.handle.relation, key)
 	handle := newProcessHandle(relation, parent.handle.deploymentRef,

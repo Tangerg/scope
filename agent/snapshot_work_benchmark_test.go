@@ -77,19 +77,13 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootID, err := newProcessID()
-	if err != nil {
-		t.Fatal(err)
-	}
+	rootID := newProcessID()
 	now := time.Now().Round(0).UTC()
 	handle := newProcessHandle(rootProcessRelation(rootID), deployment.DeploymentRef(), engine.limits.budget(), engine.capabilities, engine.treeLimits, now)
 	root := newProcessState(handle, deployment, execution, state, now, engine.limits)
 	processes := []*processState{root}
 	for index := 1; index < count; index++ {
-		id, err := newProcessID()
-		if err != nil {
-			t.Fatal(err)
-		}
+		id := newProcessID()
 		key, err := ParseChildKey(fmt.Sprintf("waiting-%d", index))
 		if err != nil {
 			t.Fatal(err)
@@ -143,10 +137,7 @@ func BenchmarkIdleDurableTreeInspection(b *testing.B) {
 			root := runtime.processes[runtime.rootID]
 			root.status, root.pauseReason = StatusPaused, "inspection benchmark"
 			runtime.engine.durability = &recordingTreeDurability{}
-			incarnation, err := newTreeIncarnationID()
-			if err != nil {
-				b.Fatal(err)
-			}
+			incarnation := newTreeIncarnationID()
 			runtime.incarnation = incarnation
 			snapshot, err := runtime.captureTree()
 			if err != nil {

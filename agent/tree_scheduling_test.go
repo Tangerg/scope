@@ -111,10 +111,7 @@ func TestTreeSchedulingCommitsParkedStateUnderContinuousQueries(t *testing.T) {
 	durability := &recordingTreeDurability{}
 	runtime.engine.durability = durability
 	runtime.commitDone = make(chan treeCommitCompletion, 1)
-	incarnation, err := newTreeIncarnationID()
-	if err != nil {
-		t.Fatal(err)
-	}
+	incarnation := newTreeIncarnationID()
 	runtime.incarnation = incarnation
 	initial, err := runtime.captureTree()
 	if err != nil {

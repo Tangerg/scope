@@ -224,10 +224,7 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 	if err := deployment.Descriptor().ValidateInput(input); err != nil {
 		return nil, err
 	}
-	id, err := newProcessID()
-	if err != nil {
-		return nil, err
-	}
+	id := newProcessID()
 	relation := rootProcessRelation(id)
 	budget := e.limits.budget()
 	admission := newProcessAdmission(relation, deployment, budget, e.capabilities)
@@ -261,10 +258,7 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 	process := newProcessState(handle, deployment, execution, state, startedAt, e.limits)
 	runtime := newTreeRuntime(e, relation.RootID(), ctx, process)
 	if e.durability != nil {
-		incarnation, incarnationErr := newTreeIncarnationID()
-		if incarnationErr != nil {
-			return nil, incarnationErr
-		}
+		incarnation := newTreeIncarnationID()
 		runtime.incarnation = incarnation
 		baseSnapshot, captureErr := runtime.captureTree()
 		if captureErr != nil {
@@ -706,10 +700,7 @@ func (e *Engine) RestoreTree(
 	}()
 	var restoredHead TreeSnapshot
 	if engineIsDurable {
-		incarnation, incarnationErr := newTreeIncarnationID()
-		if incarnationErr != nil {
-			return nil, incarnationErr
-		}
+		incarnation := newTreeIncarnationID()
 		wire.IncarnationID = &incarnation
 		prospectiveSnapshot, snapshotErr := newTreeSnapshot(wire)
 		if snapshotErr != nil {
@@ -903,12 +894,10 @@ func (e *Engine) runtimeForTree(rootID ProcessID) (*treeRuntime, error) {
 	return runtime, nil
 }
 
-func newProcessID() (ProcessID, error) {
+func newProcessID() ProcessID {
 	var random [16]byte
-	if _, err := rand.Read(random[:]); err != nil {
-		return ProcessID{}, fmt.Errorf("agent: generate ProcessID: %w", err)
-	}
-	return ParseProcessID(processIDPrefix + hex.EncodeToString(random[:]))
+	rand.Read(random[:])
+	return ProcessID{identity{value: processIDPrefix + hex.EncodeToString(random[:])}}
 }
 
 type processStartReservation struct {

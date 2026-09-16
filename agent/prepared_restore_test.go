@@ -38,10 +38,7 @@ func TestRestoreRejectsUnrestorableCandidateBeforeExternalWork(t *testing.T) {
 			var config EngineConfig
 			durability := &recordingTreeDurability{}
 			if test.durable {
-				incarnation, incarnationErr := newTreeIncarnationID()
-				if incarnationErr != nil {
-					t.Fatal(incarnationErr)
-				}
+				incarnation := newTreeIncarnationID()
 				treeWire.IncarnationID = &incarnation
 				config.TreeDurability = durability
 			}
@@ -155,10 +152,7 @@ func TestRestorePreparedOutputUsesDeploymentSchema(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			incarnation, err := newTreeIncarnationID()
-			if err != nil {
-				t.Fatal(err)
-			}
+			incarnation := newTreeIncarnationID()
 			tree, err := newTreeSnapshot(treeSnapshotWire{
 				RootID: prepared.ProcessID(), IncarnationID: &incarnation,
 				ProcessSnapshots: []ProcessSnapshot{prepared},

@@ -106,10 +106,7 @@ func waitingOwnerFixture(b testing.TB, parents int) (*treeRuntime, *processState
 	}
 	now := time.Now().Round(0).UTC()
 	makeProcess := func(parent *processState, name string) *processState {
-		id, err := newProcessID()
-		if err != nil {
-			b.Fatal(err)
-		}
+		id := newProcessID()
 		relation := rootProcessRelation(id)
 		if parent != nil {
 			key, keyErr := ParseChildKey(name)

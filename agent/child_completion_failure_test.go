@@ -108,7 +108,7 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 	var children []ProcessID
 	var last *processState
 	for _, name := range []string{"first", "second"} {
-		id, _ := newProcessID()
+		id := newProcessID()
 		key, _ := ParseChildKey(name)
 		relation := childProcessRelation(id, handle.relation, key)
 		last = &processState{
@@ -188,7 +188,7 @@ func newChildCompletionTestProcess(t *testing.T) (*treeRuntime, *processState) {
 		t.Fatal(err)
 	}
 	now := time.Now().Round(0).UTC()
-	parentID, _ := newProcessID()
+	parentID := newProcessID()
 	handle := newProcessHandle(rootProcessRelation(parentID), deployment.DeploymentRef(),
 		engine.limits.budget(), engine.capabilities, engine.treeLimits, now)
 	parent := newProcessState(handle, deployment, execution, state, now, engine.limits)

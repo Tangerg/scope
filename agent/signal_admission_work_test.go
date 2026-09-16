@@ -50,7 +50,7 @@ func admissionTestProcess(t testing.TB, history int) *processState {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	id := controlValue(newProcessID())
+	id := newProcessID()
 	handle := newProcessHandle(rootProcessRelation(id), deployment.DeploymentRef(), limits.budget(), CapabilitySet{}, DefaultTreeLimits(), now)
 	process := newProcessState(handle, deployment, execution, state, now, limits)
 	for index := range history {

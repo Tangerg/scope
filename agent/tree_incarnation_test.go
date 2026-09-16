@@ -7,10 +7,7 @@ import (
 )
 
 func TestTreeIncarnationIDStrictRoundTrip(t *testing.T) {
-	id, err := newTreeIncarnationID()
-	if err != nil {
-		t.Fatal(err)
-	}
+	id := newTreeIncarnationID()
 	if !id.Valid() {
 		t.Fatal("new TreeIncarnationID is invalid")
 	}

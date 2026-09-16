@@ -15,8 +15,8 @@ func controlValue[T any](value T, err error) T {
 }
 
 func TestChildControlCodecAndExactSettlement(t *testing.T) {
-	child := controlValue(newProcessID())
-	other := controlValue(newProcessID())
+	child := newProcessID()
+	other := newProcessID()
 	request := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:control")), WaitID{}, []byte(`{"direction":"inspect"}`)))
 	for _, operation := range []frameworkEffectOperation{frameworkEffectSignalChild, frameworkEffectCancelChild} {
 		var effect Effect
@@ -130,7 +130,7 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 
 func TestSignalRequestWireSchemaAndOpeningIdentity(t *testing.T) {
 	id := controlValue(ParseSignalID("signal:request"))
-	wait := controlValue(newProcessID()).effectID(1, 0).waitID()
+	wait := newProcessID().effectID(1, 0).waitID()
 	request := controlValue(NewSignalRequest(id, wait, []byte(`"request"`)))
 	payload := controlValue(json.Marshal(request))
 	var decoded SignalRequest
@@ -178,7 +178,7 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 			case "foreign":
 				child.handle.relation = rootProcessRelation(recipient)
 			case "missing":
-				recipient = controlValue(newProcessID())
+				recipient = newProcessID()
 			}
 			request := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:control")), WaitID{}, []byte(`"steer"`)))
 			effect := controlValue(NewChildSignalEffect(recipient, request))
@@ -237,8 +237,8 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 }
 
 func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
-	parentID := controlValue(newProcessID())
-	childID := controlValue(newProcessID())
+	parentID := newProcessID()
+	childID := newProcessID()
 	request := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:cut")), WaitID{}, []byte(`"instruction"`)))
 	effect := controlValue(NewChildSignalEffect(childID, request))
 	result := ChildControlResult{childID: childID, operation: frameworkEffectSignalChild, signalID: request.ID()}
@@ -259,7 +259,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 			child.Mailbox.Signals[0].Source = signalSourceSettlement
 		},
 		"wrong wait":   func(child *processSnapshotWire) { child.Mailbox.Signals[0].WaitID = new(id.waitID()) },
-		"wrong parent": func(child *processSnapshotWire) { child.Relation.ParentID = new(controlValue(newProcessID())) },
+		"wrong parent": func(child *processSnapshotWire) { child.Relation.ParentID = new(newProcessID()) },
 		"not a child":  func(child *processSnapshotWire) { child.Relation.ParentID = nil },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -315,7 +315,7 @@ func TestDescriptorParticipatesInTypedWireSchemas(t *testing.T) {
 }
 
 func TestSignalChildRejectsEngineSignalIdentity(t *testing.T) {
-	childID := controlValue(newProcessID())
+	childID := newProcessID()
 	waitID := childID.effectID(1, 0).waitID()
 	internal := controlValue(newSignal(waitID.childWaitSignalID(), waitID, []byte(`"done"`)))
 	if _, err := NewChildSignalEffect(childID, SignalRequest(internal)); !errors.Is(err, ErrInvalidChildControl) {

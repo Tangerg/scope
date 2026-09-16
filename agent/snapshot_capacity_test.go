@@ -289,7 +289,7 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 			t.Cleanup(func() { delete(runtime.engine.processes, root.handle.processID) })
 			if mode != "ephemeral" {
 				runtime.engine.durability = &recordingTreeDurability{}
-				runtime.incarnation = controlValue(newTreeIncarnationID())
+				runtime.incarnation = newTreeIncarnationID()
 				runtime.head = controlValue(runtime.captureTree())
 			}
 			preparation := runtime.prepareChildStart(root, effectID, spec)

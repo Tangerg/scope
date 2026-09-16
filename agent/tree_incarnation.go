@@ -28,12 +28,10 @@ func ParseTreeIncarnationID(value string) (TreeIncarnationID, error) {
 	return TreeIncarnationID{id}, nil
 }
 
-func newTreeIncarnationID() (TreeIncarnationID, error) {
+func newTreeIncarnationID() TreeIncarnationID {
 	var random [treeIncarnationRandomBytes]byte
-	if _, err := rand.Read(random[:]); err != nil {
-		return TreeIncarnationID{}, fmt.Errorf("agent: generate TreeIncarnationID: %w", err)
-	}
-	return ParseTreeIncarnationID(treeIncarnationIDPrefix + hex.EncodeToString(random[:]))
+	rand.Read(random[:])
+	return TreeIncarnationID{identity{value: treeIncarnationIDPrefix + hex.EncodeToString(random[:])}}
 }
 
 func (t TreeIncarnationID) MarshalText() ([]byte, error) {
