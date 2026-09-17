@@ -51,7 +51,7 @@ func TestFilesystemEditOutcomeThroughInteraction(t *testing.T) {
 				ImplementationDigest: agent.ComputeDigest([]byte("edit-tool")), ConfigurationDigest: agent.ComputeDigest([]byte("edit-config")),
 			}))
 			var calls atomic.Int32
-			root := contractInteraction(interaction.DefinitionConfig{Name: "contract.edit", Description: "Consume filesystem outcomes.", MaxModelCalls: 2, Tools: tools, ToolBudget: agent.Budget{Steps: 16, Effects: 8, Signals: 16}}, chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+			root := contractInteraction(interaction.DefinitionConfig{Name: "contract.edit", Description: "Consume filesystem outcomes.", MaxModelCalls: agent.NewQuota(2), Tools: tools, ToolBudget: agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(8), Signals: agent.NewQuota(16)}}, chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
 				if calls.Add(1) == 1 {
 					return contractToolCall("edit", `{"path":"file","old_string":"missing","new_string":"new"}`), nil
 				}

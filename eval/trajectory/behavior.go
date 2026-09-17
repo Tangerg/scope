@@ -43,13 +43,13 @@ type behaviorEvent struct {
 type behaviorModel struct {
 	ProcessPath string `json:"process_path"`
 	Step        uint64 `json:"step"`
-	Sequence    uint32 `json:"sequence"`
+	Sequence    uint64 `json:"sequence"`
 }
 
 type behaviorTool struct {
 	ProcessPath string              `json:"process_path"`
 	Step        uint64              `json:"step"`
-	ModelCall   uint32              `json:"model_call"`
+	ModelCall   uint64              `json:"model_call"`
 	Index       uint32              `json:"index"`
 	Name        string              `json:"name"`
 	Arguments   json.RawMessage     `json:"arguments,omitempty"`

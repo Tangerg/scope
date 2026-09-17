@@ -126,7 +126,7 @@ func startRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, obser
 	}
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
 		Name: "test.trajectory_interaction", Description: "Exercise trajectory observation boundaries.",
-		MaxModelCalls: maxModelCalls, Tools: toolSet, ToolBudget: agent.Budget{Steps: 8, Effects: 4, Signals: 8},
+		MaxModelCalls: agent.NewQuota(uint64(maxModelCalls)), Tools: toolSet, ToolBudget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)},
 	})
 	if err != nil {
 		t.Fatal(err)

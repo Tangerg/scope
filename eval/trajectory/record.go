@@ -39,7 +39,7 @@ type ModelCall struct {
 	EffectID          agent.EffectID          `json:"effect_id"`
 	ProcessID         agent.ProcessID         `json:"process_id"`
 	StepSequence      uint64                  `json:"step_sequence"`
-	CallSequence      uint32                  `json:"call_sequence"`
+	CallSequence      uint64                  `json:"call_sequence"`
 	Response          *chat.Response          `json:"response"`
 }
 
@@ -64,7 +64,7 @@ type ToolCall struct {
 	EffectID          agent.EffectID          `json:"effect_id"`
 	ProcessID         agent.ProcessID         `json:"process_id"`
 	StepSequence      uint64                  `json:"step_sequence"`
-	ModelCall         uint32                  `json:"model_call"`
+	ModelCall         uint64                  `json:"model_call"`
 	Index             uint32                  `json:"index"`
 	Call              chat.ToolCall           `json:"call"`
 	Outcome           ToolOutcome             `json:"outcome"`

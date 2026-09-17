@@ -56,8 +56,8 @@ func TestLostMCPResponsePreservesUnknownInteractionEffect(t *testing.T) {
 		t.Fatal(err)
 	}
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: "test.remote_interaction", Description: "Retain uncertain writes.", MaxModelCalls: 2,
-		Tools: toolSet, ToolBudget: agent.Budget{Steps: 8, Effects: 4, Signals: 8},
+		Name: "test.remote_interaction", Description: "Retain uncertain writes.", MaxModelCalls: agent.NewQuota(2),
+		Tools: toolSet, ToolBudget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)},
 	})
 	if err != nil {
 		t.Fatal(err)

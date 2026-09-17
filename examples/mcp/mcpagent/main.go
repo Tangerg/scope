@@ -115,8 +115,8 @@ func run(ctx context.Context) (err error) {
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
 		Name:          "example.mcp_briefing",
 		Description:   "Ask the model for a topic brief using a remote MCP search tool.",
-		MaxModelCalls: briefingModelCallLimit,
-		Tools:         toolSet, ToolBudget: agent.Budget{Steps: 8, Effects: 4, Signals: 8},
+		MaxModelCalls: agent.NewQuota(briefingModelCallLimit),
+		Tools:         toolSet, ToolBudget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)},
 	})
 	if err != nil {
 		return fmt.Errorf("create interaction definition: %w", err)
