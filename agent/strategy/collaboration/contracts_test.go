@@ -54,13 +54,13 @@ func TestConfigurationAndProtocolContracts(t *testing.T) {
 	validConfig, _ := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
 	definition := require(NewDefinition(validConfig))
 	for name, mutate := range map[string]func(*DefinitionConfig){
-		"zero bound":                   func(config *DefinitionConfig) { config.MaxTurns = 0 },
-		"concurrency exceeds lifetime": func(config *DefinitionConfig) { config.MaxConcurrentTasks = config.MaxTasks + 1 },
-		"missing workers":              func(config *DefinitionConfig) { config.Workers = nil },
-		"duplicate workers":            func(config *DefinitionConfig) { config.Workers = append(config.Workers, config.Workers[0]) },
-		"invalid worker":               func(config *DefinitionConfig) { config.Workers = []WorkerConfig{{}} },
-		"wrong coordinator contract":   func(config *DefinitionConfig) { config.Coordinator = workerConfig(echo()) },
-		"invalid descriptor":           func(config *DefinitionConfig) { config.Name = "UPPER CASE" },
+		"zero concurrency":           func(config *DefinitionConfig) { config.MaxConcurrentTasks = 0 },
+		"zero control capacity":      func(config *DefinitionConfig) { config.MaxControlsPerTurn = 0 },
+		"missing workers":            func(config *DefinitionConfig) { config.Workers = nil },
+		"duplicate workers":          func(config *DefinitionConfig) { config.Workers = append(config.Workers, config.Workers[0]) },
+		"invalid worker":             func(config *DefinitionConfig) { config.Workers = []WorkerConfig{{}} },
+		"wrong coordinator contract": func(config *DefinitionConfig) { config.Coordinator = workerConfig(echo()) },
+		"invalid descriptor":         func(config *DefinitionConfig) { config.Name = "UPPER CASE" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			config := validConfig
@@ -142,7 +142,7 @@ func (t *tracedExecution) Step(ctx context.Context, signals []agent.Signal) (age
 }
 
 func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
-	definition, deployments := fixture(func(_ context.Context, turn Turn) (Decision, error) {
+	config, deployments := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) {
 		switch turn.Number {
 		case 1:
 			return Decision{Mode: Continue, State: input("working"), Tasks: []TaskRequest{request("a", "test.gate", "wait")}}, nil
@@ -153,6 +153,8 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 			return finish(turn, "done"), nil
 		}
 	}, gate())
+	config.MaxTurns = agent.NewQuota(8)
+	definition := require(NewDefinition(config))
 	trace := &tracedDefinition{Definition: definition}
 	engine := require(agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployments}))
 	defer engine.Close(t.Context())
@@ -171,7 +173,7 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 		phases[state.Phase] = true
 		mutations := map[string]func(*executionState){
 			"unknown phase": func(state *executionState) { state.Phase = "unknown" },
-			"excess turns":  func(state *executionState) { state.Number = definition.maxTurns + 1 },
+			"excess turns":  func(state *executionState) { maximum, _ := definition.maxTurns.Maximum(); state.Number = maximum + 1 },
 			"changed state": func(state *executionState) { state.State = require(agent.EncodePayload(1)) },
 		}
 		if state.Turn != nil {

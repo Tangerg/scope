@@ -28,7 +28,7 @@ func TestToolChildFailuresRetainRestorableParentState(t *testing.T) {
 			tools := testToolSet(t, interaction.ToolSetConfig{Tools: []tool.Tool{executable}})
 			definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
 				Name: "interaction.child_failure", Description: "Preserve terminal child failures.",
-				MaxModelCalls: 1, Tools: tools, ToolBudget: agent.Budget{Steps: 1, Effects: 2, Signals: 4},
+				MaxModelCalls: agent.NewQuota(1), Tools: tools, ToolBudget: agent.Budget{Steps: agent.NewQuota(1), Effects: agent.NewQuota(2), Signals: agent.NewQuota(4)},
 			})
 			if err != nil {
 				t.Fatal(err)

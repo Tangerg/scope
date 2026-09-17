@@ -40,7 +40,7 @@ func FuzzExecutionStateRestore(f *testing.F) {
 		Planner: PlannerFunc(func(context.Context, Problem) (Plan, bool, error) {
 			return Plan{}, false, nil
 		}),
-		MaxActionAttempts: 4,
+		MaxActionAttempts: agent.NewQuota(4),
 	})
 	if err != nil {
 		f.Fatal(err)

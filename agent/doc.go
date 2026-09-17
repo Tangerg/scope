@@ -252,8 +252,20 @@
 // and runtime errors readable.
 //
 // Signal identities, wait history, and descendants remain retained for that
-// lifetime. Finite budgets and snapshot limits bound one execution; the kernel
-// does not prune facts needed for deduplication or extend a tree indefinitely.
+// lifetime. Cumulative work, child counts, and snapshot bytes use Quota: the
+// zero value is unlimited; NewQuota selects a finite maximum, including zero.
+// Unlimited execution still records usage and rejects numeric identity overflow.
+// The Host chooses retention and memory policy: unlimited quotas do not compact
+// signal identities, wait history, or completed descendants. Explicit snapshot
+// byte quotas bound that retained representation when required.
+//
+// Finite parent Budget dimensions permanently charge child grants. Unlimited
+// dimensions grant finite or unlimited child quotas without a debit. A finite
+// parent cannot grant an unlimited child quota in the same dimension. Pending
+// Signals, concurrent children, and depth remain independent finite capacities.
+// Captured quotas survive RestoreTree without applying new Engine defaults.
+// The Engine adds no cumulative execution deadline; Host cancellation and
+// deadlines continue to terminate the owned tree.
 //
 // [Engine.InspectTree] is the sole live inspection entry. It composes existing
 // [ProcessSnapshot] values with current job, commit, and freeze facts, and stays
@@ -311,13 +323,13 @@
 // [github.com/Tangerg/scope/agent/strategy/interaction] implements ReAct-style
 // model and tool loops with working context, delegates, and artifacts.
 // [github.com/Tangerg/scope/agent/strategy/planning] owns goal-driven planning;
-// its goap subpackage supplies a bounded search implementation selected by the
+// its goap subpackage supplies a quota-controlled search implementation selected by the
 // Host. [github.com/Tangerg/scope/agent/strategy/workflow] implements ordered
 // deterministic stages over a closed vocabulary, composing real child Processes.
 // [github.com/Tangerg/scope/agent/strategy/coordination] composes bounded input
 // gates, absolute deadlines, and first-success competition through the same
 // child and wait contracts.
-// [github.com/Tangerg/scope/agent/strategy/collaboration] runs bounded coordinator
+// [github.com/Tangerg/scope/agent/strategy/collaboration] runs coordinator
 // turns beside background workers. Decisions choose whether to continue while
 // workers run, wait for drained results, or complete. The Strategy retains
 // explicit working state and immutable child bindings; the Engine resolves and

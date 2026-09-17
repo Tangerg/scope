@@ -11,9 +11,8 @@ import (
 
 const executionStateKind = "interaction"
 
-// DefinitionConfig describes immutable Interaction behavior. MaxModelCalls is
-// required because a model-directed loop must have an explicit local stop
-// condition in addition to Engine-wide Effect and Step limits.
+// DefinitionConfig describes immutable Interaction behavior. Cumulative quotas
+// default to unlimited; the Host retains cancellation and capacity controls.
 type DefinitionConfig struct {
 	// Name is the stable qualified Definition name.
 	Name string
@@ -21,15 +20,15 @@ type DefinitionConfig struct {
 	// Description states the managed behavior for discovery.
 	Description string
 
-	// MaxModelCalls bounds model Effects in one Interaction. It must be positive.
-	MaxModelCalls uint32
+	// MaxModelCalls bounds model Effects in one Interaction. Its zero value is unlimited.
+	MaxModelCalls agent.Quota
 
 	// Tools is the frozen ordinary Tool authority. Its Deployment must be
 	// available through Engine's exact DeploymentResolver.
 	Tools ToolSet
 
 	// ToolBudget is allocated from the parent for each ordinary Tool child.
-	// It is required when Tools is present and also bounds input continuations.
+	// Its quotas also apply to input continuations; zero quotas are unlimited.
 	ToolBudget agent.Budget
 
 	// ToolCapabilities is the attenuated authority granted to each Tool child.
@@ -57,7 +56,7 @@ type DefinitionConfig struct {
 // the model Dispatcher and ToolSet child Deployment.
 type Definition struct {
 	descriptor             agent.Descriptor
-	maxModelCalls          uint32
+	maxModelCalls          agent.Quota
 	delegates              []Delegate
 	delegatesByName        map[string]int
 	completionValidator    CompletionValidator
@@ -71,14 +70,8 @@ type Definition struct {
 // and model-call limit for one interaction loop. The provider client and
 // executable Tools remain bound to their external dispatch boundaries.
 func NewDefinition(config DefinitionConfig) (*Definition, error) {
-	if config.MaxModelCalls == 0 {
-		return nil, fmt.Errorf("%w: MaxModelCalls must be positive", ErrInvalidDefinitionConfig)
-	}
 	if config.MaxConcurrentToolCalls < 0 || !config.ToolCapabilities.Valid() {
 		return nil, fmt.Errorf("%w: invalid Tool scheduling policy", ErrInvalidDefinitionConfig)
-	}
-	if config.Tools.Configured() && !config.ToolBudget.Valid() {
-		return nil, fmt.Errorf("%w: ToolBudget is required with Tools", ErrInvalidDefinitionConfig)
 	}
 	if !config.Tools.Configured() && (config.ToolBudget != (agent.Budget{}) ||
 		len(config.ToolCapabilities.Values()) != 0 || config.MaxConcurrentToolCalls != 0) {

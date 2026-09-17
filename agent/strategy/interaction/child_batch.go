@@ -31,7 +31,7 @@ type childCallBatch struct {
 	WaitID         *agent.WaitID          `json:"wait_id,omitzero"`
 }
 
-func (c childCallBatch) validate(ctx context.Context, current phase, calls []chat.ToolCall, modelSequence uint32) error {
+func (c childCallBatch) validate(ctx context.Context, current phase, calls []chat.ToolCall, modelSequence uint64) error {
 	if c.Kind != childCallsTool && c.Kind != childCallsDelegate || len(calls) == 0 ||
 		len(c.Invocations) != len(calls) || c.NextStartIndex == 0 || uint64(c.NextStartIndex) > uint64(len(calls)) {
 		return fmt.Errorf("%w: invalid child call batch", ErrInvalidExecutionState)
@@ -102,7 +102,7 @@ func (c childCallBatch) validate(ctx context.Context, current phase, calls []cha
 	return nil
 }
 
-func (c childCallBatch) childKey(modelSequence uint32, call chat.ToolCall) (agent.ChildKey, error) {
+func (c childCallBatch) childKey(modelSequence uint64, call chat.ToolCall) (agent.ChildKey, error) {
 	if c.Kind == childCallsDelegate {
 		return DelegateChildKey(modelSequence, call)
 	}
@@ -165,7 +165,7 @@ func (c childCallBatch) children() []agent.ProcessID {
 	return children
 }
 
-func (c childCallBatch) waitSpec(modelSequence, callIndex uint32) (agent.ChildWaitSpec, error) {
+func (c childCallBatch) waitSpec(modelSequence uint64, callIndex uint32) (agent.ChildWaitSpec, error) {
 	completed := 0
 	for _, invocation := range c.Invocations {
 		if invocation.Result != nil {

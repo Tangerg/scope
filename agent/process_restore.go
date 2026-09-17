@@ -64,8 +64,8 @@ func restoreProcessState(
 		handle: handle, deployment: deployment, execution: execution,
 		startedAt: wire.StartedAt, status: wire.Status, committedSteps: wire.CommittedSteps,
 		committedExecutionState: wire.CommittedExecutionState, mailbox: mailbox, restored: true,
-		pauseReason: wire.PauseReason, pendingSignalLimit: wire.MaxPendingSignals, treeLimits: wire.TreeLimits,
-		budget: wire.Budget, reservedBudget: wire.ReservedBudget,
+		pauseReason: wire.PauseReason, pendingSignalLimit: wire.MaxPendingSignals, snapshotByteLimit: wire.MaxSnapshotBytes, treeLimits: wire.TreeLimits,
+		budget: wire.Budget, allocatedResources: wire.AllocatedResources,
 		capabilities: wire.Capabilities, counters: wire.Counters,
 	}
 	if wire.ChildRequestDigest != nil {

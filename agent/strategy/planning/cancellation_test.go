@@ -35,7 +35,7 @@ func cancellationDefinition(t *testing.T, planner Planner) *Definition {
 	}
 	definition, err := NewDefinition(DefinitionConfig{
 		Name: "planning.cancellation", Description: "Honor cancellation.", InputSchema: schema, Goal: goal, Actions: []ActionBinding{binding},
-		Planner: planner, MaxActionAttempts: 4,
+		Planner: planner, MaxActionAttempts: agent.NewQuota(4),
 	})
 	if err != nil {
 		t.Fatal(err)

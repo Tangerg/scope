@@ -10,7 +10,7 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-func toolChildKey(modelSequence uint32, call chat.ToolCall) (agent.ChildKey, error) {
+func toolChildKey(modelSequence uint64, call chat.ToolCall) (agent.ChildKey, error) {
 	if modelSequence == 0 || call.Validate() != nil {
 		return agent.ChildKey{}, ErrInvalidExecutionState
 	}
@@ -21,7 +21,7 @@ func toolChildKey(modelSequence uint32, call chat.ToolCall) (agent.ChildKey, err
 // DelegateChildKey derives the exact managed ChildKey used for one Delegate
 // ToolCall. Consumers can use the same value to correlate model observation
 // with the child Process without exposing ToolCall to the Kernel.
-func DelegateChildKey(modelCallSequence uint32, toolCall chat.ToolCall) (agent.ChildKey, error) {
+func DelegateChildKey(modelCallSequence uint64, toolCall chat.ToolCall) (agent.ChildKey, error) {
 	if modelCallSequence == 0 {
 		return agent.ChildKey{}, fmt.Errorf("%w: model call sequence is required", ErrInvalidDelegate)
 	}
@@ -29,7 +29,7 @@ func DelegateChildKey(modelCallSequence uint32, toolCall chat.ToolCall) (agent.C
 		return agent.ChildKey{}, fmt.Errorf("%w: ToolCall: %w", ErrInvalidDelegate, err)
 	}
 	hash := sha256.New()
-	hash.Write([]byte(strconv.FormatUint(uint64(modelCallSequence), 10)))
+	hash.Write([]byte(strconv.FormatUint(modelCallSequence, 10)))
 	hash.Write([]byte{0})
 	hash.Write([]byte(toolCall.ID))
 	hash.Write([]byte{0})

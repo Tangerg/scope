@@ -45,7 +45,7 @@ func TestModelResponseLimitIncludesEncodingAndReplacementContext(t *testing.T) {
 			if test.replacement != "" {
 				config.ModelContextReducer = fixedResponseContext{text: test.replacement}
 			}
-			deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "interaction.response_limit", Description: "Reject unusable model output.", MaxModelCalls: 1}, config, interaction.ToolSetConfig{})
+			deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "interaction.response_limit", Description: "Reject unusable model output.", MaxModelCalls: agent.NewQuota(1)}, config, interaction.ToolSetConfig{})
 			events := &agenttest.ObservationRecorder{}
 			engine, err := agent.NewEngine(agent.EngineConfig{EventListeners: []agent.EventListener{events}})
 			if err != nil {

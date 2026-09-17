@@ -38,7 +38,7 @@ func prepareEpisode(t testing.TB, store *episodeStore) (*agent.Engine, *agent.Pr
 	}
 	return engine, previous, deployment, successorRequest{
 		Predecessor: previous.ID(), DeploymentRef: deployment.DeploymentRef(), Input: output,
-		Limits: agent.Limits{MaxSteps: 8, MaxEffects: 4, MaxSignals: 8, MaxPendingSignals: 8}, TreeLimits: agent.DefaultTreeLimits(),
+		Limits: agent.Limits{MaxSteps: agent.NewQuota(8), MaxEffects: agent.NewQuota(4), MaxSignals: agent.NewQuota(8), MaxPendingSignals: 8}, TreeLimits: agent.DefaultTreeLimits(),
 	}
 }
 
@@ -205,12 +205,12 @@ func TestSuccessorRequestCannotChangeAfterAdmission(t *testing.T) {
 		t.Fatalf("changed state=%v", claimErr)
 	}
 	changed = request
-	changed.Limits.MaxSteps++
+	changed.Limits.MaxSteps = agent.NewQuota(9)
 	if _, _, claimErr := store.claim(changed); !errors.Is(claimErr, errSuccessorConflict) {
 		t.Fatalf("changed budget=%v", claimErr)
 	}
 	changed = request
-	changed.TreeLimits.MaxChildren++
+	changed.TreeLimits.MaxChildren = agent.NewQuota(1)
 	if _, _, claimErr := store.claim(changed); !errors.Is(claimErr, errSuccessorConflict) {
 		t.Fatalf("changed tree bounds=%v", claimErr)
 	}

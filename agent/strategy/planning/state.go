@@ -35,7 +35,7 @@ type executionState struct {
 	Phase             phase             `json:"phase"`
 	Input             json.RawMessage   `json:"input"`
 	WorldState        WorldState        `json:"world_state"`
-	PlanningPasses    uint32            `json:"planning_passes"`
+	PlanningPasses    uint64            `json:"planning_passes"`
 	Attempts          []Attempt         `json:"attempts,omitempty"`
 	CurrentActionName string            `json:"current_action_name,omitempty"`
 	Child             *childcall.Single `json:"child,omitzero"`
@@ -77,7 +77,7 @@ func (e executionState) validateAttemptFacts(ctx context.Context, definition *De
 	if err := definition.validateActionHistory(ctx, e.Attempts); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
-	if e.attemptCount() > uint64(definition.maxActionAttempts) {
+	if !definition.maxActionAttempts.Allows(e.attemptCount()) {
 		return fmt.Errorf("%w: action attempt count exceeds configured limit", ErrInvalidExecutionState)
 	}
 	return ctx.Err()
@@ -117,7 +117,7 @@ func (e executionState) validateProgress(definition *Definition) error {
 		return nil
 	}
 	attempts := uint64(len(e.Attempts))
-	passes := uint64(e.PlanningPasses)
+	passes := e.PlanningPasses
 	switch e.Phase {
 	case phaseReadySense:
 		if attempts != 0 || passes != 0 {

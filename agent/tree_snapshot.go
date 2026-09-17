@@ -9,8 +9,6 @@ import (
 	"slices"
 )
 
-const maxTreeSnapshotBytes = 512 << 20
-
 var ErrInvalidTreeSnapshot = errors.New("agent: invalid process tree snapshot")
 
 // TreeSnapshot is an immutable, portable capture of one complete Process tree.
@@ -31,16 +29,20 @@ type TreeSnapshot struct {
 // and the terminal results in the captured tree. A retained successful child-start
 // settlement must identify a captured child matching the complete start request.
 func ParseTreeSnapshot(data json.RawMessage) (TreeSnapshot, error) {
-	if len(data) == 0 || len(data) > maxTreeSnapshotBytes {
-		return TreeSnapshot{}, fmt.Errorf(
-			"%w: JSON must contain at most %d bytes", ErrInvalidTreeSnapshot, maxTreeSnapshotBytes,
-		)
-	}
 	wire, err := decodeJSON[treeSnapshotWire](data)
 	if err != nil {
 		return TreeSnapshot{}, fmt.Errorf("%w: decode: %w", ErrInvalidTreeSnapshot, err)
 	}
-	return treeSnapshotFromWire(wire)
+	snapshot, err := treeSnapshotFromWire(wire)
+	if err != nil {
+		return TreeSnapshot{}, err
+	}
+	for _, process := range wire.ProcessSnapshots {
+		if process.ProcessID() == wire.RootID && !process.state.TreeLimits.MaxSnapshotBytes.Allows(uint64(len(data))) {
+			return TreeSnapshot{}, fmt.Errorf("%w: snapshot byte quota exceeded", ErrInvalidTreeSnapshot)
+		}
+	}
+	return snapshot, nil
 }
 
 func newTreeSnapshot(wire treeSnapshotWire) (TreeSnapshot, error) {
@@ -60,10 +62,8 @@ func treeSnapshotFromWire(wire treeSnapshotWire) (TreeSnapshot, error) {
 	if err != nil {
 		return TreeSnapshot{}, fmt.Errorf("%w: encode: %w", ErrInvalidTreeSnapshot, err)
 	}
-	if len(normalized) > maxTreeSnapshotBytes {
-		return TreeSnapshot{}, fmt.Errorf(
-			"%w: exceeds %d bytes", ErrInvalidTreeSnapshot, maxTreeSnapshotBytes,
-		)
+	if !validation.root.TreeLimits.MaxSnapshotBytes.Allows(uint64(len(normalized))) {
+		return TreeSnapshot{}, fmt.Errorf("%w: snapshot byte quota exceeded", ErrInvalidTreeSnapshot)
 	}
 	return TreeSnapshot{
 		data: normalized, digest: ComputeDigest(normalized), state: wire,
@@ -169,13 +169,13 @@ func compareSnapshots(left, right ProcessSnapshot) int {
 }
 
 type treeSnapshotValidation struct {
-	wire              treeSnapshotWire
-	root              processSnapshotWire
-	processes         map[ProcessID]processSnapshotWire
-	children          map[childIdentity]ProcessID
-	childCounts       map[ProcessID]uint32
-	activeChildCounts map[ProcessID]uint32
-	allocatedBudgets  map[ProcessID]Budget
+	wire               treeSnapshotWire
+	root               processSnapshotWire
+	processes          map[ProcessID]processSnapshotWire
+	children           map[childIdentity]ProcessID
+	childCounts        map[ProcessID]uint64
+	activeChildCounts  map[ProcessID]uint64
+	allocatedResources map[ProcessID]resourceAmounts
 }
 
 func newTreeSnapshotValidation(wire treeSnapshotWire) (*treeSnapshotValidation, error) {
@@ -201,17 +201,17 @@ func newTreeSnapshotValidation(wire treeSnapshotWire) (*treeSnapshotValidation, 
 	}
 	rootRelation, _ := processRelationFromWire(root.ProcessID, root.Relation)
 	if !rootRelation.IsRoot() || rootRelation.RootID() != wire.RootID ||
-		uint32(len(processes)) > root.TreeLimits.MaxTreeProcesses {
+		!root.TreeLimits.MaxTreeProcesses.Allows(uint64(len(processes))) {
 		return nil, fmt.Errorf("%w: invalid root or tree size", ErrInvalidTreeSnapshot)
 	}
 	return &treeSnapshotValidation{
-		wire:              wire,
-		root:              root,
-		processes:         processes,
-		children:          make(map[childIdentity]ProcessID, len(processes)-1),
-		childCounts:       make(map[ProcessID]uint32),
-		activeChildCounts: make(map[ProcessID]uint32),
-		allocatedBudgets:  make(map[ProcessID]Budget),
+		wire:               wire,
+		root:               root,
+		processes:          processes,
+		children:           make(map[childIdentity]ProcessID, len(processes)-1),
+		childCounts:        make(map[ProcessID]uint64),
+		activeChildCounts:  make(map[ProcessID]uint64),
+		allocatedResources: make(map[ProcessID]resourceAmounts),
 	}, nil
 }
 
@@ -234,8 +234,9 @@ func (t *treeSnapshotValidation) validateRelations() error {
 		parentRelation := mustProcessRelation(parentID, parent.Relation)
 		identity := childIdentity{parent: parentID, key: key}
 		if relation.Depth() != parentRelation.Depth()+1 ||
+			processWire.MaxPendingSignals != parent.MaxPendingSignals || processWire.MaxSnapshotBytes != parent.MaxSnapshotBytes ||
 			!parent.Capabilities.Allows(processWire.Capabilities) {
-			return fmt.Errorf("%w: invalid child relation or attenuation", ErrInvalidTreeSnapshot)
+			return fmt.Errorf("%w: invalid child relation, capacity, or attenuation", ErrInvalidTreeSnapshot)
 		}
 		if _, duplicate := t.children[identity]; duplicate {
 			return fmt.Errorf("%w: duplicate parent-scoped ChildKey", ErrInvalidTreeSnapshot)
@@ -245,11 +246,15 @@ func (t *treeSnapshotValidation) validateRelations() error {
 		if !processWire.Status.Terminal() {
 			t.activeChildCounts[parentID]++
 		}
-		budget, ok := t.allocatedBudgets[parentID].add(processWire.Budget)
+		debit, ok := parent.Budget.allocation(processWire.Budget)
+		if !ok {
+			return fmt.Errorf("%w: child grant exceeds parent authority", ErrInvalidTreeSnapshot)
+		}
+		allocated, ok := t.allocatedResources[parentID].add(debit)
 		if !ok {
 			return fmt.Errorf("%w: child budget overflow", ErrInvalidTreeSnapshot)
 		}
-		t.allocatedBudgets[parentID] = budget
+		t.allocatedResources[parentID] = allocated
 	}
 	return nil
 }
@@ -257,10 +262,10 @@ func (t *treeSnapshotValidation) validateRelations() error {
 func (t *treeSnapshotValidation) validateChildAccounting() error {
 	for _, snapshot := range t.wire.ProcessSnapshots {
 		id, processWire := snapshot.ProcessID(), snapshot.state
-		if t.childCounts[id] > processWire.TreeLimits.MaxChildren ||
-			t.activeChildCounts[id] > processWire.TreeLimits.MaxActiveChildren ||
-			t.allocatedBudgets[id] != processWire.ReservedBudget {
-			return fmt.Errorf("%w: child limits or reserved budget disagree", ErrInvalidTreeSnapshot)
+		if !processWire.TreeLimits.MaxChildren.Allows(t.childCounts[id]) ||
+			t.activeChildCounts[id] > uint64(processWire.TreeLimits.MaxActiveChildren) ||
+			t.allocatedResources[id] != processWire.AllocatedResources {
+			return fmt.Errorf("%w: child limits or allocated resources disagree", ErrInvalidTreeSnapshot)
 		}
 	}
 	return nil

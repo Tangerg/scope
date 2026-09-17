@@ -3,6 +3,8 @@ package interaction
 import (
 	"fmt"
 	"testing"
+
+	"github.com/Tangerg/scope/agent"
 )
 
 func BenchmarkDelegateLookup(b *testing.B) {
@@ -17,7 +19,7 @@ func BenchmarkDelegateLookup(b *testing.B) {
 				delegates[index].definition.Name = name
 				names[index] = name
 			}
-			definition, err := NewDefinition(DefinitionConfig{Name: "benchmark.delegates", Description: "Measure bound Delegate lookup.", MaxModelCalls: 1, Delegates: delegates})
+			definition, err := NewDefinition(DefinitionConfig{Name: "benchmark.delegates", Description: "Measure bound Delegate lookup.", MaxModelCalls: agent.NewQuota(1), Delegates: delegates})
 			if err != nil {
 				b.Fatal(err)
 			}

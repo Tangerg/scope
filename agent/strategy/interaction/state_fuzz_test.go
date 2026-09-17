@@ -105,7 +105,7 @@ func TestRestoreRequiresOneCompletedResult(t *testing.T) {
 		name     string
 		response *chat.Response
 		results  []chat.ToolResult
-		calls    uint32
+		calls    uint64
 		valid    bool
 	}{
 		{name: "model", response: response, calls: 2, valid: true},
@@ -157,7 +157,7 @@ func fuzzInteractionDefinition(f testing.TB) *Definition {
 	}
 	workerDefinition, err := NewDefinition(DefinitionConfig{
 		Name: "interaction.fuzz_worker", Description: "Provide a deterministic fuzz worker contract.",
-		MaxModelCalls: 1,
+		MaxModelCalls: agent.NewQuota(1),
 	})
 	if err != nil {
 		f.Fatal(err)
@@ -171,7 +171,7 @@ func fuzzInteractionDefinition(f testing.TB) *Definition {
 		f.Fatal(err)
 	}
 	reference := workerDeployment.DeploymentRef()
-	budget := agent.Budget{Steps: 10, Effects: 10, Signals: 10}
+	budget := agent.Budget{Steps: agent.NewQuota(10), Effects: agent.NewQuota(10), Signals: agent.NewQuota(10)}
 	delegate := Delegate{
 		definition: chat.ToolDefinition{
 			Name: "delegate_fuzz", Description: "Delegate one fuzz task to the exact worker.",
@@ -182,7 +182,7 @@ func fuzzInteractionDefinition(f testing.TB) *Definition {
 	}
 	definition, err := NewDefinition(DefinitionConfig{
 		Name: "interaction.fuzz", Description: "Exercise strict Interaction state restoration.",
-		MaxModelCalls: 4, Delegates: []Delegate{delegate},
+		MaxModelCalls: agent.NewQuota(4), Delegates: []Delegate{delegate},
 	})
 	if err != nil {
 		f.Fatal(err)

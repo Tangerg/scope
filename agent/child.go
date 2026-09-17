@@ -39,7 +39,7 @@ type ChildSpec struct {
 
 func (c ChildSpec) Valid() bool {
 	return c.Key.Valid() && c.DeploymentRef.Valid() && c.Input.Valid() &&
-		c.Budget.Valid() && c.Capabilities.Valid()
+		c.Capabilities.Valid()
 }
 
 func (c ChildSpec) digest() (Digest, error) {

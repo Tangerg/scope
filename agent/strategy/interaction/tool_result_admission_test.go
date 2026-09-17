@@ -29,7 +29,7 @@ func TestRestoreRejectsFailedToolAdvertisements(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := NewDefinition(DefinitionConfig{Name: "audit.interaction", Description: "Exercise recovery.", MaxModelCalls: 2, Tools: tools, ToolBudget: agent.Budget{Steps: 10, Effects: 10, Signals: 10}, MaxConcurrentToolCalls: 2})
+	definition, err := NewDefinition(DefinitionConfig{Name: "audit.interaction", Description: "Exercise recovery.", MaxModelCalls: agent.NewQuota(2), Tools: tools, ToolBudget: agent.Budget{Steps: agent.NewQuota(10), Effects: agent.NewQuota(10), Signals: agent.NewQuota(10)}, MaxConcurrentToolCalls: 2})
 	if err != nil {
 		t.Fatal(err)
 	}

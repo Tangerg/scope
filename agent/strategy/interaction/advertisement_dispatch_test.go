@@ -22,7 +22,7 @@ func TestRestoredAdvertisementsDispatchAgainstBoundManifest(t *testing.T) {
 			}
 			dispatcherDefinition := definition
 			if !matched {
-				dispatcherDefinition, err = NewDefinition(DefinitionConfig{Name: "interaction.empty", Description: "Exercise missing bindings.", MaxModelCalls: 2})
+				dispatcherDefinition, err = NewDefinition(DefinitionConfig{Name: "interaction.empty", Description: "Exercise missing bindings.", MaxModelCalls: agent.NewQuota(2)})
 				if err != nil {
 					t.Fatal(err)
 				}

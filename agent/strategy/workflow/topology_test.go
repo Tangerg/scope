@@ -97,7 +97,7 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 		t.Fatal(err)
 	}
 	loop, err := workflow.Loop(workflow.LoopConfig[numberInput]{
-		ID: "loop", Body: identityChild, Budget: budget, Capabilities: capabilities, MaxIterations: 3,
+		ID: "loop", Body: identityChild, Budget: budget, Capabilities: capabilities, MaxIterations: agent.NewQuota(3),
 		Predicate: func(context.Context, numberInput) (bool, error) { return true, nil },
 	})
 	if err != nil {
@@ -144,8 +144,12 @@ func assertTopologyCase(
 		t.Fatalf("topology=%+v", topology)
 	}
 	stage := topology.Stages[0]
+	wantIterations := agent.Quota{}
+	if test.maxIterations != 0 {
+		wantIterations = agent.NewQuota(uint64(test.maxIterations))
+	}
 	if stage.Kind != test.kind || stage.WindowSize != test.windowSize ||
-		stage.MaxItems != test.maxItems || stage.MaxIterations != test.maxIterations {
+		stage.MaxItems != test.maxItems || stage.MaxIterations != wantIterations {
 		t.Fatalf("stage=%+v", stage)
 	}
 	if stage.ID != test.name || !stage.InputSchema.Valid() ||

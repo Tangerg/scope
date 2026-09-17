@@ -72,7 +72,7 @@ func NewDispatcherBinding(config DispatcherBindingConfig) (ActionBinding, error)
 // becomes a real Process with its own identity, budget, and recovery instead
 // of an opaque call inside the parent.
 func NewChildBinding(config ChildBindingConfig) (ActionBinding, error) {
-	if !config.Action.Valid() || !config.DeploymentRef.Valid() || !config.Budget.Valid() || !config.Capabilities.Valid() {
+	if !config.Action.Valid() || !config.DeploymentRef.Valid() || !config.Capabilities.Valid() {
 		return ActionBinding{}, fmt.Errorf("%w: invalid child binding", ErrInvalidAction)
 	}
 	return ActionBinding{
@@ -94,11 +94,11 @@ func (a ActionBinding) Valid() bool {
 	}
 	switch a.target {
 	case bindingTargetDispatcher:
-		return !a.child.DeploymentRef.Valid() && !a.child.Budget.Valid() &&
+		return !a.child.DeploymentRef.Valid() &&
 			a.childInput == nil
 	case bindingTargetChild:
 		return len(a.required.Values()) == 0 && a.child.DeploymentRef.Valid() &&
-			a.child.Budget.Valid() && a.child.Capabilities.Valid()
+			a.child.Capabilities.Valid()
 	default:
 		return false
 	}

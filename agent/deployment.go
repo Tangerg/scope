@@ -25,7 +25,8 @@ type DeploymentConfig struct {
 	ImplementationDigest Digest
 
 	// ConfigurationDigest identifies all frozen behavior-affecting Definition
-	// and Dispatcher configuration.
+	// and Dispatcher configuration, including each finite or unlimited Strategy
+	// quota. Quota JSON preserves that distinction for configuration hashing.
 	ConfigurationDigest Digest
 }
 

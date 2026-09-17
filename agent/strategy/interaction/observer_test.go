@@ -17,7 +17,7 @@ func TestExecutionConstructorsRejectTypedNilObservers(t *testing.T) {
 	var observer *panickingExecutionObserver
 	t.Run("model", func(t *testing.T) {
 		definition, err := NewDefinition(DefinitionConfig{
-			Name: "interaction.observer", Description: "Validate optional model observation.", MaxModelCalls: 1,
+			Name: "interaction.observer", Description: "Validate optional model observation.", MaxModelCalls: agent.NewQuota(1),
 		})
 		if err != nil {
 			t.Fatal(err)

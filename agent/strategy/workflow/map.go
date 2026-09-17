@@ -83,7 +83,7 @@ func (m mapSource) topology(_ agent.Schema, outputSchema agent.Schema) ([]Bindin
 // and produces a non-nil empty []O without creating child Processes.
 func Map[I, O any](config MapConfig[I, O]) (Stage, error) {
 	if !agent.ValidQualifiedName(config.ID) || !config.Deployment.Valid() ||
-		!config.Budget.Valid() || !config.Capabilities.Valid() ||
+		!config.Capabilities.Valid() ||
 		config.WindowSize == 0 || config.MaxItems == 0 || config.WindowSize > config.MaxItems {
 		return Stage{}, ErrInvalidStage
 	}

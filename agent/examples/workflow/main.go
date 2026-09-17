@@ -120,7 +120,7 @@ func newManagedWorkflow() (agent.Deployment, deploymentResolver, error) {
 		return agent.Deployment{}, nil, err
 	}
 	budget := agent.Budget{
-		Steps: workflowChildBudgetUnits, Effects: workflowChildBudgetUnits, Signals: workflowChildBudgetUnits,
+		Steps: agent.NewQuota(workflowChildBudgetUnits), Effects: agent.NewQuota(workflowChildBudgetUnits), Signals: agent.NewQuota(workflowChildBudgetUnits),
 	}
 	normalize, err := workflow.Call(workflow.CallConfig{
 		ID: "normalize", Deployment: normalizer, Budget: budget,

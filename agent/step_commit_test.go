@@ -16,15 +16,15 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 	}
 	handle := newProcessHandle(
 		rootProcessRelation(processID), DeploymentRef{},
-		Budget{Steps: maxUint64, Effects: maxUint64, Signals: maxUint64},
+		Budget{Steps: NewQuota(maxUint64), Effects: NewQuota(maxUint64), Signals: NewQuota(maxUint64)},
 		CapabilitySet{}, DefaultTreeLimits(), time.Now())
 	process := &processState{
 		handle:             handle,
 		status:             StatusRunning,
 		committedSteps:     maxUint64 - 1,
 		pendingSignalLimit: maxUint64,
-		budget:             Budget{Steps: maxUint64, Effects: maxUint64, Signals: maxUint64},
-		reservedBudget:     Budget{Steps: 1, Effects: 1, Signals: 1},
+		budget:             Budget{Steps: NewQuota(maxUint64), Effects: NewQuota(maxUint64), Signals: NewQuota(maxUint64)},
+		allocatedResources: resourceAmounts{Steps: 1, Effects: 1, Signals: 1},
 		mailbox:            newSignalMailbox(),
 	}
 
@@ -46,7 +46,7 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 
 func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 	limits := Limits{
-		MaxSteps: 10, MaxEffects: 10, MaxSignals: 3, MaxPendingSignals: 10,
+		MaxSteps: NewQuota(10), MaxEffects: NewQuota(10), MaxSignals: NewQuota(3), MaxPendingSignals: 10,
 	}
 	process := &processState{
 		pendingSignalLimit: limits.MaxPendingSignals,
@@ -122,7 +122,7 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 		parent.deployment.DeploymentRef(), parent.budget, parent.capabilities,
 		parent.treeLimits, parent.startedAt)
 	runtime.addProcess(newProcessState(handle, parent.deployment, parent.execution,
-		parent.committedExecutionState, parent.startedAt, controlValue(parent.budget.limits(parent.pendingSignalLimit))))
+		parent.committedExecutionState, parent.startedAt, parent.budget.limits(parent.pendingSignalLimit, parent.snapshotByteLimit)))
 	missingID, _ := ParseProcessID("process:missing-child")
 	var specs []ChildWaitSpec
 	var effects []Effect

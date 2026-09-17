@@ -27,7 +27,7 @@ func BenchmarkPlanningReplayBoundary(b *testing.B) {
 	}
 	definition, err := planning.NewDefinition(planning.DefinitionConfig{
 		Name: "benchmark.planning", Description: "Measure Planning recovery admission.",
-		InputSchema: schema, Goal: goal, MaxActionAttempts: 1,
+		InputSchema: schema, Goal: goal, MaxActionAttempts: agent.NewQuota(1),
 		Planner: planning.PlannerFunc(func(context.Context, planning.Problem) (planning.Plan, bool, error) {
 			return planning.Plan{}, false, nil
 		}),

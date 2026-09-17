@@ -236,7 +236,7 @@ func newUncertainModelDeployment(t *testing.T) (agent.Deployment, *lostResponseD
 		t.Fatal(err)
 	}
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: "example.uncertain_model", Description: "Recover a lost composition response.", MaxModelCalls: 1,
+		Name: "example.uncertain_model", Description: "Recover a lost composition response.", MaxModelCalls: agent.NewQuota(1),
 	})
 	if err != nil {
 		t.Fatal(err)

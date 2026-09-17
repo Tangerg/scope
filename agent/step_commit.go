@@ -107,14 +107,13 @@ func (p *preparedStepFinalization) openChildWait(record preparedEffect, signal S
 
 func (p *preparedStepFinalization) enqueueImmediateChildSignals() error {
 	preparedSignals := p.prepared.settlementSignalCount()
-	reservedBudget := p.process.effectiveReservedBudget()
+	allocated := p.process.effectiveAllocations()
 	for index, signal := range p.immediateChildSignals {
 		acceptedSignals := uint64(index) + 1
 		if !resourceQuantitiesFit(
 			p.process.pendingSignalLimit, p.mailbox.pendingCount(), 1,
-		) || !resourceQuantitiesFit(
-			p.process.budget.Signals,
-			p.process.usage().AcceptedSignals, reservedBudget.Signals,
+		) || !p.process.budget.Signals.Allows(
+			p.process.usage().AcceptedSignals, allocated.Signals,
 			preparedSignals, acceptedSignals,
 		) {
 			return ErrResourceLimitExceeded

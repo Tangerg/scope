@@ -161,7 +161,7 @@ func childBatchTestExecution(t testing.TB, kind childCallKind, stage phase) *exe
 		}
 		definition, err = NewDefinition(DefinitionConfig{
 			Name: "interaction.child_batch", Description: "Exercise the child call protocol.",
-			MaxModelCalls: 2, MaxConcurrentToolCalls: 3, Tools: tools, ToolBudget: agent.Budget{Steps: 10, Effects: 10, Signals: 10},
+			MaxModelCalls: agent.NewQuota(2), MaxConcurrentToolCalls: 3, Tools: tools, ToolBudget: agent.Budget{Steps: agent.NewQuota(10), Effects: agent.NewQuota(10), Signals: agent.NewQuota(10)},
 		})
 		if err != nil {
 			t.Fatal(err)

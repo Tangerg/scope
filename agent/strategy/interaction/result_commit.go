@@ -52,7 +52,7 @@ func newResultBatch(request agent.EffectRequest, commit resultCommit) (ResultBat
 }
 
 func (r ResultBatch) Relation() agent.ProcessRelation { return r.request.Relation() }
-func (r ResultBatch) ModelCallSequence() uint32       { return r.commit.ModelCallSequence }
+func (r ResultBatch) ModelCallSequence() uint64       { return r.commit.ModelCallSequence }
 func (r ResultBatch) TreeIncarnationID() (agent.TreeIncarnationID, bool) {
 	return r.request.TreeIncarnationID()
 }
@@ -137,7 +137,7 @@ func (r ResultReceipt) Settlement() (agent.Settlement, error) {
 }
 
 type resultCommit struct {
-	ModelCallSequence uint32           `json:"model_call_sequence"`
+	ModelCallSequence uint64           `json:"model_call_sequence"`
 	Calls             []chat.ToolCall  `json:"calls"`
 	Results           []toolCallResult `json:"results"`
 }

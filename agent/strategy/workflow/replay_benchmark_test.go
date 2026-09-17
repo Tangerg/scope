@@ -139,7 +139,7 @@ func mapReplayDefinition(t testing.TB, count, window uint32) *workflow.Definitio
 		t.Fatal(err)
 	}
 	stage, err := workflow.Map(workflow.MapConfig[int, int]{
-		ID: "items", Deployment: deployment, Budget: agent.Budget{Steps: 10, Effects: 10, Signals: 10},
+		ID: "items", Deployment: deployment, Budget: agent.Budget{Steps: agent.NewQuota(10), Effects: agent.NewQuota(10), Signals: agent.NewQuota(10)},
 		WindowSize: window, MaxItems: count,
 	})
 	if err != nil {

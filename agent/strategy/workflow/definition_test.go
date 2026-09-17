@@ -126,6 +126,6 @@ func mustTransform[I, O any](t *testing.T, id string, transform workflow.Transfo
 
 func mustBudget(t *testing.T) agent.Budget {
 	t.Helper()
-	budget := agent.Budget{Steps: 64, Effects: 64, Signals: 64}
+	budget := agent.Budget{Steps: agent.NewQuota(64), Effects: agent.NewQuota(64), Signals: agent.NewQuota(64)}
 	return budget
 }

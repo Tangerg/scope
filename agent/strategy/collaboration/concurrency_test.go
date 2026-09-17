@@ -27,7 +27,7 @@ func textResponse(text string) (*chat.Response, error) {
 	return chat.NewResponse(&chat.Output{Message: &message, FinishReason: chat.FinishReasonStop}, nil)
 }
 func modelDeployment(name string, model chat.Model) agent.Deployment {
-	definition := require(interaction.NewDefinition(interaction.DefinitionConfig{Name: name, Description: name, MaxModelCalls: 3}))
+	definition := require(interaction.NewDefinition(interaction.DefinitionConfig{Name: name, Description: name, MaxModelCalls: agent.NewQuota(3)}))
 	client := require(chatclient.New(model, chatclient.Config{}))
 	dispatcher := require(interaction.NewDispatcher(definition, interaction.DispatcherConfig{Model: client}))
 	return require(agent.NewDeployment(agent.DeploymentConfig{Definition: definition, Dispatcher: dispatcher,
@@ -81,7 +81,7 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 					render := require(workflow.Transform("render", func(_ context.Context, turn Turn) (interaction.Input, error) {
 						return interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart(string(require(json.Marshal(turn)))))}}, nil
 					}))
-					call := require(workflow.Call(workflow.CallConfig{ID: "call", Deployment: model, Budget: agent.Budget{Steps: 16, Effects: 8, Signals: 16}}))
+					call := require(workflow.Call(workflow.CallConfig{ID: "call", Deployment: model, Budget: agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(8), Signals: agent.NewQuota(16)}}))
 					decode := require(workflow.Transform("decode", func(_ context.Context, output interaction.Output) (Decision, error) {
 						if output.ModelResponse == nil {
 							return Decision{}, errors.New("missing model response")
@@ -95,7 +95,7 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 					coordinator := binding(require(workflow.NewDefinition(workflow.DefinitionConfig{Name: "test.model_coordinator", Description: "Adapt a model decision.", Stages: []workflow.Stage{render, call, decode}})))
 					config, deployments := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "unused"), nil }, gate())
 					delete(deployments, config.Coordinator.Deployment.DeploymentRef())
-					config.Coordinator = WorkerConfig{Deployment: coordinator, Budget: agent.Budget{Steps: 64, Effects: 32, Signals: 64}}
+					config.Coordinator = WorkerConfig{Deployment: coordinator, Budget: agent.Budget{Steps: agent.NewQuota(64), Effects: agent.NewQuota(32), Signals: agent.NewQuota(64)}}
 					definition := require(NewDefinition(config))
 					deployments[model.DeploymentRef()], deployments[coordinator.DeploymentRef()] = model, coordinator
 					var durability agent.TreeDurability

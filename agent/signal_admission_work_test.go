@@ -38,7 +38,7 @@ func BenchmarkSignalAdmissionHistory(b *testing.B) {
 func admissionTestProcess(t testing.TB, history int) *processState {
 	t.Helper()
 	limits := DefaultLimits()
-	limits.MaxSignals = 100000
+	limits.MaxSignals = NewQuota(100000)
 	limits.MaxPendingSignals = 100000
 	deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), &engineTestDispatcher{})
 	input, err := EncodePayload(engineTestInput{Value: "admission"})
@@ -98,7 +98,7 @@ func TestSignalAdmissionRejectsWholeBatchWithoutChangingHistoryOrWaits(t *testin
 		}},
 		{name: "answer exceeds budget", want: ErrResourceLimitExceeded, prepare: func(t *testing.T, process *processState) []Signal {
 			wait := admissionTestWait(t, process)
-			process.budget.Signals = process.usage().AcceptedSignals
+			process.budget.Signals = NewQuota(process.usage().AcceptedSignals)
 			return []Signal{mustMailboxSignal(t, "signal:answer", wait, json.RawMessage(`{}`))}
 		}},
 	} {

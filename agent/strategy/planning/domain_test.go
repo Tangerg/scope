@@ -207,7 +207,7 @@ func TestOutputValidatesCompletedPlanningFacts(t *testing.T) {
 		name     string
 		outcome  planning.Outcome
 		attempts []planning.Attempt
-		passes   uint32
+		passes   uint64
 		valid    bool
 	}{
 		{name: "already achieved", outcome: planning.OutcomeAchieved, valid: true},

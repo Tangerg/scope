@@ -13,6 +13,7 @@ import (
 	"github.com/Tangerg/scope/agent/agenttest"
 	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/chatclient"
 	"github.com/Tangerg/scope/core/tool"
 )
 
@@ -36,7 +37,14 @@ func TestSteerQueuedDuringChildWaitSurvivesRestore(t *testing.T) {
 				}
 				return textResponse("done"), nil
 			})
-			deployment := newDeployment(t, model, []tool.Tool{waiting}, 2)
+			client, clientErr := chatclient.New(model, chatclient.Config{})
+			if clientErr != nil {
+				t.Fatal(clientErr)
+			}
+			deployment := configuredInteraction(t,
+				interaction.DefinitionConfig{Name: "interaction.unlimited_resume", Description: "Resume an unlimited input wait."},
+				interaction.DispatcherConfig{Model: client}, interaction.ToolSetConfig{Tools: []tool.Tool{waiting}},
+			)
 			config := agent.EngineConfig{DeploymentResolver: deployment.resolver}
 			var store *agenttest.MemoryTreeDurability
 			if durable {
@@ -167,7 +175,7 @@ func TestSteerAdmittedDuringWaitStepSurvivesToolInput(t *testing.T) {
 	})
 	toolSet := testToolSet(t, interaction.ToolSetConfig{Tools: []tool.Tool{waiting}})
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: "interaction.steer_wait", Description: "Preserve accepted steering across an input wait.", MaxModelCalls: 2, Tools: toolSet, ToolBudget: agent.Budget{Steps: 16, Effects: 8, Signals: 16},
+		Name: "interaction.steer_wait", Description: "Preserve accepted steering across an input wait.", MaxModelCalls: agent.NewQuota(2), Tools: toolSet, ToolBudget: agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(8), Signals: agent.NewQuota(16)},
 	})
 	if err != nil {
 		t.Fatal(err)

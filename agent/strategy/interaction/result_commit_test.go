@@ -74,7 +74,7 @@ func TestRejectedToolBatchPreservesContinuationOrder(t *testing.T) {
 		}
 		return textResponse("done"), nil
 	})
-	deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "rejection.order", Description: "Commit rejections in order.", MaxModelCalls: 2}, interaction.DispatcherConfig{Model: model, ResultCommitter: committer}, interaction.ToolSetConfig{})
+	deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "rejection.order", Description: "Commit rejections in order.", MaxModelCalls: agent.NewQuota(2)}, interaction.DispatcherConfig{Model: model, ResultCommitter: committer}, interaction.ToolSetConfig{})
 	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func TestToolSetCommitsValidationRejectionBeforeContinuing(t *testing.T) {
 		}
 		return textResponse("done"), nil
 	})
-	deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "rejection.validation", Description: "Commit validation rejection.", MaxModelCalls: 2}, interaction.DispatcherConfig{Model: model, ResultCommitter: committer}, interaction.ToolSetConfig{Tools: []tool.Tool{executable}})
+	deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "rejection.validation", Description: "Commit validation rejection.", MaxModelCalls: agent.NewQuota(2)}, interaction.DispatcherConfig{Model: model, ResultCommitter: committer}, interaction.ToolSetConfig{Tools: []tool.Tool{executable}})
 	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
@@ -161,7 +161,7 @@ func TestRejectionCommitFailureStopsBeforeAnotherModelCall(t *testing.T) {
 				return interaction.ResultReceipt{}, cause
 			}}
 			model := &singleToolCallModel{call: chat.ToolCall{ID: "rejected", Name: name, Arguments: `{"wrong":true}`}}
-			deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "rejection.failure", Description: "Stop on a failed rejection commit.", MaxModelCalls: 2}, interaction.DispatcherConfig{Model: model, ResultCommitter: committer}, interaction.ToolSetConfig{Tools: []tool.Tool{executable}})
+			deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "rejection.failure", Description: "Stop on a failed rejection commit.", MaxModelCalls: agent.NewQuota(2)}, interaction.DispatcherConfig{Model: model, ResultCommitter: committer}, interaction.ToolSetConfig{Tools: []tool.Tool{executable}})
 			events := &agenttest.ObservationRecorder{}
 			engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver, EventListeners: []agent.EventListener{events}})
 			if err != nil {
@@ -368,7 +368,7 @@ func publicationDeployment(t *testing.T, witness *publicationWitness, direct boo
 		}
 		return textResponse("accepted"), nil
 	})
-	return configuredInteraction(t, interaction.DefinitionConfig{Name: "publication.recovery", Description: "Recover only result publication.", MaxModelCalls: 2}, interaction.DispatcherConfig{Model: model, ResultCommitter: committer}, interaction.ToolSetConfig{Tools: []tool.Tool{bound}})
+	return configuredInteraction(t, interaction.DefinitionConfig{Name: "publication.recovery", Description: "Recover only result publication.", MaxModelCalls: agent.NewQuota(2)}, interaction.DispatcherConfig{Model: model, ResultCommitter: committer}, interaction.ToolSetConfig{Tools: []tool.Tool{bound}})
 }
 
 func crashPublication(t *testing.T, ctx context.Context, witness *publicationWitness, direct bool, cut string) []byte {
@@ -440,7 +440,7 @@ func TestResultPublicationCoversMixedToolAndDelegatePaths(t *testing.T) {
 	})
 	var delegates []interaction.Delegate
 	for name, deployment := range map[string]agent.Deployment{"delegate": worker, "unavailable": unavailable} {
-		delegate, err := interaction.NewDelegate(interaction.DelegateConfig{Name: name, Description: "Publish delegated outcomes.", Deployment: deployment, Budget: agent.Budget{Steps: 8, Effects: 8, Signals: 8}})
+		delegate, err := interaction.NewDelegate(interaction.DelegateConfig{Name: name, Description: "Publish delegated outcomes.", Deployment: deployment, Budget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(8), Signals: agent.NewQuota(8)}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -523,7 +523,7 @@ func TestResultPublicationCoversMixedToolAndDelegatePaths(t *testing.T) {
 		}
 		return textResponse("done"), nil
 	})
-	deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "publication.mixed", Description: "Commit all known result producers.", MaxModelCalls: 2, Delegates: delegates}, interaction.DispatcherConfig{Model: model, ResultCommitter: committer}, interaction.ToolSetConfig{Tools: tools})
+	deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "publication.mixed", Description: "Commit all known result producers.", MaxModelCalls: agent.NewQuota(2), Delegates: delegates}, interaction.DispatcherConfig{Model: model, ResultCommitter: committer}, interaction.ToolSetConfig{Tools: tools})
 	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolveWith(worker)})
 	if err != nil {
 		t.Fatal(err)

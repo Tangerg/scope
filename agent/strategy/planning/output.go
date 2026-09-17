@@ -98,7 +98,7 @@ type Output struct {
 	// Attempts preserves Action-attempt order.
 	Attempts []Attempt `json:"attempts"`
 	// PlanningPasses counts calls to Planner.
-	PlanningPasses uint32 `json:"planning_passes" jsonschema:"maximum=4294967295"`
+	PlanningPasses uint64 `json:"planning_passes"`
 }
 
 // Validate checks completed planning counters and ordered attempt facts. Goal
@@ -112,7 +112,7 @@ func (o Output) Validate() error {
 		return err
 	}
 	attempts := uint64(len(o.Attempts))
-	passes := uint64(o.PlanningPasses)
+	passes := o.PlanningPasses
 	switch o.Outcome {
 	case OutcomeAchieved:
 		if passes != attempts {

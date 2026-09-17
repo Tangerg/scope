@@ -7,6 +7,7 @@ import (
 	"math"
 	"slices"
 
+	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/planning"
 )
 
@@ -50,17 +51,17 @@ type predecessor struct {
 type search struct {
 	problem           planning.Problem
 	actions           []planning.Action
-	maxExpansions     uint32
-	maxGeneratedNodes uint32
+	maxExpansions     agent.Quota
+	maxGeneratedNodes agent.Quota
 	startKey          string
 	frontier          *frontier
 	bestCosts         map[string]float64
 	predecessors      map[string]predecessor
 	nextOrder         uint64
-	expansions        uint32
+	expansions        uint64
 }
 
-func newSearch(problem planning.Problem, maxExpansions, maxGeneratedNodes uint32) *search {
+func newSearch(problem planning.Problem, maxExpansions, maxGeneratedNodes agent.Quota) *search {
 	start := problem.InitialState()
 	startKey := start.Key()
 	queue := &frontier{}
@@ -89,8 +90,11 @@ func (s *search) run(ctx context.Context) (searchNode, bool, error) {
 		if current.cost != s.bestCosts[currentKey] {
 			continue
 		}
-		if s.expansions == s.maxExpansions {
-			return searchNode{}, false, fmt.Errorf("%w: %d", ErrExpansionLimitReached, s.maxExpansions)
+		if !s.maxExpansions.Allows(s.expansions, 1) {
+			return searchNode{}, false, ErrExpansionLimitReached
+		}
+		if s.expansions == ^uint64(0) {
+			return searchNode{}, false, agent.ErrCounterExhausted
 		}
 		s.expansions++
 		if s.problem.Goal().SatisfiedBy(current.state) {
@@ -133,8 +137,11 @@ func (s *search) expand(ctx context.Context, current *searchNode, currentKey str
 		if best, known := s.bestCosts[nextKey]; known && cost >= best {
 			continue
 		}
-		if s.nextOrder == uint64(s.maxGeneratedNodes) {
-			return fmt.Errorf("%w: %d", ErrGenerationLimitReached, s.maxGeneratedNodes)
+		if !s.maxGeneratedNodes.Allows(s.nextOrder, 1) {
+			return ErrGenerationLimitReached
+		}
+		if s.nextOrder == ^uint64(0) {
+			return agent.ErrCounterExhausted
 		}
 		planned, err := planning.NewPlannedAction(action.Name())
 		if err != nil {

@@ -23,7 +23,7 @@ type WorkerConfig struct {
 }
 
 func (w WorkerConfig) valid() bool {
-	return w.Deployment.Valid() && w.Budget.Valid() && w.Capabilities.Valid()
+	return w.Deployment.Valid() && w.Capabilities.Valid()
 }
 
 func (w WorkerConfig) binding() childBinding {
@@ -56,8 +56,8 @@ type DefinitionConfig struct {
 	Workers            []WorkerConfig
 	StateSchema        agent.Schema
 	OutputSchema       agent.Schema
-	MaxTurns           uint32
-	MaxTasks           uint32
+	MaxTurns           agent.Quota
+	MaxTasks           agent.Quota
 	MaxConcurrentTasks uint32
 	MaxControlsPerTurn uint32
 }
@@ -68,16 +68,16 @@ type Definition struct {
 	descriptor         agent.Descriptor
 	coordinator        childBinding
 	workers            []childBinding
-	maxTurns           uint32
-	maxTasks           uint32
+	maxTurns           agent.Quota
+	maxTasks           agent.Quota
 	maxConcurrentTasks uint32
 	maxControlsPerTurn uint32
 }
 
 func NewDefinition(config DefinitionConfig) (*Definition, error) {
 	if !config.Coordinator.valid() || len(config.Workers) == 0 || !config.StateSchema.Valid() ||
-		!config.OutputSchema.Valid() || config.MaxTurns == 0 || config.MaxTasks == 0 ||
-		config.MaxConcurrentTasks == 0 || config.MaxConcurrentTasks > config.MaxTasks || config.MaxControlsPerTurn == 0 {
+		!config.OutputSchema.Valid() ||
+		config.MaxConcurrentTasks == 0 || config.MaxControlsPerTurn == 0 {
 		return nil, ErrInvalidConfig
 	}
 	inputSchema, err := agent.SchemaFor[Turn]()

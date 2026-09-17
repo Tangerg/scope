@@ -69,7 +69,7 @@ func measureInteractionContext(t *testing.T, rounds uint32, mode string) (int, [
 	}
 	toolSet := testToolSet(t, interaction.ToolSetConfig{Tools: []tool.Tool{executable}})
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: "interaction.context-storage", Description: "Check retained model context.", MaxModelCalls: rounds + 1, Tools: toolSet, ToolBudget: agent.Budget{Steps: 8, Effects: 4, Signals: 8},
+		Name: "interaction.context-storage", Description: "Check retained model context.", MaxModelCalls: agent.NewQuota(uint64(rounds) + 1), Tools: toolSet, ToolBudget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)},
 	})
 	if err != nil {
 		t.Fatal(err)

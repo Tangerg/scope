@@ -35,8 +35,8 @@ type DefinitionConfig struct {
 	// Planner selects Actions from each newly observed WorldState.
 	Planner Planner
 
-	// MaxActionAttempts bounds external Action attempts. It must be positive.
-	MaxActionAttempts uint32
+	// MaxActionAttempts bounds external Action attempts. Its zero value is unlimited.
+	MaxActionAttempts agent.Quota
 }
 
 // Definition is an immutable Planning Strategy definition. It contains no
@@ -51,7 +51,7 @@ type Definition struct {
 	bindings          []ActionBinding
 	bindingsByName    map[string]int
 	planner           Planner
-	maxActionAttempts uint32
+	maxActionAttempts agent.Quota
 }
 
 // NewDefinition freezes the goal, actions, and planner into one immutable
@@ -59,7 +59,7 @@ type Definition struct {
 // restored Execution searches with the same algorithm that produced the plan
 // it is resuming.
 func NewDefinition(config DefinitionConfig) (*Definition, error) {
-	if !config.InputSchema.Valid() || !config.Goal.Valid() || lo.IsNil(config.Planner) || config.MaxActionAttempts == 0 {
+	if !config.InputSchema.Valid() || !config.Goal.Valid() || lo.IsNil(config.Planner) {
 		return nil, ErrInvalidDefinitionConfig
 	}
 	bindings := slices.Clone(config.Actions)

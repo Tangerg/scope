@@ -145,7 +145,7 @@ func newOrchestratorWorkers() (agent.Deployment, deploymentResolver, error) {
 		return agent.Deployment{}, nil, err
 	}
 	budget := agent.Budget{
-		Steps: workerBudgetSteps, Effects: workerBudgetEffects, Signals: workerBudgetSignals,
+		Steps: agent.NewQuota(workerBudgetSteps), Effects: agent.NewQuota(workerBudgetEffects), Signals: agent.NewQuota(workerBudgetSignals),
 	}
 
 	renderGoal, err := workflow.Transform("render_goal", interactionInput[orchestrationGoal])
@@ -225,7 +225,7 @@ func interactionDeployment(name, description string, model chat.Model) (agent.De
 		return agent.Deployment{}, err
 	}
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: name, Description: description, MaxModelCalls: 1,
+		Name: name, Description: description, MaxModelCalls: agent.NewQuota(1),
 	})
 	if err != nil {
 		return agent.Deployment{}, err

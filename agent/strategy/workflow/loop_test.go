@@ -22,15 +22,16 @@ func TestLoopRunsAtLeastOnceAndReportsSatisfiedOrExhausted(t *testing.T) {
 	for _, test := range []struct {
 		name           string
 		initial        int
-		maximum        uint32
+		maximum        agent.Quota
 		threshold      int
 		wantValue      int
 		wantIterations uint32
 		wantSatisfied  bool
 	}{
-		{name: "satisfied", initial: 0, maximum: 5, threshold: 3, wantValue: 3, wantIterations: 3, wantSatisfied: true},
-		{name: "exhausted", initial: 0, maximum: 2, threshold: 3, wantValue: 2, wantIterations: 2, wantSatisfied: false},
-		{name: "at_least_once", initial: 3, maximum: 5, threshold: 3, wantValue: 4, wantIterations: 1, wantSatisfied: true},
+		{name: "unlimited", threshold: 4, wantValue: 4, wantIterations: 4, wantSatisfied: true},
+		{name: "satisfied", initial: 0, maximum: agent.NewQuota(5), threshold: 3, wantValue: 3, wantIterations: 3, wantSatisfied: true},
+		{name: "exhausted", initial: 0, maximum: agent.NewQuota(2), threshold: 3, wantValue: 2, wantIterations: 2, wantSatisfied: false},
+		{name: "at_least_once", initial: 3, maximum: agent.NewQuota(5), threshold: 3, wantValue: 4, wantIterations: 1, wantSatisfied: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			stage, err := workflow.Loop(workflow.LoopConfig[loopValue]{
@@ -57,7 +58,7 @@ func TestLoopRunsAtLeastOnceAndReportsSatisfiedOrExhausted(t *testing.T) {
 			}
 			output := decodeCompleted[workflow.LoopResult[loopValue]](t, result)
 			if !output.Valid() || output.Value.Value != test.wantValue ||
-				output.Iterations != test.wantIterations || output.Satisfied != test.wantSatisfied {
+				output.Iterations != uint64(test.wantIterations) || output.Satisfied != test.wantSatisfied {
 				t.Fatalf("Loop output = %#v", output)
 			}
 			tree, err := engine.CaptureTree(context.Background(), result.ProcessID())
@@ -81,7 +82,7 @@ func TestLoopPropagatesBodyFailure(t *testing.T) {
 		}),
 	), "failing-loop-body")
 	stage, err := workflow.Loop(workflow.LoopConfig[loopValue]{
-		ID: "improve", Body: body, Budget: mustBudget(t), MaxIterations: 2,
+		ID: "improve", Body: body, Budget: mustBudget(t), MaxIterations: agent.NewQuota(2),
 		Predicate: func(context.Context, loopValue) (bool, error) { return false, nil },
 	})
 	if err != nil {
@@ -106,7 +107,7 @@ func TestLoopPropagatesBodyFailure(t *testing.T) {
 	}
 }
 
-func TestLoopRequiresExplicitBoundPredicateAndExactBodyContract(t *testing.T) {
+func TestLoopRequiresPredicateAndExactBodyContract(t *testing.T) {
 	validBody := mustDeployment(t, mustDefinition(t, "test.workflow.valid_loop_body",
 		mustTransform(t, "identity", func(_ context.Context, input loopValue) (loopValue, error) { return input, nil }),
 	), "valid-loop-body")
@@ -114,11 +115,11 @@ func TestLoopRequiresExplicitBoundPredicateAndExactBodyContract(t *testing.T) {
 		mustTransform(t, "wrong", func(context.Context, textValue) (textValue, error) { return textValue{}, nil }),
 	), "wrong-loop-body")
 	valid := workflow.LoopConfig[loopValue]{
-		ID: "improve", Body: validBody, Budget: mustBudget(t), MaxIterations: 2,
+		ID: "improve", Body: validBody, Budget: mustBudget(t), MaxIterations: agent.NewQuota(2),
 		Predicate: func(context.Context, loopValue) (bool, error) { return true, nil },
 	}
 	for name, config := range map[string]workflow.LoopConfig[loopValue]{
-		"zero maximum": {ID: valid.ID, Body: valid.Body, Budget: valid.Budget, Predicate: valid.Predicate},
+		"zero finite maximum": {MaxIterations: agent.NewQuota(0), ID: valid.ID, Body: valid.Body, Budget: valid.Budget, Predicate: valid.Predicate},
 		"nil predicate": {
 			ID: valid.ID, Body: valid.Body, Budget: valid.Budget, MaxIterations: valid.MaxIterations,
 		},

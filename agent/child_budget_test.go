@@ -20,11 +20,11 @@ func TestChildAllocationPreservesPreparedParentWork(t *testing.T) {
 			limits       Limits
 			wantChildren int
 		}{
-			{name: "steps reserved", limits: Limits{MaxSteps: 20}},
-			{name: "effects charged", limits: Limits{MaxEffects: 20}},
-			{name: "signals reserved", limits: Limits{MaxSignals: 40, MaxPendingSignals: 40}},
+			{name: "steps reserved", limits: Limits{MaxSteps: NewQuota(20)}},
+			{name: "effects charged", limits: Limits{MaxEffects: NewQuota(20)}},
+			{name: "signals reserved", limits: Limits{MaxSignals: NewQuota(40), MaxPendingSignals: 40}},
 			{
-				name: "exact fit", limits: Limits{MaxSteps: 22, MaxEffects: 21, MaxSignals: 41, MaxPendingSignals: 41},
+				name: "exact fit", limits: Limits{MaxSteps: NewQuota(22), MaxEffects: NewQuota(21), MaxSignals: NewQuota(41), MaxPendingSignals: 41},
 				wantChildren: 1,
 			},
 		} {
@@ -77,7 +77,7 @@ func TestSnapshotRejectsChildBudgetThatConsumesPreparedStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire.ReservedBudget.Steps = wire.Budget.Steps - wire.CommittedSteps
+	wire.AllocatedResources.Steps = wire.Budget.Steps.maximum - wire.CommittedSteps
 	data, err := json.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
@@ -116,7 +116,7 @@ func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 	if _, exists := engine.Process(prepared.plan.childID); exists {
 		t.Fatal("rejected child settlement published the child")
 	}
-	if parent.effectiveReservedBudget() != (Budget{}) || len(runtime.processes) != 1 {
+	if parent.effectiveAllocations() != (resourceAmounts{}) || len(runtime.processes) != 1 {
 		t.Fatal("rejected child settlement retained its budget or prospective Process")
 	}
 	assertTreeMembership(t, runtime)
@@ -132,7 +132,7 @@ func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *tes
 	root := runtime.processes[runtime.rootID]
 	children := runtime.childrenByParent[runtime.rootID]
 	first, second := runtime.processes[children[0]], runtime.processes[children[1]]
-	limits := TreeLimits{MaxDepth: 2, MaxChildren: 2, MaxActiveChildren: 1, MaxTreeProcesses: 4}
+	limits := TreeLimits{MaxDepth: 2, MaxChildren: NewQuota(2), MaxActiveChildren: 1, MaxTreeProcesses: NewQuota(4)}
 	for _, process := range runtime.processes {
 		process.treeLimits = limits
 	}
@@ -146,7 +146,7 @@ func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *tes
 		t.Fatal("sibling start ignored the last in-flight tree slot")
 	}
 	for _, process := range runtime.processes {
-		process.treeLimits.MaxTreeProcesses = 5
+		process.treeLimits.MaxTreeProcesses = NewQuota(5)
 	}
 	if runtime.canStartChild(first) || !runtime.canStartChild(second) {
 		t.Fatal("in-flight start did not retain its parent's active-child slot")
@@ -166,21 +166,21 @@ func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *tes
 
 func TestProvisionalBudgetReleaseRequiresExactReservation(t *testing.T) {
 	_, process := newChildCompletionTestProcess(t)
-	budget := Budget{Steps: 1, Effects: 2, Signals: 3}
-	process.provisionalChildBudget = budget
+	budget := Budget{Steps: NewQuota(1), Effects: NewQuota(2), Signals: NewQuota(3)}
+	process.provisionalChildBudget = new(budget)
 	func() {
 		defer func() {
 			if recover() == nil {
 				t.Error("mismatched release was silently ignored")
 			}
 		}()
-		process.releaseProvisionalChildBudget(Budget{Steps: 1, Effects: 2, Signals: 2})
+		process.releaseProvisionalChildBudget(Budget{Steps: NewQuota(1), Effects: NewQuota(2), Signals: NewQuota(2)})
 	}()
-	if process.provisionalChildBudget != budget {
+	if *process.provisionalChildBudget != budget {
 		t.Fatal("rejected release changed the reservation")
 	}
 	process.releaseProvisionalChildBudget(budget)
-	if process.provisionalChildBudget != (Budget{}) {
+	if process.provisionalChildBudget != nil {
 		t.Fatal("exact release retained the reservation")
 	}
 }

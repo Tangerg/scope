@@ -615,12 +615,7 @@ func (t *treeRuntime) prepareChildStart(
 			process.releaseProvisionalChildBudget(spec.Budget)
 		}
 	}()
-	childLimits, err := spec.Budget.limits(process.pendingSignalLimit)
-	if err != nil {
-		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindExecution, failureCodeEngineChildBudgetInvalid, err,
-		)}
-	}
+	childLimits := spec.Budget.limits(process.pendingSignalLimit, process.snapshotByteLimit)
 	if reserveProcessStartErr := t.engine.reserveProcessStart(
 		relation, spec.DeploymentRef, process.treeLimits, requestDigest,
 	); reserveProcessStartErr != nil {
@@ -674,8 +669,8 @@ func (t *treeRuntime) canStartChild(parent *processState) bool {
 			active++
 		}
 	}
-	return childCount < uint64(limits.MaxChildren) && active < uint64(limits.MaxActiveChildren) &&
-		treeCount < uint64(limits.MaxTreeProcesses)
+	return limits.MaxChildren.Allows(childCount, 1) && active < uint64(limits.MaxActiveChildren) &&
+		limits.MaxTreeProcesses.Allows(treeCount, 1)
 }
 
 // A tree-local control and its receipt change one authoritative cut. The target
@@ -2820,7 +2815,7 @@ func (t *treeRuntime) validateSnapshotCapacity(candidates ...*processState) erro
 	// The header contains an empty JSON array. Adding raw object encodings and
 	// separators also reserves known wait settlements without validating a half-installed
 	// child-control or child-wait transition.
-	size := len(header)
+	size := uint64(len(header))
 	index := 0
 	members := maps.Clone(t.processes)
 	for _, candidate := range candidates {
@@ -2831,11 +2826,15 @@ func (t *treeRuntime) validateSnapshotCapacity(candidates ...*processState) erro
 		if err != nil {
 			return err
 		}
+		var separator uint64
 		if index > 0 {
-			size++
+			separator = 1
 		}
-		size += memberSize
-		if size > maxTreeSnapshotBytes {
+		if !resourceQuantitiesFit(^uint64(0), size, uint64(memberSize), separator) {
+			return ErrCounterExhausted
+		}
+		size += uint64(memberSize) + separator
+		if !t.processes[t.rootID].treeLimits.MaxSnapshotBytes.Allows(size) {
 			return ErrResourceLimitExceeded
 		}
 		index++

@@ -12,7 +12,7 @@ import (
 // model ToolCall to its currently active managed child Process. It contains no
 // Engine handle, persistence identity, or Host metadata.
 type ActiveDelegateChild struct {
-	modelCallSequence uint32
+	modelCallSequence uint64
 	toolCallIndex     uint32
 	toolCall          chat.ToolCall
 	childKey          agent.ChildKey
@@ -20,7 +20,7 @@ type ActiveDelegateChild struct {
 }
 
 // ModelCallSequence returns the one-based model call that requested the child.
-func (a ActiveDelegateChild) ModelCallSequence() uint32 {
+func (a ActiveDelegateChild) ModelCallSequence() uint64 {
 	return a.modelCallSequence
 }
 

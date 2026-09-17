@@ -62,18 +62,18 @@ func TestRepeatedCaptureTracksControlSignalsAndReservations(t *testing.T) {
 	if wire := captureChange(); wire.usage().AcceptedSignals != 1 || len(wire.Mailbox.Signals) != 1 {
 		t.Fatal("accepted signal is absent")
 	}
-	budget := Budget{Steps: 1, Effects: 1, Signals: 1}
+	budget := Budget{Steps: NewQuota(1), Effects: NewQuota(1), Signals: NewQuota(1)}
 	if !process.reserveProvisionalChildBudget(budget) {
 		t.Fatal("budget not reserved")
 	}
 	if err := process.commitProvisionalChildBudget(budget); err != nil {
 		t.Fatal(err)
 	}
-	if wire := captureChange(); wire.ReservedBudget.Steps != 11 {
+	if wire := captureChange(); wire.AllocatedResources.Steps != 11 {
 		t.Fatal("committed budget is absent")
 	}
 	process.releaseCommittedChildBudget(budget)
-	if wire := captureChange(); wire.ReservedBudget.Steps != 10 {
+	if wire := captureChange(); wire.AllocatedResources.Steps != 10 {
 		t.Fatal("released budget is retained")
 	}
 	if before.Status() != StatusRunning || len(before.SignalReceipts()) != 0 {
@@ -96,7 +96,7 @@ func TestDurabilityFailureDiscardsOnlyUnacknowledgedChildren(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire.ReservedBudget = Budget{}
+	wire.AllocatedResources = resourceAmounts{}
 	acknowledged, err = newProcessSnapshot(wire)
 	if err != nil {
 		t.Fatal(err)
@@ -174,17 +174,17 @@ func TestRepeatedCaptureTracksEffectSettlement(t *testing.T) {
 }
 
 func TestChildBudgetUnderflowFailsBeforeMutation(t *testing.T) {
-	original := Budget{Steps: 3, Effects: 2, Signals: 1}
-	process := &processState{reservedBudget: original}
+	original := resourceAmounts{Steps: 3, Effects: 2, Signals: 1}
+	process := &processState{allocatedResources: original, budget: Budget{Steps: NewQuota(10), Effects: NewQuota(10), Signals: NewQuota(10)}}
 	defer func() {
 		if recover() == nil {
 			t.Fatal("budget underflow was silently accepted")
 		}
-		if process.reservedBudget != original {
+		if process.allocatedResources != original {
 			t.Fatal("failed release mutated reservation")
 		}
 	}()
-	process.releaseCommittedChildBudget(Budget{Steps: 1, Effects: 3, Signals: 1})
+	process.releaseCommittedChildBudget(Budget{Steps: NewQuota(1), Effects: NewQuota(3), Signals: NewQuota(1)})
 }
 
 func prepareTestStep(process *processState, result stepJobResult) *stepPreparationFailure {

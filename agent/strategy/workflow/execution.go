@@ -288,7 +288,7 @@ func (e *execution) finishLoopIteration(
 		return agent.Transition{}, err
 	}
 	e.state.CurrentValue = output.JSON()
-	if satisfied || e.state.LoopIteration == stage.loop.maxIterations {
+	if satisfied || !stage.loop.maxIterations.Allows(e.state.LoopIteration, 1) {
 		value, err := stage.loop.result(e.state.CurrentValue, e.state.LoopIteration, satisfied)
 		if err != nil {
 			return agent.Transition{}, err
@@ -299,6 +299,9 @@ func (e *execution) finishLoopIteration(
 		return e.finishStage(consumedSignals)
 	}
 	e.clearSingleChild()
+	if e.state.LoopIteration == ^uint64(0) {
+		return agent.Transition{}, agent.ErrCounterExhausted
+	}
 	e.state.LoopIteration++
 	return e.startSingleChild(consumedSignals, stage.loop.binding)
 }

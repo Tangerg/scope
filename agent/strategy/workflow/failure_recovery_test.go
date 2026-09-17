@@ -20,7 +20,7 @@ func TestNestedWorkflowPreservesMaximumFailureDiagnostic(t *testing.T) {
 		}),
 	), "failure-leaf")
 	call, err := workflow.Call(workflow.CallConfig{
-		ID: "invoke", Deployment: leaf, Budget: agent.Budget{Steps: 8, Effects: 8, Signals: 8},
+		ID: "invoke", Deployment: leaf, Budget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(8), Signals: agent.NewQuota(8)},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -28,14 +28,14 @@ func TestNestedWorkflowPreservesMaximumFailureDiagnostic(t *testing.T) {
 	caller := mustDeployment(t, mustDefinition(t, "test.failure.caller", call), "failure-caller")
 	selector, err := workflow.Switch(workflow.SwitchConfig[numberInput]{
 		ID: "route", Select: func(context.Context, numberInput) (string, error) { return "selected", nil },
-		Cases: []workflow.SwitchCase{{ID: "selected", Deployment: caller, Budget: agent.Budget{Steps: 16, Effects: 16, Signals: 16}}},
+		Cases: []workflow.SwitchCase{{ID: "selected", Deployment: caller, Budget: agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(16), Signals: agent.NewQuota(16)}}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	router := mustDeployment(t, mustDefinition(t, "test.failure.router", selector), "failure-router")
 	mapper, err := workflow.Map(workflow.MapConfig[numberInput, numberInput]{
-		ID: "items", Deployment: router, Budget: agent.Budget{Steps: 32, Effects: 32, Signals: 32},
+		ID: "items", Deployment: router, Budget: agent.Budget{Steps: agent.NewQuota(32), Effects: agent.NewQuota(32), Signals: agent.NewQuota(32)},
 		WindowSize: 2, MaxItems: 2,
 	})
 	if err != nil {

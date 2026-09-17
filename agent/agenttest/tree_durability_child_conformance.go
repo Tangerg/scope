@@ -60,20 +60,24 @@ func runCrashChildCommit(t *testing.T, store TreeDurabilityConformanceDriver, ph
 		t.Fatalf("restored child tree exists=%t processes=%d error=%v", found, len(head.ProcessSnapshots()), err)
 	}
 	wantBudget := agent.Budget{
-		Steps: crashTreeChildStepBudget, Effects: crashTreeChildEffectBudget, Signals: crashTreeChildSignalBudget,
+		Steps: agent.NewQuota(crashTreeChildStepBudget), Effects: agent.NewQuota(crashTreeChildEffectBudget), Signals: agent.NewQuota(crashTreeChildSignalBudget),
 	}
 	rootSnapshot := conformanceSnapshotByID(head.ProcessSnapshots(), root.ID())
 	childSnapshot := conformanceSnapshotByID(head.ProcessSnapshots(), childID)
 	var allocation struct {
-		ReservedBudget agent.Budget `json:"reserved_child_budget"`
+		AllocatedResources struct {
+			Steps   uint64 `json:"steps"`
+			Effects uint64 `json:"effects"`
+			Signals uint64 `json:"signals"`
+		} `json:"allocated_resources"`
 	}
 	if decodeErr := json.Unmarshal(rootSnapshot.JSON(), &allocation); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
 	if rootSnapshot.Budget() != original.Budget() || childSnapshot.Budget() != wantBudget ||
-		allocation.ReservedBudget != wantBudget {
+		(allocation.AllocatedResources.Steps != crashTreeChildStepBudget || allocation.AllocatedResources.Effects != crashTreeChildEffectBudget || allocation.AllocatedResources.Signals != crashTreeChildSignalBudget) {
 		t.Fatalf("restoration changed child allocation: parent=%+v child=%+v reserved=%+v",
-			rootSnapshot.Budget(), childSnapshot.Budget(), allocation.ReservedBudget)
+			rootSnapshot.Budget(), childSnapshot.Budget(), allocation.AllocatedResources)
 	}
 	waitID, waiting := inspectConformanceProcess(t, restoredEngine, child).WaitID()
 	if !waiting {
@@ -335,7 +339,7 @@ func (c *crashTreeExecution) startRootChild(signals []agent.Signal) (agent.Trans
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	budget := agent.Budget{Steps: crashTreeChildStepBudget, Effects: crashTreeChildEffectBudget, Signals: crashTreeChildSignalBudget}
+	budget := agent.Budget{Steps: agent.NewQuota(crashTreeChildStepBudget), Effects: agent.NewQuota(crashTreeChildEffectBudget), Signals: agent.NewQuota(crashTreeChildSignalBudget)}
 	effect, err := agent.NewChildStartEffect(agent.ChildSpec{
 		Key: key, DeploymentRef: c.definition.reference, Input: input,
 		Budget: budget, Capabilities: agent.CapabilitySet{},

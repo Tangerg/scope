@@ -178,10 +178,10 @@ func TestSnapshotRejectsUnfundedSignalReservations(t *testing.T) {
 		{name: "pending mailbox", modify: func(wire *processSnapshotWire) { wire.MaxPendingSignals = 1 }},
 		{name: "lifetime signals", modify: func(wire *processSnapshotWire) {
 			wire.MaxPendingSignals = 1
-			wire.Budget.Signals = 1
+			wire.Budget.Signals = NewQuota(1)
 		}},
 		{name: "child allocation", modify: func(wire *processSnapshotWire) {
-			wire.ReservedBudget.Signals = wire.Budget.Signals - 1
+			wire.AllocatedResources.Signals = wire.Budget.Signals.maximum - 1
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

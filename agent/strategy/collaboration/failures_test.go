@@ -57,10 +57,10 @@ func TestCoordinatorFailuresAndFiniteBoundsStopCollaboration(t *testing.T) {
 				return Decision{Mode: Continue, State: turn.State}, nil
 			}, echo())
 			if mode == "turn limit" {
-				config.MaxTurns = 2
+				config.MaxTurns = agent.NewQuota(2)
 			}
 			if mode == "task limit" {
-				config.MaxTasks, config.MaxConcurrentTasks = 1, 1
+				config.MaxTasks, config.MaxConcurrentTasks = agent.NewQuota(1), 1
 			}
 			definition := require(NewDefinition(config))
 			if mode == "start" {

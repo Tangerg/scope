@@ -88,7 +88,7 @@ func advertisementTestDefinition(t testing.TB) *Definition {
 	}
 	definition, err := NewDefinition(DefinitionConfig{
 		Name: "interaction.advertisement_restore", Description: "Verify deferred Tool manifest recovery.",
-		MaxModelCalls: 2, Tools: toolSet, ToolBudget: agent.Budget{Steps: 10, Effects: 10, Signals: 10},
+		MaxModelCalls: agent.NewQuota(2), Tools: toolSet, ToolBudget: agent.Budget{Steps: agent.NewQuota(10), Effects: agent.NewQuota(10), Signals: agent.NewQuota(10)},
 	})
 	if err != nil {
 		t.Fatal(err)

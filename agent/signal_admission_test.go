@@ -8,7 +8,7 @@ import (
 
 func TestSignalBatchDeduplicatesBeforeChargingFullMailbox(t *testing.T) {
 	limits := DefaultLimits()
-	limits.MaxSignals = 2
+	limits.MaxSignals = NewQuota(2)
 	limits.MaxPendingSignals = 2
 	engine, err := NewEngine(EngineConfig{Limits: limits})
 	if err != nil {

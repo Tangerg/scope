@@ -57,8 +57,8 @@ func BenchmarkTreeDurabilityFailure(b *testing.B) {
 func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 	t.Helper()
 	engine, err := NewEngine(EngineConfig{
-		Limits:     Limits{MaxSteps: 1 << 50, MaxEffects: 1 << 50, MaxSignals: 1 << 50, MaxPendingSignals: 1000},
-		TreeLimits: TreeLimits{MaxDepth: 1, MaxChildren: uint32(count), MaxActiveChildren: uint32(count), MaxTreeProcesses: uint32(count)},
+		Limits:     Limits{MaxSteps: NewQuota(uint64(count)*10 + 100), MaxEffects: NewQuota(uint64(count)*10 + 100), MaxSignals: NewQuota(uint64(count)*10 + 100), MaxPendingSignals: 1000},
+		TreeLimits: TreeLimits{MaxDepth: 1, MaxChildren: NewQuota(uint64(count)), MaxActiveChildren: uint32(count), MaxTreeProcesses: NewQuota(uint64(count))},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -88,11 +88,8 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 		if err != nil {
 			t.Fatal(err)
 		}
-		budget := Budget{Steps: 10, Effects: 10, Signals: 10}
-		limits, err := budget.limits(engine.limits.MaxPendingSignals)
-		if err != nil {
-			t.Fatal(err)
-		}
+		budget := Budget{Steps: NewQuota(10), Effects: NewQuota(10), Signals: NewQuota(10)}
+		limits := budget.limits(engine.limits.MaxPendingSignals, engine.limits.MaxSnapshotBytes)
 		handle := newProcessHandle(childProcessRelation(id, root.handle.relation, key), deployment.DeploymentRef(), budget, engine.capabilities, engine.treeLimits, now)
 		handle.childRequestDigest = ComputeDigest([]byte(key.String()))
 		child := newProcessState(handle, deployment, execution, state, now, limits)
@@ -116,8 +113,11 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 			t.Fatal(err)
 		}
 		child.status, child.currentWaitID = StatusWaiting, waitID
-		var ok bool
-		root.reservedBudget, ok = root.reservedBudget.add(budget)
+		debit, ok := root.budget.allocation(budget)
+		if !ok {
+			t.Fatal("invalid allocation")
+		}
+		root.allocatedResources, ok = root.allocatedResources.add(debit)
 		if !ok {
 			t.Fatal("child allocation overflow")
 		}

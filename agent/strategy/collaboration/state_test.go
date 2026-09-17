@@ -10,6 +10,19 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
+func TestUnlimitedTurnAndWaitCountersStopBeforeWrap(t *testing.T) {
+	definition, _ := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
+	execution := require(definition.Start(input("initial"))).(*execution)
+	execution.state.Number = ^uint64(0)
+	if _, err := execution.startTurn(0); !errors.Is(err, agent.ErrCounterExhausted) || execution.state.Number != ^uint64(0) {
+		t.Fatalf("turn identity wrapped: %v", err)
+	}
+	execution.state.WaitSequence = ^uint64(0)
+	if _, err := execution.openWait(0); !errors.Is(err, agent.ErrCounterExhausted) || execution.state.WaitSequence != ^uint64(0) {
+		t.Fatalf("wait identity wrapped: %v", err)
+	}
+}
+
 func TestRestoreIdentifiesInvalidTurnState(t *testing.T) {
 	definition, _ := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
 	for _, test := range []struct {

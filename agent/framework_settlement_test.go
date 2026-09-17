@@ -82,7 +82,7 @@ func TestWaitSettlementMustMatchDeclaredRequest(t *testing.T) {
 func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 	wire := controlValue(preparedEngineTestSnapshot(t).wire())
 	deployment := newChildTestDeployment(t)
-	spec := ChildSpec{Key: controlValue(ParseChildKey("child")), DeploymentRef: deployment.DeploymentRef(), Input: controlValue(EncodePayload(childTestInput{Mode: "leaf_pause"})), Budget: Budget{Steps: 1, Effects: 1, Signals: 1}, Capabilities: CapabilitySet{}}
+	spec := ChildSpec{Key: controlValue(ParseChildKey("child")), DeploymentRef: deployment.DeploymentRef(), Input: controlValue(EncodePayload(childTestInput{Mode: "leaf_pause"})), Budget: Budget{Steps: NewQuota(1), Effects: NewQuota(1), Signals: NewQuota(1)}, Capabilities: CapabilitySet{}}
 	effect := controlValue(NewChildStartEffect(spec))
 	record := preparedEffect{ID: wire.ProcessID.effectID(1, 0), Effect: effect, Phase: effectPhasePending}
 	if err := record.settleChildStart(ChildStartResult{key: spec.Key, processID: record.ID.childProcessID(), deploymentRef: spec.DeploymentRef}); err != nil {
@@ -133,8 +133,8 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 	relation := childProcessRelation(record.ID.childProcessID(), rootProcessRelation(wire.ProcessID), spec.Key)
 	handle := newProcessHandle(relation, spec.DeploymentRef, spec.Budget, spec.Capabilities, wire.TreeLimits, wire.StartedAt)
 	handle.childRequestDigest = controlValue(spec.digest())
-	child := newProcessState(handle, deployment, execution, state, wire.StartedAt, controlValue(spec.Budget.limits(1)))
-	wire.ReservedBudget = spec.Budget
+	child := newProcessState(handle, deployment, execution, state, wire.StartedAt, spec.Budget.limits(wire.MaxPendingSignals, wire.MaxSnapshotBytes))
+	wire.AllocatedResources, _ = wire.Budget.allocation(spec.Budget)
 	parentSnapshot := controlValue(newProcessSnapshot(wire))
 	childSnapshot := controlValue(child.capture())
 	if _, err := newTreeSnapshot(treeSnapshotWire{RootID: wire.ProcessID, ProcessSnapshots: []ProcessSnapshot{parentSnapshot, childSnapshot}}); err != nil {
@@ -146,8 +146,8 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 			childWire := controlValue(childSnapshot.wire())
 			switch mutation {
 			case "allocation":
-				childWire.Budget.Steps++
-				parentWire.ReservedBudget.Steps++
+				childWire.Budget.Steps = NewQuota(childWire.Budget.Steps.maximum + 1)
+				parentWire.AllocatedResources.Steps++
 			case "deployment":
 				childWire.DeploymentRef = parentWire.DeploymentRef
 			case "request":

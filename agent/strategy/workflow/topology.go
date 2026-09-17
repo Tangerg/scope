@@ -70,7 +70,7 @@ type StageTopology struct {
 	// MaxItems is the maximum accepted Map input length.
 	MaxItems uint32 `json:"max_items,omitempty"`
 	// MaxIterations is the hard Loop body-start limit.
-	MaxIterations uint32 `json:"max_iterations,omitempty"`
+	MaxIterations agent.Quota `json:"max_iterations,omitempty"`
 }
 
 // Topology is a detached Definition-derived, function-free projection for

@@ -195,7 +195,7 @@ func (s *signalMailbox) openWaitRecord(key WaitKey, record signalRecord, kind Wa
 func (s *signalMailbox) appendRecord(record signalRecord) {
 	// seen stores zero-based indexes; persisted arrival sequences start at one.
 	s.seen[record.id] = len(s.records)
-	record.arrivalSequence = uint64(len(s.records) + 1)
+	record.arrivalSequence = uint64(len(s.records)) + 1
 	s.records = append(s.records, record)
 }
 

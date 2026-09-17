@@ -23,7 +23,7 @@ type ModelInvocation struct {
 	deploymentRef         agent.DeploymentRef
 	effectID              agent.EffectID
 	stepSequence          uint64
-	modelCallSequence     uint32
+	modelCallSequence     uint64
 	appliedSteerSignalIDs []agent.SignalID
 }
 
@@ -47,7 +47,7 @@ func (m ModelInvocation) EffectID() agent.EffectID { return m.effectID }
 func (m ModelInvocation) StepSequence() uint64 { return m.stepSequence }
 
 // ModelCallSequence returns the one-based model call position in this Interaction.
-func (m ModelInvocation) ModelCallSequence() uint32 {
+func (m ModelInvocation) ModelCallSequence() uint64 {
 	return m.modelCallSequence
 }
 
@@ -84,7 +84,7 @@ type ToolInvocation struct {
 	deploymentRef     agent.DeploymentRef
 	effectID          agent.EffectID
 	stepSequence      uint64
-	modelCallSequence uint32
+	modelCallSequence uint64
 	toolCallIndex     uint32
 	toolCall          chat.ToolCall
 }
@@ -109,7 +109,7 @@ func (t ToolInvocation) EffectID() agent.EffectID { return t.effectID }
 func (t ToolInvocation) StepSequence() uint64 { return t.stepSequence }
 
 // ModelCallSequence returns the one-based model call that requested the Tool.
-func (t ToolInvocation) ModelCallSequence() uint32 {
+func (t ToolInvocation) ModelCallSequence() uint64 {
 	return t.modelCallSequence
 }
 
@@ -137,7 +137,7 @@ func ToolInvocationFromContext(ctx context.Context) (ToolInvocation, bool) {
 
 func modelInvocationFromRequest(
 	request agent.EffectRequest,
-	modelCallSequence uint32,
+	modelCallSequence uint64,
 	appliedSteerSignalIDs []agent.SignalID,
 ) ModelInvocation {
 	incarnation, _ := request.TreeIncarnationID()
@@ -152,7 +152,7 @@ func modelInvocationFromRequest(
 
 func toolInvocationFromRequest(
 	request agent.EffectRequest,
-	modelCallSequence uint32,
+	modelCallSequence uint64,
 	toolCallIndex uint32,
 	toolCall chat.ToolCall,
 ) ToolInvocation {

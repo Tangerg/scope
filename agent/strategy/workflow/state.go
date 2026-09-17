@@ -39,7 +39,7 @@ type executionState struct {
 	FanoutWaitID           *agent.WaitID      `json:"fanout_wait_id,omitzero"`
 	ActiveFanoutWindow     []fanoutChildState `json:"active_fanout_window,omitempty"`
 	CompletedFanoutOutputs []json.RawMessage  `json:"completed_fanout_outputs,omitempty"`
-	LoopIteration          uint32             `json:"loop_iteration,omitempty"`
+	LoopIteration          uint64             `json:"loop_iteration,omitempty"`
 }
 
 type fanoutChildState struct {
@@ -121,7 +121,7 @@ func (e executionState) singleChildStage(definition *Definition) bool {
 		return found && e.LoopIteration == 0
 	case StageKindLoop:
 		return e.SelectedCaseID == "" && e.LoopIteration > 0 &&
-			e.LoopIteration <= stage.loop.maxIterations
+			stage.loop.maxIterations.Allows(e.LoopIteration)
 	default:
 		return false
 	}

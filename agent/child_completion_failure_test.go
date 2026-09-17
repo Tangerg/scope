@@ -176,7 +176,7 @@ func TestPendingFailureRetainsUnknownExternalEffect(t *testing.T) {
 
 func newChildCompletionTestProcess(t *testing.T) (*treeRuntime, *processState) {
 	t.Helper()
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{Limits: Limits{MaxSteps: NewQuota(10000), MaxEffects: NewQuota(10000), MaxSignals: NewQuota(100000)}})
 	if err != nil {
 		t.Fatal(err)
 	}

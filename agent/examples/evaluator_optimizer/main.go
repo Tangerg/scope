@@ -155,7 +155,7 @@ type optimizationReport struct {
 	History    []attempt `json:"history"`
 	Best       attempt   `json:"best"`
 	Accepted   bool      `json:"accepted"`
-	Iterations uint32    `json:"iterations"`
+	Iterations uint64    `json:"iterations"`
 }
 
 type executionEvidence struct {
@@ -168,7 +168,7 @@ func execute(
 	request optimizationRequest,
 	scores []float64,
 	threshold float64,
-	maxIterations uint32,
+	maxIterations uint64,
 ) (_ optimizationReport, _ executionEvidence, err error) {
 	root, resolver, err := newEvaluatorOptimizer(scores, threshold, maxIterations)
 	if err != nil {
@@ -216,7 +216,7 @@ func execute(
 func newEvaluatorOptimizer(
 	scores []float64,
 	threshold float64,
-	maxIterations uint32,
+	maxIterations uint64,
 ) (agent.Deployment, deploymentResolver, error) {
 	frozenScores, err := validateScoreSchedule(scores, threshold, maxIterations)
 	if err != nil {
@@ -248,7 +248,7 @@ func newEvaluatorOptimizer(
 func validateScoreSchedule(
 	scores []float64,
 	threshold float64,
-	maxIterations uint32,
+	maxIterations uint64,
 ) ([]float64, error) {
 	if maxIterations == 0 || len(scores) != int(maxIterations) {
 		return nil, errors.New("score schedule must contain exactly one score per configured iteration")
@@ -328,7 +328,7 @@ func newIterationDeployment(
 	evaluator agent.Deployment,
 ) (agent.Deployment, error) {
 	workerBudget := agent.Budget{
-		Steps: workerBudgetSteps, Effects: workerBudgetEffects, Signals: workerBudgetSignals,
+		Steps: agent.NewQuota(workerBudgetSteps), Effects: agent.NewQuota(workerBudgetEffects), Signals: agent.NewQuota(workerBudgetSignals),
 	}
 	optimize, err := workflow.Call(workflow.CallConfig{
 		ID: "optimize", Deployment: optimizer, Budget: workerBudget,
@@ -368,7 +368,7 @@ func newIterationDeployment(
 func newOptimizationRoot(
 	iteration agent.Deployment,
 	threshold float64,
-	maxIterations uint32,
+	maxIterations uint64,
 ) (agent.Deployment, error) {
 	initialize, err := workflow.Transform("initialize", func(_ context.Context, request optimizationRequest) (optimizationState, error) {
 		objective := strings.TrimSpace(request.Objective)
@@ -381,11 +381,11 @@ func newOptimizationRoot(
 		return agent.Deployment{}, err
 	}
 	iterationBudget := agent.Budget{
-		Steps: iterationBudgetSteps, Effects: iterationBudgetEffects, Signals: iterationBudgetSignals,
+		Steps: agent.NewQuota(iterationBudgetSteps), Effects: agent.NewQuota(iterationBudgetEffects), Signals: agent.NewQuota(iterationBudgetSignals),
 	}
 	refine, err := workflow.Loop(workflow.LoopConfig[optimizationState]{
 		ID: "refine", Body: iteration, Budget: iterationBudget,
-		MaxIterations: maxIterations,
+		MaxIterations: agent.NewQuota(uint64(maxIterations)),
 		Predicate: func(_ context.Context, state optimizationState) (bool, error) {
 			if validateSettledStateErr := state.validateSettled(threshold); validateSettledStateErr != nil {
 				return false, validateSettledStateErr
@@ -406,7 +406,7 @@ func newOptimizationRoot(
 		if validateSettledStateErr := state.validateSettled(threshold); validateSettledStateErr != nil {
 			return optimizationReport{}, validateSettledStateErr
 		}
-		if !state.HasBest || uint32(len(state.History)) != result.Iterations {
+		if !state.HasBest || uint64(len(state.History)) != result.Iterations {
 			return optimizationReport{}, errors.New("loop result has incomplete attempt history")
 		}
 		return optimizationReport{
@@ -432,12 +432,12 @@ func newOptimizationRoot(
 			Iteration       string       `json:"iteration"`
 			IterationBudget agent.Budget `json:"iteration_budget"`
 			Threshold       float64      `json:"threshold"`
-			MaxIterations   uint32       `json:"max_iterations"`
+			MaxIterations   agent.Quota  `json:"max_iterations"`
 		}{
 			Iteration:       iteration.DeploymentRef().Digest().String(),
 			IterationBudget: iterationBudget,
 			Threshold:       threshold,
-			MaxIterations:   maxIterations,
+			MaxIterations:   agent.NewQuota(uint64(maxIterations)),
 		},
 	)
 }

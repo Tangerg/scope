@@ -138,7 +138,7 @@ func BenchmarkChildAdmissionAmongRetainedRoots(b *testing.B) {
 			}
 			key := controlValue(ParseChildKey("worker"))
 			input := controlValue(EncodePayload(engineTestInput{Value: "child"}))
-			spec := ChildSpec{Key: key, DeploymentRef: parent.deployment.DeploymentRef(), Input: input, Budget: Budget{Steps: 2, Effects: 2, Signals: 2}}
+			spec := ChildSpec{Key: key, DeploymentRef: parent.deployment.DeploymentRef(), Input: input, Budget: Budget{Steps: NewQuota(2), Effects: NewQuota(2), Signals: NewQuota(2)}}
 			effectID := parent.handle.processID.effectID(1, 0)
 			b.ReportAllocs()
 			for b.Loop() {

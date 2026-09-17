@@ -15,7 +15,7 @@ const maxCompletionFeedbackBytes = 4096
 // identified by the exact Delegate binding, never by a Go runtime type name or
 // an application artifact store.
 type Artifact struct {
-	modelCallSequence uint32
+	modelCallSequence uint64
 	toolCallID        string
 	delegateName      string
 	output            agent.Payload
@@ -103,7 +103,7 @@ func (c CompletionDecision) Valid() bool {
 // CompletionValidator decides whether a model or direct-Tool candidate is a
 // valid semantic completion. It must be bounded, deterministic and
 // side-effect-free: no I/O, clock, randomness, shared mutation or goroutines.
-// A rejected candidate must return actionable Feedback; MaxModelCalls remains
+// A rejected candidate must return actionable Feedback; A finite MaxModelCalls remains
 // the hard bound on retry rounds. Evaluation requiring external work belongs
 // in a managed child Process, not this callback.
 type CompletionValidator func(candidate CompletionCandidate) (CompletionDecision, error)

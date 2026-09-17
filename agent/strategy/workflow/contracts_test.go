@@ -230,8 +230,8 @@ func TestCallCannotEscalateBudgetOrCapabilities(t *testing.T) {
 	), "guarded-child")
 	capability, _ := agent.ParseCapability("test.guarded")
 	capabilities, _ := agent.NewCapabilitySet(capability)
-	largeBudget := agent.Budget{Steps: 64, Effects: 64, Signals: 64}
-	smallBudget := agent.Budget{Steps: 2, Effects: 2, Signals: 2}
+	largeBudget := agent.Budget{Steps: agent.NewQuota(64), Effects: agent.NewQuota(64), Signals: agent.NewQuota(64)}
+	smallBudget := agent.Budget{Steps: agent.NewQuota(2), Effects: agent.NewQuota(2), Signals: agent.NewQuota(2)}
 	for _, test := range []struct {
 		name         string
 		budget       agent.Budget
@@ -243,7 +243,7 @@ func TestCallCannotEscalateBudgetOrCapabilities(t *testing.T) {
 		{
 			name: "budget", budget: largeBudget,
 			engine: agent.EngineConfig{Limits: agent.Limits{
-				MaxSteps: 16, MaxEffects: 16, MaxSignals: 16, MaxPendingSignals: 16,
+				MaxSteps: agent.NewQuota(16), MaxEffects: agent.NewQuota(16), MaxSignals: agent.NewQuota(16), MaxPendingSignals: 16,
 			}},
 			wantCause: "engine.child.budget_exhausted",
 			wantKind:  agent.FailureKindExecution,

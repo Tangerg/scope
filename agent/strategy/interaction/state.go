@@ -37,7 +37,7 @@ func (p phase) valid() bool {
 type executionState struct {
 	Phase               phase            `json:"phase"`
 	WorkingContext      *chat.Request    `json:"working_context"`
-	ModelCallCount      uint32           `json:"model_call_count"`
+	ModelCallCount      uint64           `json:"model_call_count"`
 	AdvertisedToolNames []string         `json:"advertised_tool_names,omitempty"`
 	ToolRound           *toolCallRound   `json:"tool_round,omitzero"`
 	PendingSteer        *steerBatch      `json:"pending_steer,omitzero"`
@@ -46,7 +46,7 @@ type executionState struct {
 }
 
 type artifactRecord struct {
-	ModelCallSequence uint32        `json:"model_call_sequence"`
+	ModelCallSequence uint64        `json:"model_call_sequence"`
 	ToolCallIndex     uint32        `json:"tool_call_index"`
 	ToolCallID        string        `json:"tool_call_id"`
 	DelegateName      string        `json:"delegate_name"`
@@ -60,7 +60,7 @@ func (e executionState) validate(ctx context.Context, definition *Definition) er
 	if !definition.valid() {
 		return fmt.Errorf("%w: valid Definition is required", ErrInvalidExecutionState)
 	}
-	if e.ModelCallCount > definition.maxModelCalls {
+	if !definition.maxModelCalls.Allows(e.ModelCallCount) {
 		return fmt.Errorf("%w: model call count exceeds configured limit", ErrInvalidExecutionState)
 	}
 	if err := e.validateEnvelope(); err != nil {
@@ -180,10 +180,10 @@ func (e executionState) validateArtifacts(ctx context.Context, definition *Defin
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	var previousModelCallSequence uint32
+	var previousModelCallSequence uint64
 	var previousToolCallIndex uint32
 	type artifactIdentity struct {
-		modelCallSequence uint32
+		modelCallSequence uint64
 		toolCallID        string
 	}
 	seen := make(map[artifactIdentity]struct{}, len(e.ArtifactRecords))

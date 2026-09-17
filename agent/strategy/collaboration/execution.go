@@ -36,8 +36,11 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 }
 
 func (e *execution) startTurn(consumed uint32) (agent.Transition, error) {
-	if e.state.Number == e.definition.maxTurns {
+	if !e.definition.maxTurns.Allows(e.state.Number, 1) {
 		return agent.Transition{}, ErrTurnLimit
+	}
+	if e.state.Number == ^uint64(0) {
+		return agent.Transition{}, agent.ErrCounterExhausted
 	}
 	e.state.Number++
 	turn := Turn{Number: e.state.Number, State: e.state.State,
@@ -89,6 +92,9 @@ func (e *execution) acceptTurnStart(signals []agent.Signal) (agent.Transition, e
 }
 
 func (e *execution) openWait(consumed uint32) (agent.Transition, error) {
+	if e.state.WaitSequence == ^uint64(0) {
+		return agent.Transition{}, agent.ErrCounterExhausted
+	}
 	e.state.WaitSequence++
 	e.state.WaitID = nil
 	spec, err := e.state.waitSpec(e.definition)

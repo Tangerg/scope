@@ -37,7 +37,7 @@ func (p ProcessAdmission) Capabilities() CapabilitySet { return p.capabilities }
 
 func (p ProcessAdmission) Valid() bool {
 	return p.relation.Valid() && p.deploymentRef.Valid() &&
-		p.descriptor.Valid() && p.budget.Valid() &&
+		p.descriptor.Valid() &&
 		p.capabilities.Valid() &&
 		p.deploymentRef.Name() == p.descriptor.Name() &&
 		p.deploymentRef.ContractDigest() == p.descriptor.Digest()

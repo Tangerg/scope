@@ -1,7 +1,10 @@
 // Package interaction provides the model-directed execution Strategy for the
 // Agent Framework.
 //
-// A Definition owns the serializable working context, bounded model/Tool state
+// Model-call and child work quotas default to unlimited. Host cancellation and
+// independently configured concurrency and mailbox capacity remain effective.
+//
+// A Definition owns the serializable working context, model/Tool state
 // machine, exact managed Delegate bindings, typed Delegate Artifacts, and an
 // optional pure completion validator. A Dispatcher owns model I/O. A ToolSet
 // binds ordinary executable Tools to a separate Deployment; the Engine must
@@ -38,7 +41,7 @@
 // SignalRequest through agent.NewChildSignalEffect without another steering protocol.
 //
 // Only FinishReasonToolCalls admits Tool and Delegate execution. Length-truncated
-// calls receive model-visible feedback for another bounded model attempt; calls
+// calls receive model-visible feedback for another model attempt; calls
 // accompanying other finish reasons fail the Process without execution. Restored
 // pending batches must satisfy the same admission rule. Advertised names must
 // refer to bound deferred Tools, including during restoration. Model preparation

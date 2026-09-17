@@ -67,7 +67,7 @@ func candidate(t testing.TB, key string, deployment agent.Deployment, input agen
 	if err != nil {
 		t.Fatal(err)
 	}
-	budget := agent.Budget{Steps: 16, Effects: 8, Signals: 16}
+	budget := agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(8), Signals: agent.NewQuota(16)}
 	return agent.ChildSpec{Key: childKey, DeploymentRef: deployment.DeploymentRef(), Input: input, Budget: budget}
 }
 

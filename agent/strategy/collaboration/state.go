@@ -49,7 +49,7 @@ func (t turnExecution) failure() (agent.Failure, bool) {
 
 type executionState struct {
 	Phase        phase            `json:"phase"`
-	Number       uint32           `json:"number"`
+	Number       uint64           `json:"number"`
 	State        agent.Payload    `json:"state"`
 	Tasks        []Task           `json:"tasks,omitempty"`
 	Controls     []ControlReceipt `json:"controls,omitempty"`
@@ -190,10 +190,10 @@ func (e executionState) validate(ctx context.Context, d *Definition) error {
 	if err := d.descriptor.ValidateInput(e.State); err != nil {
 		return fmt.Errorf("%w: state: %w", ErrInvalidState, err)
 	}
-	if e.Number > d.maxTurns || uint64(len(e.Tasks)) > uint64(d.maxTasks) || uint64(len(e.Controls)) > uint64(d.maxControlsPerTurn) {
+	if !d.maxTurns.Allows(e.Number) || !d.maxTasks.Allows(uint64(len(e.Tasks))) || uint64(len(e.Controls)) > uint64(d.maxControlsPerTurn) {
 		return fmt.Errorf("%w: turn, task, or control bound exceeded", ErrInvalidState)
 	}
-	if e.WaitSequence > uint64(e.Number)+uint64(len(e.Tasks)) {
+	if e.WaitSequence > e.Number && e.WaitSequence-e.Number > uint64(len(e.Tasks)) {
 		return fmt.Errorf("%w: wait sequence exceeds declared turns and tasks", ErrInvalidState)
 	}
 	if err := e.validateOutcomes(ctx, d); err != nil {
@@ -478,7 +478,7 @@ func (e executionState) validateDecision(ctx context.Context, definition *Defini
 	if decision.Mode != Continue && decision.Mode != Wait || decision.Output != nil {
 		return ErrInvalidDecision
 	}
-	if uint64(len(e.Tasks))+uint64(len(decision.Tasks)) > uint64(definition.maxTasks) ||
+	if !definition.maxTasks.Allows(uint64(len(e.Tasks)), uint64(len(decision.Tasks))) ||
 		uint64(len(e.remaining()))+uint64(len(decision.Tasks)) > uint64(definition.maxConcurrentTasks) ||
 		uint64(len(decision.Controls)) > uint64(definition.maxControlsPerTurn) {
 		return fmt.Errorf("%w: task or control bound exceeded", ErrInvalidDecision)
@@ -561,6 +561,6 @@ func sameJSON(left, right any) bool {
 
 const turnPrefix = "collaboration.turn."
 
-func turnKey(number uint32) (agent.ChildKey, error) {
+func turnKey(number uint64) (agent.ChildKey, error) {
 	return agent.ParseChildKey(fmt.Sprintf("%s%d", turnPrefix, number))
 }

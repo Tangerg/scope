@@ -98,7 +98,7 @@ func competitionExecution(t *testing.T, starts []agent.ChildStartResult) *firstS
 		if err != nil {
 			t.Fatal(err)
 		}
-		state.Candidates = append(state.Candidates, agent.ChildSpec{Key: start.Key(), DeploymentRef: start.DeploymentRef(), Input: payload, Budget: agent.Budget{Steps: 16, Effects: 8, Signals: 16}})
+		state.Candidates = append(state.Candidates, agent.ChildSpec{Key: start.Key(), DeploymentRef: start.DeploymentRef(), Input: payload, Budget: agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(8), Signals: agent.NewQuota(16)}})
 	}
 	if err := state.validate(t.Context(), definition.maxCandidates); err != nil {
 		t.Fatal(err)

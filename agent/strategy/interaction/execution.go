@@ -65,13 +65,16 @@ func (e *execution) requestModel(
 	consumedSignals uint32,
 	appliedSteerSignalIDs []agent.SignalID,
 ) (agent.Transition, error) {
-	if e.state.ModelCallCount >= e.definition.maxModelCalls {
+	if !e.definition.maxModelCalls.Allows(e.state.ModelCallCount, 1) {
 		return e.fail(
 			consumedSignals,
 			agent.FailureKindExecution,
 			failureCodeInteractionLimitModelCalls,
 			"Interaction reached its configured model-call limit before a final response",
 		)
+	}
+	if e.state.ModelCallCount == ^uint64(0) {
+		return agent.Transition{}, agent.ErrCounterExhausted
 	}
 	modelCallSequence := e.state.ModelCallCount + 1
 	envelope, err := newModelEffect(

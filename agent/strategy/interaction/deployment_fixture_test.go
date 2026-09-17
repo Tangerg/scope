@@ -63,7 +63,6 @@ func configuredInteraction(t *testing.T, definitionConfig interaction.Definition
 	toolSet := testToolSet(t, toolConfig)
 	if toolSet.Configured() {
 		definitionConfig.Tools = toolSet
-		definitionConfig.ToolBudget = agent.Budget{Steps: 32, Effects: 16, Signals: 32}
 	}
 	definition, err := interaction.NewDefinition(definitionConfig)
 	if err != nil {

@@ -22,12 +22,12 @@ func ExampleDefinition() {
 	ctx := context.Background()
 	textSchema := exampleValue(agent.SchemaFor[string]())
 	modelDefinition := exampleValue(interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: "example.decision_model", Description: "Choose the next collaboration action.", MaxModelCalls: 1,
+		Name: "example.decision_model", Description: "Choose the next collaboration action.", MaxModelCalls: agent.NewQuota(1),
 	}))
 	client := exampleValue(chatclient.New(decisionModel{}, chatclient.Config{}))
 	dispatcher := exampleValue(interaction.NewDispatcher(modelDefinition, interaction.DispatcherConfig{Model: client}))
 	model := exampleBinding(modelDefinition, dispatcher)
-	budget := agent.Budget{Steps: 32, Effects: 16, Signals: 32}
+	budget := agent.Budget{Steps: agent.NewQuota(32), Effects: agent.NewQuota(16), Signals: agent.NewQuota(32)}
 	render := exampleValue(workflow.Transform("render_turn", func(_ context.Context, turn collaboration.Turn) (interaction.Input, error) {
 		payload, err := json.Marshal(turn)
 		if err != nil {
@@ -60,9 +60,9 @@ func ExampleDefinition() {
 	})), nil)
 	definition := exampleValue(collaboration.NewDefinition(collaboration.DefinitionConfig{
 		Name: "example.collaboration", Description: "Run model decisions alongside background work.",
-		Coordinator: collaboration.WorkerConfig{Deployment: coordinator, Budget: agent.Budget{Steps: 64, Effects: 32, Signals: 64}},
+		Coordinator: collaboration.WorkerConfig{Deployment: coordinator, Budget: agent.Budget{Steps: agent.NewQuota(64), Effects: agent.NewQuota(32), Signals: agent.NewQuota(64)}},
 		Workers:     []collaboration.WorkerConfig{{Deployment: gate, Budget: budget}, {Deployment: worker, Budget: budget}},
-		StateSchema: textSchema, OutputSchema: textSchema, MaxTurns: 4, MaxTasks: 2, MaxConcurrentTasks: 2, MaxControlsPerTurn: 1,
+		StateSchema: textSchema, OutputSchema: textSchema, MaxTurns: agent.NewQuota(4), MaxTasks: agent.NewQuota(2), MaxConcurrentTasks: 2, MaxControlsPerTurn: 1,
 	}))
 	root := exampleBinding(definition, nil, coordinator.DeploymentRef(), gate.DeploymentRef(), worker.DeploymentRef())
 	engine := exampleValue(agent.NewEngine(agent.EngineConfig{DeploymentResolver: exampleResolver{

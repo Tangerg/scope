@@ -5,12 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/planning"
-)
-
-const (
-	defaultMaxExpansions     uint32 = 10_000
-	defaultMaxGeneratedNodes uint32 = 100_000
 )
 
 // ErrExpansionLimitReached distinguishes bounded search from an unsatisfiable goal.
@@ -19,42 +15,33 @@ var ErrExpansionLimitReached = errors.New("goap: expansion limit reached")
 // ErrGenerationLimitReached means the search exhausted its node budget.
 var ErrGenerationLimitReached = errors.New("goap: generated node limit reached")
 
-// Config contains the bounded search policy for a GOAP Planner.
+// Config contains optional cumulative search quotas for a GOAP Planner.
 type Config struct {
 	// MaxExpansions bounds non-stale nodes removed from the frontier.
-	// Zero selects a default of 10,000 expansions.
-	MaxExpansions uint32
+	// Its zero value is unlimited.
+	MaxExpansions agent.Quota
 
 	// MaxGeneratedNodes bounds cumulative frontier insertions, including the
-	// initial node and cheaper replacements of discovered states. Zero selects
-	// 100,000 nodes. This bounds retained search entries, not their byte size.
-	MaxGeneratedNodes uint32
+	// initial node and cheaper replacements of discovered states. Its zero value
+	// is unlimited. This bounds retained search entries, not their byte size.
+	MaxGeneratedNodes agent.Quota
 }
 
 // Planner performs stateless uniform-cost search and is safe for concurrent
 // use after construction.
 type Planner struct {
-	maxExpansions     uint32
-	maxGeneratedNodes uint32
+	maxExpansions     agent.Quota
+	maxGeneratedNodes agent.Quota
 }
 
-// New returns a planner whose search is bounded by configuration, because
-// GOAP's state space grows with the action set and an unbounded search inside
-// a Step would block the Process that owns it.
+// New returns a planner with Host-selected search quotas. Unlimited searches
+// still cooperate with context cancellation.
 func New(config Config) *Planner {
-	limit := config.MaxExpansions
-	if limit == 0 {
-		limit = defaultMaxExpansions
-	}
-	generated := config.MaxGeneratedNodes
-	if generated == 0 {
-		generated = defaultMaxGeneratedNodes
-	}
-	return &Planner{maxExpansions: limit, maxGeneratedNodes: generated}
+	return &Planner{maxExpansions: config.MaxExpansions, maxGeneratedNodes: config.MaxGeneratedNodes}
 }
 
 func (p *Planner) Plan(ctx context.Context, problem planning.Problem) (planning.Plan, bool, error) {
-	if p == nil || p.maxExpansions == 0 || p.maxGeneratedNodes == 0 || !problem.Valid() {
+	if p == nil || !problem.Valid() {
 		return planning.Plan{}, false, planning.ErrInvalidProblem
 	}
 	if err := ctx.Err(); err != nil {
@@ -63,6 +50,9 @@ func (p *Planner) Plan(ctx context.Context, problem planning.Problem) (planning.
 	if problem.Goal().SatisfiedBy(problem.InitialState()) {
 		plan, err := planning.NewPlan(nil, 0)
 		return plan, true, err
+	}
+	if !p.maxGeneratedNodes.Allows(1) {
+		return planning.Plan{}, false, ErrGenerationLimitReached
 	}
 	search := newSearch(problem, p.maxExpansions, p.maxGeneratedNodes)
 	producers, err := search.hasGoalProducers(ctx)

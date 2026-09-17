@@ -19,7 +19,7 @@ type LoopResult[T any] struct {
 	// Value is the latest body output, or the initial input before any iteration.
 	Value T `json:"value"`
 	// Iterations is the number of completed body child Processes.
-	Iterations uint32 `json:"iterations"`
+	Iterations uint64 `json:"iterations"`
 	// Satisfied reports whether Predicate accepted Value.
 	Satisfied bool `json:"satisfied"`
 }
@@ -40,8 +40,8 @@ type LoopConfig[T any] struct {
 	// Capabilities is the attenuated authority set granted to each child.
 	Capabilities agent.CapabilitySet
 
-	// MaxIterations is the positive hard upper bound on body child Processes.
-	MaxIterations uint32
+	// MaxIterations bounds body child Processes. Its zero value is unlimited.
+	MaxIterations agent.Quota
 
 	// Predicate decides whether the latest body output satisfies the Loop.
 	Predicate LoopPredicate[T]
@@ -49,17 +49,17 @@ type LoopConfig[T any] struct {
 
 type loopStage struct {
 	binding       childBinding
-	maxIterations uint32
+	maxIterations agent.Quota
 	valueSchema   agent.Schema
 	predicate     func(context.Context, json.RawMessage) (bool, error)
-	result        func(json.RawMessage, uint32, bool) (json.RawMessage, error)
+	result        func(json.RawMessage, uint64, bool) (json.RawMessage, error)
 }
 
 // Loop constructs one at-least-once managed iteration Stage. Body must accept
 // and produce exactly T; the Stage itself produces LoopResult[T].
 func Loop[T any](config LoopConfig[T]) (Stage, error) {
-	if !agent.ValidQualifiedName(config.ID) || !config.Body.Valid() || !config.Budget.Valid() ||
-		!config.Capabilities.Valid() || config.MaxIterations == 0 || config.Predicate == nil {
+	if !agent.ValidQualifiedName(config.ID) || !config.Body.Valid() ||
+		!config.Capabilities.Valid() || !config.MaxIterations.Allows(1) || config.Predicate == nil {
 		return Stage{}, ErrInvalidStage
 	}
 	valueSchema, err := agent.SchemaFor[T]()
@@ -94,7 +94,7 @@ func Loop[T any](config LoopConfig[T]) (Stage, error) {
 		}
 		return satisfied, nil
 	}
-	result := func(raw json.RawMessage, iterations uint32, satisfied bool) (json.RawMessage, error) {
+	result := func(raw json.RawMessage, iterations uint64, satisfied bool) (json.RawMessage, error) {
 		output, err := agent.ParsePayload(raw)
 		if err != nil {
 			return nil, err

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/planning"
 	"github.com/Tangerg/scope/agent/strategy/planning/goap"
 )
@@ -122,9 +123,16 @@ func TestPlannerDistinguishesSatisfiedUnreachableAndBoundedSearch(t *testing.T) 
 			action(t, "action.prepare", nil, []planning.Condition{ready}, 1),
 			action(t, "action.finish", []planning.Condition{ready}, []planning.Condition{done}, 1),
 		)
-		_, found, err := goap.New(goap.Config{MaxExpansions: 1}).Plan(t.Context(), problem)
+		_, found, err := goap.New(goap.Config{MaxExpansions: agent.NewQuota(1)}).Plan(t.Context(), problem)
 		if found || !errors.Is(err, goap.ErrExpansionLimitReached) {
 			t.Fatalf("found=%t error=%v", found, err)
+		}
+	})
+	t.Run("no generated nodes", func(t *testing.T) {
+		problem := mustProblem(t, planning.WorldState{}, goal(t, done), action(t, "action.finish", nil, []planning.Condition{done}, 1))
+		_, found, err := goap.New(goap.Config{MaxGeneratedNodes: agent.NewQuota(0)}).Plan(t.Context(), problem)
+		if found || !errors.Is(err, goap.ErrGenerationLimitReached) {
+			t.Fatalf("zero node allowance: found=%t error=%v", found, err)
 		}
 	})
 }
@@ -183,7 +191,7 @@ func TestPlannerBoundsGeneratedNodesIndependentlyOfExpansions(t *testing.T) {
 	}
 	actions = append(actions, action(t, "action.finish", nil, []planning.Condition{done}, 100))
 	problem := mustProblem(t, planning.WorldState{}, goal(t, done), actions...)
-	_, found, err := goap.New(goap.Config{MaxExpansions: 1, MaxGeneratedNodes: 8}).Plan(t.Context(), problem)
+	_, found, err := goap.New(goap.Config{MaxExpansions: agent.NewQuota(1), MaxGeneratedNodes: agent.NewQuota(8)}).Plan(t.Context(), problem)
 	if found || !errors.Is(err, goap.ErrGenerationLimitReached) || errors.Is(err, goap.ErrExpansionLimitReached) {
 		t.Fatalf("found=%t error=%v", found, err)
 	}
@@ -197,7 +205,7 @@ func TestPlannerCountsCheaperReplacementNodes(t *testing.T) {
 		action(t, "action.cheapest", nil, []planning.Condition{done}, 1),
 	)
 	for _, limit := range []uint32{1, 2, 3, 4} {
-		plan, found, err := goap.New(goap.Config{MaxGeneratedNodes: limit}).Plan(t.Context(), problem)
+		plan, found, err := goap.New(goap.Config{MaxGeneratedNodes: agent.NewQuota(uint64(limit))}).Plan(t.Context(), problem)
 		if limit < 4 {
 			if found || !errors.Is(err, goap.ErrGenerationLimitReached) {
 				t.Fatalf("limit=%d found=%t error=%v", limit, found, err)
@@ -211,7 +219,7 @@ func TestPlannerCountsCheaperReplacementNodes(t *testing.T) {
 func TestPlannerNodeBudgetPreservesSatisfiedAndUnreachableResults(t *testing.T) {
 	done := condition(t, "world.done", planning.True)
 	key := condition(t, "world.key", planning.True)
-	planner := goap.New(goap.Config{MaxGeneratedNodes: 1})
+	planner := goap.New(goap.Config{MaxGeneratedNodes: agent.NewQuota(1)})
 	satisfied := mustProblem(t, world(t, done), goal(t, done))
 	if plan, found, err := planner.Plan(t.Context(), satisfied); err != nil || !found || len(plan.Actions()) != 0 {
 		t.Fatalf("satisfied plan=%v found=%t error=%v", plan, found, err)

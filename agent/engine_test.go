@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"runtime"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -753,7 +752,7 @@ func TestPausedProcessCapturesRestoresAndResumesAtSafeBoundary(t *testing.T) {
 func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.wait", "wait")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
-	limits := Limits{MaxSteps: 3, MaxEffects: 1, MaxSignals: 2, MaxPendingSignals: 2}
+	limits := Limits{MaxSteps: NewQuota(3), MaxEffects: NewQuota(1), MaxSignals: NewQuota(2), MaxPendingSignals: 2}
 	engine, _ := NewEngine(EngineConfig{Limits: limits})
 	t.Cleanup(func() { _ = engine.Close(context.WithoutCancel(t.Context())) })
 	input, _ := EncodePayload(engineTestInput{Value: "question"})
@@ -1064,7 +1063,7 @@ func TestEngineEnforcesStepLimitAndReportsMonotonicUsage(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
 	engine, err := NewEngine(EngineConfig{Limits: Limits{
-		MaxSteps: 1, MaxEffects: 1, MaxSignals: 1, MaxPendingSignals: 1,
+		MaxSteps: NewQuota(1), MaxEffects: NewQuota(1), MaxSignals: NewQuota(1), MaxPendingSignals: 1,
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -1087,18 +1086,15 @@ func TestEngineEnforcesStepLimitAndReportsMonotonicUsage(t *testing.T) {
 	}
 }
 
-func TestEngineReportsInvalidLimitRelation(t *testing.T) {
-	_, err := NewEngine(EngineConfig{Limits: Limits{MaxSignals: 1, MaxPendingSignals: 2}})
-	if !errors.Is(err, ErrInvalidEngineConfig) ||
-		!strings.Contains(err.Error(), "MaxPendingSignals (2) exceeds MaxSignals (1)") {
-		t.Fatalf("limit error = %v", err)
+func TestEngineSeparatesCapacityFromCumulativeQuota(t *testing.T) {
+	engine, err := NewEngine(EngineConfig{
+		Limits:     Limits{MaxSignals: NewQuota(1), MaxPendingSignals: 2},
+		TreeLimits: TreeLimits{MaxChildren: NewQuota(1), MaxActiveChildren: 2},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	_, err = NewEngine(EngineConfig{TreeLimits: TreeLimits{MaxChildren: 1, MaxActiveChildren: 2}})
-	if !errors.Is(err, ErrInvalidEngineConfig) ||
-		!strings.Contains(err.Error(), "MaxActiveChildren (2) exceeds MaxChildren (1)") {
-		t.Fatalf("tree limit error = %v", err)
-	}
+	mustCloseEngine(t, engine)
 }
 
 type recordingEventListener struct {

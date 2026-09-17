@@ -1,4 +1,4 @@
-// Package collaboration provides bounded, decision-driven multi-agent work.
+// Package collaboration provides decision-driven multi-agent work.
 // A coordinator consumes Turn and returns Decision; configured workers execute
 // ordinary inputs and outputs. Both are exact Deployments of any Strategy.
 // Model-backed coordinators compose an interaction Strategy with a workflow
@@ -20,7 +20,8 @@
 // kind, code, and diagnostic; the failed turn remains restorable evidence.
 // A rejected worker start counts toward MaxTasks. Admitted tasks count toward
 // MaxConcurrentTasks until their drained outcomes are observed. MaxTurns and
-// MaxControlsPerTurn bound coordinator decisions and each control batch.
+// MaxTasks default to unlimited quotas; MaxControlsPerTurn bounds each control
+// batch independently of cumulative work.
 //
 // Controls compile to agent.NewChildSignalEffect and agent.NewChildCancelEffect. Signals obey the
 // recipient Strategy's protocol, including interaction steering at its safe

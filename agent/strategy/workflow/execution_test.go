@@ -101,12 +101,12 @@ func TestCallPropagatesChildFailure(t *testing.T) {
 	}
 }
 
-func TestCallRejectsInvalidChildAllocation(t *testing.T) {
+func TestCallAcceptsUnlimitedChildAllocation(t *testing.T) {
 	child := mustDeployment(t, mustDefinition(t, "test.workflow.call_target",
 		mustTransform(t, "identity", func(_ context.Context, input numberInput) (numberInput, error) { return input, nil }),
 	), "call-target")
 	_, err := workflow.Call(workflow.CallConfig{ID: "child", Deployment: child})
-	if !errors.Is(err, workflow.ErrInvalidStage) {
+	if err != nil {
 		t.Fatalf("Call error = %v", err)
 	}
 }

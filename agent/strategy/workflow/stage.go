@@ -25,7 +25,7 @@ const (
 	StageKindFork StageKind = "fork"
 	// StageKindMap identifies bounded homogeneous item fan-out.
 	StageKindMap StageKind = "map"
-	// StageKindLoop identifies bounded at-least-once child iteration.
+	// StageKindLoop identifies at-least-once child iteration with an optional quota.
 	StageKindLoop StageKind = "loop"
 )
 
@@ -146,7 +146,7 @@ func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error
 // until the Workflow Execution returns a Framework NewChildStartEffect Effect.
 func Call(config CallConfig) (Stage, error) {
 	if !agent.ValidQualifiedName(config.ID) || !config.Deployment.Valid() ||
-		!config.Budget.Valid() || !config.Capabilities.Valid() {
+		!config.Capabilities.Valid() {
 		return Stage{}, ErrInvalidStage
 	}
 	descriptor := config.Deployment.Descriptor()

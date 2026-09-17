@@ -64,17 +64,17 @@ func benchmarkCompletedTree(b *testing.B, sample treeSnapshotBenchmarkCase) Tree
 	b.Helper()
 	deployment := newChildTestDeployment(b)
 	limits := DefaultLimits()
-	limits.MaxSteps = 100_000
-	limits.MaxEffects = 100_000
-	limits.MaxSignals = 100_000
+	limits.MaxSteps = NewQuota(100_000)
+	limits.MaxEffects = NewQuota(100_000)
+	limits.MaxSignals = NewQuota(100_000)
 	limits.MaxPendingSignals = 100_000
 	engine, err := NewEngine(EngineConfig{
 		Limits: limits,
 		TreeLimits: TreeLimits{
 			MaxDepth:          sample.maxDepth,
-			MaxChildren:       2,
+			MaxChildren:       NewQuota(2),
 			MaxActiveChildren: 2,
-			MaxTreeProcesses:  sample.processCount,
+			MaxTreeProcesses:  NewQuota(uint64(sample.processCount)),
 		},
 	})
 	if err != nil {

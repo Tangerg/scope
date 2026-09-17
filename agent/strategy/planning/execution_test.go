@@ -186,7 +186,7 @@ func TestManagedPlanningUsesSemanticCompletionOutcomes(t *testing.T) {
 				}),
 				"action.second": world.apply(second),
 			},
-			maxActionAttempts: 1,
+			maxActionAttempts: agent.NewQuota(1),
 		})
 		output := managedOutput(t, runManaged(t, agent.EngineConfig{}, deployment))
 		if output.Outcome != planning.OutcomeStuck || len(output.Attempts) != 1 ||
@@ -357,7 +357,7 @@ func TestManagedPlanningExecutesChildProcessAction(t *testing.T) {
 		Name: "action.delegate", Description: "Delegate completion to an exact child Deployment.",
 		Effects: []planning.Condition{done},
 	})
-	budget := agent.Budget{Steps: 32, Effects: 32, Signals: 64}
+	budget := agent.Budget{Steps: agent.NewQuota(32), Effects: agent.NewQuota(32), Signals: agent.NewQuota(64)}
 	var inputCalls int
 	childBinding, err := planning.NewChildBinding(planning.ChildBindingConfig{
 		Action: delegate, DeploymentRef: childDeployment.DeploymentRef(), Budget: budget,
@@ -515,7 +515,7 @@ type managedDeploymentConfig struct {
 	sensor            planning.Sensor
 	executors         map[string]planning.ActionExecutor
 	planner           planning.Planner
-	maxActionAttempts uint32
+	maxActionAttempts agent.Quota
 }
 
 func newManagedDefinition(t testing.TB, config managedDeploymentConfig) *planning.Definition {
@@ -528,10 +528,6 @@ func newManagedDefinition(t testing.TB, config managedDeploymentConfig) *plannin
 	if planner == nil {
 		planner = goap.New(goap.Config{})
 	}
-	maxActionAttempts := config.maxActionAttempts
-	if maxActionAttempts == 0 {
-		maxActionAttempts = 8
-	}
 	name := config.name
 	if name == "" {
 		name = "planning.test"
@@ -539,7 +535,7 @@ func newManagedDefinition(t testing.TB, config managedDeploymentConfig) *plannin
 	definition, err := planning.NewDefinition(planning.DefinitionConfig{
 		Name: name, Description: "Exercise managed goal-directed execution.",
 		InputSchema: inputSchema, Goal: config.goal, Actions: config.bindings,
-		Planner: planner, MaxActionAttempts: maxActionAttempts,
+		Planner: planner, MaxActionAttempts: config.maxActionAttempts,
 	})
 	if err != nil {
 		t.Fatal(err)

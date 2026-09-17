@@ -55,12 +55,12 @@ type EngineConfig struct {
 	// Zero selects the library default; negative capacities are invalid.
 	DeltaBufferCapacity int
 
-	// Zero fields inherit DefaultLimits so partial overrides still produce
-	// complete per-Process resource bounds.
+	// Cumulative work and snapshot quotas default to unlimited. Pending Signal
+	// capacity retains its independent finite default.
 	Limits Limits
 
-	// TreeLimits bounds descendant count, depth, and active children. Zero fields
-	// inherit DefaultTreeLimits independently of per-Process Limits.
+	// TreeLimits separates optional lifetime quotas from depth and active-child
+	// capacity. Only the latter inherit finite defaults.
 	TreeLimits TreeLimits
 
 	// Capabilities grants authority to new roots. Children receive only subsets

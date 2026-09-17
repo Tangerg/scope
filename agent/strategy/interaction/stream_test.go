@@ -177,7 +177,7 @@ func newStreamingDeployment(t *testing.T, streamer chat.Streamer) interactionDep
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
 		Name:          "interaction.stream",
 		Description:   "Verify managed streaming Interaction behavior.",
-		MaxModelCalls: 2,
+		MaxModelCalls: agent.NewQuota(2),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -311,7 +311,7 @@ func (e *eventRecorder) Contains(name string) bool {
 
 func TestDispatcherRequiresExactlyOneModelCapability(t *testing.T) {
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: "capability", Description: "Validate model capabilities.", MaxModelCalls: 1,
+		Name: "capability", Description: "Validate model capabilities.", MaxModelCalls: agent.NewQuota(1),
 	})
 	if err != nil {
 		t.Fatal(err)

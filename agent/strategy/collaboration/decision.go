@@ -67,7 +67,7 @@ type ControlReceipt struct {
 // exposes the exact configured input/output contracts without execution grants.
 // Facts arriving while this turn runs are visible in the following turn.
 type Turn struct {
-	Number   uint32             `json:"number"`
+	Number   uint64             `json:"number"`
 	State    agent.Payload      `json:"state"`
 	Workers  []agent.Descriptor `json:"workers"`
 	Tasks    []Task             `json:"tasks"`

@@ -91,7 +91,7 @@ func TestExplicitRefusalCommitsExactPublicOutputBeforeModelContinuation(t *testi
 				}
 				return textResponse("done"), nil
 			})
-			deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "authorization.output", Description: "Publish explicit refusal output.", MaxModelCalls: 2}, interaction.DispatcherConfig{Model: model, ResultCommitter: committer}, interaction.ToolSetConfig{Tools: []tool.Tool{public}})
+			deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "authorization.output", Description: "Publish explicit refusal output.", MaxModelCalls: agent.NewQuota(2)}, interaction.DispatcherConfig{Model: model, ResultCommitter: committer}, interaction.ToolSetConfig{Tools: []tool.Tool{public}})
 			result := runInteraction(t, deployment, "work")
 			if result.Status() != agent.StatusCompleted || executions.Load() != 0 || modelCalls != 2 {
 				t.Fatalf("status=%s executions=%d model calls=%d", result.Status(), executions.Load(), modelCalls)

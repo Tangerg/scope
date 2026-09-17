@@ -161,8 +161,8 @@ func newWorkflowPatterns() (agent.Deployment, deploymentResolver, error) {
 		return agent.Deployment{}, nil, err
 	}
 	budget := agent.Budget{
-		Steps: patternChildBudgetSteps, Effects: patternChildBudgetEffects,
-		Signals: patternChildBudgetSignals,
+		Steps: agent.NewQuota(patternChildBudgetSteps), Effects: agent.NewQuota(patternChildBudgetEffects),
+		Signals: agent.NewQuota(patternChildBudgetSignals),
 	}
 	stages, err := newPatternStages(children, budget)
 	if err != nil {

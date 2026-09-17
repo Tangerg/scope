@@ -53,7 +53,7 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectReque
 		Result: result, Rejected: rejected, Direct: prepared.binding != nil && prepared.binding.direct && !result.IsError, AdvertisedToolNames: advertised,
 	}}
 	if required != nil {
-		count := uint32(0)
+		count := uint64(0)
 		if resume != nil {
 			count = resume.Checkpoint.PauseCount
 		}
@@ -98,7 +98,7 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
 func (t *toolDispatcher) callTool(
 	ctx context.Context,
 	request agent.EffectRequest,
-	modelCallSequence uint32,
+	modelCallSequence uint64,
 	toolCallIndex uint32,
 	prepared preparedToolCall,
 ) (

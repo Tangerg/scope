@@ -179,7 +179,7 @@ func newModelDeployment() (agent.Deployment, error) {
 	}
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
 		Name: "example.composition_model", Description: "Return one deterministic composition response.",
-		MaxModelCalls: 1,
+		MaxModelCalls: agent.NewQuota(1),
 	})
 	if err != nil {
 		return agent.Deployment{}, err
@@ -366,8 +366,8 @@ func (c *compositionExecution) startChildren() (agent.Transition, error) {
 		return agent.Transition{}, err
 	}
 	budget := agent.Budget{
-		Steps: compositionChildBudgetSteps, Effects: compositionChildBudgetEffects,
-		Signals: compositionChildBudgetSignals,
+		Steps: agent.NewQuota(compositionChildBudgetSteps), Effects: agent.NewQuota(compositionChildBudgetEffects),
+		Signals: agent.NewQuota(compositionChildBudgetSignals),
 	}
 	localEffect, err := agent.NewChildStartEffect(agent.ChildSpec{
 		Key: localKey, DeploymentRef: c.local, Input: localInput, Budget: budget,

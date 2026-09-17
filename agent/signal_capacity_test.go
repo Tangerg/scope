@@ -13,7 +13,7 @@ import (
 
 func TestOversizedSignalBatchLeavesDurableTreeUsable(t *testing.T) {
 	store := &recordingTreeDurability{}
-	engine, err := NewEngine(EngineConfig{TreeDurability: store})
+	engine, err := NewEngine(EngineConfig{TreeDurability: store, Limits: Limits{MaxSnapshotBytes: NewQuota(128 << 14)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestOversizedSignalBatchLeavesDurableTreeUsable(t *testing.T) {
 	waitForStatus(t, process, StatusPaused)
 	checkpoints := store.treeCheckpoints()
 	before := checkpoints[len(checkpoints)-1].TreeSnapshot()
-	payload := []byte(`"` + strings.Repeat("x", 45<<20) + `"`)
+	payload := []byte(`"` + strings.Repeat("x", 45<<14) + `"`)
 	var requests []SignalRequest
 	for index := range 3 {
 		requests = append(requests, controlValue(NewSignalRequest(controlValue(ParseSignalID(fmt.Sprintf("signal:large-%d", index))), WaitID{}, payload)))

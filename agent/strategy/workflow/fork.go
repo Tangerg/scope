@@ -111,7 +111,7 @@ func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
 	seen := make(map[string]struct{}, len(config.Branches))
 	for index, branch := range config.Branches {
 		if !agent.ValidQualifiedName(branch.ID) || !branch.Deployment.Valid() ||
-			!branch.Budget.Valid() || !branch.Capabilities.Valid() {
+			!branch.Capabilities.Valid() {
 			return Stage{}, fmt.Errorf("%w: Fork %q Branches[%d]", ErrInvalidStage, config.ID, index)
 		}
 		if _, duplicate := seen[branch.ID]; duplicate {

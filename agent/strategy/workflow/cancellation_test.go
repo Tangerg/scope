@@ -45,7 +45,7 @@ func TestWorkflowCallbacksReceiveProcessCancellation(t *testing.T) {
 			name: "loop",
 			stage: func(t *testing.T, child agent.Deployment, entered chan struct{}) (workflow.Stage, error) {
 				return workflow.Loop(workflow.LoopConfig[numberInput]{
-					ID: "work", Body: child, Budget: mustBudget(t), MaxIterations: 1,
+					ID: "work", Body: child, Budget: mustBudget(t), MaxIterations: agent.NewQuota(1),
 					Predicate: canceledWorkflowCallback[numberInput, bool](entered),
 				})
 			},

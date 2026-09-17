@@ -18,7 +18,7 @@ func TestPublicationResolutionRequiresReceiptIdentityAndContent(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				var receipt interaction.ResultReceipt
 				modelCalls := 0
-				deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "receipt.identity", Description: "Bind recovered receipts to their publication.", MaxModelCalls: 2}, interaction.DispatcherConfig{
+				deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "receipt.identity", Description: "Bind recovered receipts to their publication.", MaxModelCalls: agent.NewQuota(2)}, interaction.DispatcherConfig{
 					Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 						modelCalls++
 						if modelCalls == 1 {

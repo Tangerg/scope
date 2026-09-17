@@ -31,7 +31,7 @@ func TestManagedDelegatePreservesMixedToolCallOrder(t *testing.T) {
 	child := delegateWorkflow(t, "interaction.delegate_worker", func(_ context.Context, input delegateRequest) (delegateResponse, error) {
 		return delegateResponse{Value: strings.ToUpper(input.Value)}, nil
 	})
-	budget := agent.Budget{Steps: 50, Effects: 50, Signals: 50}
+	budget := agent.Budget{Steps: agent.NewQuota(50), Effects: agent.NewQuota(50), Signals: agent.NewQuota(50)}
 	capability, _ := agent.ParseCapability("worker.text")
 	capabilities, _ := agent.NewCapabilitySet(capability)
 	delegate, err := interaction.NewDelegate(interaction.DelegateConfig{
@@ -92,7 +92,7 @@ func TestDelegateRejectsNonObjectInputAndToolNameCollision(t *testing.T) {
 	primitive := delegateWorkflow(t, "interaction.primitive_worker", func(_ context.Context, value int) (int, error) {
 		return value, nil
 	})
-	budget := agent.Budget{Steps: 10, Effects: 10, Signals: 10}
+	budget := agent.Budget{Steps: agent.NewQuota(10), Effects: agent.NewQuota(10), Signals: agent.NewQuota(10)}
 	if _, err := interaction.NewDelegate(interaction.DelegateConfig{
 		Name: "primitive", Description: "Delegate one primitive value.",
 		Deployment: primitive, Budget: budget,
@@ -113,9 +113,6 @@ func TestDelegateRejectsNonObjectInputAndToolNameCollision(t *testing.T) {
 		"invalid name": {
 			Name: "invalid/name", Description: "Use an invalid model capability name.", Deployment: child, Budget: budget,
 		},
-		"zero budget": {
-			Name: "invalid_budget", Description: "Use an invalid zero child budget.", Deployment: child,
-		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := interaction.NewDelegate(config); !errors.Is(err, interaction.ErrInvalidDelegate) {
@@ -132,7 +129,7 @@ func TestDelegateRejectsNonObjectInputAndToolNameCollision(t *testing.T) {
 	}
 	if _, newDefinitionErr := interaction.NewDefinition(interaction.DefinitionConfig{
 		Name: "interaction.duplicate_delegates", Description: "Reject duplicate managed Delegate names.",
-		MaxModelCalls: 2,
+		MaxModelCalls: agent.NewQuota(2),
 		Delegates:     []interaction.Delegate{delegate, delegate},
 	}); !errors.Is(newDefinitionErr, interaction.ErrInvalidDefinitionConfig) {
 		t.Fatalf("duplicate Delegate error = %v", newDefinitionErr)
@@ -147,8 +144,8 @@ func TestDelegateRejectsNonObjectInputAndToolNameCollision(t *testing.T) {
 	}
 	toolSet := testToolSet(t, interaction.ToolSetConfig{Tools: []tool.Tool{colliding}})
 	if _, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: "interaction.collision", Description: "Reject duplicate model-visible authority.", MaxModelCalls: 2,
-		Delegates: []interaction.Delegate{delegate}, Tools: toolSet, ToolBudget: agent.Budget{Steps: 8, Effects: 4, Signals: 8},
+		Name: "interaction.collision", Description: "Reject duplicate model-visible authority.", MaxModelCalls: agent.NewQuota(2),
+		Delegates: []interaction.Delegate{delegate}, Tools: toolSet, ToolBudget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)},
 	}); !errors.Is(err, interaction.ErrInvalidDefinitionConfig) {
 		t.Fatalf("name collision error=%v", err)
 	}
@@ -159,7 +156,7 @@ func TestManagedDelegateReturnsArgumentAndStartFailuresToModel(t *testing.T) {
 	child := delegateWorkflow(t, "interaction.unavailable_worker", func(_ context.Context, input delegateRequest) (delegateResponse, error) {
 		return delegateResponse(input), nil
 	})
-	budget := agent.Budget{Steps: 10, Effects: 10, Signals: 10}
+	budget := agent.Budget{Steps: agent.NewQuota(10), Effects: agent.NewQuota(10), Signals: agent.NewQuota(10)}
 	delegate, err := interaction.NewDelegate(interaction.DelegateConfig{
 		Name: "delegate_unavailable", Description: "Delegate work to an exact worker that may be unavailable.",
 		Deployment: child, Budget: budget,
@@ -208,7 +205,7 @@ type delegateRestoreFixture struct {
 func newDelegateRestoreFixture(t *testing.T) delegateRestoreFixture {
 	t.Helper()
 	child := pausingDelegateDeployment(t)
-	budget := agent.Budget{Steps: 20, Effects: 20, Signals: 20}
+	budget := agent.Budget{Steps: agent.NewQuota(20), Effects: agent.NewQuota(20), Signals: agent.NewQuota(20)}
 	delegate, err := interaction.NewDelegate(interaction.DelegateConfig{
 		Name: "delegate_paused", Description: "Delegate work that may pause before producing its result.",
 		Deployment: child, Budget: budget,
@@ -466,7 +463,7 @@ func delegateInteractionWithValidator(t *testing.T, model chat.Model, tools []to
 		t.Fatal(err)
 	}
 	return configuredInteraction(t, interaction.DefinitionConfig{
-		Name: "interaction.delegate_root", Description: "Exercise exact managed worker delegation.", MaxModelCalls: maxModelCalls, Delegates: delegates, CompletionValidator: validator,
+		Name: "interaction.delegate_root", Description: "Exercise exact managed worker delegation.", MaxModelCalls: agent.NewQuota(uint64(maxModelCalls)), Delegates: delegates, CompletionValidator: validator,
 	}, interaction.DispatcherConfig{Model: client}, interaction.ToolSetConfig{Tools: tools})
 }
 

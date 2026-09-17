@@ -224,7 +224,7 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 				executable = &invalidOutputTool{Tool: failing}
 			}
 			deployment := configuredInteraction(t, interaction.DefinitionConfig{
-				Name: "interaction.unknown_tool", Description: "Preserve unknown Tool outcomes.", MaxModelCalls: 2,
+				Name: "interaction.unknown_tool", Description: "Preserve unknown Tool outcomes.", MaxModelCalls: agent.NewQuota(2),
 			}, interaction.DispatcherConfig{Model: model}, interaction.ToolSetConfig{Tools: []tool.Tool{executable}, Observer: observer})
 			events := &agenttest.ObservationRecorder{}
 			engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver, EventListeners: []agent.EventListener{events}})
@@ -336,12 +336,12 @@ func assertInteractionHostFailure(t *testing.T, result agent.Result) {
 	}
 }
 
-func TestDefinitionRejectsZeroModelCallLimit(t *testing.T) {
+func TestDefinitionAcceptsUnlimitedModelCalls(t *testing.T) {
 	_, err := interaction.NewDefinition(interaction.DefinitionConfig{
 		Name: "interaction.test", Description: "Run a test interaction.",
 	})
-	if !errors.Is(err, interaction.ErrInvalidDefinitionConfig) {
-		t.Fatalf("error = %v, want ErrInvalidDefinitionConfig", err)
+	if err != nil {
+		t.Fatalf("unlimited configuration rejected: %v", err)
 	}
 }
 
@@ -349,7 +349,7 @@ func TestDefinitionRestoresCompleteWorkingContext(t *testing.T) {
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
 		Name:          "interaction.restore",
 		Description:   "Verify exact Interaction state restoration.",
-		MaxModelCalls: 2,
+		MaxModelCalls: agent.NewQuota(2),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -532,7 +532,7 @@ func newDeployment(t *testing.T, model chat.Model, tools []tool.Tool, maxModelCa
 		t.Fatal(err)
 	}
 	return configuredInteraction(t, interaction.DefinitionConfig{
-		Name: "interaction.test", Description: "Run a model-directed interaction for contract testing.", MaxModelCalls: maxModelCalls,
+		Name: "interaction.test", Description: "Run a model-directed interaction for contract testing.", MaxModelCalls: agent.NewQuota(uint64(maxModelCalls)),
 	}, interaction.DispatcherConfig{Model: client}, interaction.ToolSetConfig{Tools: tools})
 }
 

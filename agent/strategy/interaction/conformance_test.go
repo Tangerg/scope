@@ -44,7 +44,7 @@ func TestDefinitionConformance(t *testing.T) {
 			definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
 				Name:          "interaction.conformance",
 				Description:   "Verify the Interaction Definition and Execution contract.",
-				MaxModelCalls: 2, Tools: toolSet, ToolBudget: agent.Budget{Steps: 8, Effects: 4, Signals: 8},
+				MaxModelCalls: agent.NewQuota(2), Tools: toolSet, ToolBudget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)},
 			})
 			if err != nil {
 				t.Fatal(err)

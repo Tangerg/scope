@@ -12,7 +12,7 @@ import (
 
 func TestDispatchersRejectNilContextBeforeProtocolValidation(t *testing.T) {
 	definition, err := NewDefinition(DefinitionConfig{
-		Name: "context.contract", Description: "Check the model dispatch context boundary.", MaxModelCalls: 1,
+		Name: "context.contract", Description: "Check the model dispatch context boundary.", MaxModelCalls: agent.NewQuota(1),
 	})
 	if err != nil {
 		t.Fatal(err)

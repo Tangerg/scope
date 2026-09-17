@@ -12,6 +12,34 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
+func TestUnlimitedModelSequencePreservesIdentityAcrossNumericBoundaries(t *testing.T) {
+	definition, err := NewDefinition(DefinitionConfig{Name: "interaction.counter", Description: "Check counter identity."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution := &execution{definition: definition, state: executionState{
+		Phase: phaseReadyModel, ModelCallCount: math.MaxUint32,
+		WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("continue"))}},
+	}}
+	transition, err := execution.requestModel(0, nil)
+	if err != nil || len(transition.Effects()) != 1 || execution.state.ModelCallCount != uint64(math.MaxUint32)+1 {
+		t.Fatalf("32-bit boundary: count=%d error=%v", execution.state.ModelCallCount, err)
+	}
+	call := chat.ToolCall{ID: "call", Name: "tick", Arguments: `{}`}
+	before, err := toolChildKey(math.MaxUint32, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := toolChildKey(execution.state.ModelCallCount, call)
+	if err != nil || before == after {
+		t.Fatalf("child identity reused: %v", err)
+	}
+	execution.state.ModelCallCount = math.MaxUint64
+	if _, stepErr := execution.requestModel(0, nil); !errors.Is(stepErr, agent.ErrCounterExhausted) || execution.state.ModelCallCount != math.MaxUint64 {
+		t.Fatalf("64-bit boundary wrapped: %v", stepErr)
+	}
+}
+
 func TestToolDispatcherSettlesLocalProtocolRejections(t *testing.T) {
 	model, err := newModelEffect(&chat.Request{
 		Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))},
@@ -47,7 +75,7 @@ func TestFailedDirectResultCannotEnterProtocolOrRestore(t *testing.T) {
 		t.Fatal("failed direct result entered the tool protocol")
 	}
 	definition, err := NewDefinition(DefinitionConfig{
-		Name: "interaction.restore_direct", Description: "Validate completed direct result recovery.", MaxModelCalls: 1,
+		Name: "interaction.restore_direct", Description: "Validate completed direct result recovery.", MaxModelCalls: agent.NewQuota(1),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +131,7 @@ func TestToolInputPauseCountDoesNotWrap(t *testing.T) {
 	}
 	call := toolDispatchRequest{
 		Invocation: toolCall{ModelCallSequence: 1, Call: chat.ToolCall{ID: "call", Name: "input", Arguments: `{}`}},
-		Resume:     &toolResume{Checkpoint: toolCheckpoint{PauseCount: math.MaxUint32, InputRequest: request}, InputResponse: json.RawMessage(`"answer"`)},
+		Resume:     &toolResume{Checkpoint: toolCheckpoint{PauseCount: math.MaxUint64, InputRequest: request}, InputResponse: json.RawMessage(`"answer"`)},
 	}
 	if _, err := newToolEffect(call); err == nil {
 		t.Fatal("exhausted Tool input pause count admitted another call")

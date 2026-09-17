@@ -103,10 +103,10 @@ func (e *execution) acceptSense(
 	if e.definition.goal.SatisfiedBy(e.state.WorldState) {
 		return e.complete(ctx, consumedSignals)
 	}
-	if e.state.attemptCount() >= uint64(e.definition.maxActionAttempts) {
+	if !e.definition.maxActionAttempts.Allows(e.state.attemptCount(), 1) {
 		return e.complete(ctx, consumedSignals)
 	}
-	if e.state.PlanningPasses == math.MaxUint32 {
+	if e.state.PlanningPasses == math.MaxUint64 {
 		return e.fail(
 			consumedSignals, agent.FailureKindExecution, failureCodePlanningLimitPlanningPasses,
 			"Planning exhausted its representable planning-pass count",
@@ -178,7 +178,7 @@ func (e *execution) startAction(
 				"Child input function returned an invalid Input",
 			)
 		}
-		key, err := planningChildKey(binding.action.name, uint32(len(e.state.Attempts)+1))
+		key, err := planningChildKey(binding.action.name, uint64(len(e.state.Attempts))+1)
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -223,7 +223,7 @@ func (e *execution) advanceChild(signals []agent.Signal) (agent.Transition, erro
 	if len(signals) == 0 || phase != childcall.AwaitingOpening && len(signals) != 1 {
 		return agent.Transition{}, fmt.Errorf("%w: child handshake requires its settlement Signal", ErrInvalidProtocol)
 	}
-	key, err := planningChildKey(e.state.CurrentActionName, uint32(len(e.state.Attempts)+1))
+	key, err := planningChildKey(e.state.CurrentActionName, uint64(len(e.state.Attempts))+1)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -306,7 +306,7 @@ func (e *execution) fail(
 	return agent.Fail(consumedSignals, failure)
 }
 
-func planningChildKey(action string, attempt uint32) (agent.ChildKey, error) {
+func planningChildKey(action string, attempt uint64) (agent.ChildKey, error) {
 	return agent.ParseChildKey("planning.action." + planningIdentity(action, attempt))
 }
 
@@ -318,11 +318,11 @@ func planningChildWaitKey(childKey agent.ChildKey, childID agent.ProcessID) (age
 	return agent.ParseWaitKey("planning.child." + hex.EncodeToString(hash.Sum(nil)))
 }
 
-func planningIdentity(action string, attempt uint32) string {
+func planningIdentity(action string, attempt uint64) string {
 	hash := sha256.New()
 	hash.Write([]byte(action))
 	hash.Write([]byte{0})
-	hash.Write([]byte(strconv.FormatUint(uint64(attempt), 10)))
+	hash.Write([]byte(strconv.FormatUint(attempt, 10)))
 	return hex.EncodeToString(hash.Sum(nil))
 }
 

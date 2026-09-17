@@ -65,7 +65,7 @@ func Switch[I any](config SwitchConfig[I]) (Stage, error) {
 	var outputSchema agent.Schema
 	for index, candidate := range config.Cases {
 		if !agent.ValidQualifiedName(candidate.ID) || !candidate.Deployment.Valid() ||
-			!candidate.Budget.Valid() || !candidate.Capabilities.Valid() {
+			!candidate.Capabilities.Valid() {
 			return Stage{}, fmt.Errorf("%w: Switch %q Cases[%d]", ErrInvalidStage, config.ID, index)
 		}
 		if _, duplicate := indices[candidate.ID]; duplicate {

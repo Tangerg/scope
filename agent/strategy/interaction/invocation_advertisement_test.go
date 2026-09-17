@@ -65,7 +65,7 @@ func TestInvocationAttributionAndDeferredToolAdvertisement(t *testing.T) {
 	wantModelSteps := []uint64{1, 6, 11}
 	for index, invocation := range models {
 		assertRootInvocation(t, invocation.Relation(), invocation.DeploymentRef(), result.ProcessID(), deployment.DeploymentRef())
-		if invocation.ModelCallSequence() != uint32(index+1) || invocation.StepSequence() != wantModelSteps[index] {
+		if invocation.ModelCallSequence() != uint64(index+1) || invocation.StepSequence() != wantModelSteps[index] {
 			t.Fatalf(
 				"model invocation %d sequence/step = %d/%d, want %d/%d",
 				index, invocation.ModelCallSequence(), invocation.StepSequence(), index+1, wantModelSteps[index],
@@ -81,7 +81,7 @@ func TestInvocationAttributionAndDeferredToolAdvertisement(t *testing.T) {
 		if _, bound := deployment.resolver[invocation.DeploymentRef()]; !bound {
 			t.Fatal("Tool invocation references a different deployment")
 		}
-		if invocation.ModelCallSequence() != uint32(index+1) || invocation.ToolCallIndex() != 0 ||
+		if invocation.ModelCallSequence() != uint64(index+1) || invocation.ToolCallIndex() != 0 ||
 			invocation.StepSequence() != 1 || invocation.ToolCall().Name != wantToolNames[index] {
 			t.Fatalf("tool invocation %d = %#v", index, invocation)
 		}
@@ -533,7 +533,7 @@ func newDeferredDeployment(t *testing.T, model chat.Model, initial []tool.Tool, 
 		t.Fatal(err)
 	}
 	return configuredInteraction(t, interaction.DefinitionConfig{
-		Name: "interaction.deferred", Description: "Verify recoverable deferred Tool advertisement.", MaxModelCalls: 4, MaxConcurrentToolCalls: maxConcurrent,
+		Name: "interaction.deferred", Description: "Verify recoverable deferred Tool advertisement.", MaxModelCalls: agent.NewQuota(4), MaxConcurrentToolCalls: maxConcurrent,
 	}, interaction.DispatcherConfig{Model: client}, interaction.ToolSetConfig{Tools: initial, DeferredTools: deferred})
 }
 

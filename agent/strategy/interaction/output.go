@@ -49,7 +49,7 @@ type Output struct {
 	DirectToolResults []chat.ToolResult `json:"direct_tool_results,omitempty"`
 
 	// ModelCalls is the number of model Effects issued by this Interaction.
-	ModelCalls uint32 `json:"model_calls"`
+	ModelCalls uint64 `json:"model_calls"`
 }
 
 func (o Output) Validate() error {

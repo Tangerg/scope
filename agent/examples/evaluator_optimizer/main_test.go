@@ -115,7 +115,7 @@ func TestConfigurationIsExplicitAndFinite(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, _, err := newEvaluatorOptimizer(test.scores, test.threshold, test.maxIterations); err == nil {
+			if _, _, err := newEvaluatorOptimizer(test.scores, test.threshold, uint64(test.maxIterations)); err == nil {
 				t.Fatal("invalid evaluator-optimizer configuration was accepted")
 			}
 		})

@@ -57,7 +57,7 @@ func newPlanningDelegateRoot(
 	model *planningDelegateModel,
 ) agent.Deployment {
 	t.Helper()
-	budget := agent.Budget{Steps: 32, Effects: 32, Signals: 64}
+	budget := agent.Budget{Steps: agent.NewQuota(32), Effects: agent.NewQuota(32), Signals: agent.NewQuota(64)}
 	delegate, err := interaction.NewDelegate(interaction.DelegateConfig{
 		Name:        "review_with_planning",
 		Description: "Use goal-directed planning to complete one review task.",
@@ -74,7 +74,7 @@ func newPlanningDelegateRoot(
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
 		Name:          "example.orchestrator_workers.planning_delegate",
 		Description:   "Delegate model-selected tasks to exact Planning workers.",
-		MaxModelCalls: 2,
+		MaxModelCalls: agent.NewQuota(2),
 		Delegates:     []interaction.Delegate{delegate}, CompletionValidator: validatePlanningCompletion,
 	})
 	if err != nil {
@@ -222,7 +222,7 @@ func newPlanningWorker(t *testing.T) (agent.Deployment, *planningTaskState) {
 		Description: "Use GOAP to complete one model-selected review task.",
 		InputSchema: inputSchema, Goal: goal,
 		Actions: []planning.ActionBinding{binding}, Planner: goap.New(goap.Config{}),
-		MaxActionAttempts: 1,
+		MaxActionAttempts: agent.NewQuota(1),
 	})
 	if err != nil {
 		t.Fatal(err)

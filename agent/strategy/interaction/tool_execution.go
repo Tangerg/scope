@@ -198,11 +198,11 @@ func (t *toolExecution) request(consumed uint32, call toolDispatchRequest) (agen
 
 func (t *toolExecution) acceptResult(outcome toolDispatchResult) (agent.Transition, error) {
 	if checkpoint := outcome.Checkpoint; checkpoint != nil {
-		previous := uint32(0)
+		previous := uint64(0)
 		if t.state.Checkpoint != nil {
 			previous = t.state.Checkpoint.PauseCount
 		}
-		if previous == ^uint32(0) || checkpoint.PauseCount != previous+1 {
+		if previous == ^uint64(0) || checkpoint.PauseCount != previous+1 {
 			return agent.Transition{}, ErrInvalidExecutionState
 		}
 		payload, err := jsonv2.Marshal(signalEnvelope{Operation: operationWaitOpened, WaitOpened: &checkpoint.InputRequest}, jsonv2.Deterministic(true))

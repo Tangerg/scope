@@ -71,7 +71,7 @@ func TestProcessAdmitterReceivesRootAndChildResourceContracts(t *testing.T) {
 	if !childAdmission.Valid() || !hasParent || parentID != parent.ID() ||
 		childAdmission.Relation().Depth() != 1 ||
 		childAdmission.DeploymentRef() != childDeployment.DeploymentRef() ||
-		childAdmission.Budget() != (Budget{Steps: 20, Effects: 20, Signals: 40}) ||
+		childAdmission.Budget() != (Budget{Steps: NewQuota(20), Effects: NewQuota(20), Signals: NewQuota(40)}) ||
 		len(childAdmission.Capabilities().Values()) != 0 {
 		t.Fatalf("child admission = %#v", childAdmission)
 	}
@@ -242,7 +242,7 @@ func TestRestoreDoesNotReadmitPreviouslyAdmittedProcess(t *testing.T) {
 	var admissionCalls atomic.Uint32
 	var outcomeCalls atomic.Uint32
 	restoredEngine, err := NewEngine(EngineConfig{
-		Limits:     Limits{MaxSteps: 1},
+		Limits:     Limits{MaxSteps: NewQuota(1)},
 		TreeLimits: TreeLimits{MaxDepth: 1},
 		ProcessAdmitter: ProcessAdmitterFunc(func(context.Context, ProcessAdmission) error {
 			admissionCalls.Add(1)

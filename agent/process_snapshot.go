@@ -9,10 +9,6 @@ import (
 	"time"
 )
 
-const (
-	maxSnapshotBytes = 128 << 20
-)
-
 var ErrInvalidSnapshot = errors.New("agent: invalid process snapshot")
 
 // WaitKind identifies who may answer the current wait.
@@ -59,12 +55,12 @@ type ProcessSnapshot struct {
 // capability grant. Terminal prepared batches contain no pending attempt and
 // their unknown identities must exactly match the Termination.
 func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
-	if len(data) == 0 || len(data) > maxSnapshotBytes {
-		return ProcessSnapshot{}, fmt.Errorf("%w: JSON must contain at most %d bytes", ErrInvalidSnapshot, maxSnapshotBytes)
-	}
-	wire, err := decodeJSON[processSnapshotWire](data)
+	wire, err := decodeJSON[processSnapshotWire](data, "budget", "allocated_resources", "max_snapshot_bytes")
 	if err != nil {
 		return ProcessSnapshot{}, fmt.Errorf("%w: decode: %w", ErrInvalidSnapshot, err)
+	}
+	if !wire.MaxSnapshotBytes.Allows(uint64(len(data))) {
+		return ProcessSnapshot{}, fmt.Errorf("%w: snapshot byte quota exceeded", ErrInvalidSnapshot)
 	}
 	return processSnapshotFromWire(wire)
 }
@@ -83,8 +79,8 @@ func processSnapshotFromWire(wire processSnapshotWire) (ProcessSnapshot, error) 
 	if err != nil {
 		return ProcessSnapshot{}, fmt.Errorf("%w: encode: %w", ErrInvalidSnapshot, err)
 	}
-	if len(normalized) > maxSnapshotBytes {
-		return ProcessSnapshot{}, fmt.Errorf("%w: exceeds %d bytes", ErrInvalidSnapshot, maxSnapshotBytes)
+	if !wire.MaxSnapshotBytes.Allows(uint64(len(normalized))) {
+		return ProcessSnapshot{}, fmt.Errorf("%w: snapshot byte quota exceeded", ErrInvalidSnapshot)
 	}
 	return ProcessSnapshot{data: normalized, state: wire}, nil
 }
@@ -245,10 +241,11 @@ type processSnapshotWire struct {
 	FinishedAt              *time.Time          `json:"finished_at,omitempty"`
 	Status                  Status              `json:"status"`
 	CommittedSteps          uint64              `json:"committed_steps"`
+	MaxSnapshotBytes        Quota               `json:"max_snapshot_bytes"`
 	MaxPendingSignals       uint64              `json:"max_pending_signals"`
 	TreeLimits              TreeLimits          `json:"tree_limits"`
 	Budget                  Budget              `json:"budget"`
-	ReservedBudget          Budget              `json:"reserved_child_budget"`
+	AllocatedResources      resourceAmounts     `json:"allocated_resources"`
 	Capabilities            CapabilitySet       `json:"capabilities"`
 	Counters                processCounters     `json:"counters"`
 	CommittedExecutionState ExecutionState      `json:"committed_execution_state"`
@@ -307,9 +304,9 @@ func (p processSnapshotWire) clone() processSnapshotWire {
 func (p processSnapshotWire) validateContract() error {
 	if !p.ProcessID.Valid() || !p.DeploymentRef.Valid() || p.StartedAt.IsZero() ||
 		!p.Status.Valid() || !p.CommittedExecutionState.Valid() ||
-		p.MaxPendingSignals == 0 || p.MaxPendingSignals > p.Budget.Signals || !p.TreeLimits.Valid() || !p.Budget.Valid() ||
+		!p.Budget.limits(p.MaxPendingSignals, p.MaxSnapshotBytes).Valid() || !p.TreeLimits.Valid() ||
 		!p.Capabilities.Valid() ||
-		!p.Budget.contains(p.usage(), p.ReservedBudget) {
+		!p.Budget.contains(p.usage(), p.AllocatedResources) {
 		return fmt.Errorf("%w: incomplete Process identity or state", ErrInvalidSnapshot)
 	}
 	return nil
@@ -365,8 +362,8 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 	}
 	if !resourceQuantitiesFit(p.MaxPendingSignals, mailbox.pendingCount()) ||
 		!resourceQuantitiesFit(p.MaxPendingSignals, remainingPending, reserved) ||
-		!resourceQuantitiesFit(p.Budget.Signals, p.usage().AcceptedSignals, p.ReservedBudget.Signals, reserved) ||
-		!resourceQuantitiesFit(p.Budget.Steps, p.CommittedSteps, p.ReservedBudget.Steps, preparedSteps) {
+		!p.Budget.Signals.Allows(p.usage().AcceptedSignals, p.AllocatedResources.Signals, reserved) ||
+		!p.Budget.Steps.Allows(p.CommittedSteps, p.AllocatedResources.Steps, preparedSteps) {
 		return fmt.Errorf("%w: execution capacity exceeds limits or budget", ErrInvalidSnapshot)
 	}
 	return nil

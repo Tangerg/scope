@@ -32,14 +32,14 @@ type effectEnvelope struct {
 }
 
 type modelCall struct {
-	ModelCallSequence     uint32           `json:"model_call_sequence"`
+	ModelCallSequence     uint64           `json:"model_call_sequence"`
 	Request               chat.Request     `json:"request"`
 	AdvertisedToolNames   []string         `json:"advertised_tool_names,omitempty"`
 	AppliedSteerSignalIDs []agent.SignalID `json:"applied_steer_signal_ids,omitempty"`
 }
 
 type toolCall struct {
-	ModelCallSequence uint32        `json:"model_call_sequence"`
+	ModelCallSequence uint64        `json:"model_call_sequence"`
 	ToolCallIndex     uint32        `json:"tool_call_index"`
 	Call              chat.ToolCall `json:"call"`
 }
@@ -54,7 +54,7 @@ func (t toolCall) validate() error {
 	return nil
 }
 
-func (t toolCall) checkpointWaitKey(pauseCount uint32) (agent.WaitKey, error) {
+func (t toolCall) checkpointWaitKey(pauseCount uint64) (agent.WaitKey, error) {
 	hash := sha256.New()
 	hash.Write([]byte(strconv.FormatUint(uint64(t.ModelCallSequence), 10)))
 	hash.Write([]byte{0})
@@ -108,13 +108,13 @@ type toolDispatchResult struct {
 }
 
 type toolCheckpoint struct {
-	PauseCount   uint32           `json:"pause_count"`
+	PauseCount   uint64           `json:"pause_count"`
 	InputRequest toolInputRequest `json:"input_request"`
 }
 
 func newModelEffect(
 	request *chat.Request,
-	modelCallSequence uint32,
+	modelCallSequence uint64,
 	advertisedToolNames []string,
 	appliedSteerSignalIDs []agent.SignalID,
 ) (effectEnvelope, error) {
@@ -208,7 +208,7 @@ func (e effectEnvelope) validateToolCall() error {
 	if err := resume.Checkpoint.validate(); err != nil {
 		return err
 	}
-	if resume.Checkpoint.PauseCount == ^uint32(0) {
+	if resume.Checkpoint.PauseCount == ^uint64(0) {
 		return fmt.Errorf("%w: Tool input pause count is exhausted", ErrInvalidProtocol)
 	}
 	_, err := resume.Checkpoint.InputRequest.validateResponse(resume.InputResponse)

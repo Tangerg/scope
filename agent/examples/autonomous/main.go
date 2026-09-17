@@ -45,8 +45,8 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
 		Name:          "example.autonomous_calculator",
 		Description:   "Use available Tools until the requested calculation is complete.",
-		MaxModelCalls: calculatorFinalAnswerCall,
-		Tools:         toolSet, ToolBudget: agent.Budget{Steps: 8, Effects: 4, Signals: 8},
+		MaxModelCalls: agent.NewQuota(calculatorFinalAnswerCall),
+		Tools:         toolSet, ToolBudget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)},
 	})
 	if err != nil {
 		return err

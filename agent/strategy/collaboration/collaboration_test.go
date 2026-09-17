@@ -32,7 +32,7 @@ func transformed[I, O any](name string, transform func(context.Context, I) (O, e
 }
 
 func workerConfig(deployment agent.Deployment) WorkerConfig {
-	return WorkerConfig{Deployment: deployment, Budget: agent.Budget{Steps: 32, Effects: 16, Signals: 32}}
+	return WorkerConfig{Deployment: deployment, Budget: agent.Budget{Steps: agent.NewQuota(32), Effects: agent.NewQuota(16), Signals: agent.NewQuota(32)}}
 }
 
 func fixture(coordinator func(context.Context, Turn) (Decision, error), workers ...agent.Deployment) (*Definition, resolver) {
@@ -42,9 +42,9 @@ func fixture(coordinator func(context.Context, Turn) (Decision, error), workers 
 
 func fixtureConfig(coordinator func(context.Context, Turn) (Decision, error), workers ...agent.Deployment) (DefinitionConfig, resolver) {
 	decision := transformed("test.coordinator", coordinator)
-	config := DefinitionConfig{Name: "test.collaboration", Description: "Coordinate finite tasks.", Coordinator: workerConfig(decision),
+	config := DefinitionConfig{Name: "test.collaboration", Description: "Coordinate tasks.", Coordinator: workerConfig(decision),
 		StateSchema: require(agent.SchemaFor[string]()), OutputSchema: require(agent.SchemaFor[string]()),
-		MaxTurns: 8, MaxTasks: 8, MaxConcurrentTasks: 4, MaxControlsPerTurn: 4}
+		MaxConcurrentTasks: 4, MaxControlsPerTurn: 4}
 	deployments := resolver{decision.DeploymentRef(): decision}
 	for _, worker := range workers {
 		config.Workers = append(config.Workers, workerConfig(worker))

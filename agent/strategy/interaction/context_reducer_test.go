@@ -64,7 +64,7 @@ func TestDispatcherRejectsTypedNilModelContextReducer(t *testing.T) {
 	}
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
 		Name: "interaction.context-reducer.typed-nil", Description: "Reject a typed nil reducer.",
-		MaxModelCalls: 1,
+		MaxModelCalls: agent.NewQuota(1),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ func (s *secondCallContextReducer) ReduceModelContext(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls++
-	if invocation.ModelCallSequence() != uint32(s.calls) {
+	if invocation.ModelCallSequence() != uint64(s.calls) {
 		return nil, errors.New("reducer received the wrong model-call attribution")
 	}
 	if len(request.Tools) != 1 || request.Tools[0].Name != "echo" {
@@ -192,7 +192,7 @@ func runContextReductionInteraction(
 		t.Fatal(err)
 	}
 	deployment := configuredInteraction(t, interaction.DefinitionConfig{
-		Name: "interaction.context-reducer", Description: "Exercise model-context reduction.", MaxModelCalls: 3,
+		Name: "interaction.context-reducer", Description: "Exercise model-context reduction.", MaxModelCalls: agent.NewQuota(3),
 	}, interaction.DispatcherConfig{Model: client, ModelContextReducer: reducer}, interaction.ToolSetConfig{Tools: tools})
 	return runInteraction(t, deployment, "original context")
 }

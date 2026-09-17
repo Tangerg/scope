@@ -108,7 +108,7 @@ func isolatedSchedulingDefinition(t *testing.T) (*interaction.Definition, weak.P
 	tools := testToolSet(t, interaction.ToolSetConfig{Tools: []tool.Tool{executable}})
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
 		Name: "interaction.isolated", Description: "Retain pure scheduling policy only.",
-		MaxModelCalls: 2, Tools: tools, ToolBudget: agent.Budget{Steps: 8, Effects: 8, Signals: 8}, MaxConcurrentToolCalls: 2,
+		MaxModelCalls: agent.NewQuota(2), Tools: tools, ToolBudget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(8), Signals: agent.NewQuota(8)}, MaxConcurrentToolCalls: 2,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -284,7 +284,7 @@ func TestUndeclaredToolIsAnExclusiveBatchBarrier(t *testing.T) {
 
 func TestDefinitionRejectsNegativeToolConcurrencyLimit(t *testing.T) {
 	_, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: "interaction.invalid_concurrency", Description: "Reject an invalid Tool concurrency limit.", MaxModelCalls: 1, MaxConcurrentToolCalls: -1,
+		Name: "interaction.invalid_concurrency", Description: "Reject an invalid Tool concurrency limit.", MaxModelCalls: agent.NewQuota(1), MaxConcurrentToolCalls: -1,
 	})
 	if !errors.Is(err, interaction.ErrInvalidDefinitionConfig) {
 		t.Fatalf("error=%v", err)
@@ -420,7 +420,7 @@ func startConcurrentInteraction(
 		t.Fatal(err)
 	}
 	deployment := configuredInteraction(t, interaction.DefinitionConfig{
-		Name: "interaction.concurrent", Description: "Verify bounded Tool concurrency.", MaxModelCalls: 3, MaxConcurrentToolCalls: maxConcurrent,
+		Name: "interaction.concurrent", Description: "Verify bounded Tool concurrency.", MaxModelCalls: agent.NewQuota(3), MaxConcurrentToolCalls: maxConcurrent,
 	}, interaction.DispatcherConfig{Model: client}, interaction.ToolSetConfig{Tools: tools})
 	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
 	if err != nil {

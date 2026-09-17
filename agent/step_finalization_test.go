@@ -14,7 +14,7 @@ func TestImmediateChildCompletionLimitReportsExecutionFailure(t *testing.T) {
 		limits Limits
 	}{
 		{name: "pending mailbox", limits: Limits{MaxPendingSignals: 1}},
-		{name: "allocated child budget", limits: Limits{MaxSignals: 52, MaxPendingSignals: 52}},
+		{name: "allocated child budget", limits: Limits{MaxSignals: NewQuota(52), MaxPendingSignals: 52}},
 	} {
 		for _, durable := range []bool{false, true} {
 			mode := "ephemeral"

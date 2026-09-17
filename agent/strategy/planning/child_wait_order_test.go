@@ -68,7 +68,7 @@ func TestPlanningAlreadyCompletedChild(t *testing.T) {
 	}
 	done := mustCondition(t, "world.done", planning.True)
 	action := mustAction(t, planning.ActionConfig{Name: "action.delegate", Description: "Run a child.", Effects: []planning.Condition{done}})
-	budget := agent.Budget{Steps: 10, Effects: 10, Signals: 10}
+	budget := agent.Budget{Steps: agent.NewQuota(10), Effects: agent.NewQuota(10), Signals: agent.NewQuota(10)}
 	binding, err := planning.NewChildBinding(planning.ChildBindingConfig{Action: action, DeploymentRef: child.DeploymentRef(), Budget: budget})
 	if err != nil {
 		t.Fatal(err)

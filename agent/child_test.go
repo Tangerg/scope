@@ -205,7 +205,7 @@ func rejectForgedChildCompletion(t *testing.T, root *Process) {
 func TestEngineSupportsBoundedSameDefinitionRecursion(t *testing.T) {
 	deployment := newChildTestDeployment(t)
 	engine, err := NewEngine(EngineConfig{TreeLimits: TreeLimits{
-		MaxDepth: 3, MaxChildren: 2, MaxActiveChildren: 2, MaxTreeProcesses: 4,
+		MaxDepth: 3, MaxChildren: NewQuota(2), MaxActiveChildren: 2, MaxTreeProcesses: NewQuota(4),
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -252,7 +252,7 @@ func TestEngineEnforcesChildDepthFanoutActiveAndTreeLimits(t *testing.T) {
 
 func testChildDepthLimit(t *testing.T) {
 	engine, err := NewEngine(EngineConfig{TreeLimits: TreeLimits{
-		MaxDepth: 1, MaxChildren: 2, MaxActiveChildren: 2, MaxTreeProcesses: 3,
+		MaxDepth: 1, MaxChildren: NewQuota(2), MaxActiveChildren: 2, MaxTreeProcesses: NewQuota(3),
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -274,7 +274,7 @@ func testChildDepthLimit(t *testing.T) {
 
 func testChildLifetimeFanoutLimit(t *testing.T) {
 	engine, err := NewEngine(EngineConfig{TreeLimits: TreeLimits{
-		MaxDepth: 2, MaxChildren: 2, MaxActiveChildren: 2, MaxTreeProcesses: 4,
+		MaxDepth: 2, MaxChildren: NewQuota(2), MaxActiveChildren: 2, MaxTreeProcesses: NewQuota(4),
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -296,7 +296,7 @@ func testActiveChildLimit(t *testing.T) {
 	dispatcher := newBlockingChildDispatcher("first", "second", "third")
 	t.Cleanup(dispatcher.ReleaseAll)
 	engine, err := NewEngine(EngineConfig{TreeLimits: TreeLimits{
-		MaxDepth: 2, MaxChildren: 3, MaxActiveChildren: 1, MaxTreeProcesses: 4,
+		MaxDepth: 2, MaxChildren: NewQuota(3), MaxActiveChildren: 1, MaxTreeProcesses: NewQuota(4),
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -324,7 +324,7 @@ func testActiveChildLimit(t *testing.T) {
 
 func testTreeProcessLimit(t *testing.T) {
 	engine, err := NewEngine(EngineConfig{TreeLimits: TreeLimits{
-		MaxDepth: 2, MaxChildren: 3, MaxActiveChildren: 3, MaxTreeProcesses: 2,
+		MaxDepth: 2, MaxChildren: NewQuota(3), MaxActiveChildren: 3, MaxTreeProcesses: NewQuota(2),
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -345,14 +345,14 @@ func testTreeProcessLimit(t *testing.T) {
 func TestTreeProcessLimitBoundsRecursiveBinaryExpansion(t *testing.T) {
 	deployment := newChildTestDeployment(t)
 	limits := DefaultLimits()
-	limits.MaxSteps = 100_000
-	limits.MaxEffects = 100_000
-	limits.MaxSignals = 100_000
+	limits.MaxSteps = NewQuota(100_000)
+	limits.MaxEffects = NewQuota(100_000)
+	limits.MaxSignals = NewQuota(100_000)
 	limits.MaxPendingSignals = 100_000
 	engine, err := NewEngine(EngineConfig{
 		Limits: limits,
 		TreeLimits: TreeLimits{
-			MaxDepth: 8, MaxChildren: 2, MaxActiveChildren: 2, MaxTreeProcesses: 15,
+			MaxDepth: 8, MaxChildren: NewQuota(2), MaxActiveChildren: 2, MaxTreeProcesses: NewQuota(15),
 		},
 	})
 	if err != nil {
@@ -390,7 +390,7 @@ func TestEngineAttenuatesChildBudgetAndCapabilities(t *testing.T) {
 	deployment := newChildTestDeployment(t)
 
 	t.Run("subset", func(t *testing.T) {
-		engine, err := NewEngine(EngineConfig{Capabilities: rootCapabilities})
+		engine, err := NewEngine(EngineConfig{Capabilities: rootCapabilities, Limits: Limits{MaxSteps: NewQuota(100), MaxEffects: NewQuota(100), MaxSignals: NewQuota(1000)}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -402,7 +402,7 @@ func TestEngineAttenuatesChildBudgetAndCapabilities(t *testing.T) {
 		output := childTestResult(t, mustAwait(t, root))
 		childID, _ := ParseProcessID(output.ChildIDs[0])
 		child, _ := engine.Process(childID)
-		if !child.Capabilities().Contains(read) || child.Budget() != (Budget{Steps: 20, Effects: 20, Signals: 40}) {
+		if !child.Capabilities().Contains(read) || child.Budget() != (Budget{Steps: NewQuota(20), Effects: NewQuota(20), Signals: NewQuota(40)}) {
 			t.Fatalf("child capabilities = %#v, budget = %#v", child.Capabilities(), child.Budget())
 		}
 		_ = mustAwait(t, child)
@@ -420,7 +420,7 @@ func TestEngineAttenuatesChildBudgetAndCapabilities(t *testing.T) {
 		{name: "budget escalation", mode: "budget_escalation", code: "engine.child.budget_exhausted"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			engine, err := NewEngine(EngineConfig{Capabilities: rootCapabilities})
+			engine, err := NewEngine(EngineConfig{Capabilities: rootCapabilities, Limits: Limits{MaxSteps: NewQuota(100), MaxEffects: NewQuota(100), MaxSignals: NewQuota(1000)}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -875,7 +875,7 @@ func (c *childTestExecution) startBinaryChildren() (Transition, error) {
 		childInput, _ := EncodePayload(childTestInput{Mode: fmt.Sprintf("binary:%d", depth-1)})
 		key, _ := ParseChildKey(name)
 		spec := childTestSpec(key, c.reference, childInput)
-		spec.Budget = Budget{Steps: units, Effects: units, Signals: units}
+		spec.Budget = Budget{Steps: NewQuota(units), Effects: NewQuota(units), Signals: NewQuota(units)}
 		effect, err := NewChildStartEffect(spec)
 		if err != nil {
 			return Transition{}, err
@@ -931,11 +931,11 @@ func (c *childTestExecution) startSingleChild() (Transition, error) {
 
 func (c *childTestExecution) configureSingleChild(spec *ChildSpec, recursiveDepth int) {
 	if c.state.Mode == "nested_wait" {
-		spec.Budget = Budget{Steps: 5, Effects: 5, Signals: 5}
+		spec.Budget = Budget{Steps: NewQuota(5), Effects: NewQuota(5), Signals: NewQuota(5)}
 	}
 	if recursiveDepth > 0 {
 		units := uint64(recursiveDepth * 50)
-		spec.Budget = Budget{Steps: units, Effects: units, Signals: units}
+		spec.Budget = Budget{Steps: NewQuota(units), Effects: NewQuota(units), Signals: NewQuota(units)}
 	}
 	switch c.state.Mode {
 	case "capability_child":
@@ -945,7 +945,7 @@ func (c *childTestExecution) configureSingleChild(spec *ChildSpec, recursiveDept
 		capability, _ := ParseCapability("resource.write")
 		spec.Capabilities, _ = NewCapabilitySet(capability)
 	case "budget_escalation":
-		spec.Budget = Budget{Steps: 20_000, Effects: 20_000, Signals: 20_000}
+		spec.Budget = Budget{Steps: NewQuota(20_000), Effects: NewQuota(20_000), Signals: NewQuota(20_000)}
 	}
 }
 
@@ -1102,7 +1102,7 @@ func (c *childTestExecution) completeChildren(signals []Signal, consumedSignals 
 }
 
 func childTestSpec(key ChildKey, deployment DeploymentRef, input Payload) ChildSpec {
-	budget := Budget{Steps: 20, Effects: 20, Signals: 40}
+	budget := Budget{Steps: NewQuota(20), Effects: NewQuota(20), Signals: NewQuota(40)}
 	return ChildSpec{
 		Key: key, DeploymentRef: deployment, Input: input, Budget: budget,
 		Capabilities: CapabilitySet{},

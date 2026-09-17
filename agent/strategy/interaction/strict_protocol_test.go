@@ -33,7 +33,7 @@ func TestParseModelResponseDeltaRejectsUnknownCoreMembers(t *testing.T) {
 
 func TestDefinitionRestoreRejectsUnknownCoreMembers(t *testing.T) {
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: "strict.restore", Description: "Restore current protocol values", MaxModelCalls: 1,
+		Name: "strict.restore", Description: "Restore current protocol values", MaxModelCalls: agent.NewQuota(1),
 	})
 	if err != nil {
 		t.Fatal(err)

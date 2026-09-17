@@ -48,7 +48,7 @@ type Delegate struct {
 // invoke: routing is a host decision, and a model-selected Deployment would be
 // an unbounded authority grant.
 func NewDelegate(config DelegateConfig) (Delegate, error) {
-	if !config.Deployment.Valid() || !config.Budget.Valid() || !config.Capabilities.Valid() ||
+	if !config.Deployment.Valid() || !config.Capabilities.Valid() ||
 		config.Description == "" || strings.TrimSpace(config.Description) != config.Description ||
 		len(config.Description) > maxDelegateDescriptionBytes {
 		return Delegate{}, ErrInvalidDelegate
@@ -73,7 +73,7 @@ func (d Delegate) Valid() bool {
 		strings.TrimSpace(d.definition.Description) == d.definition.Description &&
 		len(d.definition.Description) <= maxDelegateDescriptionBytes &&
 		d.deploymentRef.Valid() && d.inputSchema.Valid() && d.outputSchema.Valid() &&
-		d.budget.Valid() && d.capabilities.Valid()
+		d.capabilities.Valid()
 }
 
 func (d Delegate) validateInput(input agent.Payload) error {

@@ -102,7 +102,7 @@ func (s *safetyTimer) Dispatch(ctx context.Context, request agent.EffectRequest,
 
 func safetyChild[I, O any](output O) (agent.Deployment, safetyResolver) {
 	timer := safetyBinding(safetyValue(coordination.NewDeadline(coordination.DeadlineConfig{Name: "safety.timer", Description: "A controlled competition candidate."})), &safetyTimer{entered: make(chan struct{})})
-	budget := agent.Budget{Steps: 16, Effects: 16, Signals: 16}
+	budget := agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(16), Signals: agent.NewQuota(16)}
 	candidates := []agent.ChildSpec{}
 	for _, key := range []string{"winner", "loser"} {
 		candidates = append(candidates, agent.ChildSpec{Key: safetyValue(agent.ParseChildKey(key)), DeploymentRef: timer.DeploymentRef(), Input: safetyValue(agent.EncodePayload(time.Unix(1, 0).UTC())), Budget: budget})
@@ -167,7 +167,7 @@ func TestWorkflowRejectsUnresolvedFirstSuccessSubtrees(t *testing.T) {
 	for _, kind := range []string{"call", "switch", "loop", "fork", "map"} {
 		t.Run(kind, func(t *testing.T) {
 			child, resolver := safetyChild[string]("winner")
-			budget := agent.Budget{Steps: 128, Effects: 128, Signals: 128}
+			budget := agent.Budget{Steps: agent.NewQuota(128), Effects: agent.NewQuota(128), Signals: agent.NewQuota(128)}
 			var stage, after workflow.Stage
 			input := safetyValue(agent.EncodePayload("work"))
 			failAfter := func(context.Context, string) (string, error) { return "", errors.New("next stage ran") }
@@ -178,7 +178,7 @@ func TestWorkflowRejectsUnresolvedFirstSuccessSubtrees(t *testing.T) {
 			case "switch":
 				stage = safetyValue(workflow.Switch(workflow.SwitchConfig[string]{ID: kind, Select: func(context.Context, string) (string, error) { return "chosen", nil }, Cases: []workflow.SwitchCase{{ID: "chosen", Deployment: child, Budget: budget}}}))
 			case "loop":
-				stage = safetyValue(workflow.Loop(workflow.LoopConfig[string]{ID: kind, Body: child, Budget: budget, MaxIterations: 2, Predicate: func(context.Context, string) (bool, error) { t.Error("loop adopted unsafe output"); return false, nil }}))
+				stage = safetyValue(workflow.Loop(workflow.LoopConfig[string]{ID: kind, Body: child, Budget: budget, MaxIterations: agent.NewQuota(2), Predicate: func(context.Context, string) (bool, error) { t.Error("loop adopted unsafe output"); return false, nil }}))
 				after = safetyValue(workflow.Transform("after", func(context.Context, workflow.LoopResult[string]) (string, error) {
 					return "", errors.New("next stage ran")
 				}))
@@ -208,7 +208,7 @@ func TestCollaborationRejectsUnresolvedCoordinatorDecision(t *testing.T) {
 			}
 			child, resolver := safetyChild[collaboration.Turn](decision)
 			resolver[worker.DeploymentRef()] = worker
-			definition := safetyValue(collaboration.NewDefinition(collaboration.DefinitionConfig{Name: "safety.collaboration", Description: "Reject unsafe coordinator decisions.", Coordinator: collaboration.WorkerConfig{Deployment: child, Budget: agent.Budget{Steps: 128, Effects: 128, Signals: 128}}, Workers: []collaboration.WorkerConfig{{Deployment: worker, Budget: agent.Budget{Steps: 16, Effects: 16, Signals: 16}}}, StateSchema: safetyValue(agent.SchemaFor[string]()), OutputSchema: safetyValue(agent.SchemaFor[string]()), MaxTurns: 2, MaxTasks: 2, MaxConcurrentTasks: 2, MaxControlsPerTurn: 2}))
+			definition := safetyValue(collaboration.NewDefinition(collaboration.DefinitionConfig{Name: "safety.collaboration", Description: "Reject unsafe coordinator decisions.", Coordinator: collaboration.WorkerConfig{Deployment: child, Budget: agent.Budget{Steps: agent.NewQuota(128), Effects: agent.NewQuota(128), Signals: agent.NewQuota(128)}}, Workers: []collaboration.WorkerConfig{{Deployment: worker, Budget: agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(16), Signals: agent.NewQuota(16)}}}, StateSchema: safetyValue(agent.SchemaFor[string]()), OutputSchema: safetyValue(agent.SchemaFor[string]()), MaxTurns: agent.NewQuota(2), MaxTasks: agent.NewQuota(2), MaxConcurrentTasks: 2, MaxControlsPerTurn: 2}))
 			state := assertSafetyFailure(t, safetyBinding(definition, nil), resolver, safetyValue(agent.EncodePayload("initial")), "coordinator.unresolved_effects")
 			var wire map[string]json.RawMessage
 			if err := json.Unmarshal(state.Payload(), &wire); err != nil {

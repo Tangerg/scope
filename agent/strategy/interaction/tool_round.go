@@ -85,7 +85,7 @@ func (t *toolCallRound) reject(call chat.ToolCall, diagnostic string) {
 	t.Results = append(t.Results, toolCallResult{Result: rejectedToolResult(call, diagnostic), Rejected: true})
 }
 
-func (t *toolCallRound) publication(ctx context.Context, sequence uint32) (resultCommit, error) {
+func (t *toolCallRound) publication(ctx context.Context, sequence uint64) (resultCommit, error) {
 	if t == nil || t.ChildBatch != nil || t.Response == nil || t.Response.Output == nil {
 		return resultCommit{}, ErrInvalidExecutionState
 	}

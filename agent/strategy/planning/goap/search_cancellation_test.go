@@ -7,8 +7,44 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/planning"
 )
+
+func TestUnlimitedSearchCountersStopBeforeWrap(t *testing.T) {
+	done, err := planning.NewCondition("world.done", planning.True)
+	if err != nil {
+		t.Fatal(err)
+	}
+	action, err := planning.NewAction(planning.ActionConfig{Name: "action.finish", Description: "Finish.", Effects: []planning.Condition{done}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	goal, err := planning.NewGoal(planning.GoalConfig{Name: "goal.done", Description: "Finish.", Conditions: []planning.Condition{done}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	problem, err := planning.NewProblem(planning.WorldState{}, goal, action)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"expansions", "generated nodes"} {
+		t.Run(name, func(t *testing.T) {
+			search := newSearch(problem, agent.Quota{}, agent.Quota{})
+			if name == "expansions" {
+				search.expansions = ^uint64(0)
+			} else {
+				search.nextOrder = ^uint64(0)
+			}
+			if _, found, runErr := search.run(t.Context()); found || !errors.Is(runErr, agent.ErrCounterExhausted) {
+				t.Fatalf("overflow admitted search work: %v", runErr)
+			}
+			if search.expansions == 0 || search.nextOrder == 0 || len(search.predecessors) != 0 {
+				t.Fatal("overflow wrapped or installed a replacement search identity")
+			}
+		})
+	}
+}
 
 func TestGoalProducerScanObservesCancellationInsideEffects(t *testing.T) {
 	var effects []planning.Condition
@@ -34,7 +70,7 @@ func TestGoalProducerScanObservesCancellationInsideEffects(t *testing.T) {
 	if _, found, planErr := New(Config{}).Plan(cancellationAfterChecks(t, 8), problem); !errors.Is(planErr, context.Canceled) || found {
 		t.Fatalf("Planner lost preflight cancellation: found=%t error=%v", found, planErr)
 	}
-	search := newSearch(problem, 1, 1)
+	search := newSearch(problem, agent.NewQuota(1), agent.NewQuota(1))
 	if produced, err := search.hasGoalProducers(cancellationAfterChecks(t, 8)); !errors.Is(err, context.Canceled) || produced {
 		t.Fatalf("producer scan ignored cancellation: produced=%t error=%v", produced, err)
 	}

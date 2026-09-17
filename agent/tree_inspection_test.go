@@ -191,7 +191,7 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 				assertNoPendingProcessStarts(t, engine)
 				runtime := root.handle.runtime.Load()
 				parent := runtime.processes[root.ID()]
-				if parent.effectiveReservedBudget() != (Budget{}) || len(runtime.processes) != 1 {
+				if parent.effectiveAllocations() != (resourceAmounts{}) || len(runtime.processes) != 1 {
 					t.Fatal("rejected child checkpoint retained child budget or prospective Process")
 				}
 			}
