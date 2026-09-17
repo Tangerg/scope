@@ -2,10 +2,10 @@ package planning
 
 import (
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 // Condition is one immutable known truth requirement or prediction. Unknown is
@@ -47,8 +47,8 @@ func (c *Condition) UnmarshalJSON(data []byte) error {
 	if c == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidCondition)
 	}
-	var wire conditionWire
-	if err := jsonv2.Unmarshal(data, &wire, jsonv2.RejectUnknownMembers(true)); err != nil {
+	wire, err := jsonwire.Decode[conditionWire](data)
+	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidCondition, err)
 	}
 	value, err := NewCondition(wire.Key, wire.Truth)

@@ -7,6 +7,9 @@ import (
 	"github.com/Tangerg/scope/agent"
 )
 
+// ErrInvalidBatch identifies invalid child identity or wait structure, independently of handshake phase.
+var ErrInvalidBatch = errors.New("childcall: invalid batch")
+
 // Child is a projection of one Strategy-owned invocation. Done means that the
 // Strategy has handled its outcome or rejected it without a Process. Deployment
 // is required only while awaiting a start; completed entries still retain their
@@ -54,23 +57,23 @@ func (b Batch) Validate() error {
 	processes := make(map[agent.ProcessID]struct{}, len(b.Children))
 	for _, child := range b.Children {
 		if (!child.Done || child.ProcessID.Valid()) && !child.Key.Valid() {
-			return errors.New("childcall: active child has no key")
+			return fmt.Errorf("%w: active child has no key", ErrInvalidBatch)
 		}
 		if child.Key.Valid() {
 			if _, duplicate := keys[child.Key]; duplicate {
-				return errors.New("childcall: duplicate child key")
+				return fmt.Errorf("%w: duplicate child key", ErrInvalidBatch)
 			}
 			keys[child.Key] = struct{}{}
 		}
 		if child.ProcessID.Valid() {
 			if _, duplicate := processes[child.ProcessID]; duplicate {
-				return errors.New("childcall: duplicate child Process")
+				return fmt.Errorf("%w: duplicate child Process", ErrInvalidBatch)
 			}
 			processes[child.ProcessID] = struct{}{}
 		}
 	}
 	if b.WaitID.Valid() && b.Phase() == AwaitingStart {
-		return errors.New("childcall: open wait precedes child admission")
+		return fmt.Errorf("%w: open wait precedes child admission", ErrInvalidBatch)
 	}
 	return nil
 }

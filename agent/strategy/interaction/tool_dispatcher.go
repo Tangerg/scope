@@ -138,7 +138,7 @@ func (t *toolDispatcher) callTool(
 			result = chat.ToolResult{}
 			advertisedToolNames = nil
 			required = nil
-			err = fmt.Errorf("tool panicked: %v", recovered)
+			err = &agent.CallbackPanicError{Operation: "Tool.Call", Value: recovered}
 		}
 	}()
 	output, err := binding.binding.Call(ctx, prepared.invocation)
@@ -197,7 +197,7 @@ func directResultCapability(executable tool.Tool) (direct bool, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			direct = false
-			err = fmt.Errorf("direct-result capability panicked: %v", recovered)
+			err = &agent.CallbackPanicError{Operation: "DirectResultTool.ReturnsDirectResult", Value: recovered}
 		}
 	}()
 	capability, found, err := tool.Capability[DirectResultTool](executable)
@@ -214,7 +214,7 @@ func concurrentToolCapability(executable tool.Tool) (declared func(tool.Invocati
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			declared = nil
-			err = fmt.Errorf("concurrency policy declaration panicked: %v", recovered)
+			err = &agent.CallbackPanicError{Operation: "ConcurrentTool.ConcurrencyPolicy", Value: recovered}
 		}
 	}()
 	capability, found, err := tool.Capability[ConcurrentTool](executable)

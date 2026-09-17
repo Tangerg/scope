@@ -20,11 +20,11 @@ func TestChildAllocationPreservesPreparedParentWork(t *testing.T) {
 			limits       Limits
 			wantChildren int
 		}{
-			{name: "steps reserved", limits: Limits{MaxSteps: NewQuota(20)}},
-			{name: "effects charged", limits: Limits{MaxEffects: NewQuota(20)}},
-			{name: "signals reserved", limits: Limits{MaxSignals: NewQuota(40), MaxPendingSignals: 40}},
+			{name: "steps reserved", limits: Limits{Budget: Budget{Steps: NewQuota(20)}}},
+			{name: "effects charged", limits: Limits{Budget: Budget{Effects: NewQuota(20)}}},
+			{name: "signals reserved", limits: Limits{MaxPendingSignals: 40, Budget: Budget{Signals: NewQuota(40)}}},
 			{
-				name: "exact fit", limits: Limits{MaxSteps: NewQuota(22), MaxEffects: NewQuota(21), MaxSignals: NewQuota(41), MaxPendingSignals: 41},
+				name: "exact fit", limits: Limits{MaxPendingSignals: 41, Budget: Budget{Steps: NewQuota(22), Effects: NewQuota(21), Signals: NewQuota(41)}},
 				wantChildren: 1,
 			},
 		} {
@@ -77,7 +77,7 @@ func TestSnapshotRejectsChildBudgetThatConsumesPreparedStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire.AllocatedResources.Steps = wire.Budget.Steps.maximum - wire.CommittedSteps
+	wire.AllocatedResources.Steps = wire.Limits.Budget.Steps.maximum - wire.CommittedSteps
 	data, err := json.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
@@ -151,7 +151,7 @@ func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *tes
 	if runtime.canStartChild(first) || !runtime.canStartChild(second) {
 		t.Fatal("in-flight start did not retain its parent's active-child slot")
 	}
-	handle := newProcessHandle(relation, first.deployment.DeploymentRef(), first.budget, first.capabilities, first.treeLimits, root.startedAt)
+	handle := newProcessHandle(relation, first.deployment.DeploymentRef(), first.limits.Budget, first.capabilities, first.treeLimits, root.startedAt)
 	child := newProcessState(handle, first.deployment, first.execution, first.committedExecutionState, root.startedAt, runtime.engine.limits)
 	runtime.addProcess(child)
 	if !runtime.canStartChild(second) {

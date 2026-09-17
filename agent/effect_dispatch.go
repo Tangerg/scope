@@ -17,7 +17,7 @@ func dispatcherReplayPolicy(
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			policy = ReplayPolicyInvalid
-			err = fmt.Errorf("%w: panic: %v", errInvalidReplayPolicy, recovered)
+			err = fmt.Errorf("%w: %w", errInvalidReplayPolicy, &CallbackPanicError{Operation: "Dispatcher.ReplayPolicy", Value: recovered})
 		}
 	}()
 	policy = dispatcher.ReplayPolicy(effect)
@@ -36,16 +36,10 @@ func dispatchEffect(
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			settlement = Settlement{}
-			err = dispatcherPanicError{value: recovered}
+			err = &CallbackPanicError{Operation: "Dispatcher.Dispatch", Value: recovered}
 		}
 	}()
 	return dispatcher.Dispatch(ctx, request, emit)
-}
-
-type dispatcherPanicError struct{ value any }
-
-func (d dispatcherPanicError) Error() string {
-	return fmt.Sprintf("dispatcher panicked: %v", d.value)
 }
 
 // Diagnostics cross persistence and observation boundaries; arbitrary error
@@ -54,7 +48,7 @@ func dispatchFailure(err error) Failure {
 	if err == nil {
 		return Failure{}
 	}
-	if _, panicked := errors.AsType[dispatcherPanicError](err); panicked {
+	if _, panicked := errors.AsType[*CallbackPanicError](err); panicked {
 		return newEngineFailure(FailureKindPanic, failureCodeEngineDispatchPanicked, errors.New("Dispatcher panicked without a definite outcome"))
 	}
 	switch {

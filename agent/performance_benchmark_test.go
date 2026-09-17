@@ -64,9 +64,9 @@ func benchmarkCompletedTree(b *testing.B, sample treeSnapshotBenchmarkCase) Tree
 	b.Helper()
 	deployment := newChildTestDeployment(b)
 	limits := DefaultLimits()
-	limits.MaxSteps = NewQuota(100_000)
-	limits.MaxEffects = NewQuota(100_000)
-	limits.MaxSignals = NewQuota(100_000)
+	limits.Budget.Steps = NewQuota(100_000)
+	limits.Budget.Effects = NewQuota(100_000)
+	limits.Budget.Signals = NewQuota(100_000)
 	limits.MaxPendingSignals = 100_000
 	engine, err := NewEngine(EngineConfig{
 		Limits: limits,

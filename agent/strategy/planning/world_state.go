@@ -2,10 +2,11 @@ package planning
 
 import (
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 // WorldState is an immutable, canonical observation of known condition truths.
@@ -135,8 +136,8 @@ func (w *WorldState) UnmarshalJSON(data []byte) error {
 	if w == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidWorldState)
 	}
-	var wire worldStateWire
-	if err := jsonv2.Unmarshal(data, &wire, jsonv2.RejectUnknownMembers(true)); err != nil {
+	wire, err := jsonwire.Decode[worldStateWire](data)
+	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidWorldState, err)
 	}
 	value, err := NewWorldState(wire.Conditions...)

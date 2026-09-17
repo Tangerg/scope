@@ -57,7 +57,7 @@ func BenchmarkTreeDurabilityFailure(b *testing.B) {
 func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 	t.Helper()
 	engine, err := NewEngine(EngineConfig{
-		Limits:     Limits{MaxSteps: NewQuota(uint64(count)*10 + 100), MaxEffects: NewQuota(uint64(count)*10 + 100), MaxSignals: NewQuota(uint64(count)*10 + 100), MaxPendingSignals: 1000},
+		Limits:     Limits{MaxPendingSignals: 1000, Budget: Budget{Steps: NewQuota(uint64(count)*10 + 100), Effects: NewQuota(uint64(count)*10 + 100), Signals: NewQuota(uint64(count)*10 + 100)}},
 		TreeLimits: TreeLimits{MaxDepth: 1, MaxChildren: NewQuota(uint64(count)), MaxActiveChildren: uint32(count), MaxTreeProcesses: NewQuota(uint64(count))},
 	})
 	if err != nil {
@@ -79,7 +79,7 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 	}
 	rootID := newProcessID()
 	now := time.Now().Round(0).UTC()
-	handle := newProcessHandle(rootProcessRelation(rootID), deployment.DeploymentRef(), engine.limits.budget(), engine.capabilities, engine.treeLimits, now)
+	handle := newProcessHandle(rootProcessRelation(rootID), deployment.DeploymentRef(), engine.limits.Budget, engine.capabilities, engine.treeLimits, now)
 	root := newProcessState(handle, deployment, execution, state, now, engine.limits)
 	processes := []*processState{root}
 	for index := 1; index < count; index++ {
@@ -89,7 +89,8 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 			t.Fatal(err)
 		}
 		budget := Budget{Steps: NewQuota(10), Effects: NewQuota(10), Signals: NewQuota(10)}
-		limits := budget.limits(engine.limits.MaxPendingSignals, engine.limits.MaxSnapshotBytes)
+		limits := engine.limits
+		limits.Budget = budget
 		handle := newProcessHandle(childProcessRelation(id, root.handle.relation, key), deployment.DeploymentRef(), budget, engine.capabilities, engine.treeLimits, now)
 		handle.childRequestDigest = ComputeDigest([]byte(key.String()))
 		child := newProcessState(handle, deployment, execution, state, now, limits)
@@ -113,7 +114,7 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 			t.Fatal(err)
 		}
 		child.status, child.currentWaitID = StatusWaiting, waitID
-		debit, ok := root.budget.allocation(budget)
+		debit, ok := root.limits.Budget.allocation(budget)
 		if !ok {
 			t.Fatal("invalid allocation")
 		}

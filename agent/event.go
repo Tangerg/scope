@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 const maxEventBytes = 1 << 20
@@ -331,7 +333,7 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	if e == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidEvent)
 	}
-	wire, err := decodeJSON[eventWire](data)
+	wire, err := jsonwire.Decode[eventWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidEvent, err)
 	}
@@ -432,7 +434,7 @@ func (e eventFact) validateEmpty(wantPhase EventPhase, scope eventIdentityScope)
 	if err := e.validateIdentity(wantPhase, scope); err != nil {
 		return err
 	}
-	_, err := decodeJSON[struct{}](e.payload)
+	_, err := jsonwire.Decode[struct{}](e.payload)
 	return err
 }
 

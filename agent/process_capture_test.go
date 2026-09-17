@@ -175,7 +175,7 @@ func TestRepeatedCaptureTracksEffectSettlement(t *testing.T) {
 
 func TestChildBudgetUnderflowFailsBeforeMutation(t *testing.T) {
 	original := resourceAmounts{Steps: 3, Effects: 2, Signals: 1}
-	process := &processState{allocatedResources: original, budget: Budget{Steps: NewQuota(10), Effects: NewQuota(10), Signals: NewQuota(10)}}
+	process := &processState{allocatedResources: original, limits: Limits{Budget: Budget{Steps: NewQuota(10), Effects: NewQuota(10), Signals: NewQuota(10)}}}
 	defer func() {
 		if recover() == nil {
 			t.Fatal("budget underflow was silently accepted")

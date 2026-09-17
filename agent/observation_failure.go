@@ -2,13 +2,8 @@ package agent
 
 import (
 	"fmt"
-	"runtime"
-	"strings"
-)
 
-const (
-	maxListenerPanicMessageBytes = 4 << 10
-	maxListenerPanicStackBytes   = 64 << 10
+	"github.com/Tangerg/scope/agent/internal/panicinfo"
 )
 
 // ListenerPanic identifies one isolated listener failure. The
@@ -60,16 +55,9 @@ func (o ObservationFailures) LastDeltaPanic() (ListenerPanic, bool) {
 }
 
 func captureListenerPanic(index int, listener any, processID ProcessID, value any) *ListenerPanic {
-	message := fmt.Sprint(value)
-	if len(message) > maxListenerPanicMessageBytes {
-		// Clone the retained prefix so a large panic value cannot keep its full
-		// backing allocation alive through the diagnostic snapshot.
-		message = strings.Clone(message[:maxListenerPanicMessageBytes])
-	}
-	stack := make([]byte, maxListenerPanicStackBytes)
-	size := runtime.Stack(stack, false)
+	message, stack := panicinfo.Capture(value)
 	return &ListenerPanic{
 		ListenerIndex: index, ListenerType: fmt.Sprintf("%T", listener),
-		ProcessID: processID, Message: message, Stack: string(stack[:size]),
+		ProcessID: processID, Message: message, Stack: stack,
 	}
 }

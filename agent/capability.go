@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 var ErrInvalidCapability = errors.New("agent: invalid capability")
@@ -121,7 +123,7 @@ func (c *CapabilitySet) UnmarshalJSON(data []byte) error {
 	if c == nil {
 		return ErrInvalidCapability
 	}
-	values, err := decodeJSON[[]Capability](data)
+	values, err := jsonwire.Decode[[]Capability](data)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidCapability, err)
 	}

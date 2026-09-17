@@ -176,7 +176,7 @@ func TestPendingFailureRetainsUnknownExternalEffect(t *testing.T) {
 
 func newChildCompletionTestProcess(t *testing.T) (*treeRuntime, *processState) {
 	t.Helper()
-	engine, err := NewEngine(EngineConfig{Limits: Limits{MaxSteps: NewQuota(10000), MaxEffects: NewQuota(10000), MaxSignals: NewQuota(100000)}})
+	engine, err := NewEngine(EngineConfig{Limits: Limits{Budget: Budget{Steps: NewQuota(10000), Effects: NewQuota(10000), Signals: NewQuota(100000)}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func newChildCompletionTestProcess(t *testing.T) (*treeRuntime, *processState) {
 	now := time.Now().Round(0).UTC()
 	parentID := newProcessID()
 	handle := newProcessHandle(rootProcessRelation(parentID), deployment.DeploymentRef(),
-		engine.limits.budget(), engine.capabilities, engine.treeLimits, now)
+		engine.limits.Budget, engine.capabilities, engine.treeLimits, now)
 	parent := newProcessState(handle, deployment, execution, state, now, engine.limits)
 	runtime := newTreeRuntime(engine, parentID, t.Context(), parent)
 	return runtime, parent

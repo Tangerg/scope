@@ -26,7 +26,7 @@ func TestMailboxCapacityFitsTransitionConsumption(t *testing.T) {
 		t.Fatalf("unrepresentable mailbox capacity accepted: %v", err)
 	}
 	wire := controlValue(preparedEngineTestSnapshot(t).wire())
-	wire.MaxPendingSignals = uint64(^uint32(0)) + 1
+	wire.Limits.MaxPendingSignals = uint64(^uint32(0)) + 1
 	if _, err := processSnapshotFromWire(wire); !errors.Is(err, ErrInvalidSnapshot) {
 		t.Fatalf("unrepresentable restored capacity accepted: %v", err)
 	}
@@ -38,9 +38,9 @@ func TestRestoredChildPreservesInheritedCapacityAndParentAuthority(t *testing.T)
 		name   string
 		mutate func(*processSnapshotWire)
 	}{
-		{"mailbox capacity", func(wire *processSnapshotWire) { wire.MaxPendingSignals++ }},
-		{"snapshot capacity", func(wire *processSnapshotWire) { wire.MaxSnapshotBytes = NewQuota(100000) }},
-		{"unlimited grant under finite parent", func(wire *processSnapshotWire) { wire.Budget = Budget{} }},
+		{"mailbox capacity", func(wire *processSnapshotWire) { wire.Limits.MaxPendingSignals++ }},
+		{"snapshot capacity", func(wire *processSnapshotWire) { wire.Limits.MaxSnapshotBytes = NewQuota(100000) }},
+		{"unlimited grant under finite parent", func(wire *processSnapshotWire) { wire.Limits.Budget = Budget{} }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			snapshot := controlValue(runtime.captureTree())
@@ -146,9 +146,9 @@ func TestChildAdmissionRejectsUnlimitedAuthorityFromFiniteParent(t *testing.T) {
 	if rejected.plan != nil || !failed || failure.Code() != failureCodeEngineChildBudgetExhausted || parent.provisionalChildBudget != nil {
 		t.Fatalf("finite parent admitted unlimited grant: %+v", rejected)
 	}
-	parent.budget = Budget{}
+	parent.limits.Budget = Budget{}
 	accepted := runtime.prepareChildStart(parent, effectID, spec)
-	if accepted.plan == nil || accepted.plan.limits.budget() != (Budget{}) {
+	if accepted.plan == nil || accepted.plan.limits.Budget != (Budget{}) {
 		t.Fatalf("unlimited parent rejected grant: %+v", accepted)
 	}
 	runtime.discardChildStart(accepted.plan)
@@ -174,7 +174,7 @@ func TestQuotaConfigurationIdentityDistinguishesAllModes(t *testing.T) {
 }
 
 func TestUnlimitedChildReservationRollbackPreservesExistingAllocation(t *testing.T) {
-	parent := &processState{budget: Budget{Effects: NewQuota(10)}}
+	parent := &processState{limits: Limits{Budget: Budget{Effects: NewQuota(10)}}}
 	first := Budget{Effects: NewQuota(3)}
 	second := Budget{Effects: NewQuota(4)}
 	for _, child := range []Budget{first, second} {
@@ -203,7 +203,7 @@ func TestUnlimitedChildReservationRollbackPreservesExistingAllocation(t *testing
 
 func TestUnlimitedExecutionCountersStopBeforeWrap(t *testing.T) {
 	_, process := newChildCompletionTestProcess(t)
-	process.budget = Budget{}
+	process.limits.Budget = Budget{}
 	process.committedSteps = ^uint64(0)
 	if failure := process.stepSchedulingFailure(); failure == nil || !errors.Is(failure.cause, ErrCounterExhausted) {
 		t.Fatalf("step overflow=%+v", failure)
@@ -222,7 +222,7 @@ func TestUnlimitedExecutionCountersStopBeforeWrap(t *testing.T) {
 
 func TestSnapshotRejectsMissingAndLegacyQuotaAuthority(t *testing.T) {
 	snapshot := preparedEngineTestSnapshot(t)
-	for _, name := range []string{"budget", "allocated_resources", "max_snapshot_bytes"} {
+	for _, name := range []string{"limits", "allocated_resources"} {
 		var fields map[string]json.RawMessage
 		if err := json.Unmarshal(snapshot.JSON(), &fields); err != nil {
 			t.Fatal(err)
@@ -236,6 +236,68 @@ func TestSnapshotRejectsMissingAndLegacyQuotaAuthority(t *testing.T) {
 		var budget Budget
 		if err := json.Unmarshal([]byte(data), &budget); err == nil {
 			t.Fatalf("invalid grant accepted: %s", data)
+		}
+	}
+}
+
+func TestSnapshotRequiresCompleteLimitsAuthority(t *testing.T) {
+	snapshot := preparedEngineTestSnapshot(t)
+	for _, name := range []string{"budget", "max_snapshot_bytes", "max_pending_signals"} {
+		for _, replacement := range []json.RawMessage{nil, json.RawMessage(`null`)} {
+			t.Run(name+"/"+string(replacement), func(t *testing.T) {
+				var fields map[string]json.RawMessage
+				if err := json.Unmarshal(snapshot.JSON(), &fields); err != nil {
+					t.Fatal(err)
+				}
+				var limits map[string]json.RawMessage
+				if err := json.Unmarshal(fields["limits"], &limits); err != nil {
+					t.Fatal(err)
+				}
+				if replacement == nil {
+					delete(limits, name)
+				} else {
+					limits[name] = replacement
+				}
+				fields["limits"] = controlValue(json.Marshal(limits))
+				if _, err := ParseProcessSnapshot(controlValue(json.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
+					t.Fatalf("missing/null %s accepted: %v", name, err)
+				}
+			})
+		}
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(snapshot.JSON(), &fields); err != nil {
+		t.Fatal(err)
+	}
+	var limits map[string]json.RawMessage
+	if err := json.Unmarshal(fields["limits"], &limits); err != nil {
+		t.Fatal(err)
+	}
+	delete(fields, "limits")
+	for name, value := range limits {
+		fields[name] = value
+	}
+	if _, err := ParseProcessSnapshot(controlValue(json.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
+		t.Fatalf("retired flat snapshot accepted: %v", err)
+	}
+}
+
+func TestLimitsUseOneStrictBudgetRepresentation(t *testing.T) {
+	limits := DefaultLimits()
+	limits.Budget = Budget{Steps: NewQuota(5), Effects: NewQuota(7), Signals: NewQuota(9)}
+	encoded := controlValue(json.Marshal(limits))
+	var decoded Limits
+	if err := json.Unmarshal(encoded, &decoded); err != nil || decoded != limits {
+		t.Fatalf("limits round trip=%+v, %v", decoded, err)
+	}
+	for _, field := range []string{"max_steps", "max_effects", "max_signals"} {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(encoded, &fields); err != nil {
+			t.Fatal(err)
+		}
+		fields[field] = controlValue(json.Marshal(NewQuota(1)))
+		if err := json.Unmarshal(controlValue(json.Marshal(fields)), &decoded); err == nil {
+			t.Fatalf("retired quota field %s accepted", field)
 		}
 	}
 }

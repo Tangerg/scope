@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 var ErrInvalidChildStart = errors.New("agent: invalid child process start")
@@ -150,7 +152,7 @@ type childStartResultWire struct {
 }
 
 func decodeChildStartEffect(payload json.RawMessage) (ChildSpec, error) {
-	wire, err := decodeJSON[childStartEffectWire](payload)
+	wire, err := jsonwire.Decode[childStartEffectWire](payload)
 	if err != nil {
 		return ChildSpec{}, fmt.Errorf("%w: decode start request: %w", ErrInvalidChildStart, err)
 	}
@@ -161,7 +163,7 @@ func decodeChildStartEffect(payload json.RawMessage) (ChildSpec, error) {
 }
 
 func decodeChildStartResult(payload json.RawMessage) (ChildStartResult, error) {
-	wire, err := decodeJSON[childStartResultWire](payload)
+	wire, err := jsonwire.Decode[childStartResultWire](payload)
 	if err != nil {
 		return ChildStartResult{}, fmt.Errorf("%w: decode start result: %w", ErrInvalidChildStart, err)
 	}

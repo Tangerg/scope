@@ -72,6 +72,11 @@
 // boundaries; a checkpoint still requires a safe tree cut. This is a scheduling
 // guarantee, not a wall-clock deadline: implementations must honor their bounded
 // execution contracts, and the Host owns storage deadlines.
+// Checkpoint explicitly commits a Strategy state before another Step or Effect
+// can run. In durable mode it waits for TreeDurability acknowledgment even when
+// the Process remains runnable. Hosts can atomically project Strategy-owned facts
+// from that tree; cancellation never reopens the Strategy to publish results.
+//
 // A progress checkpoint can acknowledge one Process while unrelated sibling
 // jobs run. Their cut retains committed state and any prepared Effect frontier;
 // their return cannot change that cut until the single commit owner resumes.
@@ -259,6 +264,9 @@
 // signal identities, wait history, or completed descendants. Explicit snapshot
 // byte quotas bound that retained representation when required.
 //
+// Limits carries cumulative work authority in Limits.Budget and keeps mailbox
+// and snapshot capacity separate. Process snapshots persist this same Limits
+// shape; flat quota fields and incomplete Limits objects are rejected.
 // Finite parent Budget dimensions permanently charge child grants. Unlimited
 // dimensions grant finite or unlimited child quotas without a debit. A finite
 // parent cannot grant an unlimited child quota in the same dimension. Pending

@@ -77,7 +77,7 @@ func TestChildBatchRequiresDrainedWaitBoundaries(t *testing.T) {
 						if got, waiting := transition.WaitID(); !waiting || got != waitID {
 							t.Fatal("wait opening lost the Engine wait identity")
 						}
-					} else if execution.state.ToolRound == nil || execution.state.Phase != phaseAwaitingResultCommit {
+					} else if execution.state.ToolRound == nil || execution.state.Phase != phaseRoundComplete {
 						t.Fatal("settled child batch bypassed result publication")
 					}
 					captured, err := execution.Snapshot()

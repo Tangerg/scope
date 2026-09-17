@@ -15,9 +15,6 @@ import (
 
 // DispatcherConfig binds external capabilities for one Deployment.
 type DispatcherConfig struct {
-	// ResultCommitter durably accepts exact, ordered results before model adoption.
-	// Nil acknowledges in memory and provides no host persistence guarantee.
-	ResultCommitter ResultCommitter
 	// Exactly one of Model and Streamer is required. The selected capability
 	// owns the entire response lifecycle; streaming is accumulated before settlement.
 	Model    chat.Model
@@ -45,7 +42,6 @@ type DispatcherConfig struct {
 // internal observation health counters are concurrency-safe. It may serve
 // Processes concurrently when the supplied model capability supports concurrent use.
 type Dispatcher struct {
-	resultCommitter     ResultCommitter
 	model               chat.Model
 	streamer            chat.Streamer
 	initialDefinitions  []chat.ToolDefinition
@@ -80,9 +76,6 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 	if config.Observer != nil && lo.IsNil(config.Observer) {
 		return nil, fmt.Errorf("%w: Observer is typed nil", ErrInvalidDispatcherConfig)
 	}
-	if config.ResultCommitter != nil && lo.IsNil(config.ResultCommitter) {
-		return nil, fmt.Errorf("%w: ResultCommitter is typed nil", ErrInvalidDispatcherConfig)
-	}
 	if config.ModelContextReducer != nil && lo.IsNil(config.ModelContextReducer) {
 		return nil, fmt.Errorf("%w: ModelContextReducer is typed nil", ErrInvalidDispatcherConfig)
 	}
@@ -94,8 +87,7 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 		limit = agent.MaxPayloadBytes
 	}
 	dispatcher := &Dispatcher{
-		resultCommitter: config.ResultCommitter,
-		model:           config.Model, streamer: config.Streamer, observer: config.Observer,
+		model: config.Model, streamer: config.Streamer, observer: config.Observer,
 		contextReducer:     config.ModelContextReducer,
 		maxResponseBytes:   limit,
 		initialDefinitions: cloneDefinitions(definition.tools.initialDefinitions),
@@ -126,23 +118,6 @@ func (d *Dispatcher) Dispatch(
 		return modelHostFailureSettlement(request.ID(), err)
 	}
 	switch envelope.Operation {
-	case operationResultCommit:
-		batch, batchErr := newResultBatch(request, *envelope.ResultCommit)
-		if batchErr != nil {
-			return protocolFailureSettlement(request.ID(), batchErr)
-		}
-		receipt := batch.Receipt()
-		if d.resultCommitter != nil {
-			receipt, err = d.resultCommitter.CommitResults(ctx, batch)
-			if err != nil {
-				return agent.Settlement{}, fmt.Errorf("interaction: result commit outcome unknown: %w", err)
-			}
-		}
-		if receipt != batch.Receipt() {
-			return agent.Settlement{}, errors.New("interaction: result receipt does not match publication")
-		}
-		return receipt.Settlement()
-
 	case operationModelCall:
 		return d.dispatchModel(ctx, request, envelope.ModelCall, emit)
 	default:
@@ -150,17 +125,9 @@ func (d *Dispatcher) Dispatch(
 	}
 }
 
-// ReplayPolicy permits only idempotent result publication. The committer must
-// reconcile a previous transaction before writing. Models and Tools cannot be
-// re-executed to repair publication; settled Unknowns require an explicit
-// Process.ReplayUnknownEffect or a verified receipt via ResolveUnknownEffect.
-func (*Dispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
-	if effect.Target() == agent.EffectTargetDispatcher {
-		envelope, err := decodeEffect(effect.Payload())
-		if err == nil && envelope.Operation == operationResultCommit {
-			return agent.ReplayPolicySameIdentity
-		}
-	}
+// ReplayPolicy forbids model replay. Result persistence belongs exclusively to
+// TreeDurability and does not dispatch an external operation.
+func (*Dispatcher) ReplayPolicy(_ agent.Effect) agent.ReplayPolicy {
 	return agent.ReplayPolicyNever
 }
 

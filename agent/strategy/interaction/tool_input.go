@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 const maxInputProtocolBytes = 1 << 20
@@ -65,8 +66,8 @@ func (t *toolInputRequest) UnmarshalJSON(data []byte) error {
 	if t == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidToolInputRequest)
 	}
-	var wire toolInputRequestWire
-	if err := jsonv2.Unmarshal(data, &wire, jsonv2.RejectUnknownMembers(true)); err != nil {
+	wire, err := jsonwire.Decode[toolInputRequestWire](data)
+	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidToolInputRequest, err)
 	}
 	request, err := newToolInputRequest(wire.Prompt, wire.ResponseSchema, wire.ContinuationState)

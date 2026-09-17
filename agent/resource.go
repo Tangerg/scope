@@ -3,6 +3,8 @@ package agent
 import (
 	"errors"
 	"fmt"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 // ErrResourceLimitExceeded reports a designed execution bound, not an Engine defect.
@@ -25,20 +27,27 @@ type Limits struct {
 	// MaxSnapshotBytes bounds the encoded Process snapshot, including retained history.
 	MaxSnapshotBytes Quota `json:"max_snapshot_bytes"`
 
-	// MaxSteps bounds committed Steps.
-	MaxSteps Quota `json:"max_steps"`
-
-	// MaxEffects bounds Effects prepared across all Steps.
-	MaxEffects Quota `json:"max_effects"`
-
-	// MaxSignals bounds all accepted external and Engine-generated Signals.
-	MaxSignals Quota `json:"max_signals"`
+	// Budget bounds cumulative work and grants child allocations.
+	Budget Budget `json:"budget"`
 
 	// MaxPendingSignals bounds the current unconsumed mailbox suffix and the
 	// suffix after the prepared Step consumes inputs and appends settlements.
 	// Every arriving Signal preserves both bounds regardless of its source.
 	// Capacity must fit the uint32 consumed-Signal count in one Transition.
 	MaxPendingSignals uint64 `json:"max_pending_signals"`
+}
+
+func (l *Limits) UnmarshalJSON(data []byte) error {
+	if l == nil {
+		return errors.New("agent: nil limits receiver")
+	}
+	type wire Limits
+	value, err := jsonwire.Decode[wire](data, "budget", "max_snapshot_bytes", "max_pending_signals")
+	if err != nil {
+		return err
+	}
+	*l = Limits(value)
+	return nil
 }
 
 // DefaultLimits leaves cumulative work and snapshot size unlimited and bounds pending Signals.
@@ -75,11 +84,6 @@ func (l Limits) validate() error {
 	}
 }
 
-// Pending mailbox depth is renewable occupancy, not a transferable child allocation.
-func (l Limits) budget() Budget {
-	return Budget{Steps: l.MaxSteps, Effects: l.MaxEffects, Signals: l.MaxSignals}
-}
-
 // Usage contains monotonic Framework-owned counters. It deliberately excludes
 // provider pricing and Strategy-specific concepts such as tokens or tool calls.
 type Usage struct {
@@ -101,8 +105,11 @@ type Usage struct {
 // unlimited parent grants either kind without a finite debit. Each dimension
 // is independent; a finite parent cannot grant an unlimited child quota.
 type Budget struct {
-	Steps   Quota `json:"steps"`
+	// Steps bounds committed Steps.
+	Steps Quota `json:"steps"`
+	// Effects bounds stable Effect identities prepared across all Steps.
 	Effects Quota `json:"effects"`
+	// Signals bounds accepted external and Engine-generated Signals.
 	Signals Quota `json:"signals"`
 }
 
@@ -111,7 +118,7 @@ func (b *Budget) UnmarshalJSON(data []byte) error {
 		return errors.New("agent: nil budget receiver")
 	}
 	type wire Budget
-	value, err := decodeJSON[wire](data, "steps", "effects", "signals")
+	value, err := jsonwire.Decode[wire](data, "steps", "effects", "signals")
 	if err != nil {
 		return err
 	}
@@ -143,13 +150,6 @@ func (b Budget) canAllocate(usage Usage, reserved resourceAmounts, requested Bud
 	return b.Steps.Allows(usage.CommittedSteps, reserved.Steps, debit.Steps) &&
 		b.Effects.Allows(usage.PreparedEffects, reserved.Effects, debit.Effects) &&
 		b.Signals.Allows(usage.AcceptedSignals, reserved.Signals, debit.Signals)
-}
-
-func (b Budget) limits(maxPendingSignals uint64, maxSnapshotBytes Quota) Limits {
-	return Limits{
-		MaxSteps: b.Steps, MaxEffects: b.Effects, MaxSignals: b.Signals,
-		MaxPendingSignals: maxPendingSignals, MaxSnapshotBytes: maxSnapshotBytes,
-	}
 }
 
 // Only finite parent dimensions carry debits. This makes rollback exact even
@@ -211,7 +211,7 @@ func (t *TreeLimits) UnmarshalJSON(data []byte) error {
 		return errors.New("agent: nil tree limits receiver")
 	}
 	type wire TreeLimits
-	value, err := decodeJSON[wire](data, "max_children", "max_tree_processes", "max_snapshot_bytes")
+	value, err := jsonwire.Decode[wire](data, "max_children", "max_tree_processes", "max_snapshot_bytes")
 	if err != nil {
 		return err
 	}

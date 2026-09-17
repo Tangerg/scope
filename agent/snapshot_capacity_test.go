@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 type capacityDefinition struct {
@@ -44,7 +46,7 @@ func (c *capacityExecution) Step(_ context.Context, signals []Signal) (Transitio
 	if len(signals) == 0 {
 		return Transition{}, errors.New("expected settlement")
 	}
-	message, err := decodeJSON[engineTestMessage](signals[len(signals)-1].Payload())
+	message, err := jsonwire.Decode[engineTestMessage](signals[len(signals)-1].Payload())
 	if err != nil {
 		return Transition{}, err
 	}
@@ -168,7 +170,7 @@ func TestPreparedSnapshotHasOneEffectRepresentation(t *testing.T) {
 func TestTreeCapacityRejectsIndividuallyRepresentableProcesses(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 5)
 	for _, process := range runtime.processes {
-		process.snapshotByteLimit = NewQuota(128 << 14)
+		process.limits.MaxSnapshotBytes = NewQuota(128 << 14)
 		process.treeLimits.MaxSnapshotBytes = NewQuota(512 << 14)
 		process.handle.treeLimits = process.treeLimits
 	}
@@ -191,7 +193,7 @@ func TestTreeCapacityRejectsIndividuallyRepresentableProcesses(t *testing.T) {
 
 func TestKnownWaitSettlementsAreAdmittedBeforeEarlierDispatcher(t *testing.T) {
 	process := admissionTestProcess(t, 0)
-	process.snapshotByteLimit = NewQuota(128 << 14)
+	process.limits.MaxSnapshotBytes = NewQuota(128 << 14)
 	payload := json.RawMessage(`"` + strings.Repeat("x", 33<<14) + `"`)
 	first := controlValue(NewWaitEffect(controlValue(ParseWaitKey("first")), payload))
 	second := controlValue(NewWaitEffect(controlValue(ParseWaitKey("second")), payload))
@@ -211,7 +213,7 @@ func TestKnownWaitSettlementsAreAdmittedBeforeEarlierDispatcher(t *testing.T) {
 func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 5)
 	for _, process := range runtime.processes {
-		process.snapshotByteLimit = NewQuota(128 << 14)
+		process.limits.MaxSnapshotBytes = NewQuota(128 << 14)
 		process.treeLimits.MaxSnapshotBytes = NewQuota(512 << 14)
 		process.handle.treeLimits = process.treeLimits
 	}

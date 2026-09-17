@@ -212,6 +212,7 @@ func (c *crossParentExecution) Step(_ context.Context, signals []Signal) (Transi
 	} else if failure, failed := start.Failure(); failed {
 		output.Failures = 1
 		output.FailureCodes = []string{failure.Code()}
+		output.FailureKinds = []FailureKind{failure.Kind()}
 	}
 	c.phase = 2
 	erased, _ := EncodePayload(output)

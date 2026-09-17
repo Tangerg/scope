@@ -133,8 +133,8 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 	relation := childProcessRelation(record.ID.childProcessID(), rootProcessRelation(wire.ProcessID), spec.Key)
 	handle := newProcessHandle(relation, spec.DeploymentRef, spec.Budget, spec.Capabilities, wire.TreeLimits, wire.StartedAt)
 	handle.childRequestDigest = controlValue(spec.digest())
-	child := newProcessState(handle, deployment, execution, state, wire.StartedAt, spec.Budget.limits(wire.MaxPendingSignals, wire.MaxSnapshotBytes))
-	wire.AllocatedResources, _ = wire.Budget.allocation(spec.Budget)
+	child := newProcessState(handle, deployment, execution, state, wire.StartedAt, Limits{Budget: spec.Budget, MaxPendingSignals: wire.Limits.MaxPendingSignals, MaxSnapshotBytes: wire.Limits.MaxSnapshotBytes})
+	wire.AllocatedResources, _ = wire.Limits.Budget.allocation(spec.Budget)
 	parentSnapshot := controlValue(newProcessSnapshot(wire))
 	childSnapshot := controlValue(child.capture())
 	if _, err := newTreeSnapshot(treeSnapshotWire{RootID: wire.ProcessID, ProcessSnapshots: []ProcessSnapshot{parentSnapshot, childSnapshot}}); err != nil {
@@ -146,7 +146,7 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 			childWire := controlValue(childSnapshot.wire())
 			switch mutation {
 			case "allocation":
-				childWire.Budget.Steps = NewQuota(childWire.Budget.Steps.maximum + 1)
+				childWire.Limits.Budget.Steps = NewQuota(childWire.Limits.Budget.Steps.maximum + 1)
 				parentWire.AllocatedResources.Steps++
 			case "deployment":
 				childWire.DeploymentRef = parentWire.DeploymentRef

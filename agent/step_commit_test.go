@@ -22,10 +22,9 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 		handle:             handle,
 		status:             StatusRunning,
 		committedSteps:     maxUint64 - 1,
-		pendingSignalLimit: maxUint64,
-		budget:             Budget{Steps: NewQuota(maxUint64), Effects: NewQuota(maxUint64), Signals: NewQuota(maxUint64)},
 		allocatedResources: resourceAmounts{Steps: 1, Effects: 1, Signals: 1},
 		mailbox:            newSignalMailbox(),
+		limits:             Limits{MaxPendingSignals: maxUint64, Budget: Budget{Steps: NewQuota(maxUint64), Effects: NewQuota(maxUint64), Signals: NewQuota(maxUint64)}},
 	}
 
 	schedulingFailure := process.stepSchedulingFailure()
@@ -46,12 +45,9 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 
 func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 	limits := Limits{
-		MaxSteps: NewQuota(10), MaxEffects: NewQuota(10), MaxSignals: NewQuota(3), MaxPendingSignals: 10,
+		MaxPendingSignals: 10, Budget: Budget{Steps: NewQuota(10), Effects: NewQuota(10), Signals: NewQuota(3)},
 	}
-	process := &processState{
-		pendingSignalLimit: limits.MaxPendingSignals,
-		budget:             limits.budget(),
-	}
+	process := &processState{limits: limits}
 	mailbox := newSignalMailbox()
 	firstWait, _ := ParseWaitID("wait:first")
 	secondWait, _ := ParseWaitID("wait:second")
@@ -119,10 +115,10 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 	childKey, _ := ParseChildKey("worker")
 	handle := newProcessHandle(
 		childProcessRelation(childID, parent.handle.relation, childKey),
-		parent.deployment.DeploymentRef(), parent.budget, parent.capabilities,
+		parent.deployment.DeploymentRef(), parent.limits.Budget, parent.capabilities,
 		parent.treeLimits, parent.startedAt)
 	runtime.addProcess(newProcessState(handle, parent.deployment, parent.execution,
-		parent.committedExecutionState, parent.startedAt, parent.budget.limits(parent.pendingSignalLimit, parent.snapshotByteLimit)))
+		parent.committedExecutionState, parent.startedAt, parent.limits))
 	missingID, _ := ParseProcessID("process:missing-child")
 	var specs []ChildWaitSpec
 	var effects []Effect

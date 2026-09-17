@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"testing/synctest"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 func TestImmediateChildCompletionLimitReportsExecutionFailure(t *testing.T) {
@@ -14,7 +16,7 @@ func TestImmediateChildCompletionLimitReportsExecutionFailure(t *testing.T) {
 		limits Limits
 	}{
 		{name: "pending mailbox", limits: Limits{MaxPendingSignals: 1}},
-		{name: "allocated child budget", limits: Limits{MaxSignals: NewQuota(52), MaxPendingSignals: 52}},
+		{name: "allocated child budget", limits: Limits{MaxPendingSignals: 52, Budget: Budget{Signals: NewQuota(52)}}},
 	} {
 		for _, durable := range []bool{false, true} {
 			mode := "ephemeral"
@@ -181,7 +183,7 @@ func TestWaitConflictsAreRejectedBeforeDispatch(t *testing.T) {
 			if wire.Prepared != nil {
 				t.Fatal("invalid batch was prepared")
 			}
-			state, err := decodeJSON[engineTestState](wire.CommittedExecutionState.Payload())
+			state, err := jsonwire.Decode[engineTestState](wire.CommittedExecutionState.Payload())
 			if err != nil || state.Phase != "ready" || wire.usage() != (Usage{}) ||
 				wire.Mailbox.SignalCursor != 0 || len(wire.Mailbox.Signals) != 0 || len(wire.Mailbox.Waits) != 0 {
 				t.Fatalf("failed finalization adopted candidate state: %+v, %v", wire, err)

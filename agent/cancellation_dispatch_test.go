@@ -10,6 +10,8 @@ import (
 	"testing"
 	"testing/synctest"
 	"time"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 func TestTerminationCancelsDispatchAndStopsPreparedBatch(t *testing.T) {
@@ -90,7 +92,7 @@ func TestTerminationCancelsDispatchAndStopsPreparedBatch(t *testing.T) {
 						planned.Phase != effectPhasePlanned || planned.Settlement != nil {
 						t.Errorf("interrupted Effects = %+v", wire.Prepared.Effects)
 					}
-					state, err := decodeJSON[engineTestState](wire.CommittedExecutionState.Payload())
+					state, err := jsonwire.Decode[engineTestState](wire.CommittedExecutionState.Payload())
 					if err != nil || state.Phase != "ready" || wire.CommittedSteps != 0 ||
 						wire.Mailbox.SignalCursor != 0 || wire.usage().AcceptedSignals != 0 || wire.usage().PreparedEffects != 2 {
 						t.Errorf("interrupted candidate changed committed facts: state=%+v usage=%+v cursor=%d error=%v", state, wire.usage(), wire.Mailbox.SignalCursor, err)

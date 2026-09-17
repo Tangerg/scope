@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 var ErrInvalidDeploymentRef = errors.New("agent: invalid deployment reference")
@@ -86,7 +88,7 @@ func (d *DeploymentRef) UnmarshalJSON(data []byte) error {
 	if d == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidDeploymentRef)
 	}
-	wire, err := decodeJSON[deploymentRefWire](data)
+	wire, err := jsonwire.Decode[deploymentRefWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidDeploymentRef, err)
 	}

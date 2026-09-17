@@ -63,7 +63,7 @@ func TestProcessAdmitterReceivesRootAndChildResourceContracts(t *testing.T) {
 		rootAdmission.Relation().ProcessID() != parent.ID() ||
 		rootAdmission.DeploymentRef() != parentDeployment.DeploymentRef() ||
 		rootAdmission.Descriptor().Digest() != parentDeployment.Descriptor().Digest() ||
-		rootAdmission.Budget() != DefaultLimits().budget() ||
+		rootAdmission.Budget() != DefaultLimits().Budget ||
 		!rootAdmission.Capabilities().Contains(read) {
 		t.Fatalf("root admission = %#v", rootAdmission)
 	}
@@ -242,7 +242,7 @@ func TestRestoreDoesNotReadmitPreviouslyAdmittedProcess(t *testing.T) {
 	var admissionCalls atomic.Uint32
 	var outcomeCalls atomic.Uint32
 	restoredEngine, err := NewEngine(EngineConfig{
-		Limits:     Limits{MaxSteps: NewQuota(1)},
+		Limits:     Limits{Budget: Budget{Steps: NewQuota(1)}},
 		TreeLimits: TreeLimits{MaxDepth: 1},
 		ProcessAdmitter: ProcessAdmitterFunc(func(context.Context, ProcessAdmission) error {
 			admissionCalls.Add(1)
@@ -280,7 +280,7 @@ func TestRestoreDoesNotReadmitPreviouslyAdmittedProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	after, err := inspectProcessSnapshot(t, restored).wire()
-	if err != nil || before.MaxPendingSignals != after.MaxPendingSignals || before.TreeLimits != after.TreeLimits || before.usage() != after.usage() {
+	if err != nil || before.Limits != after.Limits || before.TreeLimits != after.TreeLimits || before.usage() != after.usage() {
 		t.Fatalf("restoration changed captured resource facts: %v", err)
 	}
 	if err := restoredEngine.Close(context.WithoutCancel(t.Context())); err != nil {

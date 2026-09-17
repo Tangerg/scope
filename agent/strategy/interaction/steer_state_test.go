@@ -78,6 +78,37 @@ func TestExecutionStateRejectsIncompleteOrDuplicatePendingSteer(t *testing.T) {
 	}
 }
 
+func TestRoundCheckpointPropagatesInvalidSteer(t *testing.T) {
+	for _, phase := range []phase{phaseAdvancingTools, phaseRoundComplete} {
+		t.Run(string(phase), func(t *testing.T) {
+			execution := childBatchTestExecution(t, childCallsTool, phaseAwaitingChildStarts)
+			execution.state.Phase = phase
+			execution.state.ToolRound.ChildBatch = nil
+			if phase == phaseRoundComplete {
+				execution.state.ToolRound.Results = []toolCallResult{{Result: chat.ToolResult{
+					ID: "call_batch", Name: "delegate_fuzz", Output: chat.NewTextToolOutput("done"),
+				}}}
+			}
+			if err := execution.state.validate(t.Context(), execution.definition); err != nil {
+				t.Fatal(err)
+			}
+			id, err := agent.ParseSignalID("signal:duplicate-steer")
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, err := NewSteerSignal(id, chat.NewUserMessage(chat.NewTextPart("refine")))
+			if err != nil {
+				t.Fatal(err)
+			}
+			signal := signalFromRequest(t, request)
+			transition, err := execution.Step(t.Context(), []agent.Signal{signal, signal})
+			if !errors.Is(err, ErrInvalidSteer) || !errors.Is(err, ErrInvalidExecutionState) || transition.Valid() {
+				t.Fatalf("duplicate steer at %s: transition=%+v error=%v", phase, transition, err)
+			}
+		})
+	}
+}
+
 func TestDelegateWaitCollectorAcceptsSteerBeforeWaitOpened(t *testing.T) {
 	steerID, err := agent.ParseSignalID("signal:delegate-wait-steer")
 	if err != nil {

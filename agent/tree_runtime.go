@@ -16,6 +16,11 @@ import (
 // treeRuntime serializes authoritative changes because sibling jobs must not
 // publish incompatible tree cuts. Fenced completions let computation and dispatch
 // run concurrently without sharing commit authority.
+//
+// run owns command/completion ordering; advanceOne grants worker permission.
+// setTreeCommit/applySuccessfulTreeCommit keep acknowledgment ahead of publication.
+// advancePrepared finalizes Effects; completeFreeze and publishJoins expose
+// quiescence and drainage without creating another state-transition owner.
 type treeRuntime struct {
 	// Incarnation and head travel together to prevent a retired writer from
 	// advancing the current tree.
@@ -516,6 +521,7 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 		t.startPreparedEffect(process, index, record)
 		return
 	}
+	checkpoint := process.prepared.Intent.Kind() == TransitionKindCheckpoint
 	if err := t.finalizePrepared(process); err != nil {
 		if errors.Is(err, ErrResourceLimitExceeded) {
 			process.recordFailure(FailureKindExecution, failureCodeEngineLimitChildWaitSignal, err)
@@ -527,6 +533,15 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 	t.finishIfTerminal(process)
 	if !process.status.Terminal() {
 		t.enqueueProcess(process.handle.processID)
+		if checkpoint && t.engine.durability != nil {
+			snapshot, err := t.captureTree()
+			if err == nil {
+				err = t.startCheckpointCommit(t.checkpointKind(), snapshot)
+			}
+			if err != nil {
+				t.failDurability(err, process.handle.processID, EffectID{})
+			}
+		}
 	}
 }
 
@@ -615,7 +630,8 @@ func (t *treeRuntime) prepareChildStart(
 			process.releaseProvisionalChildBudget(spec.Budget)
 		}
 	}()
-	childLimits := spec.Budget.limits(process.pendingSignalLimit, process.snapshotByteLimit)
+	childLimits := process.limits
+	childLimits.Budget = spec.Budget
 	if reserveProcessStartErr := t.engine.reserveProcessStart(
 		relation, spec.DeploymentRef, process.treeLimits, requestDigest,
 	); reserveProcessStartErr != nil {
@@ -2070,7 +2086,7 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 		t.applyStepCompletion(process, completion.step)
 	case processJobRestore:
 		if completion.restore.err != nil {
-			t.failProcess(process, failureKindForError(completion.restore.err), failureCodeExecutionSnapshotUnrestorable, completion.restore.err)
+			t.failProcess(process, failureKindForError(completion.restore.err, FailureKindExecution), failureCodeExecutionSnapshotUnrestorable, completion.restore.err)
 		} else {
 			process.execution = completion.restore.execution
 		}
@@ -2260,7 +2276,7 @@ func (t *treeRuntime) applyStepCompletion(
 		case stepJobStageRestore:
 			code = failureCodeExecutionSnapshotUnrestorable
 		}
-		t.failProcess(process, failureKindForError(result.err), code, result.err)
+		t.failProcess(process, failureKindForError(result.err, FailureKindExecution), code, result.err)
 		return
 	}
 	candidate, failure := process.prepareStep(result)

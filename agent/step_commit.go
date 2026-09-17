@@ -111,8 +111,8 @@ func (p *preparedStepFinalization) enqueueImmediateChildSignals() error {
 	for index, signal := range p.immediateChildSignals {
 		acceptedSignals := uint64(index) + 1
 		if !resourceQuantitiesFit(
-			p.process.pendingSignalLimit, p.mailbox.pendingCount(), 1,
-		) || !p.process.budget.Signals.Allows(
+			p.process.limits.MaxPendingSignals, p.mailbox.pendingCount(), 1,
+		) || !p.process.limits.Budget.Signals.Allows(
 			p.process.usage().AcceptedSignals, allocated.Signals,
 			preparedSignals, acceptedSignals,
 		) {
@@ -129,7 +129,7 @@ func (p *preparedStepFinalization) enqueueImmediateChildSignals() error {
 func (p *preparedStepFinalization) prepareTransition(finishedAt time.Time) error {
 	transition := p.prepared.Intent
 	switch transition.Kind() {
-	case TransitionKindContinue:
+	case TransitionKindContinue, TransitionKindCheckpoint:
 		p.commit.status = StatusRunning
 	case TransitionKindWait:
 		return p.prepareWaitTransition(transition)

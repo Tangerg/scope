@@ -2,12 +2,12 @@ package planning
 
 import (
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"fmt"
 	"math"
 	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 // PlannedAction is one immutable Action reference in Planner-selected order.
@@ -41,8 +41,8 @@ func (p *PlannedAction) UnmarshalJSON(data []byte) error {
 	if p == nil {
 		return fmt.Errorf("%w: nil PlannedAction receiver", ErrInvalidPlan)
 	}
-	var name string
-	if err := jsonv2.Unmarshal(data, &name, jsonv2.RejectUnknownMembers(true)); err != nil {
+	name, err := jsonwire.Decode[string](data)
+	if err != nil {
 		return fmt.Errorf("%w: decode PlannedAction: %w", ErrInvalidPlan, err)
 	}
 	value, err := NewPlannedAction(name)
@@ -113,8 +113,8 @@ func (p *Plan) UnmarshalJSON(data []byte) error {
 	if p == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidPlan)
 	}
-	var wire planWire
-	if err := jsonv2.Unmarshal(data, &wire, jsonv2.RejectUnknownMembers(true)); err != nil {
+	wire, err := jsonwire.Decode[planWire](data)
+	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidPlan, err)
 	}
 	value, err := NewPlan(wire.Actions, wire.TotalCost)

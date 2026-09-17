@@ -85,7 +85,7 @@ func TestCancellationCollectsInFlightChildInitialization(t *testing.T) {
 				unblock := sync.OnceFunc(func() { close(release) })
 				defer unblock()
 				var outcomes []ProcessInitializationOutcome
-				config := EngineConfig{Limits: Limits{MaxSteps: NewQuota(100), MaxEffects: NewQuota(100), MaxSignals: NewQuota(100)},
+				config := EngineConfig{Limits: Limits{Budget: Budget{Steps: NewQuota(100), Effects: NewQuota(100), Signals: NewQuota(100)}},
 					TreeDurability: &recordingTreeDurability{},
 					ProcessAdmitter: ProcessAdmitterFunc(func(ctx context.Context, admission ProcessAdmission) error {
 						if admission.Relation().IsRoot() || stage == "outcome acknowledgment" {

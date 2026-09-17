@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 const maxPauseReasonBytes = 4096
@@ -21,6 +23,8 @@ const (
 	TransitionKindInvalid TransitionKind = ""
 	// TransitionKindContinue advances to another runnable Step.
 	TransitionKindContinue TransitionKind = "continue"
+	// TransitionKindCheckpoint persists state before another Step can run.
+	TransitionKindCheckpoint TransitionKind = "checkpoint"
 	// TransitionKindWait enters an Engine-minted wait.
 	TransitionKindWait TransitionKind = "wait"
 	// TransitionKindPause enters an explicit scheduling pause.
@@ -33,7 +37,7 @@ const (
 
 func (t TransitionKind) Valid() bool {
 	switch t {
-	case TransitionKindContinue, TransitionKindWait, TransitionKindPause,
+	case TransitionKindContinue, TransitionKindCheckpoint, TransitionKindWait, TransitionKindPause,
 		TransitionKindComplete, TransitionKindFail:
 		return true
 	default:
@@ -69,6 +73,15 @@ func Continue(consumedSignals uint32, effects ...Effect) (Transition, error) {
 		return Transition{}, err
 	}
 	return Transition{kind: TransitionKindContinue, consumedSignals: consumedSignals, effects: owned}, nil
+}
+
+// Checkpoint commits the consumed Signal prefix and candidate state before any
+// further Step or Effect in this Process can run. In durable mode TreeDurability
+// must acknowledge the complete tree first. In ephemeral mode it advances without
+// a storage claim.
+// It performs no external operation and creates no settlement Signal.
+func Checkpoint(consumedSignals uint32) (Transition, error) {
+	return Transition{kind: TransitionKindCheckpoint, consumedSignals: consumedSignals}, nil
 }
 
 // Wait moves the Process to Waiting for an Engine-minted WaitID already stored
@@ -131,6 +144,8 @@ func (t Transition) Valid() bool {
 	switch t.kind {
 	case TransitionKindContinue:
 		return validEffects(t.effects) && !t.waitID.Valid() && t.reason == "" && !t.output.Valid() && !t.failure.Valid()
+	case TransitionKindCheckpoint:
+		return len(t.effects) == 0 && !t.waitID.Valid() && t.reason == "" && !t.output.Valid() && !t.failure.Valid()
 	case TransitionKindWait:
 		return len(t.effects) == 0 && t.waitID.Valid() && t.reason == "" && !t.output.Valid() && !t.failure.Valid()
 	case TransitionKindPause:
@@ -194,7 +209,7 @@ func (t *Transition) UnmarshalJSON(data []byte) error {
 	if t == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidTransition)
 	}
-	wire, err := decodeJSON[transitionWire](data)
+	wire, err := jsonwire.Decode[transitionWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidTransition, err)
 	}

@@ -1,37 +1,18 @@
 package trajectory_test
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"reflect"
-	"sync"
 	"testing"
 
 	"github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
-// This fixture runs a model/commit parent and ordinary Tool children. Commit
-// receipts identify the parent's non-model Effects independently of responses.
-type fixtureResultCommits struct {
-	mu      sync.Mutex
-	effects map[trajectory.EffectReference]struct{}
-}
-
-func (f *fixtureResultCommits) CommitResults(_ context.Context, batch interaction.ResultBatch) (interaction.ResultReceipt, error) {
-	incarnation, _ := batch.TreeIncarnationID()
-	receipt := batch.Receipt()
-	f.mu.Lock()
-	f.effects[trajectory.EffectReference{ProcessID: batch.Relation().ProcessID(), TreeIncarnationID: incarnation, EffectID: receipt.EffectID}] = struct{}{}
-	f.mu.Unlock()
-	return receipt, nil
-}
-
-func (f *fixtureResultCommits) coverage(events []agent.Event) *trajectory.Coverage {
-	f.mu.Lock()
-	defer f.mu.Unlock()
+// The parent dispatches models and its children dispatch tools. Persistence
+// checkpoints are Framework progress and add no external operation to coverage.
+func interactionCoverage(events []agent.Event) *trajectory.Coverage {
 	coverage := &trajectory.Coverage{}
 	for _, event := range events {
 		fact, started := event.EffectStarted()
@@ -41,9 +22,7 @@ func (f *fixtureResultCommits) coverage(events []agent.Event) *trajectory.Covera
 		id, _ := event.EffectID()
 		incarnation, _ := event.TreeIncarnationID()
 		reference := trajectory.EffectReference{ProcessID: event.ProcessID(), TreeIncarnationID: incarnation, EffectID: id}
-		if _, committed := f.effects[reference]; committed {
-			coverage.Other = append(coverage.Other, reference)
-		} else if event.Relation().IsRoot() {
+		if event.Relation().IsRoot() {
 			coverage.Models = append(coverage.Models, reference)
 		} else {
 			coverage.Tools = append(coverage.Tools, reference)
@@ -55,11 +34,8 @@ func (f *fixtureResultCommits) coverage(events []agent.Event) *trajectory.Covera
 func TestCoverageClassifiesEffectsWithinOneDeployment(t *testing.T) {
 	recorded := coveredInteraction(t)
 	coverage := recorded.Coverage()
-	if len(coverage.Models) != 2 || len(coverage.Tools) != 1 || len(coverage.Other) != 1 {
+	if len(coverage.Models) != 2 || len(coverage.Tools) != 1 || len(coverage.Other) != 0 {
 		t.Fatalf("coverage = %+v", coverage)
-	}
-	if coverage.Models[0].ProcessID != coverage.Other[0].ProcessID {
-		t.Fatal("fixture did not mix model and commit Effects in one Process")
 	}
 	encoded, err := json.Marshal(recorded)
 	if err != nil {
@@ -79,10 +55,10 @@ func TestCoverageClassifiesEffectsWithinOneDeployment(t *testing.T) {
 	}{
 		{"invalid identity", func(c *trajectory.Coverage) { c.Models[0].ProcessID = agent.ProcessID{} }, trajectory.ErrInvalidTrajectory},
 		{"duplicate classification", func(c *trajectory.Coverage) { c.Other = append(c.Other, c.Models[0]) }, trajectory.ErrInvalidTrajectory},
-		{"missing classification", func(c *trajectory.Coverage) { c.Other = nil }, trajectory.ErrIncompleteRecording},
-		{"commit declared as model", func(c *trajectory.Coverage) { c.Models = append(c.Models, c.Other...); c.Other = nil }, trajectory.ErrIncompleteRecording},
+		{"missing classification", func(c *trajectory.Coverage) { c.Tools = nil }, trajectory.ErrIncompleteRecording},
+		{"tool declared as model", func(c *trajectory.Coverage) { c.Models = append(c.Models, c.Tools...); c.Tools = nil }, trajectory.ErrIncompleteRecording},
 		{"extra classification", func(c *trajectory.Coverage) {
-			unexpected := c.Other[0]
+			unexpected := c.Tools[0]
 			unexpected.EffectID, _ = agent.ParseEffectID("effect:unobserved")
 			c.Other = append(c.Other, unexpected)
 		}, trajectory.ErrIncompleteRecording},

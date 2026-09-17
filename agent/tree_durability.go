@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"fmt"
 )
 
 var (
@@ -299,8 +298,11 @@ func (t TreeActivation) Valid() bool {
 // content and a head that still matches the proposal. Hosts own storage,
 // deadlines, and reconciliation when a commit response is lost. The supplied
 // context retains Host values but removes cancellation and deadlines. Hosts must
-// apply an independent bounded storage deadline; a timeout does not prove that
-// the authoritative head was unchanged and requires reconciliation.
+// apply an independent bounded storage deadline and a host-owned shutdown signal.
+// Canceling an Await, Join or ReleaseTree wait does not abort a transaction. Hosts
+// release blocked storage through that shutdown signal, return its error, and then
+// Join the stopped runtime. A timeout does not prove that the authoritative head
+// was unchanged and requires reconciliation.
 //
 // A start checkpoint requires an absent head and a zero PreviousTreeDigest.
 // Other checkpoints and Effects require the current incarnation and digest.
@@ -328,7 +330,7 @@ func activateTree(
 	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("tree durability activation panicked: %v", recovered)
+			err = &CallbackPanicError{Operation: "TreeDurability.ActivateTree", Value: recovered}
 		}
 	}()
 	return durability.ActivateTree(context.WithoutCancel(RequireContext(ctx)), activation)
@@ -346,7 +348,7 @@ func commitEffectBoundary(
 	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("tree durability Effect commit panicked: %v", recovered)
+			err = &CallbackPanicError{Operation: "TreeDurability.CommitEffect", Value: recovered}
 		}
 	}()
 	return durability.CommitEffect(context.WithoutCancel(RequireContext(ctx)), boundary)
@@ -362,7 +364,7 @@ func commitTreeCheckpoint(
 	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("tree durability checkpoint commit panicked: %v", recovered)
+			err = &CallbackPanicError{Operation: "TreeDurability.CommitCheckpoint", Value: recovered}
 		}
 	}()
 	return durability.CommitCheckpoint(

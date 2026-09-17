@@ -243,7 +243,7 @@ func TestCallCannotEscalateBudgetOrCapabilities(t *testing.T) {
 		{
 			name: "budget", budget: largeBudget,
 			engine: agent.EngineConfig{Limits: agent.Limits{
-				MaxSteps: agent.NewQuota(16), MaxEffects: agent.NewQuota(16), MaxSignals: agent.NewQuota(16), MaxPendingSignals: 16,
+				MaxPendingSignals: 16, Budget: agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(16), Signals: agent.NewQuota(16)},
 			}},
 			wantCause: "engine.child.budget_exhausted",
 			wantKind:  agent.FailureKindExecution,

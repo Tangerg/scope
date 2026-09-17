@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 const maxDeltaBytes = 1 << 20
@@ -104,7 +106,7 @@ func (d *Delta) UnmarshalJSON(data []byte) error {
 	if d == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidDelta)
 	}
-	wire, err := decodeJSON[deltaWire](data)
+	wire, err := jsonwire.Decode[deltaWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidDelta, err)
 	}

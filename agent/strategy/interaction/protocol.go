@@ -4,19 +4,18 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
 	"strconv"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 	"github.com/Tangerg/scope/core/chat"
 )
 
 type operation string
 
 const (
-	operationResultCommit  operation = "result_commit"
 	operationModelCall     operation = "model_call"
 	operationToolCall      operation = "tool_call"
 	operationWaitOpened    operation = "wait_opened"
@@ -25,10 +24,9 @@ const (
 )
 
 type effectEnvelope struct {
-	ResultCommit *resultCommit        `json:"result_commit,omitempty"`
-	Operation    operation            `json:"operation"`
-	ModelCall    *modelCall           `json:"model_call,omitempty"`
-	ToolCall     *toolDispatchRequest `json:"tool_call,omitempty"`
+	Operation operation            `json:"operation"`
+	ModelCall *modelCall           `json:"model_call,omitempty"`
+	ToolCall  *toolDispatchRequest `json:"tool_call,omitempty"`
 }
 
 type modelCall struct {
@@ -75,7 +73,6 @@ type toolResume struct {
 }
 
 type signalEnvelope struct {
-	Receipt       *ResultReceipt      `json:"receipt,omitempty"`
 	Operation     operation           `json:"operation"`
 	ModelResult   *modelCallResult    `json:"model_result,omitempty"`
 	ToolResult    *toolDispatchResult `json:"tool_result,omitempty"`
@@ -156,16 +153,6 @@ func newToolEffect(call toolDispatchRequest) (effectEnvelope, error) {
 }
 
 func (e effectEnvelope) validate() error {
-	if e.Operation == operationResultCommit {
-		if e.ResultCommit == nil || e.ModelCall != nil || e.ToolCall != nil {
-			return fmt.Errorf("%w: invalid result commit effect", ErrInvalidProtocol)
-		}
-		return e.ResultCommit.validate()
-	}
-	if e.ResultCommit != nil {
-		return fmt.Errorf("%w: unexpected result commit", ErrInvalidProtocol)
-	}
-
 	switch e.Operation {
 	case operationModelCall:
 		return e.validateModelCall()
@@ -216,16 +203,6 @@ func (e effectEnvelope) validateToolCall() error {
 }
 
 func (s signalEnvelope) validate() error {
-	if s.Operation == operationResultCommit {
-		if s.Receipt == nil || s.ModelResult != nil || s.ToolResult != nil || s.WaitOpened != nil || len(s.InputResponse) != 0 || s.Steer != nil {
-			return fmt.Errorf("%w: invalid result receipt", ErrInvalidProtocol)
-		}
-		return s.Receipt.Validate()
-	}
-	if s.Receipt != nil {
-		return fmt.Errorf("%w: unexpected result receipt", ErrInvalidProtocol)
-	}
-
 	switch s.Operation {
 	case operationModelCall:
 		return s.validateModelResult()
@@ -368,8 +345,8 @@ func (t toolCheckpoint) validate() error {
 }
 
 func decodeEffect(data json.RawMessage) (effectEnvelope, error) {
-	var envelope effectEnvelope
-	if err := jsonv2.Unmarshal(data, &envelope, jsonv2.RejectUnknownMembers(true)); err != nil {
+	envelope, err := jsonwire.Decode[effectEnvelope](data)
+	if err != nil {
 		return effectEnvelope{}, fmt.Errorf("%w: decode effect: %w", ErrInvalidProtocol, err)
 	}
 	if err := envelope.validate(); err != nil {
@@ -379,8 +356,8 @@ func decodeEffect(data json.RawMessage) (effectEnvelope, error) {
 }
 
 func decodeSignal(data json.RawMessage) (signalEnvelope, error) {
-	var envelope signalEnvelope
-	if err := jsonv2.Unmarshal(data, &envelope, jsonv2.RejectUnknownMembers(true)); err != nil {
+	envelope, err := jsonwire.Decode[signalEnvelope](data)
+	if err != nil {
 		return signalEnvelope{}, fmt.Errorf("%w: decode signal: %w", ErrInvalidProtocol, err)
 	}
 	if err := envelope.validate(); err != nil {

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 // effectPhase is the durable lifecycle of one Effect in a prepared batch.
@@ -262,7 +264,7 @@ func (p *preparedEffect) validateWait(operation frameworkEffectOperation) error 
 		if err != nil {
 			return err
 		}
-		opened, err := decodeJSON[childWaitOpenedWire](p.Settlement.payload)
+		opened, err := jsonwire.Decode[childWaitOpenedWire](p.Settlement.payload)
 		if err != nil {
 			return err
 		}

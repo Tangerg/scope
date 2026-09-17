@@ -155,9 +155,6 @@ func TestPublicValidationPreservesResultClassificationAndCause(t *testing.T) {
 	if err := output.Validate(); !errors.Is(err, interaction.ErrInvalidResult) || !errors.Is(err, chat.ErrInvalidResponse) {
 		t.Fatalf("nested cause lost: %v", err)
 	}
-	if err := (interaction.ResultReceipt{}).Validate(); !errors.Is(err, interaction.ErrInvalidResult) {
-		t.Fatalf("receipt classification lost: %v", err)
-	}
 	if err := (interaction.Input{}).Validate(); !errors.Is(err, interaction.ErrInvalidInput) {
 		t.Fatalf("input classification lost: %v", err)
 	}

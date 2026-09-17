@@ -4,11 +4,11 @@ package childcall
 
 import (
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
 	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 // Phase identifies the next Framework response accepted by child invocation progress.
@@ -133,8 +133,8 @@ func (s *Single) UnmarshalJSON(data []byte) error {
 	if s == nil {
 		return errors.New("childcall: nil receiver")
 	}
-	var wire *singleWire
-	if err := jsonv2.Unmarshal(data, &wire, jsonv2.RejectUnknownMembers(true)); err != nil {
+	wire, err := jsonwire.Decode[*singleWire](data)
+	if err != nil {
 		return fmt.Errorf("childcall: decode progress: %w", err)
 	}
 	if wire == nil {

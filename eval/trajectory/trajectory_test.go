@@ -20,12 +20,12 @@ import (
 
 func TestRecorderAndEvaluatorCoverAgentRegressionDimensions(t *testing.T) {
 	recorder := &trajectory.Recorder{}
-	process, _, commits := startRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{}, 2)
+	process, _ := startRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{}, 2)
 	recorded, err := recorder.Take(t.Context(), process, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	coverage := commits.coverage(recorded.Events())
+	coverage := interactionCoverage(recorded.Events())
 	calls := recorded.ModelCalls()
 	for i := range calls {
 		calls[i].Response.Metadata = &chat.ResponseMetadata{Usage: &chat.Usage{InputTokens: 3, OutputTokens: 2}}
@@ -107,7 +107,7 @@ func TestRecorderCapturesInteractionModelAndToolFacts(t *testing.T) {
 
 func runRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observer interaction.ToolObserver, weather tool.Tool) *agent.Process {
 	t.Helper()
-	process, _, _ := startRecordedInteraction(t, recorder, observer, weather, 2)
+	process, _ := startRecordedInteraction(t, recorder, observer, weather, 2)
 	_, err := process.Await(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +115,7 @@ func runRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observe
 	return process
 }
 
-func startRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observer interaction.ToolObserver, weather tool.Tool, maxModelCalls uint32) (*agent.Process, *agent.Engine, *fixtureResultCommits) {
+func startRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observer interaction.ToolObserver, weather tool.Tool, maxModelCalls uint32) (*agent.Process, *agent.Engine) {
 	t.Helper()
 	toolSet, err := interaction.NewToolSet(interaction.ToolSetConfig{
 		Name: "test.trajectory.tools", Description: "Record independently settled Tool calls.", Tools: []tool.Tool{weather}, Observer: observer,
@@ -131,9 +131,8 @@ func startRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, obser
 	if err != nil {
 		t.Fatal(err)
 	}
-	commits := &fixtureResultCommits{effects: make(map[trajectory.EffectReference]struct{})}
 	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-		Model: &fixtureInteractionClient{}, Observer: recorder, ResultCommitter: commits,
+		Model: &fixtureInteractionClient{}, Observer: recorder,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -173,7 +172,7 @@ func startRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, obser
 			t.Error(closeErr)
 		}
 	})
-	return process, engine, commits
+	return process, engine
 }
 
 func TestBehaviorDigestExcludesTimingAndProviderAccounting(t *testing.T) {

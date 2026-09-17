@@ -41,30 +41,26 @@ func TestExplicitRefusalCommitsExactPublicOutputBeforeModelContinuation(t *testi
 				Details: json.RawMessage(`{"permitted":false}`),
 			}
 			public := &callbackTool{name: "inspect", call: func(ctx context.Context, arguments string) (string, error) {
-				invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "current", Name: "inspect", Arguments: arguments})
-				if err != nil {
-					return "", err
+				invocation, prepareErr := binding.Contract().Prepare(chat.ToolCall{ID: "current", Name: "inspect", Arguments: arguments})
+				if prepareErr != nil {
+					return "", prepareErr
 				}
 				_, denied := binding.Call(ctx, invocation)
 				if denied == nil {
 					return "", errors.New("expected refusal")
 				}
-				failure, err := tool.NewFailure(tool.FailureConfig{
+				failure, failureErr := tool.NewFailure(tool.FailureConfig{
 					Kind: tool.FailureKindRejected, Output: output, Cause: errors.Join(context.DeadlineExceeded, denied),
 				})
-				if err != nil {
-					return "", err
+				if failureErr != nil {
+					return "", failureErr
 				}
 				if wrapped {
 					return "", fmt.Errorf("invocation: %w", failure)
 				}
 				return "", failure
 			}}
-			var committed []interaction.ResultEntry
-			committer := &resultCommitter{commit: func(_ context.Context, batch interaction.ResultBatch) (interaction.ResultReceipt, error) {
-				committed = append(committed, batch.Entries()...)
-				return batch.Receipt(), nil
-			}}
+			store := newPublicationStore(t)
 			modelCalls := 0
 			model := chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
 				modelCalls++
@@ -72,6 +68,7 @@ func TestExplicitRefusalCommitsExactPublicOutputBeforeModelContinuation(t *testi
 					return toolCallResponse(chat.ToolCall{ID: "current", Name: "inspect", Arguments: `{}`}), nil
 				}
 				want := chat.ToolResult{ID: "current", Name: "inspect", Output: output, IsError: true}
+				committed := store.entries()
 				if len(committed) != 1 || committed[0].Disposition != interaction.ResultRejected || !reflect.DeepEqual(committed[0].Result, want) {
 					return nil, fmt.Errorf("incorrect committed refusal: %+v", committed)
 				}
@@ -91,8 +88,12 @@ func TestExplicitRefusalCommitsExactPublicOutputBeforeModelContinuation(t *testi
 				}
 				return textResponse("done"), nil
 			})
-			deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "authorization.output", Description: "Publish explicit refusal output.", MaxModelCalls: agent.NewQuota(2)}, interaction.DispatcherConfig{Model: model, ResultCommitter: committer}, interaction.ToolSetConfig{Tools: []tool.Tool{public}})
-			result := runInteraction(t, deployment, "work")
+			deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "authorization.output", Description: "Publish explicit refusal output.", MaxModelCalls: agent.NewQuota(2)}, interaction.DispatcherConfig{Model: model}, interaction.ToolSetConfig{Tools: []tool.Tool{public}})
+			engine := publicationEngine(t, deployment, store)
+			result, err := engine.Run(t.Context(), deployment.Deployment, interactionInput(t, "work"))
+			if err != nil {
+				t.Fatal(err)
+			}
 			if result.Status() != agent.StatusCompleted || executions.Load() != 0 || modelCalls != 2 {
 				t.Fatalf("status=%s executions=%d model calls=%d", result.Status(), executions.Load(), modelCalls)
 			}

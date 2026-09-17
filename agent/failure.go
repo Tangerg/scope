@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 const maxFailureCodeBytes = 128
@@ -15,11 +17,19 @@ var ErrInvalidFailure = errors.New("agent: invalid failure")
 type FailureKind string
 
 const (
-	FailureKindInvalid   FailureKind = ""
+	// FailureKindInvalid is the absent, unusable classification.
+	FailureKindInvalid FailureKind = ""
+	// FailureKindExecution reports a Strategy error or an exhausted execution bound.
 	FailureKindExecution FailureKind = "execution"
-	FailureKindContract  FailureKind = "contract"
-	FailureKindExternal  FailureKind = "external"
-	FailureKindPanic     FailureKind = "panic"
+	// FailureKindContract reports an invalid protocol value or authority violation.
+	FailureKindContract FailureKind = "contract"
+	// FailureKindExternal reports a Host boundary error without a contained panic.
+	FailureKindExternal FailureKind = "external"
+	// FailureKindPanic reports a contained callback panic when that boundary produces
+	// a Failure. Storage and API errors retain CallbackPanicError instead; isolated
+	// observation panics remain in ObservationFailures. This kind does not establish
+	// an external operation's outcome or authorize replay.
+	FailureKindPanic FailureKind = "panic"
 )
 
 func (f FailureKind) Valid() bool {
@@ -75,6 +85,13 @@ func (f Failure) Valid() bool {
 	return f.kind.Valid()
 }
 
+func failureKindForError(err error, fallback FailureKind) FailureKind {
+	if _, ok := errors.AsType[*CallbackPanicError](err); ok {
+		return FailureKindPanic
+	}
+	return fallback
+}
+
 // Kernel classifications are fixed by their owning boundary. An invalid kind or
 // code is a programming error; substituting another Failure would hide its cause.
 func newEngineFailure(kind FailureKind, code string, err error) Failure {
@@ -101,7 +118,7 @@ func (f *Failure) UnmarshalJSON(data []byte) error {
 	if f == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidFailure)
 	}
-	wire, err := decodeJSON[failureWire](data)
+	wire, err := jsonwire.Decode[failureWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidFailure, err)
 	}

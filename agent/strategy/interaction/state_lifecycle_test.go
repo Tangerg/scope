@@ -80,12 +80,13 @@ func TestRestoreRejectsIncompleteLifecycleStates(t *testing.T) {
 	}
 }
 
-func TestRestoreValidatesPendingResultPublication(t *testing.T) {
+func TestRestoreValidatesCompleteRoundAdmission(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		change func(*executionState)
 	}{
 		{"complete", func(*executionState) {}},
+		{"retired publication phase", func(state *executionState) { state.Phase = "awaiting_result_commit" }},
 		{"missing result", func(state *executionState) { state.ToolRound.Results = nil }},
 		{"foreign result", func(state *executionState) { state.ToolRound.Results[0].Result.ID = "other" }},
 		{"rejected success", func(state *executionState) { state.ToolRound.Results[0].Rejected = true }},
@@ -94,12 +95,16 @@ func TestRestoreValidatesPendingResultPublication(t *testing.T) {
 			state.ToolRound.Results[0].Result.IsError = true
 		}},
 		{"truncated execution", func(state *executionState) { state.ToolRound.Response.Output.FinishReason = chat.FinishReasonLength }},
+		{"truncated advancing execution", func(state *executionState) {
+			state.Phase = phaseAdvancingTools
+			state.ToolRound.Response.Output.FinishReason = chat.FinishReasonLength
+		}},
 		{"unfinished child", func(state *executionState) { state.ToolRound.ChildBatch = &childCallBatch{} }},
 		{"completed output", func(state *executionState) { state.FinalOutput = &Output{} }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			execution := childBatchTestExecution(t, childCallsTool, phaseAwaitingChildStarts)
-			execution.state.Phase = phaseAwaitingResultCommit
+			execution.state.Phase = phaseRoundComplete
 			execution.state.ToolRound.ChildBatch = nil
 			execution.state.ToolRound.Results = []toolCallResult{{Result: chat.ToolResult{ID: "call_batch", Name: "delegate_fuzz", Output: chat.NewTextToolOutput("done")}}}
 			test.change(&execution.state)
@@ -109,7 +114,7 @@ func TestRestoreValidatesPendingResultPublication(t *testing.T) {
 			}
 			_, restoreErr := execution.definition.Restore(t.Context(), state)
 			if test.name == "complete" && restoreErr != nil || test.name != "complete" && !errors.Is(restoreErr, ErrInvalidExecutionState) {
-				t.Fatalf("restore pending publication: %v", restoreErr)
+				t.Fatalf("restore complete round: %v", restoreErr)
 			}
 		})
 	}

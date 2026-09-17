@@ -128,7 +128,7 @@ func acknowledgeProcessInitializationOutcome(
 	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("process-initialization outcome acknowledger panicked: %v", recovered)
+			err = &CallbackPanicError{Operation: "ProcessInitializationOutcomeAcknowledger.AcknowledgeProcessInitializationOutcome", Value: recovered}
 		}
 	}()
 	if err := acknowledger.AcknowledgeProcessInitializationOutcome(

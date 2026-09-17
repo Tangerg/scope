@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 var ErrInvalidEffect = errors.New("agent: invalid effect")
@@ -141,7 +143,7 @@ func (e *Effect) UnmarshalJSON(data []byte) error {
 	if e == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidEffect)
 	}
-	wire, err := decodeJSON[effectWire](data)
+	wire, err := jsonwire.Decode[effectWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidEffect, err)
 	}
@@ -207,7 +209,7 @@ type waitRequestWire struct {
 }
 
 func decodeWaitRequestPayload(payload json.RawMessage) (WaitKey, json.RawMessage, error) {
-	wire, err := decodeJSON[waitRequestWire](payload)
+	wire, err := jsonwire.Decode[waitRequestWire](payload)
 	if err != nil {
 		return WaitKey{}, nil, fmt.Errorf("%w: decode Framework Effect: %w", ErrInvalidEffect, err)
 	}

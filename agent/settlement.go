@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 var ErrInvalidSettlement = errors.New("agent: invalid effect settlement")
@@ -96,7 +98,7 @@ func (s *Settlement) UnmarshalJSON(data []byte) error {
 	if s == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidSettlement)
 	}
-	wire, err := decodeJSON[settlementWire](data)
+	wire, err := jsonwire.Decode[settlementWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidSettlement, err)
 	}

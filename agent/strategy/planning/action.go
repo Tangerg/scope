@@ -117,11 +117,8 @@ func (a Action) Cost(source WorldState) (cost float64, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			cost = 0
-			if cause, ok := recovered.(error); ok {
-				err = fmt.Errorf("%w: Action %q panicked: %w", ErrInvalidActionCost, a.name, cause)
-				return
-			}
-			err = fmt.Errorf("%w: Action %q panicked: %v", ErrInvalidActionCost, a.name, recovered)
+			err = fmt.Errorf("%w: Action %q: %w", ErrInvalidActionCost, a.name,
+				&agent.CallbackPanicError{Operation: "Action.Cost", Value: recovered})
 		}
 	}()
 	cost, err = a.cost(source)

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 var ErrInvalidSignal = errors.New("agent: invalid signal")
@@ -76,7 +78,7 @@ func (s *Signal) UnmarshalJSON(data []byte) error {
 	if s == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidSignal)
 	}
-	wire, err := decodeJSON[signalWire](data)
+	wire, err := jsonwire.Decode[signalWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidSignal, err)
 	}

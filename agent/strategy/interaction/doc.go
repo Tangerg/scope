@@ -47,22 +47,26 @@
 // refer to bound deferred Tools, including during restoration. Model preparation
 // errors settle as definite host failures before external work begins.
 //
-// Every known Tool and Delegate result, including validation, availability,
-// truncation, authorization, and child-admission rejections, crosses one
-// publication Effect per model response. ResultCommitter receives the complete
-// ordered call set and exact outputs. Scope adopts them only after verifying
-// its ResultReceipt. Tool execution and result publication have separate Effect
-// identities: a lost publication receipt cannot turn a known result into an
-// unknown execution or cause the Tool to run again. Pending snapshots retain
-// the exact results. Nil ResultCommitter acknowledges in memory only; durable
-// recovery additionally requires the Engine's TreeDurability and host storage.
-// ResultCommitter must reconcile and publish idempotently under the original
-// EffectID, with current-writer fencing. Pending publication can replay on
-// restore; settled Unknown publication requires Process.ReplayUnknownEffect or
-// ResolveUnknownEffect with a verified stored receipt. A fresh Dispatcher
-// reconstructs ResultBatch from the persisted intent, without rerunning Tools
-// or reading old host memory. If the transaction remains uncertain, adoption
-// stays blocked. Receipt validation binds both content and settlement identity.
+// SettledResults interprets exact known Tool and Delegate outcomes from the
+// authoritative tree, including sparse and cancellation-drained settlements.
+// Its RoundResults view is read-only and has no storage or acknowledgment role.
+// Hosts that need a separate result history can derive it atomically within their
+// TreeDurability transactions; its storage, retention, and delivery remain host policy.
+// Local rejections and complete rounds cross explicit Checkpoint transitions.
+// Only a complete round can cross that boundary into model continuation or direct
+// completion; durable execution also waits for storage acknowledgment. A canceled
+// parent never resumes to collect or publish children.
+//
+// Await fixes the Process terminal; Join additionally drains descendant calls
+// and their required storage acknowledgments. Canceling either caller wait does
+// not discard owned work. TreeDurability hosts own bounded storage operations and
+// an explicit host-release cancellation path. Storage failure stops this runtime
+// with RuntimeError; it does not manufacture an unknown ToolResult. An
+// acknowledged or reconciled transaction retains exact execution facts. Recovery
+// loads that authoritative transaction and activates a fenced writer. Ephemeral
+// engines provide no durable recovery. Scope-owned state uses one strict current
+// schema; retired result_commit Effects and awaiting_result_commit checkpoints
+// are rejected.
 //
 // A valid tool.Failure produces its complete model-visible error ToolResult and
 // rejection disposition. Its diagnostic Cause cannot issue cancellation, input,

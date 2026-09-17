@@ -120,7 +120,7 @@ func waitingOwnerFixture(b testing.TB, parents int) (*treeRuntime, *processState
 			b.Fatal(err)
 		}
 		handle := newProcessHandle(relation, deployment.DeploymentRef(),
-			engine.limits.budget(), engine.capabilities, engine.treeLimits, now)
+			engine.limits.Budget, engine.capabilities, engine.treeLimits, now)
 		return newProcessState(handle, deployment, execution, state, now, engine.limits)
 	}
 	root := makeProcess(nil, "root")

@@ -4,12 +4,10 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"runtime"
-	"strings"
 	"sync"
 
 	"github.com/Tangerg/scope/agent"
-
+	"github.com/Tangerg/scope/agent/internal/panicinfo"
 	"github.com/Tangerg/scope/core/chat"
 )
 
@@ -112,11 +110,6 @@ const (
 	toolSettledCallback
 )
 
-const (
-	maxObserverPanicMessageBytes = 4 << 10
-	maxObserverPanicStackBytes   = 64 << 10
-)
-
 type observationFailureCounters struct {
 	mu       sync.Mutex
 	failures ObservationFailures
@@ -134,15 +127,10 @@ func (o *observationFailureCounters) recordPanic(callback observationCallback, o
 	if value == nil {
 		return
 	}
-	message := fmt.Sprint(value)
-	if len(message) > maxObserverPanicMessageBytes {
-		message = strings.Clone(message[:maxObserverPanicMessageBytes])
-	}
-	stack := make([]byte, maxObserverPanicStackBytes)
-	size := runtime.Stack(stack, false)
+	message, stack := panicinfo.Capture(value)
 	diagnostic := &ObserverPanic{
 		ObserverType: fmt.Sprintf("%T", observer), ProcessID: processID, EffectID: effectID,
-		Message: message, Stack: string(stack[:size]),
+		Message: message, Stack: stack,
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()

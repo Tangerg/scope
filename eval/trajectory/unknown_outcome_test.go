@@ -14,7 +14,7 @@ import (
 
 func TestRecorderPreservesHostFailureAsUnknownToolOutcome(t *testing.T) {
 	recorder := &trajectory.Recorder{}
-	process, engine, _ := startRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{
+	process, engine := startRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{
 		failure: interaction.HostFailure(errors.New("tool boundary unavailable")),
 	}, 2)
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)

@@ -2,8 +2,9 @@ package planning
 
 import (
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"fmt"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 // Truth is the three-valued truth of one observed condition. Unknown is not a
@@ -42,8 +43,8 @@ func (t *Truth) UnmarshalJSON(data []byte) error {
 	if t == nil {
 		return fmt.Errorf("%w: nil Truth receiver", ErrInvalidCondition)
 	}
-	var encoded string
-	if err := jsonv2.Unmarshal(data, &encoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+	encoded, err := jsonwire.Decode[string](data)
+	if err != nil {
 		return fmt.Errorf("%w: decode Truth: %w", ErrInvalidCondition, err)
 	}
 	decoded := Truth(encoded)

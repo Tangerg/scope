@@ -23,7 +23,7 @@ func coveredInteraction(t *testing.T) trajectory.Trajectory {
 	defer cancel()
 	recorder := &trajectory.Recorder{}
 	release := make(chan struct{})
-	process, engine, commits := startRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{release: release}, 2)
+	process, engine := startRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{release: release}, 2)
 	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()
 	// Complete after wait registration so this fixture always exercises signal arrival.
@@ -51,7 +51,7 @@ func coveredInteraction(t *testing.T) trajectory.Trajectory {
 		t.Fatal(err)
 	}
 	config := trajectoryConfig(recorded)
-	config.Coverage = commits.coverage(config.Events)
+	config.Coverage = interactionCoverage(config.Events)
 	for i := range config.ModelCalls {
 		config.ModelCalls[i].Response.Metadata = &chat.ResponseMetadata{Usage: &chat.Usage{InputTokens: 3, OutputTokens: 2}}
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 type operation string
@@ -78,8 +79,8 @@ func newActionEffect(input agent.Payload, binding ActionBinding, state WorldStat
 }
 
 func decodeEffect(payload json.RawMessage) (effectEnvelope, error) {
-	var envelope effectEnvelope
-	if err := jsonv2.Unmarshal(payload, &envelope, jsonv2.RejectUnknownMembers(true)); err != nil {
+	envelope, err := jsonwire.Decode[effectEnvelope](payload)
+	if err != nil {
 		return effectEnvelope{}, fmt.Errorf("%w: decode Effect: %w", ErrInvalidProtocol, err)
 	}
 	if !envelope.Operation.valid() || !envelope.Input.Valid() {
@@ -125,8 +126,8 @@ func actionSignal(result ActionResult) (json.RawMessage, error) {
 }
 
 func decodeSignal(payload json.RawMessage) (signalEnvelope, error) {
-	var envelope signalEnvelope
-	if err := jsonv2.Unmarshal(payload, &envelope, jsonv2.RejectUnknownMembers(true)); err != nil {
+	envelope, err := jsonwire.Decode[signalEnvelope](payload)
+	if err != nil {
 		return signalEnvelope{}, fmt.Errorf("%w: decode Signal: %w", ErrInvalidProtocol, err)
 	}
 	if envelope.HostError != "" {

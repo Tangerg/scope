@@ -88,7 +88,7 @@ func BenchmarkReleaseTreeAmongRetainedProcesses(b *testing.B) {
 				id := newProcessID()
 				root := runtime.processes[runtime.rootID]
 				handle := newProcessHandle(rootProcessRelation(id), root.handle.deploymentRef,
-					root.budget, root.capabilities, root.treeLimits, root.startedAt)
+					root.limits.Budget, root.capabilities, root.treeLimits, root.startedAt)
 				result := root.result()
 				result.processID = id
 				handle.publishResult(result)
@@ -131,7 +131,7 @@ func BenchmarkChildAdmissionAmongRetainedRoots(b *testing.B) {
 			for range retained {
 				id := newProcessID()
 				handle := newProcessHandle(rootProcessRelation(id), parent.handle.deploymentRef,
-					parent.budget, parent.capabilities, parent.treeLimits, parent.startedAt)
+					parent.limits.Budget, parent.capabilities, parent.treeLimits, parent.startedAt)
 				handle.publishRuntimeFailure(&RuntimeError{processID: id, cause: context.Canceled})
 				handle.finishBookkeeping()
 				engine.processes[id] = handle

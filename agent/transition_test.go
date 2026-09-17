@@ -21,6 +21,22 @@ func TestTransitionConstructorsEnforceOwnedFields(t *testing.T) {
 		t.Fatalf("Continue transition mutated: %+v", transition)
 	}
 
+	checkpoint, err := Checkpoint(2)
+	if err != nil || checkpoint.Kind() != TransitionKindCheckpoint || checkpoint.ConsumedSignals() != 2 || len(checkpoint.Effects()) != 0 {
+		t.Fatalf("Checkpoint() = %+v, %v", checkpoint, err)
+	}
+	encoded, err := json.Marshal(checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored Transition
+	if err := json.Unmarshal(encoded, &restored); err != nil || restored.Kind() != TransitionKindCheckpoint || restored.ConsumedSignals() != 2 {
+		t.Fatalf("checkpoint round trip: %+v, %v", restored, err)
+	}
+	if err := json.Unmarshal([]byte(`{"kind":"checkpoint","consumed_signals":0,"effects":[{"target":"dispatcher","payload":{}}]}`), &restored); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("checkpoint admitted external effects: %v", err)
+	}
+
 	waitID, _ := ParseWaitID("wait:1")
 	if wait, err := Wait(1, waitID); err != nil || wait.Kind() != TransitionKindWait {
 		t.Fatalf("Wait() = %+v, %v", wait, err)

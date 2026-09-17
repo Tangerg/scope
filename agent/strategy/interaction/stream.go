@@ -2,10 +2,10 @@ package interaction
 
 import (
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 	"github.com/Tangerg/scope/core/chat"
 )
 
@@ -17,8 +17,8 @@ type ModelResponseDelta struct {
 
 // ParseModelResponseDelta strictly decodes an Interaction model Delta payload.
 func ParseModelResponseDelta(payload json.RawMessage) (ModelResponseDelta, error) {
-	var wire modelResponseDeltaWire
-	if err := jsonv2.Unmarshal(payload, &wire, jsonv2.RejectUnknownMembers(true)); err != nil {
+	wire, err := jsonwire.Decode[modelResponseDeltaWire](payload)
+	if err != nil {
 		return ModelResponseDelta{}, fmt.Errorf("interaction: decode model response Delta: %w", err)
 	}
 	if err := wire.ResponseDelta.Validate(); err != nil {

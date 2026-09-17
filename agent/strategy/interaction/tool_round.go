@@ -15,6 +15,17 @@ type toolCallRound struct {
 
 func (t *toolCallRound) nextCallIndex() uint32 { return uint32(len(t.Results)) }
 
+func (t *toolCallRound) knownResult(index int) *toolCallResult {
+	if index < len(t.Results) {
+		return &t.Results[index]
+	}
+	offset := index - len(t.Results)
+	if t.ChildBatch != nil && offset < len(t.ChildBatch.Invocations) {
+		return t.ChildBatch.Invocations[offset].Result
+	}
+	return nil
+}
+
 func (t *toolCallRound) activeCalls(ctx context.Context) ([]chat.ToolCall, error) {
 	if t == nil {
 		return nil, fmt.Errorf("%w: active call phase requires a tool round", ErrInvalidExecutionState)
@@ -66,16 +77,11 @@ func (t *toolCallRound) validateResults(ctx context.Context, calls []chat.ToolCa
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if result.Result.ID != calls[index].ID || result.Result.Name != calls[index].Name {
-			return fmt.Errorf("%w: tool result %d does not match call %q", ErrInvalidExecutionState, index, calls[index].ID)
+		if err := result.validateCall(calls[index]); err != nil {
+			return fmt.Errorf("%w: result %d: %w", ErrInvalidExecutionState, index, err)
 		}
-	}
-	for _, result := range t.Results {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := result.validate(); err != nil {
-			return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
+		if t.Response.Output.FinishReason == chat.FinishReasonLength && !result.Rejected {
+			return fmt.Errorf("%w: truncated calls can only have rejected results", ErrInvalidExecutionState)
 		}
 	}
 	return nil
@@ -85,31 +91,20 @@ func (t *toolCallRound) reject(call chat.ToolCall, diagnostic string) {
 	t.Results = append(t.Results, toolCallResult{Result: rejectedToolResult(call, diagnostic), Rejected: true})
 }
 
-func (t *toolCallRound) publication(ctx context.Context, sequence uint64) (resultCommit, error) {
+func (t *toolCallRound) validateComplete(ctx context.Context) error {
 	if t == nil || t.ChildBatch != nil || t.Response == nil || t.Response.Output == nil {
-		return resultCommit{}, ErrInvalidExecutionState
+		return ErrInvalidExecutionState
 	}
 	finish := t.Response.Output.FinishReason
 	if finish != chat.FinishReasonToolCalls && finish != chat.FinishReasonLength {
-		return resultCommit{}, ErrInvalidExecutionState
+		return ErrInvalidExecutionState
 	}
 	calls, err := validatedToolCalls(t.Response)
-	if err != nil {
-		return resultCommit{}, err
+	if err != nil || len(calls) == 0 || len(calls) != len(t.Results) {
+		return fmt.Errorf("%w: round requires every call result", ErrInvalidExecutionState)
 	}
-	publication := resultCommit{ModelCallSequence: sequence, Calls: calls, Results: t.Results}
-	if err := publication.validate(); err != nil {
-		return resultCommit{}, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
+	if err := t.validateResults(ctx, calls); err != nil {
+		return err
 	}
-	if finish == chat.FinishReasonLength {
-		for _, result := range t.Results {
-			if err := ctx.Err(); err != nil {
-				return resultCommit{}, err
-			}
-			if !result.Rejected {
-				return resultCommit{}, ErrInvalidExecutionState
-			}
-		}
-	}
-	return publication, nil
+	return ctx.Err()
 }

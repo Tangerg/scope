@@ -141,11 +141,12 @@ func TestStableEnumVocabulary(t *testing.T) {
 		"TransitionKind": {
 			invalid: agent.TransitionKindInvalid,
 			valid: map[string]enumValue{
-				"continue": agent.TransitionKindContinue,
-				"wait":     agent.TransitionKindWait,
-				"pause":    agent.TransitionKindPause,
-				"complete": agent.TransitionKindComplete,
-				"fail":     agent.TransitionKindFail,
+				"continue":   agent.TransitionKindContinue,
+				"checkpoint": agent.TransitionKindCheckpoint,
+				"wait":       agent.TransitionKindWait,
+				"pause":      agent.TransitionKindPause,
+				"complete":   agent.TransitionKindComplete,
+				"fail":       agent.TransitionKindFail,
 			},
 		},
 		"TreeCheckpointKind": {

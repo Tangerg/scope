@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 var ErrInvalidChildWait = errors.New("agent: invalid child wait")
@@ -176,7 +178,7 @@ func ParseChildWaitOpened(signal Signal) (ChildWaitOpened, error) {
 	if !signal.EngineOwned() || !addressed {
 		return ChildWaitOpened{}, ErrInvalidChildWait
 	}
-	wire, err := decodeJSON[childWaitOpenedWire](signal.Payload())
+	wire, err := jsonwire.Decode[childWaitOpenedWire](signal.Payload())
 	if err != nil {
 		return ChildWaitOpened{}, fmt.Errorf("%w: decode opened Signal: %w", ErrInvalidChildWait, err)
 	}
@@ -285,7 +287,7 @@ func (c *ChildOutcome) UnmarshalJSON(data []byte) error {
 	if c == nil {
 		return ErrInvalidChildWait
 	}
-	wire, err := decodeJSON[childOutcomeWire](data)
+	wire, err := jsonwire.Decode[childOutcomeWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode child outcome: %w", ErrInvalidChildWait, err)
 	}
@@ -366,7 +368,7 @@ func ParseChildWaitSatisfied(signal Signal) (ChildWaitSatisfied, error) {
 	if !signal.EngineOwned() || !addressed {
 		return ChildWaitSatisfied{}, ErrInvalidChildWait
 	}
-	wire, err := decodeJSON[childWaitSatisfiedWire](signal.Payload())
+	wire, err := jsonwire.Decode[childWaitSatisfiedWire](signal.Payload())
 	if err != nil {
 		return ChildWaitSatisfied{}, fmt.Errorf("%w: decode completion Signal: %w", ErrInvalidChildWait, err)
 	}
@@ -452,7 +454,7 @@ func (c childWaitSpecWire) value() (ChildWaitSpec, error) {
 }
 
 func decodeChildWaitEffect(payload json.RawMessage) (ChildWaitSpec, error) {
-	wire, err := decodeJSON[childWaitEffectWire](payload)
+	wire, err := jsonwire.Decode[childWaitEffectWire](payload)
 	if err != nil {
 		return ChildWaitSpec{}, fmt.Errorf("%w: decode request: %w", ErrInvalidChildWait, err)
 	}

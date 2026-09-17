@@ -110,7 +110,7 @@ func ExampleEngine_Start_successiveEpisodes() {
 	}
 	request := successorRequest{
 		Predecessor: previous.ID(), DeploymentRef: deployment.DeploymentRef(), Input: transfer,
-		Limits:     agent.Limits{MaxSteps: agent.NewQuota(8), MaxEffects: agent.NewQuota(4), MaxSignals: agent.NewQuota(8), MaxPendingSignals: 8},
+		Limits:     agent.Limits{MaxPendingSignals: 8, Budget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)}},
 		TreeLimits: agent.DefaultTreeLimits(),
 	}
 	host := &episodeHost{store: store}

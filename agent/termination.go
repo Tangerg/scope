@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 const maxTerminationReasonBytes = 4096
@@ -353,7 +355,7 @@ func (t *Termination) UnmarshalJSON(data []byte) error {
 	if t == nil {
 		return fmt.Errorf("%w: nil receiver", errInvalidTermination)
 	}
-	wire, err := decodeJSON[terminationWire](data)
+	wire, err := jsonwire.Decode[terminationWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", errInvalidTermination, err)
 	}

@@ -7,6 +7,8 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 // MaxPayloadBytes is the maximum encoded JSON size of an individual Agent
@@ -52,7 +54,7 @@ func EncodePayload[T any](value T) (Payload, error) {
 // Decode strictly decodes p into a typed value. Unknown object fields are
 // rejected when T is a struct.
 func (p Payload) Decode[T any]() (T, error) {
-	value, err := decodeJSON[T](p.data)
+	value, err := jsonwire.Decode[T](p.data)
 	if err != nil {
 		return value, fmt.Errorf("%w: decode: %w", ErrInvalidPayload, err)
 	}
@@ -100,27 +102,4 @@ func normalizeJSON(data []byte, limit int) (json.RawMessage, error) {
 		return nil, fmt.Errorf("normalized JSON value exceeds %d bytes", limit)
 	}
 	return json.RawMessage(normalized), nil
-}
-
-func decodeJSON[T any](data []byte, required ...string) (T, error) {
-	var value T
-	if len(data) == 0 {
-		return value, errors.New("JSON value is empty")
-	}
-	if err := jsonv2.Unmarshal(data, &value, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return value, err
-	}
-	if len(required) != 0 {
-		var fields map[string]json.RawMessage
-		if err := jsonv2.Unmarshal(data, &fields); err != nil {
-			return value, err
-		}
-		for _, name := range required {
-			field, present := fields[name]
-			if !present || bytes.Equal(bytes.TrimSpace(field), []byte("null")) {
-				return value, fmt.Errorf("required JSON member %q is missing or null", name)
-			}
-		}
-	}
-	return value, nil
 }

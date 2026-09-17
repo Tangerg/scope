@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 var ErrInvalidSnapshot = errors.New("agent: invalid process snapshot")
@@ -55,11 +57,11 @@ type ProcessSnapshot struct {
 // capability grant. Terminal prepared batches contain no pending attempt and
 // their unknown identities must exactly match the Termination.
 func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
-	wire, err := decodeJSON[processSnapshotWire](data, "budget", "allocated_resources", "max_snapshot_bytes")
+	wire, err := jsonwire.Decode[processSnapshotWire](data, "limits", "allocated_resources")
 	if err != nil {
 		return ProcessSnapshot{}, fmt.Errorf("%w: decode: %w", ErrInvalidSnapshot, err)
 	}
-	if !wire.MaxSnapshotBytes.Allows(uint64(len(data))) {
+	if !wire.Limits.MaxSnapshotBytes.Allows(uint64(len(data))) {
 		return ProcessSnapshot{}, fmt.Errorf("%w: snapshot byte quota exceeded", ErrInvalidSnapshot)
 	}
 	return processSnapshotFromWire(wire)
@@ -79,7 +81,7 @@ func processSnapshotFromWire(wire processSnapshotWire) (ProcessSnapshot, error) 
 	if err != nil {
 		return ProcessSnapshot{}, fmt.Errorf("%w: encode: %w", ErrInvalidSnapshot, err)
 	}
-	if !wire.MaxSnapshotBytes.Allows(uint64(len(normalized))) {
+	if !wire.Limits.MaxSnapshotBytes.Allows(uint64(len(normalized))) {
 		return ProcessSnapshot{}, fmt.Errorf("%w: snapshot byte quota exceeded", ErrInvalidSnapshot)
 	}
 	return ProcessSnapshot{data: normalized, state: wire}, nil
@@ -118,7 +120,7 @@ func (p ProcessSnapshot) Relation() ProcessRelation {
 
 // Budget returns the Process work allocation captured by this snapshot.
 func (p ProcessSnapshot) Budget() Budget {
-	return p.state.Budget
+	return p.state.Limits.Budget
 }
 
 // Capabilities returns the Process authority set captured by this snapshot.
@@ -153,6 +155,37 @@ func (p ProcessSnapshot) UnknownEffectIDs() []EffectID {
 // returned state's payload.
 func (p ProcessSnapshot) CommittedExecutionState() ExecutionState {
 	return p.state.CommittedExecutionState.clone()
+}
+
+// Settlements returns retained Effect outcomes in declaration order. These are
+// execution facts even when cancellation prevented candidate-state adoption.
+// Adopted outcomes move into SignalReceipts until consumed by the Strategy;
+// this is not a historical journal and absence does not imply non-execution.
+func (p ProcessSnapshot) Settlements() []Settlement {
+	var settlements []Settlement
+	if p.state.Prepared != nil {
+		for _, record := range p.state.Prepared.Effects {
+			if record.Settlement != nil {
+				settlements = append(settlements, record.Settlement.clone())
+			}
+		}
+	}
+	return settlements
+}
+
+// Result returns the captured immutable terminal outcome, when present. Its
+// persistence authority is that of the enclosing TreeSnapshot transaction.
+func (p ProcessSnapshot) Result() (Result, bool) {
+	if !p.Status().Terminal() {
+		return Result{}, false
+	}
+	result := Result{processID: p.state.ProcessID, startedAt: p.state.StartedAt,
+		finishedAt: *p.state.FinishedAt, termination: *p.state.Termination,
+		usage: p.state.usage()}
+	if p.state.Output != nil {
+		result.output = *p.state.Output
+	}
+	return result, true
 }
 
 // WaitID returns the current Engine-minted wait identity and true when the
@@ -241,10 +274,8 @@ type processSnapshotWire struct {
 	FinishedAt              *time.Time          `json:"finished_at,omitempty"`
 	Status                  Status              `json:"status"`
 	CommittedSteps          uint64              `json:"committed_steps"`
-	MaxSnapshotBytes        Quota               `json:"max_snapshot_bytes"`
-	MaxPendingSignals       uint64              `json:"max_pending_signals"`
+	Limits                  Limits              `json:"limits"`
 	TreeLimits              TreeLimits          `json:"tree_limits"`
-	Budget                  Budget              `json:"budget"`
 	AllocatedResources      resourceAmounts     `json:"allocated_resources"`
 	Capabilities            CapabilitySet       `json:"capabilities"`
 	Counters                processCounters     `json:"counters"`
@@ -304,9 +335,9 @@ func (p processSnapshotWire) clone() processSnapshotWire {
 func (p processSnapshotWire) validateContract() error {
 	if !p.ProcessID.Valid() || !p.DeploymentRef.Valid() || p.StartedAt.IsZero() ||
 		!p.Status.Valid() || !p.CommittedExecutionState.Valid() ||
-		!p.Budget.limits(p.MaxPendingSignals, p.MaxSnapshotBytes).Valid() || !p.TreeLimits.Valid() ||
+		!p.Limits.Valid() || !p.TreeLimits.Valid() ||
 		!p.Capabilities.Valid() ||
-		!p.Budget.contains(p.usage(), p.AllocatedResources) {
+		!p.Limits.Budget.contains(p.usage(), p.AllocatedResources) {
 		return fmt.Errorf("%w: incomplete Process identity or state", ErrInvalidSnapshot)
 	}
 	return nil
@@ -360,10 +391,10 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 			preparedSteps = 1
 		}
 	}
-	if !resourceQuantitiesFit(p.MaxPendingSignals, mailbox.pendingCount()) ||
-		!resourceQuantitiesFit(p.MaxPendingSignals, remainingPending, reserved) ||
-		!p.Budget.Signals.Allows(p.usage().AcceptedSignals, p.AllocatedResources.Signals, reserved) ||
-		!p.Budget.Steps.Allows(p.CommittedSteps, p.AllocatedResources.Steps, preparedSteps) {
+	if !resourceQuantitiesFit(p.Limits.MaxPendingSignals, mailbox.pendingCount()) ||
+		!resourceQuantitiesFit(p.Limits.MaxPendingSignals, remainingPending, reserved) ||
+		!p.Limits.Budget.Signals.Allows(p.usage().AcceptedSignals, p.AllocatedResources.Signals, reserved) ||
+		!p.Limits.Budget.Steps.Allows(p.CommittedSteps, p.AllocatedResources.Steps, preparedSteps) {
 		return fmt.Errorf("%w: execution capacity exceeds limits or budget", ErrInvalidSnapshot)
 	}
 	return nil

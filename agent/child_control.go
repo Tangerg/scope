@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 var ErrInvalidChildControl = errors.New("agent: invalid child control")
@@ -141,7 +143,7 @@ func (c childControlEffectWire) effect() (Effect, error) {
 }
 
 func decodeChildControlEffect(payload json.RawMessage) (childControlEffectWire, error) {
-	wire, err := decodeJSON[childControlEffectWire](payload)
+	wire, err := jsonwire.Decode[childControlEffectWire](payload)
 	if err != nil {
 		return childControlEffectWire{}, fmt.Errorf("%w: effect: %w", ErrInvalidChildControl, err)
 	}
@@ -159,7 +161,7 @@ type childControlResultWire struct {
 }
 
 func decodeChildControlResult(payload json.RawMessage) (ChildControlResult, error) {
-	wire, err := decodeJSON[childControlResultWire](payload)
+	wire, err := jsonwire.Decode[childControlResultWire](payload)
 	if err != nil {
 		return ChildControlResult{}, fmt.Errorf("%w: result: %w", ErrInvalidChildControl, err)
 	}

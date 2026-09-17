@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 // MaxDescriptionBytes bounds descriptions of advertised behavior.
@@ -163,7 +165,7 @@ func (d *Descriptor) UnmarshalJSON(data []byte) error {
 	if d == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidDescriptor)
 	}
-	wire, err := decodeJSON[descriptorWire](data)
+	wire, err := jsonwire.Decode[descriptorWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidDescriptor, err)
 	}

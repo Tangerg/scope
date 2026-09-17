@@ -110,14 +110,25 @@ func internalPackagePath(importPath string) (string, bool) {
 // The guard follows ownership roles so a new private protocol package does not
 // require an inventory exception. Concrete Strategies compose through Agent.
 func allowedAgentDependency(source, dependency string) bool {
+	// Shared internal codecs and diagnostics are below the kernel and Strategies;
+	// conformance instrumentation instead depends on the public test contracts.
+	if isPackageOrChild(source, "internal/conformancetest") {
+		return dependency == "." || isPackageOrChild(dependency, "agenttest") || isPackageOrChild(dependency, "internal/conformancetest")
+	}
+	if isPackageOrChild(dependency, "internal/conformancetest") {
+		return false
+	}
+	if isPackageOrChild(source, "internal") {
+		return isPackageOrChild(dependency, "internal")
+	}
+	if isPackageOrChild(dependency, "internal") {
+		return true
+	}
 	if source == "." {
 		return false
 	}
 	if dependency == "." {
 		return true
-	}
-	if isPackageOrChild(source, "internal/conformancetest") {
-		return isPackageOrChild(dependency, "agenttest") || isPackageOrChild(dependency, "internal/conformancetest")
 	}
 	if isPackageOrChild(source, "strategy/internal") {
 		return isPackageOrChild(dependency, "strategy/internal")
@@ -137,6 +148,12 @@ func TestAgentDependencyOwnershipRules(t *testing.T) {
 		allowed    bool
 	}{
 		{".", "strategy/workflow", false},
+		{".", "internal/jsonwire", true},
+		{"strategy/interaction", "internal/panicinfo", true},
+		{"internal/jsonwire", ".", false},
+		{"internal/jsonwire", "strategy/internal", false},
+		{"internal/jsonwire", "internal/conformancetest", false},
+		{".", "internal/conformancetest", false},
 		{".", "strategy/internal/childcall", false},
 		{"strategy/workflow", ".", true},
 		{"strategy/workflow", "strategy/internal/newprotocol", true},

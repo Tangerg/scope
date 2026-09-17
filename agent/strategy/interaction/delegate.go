@@ -83,6 +83,26 @@ func (d Delegate) validateInput(input agent.Payload) error {
 	return d.inputSchema.Validate(input.JSON())
 }
 
+func delegateToolResult(call chat.ToolCall, result agent.Result) (chat.ToolResult, error) {
+	if result.Status() != agent.StatusCompleted {
+		termination := result.Termination()
+		diagnostic := "child ended with " + result.Status().String() + " (" + termination.Cause().String() + ")"
+		if termination.Reason() != "" {
+			diagnostic += ": " + termination.Reason()
+		}
+		return delegateErrorResult(call, diagnostic), nil
+	}
+	output, present := result.Output()
+	if !present {
+		return chat.ToolResult{}, ErrInvalidExecutionState
+	}
+	toolOutput, err := chat.NewJSONToolOutput(output.JSON())
+	if err != nil {
+		return chat.ToolResult{}, fmt.Errorf("%w: encode Delegate Tool output: %w", ErrInvalidExecutionState, err)
+	}
+	return chat.ToolResult{ID: call.ID, Name: call.Name, Output: toolOutput}, nil
+}
+
 func delegateErrorResult(call chat.ToolCall, diagnostic string) chat.ToolResult {
 	return chat.ToolResult{
 		ID: call.ID, Name: call.Name,

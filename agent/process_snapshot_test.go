@@ -153,7 +153,7 @@ func TestSnapshotRejectsPreparedStepSequenceOverflow(t *testing.T) {
 		t.Fatalf("prepared fixture = %#v", wire.Prepared)
 	}
 	wire.CommittedSteps = math.MaxUint64
-	wire.Budget.Steps = NewQuota(math.MaxUint64)
+	wire.Limits.Budget.Steps = NewQuota(math.MaxUint64)
 	wire.Prepared.StepSequence = 0
 	wire.Prepared.Effects[0].ID = wire.ProcessID.effectID(0, 0)
 	data, err := json.Marshal(wire)
@@ -362,7 +362,7 @@ func preparedEngineTestSnapshot(t testing.TB) ProcessSnapshot {
 	durability := &recordingTreeDurability{}
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
-	engine, err := NewEngine(EngineConfig{Limits: Limits{MaxSteps: NewQuota(10000), MaxEffects: NewQuota(10000), MaxSignals: NewQuota(100000)}, TreeDurability: durability})
+	engine, err := NewEngine(EngineConfig{Limits: Limits{Budget: Budget{Steps: NewQuota(10000), Effects: NewQuota(10000), Signals: NewQuota(100000)}}, TreeDurability: durability})
 	if err != nil {
 		t.Fatal(err)
 	}

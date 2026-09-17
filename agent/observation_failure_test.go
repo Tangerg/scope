@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/Tangerg/scope/agent/internal/panicinfo"
 )
 
 func TestObservationFailureSnapshotsOwnBoundedDiagnostics(t *testing.T) {
@@ -18,12 +20,12 @@ func TestObservationFailureSnapshotsOwnBoundedDiagnostics(t *testing.T) {
 	}
 	bus.publishEvent(t.Context(), Event{})
 	first := bus.failureSnapshot()
-	message = strings.Repeat("x", maxListenerPanicMessageBytes*2)
+	message = strings.Repeat("x", panicinfo.MaxMessageBytes*2)
 	bus.publishEvent(t.Context(), Event{})
 	latest := bus.failureSnapshot()
 	last, found := latest.LastEventPanic()
 	if !found || latest.EventListenerPanics() != 2 || last.ListenerIndex != 0 ||
-		last.Message != message[:maxListenerPanicMessageBytes] || len(last.Stack) == 0 || len(last.Stack) > maxListenerPanicStackBytes {
+		last.Message != message[:panicinfo.MaxMessageBytes] || len(last.Stack) == 0 || len(last.Stack) > panicinfo.MaxStackBytes {
 		t.Fatalf("latest diagnostic = %#v, count = %d", last, latest.EventListenerPanics())
 	}
 	last.Message = "caller changed its copy"
@@ -31,7 +33,7 @@ func TestObservationFailureSnapshotsOwnBoundedDiagnostics(t *testing.T) {
 	if !found || first.EventListenerPanics() != 1 || firstPanic.Message != "first panic" {
 		t.Fatalf("older snapshot changed: %#v", first)
 	}
-	if retained, _ := latest.LastEventPanic(); retained.Message != message[:maxListenerPanicMessageBytes] {
+	if retained, _ := latest.LastEventPanic(); retained.Message != message[:panicinfo.MaxMessageBytes] {
 		t.Fatal("diagnostic accessor exposed mutable state")
 	}
 	if _, found := latest.LastDeltaPanic(); found {

@@ -21,7 +21,7 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 				code, message = "engine.child.deployment_unavailable", "deployment unavailable"
 			case "panic":
 				kind = agent.FailureKindPanic
-				message = "execution panicked: " + strings.Repeat("x", 4096-len("execution panicked: "))
+				message = "agent: Execution.Step panicked: " + strings.Repeat("x", 4096-len("agent: Execution.Step panicked: "))
 			case "execution":
 				const prefix = `transform "test.coordinator.transform": `
 				message = prefix + strings.Repeat("x", 4096-len(prefix))
@@ -31,7 +31,7 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 					return Decision{Mode: Continue, State: turn.State, Tasks: []TaskRequest{request("background", "test.gate", "wait")}}, nil
 				}
 				if mode == "panic" {
-					panic(strings.TrimPrefix(message, "execution panicked: "))
+					panic(strings.TrimPrefix(message, "agent: Execution.Step panicked: "))
 				}
 				return Decision{}, errors.New(strings.TrimPrefix(message, `transform "test.coordinator.transform": `))
 			}, gate())

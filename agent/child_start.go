@@ -43,7 +43,7 @@ func (c *childStartPlan) execute(ctx context.Context) childStartJobResult {
 	deployment, resolveErr := c.resolveDeployment()
 	if resolveErr != nil {
 		return childStartJobResult{result: failedChildStart(
-			c.spec, FailureKindExternal, failureCodeEngineChildDeploymentUnavailable, resolveErr,
+			c.spec, failureKindForError(resolveErr, FailureKindExternal), failureCodeEngineChildDeploymentUnavailable, resolveErr,
 		)}
 	}
 	if validateErr := deployment.Descriptor().ValidateInput(c.spec.Input); validateErr != nil {
@@ -54,7 +54,7 @@ func (c *childStartPlan) execute(ctx context.Context) childStartJobResult {
 	admission := newProcessAdmission(c.relation, deployment, c.spec.Budget, c.spec.Capabilities)
 	if admissionErr := requestProcessAdmission(ctx, c.admitter, admission); admissionErr != nil {
 		return childStartJobResult{result: failedChildStart(
-			c.spec, FailureKindExternal, failureCodeEngineChildAdmissionRejected, admissionErr,
+			c.spec, failureKindForError(admissionErr, FailureKindExternal), failureCodeEngineChildAdmissionRejected, admissionErr,
 		)}
 	}
 	startedAt := time.Now().Round(0).UTC()
@@ -67,7 +67,7 @@ func (c *childStartPlan) execute(ctx context.Context) childStartJobResult {
 	}
 	if err := acknowledgeProcessInitializationOutcome(ctx, c.acknowledger, initializedProcessOutcome(admission, startedAt)); err != nil {
 		return childStartJobResult{result: failedChildStart(
-			c.spec, FailureKindExternal, failureCodeEngineChildInitializationOutcomeUnacknowledged, err,
+			c.spec, failureKindForError(err, FailureKindExternal), failureCodeEngineChildInitializationOutcomeUnacknowledged, err,
 		)}
 	}
 	return childStartJobResult{
@@ -103,7 +103,7 @@ func resolveDeployment(
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			deployment = Deployment{}
-			err = fmt.Errorf("deployment resolver panicked: %v", recovered)
+			err = &CallbackPanicError{Operation: "DeploymentResolver.Resolve", Value: recovered}
 		}
 	}()
 	deployment, err = resolver.Resolve(reference)

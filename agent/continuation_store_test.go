@@ -202,7 +202,7 @@ func (e *episodeAttempt) Admit(_ context.Context, admission agent.ProcessAdmissi
 		}
 		return nil
 	}
-	wantBudget := agent.Budget{Steps: record.request.Limits.MaxSteps, Effects: record.request.Limits.MaxEffects, Signals: record.request.Limits.MaxSignals}
+	wantBudget := record.request.Limits.Budget
 	if record.successor.Valid() || admission.DeploymentRef() != record.request.DeploymentRef || admission.Budget() != wantBudget ||
 		!slices.Equal(admission.Capabilities().Values(), record.request.Capabilities.Values()) {
 		return errSuccessorConflict

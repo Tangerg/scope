@@ -345,9 +345,9 @@ func testTreeProcessLimit(t *testing.T) {
 func TestTreeProcessLimitBoundsRecursiveBinaryExpansion(t *testing.T) {
 	deployment := newChildTestDeployment(t)
 	limits := DefaultLimits()
-	limits.MaxSteps = NewQuota(100_000)
-	limits.MaxEffects = NewQuota(100_000)
-	limits.MaxSignals = NewQuota(100_000)
+	limits.Budget.Steps = NewQuota(100_000)
+	limits.Budget.Effects = NewQuota(100_000)
+	limits.Budget.Signals = NewQuota(100_000)
 	limits.MaxPendingSignals = 100_000
 	engine, err := NewEngine(EngineConfig{
 		Limits: limits,
@@ -390,7 +390,7 @@ func TestEngineAttenuatesChildBudgetAndCapabilities(t *testing.T) {
 	deployment := newChildTestDeployment(t)
 
 	t.Run("subset", func(t *testing.T) {
-		engine, err := NewEngine(EngineConfig{Capabilities: rootCapabilities, Limits: Limits{MaxSteps: NewQuota(100), MaxEffects: NewQuota(100), MaxSignals: NewQuota(1000)}})
+		engine, err := NewEngine(EngineConfig{Capabilities: rootCapabilities, Limits: Limits{Budget: Budget{Steps: NewQuota(100), Effects: NewQuota(100), Signals: NewQuota(1000)}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -420,7 +420,7 @@ func TestEngineAttenuatesChildBudgetAndCapabilities(t *testing.T) {
 		{name: "budget escalation", mode: "budget_escalation", code: "engine.child.budget_exhausted"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			engine, err := NewEngine(EngineConfig{Capabilities: rootCapabilities, Limits: Limits{MaxSteps: NewQuota(100), MaxEffects: NewQuota(100), MaxSignals: NewQuota(1000)}})
+			engine, err := NewEngine(EngineConfig{Capabilities: rootCapabilities, Limits: Limits{Budget: Budget{Steps: NewQuota(100), Effects: NewQuota(100), Signals: NewQuota(1000)}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -648,10 +648,11 @@ type childTestInput struct {
 }
 
 type childTestOutput struct {
-	ChildIDs      []string `json:"child_ids,omitempty"`
-	CompletedKeys []string `json:"completed_keys,omitempty"`
-	FailureCodes  []string `json:"failure_codes,omitempty"`
-	Failures      int      `json:"failures"`
+	ChildIDs      []string      `json:"child_ids,omitempty"`
+	CompletedKeys []string      `json:"completed_keys,omitempty"`
+	FailureCodes  []string      `json:"failure_codes,omitempty"`
+	FailureKinds  []FailureKind `json:"failure_kinds,omitempty"`
+	Failures      int           `json:"failures"`
 }
 
 type childTestState struct {

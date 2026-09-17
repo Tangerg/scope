@@ -106,8 +106,8 @@ func requestProcessAdmission(
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = fmt.Errorf(
-				"%w: admitter panicked: %v",
-				ErrProcessAdmissionRejected, recovered,
+				"%w: %w",
+				ErrProcessAdmissionRejected, &CallbackPanicError{Operation: "ProcessAdmitter.Admit", Value: recovered},
 			)
 		}
 	}()

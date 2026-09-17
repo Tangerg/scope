@@ -37,10 +37,8 @@ type processState struct {
 
 	// Allocation and authority stay adjacent because every child reservation
 	// must update both before it can become observable.
-	pendingSignalLimit uint64
-	snapshotByteLimit  Quota
+	limits             Limits
 	treeLimits         TreeLimits
-	budget             Budget
 	allocatedResources resourceAmounts
 	// Pending child-start Effects re-establish this reservation on restore.
 	provisionalChildBudget *Budget
@@ -82,8 +80,8 @@ func newProcessState(
 	return &processState{
 		handle: handle, deployment: deployment, execution: execution,
 		startedAt: startedAt, status: StatusRunning, committedExecutionState: state,
-		mailbox: newSignalMailbox(), pendingSignalLimit: limits.MaxPendingSignals, snapshotByteLimit: limits.MaxSnapshotBytes, treeLimits: handle.treeLimits,
-		budget: handle.budget, capabilities: handle.capabilities,
+		mailbox: newSignalMailbox(), treeLimits: handle.treeLimits,
+		capabilities: handle.capabilities, limits: limits,
 	}
 }
 
@@ -156,9 +154,9 @@ func (p *processState) prepareSignals(signals []Signal, source signalSource) (*p
 	// committed mailbox cursor, so its consumption cannot exceed pending.
 	remainingPending -= p.prepared.consumedSignals()
 	allocated := p.effectiveAllocations()
-	if !resourceQuantitiesFit(p.pendingSignalLimit, p.mailbox.pendingCount(), count) ||
-		!resourceQuantitiesFit(p.pendingSignalLimit, remainingPending, reserved, count) ||
-		!p.budget.Signals.Allows(p.usage().AcceptedSignals, allocated.Signals, reserved, count) {
+	if !resourceQuantitiesFit(p.limits.MaxPendingSignals, p.mailbox.pendingCount(), count) ||
+		!resourceQuantitiesFit(p.limits.MaxPendingSignals, remainingPending, reserved, count) ||
+		!p.limits.Budget.Signals.Allows(p.usage().AcceptedSignals, allocated.Signals, reserved, count) {
 		return nil, ErrResourceLimitExceeded
 	}
 	candidate := p.candidate()
@@ -252,7 +250,7 @@ func (p *processState) reserveProvisionalChildBudget(requested Budget) bool {
 		return false
 	}
 	reserved, ok := p.allocatedResources.add(resourceAmounts{Steps: 1, Signals: p.prepared.settlementSignalCount()})
-	if !ok || !p.budget.canAllocate(p.usage(), reserved, requested) {
+	if !ok || !p.limits.Budget.canAllocate(p.usage(), reserved, requested) {
 		return false
 	}
 	p.provisionalChildBudget = new(requested)
@@ -263,7 +261,7 @@ func (p *processState) commitProvisionalChildBudget(requested Budget) error {
 	if p.provisionalChildBudget == nil || *p.provisionalChildBudget != requested {
 		return ErrResourceLimitExceeded
 	}
-	debit, ok := p.budget.allocation(requested)
+	debit, ok := p.limits.Budget.allocation(requested)
 	if !ok {
 		return ErrResourceLimitExceeded
 	}
@@ -284,7 +282,7 @@ func (p *processState) releaseProvisionalChildBudget(requested Budget) {
 }
 
 func (p *processState) releaseCommittedChildBudget(released Budget) {
-	debit, ok := p.budget.allocation(released)
+	debit, ok := p.limits.Budget.allocation(released)
 	if !ok || debit.Steps > p.allocatedResources.Steps || debit.Effects > p.allocatedResources.Effects || debit.Signals > p.allocatedResources.Signals {
 		panic("agent: committed child budget exceeds its reservation")
 	}
@@ -297,7 +295,7 @@ func (p *processState) effectiveAllocations() resourceAmounts {
 	if p.provisionalChildBudget == nil {
 		return p.allocatedResources
 	}
-	debit, ok := p.budget.allocation(*p.provisionalChildBudget)
+	debit, ok := p.limits.Budget.allocation(*p.provisionalChildBudget)
 	if !ok {
 		panic("agent: invalid provisional child allocation")
 	}
@@ -400,7 +398,7 @@ func (p *processState) restorePreparedStep(ctx context.Context, stored *prepared
 
 func (p *processState) stepSchedulingFailure() *stepPreparationFailure {
 	reserved := p.effectiveAllocations()
-	if !p.budget.Steps.Allows(p.committedSteps, reserved.Steps, 1) {
+	if !p.limits.Budget.Steps.Allows(p.committedSteps, reserved.Steps, 1) {
 		return &stepPreparationFailure{
 			kind: FailureKindExecution, code: failureCodeEngineLimitSteps, cause: ErrResourceLimitExceeded,
 		}
@@ -433,7 +431,7 @@ func (p *processState) prepareStep(result stepJobResult) (*processState, *stepPr
 	}
 	effectCount := uint64(len(effects))
 	allocated := p.effectiveAllocations()
-	if !p.budget.Effects.Allows(p.counters.PreparedEffects, allocated.Effects, effectCount) {
+	if !p.limits.Budget.Effects.Allows(p.counters.PreparedEffects, allocated.Effects, effectCount) {
 		return nil, &stepPreparationFailure{
 			kind: FailureKindExecution, code: failureCodeEngineLimitEffects, cause: ErrResourceLimitExceeded,
 		}
@@ -442,8 +440,8 @@ func (p *processState) prepareStep(result stepJobResult) (*processState, *stepPr
 		return nil, &stepPreparationFailure{kind: FailureKindExecution, code: failureCodeEngineCounterExhausted, cause: ErrCounterExhausted}
 	}
 	remainingPending := p.mailbox.pendingCount() - uint64(transition.ConsumedSignals())
-	if !resourceQuantitiesFit(p.pendingSignalLimit, remainingPending, effectCount) ||
-		!p.budget.Signals.Allows(p.usage().AcceptedSignals, allocated.Signals, effectCount) {
+	if !resourceQuantitiesFit(p.limits.MaxPendingSignals, remainingPending, effectCount) ||
+		!p.limits.Budget.Signals.Allows(p.usage().AcceptedSignals, allocated.Signals, effectCount) {
 		return nil, &stepPreparationFailure{
 			kind: FailureKindExecution, code: failureCodeEngineLimitSignals, cause: ErrResourceLimitExceeded,
 		}
@@ -518,7 +516,7 @@ func (p *processState) snapshotAdmissionSize() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if !p.snapshotByteLimit.Allows(uint64(len(encoded))) {
+	if !p.limits.MaxSnapshotBytes.Allows(uint64(len(encoded))) {
 		return 0, ErrResourceLimitExceeded
 	}
 	return len(encoded), nil
@@ -666,11 +664,11 @@ func (p *processState) snapshotWire() processSnapshotWire {
 		Relation:      p.handle.relation.wire(),
 		DeploymentRef: p.deployment.DeploymentRef(), StartedAt: p.startedAt,
 		Status: p.status, CommittedSteps: p.committedSteps,
-		MaxPendingSignals: p.pendingSignalLimit, MaxSnapshotBytes: p.snapshotByteLimit, TreeLimits: p.treeLimits,
-		Budget: p.budget, AllocatedResources: p.allocatedResources,
-		Capabilities: p.capabilities, Counters: p.counters,
+		TreeLimits:         p.treeLimits,
+		AllocatedResources: p.allocatedResources,
+		Capabilities:       p.capabilities, Counters: p.counters,
 		CommittedExecutionState: p.committedExecutionState, Mailbox: p.mailbox.wire(),
-		PauseReason: p.pauseReason, PendingControl: p.pendingControl.wire(),
+		PauseReason: p.pauseReason, PendingControl: p.pendingControl.wire(), Limits: p.limits,
 	}
 	if p.handle.childRequestDigest.Valid() {
 		digest := p.handle.childRequestDigest

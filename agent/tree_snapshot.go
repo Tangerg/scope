@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 var ErrInvalidTreeSnapshot = errors.New("agent: invalid process tree snapshot")
@@ -29,7 +31,7 @@ type TreeSnapshot struct {
 // and the terminal results in the captured tree. A retained successful child-start
 // settlement must identify a captured child matching the complete start request.
 func ParseTreeSnapshot(data json.RawMessage) (TreeSnapshot, error) {
-	wire, err := decodeJSON[treeSnapshotWire](data)
+	wire, err := jsonwire.Decode[treeSnapshotWire](data)
 	if err != nil {
 		return TreeSnapshot{}, fmt.Errorf("%w: decode: %w", ErrInvalidTreeSnapshot, err)
 	}
@@ -234,7 +236,7 @@ func (t *treeSnapshotValidation) validateRelations() error {
 		parentRelation := mustProcessRelation(parentID, parent.Relation)
 		identity := childIdentity{parent: parentID, key: key}
 		if relation.Depth() != parentRelation.Depth()+1 ||
-			processWire.MaxPendingSignals != parent.MaxPendingSignals || processWire.MaxSnapshotBytes != parent.MaxSnapshotBytes ||
+			processWire.Limits.MaxPendingSignals != parent.Limits.MaxPendingSignals || processWire.Limits.MaxSnapshotBytes != parent.Limits.MaxSnapshotBytes ||
 			!parent.Capabilities.Allows(processWire.Capabilities) {
 			return fmt.Errorf("%w: invalid child relation, capacity, or attenuation", ErrInvalidTreeSnapshot)
 		}
@@ -246,7 +248,7 @@ func (t *treeSnapshotValidation) validateRelations() error {
 		if !processWire.Status.Terminal() {
 			t.activeChildCounts[parentID]++
 		}
-		debit, ok := parent.Budget.allocation(processWire.Budget)
+		debit, ok := parent.Limits.Budget.allocation(processWire.Limits.Budget)
 		if !ok {
 			return fmt.Errorf("%w: child grant exceeds parent authority", ErrInvalidTreeSnapshot)
 		}
@@ -364,7 +366,7 @@ func (t *treeSnapshotValidation) validateChildStart(parentID ProcessID, record p
 	child, exists := t.processes[childID]
 	if !exists || child.Relation.ParentID == nil || *child.Relation.ParentID != parentID ||
 		child.Relation.ChildKey == nil || *child.Relation.ChildKey != spec.Key ||
-		child.DeploymentRef != spec.DeploymentRef || child.Budget != spec.Budget ||
+		child.DeploymentRef != spec.DeploymentRef || child.Limits.Budget != spec.Budget ||
 		!slices.Equal(child.Capabilities.Values(), spec.Capabilities.Values()) || child.ChildRequestDigest == nil || *child.ChildRequestDigest != digest {
 		return ErrInvalidChildStart
 	}

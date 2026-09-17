@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 func TestEngineStartRejectsNilContextBeforePublication(t *testing.T) {
@@ -316,11 +318,11 @@ func (e *engineTestExecution) stepBatch(signals []Signal) (Transition, error) {
 		if len(signals) != 2 {
 			return Transition{}, errors.New("batch phase requires two settlement Signals")
 		}
-		first, err := decodeJSON[engineTestMessage](signals[0].Payload())
+		first, err := jsonwire.Decode[engineTestMessage](signals[0].Payload())
 		if err != nil {
 			return Transition{}, err
 		}
-		second, err := decodeJSON[engineTestMessage](signals[1].Payload())
+		second, err := jsonwire.Decode[engineTestMessage](signals[1].Payload())
 		if err != nil {
 			return Transition{}, err
 		}
@@ -349,7 +351,7 @@ func (e *engineTestExecution) stepEffect(signals []Signal) (Transition, error) {
 		if len(signals) == 0 {
 			return Transition{}, errors.New("effect phase requires settlement Signal")
 		}
-		message, err := decodeJSON[engineTestMessage](signals[0].Payload())
+		message, err := jsonwire.Decode[engineTestMessage](signals[0].Payload())
 		if err != nil {
 			return Transition{}, err
 		}
@@ -391,7 +393,7 @@ func (e *engineTestExecution) stepWait(signals []Signal) (Transition, error) {
 		if waitID.String() != e.state.WaitID {
 			return Transition{}, errors.New("answer addressed another wait")
 		}
-		message, err := decodeJSON[engineTestMessage](signals[0].Payload())
+		message, err := jsonwire.Decode[engineTestMessage](signals[0].Payload())
 		if err != nil {
 			return Transition{}, err
 		}
@@ -446,7 +448,7 @@ func (e *engineTestDispatcher) Dispatch(
 	if e.block != nil {
 		<-e.block
 	}
-	message, err := decodeJSON[engineTestMessage](request.Effect().Payload())
+	message, err := jsonwire.Decode[engineTestMessage](request.Effect().Payload())
 	if err != nil {
 		return Settlement{}, err
 	}
@@ -480,7 +482,7 @@ func (p *partialBatchDispatcher) Dispatch(
 	_ DeltaEmitter,
 ) (Settlement, error) {
 	p.calls.Add(1)
-	message, err := decodeJSON[engineTestMessage](request.Effect().Payload())
+	message, err := jsonwire.Decode[engineTestMessage](request.Effect().Payload())
 	if err != nil {
 		return Settlement{}, err
 	}
@@ -752,7 +754,7 @@ func TestPausedProcessCapturesRestoresAndResumesAtSafeBoundary(t *testing.T) {
 func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.wait", "wait")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
-	limits := Limits{MaxSteps: NewQuota(3), MaxEffects: NewQuota(1), MaxSignals: NewQuota(2), MaxPendingSignals: 2}
+	limits := Limits{MaxPendingSignals: 2, Budget: Budget{Steps: NewQuota(3), Effects: NewQuota(1), Signals: NewQuota(2)}}
 	engine, _ := NewEngine(EngineConfig{Limits: limits})
 	t.Cleanup(func() { _ = engine.Close(context.WithoutCancel(t.Context())) })
 	input, _ := EncodePayload(engineTestInput{Value: "question"})
@@ -1036,7 +1038,7 @@ func TestStepFailureDiscardsMutatedExecutionAndPreservesCursor(t *testing.T) {
 	}
 	snapshot := inspectProcessSnapshot(t, process)
 	wire, _ := snapshot.wire()
-	state, _ := decodeJSON[engineTestState](wire.CommittedExecutionState.Payload())
+	state, _ := jsonwire.Decode[engineTestState](wire.CommittedExecutionState.Payload())
 	if state.Phase != "ready" || wire.Mailbox.SignalCursor != 0 || wire.Prepared != nil {
 		t.Fatalf("committed execution state=%+v cursor=%d prepared=%v", state, wire.Mailbox.SignalCursor, wire.Prepared)
 	}
@@ -1063,7 +1065,7 @@ func TestEngineEnforcesStepLimitAndReportsMonotonicUsage(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
 	engine, err := NewEngine(EngineConfig{Limits: Limits{
-		MaxSteps: NewQuota(1), MaxEffects: NewQuota(1), MaxSignals: NewQuota(1), MaxPendingSignals: 1,
+		MaxPendingSignals: 1, Budget: Budget{Steps: NewQuota(1), Effects: NewQuota(1), Signals: NewQuota(1)},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -1088,7 +1090,7 @@ func TestEngineEnforcesStepLimitAndReportsMonotonicUsage(t *testing.T) {
 
 func TestEngineSeparatesCapacityFromCumulativeQuota(t *testing.T) {
 	engine, err := NewEngine(EngineConfig{
-		Limits:     Limits{MaxSignals: NewQuota(1), MaxPendingSignals: 2},
+		Limits:     Limits{MaxPendingSignals: 2, Budget: Budget{Signals: NewQuota(1)}},
 		TreeLimits: TreeLimits{MaxChildren: NewQuota(1), MaxActiveChildren: 2},
 	})
 	if err != nil {

@@ -13,7 +13,8 @@ import (
 type phase string
 
 const (
-	phaseAwaitingResultCommit  phase = "awaiting_result_commit"
+	phaseAdvancingTools        phase = "advancing_tools"
+	phaseRoundComplete         phase = "round_complete"
 	phaseReadyModel            phase = "ready_model"
 	phaseAwaitingModel         phase = "awaiting_model"
 	phaseAwaitingChildStarts   phase = "awaiting_child_starts"
@@ -24,7 +25,7 @@ const (
 
 func (p phase) valid() bool {
 	switch p {
-	case phaseAwaitingResultCommit, phaseReadyModel, phaseAwaitingModel, phaseAwaitingChildStarts,
+	case phaseAdvancingTools, phaseRoundComplete, phaseReadyModel, phaseAwaitingModel, phaseAwaitingChildStarts,
 		phaseAwaitingChildWaitOpen, phaseWaitingChildren, phaseCompleted:
 		return true
 	default:
@@ -101,12 +102,22 @@ func (e executionState) validateEnvelope() error {
 
 func (e executionState) validatePhaseState(ctx context.Context, definition *Definition) error {
 	switch e.Phase {
-	case phaseAwaitingResultCommit:
-		if e.FinalOutput != nil {
-			return fmt.Errorf("%w: awaiting_result_commit cannot have final Output", ErrInvalidExecutionState)
+	case phaseAdvancingTools, phaseRoundComplete:
+		if e.FinalOutput != nil || e.ModelCallCount == 0 || e.ToolRound == nil || e.ToolRound.ChildBatch != nil {
+			return fmt.Errorf("%w: invalid round boundary", ErrInvalidExecutionState)
 		}
-		_, err := e.ToolRound.publication(ctx, e.ModelCallCount)
-		return err
+		if e.Phase == phaseRoundComplete {
+			return e.ToolRound.validateComplete(ctx)
+		}
+		calls, err := validatedToolCalls(e.ToolRound.Response)
+		if err != nil || len(calls) == 0 {
+			return fmt.Errorf("%w: round requires calls", ErrInvalidExecutionState)
+		}
+		finish := e.ToolRound.Response.Output.FinishReason
+		if finish != chat.FinishReasonToolCalls && finish != chat.FinishReasonLength {
+			return ErrInvalidExecutionState
+		}
+		return e.ToolRound.validateResults(ctx, calls)
 	case phaseReadyModel:
 		return e.validateReadyModelState()
 	case phaseAwaitingModel:

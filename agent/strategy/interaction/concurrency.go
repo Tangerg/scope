@@ -1,7 +1,7 @@
 package interaction
 
 import (
-	"fmt"
+	"github.com/Tangerg/scope/agent"
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
@@ -27,7 +27,7 @@ func concurrencyDeclaration(
 		if recovered := recover(); recovered != nil {
 			key = ""
 			concurrent = false
-			err = fmt.Errorf("capability panicked: %v", recovered)
+			err = &agent.CallbackPanicError{Operation: "ConcurrentTool policy", Value: recovered}
 		}
 	}()
 	key, concurrent = policy(invocation)

@@ -6,6 +6,8 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 var ErrInvalidExecutionState = errors.New("agent: invalid execution state")
@@ -55,7 +57,7 @@ func (e ExecutionState) Decode[T any](kind string) (T, error) {
 		var value T
 		return value, fmt.Errorf("%w: expected Strategy kind %q, got %q", ErrInvalidExecutionState, kind, e.kind)
 	}
-	value, err := decodeJSON[T](e.payload)
+	value, err := jsonwire.Decode[T](e.payload)
 	if err != nil {
 		return value, fmt.Errorf("%w: decode: %w", ErrInvalidExecutionState, err)
 	}
@@ -84,7 +86,7 @@ func (e *ExecutionState) UnmarshalJSON(data []byte) error {
 	if e == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidExecutionState)
 	}
-	wire, err := decodeJSON[executionStateWire](data)
+	wire, err := jsonwire.Decode[executionStateWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidExecutionState, err)
 	}

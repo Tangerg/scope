@@ -2,6 +2,7 @@ package childcall_test
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
 	"slices"
 	"testing"
@@ -184,8 +185,7 @@ func TestBatchStructuralErrorsPrecedePhaseErrors(t *testing.T) {
 		{Children: []childcall.Child{{Key: key}, {Key: key}}},
 		{Children: []childcall.Child{{Key: key, ProcessID: id}, {Key: key, ProcessID: id}}, WaitID: waitID},
 	} {
-		want := batch.Validate()
-		if want == nil {
+		if !errors.Is(batch.Validate(), childcall.ErrInvalidBatch) {
 			t.Fatal("fixture must be structurally invalid")
 		}
 		_, startErr := batch.AcceptStarts(nil)
@@ -194,8 +194,8 @@ func TestBatchStructuralErrorsPrecedePhaseErrors(t *testing.T) {
 		_, completionErr := batch.Complete(agent.ChildWaitSatisfied{}, waitKey, agent.ChildWaitBoundaryDrained, agent.AllChildren())
 		_, outcomeErr := batch.MatchOutcomes(nil)
 		for operation, err := range map[string]error{"start": startErr, "wait": specErr, "opening": openErr, "completion": completionErr, "outcomes": outcomeErr} {
-			if err == nil || err.Error() != want.Error() {
-				t.Errorf("%s error = %v, want structural error %v", operation, err, want)
+			if !errors.Is(err, childcall.ErrInvalidBatch) {
+				t.Errorf("%s error = %v, want structural error %v", operation, err, childcall.ErrInvalidBatch)
 			}
 		}
 	}

@@ -85,7 +85,7 @@ func TestRestoreValidatesFinishReasonInPendingRound(t *testing.T) {
 					t.Fatal(err)
 				}
 				_, restoreErr := definition.Restore(t.Context(), captured)
-				validRejection := state.Phase == phaseAwaitingResultCommit && reason == chat.FinishReasonLength
+				validRejection := state.Phase == phaseRoundComplete && reason == chat.FinishReasonLength
 				if validRejection && restoreErr != nil || !validRejection && !errors.Is(restoreErr, ErrInvalidExecutionState) {
 					t.Fatalf("Restore error = %v, valid rejection = %t", restoreErr, validRejection)
 				}
@@ -203,7 +203,7 @@ func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.Executi
 	artifactOutput, _ := agent.EncodePayload(fuzzDelegateOutput{Result: "settled"})
 	states := []executionState{
 		{
-			Phase: phaseAwaitingResultCommit, WorkingContext: request.Clone(), ModelCallCount: 1,
+			Phase: phaseRoundComplete, WorkingContext: request.Clone(), ModelCallCount: 1,
 			ToolRound: &toolCallRound{Response: response.Clone(), Results: []toolCallResult{{
 				Result: chat.ToolResult{ID: call.ID, Name: call.Name, IsError: true, Output: chat.NewTextToolOutput("worker unavailable")}, Rejected: true,
 			}}},

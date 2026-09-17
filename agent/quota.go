@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 // Quota is an immutable optional upper bound. Its zero value is unlimited;
@@ -46,7 +48,7 @@ func (q *Quota) UnmarshalJSON(data []byte) error {
 	if q == nil {
 		return errors.New("agent: nil quota receiver")
 	}
-	wire, err := decodeJSON[struct {
+	wire, err := jsonwire.Decode[struct {
 		Maximum json.RawMessage `json:"maximum"`
 	}](data)
 	if err != nil {
@@ -59,7 +61,7 @@ func (q *Quota) UnmarshalJSON(data []byte) error {
 		*q = Quota{}
 		return nil
 	}
-	maximum, err := decodeJSON[uint64](wire.Maximum)
+	maximum, err := jsonwire.Decode[uint64](wire.Maximum)
 	if err != nil {
 		return err
 	}
