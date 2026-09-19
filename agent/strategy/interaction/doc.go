@@ -1,6 +1,9 @@
 // Package interaction provides the model-directed execution Strategy for the
 // Agent Framework.
 //
+// Input and Output reuse core/chat values for this Strategy; custom Strategies
+// may define their own payload shapes within agent.Payload validation limits.
+//
 // Model-call and child work quotas default to unlimited. Host cancellation and
 // independently configured concurrency and mailbox capacity remain effective.
 // A finite zero MaxModelCalls is rejected at construction. Invalid provider

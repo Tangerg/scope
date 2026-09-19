@@ -21,6 +21,9 @@ var (
 // completing a safe boundary without allowing an unbounded command backlog.
 // Freeze management has its own bounded lane so a full Process queue cannot
 // prevent the command that releases its barrier.
+// The fixed capacity is an internal burst allowance, not a Process or Signal
+// quota: full lanes backpressure Process callers through context-aware sends.
+// Keeping it private avoids making scheduler buffering part of captured Host authority.
 const treeCommandBufferCapacity = 32
 
 // Process is an Engine-issued handle to one managed execution. Its fields and

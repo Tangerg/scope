@@ -34,9 +34,12 @@ func TestProductionPackageDependencyGraph(t *testing.T) {
 		if actualDependencies[packagePath] == nil {
 			actualDependencies[packagePath] = make(map[string]struct{})
 		}
-		file, err := parser.ParseFile(files, path, nil, parser.ImportsOnly)
+		file, err := parser.ParseFile(files, path, nil, 0)
 		if err != nil {
 			return err
+		}
+		for _, violation := range agentOwnershipViolations(packagePath, file) {
+			t.Errorf("%s: %s", path, violation)
 		}
 		for _, imported := range file.Imports {
 			importPath, err := strconv.Unquote(imported.Path.Value)
