@@ -20,10 +20,13 @@ type DispatcherConfig struct {
 	Model    chat.Model
 	Streamer chat.Streamer
 
-	// MaxResponseBytes bounds both the complete encoded result envelope and the
-	// cumulative encoded stream deltas, including replacement context. Stream
-	// framing counts toward the cumulative limit. Zero uses agent.MaxPayloadBytes;
+	// MaxResponseBytes bounds the canonical successful result envelope and,
+	// independently, the canonical empty result envelope plus cumulative stream
+	// deltas. Both include replacement context. Zero uses agent.MaxPayloadBytes;
 	// positive values may lower that limit. No partial response is promoted.
+	// Pre-call host failures use a separate diagnostic budget: their message is
+	// bounded by agent.MaxDiagnosticBytes before canonical encoding, and their
+	// complete envelope remains bounded by agent.MaxPayloadBytes.
 	MaxResponseBytes int
 
 	// Observer receives exact model response facts. Nil disables observation.
@@ -174,14 +177,21 @@ func (d *Dispatcher) dispatchModel(
 	if d.contextReducer != nil && !reflect.DeepEqual(call.Request.Messages, modelRequest.Messages) {
 		result.ReplacementMessages = cloneMessages(modelRequest.Messages)
 	}
-	base, err := jsonv2.Marshal(signalEnvelope{Operation: operationModelCall, ModelResult: result}, jsonv2.Deterministic(true))
+	base, err := agent.EncodePayload(signalEnvelope{Operation: operationModelCall, ModelResult: result})
 	if err != nil {
 		return modelHostFailureSettlement(request.ID(), err)
 	}
-	if len(base) >= d.maxResponseBytes {
+	// A content-free stop is the smallest complete chat response. Measure it
+	// with the same owner and representation as the eventual settlement.
+	result.Response = &chat.Response{Output: &chat.Output{FinishReason: chat.FinishReasonStop}}
+	minimum, err := agent.EncodePayload(signalEnvelope{Operation: operationModelCall, ModelResult: result})
+	if err != nil {
+		return modelHostFailureSettlement(request.ID(), err)
+	}
+	if len(minimum.JSON()) > d.maxResponseBytes {
 		return modelHostFailureSettlement(request.ID(), ErrModelResponseTooLarge)
 	}
-	response, err := d.callModel(ctx, modelRequest, emit, d.maxResponseBytes-len(base))
+	response, err := d.callModel(ctx, modelRequest, emit, d.maxResponseBytes-len(base.JSON()))
 	if err != nil {
 		return agent.Settlement{}, fmt.Errorf("interaction: model outcome unknown: %w", err)
 	}
@@ -192,17 +202,17 @@ func (d *Dispatcher) dispatchModel(
 		return agent.Settlement{}, fmt.Errorf("interaction: invalid model response: %w", validateErr)
 	}
 	result.Response = response
-	payload, err := jsonv2.Marshal(signalEnvelope{
+	payload, err := agent.EncodePayload(signalEnvelope{
 		Operation: operationModelCall, ModelResult: result,
-	}, jsonv2.Deterministic(true))
+	})
 	if err != nil {
 		return agent.Settlement{}, err
 	}
-	if len(payload) > d.maxResponseBytes {
+	if len(payload.JSON()) > d.maxResponseBytes {
 		return agent.Settlement{}, ErrModelResponseTooLarge
 	}
 	d.observeModel(ctx, invocation, response)
-	return agent.NewSettlement(request.ID(), agent.SettlementStatusSucceeded, payload)
+	return agent.NewSettlement(request.ID(), agent.SettlementStatusSucceeded, payload.JSON())
 }
 
 func (d *Dispatcher) modelDefinitions(advertisedToolNames []string) ([]chat.ToolDefinition, error) {

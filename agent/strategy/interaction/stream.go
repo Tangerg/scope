@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 	"github.com/Tangerg/scope/core/chat"
 )
@@ -40,11 +41,11 @@ func encodeModelResponseDelta(delta *chat.ResponseDelta) (json.RawMessage, error
 	if delta == nil {
 		return nil, errors.New("interaction: cannot encode a nil model response Delta")
 	}
-	payload, err := json.Marshal(modelResponseDeltaWire{
+	payload, err := agent.EncodePayload(modelResponseDeltaWire{
 		ResponseDelta: *delta,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("interaction: encode model response Delta: %w", err)
 	}
-	return payload, nil
+	return payload.JSON(), nil
 }
