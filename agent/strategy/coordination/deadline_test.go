@@ -169,3 +169,30 @@ func (r *recordingTimer) identities() []agent.EffectID {
 	defer r.mu.Unlock()
 	return append([]agent.EffectID{}, r.requests...)
 }
+
+func TestDeadlineClassifiesInvalidSettlementThroughEngine(t *testing.T) {
+	for _, payload := range []string{
+		`{"deadline":"2026-09-10T12:00:00Z","reached":true}`,
+		`{"deadline":42,"reached":true}`,
+	} {
+		dispatcher, err := agenttest.NewScriptedDispatcher(agenttest.ScriptedDispatcherConfig{ReplayPolicy: agent.ReplayPolicyNever, Steps: []agenttest.DispatchStep{{SettlementStatus: agent.SettlementStatusSucceeded, SettlementPayload: []byte(payload)}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		deployment := deadlineBinding(t, dispatcher)
+		engine, err := agent.NewEngine(agent.EngineConfig{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		process, err := engine.Start(t.Context(), deployment, encodedInput(t, time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		final := result(t, process)
+		failure, failed := final.Termination().Failure()
+		if final.Status() != agent.StatusFailed || !failed || failure.Kind() != agent.FailureKindContract || failure.Code() != "coordination.protocol.invalid" || final.Termination().Cause() != agent.TerminationCauseContractFailure {
+			t.Fatalf("protocol failure = %+v, termination = %+v", failure, final.Termination())
+		}
+		closeEngine(t, engine)
+	}
+}

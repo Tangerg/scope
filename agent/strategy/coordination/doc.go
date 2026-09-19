@@ -23,4 +23,7 @@
 // Engine-owned settlements are consumed only at their matching protocol phase;
 // Wait openings may share a window with the following completion. InputGate
 // replies, when used as children, must address the child's current WaitID.
+// Violations detected while consuming these protocols return agent.StepError
+// with FailureKindContract and code coordination.protocol.invalid. Candidate
+// predicate errors remain execution failures; cancellation remains Engine-owned.
 package coordination

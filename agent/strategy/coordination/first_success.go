@@ -128,7 +128,7 @@ func (f *firstSuccessExecution) Step(ctx context.Context, signals []agent.Signal
 	switch f.state.Phase {
 	case competitionReady:
 		if len(signals) != 0 {
-			return agent.Transition{}, fmt.Errorf("%w: competition accepts only child protocol Signals", ErrInvalidProtocol)
+			return agent.Transition{}, protocolStepError(fmt.Errorf("%w: competition accepts only child protocol Signals", ErrInvalidProtocol))
 		}
 		effects := make([]agent.Effect, 0, len(f.state.Candidates))
 		for _, candidate := range f.state.Candidates {
@@ -147,26 +147,26 @@ func (f *firstSuccessExecution) Step(ctx context.Context, signals []agent.Signal
 	case competitionWaiting:
 		return f.acceptOutcomes(ctx, signals)
 	default:
-		return agent.Transition{}, fmt.Errorf("%w: competition has no next Step", ErrInvalidProtocol)
+		return agent.Transition{}, protocolStepError(fmt.Errorf("%w: competition has no next Step", ErrInvalidProtocol))
 	}
 }
 
 func (f *firstSuccessExecution) acceptStarts(signals []agent.Signal) (agent.Transition, error) {
 	if len(signals) == 0 {
-		return agent.Transition{}, fmt.Errorf("%w: child start results are missing", ErrInvalidProtocol)
+		return agent.Transition{}, protocolStepError(fmt.Errorf("%w: child start results are missing", ErrInvalidProtocol))
 	}
 	count := min(len(signals), f.state.batch().PendingStarts())
 	starts := make([]agent.ChildStartResult, count)
 	for index := range starts {
 		started, err := agent.ParseChildStartResult(signals[index])
 		if err != nil {
-			return agent.Transition{}, err
+			return agent.Transition{}, protocolStepError(err)
 		}
 		starts[index] = started
 	}
 	indices, err := f.state.batch().AcceptStarts(starts)
 	if err != nil {
-		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
+		return agent.Transition{}, protocolStepError(fmt.Errorf("%w: %w", ErrInvalidProtocol, err))
 	}
 	f.state.Starts = append(f.state.Starts, make([]agent.ChildStartResult, len(indices))...)
 	for offset, index := range indices {
@@ -181,11 +181,11 @@ func (f *firstSuccessExecution) acceptStarts(signals []agent.Signal) (agent.Tran
 
 func (f *firstSuccessExecution) acceptWaitOpen(signals []agent.Signal) (agent.Transition, error) {
 	if len(signals) == 0 {
-		return agent.Transition{}, fmt.Errorf("%w: competition wait opening is missing", ErrInvalidProtocol)
+		return agent.Transition{}, protocolStepError(fmt.Errorf("%w: competition wait opening is missing", ErrInvalidProtocol))
 	}
 	opened, err := agent.ParseChildWaitOpened(signals[0])
 	if err != nil {
-		return agent.Transition{}, err
+		return agent.Transition{}, protocolStepError(err)
 	}
 	want, err := f.state.waitSpec()
 	if err != nil {
@@ -193,7 +193,7 @@ func (f *firstSuccessExecution) acceptWaitOpen(signals []agent.Signal) (agent.Tr
 	}
 	waitID, err := f.state.batch().AcceptOpening(opened, want.Key, want.Boundary, want.Condition)
 	if err != nil {
-		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
+		return agent.Transition{}, protocolStepError(fmt.Errorf("%w: %w", ErrInvalidProtocol, err))
 	}
 	f.state.WaitID = &waitID
 	f.state.Phase = competitionWaiting
@@ -202,11 +202,11 @@ func (f *firstSuccessExecution) acceptWaitOpen(signals []agent.Signal) (agent.Tr
 
 func (f *firstSuccessExecution) acceptOutcomes(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if len(signals) == 0 || f.state.WaitID == nil {
-		return agent.Transition{}, fmt.Errorf("%w: competition wait satisfaction is missing", ErrInvalidProtocol)
+		return agent.Transition{}, protocolStepError(fmt.Errorf("%w: competition wait satisfaction is missing", ErrInvalidProtocol))
 	}
 	satisfied, err := agent.ParseChildWaitSatisfied(signals[0])
 	if err != nil {
-		return agent.Transition{}, err
+		return agent.Transition{}, protocolStepError(err)
 	}
 	wait, err := f.state.waitSpec()
 	if err != nil {
@@ -214,7 +214,7 @@ func (f *firstSuccessExecution) acceptOutcomes(ctx context.Context, signals []ag
 	}
 	indices, err := f.state.batch().Complete(satisfied, wait.Key, wait.Boundary, wait.Condition)
 	if err != nil {
-		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
+		return agent.Transition{}, protocolStepError(fmt.Errorf("%w: %w", ErrInvalidProtocol, err))
 	}
 	outcomes := satisfied.Outcomes()
 	f.state.recordOutcomes(indices, outcomes)

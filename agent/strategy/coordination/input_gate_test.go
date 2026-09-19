@@ -176,7 +176,7 @@ func TestInputGateDoesNotCommitAnInvalidOrCanceledAnswer(t *testing.T) {
 				}
 				if !cancel {
 					failure, failed := final.Termination().Failure()
-					if !failed || failure.Code() != "execution.step.failed" {
+					if !failed || failure.Kind() != agent.FailureKindContract || failure.Code() != "coordination.protocol.invalid" || final.Termination().Cause() != agent.TerminationCauseContractFailure {
 						t.Fatalf("answer schema failure = %+v", failure)
 					}
 				}

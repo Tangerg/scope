@@ -116,7 +116,7 @@ func (d *deadlineExecution) Step(ctx context.Context, signals []agent.Signal) (a
 	switch d.state.Phase {
 	case deadlineReady:
 		if len(signals) != 0 {
-			return agent.Transition{}, fmt.Errorf("%w: deadline does not accept external Signals", ErrInvalidProtocol)
+			return agent.Transition{}, protocolStepError(fmt.Errorf("%w: deadline does not accept external Signals", ErrInvalidProtocol))
 		}
 		effect, err := newTimerEffect(d.state.Deadline)
 		if err != nil {
@@ -126,21 +126,21 @@ func (d *deadlineExecution) Step(ctx context.Context, signals []agent.Signal) (a
 		return agent.Continue(0, effect)
 	case deadlineAwaiting:
 		if len(signals) != 1 || !signals[0].EngineOwned() {
-			return agent.Transition{}, fmt.Errorf("%w: deadline requires one Engine-owned timer settlement", ErrInvalidProtocol)
+			return agent.Transition{}, protocolStepError(fmt.Errorf("%w: deadline requires one Engine-owned timer settlement", ErrInvalidProtocol))
 		}
 		if _, addressed := signals[0].WaitID(); addressed {
-			return agent.Transition{}, fmt.Errorf("%w: timer settlement cannot address a wait", ErrInvalidProtocol)
+			return agent.Transition{}, protocolStepError(fmt.Errorf("%w: timer settlement cannot address a wait", ErrInvalidProtocol))
 		}
 		payload, err := agent.ParsePayload(signals[0].Payload())
 		if err != nil {
-			return agent.Transition{}, err
+			return agent.Transition{}, protocolStepError(err)
 		}
 		result, err := payload.Decode[timerResult]()
 		if err != nil {
-			return agent.Transition{}, fmt.Errorf("%w: decode timer settlement: %w", ErrInvalidProtocol, err)
+			return agent.Transition{}, protocolStepError(fmt.Errorf("%w: decode timer settlement: %w", ErrInvalidProtocol, err))
 		}
 		if !result.Deadline.Equal(d.state.Deadline) {
-			return agent.Transition{}, fmt.Errorf("%w: timer settlement disagrees with its deadline", ErrInvalidProtocol)
+			return agent.Transition{}, protocolStepError(fmt.Errorf("%w: timer settlement disagrees with its deadline", ErrInvalidProtocol))
 		}
 		if !result.Reached {
 			failure, failureErr := agent.NewFailure(agent.FailureKindExternal, failureCodeCoordinationDeadlineInterrupted, "timer returned before its deadline")
@@ -156,7 +156,7 @@ func (d *deadlineExecution) Step(ctx context.Context, signals []agent.Signal) (a
 		}
 		return agent.Complete(1, output)
 	default:
-		return agent.Transition{}, fmt.Errorf("%w: deadline has no next Step", ErrInvalidProtocol)
+		return agent.Transition{}, protocolStepError(fmt.Errorf("%w: deadline has no next Step", ErrInvalidProtocol))
 	}
 }
 

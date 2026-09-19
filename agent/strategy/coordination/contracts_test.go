@@ -51,6 +51,8 @@ func TestFirstSuccessRejectsExternalChildStartWithoutChangingProgress(t *testing
 	}
 	if _, stepErr := execution.Step(t.Context(), []agent.Signal{signal}); !errors.Is(stepErr, agent.ErrInvalidSignal) {
 		t.Fatalf("external child start was accepted: %v", stepErr)
+	} else if classified, ok := errors.AsType[*agent.StepError](stepErr); !ok || classified.Failure.Kind() != agent.FailureKindContract || classified.Failure.Code() != "coordination.protocol.invalid" {
+		t.Fatalf("child protocol classification = %v", stepErr)
 	}
 	after, err := execution.Snapshot()
 	if err != nil {

@@ -166,7 +166,7 @@ func (i *inputGateExecution) Step(ctx context.Context, signals []agent.Signal) (
 	switch i.state.Phase {
 	case gateReady:
 		if len(signals) != 0 {
-			return agent.Transition{}, fmt.Errorf("%w: input gate requires an addressed answer", ErrInvalidProtocol)
+			return agent.Transition{}, protocolStepError(fmt.Errorf("%w: input gate requires an addressed answer", ErrInvalidProtocol))
 		}
 		key, err := agent.ParseWaitKey("coordination.input")
 		if err != nil {
@@ -180,22 +180,22 @@ func (i *inputGateExecution) Step(ctx context.Context, signals []agent.Signal) (
 		return agent.Continue(0, effect)
 	case gateAwaitingOpen:
 		if len(signals) == 0 {
-			return agent.Transition{}, fmt.Errorf("%w: input gate opening is missing", ErrInvalidProtocol)
+			return agent.Transition{}, protocolStepError(fmt.Errorf("%w: input gate opening is missing", ErrInvalidProtocol))
 		}
 		waitID, addressed := signals[0].WaitID()
 		if !signals[0].EngineOwned() || !addressed || !bytes.Equal(signals[0].Payload(), i.state.Request.JSON()) {
-			return agent.Transition{}, fmt.Errorf("%w: input gate opening disagrees with its request", ErrInvalidProtocol)
+			return agent.Transition{}, protocolStepError(fmt.Errorf("%w: input gate opening disagrees with its request", ErrInvalidProtocol))
 		}
 		i.state.WaitID = &waitID
 		i.state.Phase = gateWaiting
 		return agent.Wait(1, waitID)
 	case gateWaiting:
 		if len(signals) == 0 {
-			return agent.Transition{}, fmt.Errorf("%w: input gate answer is missing", ErrInvalidProtocol)
+			return agent.Transition{}, protocolStepError(fmt.Errorf("%w: input gate answer is missing", ErrInvalidProtocol))
 		}
 		answer := signals[0]
 		if err := i.state.acceptsAnswer(i.definition, answer); err != nil {
-			return agent.Transition{}, err
+			return agent.Transition{}, protocolStepError(err)
 		}
 		i.state.Answer = &answer
 		i.state.Phase = gateCompleted
@@ -205,7 +205,7 @@ func (i *inputGateExecution) Step(ctx context.Context, signals []agent.Signal) (
 		}
 		return agent.Complete(1, output)
 	default:
-		return agent.Transition{}, fmt.Errorf("%w: input gate has no next Step", ErrInvalidProtocol)
+		return agent.Transition{}, protocolStepError(fmt.Errorf("%w: input gate has no next Step", ErrInvalidProtocol))
 	}
 }
 
