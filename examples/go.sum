@@ -1,5 +1,5 @@
-github.com/Tangerg/scope/agent v0.28.1-0.20260919145937-a0d5ebb2076a h1:ePw0dleE//B0RSo8sVN0155gc2pIhS9e+1rTE8GnWhc=
-github.com/Tangerg/scope/agent v0.28.1-0.20260919145937-a0d5ebb2076a/go.mod h1:7euqDtf6hjorG6NbWEyTcpA/5ZSJ3kZn9dw4UpawgWw=
+github.com/Tangerg/scope/agent v0.29.0 h1:T/IV5mZDCCaUgPvTSHRYHT5l8mBAnMknF83OKwg4jAg=
+github.com/Tangerg/scope/agent v0.29.0/go.mod h1:7euqDtf6hjorG6NbWEyTcpA/5ZSJ3kZn9dw4UpawgWw=
 github.com/Tangerg/scope/core v0.23.0 h1:rb68MjMw8aa7a2nTO1tQqZkGPkmP8uVZtcgB0pBX5Zg=
 github.com/Tangerg/scope/core v0.23.0/go.mod h1:9hOHcD65yh5MRKI/8vXoozbq7PAIJa1L3TLkVkkPIsI=
 github.com/Tangerg/scope/mcp v0.23.0 h1:gPVNY4TqV2QSfBEO/a6ttSRFpaYTOjjSm6reyeURBYQ=
