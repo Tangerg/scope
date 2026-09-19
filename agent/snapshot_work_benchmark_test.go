@@ -8,22 +8,57 @@ import (
 	"time"
 )
 
-// One active root advances while its waiting children remain unchanged. The
+// Captures one unchanged root and its waiting children. The
 // fixture uses validated snapshots and excludes execution and storage latency.
 func BenchmarkWaitingTreeCapture(b *testing.B) {
 	for _, count := range []int{1, 10, 100, 1000} {
 		b.Run(fmt.Sprintf("processes_%d", count), func(b *testing.B) {
 			runtime := newWaitingSnapshotTree(b, count)
-			root := runtime.processes[runtime.rootID]
 			b.ReportAllocs()
 			for b.Loop() {
-				root.committedSteps++
 				var err error
 				benchmarkTreeSnapshotSink, err = runtime.captureTree()
 				if err != nil {
 					b.Fatal(err)
 				}
 			}
+		})
+	}
+}
+
+// Measure admission separately from capture: signal admission encodes its
+// candidate before the shared tree capacity check; child publication adds one
+// freshly initialized Process to that check. Neither iteration advances usage.
+func BenchmarkTreeAdmission(b *testing.B) {
+	for _, count := range []int{1, 10, 100, 1000} {
+		b.Run(fmt.Sprintf("processes_%d", count), func(b *testing.B) {
+			runtime := newWaitingSnapshotTree(b, count)
+			root := runtime.processes[runtime.rootID]
+			signal := controlValue(newSignal(controlValue(ParseSignalID("signal:benchmark-admission")), WaitID{}, []byte(`{"value":"input"}`)))
+			b.Run("signal", func(b *testing.B) {
+				b.ReportAllocs()
+				for b.Loop() {
+					candidate, err := root.prepareSignals([]Signal{signal}, signalSourceExternal)
+					if err != nil {
+						b.Fatal(err)
+					}
+					if err := runtime.validateSnapshotCapacity(candidate); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+			relation := childProcessRelation(newProcessID(), root.handle.relation, controlValue(ParseChildKey("admitted")))
+			handle := newProcessHandle(relation, root.deployment.DeploymentRef(), root.limits.Budget, root.capabilities, root.treeLimits, root.startedAt)
+			handle.childRequestDigest = ComputeDigest([]byte("benchmark-child"))
+			child := newProcessState(handle, root.deployment, root.execution, root.committedExecutionState, root.startedAt, root.limits)
+			b.Run("child_publication_capacity", func(b *testing.B) {
+				b.ReportAllocs()
+				for b.Loop() {
+					if err := runtime.validateSnapshotCapacity(root, child); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
 		})
 	}
 }

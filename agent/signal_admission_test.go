@@ -92,3 +92,48 @@ func TestSignalBatchDeduplicatesBeforeChargingFullMailbox(t *testing.T) {
 		t.Fatalf("kill result=%s error=%v", result.Status(), awaitErr)
 	}
 }
+
+func TestSignalSchemaRejectionIsAtomic(t *testing.T) {
+	definition := &rejectedStepDefinition{descriptor: controlValue(NewDescriptor(DescriptorConfig{
+		Name: "test.signal_schema", Description: "Accept string signals while paused.",
+		InputSchema: controlValue(SchemaFor[engineTestInput]()), OutputSchema: controlValue(SchemaFor[engineTestOutput]()),
+		SignalSchema: controlValue(SchemaFor[string]()),
+	})), err: errors.New("test finished")}
+	engine := controlValue(NewEngine(EngineConfig{}))
+	defer mustCloseEngine(t, engine)
+	deployment := engineTestDeployment(t, definition, nil)
+	process := controlValue(engine.Start(t.Context(), deployment, controlValue(EncodePayload(engineTestInput{}))))
+	waitForStatus(t, process, StatusPaused)
+	before := inspectProcessSnapshot(t, process)
+	valid := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:valid")), WaitID{}, []byte(`"input"`)))
+	invalid := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:invalid")), WaitID{}, []byte(`42`)))
+	if accepted, err := process.DeliverSignals(t.Context(), valid, invalid); accepted || !errors.Is(err, ErrSignalRejected) {
+		t.Fatalf("schema rejection=%t %v", accepted, err)
+	}
+	after := inspectProcessSnapshot(t, process)
+	if after.Usage() != before.Usage() || len(after.SignalReceipts()) != 0 || after.Status() != StatusPaused {
+		t.Fatal("rejected batch changed mailbox, budget, or status")
+	}
+	if accepted, err := process.DeliverSignals(t.Context(), valid); !accepted || err != nil {
+		t.Fatalf("valid input=%t %v", accepted, err)
+	}
+	conflict := controlValue(NewSignalRequest(valid.ID(), WaitID{}, []byte(`42`)))
+	if accepted, err := process.DeliverSignals(t.Context(), conflict); accepted || !errors.Is(err, ErrSignalConflict) {
+		t.Fatalf("conflicting identity must be rejected before schema validation: %t %v", accepted, err)
+	}
+	if accepted, err := process.DeliverSignals(t.Context(), valid, invalid); accepted || !errors.Is(err, ErrSignalRejected) {
+		t.Fatalf("duplicate identity must not bypass batch schema validation: %t %v", accepted, err)
+	}
+	wire := controlValue(inspectProcessSnapshot(t, process).wire())
+	wire.Mailbox.Signals[0] = mailboxRecordWire(1, controlValue(newSignal(invalid.ID(), WaitID{}, invalid.Payload())))
+	tampered := controlValue(newProcessSnapshot(wire))
+	if _, _, _, err := prepareRestoredProcess(t.Context(), false, deployment, tampered); !errors.Is(err, ErrInvalidSnapshot) || !errors.Is(err, ErrSignalRejected) {
+		t.Fatalf("restoration bypassed the declared Signal schema: %v", err)
+	}
+	if err := process.Kill(t.Context(), "finished"); err != nil {
+		t.Fatal(err)
+	}
+	if err := process.Join(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -18,12 +18,14 @@ var ErrGenerationLimitReached = errors.New("goap: generated node limit reached")
 // Config contains optional cumulative search quotas for a GOAP Planner.
 type Config struct {
 	// MaxExpansions bounds non-stale nodes removed from the frontier.
-	// Its zero value is unlimited.
+	// Its zero value is unlimited. A finite zero permits an already satisfied
+	// Goal but rejects search with ErrExpansionLimitReached.
 	MaxExpansions agent.Quota
 
 	// MaxGeneratedNodes bounds cumulative frontier insertions, including the
 	// initial node and cheaper replacements of discovered states. Its zero value
-	// is unlimited. This bounds retained search entries, not their byte size.
+	// is unlimited; a finite zero rejects search with ErrGenerationLimitReached.
+	// Already satisfied Goals need no search. This bounds entries, not byte size.
 	MaxGeneratedNodes agent.Quota
 }
 

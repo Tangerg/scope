@@ -36,6 +36,11 @@ type DescriptorConfig struct {
 
 	// OutputSchema is the authoritative structural contract for completed output.
 	OutputSchema Schema
+
+	// SignalSchema declares unaddressed Host input. The zero value rejects all
+	// unaddressed Signals. Addressed replies belong to their external wait;
+	// Engine-owned protocol frames never pass through this schema.
+	SignalSchema Schema
 }
 
 func (d DescriptorConfig) validate() error {
@@ -61,6 +66,7 @@ type Descriptor struct {
 	description  string
 	inputSchema  Schema
 	outputSchema Schema
+	signalSchema Schema
 	digest       Digest
 }
 
@@ -71,11 +77,19 @@ func NewDescriptor(config DescriptorConfig) (Descriptor, error) {
 	if err := config.validate(); err != nil {
 		return Descriptor{}, err
 	}
+	if !config.SignalSchema.Valid() {
+		var err error
+		config.SignalSchema, err = ParseSchema([]byte("false"))
+		if err != nil {
+			return Descriptor{}, fmt.Errorf("%w: rejecting signal schema: %w", ErrInvalidDescriptor, err)
+		}
+	}
 	descriptor := Descriptor{
 		name:         config.Name,
 		description:  config.Description,
 		inputSchema:  config.InputSchema,
 		outputSchema: config.OutputSchema,
+		signalSchema: config.SignalSchema,
 	}
 	digest, err := descriptor.computeDigest()
 	if err != nil {
@@ -97,6 +111,9 @@ func (d Descriptor) InputSchema() Schema { return d.inputSchema }
 // OutputSchema returns the immutable schema value.
 func (d Descriptor) OutputSchema() Schema { return d.outputSchema }
 
+// SignalSchema returns the unaddressed input contract; false rejects all input.
+func (d Descriptor) SignalSchema() Schema { return d.signalSchema }
+
 // Digest returns the SHA-256 identity of the complete descriptor contract.
 func (d Descriptor) Digest() Digest { return d.digest }
 
@@ -108,6 +125,17 @@ func (d Descriptor) ValidateInput(input Payload) error {
 	}
 	if err := d.inputSchema.Validate(input.data); err != nil {
 		return fmt.Errorf("%w: schema validation: %w", ErrInvalidPayload, err)
+	}
+	return nil
+}
+
+// ValidateSignal checks unaddressed Host input before mailbox admission.
+func (d Descriptor) ValidateSignal(input Payload) error {
+	if !d.Valid() {
+		return ErrInvalidDescriptor
+	}
+	if err := d.signalSchema.Validate(input.data); err != nil {
+		return fmt.Errorf("%w: unaddressed input: %w", ErrSignalRejected, err)
 	}
 	return nil
 }
@@ -177,11 +205,16 @@ func (d *Descriptor) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("%w: output schema: %w", ErrInvalidDescriptor, err)
 	}
+	signalSchema, err := ParseSchema(wire.SignalSchema)
+	if err != nil {
+		return fmt.Errorf("%w: signal schema: %w", ErrInvalidDescriptor, err)
+	}
 	value, err := NewDescriptor(DescriptorConfig{
 		Name:         wire.Name,
 		Description:  wire.Description,
 		InputSchema:  inputSchema,
 		OutputSchema: outputSchema,
+		SignalSchema: signalSchema,
 	})
 	if err != nil {
 		return err
@@ -200,6 +233,7 @@ type descriptorContractWire struct {
 	Description  string          `json:"description"`
 	InputSchema  json.RawMessage `json:"input_schema"`
 	OutputSchema json.RawMessage `json:"output_schema"`
+	SignalSchema json.RawMessage `json:"signal_schema"`
 }
 
 type descriptorWire struct {
@@ -213,6 +247,7 @@ func (d Descriptor) contractWire() descriptorContractWire {
 		Description:  d.description,
 		InputSchema:  d.inputSchema.JSON(),
 		OutputSchema: d.outputSchema.JSON(),
+		SignalSchema: d.signalSchema.JSON(),
 	}
 }
 

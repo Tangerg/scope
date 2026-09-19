@@ -10,7 +10,7 @@ import (
 	"github.com/Tangerg/scope/agent/agenttest"
 )
 
-func TestSignalReceiptsRetainInputAfterFinalSignalWindow(t *testing.T) {
+func TestInputGateRejectsUnaddressedInputAfterFinalSignalWindow(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		probe := &heldStepDefinition{
 			Definition: inputGate(t), entered: make(chan agent.Signal, 1), release: make(chan struct{}),
@@ -54,11 +54,11 @@ func TestSignalReceiptsRetainInputAfterFinalSignalWindow(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if accepted, deliveryErr := process.DeliverSignals(t.Context(), late); deliveryErr != nil || !accepted {
+		if accepted, deliveryErr := process.DeliverSignals(t.Context(), late); accepted || !errors.Is(deliveryErr, agent.ErrSignalRejected) {
 			t.Fatalf("late input=%t %v", accepted, deliveryErr)
 		}
 		before := inspect(t, engine, process).Snapshot.SignalReceipts()
-		if len(before) != 3 || before[1].Consumed() || before[2].Consumed() {
+		if len(before) != 2 || before[1].Consumed() {
 			t.Fatalf("candidate claimed committed consumption: %+v", before)
 		}
 		release()
@@ -83,34 +83,19 @@ func TestSignalReceiptsRetainInputAfterFinalSignalWindow(t *testing.T) {
 		}
 		for _, snapshot := range []agent.ProcessSnapshot{inspect(t, engine, process).Snapshot, inspect(t, restoredEngine, restored).Snapshot} {
 			receipts := snapshot.SignalReceipts()
-			if len(receipts) != 3 || !receipts[0].Consumed() || !receipts[1].Consumed() || receipts[2].Consumed() {
+			if len(receipts) != 2 || !receipts[0].Consumed() || !receipts[1].Consumed() {
 				t.Fatalf("terminal receipt facts=%+v", receipts)
 			}
 			if receipts[0].Matches(answer) || receipts[0].Matches(late) {
 				t.Fatal("wait opening proved an external delivery")
 			}
-			if !receipts[1].Matches(answer) || !receipts[2].Matches(late) || receipts[2].PayloadDigest() != agent.ComputeDigest(late.Payload()) {
+			if !receipts[1].Matches(answer) || receipts[1].Matches(late) {
 				t.Fatal("terminal receipts changed immutable identity")
-			}
-			pending, retained := receipts[2].PendingSignal()
-			if !retained || pending.ID() != lateID || string(pending.Payload()) != `{"follow_up":"retain me"}` {
-				t.Fatalf("late input was lost: %s", pending.Payload())
-			}
-			if _, addressed := receipts[2].WaitID(); addressed {
-				t.Fatal("unaddressed input gained a wait")
 			}
 			if got, addressed := receipts[1].WaitID(); !addressed || got != waitID {
 				t.Fatal("consumed answer lost its wait")
 			}
-			bytes := pending.Payload()
-			bytes[0] = 'x'
-			receipts[2] = agent.SignalReceipt{}
-			again := snapshot.SignalReceipts()
-			preserved, _ := again[2].PendingSignal()
-			if !again[2].Matches(late) || string(preserved.Payload()) != `{"follow_up":"retain me"}` {
-				t.Fatal("caller mutation corrupted snapshot receipts")
-			}
-			if snapshot.Usage() != (agent.Usage{CommittedSteps: 3, PreparedEffects: 1, AcceptedSignals: 3}) {
+			if snapshot.Usage() != (agent.Usage{CommittedSteps: 3, PreparedEffects: 1, AcceptedSignals: 2}) {
 				t.Fatalf("late input accounting=%+v", snapshot.Usage())
 			}
 		}

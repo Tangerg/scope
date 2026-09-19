@@ -150,8 +150,13 @@ func newTreeRuntimeTestDeployment(t testing.TB) (Deployment, *treeRuntimeTestPro
 	if err != nil {
 		t.Fatal(err)
 	}
+	signalSchema, err := ParseSchema([]byte("true"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	descriptor, err := NewDescriptor(DescriptorConfig{
-		Name: "test.tree_runtime", Description: "Verify tree owner scheduling isolation.",
+		SignalSchema: signalSchema,
+		Name:         "test.tree_runtime", Description: "Verify tree owner scheduling isolation.",
 		InputSchema: inputSchema, OutputSchema: outputSchema,
 	})
 	if err != nil {

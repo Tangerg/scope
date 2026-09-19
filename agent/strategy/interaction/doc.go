@@ -3,6 +3,9 @@
 //
 // Model-call and child work quotas default to unlimited. Host cancellation and
 // independently configured concurrency and mailbox capacity remain effective.
+// A finite zero MaxModelCalls is rejected at construction. Invalid provider
+// output terminates with external / interaction.model.invalid_response, without
+// retrying the model or committing the rejected Step.
 //
 // A Definition owns the serializable working context, model/Tool state
 // machine, exact managed Delegate bindings, typed Delegate Artifacts, and an
@@ -25,6 +28,10 @@
 // identity, boundary validation, and ordered results for both bindings. Tools
 // refill their bounded window after any child drains; Delegates await their
 // entire batch. Execution snapshots retain this single batch and its policy.
+// A rejected ordinary Tool child start terminates the Interaction with the
+// original Failure: the ToolSet is required execution infrastructure. A rejected
+// Delegate start is instead a model-visible rejected result, because choosing
+// another advertised worker is part of the model's delegation policy.
 // Engine owns child Process lifecycles. Product conversation
 // history, persistence, application artifact stores, pricing, approval policy,
 // and UI remain outside this Strategy. Direct model calls remain available
@@ -83,4 +90,11 @@
 // and timeout diagnostics retain the child identity and termination cause.
 // A drained Delegate subtree with unresolved Effects fails the parent without
 // another model call. ChildOutcome preserves their owning ProcessID and EffectID. Drained child work does not prove a definite external outcome.
+//
+// Descriptor.SignalSchema admits only steering envelopes as unaddressed input.
+// Steering queues during child work and is consumed with protocol frames at
+// the next safe Step, then applied before the next model call. Tool answers
+// address the Tool child's wait. Unsupported envelopes are rejected before
+// admission; semantic protocol violations discard the Step with a contract
+// Failure. A candidate never consumes input on a Step error.
 package interaction

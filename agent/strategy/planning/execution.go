@@ -24,6 +24,30 @@ type execution struct {
 // Action I/O, and child Process work are represented as Effects and never run
 // inside this method.
 func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
+	transition, err := e.step(ctx, signals)
+	if err == nil {
+		return transition, nil
+	}
+	var kind agent.FailureKind
+	var code string
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return agent.Transition{}, err
+	case errors.Is(err, ErrInvalidProtocol):
+		kind, code = agent.FailureKindContract, failureCodePlanningProtocolInvalid
+	case errors.Is(err, ErrInvalidExecutionState):
+		kind, code = agent.FailureKindContract, failureCodePlanningStateInvalid
+	default:
+		return agent.Transition{}, err
+	}
+	failure, failureErr := agent.NewFailure(kind, code, agent.NormalizeDiagnostic(err.Error()))
+	if failureErr != nil {
+		return agent.Transition{}, failureErr
+	}
+	return agent.Transition{}, &agent.StepError{Failure: failure, Cause: err}
+}
+
+func (e *execution) step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if e == nil || !e.definition.valid() {
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
@@ -112,10 +136,7 @@ func (e *execution) acceptSense(
 			"Planning exhausted its representable planning-pass count",
 		)
 	}
-	problem, err := e.definition.problem(e.state)
-	if err != nil {
-		return e.fail(consumedSignals, agent.FailureKindContract, failureCodePlanningProblemInvalid, err.Error())
-	}
+	problem := e.definition.problem(e.state)
 	plan, found, err := e.definition.planner.Plan(ctx, problem)
 	if cancelErr := ctx.Err(); cancelErr != nil {
 		return agent.Transition{}, cancelErr
@@ -220,28 +241,29 @@ func (e *execution) acceptAction(signals []agent.Signal) (agent.Transition, erro
 
 func (e *execution) advanceChild(signals []agent.Signal) (agent.Transition, error) {
 	phase := e.state.Child.Phase()
-	if len(signals) == 0 || phase != childcall.AwaitingOpening && len(signals) != 1 {
-		return agent.Transition{}, fmt.Errorf("%w: child handshake requires its settlement Signal", ErrInvalidProtocol)
+	signal, err := e.state.Child.Window(signals)
+	if err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
 	key, err := planningChildKey(e.state.CurrentActionName, uint64(len(e.state.Attempts))+1)
 	if err != nil {
 		return agent.Transition{}, err
 	}
 	if phase == childcall.AwaitingStart {
-		return e.acceptChildStart(signals[0], key)
+		return e.acceptChildStart(signal, key)
 	}
 	waitKey, err := planningChildWaitKey(key, e.state.Child.ProcessID())
 	if err != nil {
 		return agent.Transition{}, err
 	}
 	if phase == childcall.AwaitingOpening {
-		waitID, openErr := e.state.Child.AcceptOpening(signals[0], waitKey, agent.ChildWaitBoundaryDrained)
+		waitID, openErr := e.state.Child.AcceptOpening(signal, waitKey, agent.ChildWaitBoundaryDrained)
 		if openErr != nil {
 			return agent.Transition{}, fmt.Errorf("%w: child wait opening: %w", ErrInvalidProtocol, openErr)
 		}
 		return agent.Wait(1, waitID)
 	}
-	outcome, err := e.state.Child.Complete(signals[0], key, waitKey, agent.ChildWaitBoundaryDrained)
+	outcome, err := e.state.Child.Complete(signal, key, waitKey, agent.ChildWaitBoundaryDrained)
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: child completion: %w", ErrInvalidProtocol, err)
 	}
@@ -327,12 +349,13 @@ func planningIdentity(action string, attempt uint64) string {
 }
 
 const (
+	failureCodePlanningProtocolInvalid        = "planning.protocol.invalid"
+	failureCodePlanningStateInvalid           = "planning.state.invalid"
 	failureCodePlanningChildInputFailed       = "planning.child.input.failed"
 	failureCodePlanningChildInputInvalid      = "planning.child.input.invalid"
 	failureCodePlanningChildUnresolvedEffects = "planning.child.unresolved_effects"
 	failureCodePlanningLimitPlanningPasses    = "planning.limit.planning_passes"
 	failureCodePlanningPlannerContract        = "planning.planner.contract"
 	failureCodePlanningPlannerFailed          = "planning.planner.failed"
-	failureCodePlanningProblemInvalid         = "planning.problem.invalid"
 	failureCodePlanningSensingFailed          = "planning.sensing.failed"
 )

@@ -195,7 +195,10 @@
 // Child completions remain queued while their parent is Paused or waiting on
 // another WaitID. Only an answer to the current WaitID releases Waiting;
 // an explicit pause still requires Resume. Unaddressed Strategy input can also
-// queue while Paused or waiting for children without releasing either state.
+// queue while Paused or waiting for children without releasing either state,
+// only when it satisfies Descriptor.SignalSchema. The default schema rejects
+// unaddressed input. Rejection returns ErrSignalRejected before any mailbox,
+// budget, wait or durable head changes; child-signal Effects obey the same rule.
 // [NewChildWaitEffect] requires an explicit [ChildWaitBoundary]. The result boundary
 // counts terminal children. The drained boundary counts children whose entire
 // subtree satisfies [Process.Join]. All, any, and quorum count those facts in

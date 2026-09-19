@@ -9,6 +9,12 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
+// The admission shape excludes dispatcher results and Tool input responses.
+type steerSignal struct {
+	Operation operation  `json:"operation" jsonschema:"enum=steer"`
+	Steer     steerInput `json:"steer"`
+}
+
 type steerBatch struct {
 	Messages  []chat.Message   `json:"messages"`
 	SignalIDs []agent.SignalID `json:"signal_ids"`
@@ -84,9 +90,9 @@ func NewSteerSignal(id agent.SignalID, messages ...chat.Message) (agent.SignalRe
 	if err := validateSteeringMessages(messages); err != nil {
 		return agent.SignalRequest{}, err
 	}
-	payload, err := jsonv2.Marshal(signalEnvelope{
+	payload, err := jsonv2.Marshal(steerSignal{
 		Operation: operationSteer,
-		Steer:     &steerInput{Messages: cloneMessages(messages)},
+		Steer:     steerInput{Messages: cloneMessages(messages)},
 	}, jsonv2.Deterministic(true))
 	if err != nil {
 		return agent.SignalRequest{}, err

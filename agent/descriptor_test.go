@@ -179,3 +179,39 @@ func TestDescriptorDecodingEnforcesConstructionRules(t *testing.T) {
 		t.Fatal("zero Descriptor is valid")
 	}
 }
+
+func TestDescriptorSignalContractIsFrozenAndRequiredOnWire(t *testing.T) {
+	config := descriptorConfig(t)
+	rejecting := controlValue(NewDescriptor(config))
+	input := controlValue(EncodePayload(wireFixture{Message: "hello"}))
+	if err := rejecting.ValidateSignal(input); !errors.Is(err, ErrSignalRejected) {
+		t.Fatalf("default Signal admission=%v", err)
+	}
+	config.SignalSchema = config.InputSchema
+	accepting := controlValue(NewDescriptor(config))
+	if accepting.Digest() == rejecting.Digest() {
+		t.Fatal("signal policy is absent from descriptor identity")
+	}
+	if err := accepting.ValidateSignal(input); err != nil {
+		t.Fatal(err)
+	}
+	if err := accepting.ValidateSignal(controlValue(EncodePayload(42))); !errors.Is(err, ErrSignalRejected) {
+		t.Fatalf("invalid Signal admission=%v", err)
+	}
+	data := controlValue(json.Marshal(accepting))
+	var restored Descriptor
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if restored.Digest() != accepting.Digest() || restored.ValidateSignal(input) != nil {
+		t.Fatal("signal contract changed on round trip")
+	}
+	var wire map[string]json.RawMessage
+	if err := json.Unmarshal(data, &wire); err != nil {
+		t.Fatal(err)
+	}
+	delete(wire, "signal_schema")
+	if err := json.Unmarshal(controlValue(json.Marshal(wire)), &restored); !errors.Is(err, ErrInvalidDescriptor) {
+		t.Fatalf("missing signal contract accepted: %v", err)
+	}
+}

@@ -241,6 +241,22 @@ type engineTestDefinition struct {
 	mode       string
 }
 
+func TestStartCanceledBeforeSubmissionHasNoAdmissionSideEffects(t *testing.T) {
+	calls := 0
+	engine := controlValue(NewEngine(EngineConfig{ProcessAdmitter: ProcessAdmitterFunc(func(context.Context, ProcessAdmission) error {
+		calls++
+		return nil
+	})}))
+	defer mustCloseEngine(t, engine)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	definition := newEngineTestDefinition(t, "test.canceled_start", "complete")
+	process, err := engine.Start(ctx, engineTestDeployment(t, definition, nil), controlValue(EncodePayload(engineTestInput{})))
+	if process != nil || !errors.Is(err, context.Canceled) || calls != 0 {
+		t.Fatalf("canceled Start process=%v error=%v admission calls=%d", process, err, calls)
+	}
+}
+
 func newEngineTestDefinition(t testing.TB, name, mode string) *engineTestDefinition {
 	t.Helper()
 	inputSchema, err := SchemaFor[engineTestInput]()
@@ -251,8 +267,13 @@ func newEngineTestDefinition(t testing.TB, name, mode string) *engineTestDefinit
 	if err != nil {
 		t.Fatal(err)
 	}
+	signalSchema, err := ParseSchema([]byte("true"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	descriptor, err := NewDescriptor(DescriptorConfig{
-		Name: name, Description: "Exercises the Engine lifecycle contract.",
+		SignalSchema: signalSchema,
+		Name:         name, Description: "Exercises the Engine lifecycle contract.",
 		InputSchema: inputSchema, OutputSchema: outputSchema,
 	})
 	if err != nil {

@@ -99,16 +99,34 @@ func TestScriptedDispatcherRunsThroughPublicEngineBoundary(t *testing.T) {
 
 			awaitCtx, cancel := context.WithTimeout(t.Context(), time.Second)
 			defer cancel()
-			if _, err := recorder.AwaitEvent(awaitCtx, func(event agent.Event) bool {
+			if _, awaitErr := recorder.AwaitEvent(awaitCtx, func(event agent.Event) bool {
 				return event.Name() == agent.EventProcessFinished
-			}); err != nil {
-				t.Fatal(err)
+			}); awaitErr != nil {
+				t.Fatal(awaitErr)
 			}
-			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
-				t.Fatal(err)
+			if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
+				t.Fatal(closeErr)
 			}
 			if dispatcher.Remaining() != 0 || len(dispatcher.Requests()) != 1 {
 				t.Fatalf("remaining=%d requests=%d", dispatcher.Remaining(), len(dispatcher.Requests()))
+			}
+			request := dispatcher.Requests()[0]
+			if _, dispatchErr := dispatcher.Dispatch(t.Context(), request, nil); !errors.Is(dispatchErr, agenttest.ErrUnexpectedDispatch) {
+				t.Fatalf("overrun=%v", dispatchErr)
+			}
+			other, err := agent.NewDispatcherEffect([]byte(`{"operation":"other"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			mismatched, err := agenttest.NewScriptedDispatcher(agenttest.ScriptedDispatcherConfig{ReplayPolicy: agent.ReplayPolicyNever, Steps: []agenttest.DispatchStep{{ExpectedEffect: &other, SettlementStatus: status, SettlementPayload: []byte(`{}`)}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := mismatched.Dispatch(t.Context(), request, nil); !errors.Is(err, agenttest.ErrEffectMismatch) {
+				t.Fatalf("mismatch=%v", err)
+			}
+			if _, err := recorder.AwaitEvent(t.Context(), nil); !errors.Is(err, agenttest.ErrInvalidEventPredicate) {
+				t.Fatalf("nil predicate=%v", err)
 			}
 			deltas := recorder.Deltas()
 			if len(deltas) != 1 || string(deltas[0].Payload()) != `{"token":"hello"}` {

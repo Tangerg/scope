@@ -256,11 +256,17 @@ func (c *compositionDefinition) Start(input agent.Payload) (agent.Execution, err
 }
 
 func (c *compositionDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	decoded, err := state.Decode[compositionState]("example.composition")
 	if err != nil {
 		return nil, err
 	}
 	if err := decoded.validate(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return &compositionExecution{local: c.local, model: c.model, state: decoded}, nil

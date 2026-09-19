@@ -24,7 +24,8 @@ const (
 // Zero quotas are unlimited. Only MaxPendingSignals inherits a finite default.
 // Snapshots retain the effective contract independently of Engine configuration.
 type Limits struct {
-	// MaxSnapshotBytes bounds the encoded Process snapshot, including retained history.
+	// MaxSnapshotBytes bounds the encoded Process snapshot, including retained
+	// history. A finite zero denies every new snapshot admission.
 	MaxSnapshotBytes Quota `json:"max_snapshot_bytes"`
 
 	// Budget bounds cumulative work and grants child allocations.
@@ -105,11 +106,13 @@ type Usage struct {
 // unlimited parent grants either kind without a finite debit. Each dimension
 // is independent; a finite parent cannot grant an unlimited child quota.
 type Budget struct {
-	// Steps bounds committed Steps.
+	// Steps bounds committed Steps. A finite zero forbids new computation.
 	Steps Quota `json:"steps"`
-	// Effects bounds stable Effect identities prepared across all Steps.
+	// Effects bounds stable Effect identities prepared across all Steps. A
+	// finite zero permits pure Steps but forbids Effects.
 	Effects Quota `json:"effects"`
-	// Signals bounds accepted external and Engine-generated Signals.
+	// Signals bounds accepted external and Engine-generated Signals. A finite
+	// zero permits computations that need no runtime input or settlements.
 	Signals Quota `json:"signals"`
 }
 
@@ -194,15 +197,18 @@ func saturatingCountAdd(value, increment uint64) uint64 {
 // depth and active-child capacity inherit DefaultTreeLimits.
 type TreeLimits struct {
 	// MaxSnapshotBytes bounds the encoded tree, including completed descendants.
+	// A finite zero denies every new tree snapshot admission.
 	MaxSnapshotBytes Quota `json:"max_snapshot_bytes"`
 
 	// MaxDepth bounds the root-relative depth of any Process.
 	MaxDepth uint32 `json:"max_depth"`
-	// MaxChildren bounds the lifetime child count of one Process.
+	// MaxChildren bounds the lifetime child count of one Process. A finite
+	// zero confines new execution to the root.
 	MaxChildren Quota `json:"max_children"`
 	// MaxActiveChildren bounds concurrent non-terminal children of one Process.
 	MaxActiveChildren uint32 `json:"max_active_children"`
-	// MaxTreeProcesses bounds the lifetime Process count of one tree.
+	// MaxTreeProcesses bounds the lifetime Process count of one tree. A finite
+	// zero is rejected because a tree includes its root.
 	MaxTreeProcesses Quota `json:"max_tree_processes"`
 }
 

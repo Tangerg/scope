@@ -29,6 +29,28 @@ type Single struct {
 	waitID    agent.WaitID
 }
 
+// Window validates the input cardinality owned by this handshake. An opening
+// may be followed by its completion when the child has already drained.
+func (s Single) Window(signals []agent.Signal) (agent.Signal, error) {
+	if len(signals) == 0 || len(signals) > 1 && s.Phase() != AwaitingOpening || len(signals) > 2 {
+		return agent.Signal{}, errors.New("childcall: unexpected handshake window size")
+	}
+	if len(signals) == 2 {
+		opened, err := agent.ParseChildWaitOpened(signals[0])
+		if err != nil {
+			return agent.Signal{}, err
+		}
+		completed, err := agent.ParseChildWaitSatisfied(signals[1])
+		if err != nil || !completed.Matches(opened.WaitID(), opened.Spec()) {
+			return agent.Signal{}, errors.New("childcall: opening suffix is not its completion")
+		}
+	}
+	if !signals[0].EngineOwned() {
+		return agent.Signal{}, errors.New("childcall: handshake requires an Engine-owned Signal")
+	}
+	return signals[0], nil
+}
+
 func (s Single) Phase() Phase {
 	if s.waitID.Valid() {
 		return AwaitingCompletion

@@ -3,6 +3,7 @@ package interaction
 import (
 	"context"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -18,6 +19,32 @@ type execution struct {
 // Step advances exactly one pure Interaction boundary. Model and tool I/O are
 // represented as dispatcher Effects and therefore never occur in this method.
 func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
+	transition, err := e.step(ctx, signals)
+	if err == nil {
+		return transition, nil
+	}
+	var kind agent.FailureKind
+	var code string
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return agent.Transition{}, err
+	case errors.Is(err, ErrInvalidSteer):
+		kind, code = agent.FailureKindContract, failureCodeInteractionSignalInvalid
+	case errors.Is(err, ErrInvalidProtocol):
+		kind, code = agent.FailureKindContract, failureCodeInteractionProtocolInvalid
+	case errors.Is(err, ErrInvalidExecutionState):
+		kind, code = agent.FailureKindContract, failureCodeInteractionStateInvalid
+	default:
+		return agent.Transition{}, err
+	}
+	failure, failureErr := agent.NewFailure(kind, code, agent.NormalizeDiagnostic(err.Error()))
+	if failureErr != nil {
+		return agent.Transition{}, failureErr
+	}
+	return agent.Transition{}, &agent.StepError{Failure: failure, Cause: err}
+}
+
+func (e *execution) step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if e == nil || !e.definition.valid() {
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
@@ -141,7 +168,11 @@ func (e *execution) acceptModel(ctx context.Context, signals []agent.Signal) (ag
 	response := envelope.ModelResult.Response.Clone()
 	calls, err := validatedToolCalls(response)
 	if err != nil {
-		return agent.Transition{}, err
+		failure, failureErr := agent.NewFailure(agent.FailureKindExternal, failureCodeInteractionModelInvalidResponse, agent.NormalizeDiagnostic(err.Error()))
+		if failureErr != nil {
+			return agent.Transition{}, failureErr
+		}
+		return agent.Transition{}, &agent.StepError{Failure: failure, Cause: err}
 	}
 	if len(calls) > 0 && response.Output.FinishReason != chat.FinishReasonToolCalls &&
 		response.Output.FinishReason != chat.FinishReasonLength {
@@ -169,10 +200,11 @@ func (e *execution) acceptFinalModelResponse(
 ) (agent.Transition, error) {
 	modelOutput := response.Output
 	if modelOutput == nil || modelOutput.Message == nil || modelOutput.FinishReason == "" {
-		return agent.Transition{}, fmt.Errorf(
-			"%w: final response has no finished assistant message",
-			ErrInvalidExecutionState,
-		)
+		failure, err := agent.NewFailure(agent.FailureKindExternal, failureCodeInteractionModelInvalidResponse, "model response has no finished assistant message")
+		if err != nil {
+			return agent.Transition{}, err
+		}
+		return agent.Transition{}, &agent.StepError{Failure: failure}
 	}
 	if e.state.PendingSteer == nil {
 		return e.finishOrRetry(consumedSignals, Output{
@@ -761,11 +793,15 @@ func (e *execution) scheduleToolChildren(ctx context.Context, consumed uint32) (
 var _ agent.Execution = (*execution)(nil)
 
 const (
+	failureCodeInteractionSignalInvalid              = "interaction.signal.invalid"
+	failureCodeInteractionProtocolInvalid            = "interaction.protocol.invalid"
+	failureCodeInteractionStateInvalid               = "interaction.state.invalid"
 	failureCodeInteractionCompletionDecisionInvalid  = "interaction.completion.decision_invalid"
 	failureCodeInteractionCompletionValidatorFailed  = "interaction.completion.validator_failed"
 	failureCodeInteractionDelegateUnresolvedEffects  = "interaction.delegate.unresolved_effects"
 	failureCodeInteractionHostFailed                 = "interaction.host.failed"
 	failureCodeInteractionLimitModelCalls            = "interaction.limit.model_calls"
+	failureCodeInteractionModelInvalidResponse       = "interaction.model.invalid_response"
 	failureCodeInteractionModelFailed                = "interaction.model.failed"
 	failureCodeInteractionModelToolCallsNotCompleted = "interaction.model.tool_calls_not_completed"
 	failureCodeInteractionToolProcessFailed          = "interaction.tool.process_failed"

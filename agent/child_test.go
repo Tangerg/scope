@@ -682,8 +682,13 @@ func newChildTestDeploymentWithDispatcher(t testing.TB, dispatcher Dispatcher) D
 	if err != nil {
 		t.Fatal(err)
 	}
+	signalSchema, err := ParseSchema([]byte("true"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	descriptor, err := NewDescriptor(DescriptorConfig{
-		Name: "test.child", Description: "Exercise child Process framework Effects.",
+		SignalSchema: signalSchema,
+		Name:         "test.child", Description: "Exercise child Process framework Effects.",
 		InputSchema: inputSchema, OutputSchema: outputSchema,
 	})
 	if err != nil {

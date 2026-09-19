@@ -13,6 +13,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/agenttest"
+	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/core/chatclient"
 )
@@ -512,4 +513,24 @@ func (f failingExecution) Step(context.Context, []agent.Signal) (agent.Transitio
 		return agent.Transition{}, err
 	}
 	return agent.Fail(0, failure)
+}
+
+func TestCompositionRejectsUnaddressedInputAtAdmission(t *testing.T) {
+	local, err := newUppercaseDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, err := newModelDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := newCompositionDeployment(local.DeploymentRef(), model.DeploymentRef())
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := base.Descriptor().EncodeInput(compositionInput{Prompt: "admission"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conformancetest.Run(t, agent.DeploymentConfig{Definition: base.Definition(), ImplementationDigest: base.DeploymentRef().ImplementationDigest(), ConfigurationDigest: base.DeploymentRef().ConfigurationDigest()}, agent.EngineConfig{DeploymentResolver: deploymentResolver{local.DeploymentRef(): local, model.DeploymentRef(): model}}, input)
 }

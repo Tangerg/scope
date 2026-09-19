@@ -18,7 +18,7 @@ type pausedDefinition struct{ descriptor agent.Descriptor }
 
 func pausedWorker() agent.Deployment {
 	schema := require(agent.SchemaFor[string]())
-	return binding(&pausedDefinition{descriptor: require(agent.NewDescriptor(agent.DescriptorConfig{Name: "test.paused", Description: "Pause before consuming a signal.", InputSchema: schema, OutputSchema: schema}))})
+	return binding(&pausedDefinition{descriptor: require(agent.NewDescriptor(agent.DescriptorConfig{Name: "test.paused", Description: "Pause before consuming a signal.", InputSchema: schema, OutputSchema: schema, SignalSchema: schema}))})
 }
 func (p *pausedDefinition) Descriptor() agent.Descriptor { return p.descriptor }
 func (p *pausedDefinition) Start(input agent.Payload) (agent.Execution, error) {

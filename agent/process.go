@@ -60,7 +60,8 @@ func (p *Process) StartedAt() time.Time {
 }
 
 // DeliverSignals submits one or more immutable Strategy inputs as an ordered,
-// atomic batch. Unaddressed input queues for the next Strategy-safe Step,
+// atomic batch. Unaddressed input must satisfy Descriptor.SignalSchema or the
+// batch returns ErrSignalRejected unchanged. Accepted input queues for the next Strategy-safe Step,
 // including while Paused or waiting for child completion. It never resumes
 // either state by itself. An externally addressable wait requires an answer.
 // An addressed answer while Waiting must name the current WaitID; any other

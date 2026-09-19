@@ -90,3 +90,72 @@ func TestToolChildFailuresRetainRestorableParentState(t *testing.T) {
 		})
 	}
 }
+
+func TestChildAdmissionFailurePolicyDistinguishesToolsAndDelegates(t *testing.T) {
+	for _, delegated := range []bool{false, true} {
+		name := "tool"
+		if delegated {
+			name = "delegate"
+		}
+		t.Run(name, func(t *testing.T) {
+			child := delegateWorkflow(t, "test.admission_worker", func(_ context.Context, input delegateRequest) (delegateResponse, error) {
+				return delegateResponse(input), nil
+			})
+			config := interaction.DefinitionConfig{Name: "test.admission_policy", Description: "Exercise child admission policy.", MaxModelCalls: agent.NewQuota(2)}
+			toolConfig := interaction.ToolSetConfig{}
+			if delegated {
+				delegate, err := interaction.NewDelegate(interaction.DelegateConfig{Name: "work", Description: "Run delegated work.", Deployment: child})
+				if err != nil {
+					t.Fatal(err)
+				}
+				config.Delegates = []interaction.Delegate{delegate}
+			} else {
+				executable, err := tool.NewFunc(tool.FuncConfig{Name: "work", Description: "Run ordinary work."}, func(context.Context, delegateRequest) (string, error) {
+					t.Error("rejected child executed")
+					return "", nil
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				toolConfig.Tools = []tool.Tool{executable}
+			}
+			calls := 0
+			model := chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+				calls++
+				if calls == 1 {
+					return toolCallResponse(chat.ToolCall{ID: "work", Name: "work", Arguments: `{"value":"run"}`}), nil
+				}
+				parts := request.Messages[len(request.Messages)-1].Parts
+				if len(parts) != 1 || parts[0].ToolResult == nil || !parts[0].ToolResult.IsError {
+					return nil, errors.New("model did not receive a rejected delegate result")
+				}
+				return textResponse("handled rejection"), nil
+			})
+			deployment := configuredInteraction(t, config, interaction.DispatcherConfig{Model: model}, toolConfig)
+			engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolveWith(child), ProcessAdmitter: agent.ProcessAdmitterFunc(func(_ context.Context, admission agent.ProcessAdmission) error {
+				if !admission.Relation().IsRoot() {
+					return errors.New("child admission rejected")
+				}
+				return nil
+			})})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer engine.Close(context.WithoutCancel(t.Context()))
+			result, err := engine.Run(t.Context(), deployment.Deployment, interactionInput(t, "run work"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if delegated {
+				if result.Status() != agent.StatusCompleted || calls != 2 {
+					t.Fatalf("delegate status=%s calls=%d", result.Status(), calls)
+				}
+			} else {
+				failure, failed := result.Termination().Failure()
+				if !failed || failure.Kind() != agent.FailureKindExternal || failure.Code() != "engine.child.admission.rejected" || calls != 1 {
+					t.Fatalf("tool failure=%+v calls=%d", failure, calls)
+				}
+			}
+		})
+	}
+}

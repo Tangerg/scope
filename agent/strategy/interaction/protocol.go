@@ -89,7 +89,7 @@ type modelCallResult struct {
 }
 
 type steerInput struct {
-	Messages []chat.Message `json:"messages"`
+	Messages []chat.Message `json:"messages" jsonschema:"minItems=1"`
 }
 
 type toolCallResult struct {

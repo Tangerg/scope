@@ -468,9 +468,20 @@ func (s signalRecordWire) restore(sequence, cursor uint64) (signalRecord, error)
 		!s.OpensWait && s.Source == signalSourceSettlement && s.WaitID != nil {
 		return signalRecord{}, fmt.Errorf("%w: invalid signal source", errMailboxCursor)
 	}
-	if s.ArrivalSequence != sequence || !s.ID.Valid() || !s.PayloadDigest.Valid() ||
-		(s.WaitID != nil && !s.WaitID.Valid()) || (s.OpensWait && s.WaitID == nil) {
-		return signalRecord{}, fmt.Errorf("%w: invalid Signal record", errMailboxCursor)
+	if s.ArrivalSequence != sequence {
+		return signalRecord{}, fmt.Errorf("%w: Signal arrival sequence disagrees with history", errMailboxCursor)
+	}
+	if !s.ID.Valid() {
+		return signalRecord{}, fmt.Errorf("%w: Signal identity is invalid", errMailboxCursor)
+	}
+	if !s.PayloadDigest.Valid() {
+		return signalRecord{}, fmt.Errorf("%w: Signal payload digest is invalid", errMailboxCursor)
+	}
+	if s.WaitID != nil && !s.WaitID.Valid() {
+		return signalRecord{}, fmt.Errorf("%w: Signal wait identity is invalid", errMailboxCursor)
+	}
+	if s.OpensWait && s.WaitID == nil {
+		return signalRecord{}, fmt.Errorf("%w: wait-opening Signal has no wait identity", errMailboxCursor)
 	}
 	record := signalRecord{
 		arrivalSequence: sequence, id: s.ID, payloadDigest: s.PayloadDigest, opensWait: s.OpensWait, source: s.Source,

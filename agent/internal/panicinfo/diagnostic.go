@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -15,9 +16,13 @@ const (
 // Capture must run in the recovering goroutine. Cloning a truncated message
 // prevents the diagnostic from retaining the full panic value's allocation.
 func Capture(value any) (message, stack string) {
-	message = fmt.Sprint(value)
+	message = strings.ToValidUTF8(fmt.Sprint(value), "\ufffd")
 	if len(message) > MaxMessageBytes {
-		message = strings.Clone(message[:MaxMessageBytes])
+		message = message[:MaxMessageBytes]
+		for !utf8.ValidString(message) {
+			message = message[:len(message)-1]
+		}
+		message = strings.Clone(message)
 	}
 	buffer := make([]byte, MaxStackBytes)
 	size := runtime.Stack(buffer, false)

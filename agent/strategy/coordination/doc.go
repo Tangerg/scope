@@ -18,4 +18,9 @@
 // Gate replacement changes the recipient address. A delivery must remain bound
 // to its original Process and WaitID until its admission and disposition are
 // known; retrying against a replacement can consume the same input twice.
+//
+// Definitions reject unaddressed Host Signals through Descriptor.SignalSchema.
+// Engine-owned settlements are consumed only at their matching protocol phase;
+// Wait openings may share a window with the following completion. InputGate
+// replies, when used as children, must address the child's current WaitID.
 package coordination

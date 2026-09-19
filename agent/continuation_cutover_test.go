@@ -11,7 +11,7 @@ import (
 	"github.com/Tangerg/scope/agent/strategy/coordination"
 )
 
-func TestEpisodeCutoverRetainsLateInputAndRecipientAfterSuccessorStart(t *testing.T) {
+func TestEpisodeCutoverLeavesRejectedInputWithIngress(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		store := newEpisodeStore()
 		schema, err := agent.SchemaFor[episodeState]()
@@ -87,7 +87,7 @@ func TestEpisodeCutoverRetainsLateInputAndRecipientAfterSuccessorStart(t *testin
 		if bindErr := store.bindInput(previous, late); bindErr != nil {
 			t.Fatal(bindErr)
 		}
-		if accepted, deliveryErr := previous.DeliverSignals(t.Context(), late); deliveryErr != nil || !accepted {
+		if accepted, deliveryErr := previous.DeliverSignals(t.Context(), late); accepted || !errors.Is(deliveryErr, agent.ErrSignalRejected) {
 			t.Fatalf("late admission=%t %v", accepted, deliveryErr)
 		}
 		outsideID, err := agent.ParseSignalID("signal:unsubmitted-episode-input")
@@ -101,14 +101,13 @@ func TestEpisodeCutoverRetainsLateInputAndRecipientAfterSuccessorStart(t *testin
 		if bindErr := store.bindInput(previous, outside); bindErr != nil {
 			t.Fatal(bindErr)
 		}
-		// The receiver has acknowledged the late input, but its response has not
-		// reached the ingress record. The final Step cannot have consumed it.
+		// Rejected input remains owned by ingress across the final Step.
 		close(barrier.release)
 		result, err := store.sealEpisode(t.Context(), previous)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if store.inputs[answerID].disposition != episodeInputConsumed || store.inputs[lateID].disposition != episodeInputRetained || store.inputs[lateID].acknowledged || store.inputs[outsideID].disposition != episodeInputNotAdmitted {
+		if store.inputs[answerID].disposition != episodeInputConsumed || store.inputs[lateID].disposition != episodeInputNotAdmitted || store.inputs[lateID].acknowledged || store.inputs[outsideID].disposition != episodeInputNotAdmitted {
 			t.Fatal("input cutover lost an input owner or consumption boundary")
 		}
 		output, present := result.Output()
@@ -137,11 +136,8 @@ func TestEpisodeCutoverRetainsLateInputAndRecipientAfterSuccessorStart(t *testin
 			t.Fatal(err)
 		}
 		assertEpisodeResult(t, next, request, 2)
-		if ackErr := store.acknowledgeInput(previous.ID(), lateID); ackErr != nil {
-			t.Fatal(ackErr)
-		}
-		if record := store.inputs[lateID]; record.recipient != previous.ID() || record.disposition != episodeInputRetained || !record.acknowledged {
-			t.Fatal("late acknowledgment changed its original recipient or disposition")
+		if record := store.inputs[lateID]; record.recipient != previous.ID() || record.disposition != episodeInputNotAdmitted || record.acknowledged {
+			t.Fatal("rejected input changed its original recipient or disposition")
 		}
 		if bindErr := store.bindInput(next, late); !errors.Is(bindErr, agent.ErrSignalConflict) {
 			t.Fatalf("same identity retarget=%v", bindErr)
@@ -160,7 +156,7 @@ func TestEpisodeCutoverRetainsLateInputAndRecipientAfterSuccessorStart(t *testin
 		if bindErr := store.bindInput(previous, fresh); !errors.Is(bindErr, errUnsafeEpisodeBoundary) {
 			t.Fatalf("old ingress reopened=%v", bindErr)
 		}
-		if result.Usage() != (agent.Usage{CommittedSteps: 3, PreparedEffects: 1, AcceptedSignals: 3}) {
+		if result.Usage() != (agent.Usage{CommittedSteps: 3, PreparedEffects: 1, AcceptedSignals: 2}) {
 			t.Fatalf("old budget changed=%+v", result.Usage())
 		}
 		head, present, loadErr := store.trees.LoadTree(t.Context(), previous.ID())
@@ -179,11 +175,8 @@ func TestEpisodeCutoverRetainsLateInputAndRecipientAfterSuccessorStart(t *testin
 			t.Fatal(sealErr)
 		}
 		retained := store.sealed[previous.ID()].ProcessSnapshots()[0].SignalReceipts()
-		if len(retained) != 3 || !retained[2].Matches(late) || retained[2].Consumed() {
+		if len(retained) != 2 || !retained[1].Matches(answer) || !retained[1].Consumed() {
 			t.Fatal("retention erased the old admitted input")
-		}
-		if pending, ok := retained[2].PendingSignal(); !ok || string(pending.Payload()) != string(late.Payload()) {
-			t.Fatal("retained input bytes changed")
 		}
 		if store.allocations != 1 || store.starts != 1 {
 			t.Fatal("late confirmation admitted another successor")

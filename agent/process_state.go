@@ -144,6 +144,16 @@ func (p *processState) prepareSignals(signals []Signal, source signalSource) (*p
 	if err != nil {
 		return nil, err
 	}
+	if source == signalSourceExternal {
+		for _, signal := range signals {
+			if _, addressed := signal.WaitID(); addressed {
+				continue
+			}
+			if err := p.deployment.Descriptor().ValidateSignal(Payload{data: signal.Payload()}); err != nil {
+				return nil, err
+			}
+		}
+	}
 	if admission.duplicate {
 		return nil, nil
 	}

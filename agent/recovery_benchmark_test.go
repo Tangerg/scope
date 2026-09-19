@@ -110,8 +110,13 @@ func benchmarkRecoverableProcess(
 	if err != nil {
 		b.Fatal(err)
 	}
+	signalSchema, err := ParseSchema([]byte("true"))
+	if err != nil {
+		b.Fatal(err)
+	}
 	descriptor, err := NewDescriptor(DescriptorConfig{
-		Name: "benchmark.tree_recovery", Description: "Measure portable tree recovery boundaries.",
+		SignalSchema: signalSchema,
+		Name:         "benchmark.tree_recovery", Description: "Measure portable tree recovery boundaries.",
 		InputSchema: schema, OutputSchema: schema,
 	})
 	if err != nil {

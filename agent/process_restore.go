@@ -37,6 +37,18 @@ func prepareRestoredProcess(
 	if err != nil {
 		return nil, nil, processSnapshotWire{}, fmt.Errorf("%w: mailbox: %w", ErrInvalidSnapshot, err)
 	}
+	for _, receipt := range snapshot.SignalReceipts() {
+		signal, pending := receipt.PendingSignal()
+		if !pending || signal.EngineOwned() {
+			continue
+		}
+		if _, addressed := signal.WaitID(); addressed {
+			continue
+		}
+		if signalErr := deployment.Descriptor().ValidateSignal(Payload{data: signal.Payload()}); signalErr != nil {
+			return nil, nil, processSnapshotWire{}, fmt.Errorf("%w: pending Signal: %w", ErrInvalidSnapshot, signalErr)
+		}
+	}
 	relation, err := processRelationFromWire(wire.ProcessID, wire.Relation)
 	if err != nil {
 		return nil, nil, processSnapshotWire{}, fmt.Errorf("%w: relation: %w", ErrInvalidSnapshot, err)

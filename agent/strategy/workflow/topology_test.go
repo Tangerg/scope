@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"slices"
 	"testing"
 
@@ -149,7 +150,8 @@ func assertTopologyCase(
 		wantIterations = agent.NewQuota(uint64(test.maxIterations))
 	}
 	if stage.Kind != test.kind || stage.WindowSize != test.windowSize ||
-		stage.MaxItems != test.maxItems || stage.MaxIterations != wantIterations {
+		stage.MaxItems != test.maxItems || (stage.MaxIterations != nil) != (test.kind == workflow.StageKindLoop) ||
+		stage.MaxIterations != nil && *stage.MaxIterations != wantIterations {
 		t.Fatalf("stage=%+v", stage)
 	}
 	if stage.ID != test.name || !stage.InputSchema.Valid() ||
@@ -253,4 +255,37 @@ func mustTopologyDeployment[I, O any](
 		t.Fatal(err)
 	}
 	return deployment
+}
+
+func TestTopologyLimitPresenceIsIndependentOfJSONMarshaller(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		maximum *agent.Quota
+		want    string
+	}{
+		{"non-loop", nil, ""},
+		{"unlimited loop", new(agent.Quota{}), `{"maximum":null}`},
+		{"finite loop", new(agent.NewQuota(3)), `{"maximum":3}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := agent.SchemaFor[int]()
+			if err != nil {
+				t.Fatal(err)
+			}
+			stage := workflow.StageTopology{ID: "test", Kind: workflow.StageKindTransform, InputSchema: schema, OutputSchema: schema, MaxIterations: test.maximum}
+			for _, marshal := range []func(any) ([]byte, error){json.Marshal, func(value any) ([]byte, error) { return jsonv2.Marshal(value) }} {
+				data, err := marshal(stage)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var fields map[string]json.RawMessage
+				if err := json.Unmarshal(data, &fields); err != nil {
+					t.Fatal(err)
+				}
+				if string(fields["max_iterations"]) != test.want || fields["window_size"] != nil || fields["max_items"] != nil {
+					t.Fatalf("unexpected projected limits: %s", data)
+				}
+			}
+		})
+	}
 }

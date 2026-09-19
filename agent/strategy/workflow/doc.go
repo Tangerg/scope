@@ -24,4 +24,9 @@
 // They must be bounded, deterministic, side-effect-free, and cooperate with
 // context cancellation during CPU work. Context carries cancellation, never
 // hidden domain input. A canceled candidate cannot advance committed state.
+//
+// Definitions reject unaddressed Host Signals through Descriptor.SignalSchema.
+// Engine-owned settlements are consumed only at their matching protocol phase;
+// Wait openings may share a window with the following completion. InputGate
+// replies, when used as children, must address the child's current WaitID.
 package workflow

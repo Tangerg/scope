@@ -53,7 +53,7 @@ type BindingTopology struct {
 }
 
 // StageTopology is a function-free projection of one sealed Stage. Limits are
-// non-zero only for the Stage kinds that own them.
+// present only for the Stage kinds that own them.
 type StageTopology struct {
 	// ID is the stable Stage identity within the Definition.
 	ID string `json:"id"`
@@ -66,11 +66,11 @@ type StageTopology struct {
 	// Bindings are exact child bindings in stable declaration order.
 	Bindings []BindingTopology `json:"bindings,omitempty"`
 	// WindowSize is the fixed Fork or Map execution-window size.
-	WindowSize uint32 `json:"window_size,omitempty"`
+	WindowSize uint32 `json:"window_size,omitzero"`
 	// MaxItems is the maximum accepted Map input length.
-	MaxItems uint32 `json:"max_items,omitempty"`
-	// MaxIterations is the hard Loop body-start limit.
-	MaxIterations agent.Quota `json:"max_iterations,omitempty"`
+	MaxItems uint32 `json:"max_items,omitzero"`
+	// MaxIterations is present only for a Loop, including an unlimited Loop.
+	MaxIterations *agent.Quota `json:"max_iterations,omitzero"`
 }
 
 // Topology is a detached Definition-derived, function-free projection for

@@ -212,12 +212,16 @@ type childIdentity struct {
 
 // Start keeps ctx attached to the resulting tree so Host cancellation and
 // deadlines reach accepted work. Execution that outlives a request therefore
-// needs a longer-lived context.
+// needs a longer-lived context. An already-canceled context never reserves an
+// identity or invokes Host admission.
 func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload) (*Process, error) {
 	if e == nil {
 		return nil, ErrInvalidEngineConfig
 	}
 	ctx = RequireContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := deployment.validateDefinition(); err != nil {
 		return nil, err
 	}

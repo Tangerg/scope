@@ -11,12 +11,38 @@ import (
 	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
+const (
+	failureCodeWorkflowProtocolInvalid = "workflow.protocol.invalid"
+)
+
 type execution struct {
 	definition *Definition
 	state      executionState
 }
 
 func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
+	transition, err := e.step(ctx, signals)
+	if err == nil {
+		return transition, nil
+	}
+	var kind agent.FailureKind
+	var code string
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return agent.Transition{}, err
+	case errors.Is(err, ErrInvalidProtocol):
+		kind, code = agent.FailureKindContract, failureCodeWorkflowProtocolInvalid
+	default:
+		return agent.Transition{}, err
+	}
+	failure, failureErr := agent.NewFailure(kind, code, agent.NormalizeDiagnostic(err.Error()))
+	if failureErr != nil {
+		return agent.Transition{}, failureErr
+	}
+	return agent.Transition{}, &agent.StepError{Failure: failure, Cause: err}
+}
+
+func (e *execution) step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if e == nil || !e.definition.valid() {
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
@@ -138,8 +164,9 @@ func (e *execution) stageInvocationLabel() string {
 }
 
 func (e *execution) advanceChild(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
-	if len(signals) == 0 {
-		return agent.Transition{}, fmt.Errorf("%w: child handshake requires its settlement Signal", ErrInvalidProtocol)
+	signal, err := e.state.Child.Window(signals)
+	if err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
 	key, err := e.childKey()
 	if err != nil {
@@ -151,15 +178,15 @@ func (e *execution) advanceChild(ctx context.Context, signals []agent.Signal) (a
 	}
 	switch e.state.Child.Phase() {
 	case childcall.AwaitingStart:
-		return e.acceptChildStart(signals[0], key, waitKey)
+		return e.acceptChildStart(signal, key, waitKey)
 	case childcall.AwaitingOpening:
-		waitID, openErr := e.state.Child.AcceptOpening(signals[0], waitKey, agent.ChildWaitBoundaryDrained)
+		waitID, openErr := e.state.Child.AcceptOpening(signal, waitKey, agent.ChildWaitBoundaryDrained)
 		if openErr != nil {
 			return agent.Transition{}, fmt.Errorf("%w: Stage %q child wait opening: %w", ErrInvalidProtocol, e.stage().id, openErr)
 		}
 		return agent.Wait(1, waitID)
 	default:
-		outcome, completeErr := e.state.Child.Complete(signals[0], key, waitKey, agent.ChildWaitBoundaryDrained)
+		outcome, completeErr := e.state.Child.Complete(signal, key, waitKey, agent.ChildWaitBoundaryDrained)
 		if completeErr != nil {
 			return agent.Transition{}, fmt.Errorf("%w: Stage %q child completion: %w", ErrInvalidProtocol, e.stage().id, completeErr)
 		}

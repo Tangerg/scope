@@ -103,9 +103,22 @@ func benchmarkSignalCommitTree(b *testing.B, processCount int) (Deployment, Engi
 		}
 		children[index] = childTestSpec(key, childDeployment.DeploymentRef(), childInput)
 	}
-	definition := &treeRecoveryBenchmarkDefinition{
-		descriptor: newExecutionReplayBenchmarkDefinition(b).descriptor, children: children,
+	schema, err := SchemaFor[executionReplayBenchmarkState]()
+	if err != nil {
+		b.Fatal(err)
 	}
+	signalSchema, err := SchemaFor[engineTestInput]()
+	if err != nil {
+		b.Fatal(err)
+	}
+	descriptor, err := NewDescriptor(DescriptorConfig{
+		Name: "benchmark.signal_commit", Description: "Measure durable Signal admission.",
+		InputSchema: schema, OutputSchema: schema, SignalSchema: signalSchema,
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+	definition := &treeRecoveryBenchmarkDefinition{descriptor: descriptor, children: children}
 	deployment, err := NewDeployment(DeploymentConfig{
 		Definition:           definition,
 		ImplementationDigest: ComputeDigest([]byte("tree-commit-benchmark")),

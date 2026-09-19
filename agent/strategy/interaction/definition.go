@@ -20,7 +20,8 @@ type DefinitionConfig struct {
 	// Description states the managed behavior for discovery.
 	Description string
 
-	// MaxModelCalls bounds model Effects in one Interaction. Its zero value is unlimited.
+	// MaxModelCalls bounds model Effects in one Interaction. Its zero value is
+	// unlimited; a finite zero is rejected because an Interaction needs a model call.
 	MaxModelCalls agent.Quota
 
 	// Tools is the frozen ordinary Tool authority. Its Deployment must be
@@ -70,6 +71,9 @@ type Definition struct {
 // and model-call limit for one interaction loop. The provider client and
 // executable Tools remain bound to their external dispatch boundaries.
 func NewDefinition(config DefinitionConfig) (*Definition, error) {
+	if !config.MaxModelCalls.Allows(1) {
+		return nil, fmt.Errorf("%w: MaxModelCalls must admit one model call", ErrInvalidDefinitionConfig)
+	}
 	if config.MaxConcurrentToolCalls < 0 || !config.ToolCapabilities.Valid() {
 		return nil, fmt.Errorf("%w: invalid Tool scheduling policy", ErrInvalidDefinitionConfig)
 	}
@@ -85,11 +89,16 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: output schema: %w", ErrInvalidDefinitionConfig, err)
 	}
+	signalSchema, err := agent.SchemaFor[steerSignal]()
+	if err != nil {
+		return nil, fmt.Errorf("%w: signal schema: %w", ErrInvalidDefinitionConfig, err)
+	}
 	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
 		Name:         config.Name,
 		Description:  config.Description,
 		InputSchema:  inputSchema,
 		OutputSchema: outputSchema,
+		SignalSchema: signalSchema,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%w: descriptor: %w", ErrInvalidDefinitionConfig, err)

@@ -286,3 +286,45 @@ func encoded(t *testing.T, value any) []byte {
 	}
 	return data
 }
+
+func TestSingleOwnsWindowShape(t *testing.T) {
+	ref, key, waitKey := invocation(t)
+	var progress childcall.Single
+	start := startSignal(t, ref, key, "child", nil)
+	opening := openingSignal(t, "wait", "children", "subtree_drained", []string{"child"}, "all")
+	completion := completionSignal(t, "wait", "children", "subtree_drained", "call", "child")
+	var foreign agent.Signal
+	if err := json.Unmarshal([]byte(`{"id":"signal:external","payload":{}}`), &foreign); err != nil {
+		t.Fatal(err)
+	}
+	for _, phase := range []childcall.Phase{childcall.AwaitingStart, childcall.AwaitingOpening, childcall.AwaitingCompletion} {
+		frame := start
+		if phase == childcall.AwaitingOpening {
+			frame = opening
+		}
+		if phase == childcall.AwaitingCompletion {
+			frame = completion
+		}
+		if _, err := progress.Window([]agent.Signal{frame}); err != nil {
+			t.Fatal(err)
+		}
+		for _, window := range [][]agent.Signal{nil, {foreign}, {frame, frame}, {foreign, frame}, {frame, foreign}, {frame, frame, frame}} {
+			if _, err := progress.Window(window); err == nil {
+				t.Fatalf("phase=%v accepted invalid window", phase)
+			}
+		}
+		switch phase {
+		case childcall.AwaitingStart:
+			if _, err := progress.AcceptStart(start, key, ref); err != nil {
+				t.Fatal(err)
+			}
+		case childcall.AwaitingOpening:
+			if _, err := progress.Window([]agent.Signal{opening, completion}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := progress.AcceptOpening(opening, waitKey, agent.ChildWaitBoundaryDrained); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}

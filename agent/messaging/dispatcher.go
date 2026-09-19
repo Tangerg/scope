@@ -10,6 +10,9 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
+// messageSignalPrefix is persisted in recipient receipts and replay identities.
+const messageSignalPrefix = "signal:message:"
+
 // ErrNilDeliveryPort rejects construction without a delivery authority.
 var ErrNilDeliveryPort = errors.New("messaging: delivery port is required")
 
@@ -79,7 +82,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, 
 	if err != nil {
 		return messageFailureSettlement(request.ID(), err)
 	}
-	id, err := agent.ParseSignalID("signal:message:" + agent.ComputeDigest([]byte(request.ID().String())).String())
+	id, err := agent.ParseSignalID(messageSignalPrefix + agent.ComputeDigest([]byte(request.ID().String())).String())
 	if err != nil {
 		return messageFailureSettlement(request.ID(), err)
 	}

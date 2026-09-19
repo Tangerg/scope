@@ -52,7 +52,7 @@ fi
 
 # Checks to run; default = all.
 if [[ $# -eq 0 ]]; then
-  CHECKS=(build vet test tidy pinned-test lint vuln)
+  CHECKS=(build vet test bench tidy pinned-test lint vuln)
 else
   CHECKS=("$@")
 fi
@@ -83,6 +83,7 @@ run_in_module() {
       ;;
     vet)   (cd "$mod" && go vet "${MODULE_PACKAGES[@]}") ;;
     test)  (cd "$mod" && go test -count=1 "${MODULE_PACKAGES[@]}") ;;
+    bench) (cd "$mod" && go test -run '^$' -bench . -benchtime=1x "${MODULE_PACKAGES[@]}") ;;
     race)  (cd "$mod" && go test -race -count=1 "${MODULE_PACKAGES[@]}") ;;
     tidy)  (cd "$mod" && go mod tidy -diff) ;;
     isolate)
@@ -115,7 +116,7 @@ for mod in "${MODULES[@]}"; do
   needs_buildable_packages=0
   for check in "${CHECKS[@]}"; do
     case "$check" in
-      build|vet|test|race) needs_packages=1 ;;
+      build|vet|test|bench|race) needs_packages=1 ;;
     esac
     [[ "$check" == "build" ]] && needs_buildable_packages=1
   done

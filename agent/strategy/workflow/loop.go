@@ -40,7 +40,8 @@ type LoopConfig[T any] struct {
 	// Capabilities is the attenuated authority set granted to each child.
 	Capabilities agent.CapabilitySet
 
-	// MaxIterations bounds body child Processes. Its zero value is unlimited.
+	// MaxIterations bounds body child Processes. Its zero value is unlimited;
+	// a finite zero is rejected because a Loop runs its body at least once.
 	MaxIterations agent.Quota
 
 	// Predicate decides whether the latest body output satisfies the Loop.

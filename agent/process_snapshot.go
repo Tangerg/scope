@@ -333,12 +333,32 @@ func (p processSnapshotWire) clone() processSnapshotWire {
 }
 
 func (p processSnapshotWire) validateContract() error {
-	if !p.ProcessID.Valid() || !p.DeploymentRef.Valid() || p.StartedAt.IsZero() ||
-		!p.Status.Valid() || !p.CommittedExecutionState.Valid() ||
-		!p.Limits.Valid() || !p.TreeLimits.Valid() ||
-		!p.Capabilities.Valid() ||
-		!p.Limits.Budget.contains(p.usage(), p.AllocatedResources) {
-		return fmt.Errorf("%w: incomplete Process identity or state", ErrInvalidSnapshot)
+	if !p.ProcessID.Valid() {
+		return fmt.Errorf("%w: Process identity is invalid", ErrInvalidSnapshot)
+	}
+	if !p.DeploymentRef.Valid() {
+		return fmt.Errorf("%w: Deployment reference is invalid", ErrInvalidSnapshot)
+	}
+	if p.StartedAt.IsZero() {
+		return fmt.Errorf("%w: Process start time is missing", ErrInvalidSnapshot)
+	}
+	if !p.Status.Valid() {
+		return fmt.Errorf("%w: Process status is invalid", ErrInvalidSnapshot)
+	}
+	if !p.CommittedExecutionState.Valid() {
+		return fmt.Errorf("%w: committed Execution state is invalid", ErrInvalidSnapshot)
+	}
+	if !p.Capabilities.Valid() {
+		return fmt.Errorf("%w: capability set is invalid", ErrInvalidSnapshot)
+	}
+	if !p.Limits.Budget.contains(p.usage(), p.AllocatedResources) {
+		return fmt.Errorf("%w: usage and child allocations exceed the Process budget", ErrInvalidSnapshot)
+	}
+	if err := p.Limits.validate(); err != nil {
+		return fmt.Errorf("%w: Limits: %w", ErrInvalidSnapshot, err)
+	}
+	if err := p.TreeLimits.validate(); err != nil {
+		return fmt.Errorf("%w: TreeLimits: %w", ErrInvalidSnapshot, err)
 	}
 	return nil
 }

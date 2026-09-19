@@ -211,7 +211,7 @@ func (s Stage) topology() StageTopology {
 		projected.WindowSize = s.fanout.windowSize
 		projected.Bindings, projected.MaxItems = s.fanout.source.topology(s.inputSchema, s.fanout.outputSchema)
 	case StageKindLoop:
-		projected.MaxIterations = s.loop.maxIterations
+		projected.MaxIterations = new(s.loop.maxIterations)
 		projected.Bindings = []BindingTopology{s.loop.binding.topology(
 			BindingRoleBody, "", s.loop.valueSchema, s.loop.valueSchema,
 		)}

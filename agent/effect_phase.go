@@ -84,9 +84,19 @@ func (p *preparedEffect) validatePhase() error {
 	if p.Diagnostic != nil && (!p.Diagnostic.Valid() || p.Phase != effectPhaseSettled) {
 		return errors.New("invalid effect diagnostic")
 	}
-	if !p.Phase.valid() || (p.Phase == effectPhaseSettled) != (p.Settlement != nil) ||
-		p.Settlement != nil && (!p.Settlement.Valid() || p.Settlement.EffectID() != p.ID) {
-		return errors.New("prepared Effect phase and settlement disagree")
+	if !p.Phase.valid() {
+		return errors.New("prepared Effect phase is invalid")
+	}
+	if (p.Phase == effectPhaseSettled) != (p.Settlement != nil) {
+		return errors.New("prepared Effect settlement presence disagrees with phase")
+	}
+	if p.Settlement != nil {
+		if !p.Settlement.Valid() {
+			return errors.New("prepared Effect settlement is invalid")
+		}
+		if p.Settlement.EffectID() != p.ID {
+			return errors.New("prepared Effect settlement identifies another Effect")
+		}
 	}
 	return nil
 }
@@ -111,9 +121,17 @@ func (p *preparedEffect) revokeDispatch() error {
 }
 
 func (p *preparedEffect) settle(settlement Settlement, cause error) error {
-	if p == nil || p.Phase != effectPhasePending || p.Settlement != nil ||
-		!settlement.Valid() || settlement.EffectID() != p.ID {
-		return errors.New("effect is not pending or settlement does not match")
+	if p == nil || p.Phase != effectPhasePending {
+		return errors.New("effect is not pending")
+	}
+	if p.Settlement != nil {
+		return errors.New("pending Effect already has a settlement")
+	}
+	if !settlement.Valid() {
+		return errors.New("incoming settlement is invalid")
+	}
+	if settlement.EffectID() != p.ID {
+		return errors.New("incoming settlement identifies another Effect")
 	}
 	p.Phase = effectPhaseSettled
 	p.Settlement = &settlement
@@ -154,11 +172,17 @@ func (p *preparedEffect) settleChildControl(result ChildControlResult) error {
 }
 
 func (p *preparedEffect) resolveUnknown(settlement Settlement) error {
-	if p == nil || p.Phase != effectPhaseSettled || p.Settlement == nil ||
-		p.Settlement.Status() != SettlementStatusUnknown ||
-		!settlement.Valid() || settlement.Status() == SettlementStatusUnknown ||
-		settlement.EffectID() != p.ID {
-		return errors.New("effect is not settled as unknown or resolution does not match")
+	if p == nil || p.Phase != effectPhaseSettled || p.Settlement == nil {
+		return errors.New("effect has no settled outcome")
+	}
+	if p.Settlement.Status() != SettlementStatusUnknown {
+		return errors.New("effect outcome is already definite")
+	}
+	if !settlement.Valid() || settlement.Status() == SettlementStatusUnknown {
+		return errors.New("resolution must supply a definite settlement")
+	}
+	if settlement.EffectID() != p.ID {
+		return errors.New("resolution identifies another Effect")
 	}
 	p.Settlement = &settlement
 	return nil

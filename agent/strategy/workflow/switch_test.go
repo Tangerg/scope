@@ -59,6 +59,23 @@ func TestSwitchRunsOnlyTheSelectedManagedChild(t *testing.T) {
 			if output.Value != test.want {
 				t.Fatalf("Switch output = %#v", output)
 			}
+			tree, err := engine.CaptureTree(t.Context(), result.ProcessID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantChild := left.DeploymentRef()
+			if test.selected == "right" {
+				wantChild = right.DeploymentRef()
+			}
+			var children []agent.ProcessSnapshot
+			for _, snapshot := range tree.ProcessSnapshots() {
+				if !snapshot.Relation().IsRoot() {
+					children = append(children, snapshot)
+				}
+			}
+			if len(children) != 1 || children[0].DeploymentRef() != wantChild || children[0].Relation().Depth() != 1 {
+				t.Fatalf("Switch did not start exactly the selected child: %+v", children)
+			}
 			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 				t.Fatal(err)
 			}

@@ -79,9 +79,20 @@ func (p *preparedStep) hasUnknownSettlement() bool {
 }
 
 func (p *preparedStep) validate(processID ProcessID, sequence uint64, committedState ExecutionState, mailbox signalMailbox) error {
-	if p.StepSequence != sequence || !p.CandidateState.Valid() || !p.Intent.Valid() ||
-		p.SignalCursor < mailbox.committedSignalCursor() || p.SignalCursor > mailbox.acceptedCount() {
-		return errors.New("invalid prepared Step boundary")
+	if p.StepSequence != sequence {
+		return errors.New("prepared Step sequence does not follow committed progress")
+	}
+	if !p.CandidateState.Valid() {
+		return errors.New("prepared Step candidate state is invalid")
+	}
+	if !p.Intent.Valid() {
+		return errors.New("prepared Step transition is invalid")
+	}
+	if p.SignalCursor < mailbox.committedSignalCursor() {
+		return errors.New("prepared Step cursor precedes committed consumption")
+	}
+	if p.SignalCursor > mailbox.acceptedCount() {
+		return errors.New("prepared Step cursor exceeds admitted Signals")
 	}
 	digest, err := committedState.digest()
 	if err != nil || digest != p.CommittedExecutionStateDigest {

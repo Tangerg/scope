@@ -65,7 +65,7 @@ func TestToolResultCannotBeReplacedByExternalSignal(t *testing.T) {
 				if requestErr != nil {
 					t.Fatal(requestErr)
 				}
-				if accepted, deliveryErr := process.DeliverSignals(t.Context(), request); deliveryErr != nil || !accepted {
+				if accepted, deliveryErr := process.DeliverSignals(t.Context(), request); accepted || !errors.Is(deliveryErr, agent.ErrSignalRejected) {
 					t.Fatalf("delivery = %t, %v", accepted, deliveryErr)
 				}
 			}
@@ -78,15 +78,9 @@ func TestToolResultCannotBeReplacedByExternalSignal(t *testing.T) {
 				t.Fatalf("tool calls = %d", calls.Load())
 			}
 			output, present := result.Output()
-			if inject {
-				if result.Status() != agent.StatusFailed || present {
-					t.Fatalf("forged result adopted: %s %s", result.Status(), output.JSON())
-				}
-			} else {
-				decoded, err := output.Decode[toolCallResult]()
-				if !present || err != nil || decoded.Direct || result.Status() != agent.StatusCompleted {
-					t.Fatalf("real result lost: %+v, %v", decoded, err)
-				}
+			decoded, err := output.Decode[toolCallResult]()
+			if !present || err != nil || decoded.Direct || result.Status() != agent.StatusCompleted {
+				t.Fatalf("real result lost: %+v, %v", decoded, err)
 			}
 		})
 	}

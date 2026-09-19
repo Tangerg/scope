@@ -3,6 +3,7 @@ package conformancetest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -23,7 +24,9 @@ func Run(
 ) agent.Result {
 	t.Helper()
 	definition := deploymentConfig.Definition
-	recorder := &recordingDefinition{definition: definition}
+	recorder := &recordingDefinition{definition: definition, frameReady: make(chan struct{}), releaseFrame: make(chan struct{})}
+	release := sync.OnceFunc(func() { close(recorder.releaseFrame) })
+	defer release()
 	deploymentConfig.Definition = recorder
 	deployment, err := agent.NewDeployment(deploymentConfig)
 	if err != nil {
@@ -38,7 +41,48 @@ func Run(
 			t.Error(closeErr)
 		}
 	})
-	result, err := engine.Run(t.Context(), deployment, input)
+	process, err := engine.Start(t.Context(), deployment, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished := make(chan error, 1)
+	go func() { finished <- process.Join(t.Context()) }()
+	select {
+	case <-recorder.frameReady:
+	case joinErr := <-finished:
+		t.Fatalf("execution ended before exercising a protocol frame: %v", joinErr)
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	before, err := engine.InspectTree(t.Context(), process.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := agent.ParseSignalID("signal:conformance-unsupported")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := agent.NewSignalRequest(id, agent.WaitID{}, []byte(`{"unsupported":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted, deliveryErr := process.DeliverSignals(t.Context(), request); accepted || !errors.Is(deliveryErr, agent.ErrSignalRejected) {
+		t.Fatalf("unsupported Signal admission=%t %v", accepted, deliveryErr)
+	}
+	after, err := engine.InspectTree(t.Context(), process.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous, _ := before.Process(process.ID())
+	current, _ := after.Process(process.ID())
+	if previous.Snapshot.Usage() != current.Snapshot.Usage() || len(previous.Snapshot.SignalReceipts()) != len(current.Snapshot.SignalReceipts()) {
+		t.Fatal("rejected input changed the mailbox or budget")
+	}
+	release()
+	if joinErr := <-finished; joinErr != nil {
+		t.Fatal(joinErr)
+	}
+	result, err := process.Await(t.Context())
 	if err != nil || result.Status() != agent.StatusCompleted {
 		t.Fatalf("capture result status=%s termination=%+v error=%v", result.Status(), result.Termination(), err)
 	}
@@ -58,9 +102,12 @@ func Run(
 }
 
 type recordingDefinition struct {
-	definition agent.Definition
-	mu         sync.Mutex
-	cases      []agenttest.ExecutionConformanceCase
+	definition   agent.Definition
+	mu           sync.Mutex
+	cases        []agenttest.ExecutionConformanceCase
+	frameReady   chan struct{}
+	releaseFrame chan struct{}
+	frameOnce    sync.Once
 }
 
 func (r *recordingDefinition) Descriptor() agent.Descriptor { return r.definition.Descriptor() }
@@ -91,6 +138,15 @@ func (r *recordingExecution) Snapshot() (agent.ExecutionState, error) {
 }
 
 func (r *recordingExecution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
+	if len(signals) > 0 {
+		r.recorder.frameOnce.Do(func() {
+			close(r.recorder.frameReady)
+			select {
+			case <-r.recorder.releaseFrame:
+			case <-ctx.Done():
+			}
+		})
+	}
 	state, err := r.execution.Snapshot()
 	if err != nil {
 		return agent.Transition{}, err

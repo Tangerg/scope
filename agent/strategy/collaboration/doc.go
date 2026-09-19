@@ -14,6 +14,12 @@
 // those facts appear in its successor's Turn without preempting a decision.
 // Start failures, task failures, and control rejections remain explicit facts.
 // A failed coordinator or exhausted turn bound fails the collaboration.
+// Turn exhaustion uses execution / collaboration.limit.turns; counter overflow
+// uses execution / collaboration.counter.exhausted. Invalid coordinator
+// decisions and protocol frames use contract / collaboration.decision.invalid
+// and collaboration.protocol.invalid. These failures discard the candidate.
+// A finite zero MaxTurns is invalid; MaxTasks may be zero to forbid worker
+// starts while still allowing coordinator turns and completion.
 // A coordinator subtree with unresolved Effects cannot authorize a Decision.
 // Worker outcomes retain their complete subtree evidence for coordinator policy.
 // Coordinator admission and execution failures preserve the original Failure
@@ -43,4 +49,9 @@
 // child allocations are never refunded. Inspect execution through the Engine's
 // canonical tree inspection and snapshot APIs. Restore validates the strict
 // current state against its exact frozen configuration and child contracts.
+//
+// Definitions reject unaddressed Host Signals through Descriptor.SignalSchema.
+// Engine-owned settlements are consumed only at their matching protocol phase;
+// Wait openings may share a window with the following completion. InputGate
+// replies, when used as children, must address the child's current WaitID.
 package collaboration

@@ -2,6 +2,7 @@ package planning_test
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"testing"
 
@@ -101,4 +102,18 @@ func TestMalformedPlanningOperationSettlesBeforeExternalWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	conformancetest.CheckDispatcherRejection(t, &planning.Dispatcher{}, effect)
+}
+
+func TestDefinitionRejectsFiniteZeroActionAttempts(t *testing.T) {
+	condition := mustCondition(t, "goal.done", planning.True)
+	schema, err := agent.SchemaFor[struct{}]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = planning.NewDefinition(planning.DefinitionConfig{Name: "test.zero", Description: "Reject zero Action attempts.", InputSchema: schema, Goal: mustGoal(t, condition), Planner: planning.PlannerFunc(func(context.Context, planning.Problem) (planning.Plan, bool, error) {
+		return planning.Plan{}, false, nil
+	}), MaxActionAttempts: agent.NewQuota(0)})
+	if !errors.Is(err, planning.ErrInvalidDefinitionConfig) {
+		t.Fatal(err)
+	}
 }

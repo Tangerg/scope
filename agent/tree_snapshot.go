@@ -364,11 +364,26 @@ func (t *treeSnapshotValidation) validateChildStart(parentID ProcessID, record p
 		return err
 	}
 	child, exists := t.processes[childID]
-	if !exists || child.Relation.ParentID == nil || *child.Relation.ParentID != parentID ||
-		child.Relation.ChildKey == nil || *child.Relation.ChildKey != spec.Key ||
-		child.DeploymentRef != spec.DeploymentRef || child.Limits.Budget != spec.Budget ||
-		!slices.Equal(child.Capabilities.Values(), spec.Capabilities.Values()) || child.ChildRequestDigest == nil || *child.ChildRequestDigest != digest {
-		return ErrInvalidChildStart
+	if !exists {
+		return fmt.Errorf("%w: started child is missing", ErrInvalidChildStart)
+	}
+	if child.Relation.ParentID == nil || *child.Relation.ParentID != parentID {
+		return fmt.Errorf("%w: child parent identity disagrees with start", ErrInvalidChildStart)
+	}
+	if child.Relation.ChildKey == nil || *child.Relation.ChildKey != spec.Key {
+		return fmt.Errorf("%w: child key disagrees with start", ErrInvalidChildStart)
+	}
+	if child.DeploymentRef != spec.DeploymentRef {
+		return fmt.Errorf("%w: child Deployment disagrees with start", ErrInvalidChildStart)
+	}
+	if child.Limits.Budget != spec.Budget {
+		return fmt.Errorf("%w: child budget disagrees with start", ErrInvalidChildStart)
+	}
+	if !slices.Equal(child.Capabilities.Values(), spec.Capabilities.Values()) {
+		return fmt.Errorf("%w: child capabilities disagree with start", ErrInvalidChildStart)
+	}
+	if child.ChildRequestDigest == nil || *child.ChildRequestDigest != digest {
+		return fmt.Errorf("%w: child request digest disagrees with start", ErrInvalidChildStart)
 	}
 	return nil
 }

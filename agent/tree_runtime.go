@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/samber/lo"
 )
 
 // treeRuntime serializes authoritative changes because sibling jobs must not
@@ -2275,6 +2277,20 @@ func (t *treeRuntime) applyStepCompletion(
 			code = failureCodeExecutionSnapshotFailed
 		case stepJobStageRestore:
 			code = failureCodeExecutionSnapshotUnrestorable
+		}
+		if failure, ok := errors.AsType[*StepError](result.err); ok && result.stage == stepJobStageExecution {
+			if lo.IsNil(failure) {
+				t.failProcess(process, FailureKindContract, code, ErrInvalidFailure)
+				return
+			}
+			if _, panicked := errors.AsType[*CallbackPanicError](result.err); !panicked {
+				if !failure.Failure.Valid() {
+					t.failProcess(process, FailureKindContract, code, ErrInvalidFailure)
+				} else {
+					t.failProcess(process, failure.Failure.Kind(), failure.Failure.Code(), failure)
+				}
+				return
+			}
 		}
 		t.failProcess(process, failureKindForError(result.err, FailureKindExecution), code, result.err)
 		return

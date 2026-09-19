@@ -362,7 +362,7 @@ func requireEquivalent(label string, left, right any) error {
 func callDescriptor(definition agent.Definition) (descriptor agent.Descriptor, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("agenttest: Definition.Descriptor panicked: %v", recovered)
+			err = &agent.CallbackPanicError{Operation: "Definition.Descriptor", Value: recovered}
 		}
 	}()
 	descriptor = definition.Descriptor()
@@ -375,7 +375,7 @@ func callDescriptor(definition agent.Definition) (descriptor agent.Descriptor, e
 func callStart(definition agent.Definition, input agent.Payload) (execution agent.Execution, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("agenttest: Definition.Start panicked: %v", recovered)
+			err = &agent.CallbackPanicError{Operation: "Definition.Start", Value: recovered}
 		}
 	}()
 	execution, err = definition.Start(input)
@@ -391,7 +391,7 @@ func callStart(definition agent.Definition, input agent.Payload) (execution agen
 func callRestore(ctx context.Context, definition agent.Definition, state agent.ExecutionState) (execution agent.Execution, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("agenttest: Definition.Restore panicked: %v", recovered)
+			err = &agent.CallbackPanicError{Operation: "Definition.Restore", Value: recovered}
 		}
 	}()
 	execution, err = definition.Restore(ctx, state)
@@ -409,7 +409,7 @@ func callStep(ctx context.Context, execution agent.Execution, signals []agent.Si
 	defer cancel()
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("agenttest: Execution.Step panicked: %v", recovered)
+			err = &agent.CallbackPanicError{Operation: "Execution.Step", Value: recovered}
 		}
 	}()
 	transition, err = execution.Step(ctx, signals)
@@ -422,7 +422,7 @@ func callStep(ctx context.Context, execution agent.Execution, signals []agent.Si
 func callSnapshot(execution agent.Execution) (state agent.ExecutionState, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("agenttest: Execution.Snapshot panicked: %v", recovered)
+			err = &agent.CallbackPanicError{Operation: "Execution.Snapshot", Value: recovered}
 		}
 	}()
 	state, err = execution.Snapshot()

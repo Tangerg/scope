@@ -2,6 +2,7 @@ package collaboration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -13,6 +14,34 @@ type execution struct {
 }
 
 func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
+	transition, err := e.step(ctx, signals)
+	if err == nil {
+		return transition, nil
+	}
+	var kind agent.FailureKind
+	var code string
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return agent.Transition{}, err
+	case errors.Is(err, ErrTurnLimit):
+		kind, code = agent.FailureKindExecution, failureCodeCollaborationLimitTurns
+	case errors.Is(err, agent.ErrCounterExhausted):
+		kind, code = agent.FailureKindExecution, failureCodeCollaborationCounterExhausted
+	case errors.Is(err, ErrInvalidDecision):
+		kind, code = agent.FailureKindContract, failureCodeCollaborationDecisionInvalid
+	case errors.Is(err, ErrInvalidProtocol):
+		kind, code = agent.FailureKindContract, failureCodeCollaborationProtocolInvalid
+	default:
+		return agent.Transition{}, err
+	}
+	failure, failureErr := agent.NewFailure(kind, code, agent.NormalizeDiagnostic(err.Error()))
+	if failureErr != nil {
+		return agent.Transition{}, failureErr
+	}
+	return agent.Transition{}, &agent.StepError{Failure: failure, Cause: err}
+}
+
+func (e *execution) step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if err := ctx.Err(); err != nil {
 		return agent.Transition{}, err
 	}
@@ -73,7 +102,7 @@ func (e *execution) acceptTurnStart(signals []agent.Signal) (agent.Transition, e
 	}
 	started, err := agent.ParseChildStartResult(signals[0])
 	if err != nil {
-		return agent.Transition{}, err
+		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
 	batch, err := e.state.batch(e.definition)
 	if err != nil {
@@ -115,7 +144,7 @@ func (e *execution) acceptOpening(signals []agent.Signal) (agent.Transition, err
 	}
 	opened, err := agent.ParseChildWaitOpened(signals[0])
 	if err != nil {
-		return agent.Transition{}, err
+		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
 	want, err := e.state.waitSpec(e.definition)
 	if err != nil {
@@ -140,7 +169,7 @@ func (e *execution) acceptOutcomes(ctx context.Context, signals []agent.Signal) 
 	}
 	satisfied, err := agent.ParseChildWaitSatisfied(signals[0])
 	if err != nil {
-		return agent.Transition{}, err
+		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
 	want, err := e.state.waitSpec(e.definition)
 	if err != nil {
@@ -201,7 +230,7 @@ func (e *execution) acceptActions(signals []agent.Signal) (agent.Transition, err
 	for index := range starts {
 		started, err := agent.ParseChildStartResult(signals[index])
 		if err != nil {
-			return agent.Transition{}, err
+			return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 		}
 		starts[index] = started
 	}
@@ -228,7 +257,7 @@ func (e *execution) acceptActions(signals []agent.Signal) (agent.Transition, err
 		}
 		result, err := agent.ParseChildControlResult(signals[consumed])
 		if err != nil {
-			return agent.Transition{}, err
+			return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 		}
 		effect, err := e.state.controlEffect(receipt.Control)
 		if err != nil || !result.Matches(effect) {
@@ -295,5 +324,9 @@ func (e *execution) Snapshot() (agent.ExecutionState, error) {
 var _ agent.Execution = (*execution)(nil)
 
 const (
+	failureCodeCollaborationLimitTurns                   = "collaboration.limit.turns"
+	failureCodeCollaborationCounterExhausted             = "collaboration.counter.exhausted"
+	failureCodeCollaborationDecisionInvalid              = "collaboration.decision.invalid"
+	failureCodeCollaborationProtocolInvalid              = "collaboration.protocol.invalid"
 	failureCodeCollaborationCoordinatorUnresolvedEffects = "collaboration.coordinator.unresolved_effects"
 )

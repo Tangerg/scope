@@ -2,7 +2,6 @@ package agenttest
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
@@ -158,28 +157,22 @@ func closeSignalConformanceProcess(t *testing.T, engine *agent.Engine, process *
 func assertDurableSignal(t *testing.T, snapshot agent.TreeSnapshot, id agent.SignalID, present bool) {
 	t.Helper()
 	root := conformanceSnapshotByID(snapshot.ProcessSnapshots(), snapshot.RootID())
-	var wire struct {
-		Mailbox struct {
-			Signals []struct {
-				ID      agent.SignalID  `json:"id"`
-				Payload json.RawMessage `json:"payload"`
-			} `json:"signals"`
-		} `json:"mailbox"`
-	}
-	if err := json.Unmarshal(root.JSON(), &wire); err != nil {
-		t.Fatal(err)
-	}
+	receipts := root.SignalReceipts()
 	wantCount := 0
 	if present {
 		wantCount = 1
 	}
-	if len(wire.Mailbox.Signals) != wantCount {
-		t.Fatalf("durable input count=%d want=%d", len(wire.Mailbox.Signals), wantCount)
+	if len(receipts) != wantCount {
+		t.Fatalf("durable input count=%d want=%d", len(receipts), wantCount)
 	}
 	if present {
-		signal := wire.Mailbox.Signals[0]
-		if signal.ID != id || string(signal.Payload) != `{"value":"accepted"}` {
-			t.Fatalf("durable input=%s %s", signal.ID, signal.Payload)
+		request, err := agent.NewSignalRequest(id, agent.WaitID{}, []byte(`{"value":"accepted"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		signal, pending := receipts[0].PendingSignal()
+		if !pending || !receipts[0].Matches(request) || string(signal.Payload()) != `{"value":"accepted"}` {
+			t.Fatalf("durable input=%s %s", signal.ID(), signal.Payload())
 		}
 	}
 }

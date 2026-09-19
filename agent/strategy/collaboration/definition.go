@@ -50,13 +50,15 @@ func (c childBinding) spec(key agent.ChildKey, input agent.Payload) agent.ChildS
 // counts admitted tasks until their drained outcomes have been observed.
 // The Deployment configuration digest must cover every field and child binding.
 type DefinitionConfig struct {
-	Name               string
-	Description        string
-	Coordinator        WorkerConfig
-	Workers            []WorkerConfig
-	StateSchema        agent.Schema
-	OutputSchema       agent.Schema
-	MaxTurns           agent.Quota
+	Name         string
+	Description  string
+	Coordinator  WorkerConfig
+	Workers      []WorkerConfig
+	StateSchema  agent.Schema
+	OutputSchema agent.Schema
+	// MaxTurns is unlimited by default; a finite zero cannot admit the first turn.
+	MaxTurns agent.Quota
+	// MaxTasks is unlimited by default; a finite zero forbids worker starts.
 	MaxTasks           agent.Quota
 	MaxConcurrentTasks uint32
 	MaxControlsPerTurn uint32
@@ -75,6 +77,9 @@ type Definition struct {
 }
 
 func NewDefinition(config DefinitionConfig) (*Definition, error) {
+	if !config.MaxTurns.Allows(1) {
+		return nil, fmt.Errorf("%w: MaxTurns must admit one coordinator turn", ErrInvalidConfig)
+	}
 	if !config.Coordinator.valid() || len(config.Workers) == 0 || !config.StateSchema.Valid() ||
 		!config.OutputSchema.Valid() ||
 		config.MaxConcurrentTasks == 0 || config.MaxControlsPerTurn == 0 {

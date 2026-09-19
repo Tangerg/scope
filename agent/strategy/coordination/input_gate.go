@@ -21,8 +21,8 @@ type InputGateConfig struct {
 
 // InputGate publishes its initial input as the wait-opening payload and returns
 // one addressed answer as an immutable agent.Signal. Unaddressed inputs are not
-// part of this protocol. Inputs accepted after its final Step window remain in
-// the Process mailbox; a router must account for their disposition separately.
+// part of this protocol and are rejected at admission, including while the
+// final Step runs. A router retains responsibility for rejected input.
 type InputGate struct {
 	descriptor   agent.Descriptor
 	answerSchema agent.Schema

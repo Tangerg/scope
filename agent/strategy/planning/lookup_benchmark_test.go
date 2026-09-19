@@ -46,9 +46,9 @@ func BenchmarkActionHistory(b *testing.B) {
 				if err := definition.validateActionHistory(context.Background(), attempts); err != nil {
 					b.Fatal(err)
 				}
-				problem, err := definition.problem(executionState{Attempts: attempts})
-				if err != nil || len(problem.Actions()) != 0 {
-					b.Fatalf("problem = %+v, %v", problem, err)
+				problem := definition.problem(executionState{Attempts: attempts})
+				if len(problem.Actions()) != 0 {
+					b.Fatalf("problem = %+v", problem)
 				}
 			}
 		})

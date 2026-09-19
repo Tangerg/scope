@@ -35,7 +35,8 @@ type DefinitionConfig struct {
 	// Planner selects Actions from each newly observed WorldState.
 	Planner Planner
 
-	// MaxActionAttempts bounds external Action attempts. Its zero value is unlimited.
+	// MaxActionAttempts bounds external Action attempts. Its zero value is
+	// unlimited; a finite zero is rejected because Planning must admit an Action.
 	MaxActionAttempts agent.Quota
 }
 
@@ -59,6 +60,9 @@ type Definition struct {
 // restored Execution searches with the same algorithm that produced the plan
 // it is resuming.
 func NewDefinition(config DefinitionConfig) (*Definition, error) {
+	if !config.MaxActionAttempts.Allows(1) {
+		return nil, fmt.Errorf("%w: MaxActionAttempts must admit one Action", ErrInvalidDefinitionConfig)
+	}
 	if !config.InputSchema.Valid() || !config.Goal.Valid() || lo.IsNil(config.Planner) {
 		return nil, ErrInvalidDefinitionConfig
 	}
@@ -150,7 +154,7 @@ func (d *Definition) binding(name string) (ActionBinding, bool) {
 	return d.bindings[index], true
 }
 
-func (d *Definition) problem(state executionState) (Problem, error) {
+func (d *Definition) problem(state executionState) Problem {
 	excluded := make(map[string]struct{}, len(state.Attempts))
 	for _, attempt := range state.Attempts {
 		if attempt.excluded() {
@@ -163,7 +167,7 @@ func (d *Definition) problem(state executionState) (Problem, error) {
 			actions = append(actions, binding.action)
 		}
 	}
-	return NewProblem(state.WorldState, d.goal, actions...)
+	return Problem{initial: state.WorldState, goal: d.goal, actions: actions}
 }
 
 func (d *Definition) validateActionHistory(ctx context.Context, attempts []Attempt) error {

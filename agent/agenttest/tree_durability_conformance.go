@@ -105,8 +105,62 @@ func runEffectBoundaryConformance(
 		t.Fatalf("authoritative root status=%s", root.Status())
 	}
 	probe.assertEffectLifecycle(t)
-	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+	for _, boundary := range probe.effects {
+		if commitErr := driver.TreeDurability().CommitEffect(t.Context(), boundary); !errors.Is(commitErr, agent.ErrDurabilityConflict) {
+			t.Fatalf("stale %s duplicate error=%v, want ErrDurabilityConflict", boundary.Kind(), commitErr)
+		}
+	}
+	after, _, err := driver.LoadTree(t.Context(), result.ProcessID())
+	if err != nil || after.Digest() != head.Digest() {
+		t.Fatalf("rejected duplicate changed the head: %v", err)
+	}
+	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	// A separate writer produces a valid competing history from the same base.
+	// No private snapshot or boundary representation is synthesized here.
+	branch := NewMemoryTreeDurability()
+	if commitErr := branch.CommitCheckpoint(t.Context(), probe.start); commitErr != nil {
+		t.Fatal(commitErr)
+	}
+	branchProbe := newConformanceDurabilityProbe(t, branch)
+	branchEngine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: branchProbe})
+	if err != nil {
 		t.Fatal(err)
+	}
+	branchProcess, err := branchEngine.RestoreTree(t.Context(), deployment, probe.start.TreeSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	branchEffect := waitForConformanceUnknownEffect(t, branchEngine, branchProcess)
+	divergent, err := agent.NewSettlement(branchEffect, agent.SettlementStatusSucceeded, []byte(`{"value":"divergent"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolveErr := branchProcess.ResolveUnknownEffect(t.Context(), divergent); resolveErr != nil {
+		t.Fatal(resolveErr)
+	}
+	if joinErr := branchProcess.Join(t.Context()); joinErr != nil {
+		t.Fatal(joinErr)
+	}
+	if closeErr := branchEngine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	if len(branchProbe.effects) != len(probe.effects) {
+		t.Fatal("competing history missed an Effect boundary")
+	}
+	for index, boundary := range branchProbe.effects {
+		original := probe.effects[index]
+		if boundary.Kind() != original.Kind() || boundary.Request().ID() != original.Request().ID() || boundary.TreeSnapshot().Digest() == original.TreeSnapshot().Digest() {
+			t.Fatal("fixture did not produce conflicting content under the same Effect key")
+		}
+		if commitErr := driver.TreeDurability().CommitEffect(t.Context(), boundary); !errors.Is(commitErr, agent.ErrDurabilityConflict) && !errors.Is(commitErr, agent.ErrTreeIncarnationConflict) {
+			t.Fatalf("conflicting duplicate error=%v", commitErr)
+		}
+	}
+	after, _, err = driver.LoadTree(t.Context(), result.ProcessID())
+	if err != nil || after.Digest() != head.Digest() {
+		t.Fatal("conflicting content changed the authoritative head")
 	}
 }
 
@@ -154,8 +208,8 @@ func runConcurrentRestoreConformance(
 	if _, err := winner.process.Await(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if err := winner.engine.Close(context.WithoutCancel(t.Context())); err != nil {
-		t.Fatal(err)
+	if closeErr := winner.engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
+		t.Fatal(closeErr)
 	}
 	_ = original.Kill(t.Context(), "stale writer cleanup")
 	_, _ = original.Await(t.Context())
@@ -265,8 +319,9 @@ type conformanceDurabilityProbe struct {
 	durability agent.TreeDurability
 
 	mu          sync.Mutex
-	effects     []agent.EffectBoundaryKind
+	effects     []agent.EffectBoundary
 	checkpoints []agent.TreeCheckpointKind
+	start       agent.TreeCheckpoint
 }
 
 func newConformanceDurabilityProbe(
@@ -294,7 +349,7 @@ func (c *conformanceDurabilityProbe) CommitEffect(
 	err := c.retry(func() error { return c.durability.CommitEffect(ctx, boundary) })
 	if err == nil {
 		c.mu.Lock()
-		c.effects = append(c.effects, boundary.Kind())
+		c.effects = append(c.effects, boundary)
 		c.mu.Unlock()
 	}
 	return err
@@ -310,6 +365,9 @@ func (c *conformanceDurabilityProbe) CommitCheckpoint(
 	if err == nil {
 		c.mu.Lock()
 		c.checkpoints = append(c.checkpoints, checkpoint.Kind())
+		if checkpoint.Kind() == agent.TreeCheckpointKindStart {
+			c.start = checkpoint
+		}
 		c.mu.Unlock()
 	}
 	return err
@@ -326,9 +384,9 @@ func (c *conformanceDurabilityProbe) assertEffectLifecycle(t *testing.T) {
 	t.Helper()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.effects) != 3 || c.effects[0] != agent.EffectBoundaryKindPending ||
-		c.effects[1] != agent.EffectBoundaryKindSettled ||
-		c.effects[2] != agent.EffectBoundaryKindResolved {
+	if len(c.effects) != 3 || c.effects[0].Kind() != agent.EffectBoundaryKindPending ||
+		c.effects[1].Kind() != agent.EffectBoundaryKindSettled ||
+		c.effects[2].Kind() != agent.EffectBoundaryKindResolved {
 		t.Fatalf("Effect boundary order=%v", c.effects)
 	}
 	if len(c.checkpoints) == 0 ||
@@ -356,6 +414,7 @@ const (
 	conformanceModeEffect
 	conformanceModeUnknownEffect
 	conformanceModePause
+	conformanceModeProgress
 )
 
 type conformancePhase uint8
@@ -400,10 +459,15 @@ func conformanceDeployment(t *testing.T, mode conformanceMode) agent.Deployment 
 	if err != nil {
 		t.Fatal(err)
 	}
+	signalSchema, err := agent.ParseSchema([]byte("true"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
-		Name:        "agenttest.durability_conformance",
-		Description: "Exercises the complete durable tree commit contract.",
-		InputSchema: inputSchema, OutputSchema: outputSchema,
+		SignalSchema: signalSchema,
+		Name:         "agenttest.durability_conformance",
+		Description:  "Exercises the complete durable tree commit contract.",
+		InputSchema:  inputSchema, OutputSchema: outputSchema,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -456,6 +520,17 @@ func (c *conformanceExecution) Step(
 	signals []agent.Signal,
 ) (agent.Transition, error) {
 	switch c.definition.mode {
+	case conformanceModeProgress:
+		if c.state.Phase == conformancePhaseReady {
+			c.state.Phase = conformancePhaseAwaitingEffect
+			return agent.Checkpoint(0)
+		}
+		c.state.Phase = conformancePhaseFinished
+		output, err := agent.EncodePayload(conformanceOutput{Value: c.state.Value})
+		if err != nil {
+			return agent.Transition{}, err
+		}
+		return agent.Complete(0, output)
 	case conformanceModeEffect, conformanceModeUnknownEffect:
 		return c.stepEffect(signals)
 	case conformanceModePause:

@@ -21,6 +21,7 @@ const (
 	crashCommitEffectResolved
 	crashCommitCheckpointChild
 	crashCommitCheckpointInput
+	crashCommitCheckpointProgress
 	crashCommitCheckpointParked
 	crashCommitCheckpointCancellation
 	crashCommitCheckpointTerminal
@@ -137,6 +138,8 @@ func (t *treeDurabilityCommitGate) CommitCheckpoint(
 		kind = crashCommitCheckpointChild
 	case agent.TreeCheckpointKindSignals:
 		kind = crashCommitCheckpointInput
+	case agent.TreeCheckpointKindProgress:
+		kind = crashCommitCheckpointProgress
 	case agent.TreeCheckpointKindParked:
 		kind = crashCommitCheckpointParked
 	case agent.TreeCheckpointKindTerminal:
@@ -259,6 +262,8 @@ func runTreeDurabilityCrashConformance(t *testing.T, factory func() TreeDurabili
 		{name: "resolved after commit before acknowledgment", run: runCrashAfterResolvedCommit},
 		{name: "child before commit", run: runCrashBeforeChildCommit},
 		{name: "child after commit before publication", run: runCrashAfterChildCommit},
+		{name: "progress before commit", run: runCrashBeforeProgressCommit},
+		{name: "progress after commit", run: runCrashAfterProgressCommit},
 		{name: "parked after commit before Event publication", run: runCrashAfterParkedCommit},
 		{name: "terminal after commit before Result publication", run: runCrashAfterTerminalCommit},
 		{name: "activation after CAS before Process publication", run: runCrashAfterActivationCommit},
@@ -552,8 +557,13 @@ func newCrashDeployment(
 	if err != nil {
 		t.Fatal(err)
 	}
+	signalSchema, err := agent.ParseSchema([]byte("true"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
-		Name: crashDeploymentName, Description: crashDeploymentDescription,
+		SignalSchema: signalSchema,
+		Name:         crashDeploymentName, Description: crashDeploymentDescription,
 		InputSchema: inputSchema, OutputSchema: outputSchema,
 	})
 	if err != nil {
@@ -828,4 +838,41 @@ func awaitCrashRestore(t *testing.T, result <-chan crashRestoreResult) crashRest
 		t.Fatalf("Engine.RestoreTree did not return: %v", ctx.Err())
 		return crashRestoreResult{}
 	}
+}
+
+func runCrashBeforeProgressCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+	runCrashProgressCommit(t, store, crashCommitBefore)
+}
+
+func runCrashAfterProgressCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+	runCrashProgressCommit(t, store, crashCommitAfter)
+}
+
+func runCrashProgressCommit(t *testing.T, store TreeDurabilityConformanceDriver, phase crashCommitPhase) {
+	durability := store.TreeDurability()
+	gate := newTreeDurabilityCommitGate(t, durability, crashCommitPoint{kind: crashCommitCheckpointProgress, phase: phase})
+	deployment, _ := newCrashDeployment(t, conformanceModeProgress, agent.ReplayPolicyNever)
+	engine := newCrashEngine(t, gate, nil)
+	original := startCrashProcess(t, engine, deployment)
+	observation := gate.await(t)
+	want := observation.previousDigest
+	wantSteps := uint64(0)
+	if phase == crashCommitAfter {
+		want = observation.prospective.Digest()
+		wantSteps = 1
+	}
+	head := assertCrashHead(t, store, observation.rootID, want)
+	if root := conformanceSnapshotByID(head.ProcessSnapshots(), observation.rootID); root.Usage().CommittedSteps != wantSteps {
+		t.Fatalf("progress committed Steps=%d, want=%d", root.Usage().CommittedSteps, wantSteps)
+	}
+	restoredEngine := newCrashEngine(t, durability, nil)
+	restored := restoreCrashTree(t, restoredEngine, deployment, head)
+	result := awaitCrashProcess(t, restored)
+	if result.Status() != agent.StatusCompleted || result.Usage().CommittedSteps != 2 {
+		t.Fatalf("progress recovery result=%s usage=%+v", result.Status(), result.Usage())
+	}
+	gate.abort()
+	awaitCrashRuntimeError(t, original, errSimulatedHostCrash)
+	closeCrashEngine(t, restoredEngine)
+	closeCrashEngine(t, engine)
 }

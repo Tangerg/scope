@@ -18,4 +18,9 @@
 // it does not bypass sensing or directly establish the Action's effects.
 // Drained child subtrees with unresolved Effects fail the Process before any
 // further sensing or action. Join alone does not prove external outcomes.
+//
+// Definitions reject unaddressed Host Signals through Descriptor.SignalSchema.
+// Engine-owned settlements are consumed only at their matching protocol phase;
+// Wait openings may share a window with the following completion. InputGate
+// replies, when used as children, must address the child's current WaitID.
 package planning

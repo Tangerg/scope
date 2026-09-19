@@ -3,6 +3,7 @@ package messaging_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -70,6 +71,10 @@ func TestReplayReconcilesConsumedMessageAtOriginalRecipient(t *testing.T) {
 		port.mu.Unlock()
 		if len(calls) != 2 || calls[0].ID() != calls[1].ID() {
 			t.Fatalf("replay changed delivery identity: %v", calls)
+		}
+		derived, ok := strings.CutPrefix(calls[0].ID().String(), "signal:message:")
+		if _, parseErr := agent.ParseDigest(derived); !ok || parseErr != nil {
+			t.Fatalf("invalid message identity=%s", calls[0].ID())
 		}
 		for _, call := range calls {
 			if got, _ := call.WaitID(); got != waitID || string(call.Payload()) != `"approved"` {

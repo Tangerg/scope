@@ -6,6 +6,8 @@ Living reports contain only unresolved findings within their stated scope.
 |---|---|
 | [`agent-findings.md`](agent-findings.md) | `agent` — the execution kernel, its built-in strategies, and `agenttest` |
 
+No confirmed open findings are currently recorded in the reports above.
+
 ## Why one document
 
 A report that describes a past state goes stale and starts misleading. When a

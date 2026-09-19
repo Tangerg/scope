@@ -48,7 +48,9 @@ type Execution interface {
 	// Step reduces the current private state and the supplied ordered Signal
 	// prefix into one candidate Transition. It must honor ctx for bounded CPU
 	// work, perform no I/O, consume no hidden input, and never retain signals.
-	// The Engine serializes calls for one Execution.
+	// The Engine serializes calls for one Execution. A *StepError discards the
+	// candidate and preserves its Failure; an ordinary error discards it with
+	// execution.step.failed. Fail instead commits the candidate and consumption.
 	Step(ctx context.Context, signals []Signal) (Transition, error)
 	// Snapshot returns a complete, independently owned state from
 	// which Definition.Restore can reproduce the current Execution exactly. It
