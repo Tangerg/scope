@@ -3,9 +3,9 @@ module github.com/Tangerg/scope/models/openrouter
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.22.0
-	github.com/Tangerg/scope/models/protocol/anthropic v0.22.0
-	github.com/Tangerg/scope/models/protocol/openai v0.22.0
+	github.com/Tangerg/scope/core v0.31.0
+	github.com/Tangerg/scope/models/protocol/anthropic v0.31.0
+	github.com/Tangerg/scope/models/protocol/openai v0.31.0
 )
 
 require (
