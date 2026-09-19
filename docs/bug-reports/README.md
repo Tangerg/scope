@@ -4,9 +4,7 @@ Living reports contain only unresolved findings within their stated scope.
 
 | Document | Scope |
 |---|---|
-| [`agent-open-findings.md`](agent-open-findings.md) | `core`, `etl`, `eval`, `rag`, `skills`, `tools` — the capability modules outside `agent`, excluding integrations |
-
-No open findings are currently recorded in the reports above.
+| [`agent-findings.md`](agent-findings.md) | `agent` — the execution kernel, its built-in strategies, and `agenttest` |
 
 ## Why one document
 
