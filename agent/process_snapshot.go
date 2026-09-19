@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
@@ -288,31 +287,45 @@ type processSnapshotWire struct {
 	Termination             *Termination        `json:"termination,omitempty"`
 }
 
+// A one-byte placeholder keeps optional fields present in the real wire codec.
+// JSON expands each diagnostic UTF-8 byte by at most six bytes; qualified
+// failure codes need no escaping. Only the byte count grows, never a buffer.
+const (
+	snapshotReservationText = "x"
+	snapshotReasonGrowth    = uint64(6*maxTerminationReasonBytes - len(snapshotReservationText))
+	snapshotFailureGrowth   = uint64(maxFailureCodeBytes - len(snapshotReservationText) + 6*MaxDiagnosticBytes - len(snapshotReservationText))
+)
+
 // Finite byte quotas reserve mandatory lifecycle growth and Framework settlements.
 // These projections measure bytes only; they never become lifecycle facts.
 // Dispatcher payloads are external outcomes, not predictable admission facts.
 func (p processSnapshotWire) admissionSize() (uint64, error) {
-	var pendingSize int
+	var pendingSize, terminalGrowth, effectGrowth uint64
 	if !p.Status.Terminal() && (p.Limits.MaxSnapshotBytes.limited || p.TreeLimits.MaxSnapshotBytes.limited) {
-		failure := Failure{kind: FailureKindExecution, code: strings.Repeat("x", maxFailureCodeBytes), message: strings.Repeat("<", MaxDiagnosticBytes)}
+		failure := Failure{kind: FailureKindExecution, code: snapshotReservationText, message: snapshotReservationText}
 		var unresolved []EffectID
 		if p.Prepared != nil {
-			prepared := p.Prepared.clone()
+			prepared := *p.Prepared
+			prepared.Effects = slices.Clone(prepared.Effects)
 			p.Prepared = &prepared
 			for index := range prepared.Effects {
 				record := &prepared.Effects[index]
 				if record.unknown() || record.Phase == effectPhasePending {
 					unresolved = append(unresolved, record.ID)
 				}
-				if err := record.reserveSnapshotSettlement(failure); err != nil {
+				growth, err := record.reserveSnapshotSettlement()
+				if err != nil {
 					return 0, err
 				}
+				if !resourceQuantitiesFit(^uint64(0), effectGrowth, growth) {
+					return 0, ErrCounterExhausted
+				}
+				effectGrowth += growth
 			}
 		}
-		// JSON encodes '<' as six bytes (\u003c), the maximum expansion per UTF-8
-		// byte. Current and pending control fields reserve independently, including
+		// Current and pending control fields reserve independently, including
 		// a Step pause racing a Host pause.
-		reason := strings.Repeat("<", maxTerminationReasonBytes)
+		reason := snapshotReservationText
 		p.PauseReason = reason
 		p.Status = StatusRunning
 		p.Counters.DroppedDeltas = ^uint64(0)
@@ -325,7 +338,8 @@ func (p processSnapshotWire) admissionSize() (uint64, error) {
 		if err != nil {
 			return 0, err
 		}
-		pendingSize = len(pending)
+		pendingSize = uint64(len(pending)) + 5*snapshotReasonGrowth + snapshotFailureGrowth
+		terminalGrowth = snapshotFailureGrowth + uint64(6*MaxDiagnosticBytes-len(snapshotReservationText))
 		p.PendingControl = pendingControlWire{}
 		p.PauseReason = ""
 		p.CurrentWaitID = nil
@@ -340,7 +354,11 @@ func (p processSnapshotWire) admissionSize() (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	size := uint64(max(pendingSize, len(encoded)))
+	size := max(pendingSize, uint64(len(encoded))+terminalGrowth)
+	if !resourceQuantitiesFit(^uint64(0), size, effectGrowth) {
+		return 0, ErrCounterExhausted
+	}
+	size += effectGrowth
 	if !p.Limits.MaxSnapshotBytes.Allows(size) {
 		return 0, ErrResourceLimitExceeded
 	}

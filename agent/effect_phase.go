@@ -112,50 +112,53 @@ func (p *preparedEffect) begin() error {
 // Size projections use the same settlement envelopes as live execution. Local
 // wait results are known before dispatch; an admitted child operation must fit
 // its bounded refusal, and uncertain dispatch must retain its diagnostic.
-func (p *preparedEffect) reserveSnapshotSettlement(failure Failure) error {
+// The return value accounts for reserved text omitted from the compact projection.
+func (p *preparedEffect) reserveSnapshotSettlement() (uint64, error) {
 	if p.Settlement != nil {
-		return nil
+		return 0, nil
 	}
+	failure := Failure{kind: FailureKindExecution, code: snapshotReservationText, message: snapshotReservationText}
 	if p.Effect.Target() == EffectTargetDispatcher {
 		if p.Phase == effectPhasePending {
 			if err := p.settleUnknown(); err != nil {
-				return err
+				return 0, err
 			}
 			p.Diagnostic = &failure
+			return snapshotFailureGrowth, nil
 		}
-		return nil
+		return 0, nil
 	}
 	operation, operationErr := decodeFrameworkEffectOperation(p.Effect.Payload())
 	if operationErr != nil {
-		return operationErr
+		return 0, operationErr
 	}
 	if operation == frameworkEffectWait || operation == frameworkEffectWaitChildren {
 		if p.Phase == effectPhasePlanned {
 			if err := p.begin(); err != nil {
-				return err
+				return 0, err
 			}
 		}
-		return p.settleFramework()
+		return 0, p.settleFramework()
 	}
 	if p.Phase != effectPhasePending {
-		return nil
+		return 0, nil
 	}
 	if operation == frameworkEffectStartChild {
 		spec, err := decodeChildStartEffect(p.Effect.Payload())
 		if err != nil {
-			return err
+			return 0, err
 		}
-		return p.settleChildStart(ChildStartResult{key: spec.Key, deploymentRef: spec.DeploymentRef, failure: failure})
+		return snapshotFailureGrowth, p.settleChildStart(ChildStartResult{key: spec.Key, deploymentRef: spec.DeploymentRef, failure: failure})
 	}
 	request, err := decodeChildControlEffect(p.Effect.Payload())
 	if err != nil {
-		return err
+		return 0, err
 	}
 	result := ChildControlResult{childID: request.ChildID, operation: request.Operation, failure: failure}
 	if request.Signal != nil {
 		result.signalID = request.Signal.ID()
 	}
-	return p.settleChildControl(result)
+	return snapshotFailureGrowth, p.settleChildControl(result)
 }
 
 // A pending boundary grants dispatch permission before I/O starts. Only the
