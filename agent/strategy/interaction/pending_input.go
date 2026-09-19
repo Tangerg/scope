@@ -52,7 +52,8 @@ func (p PendingToolInput) ResponseSignal(
 	return NewToolInputResponseSignal(id, p.waitID, response)
 }
 
-// PendingToolInputs reads every current Tool input wait in a captured tree.
+// PendingToolInputs reads every current Tool input wait in a captured tree,
+// including while Paused. An answer clears the wait; only Resume releases a pause.
 // The returned order follows the snapshot's Process order. The caller selects
 // a wait explicitly and sends its ResponseSignal to that wait's ProcessID.
 func PendingToolInputs(snapshot agent.TreeSnapshot) ([]PendingToolInput, error) {
@@ -61,15 +62,15 @@ func PendingToolInputs(snapshot agent.TreeSnapshot) ([]PendingToolInput, error) 
 	}
 	var pending []PendingToolInput
 	for _, process := range snapshot.ProcessSnapshots() {
-		if process.Status() != agent.StatusWaiting || process.CommittedExecutionState().Kind() != toolExecutionStateKind {
+		waitID, addressed := process.WaitID()
+		if !addressed || process.CommittedExecutionState().Kind() != toolExecutionStateKind {
 			continue
 		}
 		state, err := decodeToolState(process.CommittedExecutionState())
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrInvalidPendingToolInput, err)
 		}
-		waitID, addressed := process.WaitID()
-		if state.Phase != toolWaitingInput || !addressed || state.WaitID == nil || waitID != *state.WaitID {
+		if state.Phase != toolWaitingInput || state.WaitID == nil || waitID != *state.WaitID {
 			return nil, ErrInvalidPendingToolInput
 		}
 		request := state.Checkpoint.InputRequest

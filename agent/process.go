@@ -68,10 +68,10 @@ func (p *Process) StartedAt() time.Time {
 // Strategy-safe Step, including while Paused or waiting for child completion.
 // Unaddressed input never releases a wait or pause. A current external wait
 // accepts only its answer until satisfied, including while Paused.
-// An addressed answer during a current wait must name its WaitID, including
-// while that wait is Paused; any other external wait answer returns
-// ErrSignalRejected. The batch is accepted or the
-// mailbox remains unchanged. Reusing a SignalID with different normalized
+// Every new addressed answer must name the WaitID current at batch admission,
+// if any, including while Paused and after an earlier answer in the same batch.
+// Any other external wait answer returns ErrSignalRejected. The batch is accepted
+// or the mailbox remains unchanged. Reusing a SignalID with different normalized
 // payload bytes or a different WaitID returns ErrSignalConflict, as does repeating
 // a SignalID within the batch. Historical identities with identical content are
 // retained without another budget charge or acceptance event. Only new identities

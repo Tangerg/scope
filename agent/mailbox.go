@@ -393,15 +393,11 @@ func (s *signalMailbox) prepareAdmission(status Status, currentWaitID WaitID, si
 			}
 			answered[waitID] = struct{}{}
 		}
-		if currentWaitID.Valid() {
-			if source == signalSourceExternal {
-				wait := s.waits[currentWaitID]
-				if waitID != currentWaitID && (waitID.Valid() || wait.kind == WaitKindExternal) {
-					return nil, ErrSignalRejected
-				}
-			}
-			if waitID == currentWaitID {
-				currentWaitID = WaitID{}
+		if currentWaitID.Valid() && source == signalSourceExternal {
+			wait := s.waits[currentWaitID]
+			_, currentAnswered := answered[currentWaitID]
+			if waitID != currentWaitID && (waitID.Valid() || (wait.kind == WaitKindExternal && !currentAnswered)) {
+				return nil, ErrSignalRejected
 			}
 		}
 		records = append(records, record)

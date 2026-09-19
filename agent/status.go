@@ -18,7 +18,8 @@ const (
 	StatusInvalid Status = ""
 	// StatusRunning identifies a Process eligible to advance.
 	StatusRunning Status = "running"
-	// StatusWaiting identifies a Process awaiting a WaitID-addressed Signal.
+	// StatusWaiting identifies a Process awaiting a WaitID-addressed Signal
+	// without an explicit pause. StatusPaused may retain the same unanswered wait.
 	StatusWaiting Status = "waiting"
 	// StatusPaused identifies an explicitly suspended Process.
 	StatusPaused Status = "paused"
