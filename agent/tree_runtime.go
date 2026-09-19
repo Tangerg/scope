@@ -748,13 +748,13 @@ func (t *treeRuntime) applyChildControl(child *processState, request childContro
 		result.failure = newEngineFailure(FailureKindContract, failureCodeEngineChildSignalRejected, err)
 		return result
 	}
-	accepted, err := t.admitSignals(child, []Signal{signal}, signalSourceExternal)
+	events, err := t.admitSignals(child, []Signal{signal}, signalSourceExternal)
 	if err != nil {
 		result.failure = newEngineFailure(FailureKindExecution, failureCodeEngineChildSignalRejected, err)
 		return result
 	}
-	if accepted {
-		for _, event := range t.prepareSignalEvents(child, []Signal{signal}) {
+	if len(events) > 0 {
+		for _, event := range events {
 			t.stagePreparedEvent(child, event)
 		}
 		t.enqueueProcess(child.handle.processID)
@@ -1174,6 +1174,7 @@ func (t *treeRuntime) abandonChildStartJob(job *processJob) {
 		return
 	}
 	plan := job.childStart
+	// A durability fault prevents completion adoption; only job collection remains.
 	job.childStart = nil
 	t.discardChildStart(plan)
 }
@@ -1475,7 +1476,7 @@ func (t *treeRuntime) applyPendingControl(process *processState) bool {
 }
 
 func (t *treeRuntime) deliverChildWaitSatisfied(process *processState, signal Signal) bool {
-	accepted, err := t.admitSignals(process, []Signal{signal}, signalSourceChildWait)
+	events, err := t.admitSignals(process, []Signal{signal}, signalSourceChildWait)
 	if err != nil {
 		if errors.Is(err, ErrResourceLimitExceeded) {
 			process.recordFailure(FailureKindExecution, failureCodeEngineLimitChildWaitSignal, err)
@@ -1484,12 +1485,10 @@ func (t *treeRuntime) deliverChildWaitSatisfied(process *processState, signal Si
 		}
 		return false
 	}
-	if accepted {
-		for _, event := range t.prepareSignalEvents(process, []Signal{signal}) {
-			t.stagePreparedEvent(process, event)
-		}
+	for _, event := range events {
+		t.stagePreparedEvent(process, event)
 	}
-	return accepted || process.mailbox.contains(signal.ID())
+	return len(events) > 0 || process.mailbox.contains(signal.ID())
 }
 
 func (t *treeRuntime) deliverSignals(process *processState, command processCommand) {
@@ -1506,12 +1505,11 @@ func (t *treeRuntime) deliverSignals(process *processState, command processComma
 		}
 		signals = append(signals, signal)
 	}
-	accepted, err := t.admitSignals(process, signals, signalSourceExternal)
-	if err != nil || !accepted {
+	events, err := t.admitSignals(process, signals, signalSourceExternal)
+	if err != nil || len(events) == 0 {
 		command.reply(processResponse{err: err})
 		return
 	}
-	events := t.prepareSignalEvents(process, signals)
 	if t.engine.durability != nil {
 		if err := t.startSignalCommit(process, command, events); err != nil {
 			command.reply(processResponse{err: err})
@@ -1639,11 +1637,10 @@ func (t *treeRuntime) prepareSettlementEvent(
 	)
 }
 
-func (t *treeRuntime) prepareSignalEvents(process *processState, signals []Signal) []eventFact {
+func (t *treeRuntime) prepareSignalEvents(process *processState, records []signalRecord) []eventFact {
 	var events []eventFact
-	for _, signal := range signals {
-		waitID, _ := signal.WaitID()
-		payload := marshalEventPayload(signalAcceptedEventPayload{SignalID: signal.ID().String(), WaitID: waitID.String()})
+	for _, record := range records {
+		payload := marshalEventPayload(signalAcceptedEventPayload{SignalID: record.id.String(), WaitID: record.waitID.String()})
 		events = append(events, t.prepareEvent(process, EventSignalAccepted, EventPhaseCommitted, 0, EffectID{}, payload))
 	}
 	return events
@@ -2114,12 +2111,6 @@ func (t *treeRuntime) applyChildStartCompletion(
 	result childStartJobResult,
 ) {
 	plan := job.childStart
-	if plan == nil {
-		if err := parent.prepared.settleUnknown(job.effectID); err != nil {
-			t.failProcessContract(parent, failureCodeEngineChildSettlementInvalid, err)
-		}
-		return
-	}
 	pending := &pendingChildStartPublication{
 		parentID: parent.handle.processID, effectID: job.effectID,
 		plan: plan, result: result, startedAt: job.startedAt,
@@ -2827,16 +2818,17 @@ func (t *treeRuntime) installTerminationWithUnresolved(process *processState, ou
 
 func emptyEventPayload() json.RawMessage { return json.RawMessage("{}") }
 
-func (t *treeRuntime) admitSignals(process *processState, signals []Signal, source signalSource) (bool, error) {
+func (t *treeRuntime) admitSignals(process *processState, signals []Signal, source signalSource) ([]eventFact, error) {
 	candidate, err := process.prepareSignals(signals, source)
 	if err != nil || candidate == nil {
-		return false, err
+		return nil, err
 	}
 	if err := t.validateSnapshotCapacity(candidate); err != nil {
-		return false, err
+		return nil, err
 	}
+	records := candidate.mailbox.records[len(process.mailbox.records):]
 	process.adoptCandidate(candidate)
-	return true, nil
+	return t.prepareSignalEvents(process, records), nil
 }
 
 func (t *treeRuntime) validateSnapshotCapacity(candidates ...*processState) error {

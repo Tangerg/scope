@@ -73,10 +73,11 @@ func Run(
 	if err != nil {
 		t.Fatal(err)
 	}
-	previous, _ := before.Process(process.ID())
-	current, _ := after.Process(process.ID())
-	if previous.Snapshot.Usage() != current.Snapshot.Usage() || len(previous.Snapshot.SignalReceipts()) != len(current.Snapshot.SignalReceipts()) {
-		t.Fatal("rejected input changed the mailbox or budget")
+	previous, previousFound := before.Process(process.ID())
+	current, currentFound := after.Process(process.ID())
+	if !previousFound || !currentFound || previous.Snapshot.Usage() != current.Snapshot.Usage() ||
+		len(previous.Snapshot.SignalReceipts()) != len(current.Snapshot.SignalReceipts()) {
+		t.Fatal("rejected input changed Process membership, mailbox, or budget")
 	}
 	release()
 	if joinErr := <-finished; joinErr != nil {

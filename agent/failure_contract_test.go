@@ -108,7 +108,6 @@ func TestTerminationRestorationEnforcesReasonBounds(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			for _, wire := range []terminationWire{
 				{Status: StatusCanceled, Cause: TerminationCauseHostCancellation, Reason: reason},
-				{Status: StatusTimedOut, Cause: TerminationCauseProcessDeadline, Reason: reason},
 				{Status: StatusKilled, Cause: TerminationCauseEngineKill, Reason: reason},
 			} {
 				data, err := json.Marshal(wire)

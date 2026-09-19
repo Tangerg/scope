@@ -104,6 +104,22 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 			},
 		},
 		{
+			name: "paused unknown current wait", tree: waiting,
+			mutate: func(wire *processSnapshotWire) {
+				unknown, _ := ParseWaitID("wait:unknown")
+				wire.Status, wire.PauseReason, wire.CurrentWaitID = StatusPaused, "inspect", &unknown
+			},
+		},
+		{
+			name: "paused answered current wait", tree: waiting,
+			mutate: func(wire *processSnapshotWire) {
+				signal, _ := answer.signal()
+				wire.Mailbox.Signals = append(wire.Mailbox.Signals, mailboxRecordWire(2, signal))
+				wire.Mailbox.Waits[0].Answered = true
+				wire.Status, wire.PauseReason = StatusPaused, "inspect"
+			},
+		},
+		{
 			name: "multiple answers for one wait", tree: completed,
 			mutate: func(wire *processSnapshotWire) {
 				secondID, _ := ParseSignalID("signal:second-answer")

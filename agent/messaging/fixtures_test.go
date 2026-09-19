@@ -186,7 +186,7 @@ func (r *recipientPort) Deliver(ctx context.Context, sender, recipient agent.Pro
 		}
 		fact, present := tree.Process(recipient)
 		if !present {
-			return agent.ErrProcessNotRunning
+			return errors.New("recipient missing from tree inspection")
 		}
 		for _, receipt := range fact.Snapshot.SignalReceipts() {
 			if receipt.ID() != signal.ID() {

@@ -140,7 +140,7 @@ func (p *processState) recordParentTermination(parent Termination) {
 
 // Admission validates the complete batch before changing mailbox or wait state.
 func (p *processState) prepareSignals(signals []Signal, source signalSource) (*processState, error) {
-	admission, err := p.mailbox.prepareAdmission(p.status, p.currentWaitID, signals, source)
+	records, err := p.mailbox.prepareAdmission(p.status, p.currentWaitID, signals, source)
 	if err != nil {
 		return nil, err
 	}
@@ -154,10 +154,10 @@ func (p *processState) prepareSignals(signals []Signal, source signalSource) (*p
 			}
 		}
 	}
-	if admission.duplicate {
+	if len(records) == 0 {
 		return nil, nil
 	}
-	count := uint64(len(signals))
+	count := uint64(len(records))
 	reserved := p.prepared.settlementSignalCount()
 	remainingPending := p.mailbox.pendingCount()
 	// The prepared cursor is bounded by accepted Signals and starts at the
@@ -170,11 +170,13 @@ func (p *processState) prepareSignals(signals []Signal, source signalSource) (*p
 		return nil, ErrResourceLimitExceeded
 	}
 	candidate := p.candidate()
-	for _, record := range admission.records {
+	for _, record := range records {
 		candidate.mailbox.acceptRecord(record)
 	}
-	if candidate.status == StatusWaiting && admission.status == StatusRunning {
-		candidate.status = StatusRunning
+	if candidate.currentWaitID.Valid() && candidate.mailbox.waits[candidate.currentWaitID].answered {
+		if candidate.status == StatusWaiting {
+			candidate.status = StatusRunning
+		}
 		candidate.currentWaitID = WaitID{}
 	}
 	if _, err := candidate.snapshotAdmissionSize(); err != nil {
@@ -187,8 +189,8 @@ func (p *processState) requestPause(reason string) error {
 	if err := validateTerminationReason(reason); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidProcessControl, err)
 	}
-	if p.status != StatusRunning {
-		return ErrProcessNotRunning
+	if p.status != StatusRunning && p.status != StatusWaiting {
+		return fmt.Errorf("%w: Pause requires Running or Waiting status, got %s", ErrInvalidProcessControl, p.status)
 	}
 	if p.pendingControl.pauseReason == "" {
 		p.pendingControl.pauseReason = reason
@@ -197,7 +199,7 @@ func (p *processState) requestPause(reason string) error {
 }
 
 func (p *processState) applyPendingPause() bool {
-	if p.pendingControl.pauseReason == "" || p.status != StatusRunning {
+	if p.pendingControl.pauseReason == "" || (p.status != StatusRunning && p.status != StatusWaiting) {
 		return false
 	}
 	p.status = StatusPaused
@@ -211,6 +213,9 @@ func (p *processState) resume() error {
 		return fmt.Errorf("%w: Resume requires Paused status, got %s", ErrInvalidProcessControl, p.status)
 	}
 	p.status = StatusRunning
+	if p.currentWaitID.Valid() {
+		p.status = StatusWaiting
+	}
 	p.pauseReason = ""
 	p.pendingControl.pauseReason = ""
 	return nil

@@ -53,9 +53,16 @@ func TestSignalBatchDeduplicatesBeforeChargingFullMailbox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, requests := range [][]SignalRequest{{first}, {second, first}, {second, second}} {
-		if accepted, deliveryErr := process.DeliverSignals(t.Context(), requests...); deliveryErr != nil || accepted {
-			t.Fatalf("duplicate batch = %t, %v", accepted, deliveryErr)
+	for _, test := range []struct {
+		requests []SignalRequest
+		want     error
+	}{
+		{requests: []SignalRequest{first}},
+		{requests: []SignalRequest{second, first}, want: ErrResourceLimitExceeded},
+		{requests: []SignalRequest{second, second}, want: ErrSignalConflict},
+	} {
+		if accepted, deliveryErr := process.DeliverSignals(t.Context(), test.requests...); !errors.Is(deliveryErr, test.want) || accepted {
+			t.Fatalf("batch = %t, %v; want false, %v", accepted, deliveryErr, test.want)
 		}
 		if usage := inspectProcessSnapshot(t, process).Usage(); usage != before {
 			t.Fatalf("duplicate charged usage: before=%+v after=%+v", before, usage)

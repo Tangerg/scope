@@ -28,7 +28,7 @@ func (b BindingRole) Valid() bool {
 
 func (b BindingRole) String() string {
 	if !b.Valid() {
-		return "invalid"
+		return invalidEnumName
 	}
 	return string(b)
 }

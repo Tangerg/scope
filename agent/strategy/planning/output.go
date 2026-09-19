@@ -27,7 +27,7 @@ func (o Outcome) Valid() bool {
 
 func (o Outcome) String() string {
 	if !o.Valid() {
-		return "invalid"
+		return invalidEnumName
 	}
 	return string(o)
 }
@@ -53,7 +53,7 @@ func (a AttemptStatus) Valid() bool {
 
 func (a AttemptStatus) String() string {
 	if !a.Valid() {
-		return "invalid"
+		return invalidEnumName
 	}
 	return string(a)
 }

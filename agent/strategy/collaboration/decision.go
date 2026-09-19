@@ -2,6 +2,8 @@ package collaboration
 
 import agent "github.com/Tangerg/scope/agent"
 
+const invalidEnumName = "invalid"
+
 // Mode chooses when the next coordinator turn runs.
 type Mode string
 
@@ -21,7 +23,7 @@ func (m Mode) Valid() bool { return m == Undecided || m == Continue || m == Wait
 
 func (m Mode) String() string {
 	if !m.Valid() {
-		return "invalid"
+		return invalidEnumName
 	}
 	if m == Undecided {
 		return "undecided"

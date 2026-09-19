@@ -641,6 +641,8 @@ func (e *Engine) ReleaseTree(ctx context.Context, rootID ProcessID) error {
 // rootDeployment must exactly bind the captured root; same-reference children
 // reuse it, while other exact references are resolved through EngineConfig's
 // DeploymentResolver. Registration is all-or-nothing within this Engine.
+// The Engine reserves every captured identity before resolving children or
+// restoring Execution state. Any failure releases the entire reservation.
 // Committed states and nonterminal prepared candidates must restore through
 // their exact Definition before registration, activation, or Effect dispatch.
 // Interrupted terminal candidates remain inert evidence and are not restored.
@@ -687,12 +689,6 @@ func (e *Engine) RestoreTree(
 		wire:        wire,
 		deployments: map[DeploymentRef]Deployment{rootDeployment.DeploymentRef(): rootDeployment},
 	}
-	if err := restoration.prepareProcesses(ctx); err != nil {
-		return nil, err
-	}
-	if err := restoration.prepareChildWaits(); err != nil {
-		return nil, err
-	}
 	if err := e.reserveRestoredTree(&restoration); err != nil {
 		return nil, err
 	}
@@ -702,6 +698,12 @@ func (e *Engine) RestoreTree(
 			e.discardRestoredTree(&restoration)
 		}
 	}()
+	if err := restoration.prepareProcesses(ctx); err != nil {
+		return nil, err
+	}
+	if err := restoration.prepareChildWaits(); err != nil {
+		return nil, err
+	}
 	var restoredHead TreeSnapshot
 	if engineIsDurable {
 		incarnation := newTreeIncarnationID()
@@ -749,7 +751,7 @@ func (e *Engine) startRestoredTree(ctx context.Context, restoration *treeRestora
 }
 
 func (e *Engine) reserveRestoredTree(restoration *treeRestoration) error {
-	if restoration == nil || len(restoration.processes) == 0 {
+	if restoration == nil || len(restoration.wire.ProcessSnapshots) == 0 {
 		return ErrInvalidTreeSnapshot
 	}
 	e.mu.Lock()
@@ -761,18 +763,18 @@ func (e *Engine) reserveRestoredTree(restoration *treeRestoration) error {
 	if e.treeRestoreReservations[rootID] != nil || e.trees[rootID] != nil {
 		return ErrProcessAlreadyExists
 	}
-	for _, process := range restoration.processes {
-		if _, exists := e.processes[process.handle.processID]; exists {
+	for _, process := range restoration.wire.ProcessSnapshots {
+		if _, exists := e.processes[process.ProcessID()]; exists {
 			return ErrProcessAlreadyExists
 		}
-		if _, exists := e.startReservations[process.handle.processID]; exists {
+		if _, exists := e.startReservations[process.ProcessID()]; exists {
 			return ErrProcessAlreadyExists
 		}
-		if e.restoredProcesses[process.handle.processID] != nil {
+		if e.restoredProcesses[process.ProcessID()] != nil {
 			return ErrProcessAlreadyExists
 		}
-		if parentID, child := process.handle.relation.ParentID(); child {
-			key, _ := process.handle.relation.ChildKey()
+		if parentID, child := process.Relation().ParentID(); child {
+			key, _ := process.Relation().ChildKey()
 			identity := childIdentity{parent: parentID, key: key}
 			if _, exists := e.children[identity]; exists {
 				return ErrInvalidChildStart
@@ -785,18 +787,11 @@ func (e *Engine) reserveRestoredTree(restoration *treeRestoration) error {
 			}
 		}
 	}
-	for _, registrations := range restoration.childWaits {
-		for _, wait := range registrations {
-			if wait == nil || !wait.waitID.Valid() {
-				return ErrInvalidChildWait
-			}
-		}
-	}
 	e.treeRestoreReservations[rootID] = restoration
-	for _, process := range restoration.processes {
-		e.restoredProcesses[process.handle.processID] = restoration
-		if parentID, child := process.handle.relation.ParentID(); child {
-			key, _ := process.handle.relation.ChildKey()
+	for _, process := range restoration.wire.ProcessSnapshots {
+		e.restoredProcesses[process.ProcessID()] = restoration
+		if parentID, child := process.Relation().ParentID(); child {
+			key, _ := process.Relation().ChildKey()
 			e.restoredChildren[childIdentity{parent: parentID, key: key}] = restoration
 		}
 	}
@@ -805,10 +800,10 @@ func (e *Engine) reserveRestoredTree(restoration *treeRestoration) error {
 
 // releaseRestoredTree requires mu and retires one reservation with both indexes.
 func (e *Engine) releaseRestoredTree(restoration *treeRestoration) {
-	for _, process := range restoration.processes {
-		delete(e.restoredProcesses, process.handle.processID)
-		if parentID, child := process.handle.relation.ParentID(); child {
-			key, _ := process.handle.relation.ChildKey()
+	for _, process := range restoration.wire.ProcessSnapshots {
+		delete(e.restoredProcesses, process.ProcessID())
+		if parentID, child := process.Relation().ParentID(); child {
+			key, _ := process.Relation().ChildKey()
 			delete(e.restoredChildren, childIdentity{parent: parentID, key: key})
 		}
 	}

@@ -510,9 +510,21 @@ func TestTreeDurabilityFaultReleasesConcurrentChildAdmissionOwnership(t *testing
 	if len(runtimeErr.UnresolvedEffectIDs()) != 1 {
 		t.Fatalf("root unresolved=%v", runtimeErr.UnresolvedEffectIDs())
 	}
+	before := inspectProcessSnapshot(t, root)
 	close(admitter.release)
 	dispatcher.ReleaseAll()
 	closeEngineEventually(t, engine)
+	stopped := root.handle.runtime.Load()
+	<-stopped.done
+	after := inspectProcessSnapshot(t, root)
+	if string(before.JSON()) != string(after.JSON()) {
+		t.Fatal("late child admission changed the acknowledged head after a fault")
+	}
+	parent := stopped.processes[root.ID()]
+	_, record := parent.prepared.pendingEffect(runtimeErr.UnresolvedEffectIDs()[0])
+	if record == nil || record.Settlement != nil {
+		t.Fatal("late child admission replaced pending evidence after a fault")
+	}
 }
 
 func awaitRuntimeError(t *testing.T, process *Process, cause error) *RuntimeError {

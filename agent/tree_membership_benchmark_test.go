@@ -158,7 +158,7 @@ func BenchmarkStartAdmissionDuringTreeRestore(b *testing.B) {
 			runtime := newWaitingSnapshotTree(b, count)
 			restoration := &treeRestoration{wire: treeSnapshotWire{RootID: runtime.rootID}}
 			for _, process := range orderedProcesses(runtime.processes) {
-				restoration.processes = append(restoration.processes, restoredTreeProcess{handle: process.handle})
+				restoration.wire.ProcessSnapshots = append(restoration.wire.ProcessSnapshots, controlValue(process.capture()))
 			}
 			if err := runtime.engine.reserveRestoredTree(restoration); err != nil {
 				b.Fatal(err)

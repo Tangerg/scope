@@ -163,6 +163,10 @@
 // Repeated submission of one signal identity produces exactly one logical
 // consumption and never charges the signal budget twice. The
 // same identity with different immutable content is rejected as a conflict.
+// A SignalID may appear only once within a batch. Across submissions, the mailbox
+// validates historical identities and admits only new ones, atomically. A false
+// admission result with nil error therefore confirms that the entire batch was
+// already accepted.
 // In durable mode, successful admission is acknowledged only after mailbox
 // records and budget charges commit to the authoritative tree head. The
 // consumption cursor advances only when candidate state and transition commit,
@@ -199,6 +203,9 @@
 // only when it satisfies Descriptor.SignalSchema. The default schema rejects
 // unaddressed input. Rejection returns ErrSignalRejected before any mailbox,
 // budget, wait or durable head changes; child-signal Effects obey the same rule.
+// Pause also suspends a committed wait. Its unanswered WaitID survives capture
+// and restoration; an answer clears the wait without releasing the pause.
+// A current external wait still rejects unaddressed input while Paused.
 // [NewChildWaitEffect] requires an explicit [ChildWaitBoundary]. The result boundary
 // counts terminal children. The drained boundary counts children whose entire
 // subtree satisfies [Process.Join]. All, any, and quorum count those facts in

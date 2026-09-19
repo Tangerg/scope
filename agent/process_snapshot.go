@@ -53,7 +53,8 @@ type ProcessSnapshot struct {
 
 // ParseProcessSnapshot strictly validates one Process snapshot wire value,
 // including single-answer wait history and an open, unanswered current wait
-// when the Process is Waiting. Prepared Effects must fit the captured Process
+// when the Process is Waiting or retains a wait while Paused.
+// Prepared Effects must fit the captured Process
 // capability grant. Terminal prepared batches contain no pending attempt and
 // their unknown identities must exactly match the Termination.
 func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
@@ -188,18 +189,15 @@ func (p ProcessSnapshot) Result() (Result, bool) {
 	return result, true
 }
 
-// WaitID returns the current Engine-minted wait identity and true when the
-// captured Process is Waiting.
+// WaitID returns the current unanswered Engine-minted wait identity, including
+// while the captured Process is Paused.
 func (p ProcessSnapshot) WaitID() (WaitID, bool) {
-	if p.state.Status != StatusWaiting {
-		return WaitID{}, false
-	}
 	waitID := snapshotWaitID(p.state.CurrentWaitID)
 	return waitID, waitID.Valid()
 }
 
 // WaitKind distinguishes Host input from Framework child completion while the
-// captured Process is Waiting. It derives from the existing wait authority.
+// captured Process has an unanswered wait, including while Paused.
 func (p ProcessSnapshot) WaitKind() (WaitKind, bool) {
 	waitID, waiting := p.WaitID()
 	if !waiting {
@@ -461,15 +459,16 @@ func (p processSnapshotWire) validateLifecycle(mailbox signalMailbox) error {
 	} else if p.Output != nil {
 		return fmt.Errorf("%w: only Completed Process may contain Output", ErrInvalidSnapshot)
 	}
-	if p.Status == StatusWaiting {
-		if p.CurrentWaitID == nil || !p.CurrentWaitID.Valid() {
-			return fmt.Errorf("%w: waiting process requires current WaitID", ErrInvalidSnapshot)
+	if p.Status == StatusWaiting && p.CurrentWaitID == nil {
+		return fmt.Errorf("%w: waiting process requires current WaitID", ErrInvalidSnapshot)
+	}
+	if p.CurrentWaitID != nil {
+		if p.Status != StatusWaiting && p.Status != StatusPaused {
+			return fmt.Errorf("%w: current WaitID requires Waiting or Paused status", ErrInvalidSnapshot)
 		}
 		if shouldWait, err := mailbox.enterWait(*p.CurrentWaitID); err != nil || !shouldWait {
 			return fmt.Errorf("%w: current WaitID requires an open unanswered wait", ErrInvalidSnapshot)
 		}
-	} else if p.CurrentWaitID != nil {
-		return fmt.Errorf("%w: current WaitID requires Waiting status", ErrInvalidSnapshot)
 	}
 	if p.Status == StatusPaused {
 		if err := validateTerminationReason(p.PauseReason); err != nil {

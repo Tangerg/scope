@@ -71,10 +71,7 @@ func TestSignalAdmissionRejectsWholeBatchWithoutChangingHistoryOrWaits(t *testin
 		prepare func(*testing.T, *processState) []Signal
 		want    error
 	}{
-		{name: "history duplicate after new signal", prepare: func(t *testing.T, _ *processState) []Signal {
-			return []Signal{mustMailboxSignal(t, "signal:new", WaitID{}, json.RawMessage(`{}`)), mustMailboxSignal(t, "signal:0", WaitID{}, json.RawMessage(`{}`))}
-		}},
-		{name: "duplicate within batch", prepare: func(t *testing.T, _ *processState) []Signal {
+		{name: "duplicate within batch", want: ErrSignalConflict, prepare: func(t *testing.T, _ *processState) []Signal {
 			signal := mustMailboxSignal(t, "signal:new", WaitID{}, json.RawMessage(`{}`))
 			return []Signal{signal, signal}
 		}},
@@ -91,10 +88,6 @@ func TestSignalAdmissionRejectsWholeBatchWithoutChangingHistoryOrWaits(t *testin
 		{name: "two answers to same wait", want: ErrSignalRejected, prepare: func(t *testing.T, process *processState) []Signal {
 			wait := admissionTestWait(t, process)
 			return []Signal{mustMailboxSignal(t, "signal:first", wait, json.RawMessage(`{}`)), mustMailboxSignal(t, "signal:second", wait, json.RawMessage(`{}`))}
-		}},
-		{name: "answer then duplicate", prepare: func(t *testing.T, process *processState) []Signal {
-			wait := admissionTestWait(t, process)
-			return []Signal{mustMailboxSignal(t, "signal:answer", wait, json.RawMessage(`{}`)), mustMailboxSignal(t, "signal:0", WaitID{}, json.RawMessage(`{}`))}
 		}},
 		{name: "answer exceeds budget", want: ErrResourceLimitExceeded, prepare: func(t *testing.T, process *processState) []Signal {
 			wait := admissionTestWait(t, process)

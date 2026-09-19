@@ -62,7 +62,7 @@ func (r ResultDisposition) Valid() bool {
 
 func (r ResultDisposition) String() string {
 	if !r.Valid() {
-		return "invalid"
+		return invalidEnumName
 	}
 	return string(r)
 }
