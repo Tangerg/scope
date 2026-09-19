@@ -95,3 +95,81 @@ func advertisementTestDefinition(t testing.TB) *Definition {
 	}
 	return definition
 }
+
+func TestToolAdvertisementClosesOnEveryCallExit(t *testing.T) {
+	for _, outcome := range []string{"success", "error", "input", "panic"} {
+		t.Run(outcome, func(t *testing.T) {
+			var saved context.Context
+			executable, err := tool.NewFunc(tool.FuncConfig{Name: "active", Description: "Close the call capability."}, func(ctx context.Context, _ struct{}) (string, error) {
+				saved = ctx
+				accepted := make(chan error, 1)
+				go func() { accepted <- AdvertiseTools(ctx, "deferred") }()
+				if err := <-accepted; err != nil {
+					return "", err
+				}
+				switch outcome {
+				case "error":
+					return "", errors.New("unknown outcome")
+				case "input":
+					return "", RequireToolInput([]byte(`"continue?"`), []byte(`{"type":"boolean"}`), []byte(`null`))
+				case "panic":
+					panic("unknown outcome")
+				default:
+					return "done", nil
+				}
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			dispatcher := &toolDispatcher{tools: make(map[string]boundTool), deferredToolNames: map[string]struct{}{"deferred": {}}}
+			if err := dispatcher.bindTool(executable, false); err != nil {
+				t.Fatal(err)
+			}
+			prepared := dispatcher.prepareToolCall(chat.ToolCall{ID: "call", Name: "active", Arguments: `{}`})
+			_, names, required, _, callErr := dispatcher.callTool(t.Context(), agent.EffectRequest{}, 1, 0, prepared)
+			if saved == nil {
+				t.Fatal("Tool was not called")
+			}
+			if err := AdvertiseTools(saved, "deferred"); !errors.Is(err, ErrToolAdvertisementUnavailable) {
+				t.Fatalf("closed capability returned %v", err)
+			}
+			switch outcome {
+			case "success":
+				if callErr != nil || !slices.Equal(names, []string{"deferred"}) {
+					t.Fatalf("accepted advertisement lost: %v %v", names, callErr)
+				}
+			case "input":
+				if required == nil || callErr != nil || len(names) != 0 {
+					t.Fatalf("input outcome: %v %v %v", required, names, callErr)
+				}
+			default:
+				if callErr == nil || len(names) != 0 {
+					t.Fatalf("failed outcome: %v %v", names, callErr)
+				}
+			}
+		})
+	}
+}
+
+func TestToolAdvertisementCloseIsAtomicWithAdmission(t *testing.T) {
+	for range 100 {
+		advertiser := newToolAdvertiser(map[string]struct{}{"deferred": {}})
+		ctx := withToolAdvertiser(t.Context(), advertiser)
+		start := make(chan struct{})
+		accepted := make(chan error, 1)
+		go func() { <-start; accepted <- AdvertiseTools(ctx, "deferred") }()
+		close(start)
+		names := advertiser.close()
+		err := <-accepted
+		if err == nil {
+			if !slices.Equal(names, []string{"deferred"}) {
+				t.Fatalf("successful admission lost at close: %v", names)
+			}
+		} else if !errors.Is(err, ErrToolAdvertisementUnavailable) || len(names) != 0 {
+			t.Fatalf("closed admission: names=%v error=%v", names, err)
+		}
+		if err := AdvertiseTools(ctx, "deferred"); !errors.Is(err, ErrToolAdvertisementUnavailable) {
+			t.Fatalf("late admission: %v", err)
+		}
+	}
+}

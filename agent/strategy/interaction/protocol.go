@@ -262,6 +262,17 @@ func (s signalEnvelope) validateToolResult() error {
 	return s.ToolResult.validate()
 }
 
+func (t toolDispatchResult) settlement(id agent.EffectID) (agent.Settlement, error) {
+	if err := t.validate(); err != nil {
+		return agent.Settlement{}, err
+	}
+	payload, err := agent.EncodePayload(signalEnvelope{Operation: operationToolCall, ToolResult: &t})
+	if err != nil {
+		return agent.Settlement{}, err
+	}
+	return agent.NewSettlement(id, agent.SettlementStatusSucceeded, payload.JSON())
+}
+
 func (t toolDispatchResult) validate() error {
 	if (t.Completion == nil) == (t.Checkpoint == nil) {
 		return fmt.Errorf("%w: Tool dispatch requires one result or checkpoint", ErrInvalidProtocol)

@@ -2,7 +2,6 @@ package interaction
 
 import (
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -49,9 +48,7 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectReque
 	if err != nil {
 		return agent.Settlement{}, err
 	}
-	outcome := toolDispatchResult{Completion: &toolCallResult{
-		Result: result, Rejected: rejected, Direct: prepared.binding != nil && prepared.binding.direct && !result.IsError, AdvertisedToolNames: advertised,
-	}}
+	outcome := toolDispatchResult{Completion: prepared.completion(result, rejected, advertised)}
 	if required != nil {
 		count := uint64(0)
 		if resume != nil {
@@ -59,11 +56,7 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectReque
 		}
 		outcome = toolDispatchResult{Checkpoint: &toolCheckpoint{PauseCount: count + 1, InputRequest: *required}}
 	}
-	payload, err := jsonv2.Marshal(signalEnvelope{Operation: operationToolCall, ToolResult: &outcome}, jsonv2.Deterministic(true))
-	if err != nil {
-		return agent.Settlement{}, err
-	}
-	return agent.NewSettlement(request.ID(), agent.SettlementStatusSucceeded, payload)
+	return outcome.settlement(request.ID())
 }
 
 func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
@@ -134,6 +127,7 @@ func (t *toolDispatcher) callTool(
 	ctx = withToolInvocation(ctx, invocation)
 	ctx = withToolAdvertiser(ctx, advertiser)
 	defer func() {
+		advertiser.close()
 		if recovered := recover(); recovered != nil {
 			result = chat.ToolResult{}
 			advertisedToolNames = nil
@@ -142,6 +136,7 @@ func (t *toolDispatcher) callTool(
 		}
 	}()
 	output, err := binding.binding.Call(ctx, prepared.invocation)
+	names := advertiser.close()
 	result, required, rejected, err = modelToolResult(call, output, err)
 	if err != nil {
 		return chat.ToolResult{}, nil, nil, false, err
@@ -152,7 +147,7 @@ func (t *toolDispatcher) callTool(
 	if result.IsError {
 		return result, nil, nil, rejected, nil
 	}
-	return result, advertiser.advertisedNames(), nil, false, nil
+	return result, names, nil, false, nil
 }
 
 func (t *toolDispatcher) prepareToolCall(call chat.ToolCall) preparedToolCall {

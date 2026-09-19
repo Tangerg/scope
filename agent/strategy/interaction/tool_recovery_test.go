@@ -54,10 +54,12 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 				}
 				return textResponse("recovered"), nil
 			})
+			tools := testToolSet(t, interaction.ToolSetConfig{Tools: []tool.Tool{first, uncertain, last}})
 			deployment := configuredInteraction(t, interaction.DefinitionConfig{
 				Name: "interaction.tool-recovery", Description: "Recover individual Tool effects.",
-				MaxModelCalls: agent.NewQuota(2), MaxConcurrentToolCalls: concurrency,
-			}, interaction.DispatcherConfig{Model: model}, interaction.ToolSetConfig{Tools: []tool.Tool{first, uncertain, last}})
+				MaxModelCalls: agent.NewQuota(2), MaxConcurrentToolCalls: concurrency, Tools: tools,
+			}, interaction.DispatcherConfig{Model: model}, interaction.ToolSetConfig{})
+			deployment = toolInteractionDeployment(deployment.Deployment, tools)
 			engine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: gate, DeploymentResolver: deployment.resolver})
 			if err != nil {
 				t.Fatal(err)
@@ -116,7 +118,23 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 			if first.calls.Load() != 1 || uncertain.calls.Load() != 1 || last.calls.Load() != 0 {
 				t.Fatal("recovery replayed an established or unknown Tool attempt")
 			}
-			resolution, err := agent.NewSettlement(unknown[0], agent.SettlementStatusSucceeded, json.RawMessage(`{"operation":"tool_call","tool_result":{"completion":{"result":{"id":"call_uncertain","name":"uncertain","output":{"content":[{"kind":"text","text":"resolved"}]}},"direct":false}}}`))
+			recoveredResult := chat.ToolResult{ID: "call_uncertain", Name: "uncertain", Output: chat.NewTextToolOutput("resolved")}
+			for _, invalid := range []chat.ToolResult{
+				{ID: "wrong", Name: "uncertain", Output: chat.NewTextToolOutput("resolved")},
+				{ID: "call_uncertain", Name: "first", Output: chat.NewTextToolOutput("resolved")},
+				{ID: "call_uncertain", Name: "uncertain", Output: chat.ToolOutput{Content: []chat.ToolContent{{Kind: "invalid"}}}},
+			} {
+				if _, settlementErr := tools.SettleToolResult(gate.unknownRequest, invalid, nil); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
+					t.Fatalf("invalid recovery result accepted: %v", settlementErr)
+				}
+			}
+			if _, settlementErr := tools.SettleToolResult(agent.EffectRequest{}, recoveredResult, nil); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
+				t.Fatalf("invalid recovery request accepted: %v", settlementErr)
+			}
+			if _, settlementErr := tools.SettleToolResult(gate.unknownRequest, recoveredResult, []string{"unbound"}); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
+				t.Fatalf("invalid recovery advertisement accepted: %v", settlementErr)
+			}
+			resolution, err := tools.SettleToolResult(gate.unknownRequest, recoveredResult, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -200,6 +218,95 @@ func (t *toolSettlementCrash) CommitEffect(ctx context.Context, boundary agent.E
 	if settlement.Status() == agent.SettlementStatusUnknown {
 		t.unknownRequest = boundary.Request()
 		return errors.New("crash after committed Tool settlement before acknowledgment")
+	}
+	return nil
+}
+
+func TestToolRecoveryDerivesDirectPolicyFromExactBinding(t *testing.T) {
+	uncertain := &recoveryTool{name: "uncertain", unknown: true}
+	tools := testToolSet(t, interaction.ToolSetConfig{Tools: []tool.Tool{directTool{Tool: uncertain}}, DeferredTools: []tool.Tool{&recoveryTool{name: "deferred"}}})
+	model := &singleToolCallModel{call: chat.ToolCall{ID: "call", Name: "uncertain", Arguments: `{}`}}
+	deployment := configuredInteraction(t, interaction.DefinitionConfig{
+		Name: "interaction.direct-recovery", Description: "Recover the bound direct result.", MaxModelCalls: agent.NewQuota(1), Tools: tools,
+	}, interaction.DispatcherConfig{Model: model}, interaction.ToolSetConfig{})
+	deployment = toolInteractionDeployment(deployment.Deployment, tools)
+	store := &recoveryRequestRecorder{MemoryTreeDurability: agenttest.NewMemoryTreeDurability(), unknown: make(chan agent.EffectRequest, 1)}
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: store, DeploymentResolver: deployment.resolver})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	defer engine.Close(context.WithoutCancel(ctx))
+	root, err := engine.Start(ctx, deployment.Deployment, interactionInput(t, "recover"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Kill(context.WithoutCancel(ctx), "test cleanup")
+	var request agent.EffectRequest
+	select {
+	case request = <-store.unknown:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	resolved := chat.ToolResult{ID: "call", Name: "uncertain", Output: chat.NewTextToolOutput("resolved")}
+	other, err := interaction.NewToolSet(interaction.ToolSetConfig{
+		Name: "other.tools", Description: "A different binding.", Tools: []tool.Tool{uncertain},
+		ImplementationDigest: agent.ComputeDigest([]byte("other")), ConfigurationDigest: agent.ComputeDigest([]byte("other")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, settlementErr := other.SettleToolResult(request, resolved, nil); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
+		t.Fatalf("foreign binding accepted request: %v", settlementErr)
+	}
+	failed := resolved.Clone()
+	failed.IsError = true
+	if _, settlementErr := tools.SettleToolResult(request, failed, nil); settlementErr != nil {
+		t.Fatalf("definite Tool failure inherited direct-return policy: %v", settlementErr)
+	}
+	if _, settlementErr := tools.SettleToolResult(request, failed, []string{"deferred"}); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
+		t.Fatalf("failed recovery advertised Tools: %v", settlementErr)
+	}
+	settlement, err := tools.SettleToolResult(request, resolved, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, ok := engine.Process(request.ProcessID())
+	if !ok {
+		t.Fatal("missing Tool process")
+	}
+	if resolveErr := owner.ResolveUnknownEffect(ctx, settlement); resolveErr != nil {
+		t.Fatal(resolveErr)
+	}
+	final, err := root.Await(ctx)
+	if err != nil || final.Status() != agent.StatusCompleted {
+		t.Fatalf("recovered result: %s %v", final.Status(), err)
+	}
+	payload, ok := final.Output()
+	if !ok {
+		t.Fatal("missing direct output")
+	}
+	output, err := payload.Decode[interaction.Output]()
+	if err != nil || output.Source != interaction.CompletionSourceDirectToolResults || len(output.DirectToolResults) != 1 || output.DirectToolResults[0].ID != "call" || output.DirectToolResults[0].Output.Content[0].Text != "resolved" {
+		t.Fatalf("direct recovery output = %+v, error = %v", output, err)
+	}
+	if uncertain.calls.Load() != 1 || model.Calls() != 1 {
+		t.Fatal("recovery replayed external work")
+	}
+}
+
+type recoveryRequestRecorder struct {
+	*agenttest.MemoryTreeDurability
+	unknown chan agent.EffectRequest
+}
+
+func (r *recoveryRequestRecorder) CommitEffect(ctx context.Context, boundary agent.EffectBoundary) error {
+	if err := r.MemoryTreeDurability.CommitEffect(ctx, boundary); err != nil {
+		return err
+	}
+	if settlement, ok := boundary.Settlement(); ok && settlement.Status() == agent.SettlementStatusUnknown {
+		r.unknown <- boundary.Request()
 	}
 	return nil
 }

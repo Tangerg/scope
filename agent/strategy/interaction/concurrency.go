@@ -14,6 +14,11 @@ type preparedToolCall struct {
 	rejection  *chat.ToolResult
 }
 
+func (p preparedToolCall) completion(result chat.ToolResult, rejected bool, advertised []string) *toolCallResult {
+	return &toolCallResult{Result: result.Clone(), Rejected: rejected,
+		Direct: p.binding != nil && p.binding.direct && !result.IsError, AdvertisedToolNames: advertised}
+}
+
 type toolConcurrencyPlan struct {
 	concurrent bool
 	key        string

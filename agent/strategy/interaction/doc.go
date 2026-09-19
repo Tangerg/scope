@@ -21,7 +21,10 @@
 // or their backends. Hosts cover declaration identity in deployment digests.
 // Each call owns one Effect, its result, and any input continuation. Completed
 // siblings retain their settlements when another call remains unknown or waits
-// for input. Model context receives the complete results in original call order.
+// for input. Hosts use [ToolSet.SettleToolResult] to validate investigated Tool
+// results against the original EffectRequest and frozen binding, then submit
+// them through agent.Process.ResolveUnknownEffect. Recovery never replays Tools.
+// Model context receives the complete results in original call order.
 // A Tool child's input describes only its initial invocation, and its output
 // describes only completion. Resumption belongs to the child's dispatcher
 // protocol; its checkpoint retains the validated input request and Tool-owned continuation.

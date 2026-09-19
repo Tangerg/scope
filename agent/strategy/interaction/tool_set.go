@@ -86,6 +86,38 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 // DeploymentResolver alongside any other explicitly referenced children.
 func (t ToolSet) Deployment() agent.Deployment { return t.deployment }
 
+// SettleToolResult converts an investigated external outcome into the same
+// completion protocol used by live dispatch. It performs no Tool call or replay.
+// request must be the original Engine-minted request for this exact Deployment;
+// result must match its call. Direct-return policy comes only from the binding.
+// Failed results cannot advertise Tools. The Host submits the returned settlement
+// through Process.ResolveUnknownEffect, which owns unknown-effect resolution.
+func (t ToolSet) SettleToolResult(request agent.EffectRequest, result chat.ToolResult, advertisedToolNames []string) (agent.Settlement, error) {
+	if !t.Configured() || !request.Valid() || request.DeploymentRef() != t.deployment.DeploymentRef() {
+		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery requires its exact Deployment request", ErrInvalidProtocol)
+	}
+	envelope, err := decodeEffect(request.Effect().Payload())
+	if err != nil {
+		return agent.Settlement{}, err
+	}
+	if envelope.Operation != operationToolCall {
+		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery requires a tool_call", ErrInvalidProtocol)
+	}
+	call := envelope.ToolCall.Invocation.Call
+	prepared := t.dispatcher.prepareToolCall(call)
+	if prepared.rejection != nil {
+		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery call is not admitted by its binding", ErrInvalidProtocol)
+	}
+	if err := t.manifest.validateAdvertisements(advertisedToolNames); err != nil {
+		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery advertisements: %w", ErrInvalidProtocol, err)
+	}
+	completion := prepared.completion(result, false, advertisedToolNames)
+	if err := completion.validateCall(call); err != nil {
+		return agent.Settlement{}, err
+	}
+	return (toolDispatchResult{Completion: completion}).settlement(request.ID())
+}
+
 // Configured distinguishes a constructed ToolSet from the optional absence of Tools.
 func (t ToolSet) Configured() bool { return t.dispatcher != nil }
 

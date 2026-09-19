@@ -32,6 +32,7 @@ type toolAdvertiser struct {
 	allowed map[string]struct{}
 	seen    map[string]struct{}
 	names   []string
+	closed  bool
 }
 
 func newToolAdvertiser(allowed map[string]struct{}) *toolAdvertiser {
@@ -42,11 +43,14 @@ func newToolAdvertiser(allowed map[string]struct{}) *toolAdvertiser {
 }
 
 func (t *toolAdvertiser) advertise(names []string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.closed {
+		return ErrToolAdvertisementUnavailable
+	}
 	if len(names) == 0 {
 		return fmt.Errorf("%w: at least one Tool name is required", ErrInvalidToolAdvertisement)
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
 	for _, name := range names {
 		if name == "" || strings.TrimSpace(name) != name {
 			return fmt.Errorf("%w: tool name %q is empty or has surrounding whitespace", ErrInvalidToolAdvertisement, name)
@@ -65,9 +69,10 @@ func (t *toolAdvertiser) advertise(names []string) error {
 	return nil
 }
 
-func (t *toolAdvertiser) advertisedNames() []string {
+func (t *toolAdvertiser) close() []string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.closed = true
 	return slices.Clone(t.names)
 }
 
