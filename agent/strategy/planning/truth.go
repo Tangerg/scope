@@ -7,6 +7,8 @@ import (
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
+const invalidEnumName = "invalid"
+
 // Truth is the three-valued truth of one observed condition. Unknown is not a
 // synonym for False: it means the current WorldState does not establish either
 // known value. The zero value is invalid; callers must choose explicitly.
@@ -27,7 +29,7 @@ func (t Truth) known() bool { return t == False || t == True }
 
 func (t Truth) String() string {
 	if !t.Valid() {
-		return "invalid"
+		return invalidEnumName
 	}
 	return string(t)
 }

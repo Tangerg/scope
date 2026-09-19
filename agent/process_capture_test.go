@@ -87,6 +87,7 @@ func TestRepeatedCaptureTracksControlSignalsAndReservations(t *testing.T) {
 
 func TestDurabilityFailureDiscardsOnlyUnacknowledgedChildren(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 2)
+	runtime.engine.durability = &recordingTreeDurability{}
 	root := runtime.processes[runtime.rootID]
 	acknowledged, err := root.capture()
 	if err != nil {
@@ -101,13 +102,14 @@ func TestDurabilityFailureDiscardsOnlyUnacknowledgedChildren(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	head, err := newTreeSnapshot(treeSnapshotWire{RootID: runtime.rootID, ProcessSnapshots: []ProcessSnapshot{acknowledged}})
+	incarnation := newTreeIncarnationID()
+	head, err := newTreeSnapshot(treeSnapshotWire{RootID: runtime.rootID, IncarnationID: &incarnation, ProcessSnapshots: []ProcessSnapshot{acknowledged}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime.head = head
+	runtime.establishDurableHead(incarnation, head)
 	cause := errors.New("child checkpoint was not acknowledged")
-	runtime.failDurability(cause, ProcessID{}, EffectID{})
+	runtime.failRuntime(cause, ProcessID{}, EffectID{})
 	if len(runtime.processes) != 1 || runtime.processes[runtime.rootID] != root {
 		t.Fatal("prospective child retained a published lifecycle")
 	}
@@ -116,7 +118,7 @@ func TestDurabilityFailureDiscardsOnlyUnacknowledgedChildren(t *testing.T) {
 	if !ok || !errors.Is(failure, cause) || failure.HeadDigest() != head.Digest() {
 		t.Fatalf("runtime failure = %v", err)
 	}
-	runtime.failDurability(cause, ProcessID{}, EffectID{})
+	runtime.failRuntime(cause, ProcessID{}, EffectID{})
 }
 
 func TestRepeatedCaptureTracksEffectSettlement(t *testing.T) {

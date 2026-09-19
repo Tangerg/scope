@@ -8,7 +8,6 @@ import (
 
 func TestResolveTerminationPriorityMatrix(t *testing.T) {
 	kill, _ := newKillIntent("operator requested kill")
-	processDeadline, _ := newDeadlineIntent(deadlineOwnerProcess, "process deadline reached")
 	parentDeadline, _ := newDeadlineIntent(deadlineOwnerParent, "parent deadline reached")
 	hostDeadline, _ := newDeadlineIntent(deadlineOwnerHost, "host deadline reached")
 	parentCancellation, _ := newCancellationIntent(cancellationOwnerParent, "parent canceled")
@@ -29,7 +28,6 @@ func TestResolveTerminationPriorityMatrix(t *testing.T) {
 		cause TerminationCause
 	}{
 		{name: "kill wins all", facts: terminationFacts{kill: kill, deadline: hostDeadline, cancellation: parentCancellation, outcome: externalFailed}, want: StatusKilled, cause: TerminationCauseEngineKill},
-		{name: "process deadline", facts: terminationFacts{deadline: processDeadline, outcome: externalFailed}, want: StatusTimedOut, cause: TerminationCauseProcessDeadline},
 		{name: "parent deadline", facts: terminationFacts{deadline: parentDeadline, outcome: externalFailed}, want: StatusTimedOut, cause: TerminationCauseParentDeadline},
 		{name: "host deadline wins cancellation and failure", facts: terminationFacts{deadline: hostDeadline, cancellation: parentCancellation, outcome: externalFailed}, want: StatusTimedOut, cause: TerminationCauseHostDeadline},
 		{name: "parent cancellation wins failure", facts: terminationFacts{cancellation: parentCancellation, outcome: externalFailed}, want: StatusCanceled, cause: TerminationCauseParentCancellation},

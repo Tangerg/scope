@@ -29,6 +29,15 @@ func TestAgentDeclarationsKeepOneMeaning(t *testing.T) {
 		}
 		ast.Inspect(file, func(node ast.Node) bool {
 			switch node := node.(type) {
+			case *ast.FuncDecl:
+				if node.Recv != nil && node.Name.Name == "String" {
+					ast.Inspect(node.Body, func(child ast.Node) bool {
+						if value, ok := child.(*ast.BasicLit); ok && value.Kind == token.STRING && value.Value == `"invalid"` {
+							t.Errorf("%s: enum String must use its package's invalidEnumName", fset.Position(value.Pos()))
+						}
+						return true
+					})
+				}
 			case *ast.GenDecl:
 				if node.Tok == token.CONST && mixesIotaWithUnrelatedConstants(node) {
 					t.Errorf("%s: iota vocabulary and unrelated constants need separate declarations", fset.Position(node.Pos()))

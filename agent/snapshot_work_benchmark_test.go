@@ -32,33 +32,50 @@ func BenchmarkWaitingTreeCapture(b *testing.B) {
 func BenchmarkTreeAdmission(b *testing.B) {
 	for _, count := range []int{1, 10, 100, 1000} {
 		b.Run(fmt.Sprintf("processes_%d", count), func(b *testing.B) {
-			runtime := newWaitingSnapshotTree(b, count)
-			root := runtime.processes[runtime.rootID]
-			signal := controlValue(newSignal(controlValue(ParseSignalID("signal:benchmark-admission")), WaitID{}, []byte(`{"value":"input"}`)))
-			b.Run("signal", func(b *testing.B) {
-				b.ReportAllocs()
-				for b.Loop() {
-					candidate, err := root.prepareSignals([]Signal{signal}, signalSourceExternal)
-					if err != nil {
-						b.Fatal(err)
+			for _, quota := range []struct {
+				name    string
+				process Quota
+				tree    Quota
+			}{
+				{name: "unlimited"},
+				{name: "process_quota", process: NewQuota(1 << 20)},
+				{name: "tree_quota", tree: NewQuota(uint64(count+1) << 20)},
+			} {
+				b.Run(quota.name, func(b *testing.B) {
+					runtime := newWaitingSnapshotTree(b, count)
+					for _, process := range runtime.processes {
+						process.limits.MaxSnapshotBytes = quota.process
+						process.treeLimits.MaxSnapshotBytes = quota.tree
+						process.handle.treeLimits = process.treeLimits
 					}
-					if err := runtime.validateSnapshotCapacity(candidate); err != nil {
-						b.Fatal(err)
-					}
-				}
-			})
-			relation := childProcessRelation(newProcessID(), root.handle.relation, controlValue(ParseChildKey("admitted")))
-			handle := newProcessHandle(relation, root.deployment.DeploymentRef(), root.limits.Budget, root.capabilities, root.treeLimits, root.startedAt)
-			handle.childRequestDigest = ComputeDigest([]byte("benchmark-child"))
-			child := newProcessState(handle, root.deployment, root.execution, root.committedExecutionState, root.startedAt, root.limits)
-			b.Run("child_publication_capacity", func(b *testing.B) {
-				b.ReportAllocs()
-				for b.Loop() {
-					if err := runtime.validateSnapshotCapacity(root, child); err != nil {
-						b.Fatal(err)
-					}
-				}
-			})
+					root := runtime.processes[runtime.rootID]
+					signal := controlValue(newSignal(controlValue(ParseSignalID("signal:benchmark-admission")), WaitID{}, []byte(`{"value":"input"}`)))
+					b.Run("signal", func(b *testing.B) {
+						b.ReportAllocs()
+						for b.Loop() {
+							candidate, err := root.prepareSignals([]Signal{signal}, signalSourceExternal)
+							if err != nil {
+								b.Fatal(err)
+							}
+							if err := runtime.validateSnapshotCapacity(candidate); err != nil {
+								b.Fatal(err)
+							}
+						}
+					})
+					relation := childProcessRelation(newProcessID(), root.handle.relation, controlValue(ParseChildKey("admitted")))
+					handle := newProcessHandle(relation, root.deployment.DeploymentRef(), root.limits.Budget, root.capabilities, root.treeLimits, root.startedAt)
+					handle.childRequestDigest = ComputeDigest([]byte("benchmark-child"))
+					child := newProcessState(handle, root.deployment, root.execution, root.committedExecutionState, root.startedAt, root.limits)
+					b.Run("child_publication_capacity", func(b *testing.B) {
+						b.ReportAllocs()
+						for b.Loop() {
+							if err := runtime.validateSnapshotCapacity(root, child); err != nil {
+								b.Fatal(err)
+							}
+						}
+					})
+				})
+			}
 		})
 	}
 }
@@ -83,7 +100,7 @@ func BenchmarkTreeDurabilityFailure(b *testing.B) {
 					process.handle.bookkeepingDone = make(chan struct{})
 				}
 				b.StartTimer()
-				runtime.failDurability(cause, ProcessID{}, EffectID{})
+				runtime.failRuntime(cause, ProcessID{}, EffectID{})
 			}
 		})
 	}

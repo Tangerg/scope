@@ -8,6 +8,31 @@ import (
 	"time"
 )
 
+func TestPauseRetainsChildWaitUntilCompletion(t *testing.T) {
+	runtime, first := waitingOwnerFixture(t, 1)
+	parentID, _ := first.handle.relation.ParentID()
+	parent := runtime.processes[parentID]
+	waitID := parent.currentWaitID
+	if err := parent.requestPause("inspect children"); err != nil || !runtime.applyPendingControl(parent) {
+		t.Fatalf("pause child wait: %v", err)
+	}
+	if err := parent.resume(); err != nil || parent.status != StatusWaiting || parent.currentWaitID != waitID {
+		t.Fatalf("Resume lost unanswered child wait: %v", err)
+	}
+	if err := parent.requestPause("inspect children"); err != nil || !runtime.applyPendingControl(parent) {
+		t.Fatalf("pause child wait: %v", err)
+	}
+	second := runtime.processes[runtime.childrenByParent[parentID][1]]
+	second.installTermination(first.termination, first.finalOutput, first.finishedAt)
+	runtime.finishIfTerminal(second)
+	if parent.status != StatusPaused || parent.currentWaitID.Valid() || parent.mailbox.pendingCount() != 1 {
+		t.Fatal("child completion did not clear only the wait")
+	}
+	if err := parent.resume(); err != nil || parent.status != StatusRunning {
+		t.Fatalf("Resume after child completion: %v", err)
+	}
+}
+
 func TestChildWaitCompletionAndTerminationRemainWithinParent(t *testing.T) {
 	runtime, first := waitingOwnerFixture(t, 3)
 	parentID, _ := first.handle.relation.ParentID()

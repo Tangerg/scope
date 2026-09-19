@@ -12,9 +12,9 @@ import (
 
 var (
 	ErrSignalRejected = errors.New("agent: signal rejected")
-	// ErrSignalConflict reports reuse of a SignalID with different immutable
-	// content, including the addressed WaitID.
-	ErrSignalConflict = errors.New("agent: signal identity conflicts with accepted content")
+	// ErrSignalConflict reports a repeated SignalID within one batch or reuse
+	// of an accepted identity with different immutable content or WaitID.
+	ErrSignalConflict = errors.New("agent: conflicting signal identity")
 	errMailboxCursor  = errors.New("agent: invalid signal cursor")
 	errWaitState      = errors.New("agent: invalid wait state")
 )
@@ -34,6 +34,15 @@ func newSignalRecord(signal Signal, opensWait bool) signalRecord {
 		id: signal.id, waitID: signal.waitID, payload: signal.payload,
 		payloadDigest: ComputeDigest(signal.payload), opensWait: opensWait, source: signalSourceExternal,
 	}
+}
+
+func newAdmissionRecord(signal Signal, source signalSource) (signalRecord, error) {
+	if !signal.Valid() || !source.accepts(signal.ID()) {
+		return signalRecord{}, fmt.Errorf("%w: %w", ErrSignalRejected, ErrInvalidSignal)
+	}
+	record := newSignalRecord(signal, false)
+	record.source = source
+	return record, nil
 }
 
 func (s signalRecord) sameContent(other signalRecord) bool {
@@ -137,8 +146,7 @@ func (s *signalMailbox) validateRecord(status Status, record signalRecord) (bool
 	waitID := record.waitID
 	if waitID.Valid() {
 		wait, exists := s.waits[waitID]
-		acceptsAnswer := status == StatusRunning || status == StatusWaiting ||
-			status == StatusPaused && source == signalSourceChildWait
+		acceptsAnswer := status == StatusRunning || status == StatusWaiting || status == StatusPaused
 		if !exists || (wait.kind == WaitKindExternal) != (source == signalSourceExternal) || wait.closed || wait.answered ||
 			!acceptsAnswer {
 			return false, ErrSignalRejected
@@ -355,54 +363,46 @@ func (s *signalMailbox) wire() mailboxWire {
 	return wire
 }
 
-func (s *signalMailbox) prepareAdmission(status Status, currentWaitID WaitID, signals []Signal, source signalSource) (signalAdmission, error) {
-	admission := signalAdmission{records: make([]signalRecord, 0, len(signals)), status: status}
-	seen := make(map[SignalID]signalRecord, len(signals))
+// Admission validates the whole batch against history before returning new records.
+func (s *signalMailbox) prepareAdmission(status Status, currentWaitID WaitID, signals []Signal, source signalSource) ([]signalRecord, error) {
+	records := make([]signalRecord, 0, len(signals))
+	seen := make(map[SignalID]struct{}, len(signals))
 	answered := make(map[WaitID]struct{})
 	for _, signal := range signals {
 		record, err := newAdmissionRecord(signal, source)
 		if err != nil {
-			return signalAdmission{}, err
+			return nil, err
 		}
-		if previous, found := seen[record.id]; found {
-			if !previous.sameContent(record) {
-				return signalAdmission{}, ErrSignalConflict
-			}
-			admission.duplicate = true
-			continue
+		if _, found := seen[record.id]; found {
+			return nil, ErrSignalConflict
 		}
-		accepted, err := s.validateRecord(admission.status, record)
+		seen[record.id] = struct{}{}
+		accepted, err := s.validateRecord(status, record)
 		if err != nil {
-			return signalAdmission{}, err
+			return nil, err
 		}
 		if !accepted {
 			// A duplicate does not excuse a conflict or unauthorized address later
 			// in the batch. Nothing is applied unless every entry passes preflight.
-			admission.duplicate = true
 			continue
 		}
 		waitID := record.waitID
 		if waitID.Valid() {
 			if _, alreadyAnswered := answered[waitID]; alreadyAnswered {
-				return signalAdmission{}, ErrSignalRejected
+				return nil, ErrSignalRejected
 			}
 			answered[waitID] = struct{}{}
 		}
-		if admission.status == StatusWaiting {
-			if source == signalSourceExternal {
-				wait := s.waits[currentWaitID]
-				if waitID != currentWaitID && (waitID.Valid() || wait.kind == WaitKindExternal) {
-					return signalAdmission{}, ErrSignalRejected
-				}
-			}
-			if waitID == currentWaitID {
-				admission.status = StatusRunning
+		if currentWaitID.Valid() && source == signalSourceExternal {
+			wait := s.waits[currentWaitID]
+			_, currentAnswered := answered[currentWaitID]
+			if waitID != currentWaitID && (waitID.Valid() || (wait.kind == WaitKindExternal && !currentAnswered)) {
+				return nil, ErrSignalRejected
 			}
 		}
-		seen[record.id] = record
-		admission.records = append(admission.records, record)
+		records = append(records, record)
 	}
-	return admission, nil
+	return records, nil
 }
 
 // Restoration replays portable facts through the live mailbox transitions.

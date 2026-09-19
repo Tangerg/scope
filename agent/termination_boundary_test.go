@@ -52,6 +52,7 @@ func TestPreparedFailurePreservesDispatchEvidence(t *testing.T) {
 				})
 			}
 			runtime.advanceOne()
+			record = &process.prepared.Effects[0]
 			var wantUnresolved []EffectID
 			wantPhase := effectPhasePlanned
 			if mode != "unused" {

@@ -127,7 +127,6 @@ func TestStableEnumVocabulary(t *testing.T) {
 			valid: map[string]enumValue{
 				"completion":          agent.TerminationCauseCompletion,
 				"engine_kill":         agent.TerminationCauseEngineKill,
-				"process_deadline":    agent.TerminationCauseProcessDeadline,
 				"parent_deadline":     agent.TerminationCauseParentDeadline,
 				"host_deadline":       agent.TerminationCauseHostDeadline,
 				"parent_cancellation": agent.TerminationCauseParentCancellation,

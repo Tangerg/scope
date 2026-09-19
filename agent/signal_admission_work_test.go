@@ -71,10 +71,7 @@ func TestSignalAdmissionRejectsWholeBatchWithoutChangingHistoryOrWaits(t *testin
 		prepare func(*testing.T, *processState) []Signal
 		want    error
 	}{
-		{name: "history duplicate after new signal", prepare: func(t *testing.T, _ *processState) []Signal {
-			return []Signal{mustMailboxSignal(t, "signal:new", WaitID{}, json.RawMessage(`{}`)), mustMailboxSignal(t, "signal:0", WaitID{}, json.RawMessage(`{}`))}
-		}},
-		{name: "duplicate within batch", prepare: func(t *testing.T, _ *processState) []Signal {
+		{name: "duplicate within batch", want: ErrSignalConflict, prepare: func(t *testing.T, _ *processState) []Signal {
 			signal := mustMailboxSignal(t, "signal:new", WaitID{}, json.RawMessage(`{}`))
 			return []Signal{signal, signal}
 		}},
@@ -91,10 +88,6 @@ func TestSignalAdmissionRejectsWholeBatchWithoutChangingHistoryOrWaits(t *testin
 		{name: "two answers to same wait", want: ErrSignalRejected, prepare: func(t *testing.T, process *processState) []Signal {
 			wait := admissionTestWait(t, process)
 			return []Signal{mustMailboxSignal(t, "signal:first", wait, json.RawMessage(`{}`)), mustMailboxSignal(t, "signal:second", wait, json.RawMessage(`{}`))}
-		}},
-		{name: "answer then duplicate", prepare: func(t *testing.T, process *processState) []Signal {
-			wait := admissionTestWait(t, process)
-			return []Signal{mustMailboxSignal(t, "signal:answer", wait, json.RawMessage(`{}`)), mustMailboxSignal(t, "signal:0", WaitID{}, json.RawMessage(`{}`))}
 		}},
 		{name: "answer exceeds budget", want: ErrResourceLimitExceeded, prepare: func(t *testing.T, process *processState) []Signal {
 			wait := admissionTestWait(t, process)
@@ -119,28 +112,37 @@ func TestSignalAdmissionRejectsWholeBatchWithoutChangingHistoryOrWaits(t *testin
 }
 
 func TestSignalAdmissionAppliesWaitAnswerAndFollowingSignalTogether(t *testing.T) {
-	process := admissionTestProcess(t, 10)
-	wait := admissionTestWait(t, process)
-	answer := mustMailboxSignal(t, "signal:answer", wait, json.RawMessage(`{"approved":true}`))
-	steer := mustMailboxSignal(t, "signal:steer", WaitID{}, json.RawMessage(`{"next":"continue"}`))
-	if accepted, err := admitTestSignals(process, []Signal{answer, steer}, signalSourceExternal); err != nil || !accepted {
-		t.Fatalf("admission = %t, %v", accepted, err)
-	}
-	if process.status != StatusRunning || process.currentWaitID.Valid() || !process.mailbox.waits[wait].answered || process.usage().AcceptedSignals != 13 {
-		t.Fatalf("batch did not atomically resume and charge the Process: status=%s usage=%+v", process.status, process.usage())
-	}
-	if got := process.mailbox.records[11:]; len(got) != 2 || got[0].id != answer.ID() || got[1].id != steer.ID() {
-		t.Fatal("accepted batch lost arrival order")
-	}
-	restored := restoredMailbox(t, process.mailbox, process.status)
-	process.mailbox = restored
-	before := *process
-	before.mailbox = process.mailbox.clone()
-	if accepted, err := admitTestSignals(process, []Signal{answer, steer}, signalSourceExternal); err != nil || accepted {
-		t.Fatalf("replay after restore = %t, %v", accepted, err)
-	}
-	if !reflect.DeepEqual(before.mailbox, process.mailbox) || before.status != process.status || before.currentWaitID != process.currentWaitID || before.usage() != process.usage() {
-		t.Fatal("restored replay changed Process state")
+	for _, status := range []Status{StatusWaiting, StatusPaused} {
+		t.Run(status.String(), func(t *testing.T) {
+			process := admissionTestProcess(t, 10)
+			wait := admissionTestWait(t, process)
+			process.status = status
+			wantStatus := StatusRunning
+			if status == StatusPaused {
+				wantStatus = StatusPaused
+			}
+			answer := mustMailboxSignal(t, "signal:answer", wait, json.RawMessage(`{"approved":true}`))
+			steer := mustMailboxSignal(t, "signal:steer", WaitID{}, json.RawMessage(`{"next":"continue"}`))
+			if accepted, err := admitTestSignals(process, []Signal{answer, steer}, signalSourceExternal); err != nil || !accepted {
+				t.Fatalf("admission = %t, %v", accepted, err)
+			}
+			if process.status != wantStatus || process.currentWaitID.Valid() || !process.mailbox.waits[wait].answered || process.usage().AcceptedSignals != 13 {
+				t.Fatalf("batch did not atomically answer and charge the Process: status=%s usage=%+v", process.status, process.usage())
+			}
+			if got := process.mailbox.records[11:]; len(got) != 2 || got[0].id != answer.ID() || got[1].id != steer.ID() {
+				t.Fatal("accepted batch lost arrival order")
+			}
+			restored := restoredMailbox(t, process.mailbox, process.status)
+			process.mailbox = restored
+			before := *process
+			before.mailbox = process.mailbox.clone()
+			if accepted, err := admitTestSignals(process, []Signal{answer, steer}, signalSourceExternal); err != nil || accepted {
+				t.Fatalf("replay after restore = %t, %v", accepted, err)
+			}
+			if !reflect.DeepEqual(before.mailbox, process.mailbox) || before.status != process.status || before.currentWaitID != process.currentWaitID || before.usage() != process.usage() {
+				t.Fatal("restored replay changed Process state")
+			}
+		})
 	}
 }
 

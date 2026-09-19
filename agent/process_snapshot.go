@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
@@ -53,7 +54,8 @@ type ProcessSnapshot struct {
 
 // ParseProcessSnapshot strictly validates one Process snapshot wire value,
 // including single-answer wait history and an open, unanswered current wait
-// when the Process is Waiting. Prepared Effects must fit the captured Process
+// when the Process is Waiting or retains a wait while Paused.
+// Prepared Effects must fit the captured Process
 // capability grant. Terminal prepared batches contain no pending attempt and
 // their unknown identities must exactly match the Termination.
 func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
@@ -188,18 +190,15 @@ func (p ProcessSnapshot) Result() (Result, bool) {
 	return result, true
 }
 
-// WaitID returns the current Engine-minted wait identity and true when the
-// captured Process is Waiting.
+// WaitID returns the current unanswered Engine-minted wait identity, including
+// while the captured Process is Paused.
 func (p ProcessSnapshot) WaitID() (WaitID, bool) {
-	if p.state.Status != StatusWaiting {
-		return WaitID{}, false
-	}
 	waitID := snapshotWaitID(p.state.CurrentWaitID)
 	return waitID, waitID.Valid()
 }
 
 // WaitKind distinguishes Host input from Framework child completion while the
-// captured Process is Waiting. It derives from the existing wait authority.
+// captured Process has an unanswered wait, including while Paused.
 func (p ProcessSnapshot) WaitKind() (WaitKind, bool) {
 	waitID, waiting := p.WaitID()
 	if !waiting {
@@ -287,6 +286,65 @@ type processSnapshotWire struct {
 	PendingControl          pendingControlWire  `json:"pending_control"`
 	Output                  *Payload            `json:"output,omitempty"`
 	Termination             *Termination        `json:"termination,omitempty"`
+}
+
+// Finite byte quotas reserve mandatory lifecycle growth and Framework settlements.
+// These projections measure bytes only; they never become lifecycle facts.
+// Dispatcher payloads are external outcomes, not predictable admission facts.
+func (p processSnapshotWire) admissionSize() (uint64, error) {
+	var pendingSize int
+	if !p.Status.Terminal() && (p.Limits.MaxSnapshotBytes.limited || p.TreeLimits.MaxSnapshotBytes.limited) {
+		failure := Failure{kind: FailureKindExecution, code: strings.Repeat("x", maxFailureCodeBytes), message: strings.Repeat("<", MaxDiagnosticBytes)}
+		var unresolved []EffectID
+		if p.Prepared != nil {
+			prepared := p.Prepared.clone()
+			p.Prepared = &prepared
+			for index := range prepared.Effects {
+				record := &prepared.Effects[index]
+				if record.unknown() || record.Phase == effectPhasePending {
+					unresolved = append(unresolved, record.ID)
+				}
+				if err := record.reserveSnapshotSettlement(failure); err != nil {
+					return 0, err
+				}
+			}
+		}
+		// JSON encodes '<' as six bytes (\u003c), the maximum expansion per UTF-8
+		// byte. Current and pending control fields reserve independently, including
+		// a Step pause racing a Host pause.
+		reason := strings.Repeat("<", maxTerminationReasonBytes)
+		p.PauseReason = reason
+		p.Status = StatusRunning
+		p.Counters.DroppedDeltas = ^uint64(0)
+		p.PendingControl = pendingControlWire{
+			Failure: &failure, KillReason: reason, PauseReason: reason,
+			DeadlineOwner: deadlineOwnerParent, DeadlineReason: reason,
+			CancellationOwner: cancellationOwnerParent, CancellationReason: reason,
+		}
+		pending, err := json.Marshal(p)
+		if err != nil {
+			return 0, err
+		}
+		pendingSize = len(pending)
+		p.PendingControl = pendingControlWire{}
+		p.PauseReason = ""
+		p.CurrentWaitID = nil
+		p.Status = StatusFailed
+		p.FinishedAt = new(time.Date(9999, time.December, 31, 23, 59, 59, 999999999, time.UTC))
+		// The maximal failure object adds more bytes than other terminal statuses
+		// and causes can add, while its message also fills the termination reason.
+		termination := failure.termination().withUnresolvedEffectIDs(unresolved)
+		p.Termination = &termination
+	}
+	encoded, err := json.Marshal(p)
+	if err != nil {
+		return 0, err
+	}
+	size := uint64(max(pendingSize, len(encoded)))
+	if !p.Limits.MaxSnapshotBytes.Allows(size) {
+		return 0, ErrResourceLimitExceeded
+	}
+	return size, nil
 }
 
 // Domain values are immutable. The wire's pointers, slices, and raw mailbox
@@ -461,15 +519,16 @@ func (p processSnapshotWire) validateLifecycle(mailbox signalMailbox) error {
 	} else if p.Output != nil {
 		return fmt.Errorf("%w: only Completed Process may contain Output", ErrInvalidSnapshot)
 	}
-	if p.Status == StatusWaiting {
-		if p.CurrentWaitID == nil || !p.CurrentWaitID.Valid() {
-			return fmt.Errorf("%w: waiting process requires current WaitID", ErrInvalidSnapshot)
+	if p.Status == StatusWaiting && p.CurrentWaitID == nil {
+		return fmt.Errorf("%w: waiting process requires current WaitID", ErrInvalidSnapshot)
+	}
+	if p.CurrentWaitID != nil {
+		if p.Status != StatusWaiting && p.Status != StatusPaused {
+			return fmt.Errorf("%w: current WaitID requires Waiting or Paused status", ErrInvalidSnapshot)
 		}
 		if shouldWait, err := mailbox.enterWait(*p.CurrentWaitID); err != nil || !shouldWait {
 			return fmt.Errorf("%w: current WaitID requires an open unanswered wait", ErrInvalidSnapshot)
 		}
-	} else if p.CurrentWaitID != nil {
-		return fmt.Errorf("%w: current WaitID requires Waiting status", ErrInvalidSnapshot)
 	}
 	if p.Status == StatusPaused {
 		if err := validateTerminationReason(p.PauseReason); err != nil {

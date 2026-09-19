@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -44,38 +43,38 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 }
 
 func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
-	limits := Limits{
-		MaxPendingSignals: 10, Budget: Budget{Steps: NewQuota(10), Effects: NewQuota(10), Signals: NewQuota(3)},
+	runtime := newWaitingSnapshotTree(t, 3)
+	parent := runtime.processes[runtime.rootID]
+	parent.limits.Budget.Signals = NewQuota(23)
+	var effects []Effect
+	for _, child := range orderedProcesses(runtime.processes) {
+		if child == parent {
+			continue
+		}
+		child.installTermination(controlValue((terminationFacts{outcome: completedOutcome()}).resolve()),
+			controlValue(EncodePayload(childTestOutput{})), child.startedAt)
+		child.mailbox.closeAllWaits()
+		effects = append(effects, controlValue(NewChildWaitEffect(ChildWaitSpec{
+			Key:      controlValue(ParseWaitKey(fmt.Sprintf("result-%d", len(effects)))),
+			Boundary: ChildWaitBoundaryResult, Children: []ProcessID{child.handle.processID}, Condition: AllChildren(),
+		})))
 	}
-	process := &processState{limits: limits}
-	mailbox := newSignalMailbox()
-	firstWait, _ := ParseWaitID("wait:first")
-	secondWait, _ := ParseWaitID("wait:second")
-	firstKey, _ := ParseWaitKey("first")
-	secondKey, _ := ParseWaitKey("second")
-	if err := mailbox.openWait(firstKey, mustMailboxSignal(t, "signal:engine:first-opened", firstWait, json.RawMessage(`{}`)), WaitKindChildren); err != nil {
-		t.Fatal(err)
+	failure := prepareTestStep(parent, stepJobResult{
+		transition: controlValue(Continue(0, effects...)), candidate: parent.execution, candidateState: parent.committedExecutionState,
+	})
+	if failure != nil {
+		t.Fatalf("preparation: %+v", failure)
 	}
-	if err := mailbox.openWait(secondKey, mustMailboxSignal(t, "signal:engine:second-opened", secondWait, json.RawMessage(`{}`)), WaitKindChildren); err != nil {
-		t.Fatal(err)
+	for range effects {
+		runtime.advancePrepared(parent)
 	}
-	firstSignalID, _ := ParseSignalID("signal:engine:first")
-	secondSignalID, _ := ParseSignalID("signal:engine:second")
-	firstSignal, _ := newSignal(firstSignalID, firstWait, json.RawMessage(`{}`))
-	secondSignal, _ := newSignal(secondSignalID, secondWait, json.RawMessage(`{}`))
-	finalization := &preparedStepFinalization{
-		process:               process,
-		prepared:              &preparedStep{Effects: make([]preparedEffect, 2)},
-		mailbox:               mailbox,
-		immediateChildSignals: []Signal{firstSignal, secondSignal},
+	before := controlValue(runtime.captureTree())
+	if err := runtime.finalizePrepared(parent); !errors.Is(err, ErrResourceLimitExceeded) {
+		t.Fatalf("immediate child Signals = %v, want %v", err, ErrResourceLimitExceeded)
 	}
-
-	err := finalization.enqueueImmediateChildSignals()
-	if !errors.Is(err, ErrResourceLimitExceeded) {
-		t.Fatalf("enqueue immediate child Signals error = %v, want %v", err, ErrResourceLimitExceeded)
-	}
-	if pending := finalization.mailbox.pendingCount(); pending != 3 {
-		t.Fatalf("pending immediate child Signals = %d, want 3 including both opening Signals before cumulative limit", pending)
+	after := controlValue(runtime.captureTree())
+	if before.Digest() != after.Digest() {
+		t.Fatal("rejected completion batch changed the tree")
 	}
 }
 

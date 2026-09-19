@@ -6,6 +6,8 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
+const invalidEnumName = "invalid"
+
 // CompletionSource identifies the semantic value that completed an
 // Interaction. It is Strategy-owned and does not add a Framework lifecycle
 // status.
@@ -28,7 +30,7 @@ func (c CompletionSource) Valid() bool {
 
 func (c CompletionSource) String() string {
 	if !c.Valid() {
-		return "invalid"
+		return invalidEnumName
 	}
 	return string(c)
 }

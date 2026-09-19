@@ -807,7 +807,7 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 	answer, _ := NewSignalRequest(answerID, restoredWaitID, json.RawMessage(`{"kind":"answer","value":"restored"}`))
 	for _, continued := range []*Process{process, restored} {
 		before := inspectProcessSnapshot(t, continued).Usage()
-		if accepted, err := continued.DeliverSignals(t.Context(), answer, answer); err != nil || accepted {
+		if accepted, err := continued.DeliverSignals(t.Context(), answer, answer); !errors.Is(err, ErrSignalConflict) || accepted {
 			t.Fatalf("duplicate batch accepted=%t error=%v", accepted, err)
 		}
 		if currentWait, ok := inspectProcessSnapshot(t, continued).WaitID(); !ok || currentWait != waitID || inspectProcessSnapshot(t, continued).Usage() != before {

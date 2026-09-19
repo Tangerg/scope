@@ -40,6 +40,94 @@ func TestRequireToolInputRejectsInvalidAndOversizedJSON(t *testing.T) {
 	}
 }
 
+func TestPendingToolInputsTracksPausedWaitUntilAnswered(t *testing.T) {
+	waiting := newInputRequestTool()
+	waiting.Release()
+	model := chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+		if request.Messages[len(request.Messages)-1].Role == chat.RoleTool {
+			return textResponse("done"), nil
+		}
+		return toolCallResponse(chat.ToolCall{ID: "ask", Name: "ask_name", Arguments: `{}`}), nil
+	})
+	deployment := newDeployment(t, model, []tool.Tool{waiting}, 2)
+	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	root, err := engine.Start(ctx, deployment.Deployment, interactionInput(t, "greet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanup, stop := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
+		defer stop()
+		if killErr := root.Kill(cleanup, "test complete"); killErr != nil && !errors.Is(killErr, agent.ErrProcessFinished) {
+			t.Error(killErr)
+		}
+		if joinErr := root.Join(cleanup); joinErr != nil {
+			t.Error(joinErr)
+		}
+	})
+	_, pending := captureToolInput(t, engine, root)
+	child := pendingToolProcess(t, engine, pending)
+	if pauseErr := child.Pause(ctx, "hold input continuation"); pauseErr != nil {
+		t.Fatal(pauseErr)
+	}
+	waitForStatus(t, engine, child, agent.StatusPaused)
+	tree, err := engine.CaptureTree(ctx, root.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err = agent.ParseTreeSnapshot(tree.JSON())
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := interaction.PendingToolInputs(tree)
+	if err != nil || len(inputs) != 1 {
+		t.Fatalf("paused Tool inputs=%v error=%v", inputs, err)
+	}
+	if inputs[0].ProcessID() != child.ID() || inputs[0].WaitID() != pending.WaitID() ||
+		string(inputs[0].Prompt()) != string(pending.Prompt()) || string(inputs[0].ResponseSchema()) != string(pending.ResponseSchema()) {
+		t.Fatal("pause changed the pending Tool input")
+	}
+	id, err := agent.ParseSignalID("signal:paused-tool-answer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	answer, err := inputs[0].ResponseSignal(id, json.RawMessage(`"Ada"`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted, deliveryErr := child.DeliverSignals(ctx, answer); deliveryErr != nil || !accepted {
+		t.Fatalf("paused Tool answer=%t error=%v", accepted, deliveryErr)
+	}
+	tree, err = engine.CaptureTree(ctx, root.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs, err = interaction.PendingToolInputs(tree)
+	if err != nil || len(inputs) != 0 {
+		t.Fatalf("answered Tool inputs=%v error=%v", inputs, err)
+	}
+	if inspectProcessSnapshot(t, engine, child).Status() != agent.StatusPaused || waiting.continuationCalls.Load() != 0 {
+		t.Fatal("answer released the Tool pause")
+	}
+	if resumeErr := child.Resume(ctx); resumeErr != nil {
+		t.Fatal(resumeErr)
+	}
+	result, err := root.Await(ctx)
+	if err != nil || result.Status() != agent.StatusCompleted || waiting.initialCalls.Load() != 1 || waiting.continuationCalls.Load() != 1 {
+		t.Fatalf("result=%s error=%v Tool calls=%d/%d", result.Status(), err, waiting.initialCalls.Load(), waiting.continuationCalls.Load())
+	}
+}
+
 func TestToolInputResponsePreservesNumbersAcrossRestore(t *testing.T) {
 	for _, sample := range []struct {
 		name     string

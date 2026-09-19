@@ -163,6 +163,10 @@
 // Repeated submission of one signal identity produces exactly one logical
 // consumption and never charges the signal budget twice. The
 // same identity with different immutable content is rejected as a conflict.
+// A SignalID may appear only once within a batch. Across submissions, the mailbox
+// validates historical identities and admits only new ones, atomically. A false
+// admission result with nil error therefore confirms that the entire batch was
+// already accepted.
 // In durable mode, successful admission is acknowledged only after mailbox
 // records and budget charges commit to the authoritative tree head. The
 // consumption cursor advances only when candidate state and transition commit,
@@ -199,6 +203,9 @@
 // only when it satisfies Descriptor.SignalSchema. The default schema rejects
 // unaddressed input. Rejection returns ErrSignalRejected before any mailbox,
 // budget, wait or durable head changes; child-signal Effects obey the same rule.
+// Pause also suspends a committed wait. Its unanswered WaitID survives capture
+// and restoration; an answer clears the wait without releasing the pause.
+// A current external wait still rejects unaddressed input while Paused.
 // [NewChildWaitEffect] requires an explicit [ChildWaitBoundary]. The result boundary
 // counts terminal children. The drained boundary counts children whose entire
 // subtree satisfies [Process.Join]. All, any, and quorum count those facts in
@@ -266,6 +273,26 @@
 // The Host chooses retention and memory policy: unlimited quotas do not compact
 // signal identities, wait history, or completed descendants. Explicit snapshot
 // byte quotas bound that retained representation when required.
+// Admission reserves bounded control and termination metadata, uncertain-effect
+// diagnostics, and Framework settlement representations. Start and RestoreTree
+// reject a live tree whose quotas cannot fit these guarantees, even if its
+// current encoding fits. Control strings alone reserve 144 KiB per live Process
+// under the current bounds and worst-case JSON escaping; metadata, state,
+// history, and Effects require additional capacity. Terminal Processes contribute
+// only their encoded size, so a terminal tree can restore under smaller quotas.
+// Successful Start or RestoreTree does not admit future growth: each Step,
+// dispatch permission, and settlement undergoes its own capacity check. A Step
+// or dispatch permission that cannot fit fails that Process with
+// engine.limit.snapshot before dispatch. Rejected Signals and child-wait
+// finalizations leave the tree unchanged; admitted control intents retain enough
+// room to terminate.
+// Dispatcher result payloads remain external facts: a result that cannot fit
+// while preserving these reservations stops the runtime with a RuntimeError and
+// unresolved operation identity. Durable recovery reads the last committed head;
+// ephemeral recovery waits for the root Process.Join to return its runtime error,
+// then calls Engine.CaptureTree on the retained tree. Await alone does not
+// establish that descendant work has drained. The rejected result is not retained;
+// the Host must reconcile its external outcome under the same identity.
 //
 // Limits carries cumulative work authority in Limits.Budget and keeps mailbox
 // and snapshot capacity separate. Process snapshots persist this same Limits

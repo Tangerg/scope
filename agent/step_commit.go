@@ -12,13 +12,12 @@ type stepPreparationFailure struct {
 }
 
 type preparedStepFinalization struct {
-	process               *processState
-	prepared              *preparedStep
-	mailbox               signalMailbox
-	consumedChildWaits    []WaitID
-	openedChildWaits      []ChildWaitOpened
-	immediateChildSignals []Signal
-	commit                preparedStepCommit
+	process            *processState
+	prepared           *preparedStep
+	mailbox            signalMailbox
+	consumedChildWaits []WaitID
+	openedChildWaits   []ChildWaitOpened
+	commit             preparedStepCommit
 }
 
 type preparedStepCommit struct {
@@ -102,27 +101,6 @@ func (p *preparedStepFinalization) openChildWait(record preparedEffect, signal S
 		return err
 	}
 	p.openedChildWaits = append(p.openedChildWaits, ChildWaitOpened{waitID: *record.WaitID, spec: spec})
-	return nil
-}
-
-func (p *preparedStepFinalization) enqueueImmediateChildSignals() error {
-	preparedSignals := p.prepared.settlementSignalCount()
-	allocated := p.process.effectiveAllocations()
-	for index, signal := range p.immediateChildSignals {
-		acceptedSignals := uint64(index) + 1
-		if !resourceQuantitiesFit(
-			p.process.limits.MaxPendingSignals, p.mailbox.pendingCount(), 1,
-		) || !p.process.limits.Budget.Signals.Allows(
-			p.process.usage().AcceptedSignals, allocated.Signals,
-			preparedSignals, acceptedSignals,
-		) {
-			return ErrResourceLimitExceeded
-		}
-		accepted, err := p.mailbox.enqueue(StatusRunning, signal, signalSourceChildWait)
-		if err != nil || !accepted {
-			return errors.Join(err, errors.New("immediate child completion Signal was not accepted"))
-		}
-	}
 	return nil
 }
 

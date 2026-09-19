@@ -616,18 +616,21 @@ func TestRestoreReservationAdmissionIsAtomicAndReleasesEveryIdentity(t *testing.
 	engine := runtime.engine
 	restoration := &treeRestoration{wire: treeSnapshotWire{RootID: runtime.rootID}}
 	for _, process := range orderedProcesses(runtime.processes) {
-		restoration.processes = append(restoration.processes, restoredTreeProcess{handle: process.handle})
+		restoration.wire.ProcessSnapshots = append(restoration.wire.ProcessSnapshots, controlValue(process.capture()))
 	}
-	waitID := controlValue(ParseWaitID("invalid-registration"))
-	restoration.childWaits = map[ProcessID]map[WaitID]*childWaitRegistration{runtime.rootID: {waitID: nil}}
-	if err := engine.reserveRestoredTree(restoration); !errors.Is(err, ErrInvalidChildWait) {
-		t.Fatalf("invalid reservation = %v", err)
+	conflict := restoration.wire.ProcessSnapshots[1]
+	if err := engine.reserveProcessStart(rootProcessRelation(conflict.ProcessID()), conflict.DeploymentRef(), engine.treeLimits, Digest{}); err != nil {
+		t.Fatal(err)
 	}
+	if err := engine.reserveRestoredTree(restoration); !errors.Is(err, ErrProcessAlreadyExists) {
+		t.Fatalf("conflicting reservation = %v", err)
+	}
+	engine.discardProcessStart(conflict.ProcessID())
 	checkStarts := func(want error) {
 		t.Helper()
-		for _, process := range restoration.processes {
-			id := process.handle.processID
-			err := engine.reserveProcessStart(rootProcessRelation(id), process.handle.deploymentRef, engine.treeLimits, Digest{})
+		for _, process := range restoration.wire.ProcessSnapshots {
+			id := process.ProcessID()
+			err := engine.reserveProcessStart(rootProcessRelation(id), process.DeploymentRef(), engine.treeLimits, Digest{})
 			if !errors.Is(err, want) {
 				t.Fatalf("admission for %s = %v, want %v", id, err, want)
 			}
@@ -637,7 +640,6 @@ func TestRestoreReservationAdmissionIsAtomicAndReleasesEveryIdentity(t *testing.
 		}
 	}
 	checkStarts(nil)
-	restoration.childWaits = nil
 	if err := engine.reserveRestoredTree(restoration); err != nil {
 		t.Fatal(err)
 	}

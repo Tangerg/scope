@@ -9,6 +9,8 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
+const invalidEnumName = "invalid"
+
 // StageKind is the operation kind owned by a sealed Workflow Stage.
 type StageKind string
 
@@ -35,7 +37,7 @@ func (s StageKind) Valid() bool {
 
 func (s StageKind) String() string {
 	if !s.Valid() {
-		return "invalid"
+		return invalidEnumName
 	}
 	return string(s)
 }

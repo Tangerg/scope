@@ -2,8 +2,105 @@ package agent
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"fmt"
 	"testing"
 )
+
+func TestPauseWaitingSurvivesRestoreAndRequiresResume(t *testing.T) {
+	for _, durable := range []bool{false, true} {
+		for _, answerBeforeResume := range []bool{false, true} {
+			t.Run(fmt.Sprintf("durable_%t/answer_before_resume_%t", durable, answerBeforeResume), func(t *testing.T) {
+				config := EngineConfig{}
+				durability := &recordingTreeDurability{}
+				if durable {
+					config.TreeDurability = durability
+				}
+				engine := controlValue(NewEngine(config))
+				t.Cleanup(func() {
+					if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+						t.Errorf("source Close: %v", err)
+					}
+				})
+				deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.wait", "wait"), nil)
+				process := controlValue(engine.Start(t.Context(), deployment, controlValue(EncodePayload(engineTestInput{Value: "pause"}))))
+				waitForStatus(t, process, StatusWaiting)
+				waitID, _ := inspectProcessSnapshot(t, process).WaitID()
+				if err := process.Resume(t.Context()); !errors.Is(err, ErrInvalidProcessControl) {
+					t.Fatalf("Resume Waiting: %v", err)
+				}
+				if err := process.Pause(t.Context(), "inspect wait"); err != nil {
+					t.Fatal(err)
+				}
+				waitForStatus(t, process, StatusPaused)
+				if err := process.Pause(t.Context(), "again"); !errors.Is(err, ErrInvalidProcessControl) {
+					t.Fatalf("Pause Paused: %v", err)
+				}
+				var tree TreeSnapshot
+				if durable {
+					checkpoints := durability.treeCheckpoints()
+					tree = checkpoints[len(checkpoints)-1].TreeSnapshot()
+				} else {
+					tree = controlValue(engine.CaptureTree(t.Context(), process.ID()))
+				}
+				paused := tree.ProcessSnapshots()[0]
+				if got, ok := paused.WaitID(); !ok || got != waitID {
+					t.Fatal("pause lost the unanswered wait")
+				}
+				if kind, ok := paused.WaitKind(); !ok || kind != WaitKindExternal {
+					t.Fatal("pause lost the wait kind")
+				}
+				if err := process.Kill(t.Context(), "handoff"); err != nil {
+					t.Fatal(err)
+				}
+				awaitResult(t, process)
+				if err := process.Join(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				restoredEngine := controlValue(NewEngine(config))
+				t.Cleanup(func() {
+					if err := restoredEngine.Close(context.WithoutCancel(t.Context())); err != nil {
+						t.Errorf("restored Close: %v", err)
+					}
+				})
+				process = controlValue(restoredEngine.RestoreTree(t.Context(), deployment, controlValue(ParseTreeSnapshot(tree.JSON()))))
+				answer := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:answer")), waitID, []byte(`{"kind":"answer","value":"approved"}`)))
+				deliver := func() {
+					t.Helper()
+					if accepted, err := process.DeliverSignals(t.Context(), answer); !accepted || err != nil {
+						t.Fatalf("answer=%t %v", accepted, err)
+					}
+				}
+				if answerBeforeResume {
+					deliver()
+					snapshot := inspectProcessSnapshot(t, process)
+					if _, waiting := snapshot.WaitID(); waiting || snapshot.Status() != StatusPaused {
+						t.Fatal("answer did not clear only the wait")
+					}
+					if _, err := ParseProcessSnapshot(snapshot.JSON()); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := process.Resume(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				if !answerBeforeResume {
+					waitForStatus(t, process, StatusWaiting)
+					deliver()
+				}
+				result := awaitResult(t, process)
+				if err := process.Join(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				output, _ := result.Output()
+				if result.Status() != StatusCompleted || controlValue(output.Decode[engineTestOutput]()).Value != "approved" {
+					t.Fatalf("resumed outcome: %+v", result)
+				}
+			})
+		}
+	}
+}
 
 func TestPauseDiscardsUnadoptedWaitWithoutConsumingItsSignal(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
@@ -54,8 +151,8 @@ func TestPauseDiscardsUnadoptedWaitWithoutConsumingItsSignal(t *testing.T) {
 		t.Fatal("Resume did not re-establish the same wait")
 	}
 	signal := mustMailboxSignal(t, "signal:answer", waitID, []byte(`{"kind":"answer","value":"approved"}`))
-	if accepted, err := runtime.admitSignals(process, []Signal{signal}, signalSourceExternal); err != nil || !accepted {
-		t.Fatalf("answer = %t, %v", accepted, err)
+	if events, err := runtime.admitSignals(process, []Signal{signal}, signalSourceExternal); err != nil || len(events) != 1 {
+		t.Fatalf("answer events = %d, error = %v", len(events), err)
 	}
 	runtime.startStep(process)
 	runtime.applyCompletion(<-runtime.completions)

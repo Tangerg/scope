@@ -26,10 +26,12 @@ func orderedProcesses(values map[ProcessID]*processState) []*processState {
 	return processes
 }
 
-func newTreeDurabilityFailure(cause error) Failure {
+func newTreeRuntimeFailure(cause error) Failure {
 	kind := FailureKindExternal
 	code := failureCodeEngineTreeDurabilityFailed
 	switch {
+	case errors.Is(cause, ErrResourceLimitExceeded):
+		kind, code = FailureKindExecution, failureCodeEngineLimitSnapshot
 	case errors.Is(cause, ErrDurabilityConflict):
 		kind = FailureKindContract
 		code = failureCodeEngineTreeDurabilityConflict

@@ -164,8 +164,7 @@ func (p ProcessFinishedFact) Valid() bool {
 		return p.cause == TerminationCauseParentCancellation ||
 			p.cause == TerminationCauseHostCancellation
 	case StatusTimedOut:
-		return p.cause == TerminationCauseProcessDeadline ||
-			p.cause == TerminationCauseParentDeadline ||
+		return p.cause == TerminationCauseParentDeadline ||
 			p.cause == TerminationCauseHostDeadline
 	case StatusKilled:
 		return p.cause == TerminationCauseEngineKill

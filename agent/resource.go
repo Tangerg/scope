@@ -25,7 +25,14 @@ const (
 // Snapshots retain the effective contract independently of Engine configuration.
 type Limits struct {
 	// MaxSnapshotBytes bounds the encoded Process snapshot, including retained
-	// history. A finite zero denies every new snapshot admission.
+	// history. Admission also reserves mandatory control, termination, diagnostic,
+	// and Framework settlement growth. A finite quota must fit that reservation,
+	// even when the current encoding is smaller. With the current diagnostic and
+	// reason bounds, control strings alone reserve 144 KiB per live Process after
+	// worst-case JSON escaping; metadata, state, history, and Effects add to it.
+	// The required capacity depends on the admitted state, not a fixed minimum.
+	// Terminal Processes need only their encoded size. A finite zero denies every
+	// new admission.
 	MaxSnapshotBytes Quota `json:"max_snapshot_bytes"`
 
 	// Budget bounds cumulative work and grants child allocations.
@@ -197,6 +204,9 @@ func saturatingCountAdd(value, increment uint64) uint64 {
 // depth and active-child capacity inherit DefaultTreeLimits.
 type TreeLimits struct {
 	// MaxSnapshotBytes bounds the encoded tree, including completed descendants.
+	// Admission includes each live Process's lifecycle and Framework reservations.
+	// The per-Process overhead described by Limits.MaxSnapshotBytes accumulates
+	// across live members; terminal members contribute only their encoded size.
 	// A finite zero denies every new tree snapshot admission.
 	MaxSnapshotBytes Quota `json:"max_snapshot_bytes"`
 

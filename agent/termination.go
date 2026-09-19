@@ -22,13 +22,12 @@ type deadlineOwner string
 
 const (
 	deadlineOwnerInvalid deadlineOwner = ""
-	deadlineOwnerProcess deadlineOwner = "process"
 	deadlineOwnerParent  deadlineOwner = "parent"
 	deadlineOwnerHost    deadlineOwner = "host"
 )
 
 func (d deadlineOwner) valid() bool {
-	return d == deadlineOwnerProcess || d == deadlineOwnerParent || d == deadlineOwnerHost
+	return d == deadlineOwnerParent || d == deadlineOwnerHost
 }
 
 func (d deadlineOwner) String() string {
@@ -93,12 +92,14 @@ func (d deadlineIntent) valid() bool {
 }
 
 func (d deadlineIntent) termination() Termination {
-	cause := TerminationCauseProcessDeadline
+	var cause TerminationCause
 	switch d.owner {
 	case deadlineOwnerParent:
 		cause = TerminationCauseParentDeadline
 	case deadlineOwnerHost:
 		cause = TerminationCauseHostDeadline
+	default:
+		panic("agent: invalid deadline owner")
 	}
 	return Termination{status: StatusTimedOut, cause: cause, reason: d.reason}
 }
@@ -208,8 +209,6 @@ const (
 	TerminationCauseCompletion TerminationCause = "completion"
 	// TerminationCauseEngineKill identifies an explicit Engine kill.
 	TerminationCauseEngineKill TerminationCause = "engine_kill"
-	// TerminationCauseProcessDeadline identifies the Process's own deadline.
-	TerminationCauseProcessDeadline TerminationCause = "process_deadline"
 	// TerminationCauseParentDeadline identifies deadline propagation from a parent.
 	TerminationCauseParentDeadline TerminationCause = "parent_deadline"
 	// TerminationCauseHostDeadline identifies expiry of the Host context.
@@ -231,7 +230,7 @@ const (
 func (t TerminationCause) Valid() bool {
 	switch t {
 	case TerminationCauseCompletion, TerminationCauseEngineKill,
-		TerminationCauseProcessDeadline, TerminationCauseParentDeadline,
+		TerminationCauseParentDeadline,
 		TerminationCauseHostDeadline, TerminationCauseParentCancellation,
 		TerminationCauseHostCancellation, TerminationCauseExecutionFailure,
 		TerminationCauseContractFailure, TerminationCauseExternalFailure,
@@ -326,7 +325,7 @@ func (t Termination) Valid() bool {
 		return (t.cause == TerminationCauseParentCancellation || t.cause == TerminationCauseHostCancellation) &&
 			!t.failure.Valid()
 	case StatusTimedOut:
-		return (t.cause == TerminationCauseProcessDeadline || t.cause == TerminationCauseParentDeadline || t.cause == TerminationCauseHostDeadline) &&
+		return (t.cause == TerminationCauseParentDeadline || t.cause == TerminationCauseHostDeadline) &&
 			!t.failure.Valid()
 	case StatusKilled:
 		return t.cause == TerminationCauseEngineKill && !t.failure.Valid()

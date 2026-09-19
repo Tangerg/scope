@@ -10,7 +10,6 @@ import (
 
 var (
 	ErrProcessFinished       = errors.New("agent: process has finished")
-	ErrProcessNotRunning     = errors.New("agent: process is not running")
 	ErrEffectNotPending      = errors.New("agent: effect does not require resolution")
 	ErrEffectReplayForbidden = errors.New("agent: effect cannot be replayed under the same identity")
 	ErrEffectOutcomeUnknown  = errors.New("agent: effect outcome remains unknown")
@@ -32,7 +31,11 @@ const treeCommandBufferCapacity = 32
 // Control methods submit requests to the owning tree runtime. Except for
 // RequestCancellation, ctx bounds both submission and response waiting. Once
 // a command enters the runtime queue, canceling ctx does not revoke it. A context
-// already canceled before submission never admits a command.
+// already canceled before submission never admits a command. If termination or
+// runtime failure races a queued command, an error may replace its response even
+// after the command took effect. Reconcile delivery through SignalReceipts and
+// effect resolution through the Host's authoritative durability records. Retained
+// snapshot Settlements expose current evidence, not a historical journal.
 type Process struct {
 	handle *processHandle
 }
@@ -61,21 +64,27 @@ func (p *Process) StartedAt() time.Time {
 
 // DeliverSignals submits one or more immutable Strategy inputs as an ordered,
 // atomic batch. Unaddressed input must satisfy Descriptor.SignalSchema or the
-// batch returns ErrSignalRejected unchanged. Accepted input queues for the next Strategy-safe Step,
-// including while Paused or waiting for child completion. It never resumes
-// either state by itself. An externally addressable wait requires an answer.
-// An addressed answer while Waiting must name the current WaitID; any other
-// external wait answer returns ErrSignalRejected. The batch is accepted or the
-// mailbox remains unchanged. Reusing a SignalID with different normalized
-// payload bytes or a different WaitID returns ErrSignalConflict. If any SignalID
-// repeats with identical content, accepted is false with nil error and the
-// whole batch is unchanged, including resource usage. Engine-reserved SignalIDs
+// batch returns ErrSignalRejected unchanged. Accepted input queues for the next
+// Strategy-safe Step, including while Paused or waiting for child completion.
+// Unaddressed input never releases a wait or pause. A current external wait
+// accepts only its answer until satisfied, including while Paused.
+// Every new addressed answer must name the WaitID current at batch admission,
+// if any, including while Paused and after an earlier answer in the same batch.
+// Any other external wait answer returns ErrSignalRejected. The batch is accepted
+// or the mailbox remains unchanged. Reusing a SignalID with different normalized
+// payload bytes or a different WaitID returns ErrSignalConflict, as does repeating
+// a SignalID within the batch. Historical identities with identical content are
+// retained without another budget charge or acceptance event. Only new identities
+// are appended, in request order, after the entire batch passes validation.
+// With nil error, accepted reports whether any new input was admitted; false
+// means every requested identity was already accepted. Engine-reserved SignalIDs
 // are invalid SignalRequests. A batch exceeding mailbox,
 // work-budget, Process snapshot, or tree snapshot capacity returns
 // ErrResourceLimitExceeded before changing the mailbox.
 // In durable mode, accepted is true only after the mailbox and budget changes
 // commit to the authoritative tree head. A caller timeout does not revoke an
 // admitted command; retry the identical batch to reconcile uncertain delivery.
+// If the Process has since terminated, inspect its SignalReceipts instead.
 func (p *Process) DeliverSignals(ctx context.Context, requests ...SignalRequest) (accepted bool, err error) {
 	ctx = RequireContext(ctx)
 	if len(requests) == 0 {
@@ -86,8 +95,11 @@ func (p *Process) DeliverSignals(ctx context.Context, requests ...SignalRequest)
 	return response.accepted, err
 }
 
-// Pause requests a scheduling pause at the next safe Step boundary. An
+// Pause requests a scheduling pause for a Running or Waiting Process at the next
+// safe Step boundary. A Paused Process returns ErrInvalidProcessControl. An
 // in-flight Effect is allowed to settle before the pause becomes visible.
+// A committed wait retains its WaitID until answered. Answers may queue while
+// Paused, but only Resume releases the pause; it returns to Waiting if unanswered.
 // An accepted pause discards an unadopted Wait candidate without consuming its
 // Signals; Resume recomputes that Step from committed state.
 // A nil error acknowledges the local control intent, not its durable publication
@@ -98,7 +110,8 @@ func (p *Process) Pause(ctx context.Context, reason string) error {
 	return err
 }
 
-// Resume makes an explicitly Paused Process schedulable again. External waits
+// Resume releases an explicit pause. An unanswered current wait returns to
+// Waiting; otherwise the Process becomes Running. External waits
 // require an answer addressed to their WaitID; child waits require Framework
 // child completion. Resume does not satisfy either wait.
 // A nonterminal Process that is not Paused returns ErrInvalidProcessControl.
@@ -198,7 +211,7 @@ func (p *Process) ReplayUnknownEffect(ctx context.Context, effectID EffectID) er
 // Await waits for the immutable terminal result and the Engine's immediate
 // parent/child bookkeeping for that termination. Canceling ctx stops only the
 // wait; Process cancellation is explicit or follows the context passed to Start.
-// A durability failure stops this instance and returns a RuntimeError with no
+// A runtime failure stops this instance and returns a RuntimeError with no
 // Result. A failed logical execution returns a valid Result and nil error.
 // Descendants may still be settling after this Process's result is ready.
 func (p *Process) Await(ctx context.Context) (Result, error) {

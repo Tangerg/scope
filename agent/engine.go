@@ -214,6 +214,11 @@ type childIdentity struct {
 // deadlines reach accepted work. Execution that outlives a request therefore
 // needs a longer-lived context. An already-canceled context never reserves an
 // identity or invokes Host admission.
+// Snapshot admission includes mandatory lifecycle growth in either durability
+// mode. Insufficient Process or tree capacity returns ErrResourceLimitExceeded
+// before publishing the Process or committing its initial head.
+// Success admits only the initial state and its lifecycle reservation. Later
+// Steps, dispatch permissions, and settlements each require capacity admission.
 func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload) (*Process, error) {
 	if e == nil {
 		return nil, ErrInvalidEngineConfig
@@ -262,8 +267,12 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 	process := newProcessState(handle, deployment, execution, state, startedAt, e.limits)
 	runtime := newTreeRuntime(e, relation.RootID(), ctx, process)
 	if e.durability != nil {
-		incarnation := newTreeIncarnationID()
-		runtime.incarnation = incarnation
+		runtime.incarnation = newTreeIncarnationID()
+	}
+	if err := runtime.validateSnapshotCapacity(); err != nil {
+		return nil, err
+	}
+	if e.durability != nil {
 		baseSnapshot, captureErr := runtime.captureTree()
 		if captureErr != nil {
 			return nil, captureErr
@@ -275,7 +284,7 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 		if err := commitTreeCheckpoint(ctx, e.durability, checkpoint); err != nil {
 			return nil, err
 		}
-		runtime.establishDurableHead(incarnation, baseSnapshot)
+		runtime.establishDurableHead(runtime.incarnation, baseSnapshot)
 	}
 	e.publishProcessStart(handle)
 	published = true
@@ -641,6 +650,8 @@ func (e *Engine) ReleaseTree(ctx context.Context, rootID ProcessID) error {
 // rootDeployment must exactly bind the captured root; same-reference children
 // reuse it, while other exact references are resolved through EngineConfig's
 // DeploymentResolver. Registration is all-or-nothing within this Engine.
+// The Engine reserves every captured identity before resolving children or
+// restoring Execution state. Any failure releases the entire reservation.
 // Committed states and nonterminal prepared candidates must restore through
 // their exact Definition before registration, activation, or Effect dispatch.
 // Interrupted terminal candidates remain inert evidence and are not restored.
@@ -651,6 +662,10 @@ func (e *Engine) ReleaseTree(ctx context.Context, rootID ProcessID) error {
 // EngineConfig start defaults do not revoke or rewrite captured grants. The Host
 // must authorize the snapshot before calling RestoreTree; ProcessAdmitter and
 // initialization acknowledgment are not repeated for captured Processes.
+// Captured capacity must fit lifecycle reservations for live Processes and the
+// encoded size of terminal Processes. Restoration rejects insufficient capacity
+// before activating a writer or publishing handles. Later growth requires new
+// capacity admission.
 func (e *Engine) RestoreTree(
 	ctx context.Context,
 	rootDeployment Deployment,
@@ -687,12 +702,6 @@ func (e *Engine) RestoreTree(
 		wire:        wire,
 		deployments: map[DeploymentRef]Deployment{rootDeployment.DeploymentRef(): rootDeployment},
 	}
-	if err := restoration.prepareProcesses(ctx); err != nil {
-		return nil, err
-	}
-	if err := restoration.prepareChildWaits(); err != nil {
-		return nil, err
-	}
 	if err := e.reserveRestoredTree(&restoration); err != nil {
 		return nil, err
 	}
@@ -702,9 +711,20 @@ func (e *Engine) RestoreTree(
 			e.discardRestoredTree(&restoration)
 		}
 	}()
-	var restoredHead TreeSnapshot
+	if err := restoration.prepareProcesses(ctx); err != nil {
+		return nil, err
+	}
+	if err := restoration.prepareChildWaits(); err != nil {
+		return nil, err
+	}
+	var incarnation TreeIncarnationID
 	if engineIsDurable {
-		incarnation := newTreeIncarnationID()
+		incarnation = newTreeIncarnationID()
+	}
+	if err := restoration.prepareRuntime(ctx, incarnation); err != nil {
+		return nil, fmt.Errorf("%w: snapshot capacity: %w", ErrInvalidTreeSnapshot, err)
+	}
+	if engineIsDurable {
 		wire.IncarnationID = &incarnation
 		prospectiveSnapshot, snapshotErr := newTreeSnapshot(wire)
 		if snapshotErr != nil {
@@ -720,9 +740,8 @@ func (e *Engine) RestoreTree(
 			return nil, activationErr
 		}
 		restoration.wire = wire
-		restoredHead = prospectiveSnapshot
+		restoration.runtime.establishDurableHead(incarnation, prospectiveSnapshot)
 	}
-	restoration.prepareRuntime(ctx, restoredHead)
 	e.publishRestoredTree(&restoration)
 	published = true
 	return e.startRestoredTree(ctx, &restoration), nil
@@ -749,7 +768,7 @@ func (e *Engine) startRestoredTree(ctx context.Context, restoration *treeRestora
 }
 
 func (e *Engine) reserveRestoredTree(restoration *treeRestoration) error {
-	if restoration == nil || len(restoration.processes) == 0 {
+	if restoration == nil || len(restoration.wire.ProcessSnapshots) == 0 {
 		return ErrInvalidTreeSnapshot
 	}
 	e.mu.Lock()
@@ -761,18 +780,18 @@ func (e *Engine) reserveRestoredTree(restoration *treeRestoration) error {
 	if e.treeRestoreReservations[rootID] != nil || e.trees[rootID] != nil {
 		return ErrProcessAlreadyExists
 	}
-	for _, process := range restoration.processes {
-		if _, exists := e.processes[process.handle.processID]; exists {
+	for _, process := range restoration.wire.ProcessSnapshots {
+		if _, exists := e.processes[process.ProcessID()]; exists {
 			return ErrProcessAlreadyExists
 		}
-		if _, exists := e.startReservations[process.handle.processID]; exists {
+		if _, exists := e.startReservations[process.ProcessID()]; exists {
 			return ErrProcessAlreadyExists
 		}
-		if e.restoredProcesses[process.handle.processID] != nil {
+		if e.restoredProcesses[process.ProcessID()] != nil {
 			return ErrProcessAlreadyExists
 		}
-		if parentID, child := process.handle.relation.ParentID(); child {
-			key, _ := process.handle.relation.ChildKey()
+		if parentID, child := process.Relation().ParentID(); child {
+			key, _ := process.Relation().ChildKey()
 			identity := childIdentity{parent: parentID, key: key}
 			if _, exists := e.children[identity]; exists {
 				return ErrInvalidChildStart
@@ -785,18 +804,11 @@ func (e *Engine) reserveRestoredTree(restoration *treeRestoration) error {
 			}
 		}
 	}
-	for _, registrations := range restoration.childWaits {
-		for _, wait := range registrations {
-			if wait == nil || !wait.waitID.Valid() {
-				return ErrInvalidChildWait
-			}
-		}
-	}
 	e.treeRestoreReservations[rootID] = restoration
-	for _, process := range restoration.processes {
-		e.restoredProcesses[process.handle.processID] = restoration
-		if parentID, child := process.handle.relation.ParentID(); child {
-			key, _ := process.handle.relation.ChildKey()
+	for _, process := range restoration.wire.ProcessSnapshots {
+		e.restoredProcesses[process.ProcessID()] = restoration
+		if parentID, child := process.Relation().ParentID(); child {
+			key, _ := process.Relation().ChildKey()
 			e.restoredChildren[childIdentity{parent: parentID, key: key}] = restoration
 		}
 	}
@@ -805,10 +817,10 @@ func (e *Engine) reserveRestoredTree(restoration *treeRestoration) error {
 
 // releaseRestoredTree requires mu and retires one reservation with both indexes.
 func (e *Engine) releaseRestoredTree(restoration *treeRestoration) {
-	for _, process := range restoration.processes {
-		delete(e.restoredProcesses, process.handle.processID)
-		if parentID, child := process.handle.relation.ParentID(); child {
-			key, _ := process.handle.relation.ChildKey()
+	for _, process := range restoration.wire.ProcessSnapshots {
+		delete(e.restoredProcesses, process.ProcessID())
+		if parentID, child := process.Relation().ParentID(); child {
+			key, _ := process.Relation().ChildKey()
 			delete(e.restoredChildren, childIdentity{parent: parentID, key: key})
 		}
 	}
@@ -854,6 +866,10 @@ func (e *Engine) publishRestoredTree(restoration *treeRestoration) {
 // boundaries and captures a consistent portable cut. In-flight Effects settle
 // according to their existing contract before a Process joins the barrier.
 // Cancellation remains available while the active work drains.
+// After an ephemeral runtime failure, capture is available once owned work has
+// drained. Wait for the root Process.Join to return its runtime error before
+// calling CaptureTree; while the faulted runtime is draining, capture returns
+// that fault. Process.Await alone does not establish this boundary.
 func (e *Engine) CaptureTree(ctx context.Context, rootID ProcessID) (TreeSnapshot, error) {
 	if e == nil {
 		return TreeSnapshot{}, ErrInvalidProcessRelation

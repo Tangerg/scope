@@ -109,6 +109,55 @@ func (p *preparedEffect) begin() error {
 	return nil
 }
 
+// Size projections use the same settlement envelopes as live execution. Local
+// wait results are known before dispatch; an admitted child operation must fit
+// its bounded refusal, and uncertain dispatch must retain its diagnostic.
+func (p *preparedEffect) reserveSnapshotSettlement(failure Failure) error {
+	if p.Settlement != nil {
+		return nil
+	}
+	if p.Effect.Target() == EffectTargetDispatcher {
+		if p.Phase == effectPhasePending {
+			if err := p.settleUnknown(); err != nil {
+				return err
+			}
+			p.Diagnostic = &failure
+		}
+		return nil
+	}
+	operation, operationErr := decodeFrameworkEffectOperation(p.Effect.Payload())
+	if operationErr != nil {
+		return operationErr
+	}
+	if operation == frameworkEffectWait || operation == frameworkEffectWaitChildren {
+		if p.Phase == effectPhasePlanned {
+			if err := p.begin(); err != nil {
+				return err
+			}
+		}
+		return p.settleFramework()
+	}
+	if p.Phase != effectPhasePending {
+		return nil
+	}
+	if operation == frameworkEffectStartChild {
+		spec, err := decodeChildStartEffect(p.Effect.Payload())
+		if err != nil {
+			return err
+		}
+		return p.settleChildStart(ChildStartResult{key: spec.Key, deploymentRef: spec.DeploymentRef, failure: failure})
+	}
+	request, err := decodeChildControlEffect(p.Effect.Payload())
+	if err != nil {
+		return err
+	}
+	result := ChildControlResult{childID: request.ChildID, operation: request.Operation, failure: failure}
+	if request.Signal != nil {
+		result.signalID = request.Signal.ID()
+	}
+	return p.settleChildControl(result)
+}
+
 // A pending boundary grants dispatch permission before I/O starts. Only the
 // owning incarnation can revoke an unused permission; recovery cannot prove it
 // was unused and must retain an uncertain outcome instead.

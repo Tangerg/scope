@@ -5,12 +5,16 @@ import (
 	"slices"
 )
 
-// RuntimeError reports that the active writer stopped without establishing the
+// RuntimeError reports that the active runtime stopped without establishing the
 // requested Process result or subtree completion. A result acknowledged before
 // a descendant failed remains available through Process.Await. The Host may
 // reconcile storage and restore its authoritative tree head in another Engine.
-// This error does not terminate the durable execution or authorize replay of an
-// uncertain Effect.
+// An ephemeral runtime can also stop when an external settlement cannot fit its
+// captured capacity. For explicit recovery, wait for the root Process.Join to
+// return its runtime error, then call Engine.CaptureTree on the retained tree.
+// Await alone does not establish that descendant work has drained. IncarnationID
+// and HeadDigest are zero. This error does not establish a logical termination
+// or authorize replay of an uncertain Effect.
 // Engine constructs these errors; the zero value carries no runtime identity.
 // Process methods and tree reports return independent RuntimeError values;
 // Unwrap preserves the original cause.
@@ -34,24 +38,26 @@ func (r *RuntimeError) Error() string {
 	return fmt.Sprintf("agent: runtime for Process %s stopped: %v", r.processID, r.cause)
 }
 
-// Unwrap preserves the durability failure, including ownership and content
-// conflicts, for errors.Is and errors.As.
+// Unwrap preserves the capacity or durability failure, including ownership and
+// content conflicts, for errors.Is and errors.As.
 func (r *RuntimeError) Unwrap() error { return r.cause }
 
 // ProcessID identifies the affected Process handle in the stopped instance.
 func (r *RuntimeError) ProcessID() ProcessID { return r.processID }
 
-// IncarnationID identifies the durable writer that stopped.
+// IncarnationID identifies the durable writer that stopped, or zero for an
+// ephemeral runtime.
 func (r *RuntimeError) IncarnationID() TreeIncarnationID { return r.incarnationID }
 
 // HeadDigest identifies the last tree head acknowledged to this instance. The
 // store may have advanced further if a commit response was lost or a new writer
 // acquired ownership; recovery must read the store's authoritative head.
+// An ephemeral runtime returns zero.
 func (r *RuntimeError) HeadDigest() Digest { return r.headDigest }
 
 // UnresolvedEffectIDs returns the sorted, distinct identities whose external
-// outcomes this instance could not establish durably. Pending Effects that
-// were never dispatched by this instance are not added solely for a failed
+// outcomes this instance could not adopt or establish durably. Pending Effects
+// that were never dispatched by this instance are not added solely for a failed
 // pending-boundary acknowledgment.
 func (r *RuntimeError) UnresolvedEffectIDs() []EffectID {
 	return slices.Clone(r.unresolvedEffectIDs)
