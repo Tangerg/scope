@@ -165,6 +165,7 @@ type treeSnapshotValidation struct {
 	wire               treeSnapshotWire
 	root               processSnapshotWire
 	processes          map[ProcessID]processSnapshotWire
+	childrenByParent   map[ProcessID][]ProcessID
 	children           map[childIdentity]ProcessID
 	childCounts        map[ProcessID]uint64
 	activeChildCounts  map[ProcessID]uint64
@@ -177,6 +178,7 @@ func newTreeSnapshotValidation(wire treeSnapshotWire) (*treeSnapshotValidation, 
 		return nil, fmt.Errorf("%w: incomplete tree identity", ErrInvalidTreeSnapshot)
 	}
 	processes := make(map[ProcessID]processSnapshotWire, len(wire.ProcessSnapshots))
+	childrenByParent := make(map[ProcessID][]ProcessID)
 	for _, snapshot := range wire.ProcessSnapshots {
 		if !snapshot.Valid() {
 			return nil, fmt.Errorf("%w: Process: %w", ErrInvalidTreeSnapshot, ErrInvalidSnapshot)
@@ -187,6 +189,9 @@ func newTreeSnapshotValidation(wire treeSnapshotWire) (*treeSnapshotValidation, 
 			return nil, fmt.Errorf("%w: duplicate ProcessID", ErrInvalidTreeSnapshot)
 		}
 		processes[processWire.ProcessID] = processWire
+		if parent := processWire.Relation.ParentID; parent != nil {
+			childrenByParent[*parent] = append(childrenByParent[*parent], processWire.ProcessID)
+		}
 	}
 	root, exists := processes[wire.RootID]
 	if !exists {
@@ -201,6 +206,7 @@ func newTreeSnapshotValidation(wire treeSnapshotWire) (*treeSnapshotValidation, 
 		wire:               wire,
 		root:               root,
 		processes:          processes,
+		childrenByParent:   childrenByParent,
 		children:           make(map[childIdentity]ProcessID, len(processes)-1),
 		childCounts:        make(map[ProcessID]uint64),
 		activeChildCounts:  make(map[ProcessID]uint64),
@@ -264,7 +270,33 @@ func (t *treeSnapshotValidation) validateChildAccounting() error {
 	return nil
 }
 
+type childWaitValidationFacts struct {
+	record  waitRecordWire
+	signals []signalRecordWire
+}
+
 func (t *treeSnapshotValidation) validateChildWaits() error {
+	mailboxes := make(map[ProcessID]map[WaitID]*childWaitValidationFacts)
+	for _, snapshot := range t.wire.ProcessSnapshots {
+		mailbox := snapshot.state.Mailbox
+		waits := make(map[WaitID]*childWaitValidationFacts)
+		for _, record := range mailbox.Waits {
+			if record.Kind == WaitKindChildren && !record.Closed {
+				waits[record.WaitID] = &childWaitValidationFacts{record: record}
+			}
+		}
+		if len(waits) == 0 {
+			continue
+		}
+		for _, signal := range mailbox.Signals {
+			if signal.WaitID != nil {
+				if facts := waits[*signal.WaitID]; facts != nil {
+					facts.signals = append(facts.signals, signal)
+				}
+			}
+		}
+		mailboxes[snapshot.ProcessID()] = waits
+	}
 	waitOwners := make(map[WaitID]ProcessID, len(t.wire.ChildWaits))
 	for _, encoded := range t.wire.ChildWaits {
 		parent, exists := t.processes[encoded.ParentProcessID]
@@ -275,11 +307,11 @@ func (t *treeSnapshotValidation) validateChildWaits() error {
 		if _, duplicate := waitOwners[encoded.WaitID]; duplicate {
 			return fmt.Errorf("%w: duplicate child WaitID", ErrInvalidTreeSnapshot)
 		}
-		waitRecord, exists := parent.Mailbox.waitRecord(encoded.WaitID)
-		if !exists || waitRecord.Kind != WaitKindChildren || waitRecord.Closed || waitRecord.WaitKey != spec.Key {
+		facts := mailboxes[encoded.ParentProcessID][encoded.WaitID]
+		if facts == nil || facts.record.WaitKey != spec.Key {
 			return fmt.Errorf("%w: child wait is absent from parent mailbox", ErrInvalidTreeSnapshot)
 		}
-		if err := t.validateChildWaitSignals(parent.Mailbox, encoded.WaitID, spec); err != nil {
+		if err := t.validateChildWaitSignals(facts.signals, encoded.WaitID, spec); err != nil {
 			return err
 		}
 		for _, childID := range spec.Children {
@@ -407,7 +439,7 @@ func (t *treeSnapshotValidation) validateChildControl(parentID ProcessID, record
 	return ErrInvalidChildControl
 }
 
-func (t *treeSnapshotValidation) validateChildWaitSignals(mailbox mailboxWire, waitID WaitID, spec ChildWaitSpec) error {
+func (t *treeSnapshotValidation) validateChildWaitSignals(signals []signalRecordWire, waitID WaitID, spec ChildWaitSpec) error {
 	opened, err := encodeChildWaitOpened(spec)
 	if err != nil {
 		return fmt.Errorf("%w: encode child wait: %w", ErrInvalidTreeSnapshot, err)
@@ -416,12 +448,10 @@ func (t *treeSnapshotValidation) validateChildWaitSignals(mailbox mailboxWire, w
 	if err != nil {
 		return fmt.Errorf("%w: normalize child wait: %w", ErrInvalidTreeSnapshot, err)
 	}
-	for _, record := range mailbox.Signals {
-		if record.WaitID == nil || *record.WaitID != waitID {
-			continue
-		}
+	openedDigest := ComputeDigest(opened)
+	for _, record := range signals {
 		if record.OpensWait {
-			if record.PayloadDigest != ComputeDigest(opened) {
+			if record.PayloadDigest != openedDigest {
 				return fmt.Errorf("%w: child wait disagrees with its opening Signal", ErrInvalidTreeSnapshot)
 			}
 			continue
@@ -438,13 +468,15 @@ func (t *treeSnapshotValidation) validateChildWaitSignals(mailbox mailboxWire, w
 		if uint32(len(satisfied.outcomes)) < spec.required() {
 			return fmt.Errorf("%w: child wait condition is unsatisfied", ErrInvalidTreeSnapshot)
 		}
-		previous := -1
+		index := 0
 		for _, outcome := range satisfied.outcomes {
-			index := slices.Index(spec.Children, outcome.result.ProcessID())
-			if index <= previous || !t.matchesChildWaitOutcome(outcome, spec.Boundary) {
+			for index < len(spec.Children) && spec.Children[index] != outcome.result.ProcessID() {
+				index++
+			}
+			if index == len(spec.Children) || !t.matchesChildWaitOutcome(outcome, spec.Boundary) {
 				return fmt.Errorf("%w: child wait outcome disagrees with its tree", ErrInvalidTreeSnapshot)
 			}
-			previous = index
+			index++
 		}
 	}
 	return nil
@@ -475,15 +507,7 @@ func (t *treeSnapshotValidation) matchesChildWaitOutcome(outcome ChildOutcome, b
 
 func (t *treeSnapshotValidation) subtreeUnresolvedEffects(processID ProcessID) []UnresolvedEffect {
 	return subtreeUnresolvedEffects(processID,
-		func(id ProcessID) []ProcessID {
-			var children []ProcessID
-			for _, child := range t.processes {
-				if child.Relation.ParentID != nil && *child.Relation.ParentID == id {
-					children = append(children, child.ProcessID)
-				}
-			}
-			return children
-		},
+		func(id ProcessID) []ProcessID { return t.childrenByParent[id] },
 		func(id ProcessID) Termination {
 			if termination := t.processes[id].Termination; termination != nil {
 				return *termination
@@ -496,8 +520,8 @@ func (t *treeSnapshotValidation) subtreeTerminal(processID ProcessID) bool {
 	if !t.processes[processID].Status.Terminal() {
 		return false
 	}
-	for _, child := range t.processes {
-		if child.Relation.ParentID != nil && *child.Relation.ParentID == processID && !t.subtreeTerminal(child.ProcessID) {
+	for _, childID := range t.childrenByParent[processID] {
+		if !t.subtreeTerminal(childID) {
 			return false
 		}
 	}
