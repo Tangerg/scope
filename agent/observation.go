@@ -25,7 +25,11 @@ type EventListener interface {
 	// callback is active. The restriction ends when this invocation returns,
 	// including after a panic. Calls to other trees must still return in bounded
 	// time; distinct owners do not prevent cyclic waits between callbacks.
-	// The listener has no veto or acknowledgment authority.
+	// A blocked callback prevents tree control and shutdown. Network and disk
+	// exporters belong behind a Host-owned bounded queue whose worker, drops, and
+	// drain lifecycle the Host owns. DeltaListener carries different facts and
+	// cannot replace Event delivery. The listener has no veto or acknowledgment
+	// authority.
 	OnEvent(ctx context.Context, event Event)
 }
 

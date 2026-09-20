@@ -46,6 +46,7 @@ func (c crashCommitPoint) valid() bool {
 }
 
 type crashCommitObservation struct {
+	ctx            context.Context
 	rootID         agent.ProcessID
 	previousDigest agent.Digest
 	prospective    agent.TreeSnapshot
@@ -92,6 +93,7 @@ func (t *treeCommitterCommitGate) ActivateTree(
 	activation agent.TreeActivation,
 ) error {
 	observation := crashCommitObservation{
+		ctx:            ctx,
 		rootID:         activation.TreeSnapshot().RootID(),
 		previousDigest: activation.PreviousTreeDigest(),
 		prospective:    activation.TreeSnapshot(),
@@ -116,6 +118,7 @@ func (t *treeCommitterCommitGate) CommitEffect(
 		kind = crashCommitEffectResolved
 	}
 	observation := crashCommitObservation{
+		ctx:            ctx,
 		rootID:         boundary.TreeSnapshot().RootID(),
 		previousDigest: boundary.PreviousTreeDigest(),
 		prospective:    boundary.TreeSnapshot(),
@@ -154,6 +157,7 @@ func (t *treeCommitterCommitGate) CommitCheckpoint(
 		}
 	}
 	observation := crashCommitObservation{
+		ctx:            ctx,
 		rootID:         checkpoint.TreeSnapshot().RootID(),
 		previousDigest: checkpoint.PreviousTreeDigest(),
 		prospective:    checkpoint.TreeSnapshot(),

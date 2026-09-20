@@ -29,8 +29,12 @@ type TreeCommitterConformanceDriver interface {
 // input consumption, budget preservation, and subtree cancellation recovery.
 // Each factory call must return an empty isolated store so prior head ownership
 // cannot mask a missing compare-and-swap or idempotency check.
-// Runtime and storage operations inherit the test context; cleanup may continue
-// after cancellation to join owned work.
+// Runtime operations inherit the test context; storage calls detach its
+// cancellation. Cleanup may continue after cancellation to join owned work.
+// Shutdown scenarios release an injected storage gate independently of caller
+// cancellation and verify both possible
+// authoritative heads. Hosts must also fault-inject their real transport to prove
+// its own storage deadline and shutdown interrupt blocked I/O.
 func RunTreeCommitterConformance(
 	t *testing.T,
 	factory func() TreeCommitterConformanceDriver,
@@ -56,6 +60,9 @@ func RunTreeCommitterConformance(
 	})
 	t.Run("crash boundaries", func(t *testing.T) {
 		runTreeCommitterCrashConformance(t, factory)
+	})
+	t.Run("detached storage shutdown", func(t *testing.T) {
+		runDetachedStorageShutdownConformance(t, factory)
 	})
 	t.Run("durable signal admission", func(t *testing.T) {
 		runSignalAdmissionConformance(t, factory)

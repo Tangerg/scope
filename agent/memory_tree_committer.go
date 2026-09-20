@@ -40,6 +40,11 @@ type MemoryTreeCommitter struct {
 	facts map[memoryCommitFactKey]Digest
 }
 
+// NewMemoryTreeCommitter creates a volatile replay ledger for a bounded Host
+// lifetime. Releasing trees does not reclaim commits. Stop every writer and
+// caller before discarding the instance; a new instance cannot fence old writers
+// or reconcile their acknowledgments. Use durable Host storage when recovery or
+// retention must outlive that lifetime.
 func NewMemoryTreeCommitter() *MemoryTreeCommitter {
 	return &MemoryTreeCommitter{
 		heads: make(map[ProcessID]memoryTreeHead),

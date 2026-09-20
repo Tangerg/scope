@@ -103,7 +103,13 @@
 // permanently charge child grants; unlimited grants do not debit a finite
 // counter. Captured quotas survive restoration without new Engine defaults.
 // Unlimited execution still retains history and checks numeric identity overflow;
-// the Host chooses retention and resource policy.
+// the Host chooses retention and resource policy. Default depth and active-child
+// bounds do not bound retained tree size or lifetime work. Hosts requiring bounded
+// lifetime growth must choose finite Steps, Effects, Signals, Process snapshot bytes, total
+// children, tree Processes, and tree snapshot bytes for their workload. See the
+// bounded configuration in the [Definition] example. These quotas do not cap the
+// committer ledger across trees or repeated control checkpoints; storage retention
+// has its own Host-owned lifetime.
 //
 // Snapshot admission reserves bounded control and termination metadata with
 // worst-case JSON escaping. Admission of one cut does not authorize future
@@ -123,7 +129,11 @@
 // each activation and do not impose ordering across writers. Wall timestamps
 // are diagnostic, not causal proofs. Listener callbacks must return in bounded
 // time and avoid reentrant control or cyclic waits; see [EventListener],
-// [DeltaListener], and [ErrListenerReentrancy].
+// [DeltaListener], and [ErrListenerReentrancy]. Events run on the tree owner
+// critical path; a blocked callback also blocks control and shutdown of that tree.
+// Slow Event exporters need a Host-owned bounded queue with explicit drop and
+// drain policy. Delta listeners receive Strategy increments, not a substitute
+// stream of Framework Events, and their delivery worker must also remain bounded.
 //
 // # Strategies
 //

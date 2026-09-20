@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -213,4 +214,50 @@ func TestTerminalListenerCannotCloseItsOwnEngine(t *testing.T) {
 			mustCloseEngine(t, engine)
 		})
 	}
+}
+
+func TestBlockedEventKeepsTreeOwnedUntilListenerReturns(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		entered, release := make(chan struct{}), make(chan struct{})
+		unblock := sync.OnceFunc(func() { close(release) })
+		defer unblock()
+		engine := controlValue(NewEngine(EngineConfig{
+			TreeCommitter: NewMemoryTreeCommitter(),
+			EventListeners: []EventListener{EventListenerFunc(func(_ context.Context, event Event) {
+				if event.Name() == EventProcessPaused {
+					close(entered)
+					<-release
+				}
+			})},
+		}))
+		deployment := newChildTestDeployment(t)
+		root := controlValue(engine.Start(t.Context(), deployment, controlValue(EncodePayload(childTestInput{Mode: "leaf_pause"}))))
+		<-entered
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		if err := root.Join(ctx); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("blocked listener Join: %v", err)
+		}
+		if err := engine.Close(t.Context()); !errors.Is(err, ErrEngineHasActiveProcesses) {
+			t.Fatalf("Close abandoned listener: %v", err)
+		}
+		independent := controlValue(engine.Run(t.Context(), deployment, controlValue(EncodePayload(childTestInput{Mode: "leaf"}))))
+		if independent.Status() != StatusCompleted {
+			t.Fatal("blocked listener stopped another tree")
+		}
+		unblock()
+		if err := root.Resume(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if err := root.Join(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if result := awaitResult(t, root); result.Status() != StatusCompleted {
+			t.Fatal("released listener lost completion")
+		}
+		if err := engine.ReleaseTree(t.Context(), root.ID()); err != nil {
+			t.Fatal(err)
+		}
+		mustCloseEngine(t, engine)
+	})
 }
