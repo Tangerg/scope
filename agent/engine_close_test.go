@@ -181,7 +181,7 @@ func TestEngineCloseRejectsIncompleteTerminalPublication(t *testing.T) {
 }
 
 func TestTerminalListenerCannotCloseItsOwnEngine(t *testing.T) {
-	for _, durable := range []bool{false, true} {
+	for _, recording := range []bool{false, true} {
 		synctest.Test(t, func(t *testing.T) {
 			var engine *Engine
 			result := make(chan error, 1)
@@ -192,7 +192,7 @@ func TestTerminalListenerCannotCloseItsOwnEngine(t *testing.T) {
 					}
 				}),
 			}}
-			if durable {
+			if recording {
 				config.TreeCommitter = &recordingTreeCommitter{}
 			}
 			var err error
@@ -208,7 +208,7 @@ func TestTerminalListenerCannotCloseItsOwnEngine(t *testing.T) {
 				t.Fatal(err)
 			}
 			if err := <-result; !errors.Is(err, ErrEngineHasActiveProcesses) {
-				t.Fatalf("listener Close with durable=%t: %v, want ErrEngineHasActiveProcesses", durable, err)
+				t.Fatalf("listener Close with recording=%t: %v, want ErrEngineHasActiveProcesses", recording, err)
 			}
 			mustCloseEngine(t, engine)
 		})

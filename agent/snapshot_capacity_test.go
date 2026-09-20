@@ -61,11 +61,11 @@ func (c *capacityExecution) Step(_ context.Context, signals []Signal) (Transitio
 func TestOversizedStepRejectedBeforeDispatcherPermission(t *testing.T) {
 	payload := json.RawMessage(`"` + strings.Repeat("x", 45<<14) + `"`)
 	effect := controlValue(NewDispatcherEffect(payload))
-	for _, durable := range []bool{false, true} {
-		t.Run(fmt.Sprint(durable), func(t *testing.T) {
+	for _, recording := range []bool{false, true} {
+		t.Run(fmt.Sprint(recording), func(t *testing.T) {
 			store := &recordingTreeCommitter{}
 			config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: Limits{MaxSnapshotBytes: NewQuota(128 << 14)}, TreeLimits: TreeLimits{MaxSnapshotBytes: NewQuota(512 << 14)}}
-			if durable {
+			if recording {
 				config.TreeCommitter = store
 			}
 			engine := controlValue(NewEngine(config))
@@ -83,7 +83,7 @@ func TestOversizedStepRejectedBeforeDispatcherPermission(t *testing.T) {
 				t.Fatalf("admission result=%+v, calls=%d, usage=%+v", failure, dispatcher.calls.Load(), result.Usage())
 			}
 			if len(store.effectBoundaries()) != 0 {
-				t.Fatal("oversize candidate acquired durable dispatch permission")
+				t.Fatal("oversize candidate acquired recording dispatch permission")
 			}
 			snapshot := inspectProcessSnapshot(t, process)
 			if snapshot.state.Prepared != nil || snapshot.state.CommittedSteps != 0 {
@@ -94,11 +94,11 @@ func TestOversizedStepRejectedBeforeDispatcherPermission(t *testing.T) {
 }
 
 func TestOversizedUnknownResolutionPreservesHeadAndAllowsSmallerResult(t *testing.T) {
-	for _, durable := range []bool{false, true} {
-		t.Run(fmt.Sprint(durable), func(t *testing.T) {
+	for _, recording := range []bool{false, true} {
+		t.Run(fmt.Sprint(recording), func(t *testing.T) {
 			store := &recordingTreeCommitter{}
 			config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: Limits{MaxSnapshotBytes: NewQuota(128 << 14)}, TreeLimits: TreeLimits{MaxSnapshotBytes: NewQuota(512 << 14)}}
-			if durable {
+			if recording {
 				config.TreeCommitter = store
 			}
 			engine := controlValue(NewEngine(config))

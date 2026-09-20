@@ -3,7 +3,6 @@ package collaboration
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 	"testing/synctest"
 
@@ -102,46 +101,39 @@ func completed(t *testing.T, process *agent.Process) string {
 }
 
 func TestBackgroundContinueControlAndDrain(t *testing.T) {
-	for _, durable := range []bool{false, true} {
-		t.Run(fmt.Sprint(durable), func(t *testing.T) {
-			synctest.Test(t, func(t *testing.T) {
-				definition, deployments := fixture(func(_ context.Context, turn Turn) (Decision, error) {
-					switch turn.Number {
-					case 1:
-						return Decision{Mode: Continue, State: input("working"), Tasks: []TaskRequest{request("background", "test.gate", "wait")}}, nil
-					case 2:
-						if len(turn.Tasks) != 1 || turn.Tasks[0].Start == nil || turn.Tasks[0].Outcome != nil || require(turn.State.Decode[string]()) != "working" {
-							return Decision{}, errors.New("coordinator did not continue beside the active task")
-						}
-						signal := require(agent.NewSignalRequest(require(agent.ParseSignalID("signal:steer")), agent.WaitID{}, []byte(`"new direction"`)))
-						reason := "No longer needed."
-						return Decision{Mode: Wait, State: turn.State, Controls: []Control{
-							{Task: turn.Tasks[0].Request.Key, Signal: &signal}, {Task: turn.Tasks[0].Request.Key, CancelReason: &reason},
-						}}, nil
-					case 3:
-						if len(turn.Controls) != 2 || turn.Controls[0].Result == nil || turn.Controls[1].Result == nil ||
-							turn.Tasks[0].Outcome == nil || turn.Tasks[0].Outcome.Result().Status() != agent.StatusCanceled {
-							return Decision{}, errors.New("control receipts or drained cancellation missing")
-						}
-						if _, failed := turn.Controls[1].Result.Failure(); failed {
-							return Decision{}, errors.New("cancel rejected")
-						}
-						return finish(turn, "continued, controlled, drained"), nil
-					default:
-						return Decision{}, errors.New("unexpected turn")
-					}
-				}, gate())
-				var committer agent.TreeCommitter = agent.NewMemoryTreeCommitter()
-				if durable {
-					committer = agent.NewMemoryTreeCommitter()
+	synctest.Test(t, func(t *testing.T) {
+		definition, deployments := fixture(func(_ context.Context, turn Turn) (Decision, error) {
+			switch turn.Number {
+			case 1:
+				return Decision{Mode: Continue, State: input("working"), Tasks: []TaskRequest{request("background", "test.gate", "wait")}}, nil
+			case 2:
+				if len(turn.Tasks) != 1 || turn.Tasks[0].Start == nil || turn.Tasks[0].Outcome != nil || require(turn.State.Decode[string]()) != "working" {
+					return Decision{}, errors.New("coordinator did not continue beside the active task")
 				}
-				_, process := run(t, definition, deployments, committer)
-				if got := completed(t, process); got != "continued, controlled, drained" {
-					t.Fatal(got)
+				signal := require(agent.NewSignalRequest(require(agent.ParseSignalID("signal:steer")), agent.WaitID{}, []byte(`"new direction"`)))
+				reason := "No longer needed."
+				return Decision{Mode: Wait, State: turn.State, Controls: []Control{
+					{Task: turn.Tasks[0].Request.Key, Signal: &signal}, {Task: turn.Tasks[0].Request.Key, CancelReason: &reason},
+				}}, nil
+			case 3:
+				if len(turn.Controls) != 2 || turn.Controls[0].Result == nil || turn.Controls[1].Result == nil ||
+					turn.Tasks[0].Outcome == nil || turn.Tasks[0].Outcome.Result().Status() != agent.StatusCanceled {
+					return Decision{}, errors.New("control receipts or drained cancellation missing")
 				}
-			})
-		})
-	}
+				if _, failed := turn.Controls[1].Result.Failure(); failed {
+					return Decision{}, errors.New("cancel rejected")
+				}
+				return finish(turn, "continued, controlled, drained"), nil
+			default:
+				return Decision{}, errors.New("unexpected turn")
+			}
+		}, gate())
+		var committer agent.TreeCommitter = agent.NewMemoryTreeCommitter()
+		_, process := run(t, definition, deployments, committer)
+		if got := completed(t, process); got != "continued, controlled, drained" {
+			t.Fatal(got)
+		}
+	})
 }
 
 func TestCompletedTaskFollowUp(t *testing.T) {

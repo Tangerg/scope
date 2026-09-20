@@ -50,15 +50,15 @@ func TestDispatcherUnknownRetainsControlledFailureObservation(t *testing.T) {
 			return NewSettlement(request.ID(), SettlementStatusUnknown, []byte(`null`))
 		}},
 	} {
-		for _, durable := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/durable=%t", test.name, durable), func(t *testing.T) {
+		for _, recording := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/recording=%t", test.name, recording), func(t *testing.T) {
 				finished := make(chan Event, 1)
 				config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), EventListeners: []EventListener{EventListenerFunc(func(_ context.Context, event Event) {
 					if event.Name() == EventEffectFinished {
 						finished <- event
 					}
 				})}}
-				if durable {
+				if recording {
 					config.TreeCommitter = &recordingTreeCommitter{}
 				}
 				engine, err := NewEngine(config)

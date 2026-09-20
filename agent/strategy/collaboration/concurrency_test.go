@@ -34,7 +34,7 @@ func modelDeployment(name string, model chat.Model) agent.Deployment {
 }
 
 func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) {
-	for _, mode := range []string{"memory", "durable", "restored"} {
+	for _, mode := range []string{"memory", "restored"} {
 		for _, count := range []int{1, 2} {
 			t.Run(fmt.Sprintf("%s/tasks_%d", mode, count), func(t *testing.T) {
 				synctest.Test(t, func(t *testing.T) {
@@ -99,9 +99,6 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 					deployments[model.DeploymentRef()], deployments[coordinator.DeploymentRef()] = model, coordinator
 					store := agent.NewMemoryTreeCommitter()
 					var committer agent.TreeCommitter = store
-					if mode != "memory" {
-						committer = store
-					}
 					if mode == "restored" {
 						committer = &coordinatorSettlementCrash{MemoryTreeCommitter: store}
 					}

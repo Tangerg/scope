@@ -161,8 +161,8 @@ func (r *replayDeltaDispatcher) Dispatch(_ context.Context, request EffectReques
 }
 
 func TestReplayDeltasCarryAttemptIdentityAcrossSlowDelivery(t *testing.T) {
-	for _, durable := range []bool{false, true} {
-		t.Run(fmt.Sprintf("durable_%t", durable), func(t *testing.T) {
+	for _, recording := range []bool{false, true} {
+		t.Run(fmt.Sprintf("recording_%t", recording), func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				entered, release := make(chan struct{}), make(chan struct{})
 				unblock := sync.OnceFunc(func() { close(release) })
@@ -179,7 +179,7 @@ func TestReplayDeltasCarryAttemptIdentityAcrossSlowDelivery(t *testing.T) {
 					})},
 					EventListeners: []EventListener{EventListenerFunc(func(_ context.Context, event Event) { events = append(events, event) })},
 				}
-				if durable {
+				if recording {
 					config.TreeCommitter = &recordingTreeCommitter{}
 				}
 				engine := controlValue(NewEngine(config))

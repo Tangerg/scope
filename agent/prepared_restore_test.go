@@ -11,14 +11,14 @@ func TestRestoreRejectsUnrestorableCandidateBeforeExternalWork(t *testing.T) {
 	snapshot := preparedEngineTestSnapshot(t)
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	for _, test := range []struct {
-		name    string
-		durable bool
-		phase   effectPhase
+		name      string
+		recording bool
+		phase     effectPhase
 	}{
 		{name: "memory planned", phase: effectPhasePlanned},
 		{name: "memory pending", phase: effectPhasePending},
-		{name: "durable planned", durable: true, phase: effectPhasePlanned},
-		{name: "durable pending", durable: true, phase: effectPhasePending},
+		{name: "recording planned", recording: true, phase: effectPhasePlanned},
+		{name: "recording pending", recording: true, phase: effectPhasePending},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			wire, err := snapshot.wire()
@@ -37,7 +37,7 @@ func TestRestoreRejectsUnrestorableCandidateBeforeExternalWork(t *testing.T) {
 			treeWire := treeSnapshotWire{IncarnationID: newTreeIncarnationID(), RootID: invalid.ProcessID(), ProcessSnapshots: []ProcessSnapshot{invalid}}
 			config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
 			committer := &recordingTreeCommitter{}
-			if test.durable {
+			if test.recording {
 				incarnation := newTreeIncarnationID()
 				treeWire.IncarnationID = incarnation
 				config.TreeCommitter = committer

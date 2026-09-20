@@ -9,11 +9,11 @@ import (
 
 func TestChildAllocationPreservesPreparedParentWork(t *testing.T) {
 	for _, committer := range []struct {
-		name  string
-		store bool
+		name      string
+		recording bool
 	}{
 		{name: "in memory"},
-		{name: "durable", store: true},
+		{name: "recording", recording: true},
 	} {
 		for _, test := range []struct {
 			name         string
@@ -30,7 +30,7 @@ func TestChildAllocationPreservesPreparedParentWork(t *testing.T) {
 		} {
 			t.Run(committer.name+"/"+test.name, func(t *testing.T) {
 				config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: test.limits}
-				if committer.store {
+				if committer.recording {
 					config.TreeCommitter = &recordingTreeCommitter{}
 				}
 				engine, err := NewEngine(config)

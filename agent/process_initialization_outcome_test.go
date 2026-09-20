@@ -13,7 +13,7 @@ func TestProcessInitializationOutcomesConcludeAcceptedRootAndChildAdmissions(t *
 		committer TreeCommitter
 	}{
 		{name: "memory", committer: NewMemoryTreeCommitter()},
-		{name: "durable", committer: &recordingTreeCommitter{}},
+		{name: "recording", committer: &recordingTreeCommitter{}},
 	} {
 		t.Run(mode.name, func(t *testing.T) {
 			childDeployment := newChildTestDeployment(t)
@@ -261,7 +261,7 @@ func TestRejectingInitializedChildOutcomePreventsChildPublication(t *testing.T) 
 		committer TreeCommitter
 	}{
 		{name: "memory", committer: NewMemoryTreeCommitter()},
-		{name: "durable", committer: &recordingTreeCommitter{}},
+		{name: "recording", committer: &recordingTreeCommitter{}},
 	} {
 		t.Run(mode.name, func(t *testing.T) {
 			childDeployment := newChildTestDeployment(t)

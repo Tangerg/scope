@@ -15,11 +15,11 @@ import (
 )
 
 func TestTerminationCancelsDispatchAndStopsPreparedBatch(t *testing.T) {
-	for _, durable := range []bool{false, true} {
+	for _, recording := range []bool{false, true} {
 		for _, status := range []SettlementStatus{SettlementStatusSucceeded, SettlementStatusFailed, SettlementStatusUnknown} {
 			name := "memory"
-			if durable {
-				name = "durable"
+			if recording {
+				name = "recording"
 			}
 			name += "/" + status.String()
 			t.Run(name, func(t *testing.T) {
@@ -31,7 +31,7 @@ func TestTerminationCancelsDispatchAndStopsPreparedBatch(t *testing.T) {
 					release := sync.OnceFunc(func() { close(dispatcher.release) })
 					defer release()
 					config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
-					if durable {
+					if recording {
 						config.TreeCommitter = &recordingTreeCommitter{}
 					}
 					engine, err := NewEngine(config)
@@ -77,7 +77,7 @@ func TestTerminationCancelsDispatchAndStopsPreparedBatch(t *testing.T) {
 						t.Errorf("definite return became uncertain: %v", unresolved)
 					}
 					snapshot := inspectProcessSnapshot(t, process)
-					if !durable && status == SettlementStatusUnknown {
+					if !recording && status == SettlementStatusUnknown {
 						assertInterruptedSnapshotValidation(t, snapshot)
 					}
 					wire, err := snapshot.wire()

@@ -89,18 +89,18 @@ func TestScopedJoinRequiresDescendantCheckpointAcknowledgment(t *testing.T) {
 }
 
 func TestScopedJoinSeparatesResultsFromDescendantCleanup(t *testing.T) {
-	for _, durable := range []bool{false, true} {
+	for _, recording := range []bool{false, true} {
 		for _, boundary := range []ChildWaitBoundary{ChildWaitBoundaryResult, ChildWaitBoundaryDrained} {
 			name := "memory/" + boundary.String()
-			if durable {
-				name = "durable/" + boundary.String()
+			if recording {
+				name = "recording/" + boundary.String()
 			}
 			t.Run(name, func(t *testing.T) {
 				synctest.Test(t, func(t *testing.T) {
 					dispatcher := newBlockingChildDispatcher("cleanup", "sibling")
 					defer dispatcher.ReleaseAll()
 					config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
-					if durable {
+					if recording {
 						config.TreeCommitter = &recordingTreeCommitter{}
 					}
 					engine, err := NewEngine(config)
@@ -144,7 +144,7 @@ func TestScopedJoinSeparatesResultsFromDescendantCleanup(t *testing.T) {
 						t.Errorf("canceled Join = %v", operationErr)
 					}
 					var interrupted TreeSnapshot
-					if durable {
+					if recording {
 						checkpoints := config.TreeCommitter.(*recordingTreeCommitter).treeCheckpoints()
 						interrupted = checkpoints[len(checkpoints)-1].TreeSnapshot()
 					}
@@ -167,7 +167,7 @@ func TestScopedJoinSeparatesResultsFromDescendantCleanup(t *testing.T) {
 						t.Fatal(operationErr)
 					}
 					mustCloseEngine(t, engine)
-					if !durable {
+					if !recording {
 						return
 					}
 					recoveredDurability := &recordingTreeCommitter{}

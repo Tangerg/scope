@@ -17,10 +17,10 @@ import (
 )
 
 func TestSteerQueuedDuringChildWaitSurvivesRestore(t *testing.T) {
-	for _, durable := range []bool{false, true} {
-		name := "memory"
-		if durable {
-			name = "durable"
+	for _, readStore := range []bool{false, true} {
+		name := "capture_tree"
+		if readStore {
+			name = "load_store"
 		}
 		t.Run(name, func(t *testing.T) {
 			waiting := newInputRequestTool()
@@ -46,7 +46,7 @@ func TestSteerQueuedDuringChildWaitSurvivesRestore(t *testing.T) {
 			)
 			config := agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolver}
 			var store *agent.MemoryTreeCommitter
-			if durable {
+			if readStore {
 				store = agent.NewMemoryTreeCommitter()
 				config.TreeCommitter = store
 			}

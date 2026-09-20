@@ -8,10 +8,10 @@ import (
 )
 
 func TestRestoreCompletesWithEarlierWallTime(t *testing.T) {
-	for _, durable := range []bool{false, true} {
+	for _, recording := range []bool{false, true} {
 		for _, cancel := range []bool{false, true} {
-			t.Run(testWallTimeMode(durable, cancel), func(t *testing.T) {
-				deployment, snapshot, config := clockSkewedTree(t, durable, false)
+			t.Run(testWallTimeMode(recording, cancel), func(t *testing.T) {
+				deployment, snapshot, config := clockSkewedTree(t, recording, false)
 				engine, err := NewEngine(config)
 				if err != nil {
 					t.Fatal(err)
@@ -90,10 +90,10 @@ func TestRestoreAcceptsChildrenWithEarlierWallTimes(t *testing.T) {
 	}
 }
 
-func testWallTimeMode(durable, cancel bool) string {
+func testWallTimeMode(recording, cancel bool) string {
 	mode := "memory/"
-	if durable {
-		mode = "durable/"
+	if recording {
+		mode = "recording/"
 	}
 	if cancel {
 		return mode + "cancel"
@@ -101,10 +101,10 @@ func testWallTimeMode(durable, cancel bool) string {
 	return mode + "complete"
 }
 
-func clockSkewedTree(t *testing.T, durable, children bool) (Deployment, TreeSnapshot, EngineConfig) {
+func clockSkewedTree(t *testing.T, recording, children bool) (Deployment, TreeSnapshot, EngineConfig) {
 	t.Helper()
 	config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
-	if durable {
+	if recording {
 		config.TreeCommitter = &recordingTreeCommitter{}
 	}
 	engine, err := NewEngine(config)

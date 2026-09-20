@@ -9,11 +9,11 @@ import (
 )
 
 func TestSignalBatchPublishesOnlyNewIdentities(t *testing.T) {
-	for _, durable := range []bool{false, true} {
-		t.Run(fmt.Sprintf("durable_%t", durable), func(t *testing.T) {
+	for _, recording := range []bool{false, true} {
+		t.Run(fmt.Sprintf("recording_%t", recording), func(t *testing.T) {
 			listener := &recordingEventListener{}
 			config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), EventListeners: []EventListener{listener}}
-			if durable {
+			if recording {
 				config.TreeCommitter = &recordingTreeCommitter{}
 			}
 			engine := controlValue(NewEngine(config))

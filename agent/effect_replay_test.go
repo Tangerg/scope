@@ -21,9 +21,9 @@ func (r replayTestDispatcher) Dispatch(ctx context.Context, request EffectReques
 }
 
 func TestReplayUnknownEffectRetainsEvidenceAndSerializesResolution(t *testing.T) {
-	for _, durable := range []bool{false, true} {
+	for _, recording := range []bool{false, true} {
 		for _, outcome := range []string{"success", "unknown", "canceled_success", "canceled_unknown"} {
-			t.Run(fmt.Sprintf("durable_%t/%s", durable, outcome), func(t *testing.T) {
+			t.Run(fmt.Sprintf("recording_%t/%s", recording, outcome), func(t *testing.T) {
 				synctest.Test(t, func(t *testing.T) {
 					var calls int
 					var original EffectRequest
@@ -55,7 +55,7 @@ func TestReplayUnknownEffectRetainsEvidenceAndSerializesResolution(t *testing.T)
 					}}
 					config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
 					store := &recordingTreeCommitter{}
-					if durable {
+					if recording {
 						config.TreeCommitter = store
 					}
 					engine, err := NewEngine(config)
@@ -144,7 +144,7 @@ func TestReplayUnknownEffectRetainsEvidenceAndSerializesResolution(t *testing.T)
 					if result.Usage().PreparedEffects != 1 {
 						t.Fatalf("replay spent another logical effect: %+v", result.Usage())
 					}
-					if durable {
+					if recording {
 						boundaries := store.effectBoundaries()
 						want := 3
 						if canceled && uncertain {

@@ -18,10 +18,10 @@ func TestImmediateChildCompletionLimitReportsExecutionFailure(t *testing.T) {
 		{name: "pending mailbox", limits: Limits{MaxPendingSignals: 1}},
 		{name: "allocated child budget", limits: Limits{MaxPendingSignals: 52, Budget: Budget{Signals: NewQuota(52)}}},
 	} {
-		for _, durable := range []bool{false, true} {
+		for _, recording := range []bool{false, true} {
 			mode := "memory"
-			if durable {
-				mode = "durable"
+			if recording {
+				mode = "recording"
 			}
 			t.Run(limit.name+"/"+mode, func(t *testing.T) {
 				synctest.Test(t, func(t *testing.T) {
@@ -35,7 +35,7 @@ func TestImmediateChildCompletionLimitReportsExecutionFailure(t *testing.T) {
 					deployment := engineTestDeployment(t, definition, childTestDispatcher{})
 					definition.reference = deployment.DeploymentRef()
 					config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: limit.limits}
-					if durable {
+					if recording {
 						config.TreeCommitter = &recordingTreeCommitter{}
 					}
 					engine, err := NewEngine(config)
@@ -129,14 +129,14 @@ func (h *heldChildWaitExecution) Step(ctx context.Context, signals []Signal) (Tr
 }
 
 func TestWaitConflictsAreRejectedBeforeDispatch(t *testing.T) {
-	for _, durable := range []bool{false, true} {
+	for _, recording := range []bool{false, true} {
 		name := "memory"
-		if durable {
-			name = "durable"
+		if recording {
+			name = "recording"
 		}
 		t.Run(name, func(t *testing.T) {
 			config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
-			if durable {
+			if recording {
 				config.TreeCommitter = &recordingTreeCommitter{}
 			}
 			engine, err := NewEngine(config)

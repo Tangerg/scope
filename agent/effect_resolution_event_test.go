@@ -13,7 +13,7 @@ import (
 )
 
 func TestUnknownResolutionSeparatesAttemptsFromCommittedFacts(t *testing.T) {
-	for _, mode := range []string{"memory", "durable", "lost_acknowledgment"} {
+	for _, mode := range []string{"memory", "recording", "lost_acknowledgment"} {
 		for _, replay := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/replay_%t", mode, replay), func(t *testing.T) {
 				synctest.Test(t, func(t *testing.T) {

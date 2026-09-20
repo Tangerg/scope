@@ -9,11 +9,11 @@ import (
 )
 
 func TestRunWaitsForDescendantCleanup(t *testing.T) {
-	for _, durable := range []bool{false, true} {
+	for _, recording := range []bool{false, true} {
 		for _, canceled := range []bool{false, true} {
 			name := "memory/completed"
-			if durable {
-				name = "durable/completed"
+			if recording {
+				name = "recording/completed"
 			}
 			if canceled {
 				name += "/canceled"
@@ -23,7 +23,7 @@ func TestRunWaitsForDescendantCleanup(t *testing.T) {
 					dispatcher := newBlockingChildDispatcher("cleanup")
 					defer dispatcher.ReleaseAll()
 					config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
-					if durable {
+					if recording {
 						config.TreeCommitter = &recordingTreeCommitter{}
 					}
 					ctx, cancel := context.WithCancel(t.Context())

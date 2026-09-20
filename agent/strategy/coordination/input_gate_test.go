@@ -14,10 +14,10 @@ import (
 )
 
 func TestInputGatePreservesIdentityAcrossRecoveryAndEarlyAnswer(t *testing.T) {
-	for _, durable := range []bool{false, true} {
-		name := "memory"
-		if durable {
-			name = "durable"
+	for _, restore := range []bool{false, true} {
+		name := "same_writer"
+		if restore {
+			name = "restored"
 		}
 		t.Run(name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -28,7 +28,7 @@ func TestInputGatePreservesIdentityAcrossRecoveryAndEarlyAnswer(t *testing.T) {
 				deployment := bind(t, probe, nil)
 				config := agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}
 				store := agent.NewMemoryTreeCommitter()
-				if durable {
+				if restore {
 					config.TreeCommitter = store
 				}
 				engine, err := agent.NewEngine(config)
@@ -60,7 +60,7 @@ func TestInputGatePreservesIdentityAcrossRecoveryAndEarlyAnswer(t *testing.T) {
 				}
 				completed := process
 				var restoredEngine *agent.Engine
-				if durable {
+				if restore {
 					checkpoint, found, loadErr := store.LoadTree(t.Context(), process.ID())
 					if loadErr != nil || !found {
 						t.Fatalf("input checkpoint exists=%t error=%v", found, loadErr)
@@ -82,7 +82,7 @@ func TestInputGatePreservesIdentityAcrossRecoveryAndEarlyAnswer(t *testing.T) {
 				if usage := result(t, completed).Usage(); usage != (agent.Usage{CommittedSteps: 3, PreparedEffects: 1, AcceptedSignals: 2}) {
 					t.Fatalf("gate usage = %+v", usage)
 				}
-				if durable {
+				if restore {
 					if _, staleErr := process.Await(t.Context()); !errors.Is(staleErr, agent.ErrTreeIncarnationConflict) {
 						t.Fatalf("retired gate writer = %v", staleErr)
 					}
