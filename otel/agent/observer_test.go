@@ -20,7 +20,6 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
 	agentotel "github.com/Tangerg/scope/otel/agent"
 )
 
@@ -77,7 +76,7 @@ func runObservedProcess(t *testing.T, observer *agentotel.Observer) agent.Result
 	t.Helper()
 	deployment := testDeployment(t)
 	engine, err := agent.NewEngine(agent.EngineConfig{
-		TreeDurability: agenttest.NewMemoryTreeDurability(),
+		TreeCommitter:  agent.NewMemoryTreeCommitter(),
 		EventListeners: []agent.EventListener{observer},
 	})
 	if err != nil {
@@ -201,7 +200,7 @@ func TestObserverRecordsStableProcessFailureAttribution(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(observer.Close)
-	engine, err := agent.NewEngine(agent.EngineConfig{EventListeners: []agent.EventListener{observer}})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), EventListeners: []agent.EventListener{observer}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +269,7 @@ func TestObserverRecordsStepAndEffectFactErrors(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(observer.Close)
-			engine, err := agent.NewEngine(agent.EngineConfig{
+			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
 				EventListeners: []agent.EventListener{observer},
 			})
 			if err != nil {
@@ -296,8 +295,9 @@ func TestObserverRecordsStepAndEffectFactErrors(t *testing.T) {
 
 func TestObserverDistinguishesRestoredProcessActivation(t *testing.T) {
 	deployment := testDeployment(t)
+	store := agent.NewMemoryTreeCommitter()
 	paused := make(chan struct{}, 1)
-	source, err := agent.NewEngine(agent.EngineConfig{EventListeners: []agent.EventListener{
+	source, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, EventListeners: []agent.EventListener{
 		agent.EventListenerFunc(func(_ context.Context, event agent.Event) {
 			if event.Name() == agent.EventProcessPaused {
 				paused <- struct{}{}
@@ -320,15 +320,6 @@ func TestObserverDistinguishesRestoredProcessActivation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if killErr := original.Kill(context.Background(), "source cleanup"); killErr != nil {
-		t.Fatal(killErr)
-	}
-	if _, awaitErr := original.Await(context.Background()); awaitErr != nil {
-		t.Fatal(awaitErr)
-	}
-	if closeErr := source.Close(context.WithoutCancel(t.Context())); closeErr != nil {
-		t.Fatal(closeErr)
-	}
 
 	recorder := tracetest.NewSpanRecorder()
 	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
@@ -343,13 +334,20 @@ func TestObserverDistinguishesRestoredProcessActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(observer.Close)
-	restoredEngine, err := agent.NewEngine(agent.EngineConfig{EventListeners: []agent.EventListener{observer}})
+	restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, EventListeners: []agent.EventListener{observer}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	restored, err := restoredEngine.RestoreTree(context.Background(), deployment, snapshot)
 	if err != nil {
 		t.Fatal(err)
+	}
+	_ = original.Kill(context.Background(), "retire source writer")
+	if joinErr := original.Join(t.Context()); !errors.Is(joinErr, agent.ErrTreeIncarnationConflict) {
+		t.Fatalf("retired writer result: %v", joinErr)
+	}
+	if closeErr := source.Close(t.Context()); closeErr != nil {
+		t.Fatal(closeErr)
 	}
 	if err := restored.Resume(context.Background()); err != nil {
 		t.Fatal(err)
@@ -393,7 +391,7 @@ func TestObserverIgnoresEventsAfterClose(t *testing.T) {
 func captureObserverEvents(t *testing.T) []agent.Event {
 	t.Helper()
 	var events []agent.Event
-	engine, err := agent.NewEngine(agent.EngineConfig{EventListeners: []agent.EventListener{
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), EventListeners: []agent.EventListener{
 		agent.EventListenerFunc(func(_ context.Context, event agent.Event) {
 			events = append(events, event)
 		}),
@@ -742,7 +740,7 @@ func testDeploymentWithDispatcher(t *testing.T, dispatcher agent.Dispatcher) age
 func captureProcessStartedEvent(t *testing.T) agent.Event {
 	t.Helper()
 	var started agent.Event
-	engine, err := agent.NewEngine(agent.EngineConfig{EventListeners: []agent.EventListener{
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), EventListeners: []agent.EventListener{
 		agent.EventListenerFunc(func(_ context.Context, event agent.Event) {
 			if event.Name() == agent.EventProcessStarted {
 				started = event

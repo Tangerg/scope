@@ -106,7 +106,8 @@ func TestStrategiesRejectUnresolvedDelegateSubtrees(t *testing.T) {
 			}
 			resolver := contractResolver{gate.DeploymentRef(): gate, loser.DeploymentRef(): loser, race.DeploymentRef(): race, delegate.DeploymentRef(): delegate}
 			events := &agenttest.ObservationRecorder{}
-			engine := contractValue(agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver, EventListeners: []agent.EventListener{events}}))
+			store := agent.NewMemoryTreeCommitter()
+			engine := contractValue(agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: resolver, EventListeners: []agent.EventListener{events}}))
 			defer engine.Close(context.WithoutCancel(ctx))
 			process := contractValue(engine.Start(ctx, root, input))
 			defer process.Kill(context.WithoutCancel(ctx), "test cleanup")
@@ -172,7 +173,7 @@ func TestStrategiesRejectUnresolvedDelegateSubtrees(t *testing.T) {
 			if failedDelegates != 1 || completedCompetitions != 1 || unresolvedEffects != 1 {
 				t.Fatalf("subtree evidence: failed delegates=%d completed competitions=%d unresolved Effects=%d", failedDelegates, completedCompetitions, unresolvedEffects)
 			}
-			restoredEngine := contractValue(agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver}))
+			restoredEngine := contractValue(agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: resolver}))
 			defer restoredEngine.Close(context.WithoutCancel(ctx))
 			restored := contractValue(restoredEngine.RestoreTree(ctx, root, snapshot))
 			restoredResult := contractValue(restored.Await(ctx))

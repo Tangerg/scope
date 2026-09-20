@@ -84,7 +84,7 @@ type ObserverConfig struct {
 	TracerProvider trace.TracerProvider
 
 	// MeterProvider creates Process lifecycle and usage instruments, Step/Effect
-	// duration histograms, durability duration and snapshot size, and the Delta
+	// duration histograms, committer duration and snapshot size, and the Delta
 	// drop counter. Nil uses the OpenTelemetry global provider.
 	MeterProvider metric.MeterProvider
 }
@@ -264,7 +264,7 @@ func newObserverInstruments(meter metric.Meter) (observerInstruments, error) {
 		metric.WithUnit(durationUnit),
 	)
 	if err != nil {
-		return observerInstruments{}, fmt.Errorf("%w: create durability duration histogram: %w", ErrInvalidObserverConfig, err)
+		return observerInstruments{}, fmt.Errorf("%w: create committer duration histogram: %w", ErrInvalidObserverConfig, err)
 	}
 	durabilitySnapshotBytes, err := meter.Int64Histogram(
 		durabilitySnapshotBytesMetricName,
@@ -272,7 +272,7 @@ func newObserverInstruments(meter metric.Meter) (observerInstruments, error) {
 		metric.WithUnit("By"),
 	)
 	if err != nil {
-		return observerInstruments{}, fmt.Errorf("%w: create durability snapshot size histogram: %w", ErrInvalidObserverConfig, err)
+		return observerInstruments{}, fmt.Errorf("%w: create committer snapshot size histogram: %w", ErrInvalidObserverConfig, err)
 	}
 	return observerInstruments{
 		processActivations:        processActivations,
@@ -687,20 +687,20 @@ func (o *Observer) WrapDispatcher(next agent.Dispatcher) (agent.Dispatcher, erro
 	return &observedDispatcher{observer: o, next: next}, nil
 }
 
-// WrapTreeDurability observes the existing port so instrumentation cannot select
+// WrapTreeCommitter observes the existing port so instrumentation cannot select
 // a different commit or fencing path. Metric labels stay bounded to avoid one
 // time series per tree; identities belong only in traces. Adapter diagnostics
 // are excluded because they can contain credentials or payloads. An error other
 // than an explicit conflict remains unresolved because a lost response cannot
 // prove whether storage committed.
-func (o *Observer) WrapTreeDurability(next agent.TreeDurability) (agent.TreeDurability, error) {
+func (o *Observer) WrapTreeCommitter(next agent.TreeCommitter) (agent.TreeCommitter, error) {
 	if o == nil || lo.IsNil(o.tracer) {
 		return nil, fmt.Errorf("%w: observer must be constructed with NewObserver", ErrInvalidObserverConfig)
 	}
 	if lo.IsNil(next) {
-		return nil, fmt.Errorf("%w: tree durability must not be nil", ErrInvalidObserverConfig)
+		return nil, fmt.Errorf("%w: tree committer must not be nil", ErrInvalidObserverConfig)
 	}
-	return &observedTreeDurability{observer: o, next: next}, nil
+	return &observedTreeCommitter{observer: o, next: next}, nil
 }
 
 func (o *Observer) observeDurability(ctx context.Context, operation, boundary string, snapshot agent.TreeSnapshot, invoke func(context.Context) error) (err error) {
@@ -715,15 +715,13 @@ func (o *Observer) observeDurability(ctx context.Context, operation, boundary st
 	if boundary != "" {
 		attributes = append(attributes, durabilityBoundaryAttribute.String(boundary))
 	}
-	ctx, span := o.tracer.Start(ctx, "agent.durability."+operation, trace.WithAttributes(attributes...))
+	ctx, span := o.tracer.Start(ctx, "agent.committer."+operation, trace.WithAttributes(attributes...))
 	if snapshot.Valid() {
 		span.SetAttributes(
 			processRootIDAttribute.String(snapshot.RootID().String()),
 			durabilityHeadAttribute.String(snapshot.Digest().String()),
+			treeIncarnationIDAttribute.String(snapshot.IncarnationID().String()),
 		)
-		if incarnationID, durable := snapshot.IncarnationID(); durable {
-			span.SetAttributes(treeIncarnationIDAttribute.String(incarnationID.String()))
-		}
 	}
 	startedAt := time.Now()
 	defer func() {

@@ -419,3 +419,64 @@ func TestTakeSealsEvidenceAgainstConcurrentLateCallbacks(t *testing.T) {
 		t.Fatalf("consumed session reopened: %v", takeErr)
 	}
 }
+
+func TestCommitPublicationTimingDoesNotChangeSemanticBehavior(t *testing.T) {
+	base := coveredInteraction(t)
+	var committed agent.Event
+	for _, event := range base.Events() {
+		if event.Relation().IsRoot() && event.Name() == agent.EventStepCommitted {
+			committed = event
+			break
+		}
+	}
+	if !committed.Valid() {
+		t.Fatal("fixture has no acknowledged Step")
+	}
+	committedStep, _ := committed.StepSequence()
+	var digests []string
+	for _, before := range []bool{true, false} {
+		config := trajectoryConfig(base)
+		var events []agent.Event
+		var sequence uint64
+		inserted := false
+		appendRoot := func(event agent.Event) {
+			sequence++
+			events = append(events, changeEvent(t, event, map[string]any{"process_sequence": sequence}))
+		}
+		for _, event := range config.Events {
+			if !event.Relation().IsRoot() {
+				events = append(events, event)
+				continue
+			}
+			if event.ProcessSequence() == committed.ProcessSequence() {
+				continue
+			}
+			step, _ := event.StepSequence()
+			boundary := !inserted && event.Name() == agent.EventStepStarted && step > committedStep
+			if boundary && before {
+				appendRoot(committed)
+			}
+			appendRoot(event)
+			if boundary && !before {
+				appendRoot(committed)
+			}
+			inserted = inserted || boundary
+		}
+		if !inserted {
+			t.Fatal("fixture has no subsequent Step attempt")
+		}
+		config.Events = events
+		candidate, err := trajectory.New(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest, err := candidate.BehaviorDigest(rawOutputProjection)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digests = append(digests, digest)
+	}
+	if digests[0] != digests[1] {
+		t.Fatal("acknowledgment publication timing changed semantic behavior")
+	}
+}

@@ -79,7 +79,7 @@ func TestLostMCPResponsePreservesUnknownInteractionEffect(t *testing.T) {
 		t.Fatal(err)
 	}
 	observations := &agenttest.ObservationRecorder{}
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deploymentResolver{toolSet.Deployment().DeploymentRef(): toolSet.Deployment()}, EventListeners: []agent.EventListener{observations}})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deploymentResolver{toolSet.Deployment().DeploymentRef(): toolSet.Deployment()}, EventListeners: []agent.EventListener{observations}})
 	if err != nil {
 		t.Fatal(err)
 	}

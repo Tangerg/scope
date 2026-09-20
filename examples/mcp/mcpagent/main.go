@@ -136,7 +136,7 @@ func run(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("create agent deployment: %w", err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deploymentResolver{toolSet.Deployment().DeploymentRef(): toolSet.Deployment()}})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deploymentResolver{toolSet.Deployment().DeploymentRef(): toolSet.Deployment()}})
 	if err != nil {
 		return fmt.Errorf("create agent engine: %w", err)
 	}

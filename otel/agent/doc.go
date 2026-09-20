@@ -12,7 +12,7 @@
 // Register an Observer as an Engine EventListener and wrap each Deployment's
 // Dispatcher with Observer.WrapDispatcher to make downstream model and tool
 // spans children of their Effect span. Close the Engine before the Observer.
-// Wrap the selected TreeDurability with Observer.WrapTreeDurability to observe
+// Wrap the selected TreeCommitter with Observer.WrapTreeCommitter to observe
 // protocol acknowledgment duration, proposed snapshot bytes, and conflict or
 // unresolved outcomes. This integration does not select storage, read heads,
 // infer rollback, or measure the age of stored state.

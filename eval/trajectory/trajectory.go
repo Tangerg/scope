@@ -285,7 +285,7 @@ func (t *Trajectory) canonicalize() error {
 }
 
 // BehaviorDigest identifies deterministic, semantic behavior while excluding
-// observation loss, signal arrival interleaving, transient scheduling status,
+// observation loss, signal arrival and commit-publication interleaving, transient scheduling status,
 // wall-clock time, attempt duration, response envelopes, and token usage.
 // The required projection selects the semantic root output; the generic
 // recorder never guesses which opaque output fields are business data.
@@ -332,21 +332,25 @@ func (t Trajectory) behavior(project eval.Projection[agent.Payload, json.RawMess
 			return behaviorProjection{}, fmt.Errorf("%w: projection must return JSON", ErrInvalidSample)
 		}
 	}
-	sequences := make(map[agent.ProcessID]uint64)
+	// Acknowledgments may interleave with later candidate attempts. Each phase
+	// retains its order; their publication interleaving is storage scheduling.
+	sequences := make(map[behaviorEventStream]uint64)
 	projection.Events = make([]behaviorEvent, 0, len(t.events))
 	for _, event := range t.events {
 		if event.Name() == agent.EventDeltaDropped || event.Name() == agent.EventSignalAccepted {
 			continue
 		}
-		sequences[event.ProcessID()]++
+		stream := behaviorEventStream{processID: event.ProcessID(), phase: event.Phase()}
+		sequences[stream]++
 		step, _ := event.StepSequence()
 		fact := behaviorEvent{
-			ProcessPath: paths[event.ProcessID()], Sequence: sequences[event.ProcessID()],
+			ProcessPath: paths[event.ProcessID()], Sequence: sequences[stream],
 			StepSequence: step, Name: event.Name(), Phase: event.Phase(),
 		}
 		fact.apply(event)
 		projection.Events = append(projection.Events, fact)
 	}
+	slices.SortFunc(projection.Events, behaviorEvent.compare)
 	projection.Models = make([]behaviorModel, len(t.modelCalls))
 	for index, call := range t.modelCalls {
 		projection.Models[index] = behaviorModel{

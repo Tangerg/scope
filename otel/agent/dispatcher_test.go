@@ -18,7 +18,7 @@ func TestDispatcherCallsInheritTheirEffectSpan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{EventListeners: []agent.EventListener{harness.observer}})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), EventListeners: []agent.EventListener{harness.observer}})
 	if err != nil {
 		t.Fatal(err)
 	}

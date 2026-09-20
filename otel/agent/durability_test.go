@@ -15,33 +15,33 @@ import (
 	agentotel "github.com/Tangerg/scope/otel/agent"
 )
 
-func TestObservedTreeDurabilityPreservesConformance(t *testing.T) {
+func TestObservedTreeCommitterPreservesConformance(t *testing.T) {
 	harness := newObserverHarness(t)
-	agenttest.RunTreeDurabilityConformance(t, func() agenttest.TreeDurabilityConformanceDriver {
-		store := agenttest.NewMemoryTreeDurability()
-		observed, err := harness.observer.WrapTreeDurability(store)
+	agenttest.RunTreeCommitterConformance(t, func() agenttest.TreeCommitterConformanceDriver {
+		store := agent.NewMemoryTreeCommitter()
+		observed, err := harness.observer.WrapTreeCommitter(store)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return observedDurabilityDriver{MemoryTreeDurability: store, observed: observed}
+		return observedDurabilityDriver{MemoryTreeCommitter: store, observed: observed}
 	})
 }
 
 type observedDurabilityDriver struct {
-	*agenttest.MemoryTreeDurability
-	observed agent.TreeDurability
+	*agent.MemoryTreeCommitter
+	observed agent.TreeCommitter
 }
 
-func (o observedDurabilityDriver) TreeDurability() agent.TreeDurability { return o.observed }
+func (o observedDurabilityDriver) TreeCommitter() agent.TreeCommitter { return o.observed }
 
-func TestObservedTreeDurabilityRecordsAcknowledgedBoundaries(t *testing.T) {
+func TestObservedTreeCommitterRecordsAcknowledgedBoundaries(t *testing.T) {
 	harness := newObserverHarness(t)
-	store := agenttest.NewMemoryTreeDurability()
-	durability, err := harness.observer.WrapTreeDurability(store)
+	store := agent.NewMemoryTreeCommitter()
+	committer, err := harness.observer.WrapTreeCommitter(store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: durability})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: committer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestObservedTreeDurabilityRecordsAcknowledgedBoundaries(t *testing.T) {
 	}
 	spans := harness.recorder.Ended()
 	if len(spans) != 4 {
-		t.Fatalf("durability spans=%d, want start, pending, settled, terminal", len(spans))
+		t.Fatalf("committer spans=%d, want start, pending, settled, terminal", len(spans))
 	}
 	wantBoundaries := []struct{ operation, boundary string }{
 		{"checkpoint", "start"}, {"effect", "pending"},
@@ -66,16 +66,16 @@ func TestObservedTreeDurabilityRecordsAcknowledgedBoundaries(t *testing.T) {
 	}
 	for index, span := range spans {
 		want := wantBoundaries[index]
-		if span.Name() != "agent.durability."+want.operation ||
-			stringAttribute(span.Attributes(), "agent.durability.operation") != want.operation ||
-			stringAttribute(span.Attributes(), "agent.durability.boundary") != want.boundary {
+		if span.Name() != "agent.committer."+want.operation ||
+			stringAttribute(span.Attributes(), "agent.committer.operation") != want.operation ||
+			stringAttribute(span.Attributes(), "agent.committer.boundary") != want.boundary {
 			t.Fatalf("boundary %d: name=%s attributes=%v", index, span.Name(), span.Attributes())
 		}
-		if stringAttribute(span.Attributes(), "agent.durability.outcome") != "acknowledged" || span.Status().Code == codes.Error {
+		if stringAttribute(span.Attributes(), "agent.committer.outcome") != "acknowledged" || span.Status().Code == codes.Error {
 			t.Fatal("successful boundary was not acknowledged")
 		}
 		if strings.Contains(fmt.Sprint(span.Attributes()), "private input") {
-			t.Fatal("durability trace exposed input")
+			t.Fatal("committer trace exposed input")
 		}
 	}
 	head, found, err := store.LoadTree(t.Context(), result.ProcessID())
@@ -86,20 +86,20 @@ func TestObservedTreeDurabilityRecordsAcknowledgedBoundaries(t *testing.T) {
 	if err := harness.reader.Collect(t.Context(), &metrics); err != nil {
 		t.Fatal(err)
 	}
-	if count := histogramCount(t, metricByName(t, metrics, "agent.durability.duration")); count != 4 {
-		t.Fatalf("durability attempts=%d, want 4", count)
+	if count := histogramCount(t, metricByName(t, metrics, "agent.committer.duration")); count != 4 {
+		t.Fatalf("committer attempts=%d, want 4", count)
 	}
-	sizes := metricByName(t, metrics, "agent.durability.snapshot.size").Data.(metricdata.Histogram[int64])
+	sizes := metricByName(t, metrics, "agent.committer.snapshot.size").Data.(metricdata.Histogram[int64])
 	terminal := false
 	for _, point := range sizes.DataPoints {
 		for _, attr := range point.Attributes.ToSlice() {
 			switch string(attr.Key) {
-			case "agent.durability.operation", "agent.durability.boundary", "agent.durability.outcome":
+			case "agent.committer.operation", "agent.committer.boundary", "agent.committer.outcome":
 			default:
 				t.Fatalf("unexpected metric label %s", attr.Key)
 			}
 		}
-		if stringAttribute(point.Attributes.ToSlice(), "agent.durability.boundary") == "terminal" {
+		if stringAttribute(point.Attributes.ToSlice(), "agent.committer.boundary") == "terminal" {
 			terminal = true
 			if point.Count != 1 || point.Sum != int64(len(head.JSON())) {
 				t.Fatalf("terminal snapshot count=%d bytes=%d", point.Count, point.Sum)
@@ -111,7 +111,7 @@ func TestObservedTreeDurabilityRecordsAcknowledgedBoundaries(t *testing.T) {
 	}
 }
 
-func TestObservedTreeDurabilityPreservesErrorsAndRedactsDiagnostics(t *testing.T) {
+func TestObservedTreeCommitterPreservesErrorsAndRedactsDiagnostics(t *testing.T) {
 	for _, test := range []struct {
 		name     string
 		err      error
@@ -120,13 +120,13 @@ func TestObservedTreeDurabilityPreservesErrorsAndRedactsDiagnostics(t *testing.T
 	}{
 		{name: "response lost", err: errors.New("secret storage connection"), outcome: "unresolved"},
 		{name: "ownership", err: fmt.Errorf("secret storage connection: %w", agent.ErrTreeIncarnationConflict), outcome: "ownership_conflict"},
-		{name: "content", err: fmt.Errorf("secret storage connection: %w", agent.ErrDurabilityConflict), outcome: "content_conflict"},
+		{name: "content", err: fmt.Errorf("secret storage connection: %w", agent.ErrCommitConflict), outcome: "content_conflict"},
 		{name: "panic", panicked: true, outcome: "unresolved"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			harness := newObserverHarness(t)
 			next := &failingObservedDurability{err: test.err, panicked: test.panicked}
-			observed, err := harness.observer.WrapTreeDurability(next)
+			observed, err := harness.observer.WrapTreeCommitter(next)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -141,19 +141,19 @@ func TestObservedTreeDurabilityPreservesErrorsAndRedactsDiagnostics(t *testing.T
 			if test.panicked && recovered != "secret storage connection" {
 				t.Fatal("decorator replaced the adapter panic")
 			}
-			span := spanByName(t, harness.recorder.Ended(), "agent.durability.checkpoint", 0)
-			if stringAttribute(span.Attributes(), "agent.durability.outcome") != test.outcome || span.Status().Code != codes.Error {
-				t.Fatalf("incorrect durability outcome: %v", span.Attributes())
+			span := spanByName(t, harness.recorder.Ended(), "agent.committer.checkpoint", 0)
+			if stringAttribute(span.Attributes(), "agent.committer.outcome") != test.outcome || span.Status().Code != codes.Error {
+				t.Fatalf("incorrect committer outcome: %v", span.Attributes())
 			}
 			if strings.Contains(fmt.Sprint(span.Attributes(), span.Events(), span.Status()), "secret") {
-				t.Fatal("durability observation exposed adapter diagnostics")
+				t.Fatal("committer observation exposed adapter diagnostics")
 			}
 		})
 	}
 }
 
 type failingObservedDurability struct {
-	agent.TreeDurability
+	agent.TreeCommitter
 	err      error
 	panicked bool
 	calls    int
@@ -167,30 +167,30 @@ func (f *failingObservedDurability) CommitCheckpoint(context.Context, agent.Tree
 	return f.err
 }
 
-func TestWrapTreeDurabilityRejectsInvalidConstruction(t *testing.T) {
+func TestWrapTreeCommitterRejectsInvalidConstruction(t *testing.T) {
 	harness := newObserverHarness(t)
-	var typedNil *agenttest.MemoryTreeDurability
-	if _, err := harness.observer.WrapTreeDurability(typedNil); !errors.Is(err, agentotel.ErrInvalidObserverConfig) {
+	var typedNil *agent.MemoryTreeCommitter
+	if _, err := harness.observer.WrapTreeCommitter(typedNil); !errors.Is(err, agentotel.ErrInvalidObserverConfig) {
 		t.Fatalf("typed nil error=%v", err)
 	}
 	var observer *agentotel.Observer
-	if _, err := observer.WrapTreeDurability(agenttest.NewMemoryTreeDurability()); !errors.Is(err, agentotel.ErrInvalidObserverConfig) {
+	if _, err := observer.WrapTreeCommitter(agent.NewMemoryTreeCommitter()); !errors.Is(err, agentotel.ErrInvalidObserverConfig) {
 		t.Fatalf("nil observer error=%v", err)
 	}
 }
 
-func ExampleObserver_WrapTreeDurability() {
+func ExampleObserver_WrapTreeCommitter() {
 	observer, err := agentotel.NewObserver(agentotel.ObserverConfig{})
 	if err != nil {
 		panic(err)
 	}
 	defer observer.Close()
-	durability, err := observer.WrapTreeDurability(agenttest.NewMemoryTreeDurability())
+	committer, err := observer.WrapTreeCommitter(agent.NewMemoryTreeCommitter())
 	if err != nil {
 		panic(err)
 	}
 	engine, err := agent.NewEngine(agent.EngineConfig{
-		TreeDurability: durability,
+		TreeCommitter:  committer,
 		EventListeners: []agent.EventListener{observer},
 	})
 	if err != nil {
@@ -199,6 +199,6 @@ func ExampleObserver_WrapTreeDurability() {
 	if err := engine.Close(context.Background()); err != nil {
 		panic(err)
 	}
-	fmt.Println("durability observation configured")
-	// Output: durability observation configured
+	fmt.Println("committer observation configured")
+	// Output: committer observation configured
 }

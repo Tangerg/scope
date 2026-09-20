@@ -145,7 +145,7 @@ func startRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, obser
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{EventListeners: []agent.EventListener{recorder}, DeploymentResolver: trajectoryDeploymentResolver{toolSet.Deployment().DeploymentRef(): toolSet.Deployment()}})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), EventListeners: []agent.EventListener{recorder}, DeploymentResolver: trajectoryDeploymentResolver{toolSet.Deployment().DeploymentRef(): toolSet.Deployment()}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,7 +477,7 @@ func runTrajectory(t *testing.T) trajectory.Trajectory {
 		t.Fatal(err)
 	}
 	recorder := &trajectory.Recorder{}
-	engine, err := agent.NewEngine(agent.EngineConfig{EventListeners: []agent.EventListener{recorder}})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), EventListeners: []agent.EventListener{recorder}})
 	if err != nil {
 		t.Fatal(err)
 	}

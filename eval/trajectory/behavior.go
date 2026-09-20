@@ -1,6 +1,7 @@
 package trajectory
 
 import (
+	"cmp"
 	"encoding/json"
 	"encoding/json/jsontext"
 	"strings"
@@ -25,6 +26,11 @@ type behaviorTermination struct {
 	UnresolvedEffects int                    `json:"unresolved_effects,omitempty"`
 }
 
+type behaviorEventStream struct {
+	processID agent.ProcessID
+	phase     agent.EventPhase
+}
+
 type behaviorEvent struct {
 	ProcessPath      string                 `json:"process_path"`
 	Sequence         uint64                 `json:"sequence"`
@@ -38,6 +44,16 @@ type behaviorEvent struct {
 	StepStatus       agent.StepStatus       `json:"step_status,omitempty"`
 	EffectTarget     agent.EffectTarget     `json:"effect_target,omitempty"`
 	Settlement       agent.SettlementStatus `json:"settlement,omitempty"`
+}
+
+func (b behaviorEvent) compare(other behaviorEvent) int {
+	if order := cmp.Compare(b.ProcessPath, other.ProcessPath); order != 0 {
+		return order
+	}
+	if order := cmp.Compare(b.Phase, other.Phase); order != 0 {
+		return order
+	}
+	return cmp.Compare(b.Sequence, other.Sequence)
 }
 
 type behaviorModel struct {

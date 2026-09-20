@@ -13,7 +13,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
 )
 
 func TestObserverSeparatesRepeatedStepSequencesAcrossIncarnations(t *testing.T) {
@@ -77,14 +76,14 @@ func eventWithIncarnation(t *testing.T, event agent.Event, incarnation string) a
 func TestObserverIsolatesOverlappingDurableIncarnations(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		harness := newObserverHarness(t)
-		store := agenttest.NewMemoryTreeDurability()
+		store := agent.NewMemoryTreeCommitter()
 		next := overlappingDispatcher{entered: make(chan observedDispatch, 2), tracer: harness.provider.Tracer("test")}
 		dispatcher, err := harness.observer.WrapDispatcher(next)
 		if err != nil {
 			t.Fatal(err)
 		}
 		deployment := testDeploymentWithDispatcher(t, dispatcher)
-		config := agent.EngineConfig{TreeDurability: store, EventListeners: []agent.EventListener{harness.observer}}
+		config := agent.EngineConfig{TreeCommitter: store, EventListeners: []agent.EventListener{harness.observer}}
 		source, err := agent.NewEngine(config)
 		if err != nil {
 			t.Fatal(err)
