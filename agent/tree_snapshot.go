@@ -14,8 +14,10 @@ import (
 var ErrInvalidTreeSnapshot = errors.New("agent: invalid process tree snapshot")
 
 // TreeSnapshot is an immutable, portable capture of one complete Process tree.
-// It owns Framework execution facts, a canonical content digest, and the
-// active-writer identity of accepted state. Persistence, transactions,
+// It carries Framework execution facts, a canonical content digest, and a writer
+// identity. A snapshot may be a prospective commit or an acknowledged head;
+// the operation supplying it defines that guarantee. Validation does not establish
+// storage acknowledgment or current writer ownership. Persistence, transactions,
 // revisions, and cleanup policy remain Host responsibilities.
 type TreeSnapshot struct {
 	data   json.RawMessage
@@ -81,7 +83,7 @@ func (t TreeSnapshot) RootID() ProcessID { return t.state.RootID }
 // Digest returns the canonical content identity of this complete tree state.
 func (t TreeSnapshot) Digest() Digest { return t.digest }
 
-// IncarnationID returns the active writer identity of the acknowledged tree.
+// IncarnationID returns the writer identity carried by this snapshot.
 func (t TreeSnapshot) IncarnationID() TreeIncarnationID {
 	return t.state.IncarnationID
 }
