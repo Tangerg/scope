@@ -194,10 +194,11 @@ func newChildCompletionTestProcess(t *testing.T) (*treeRuntime, *processState) {
 	parent := newProcessState(handle, deployment, execution, state, now, engine.limits)
 	runtime := newTreeRuntime(engine, parentID, t.Context(), parent)
 	snapshot := controlValue(runtime.captureTree())
-	checkpoint := controlValue(newTreeCheckpoint(TreeCheckpointKindStart, Digest{}, snapshot))
+	checkpoint := controlValue(newTreeCheckpoint(1, TreeCheckpointKindStart, Digest{}, snapshot))
 	if err := engine.committer.CommitCheckpoint(t.Context(), checkpoint); err != nil {
 		t.Fatal(err)
 	}
 	runtime.establishHead(runtime.incarnation, snapshot)
+	runtime.commitSequence = checkpoint.Sequence()
 	return runtime, parent
 }

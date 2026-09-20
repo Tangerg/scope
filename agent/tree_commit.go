@@ -43,6 +43,7 @@ func (e EffectBoundaryKind) String() string {
 // controls settle directly, atomically with the recipient's mailbox or intent;
 // they perform no external I/O requiring a pending dispatch permission.
 type EffectBoundary struct {
+	sequence           uint64
 	kind               EffectBoundaryKind
 	request            EffectRequest
 	settlement         Settlement
@@ -51,6 +52,7 @@ type EffectBoundary struct {
 }
 
 func newEffectBoundary(
+	sequence uint64,
 	kind EffectBoundaryKind,
 	request EffectRequest,
 	settlement Settlement,
@@ -58,7 +60,8 @@ func newEffectBoundary(
 	treeSnapshot TreeSnapshot,
 ) (EffectBoundary, error) {
 	boundary := EffectBoundary{
-		kind: kind, request: request, settlement: settlement,
+		sequence: sequence,
+		kind:     kind, request: request, settlement: settlement,
 		previousTreeDigest: previousTreeDigest,
 		treeSnapshot:       treeSnapshot,
 	}
@@ -67,6 +70,9 @@ func newEffectBoundary(
 	}
 	return boundary, nil
 }
+
+// Sequence identifies this commit within its tree incarnation. Retries retain it.
+func (e EffectBoundary) Sequence() uint64 { return e.sequence }
 
 func (e EffectBoundary) Kind() EffectBoundaryKind { return e.kind }
 
@@ -81,7 +87,7 @@ func (e EffectBoundary) PreviousTreeDigest() Digest { return e.previousTreeDiges
 func (e EffectBoundary) TreeSnapshot() TreeSnapshot { return e.treeSnapshot }
 
 func (e EffectBoundary) Valid() bool {
-	if !e.kind.Valid() || !e.request.Valid() || !e.previousTreeDigest.Valid() ||
+	if e.sequence == 0 || !e.kind.Valid() || !e.request.Valid() || !e.previousTreeDigest.Valid() ||
 		!e.treeSnapshot.Valid() || e.previousTreeDigest == e.treeSnapshot.Digest() ||
 		e.treeSnapshot.RootID() != e.request.Relation().RootID() {
 		return false
@@ -175,24 +181,30 @@ func (t TreeCheckpointKind) String() string {
 // Input, child, and progress cuts can coexist with sibling jobs because those jobs expose
 // only committed Execution state or already recorded Effect intent.
 type TreeCheckpoint struct {
+	sequence           uint64
 	kind               TreeCheckpointKind
 	previousTreeDigest Digest
 	treeSnapshot       TreeSnapshot
 }
 
 func newTreeCheckpoint(
+	sequence uint64,
 	kind TreeCheckpointKind,
 	previousTreeDigest Digest,
 	treeSnapshot TreeSnapshot,
 ) (TreeCheckpoint, error) {
 	checkpoint := TreeCheckpoint{
-		kind: kind, previousTreeDigest: previousTreeDigest, treeSnapshot: treeSnapshot,
+		sequence: sequence,
+		kind:     kind, previousTreeDigest: previousTreeDigest, treeSnapshot: treeSnapshot,
 	}
 	if !checkpoint.Valid() {
 		return TreeCheckpoint{}, errors.New("invalid durable tree checkpoint")
 	}
 	return checkpoint, nil
 }
+
+// Sequence identifies this commit within its tree incarnation. Retries retain it.
+func (t TreeCheckpoint) Sequence() uint64 { return t.sequence }
 
 func (t TreeCheckpoint) Kind() TreeCheckpointKind { return t.kind }
 
@@ -201,11 +213,11 @@ func (t TreeCheckpoint) PreviousTreeDigest() Digest { return t.previousTreeDiges
 func (t TreeCheckpoint) TreeSnapshot() TreeSnapshot { return t.treeSnapshot }
 
 func (t TreeCheckpoint) Valid() bool {
-	if !t.kind.Valid() || !t.treeSnapshot.Valid() {
+	if t.sequence == 0 || !t.kind.Valid() || !t.treeSnapshot.Valid() {
 		return false
 	}
 	if t.kind == TreeCheckpointKindStart {
-		if t.previousTreeDigest != (Digest{}) {
+		if t.sequence != 1 || t.previousTreeDigest != (Digest{}) {
 			return false
 		}
 	} else if !t.previousTreeDigest.Valid() || t.previousTreeDigest == t.treeSnapshot.Digest() {
@@ -291,8 +303,8 @@ func (t TreeActivation) Valid() bool {
 // TreeCommitter keeps all recoverable state on one authoritative head so a
 // restored writer cannot race its predecessor. Every commit must atomically
 // compare and advance that head; accepting a duplicate requires identical
-// content and a head that still matches the proposal. Hosts own storage,
-// deadlines, and reconciliation when a commit response is lost. The supplied
+// content and a head that still matches the proposal and its sequence. Hosts own
+// storage, deadlines, and reconciliation when a commit response is lost. The supplied
 // context retains Host values but removes cancellation and deadlines. Hosts must
 // apply an independent bounded storage deadline and a host-owned shutdown signal.
 // Canceling an Await, Join or ReleaseTree wait does not abort a transaction. Hosts
@@ -305,8 +317,15 @@ func (t TreeActivation) Valid() bool {
 // never changes its publication or recovery rules for volatile storage.
 //
 // A start checkpoint requires an absent head and a zero PreviousTreeDigest.
-// Other checkpoints and Effects require the current incarnation and digest.
-// Activation must replace both together to fence the previous writer before
+// The Engine assigns one consecutive Sequence shared by checkpoints and Effects
+// within each incarnation. Start installs sequence 1; activation installs sequence
+// 0 under the new incarnation. Every subsequent commit requires the current
+// incarnation, previous digest, and exactly the next sequence. Hosts atomically
+// retain the sequence with the head and deduplication facts, separately from the
+// portable snapshot and backend revisions. An identical retry succeeds only while
+// its sequence is still current; historical replay must fail even if content cycles.
+// A checkpoint is identified by root, incarnation, and sequence, never by digest.
+// Activation replaces writer and head and resets the sequence atomically before
 // restoration can publish a Process. Initialization acknowledgment is separate
 // because failed root initialization has no execution tree to persist.
 type TreeCommitter interface {

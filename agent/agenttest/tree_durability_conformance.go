@@ -43,6 +43,10 @@ func RunTreeCommitterConformance(
 		runEffectBoundaryConformance(t, factory)
 	})
 
+	t.Run("repeated waiting pause resume", func(t *testing.T) {
+		runCheckpointCycleConformance(t, factory)
+	})
+
 	t.Run("concurrent restore fencing", func(t *testing.T) {
 		runConcurrentRestoreConformance(t, factory)
 	})
@@ -320,7 +324,7 @@ type conformanceDurabilityProbe struct {
 
 	mu          sync.Mutex
 	effects     []agent.EffectBoundary
-	checkpoints []agent.TreeCheckpointKind
+	checkpoints []agent.TreeCheckpoint
 	start       agent.TreeCheckpoint
 }
 
@@ -364,13 +368,19 @@ func (c *conformanceDurabilityProbe) CommitCheckpoint(
 	})
 	if err == nil {
 		c.mu.Lock()
-		c.checkpoints = append(c.checkpoints, checkpoint.Kind())
+		c.checkpoints = append(c.checkpoints, checkpoint)
 		if checkpoint.Kind() == agent.TreeCheckpointKindStart {
 			c.start = checkpoint
 		}
 		c.mu.Unlock()
 	}
 	return err
+}
+
+func (c *conformanceDurabilityProbe) latestCheckpoint() agent.TreeCheckpoint {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.checkpoints[len(c.checkpoints)-1]
 }
 
 func (c *conformanceDurabilityProbe) retry(commit func() error) error {
@@ -390,7 +400,7 @@ func (c *conformanceDurabilityProbe) assertEffectLifecycle(t *testing.T) {
 		t.Fatalf("Effect boundary order=%v", c.effects)
 	}
 	if len(c.checkpoints) == 0 ||
-		c.checkpoints[len(c.checkpoints)-1] != agent.TreeCheckpointKindTerminal {
+		c.checkpoints[len(c.checkpoints)-1].Kind() != agent.TreeCheckpointKindTerminal {
 		t.Fatalf("checkpoint order=%v", c.checkpoints)
 	}
 }
@@ -402,8 +412,12 @@ func (c *conformanceDurabilityProbe) assertCheckpoints(
 	t.Helper()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !slices.Equal(c.checkpoints, want) {
-		t.Fatalf("checkpoint order=%v, want %v", c.checkpoints, want)
+	kinds := make([]agent.TreeCheckpointKind, len(c.checkpoints))
+	for index, checkpoint := range c.checkpoints {
+		kinds[index] = checkpoint.Kind()
+	}
+	if !slices.Equal(kinds, want) {
+		t.Fatalf("checkpoint order=%v, want %v", kinds, want)
 	}
 }
 
@@ -415,6 +429,7 @@ const (
 	conformanceModeUnknownEffect
 	conformanceModePause
 	conformanceModeProgress
+	conformanceModeWait
 )
 
 type conformancePhase uint8
@@ -520,6 +535,28 @@ func (c *conformanceExecution) Step(
 	signals []agent.Signal,
 ) (agent.Transition, error) {
 	switch c.definition.mode {
+	case conformanceModeWait:
+		if c.state.Phase == conformancePhaseReady {
+			key, err := agent.ParseWaitKey("committer_question")
+			if err != nil {
+				return agent.Transition{}, err
+			}
+			effect, err := agent.NewWaitEffect(key, []byte(`{"question":"continue?"}`))
+			if err != nil {
+				return agent.Transition{}, err
+			}
+			c.state.Phase = conformancePhaseAwaitingEffect
+			return agent.Continue(0, effect)
+		}
+		if c.state.Phase != conformancePhaseAwaitingEffect || len(signals) != 1 {
+			return agent.Transition{}, errors.New("agenttest: missing wait opening signal")
+		}
+		waitID, ok := signals[0].WaitID()
+		if !ok {
+			return agent.Transition{}, errors.New("agenttest: missing wait identity")
+		}
+		c.state.Phase = conformancePhaseFinished
+		return agent.Wait(1, waitID)
 	case conformanceModeProgress:
 		if c.state.Phase == conformancePhaseReady {
 			c.state.Phase = conformancePhaseAwaitingEffect

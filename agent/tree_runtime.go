@@ -24,10 +24,11 @@ import (
 type treeRuntime struct {
 	// Incarnation and head travel together to prevent a retired writer from
 	// advancing the current tree.
-	engine      *Engine
-	rootID      ProcessID
-	incarnation TreeIncarnationID
-	head        TreeSnapshot
+	engine         *Engine
+	rootID         ProcessID
+	incarnation    TreeIncarnationID
+	head           TreeSnapshot
+	commitSequence uint64
 
 	// External readers need scheduling liveness without acquiring execution
 	// state. Atomics expose that view while commands and completions preserve
@@ -718,7 +719,7 @@ func (t *treeRuntime) controlChild(parent *processState, index uint32, record *p
 		t.failRuntime(err, parent.handle.processID, record.ID)
 		return
 	}
-	boundary, err := newEffectBoundary(EffectBoundaryKindSettled, t.effectRequestFor(parent, index, *record),
+	boundary, err := newEffectBoundary(t.commitSequence+1, EffectBoundaryKindSettled, t.effectRequestFor(parent, index, *record),
 		*record.Settlement, t.head.Digest(), snapshot)
 	if err != nil {
 		t.failRuntime(err, parent.handle.processID, record.ID)
@@ -786,7 +787,7 @@ func (t *treeRuntime) startPendingEffectCommit(
 	if err != nil {
 		return err
 	}
-	boundary, err := newEffectBoundary(
+	boundary, err := newEffectBoundary(t.commitSequence+1,
 		EffectBoundaryKindPending, request, Settlement{}, t.head.Digest(), snapshot,
 	)
 	if err != nil {
@@ -826,7 +827,7 @@ func (t *treeRuntime) startUnknownResolutionCommit(
 		return err
 	}
 	request := t.effectRequestFor(process, uint32(index), *record)
-	boundary, err := newEffectBoundary(
+	boundary, err := newEffectBoundary(t.commitSequence+1,
 		EffectBoundaryKindResolved, request, command.settlement, t.head.Digest(), snapshot,
 	)
 	if err != nil {
@@ -860,7 +861,7 @@ func (t *treeRuntime) startSignalCommit(process *processState, command processCo
 }
 
 func (t *treeRuntime) startCheckpoint(commit *treeCommit, kind TreeCheckpointKind) error {
-	checkpoint, err := newTreeCheckpoint(kind, t.head.Digest(), commit.snapshot)
+	checkpoint, err := newTreeCheckpoint(t.commitSequence+1, kind, t.head.Digest(), commit.snapshot)
 	if err != nil {
 		return err
 	}
@@ -905,6 +906,7 @@ func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 	defer t.completeFreeze()
 	if commit.snapshot.Valid() {
 		t.head = commit.snapshot
+		t.commitSequence++
 		t.publishAcknowledgedChanges()
 	}
 	process := t.processes[commit.processID]
@@ -1879,7 +1881,7 @@ func (t *treeRuntime) recoverPendingEffect(
 			t.failRuntime(err, process.handle.processID, record.ID)
 			return
 		}
-		boundary, err := newEffectBoundary(
+		boundary, err := newEffectBoundary(t.commitSequence+1,
 			EffectBoundaryKindSettled,
 			t.effectRequestFor(process, batchIndex, *record),
 			settlement,
@@ -2328,7 +2330,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 		return
 	}
 	request := t.effectRequestFor(process, uint32(index), *record)
-	boundary, err := newEffectBoundary(
+	boundary, err := newEffectBoundary(t.commitSequence+1,
 		EffectBoundaryKindSettled, request, settlement, t.head.Digest(), snapshot,
 	)
 	if err != nil {

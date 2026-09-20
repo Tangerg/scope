@@ -33,6 +33,9 @@
 // supplies the same compare-and-swap, writer fencing, and deduplication protocol
 // with retention limited to that store instance's lifetime. Persistent adapters
 // provide their own storage transactions. No backend bypasses acknowledgment.
+// Checkpoints and Effects share an incarnation-scoped commit sequence, allocated
+// by the Engine and atomically retained with the stored head. Equal snapshot
+// content can recur; it never identifies a commit or permits historical replay.
 //
 // Start commits the initial head and writer identity before publishing the
 // Process. Every [TreeSnapshot] carries that identity. RestoreTree validates the

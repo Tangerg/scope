@@ -6,6 +6,6 @@ package agent
 // commit conformance suite against a store populated through real commits.
 func newSnapshotTestCommitter(snapshot TreeSnapshot) *MemoryTreeCommitter {
 	store := NewMemoryTreeCommitter()
-	store.heads[snapshot.RootID()] = snapshot
+	store.heads[snapshot.RootID()] = memoryTreeHead{snapshot: snapshot}
 	return store
 }

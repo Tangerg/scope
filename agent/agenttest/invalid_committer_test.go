@@ -3,6 +3,7 @@ package agenttest_test
 import (
 	"context"
 	"errors"
+	"flag"
 	"os"
 	"os/exec"
 	"strings"
@@ -25,10 +26,16 @@ func TestTreeCommitterConformanceRejectsBrokenStores(t *testing.T) {
 	for _, test := range []struct{ name, scenario, diagnostic string }{
 		{"missing_head", "effect_boundaries_and_terminal_head", "authoritative terminal head exists=false"},
 		{"accepted_conflict", "effect_boundaries_and_terminal_head", "duplicate error=<nil>, want ErrCommitConflict"},
+		{"stale_checkpoint", "repeated_waiting_pause_resume", "historical waiting replay at identical head: <nil>"},
 		{"missing_cas", "concurrent_restore_fencing", "restore winner=true conflicts=0"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestTreeCommitterConformanceRejectsBrokenStores$/^"+test.scenario+"$", "-test.timeout=15s")
+			// Failing conformance runs execute in child processes; retain their
+			// assertion-path coverage in the parent test's coverage directory.
+			if coverage := flag.Lookup("test.gocoverdir"); coverage != nil && coverage.Value.String() != "" {
+				command.Args = append(command.Args, "-test.gocoverdir="+coverage.Value.String())
+			}
 			command.Env = append(os.Environ(), fixtureEnv+"="+test.name)
 			output, err := command.CombinedOutput()
 			var failure *exec.ExitError
@@ -63,6 +70,17 @@ func (i *invalidCommitter) ActivateTree(ctx context.Context, activation agent.Tr
 	err := i.MemoryTreeCommitter.ActivateTree(ctx, activation)
 	if i.fixture == "missing_cas" && errors.Is(err, agent.ErrTreeIncarnationConflict) {
 		return nil
+	}
+	return err
+}
+
+func (i *invalidCommitter) CommitCheckpoint(ctx context.Context, checkpoint agent.TreeCheckpoint) error {
+	err := i.MemoryTreeCommitter.CommitCheckpoint(ctx, checkpoint)
+	if i.fixture == "stale_checkpoint" && errors.Is(err, agent.ErrCommitConflict) {
+		head, exists, loadErr := i.LoadTree(ctx, checkpoint.TreeSnapshot().RootID())
+		if loadErr == nil && exists && head.Digest() == checkpoint.TreeSnapshot().Digest() {
+			return nil
+		}
 	}
 	return err
 }

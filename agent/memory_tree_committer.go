@@ -5,19 +5,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 )
 
 // Each boundary retains its own identity scope: Effects by ID and phase,
-// checkpoints by cut, and activations by the proposed writer. Using the protocol
-// types avoids a second vocabulary that can drift when a boundary is added.
+// checkpoints by incarnation and sequence, and activations by the proposed
+// writer. Content equality cannot identify a transition through repeated states.
 type memoryCommitFactKey struct {
-	rootID         ProcessID
-	effectKind     EffectBoundaryKind
-	effectID       EffectID
-	checkpointKind TreeCheckpointKind
-	digest         Digest
-	writer         TreeIncarnationID
+	rootID     ProcessID
+	effectKind EffectBoundaryKind
+	effectID   EffectID
+	checkpoint bool
+	sequence   uint64
+	writer     TreeIncarnationID
+}
+
+type memoryTreeHead struct {
+	snapshot TreeSnapshot
+	sequence uint64
 }
 
 // MemoryTreeCommitter atomically accepts tree commits in volatile memory. An
@@ -28,13 +34,13 @@ type memoryCommitFactKey struct {
 // writers and callers have stopped. Construct it with NewMemoryTreeCommitter.
 type MemoryTreeCommitter struct {
 	mu    sync.Mutex
-	heads map[ProcessID]TreeSnapshot
+	heads map[ProcessID]memoryTreeHead
 	facts map[memoryCommitFactKey]Digest
 }
 
 func NewMemoryTreeCommitter() *MemoryTreeCommitter {
 	return &MemoryTreeCommitter{
-		heads: make(map[ProcessID]TreeSnapshot),
+		heads: make(map[ProcessID]memoryTreeHead),
 		facts: make(map[memoryCommitFactKey]Digest),
 	}
 }
@@ -49,7 +55,7 @@ func (m *MemoryTreeCommitter) LoadTree(
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	head, exists := m.heads[rootID]
-	return head, exists, nil
+	return head.snapshot, exists, nil
 }
 
 func (m *MemoryTreeCommitter) ActivateTree(
@@ -70,19 +76,19 @@ func (m *MemoryTreeCommitter) ActivateTree(
 	defer m.mu.Unlock()
 	if previous, exists := m.facts[key]; exists {
 		head := m.heads[rootID]
-		if previous == content && head.Digest() == prospective.Digest() {
+		if previous == content && head.sequence == 0 && head.snapshot.Digest() == prospective.Digest() {
 			return nil
 		}
 		return commitContentConflict()
 	}
 	head, exists := m.heads[rootID]
-	incarnationID := head.IncarnationID()
+	incarnationID := head.snapshot.IncarnationID()
 	if !exists || incarnationID != activation.PreviousIncarnationID() ||
-		head.Digest() != activation.PreviousTreeDigest() {
+		head.snapshot.Digest() != activation.PreviousTreeDigest() {
 		return treeIncarnationConflict()
 	}
 	m.facts[key] = content
-	m.heads[rootID] = prospective
+	m.heads[rootID] = memoryTreeHead{snapshot: prospective}
 	return nil
 }
 
@@ -104,7 +110,7 @@ func (m *MemoryTreeCommitter) CommitEffect(
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.advanceHead(
-		key, content, boundary.PreviousTreeDigest(), prospective,
+		key, content, boundary.Sequence(), boundary.PreviousTreeDigest(), prospective,
 	)
 }
 
@@ -117,20 +123,24 @@ func (m *MemoryTreeCommitter) CommitCheckpoint(
 	}
 	prospective := checkpoint.TreeSnapshot()
 	key := memoryCommitFactKey{
-		checkpointKind: checkpoint.Kind(), rootID: prospective.RootID(), digest: prospective.Digest(),
+		checkpoint: true, rootID: prospective.RootID(),
+		writer: prospective.IncarnationID(), sequence: checkpoint.Sequence(),
 	}
-	if checkpoint.Kind() == TreeCheckpointKindStart {
-		// A second creation must conflict under the same root key even if its content differs.
-		key.digest = Digest{}
+	content, err := jsonDigest(struct {
+		Kind     TreeCheckpointKind
+		Previous string
+		Snapshot Digest
+	}{checkpoint.Kind(), checkpoint.PreviousTreeDigest().String(), prospective.Digest()})
+	if err != nil {
+		return err
 	}
-	content := prospective.Digest()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if checkpoint.Kind() == TreeCheckpointKindStart {
 		return m.createHead(key, content, prospective)
 	}
 	return m.advanceHead(
-		key, content, checkpoint.PreviousTreeDigest(), prospective,
+		key, content, checkpoint.Sequence(), checkpoint.PreviousTreeDigest(), prospective,
 	)
 }
 
@@ -142,7 +152,7 @@ func (m *MemoryTreeCommitter) createHead(
 	rootID := prospective.RootID()
 	if previous, exists := m.facts[key]; exists {
 		head := m.heads[rootID]
-		if previous == content && head.Digest() == prospective.Digest() {
+		if previous == content && head.sequence == 1 && head.snapshot.Digest() == prospective.Digest() {
 			return nil
 		}
 		return commitContentConflict()
@@ -151,34 +161,35 @@ func (m *MemoryTreeCommitter) createHead(
 		return treeIncarnationConflict()
 	}
 	m.facts[key] = content
-	m.heads[rootID] = prospective
+	m.heads[rootID] = memoryTreeHead{snapshot: prospective, sequence: 1}
 	return nil
 }
 
 func (m *MemoryTreeCommitter) advanceHead(
 	key memoryCommitFactKey,
 	content Digest,
+	sequence uint64,
 	previousDigest Digest,
 	prospective TreeSnapshot,
 ) error {
 	rootID := prospective.RootID()
 	incarnationID := prospective.IncarnationID()
 	head, exists := m.heads[rootID]
-	headIncarnationID := head.IncarnationID()
+	headIncarnationID := head.snapshot.IncarnationID()
 	if !exists || headIncarnationID != incarnationID {
 		return treeIncarnationConflict()
 	}
 	if previous, committed := m.facts[key]; committed {
-		if previous == content && head.Digest() == prospective.Digest() {
+		if previous == content && head.sequence == sequence && head.snapshot.Digest() == prospective.Digest() {
 			return nil
 		}
 		return commitContentConflict()
 	}
-	if head.Digest() != previousDigest {
+	if head.sequence == math.MaxUint64 || sequence != head.sequence+1 || head.snapshot.Digest() != previousDigest {
 		return treeIncarnationConflict()
 	}
 	m.facts[key] = content
-	m.heads[rootID] = prospective
+	m.heads[rootID] = memoryTreeHead{snapshot: prospective, sequence: sequence}
 	return nil
 }
 
@@ -186,6 +197,7 @@ func effectBoundaryDigest(boundary EffectBoundary) (Digest, error) {
 	request := boundary.Request()
 	settlement, hasSettlement := boundary.Settlement()
 	content := struct {
+		Sequence      uint64
 		Kind          EffectBoundaryKind
 		ProcessID     ProcessID
 		DeploymentRef DeploymentRef
@@ -198,7 +210,7 @@ func effectBoundaryDigest(boundary EffectBoundary) (Digest, error) {
 		Previous      Digest
 		Snapshot      Digest
 	}{
-		Kind: boundary.Kind(), ProcessID: request.ProcessID(),
+		Sequence: boundary.Sequence(), Kind: boundary.Kind(), ProcessID: request.ProcessID(),
 		DeploymentRef: request.DeploymentRef(), Relation: request.Relation(),
 		StepSequence: request.StepSequence(), BatchIndex: request.BatchIndex(),
 		EffectID: request.ID(), Effect: request.Effect(),

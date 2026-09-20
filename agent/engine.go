@@ -274,7 +274,7 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 	if captureErr != nil {
 		return nil, captureErr
 	}
-	checkpoint, err := newTreeCheckpoint(TreeCheckpointKindStart, Digest{}, baseSnapshot)
+	checkpoint, err := newTreeCheckpoint(1, TreeCheckpointKindStart, Digest{}, baseSnapshot)
 	if err != nil {
 		return nil, err
 	}
@@ -282,6 +282,7 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 		return nil, err
 	}
 	runtime.establishHead(runtime.incarnation, baseSnapshot)
+	runtime.commitSequence = checkpoint.Sequence()
 
 	e.publishProcessStart(handle)
 	published = true
