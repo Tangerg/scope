@@ -37,10 +37,12 @@ func (s StepStatus) String() string {
 }
 
 type effectStartedEventPayload struct {
-	EffectTarget EffectTarget `json:"effect_target"`
+	AttemptID    EffectAttemptID `json:"attempt_id"`
+	EffectTarget EffectTarget    `json:"effect_target"`
 }
 
 type effectFinishedEventPayload struct {
+	AttemptID        EffectAttemptID  `json:"attempt_id"`
 	EffectTarget     EffectTarget     `json:"effect_target"`
 	SettlementStatus SettlementStatus `json:"settlement_status"`
 	DurationMS       *int64           `json:"duration_ms"`
@@ -109,7 +111,8 @@ type stepCommittedEventPayload struct {
 }
 
 type deltaDroppedEventPayload struct {
-	DroppedDeltaCount uint64 `json:"dropped_delta_count"`
+	AttemptID         EffectAttemptID `json:"attempt_id"`
+	DroppedDeltaCount uint64          `json:"dropped_delta_count"`
 }
 
 // ProcessFinishedFact is the immutable terminal fact carried by a finished
@@ -243,15 +246,19 @@ func (s StepCommittedFact) Status() Status { return s.status }
 func (s StepCommittedFact) Valid() bool { return s.status.Valid() }
 
 // EffectStartedFact identifies the target of one Effect attempt.
-type EffectStartedFact struct{ target EffectTarget }
+type EffectStartedFact struct {
+	target    EffectTarget
+	attemptID EffectAttemptID
+}
 
 func (e EffectStartedFact) Target() EffectTarget { return e.target }
 
-func (e EffectStartedFact) Valid() bool { return e.target.Valid() }
+func (e EffectStartedFact) Valid() bool { return e.target.Valid() && e.attemptID.Valid() }
 
 // EffectFinishedFact is the immutable settlement observation for one Effect
 // attempt. It does not replace the durable Effect boundary.
 type EffectFinishedFact struct {
+	attemptID   EffectAttemptID
 	target      EffectTarget
 	settlement  SettlementStatus
 	duration    time.Duration
@@ -273,7 +280,7 @@ func (e EffectFinishedFact) FailureClassification() (FailureKind, string, bool) 
 }
 
 func (e EffectFinishedFact) Valid() bool {
-	if !e.target.Valid() || !e.settlement.Valid() || e.duration < 0 {
+	if !e.attemptID.Valid() || !e.target.Valid() || !e.settlement.Valid() || e.duration < 0 {
 		return false
 	}
 	if e.failureKind == FailureKindInvalid && e.failureCode == "" {
@@ -285,11 +292,14 @@ func (e EffectFinishedFact) Valid() bool {
 
 // DeltaDroppedFact reports the number of increments rejected during one Effect
 // attempt because validation failed or the bounded observation queue was full.
-type DeltaDroppedFact struct{ count uint64 }
+type DeltaDroppedFact struct {
+	count     uint64
+	attemptID EffectAttemptID
+}
 
 func (d DeltaDroppedFact) Count() uint64 { return d.count }
 
-func (d DeltaDroppedFact) Valid() bool { return d.count > 0 }
+func (d DeltaDroppedFact) Valid() bool { return d.count > 0 && d.attemptID.Valid() }
 
 func decodeProcessFinishedFact(payload json.RawMessage) (ProcessFinishedFact, error) {
 	wire, err := jsonwire.Decode[processFinishedEventPayload](payload)
@@ -355,7 +365,7 @@ func decodeEffectStartedFact(payload json.RawMessage) (EffectStartedFact, error)
 	if err != nil {
 		return EffectStartedFact{}, err
 	}
-	fact := EffectStartedFact{target: wire.EffectTarget}
+	fact := EffectStartedFact{target: wire.EffectTarget, attemptID: wire.AttemptID}
 	if !fact.Valid() {
 		return EffectStartedFact{}, errors.New("invalid Effect started event fact")
 	}
@@ -372,7 +382,8 @@ func decodeEffectFinishedFact(payload json.RawMessage) (EffectFinishedFact, erro
 		return EffectFinishedFact{}, errors.New("effect duration overflows time.Duration")
 	}
 	fact := EffectFinishedFact{
-		target: wire.EffectTarget, settlement: wire.SettlementStatus, duration: duration,
+		attemptID: wire.AttemptID,
+		target:    wire.EffectTarget, settlement: wire.SettlementStatus, duration: duration,
 		failureKind: wire.FailureKind, failureCode: wire.FailureCode,
 	}
 	if !fact.Valid() {
@@ -386,7 +397,7 @@ func decodeDeltaDroppedFact(payload json.RawMessage) (DeltaDroppedFact, error) {
 	if err != nil {
 		return DeltaDroppedFact{}, err
 	}
-	fact := DeltaDroppedFact{count: wire.DroppedDeltaCount}
+	fact := DeltaDroppedFact{count: wire.DroppedDeltaCount, attemptID: wire.AttemptID}
 	if !fact.Valid() {
 		return DeltaDroppedFact{}, errors.New("invalid Delta dropped event fact")
 	}
@@ -409,3 +420,12 @@ func marshalEventPayload(payload any) json.RawMessage {
 	}
 	return encoded
 }
+
+// AttemptID correlates all observations from this invocation.
+func (e EffectStartedFact) AttemptID() EffectAttemptID { return e.attemptID }
+
+// AttemptID correlates all observations from this invocation.
+func (e EffectFinishedFact) AttemptID() EffectAttemptID { return e.attemptID }
+
+// AttemptID correlates all observations from this invocation.
+func (d DeltaDroppedFact) AttemptID() EffectAttemptID { return d.attemptID }

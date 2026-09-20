@@ -1,9 +1,11 @@
 package interaction
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
@@ -20,6 +22,13 @@ type Artifact struct {
 	delegateName      string
 	output            agent.Payload
 }
+
+// ModelCallSequence identifies the model call within this Interaction Process.
+// Together with ToolCallID it identifies an Artifact across snapshot restoration.
+func (a Artifact) ModelCallSequence() uint64 { return a.modelCallSequence }
+
+// ToolCallID returns the model-provided call ID within ModelCallSequence.
+func (a Artifact) ToolCallID() string { return a.toolCallID }
 
 // DelegateName returns the exact model-facing Delegate name.
 func (a Artifact) DelegateName() string { return a.delegateName }
@@ -96,7 +105,7 @@ func (c CompletionDecision) Valid() bool {
 	if c.Accepted {
 		return c.Feedback == ""
 	}
-	return c.Feedback != "" && strings.TrimSpace(c.Feedback) == c.Feedback &&
+	return utf8.ValidString(c.Feedback) && c.Feedback != "" && strings.TrimSpace(c.Feedback) == c.Feedback &&
 		len(c.Feedback) <= maxCompletionFeedbackBytes
 }
 
@@ -106,4 +115,5 @@ func (c CompletionDecision) Valid() bool {
 // A rejected candidate must return actionable Feedback; A finite MaxModelCalls remains
 // the hard bound on retry rounds. Evaluation requiring external work belongs
 // in a managed child Process, not this callback.
-type CompletionValidator func(candidate CompletionCandidate) (CompletionDecision, error)
+// Computation must honor cancellation of the current Step context.
+type CompletionValidator func(ctx context.Context, candidate CompletionCandidate) (CompletionDecision, error)

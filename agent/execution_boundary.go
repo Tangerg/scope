@@ -12,21 +12,21 @@ func startExecution(definition Definition, input Payload) (execution Execution, 
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			execution = nil
-			err = &CallbackPanicError{Operation: "Definition.Start", Value: recovered}
+			err = callbackPanic("Definition.Start", recovered)
 		}
 	}()
 	execution, err = definition.Start(input)
 	if err == nil && lo.IsNil(execution) {
 		return nil, errors.New("definition.Start returned nil execution")
 	}
-	return execution, err
+	return execution, sealCallbackError(err)
 }
 
 func restoreExecution(ctx context.Context, definition Definition, state ExecutionState) (execution Execution, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			execution = nil
-			err = &CallbackPanicError{Operation: "Definition.Restore", Value: recovered}
+			err = callbackPanic("Definition.Restore", recovered)
 		}
 	}()
 	if err = ctx.Err(); err != nil {
@@ -36,31 +36,32 @@ func restoreExecution(ctx context.Context, definition Definition, state Executio
 	if err == nil && lo.IsNil(execution) {
 		return nil, errors.New("definition.Restore returned nil execution")
 	}
-	return execution, err
+	return execution, sealCallbackError(err)
 }
 
 func stepExecution(ctx context.Context, execution Execution, signals []Signal) (transition Transition, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			transition = Transition{}
-			err = &CallbackPanicError{Operation: "Execution.Step", Value: recovered}
+			err = callbackPanic("Execution.Step", recovered)
 		}
 	}()
-	return execution.Step(ctx, signals)
+	transition, err = execution.Step(ctx, signals)
+	return transition, sealCallbackError(err)
 }
 
 func captureExecution(execution Execution) (state ExecutionState, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			state = ExecutionState{}
-			err = &CallbackPanicError{Operation: "Execution.Snapshot", Value: recovered}
+			err = callbackPanic("Execution.Snapshot", recovered)
 		}
 	}()
 	state, err = execution.Snapshot()
 	if err == nil && !state.Valid() {
 		return ExecutionState{}, ErrInvalidExecutionState
 	}
-	return state, err
+	return state, sealCallbackError(err)
 }
 
 func initializeExecution(

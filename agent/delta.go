@@ -20,6 +20,7 @@ var ErrInvalidDelta = errors.New("agent: invalid delta")
 type Delta struct {
 	processID      ProcessID
 	effectID       EffectID
+	attemptID      EffectAttemptID
 	incarnationID  TreeIncarnationID
 	effectSequence uint64
 	emittedAt      time.Time
@@ -30,12 +31,13 @@ func newDelta(
 	processID ProcessID,
 	effectID EffectID,
 	incarnationID TreeIncarnationID,
+	attemptID EffectAttemptID,
 	effectSequence uint64,
 	emittedAt time.Time,
 	payload json.RawMessage,
 ) (Delta, error) {
-	if !processID.Valid() || !effectID.Valid() {
-		return Delta{}, fmt.Errorf("%w: process ID and effect ID are required", ErrInvalidDelta)
+	if !processID.Valid() || !effectID.Valid() || !attemptID.Valid() {
+		return Delta{}, fmt.Errorf("%w: process, effect and attempt IDs are required", ErrInvalidDelta)
 	}
 	if incarnationID != (TreeIncarnationID{}) && !incarnationID.Valid() {
 		return Delta{}, fmt.Errorf("%w: tree incarnation is invalid", ErrInvalidDelta)
@@ -53,6 +55,7 @@ func newDelta(
 	return Delta{
 		processID:      processID,
 		effectID:       effectID,
+		attemptID:      attemptID,
 		incarnationID:  incarnationID,
 		effectSequence: effectSequence,
 		emittedAt:      emittedAt.Round(0).UTC(),
@@ -65,6 +68,10 @@ func (d Delta) ProcessID() ProcessID { return d.processID }
 
 // EffectID identifies the logical Effect and remains stable across replay attempts.
 func (d Delta) EffectID() EffectID { return d.effectID }
+
+// AttemptID correlates this increment with EffectStarted, EffectFinished and
+// DeltaDropped facts. Sequence numbers are scoped to this attempt.
+func (d Delta) AttemptID() EffectAttemptID { return d.attemptID }
 
 // TreeIncarnationID returns the active durable writer that emitted this delta.
 // Deltas from ephemeral trees return false.
@@ -83,7 +90,7 @@ func (d Delta) EmittedAt() time.Time { return d.emittedAt }
 func (d Delta) Payload() json.RawMessage { return bytes.Clone(d.payload) }
 
 func (d Delta) Valid() bool {
-	return d.processID.Valid() && d.effectID.Valid() && d.effectSequence > 0 &&
+	return d.processID.Valid() && d.effectID.Valid() && d.attemptID.Valid() && d.effectSequence > 0 &&
 		(d.incarnationID == (TreeIncarnationID{}) || d.incarnationID.Valid()) &&
 		!d.emittedAt.IsZero() && len(d.payload) > 0
 }
@@ -95,6 +102,7 @@ func (d Delta) MarshalJSON() ([]byte, error) {
 	return json.Marshal(deltaWire{
 		ProcessID:      d.processID,
 		EffectID:       d.effectID,
+		AttemptID:      d.attemptID,
 		EffectSequence: d.effectSequence,
 		EmittedAt:      d.emittedAt,
 		Payload:        d.payload,
@@ -111,7 +119,7 @@ func (d *Delta) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidDelta, err)
 	}
 	value, err := newDelta(
-		wire.ProcessID, wire.EffectID, treeIncarnationOrZero(wire.IncarnationID),
+		wire.ProcessID, wire.EffectID, treeIncarnationOrZero(wire.IncarnationID), wire.AttemptID,
 		wire.EffectSequence, wire.EmittedAt, wire.Payload,
 	)
 	if err != nil {
@@ -122,6 +130,7 @@ func (d *Delta) UnmarshalJSON(data []byte) error {
 }
 
 type deltaWire struct {
+	AttemptID      EffectAttemptID    `json:"attempt_id"`
 	ProcessID      ProcessID          `json:"process_id"`
 	EffectID       EffectID           `json:"effect_id"`
 	IncarnationID  *TreeIncarnationID `json:"tree_incarnation_id,omitempty"`

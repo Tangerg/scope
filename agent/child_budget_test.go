@@ -108,7 +108,7 @@ func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 	}
 	// Initialization succeeded, but no pending Effect can accept its settlement.
 	runtime.applyChildStartCompletion(parent, &processJob{
-		childStart: prepared.plan, effectID: effectID, startedAt: result.startedAt,
+		childStart: prepared.plan, effectID: effectID, effectAttempt: effectAttempt{id: newEffectAttemptID(), startedAt: result.startedAt},
 	}, result)
 	if parent.status != StatusFailed {
 		t.Fatalf("rejected settlement parent status=%s", parent.status)

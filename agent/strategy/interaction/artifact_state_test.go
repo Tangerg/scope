@@ -88,3 +88,44 @@ func TestRestoreStopsBetweenArtifacts(t *testing.T) {
 		t.Fatalf("artifact validation = %v, want cancellation before malformed second artifact", err)
 	}
 }
+
+func TestArtifactIdentitySurvivesRestoreWithoutCallHistory(t *testing.T) {
+	definition := fuzzInteractionDefinition(t)
+	output, err := agent.EncodePayload(fuzzDelegateOutput{Result: "valid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := executionState{
+		Phase: phaseAwaitingModel, ModelCallCount: 3,
+		WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("reduced context"))}},
+		ArtifactRecords: []artifactRecord{
+			{ModelCallSequence: 1, ToolCallIndex: 0, ToolCallID: "reused", DelegateName: "delegate_fuzz", Output: output},
+			{ModelCallSequence: 2, ToolCallIndex: 0, ToolCallID: "reused", DelegateName: "delegate_fuzz", Output: output},
+		},
+	}
+	envelope, err := agent.EncodeExecutionState(executionStateKind, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := definition.Restore(t.Context(), envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := restored.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := again.Decode[executionState](executionStateKind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts := newArtifacts(decoded.ArtifactRecords)
+	if len(artifacts) != 2 {
+		t.Fatalf("artifacts=%d", len(artifacts))
+	}
+	for index, artifact := range artifacts {
+		if artifact.ModelCallSequence() != uint64(index+1) || artifact.ToolCallID() != "reused" || artifact.DelegateName() != "delegate_fuzz" {
+			t.Fatalf("provenance=%+v", artifact)
+		}
+	}
+}

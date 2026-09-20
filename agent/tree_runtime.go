@@ -11,8 +11,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/samber/lo"
 )
 
 // treeRuntime serializes authoritative changes because sibling jobs must not
@@ -112,14 +110,14 @@ const (
 )
 
 type processJob struct {
-	kind       processJobKind
-	attempt    processAttempt
-	cancel     context.CancelFunc
-	stale      bool
-	effectID   EffectID
-	childStart *childStartPlan
-	startedAt  time.Time
-	response   chan processResponse
+	kind          processJobKind
+	attempt       processAttempt
+	cancel        context.CancelFunc
+	stale         bool
+	effectID      EffectID
+	childStart    *childStartPlan
+	effectAttempt effectAttempt
+	response      chan processResponse
 }
 
 type treeJobCompletion struct {
@@ -161,12 +159,12 @@ func (t *treeCommit) reply(response processResponse) {
 }
 
 type pendingChildStartPublication struct {
-	parentID  ProcessID
-	effectID  EffectID
-	plan      *childStartPlan
-	result    childStartJobResult
-	startedAt time.Time
-	event     eventFact
+	parentID      ProcessID
+	effectID      EffectID
+	plan          *childStartPlan
+	result        childStartJobResult
+	effectAttempt effectAttempt
+	event         eventFact
 }
 
 func (p *pendingChildStartPublication) childSettlementStatus() SettlementStatus {
@@ -693,7 +691,7 @@ func (t *treeRuntime) canStartChild(parent *processState) bool {
 
 // A tree-local control and its receipt change one authoritative cut. The target
 // cannot consume the new input before that cut is acknowledged in durable mode.
-func (t *treeRuntime) controlChild(parent *processState, index uint32, record *preparedEffect, startedAt time.Time) {
+func (t *treeRuntime) controlChild(parent *processState, index uint32, record *preparedEffect, observation effectAttempt) {
 	request, err := decodeChildControlEffect(record.Effect.Payload())
 	if err != nil {
 		t.failProcessContract(parent, failureCodeEngineChildControlInvalid, err)
@@ -711,7 +709,7 @@ func (t *treeRuntime) controlChild(parent *processState, index uint32, record *p
 		t.failProcessContract(parent, failureCodeEngineChildControlSettlementInvalid, settlementErr)
 		return
 	}
-	t.publishSettlementEvent(parent, record.ID, EffectTargetFramework, record.Settlement.Status(), startedAt, nil)
+	t.publishSettlementEvent(parent, record.ID, EffectTargetFramework, record.Settlement.Status(), observation, nil)
 	t.enqueueProcess(parent.handle.processID)
 	if t.engine.durability == nil {
 		return
@@ -977,7 +975,7 @@ func (t *treeRuntime) publishChildStart(pending *pendingChildStartPublication) e
 		t.publishPreparedEvent(parent, pending.event)
 	} else {
 		t.publishSettlementEvent(parent, pending.effectID, EffectTargetFramework,
-			pending.childSettlementStatus(), pending.startedAt, nil,
+			pending.childSettlementStatus(), pending.effectAttempt, nil,
 		)
 	}
 	return nil
@@ -1598,10 +1596,11 @@ func (t *treeRuntime) beginEffectAttempt(
 	step uint64,
 	effectID EffectID,
 	target EffectTarget,
-) time.Time {
-	payload := marshalEventPayload(effectStartedEventPayload{EffectTarget: target})
+) effectAttempt {
+	attempt := effectAttempt{id: newEffectAttemptID(), startedAt: time.Now()}
+	payload := marshalEventPayload(effectStartedEventPayload{EffectTarget: target, AttemptID: attempt.id})
 	t.publishEvent(process, EventEffectStarted, EventPhaseAttempt, step, effectID, payload)
-	return time.Now()
+	return attempt
 }
 
 func (t *treeRuntime) publishSettlementEvent(
@@ -1609,10 +1608,10 @@ func (t *treeRuntime) publishSettlementEvent(
 	effectID EffectID,
 	target EffectTarget,
 	status SettlementStatus,
-	startedAt time.Time,
+	observation effectAttempt,
 	cause error,
 ) {
-	event := t.prepareSettlementEvent(process, effectID, target, status, startedAt, cause)
+	event := t.prepareSettlementEvent(process, effectID, target, status, observation, cause)
 	t.publishPreparedEvent(process, event)
 }
 
@@ -1621,14 +1620,14 @@ func (t *treeRuntime) prepareSettlementEvent(
 	effectID EffectID,
 	target EffectTarget,
 	status SettlementStatus,
-	startedAt time.Time,
+	observation effectAttempt,
 	cause error,
 ) eventFact {
-	durationMS := time.Since(startedAt).Milliseconds()
+	durationMS := time.Since(observation.startedAt).Milliseconds()
 	failure := dispatchFailure(cause)
 	failureKind, failureCode := failure.Kind(), failure.Code()
 	payload := marshalEventPayload(effectFinishedEventPayload{
-		EffectTarget: target, SettlementStatus: status,
+		EffectTarget: target, SettlementStatus: status, AttemptID: observation.id,
 		DurationMS: &durationMS, FailureKind: failureKind, FailureCode: failureCode,
 	})
 	return t.prepareEvent(process,
@@ -1763,7 +1762,7 @@ func (t *treeRuntime) startStep(process *processState) {
 	// Host context values must not become unrecorded inputs to a pure Step.
 	stepCtx, cancel := context.WithCancel(context.Background())
 	t.setProcessJob(processID, &processJob{
-		kind: processJobStep, attempt: attempt, cancel: cancel, startedAt: time.Now(),
+		kind: processJobStep, attempt: attempt, cancel: cancel,
 	})
 	go func() {
 		startedAt := time.Now()
@@ -1806,7 +1805,7 @@ func (t *treeRuntime) startRestore(process *processState) {
 	state := process.committedExecutionState
 	restoreCtx, cancel := context.WithCancel(context.Background())
 	t.setProcessJob(processID, &processJob{
-		kind: processJobRestore, attempt: attempt, cancel: cancel, startedAt: time.Now(),
+		kind: processJobRestore, attempt: attempt, cancel: cancel,
 	})
 	go func() {
 		execution, err := restoreExecution(restoreCtx, definition, state)
@@ -1846,21 +1845,21 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int, reco
 	}
 	if record.Effect.Target() == EffectTargetFramework {
 		process.restoredPending = restoredPendingEffect{}
-		startedAt := t.beginEffectAttempt(process, process.prepared.StepSequence, record.ID, EffectTargetFramework)
+		observation := t.beginEffectAttempt(process, process.prepared.StepSequence, record.ID, EffectTargetFramework)
 		operation, err := decodeFrameworkEffectOperation(record.Effect.Payload())
 		if err == nil && operation == frameworkEffectStartChild {
-			t.startChild(process, record, startedAt)
+			t.startChild(process, record, observation)
 			return
 		}
 		if err == nil && (operation == frameworkEffectSignalChild || operation == frameworkEffectCancelChild) {
-			t.controlChild(process, uint32(index), record, startedAt)
+			t.controlChild(process, uint32(index), record, observation)
 			return
 		}
 		if err := record.settleFramework(); err != nil {
 			t.failProcessContract(process, failureCodeEngineFrameworkEffectSettlementInvalid, err)
 			return
 		}
-		t.publishSettlementEvent(process, record.ID, EffectTargetFramework, record.Settlement.Status(), startedAt, nil)
+		t.publishSettlementEvent(process, record.ID, EffectTargetFramework, record.Settlement.Status(), observation, nil)
 		t.enqueueProcess(process.handle.processID)
 		return
 	}
@@ -1936,7 +1935,7 @@ func (t *treeRuntime) recoverPendingEffect(
 func (t *treeRuntime) startChild(
 	process *processState,
 	record *preparedEffect,
-	startedAt time.Time,
+	observation effectAttempt,
 ) {
 	processID := process.handle.processID
 
@@ -1951,7 +1950,7 @@ func (t *treeRuntime) startChild(
 	}
 	preparation := t.prepareChildStart(process, record.ID, spec)
 	if preparation.plan == nil {
-		if err := t.settleChildStart(process, record.ID, preparation.result, startedAt); err != nil {
+		if err := t.settleChildStart(process, record.ID, preparation.result, observation); err != nil {
 			t.failProcessContract(process, failureCodeEngineChildSettlementInvalid, err)
 			return
 		}
@@ -1961,7 +1960,7 @@ func (t *treeRuntime) startChild(
 	startCtx, cancel := context.WithCancel(t.context)
 	job := &processJob{
 		kind: processJobChildStart, attempt: attempt, effectID: record.ID,
-		childStart: preparation.plan, startedAt: startedAt, cancel: cancel,
+		childStart: preparation.plan, effectAttempt: observation, cancel: cancel,
 	}
 	t.setProcessJob(processID, job)
 	go func() {
@@ -1989,15 +1988,15 @@ func (t *treeRuntime) startDispatch(
 		return
 	}
 	request := t.effectRequestFor(process, batchIndex, record)
-	startedAt := t.beginEffectAttempt(process, process.prepared.StepSequence, record.ID, EffectTargetDispatcher)
+	observation := t.beginEffectAttempt(process, process.prepared.StepSequence, record.ID, EffectTargetDispatcher)
 	dispatchCtx, cancel := context.WithCancel(t.context)
 	job := &processJob{
-		kind:      processJobDispatch,
-		attempt:   attempt,
-		cancel:    cancel,
-		effectID:  record.ID,
-		startedAt: startedAt,
-		response:  response,
+		kind:          processJobDispatch,
+		attempt:       attempt,
+		cancel:        cancel,
+		effectID:      record.ID,
+		effectAttempt: observation,
+		response:      response,
 	}
 	t.setProcessJob(processID, job)
 	var deltaMu sync.Mutex
@@ -2013,7 +2012,7 @@ func (t *treeRuntime) startDispatch(
 			}
 			deltaSequence++
 			delta, err := newDelta(
-				processID, record.ID, t.incarnation,
+				processID, record.ID, t.incarnation, observation.id,
 				deltaSequence, time.Now(), payload,
 			)
 			if err != nil || !t.engine.observation.offerDelta(t.context, delta) {
@@ -2121,7 +2120,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 	plan := job.childStart
 	pending := &pendingChildStartPublication{
 		parentID: parent.handle.processID, effectID: job.effectID,
-		plan: plan, result: result, startedAt: job.startedAt,
+		plan: plan, result: result, effectAttempt: job.effectAttempt,
 	}
 	transferred := false
 	var publicationErr, checkpointErr error
@@ -2141,7 +2140,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 	if t.engine.durability != nil {
 		pending.event = t.prepareSettlementEvent(parent,
 			job.effectID, EffectTargetFramework,
-			pending.childSettlementStatus(), job.startedAt, nil,
+			pending.childSettlementStatus(), job.effectAttempt, nil,
 		)
 		snapshot, err := t.captureTree()
 		if err == nil {
@@ -2221,13 +2220,13 @@ func (t *treeRuntime) settleChildStart(
 	parent *processState,
 	effectID EffectID,
 	result ChildStartResult,
-	startedAt time.Time,
+	observation effectAttempt,
 ) error {
 	status, err := t.applyChildStartSettlement(parent, effectID, result)
 	if err != nil {
 		return err
 	}
-	t.publishSettlementEvent(parent, effectID, EffectTargetFramework, status, startedAt, nil)
+	t.publishSettlementEvent(parent, effectID, EffectTargetFramework, status, observation, nil)
 	return nil
 }
 
@@ -2277,19 +2276,14 @@ func (t *treeRuntime) applyStepCompletion(
 		case stepJobStageRestore:
 			code = failureCodeExecutionSnapshotUnrestorable
 		}
-		if failure, ok := errors.AsType[*StepError](result.err); ok && result.stage == stepJobStageExecution {
-			if lo.IsNil(failure) {
+		if sealed, ok := errors.AsType[*callbackError](result.err); ok && sealed != nil && result.stage == stepJobStageExecution && sealed.kind != FailureKindPanic && sealed.step != nil {
+			failure := sealed.step.Failure
+			if !failure.Valid() {
 				t.failProcess(process, FailureKindContract, code, ErrInvalidFailure)
-				return
+			} else {
+				t.failProcess(process, failure.Kind(), failure.Code(), errors.New(failure.Message()))
 			}
-			if _, panicked := errors.AsType[*CallbackPanicError](result.err); !panicked {
-				if !failure.Failure.Valid() {
-					t.failProcess(process, FailureKindContract, code, ErrInvalidFailure)
-				} else {
-					t.failProcess(process, failure.Failure.Kind(), failure.Failure.Code(), failure)
-				}
-				return
-			}
+			return
 		}
 		t.failProcess(process, failureKindForError(result.err, FailureKindExecution), code, result.err)
 		return
@@ -2339,7 +2333,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 			result.dropped,
 		)
 
-		payload := marshalEventPayload(deltaDroppedEventPayload{DroppedDeltaCount: result.dropped})
+		payload := marshalEventPayload(deltaDroppedEventPayload{DroppedDeltaCount: result.dropped, AttemptID: job.effectAttempt.id})
 		if t.engine.durability != nil {
 			events = append(events, t.prepareEvent(process,
 				EventDeltaDropped, EventPhaseAttempt,
@@ -2357,7 +2351,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 		}
 		command := processCommand{settlement: settlement, response: job.response}
 		t.publishSettlementEvent(process, result.effectID, EffectTargetDispatcher,
-			settlement.Status(), job.startedAt, result.err)
+			settlement.Status(), job.effectAttempt, result.err)
 		if result.err != nil || settlement.Status() == SettlementStatusUnknown {
 			command.reply(processResponse{err: errors.Join(ErrEffectOutcomeUnknown, result.err)})
 			return
@@ -2367,7 +2361,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 	}
 	if t.engine.durability != nil {
 		events = append(events, t.prepareSettlementEvent(process,
-			record.ID, EffectTargetDispatcher, settlement.Status(), job.startedAt, result.err,
+			record.ID, EffectTargetDispatcher, settlement.Status(), job.effectAttempt, result.err,
 		))
 		snapshot, err := t.captureTree()
 		if err != nil {
@@ -2392,7 +2386,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 	t.publishSettlementEvent(process, record.ID,
 		EffectTargetDispatcher,
 		settlement.Status(),
-		job.startedAt, result.err,
+		job.effectAttempt, result.err,
 	)
 }
 
@@ -2857,6 +2851,26 @@ func (t *treeRuntime) admitSignals(process *processState, signals []Signal, sour
 }
 
 func (t *treeRuntime) validateSnapshotCapacity(candidates ...*processState) error {
+	if !t.processes[t.rootID].treeLimits.MaxSnapshotBytes.limited {
+		if len(candidates) == 0 {
+			// Start and Restore admit every member before publishing the tree.
+			for _, member := range t.processes {
+				if _, err := member.snapshotAdmissionSize(); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		// Existing members already passed their own admission; only candidates can
+		// change a Process quota when the tree has no aggregate quota.
+		for _, candidate := range candidates {
+			if _, err := candidate.snapshotAdmissionSize(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
 	header, err := json.Marshal(t.treeSnapshotBase())
 	if err != nil {
 		return err

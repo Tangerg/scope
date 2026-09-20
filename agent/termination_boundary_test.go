@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"testing"
+	"time"
 )
 
 func TestPreparedFailurePreservesDispatchEvidence(t *testing.T) {
@@ -35,7 +36,7 @@ func TestPreparedFailurePreservesDispatchEvidence(t *testing.T) {
 				process.restoredPending = restoredPendingEffect{id: record.ID, replayPolicy: ReplayPolicyNever}
 			}
 			if mode == "in_flight" {
-				runtime.setProcessJob(process.handle.processID, &processJob{kind: processJobDispatch, attempt: 1, effectID: record.ID})
+				runtime.setProcessJob(process.handle.processID, &processJob{kind: processJobDispatch, attempt: 1, effectID: record.ID, effectAttempt: effectAttempt{id: newEffectAttemptID(), startedAt: time.Now()}})
 			}
 			runtime.failProcessContract(process, "engine.contract.failed", errors.New("contract failure"))
 			if mode == "in_flight" {

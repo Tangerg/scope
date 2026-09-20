@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -223,5 +224,44 @@ func BenchmarkIdleDurableTreeInspection(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+func BenchmarkTreeAdmissionRetainedState(b *testing.B) {
+	for _, count := range []int{10, 100} {
+		for _, stateBytes := range []int{32, 64 << 10} {
+			for _, history := range []int{0, 8} {
+				for _, limited := range []bool{false, true} {
+					b.Run(fmt.Sprintf("members_%d/state_%d/history_%d/tree_quota_%t", count, stateBytes, history, limited), func(b *testing.B) {
+						runtime := newWaitingSnapshotTree(b, count)
+						for _, process := range runtime.processes {
+							process.committedExecutionState = controlValue(EncodeExecutionState("benchmark", strings.Repeat("x", stateBytes)))
+							process.status = StatusPaused
+							process.pauseReason = "benchmark"
+							process.currentWaitID = WaitID{}
+							process.mailbox = newSignalMailbox()
+							for index := range history {
+								signal := controlValue(newSignal(controlValue(ParseSignalID(fmt.Sprintf("signal:history-%d", index))), WaitID{}, []byte(`{}`)))
+								process.mailbox.acceptRecord(newSignalRecord(signal, false))
+							}
+							if _, err := process.mailbox.commit(uint32(history)); err != nil {
+								b.Fatal(err)
+							}
+							if limited {
+								process.treeLimits.MaxSnapshotBytes = NewQuota(1 << 30)
+								process.handle.treeLimits = process.treeLimits
+							}
+						}
+						root := runtime.processes[runtime.rootID]
+						b.ReportAllocs()
+						for b.Loop() {
+							if err := runtime.validateSnapshotCapacity(root); err != nil {
+								b.Fatal(err)
+							}
+						}
+					})
+				}
+			}
+		}
 	}
 }

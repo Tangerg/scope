@@ -128,9 +128,10 @@ func acknowledgeProcessInitializationOutcome(
 	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = &CallbackPanicError{Operation: "ProcessInitializationOutcomeAcknowledger.AcknowledgeProcessInitializationOutcome", Value: recovered}
+			err = callbackPanic("ProcessInitializationOutcomeAcknowledger.AcknowledgeProcessInitializationOutcome", recovered)
 		}
 	}()
+	defer func() { err = sealCallbackError(err) }()
 	if err := acknowledger.AcknowledgeProcessInitializationOutcome(
 		context.WithoutCancel(RequireContext(ctx)), outcome,
 	); err != nil {

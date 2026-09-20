@@ -190,7 +190,7 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 				t.Fatal(err)
 			}
 			record := &parent.prepared.Effects[0]
-			runtime.controlChild(parent, 0, record, time.Now())
+			runtime.controlChild(parent, 0, record, effectAttempt{id: newEffectAttemptID(), startedAt: time.Now()})
 			if !record.definitelySettled() {
 				t.Fatal("control not settled")
 			}

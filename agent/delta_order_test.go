@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 )
 
 type concurrentDeltaDispatcher struct {
@@ -135,5 +137,106 @@ func TestEngineOnlySuppliesEmitterWithListeners(t *testing.T) {
 		if observed && delivered != 1 || !observed && delivered != 0 {
 			t.Fatalf("delivered = %d", delivered)
 		}
+	}
+}
+
+type replayDeltaDispatcher struct {
+	listenerEntered <-chan struct{}
+	calls           int
+}
+
+func (r *replayDeltaDispatcher) ReplayPolicy(Effect) ReplayPolicy { return ReplayPolicySameIdentity }
+func (r *replayDeltaDispatcher) Dispatch(_ context.Context, request EffectRequest, emit DeltaEmitter) (Settlement, error) {
+	r.calls++
+	emit(json.RawMessage(`{"text":"first"}`))
+	if r.calls == 1 {
+		<-r.listenerEntered
+	}
+	emit(json.RawMessage(`{"text":"second"}`))
+	emit(json.RawMessage(`invalid`))
+	if r.calls == 1 {
+		return Settlement{}, errors.New("unknown first attempt")
+	}
+	return NewSettlement(request.ID(), SettlementStatusSucceeded, json.RawMessage(`{"kind":"result","value":"done"}`))
+}
+
+func TestReplayDeltasCarryAttemptIdentityAcrossSlowDelivery(t *testing.T) {
+	for _, durable := range []bool{false, true} {
+		t.Run(fmt.Sprintf("durable_%t", durable), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				entered, release := make(chan struct{}), make(chan struct{})
+				unblock := sync.OnceFunc(func() { close(release) })
+				defer unblock()
+				var received []Delta
+				var events []Event
+				config := EngineConfig{DeltaBufferCapacity: 2,
+					DeltaListeners: []DeltaListener{DeltaListenerFunc(func(_ context.Context, delta Delta) {
+						if len(received) == 0 {
+							close(entered)
+							<-release
+						}
+						received = append(received, delta)
+					})},
+					EventListeners: []EventListener{EventListenerFunc(func(_ context.Context, event Event) { events = append(events, event) })},
+				}
+				if durable {
+					config.TreeDurability = &recordingTreeDurability{}
+				}
+				engine := controlValue(NewEngine(config))
+				defer mustCloseEngine(t, engine)
+				dispatcher := &replayDeltaDispatcher{listenerEntered: entered}
+				deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)
+				process := controlValue(engine.Start(t.Context(), deployment, controlValue(EncodePayload(engineTestInput{Value: "stream"}))))
+				synctest.Wait()
+				ids := inspectProcessSnapshot(t, process).UnknownEffectIDs()
+				if len(ids) != 1 {
+					t.Fatalf("unknown effects=%v", ids)
+				}
+				if err := process.ReplayUnknownEffect(t.Context(), ids[0]); err != nil {
+					t.Fatal(err)
+				}
+				result := mustAwait(t, process)
+				unblock()
+				if err := engine.FlushDeltas(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				synctest.Wait()
+				if len(received) != 3 || result.Usage().DroppedDeltas != 3 {
+					t.Fatalf("delivered=%d dropped=%d", len(received), result.Usage().DroppedDeltas)
+				}
+				first, second := received[0].AttemptID(), received[2].AttemptID()
+				if !first.Valid() || !second.Valid() || first == second || received[1].AttemptID() != first {
+					t.Fatal("replay identity is ambiguous")
+				}
+				for index, delta := range received {
+					if delta.EffectID() != ids[0] || delta.EffectSequence() != []uint64{1, 2, 1}[index] {
+						t.Fatalf("delta=%+v", delta)
+					}
+					data, err := json.Marshal(delta)
+					if err != nil {
+						t.Fatal(err)
+					}
+					var decoded Delta
+					if err := json.Unmarshal(data, &decoded); err != nil || decoded.AttemptID() != delta.AttemptID() {
+						t.Fatalf("roundtrip: %v", err)
+					}
+				}
+				starts, finishes, drops := map[EffectAttemptID]int{}, map[EffectAttemptID]int{}, map[EffectAttemptID]uint64{}
+				for _, event := range events {
+					if fact, ok := event.EffectStarted(); ok {
+						starts[fact.AttemptID()]++
+					}
+					if fact, ok := event.EffectFinished(); ok {
+						finishes[fact.AttemptID()]++
+					}
+					if fact, ok := event.DeltaDropped(); ok {
+						drops[fact.AttemptID()] += fact.Count()
+					}
+				}
+				if starts[first] != 1 || starts[second] != 1 || finishes[first] != 1 || finishes[second] != 1 || drops[first] != 1 || drops[second] != 2 {
+					t.Fatalf("starts=%v finishes=%v drops=%v", starts, finishes, drops)
+				}
+			})
+		})
 	}
 }

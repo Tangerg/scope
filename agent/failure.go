@@ -86,6 +86,12 @@ func (f Failure) Valid() bool {
 }
 
 func failureKindForError(err error, fallback FailureKind) FailureKind {
+	if sealed, ok := errors.AsType[*callbackError](err); ok && sealed != nil {
+		if sealed.kind == FailureKindPanic {
+			return FailureKindPanic
+		}
+		return fallback
+	}
 	if _, ok := errors.AsType[*CallbackPanicError](err); ok {
 		return FailureKindPanic
 	}

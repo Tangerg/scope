@@ -303,7 +303,13 @@ func TestObservationLossDoesNotChangeSemanticBehavior(t *testing.T) {
 		events = append(events, changeEvent(t, event, fields))
 		if !inserted && event.Name() == agent.EventEffectStarted {
 			rootSequence++
-			dropped := changeEvent(t, event, map[string]any{"process_sequence": rootSequence, "name": agent.EventDeltaDropped, "payload": map[string]any{"dropped_delta_count": 9}})
+			var attempt struct {
+				ID string `json:"attempt_id"`
+			}
+			if err := json.Unmarshal(event.Payload(), &attempt); err != nil {
+				t.Fatal(err)
+			}
+			dropped := changeEvent(t, event, map[string]any{"process_sequence": rootSequence, "name": agent.EventDeltaDropped, "payload": map[string]any{"dropped_delta_count": 9, "attempt_id": attempt.ID}})
 			events = append(events, dropped)
 			inserted = true
 		}

@@ -146,6 +146,9 @@ type Dispatcher interface {
 	// Process or an ancestor. It still collects the returned settlement; ctx
 	// cancellation alone proves no external outcome. Host context values are
 	// preserved. Implementations honor ctx and may be called concurrently.
+	// Panics in Dispatch or in interpretation of its returned error are isolated
+	// as unknown outcomes. Original errors remain available for Host inspection;
+	// the runtime only consumes classifications captured inside this boundary.
 	Dispatch(ctx context.Context, request EffectRequest, emit DeltaEmitter) (Settlement, error)
 	// ReplayPolicy declares, without I/O or mutable side effects, whether this
 	// exact Effect can be repeated under its original EffectID when restoring

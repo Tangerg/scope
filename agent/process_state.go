@@ -501,6 +501,9 @@ func (p *processState) prepareStep(result stepJobResult) (*processState, *stepPr
 }
 
 func (p *processState) snapshotAdmissionSize() (uint64, error) {
+	if !p.limits.MaxSnapshotBytes.limited && !p.treeLimits.MaxSnapshotBytes.limited {
+		return 0, nil
+	}
 	return p.snapshotWire().admissionSize()
 }
 

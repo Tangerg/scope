@@ -107,10 +107,11 @@ func requestProcessAdmission(
 		if recovered := recover(); recovered != nil {
 			err = fmt.Errorf(
 				"%w: %w",
-				ErrProcessAdmissionRejected, &CallbackPanicError{Operation: "ProcessAdmitter.Admit", Value: recovered},
+				ErrProcessAdmissionRejected, callbackPanic("ProcessAdmitter.Admit", recovered),
 			)
 		}
 	}()
+	defer func() { err = sealCallbackError(err) }()
 	if err := admitter.Admit(RequireContext(ctx), admission); err != nil {
 		return fmt.Errorf("%w: %w", ErrProcessAdmissionRejected, err)
 	}

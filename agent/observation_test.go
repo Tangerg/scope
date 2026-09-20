@@ -25,7 +25,7 @@ func TestEventSeparatesAttemptFromCommittedFacts(t *testing.T) {
 		name:            EventEffectStarted,
 		phase:           EventPhaseAttempt,
 		occurredAt:      time.Unix(20, 0),
-		payload:         json.RawMessage(`{"effect_target":"dispatcher"}`),
+		payload:         marshalEventPayload(effectStartedEventPayload{EffectTarget: EffectTargetDispatcher, AttemptID: newEffectAttemptID()}),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +76,7 @@ func TestEventRejectsMismatchedFrameworkFactContracts(t *testing.T) {
 			name: "missing Effect identity",
 			spec: eventSpec{
 				name: EventEffectStarted, phase: EventPhaseAttempt, stepSequence: 1,
-				payload: json.RawMessage(`{"effect_target":"dispatcher"}`),
+				payload: marshalEventPayload(effectStartedEventPayload{EffectTarget: EffectTargetDispatcher, AttemptID: newEffectAttemptID()}),
 			},
 		},
 		{
@@ -92,7 +92,7 @@ func TestEventRejectsMismatchedFrameworkFactContracts(t *testing.T) {
 			name: "invalid payload",
 			spec: eventSpec{
 				name: EventEffectStarted, phase: EventPhaseAttempt, stepSequence: 1,
-				effectID: effectID, payload: json.RawMessage(`{"effect_target":"invalid"}`),
+				effectID: effectID, payload: marshalEventPayload(effectStartedEventPayload{EffectTarget: EffectTargetInvalid, AttemptID: newEffectAttemptID()}),
 			},
 		},
 	}
@@ -154,20 +154,20 @@ func FuzzEventJSONRoundTrip(f *testing.F) {
 		{name: EventStepCommitted, phase: EventPhaseCommitted, stepSequence: 1, payload: stepCommittedEventPayload{
 			ProcessStatus: StatusRunning,
 		}},
-		{name: EventEffectStarted, phase: EventPhaseAttempt, stepSequence: 1, effectID: effectID, payload: effectStartedEventPayload{
+		{name: EventEffectStarted, phase: EventPhaseAttempt, stepSequence: 1, effectID: effectID, payload: effectStartedEventPayload{AttemptID: newEffectAttemptID(),
 			EffectTarget: EffectTargetDispatcher,
 		}},
 		{name: EventEffectResolved, phase: EventPhaseCommitted, stepSequence: 1, effectID: effectID, payload: effectResolvedEventPayload{
 			EffectTarget: EffectTargetDispatcher, SettlementStatus: SettlementStatusSucceeded,
 		}},
-		{name: EventEffectFinished, phase: EventPhaseAttempt, stepSequence: 1, effectID: effectID, payload: effectFinishedEventPayload{
+		{name: EventEffectFinished, phase: EventPhaseAttempt, stepSequence: 1, effectID: effectID, payload: effectFinishedEventPayload{AttemptID: newEffectAttemptID(),
 			EffectTarget: EffectTargetDispatcher, SettlementStatus: SettlementStatusSucceeded, DurationMS: &durationMS,
 		}},
-		{name: EventEffectFinished, phase: EventPhaseAttempt, stepSequence: 1, effectID: effectID, payload: effectFinishedEventPayload{
+		{name: EventEffectFinished, phase: EventPhaseAttempt, stepSequence: 1, effectID: effectID, payload: effectFinishedEventPayload{AttemptID: newEffectAttemptID(),
 			EffectTarget: EffectTargetDispatcher, SettlementStatus: SettlementStatusUnknown, DurationMS: &durationMS,
 			FailureKind: FailureKindExternal, FailureCode: "engine.dispatch.failed",
 		}},
-		{name: EventDeltaDropped, phase: EventPhaseAttempt, stepSequence: 1, effectID: effectID, payload: deltaDroppedEventPayload{
+		{name: EventDeltaDropped, phase: EventPhaseAttempt, stepSequence: 1, effectID: effectID, payload: deltaDroppedEventPayload{AttemptID: newEffectAttemptID(),
 			DroppedDeltaCount: 1,
 		}},
 	}
@@ -221,7 +221,7 @@ func TestDeltaIsEffectLocalAndImmutable(t *testing.T) {
 	processID, _ := ParseProcessID("process:1")
 	effectID, _ := ParseEffectID("process:1:step:2:effect:0")
 	payload := json.RawMessage(` { "text": "partial" } `)
-	delta, err := newDelta(processID, effectID, TreeIncarnationID{}, 1, time.Unix(30, 0), payload)
+	delta, err := newDelta(processID, effectID, TreeIncarnationID{}, newEffectAttemptID(), 1, time.Unix(30, 0), payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestDeltaDeliveryPreservesValuesWithoutRequestCancellation(t *testing.T) {
 
 	processID, _ := ParseProcessID("process:delta-context")
 	effectID, _ := ParseEffectID("process:delta-context:step:1:effect:0")
-	delta, err := newDelta(processID, effectID, TreeIncarnationID{}, 1, time.Unix(30, 0), json.RawMessage(`{"text":"partial"}`))
+	delta, err := newDelta(processID, effectID, TreeIncarnationID{}, newEffectAttemptID(), 1, time.Unix(30, 0), json.RawMessage(`{"text":"partial"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -429,5 +429,29 @@ func TestProcessEventSequenceAdvancesOnlyAtPublication(t *testing.T) {
 	)
 	if process.processEventSequence != math.MaxUint64 || len(events) != 3 || engine.ObservationFailures().DroppedEvents() != 1 {
 		t.Fatalf("exhausted Event sequence wrapped to %d or published %d facts", process.processEventSequence, len(events))
+	}
+}
+
+func TestDeltaRejectsMissingAttemptIdentity(t *testing.T) {
+	delta, err := newDelta(newProcessID(), controlValue(ParseEffectID("effect:test")), TreeIncarnationID{}, newEffectAttemptID(), 1, time.Now(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(delta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if decodeErr := json.Unmarshal(encoded, &fields); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	delete(fields, "attempt_id")
+	obsolete, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded Delta
+	if decodeErr := json.Unmarshal(obsolete, &decoded); !errors.Is(decodeErr, ErrInvalidDelta) {
+		t.Fatalf("missing attempt admitted: %v", decodeErr)
 	}
 }

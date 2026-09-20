@@ -217,13 +217,17 @@ func TestSnapshotReservationAllocation(t *testing.T) {
 	measure := func() int64 {
 		result := testing.Benchmark(func(b *testing.B) {
 			for b.Loop() {
-				if err := runtime.validateSnapshotCapacity(); err != nil {
-					b.Fatal(err)
+				for _, process := range runtime.processes {
+					if _, err := process.snapshotWire().admissionSize(); err != nil {
+						b.Fatal(err)
+					}
 				}
 			}
 		})
 		return result.AllocedBytesPerOp()
 	}
+	// Compare encoding with and without reservation, independently of the
+	// unlimited admission fast path, which intentionally performs no encoding.
 	unlimited := measure()
 	for _, process := range runtime.processes {
 		process.limits.MaxSnapshotBytes = NewQuota(1 << 20)

@@ -27,6 +27,9 @@ func orderedProcesses(values map[ProcessID]*processState) []*processState {
 }
 
 func newTreeRuntimeFailure(cause error) Failure {
+	if sealed, ok := errors.AsType[*callbackError](cause); ok && sealed != nil {
+		return sealed.runtime
+	}
 	kind := FailureKindExternal
 	code := failureCodeEngineTreeDurabilityFailed
 	switch {

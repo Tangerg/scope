@@ -330,9 +330,10 @@ func activateTree(
 	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = &CallbackPanicError{Operation: "TreeDurability.ActivateTree", Value: recovered}
+			err = callbackPanic("TreeDurability.ActivateTree", recovered)
 		}
 	}()
+	defer func() { err = sealCallbackError(err) }()
 	return durability.ActivateTree(context.WithoutCancel(RequireContext(ctx)), activation)
 }
 
@@ -348,9 +349,10 @@ func commitEffectBoundary(
 	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = &CallbackPanicError{Operation: "TreeDurability.CommitEffect", Value: recovered}
+			err = callbackPanic("TreeDurability.CommitEffect", recovered)
 		}
 	}()
+	defer func() { err = sealCallbackError(err) }()
 	return durability.CommitEffect(context.WithoutCancel(RequireContext(ctx)), boundary)
 }
 
@@ -364,9 +366,10 @@ func commitTreeCheckpoint(
 	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = &CallbackPanicError{Operation: "TreeDurability.CommitCheckpoint", Value: recovered}
+			err = callbackPanic("TreeDurability.CommitCheckpoint", recovered)
 		}
 	}()
+	defer func() { err = sealCallbackError(err) }()
 	return durability.CommitCheckpoint(
 		context.WithoutCancel(RequireContext(ctx)), checkpoint,
 	)

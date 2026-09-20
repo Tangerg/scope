@@ -19,7 +19,7 @@ func TestStepErrorDiscardsCandidateAndPreservesFailure(t *testing.T) {
 		{"raw", cause, FailureKindExecution, "execution.step.failed"},
 		{"classified", fmt.Errorf("step: %w", &StepError{Failure: declared, Cause: cause}), FailureKindContract, "test.input.invalid"},
 		{"invalid classification", &StepError{Cause: cause}, FailureKindContract, "execution.step.failed"},
-		{"nil classification", (*StepError)(nil), FailureKindContract, "execution.step.failed"},
+		{"nil classification", (*StepError)(nil), FailureKindPanic, "execution.step.failed"},
 		{"panic takes precedence", &StepError{Failure: declared, Cause: &CallbackPanicError{Operation: "test", Value: cause}}, FailureKindPanic, "execution.step.failed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

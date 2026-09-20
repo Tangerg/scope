@@ -213,7 +213,7 @@ func TestEffectFinishedRejectsMisleadingFailureClassification(t *testing.T) {
 		`"failure_kind":"external","failure_code":"invalid code"`,
 		`"failure_kind":"external","failure_code":"engine.dispatch.failed","failure_message":"private"`,
 	} {
-		payload := json.RawMessage(`{"effect_target":"dispatcher","settlement_status":"unknown","duration_ms":0,` + fields + `}`)
+		payload := json.RawMessage(`{"attempt_id":"` + newEffectAttemptID().String() + `","effect_target":"dispatcher","settlement_status":"unknown","duration_ms":0,` + fields + `}`)
 		if _, err := decodeEffectFinishedFact(payload); err == nil {
 			t.Fatalf("invalid diagnostic fields were accepted: %s", fields)
 		}
@@ -224,7 +224,7 @@ func TestEffectFinishedRejectsMisleadingFailureClassification(t *testing.T) {
 				continue
 			}
 			duration := int64(0)
-			payload, err := json.Marshal(effectFinishedEventPayload{
+			payload, err := json.Marshal(effectFinishedEventPayload{AttemptID: newEffectAttemptID(),
 				EffectTarget: target, SettlementStatus: status, DurationMS: &duration,
 				FailureKind: FailureKindExternal, FailureCode: "engine.dispatch.failed",
 			})

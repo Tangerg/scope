@@ -316,7 +316,7 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 				runtime.commit = &treeCommit{kind: treeCommitCheckpoint}
 			}
 			result := childStartJobResult{result: failedChildStart(spec, FailureKindExternal, failureCodeEngineChildAdmissionRejected, errors.New("admission refused"))}
-			runtime.applyChildStartCompletion(root, &processJob{childStart: preparation.plan, effectID: effectID}, result)
+			runtime.applyChildStartCompletion(root, &processJob{childStart: preparation.plan, effectID: effectID, effectAttempt: effectAttempt{id: newEffectAttemptID(), startedAt: result.startedAt}}, result)
 			if root.provisionalChildBudget != nil || root.allocatedResources != (resourceAmounts{}) || len(runtime.processes) != 1 {
 				t.Fatal("rejection retained child resources")
 			}

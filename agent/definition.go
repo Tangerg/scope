@@ -43,7 +43,9 @@ type Definition interface {
 // The Engine is the sole caller and never invokes Step concurrently for the same
 // Execution. If Step or Snapshot fails, the instance is discarded and may only
 // be rebuilt from the committed ExecutionState.
-// The Engine always supplies a non-nil Step context.
+// The Engine always supplies a non-nil Step context. Callback containment also
+// covers interpretation of returned errors: their methods may not escape into
+// the scheduler. A panic during interpretation is an execution panic.
 type Execution interface {
 	// Step reduces the current private state and the supplied ordered Signal
 	// prefix into one candidate Transition. It must honor ctx for bounded CPU

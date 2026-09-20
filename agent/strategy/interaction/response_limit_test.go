@@ -37,7 +37,8 @@ func TestModelResponseLimitIncludesEncodingAndReplacementContext(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 			var calls atomic.Int32
-			config := interaction.DispatcherConfig{MaxResponseBytes: 512, Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+			observer := &responseFactObserver{}
+			config := interaction.DispatcherConfig{Observer: observer, MaxResponseBytes: 512, Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 				calls.Add(1)
 				return textResponse(test.text), nil
 			})}
@@ -65,6 +66,13 @@ func TestModelResponseLimitIncludesEncodingAndReplacementContext(t *testing.T) {
 				t.Fatal(err)
 			}
 			fact, _ := event.EffectFinished()
+			wantObservations := int32(1)
+			if test.stream || test.beforeCall {
+				wantObservations = 0
+			}
+			if observer.calls.Load() != wantObservations {
+				t.Fatalf("response observations=%d, want %d", observer.calls.Load(), wantObservations)
+			}
 			if test.beforeCall {
 				result, err := process.Await(ctx)
 				if err != nil {
@@ -252,4 +260,11 @@ func TestResponseHostDiagnosticUsesIndependentBoundedBudget(t *testing.T) {
 	if wire.Operation != "model_call" || wire.ModelResult.HostError != want || len(wire.ModelResult.HostError) != agent.MaxDiagnosticBytes {
 		t.Fatalf("diagnostic was not bounded at its owner: operation=%s bytes=%d", wire.Operation, len(wire.ModelResult.HostError))
 	}
+}
+
+type responseFactObserver struct{ calls atomic.Int32 }
+
+func (r *responseFactObserver) OnModelResponse(_ context.Context, _ interaction.ModelInvocation, response *chat.Response) {
+	r.calls.Add(1)
+	response.Output = nil
 }

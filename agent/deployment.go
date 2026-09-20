@@ -101,7 +101,7 @@ func definitionDescriptor(definition Definition) (descriptor Descriptor, err err
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			descriptor = Descriptor{}
-			err = fmt.Errorf("%w: %w", ErrInvalidDeployment, &CallbackPanicError{Operation: "Definition.Descriptor", Value: recovered})
+			err = fmt.Errorf("%w: %w", ErrInvalidDeployment, callbackPanic("Definition.Descriptor", recovered))
 		}
 	}()
 	return definition.Descriptor(), nil

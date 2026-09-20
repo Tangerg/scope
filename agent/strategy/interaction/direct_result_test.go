@@ -119,7 +119,7 @@ func TestDirectResultCompletionFailurePreservesItsCause(t *testing.T) {
 				modelCalls++
 				return toolCallResponse(chat.ToolCall{ID: "direct-1", Name: "direct", Arguments: `{}`}), nil
 			})
-			validator := func(candidate interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
+			validator := func(_ context.Context, candidate interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
 				validations++
 				if candidate.Output().Source != interaction.CompletionSourceDirectToolResults {
 					t.Error("validator did not receive the direct Tool result")

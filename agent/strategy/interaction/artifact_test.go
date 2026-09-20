@@ -53,7 +53,12 @@ func TestCompletionValidatorUsesOrderedTypedDelegateArtifacts(t *testing.T) {
 	}
 }
 
-func validateArtifactCompletion(candidate interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
+func validateArtifactCompletion(_ context.Context, candidate interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
+	for _, artifact := range candidate.Artifacts() {
+		if artifact.ModelCallSequence() != 1 || artifact.ToolCallID() != "call_artifact" {
+			return interaction.CompletionDecision{}, errors.New("artifact lost call identity")
+		}
+	}
 	if err := validateCandidateOwnership(candidate); err != nil {
 		return interaction.CompletionDecision{}, err
 	}
@@ -140,7 +145,7 @@ func TestCompletionValidatorRetryHonorsModelCallLimit(t *testing.T) {
 	})
 	root := delegateInteractionWithValidator(
 		t, model, nil, nil,
-		func(interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
+		func(_ context.Context, _ interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
 			return interaction.CompletionDecision{Feedback: "Produce a verifiable final answer."}, nil
 		},
 		1,
@@ -168,6 +173,10 @@ func TestCompletionDecisionContract(t *testing.T) {
 	}{
 		{name: "accepted", decision: interaction.CompletionDecision{Accepted: true}, valid: true},
 		{name: "retry", decision: interaction.CompletionDecision{Feedback: "Add evidence."}, valid: true},
+		{name: "invalid UTF-8", decision: interaction.CompletionDecision{Feedback: "\xff"}},
+		{name: "Chinese", decision: interaction.CompletionDecision{Feedback: "补充证据"}, valid: true},
+		{name: "byte boundary", decision: interaction.CompletionDecision{Feedback: strings.Repeat("界", 1365) + "a"}, valid: true},
+		{name: "byte overflow", decision: interaction.CompletionDecision{Feedback: strings.Repeat("界", 1366)}},
 		{name: "zero", decision: interaction.CompletionDecision{}},
 		{name: "accepted with feedback", decision: interaction.CompletionDecision{Accepted: true, Feedback: "unused"}},
 		{name: "untrimmed feedback", decision: interaction.CompletionDecision{Feedback: " retry"}},
@@ -195,7 +204,7 @@ func TestCompletionValidatorCanRejectDirectToolResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	model := &directCompletionValidationModel{}
-	validator := func(candidate interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
+	validator := func(_ context.Context, candidate interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
 		if len(candidate.Artifacts()) != 0 {
 			return interaction.CompletionDecision{}, errors.New("ordinary Tool produced a Delegate Artifact")
 		}
@@ -226,8 +235,8 @@ func TestCompletionValidatorRejectsInvalidDecision(t *testing.T) {
 	})
 	root := delegateInteractionWithValidator(
 		t, model, nil, nil,
-		func(interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
-			return interaction.CompletionDecision{}, nil
+		func(_ context.Context, _ interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
+			return interaction.CompletionDecision{Feedback: "\xff"}, nil
 		},
 		2,
 	)
@@ -258,7 +267,7 @@ func TestCompletionValidatorFailureClassification(t *testing.T) {
 	}{
 		{
 			name: "returned error",
-			validator: func(interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
+			validator: func(_ context.Context, _ interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
 				return interaction.CompletionDecision{}, errors.New("validator cannot decide")
 			},
 			cause: agent.TerminationCauseExecutionFailure,
@@ -267,7 +276,7 @@ func TestCompletionValidatorFailureClassification(t *testing.T) {
 		},
 		{
 			name: "invalid error encoding",
-			validator: func(interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
+			validator: func(_ context.Context, _ interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
 				return interaction.CompletionDecision{}, errors.New("failure: \xff")
 			},
 			cause: agent.TerminationCauseExecutionFailure, kind: agent.FailureKindExecution,
@@ -275,7 +284,7 @@ func TestCompletionValidatorFailureClassification(t *testing.T) {
 		},
 		{
 			name: "long invalid error encoding",
-			validator: func(interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
+			validator: func(_ context.Context, _ interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
 				return interaction.CompletionDecision{}, errors.New("\xff" + strings.Repeat("a", agent.MaxDiagnosticBytes))
 			},
 			cause: agent.TerminationCauseExecutionFailure, kind: agent.FailureKindExecution,
@@ -283,7 +292,7 @@ func TestCompletionValidatorFailureClassification(t *testing.T) {
 		},
 		{
 			name: "panic",
-			validator: func(interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
+			validator: func(_ context.Context, _ interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
 				panic("validator panic")
 			},
 			cause: agent.TerminationCausePanic,
@@ -377,4 +386,36 @@ func (d *directCompletionValidationModel) Calls() int {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.calls
+}
+
+func TestCompletionValidatorObservesStepCancellation(t *testing.T) {
+	entered, canceled := make(chan struct{}), make(chan struct{})
+	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return textResponse("candidate"), nil })
+	root := delegateInteractionWithValidator(t, model, nil, nil, func(ctx context.Context, _ interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
+		close(entered)
+		<-ctx.Done()
+		close(canceled)
+		return interaction.CompletionDecision{}, ctx.Err()
+	}, 1)
+	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: root.resolver})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close(context.WithoutCancel(t.Context()))
+	process, err := engine.Start(t.Context(), root.Deployment, interactionInput(t, "cancel validation"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-entered
+	if killErr := process.Kill(t.Context(), "cancel validator"); killErr != nil {
+		t.Fatal(killErr)
+	}
+	<-canceled
+	result, err := process.Await(t.Context())
+	if err != nil || result.Status() != agent.StatusKilled {
+		t.Fatalf("status=%s error=%v", result.Status(), err)
+	}
+	if joinErr := process.Join(t.Context()); joinErr != nil {
+		t.Fatal(joinErr)
+	}
 }

@@ -103,9 +103,10 @@ func resolveDeployment(
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			deployment = Deployment{}
-			err = &CallbackPanicError{Operation: "DeploymentResolver.Resolve", Value: recovered}
+			err = callbackPanic("DeploymentResolver.Resolve", recovered)
 		}
 	}()
+	defer func() { err = sealCallbackError(err) }()
 	deployment, err = resolver.Resolve(reference)
 	if err != nil {
 		return Deployment{}, err

@@ -201,6 +201,7 @@ func (d *Dispatcher) dispatchModel(
 	if validateErr := response.Validate(); validateErr != nil {
 		return agent.Settlement{}, fmt.Errorf("interaction: invalid model response: %w", validateErr)
 	}
+	d.observeModel(ctx, invocation, response)
 	result.Response = response
 	payload, err := agent.EncodePayload(signalEnvelope{
 		Operation: operationModelCall, ModelResult: result,
@@ -211,7 +212,6 @@ func (d *Dispatcher) dispatchModel(
 	if len(payload.JSON()) > d.maxResponseBytes {
 		return agent.Settlement{}, ErrModelResponseTooLarge
 	}
-	d.observeModel(ctx, invocation, response)
 	return agent.NewSettlement(request.ID(), agent.SettlementStatusSucceeded, payload.JSON())
 }
 

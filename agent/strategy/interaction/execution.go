@@ -74,7 +74,7 @@ func (e *execution) step(ctx context.Context, signals []agent.Signal) (agent.Tra
 			return agent.Transition{}, steerErr
 		}
 		if e.state.Phase == phaseRoundComplete {
-			return e.finishToolCallBatch(consumed, e.state.ToolRound.Response.Output.Message)
+			return e.finishToolCallBatch(ctx, consumed, e.state.ToolRound.Response.Output.Message)
 		}
 		return e.advanceToolCallBatch(ctx, consumed)
 	case phaseAwaitingModel:
@@ -187,7 +187,7 @@ func (e *execution) acceptModel(ctx context.Context, signals []agent.Signal) (ag
 		return agent.Transition{}, addSteerErr
 	}
 	if len(calls) == 0 {
-		return e.acceptFinalModelResponse(consumedSignals, response)
+		return e.acceptFinalModelResponse(ctx, consumedSignals, response)
 	}
 	e.state.ToolRound = &toolCallRound{Response: response}
 	e.state.Phase = phaseAdvancingTools
@@ -195,6 +195,7 @@ func (e *execution) acceptModel(ctx context.Context, signals []agent.Signal) (ag
 }
 
 func (e *execution) acceptFinalModelResponse(
+	ctx context.Context,
 	consumedSignals uint32,
 	response *chat.Response,
 ) (agent.Transition, error) {
@@ -207,7 +208,7 @@ func (e *execution) acceptFinalModelResponse(
 		return agent.Transition{}, &agent.StepError{Failure: failure}
 	}
 	if e.state.PendingSteer == nil {
-		return e.finishOrRetry(consumedSignals, Output{
+		return e.finishOrRetry(ctx, consumedSignals, Output{
 			Source:        CompletionSourceModelResponse,
 			ModelResponse: response,
 			ModelCalls:    e.state.ModelCallCount,
@@ -237,6 +238,7 @@ func (e *execution) complete(consumedSignals uint32, output Output) (agent.Trans
 }
 
 func (e *execution) finishOrRetry(
+	ctx context.Context,
 	consumedSignals uint32,
 	output Output,
 	completionContext []chat.Message,
@@ -252,7 +254,10 @@ func (e *execution) finishOrRetry(
 			artifacts:      newArtifacts(e.state.ArtifactRecords),
 		}
 		var err error
-		decision, err = e.definition.completionValidator(candidate)
+		decision, err = e.definition.completionValidator(ctx, candidate)
+		if cancelErr := ctx.Err(); cancelErr != nil {
+			return agent.Transition{}, cancelErr
+		}
 		if err != nil {
 			return e.fail(
 				consumedSignals,
@@ -338,6 +343,7 @@ func (e *execution) advanceToolCallBatch(ctx context.Context, consumedSignals ui
 }
 
 func (e *execution) finishToolCallBatch(
+	ctx context.Context,
 	consumedSignals uint32,
 	assistant *chat.Message,
 ) (agent.Transition, error) {
@@ -351,7 +357,7 @@ func (e *execution) finishToolCallBatch(
 	e.state.ToolRound = nil
 	e.state.Phase = phaseReadyModel
 	if direct {
-		return e.finishOrRetry(consumedSignals, Output{
+		return e.finishOrRetry(ctx, consumedSignals, Output{
 			Source:            CompletionSourceDirectToolResults,
 			DirectToolResults: results,
 			ModelCalls:        e.state.ModelCallCount,

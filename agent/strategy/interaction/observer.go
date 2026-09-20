@@ -17,7 +17,9 @@ import (
 // kernel lifecycle facts and agent.DeltaListener receives ephemeral stream data.
 type ModelObserver interface {
 	// OnModelResponse receives the complete provider-neutral response after the
-	// model boundary settles and before later Interaction work is observed. The
+	// response validates, before settlement encoding and capacity admission. A
+	// later admission failure does not retract this response fact; kernel Effect
+	// observations report the settlement outcome. The
 	// response is detached and may be mutated by the observer. Panics are
 	// isolated and the callback has no control authority.
 	OnModelResponse(ctx context.Context, invocation ModelInvocation, response *chat.Response)
