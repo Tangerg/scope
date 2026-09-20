@@ -767,6 +767,7 @@ func TestCaptureReturnsAcknowledgedHead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	waitForStatus(t, process, StatusWaiting)
 	snapshot, err := engine.CaptureTree(context.Background(), process.ID())
 	if err != nil || !snapshot.Valid() {
 		t.Fatalf("CaptureTree valid=%v error=%v", snapshot.Valid(), err)

@@ -33,7 +33,19 @@ func captureToolInput(t *testing.T, engine *agent.Engine, root *agent.Process) (
 			t.Fatal(err)
 		}
 		if len(pending) == 1 {
-			return snapshot, pending[0]
+			// A child can expose its input before the parent finishes entering
+			// its wait. Recovery fixtures need a cut that cannot advance alone.
+			parked := true
+			for _, process := range snapshot.ProcessSnapshots() {
+				status := process.Status()
+				if !status.Terminal() && status != agent.StatusWaiting && status != agent.StatusPaused {
+					parked = false
+					break
+				}
+			}
+			if parked {
+				return snapshot, pending[0]
+			}
 		}
 		if len(pending) > 1 || inspectProcessSnapshot(t, engine, root).Status().Terminal() {
 			t.Fatalf("Tool waits=%d root status=%s", len(pending), inspectProcessSnapshot(t, engine, root).Status())

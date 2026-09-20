@@ -150,7 +150,7 @@ func benchmarkRecoverableProcess(
 		b.Fatal(err)
 	}
 	b.Cleanup(func() { stopRecoveryBenchmarkProcess(b, process) })
-	waitForStatus(b, process, StatusPaused)
+	waitForPausedStep(b, process, 1)
 	requests := make([]SignalRequest, sample.historyCount)
 	for index := range requests {
 		id, parseErr := ParseSignalID(fmt.Sprintf("signal:benchmark-history-%d", index))
@@ -170,7 +170,7 @@ func benchmarkRecoverableProcess(
 	if err := process.Resume(b.Context()); err != nil {
 		b.Fatal(err)
 	}
-	waitForStatus(b, process, StatusPaused)
+	waitForPausedStep(b, process, 2)
 	if sample.effectCount > 0 {
 		if err := process.Resume(b.Context()); err != nil {
 			b.Fatal(err)
@@ -282,4 +282,23 @@ func (t *treeRecoveryBenchmarkExecution) Snapshot() (ExecutionState, error) {
 		return ExecutionState{}, err
 	}
 	return NewExecutionState(t.definition.descriptor.Name(), payload)
+}
+
+func waitForPausedStep(t testing.TB, process *Process, steps uint64) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	poll := time.NewTicker(time.Millisecond)
+	defer poll.Stop()
+	for {
+		snapshot := inspectProcessSnapshot(t, process)
+		if snapshot.Status() == StatusPaused && snapshot.Usage().CommittedSteps == steps {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("Process status=%s steps=%d, want paused steps=%d: %v", snapshot.Status(), snapshot.Usage().CommittedSteps, steps, ctx.Err())
+		case <-poll.C:
+		}
+	}
 }
