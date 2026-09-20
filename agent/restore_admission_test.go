@@ -23,7 +23,7 @@ func (r *restoreAdmissionDefinition) Restore(ctx context.Context, state Executio
 func TestRestoreReservesBeforeCallingDefinition(t *testing.T) {
 	tree := completedTreeSnapshot(t)
 	for _, closed := range []bool{false, true} {
-		engine := controlValue(NewEngine(EngineConfig{}))
+		engine := controlValue(NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree)}))
 		definition := &restoreAdmissionDefinition{Definition: newEngineTestDefinition(t, "engine.effect", "effect")}
 		deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
 		want := ErrEngineClosed

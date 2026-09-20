@@ -50,7 +50,7 @@ func TestRestoredAdvertisementsDispatchAgainstBoundManifest(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			engine, err := agent.NewEngine(agent.EngineConfig{})
+			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 			if err != nil {
 				t.Fatal(err)
 			}

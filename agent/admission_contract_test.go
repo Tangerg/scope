@@ -12,9 +12,9 @@ func TestSignalBatchPublishesOnlyNewIdentities(t *testing.T) {
 	for _, durable := range []bool{false, true} {
 		t.Run(fmt.Sprintf("durable_%t", durable), func(t *testing.T) {
 			listener := &recordingEventListener{}
-			config := EngineConfig{EventListeners: []EventListener{listener}}
+			config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), EventListeners: []EventListener{listener}}
 			if durable {
-				config.TreeDurability = &recordingTreeDurability{}
+				config.TreeCommitter = &recordingTreeCommitter{}
 			}
 			engine := controlValue(NewEngine(config))
 			t.Cleanup(func() {

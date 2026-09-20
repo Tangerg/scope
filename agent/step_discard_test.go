@@ -11,15 +11,15 @@ import (
 
 func TestPauseReportsCommittedStateRestorationFailure(t *testing.T) {
 	for _, durable := range []bool{false, true} {
-		name := "ephemeral"
+		name := "memory"
 		if durable {
 			name = "durable"
 		}
 		t.Run(name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				config := EngineConfig{}
+				config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
 				if durable {
-					config.TreeDurability = &recordingTreeDurability{}
+					config.TreeCommitter = &recordingTreeCommitter{}
 				}
 				engine, err := NewEngine(config)
 				if err != nil {

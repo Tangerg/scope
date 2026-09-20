@@ -64,7 +64,7 @@
 // authoritative tree, including sparse and cancellation-drained settlements.
 // Its RoundResults view is read-only and has no storage or acknowledgment role.
 // Hosts that need a separate result history can derive it atomically within their
-// TreeDurability transactions; its storage, retention, and delivery remain host policy.
+// TreeCommitter transactions; its storage, retention, and delivery remain host policy.
 // Local rejections and complete rounds cross explicit Checkpoint transitions.
 // Only a complete round can cross that boundary into model continuation or direct
 // completion; durable execution also waits for storage acknowledgment. A canceled
@@ -72,7 +72,7 @@
 //
 // Await fixes the Process terminal; Join additionally drains descendant calls
 // and their required storage acknowledgments. Canceling either caller wait does
-// not discard owned work. TreeDurability hosts own bounded storage operations and
+// not discard owned work. TreeCommitter hosts own bounded storage operations and
 // an explicit host-release cancellation path. Storage failure stops this runtime
 // with RuntimeError; it does not manufacture an unknown ToolResult. An
 // acknowledged or reconciled transaction retains exact execution facts. Recovery

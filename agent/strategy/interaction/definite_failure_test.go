@@ -14,6 +14,7 @@ import (
 )
 
 func TestDefiniteToolFailureSurvivesCancellationCauseAndTreeRestore(t *testing.T) {
+	store := agent.NewMemoryTreeCommitter()
 	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
 		t.Run(cause.Error(), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -43,7 +44,7 @@ func TestDefiniteToolFailureSurvivesCancellationCauseAndTreeRestore(t *testing.T
 				return textResponse("accounted for"), nil
 			})
 			deployment := newDeployment(t, model, []tool.Tool{executable}, 2)
-			engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
+			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployment.resolver})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -61,7 +62,7 @@ func TestDefiniteToolFailureSurvivesCancellationCauseAndTreeRestore(t *testing.T
 					t.Fatal("definite failure created an unknown Effect")
 				}
 			}
-			restoredEngine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
+			restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployment.resolver})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -96,7 +97,7 @@ func TestProcessCancellationRetainsDefiniteToolSettlement(t *testing.T) {
 	}
 	model := &singleToolCallModel{call: chat.ToolCall{ID: "cancel_call", Name: "cancel_after_write", Arguments: `{}`}}
 	deployment := newDeployment(t, model, []tool.Tool{executable}, 2)
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}

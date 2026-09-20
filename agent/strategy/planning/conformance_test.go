@@ -60,7 +60,7 @@ func TestDefinitionConformance(t *testing.T) {
 		Definition: definition, Dispatcher: dispatcher,
 		ImplementationDigest: agent.ComputeDigest([]byte("planning-conformance")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte("action-reobservation")),
-	}, agent.EngineConfig{}, input)
+	}, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, input)
 	output := managedOutput(t, result)
 	wantAttempts := []planning.Attempt{
 		{ActionName: "refused", Status: planning.AttemptFailed, Diagnostic: "route refused"},

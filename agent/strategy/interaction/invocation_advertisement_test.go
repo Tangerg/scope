@@ -539,7 +539,7 @@ func newDeferredDeployment(t *testing.T, model chat.Model, initial []tool.Tool, 
 
 func startDeferredInteraction(t *testing.T, deployment interactionDeployment) (*agent.Process, *agent.Engine) {
 	t.Helper()
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}

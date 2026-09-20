@@ -15,7 +15,7 @@ var ErrInvalidTreeSnapshot = errors.New("agent: invalid process tree snapshot")
 
 // TreeSnapshot is an immutable, portable capture of one complete Process tree.
 // It owns Framework execution facts, a canonical content digest, and the
-// optional active-writer identity of durable state. Persistence, transactions,
+// active-writer identity of accepted state. Persistence, transactions,
 // revisions, and cleanup policy remain Host responsibilities.
 type TreeSnapshot struct {
 	data   json.RawMessage
@@ -81,10 +81,9 @@ func (t TreeSnapshot) RootID() ProcessID { return t.state.RootID }
 // Digest returns the canonical content identity of this complete tree state.
 func (t TreeSnapshot) Digest() Digest { return t.digest }
 
-// IncarnationID returns the active writer identity carried by a durable tree.
-// Ephemeral snapshots return false.
-func (t TreeSnapshot) IncarnationID() (TreeIncarnationID, bool) {
-	return treeSnapshotIncarnation(t.state.IncarnationID)
+// IncarnationID returns the active writer identity of the acknowledged tree.
+func (t TreeSnapshot) IncarnationID() TreeIncarnationID {
+	return t.state.IncarnationID
 }
 
 // ProcessSnapshots returns immutable captures ordered by depth and ProcessID.
@@ -94,7 +93,7 @@ func (t TreeSnapshot) ProcessSnapshots() []ProcessSnapshot {
 
 func (t TreeSnapshot) Valid() bool {
 	return len(t.data) > 0 && t.digest.Valid() && t.state.RootID.Valid() &&
-		(t.state.IncarnationID == nil || t.state.IncarnationID.Valid()) && len(t.state.ProcessSnapshots) > 0
+		t.state.IncarnationID.Valid() && len(t.state.ProcessSnapshots) > 0
 }
 
 func (t TreeSnapshot) MarshalJSON() ([]byte, error) {
@@ -131,7 +130,7 @@ type childWaitSnapshotWire struct {
 
 type treeSnapshotWire struct {
 	RootID           ProcessID               `json:"root_id"`
-	IncarnationID    *TreeIncarnationID      `json:"incarnation_id,omitempty"`
+	IncarnationID    TreeIncarnationID       `json:"incarnation_id"`
 	ProcessSnapshots []ProcessSnapshot       `json:"process_snapshots"`
 	ChildWaits       []childWaitSnapshotWire `json:"child_waits,omitempty"`
 }
@@ -143,9 +142,6 @@ func (t treeSnapshotWire) clone() treeSnapshotWire {
 	for index, wait := range t.ChildWaits {
 		clone.ChildWaits[index].Spec.Children = slices.Clone(wait.Spec.Children)
 	}
-	if t.IncarnationID != nil {
-		clone.IncarnationID = new(*t.IncarnationID)
-	}
 	return clone
 }
 
@@ -154,13 +150,6 @@ func (t *treeSnapshotWire) normalize() {
 	slices.SortFunc(t.ChildWaits, func(left, right childWaitSnapshotWire) int {
 		return cmp.Compare(left.WaitID.String(), right.WaitID.String())
 	})
-}
-
-func treeSnapshotIncarnation(value *TreeIncarnationID) (TreeIncarnationID, bool) {
-	if value == nil {
-		return TreeIncarnationID{}, false
-	}
-	return *value, true
 }
 
 func compareSnapshots(left, right ProcessSnapshot) int {
@@ -182,7 +171,7 @@ type treeSnapshotValidation struct {
 
 func newTreeSnapshotValidation(wire treeSnapshotWire) (*treeSnapshotValidation, error) {
 	if !wire.RootID.Valid() ||
-		wire.IncarnationID != nil && !wire.IncarnationID.Valid() || len(wire.ProcessSnapshots) == 0 {
+		!wire.IncarnationID.Valid() || len(wire.ProcessSnapshots) == 0 {
 		return nil, fmt.Errorf("%w: incomplete tree identity", ErrInvalidTreeSnapshot)
 	}
 	processes := make(map[ProcessID]processSnapshotWire, len(wire.ProcessSnapshots))
@@ -327,20 +316,14 @@ func (t *treeSnapshotValidation) validateChildSettlements() error {
 			if record.Effect.Target() != EffectTargetFramework || !record.definitelySettled() {
 				continue
 			}
-			operation, err := decodeFrameworkEffectOperation(record.Effect.Payload())
+			operation, err := decodeFrameworkOperation(record.Effect.Payload())
 			if err != nil {
 				return err
 			}
-			switch operation {
-			case frameworkEffectStartChild:
-				if err := t.validateChildStart(parent.ProcessID, record); err != nil {
-					return fmt.Errorf("%w: child start: %w", ErrInvalidTreeSnapshot, err)
-				}
-			case frameworkEffectSignalChild, frameworkEffectCancelChild:
-				if err := t.validateChildControl(parent.ProcessID, record); err != nil {
-					return fmt.Errorf("%w: child control: %w", ErrInvalidTreeSnapshot, err)
-				}
+			if err := operation.validateTree(t, parent.ProcessID, record); err != nil {
+				return fmt.Errorf("%w: framework settlement: %w", ErrInvalidTreeSnapshot, err)
 			}
+
 		}
 	}
 	return nil
@@ -389,7 +372,7 @@ func (t *treeSnapshotValidation) validateChildStart(parentID ProcessID, record p
 }
 
 func (t *treeSnapshotValidation) validateChildControl(parentID ProcessID, record preparedEffect) error {
-	if err := record.validateChildControl(); err != nil {
+	if err := record.validateFramework(); err != nil {
 		return err
 	}
 	result, err := decodeChildControlResult(record.Settlement.Payload())
@@ -489,21 +472,22 @@ func (t *treeSnapshotValidation) matchesChildWaitOutcome(outcome ChildOutcome, b
 }
 
 func (t *treeSnapshotValidation) subtreeUnresolvedEffects(processID ProcessID) []UnresolvedEffect {
-	var effects []UnresolvedEffect
-	var visit func(ProcessID)
-	visit = func(id ProcessID) {
-		for _, effectID := range t.processes[id].Termination.UnresolvedEffectIDs() {
-			effects = append(effects, UnresolvedEffect{ProcessID: id, EffectID: effectID})
-		}
-		for _, child := range t.processes {
-			if child.Relation.ParentID != nil && *child.Relation.ParentID == id {
-				visit(child.ProcessID)
+	return subtreeUnresolvedEffects(processID,
+		func(id ProcessID) []ProcessID {
+			var children []ProcessID
+			for _, child := range t.processes {
+				if child.Relation.ParentID != nil && *child.Relation.ParentID == id {
+					children = append(children, child.ProcessID)
+				}
 			}
-		}
-	}
-	visit(processID)
-	slices.SortFunc(effects, UnresolvedEffect.compare)
-	return effects
+			return children
+		},
+		func(id ProcessID) Termination {
+			if termination := t.processes[id].Termination; termination != nil {
+				return *termination
+			}
+			return Termination{}
+		})
 }
 
 func (t *treeSnapshotValidation) subtreeTerminal(processID ProcessID) bool {

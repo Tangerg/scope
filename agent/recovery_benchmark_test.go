@@ -79,7 +79,7 @@ func BenchmarkTreeRecoveryBoundary(b *testing.B) {
 				b.ReportAllocs()
 				for b.Loop() {
 					b.StopTimer()
-					restoredEngine, err := NewEngine(EngineConfig{})
+					restoredEngine, err := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(snapshot)})
 					if err != nil {
 						b.Fatal(err)
 					}
@@ -131,7 +131,7 @@ func benchmarkRecoverableProcess(
 	if err != nil {
 		b.Fatal(err)
 	}
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		b.Fatal(err)
 	}

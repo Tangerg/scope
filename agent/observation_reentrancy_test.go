@@ -123,7 +123,7 @@ func TestListenerMayInspectAnotherTree(t *testing.T) {
 		result <- err
 	})
 	var err error
-	engine, err = NewEngine(EngineConfig{EventListeners: []EventListener{listener}})
+	engine, err = NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), EventListeners: []EventListener{listener}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestListenerMayInspectAnotherTree(t *testing.T) {
 func TestListenerMayInspectAnotherEngineWithTheSameRoot(t *testing.T) {
 	deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), &engineTestDispatcher{policy: ReplayPolicyNever})
 	snapshot := singleProcessTreeSnapshot(t, preparedEngineTestSnapshot(t))
-	other, err := NewEngine(EngineConfig{})
+	other, err := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(snapshot)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestListenerMayInspectAnotherEngineWithTheSameRoot(t *testing.T) {
 	}
 	mustAwait(t, first)
 	result := make(chan error, 1)
-	observed, err := NewEngine(EngineConfig{EventListeners: []EventListener{
+	observed, err := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(snapshot), EventListeners: []EventListener{
 		EventListenerFunc(func(ctx context.Context, event Event) {
 			if event.Name() == EventProcessRestored {
 				_, inspectErr := other.InspectTree(ctx, event.Relation().RootID())
@@ -190,7 +190,7 @@ func TestNestedListenerRetainsTheActiveOuterTree(t *testing.T) {
 		var outer *Engine
 		var rootID ProcessID
 		result := make(chan error, 1)
-		inner, err := NewEngine(EngineConfig{EventListeners: []EventListener{
+		inner, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), EventListeners: []EventListener{
 			EventListenerFunc(func(ctx context.Context, event Event) {
 				if event.Name() != EventProcessStarted {
 					return
@@ -210,7 +210,7 @@ func TestNestedListenerRetainsTheActiveOuterTree(t *testing.T) {
 			t.Fatal(err)
 		}
 		deployment := newChildTestDeployment(t)
-		outer, err = NewEngine(EngineConfig{EventListeners: []EventListener{
+		outer, err = NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), EventListeners: []EventListener{
 			EventListenerFunc(func(ctx context.Context, event Event) {
 				if event.Name() == EventProcessStarted {
 					rootID = event.ProcessID()
@@ -248,7 +248,7 @@ func startListenerProcess(t *testing.T, callback func(context.Context, *Engine, 
 		callback(ctx, engine, process)
 	})
 	var err error
-	engine, err = NewEngine(EngineConfig{EventListeners: []EventListener{listener}})
+	engine, err = NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), EventListeners: []EventListener{listener}})
 	if err != nil {
 		t.Fatal(err)
 	}

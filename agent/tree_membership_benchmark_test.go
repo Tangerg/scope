@@ -54,7 +54,7 @@ func BenchmarkTreeOwnerTraversal(b *testing.B) {
 
 func benchmarkRestoredOwner(b *testing.B, snapshot TreeSnapshot) *treeRuntime {
 	b.Helper()
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func benchmarkRestoredOwner(b *testing.B, snapshot TreeSnapshot) *treeRuntime {
 	deployment := newChildTestDeployment(b)
 	processes := make([]*processState, 0, len(snapshot.ProcessSnapshots()))
 	for _, captured := range snapshot.ProcessSnapshots() {
-		handle, process, _, restoreErr := prepareRestoredProcess(b.Context(), false, deployment, captured)
+		handle, process, _, restoreErr := prepareRestoredProcess(b.Context(), deployment, captured)
 		if restoreErr != nil {
 			b.Fatal(restoreErr)
 		}
@@ -115,7 +115,7 @@ func BenchmarkChildAdmissionAmongRetainedRoots(b *testing.B) {
 	for _, retained := range []int{1, 1024, 16384} {
 		b.Run(fmt.Sprintf("retained_%d", retained), func(b *testing.B) {
 			parent := admissionTestProcess(b, 0)
-			engine, err := NewEngine(EngineConfig{})
+			engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -156,7 +156,7 @@ func BenchmarkStartAdmissionDuringTreeRestore(b *testing.B) {
 	for _, count := range []int{1, 128, 1024} {
 		b.Run(fmt.Sprint(count), func(b *testing.B) {
 			runtime := newWaitingSnapshotTree(b, count)
-			restoration := &treeRestoration{wire: treeSnapshotWire{RootID: runtime.rootID}}
+			restoration := &treeRestoration{wire: treeSnapshotWire{IncarnationID: newTreeIncarnationID(), RootID: runtime.rootID}}
 			for _, process := range orderedProcesses(runtime.processes) {
 				restoration.wire.ProcessSnapshots = append(restoration.wire.ProcessSnapshots, controlValue(process.capture()))
 			}

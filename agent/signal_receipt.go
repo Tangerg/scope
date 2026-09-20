@@ -3,7 +3,7 @@ package agent
 // SignalReceipt is an immutable admission and consumption fact from a
 // ProcessSnapshot. Consumed payload bytes are released while their normalized
 // digest and recipient WaitID remain available for duplicate reconciliation.
-// Its Process owner and durability boundary are supplied by that snapshot.
+// Its Process owner and committer boundary are supplied by that snapshot.
 type SignalReceipt struct {
 	id              SignalID
 	waitID          WaitID

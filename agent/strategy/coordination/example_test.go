@@ -51,7 +51,7 @@ func ExampleFirstSuccess() {
 	gateDeployment := exampleBinding(gate, nil)
 	deadlineDeployment := exampleBinding(deadline, coordination.Timer{})
 	rootDeployment := exampleBinding(race, nil)
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver{
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver{
 		workerDeployment.DeploymentRef():   workerDeployment,
 		gateDeployment.DeploymentRef():     gateDeployment,
 		deadlineDeployment.DeploymentRef(): deadlineDeployment,

@@ -53,7 +53,7 @@ func TestSignalBatchRejectsNonCurrentWaitAnswers(t *testing.T) {
 	for _, status := range []Status{StatusWaiting, StatusPaused} {
 		for _, order := range []string{"other_wait_only", "other_wait_before_current", "other_wait_after_current"} {
 			t.Run(status.String()+"/"+order, func(t *testing.T) {
-				engine, err := NewEngine(EngineConfig{})
+				engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 				if err != nil {
 					t.Fatal(err)
 				}

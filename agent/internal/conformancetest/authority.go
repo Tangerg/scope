@@ -9,7 +9,7 @@ import (
 
 // AssertNoProcessAuthority checks that a Strategy's retained types and ports
 // cannot own or control managed Processes. Names and source files do not confer
-// authority; Engine, Process, durability, and resolution capabilities do.
+// authority; Engine, Process, committer, and resolution capabilities do.
 func AssertNoProcessAuthority(t *testing.T, value reflect.Type) {
 	t.Helper()
 	if path := processAuthorityPath(value, make(map[reflect.Type]bool)); path != "" {
@@ -24,7 +24,7 @@ func processAuthorityPath(value reflect.Type, seen map[reflect.Type]bool) string
 	seen[value] = true
 	switch value {
 	case reflect.TypeFor[agent.Engine](), reflect.TypeFor[agent.Process](),
-		reflect.TypeFor[agent.TreeDurability](), reflect.TypeFor[agent.DeploymentResolver]():
+		reflect.TypeFor[agent.TreeCommitter](), reflect.TypeFor[agent.DeploymentResolver]():
 		return value.String()
 	}
 	visit := func(name string, child reflect.Type) string {

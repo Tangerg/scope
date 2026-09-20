@@ -4,14 +4,13 @@ import (
 	"fmt"
 
 	"github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
 )
 
-func ExampleNewMemoryTreeDurability() {
-	durability := agenttest.NewMemoryTreeDurability()
-	var contract agent.TreeDurability = durability
+func Example_memoryCommitter() {
+	committer := agent.NewMemoryTreeCommitter()
+	var contract agent.TreeCommitter = committer
 
 	fmt.Printf("%T\n", contract)
 	// Output:
-	// *agenttest.MemoryTreeDurability
+	// *agent.MemoryTreeCommitter
 }

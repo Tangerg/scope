@@ -38,7 +38,7 @@ func TestCallbackPanicsPreserveTypedIdentityAndCause(t *testing.T) {
 	admission := newProcessAdmission(relation, deployment, Budget{}, CapabilitySet{})
 	snapshot := preparedEngineTestSnapshot(t)
 	incarnation := newTreeIncarnationID()
-	tree := controlValue(newTreeSnapshot(treeSnapshotWire{RootID: snapshot.ProcessID(), IncarnationID: &incarnation, ProcessSnapshots: []ProcessSnapshot{snapshot}}))
+	tree := controlValue(newTreeSnapshot(treeSnapshotWire{RootID: snapshot.ProcessID(), IncarnationID: incarnation, ProcessSnapshots: []ProcessSnapshot{snapshot}}))
 	activation := controlValue(newTreeActivation(newTreeIncarnationID(), ComputeDigest([]byte("old head")), incarnation, tree))
 	for _, test := range []struct {
 		operation string
@@ -56,11 +56,11 @@ func TestCallbackPanicsPreserveTypedIdentityAndCause(t *testing.T) {
 		{"ProcessInitializationOutcomeAcknowledger.AcknowledgeProcessInitializationOutcome", func() error {
 			return acknowledgeProcessInitializationOutcome(t.Context(), callbacks, initializedProcessOutcome(admission, time.Now()))
 		}},
-		{"TreeDurability.ActivateTree", func() error { return activateTree(t.Context(), callbacks, activation) }},
-		{"TreeDurability.CommitEffect", func() error {
+		{"TreeCommitter.ActivateTree", func() error { return activateTree(t.Context(), callbacks, activation) }},
+		{"TreeCommitter.CommitEffect", func() error {
 			return commitEffectBoundary(t.Context(), callbacks, EffectBoundary{kind: EffectBoundaryKindPending})
 		}},
-		{"TreeDurability.CommitCheckpoint", func() error {
+		{"TreeCommitter.CommitCheckpoint", func() error {
 			return commitTreeCheckpoint(t.Context(), callbacks, TreeCheckpoint{kind: TreeCheckpointKindStart})
 		}},
 	} {
@@ -99,7 +99,7 @@ func TestChildAdmissionFailuresDistinguishPanicsFromOrdinaryErrors(t *testing.T)
 					}
 					return cause
 				}
-				config := EngineConfig{DeploymentResolver: deploymentMapResolver{deployment.DeploymentRef(): deployment}}
+				config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), DeploymentResolver: deploymentMapResolver{deployment.DeploymentRef(): deployment}}
 				code := ""
 				switch boundary {
 				case "resolve":

@@ -36,7 +36,7 @@ func TestManagedPlanningReobservesAndReplansAfterEveryAction(t *testing.T) {
 		},
 	})
 
-	result := runManaged(t, agent.EngineConfig{}, deployment)
+	result := runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, deployment)
 	output := managedOutput(t, result)
 	if output.Outcome != planning.OutcomeAchieved || output.PlanningPasses != 2 ||
 		!slices.Equal(attemptNames(output.Attempts), []string{"action.prepare", "action.finish"}) ||
@@ -75,7 +75,7 @@ func TestManagedPlanningExcludesUnconfirmedActionAndReplans(t *testing.T) {
 		},
 	})
 
-	output := managedOutput(t, runManaged(t, agent.EngineConfig{}, deployment))
+	output := managedOutput(t, runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, deployment))
 	if output.Outcome != planning.OutcomeAchieved || len(output.Attempts) != 2 ||
 		output.Attempts[0].Status != planning.AttemptUnconfirmed ||
 		output.Attempts[1].Status != planning.AttemptSucceeded {
@@ -112,7 +112,7 @@ func TestManagedPlanningRecordsDefiniteFailureAndUsesFallback(t *testing.T) {
 		},
 	})
 
-	output := managedOutput(t, runManaged(t, agent.EngineConfig{}, deployment))
+	output := managedOutput(t, runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, deployment))
 	if output.Outcome != planning.OutcomeAchieved || len(output.Attempts) != 2 ||
 		output.Attempts[0].Status != planning.AttemptFailed ||
 		output.Attempts[0].Diagnostic != "primary service rejected the request" ||
@@ -128,7 +128,7 @@ func TestManagedPlanningUsesSemanticCompletionOutcomes(t *testing.T) {
 		deployment := newManagedDeployment(t, managedDeploymentConfig{
 			goal: mustGoal(t, done), sensor: world,
 		})
-		output := managedOutput(t, runManaged(t, agent.EngineConfig{}, deployment))
+		output := managedOutput(t, runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, deployment))
 		if output.Outcome != planning.OutcomeUnreachable || len(output.Attempts) != 0 || output.PlanningPasses != 1 {
 			t.Fatalf("output = %#v", output)
 		}
@@ -152,7 +152,7 @@ func TestManagedPlanningUsesSemanticCompletionOutcomes(t *testing.T) {
 				}),
 			},
 		})
-		result := runManaged(t, agent.EngineConfig{}, deployment)
+		result := runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, deployment)
 		output := managedOutput(t, result)
 		if result.Status() != agent.StatusCompleted || output.Outcome != planning.OutcomeStuck ||
 			len(output.Attempts) != 1 || output.Attempts[0].Status != planning.AttemptFailed {
@@ -188,7 +188,7 @@ func TestManagedPlanningUsesSemanticCompletionOutcomes(t *testing.T) {
 			},
 			maxActionAttempts: agent.NewQuota(1),
 		})
-		output := managedOutput(t, runManaged(t, agent.EngineConfig{}, deployment))
+		output := managedOutput(t, runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, deployment))
 		if output.Outcome != planning.OutcomeStuck || len(output.Attempts) != 1 ||
 			output.Attempts[0].ActionName != "action.first" || world.truth("world.done") != planning.Unknown {
 			t.Fatalf("output = %#v", output)
@@ -205,7 +205,7 @@ func TestManagedPlanningClassifiesObservationAndPlannerFailures(t *testing.T) {
 				return planning.WorldState{}, errors.New("sensor unavailable")
 			}),
 		})
-		result := runManaged(t, agent.EngineConfig{}, deployment)
+		result := runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, deployment)
 		assertFailure(t, result, agent.FailureKindExternal, "planning.sensing.failed")
 	})
 
@@ -230,7 +230,7 @@ func TestManagedPlanningClassifiesObservationAndPlannerFailures(t *testing.T) {
 				return invalidCost, true, nil
 			}),
 		})
-		result := runManaged(t, agent.EngineConfig{}, deployment)
+		result := runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, deployment)
 		assertFailure(t, result, agent.FailureKindContract, "planning.planner.contract")
 	})
 }
@@ -289,7 +289,7 @@ func TestManagedPlanningUnknownActionRequiresExplicitResolution(t *testing.T) {
 			}),
 		},
 	})
-	engine, err := agent.NewEngine(agent.EngineConfig{})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,7 +377,7 @@ func TestManagedPlanningExecutesChildProcessAction(t *testing.T) {
 		bindings: []planning.ActionBinding{childBinding}, sensor: world,
 	})
 	resolver := managedResolver{childDeployment.DeploymentRef(): childDeployment}
-	result := runManaged(t, agent.EngineConfig{DeploymentResolver: resolver}, parentDeployment)
+	result := runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver}, parentDeployment)
 	output := managedOutput(t, result)
 	if output.Outcome != planning.OutcomeAchieved || inputCalls != 1 || len(output.Attempts) != 1 ||
 		output.Attempts[0].ActionName != "action.delegate" || output.Attempts[0].Status != planning.AttemptSucceeded {
@@ -432,7 +432,7 @@ func TestManagedPlanningValidatesDispatcherBindingsAndCapabilities(t *testing.T)
 		goal: mustGoal(t, done), bindings: []planning.ActionBinding{binding}, sensor: world,
 		executors: map[string]planning.ActionExecutor{"action.finish": executor},
 	})
-	result := runManaged(t, agent.EngineConfig{}, deployment)
+	result := runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, deployment)
 	assertFailure(t, result, agent.FailureKindContract, "engine.capability.denied")
 	if world.truth("world.done") != planning.Unknown {
 		t.Fatal("capability-denied Action reached its executor")

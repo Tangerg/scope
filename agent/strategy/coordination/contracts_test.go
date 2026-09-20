@@ -182,7 +182,7 @@ func TestFirstSuccessSurfacesPolicyFailureAndFailedStarts(t *testing.T) {
 				return false, policyFailure
 			}, 1)
 			deployment := bind(t, definition, nil)
-			engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver{timer.DeploymentRef(): timer}})
+			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver{timer.DeploymentRef(): timer}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -214,7 +214,7 @@ func TestFirstSuccessSurfacesPolicyFailureAndFailedStarts(t *testing.T) {
 func TestDeadlineReportsDefiniteInterruptionWithoutProcessCancellation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		deployment := deadlineBinding(t, interruptedTimer{})
-		engine, err := agent.NewEngine(agent.EngineConfig{})
+		engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -64,7 +64,7 @@ func TestDefinitionConformance(t *testing.T) {
 				Definition: definition, Dispatcher: dispatcher,
 				ImplementationDigest: agent.ComputeDigest([]byte("interaction-conformance")),
 				ConfigurationDigest:  agent.ComputeDigest([]byte(test.source)),
-			}, agent.EngineConfig{DeploymentResolver: delegateResolver{toolSet.Deployment().DeploymentRef(): toolSet.Deployment()}}, input)
+			}, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: delegateResolver{toolSet.Deployment().DeploymentRef(): toolSet.Deployment()}}, input)
 			if result.Usage().PreparedEffects != test.effects || model.Calls() != test.modelCalls {
 				t.Fatalf("tool-loop usage=%+v model calls=%d, want effects=%d calls=%d", result.Usage(), model.Calls(), test.effects, test.modelCalls)
 			}

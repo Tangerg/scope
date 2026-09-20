@@ -16,10 +16,10 @@ func TestStartRejectsUnrepresentableSnapshotBeforePublication(t *testing.T) {
 		for _, treeQuota := range []bool{false, true} {
 			for _, maximum := range []uint64{0, 10_000} {
 				t.Run(fmt.Sprintf("durable=%t/tree=%t/bytes=%d", durable, treeQuota, maximum), func(t *testing.T) {
-					store := &recordingTreeDurability{}
-					config := EngineConfig{}
+					store := &recordingTreeCommitter{}
+					config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
 					if durable {
-						config.TreeDurability = store
+						config.TreeCommitter = store
 					}
 					if treeQuota {
 						config.TreeLimits.MaxSnapshotBytes = NewQuota(maximum)
@@ -51,10 +51,10 @@ func TestSnapshotAdmissionPreservesTerminationAtCapacity(t *testing.T) {
 		for _, treeQuota := range []bool{false, true} {
 			for _, kill := range []bool{false, true} {
 				t.Run(fmt.Sprintf("durable=%t/tree=%t/kill=%t", durable, treeQuota, kill), func(t *testing.T) {
-					store := &recordingTreeDurability{}
-					config := EngineConfig{}
+					store := &recordingTreeCommitter{}
+					config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
 					if durable {
-						config.TreeDurability = store
+						config.TreeCommitter = store
 					}
 					if treeQuota {
 						config.TreeLimits.MaxSnapshotBytes = NewQuota(256 << 10)
@@ -198,11 +198,11 @@ func TestRestoreRejectsSnapshotWithoutLifecycleCapacityBeforeActivation(t *testi
 				} else {
 					root.limits.MaxSnapshotBytes = NewQuota(10_000)
 				}
-				store := &recordingTreeDurability{}
-				config := EngineConfig{}
+				store := &recordingTreeCommitter{}
+				config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
 				if durable {
 					runtime.incarnation = newTreeIncarnationID()
-					config.TreeDurability = store
+					config.TreeCommitter = store
 				}
 				tree := controlValue(runtime.captureTree())
 				engine := controlValue(NewEngine(config))
@@ -226,7 +226,7 @@ func TestRestoreRejectsSnapshotWithoutLifecycleCapacityBeforeActivation(t *testi
 func TestTerminalTreeRestoresBelowLiveSnapshotReservation(t *testing.T) {
 	for _, durable := range []bool{false, true} {
 		t.Run(fmt.Sprintf("durable=%t", durable), func(t *testing.T) {
-			config := EngineConfig{
+			config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
 				Limits:     Limits{MaxSnapshotBytes: NewQuota(64 << 10)},
 				TreeLimits: TreeLimits{MaxSnapshotBytes: NewQuota(64 << 10)},
 			}
@@ -239,9 +239,10 @@ func TestTerminalTreeRestoresBelowLiveSnapshotReservation(t *testing.T) {
 				controlValue(EncodePayload(childTestOutput{})), root.startedAt)
 			if durable {
 				runtime.incarnation = newTreeIncarnationID()
-				config.TreeDurability = &recordingTreeDurability{}
+				config.TreeCommitter = &recordingTreeCommitter{}
 			}
 			tree := controlValue(ParseTreeSnapshot(controlValue(runtime.captureTree()).JSON()))
+			config.TreeCommitter = newSnapshotTestCommitter(tree)
 			engine := controlValue(NewEngine(config))
 			defer mustCloseEngine(t, engine)
 			started, err := engine.Start(t.Context(), root.deployment, controlValue(EncodePayload(childTestInput{Mode: "leaf"})))
@@ -329,10 +330,10 @@ func TestOversizedSettlementPreservesRecoverableAdmissionBoundary(t *testing.T) 
 	for _, durable := range []bool{false, true} {
 		for _, treeQuota := range []bool{false, true} {
 			t.Run(fmt.Sprintf("durable=%t/tree=%t", durable, treeQuota), func(t *testing.T) {
-				store := &recordingTreeDurability{}
-				config := EngineConfig{}
+				store := &recordingTreeCommitter{}
+				config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
 				if durable {
-					config.TreeDurability = store
+					config.TreeCommitter = store
 				}
 				if treeQuota {
 					config.TreeLimits.MaxSnapshotBytes = NewQuota(512 << 10)
@@ -371,9 +372,11 @@ func TestOversizedSettlementPreservesRecoverableAdmissionBoundary(t *testing.T) 
 						t.Fatal("runtime fault lost the acknowledged head")
 					}
 				} else {
-					tree = controlValue(engine.CaptureTree(t.Context(), process.ID()))
-					if runtimeErr.HeadDigest().Valid() || runtimeErr.IncarnationID().Valid() {
-						t.Fatal("ephemeral fault invented durable authority")
+					var found bool
+					var err error
+					tree, found, err = config.TreeCommitter.(*MemoryTreeCommitter).LoadTree(t.Context(), process.ID())
+					if err != nil || !found || runtimeErr.HeadDigest() != tree.Digest() || !runtimeErr.IncarnationID().Valid() {
+						t.Fatalf("fault head: %v", err)
 					}
 				}
 				tree = controlValue(ParseTreeSnapshot(tree.JSON()))
@@ -411,10 +414,10 @@ func TestDispatchPermissionRequiresUncertainOutcomeCapacity(t *testing.T) {
 	for _, durable := range []bool{false, true} {
 		for _, treeQuota := range []bool{false, true} {
 			t.Run(fmt.Sprintf("durable=%t/tree=%t", durable, treeQuota), func(t *testing.T) {
-				store := &recordingTreeDurability{}
-				config := EngineConfig{}
+				store := &recordingTreeCommitter{}
+				config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
 				if durable {
-					config.TreeDurability = store
+					config.TreeCommitter = store
 				}
 				if treeQuota {
 					config.TreeLimits.MaxSnapshotBytes = NewQuota(512 << 10)

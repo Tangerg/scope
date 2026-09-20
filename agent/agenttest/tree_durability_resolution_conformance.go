@@ -8,18 +8,18 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-func runCrashBeforeResolvedCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+func runCrashBeforeResolvedCommit(t *testing.T, store TreeCommitterConformanceDriver) {
 	runCrashResolvedCommit(t, store, crashCommitBefore)
 }
 
-func runCrashAfterResolvedCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+func runCrashAfterResolvedCommit(t *testing.T, store TreeCommitterConformanceDriver) {
 	runCrashResolvedCommit(t, store, crashCommitAfter)
 }
 
-func runCrashResolvedCommit(t *testing.T, store TreeDurabilityConformanceDriver, phase crashCommitPhase) {
+func runCrashResolvedCommit(t *testing.T, store TreeCommitterConformanceDriver, phase crashCommitPhase) {
 	t.Helper()
-	durability := store.TreeDurability()
-	gate := newTreeDurabilityCommitGate(t, durability, crashCommitPoint{
+	committer := store
+	gate := newTreeCommitterCommitGate(t, committer, crashCommitPoint{
 		kind: crashCommitEffectResolved, phase: phase,
 	})
 	step := crashSucceededDispatchStep(t)
@@ -42,7 +42,7 @@ func runCrashResolvedCommit(t *testing.T, store TreeDurabilityConformanceDriver,
 		wantHead = observation.prospective.Digest()
 	}
 	head := assertCrashHead(t, store, original.ID(), wantHead)
-	restoredEngine := newCrashEngine(t, durability, nil)
+	restoredEngine := newCrashEngine(t, committer, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
 	if phase == crashCommitBefore {
 		if restoredID := waitForConformanceUnknownEffect(t, restoredEngine, restored); restoredID != effectID {

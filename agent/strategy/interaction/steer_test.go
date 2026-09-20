@@ -17,7 +17,7 @@ import (
 func TestSteerDuringModelCallIsVisibleOnlyToNextModelCall(t *testing.T) {
 	model := newSteeredModel()
 	deployment := newDeployment(t, model, nil, 3)
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestSteerDuringToolBatchWaitsForWholeBatchSettlement(t *testing.T) {
 	t.Cleanup(blocking.Release)
 	model := &toolSteerModel{}
 	deployment := newDeployment(t, model, []tool.Tool{blocking}, 3)
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}

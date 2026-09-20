@@ -34,7 +34,7 @@ func TestCancellationReachesChildrenBeforeAncestorDispatchReturns(t *testing.T) 
 			descriptor: newEngineTestDefinition(t, "engine.owner", "effect").Descriptor(),
 			effects:    []Effect{childEffect, external},
 		}
-		engine, err := NewEngine(EngineConfig{DeploymentResolver: deploymentResolverFunc(func(DeploymentRef) (Deployment, error) {
+		engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), DeploymentResolver: deploymentResolverFunc(func(DeploymentRef) (Deployment, error) {
 			return childDeployment, nil
 		})})
 		if err != nil {
@@ -86,7 +86,7 @@ func TestCancellationCollectsInFlightChildInitialization(t *testing.T) {
 				defer unblock()
 				var outcomes []ProcessInitializationOutcome
 				config := EngineConfig{Limits: Limits{Budget: Budget{Steps: NewQuota(100), Effects: NewQuota(100), Signals: NewQuota(100)}},
-					TreeDurability: &recordingTreeDurability{},
+					TreeCommitter: &recordingTreeCommitter{},
 					ProcessAdmitter: ProcessAdmitterFunc(func(ctx context.Context, admission ProcessAdmission) error {
 						if admission.Relation().IsRoot() || stage == "outcome acknowledgment" {
 							return nil
@@ -139,7 +139,7 @@ func TestCancellationCollectsInFlightChildInitialization(t *testing.T) {
 				if accepted, deliveryErr := root.DeliverSignals(t.Context(), signal); deliveryErr != nil || !accepted {
 					t.Fatalf("input admission = %t, %v", accepted, deliveryErr)
 				}
-				checkpoints := config.TreeDurability.(*recordingTreeDurability).treeCheckpoints()
+				checkpoints := config.TreeCommitter.(*recordingTreeCommitter).treeCheckpoints()
 				interrupted := checkpoints[len(checkpoints)-1].TreeSnapshot()
 				unblock()
 				if result := mustAwait(t, root); result.Status() != StatusKilled {
@@ -176,7 +176,7 @@ func TestCancellationCollectsInFlightChildInitialization(t *testing.T) {
 				}
 				mustCloseEngine(t, engine)
 				priorOutcomes := len(outcomes)
-				config.TreeDurability = &recordingTreeDurability{}
+				config.TreeCommitter = &recordingTreeCommitter{}
 				recoveredEngine, err := NewEngine(config)
 				if err != nil {
 					t.Fatal(err)

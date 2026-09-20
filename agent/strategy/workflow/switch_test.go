@@ -46,7 +46,7 @@ func TestSwitchRunsOnlyTheSelectedManagedChild(t *testing.T) {
 		want     int
 	}{{selected: "left", want: 13}, {selected: "right", want: 23}} {
 		t.Run(test.selected, func(t *testing.T) {
-			engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver})
+			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -97,7 +97,7 @@ func TestSwitchRejectsUndeclaredSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	deployment := mustDeployment(t, mustDefinition(t, "test.workflow.switch_unknown", stage), "switch-unknown")
-	engine, _ := agent.NewEngine(agent.EngineConfig{})
+	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	input, _ := agent.EncodePayload(switchInput{Case: "missing", Value: 1})
 	result, err := engine.Run(context.Background(), deployment, input)
 	if err != nil {

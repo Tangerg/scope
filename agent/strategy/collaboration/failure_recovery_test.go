@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
 )
 
 func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
@@ -38,7 +37,7 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 			if mode == "start" {
 				delete(deployments, definition.coordinator.deploymentRef)
 			}
-			store := agenttest.NewMemoryTreeDurability()
+			store := agent.NewMemoryTreeCommitter()
 			_, process := run(t, definition, deployments, store)
 			result := require(process.Await(t.Context()))
 			if err := process.Join(t.Context()); err != nil {
@@ -88,7 +87,7 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 					}
 				})
 			}
-			restoredEngine := require(agent.NewEngine(agent.EngineConfig{TreeDurability: store, DeploymentResolver: deployments}))
+			restoredEngine := require(agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployments}))
 			t.Cleanup(func() {
 				if closeErr := restoredEngine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 					t.Error(closeErr)

@@ -81,7 +81,7 @@ func BenchmarkTreeAdmission(b *testing.B) {
 	}
 }
 
-func BenchmarkTreeDurabilityFailure(b *testing.B) {
+func BenchmarkTreeCommitterFailure(b *testing.B) {
 	for _, count := range []int{1, 10, 100, 1000} {
 		b.Run(fmt.Sprintf("processes_%d", count), func(b *testing.B) {
 			runtime := newWaitingSnapshotTree(b, count)
@@ -109,7 +109,7 @@ func BenchmarkTreeDurabilityFailure(b *testing.B) {
 
 func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 	t.Helper()
-	engine, err := NewEngine(EngineConfig{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
 		Limits:     Limits{MaxPendingSignals: 1000, Budget: Budget{Steps: NewQuota(uint64(count)*10 + 100), Effects: NewQuota(uint64(count)*10 + 100), Signals: NewQuota(uint64(count)*10 + 100)}},
 		TreeLimits: TreeLimits{MaxDepth: 1, MaxChildren: NewQuota(uint64(count)), MaxActiveChildren: uint32(count), MaxTreeProcesses: NewQuota(uint64(count))},
 	})
@@ -190,14 +190,14 @@ func BenchmarkIdleDurableTreeInspection(b *testing.B) {
 			runtime := newWaitingSnapshotTree(b, count)
 			root := runtime.processes[runtime.rootID]
 			root.status, root.pauseReason = StatusPaused, "inspection benchmark"
-			runtime.engine.durability = &recordingTreeDurability{}
+			runtime.engine.committer = &recordingTreeCommitter{}
 			incarnation := newTreeIncarnationID()
 			runtime.incarnation = incarnation
 			snapshot, err := runtime.captureTree()
 			if err != nil {
 				b.Fatal(err)
 			}
-			runtime.establishDurableHead(incarnation, snapshot)
+			runtime.establishHead(incarnation, snapshot)
 			ctx, cancel := context.WithCancel(b.Context())
 			go runtime.run(ctx)
 			b.Cleanup(func() { cancel(); <-runtime.done })

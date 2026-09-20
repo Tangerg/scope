@@ -12,7 +12,7 @@ func TestEngineStartsChildFromAnotherStrategyThroughExactResolver(t *testing.T) 
 	childDeployment := newChildTestDeployment(t)
 	parentDeployment := newCrossParentDeployment(t, childDeployment.DeploymentRef())
 	resolver := deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment}
-	engine, err := NewEngine(EngineConfig{DeploymentResolver: resolver})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), DeploymentResolver: resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestEngineRejectsResolverBindingMismatch(t *testing.T) {
 	childDeployment := newChildTestDeployment(t)
 	parentDeployment := newCrossParentDeployment(t, childDeployment.DeploymentRef())
 	resolver := deploymentMapResolver{childDeployment.DeploymentRef(): parentDeployment}
-	engine, err := NewEngine(EngineConfig{DeploymentResolver: resolver})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), DeploymentResolver: resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestEngineContainsDeploymentResolverPanic(t *testing.T) {
 	resolver := deploymentResolverFunc(func(DeploymentRef) (Deployment, error) {
 		panic("resolver failure")
 	})
-	engine, err := NewEngine(EngineConfig{DeploymentResolver: resolver})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), DeploymentResolver: resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestEngineBypassesResolverForSameDeploymentChild(t *testing.T) {
 		calls.Add(1)
 		return Deployment{}, errors.New("same Deployment unexpectedly resolved")
 	})
-	engine, err := NewEngine(EngineConfig{DeploymentResolver: resolver})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), DeploymentResolver: resolver})
 	if err != nil {
 		t.Fatal(err)
 	}

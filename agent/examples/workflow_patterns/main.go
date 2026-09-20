@@ -120,7 +120,7 @@ func execute(
 	if err != nil {
 		return patternReport{}, executionEvidence{}, err
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver})
 	if err != nil {
 		return patternReport{}, executionEvidence{}, err
 	}

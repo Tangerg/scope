@@ -8,7 +8,7 @@ import (
 )
 
 func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}

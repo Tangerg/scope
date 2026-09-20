@@ -77,9 +77,9 @@ func gate() agent.Deployment {
 	schema := require(agent.SchemaFor[string]())
 	return binding(require(coordination.NewInputGate(coordination.InputGateConfig{Name: "test.gate", Description: "Receive input.", RequestSchema: schema, AnswerSchema: schema})))
 }
-func run(t *testing.T, definition *Definition, deployments resolver, durability agent.TreeDurability) (*agent.Engine, *agent.Process) {
+func run(t *testing.T, definition *Definition, deployments resolver, committer agent.TreeCommitter) (*agent.Engine, *agent.Process) {
 	t.Helper()
-	engine := require(agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployments, TreeDurability: durability}))
+	engine := require(agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployments, TreeCommitter: committer}))
 	t.Cleanup(func() {
 		if err := engine.Close(context.Background()); err != nil {
 			t.Error(err)
@@ -131,11 +131,11 @@ func TestBackgroundContinueControlAndDrain(t *testing.T) {
 						return Decision{}, errors.New("unexpected turn")
 					}
 				}, gate())
-				var durability agent.TreeDurability
+				var committer agent.TreeCommitter = agent.NewMemoryTreeCommitter()
 				if durable {
-					durability = agenttest.NewMemoryTreeDurability()
+					committer = agent.NewMemoryTreeCommitter()
 				}
-				_, process := run(t, definition, deployments, durability)
+				_, process := run(t, definition, deployments, committer)
 				if got := completed(t, process); got != "continued, controlled, drained" {
 					t.Fatal(got)
 				}
@@ -162,7 +162,7 @@ func TestCompletedTaskFollowUp(t *testing.T) {
 			return Decision{}, errors.New("unexpected turn")
 		}
 	}, echo())
-	_, process := run(t, definition, deployments, nil)
+	_, process := run(t, definition, deployments, agent.NewMemoryTreeCommitter())
 	if got := completed(t, process); got != "echo: echo: draft revised" {
 		t.Fatal(got)
 	}
@@ -181,7 +181,7 @@ func TestAddressedInputWakesWaitingCollaboration(t *testing.T) {
 			signal := require(output.Decode[agent.Signal]())
 			return finish(turn, signal.ID().String()+":"+string(signal.Payload())), nil
 		}, gate())
-		store := agenttest.NewMemoryTreeDurability()
+		store := agent.NewMemoryTreeCommitter()
 		engine, process := run(t, definition, deployments, store)
 		synctest.Wait()
 		tree := require(engine.InspectTree(t.Context(), process.ID()))

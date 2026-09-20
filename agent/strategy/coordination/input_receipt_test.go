@@ -7,7 +7,6 @@ import (
 	"testing/synctest"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
 )
 
 func TestInputGateRejectsUnaddressedInputAfterFinalSignalWindow(t *testing.T) {
@@ -19,8 +18,8 @@ func TestInputGateRejectsUnaddressedInputAfterFinalSignalWindow(t *testing.T) {
 		release := sync.OnceFunc(func() { close(probe.release) })
 		defer release()
 		deployment := bind(t, probe, nil)
-		store := agenttest.NewMemoryTreeDurability()
-		engine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: store})
+		store := agent.NewMemoryTreeCommitter()
+		engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -70,7 +69,7 @@ func TestInputGateRejectsUnaddressedInputAfterFinalSignalWindow(t *testing.T) {
 		if loadErr != nil || !present {
 			t.Fatalf("terminal head=%t %v", present, loadErr)
 		}
-		restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: store})
+		restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 		if err != nil {
 			t.Fatal(err)
 		}

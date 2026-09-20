@@ -49,7 +49,7 @@ func TestStaleStepRestoreDoesNotBlockTreeOwner(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		engine, err := NewEngine(EngineConfig{})
+		engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 		if err != nil {
 			t.Fatal(err)
 		}

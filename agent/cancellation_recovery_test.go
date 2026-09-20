@@ -11,16 +11,16 @@ import (
 
 func TestCancellationRevokesAcknowledgedButUnusedDispatchPermission(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		durability := &blockingPendingEffectDurability{
-			recordingTreeDurability: &recordingTreeDurability{},
-			entered:                 make(chan struct{}), release: make(chan struct{}),
+		committer := &blockingPendingEffectDurability{
+			recordingTreeCommitter: &recordingTreeCommitter{},
+			entered:                make(chan struct{}), release: make(chan struct{}),
 		}
-		release := sync.OnceFunc(func() { close(durability.release) })
+		release := sync.OnceFunc(func() { close(committer.release) })
 		defer release()
 		dispatcher := &engineTestDispatcher{policy: ReplayPolicySameIdentity}
 		definition := newEngineTestDefinition(t, "engine.effect", "effect")
 		deployment := engineTestDeployment(t, definition, dispatcher)
-		engine, err := NewEngine(EngineConfig{TreeDurability: durability})
+		engine, err := NewEngine(EngineConfig{TreeCommitter: committer})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -29,7 +29,7 @@ func TestCancellationRevokesAcknowledgedButUnusedDispatchPermission(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		<-durability.entered
+		<-committer.entered
 		canceled := make(chan error, 1)
 		go func() { canceled <- process.Kill(t.Context(), "revoke unused permission") }()
 		synctest.Wait()
@@ -51,7 +51,7 @@ func TestCancellationRevokesAcknowledgedButUnusedDispatchPermission(t *testing.T
 		if wire.Prepared == nil || wire.Prepared.Effects[0].Phase != effectPhasePlanned || wire.Prepared.Effects[0].Settlement != nil {
 			t.Errorf("unused dispatch evidence = %+v", wire.Prepared)
 		}
-		boundaries := durability.effectBoundaries()
+		boundaries := committer.effectBoundaries()
 		if len(boundaries) != 1 || boundaries[0].Kind() != EffectBoundaryKindPending {
 			t.Errorf("unused permission created a settlement: %+v", boundaries)
 		}
@@ -61,7 +61,7 @@ func TestCancellationRevokesAcknowledgedButUnusedDispatchPermission(t *testing.T
 
 func TestRestoredCancellationNeverReplaysAnUncertainDispatch(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		durability := &recordingTreeDurability{}
+		committer := &recordingTreeCommitter{}
 		dispatcher := &cancellationDispatcher{
 			entered: make(chan EffectRequest, 1), canceled: make(chan struct{}),
 			release: make(chan struct{}), status: SettlementStatusSucceeded,
@@ -70,7 +70,7 @@ func TestRestoredCancellationNeverReplaysAnUncertainDispatch(t *testing.T) {
 		defer release()
 		definition := newEngineTestDefinition(t, "engine.effect", "effect")
 		deployment := engineTestDeployment(t, definition, dispatcher)
-		engine, err := NewEngine(EngineConfig{TreeDurability: durability})
+		engine, err := NewEngine(EngineConfig{TreeCommitter: committer})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -89,7 +89,7 @@ func TestRestoredCancellationNeverReplaysAnUncertainDispatch(t *testing.T) {
 		if accepted, deliveryErr := process.DeliverSignals(t.Context(), signal); deliveryErr != nil || !accepted {
 			t.Fatalf("input admission = %t, %v", accepted, deliveryErr)
 		}
-		checkpoints := durability.treeCheckpoints()
+		checkpoints := committer.treeCheckpoints()
 		snapshot := checkpoints[len(checkpoints)-1].TreeSnapshot()
 		wire, err := snapshot.ProcessSnapshots()[0].wire()
 		if err != nil {
@@ -103,8 +103,8 @@ func TestRestoredCancellationNeverReplaysAnUncertainDispatch(t *testing.T) {
 		mustCloseEngine(t, engine)
 		for _, policy := range []ReplayPolicy{ReplayPolicyNever, ReplayPolicySameIdentity} {
 			recoveredDispatcher := &cancellationRecoveryDispatcher{policy: policy}
-			recoveredDurability := &recordingTreeDurability{}
-			recoveredEngine, err := NewEngine(EngineConfig{TreeDurability: recoveredDurability})
+			recoveredDurability := &recordingTreeCommitter{}
+			recoveredEngine, err := NewEngine(EngineConfig{TreeCommitter: recoveredDurability})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -134,7 +134,7 @@ func TestRestoredCancellationNeverReplaysAnUncertainDispatch(t *testing.T) {
 }
 
 type blockingPendingEffectDurability struct {
-	*recordingTreeDurability
+	*recordingTreeCommitter
 	entered chan struct{}
 	release chan struct{}
 }
@@ -144,7 +144,7 @@ func (b *blockingPendingEffectDurability) CommitEffect(ctx context.Context, boun
 		close(b.entered)
 		<-b.release
 	}
-	return b.recordingTreeDurability.CommitEffect(ctx, boundary)
+	return b.recordingTreeCommitter.CommitEffect(ctx, boundary)
 }
 
 type cancellationRecoveryDispatcher struct {

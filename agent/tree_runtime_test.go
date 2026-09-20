@@ -20,7 +20,7 @@ type treeRuntimeStepContext struct {
 
 func TestTreeRuntimeDoesNotLetSlowStepStarveSibling(t *testing.T) {
 	deployment, probe := newTreeRuntimeTestDeployment(t)
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +292,7 @@ func (t *treeRuntimeTestExecution) Snapshot() (ExecutionState, error) {
 func TestDiscardedStepAttemptsAlwaysClose(t *testing.T) {
 	deployment, _ := newTreeRuntimeTestDeployment(t)
 	events := make(chan Event, 64)
-	engine, err := NewEngine(EngineConfig{EventListeners: []EventListener{EventListenerFunc(func(_ context.Context, event Event) { events <- event })}})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), EventListeners: []EventListener{EventListenerFunc(func(_ context.Context, event Event) { events <- event })}})
 	if err != nil {
 		t.Fatal(err)
 	}

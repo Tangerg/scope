@@ -47,7 +47,7 @@ func TestEpisodeBoundaryRejectsUnresolvedDescendantAfterRootSuccess(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		engine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: store.trees, DeploymentResolver: episodeResolver{
+		engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store.trees, DeploymentResolver: episodeResolver{
 			workerBinding.DeploymentRef(): workerBinding, gateBinding.DeploymentRef(): gateBinding,
 		}})
 		if err != nil {

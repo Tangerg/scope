@@ -68,7 +68,7 @@ func benchmarkCompletedTree(b *testing.B, sample treeSnapshotBenchmarkCase) Tree
 	limits.Budget.Effects = NewQuota(100_000)
 	limits.Budget.Signals = NewQuota(100_000)
 	limits.MaxPendingSignals = 100_000
-	engine, err := NewEngine(EngineConfig{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
 		Limits: limits,
 		TreeLimits: TreeLimits{
 			MaxDepth:          sample.maxDepth,
@@ -219,7 +219,7 @@ func BenchmarkTreeRuntimeFastSiblingLatency(b *testing.B) {
 		b.StopTimer()
 		deployment, probe := newTreeRuntimeTestDeployment(b)
 		probe.fastStepRelease = make(chan struct{})
-		engine, err := NewEngine(EngineConfig{})
+		engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 		if err != nil {
 			b.Fatal(err)
 		}

@@ -84,7 +84,7 @@ func TestPlanningAlreadyCompletedChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := runManaged(t, agent.EngineConfig{DeploymentResolver: managedResolver{child.DeploymentRef(): child}, EventListeners: []agent.EventListener{agent.EventListenerFunc(func(_ context.Context, event agent.Event) {
+	result := runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: managedResolver{child.DeploymentRef(): child}, EventListeners: []agent.EventListener{agent.EventListenerFunc(func(_ context.Context, event agent.Event) {
 		if event.Relation().Depth() == 1 && event.Name() == agent.EventProcessFinished {
 			once.Do(func() { close(gate) })
 		}

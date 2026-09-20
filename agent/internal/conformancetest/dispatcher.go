@@ -30,7 +30,7 @@ func CheckDispatcherRejection(t *testing.T, dispatcher agent.Dispatcher, effect 
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}

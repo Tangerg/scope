@@ -64,43 +64,20 @@ func (p *preparedStepFinalization) applySettlement(record preparedEffect) error 
 		return err
 	}
 	if record.Effect.Target() == EffectTargetFramework {
-		operation, operationErr := decodeFrameworkEffectOperation(record.Effect.Payload())
-		if operationErr != nil {
-			return errors.New("invalid prepared framework Effect")
+		operation, err := decodeFrameworkOperation(record.Effect.Payload())
+		if err != nil {
+			return err
 		}
-		switch operation {
-		case frameworkEffectWait:
-			key, _, decodeErr := record.Effect.waitRequest()
-			if decodeErr != nil {
-				return decodeErr
-			}
-			return p.mailbox.openWait(key, signal, WaitKindExternal)
-		case frameworkEffectWaitChildren:
-			return p.openChildWait(record, signal)
-		case frameworkEffectStartChild, frameworkEffectSignalChild, frameworkEffectCancelChild:
-			if waitID.Valid() {
-				return errors.New("child operation unexpectedly contains a WaitID")
-			}
-		default:
-			return errors.New("unsupported prepared framework Effect")
-		}
+		return operation.apply(p, record, signal)
 	}
+	return p.enqueueSettlement(signal)
+}
+
+func (p *preparedStepFinalization) enqueueSettlement(signal Signal) error {
 	accepted, err := p.mailbox.enqueue(StatusRunning, signal, signalSourceSettlement)
 	if err != nil || !accepted {
 		return errors.Join(err, errors.New("internal settlement Signal was not accepted"))
 	}
-	return nil
-}
-
-func (p *preparedStepFinalization) openChildWait(record preparedEffect, signal Signal) error {
-	spec, err := decodeChildWaitEffect(record.Effect.Payload())
-	if err != nil || record.WaitID == nil {
-		return errors.New("invalid child-wait Effect")
-	}
-	if err := p.mailbox.openWait(spec.Key, signal, WaitKindChildren); err != nil {
-		return err
-	}
-	p.openedChildWaits = append(p.openedChildWaits, ChildWaitOpened{waitID: *record.WaitID, spec: spec})
 	return nil
 }
 

@@ -44,9 +44,9 @@ func TestRestoredPlanningEffectsCannotDropBindingCapabilities(t *testing.T) {
 				executors: map[string]planning.ActionExecutor{action.Name(): world.apply(action)},
 			})
 			interrupted := &planningActionBoundary{
-				TreeDurability: agenttest.NewMemoryTreeDurability(), cause: errors.New("stop before Action dispatch"),
+				TreeCommitter: agent.NewMemoryTreeCommitter(), cause: errors.New("stop before Action dispatch"),
 			}
-			source, err := agent.NewEngine(agent.EngineConfig{Capabilities: grant, TreeDurability: interrupted})
+			source, err := agent.NewEngine(agent.EngineConfig{Capabilities: grant, TreeCommitter: interrupted})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -66,7 +66,6 @@ func TestRestoredPlanningEffectsCannotDropBindingCapabilities(t *testing.T) {
 			if decodeErr := decoder.Decode(&wire); decodeErr != nil {
 				t.Fatal(decodeErr)
 			}
-			delete(wire, "incarnation_id")
 			processWire := wire["process_snapshots"].([]any)[0].(map[string]any)
 			prepared := processWire["prepared"].(map[string]any)
 			record := prepared["effects"].([]any)[0].(map[string]any)
@@ -80,7 +79,7 @@ func TestRestoredPlanningEffectsCannotDropBindingCapabilities(t *testing.T) {
 				t.Fatal(err)
 			}
 			events := &agenttest.ObservationRecorder{}
-			engine, err := agent.NewEngine(agent.EngineConfig{EventListeners: []agent.EventListener{events}})
+			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: &planningSnapshotCommitter{head: snapshot}, EventListeners: []agent.EventListener{events}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -137,7 +136,7 @@ func TestRestoredPlanningEffectsCannotDropBindingCapabilities(t *testing.T) {
 }
 
 type planningActionBoundary struct {
-	agent.TreeDurability
+	agent.TreeCommitter
 	snapshot agent.TreeSnapshot
 	step     uint64
 	cause    error
@@ -149,5 +148,31 @@ func (p *planningActionBoundary) CommitEffect(ctx context.Context, boundary agen
 		p.step = boundary.Request().StepSequence()
 		return p.cause
 	}
-	return p.TreeDurability.CommitEffect(ctx, boundary)
+	return p.TreeCommitter.CommitEffect(ctx, boundary)
+}
+
+// This fixture represents a corrupted persistent image. It still fences each
+// subsequent writer and head update; the restored binding must reject the
+// damaged capability grant before an action executor can be reached.
+type planningSnapshotCommitter struct{ head agent.TreeSnapshot }
+
+func (p *planningSnapshotCommitter) ActivateTree(_ context.Context, activation agent.TreeActivation) error {
+	if p.head.Digest() != activation.PreviousTreeDigest() || p.head.IncarnationID() != activation.PreviousIncarnationID() {
+		return agent.ErrTreeIncarnationConflict
+	}
+	p.head = activation.TreeSnapshot()
+	return nil
+}
+func (p *planningSnapshotCommitter) advance(previous agent.Digest, snapshot agent.TreeSnapshot) error {
+	if p.head.Digest() != previous || p.head.IncarnationID() != snapshot.IncarnationID() {
+		return agent.ErrTreeIncarnationConflict
+	}
+	p.head = snapshot
+	return nil
+}
+func (p *planningSnapshotCommitter) CommitEffect(_ context.Context, boundary agent.EffectBoundary) error {
+	return p.advance(boundary.PreviousTreeDigest(), boundary.TreeSnapshot())
+}
+func (p *planningSnapshotCommitter) CommitCheckpoint(_ context.Context, checkpoint agent.TreeCheckpoint) error {
+	return p.advance(checkpoint.PreviousTreeDigest(), checkpoint.TreeSnapshot())
 }

@@ -62,7 +62,7 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 				status = SettlementStatusFailed
 			}
 			record := preparedEffect{ID: id, Effect: effect, Phase: effectPhaseSettled, Settlement: new(controlValue(NewSettlement(id, status, payload)))}
-			if err := record.validateChildControl(); err != nil {
+			if err := record.validateFramework(); err != nil {
 				t.Fatal(err)
 			}
 			for name, mutate := range map[string]func(*preparedEffect){
@@ -88,7 +88,7 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 				t.Run(string(operation)+"/"+name, func(t *testing.T) {
 					altered := record
 					mutate(&altered)
-					if err := altered.validateChildControl(); err == nil {
+					if err := altered.validateFramework(); err == nil {
 						t.Fatal("inconsistent settlement accepted")
 					}
 				})
@@ -170,13 +170,16 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 			_, child := newChildCompletionTestProcess(t)
 			key := controlValue(ParseChildKey("worker"))
 			child.handle.relation = childProcessRelation(child.handle.processID, parent.handle.relation, key)
-			runtime.processes[child.handle.processID] = child
+			child.handle.childRequestDigest = ComputeDigest([]byte("control fixture"))
+			child.limits.Budget = Budget{Steps: NewQuota(100), Effects: NewQuota(100), Signals: NewQuota(100)}
+			parent.allocatedResources, _ = parent.limits.Budget.allocation(child.limits.Budget)
+			runtime.addProcess(child)
 			recipient := child.handle.processID
 			switch target {
 			case "self":
 				recipient = parent.handle.processID
 			case "foreign":
-				child.handle.relation = rootProcessRelation(recipient)
+				recipient = newProcessID()
 			case "missing":
 				recipient = newProcessID()
 			}
@@ -191,6 +194,12 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 			}
 			record := &parent.prepared.Effects[0]
 			runtime.controlChild(parent, 0, record, effectAttempt{id: newEffectAttemptID(), startedAt: time.Now()})
+			if runtime.fault != nil {
+				t.Fatal(runtime.fault)
+			}
+			if runtime.commit != nil {
+				runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+			}
 			if !record.definitelySettled() {
 				t.Fatal("control not settled")
 			}

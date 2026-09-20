@@ -47,7 +47,7 @@ func TestDeploymentBindsExactDefinitionAndDispatcher(t *testing.T) {
 		processID, TreeIncarnationID{}, deployment.DeploymentRef(), relation, 1, 0, effectID, effect,
 	)
 	if incarnationID, durable := request.TreeIncarnationID(); durable || incarnationID.Valid() {
-		t.Fatal("ephemeral request carries durable writer identity")
+		t.Fatal("unbound request carries a writer identity")
 	}
 	copyOfEffect := request.Effect()
 	copyOfEffect.payload[0] = '['
@@ -85,7 +85,7 @@ func TestDeploymentRejectsMissingOrTypedNilBindings(t *testing.T) {
 func TestDeploymentWithoutDispatcherRunsAndRestoresFrameworkEffects(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.wait", "wait")
 	deployment := engineTestDeployment(t, definition, nil)
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestDeploymentWithoutDispatcherRunsAndRestoresFrameworkEffects(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	restoredEngine, err := NewEngine(EngineConfig{})
+	restoredEngine, err := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestDeploymentWithoutDispatcherRunsAndRestoresFrameworkEffects(t *testing.T
 func TestDeploymentWithoutDispatcherRejectsWholeExternalEffectBatch(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.batch", "batch")
 	deployment := engineTestDeployment(t, definition, nil)
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestDeploymentWithoutDispatcherRejectsRestoredExternalEffect(t *testing.T) 
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	dispatcher := &failingEngineTestDispatcher{}
 	deployment := engineTestDeployment(t, definition, dispatcher)
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestDeploymentWithoutDispatcherRejectsRestoredExternalEffect(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	restoredEngine, err := NewEngine(EngineConfig{})
+	restoredEngine, err := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree)})
 	if err != nil {
 		t.Fatal(err)
 	}

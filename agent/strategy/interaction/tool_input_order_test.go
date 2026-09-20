@@ -56,7 +56,8 @@ func TestToolInputAnswerQueuedBeforeWaitAdoptionSurvivesPauseAndRestore(t *testi
 				if err != nil {
 					t.Fatal(err)
 				}
-				engine, err := agent.NewEngine(agent.EngineConfig{})
+				store := agent.NewMemoryTreeCommitter()
+				engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -69,11 +70,11 @@ func TestToolInputAnswerQueuedBeforeWaitAdoptionSurvivesPauseAndRestore(t *testi
 					t.Fatal(err)
 				}
 				<-definition.entered
-				inspection, err := engine.InspectTree(t.Context(), process.ID())
+				opening, err := engine.CaptureTree(t.Context(), process.ID())
 				if err != nil {
 					t.Fatal(err)
 				}
-				receipts := inspection.Processes[0].Snapshot.SignalReceipts()
+				receipts := opening.ProcessSnapshots()[0].SignalReceipts()
 				waitID, addressed := receipts[len(receipts)-1].WaitID()
 				if !addressed || receipts[len(receipts)-1].Consumed() {
 					t.Fatal("Tool opening Signal is not pending")
@@ -100,20 +101,24 @@ func TestToolInputAnswerQueuedBeforeWaitAdoptionSurvivesPauseAndRestore(t *testi
 					t.Fatalf("Tool did not pause at the committed boundary: %v", err)
 				}
 				if restore {
-					if killErr := process.Kill(t.Context(), "replace paused Tool"); killErr != nil {
-						t.Fatal(killErr)
-					}
-					if joinErr := process.Join(t.Context()); joinErr != nil {
-						t.Fatal(joinErr)
-					}
-					if releaseErr := engine.ReleaseTree(t.Context(), process.ID()); releaseErr != nil {
-						t.Fatal(releaseErr)
+					oldEngine, oldProcess := engine, process
+					engine, err = agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
+					if err != nil {
+						t.Fatal(err)
 					}
 					process, err = engine.RestoreTree(t.Context(), deployment, capture)
 					if err != nil {
 						t.Fatal(err)
 					}
+					_ = oldProcess.Kill(t.Context(), "release retired writer")
+					if joinErr := oldProcess.Join(t.Context()); !errors.Is(joinErr, agent.ErrTreeIncarnationConflict) {
+						t.Fatalf("retired writer: %v", joinErr)
+					}
+					if closeErr := oldEngine.Close(t.Context()); closeErr != nil {
+						t.Fatal(closeErr)
+					}
 				}
+
 				if resumeErr := process.Resume(t.Context()); resumeErr != nil {
 					t.Fatal(resumeErr)
 				}
@@ -133,7 +138,7 @@ func TestToolInputAnswerQueuedBeforeWaitAdoptionSurvivesPauseAndRestore(t *testi
 				if result.Usage() != (agent.Usage{CommittedSteps: 5, PreparedEffects: 3, AcceptedSignals: 4}) {
 					t.Fatalf("Tool continuation changed resource usage: %+v", result.Usage())
 				}
-				inspection, err = engine.InspectTree(t.Context(), process.ID())
+				inspection, err := engine.InspectTree(t.Context(), process.ID())
 				if err != nil {
 					t.Fatal(err)
 				}

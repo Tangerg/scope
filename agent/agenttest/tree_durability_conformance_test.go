@@ -4,10 +4,12 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/agent/agenttest"
+
+	"github.com/Tangerg/scope/agent"
 )
 
-func TestMemoryTreeDurabilityConformance(t *testing.T) {
-	agenttest.RunTreeDurabilityConformance(t, func() agenttest.TreeDurabilityConformanceDriver {
-		return agenttest.NewMemoryTreeDurability()
+func TestMemoryTreeCommitterConformance(t *testing.T) {
+	agenttest.RunTreeCommitterConformance(t, func() agenttest.TreeCommitterConformanceDriver {
+		return agent.NewMemoryTreeCommitter()
 	})
 }

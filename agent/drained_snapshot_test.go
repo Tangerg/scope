@@ -8,7 +8,7 @@ import (
 )
 
 func TestCapturesKeepDrainedChildrenStableWhileParentChanges(t *testing.T) {
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestCapturesKeepDrainedChildrenStableWhileParentChanges(t *testing.T) {
 	<-runtime.done
 	assertTreeMembership(t, runtime)
 
-	restoredEngine, err := NewEngine(EngineConfig{})
+	restoredEngine, err := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(terminated)})
 	if err != nil {
 		t.Fatal(err)
 	}

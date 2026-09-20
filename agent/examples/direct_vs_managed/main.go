@@ -60,7 +60,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		return err
 	}

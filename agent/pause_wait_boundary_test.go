@@ -12,10 +12,10 @@ func TestPauseWaitingSurvivesRestoreAndRequiresResume(t *testing.T) {
 	for _, durable := range []bool{false, true} {
 		for _, answerBeforeResume := range []bool{false, true} {
 			t.Run(fmt.Sprintf("durable_%t/answer_before_resume_%t", durable, answerBeforeResume), func(t *testing.T) {
-				config := EngineConfig{}
-				durability := &recordingTreeDurability{}
+				config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
+				committer := &recordingTreeCommitter{}
 				if durable {
-					config.TreeDurability = durability
+					config.TreeCommitter = committer
 				}
 				engine := controlValue(NewEngine(config))
 				t.Cleanup(func() {
@@ -39,7 +39,7 @@ func TestPauseWaitingSurvivesRestoreAndRequiresResume(t *testing.T) {
 				}
 				var tree TreeSnapshot
 				if durable {
-					checkpoints := durability.treeCheckpoints()
+					checkpoints := committer.treeCheckpoints()
 					tree = checkpoints[len(checkpoints)-1].TreeSnapshot()
 				} else {
 					tree = controlValue(engine.CaptureTree(t.Context(), process.ID()))
@@ -58,6 +58,7 @@ func TestPauseWaitingSurvivesRestoreAndRequiresResume(t *testing.T) {
 				if err := process.Join(t.Context()); err != nil {
 					t.Fatal(err)
 				}
+				config.TreeCommitter = newSnapshotTestCommitter(tree)
 				restoredEngine := controlValue(NewEngine(config))
 				t.Cleanup(func() {
 					if err := restoredEngine.Close(context.WithoutCancel(t.Context())); err != nil {
@@ -115,7 +116,13 @@ func TestPauseDiscardsUnadoptedWaitWithoutConsumingItsSignal(t *testing.T) {
 	runtime.startStep(process)
 	runtime.applyCompletion(<-runtime.completions)
 	runtime.advancePrepared(process)
+	if runtime.commit != nil {
+		runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+	}
 	runtime.advancePrepared(process)
+	if runtime.commit != nil {
+		runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+	}
 	before := controlValue(process.capture())
 	runtime.startStep(process)
 	runtime.applyCompletion(<-runtime.completions)
@@ -129,6 +136,9 @@ func TestPauseDiscardsUnadoptedWaitWithoutConsumingItsSignal(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime.advancePrepared(process)
+	if runtime.commit != nil {
+		runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+	}
 	if process.status != StatusPaused || process.prepared != nil || process.currentWaitID.Valid() {
 		t.Fatal("accepted Pause was trapped behind Wait")
 	}
@@ -147,6 +157,9 @@ func TestPauseDiscardsUnadoptedWaitWithoutConsumingItsSignal(t *testing.T) {
 	runtime.startStep(process)
 	runtime.applyCompletion(<-runtime.completions)
 	runtime.advancePrepared(process)
+	if runtime.commit != nil {
+		runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+	}
 	if process.status != StatusWaiting || process.currentWaitID != waitID {
 		t.Fatal("Resume did not re-establish the same wait")
 	}
@@ -157,6 +170,9 @@ func TestPauseDiscardsUnadoptedWaitWithoutConsumingItsSignal(t *testing.T) {
 	runtime.startStep(process)
 	runtime.applyCompletion(<-runtime.completions)
 	runtime.advancePrepared(process)
+	if runtime.commit != nil {
+		runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+	}
 	if process.status != StatusCompleted || controlValue(process.finalOutput.Decode[engineTestOutput]()).Value != "approved" {
 		t.Fatal("resumed wait lost its answer")
 	}

@@ -8,7 +8,7 @@ import (
 )
 
 func TestChildAllocationPreservesPreparedParentWork(t *testing.T) {
-	for _, durability := range []struct {
+	for _, committer := range []struct {
 		name  string
 		store bool
 	}{
@@ -28,10 +28,10 @@ func TestChildAllocationPreservesPreparedParentWork(t *testing.T) {
 				wantChildren: 1,
 			},
 		} {
-			t.Run(durability.name+"/"+test.name, func(t *testing.T) {
-				config := EngineConfig{Limits: test.limits}
-				if durability.store {
-					config.TreeDurability = &recordingTreeDurability{}
+			t.Run(committer.name+"/"+test.name, func(t *testing.T) {
+				config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: test.limits}
+				if committer.store {
+					config.TreeCommitter = &recordingTreeCommitter{}
 				}
 				engine, err := NewEngine(config)
 				if err != nil {
@@ -125,6 +125,10 @@ func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 		t.Fatalf("released child identity and key could not be reserved again: %v", err)
 	}
 	engine.discardProcessStart(prepared.plan.childID)
+	go runtime.run(t.Context())
+	if err := (&Process{handle: parent.handle}).Join(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *testing.T) {

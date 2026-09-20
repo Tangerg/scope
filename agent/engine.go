@@ -25,12 +25,12 @@ var (
 // TreeLimits, and Capabilities apply to newly started root trees. RestoreTree
 // retains their captured values; the Host authorizes snapshots before recovery.
 type EngineConfig struct {
-	// TreeDurability makes publication wait for acknowledgment of a recoverable
-	// tree. Nil selects ephemeral execution without storage acknowledgment.
-	TreeDurability TreeDurability
+	// TreeCommitter is required. Publication follows acknowledgment of the
+	// authoritative tree head, including when the Host selects volatile storage.
+	TreeCommitter TreeCommitter
 
 	// ProcessInitializationOutcomeAcknowledger optionally accepts initialization outcomes
-	// before publication. Its acknowledgment is separate from TreeDurability;
+	// before publication. Its acknowledgment is separate from TreeCommitter;
 	// nil omits this Host acceptance step.
 	ProcessInitializationOutcomeAcknowledger ProcessInitializationOutcomeAcknowledger
 
@@ -73,7 +73,7 @@ type EngineConfig struct {
 // lifecycle. Construct it with NewEngine; copying an Engine would share its
 // registries while duplicating their synchronization.
 type Engine struct {
-	durability                        TreeDurability
+	committer                         TreeCommitter
 	initializationOutcomeAcknowledger ProcessInitializationOutcomeAcknowledger
 	resolver                          DeploymentResolver
 	admitter                          ProcessAdmitter
@@ -147,8 +147,8 @@ func NewEngine(config EngineConfig) (*Engine, error) {
 	if config.DeltaBufferCapacity < 0 {
 		return nil, fmt.Errorf("%w: DeltaBufferCapacity must not be negative", ErrInvalidEngineConfig)
 	}
-	if config.TreeDurability != nil && lo.IsNil(config.TreeDurability) {
-		return nil, fmt.Errorf("%w: TreeDurability is typed nil", ErrInvalidEngineConfig)
+	if lo.IsNil(config.TreeCommitter) {
+		return nil, fmt.Errorf("%w: TreeCommitter is required", ErrInvalidEngineConfig)
 	}
 	if config.ProcessInitializationOutcomeAcknowledger != nil && lo.IsNil(config.ProcessInitializationOutcomeAcknowledger) {
 		return nil, fmt.Errorf("%w: ProcessInitializationOutcomeAcknowledger is typed nil", ErrInvalidEngineConfig)
@@ -185,7 +185,7 @@ func NewEngine(config EngineConfig) (*Engine, error) {
 		return nil, fmt.Errorf("%w: capabilities are invalid", ErrInvalidEngineConfig)
 	}
 	return &Engine{
-		durability:                        config.TreeDurability,
+		committer:                         config.TreeCommitter,
 		initializationOutcomeAcknowledger: config.ProcessInitializationOutcomeAcknowledger,
 		resolver:                          config.DeploymentResolver,
 		admitter:                          config.ProcessAdmitter,
@@ -214,8 +214,7 @@ type childIdentity struct {
 // deadlines reach accepted work. Execution that outlives a request therefore
 // needs a longer-lived context. An already-canceled context never reserves an
 // identity or invokes Host admission.
-// Snapshot admission includes mandatory lifecycle growth in either durability
-// mode. Insufficient Process or tree capacity returns ErrResourceLimitExceeded
+// Snapshot admission includes mandatory lifecycle growth. Insufficient Process or tree capacity returns ErrResourceLimitExceeded
 // before publishing the Process or committing its initial head.
 // Success admits only the initial state and its lifecycle reservation. Later
 // Steps, dispatch permissions, and settlements each require capacity admission.
@@ -257,8 +256,8 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 		acknowledgeErr := acknowledgeProcessInitializationOutcome(ctx, e.initializationOutcomeAcknowledger, failedProcessInitializationOutcome(admission, failure))
 		return nil, errors.Join(fmt.Errorf("agent: initialize Process: %w", err), acknowledgeErr)
 	}
-	if err := acknowledgeProcessInitializationOutcome(ctx, e.initializationOutcomeAcknowledger, initializedProcessOutcome(admission, startedAt)); err != nil {
-		return nil, err
+	if acknowledgeErr := acknowledgeProcessInitializationOutcome(ctx, e.initializationOutcomeAcknowledger, initializedProcessOutcome(admission, startedAt)); acknowledgeErr != nil {
+		return nil, acknowledgeErr
 	}
 	handle := newProcessHandle(
 		relation, deployment.DeploymentRef(), budget, e.capabilities,
@@ -266,26 +265,24 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 		startedAt)
 	process := newProcessState(handle, deployment, execution, state, startedAt, e.limits)
 	runtime := newTreeRuntime(e, relation.RootID(), ctx, process)
-	if e.durability != nil {
-		runtime.incarnation = newTreeIncarnationID()
+
+	if capacityErr := runtime.validateSnapshotCapacity(); capacityErr != nil {
+		return nil, capacityErr
 	}
-	if err := runtime.validateSnapshotCapacity(); err != nil {
+
+	baseSnapshot, captureErr := runtime.captureTree()
+	if captureErr != nil {
+		return nil, captureErr
+	}
+	checkpoint, err := newTreeCheckpoint(TreeCheckpointKindStart, Digest{}, baseSnapshot)
+	if err != nil {
 		return nil, err
 	}
-	if e.durability != nil {
-		baseSnapshot, captureErr := runtime.captureTree()
-		if captureErr != nil {
-			return nil, captureErr
-		}
-		checkpoint, err := newTreeCheckpoint(TreeCheckpointKindStart, Digest{}, baseSnapshot)
-		if err != nil {
-			return nil, err
-		}
-		if err := commitTreeCheckpoint(ctx, e.durability, checkpoint); err != nil {
-			return nil, err
-		}
-		runtime.establishDurableHead(runtime.incarnation, baseSnapshot)
+	if err := commitTreeCheckpoint(ctx, e.committer, checkpoint); err != nil {
+		return nil, err
 	}
+	runtime.establishHead(runtime.incarnation, baseSnapshot)
+
 	e.publishProcessStart(handle)
 	published = true
 	go runtime.run(ctx)
@@ -682,11 +679,7 @@ func (e *Engine) RestoreTree(
 	if err != nil {
 		return nil, err
 	}
-	previousIncarnation, snapshotIsDurable := snapshot.IncarnationID()
-	engineIsDurable := e.durability != nil
-	if snapshotIsDurable != engineIsDurable {
-		return nil, ErrTreeDurabilityMismatch
-	}
+	previousIncarnation := snapshot.IncarnationID()
 	rootSnapshot := snapshotByID(wire.ProcessSnapshots, wire.RootID)
 	if !rootSnapshot.Valid() || rootSnapshot.DeploymentRef() != rootDeployment.DeploymentRef() {
 		return nil, fmt.Errorf("%w: exact root Deployment does not match", ErrInvalidTreeSnapshot)
@@ -717,31 +710,29 @@ func (e *Engine) RestoreTree(
 	if err := restoration.prepareChildWaits(); err != nil {
 		return nil, err
 	}
-	var incarnation TreeIncarnationID
-	if engineIsDurable {
-		incarnation = newTreeIncarnationID()
-	}
+	incarnation := newTreeIncarnationID()
+
 	if err := restoration.prepareRuntime(ctx, incarnation); err != nil {
 		return nil, fmt.Errorf("%w: snapshot capacity: %w", ErrInvalidTreeSnapshot, err)
 	}
-	if engineIsDurable {
-		wire.IncarnationID = &incarnation
-		prospectiveSnapshot, snapshotErr := newTreeSnapshot(wire)
-		if snapshotErr != nil {
-			return nil, snapshotErr
-		}
-		activation, activationErr := newTreeActivation(
-			previousIncarnation, previousDigest, incarnation, prospectiveSnapshot,
-		)
-		if activationErr != nil {
-			return nil, activationErr
-		}
-		if activationErr = activateTree(ctx, e.durability, activation); activationErr != nil {
-			return nil, activationErr
-		}
-		restoration.wire = wire
-		restoration.runtime.establishDurableHead(incarnation, prospectiveSnapshot)
+
+	wire.IncarnationID = incarnation
+	prospectiveSnapshot, snapshotErr := newTreeSnapshot(wire)
+	if snapshotErr != nil {
+		return nil, snapshotErr
 	}
+	activation, activationErr := newTreeActivation(
+		previousIncarnation, previousDigest, incarnation, prospectiveSnapshot,
+	)
+	if activationErr != nil {
+		return nil, activationErr
+	}
+	if activationErr = activateTree(ctx, e.committer, activation); activationErr != nil {
+		return nil, activationErr
+	}
+	restoration.wire = wire
+	restoration.runtime.establishHead(incarnation, prospectiveSnapshot)
+
 	e.publishRestoredTree(&restoration)
 	published = true
 	return e.startRestoredTree(ctx, &restoration), nil
@@ -862,14 +853,10 @@ func (e *Engine) publishRestoredTree(restoration *treeRestoration) {
 	e.releaseRestoredTree(restoration)
 }
 
-// CaptureTree quiesces one complete Engine-owned tree at Strategy-safe
-// boundaries and captures a consistent portable cut. In-flight Effects settle
-// according to their existing contract before a Process joins the barrier.
-// Cancellation remains available while the active work drains.
-// After an ephemeral runtime failure, capture is available once owned work has
-// drained. Wait for the root Process.Join to return its runtime error before
-// calling CaptureTree; while the faulted runtime is draining, capture returns
-// that fault. Process.Await alone does not establish this boundary.
+// CaptureTree quiesces the tree at Strategy-safe boundaries, commits the cut,
+// and returns that acknowledged snapshot. In-flight Effects settle before the
+// barrier completes. After a runtime failure, read the authoritative head from
+// the Host's commit store; unacknowledged runtime state is never recoverable.
 func (e *Engine) CaptureTree(ctx context.Context, rootID ProcessID) (TreeSnapshot, error) {
 	if e == nil {
 		return TreeSnapshot{}, ErrInvalidProcessRelation
@@ -878,9 +865,7 @@ func (e *Engine) CaptureTree(ctx context.Context, rootID ProcessID) (TreeSnapsho
 	if !rootID.Valid() {
 		return TreeSnapshot{}, ErrInvalidProcessRelation
 	}
-	if e.durability != nil {
-		return TreeSnapshot{}, ErrTreeCaptureUnavailable
-	}
+
 	operation, err := e.acquireTreeOperation(ctx, rootID)
 	if err != nil {
 		return TreeSnapshot{}, err

@@ -32,7 +32,7 @@ func TestWorkerFailuresRemainCoordinatorFacts(t *testing.T) {
 			if unavailable {
 				delete(deployments, worker.DeploymentRef())
 			}
-			_, process := run(t, definition, deployments, nil)
+			_, process := run(t, definition, deployments, agent.NewMemoryTreeCommitter())
 			if got := completed(t, process); got != "failure handled" {
 				t.Fatal(got)
 			}
@@ -66,7 +66,7 @@ func TestCoordinatorFailuresAndFiniteBoundsStopCollaboration(t *testing.T) {
 			if mode == "start" {
 				delete(deployments, config.Coordinator.Deployment.DeploymentRef())
 			}
-			_, process := run(t, definition, deployments, nil)
+			_, process := run(t, definition, deployments, agent.NewMemoryTreeCommitter())
 			result := require(process.Await(t.Context()))
 			if result.Status() != agent.StatusFailed {
 				t.Fatal(result.Status())
@@ -87,7 +87,7 @@ func TestCompletionCancelsOutstandingTask(t *testing.T) {
 		}
 		return finish(turn, "done"), nil
 	}, gate())
-	engine, process := run(t, definition, deployments, nil)
+	engine, process := run(t, definition, deployments, agent.NewMemoryTreeCommitter())
 	completed(t, process)
 	tree := require(engine.InspectTree(t.Context(), process.ID()))
 	for _, fact := range tree.Processes {

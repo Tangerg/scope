@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
 )
 
 var (
@@ -31,7 +30,7 @@ type successorRecord struct {
 // canonical checkpoint and incarnation rules instead of reimplementing them.
 type episodeStore struct {
 	mu                      sync.Mutex
-	trees                   *agenttest.MemoryTreeDurability
+	trees                   *agent.MemoryTreeCommitter
 	sealed                  map[agent.ProcessID]agent.TreeSnapshot
 	inputs                  map[agent.SignalID]episodeInput
 	successors              map[agent.ProcessID]successorRecord
@@ -42,7 +41,7 @@ type episodeStore struct {
 
 func newEpisodeStore() *episodeStore {
 	return &episodeStore{
-		trees: agenttest.NewMemoryTreeDurability(), sealed: make(map[agent.ProcessID]agent.TreeSnapshot),
+		trees: agent.NewMemoryTreeCommitter(), sealed: make(map[agent.ProcessID]agent.TreeSnapshot),
 		inputs: make(map[agent.SignalID]episodeInput), successors: make(map[agent.ProcessID]successorRecord),
 	}
 }

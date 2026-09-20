@@ -63,10 +63,10 @@ func TestOversizedStepRejectedBeforeDispatcherPermission(t *testing.T) {
 	effect := controlValue(NewDispatcherEffect(payload))
 	for _, durable := range []bool{false, true} {
 		t.Run(fmt.Sprint(durable), func(t *testing.T) {
-			store := &recordingTreeDurability{}
-			config := EngineConfig{Limits: Limits{MaxSnapshotBytes: NewQuota(128 << 14)}, TreeLimits: TreeLimits{MaxSnapshotBytes: NewQuota(512 << 14)}}
+			store := &recordingTreeCommitter{}
+			config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: Limits{MaxSnapshotBytes: NewQuota(128 << 14)}, TreeLimits: TreeLimits{MaxSnapshotBytes: NewQuota(512 << 14)}}
 			if durable {
-				config.TreeDurability = store
+				config.TreeCommitter = store
 			}
 			engine := controlValue(NewEngine(config))
 			defer mustCloseEngine(t, engine)
@@ -96,10 +96,10 @@ func TestOversizedStepRejectedBeforeDispatcherPermission(t *testing.T) {
 func TestOversizedUnknownResolutionPreservesHeadAndAllowsSmallerResult(t *testing.T) {
 	for _, durable := range []bool{false, true} {
 		t.Run(fmt.Sprint(durable), func(t *testing.T) {
-			store := &recordingTreeDurability{}
-			config := EngineConfig{Limits: Limits{MaxSnapshotBytes: NewQuota(128 << 14)}, TreeLimits: TreeLimits{MaxSnapshotBytes: NewQuota(512 << 14)}}
+			store := &recordingTreeCommitter{}
+			config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: Limits{MaxSnapshotBytes: NewQuota(128 << 14)}, TreeLimits: TreeLimits{MaxSnapshotBytes: NewQuota(512 << 14)}}
 			if durable {
-				config.TreeDurability = store
+				config.TreeCommitter = store
 			}
 			engine := controlValue(NewEngine(config))
 			defer mustCloseEngine(t, engine)
@@ -278,7 +278,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 }
 
 func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
-	for _, mode := range []string{"ephemeral", "committed", "commit_failed", "capture_failed", "checkpoint_failed"} {
+	for _, mode := range []string{"committed", "commit_failed", "capture_failed", "checkpoint_failed"} {
 		t.Run(mode, func(t *testing.T) {
 			runtime := newWaitingSnapshotTree(t, 1)
 			root := runtime.processes[runtime.rootID]
@@ -300,8 +300,8 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 			}
 			runtime.engine.publishProcessStart(root.handle)
 			t.Cleanup(func() { delete(runtime.engine.processes, root.handle.processID) })
-			if mode != "ephemeral" {
-				runtime.engine.durability = &recordingTreeDurability{}
+			{
+				runtime.engine.committer = &recordingTreeCommitter{}
 				runtime.incarnation = newTreeIncarnationID()
 				runtime.head = controlValue(runtime.captureTree())
 			}

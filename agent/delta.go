@@ -73,8 +73,8 @@ func (d Delta) EffectID() EffectID { return d.effectID }
 // DeltaDropped facts. Sequence numbers are scoped to this attempt.
 func (d Delta) AttemptID() EffectAttemptID { return d.attemptID }
 
-// TreeIncarnationID returns the active durable writer that emitted this delta.
-// Deltas from ephemeral trees return false.
+// TreeIncarnationID returns the active writer that emitted this delta.
+// Engine-produced Deltas always identify their active writer.
 func (d Delta) TreeIncarnationID() (TreeIncarnationID, bool) {
 	return d.incarnationID, d.incarnationID.Valid()
 }

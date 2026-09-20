@@ -9,11 +9,11 @@ import (
 
 func TestProcessInitializationOutcomesConcludeAcceptedRootAndChildAdmissions(t *testing.T) {
 	for _, mode := range []struct {
-		name       string
-		durability TreeDurability
+		name      string
+		committer TreeCommitter
 	}{
-		{name: "ephemeral"},
-		{name: "durable", durability: &recordingTreeDurability{}},
+		{name: "memory", committer: NewMemoryTreeCommitter()},
+		{name: "durable", committer: &recordingTreeCommitter{}},
 	} {
 		t.Run(mode.name, func(t *testing.T) {
 			childDeployment := newChildTestDeployment(t)
@@ -38,7 +38,7 @@ func TestProcessInitializationOutcomesConcludeAcceptedRootAndChildAdmissions(t *
 			})
 			var err error
 			engine, err = NewEngine(EngineConfig{
-				TreeDurability:                           mode.durability,
+				TreeCommitter:                            mode.committer,
 				DeploymentResolver:                       deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment},
 				ProcessInitializationOutcomeAcknowledger: acknowledger,
 			})
@@ -112,7 +112,7 @@ func TestProcessInitializationOutcomeReportsPostAdmissionInitializationFailure(t
 			initializationErr := errors.New("injected initialization failure")
 			deployment := failingInitializationDeployment(t, test.stage, initializationErr)
 			var outcomes []ProcessInitializationOutcome
-			engine, err := NewEngine(EngineConfig{
+			engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
 				ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
 					_ context.Context,
 					outcome ProcessInitializationOutcome,
@@ -156,7 +156,7 @@ func TestProcessInitializationOutcomeReportsChildInitializationFailure(t *testin
 	parentDeployment := newCrossParentDeployment(t, childDeployment.DeploymentRef())
 	var mu sync.Mutex
 	var outcomes []ProcessInitializationOutcome
-	engine, err := NewEngine(EngineConfig{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
 		DeploymentResolver: deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment},
 		ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
 			_ context.Context,
@@ -203,7 +203,7 @@ func TestProcessInitializationOutcomeReportsChildInitializationFailure(t *testin
 
 func TestRejectingInitializedProcessOutcomePreventsPublication(t *testing.T) {
 	rejection := errors.New("outcome was not accepted")
-	engine, err := NewEngine(EngineConfig{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
 		ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
 			context.Context,
 			ProcessInitializationOutcome,
@@ -229,7 +229,7 @@ func TestRejectingInitializedProcessOutcomePreventsPublication(t *testing.T) {
 func TestRejectingFailedProcessInitializationOutcomePreservesBothFailures(t *testing.T) {
 	initializationErr := errors.New("definition cannot initialize")
 	acknowledgmentErr := errors.New("outcome was not accepted")
-	engine, err := NewEngine(EngineConfig{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
 		ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
 			_ context.Context,
 			outcome ProcessInitializationOutcome,
@@ -257,11 +257,11 @@ func TestRejectingFailedProcessInitializationOutcomePreservesBothFailures(t *tes
 
 func TestRejectingInitializedChildOutcomePreventsChildPublication(t *testing.T) {
 	for _, mode := range []struct {
-		name       string
-		durability TreeDurability
+		name      string
+		committer TreeCommitter
 	}{
-		{name: "ephemeral"},
-		{name: "durable", durability: &recordingTreeDurability{}},
+		{name: "memory", committer: NewMemoryTreeCommitter()},
+		{name: "durable", committer: &recordingTreeCommitter{}},
 	} {
 		t.Run(mode.name, func(t *testing.T) {
 			childDeployment := newChildTestDeployment(t)
@@ -269,7 +269,7 @@ func TestRejectingInitializedChildOutcomePreventsChildPublication(t *testing.T) 
 			rejection := errors.New("child outcome was not accepted")
 			var childID ProcessID
 			engine, err := NewEngine(EngineConfig{
-				TreeDurability:     mode.durability,
+				TreeCommitter:      mode.committer,
 				DeploymentResolver: deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment},
 				ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
 					_ context.Context,
@@ -317,10 +317,10 @@ func TestRejectingInitializedChildOutcomePreventsChildPublication(t *testing.T) 
 
 func TestProcessInitializationOutcomeAcknowledgerPanicAndTypedNilAreContained(t *testing.T) {
 	var typedNil ProcessInitializationOutcomeAcknowledgerFunc
-	if _, err := NewEngine(EngineConfig{ProcessInitializationOutcomeAcknowledger: typedNil}); !errors.Is(err, ErrInvalidEngineConfig) {
+	if _, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), ProcessInitializationOutcomeAcknowledger: typedNil}); !errors.Is(err, ErrInvalidEngineConfig) {
 		t.Fatalf("typed-nil error = %v, want %v", err, ErrInvalidEngineConfig)
 	}
-	engine, err := NewEngine(EngineConfig{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
 		ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
 			context.Context,
 			ProcessInitializationOutcome,
@@ -345,7 +345,7 @@ func TestProcessInitializationOutcomeAcknowledgerPanicAndTypedNilAreContained(t 
 func TestEngineCannotCloseWhileProcessInitializationOutcomeIsPending(t *testing.T) {
 	acknowledging := make(chan struct{})
 	release := make(chan struct{})
-	engine, err := NewEngine(EngineConfig{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
 		ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
 			context.Context,
 			ProcessInitializationOutcome,
@@ -386,7 +386,7 @@ func TestEngineCannotCloseWhileProcessInitializationOutcomeIsPending(t *testing.
 
 func TestRejectedAdmissionProducesNoProcessInitializationOutcome(t *testing.T) {
 	var outcomeCount int
-	engine, err := NewEngine(EngineConfig{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
 		ProcessAdmitter: ProcessAdmitterFunc(func(context.Context, ProcessAdmission) error {
 			return errors.New("not admitted")
 		}),

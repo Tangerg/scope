@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
 	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
@@ -19,7 +18,7 @@ import (
 
 func TestSteerQueuedDuringChildWaitSurvivesRestore(t *testing.T) {
 	for _, durable := range []bool{false, true} {
-		name := "ephemeral"
+		name := "memory"
 		if durable {
 			name = "durable"
 		}
@@ -45,11 +44,11 @@ func TestSteerQueuedDuringChildWaitSurvivesRestore(t *testing.T) {
 				interaction.DefinitionConfig{Name: "interaction.unlimited_resume", Description: "Resume an unlimited input wait."},
 				interaction.DispatcherConfig{Model: client}, interaction.ToolSetConfig{Tools: []tool.Tool{waiting}},
 			)
-			config := agent.EngineConfig{DeploymentResolver: deployment.resolver}
-			var store *agenttest.MemoryTreeDurability
+			config := agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolver}
+			var store *agent.MemoryTreeCommitter
 			if durable {
-				store = agenttest.NewMemoryTreeDurability()
-				config.TreeDurability = store
+				store = agent.NewMemoryTreeCommitter()
+				config.TreeCommitter = store
 			}
 			engine, err := agent.NewEngine(config)
 			if err != nil {
@@ -139,7 +138,7 @@ func TestSteerQueuedDuringChildWaitSurvivesRestore(t *testing.T) {
 					t.Fatal("old Process is missing")
 				}
 				_, awaitErr := process.Await(t.Context())
-				if _, fenced := errors.AsType[*agent.RuntimeError](awaitErr); awaitErr != nil && (!durable || !fenced) {
+				if _, fenced := errors.AsType[*agent.RuntimeError](awaitErr); awaitErr != nil && !fenced {
 					t.Fatal(awaitErr)
 				}
 			}
@@ -195,7 +194,7 @@ func TestSteerAdmittedDuringWaitStepSurvivesToolInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: toolInteractionDeployment(deployment, toolSet).resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: toolInteractionDeployment(deployment, toolSet).resolver})
 	if err != nil {
 		t.Fatal(err)
 	}

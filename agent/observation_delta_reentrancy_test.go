@@ -84,7 +84,7 @@ func TestDeltaListenerContextExpiresAfterReturnOrPanic(t *testing.T) {
 }
 
 func TestDeltaListenerCanJoinAnotherEngine(t *testing.T) {
-	other, err := NewEngine(EngineConfig{})
+	other, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func runDeltaListenerProcess(t *testing.T, callback func(context.Context, *Engin
 	t.Helper()
 	var engine *Engine
 	var err error
-	engine, err = NewEngine(EngineConfig{DeltaListeners: []DeltaListener{
+	engine, err = NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), DeltaListeners: []DeltaListener{
 		DeltaListenerFunc(func(ctx context.Context, delta Delta) { callback(ctx, engine, delta) }),
 	}})
 	if err != nil {

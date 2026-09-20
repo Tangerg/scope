@@ -30,8 +30,8 @@ func TestDeadlineRestoresTheSameAbsoluteTimerAndEffectIdentity(t *testing.T) {
 		deadline := started.Add(10 * time.Second)
 		dispatcher := &recordingTimer{}
 		deployment := deadlineBinding(t, dispatcher)
-		store := agenttest.NewMemoryTreeDurability()
-		engine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: store})
+		store := agent.NewMemoryTreeCommitter()
+		engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -45,7 +45,7 @@ func TestDeadlineRestoresTheSameAbsoluteTimerAndEffectIdentity(t *testing.T) {
 			t.Fatalf("pending timer exists=%t calls=%d error=%v", found, len(dispatcher.identities()), loadErr)
 		}
 		time.Sleep(4 * time.Second)
-		restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: store})
+		restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -83,7 +83,7 @@ func TestDeadlineCancellationStopsOwnedTimerWithoutAdvancingTime(t *testing.T) {
 		started := time.Now()
 		dispatcher := &recordingTimer{}
 		deployment := deadlineBinding(t, dispatcher)
-		engine, err := agent.NewEngine(agent.EngineConfig{})
+		engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -115,7 +115,7 @@ func TestDeadlineAcceptsPastInstantAndRejectsZero(t *testing.T) {
 		if _, err := deployment.Definition().Start(encodedInput(t, time.Time{})); !errors.Is(err, agent.ErrInvalidPayload) {
 			t.Fatalf("zero deadline = %v", err)
 		}
-		engine, err := agent.NewEngine(agent.EngineConfig{})
+		engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -180,7 +180,7 @@ func TestDeadlineClassifiesInvalidSettlementThroughEngine(t *testing.T) {
 			t.Fatal(err)
 		}
 		deployment := deadlineBinding(t, dispatcher)
-		engine, err := agent.NewEngine(agent.EngineConfig{})
+		engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 		if err != nil {
 			t.Fatal(err)
 		}

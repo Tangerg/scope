@@ -16,13 +16,13 @@ func ExampleQuota() {
 }
 
 func TestTreeQuotaMustAdmitRoot(t *testing.T) {
-	if _, err := NewEngine(EngineConfig{TreeLimits: TreeLimits{MaxTreeProcesses: NewQuota(0)}}); !errors.Is(err, ErrInvalidEngineConfig) {
+	if _, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), TreeLimits: TreeLimits{MaxTreeProcesses: NewQuota(0)}}); !errors.Is(err, ErrInvalidEngineConfig) {
 		t.Fatalf("empty tree allowance accepted: %v", err)
 	}
 }
 
 func TestMailboxCapacityFitsTransitionConsumption(t *testing.T) {
-	if _, err := NewEngine(EngineConfig{Limits: Limits{MaxPendingSignals: uint64(^uint32(0)) + 1}}); !errors.Is(err, ErrInvalidEngineConfig) {
+	if _, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: Limits{MaxPendingSignals: uint64(^uint32(0)) + 1}}); !errors.Is(err, ErrInvalidEngineConfig) {
 		t.Fatalf("unrepresentable mailbox capacity accepted: %v", err)
 	}
 	wire := controlValue(preparedEngineTestSnapshot(t).wire())
@@ -136,6 +136,10 @@ func TestChildAdmissionRejectsUnlimitedAuthorityFromFiniteParent(t *testing.T) {
 		parent.requestCancellation(controlValue(newCancellationIntent(cancellationOwnerHost, "test finished")))
 		runtime.installTermination(parent, stepOutcome{})
 		runtime.finishIfTerminal(parent)
+		runtime.tryStartCheckpoint()
+		if runtime.commit != nil {
+			runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+		}
 		runtime.publishJoins()
 	})
 	spec := childTestSpec(controlValue(ParseChildKey("unlimited")), parent.deployment.DeploymentRef(), controlValue(EncodePayload(childTestInput{Mode: "leaf"})))

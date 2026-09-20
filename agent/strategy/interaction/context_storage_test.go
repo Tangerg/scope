@@ -91,7 +91,7 @@ func measureInteractionContext(t *testing.T, rounds uint32, mode string) (int, [
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: toolInteractionDeployment(deployment, toolSet).resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: toolInteractionDeployment(deployment, toolSet).resolver})
 	if err != nil {
 		t.Fatal(err)
 	}

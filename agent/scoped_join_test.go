@@ -20,16 +20,16 @@ func TestScopedJoinRequiresDescendantCheckpointAcknowledgment(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				dispatcher := newBlockingChildDispatcher("cleanup", "sibling")
 				defer dispatcher.ReleaseAll()
-				durability := &blockingCancellationCheckpointDurability{
-					recordingTreeDurability: &recordingTreeDurability{},
-					entered:                 make(chan struct{}), release: make(chan struct{}),
+				committer := &blockingCancellationCheckpointDurability{
+					recordingTreeCommitter: &recordingTreeCommitter{},
+					entered:                make(chan struct{}), release: make(chan struct{}),
 				}
 				if reject {
-					durability.err = errors.New("descendant checkpoint rejected")
+					committer.err = errors.New("descendant checkpoint rejected")
 				}
-				release := sync.OnceFunc(func() { close(durability.release) })
+				release := sync.OnceFunc(func() { close(committer.release) })
 				defer release()
-				engine, err := NewEngine(EngineConfig{TreeDurability: durability})
+				engine, err := NewEngine(EngineConfig{TreeCommitter: committer})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -51,7 +51,7 @@ func TestScopedJoinRequiresDescendantCheckpointAcknowledgment(t *testing.T) {
 				joined := make(chan error, 1)
 				go func() { joined <- scope.Join(t.Context()) }()
 				dispatcher.Release("cleanup")
-				<-durability.entered
+				<-committer.entered
 				synctest.Wait()
 				select {
 				case joinErr := <-joined:
@@ -64,10 +64,10 @@ func TestScopedJoinRequiresDescendantCheckpointAcknowledgment(t *testing.T) {
 				release()
 				joinErr := <-joined
 				if reject {
-					if !errors.Is(joinErr, durability.err) {
+					if !errors.Is(joinErr, committer.err) {
 						t.Fatalf("rejected drain = %v", joinErr)
 					}
-					_ = awaitRuntimeError(t, root, durability.err)
+					_ = awaitRuntimeError(t, root, committer.err)
 				} else {
 					if joinErr != nil {
 						t.Fatal(joinErr)
@@ -79,7 +79,7 @@ func TestScopedJoinRequiresDescendantCheckpointAcknowledgment(t *testing.T) {
 					_ = mustAwait(t, root)
 				}
 				dispatcher.ReleaseAll()
-				if operationErr := root.Join(t.Context()); !errors.Is(operationErr, durability.err) {
+				if operationErr := root.Join(t.Context()); !errors.Is(operationErr, committer.err) {
 					t.Fatalf("root join = %v", operationErr)
 				}
 				mustCloseEngine(t, engine)
@@ -91,7 +91,7 @@ func TestScopedJoinRequiresDescendantCheckpointAcknowledgment(t *testing.T) {
 func TestScopedJoinSeparatesResultsFromDescendantCleanup(t *testing.T) {
 	for _, durable := range []bool{false, true} {
 		for _, boundary := range []ChildWaitBoundary{ChildWaitBoundaryResult, ChildWaitBoundaryDrained} {
-			name := "ephemeral/" + boundary.String()
+			name := "memory/" + boundary.String()
 			if durable {
 				name = "durable/" + boundary.String()
 			}
@@ -99,9 +99,9 @@ func TestScopedJoinSeparatesResultsFromDescendantCleanup(t *testing.T) {
 				synctest.Test(t, func(t *testing.T) {
 					dispatcher := newBlockingChildDispatcher("cleanup", "sibling")
 					defer dispatcher.ReleaseAll()
-					config := EngineConfig{}
+					config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
 					if durable {
-						config.TreeDurability = &recordingTreeDurability{}
+						config.TreeCommitter = &recordingTreeCommitter{}
 					}
 					engine, err := NewEngine(config)
 					if err != nil {
@@ -145,7 +145,7 @@ func TestScopedJoinSeparatesResultsFromDescendantCleanup(t *testing.T) {
 					}
 					var interrupted TreeSnapshot
 					if durable {
-						checkpoints := config.TreeDurability.(*recordingTreeDurability).treeCheckpoints()
+						checkpoints := config.TreeCommitter.(*recordingTreeCommitter).treeCheckpoints()
 						interrupted = checkpoints[len(checkpoints)-1].TreeSnapshot()
 					}
 					dispatcher.Release("cleanup")
@@ -170,8 +170,8 @@ func TestScopedJoinSeparatesResultsFromDescendantCleanup(t *testing.T) {
 					if !durable {
 						return
 					}
-					recoveredDurability := &recordingTreeDurability{}
-					recoveredEngine, err := NewEngine(EngineConfig{TreeDurability: recoveredDurability})
+					recoveredDurability := &recordingTreeCommitter{}
+					recoveredEngine, err := NewEngine(EngineConfig{TreeCommitter: recoveredDurability})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -261,10 +261,10 @@ func TestJoinRetainsParentResultAndWaitsForFailedDescendantCleanup(t *testing.T)
 		dispatcher := newBlockingChildDispatcher("cleanup", "sibling")
 		defer dispatcher.ReleaseAll()
 		failure := errors.New("sibling settlement storage failed")
-		durability := &rejectingEffectDurability{
-			recordingTreeDurability: &recordingTreeDurability{}, rejectedKind: EffectBoundaryKindSettled, err: failure,
+		committer := &rejectingEffectDurability{
+			recordingTreeCommitter: &recordingTreeCommitter{}, rejectedKind: EffectBoundaryKindSettled, err: failure,
 		}
-		engine, err := NewEngine(EngineConfig{TreeDurability: durability})
+		engine, err := NewEngine(EngineConfig{TreeCommitter: committer})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -318,7 +318,7 @@ func TestDurableChildResultDoesNotWaitForUnrelatedDispatch(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		dispatcher := newBlockingChildDispatcher("first", "second", "third")
 		defer dispatcher.ReleaseAll()
-		engine, err := NewEngine(EngineConfig{TreeDurability: &recordingTreeDurability{}})
+		engine, err := NewEngine(EngineConfig{TreeCommitter: &recordingTreeCommitter{}})
 		if err != nil {
 			t.Fatal(err)
 		}

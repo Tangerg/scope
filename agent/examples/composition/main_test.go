@@ -82,6 +82,7 @@ func TestDefinitionsRejectInvalidBoundaryValues(t *testing.T) {
 }
 
 func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
+	store := agent.NewMemoryTreeCommitter()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	local, err := newUppercaseDeployment()
@@ -95,7 +96,7 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 	}
 	resolver := deploymentResolver{local.DeploymentRef(): local, model.DeploymentRef(): model}
 	observations := &agenttest.ObservationRecorder{}
-	engine, err := agent.NewEngine(agent.EngineConfig{
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store,
 		DeploymentResolver: resolver, EventListeners: []agent.EventListener{observations},
 	})
 	if err != nil {
@@ -145,20 +146,17 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 	if len(tree.ProcessSnapshots()) != 3 {
 		t.Fatalf("captured Processes=%d, want one root and two children", len(tree.ProcessSnapshots()))
 	}
-	if killErr := root.Kill(ctx, "replace captured composition instance"); killErr != nil {
-		t.Fatal(killErr)
-	}
-	if result, awaitErr := root.Await(ctx); awaitErr != nil || result.Status() != agent.StatusKilled {
-		t.Fatalf("original root status=%s error=%v", result.Status(), awaitErr)
-	}
-	if releaseErr := engine.ReleaseTree(ctx, root.ID()); releaseErr != nil {
-		t.Fatal(releaseErr)
-	}
-	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
-		t.Fatal(closeErr)
-	}
+	t.Cleanup(func() {
+		_ = root.Kill(context.Background(), "release retired writer")
+		if joinErr := root.Join(context.Background()); joinErr != nil && !errors.Is(joinErr, agent.ErrTreeIncarnationConflict) {
+			t.Error(joinErr)
+		}
+		if closeErr := engine.Close(context.Background()); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
 
-	restoredEngine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver})
+	restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +302,7 @@ func TestCompositionRestoresEverySignalBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deploymentResolver{
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deploymentResolver{
 		local.DeploymentRef(): local, model.DeploymentRef(): model,
 	}})
 	if err != nil {
@@ -455,7 +453,7 @@ func TestCompositionPreservesChildFailures(t *testing.T) {
 			if !failStart {
 				resolver[model.DeploymentRef()] = model
 			}
-			engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver})
+			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -532,5 +530,5 @@ func TestCompositionRejectsUnaddressedInputAtAdmission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	conformancetest.Run(t, agent.DeploymentConfig{Definition: base.Definition(), ImplementationDigest: base.DeploymentRef().ImplementationDigest(), ConfigurationDigest: base.DeploymentRef().ConfigurationDigest()}, agent.EngineConfig{DeploymentResolver: deploymentResolver{local.DeploymentRef(): local, model.DeploymentRef(): model}}, input)
+	conformancetest.Run(t, agent.DeploymentConfig{Definition: base.Definition(), ImplementationDigest: base.DeploymentRef().ImplementationDigest(), ConfigurationDigest: base.DeploymentRef().ConfigurationDigest()}, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deploymentResolver{local.DeploymentRef(): local, model.DeploymentRef(): model}}, input)
 }

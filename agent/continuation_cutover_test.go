@@ -33,7 +33,7 @@ func TestEpisodeCutoverLeavesRejectedInputWithIngress(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		engine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: store.trees})
+		engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store.trees})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -163,7 +163,7 @@ func TestEpisodeCutoverLeavesRejectedInputWithIngress(t *testing.T) {
 		if loadErr != nil || !present {
 			t.Fatalf("old retained tree=%t %v", present, loadErr)
 		}
-		restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: store.trees})
+		restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store.trees})
 		if err != nil {
 			t.Fatal(err)
 		}

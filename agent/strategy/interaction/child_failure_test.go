@@ -48,7 +48,7 @@ func TestToolChildFailuresRetainRestorableParentState(t *testing.T) {
 				t.Fatal(err)
 			}
 			child := tools.Deployment()
-			config := agent.EngineConfig{DeploymentResolver: delegateResolver{child.DeploymentRef(): child}}
+			config := agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: delegateResolver{child.DeploymentRef(): child}}
 			wantCode, wantCalls := "engine.limit.steps", int32(1)
 			wantKind, wantMessage := agent.FailureKindExecution, "agent: resource limit exceeded"
 			if stage == "start" {
@@ -132,7 +132,7 @@ func TestChildAdmissionFailurePolicyDistinguishesToolsAndDelegates(t *testing.T)
 				return textResponse("handled rejection"), nil
 			})
 			deployment := configuredInteraction(t, config, interaction.DispatcherConfig{Model: model}, toolConfig)
-			engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolveWith(child), ProcessAdmitter: agent.ProcessAdmitterFunc(func(_ context.Context, admission agent.ProcessAdmission) error {
+			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolveWith(child), ProcessAdmitter: agent.ProcessAdmitterFunc(func(_ context.Context, admission agent.ProcessAdmission) error {
 				if !admission.Relation().IsRoot() {
 					return errors.New("child admission rejected")
 				}

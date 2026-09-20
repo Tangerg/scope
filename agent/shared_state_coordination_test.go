@@ -141,12 +141,12 @@ func (r *revisionStore) Dispatch(ctx context.Context, request agent.EffectReques
 }
 
 type revisionLostAcknowledgment struct {
-	*agenttest.MemoryTreeDurability
+	*agent.MemoryTreeCommitter
 	lost atomic.Bool
 }
 
 func (r *revisionLostAcknowledgment) CommitEffect(ctx context.Context, boundary agent.EffectBoundary) error {
-	if err := r.MemoryTreeDurability.CommitEffect(ctx, boundary); err != nil {
+	if err := r.MemoryTreeCommitter.CommitEffect(ctx, boundary); err != nil {
 		return err
 	}
 	if boundary.Kind() == agent.EffectBoundaryKindSettled && r.lost.CompareAndSwap(false, true) {
@@ -182,8 +182,8 @@ func TestSharedStateCoordinationRestoresObservedRevisionInsteadOfCurrentState(t 
 		t.Fatal(err)
 	}
 	agenttest.RunDefinitionConformance(t, agenttest.DefinitionConformanceConfig{Definition: definition, Input: input})
-	store := agenttest.NewMemoryTreeDurability()
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: &revisionLostAcknowledgment{MemoryTreeDurability: store}})
+	store := agent.NewMemoryTreeCommitter()
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: &revisionLostAcknowledgment{MemoryTreeCommitter: store}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestSharedStateCoordinationRestoresObservedRevisionInsteadOfCurrentState(t 
 	if loadErr != nil || !present {
 		t.Fatalf("lost-response head=%t %v", present, loadErr)
 	}
-	restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: store})
+	restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 	if err != nil {
 		t.Fatal(err)
 	}

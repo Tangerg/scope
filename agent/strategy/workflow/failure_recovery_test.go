@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
 	"github.com/Tangerg/scope/agent/strategy/workflow"
 )
 
@@ -42,8 +41,8 @@ func TestNestedWorkflowPreservesMaximumFailureDiagnostic(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := mustDeployment(t, mustDefinition(t, "test.failure.root", mapper), "failure-root")
-	store := agenttest.NewMemoryTreeDurability()
-	config := agent.EngineConfig{TreeDurability: store, DeploymentResolver: deploymentResolver{
+	store := agent.NewMemoryTreeCommitter()
+	config := agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deploymentResolver{
 		leaf.DeploymentRef(): leaf, caller.DeploymentRef(): caller, router.DeploymentRef(): router,
 	}}
 	engine, err := agent.NewEngine(config)

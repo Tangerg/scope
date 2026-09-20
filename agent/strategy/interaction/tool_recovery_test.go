@@ -10,7 +10,6 @@ import (
 	"time"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
 	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
@@ -21,8 +20,8 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 		t.Run(fmt.Sprintf("concurrency_%d", concurrency), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
-			store := agenttest.NewMemoryTreeDurability()
-			gate := &toolSettlementCrash{MemoryTreeDurability: store, firstSettled: make(chan struct{})}
+			store := agent.NewMemoryTreeCommitter()
+			gate := &toolSettlementCrash{MemoryTreeCommitter: store, firstSettled: make(chan struct{})}
 			first := &recoveryTool{name: "first", key: "first"}
 			uncertain := &recoveryTool{name: "uncertain", key: "shared", after: gate.firstSettled, unknown: true}
 			last := &recoveryTool{name: "last", key: "shared"}
@@ -60,7 +59,7 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 				MaxModelCalls: agent.NewQuota(2), MaxConcurrentToolCalls: concurrency, Tools: tools,
 			}, interaction.DispatcherConfig{Model: model}, interaction.ToolSetConfig{})
 			deployment = toolInteractionDeployment(deployment.Deployment, tools)
-			engine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: gate, DeploymentResolver: deployment.resolver})
+			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: gate, DeploymentResolver: deployment.resolver})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -99,7 +98,7 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 			if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 				t.Fatal(closeErr)
 			}
-			restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: store, DeploymentResolver: deployment.resolver})
+			restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployment.resolver})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -187,14 +186,14 @@ func (r *recoveryTool) Call(ctx context.Context, _ tool.Invocation) (chat.ToolOu
 }
 
 type toolSettlementCrash struct {
-	*agenttest.MemoryTreeDurability
+	*agent.MemoryTreeCommitter
 	firstSettled   chan struct{}
 	firstRequest   agent.EffectRequest
 	unknownRequest agent.EffectRequest
 }
 
 func (t *toolSettlementCrash) CommitEffect(ctx context.Context, boundary agent.EffectBoundary) error {
-	if err := t.MemoryTreeDurability.CommitEffect(ctx, boundary); err != nil {
+	if err := t.MemoryTreeCommitter.CommitEffect(ctx, boundary); err != nil {
 		return err
 	}
 	settlement, present := boundary.Settlement()
@@ -230,8 +229,8 @@ func TestToolRecoveryDerivesDirectPolicyFromExactBinding(t *testing.T) {
 		Name: "interaction.direct-recovery", Description: "Recover the bound direct result.", MaxModelCalls: agent.NewQuota(1), Tools: tools,
 	}, interaction.DispatcherConfig{Model: model}, interaction.ToolSetConfig{})
 	deployment = toolInteractionDeployment(deployment.Deployment, tools)
-	store := &recoveryRequestRecorder{MemoryTreeDurability: agenttest.NewMemoryTreeDurability(), unknown: make(chan agent.EffectRequest, 1)}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: store, DeploymentResolver: deployment.resolver})
+	store := &recoveryRequestRecorder{MemoryTreeCommitter: agent.NewMemoryTreeCommitter(), unknown: make(chan agent.EffectRequest, 1)}
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,12 +296,12 @@ func TestToolRecoveryDerivesDirectPolicyFromExactBinding(t *testing.T) {
 }
 
 type recoveryRequestRecorder struct {
-	*agenttest.MemoryTreeDurability
+	*agent.MemoryTreeCommitter
 	unknown chan agent.EffectRequest
 }
 
 func (r *recoveryRequestRecorder) CommitEffect(ctx context.Context, boundary agent.EffectBoundary) error {
-	if err := r.MemoryTreeDurability.CommitEffect(ctx, boundary); err != nil {
+	if err := r.MemoryTreeCommitter.CommitEffect(ctx, boundary); err != nil {
 		return err
 	}
 	if settlement, ok := boundary.Settlement(); ok && settlement.Status() == agent.SettlementStatusUnknown {

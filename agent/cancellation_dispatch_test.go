@@ -17,7 +17,7 @@ import (
 func TestTerminationCancelsDispatchAndStopsPreparedBatch(t *testing.T) {
 	for _, durable := range []bool{false, true} {
 		for _, status := range []SettlementStatus{SettlementStatusSucceeded, SettlementStatusFailed, SettlementStatusUnknown} {
-			name := "ephemeral"
+			name := "memory"
 			if durable {
 				name = "durable"
 			}
@@ -30,9 +30,9 @@ func TestTerminationCancelsDispatchAndStopsPreparedBatch(t *testing.T) {
 					}
 					release := sync.OnceFunc(func() { close(dispatcher.release) })
 					defer release()
-					config := EngineConfig{}
+					config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
 					if durable {
-						config.TreeDurability = &recordingTreeDurability{}
+						config.TreeCommitter = &recordingTreeCommitter{}
 					}
 					engine, err := NewEngine(config)
 					if err != nil {
@@ -146,7 +146,7 @@ func TestHostTerminationCancelsActiveDispatch(t *testing.T) {
 				}
 				release := sync.OnceFunc(func() { close(dispatcher.release) })
 				defer release()
-				engine, err := NewEngine(EngineConfig{})
+				engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -247,10 +247,7 @@ func (c *cancellationDispatcher) ReplayPolicy(Effect) ReplayPolicy {
 
 func interruptedTreeSnapshot(t *testing.T, engine *Engine, process *Process, config EngineConfig) TreeSnapshot {
 	t.Helper()
-	if config.TreeDurability != nil {
-		checkpoints := config.TreeDurability.(*recordingTreeDurability).treeCheckpoints()
-		return checkpoints[len(checkpoints)-1].TreeSnapshot()
-	}
+
 	tree, err := engine.CaptureTree(t.Context(), process.Relation().RootID())
 	if err != nil {
 		t.Fatal(err)

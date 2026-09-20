@@ -1,356 +1,126 @@
 // Package agent provides the Scope Agent Framework execution kernel.
-//
 // [Definition] owns immutable behavior and creates serializable [Execution]
-// values; [Engine] owns Process lifecycle, [Signal] delivery, [Effect]
-// dispatch, child composition, resource bounds, observation, and portable
-// snapshots. Strategy payloads stay opaque to the kernel, and persistence
-// stays a caller responsibility.
+// values. [Engine] owns Process lifecycle, Signal delivery, Effect dispatch,
+// child composition, resource bounds, observation, and tree recovery.
+// Strategy payloads remain opaque to the kernel.
 //
-// Engine and Process operations require a non-nil context. A nil context is a
-// programming error and panics on a valid receiver; use context.TODO when the
-// caller has not yet chosen a context. A canceled non-nil context follows each
-// operation's cancellation contract.
+// # Execution and ownership
 //
-// The kernel exists for one purpose: a multi-step agent with children and
-// external side effects must resume after a process restart with a stated
-// meaning for every operation that was in flight. Everything below follows
-// from that.
+// A root tree is the consistency, commit, and recovery unit. A Process isolates
+// lifecycle and Strategy state; a Step is the concurrency unit. Sibling Steps
+// may run concurrently, but one tree owner revalidates and adopts their results.
+// Independent commit throughput requires separate root trees.
 //
-// # The execution waist
+// Execution.Step is cancellable, discardable candidate computation. It must
+// not perform external I/O, hide unbounded work, or start unowned goroutines.
+// External work is declared as an [Effect] and performed by a [Dispatcher].
+// These are cooperation contracts, not a sandbox: cancellation cannot forcibly
+// terminate a goroutine, and implementations must return in bounded time.
+// Expired Step attempts are discarded, including their errors; Execution is
+// rebuilt from the last adopted state. Before adoption, the Engine validates
+// that the Deployment can restore the candidate's Snapshot. Definitions own
+// state equivalence and deterministic continuation, verified by conformance cases.
 //
-// Every strategy intersects on exactly two interfaces:
+// [Continue] permits further private candidate computation. [Checkpoint]
+// requires acknowledgment before another Step or Effect in that Process runs.
+// Pending commits and freezes block work that cannot cross their boundary;
+// inspection never drives execution. The owner services ready work in bounded
+// scheduling turns, while the Host owns storage deadlines.
 //
-//	type Definition interface {
-//		Descriptor() Descriptor
-//		Start(Payload) (Execution, error)
-//		Restore(context.Context, ExecutionState) (Execution, error)
-//	}
+// # One commit protocol
 //
-//	type Execution interface {
-//		Step(context.Context, []Signal) (Transition, error)
-//		Snapshot() (ExecutionState, error)
-//	}
+// Every Engine requires an explicit [TreeCommitter]. [NewMemoryTreeCommitter]
+// supplies the same compare-and-swap, writer fencing, and deduplication protocol
+// with retention limited to that store instance's lifetime. Persistent adapters
+// provide their own storage transactions. No backend bypasses acknowledgment.
 //
-// The waist is not generic, because the Engine holds heterogeneous definitions
-// homogeneously. [Payload], [Signal], [Effect], and [ExecutionState]
-// cross it as bounded, defensively copied JSON. Generics belong to edge
-// adapters that convert a Go input to raw input and raw output back to a Go
-// output; they never enter the contract the Engine has to hold.
+// Start commits the initial head and writer identity before publishing the
+// Process. Every [TreeSnapshot] carries that identity. RestoreTree validates the
+// exact Deployment binding and atomically activates a new writer against the
+// supplied head; missing heads, stale digests, and superseded writers fail.
+// Recovery retains captured authority, limits, budgets, and usage. The Host
+// authorizes that captured authority under current policy before restoration.
 //
-// # Step
+// The runtime may hold a newer private candidate than its acknowledged head.
+// Signal admission, child publication, committed Events, terminal results, and
+// inspection snapshots become visible only after their tree commit succeeds.
+// [Engine.CaptureTree] freezes a safe cut and acknowledges it before returning;
+// it cannot manufacture recovery state after a runtime failure.
+// [Engine.InspectTree] combines acknowledged Process snapshots with current job,
+// commit, and freeze facts. Those work facts may be newer than the snapshots.
 //
-// A Step is one cancellable, discardable, purely candidate reduction. It may
-// not call a model, run a tool, perform any other external I/O, hide an
-// unbounded loop, or start an unowned goroutine. An external operation can
-// only be declared as an [Effect] and executed outside the Step.
+// A failed acknowledgment stops the writer with a [RuntimeError], without
+// inventing a logical termination or overwriting an already published result.
+// The error carries its last acknowledged digest and uncertain Effect identities.
+// Recovery must load the store's authoritative head: a lost response or another
+// writer may have advanced storage beyond this runtime's knowledge.
 //
-// These are cooperation contracts for implementations sharing one Go process.
-// Capability checks mediate declared Effects; they do not sandbox arbitrary I/O.
-// Cancellation and kill still depend on in-flight code returning and external
-// operations settling. They cannot forcibly terminate a goroutine.
+// # External Effects and uncertainty
 //
-// Three scales explain the kernel: the root tree is the consistency, commit,
-// and recovery unit; a Process is the lifecycle and strategy-state isolation
-// unit; a Step is the concurrency unit. Adding Processes to a tree adds
-// isolated computation and external I/O concurrency, not authoritative commit
-// parallelism. Independent commit throughput means separate root trees.
+// Dispatcher Effects advance in declaration order through planned, pending,
+// and settled. The pending boundary commits the complete prospective tree before
+// dispatch starts. Settlement commits before continuation or publication. A
+// returned error means the external outcome is unknown; it is not definite
+// failure. A planned Effect that never dispatched cannot become unknown.
+// Direct-child controls perform no external I/O: recipient changes and their
+// definite settlement share one atomic tree checkpoint.
 //
-// Each root tree has one private commit owner. Pure computation does not
-// occupy the commit owner: a Process has at most one Step job in flight and
-// siblings run in parallel. Only the owner revalidates and adopts a result.
-// Process state owns local admission rules and deterministic transitions;
-// the tree owner coordinates cross-Process waits, external jobs, durable
-// acknowledgment, and publication. Candidate adoption and wait registration
-// succeed together, or all new registrations are rolled back.
-// When a kill, pause, cancel, or a new incarnation expires an attempt, the
-// result and its error are discarded whole and the Execution is rebuilt from
-// committed Execution state.
+// An interrupted pending attempt may replay only when its [ReplayPolicy]
+// establishes the same logical operation under the original identity. A settled
+// Unknown requires explicit Host reconciliation or [Process.ReplayUnknownEffect].
+// The existing Unknown remains authoritative throughout replay until a definite
+// resolution commits. Cancellation still collects already started external work.
+// Terminal snapshots retain actual settlements, unstarted tails, and unresolved
+// identities; restoration never silently turns uncertainty into success.
 //
-// The owner services continuously ready control requests, job completions, and
-// queued Processes in bounded scheduling turns. Queries do not wake execution.
-// Pending commits and held freezes still block work that cannot cross those
-// boundaries; a checkpoint still requires a safe tree cut. This is a scheduling
-// guarantee, not a wall-clock deadline: implementations must honor their bounded
-// execution contracts, and the Host owns storage deadlines.
-// Checkpoint explicitly commits a Strategy state before another Step or Effect
-// can run. In durable mode it waits for TreeDurability acknowledgment even when
-// the Process remains runnable. Hosts can atomically project Strategy-owned facts
-// from that tree; cancellation never reopens the Strategy to publish results.
+// # Signals, lifecycle, and bounds
 //
-// A progress checkpoint can acknowledge one Process while unrelated sibling
-// jobs run. Their cut retains committed state and any prepared Effect frontier;
-// their return cannot change that cut until the single commit owner resumes.
+// [Signal] is the only runtime input into Execution. [Process.DeliverSignals]
+// atomically admits an ordered batch and charges each identity once. Reusing an
+// identity with different immutable content conflicts. [SignalReceipt] exposes
+// acknowledged admission and consumption for delivery reconciliation. Waits and
+// child waits carry explicit identities; stale continuation input is rejected.
+// Candidate failure cannot permanently consume an input.
 //
-// Before adopting initial or candidate state, the Engine captures Snapshot and
-// successfully restores it through that Deployment's Definition. An
-// unrestorable candidate cannot advance signal consumption or dispatch Effects.
-// This admission check does not prove exact state equivalence or deterministic
-// continuation: the Definition must establish those properties with conformance
-// cases. Complete tree recovery also validates runtime identities, mailboxes,
-// child ownership, settlements, and the exact Deployment binding.
-// The Engine owns deployment identity; a Definition validates its own opaque
-// state under that matching binding rather than duplicating deployment identity.
-// RestoreTree retains captured authority, limits, budgets, and usage. EngineConfig
-// resource defaults apply to new root trees; the Host must authorize a captured
-// tree before restoring it under current policy. Recovery never silently edits
-// historical grants or repeats initialization admission.
+// Terminal intent cancels owned Step, Dispatch, and child-admission contexts;
+// it still joins started work and required acknowledgments. A late successful
+// child initialization joins under that intent before running a Step.
+// [Process.Await] returns an acknowledged result; [Process.Join] additionally
+// waits for descendant work and bookkeeping. [Engine.Run] combines Start, Join,
+// and Await. Terminal Unknown settlements remain evidence of remote uncertainty.
 //
-// Lifecycle timestamps are observed UTC wall times, not causal ordering proofs.
-// Clock adjustment or a different restoration writer can put a finish before a
-// start, or a child start before its parent. Identities, relations, Step progress,
-// and committed lifecycle facts establish causality; timestamps must be present
-// but need not increase.
+// [Engine.ReleaseTree] removes a drained tree from Engine lookup without
+// deleting storage or invalidating existing handles. [Engine.Close] requires
+// publication, bookkeeping, owned work, and separately acquired freezes to finish.
+// Host cancellation does not abandon required acknowledgments. Engine and Process
+// operations require non-nil contexts; nil is a programming error.
 //
-// # Effects and settlement
+// [Limits] separates cumulative Budget authority from mailbox and snapshot
+// capacity. Zero Quota is unlimited, including during recovery. Finite parents
+// permanently charge child grants; unlimited grants do not debit a finite
+// counter. Captured quotas survive restoration without new Engine defaults.
+// Unlimited execution still retains history and checks numeric identity overflow;
+// the Host chooses retention and resource policy.
 //
-// An Effect is the only way an Execution requests work outside a Step. The
-// Engine derives a stable effect identity from the Process identity, step
-// sequence, and effect index, then freezes the payload. It interprets only its
-// own closed set of framework Effects: [NewWaitEffect], [NewChildStartEffect],
-// [NewChildWaitEffect], [NewChildSignalEffect], and [NewChildCancelEffect]. It hands a
-// strategy effect whole to the dispatcher its [Deployment] bound. A Deployment
-// without a dispatcher admits only framework Effects, including during recovery.
-// A dispatcher never mutates an Execution; it produces deltas and one settlement
-// Signal.
+// Snapshot admission reserves bounded control and termination metadata with
+// worst-case JSON escaping. Admission of one cut does not authorize future
+// growth. An external result that cannot fit stops the runtime with its unresolved
+// identity; the Host reconciles the outcome from the acknowledged stored head.
 //
-// Dispatcher Effects advance through planned, pending, and settled in
-// declaration order, one at a time:
+// # Recovery and observation
 //
-//  1. the owner validates candidate state, signal consumption, budget,
-//     capability, and batch identity;
-//  2. the effect enters pending, and in durable mode the pending boundary
-//     commits the whole tree first;
-//  3. only then does the dispatcher job start, outside the owner;
-//  4. the result is normalized to a definite or an unknown settlement;
-//  5. only after the settled boundary succeeds does the owner install the
-//     settlement, candidate state, mailbox, and Process transition.
+// [TreeSnapshot] is the sole recovery representation, with one strict current
+// schema and no version envelopes, migration dispatch, or compatibility reads.
+// [ProcessSnapshot] is diagnostic state, not an independent recovery unit.
+// [ExecutionState] contains opaque Strategy-owned state; Hosts resolve an exact
+// [DeploymentRef] rather than interpreting Strategy kinds or control flow.
 //
-// Direct-child controls need no external pending attempt. Their recipient
-// change and definite settlement share one tree commit; the recipient cannot
-// consume newly delivered input before durable acknowledgment.
-//
-// A planned effect that was never dispatched can never become unknown.
-// Automatic redelivery is allowed only where replaying one effect identity is
-// proven to be the same logical operation; where it is not, an unknown
-// settlement stays observable and awaits explicit adjudication. It is never
-// silently replayed and never assumed successful. Ephemeral mode runs the same
-// state machine without calling the durability port.
-// Process.ReplayUnknownEffect explicitly requests a same-identity attempt only
-// when the Dispatcher guarantees idempotence. The original Unknown remains
-// authoritative throughout that attempt; a definite result uses the existing
-// resolved boundary. Adjudication publishes EventEffectResolved after acknowledgment;
-// replay also publishes its own attempt facts. Cancellation still collects an
-// already started attempt.
-// A prepared batch has one execution frontier: definitely settled Effects
-// precede at most one pending or unknown Effect, followed only by planned
-// Effects. Runtime scheduling and snapshot admission enforce this same order.
-// Terminal intent stops the remaining batch without adopting candidate state
-// or advancing input consumption. The terminal snapshot retains the started
-// prefix's actual settlements and the unstarted planned tail. PreparedEffects
-// usage and published child allocations remain charged; unused Step and
-// settlement-Signal reservations are released. Restoring this terminal evidence
-// neither executes the candidate nor replays its Effects.
-// If installing a settled batch fails, the same boundary retains its actual
-// settlements without adopting the candidate or partially installing waits.
-// A restored pending external attempt becomes Unknown when termination forbids
-// replay. An interrupted child start whose child is absent from the authoritative
-// cut becomes a failed publication; its Host admission may already have run.
-//
-// # Signals and waiting
-//
-// A Signal is the only runtime input into an Execution. [Process.DeliverSignals]
-// admits one ordered batch atomically, including a batch with one Signal.
-// Repeated submission of one signal identity produces exactly one logical
-// consumption and never charges the signal budget twice. The
-// same identity with different immutable content is rejected as a conflict.
-// A SignalID may appear only once within a batch. Across submissions, the mailbox
-// validates historical identities and admits only new ones, atomically. A false
-// admission result with nil error therefore confirms that the entire batch was
-// already accepted.
-// In durable mode, successful admission is acknowledged only after mailbox
-// records and budget charges commit to the authoritative tree head. The
-// consumption cursor advances only when candidate state and transition commit,
-// so a failed Step never permanently swallows input.
-// ProcessSnapshot.SignalReceipts exposes the same admitted identities and
-// committed consumption cursor for delivery reconciliation and input cutover.
-// [SignalReceipt.Matches] proves external admission, including after
-// consumption. Internal wait-opening and child-wait settlement Signals cannot
-// prove an external delivery even when their identity and payload agree.
-// A terminal Process may retain inputs admitted after its final Signal window.
-// Their original recipient binding and pending payload remain observable.
-// Consumption is bounded by the Signal window delivered to that Step; input
-// admitted while the Step runs belongs to a later window.
-// Once consumed, a mailbox record keeps its identity, addressed wait, arrival
-// order, and normalized payload digest. The payload itself is released with
-// candidate adoption. Recovery retains exact pending inputs and validates wait
-// history from these facts; consumed content is no longer a transcript.
-//
-// A wait identity is minted by the Engine; an Execution cannot generate an
-// external one. The Execution declares a logical wait through a [Transition];
-// the Engine saves the mapping and enqueues an internal Signal carrying the
-// identity; on the next Step the Execution records it and enters Waiting
-// explicitly. That round trip keeps the Execution the single writer of its own
-// state. The Engine wall clock never enters strategy input — business time is
-// submitted as an explicit payload.
-// Wait registration and its opening Signal are one mailbox operation. Restoring
-// history uses the same opening, admission, and consumption rules: an answer
-// closes its wait when consumed, and Process termination closes all remaining
-// waits. Snapshots whose wait facts contradict that history are rejected.
-// Child completions remain queued while their parent is Paused or waiting on
-// another WaitID. Only an answer to the current WaitID releases Waiting;
-// an explicit pause still requires Resume. Unaddressed Strategy input can also
-// queue while Paused or waiting for children without releasing either state,
-// only when it satisfies Descriptor.SignalSchema. The default schema rejects
-// unaddressed input. Rejection returns ErrSignalRejected before any mailbox,
-// budget, wait or durable head changes; child-signal Effects obey the same rule.
-// Pause also suspends a committed wait. Its unanswered WaitID survives capture
-// and restoration; an answer clears the wait without releasing the pause.
-// A current external wait still rejects unaddressed input while Paused.
-// [NewChildWaitEffect] requires an explicit [ChildWaitBoundary]. The result boundary
-// counts terminal children. The drained boundary counts children whose entire
-// subtree satisfies [Process.Join]. All, any, and quorum count those facts in
-// request order; none selects successful business outcomes or cancels losers.
-// [ChildWaitSatisfied] carries the chosen boundary with the terminal results.
-// Wait registration is nonblocking even when a child already reached its boundary.
-// [NewChildSignalEffect] and [NewChildCancelEffect] declare controls over an exact direct child.
-// The tree owner records the recipient change and [ChildControlResult] in one
-// durable Effect settlement. Rejected ownership or mailbox admission is a
-// definite failed receipt. Signals retain their caller-chosen deduplication
-// identity and obey the recipient's safe boundary; cancellation records intent
-// and requires a drained wait to establish resource release.
-//
-// Each strategy declares its own safe consumption boundary and proves it with
-// contract tests.
-//
-// # Process lifecycle
-//
-// A Process begins in [StatusRunning] and then moves to one of
-// [StatusWaiting], [StatusPaused], [StatusCompleted], [StatusFailed],
-// [StatusCanceled], [StatusTimedOut], or [StatusKilled].
-//
-// A terminal state is decided jointly by the recorded control intent and the
-// Step result, never inferred from error text or from context.Canceled alone.
-// The matrix is matched in priority order: an explicit kill wins; then a
-// reached deadline; then parent or host cancellation; then a contract
-// violation, external failure, or panic; then legal completion. A committed
-// terminal state is first-terminal-wins, so a late cancellation cannot
-// overwrite it. An effect's own cancellation first reaches the strategy as a
-// settlement Signal — a local failure is never promoted to a Process terminal
-// state on its own.
-// [Process.RequestCancellation] also terminates active descendants through
-// their owned lifecycle. The surviving parent receives the ordinary completion
-// Signal and its Strategy chooses the next transition. Cancellation uses the
-// same checkpoint acknowledgment as every other terminal transition.
-// Once applied, terminal intent cancels active Step, Dispatch, and child-admission
-// contexts throughout the owned subtree without waiting for an ancestor's work
-// to return. The owner still collects started external work. Initialization
-// outcome and durability acknowledgments are not canceled. A late successful
-// child initialization joins the tree under terminal intent before any Step.
-// [Process.Await] establishes the Process result and immediate bookkeeping.
-// [Process.Join] additionally waits for owned descendant calls and required
-// acknowledgments in this runtime. It leaves unrelated siblings running and
-// does not release the tree. A runtime failure in the subtree makes Join fail
-// after its local calls return, even if this Process already published a result.
-// Terminal Unknown settlements remain evidence of remote uncertainty after Join.
-// [Engine.Run] composes Start, Join, and Await as one synchronous operation. It
-// returns the root result only after the subtree finishes, or a RuntimeError if
-// that completion fails. Canceling its context requests termination but does not
-// abandon owned work or required acknowledgments.
-//
-// A child-completion delivery failure is recorded as pending termination.
-// Accepted external effects settle first, and any unknown identities remain
-// in the terminal result. The pending failure survives tree capture.
-//
-// A long-lived Engine retains completed trees for diagnostics and capture until
-// the Host calls [Engine.ReleaseTree]. Release waits for all descendant work to
-// settle, removes the tree from lookup, and leaves existing handles' results
-// and runtime errors readable.
-//
-// Signal identities, wait history, and descendants remain retained for that
-// lifetime. Cumulative work, child counts, and snapshot bytes use Quota: the
-// zero value is unlimited; NewQuota selects a finite maximum, including zero.
-// Unlimited execution still records usage and rejects numeric identity overflow.
-// The Host chooses retention and memory policy: unlimited quotas do not compact
-// signal identities, wait history, or completed descendants. Explicit snapshot
-// byte quotas bound that retained representation when required.
-// Admission reserves bounded control and termination metadata, uncertain-effect
-// diagnostics, and Framework settlement representations. Start and RestoreTree
-// reject a live tree whose quotas cannot fit these guarantees, even if its
-// current encoding fits. Control strings alone reserve 144 KiB per live Process
-// under the current bounds and worst-case JSON escaping; metadata, state,
-// history, and Effects require additional capacity. Terminal Processes contribute
-// only their encoded size, so a terminal tree can restore under smaller quotas.
-// Successful Start or RestoreTree does not admit future growth: each Step,
-// dispatch permission, and settlement undergoes its own capacity check. A Step
-// or dispatch permission that cannot fit fails that Process with
-// engine.limit.snapshot before dispatch. Rejected Signals and child-wait
-// finalizations leave the tree unchanged; admitted control intents retain enough
-// room to terminate.
-// Dispatcher result payloads remain external facts: a result that cannot fit
-// while preserving these reservations stops the runtime with a RuntimeError and
-// unresolved operation identity. Durable recovery reads the last committed head;
-// ephemeral recovery waits for the root Process.Join to return its runtime error,
-// then calls Engine.CaptureTree on the retained tree. Await alone does not
-// establish that descendant work has drained. The rejected result is not retained;
-// the Host must reconcile its external outcome under the same identity.
-//
-// Limits carries cumulative work authority in Limits.Budget and keeps mailbox
-// and snapshot capacity separate. Process snapshots persist this same Limits
-// shape; flat quota fields and incomplete Limits objects are rejected.
-// Finite parent Budget dimensions permanently charge child grants. Unlimited
-// dimensions grant finite or unlimited child quotas without a debit. A finite
-// parent cannot grant an unlimited child quota in the same dimension. Pending
-// Signals, concurrent children, and depth remain independent finite capacities.
-// Captured quotas survive RestoreTree without applying new Engine defaults.
-// The Engine adds no cumulative execution deadline; Host cancellation and
-// deadlines continue to terminate the owned tree.
-//
-// [Engine.InspectTree] is the sole live inspection entry. It composes existing
-// [ProcessSnapshot] values with current job, commit, and freeze facts, and stays
-// available while storage acknowledgment or a tree freeze blocks execution.
-// Snapshots own lifecycle, usage, wait authority, and Unknown settlements;
-// runtime work may be newer than a durable snapshot. Reports describe one
-// owner turn, never drive execution, and add nothing to the recovery schema.
-// Synchronous [EventListener] callbacks must not query, control, or Await their
-// tree. Calls that forward the callback context receive [ErrListenerReentrancy]
-// while that invocation is active. Different tree owners remain independently
-// callable, but callbacks must avoid cyclic waits and return in bounded time.
-// Engine.Close requires every tree's publication, bookkeeping, and owned work
-// to finish in both durable and ephemeral mode. Join or Run establishes this
-// subtree completion; any separately acquired freeze must also be released.
-// Close(ctx) closes admission once and joins Engine-owned observation shutdown;
-// canceling ctx ends only that caller's wait. DeltaListener callbacks must not
-// call Close or FlushDeltas on their Engine because both join Delta delivery.
-// Forwarding an active callback context makes those calls fail with
-// ErrListenerReentrancy.
-//
-// A durable writer can stop without terminating the logical execution. Storage
-// failures and ownership conflicts reach [Process.Await] as a [RuntimeError]
-// with no Result. The error preserves the original cause, the last acknowledged
-// head, and uncertain Effect identities. [EventRuntimeStopped] describes this
-// instance failure; it never substitutes for [EventProcessFinished]. Status and
-// usage in durable mode project only acknowledged tree state. The Host reads
-// its authoritative head before reactivation, since a lost commit response or
-// another writer may have advanced it beyond the stopped instance's view.
-//
-// # Recovery
-//
-// [ExecutionState] is a discriminated envelope of a kind and an opaque
-// payload. The kernel constrains the envelope and never interprets the payload
-// recursively; each strategy owns and guards its own wire shape. A host may
-// persist the envelope but must not parse it by kind and join strategy control
-// flow. Recovery finds the Definition through an exact [DeploymentRef]; a
-// global kind-to-factory switch is forbidden.
-//
-// [TreeSnapshot] is the canonical recovery state of a complete root tree.
-// It uses one current strict wire shape without a version envelope or migration
-// dispatch; parsing validates the structure and the recorded domain facts.
-// [ProcessSnapshot] is a single-Process diagnostic value and is not a recovery
-// unit. Events and [Delta] values record attempts and observations only; they
-// never substitute for an acknowledged TreeSnapshot.
-// Committed events wait for durable acknowledgment. Event sequences describe
-// publication within one runtime activation and restart when a nonterminal
-// Process is restored; they do not change snapshot contents or trigger commits.
+// Events describe attempts or committed facts; [Delta] is best-effort observation.
+// Neither substitutes for an acknowledged head. Event sequences restart with
+// each activation and do not impose ordering across writers. Wall timestamps
+// are diagnostic, not causal proofs. Listener callbacks must return in bounded
+// time and avoid reentrant control or cyclic waits; see [EventListener],
+// [DeltaListener], and [ErrListenerReentrancy].
 //
 // # Strategies
 //
@@ -383,34 +153,17 @@
 // strategy is admitted by implementing the waist, state codec, and safe
 // consumption boundary, and binding a dispatcher when it declares external Effects.
 //
-// # Boundaries
+// # Host boundaries
 //
-// A long-lived Host can run successive bounded root trees. The successive
-// episodes example under Engine.Start establishes a completed, joined predecessor,
-// seals input routing, reconciles SignalReceipts, and binds explicit successor
-// state, Deployment, limits, and authority. Its Host transaction links the
-// successor identity with the initial tree checkpoint; a lost start response is
-// reconciled by restoring that identity. Calling Start with equal input alone
-// does not provide idempotent successor admission. Retained unconsumed inputs
-// keep their predecessor address, and unresolved descendant Effects prevent the
-// example's safe boundary. Production Hosts implement the transaction and
-// retention policy in their own durable storage.
+// Hosts own product identity, transports, storage transactions, retention,
+// permissions, billing, deployment catalogs, and provider selection. The kernel
+// owns execution identities, state transitions, resource accounting, child
+// ownership, and the commit protocol. Successive bounded root trees require a
+// Host transaction for successor admission and input cutover; equal Start input
+// alone does not make admission idempotent.
 //
-// The framework owns definition validation, deployment freezing, the Process
-// state machine, signal ordering and deduplication, effect identity and
-// settlement, budgets, the lifecycle, framework events, and the snapshot and
-// recovery protocol.
-//
-// The host owns product identity, transports, stores and transactions,
-// permissions and billing, deployment catalogs and routing, provider and model
-// selection, storage acknowledgment, and retention of its own facts. A host
-// depends only on this neutral lifecycle contract and never parses a strategy's
-// snapshot payload.
-//
-// Production database adapters and their storage-specific integration tests
-// belong to the consuming application or an independently owned adapter. The
-// agenttest package supplies shared durability and Definition conformance suites.
-//
-// Chat, tools, embeddings, history, and telemetry stay in their own modules.
-// Agent reuses them and duplicates none of them.
+// Database adapters belong to the consuming application or an independently
+// owned adapter. Package agenttest supplies Definition and TreeCommitter
+// conformance suites. Chat, tools, embeddings, history, and telemetry remain in
+// their own modules.
 package agent

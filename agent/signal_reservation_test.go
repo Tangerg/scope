@@ -103,7 +103,7 @@ func TestChildCompletionPreservesSettlementCapacity(t *testing.T) {
 			definition.base.reference = deployment.DeploymentRef()
 			limits := DefaultLimits()
 			limits.MaxPendingSignals = test.limit
-			engine, err := NewEngine(EngineConfig{Limits: limits})
+			engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: limits})
 			if err != nil {
 				t.Fatal(err)
 			}

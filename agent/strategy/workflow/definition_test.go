@@ -74,7 +74,7 @@ func TestEngineOwnsExactRestoreBindingForCompatibleWorkflows(t *testing.T) {
 	})
 	first := mustDeployment(t, mustDefinition(t, "workflow.first", stage), "shared-implementation")
 	second := mustDeployment(t, mustDefinition(t, "workflow.second", stage), "shared-implementation")
-	engine, err := agent.NewEngine(agent.EngineConfig{})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}

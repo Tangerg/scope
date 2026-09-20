@@ -15,7 +15,7 @@ import (
 
 func TestInputGatePreservesIdentityAcrossRecoveryAndEarlyAnswer(t *testing.T) {
 	for _, durable := range []bool{false, true} {
-		name := "ephemeral"
+		name := "memory"
 		if durable {
 			name = "durable"
 		}
@@ -26,10 +26,10 @@ func TestInputGatePreservesIdentityAcrossRecoveryAndEarlyAnswer(t *testing.T) {
 				release := sync.OnceFunc(func() { close(probe.release) })
 				defer release()
 				deployment := bind(t, probe, nil)
-				config := agent.EngineConfig{}
-				store := agenttest.NewMemoryTreeDurability()
+				config := agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}
+				store := agent.NewMemoryTreeCommitter()
 				if durable {
-					config.TreeDurability = store
+					config.TreeCommitter = store
 				}
 				engine, err := agent.NewEngine(config)
 				if err != nil {
@@ -65,7 +65,7 @@ func TestInputGatePreservesIdentityAcrossRecoveryAndEarlyAnswer(t *testing.T) {
 					if loadErr != nil || !found {
 						t.Fatalf("input checkpoint exists=%t error=%v", found, loadErr)
 					}
-					restoredEngine, err = agent.NewEngine(agent.EngineConfig{TreeDurability: store})
+					restoredEngine, err = agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -132,7 +132,7 @@ func TestInputGateDoesNotCommitAnInvalidOrCanceledAnswer(t *testing.T) {
 					definition = probe
 				}
 				deployment := bind(t, definition, nil)
-				engine, err := agent.NewEngine(agent.EngineConfig{})
+				engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 				if err != nil {
 					t.Fatal(err)
 				}

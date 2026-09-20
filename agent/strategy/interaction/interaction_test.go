@@ -26,7 +26,7 @@ func TestManagedInteractionCompletesFromModelResponse(t *testing.T) {
 		return textResponse("done"), nil
 	})
 	deployment := newDeployment(t, model, nil, 2)
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestManagedInteractionExecutesToolLoopInModelOrder(t *testing.T) {
 
 	model := &scriptedModel{}
 	deployment := newDeployment(t, model, []tool.Tool{add}, 3)
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestManagedInteractionPreservesUnknownModelOutcomes(t *testing.T) {
 			model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return nil, cause })
 			deployment := newDeployment(t, model, nil, 2)
 			events := &agenttest.ObservationRecorder{}
-			engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver, EventListeners: []agent.EventListener{events}})
+			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolver, EventListeners: []agent.EventListener{events}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -227,7 +227,7 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 				Name: "interaction.unknown_tool", Description: "Preserve unknown Tool outcomes.", MaxModelCalls: agent.NewQuota(2),
 			}, interaction.DispatcherConfig{Model: model}, interaction.ToolSetConfig{Tools: []tool.Tool{executable}, Observer: observer})
 			events := &agenttest.ObservationRecorder{}
-			engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver, EventListeners: []agent.EventListener{events}})
+			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolver, EventListeners: []agent.EventListener{events}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -313,7 +313,7 @@ func (t *toolSettlementObserver) OnToolSettled(_ context.Context, _ interaction.
 
 func runInteraction(t *testing.T, deployment interactionDeployment, prompt string) agent.Result {
 	t.Helper()
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,7 +403,7 @@ func TestDirectResultToolCompletesWithoutAnotherModelCall(t *testing.T) {
 	}
 	model := &singleToolCallModel{call: chat.ToolCall{ID: "call_direct", Name: "echo", Arguments: `{"value":"direct"}`}}
 	deployment := newDeployment(t, model, []tool.Tool{directTool{Tool: echo}}, 2)
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -443,7 +443,7 @@ func TestModelCallLimitProducesStableFailure(t *testing.T) {
 	}
 	model := &singleToolCallModel{call: chat.ToolCall{ID: "call_limit", Name: "next", Arguments: `{}`}}
 	deployment := newDeployment(t, model, []tool.Tool{next}, 1)
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}

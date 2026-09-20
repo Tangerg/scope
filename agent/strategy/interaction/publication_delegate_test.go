@@ -111,7 +111,7 @@ func TestRoundResultsCoversMixedToolAndDelegatePaths(t *testing.T) {
 		return textResponse("done"), nil
 	})
 	deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "publication.mixed", Description: "Commit all known result producers.", MaxModelCalls: agent.NewQuota(2), Delegates: delegates}, interaction.DispatcherConfig{Model: model}, interaction.ToolSetConfig{Tools: tools})
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolveWith(worker), TreeDurability: store})
+	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolveWith(worker), TreeCommitter: store})
 	if err != nil {
 		t.Fatal(err)
 	}

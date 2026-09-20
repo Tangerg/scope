@@ -14,7 +14,7 @@ func TestEngineCloseCancellationLeavesOwnedShutdownJoinable(t *testing.T) {
 		delivered := 0
 		var engine *Engine
 		var err error
-		engine, err = NewEngine(EngineConfig{
+		engine, err = NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
 			DeltaBufferCapacity: 2,
 			DeltaListeners: []DeltaListener{DeltaListenerFunc(func(_ context.Context, delta Delta) {
 				delivered++
@@ -68,7 +68,7 @@ func TestEngineCloseCancellationLeavesOwnedShutdownJoinable(t *testing.T) {
 }
 
 func TestEngineCloseRejectsAlreadyCanceledContextBeforeClosingAdmission(t *testing.T) {
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestEngineCloseRejectsAlreadyCanceledContextBeforeClosingAdmission(t *testi
 }
 
 func TestEngineFlushDeltasRejectsCanceledAndClosedCallsWithoutListeners(t *testing.T) {
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestConcurrentEngineCloseWaitsForObserverCompletion(t *testing.T) {
 		definition := newEngineTestDefinition(t, "engine.effect", "effect")
 		deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
 		listener := &blockingDeltaListener{entered: make(chan struct{}), release: make(chan struct{})}
-		engine, err := NewEngine(EngineConfig{DeltaListeners: []DeltaListener{listener}})
+		engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), DeltaListeners: []DeltaListener{listener}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -144,7 +144,7 @@ func TestConcurrentEngineCloseWaitsForObserverCompletion(t *testing.T) {
 func TestEngineCloseRejectsIncompleteTerminalPublication(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		entered, release := make(chan struct{}), make(chan struct{})
-		engine, err := NewEngine(EngineConfig{EventListeners: []EventListener{
+		engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), EventListeners: []EventListener{
 			EventListenerFunc(func(_ context.Context, event Event) {
 				if event.Name() == EventProcessFinished {
 					close(entered)
@@ -185,7 +185,7 @@ func TestTerminalListenerCannotCloseItsOwnEngine(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			var engine *Engine
 			result := make(chan error, 1)
-			config := EngineConfig{EventListeners: []EventListener{
+			config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), EventListeners: []EventListener{
 				EventListenerFunc(func(_ context.Context, event Event) {
 					if event.Name() == EventProcessFinished {
 						result <- engine.Close(context.WithoutCancel(t.Context()))
@@ -193,7 +193,7 @@ func TestTerminalListenerCannotCloseItsOwnEngine(t *testing.T) {
 				}),
 			}}
 			if durable {
-				config.TreeDurability = &recordingTreeDurability{}
+				config.TreeCommitter = &recordingTreeCommitter{}
 			}
 			var err error
 			engine, err = NewEngine(config)

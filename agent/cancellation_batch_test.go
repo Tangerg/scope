@@ -36,7 +36,7 @@ func TestInterruptedBatchRetainsItsSettledPrefixAndUnstartedStructuralEffects(t 
 		release := sync.OnceFunc(func() { close(dispatcher.release) })
 		defer release()
 		deployment := engineTestDeployment(t, definition, dispatcher)
-		engine, err := NewEngine(EngineConfig{})
+		engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -107,7 +107,7 @@ func TestCancellationPreservesPreparedInputInAFullMailbox(t *testing.T) {
 		definition.base.reference = deployment.DeploymentRef()
 		limits := DefaultLimits()
 		limits.MaxPendingSignals = 1
-		engine, err := NewEngine(EngineConfig{Limits: limits})
+		engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: limits})
 		if err != nil {
 			t.Fatal(err)
 		}

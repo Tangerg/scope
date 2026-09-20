@@ -13,7 +13,7 @@ type signalDeliveryResult struct {
 	err      error
 }
 
-func runSignalAdmissionConformance(t *testing.T, factory func() TreeDurabilityConformanceDriver) {
+func runSignalAdmissionConformance(t *testing.T, factory func() TreeCommitterConformanceDriver) {
 	t.Helper()
 	for _, scenario := range []struct {
 		name  string
@@ -26,12 +26,12 @@ func runSignalAdmissionConformance(t *testing.T, factory func() TreeDurabilityCo
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			driver := factory()
-			gate := newTreeDurabilityCommitGate(t, driver.TreeDurability(), crashCommitPoint{
+			gate := newTreeCommitterCommitGate(t, driver, crashCommitPoint{
 				kind: crashCommitCheckpointInput, phase: scenario.phase,
 			})
 			recorder := &ObservationRecorder{}
 			engine, err := agent.NewEngine(agent.EngineConfig{
-				TreeDurability: gate, EventListeners: []agent.EventListener{recorder},
+				TreeCommitter: gate, EventListeners: []agent.EventListener{recorder},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -70,7 +70,7 @@ func runSignalAdmissionConformance(t *testing.T, factory func() TreeDurabilityCo
 			observation := gate.await(t)
 			select {
 			case response := <-delivered:
-				t.Fatalf("delivery acknowledged before durability returned: %+v", response)
+				t.Fatalf("delivery acknowledged before committer returned: %+v", response)
 			default:
 			}
 			if inspectConformanceProcess(t, engine, process).Usage() != usage {
@@ -109,7 +109,7 @@ func runSignalAdmissionConformance(t *testing.T, factory func() TreeDurabilityCo
 			head := assertCrashHead(t, driver, process.ID(), wantHead)
 			hasInput := !scenario.crash || scenario.phase == crashCommitAfter
 			assertDurableSignal(t, head, id, hasInput)
-			restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: driver.TreeDurability()})
+			restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: driver})
 			if err != nil {
 				t.Fatal(err)
 			}

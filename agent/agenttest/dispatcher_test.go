@@ -81,7 +81,7 @@ func TestScriptedDispatcherRunsThroughPublicEngineBoundary(t *testing.T) {
 				t.Fatal(err)
 			}
 			recorder := &agenttest.ObservationRecorder{}
-			engine, err := agent.NewEngine(agent.EngineConfig{
+			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
 				EventListeners: []agent.EventListener{recorder},
 				DeltaListeners: []agent.DeltaListener{recorder},
 			})

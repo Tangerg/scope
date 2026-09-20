@@ -75,7 +75,7 @@ func ExampleEngine_Start_successiveEpisodes() {
 	if err != nil {
 		panic(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: store.trees})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store.trees})
 	if err != nil {
 		panic(err)
 	}
@@ -181,7 +181,7 @@ func (e *episodeHost) start(ctx context.Context, deployment agent.Deployment, re
 
 func (e *episodeHost) activate(ctx context.Context, deployment agent.Deployment, request successorRequest, attempt *episodeAttempt, existing agent.ProcessID) (*agent.Process, error) {
 	engine, err := agent.NewEngine(agent.EngineConfig{
-		TreeDurability: attempt, ProcessAdmitter: attempt,
+		TreeCommitter: attempt, ProcessAdmitter: attempt,
 		Limits: request.Limits, TreeLimits: request.TreeLimits, Capabilities: request.Capabilities,
 	})
 	if err != nil {

@@ -129,7 +129,7 @@ func (d *Dispatcher) Dispatch(
 }
 
 // ReplayPolicy forbids model replay. Result persistence belongs exclusively to
-// TreeDurability and does not dispatch an external operation.
+// TreeCommitter and does not dispatch an external operation.
 func (*Dispatcher) ReplayPolicy(_ agent.Effect) agent.ReplayPolicy {
 	return agent.ReplayPolicyNever
 }

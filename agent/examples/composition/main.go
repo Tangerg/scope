@@ -52,7 +52,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 		localDeployment.DeploymentRef(): localDeployment,
 		modelDeployment.DeploymentRef(): modelDeployment,
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver})
 	if err != nil {
 		return err
 	}

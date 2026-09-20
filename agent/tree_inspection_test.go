@@ -13,7 +13,7 @@ type inspectionCommit struct {
 }
 
 type inspectionDurability struct {
-	*recordingTreeDurability
+	*recordingTreeCommitter
 	effectKind     EffectBoundaryKind
 	checkpointKind TreeCheckpointKind
 	entered        chan inspectionCommit
@@ -23,7 +23,7 @@ type inspectionDurability struct {
 }
 
 func (i *inspectionDurability) CommitEffect(ctx context.Context, boundary EffectBoundary) error {
-	if err := i.recordingTreeDurability.CommitEffect(ctx, boundary); err != nil {
+	if err := i.recordingTreeCommitter.CommitEffect(ctx, boundary); err != nil {
 		return err
 	}
 	if boundary.Kind() == i.effectKind {
@@ -33,7 +33,7 @@ func (i *inspectionDurability) CommitEffect(ctx context.Context, boundary Effect
 }
 
 func (i *inspectionDurability) CommitCheckpoint(ctx context.Context, checkpoint TreeCheckpoint) error {
-	if err := i.recordingTreeDurability.CommitCheckpoint(ctx, checkpoint); err != nil {
+	if err := i.recordingTreeCommitter.CommitCheckpoint(ctx, checkpoint); err != nil {
 		return err
 	}
 	if checkpoint.Kind() == i.checkpointKind {
@@ -66,14 +66,14 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 		{name: "input", checkpoint: TreeCheckpointKindSignals, mode: "leaf_pause"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			durability := &inspectionDurability{
-				recordingTreeDurability: &recordingTreeDurability{},
-				effectKind:              scenario.effect, checkpointKind: scenario.checkpoint,
+			committer := &inspectionDurability{
+				recordingTreeCommitter: &recordingTreeCommitter{},
+				effectKind:             scenario.effect, checkpointKind: scenario.checkpoint,
 				entered: make(chan inspectionCommit, 1), release: make(chan struct{}),
 				failure: errors.New("inspection test lost acknowledgment"),
 			}
-			t.Cleanup(durability.unblock)
-			engine, err := NewEngine(EngineConfig{TreeDurability: durability})
+			t.Cleanup(committer.unblock)
+			engine, err := NewEngine(EngineConfig{TreeCommitter: committer})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -122,9 +122,9 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 					done <- deliveryErr
 				}()
 			}
-			commit := receiveTreeRuntimeProbe(t, durability.entered)
-			checkpoints := len(durability.treeCheckpoints())
-			effects := len(durability.effectBoundaries())
+			commit := receiveTreeRuntimeProbe(t, committer.entered)
+			checkpoints := len(committer.treeCheckpoints())
+			effects := len(committer.effectBoundaries())
 			var first ProcessSnapshot
 			for range 64 {
 				inspection := requireTreeInspection(t, engine, root.ID())
@@ -142,8 +142,8 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 				first = snapshot
 				inspection.Processes[0] = ProcessInspection{}
 			}
-			if len(durability.treeCheckpoints()) != checkpoints || len(durability.effectBoundaries()) != effects {
-				t.Fatal("inspection produced a durability write")
+			if len(committer.treeCheckpoints()) != checkpoints || len(committer.effectBoundaries()) != effects {
+				t.Fatal("inspection produced a committer write")
 			}
 			if scenario.checkpoint == TreeCheckpointKindChildStart && len(commit.next.ProcessSnapshots()) != 2 {
 				t.Fatal("child probe did not include a prospective child")
@@ -151,12 +151,12 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 			if scenario.effect == EffectBoundaryKindResolved && len(first.UnknownEffectIDs()) != 1 {
 				t.Fatal("unacknowledged resolution removed the confirmed Unknown")
 			}
-			durability.unblock()
-			if operation != nil && !errors.Is(receiveTreeRuntimeProbe(t, operation), durability.failure) {
+			committer.unblock()
+			if operation != nil && !errors.Is(receiveTreeRuntimeProbe(t, operation), committer.failure) {
 				t.Fatal("operation did not report the lost acknowledgment")
 			}
 			_, awaitErr := root.Await(t.Context())
-			if !errors.Is(awaitErr, durability.failure) {
+			if !errors.Is(awaitErr, committer.failure) {
 				t.Fatalf("runtime outcome=%v", awaitErr)
 			}
 			for _, source := range []struct {
@@ -168,14 +168,14 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 			} {
 				failure, ok := errors.AsType[*RuntimeError](source.err)
 				if !ok || failure.ProcessID() != root.ID() || failure.HeadDigest() != commit.previous ||
-					!errors.Is(failure, durability.failure) {
+					!errors.Is(failure, committer.failure) {
 					t.Fatalf("%s runtime failure=%v", source.name, source.err)
 				}
 				*failure = RuntimeError{}
 				_, nextErr := root.Await(t.Context())
 				retained, ok := errors.AsType[*RuntimeError](nextErr)
 				if !ok || retained.ProcessID() != root.ID() || retained.HeadDigest() != commit.previous ||
-					!errors.Is(retained, durability.failure) {
+					!errors.Is(retained, committer.failure) {
 					t.Fatalf("mutating %s error changed retained runtime failure: %v", source.name, nextErr)
 				}
 			}
@@ -185,7 +185,7 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 				t.Fatalf("stopped inspection=%+v", stopped)
 			}
 			if scenario.checkpoint == TreeCheckpointKindChildStart {
-				if err := root.Join(t.Context()); !errors.Is(err, durability.failure) {
+				if err := root.Join(t.Context()); !errors.Is(err, committer.failure) {
 					t.Fatalf("child rollback join error=%v", err)
 				}
 				assertNoPendingProcessStarts(t, engine)
@@ -196,18 +196,18 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 				}
 			}
 			failure := stopped.Processes[0].RuntimeError
-			if failure == nil || !errors.Is(failure, durability.failure) {
+			if failure == nil || !errors.Is(failure, committer.failure) {
 				t.Fatalf("inspection runtime failure=%v", failure)
 			}
 			*failure = RuntimeError{}
-			if !errors.Is(awaitErr, durability.failure) {
+			if !errors.Is(awaitErr, committer.failure) {
 				t.Fatal("mutating a report changed the retained Await error")
 			}
 			if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 				t.Fatal(closeErr)
 			}
 			afterClose := requireTreeInspection(t, engine, root.ID())
-			if !errors.Is(afterClose.Processes[0].RuntimeError, durability.failure) {
+			if !errors.Is(afterClose.Processes[0].RuntimeError, committer.failure) {
 				t.Fatal("mutating a report changed a later inspection")
 			}
 			if releaseErr := engine.ReleaseTree(t.Context(), root.ID()); releaseErr != nil {

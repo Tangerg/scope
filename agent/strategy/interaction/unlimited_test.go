@@ -14,6 +14,7 @@ import (
 )
 
 func TestUnlimitedRootChildAndToolGrandchildrenRestore(t *testing.T) {
+	store := agent.NewMemoryTreeCommitter()
 	const rounds = 70
 	model := chat.ModelFunc(func(ctx context.Context, _ *chat.Request) (*chat.Response, error) {
 		if _, deadline := ctx.Deadline(); deadline {
@@ -50,7 +51,7 @@ func TestUnlimitedRootChildAndToolGrandchildrenRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	resolver := worker.resolveWith(worker.Deployment)
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver, TreeLimits: agent.TreeLimits{MaxActiveChildren: 1}})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: resolver, TreeLimits: agent.TreeLimits{MaxActiveChildren: 1}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +92,7 @@ func TestUnlimitedRootChildAndToolGrandchildrenRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	recovery, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver, Limits: agent.Limits{Budget: agent.Budget{Steps: agent.NewQuota(0), Effects: agent.NewQuota(0), Signals: agent.NewQuota(0)}}})
+	recovery, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: resolver, Limits: agent.Limits{Budget: agent.Budget{Steps: agent.NewQuota(0), Effects: agent.NewQuota(0), Signals: agent.NewQuota(0)}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +125,7 @@ func TestUnlimitedInteractionHonorsHostCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "interaction.unlimited_cancel", Description: "Honor host cancellation."}, interaction.DispatcherConfig{Model: client}, interaction.ToolSetConfig{})
-	engine, err := agent.NewEngine(agent.EngineConfig{})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}

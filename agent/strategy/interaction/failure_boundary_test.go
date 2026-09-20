@@ -21,7 +21,7 @@ func TestInvalidModelDataHasAnExternalFailureCode(t *testing.T) {
 			calls := 0
 			model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { calls++; return response, nil })
 			configured := configuredInteraction(t, interaction.DefinitionConfig{Name: "test.invalid_model", Description: "Classify invalid provider output."}, interaction.DispatcherConfig{Model: model}, interaction.ToolSetConfig{})
-			engine, err := agent.NewEngine(agent.EngineConfig{})
+			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 			if err != nil {
 				t.Fatal(err)
 			}

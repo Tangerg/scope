@@ -173,7 +173,7 @@ func ExampleDefinition() {
 	if err != nil {
 		panic(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		panic(err)
 	}

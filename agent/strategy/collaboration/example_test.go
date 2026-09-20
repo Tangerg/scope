@@ -65,7 +65,7 @@ func ExampleDefinition() {
 		StateSchema: textSchema, OutputSchema: textSchema, MaxTurns: agent.NewQuota(4), MaxTasks: agent.NewQuota(2), MaxConcurrentTasks: 2, MaxControlsPerTurn: 1,
 	}))
 	root := exampleBinding(definition, nil, coordinator.DeploymentRef(), gate.DeploymentRef(), worker.DeploymentRef())
-	engine := exampleValue(agent.NewEngine(agent.EngineConfig{DeploymentResolver: exampleResolver{
+	engine := exampleValue(agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: exampleResolver{
 		model.DeploymentRef(): model, coordinator.DeploymentRef(): coordinator,
 		gate.DeploymentRef(): gate, worker.DeploymentRef(): worker,
 	}}))

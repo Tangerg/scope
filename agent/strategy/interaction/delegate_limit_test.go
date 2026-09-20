@@ -23,7 +23,7 @@ func TestDelegateAtModelLimit(t *testing.T) {
 		return &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonToolCalls}}, nil
 	})
 	root := delegateInteractionWithValidator(t, model, nil, []interaction.Delegate{delegate}, nil, 1)
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: delegateResolver{child.DeploymentRef(): child}})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: delegateResolver{child.DeploymentRef(): child}})
 	if err != nil {
 		t.Fatal(err)
 	}

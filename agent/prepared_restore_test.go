@@ -15,8 +15,8 @@ func TestRestoreRejectsUnrestorableCandidateBeforeExternalWork(t *testing.T) {
 		durable bool
 		phase   effectPhase
 	}{
-		{name: "ephemeral planned", phase: effectPhasePlanned},
-		{name: "ephemeral pending", phase: effectPhasePending},
+		{name: "memory planned", phase: effectPhasePlanned},
+		{name: "memory pending", phase: effectPhasePending},
 		{name: "durable planned", durable: true, phase: effectPhasePlanned},
 		{name: "durable pending", durable: true, phase: effectPhasePending},
 	} {
@@ -34,13 +34,13 @@ func TestRestoreRejectsUnrestorableCandidateBeforeExternalWork(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			treeWire := treeSnapshotWire{RootID: invalid.ProcessID(), ProcessSnapshots: []ProcessSnapshot{invalid}}
-			var config EngineConfig
-			durability := &recordingTreeDurability{}
+			treeWire := treeSnapshotWire{IncarnationID: newTreeIncarnationID(), RootID: invalid.ProcessID(), ProcessSnapshots: []ProcessSnapshot{invalid}}
+			config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
+			committer := &recordingTreeCommitter{}
 			if test.durable {
 				incarnation := newTreeIncarnationID()
-				treeWire.IncarnationID = &incarnation
-				config.TreeDurability = durability
+				treeWire.IncarnationID = incarnation
+				config.TreeCommitter = committer
 			}
 			encoded, err := json.Marshal(treeWire)
 			if err != nil {
@@ -74,8 +74,8 @@ func TestRestoreRejectsUnrestorableCandidateBeforeExternalWork(t *testing.T) {
 			if calls := dispatcher.calls.Load(); calls != 0 {
 				t.Errorf("invalid candidate dispatched %d Effects", calls)
 			}
-			if len(durability.treeActivations()) != 0 || len(durability.effectBoundaries()) != 0 || len(durability.treeCheckpoints()) != 0 {
-				t.Error("invalid candidate reached the durability boundary")
+			if len(committer.treeActivations()) != 0 || len(committer.effectBoundaries()) != 0 || len(committer.treeCheckpoints()) != 0 {
+				t.Error("invalid candidate reached the committer boundary")
 			}
 		})
 	}
@@ -154,14 +154,14 @@ func TestRestorePreparedOutputUsesDeploymentSchema(t *testing.T) {
 			}
 			incarnation := newTreeIncarnationID()
 			tree, err := newTreeSnapshot(treeSnapshotWire{
-				RootID: prepared.ProcessID(), IncarnationID: &incarnation,
+				RootID: prepared.ProcessID(), IncarnationID: incarnation,
 				ProcessSnapshots: []ProcessSnapshot{prepared},
 			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			durability := &recordingTreeDurability{}
-			engine, err := NewEngine(EngineConfig{TreeDurability: durability})
+			committer := &recordingTreeCommitter{}
+			engine, err := NewEngine(EngineConfig{TreeCommitter: committer})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -193,8 +193,8 @@ func TestRestorePreparedOutputUsesDeploymentSchema(t *testing.T) {
 			if _, registered := engine.Process(tree.RootID()); registered {
 				t.Error("invalid output published a Process")
 			}
-			if len(durability.treeActivations()) != 0 || len(durability.treeCheckpoints()) != 0 {
-				t.Error("invalid output reached the durability boundary")
+			if len(committer.treeActivations()) != 0 || len(committer.treeCheckpoints()) != 0 {
+				t.Error("invalid output reached the committer boundary")
 			}
 		})
 	}

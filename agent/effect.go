@@ -225,26 +225,8 @@ func decodeWaitRequestPayload(payload json.RawMessage) (WaitKey, json.RawMessage
 }
 
 func validateFrameworkEffectPayload(payload json.RawMessage) error {
-	operation, err := decodeFrameworkEffectOperation(payload)
-	if err != nil {
-		return err
-	}
-	switch operation {
-	case frameworkEffectWait:
-		_, _, err := decodeWaitRequestPayload(payload)
-		return err
-	case frameworkEffectStartChild:
-		_, err := decodeChildStartEffect(payload)
-		return err
-	case frameworkEffectWaitChildren:
-		_, err := decodeChildWaitEffect(payload)
-		return err
-	case frameworkEffectSignalChild, frameworkEffectCancelChild:
-		_, err := decodeChildControlEffect(payload)
-		return err
-	default:
-		return fmt.Errorf("%w: unsupported Framework Effect", ErrInvalidEffect)
-	}
+	_, err := decodeFrameworkOperation(payload)
+	return err
 }
 
 // The header deliberately accepts operation-owned fields; the selected strict

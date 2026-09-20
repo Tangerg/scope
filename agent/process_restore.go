@@ -7,7 +7,6 @@ import (
 
 func prepareRestoredProcess(
 	ctx context.Context,
-	durable bool,
 	deployment Deployment,
 	snapshot ProcessSnapshot,
 ) (*processHandle, *processState, processSnapshotWire, error) {
@@ -56,7 +55,7 @@ func prepareRestoredProcess(
 	handle := newProcessHandle(
 		relation, wire.DeploymentRef, wire.Limits.Budget, wire.Capabilities, wire.TreeLimits,
 		wire.StartedAt)
-	process, err := restoreProcessState(ctx, durable, handle, deployment, execution, mailbox, wire)
+	process, err := restoreProcessState(ctx, handle, deployment, execution, mailbox, wire)
 	if err != nil {
 		return nil, nil, processSnapshotWire{}, err
 	}
@@ -65,7 +64,6 @@ func prepareRestoredProcess(
 
 func restoreProcessState(
 	ctx context.Context,
-	durable bool,
 	handle *processHandle,
 	deployment Deployment,
 	execution Execution,
@@ -100,7 +98,7 @@ func restoreProcessState(
 		return nil, fmt.Errorf("%w: pending control: %w", ErrInvalidSnapshot, err)
 	}
 	process.pendingControl = control
-	if err := process.restorePreparedStep(ctx, wire.Prepared, durable); err != nil {
+	if err := process.restorePreparedStep(ctx, wire.Prepared); err != nil {
 		return nil, err
 	}
 	return process, nil

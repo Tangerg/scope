@@ -1,13 +1,8 @@
 package agent
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"slices"
-
-	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 // effectPhase is the durable lifecycle of one Effect in a prepared batch.
@@ -113,52 +108,27 @@ func (p *preparedEffect) begin() error {
 // wait results are known before dispatch; an admitted child operation must fit
 // its bounded refusal, and uncertain dispatch must retain its diagnostic.
 // The return value accounts for reserved text omitted from the compact projection.
-func (p *preparedEffect) reserveSnapshotSettlement() (uint64, error) {
+func (p preparedEffect) snapshotReservation() (preparedEffect, uint64, error) {
 	if p.Settlement != nil {
-		return 0, nil
+		return p, 0, nil
 	}
 	failure := Failure{kind: FailureKindExecution, code: snapshotReservationText, message: snapshotReservationText}
 	if p.Effect.Target() == EffectTargetDispatcher {
 		if p.Phase == effectPhasePending {
 			if err := p.settleUnknown(); err != nil {
-				return 0, err
+				return p, 0, err
 			}
 			p.Diagnostic = &failure
-			return snapshotFailureGrowth, nil
+			return p, snapshotFailureGrowth, nil
 		}
-		return 0, nil
+		return p, 0, nil
 	}
-	operation, operationErr := decodeFrameworkEffectOperation(p.Effect.Payload())
-	if operationErr != nil {
-		return 0, operationErr
-	}
-	if operation == frameworkEffectWait || operation == frameworkEffectWaitChildren {
-		if p.Phase == effectPhasePlanned {
-			if err := p.begin(); err != nil {
-				return 0, err
-			}
-		}
-		return 0, p.settleFramework()
-	}
-	if p.Phase != effectPhasePending {
-		return 0, nil
-	}
-	if operation == frameworkEffectStartChild {
-		spec, err := decodeChildStartEffect(p.Effect.Payload())
-		if err != nil {
-			return 0, err
-		}
-		return snapshotFailureGrowth, p.settleChildStart(ChildStartResult{key: spec.Key, deploymentRef: spec.DeploymentRef, failure: failure})
-	}
-	request, err := decodeChildControlEffect(p.Effect.Payload())
+	operation, err := decodeFrameworkOperation(p.Effect.Payload())
 	if err != nil {
-		return 0, err
+		return p, 0, err
 	}
-	result := ChildControlResult{childID: request.ChildID, operation: request.Operation, failure: failure}
-	if request.Signal != nil {
-		result.signalID = request.Signal.ID()
-	}
-	return snapshotFailureGrowth, p.settleChildControl(result)
+	growth, err := operation.reserve(&p, failure)
+	return p, growth, err
 }
 
 // A pending boundary grants dispatch permission before I/O starts. Only the
@@ -269,162 +239,36 @@ func (p *preparedEffect) validateIdentity(
 }
 
 func (p *preparedEffect) validateFramework() error {
-	operation, err := decodeFrameworkEffectOperation(p.Effect.Payload())
+	operation, err := decodeFrameworkOperation(p.Effect.Payload())
 	if err != nil {
 		return err
 	}
-	switch operation {
-	case frameworkEffectWait:
-		return p.validateWait(operation)
-	case frameworkEffectStartChild:
-		return p.validateChildStart()
-	case frameworkEffectWaitChildren:
-		return p.validateWait(operation)
-	case frameworkEffectSignalChild, frameworkEffectCancelChild:
-		return p.validateChildControl()
-	default:
-		return errors.New("unsupported framework Effect")
-	}
+	return operation.validate(p)
 }
 
-func (p *preparedEffect) validateChildControl() error {
-	if p.WaitID != nil {
-		return ErrInvalidChildControl
-	}
-	if p.Settlement == nil {
-		return nil
-	}
-	request, err := decodeChildControlEffect(p.Effect.Payload())
-	if err != nil {
-		return err
-	}
-	result, err := decodeChildControlResult(p.Settlement.Payload())
-	if err != nil || result.childID != request.ChildID || result.operation != request.Operation {
-		return ErrInvalidChildControl
-	}
-	wantStatus := SettlementStatusSucceeded
-	if result.failure.Valid() {
-		wantStatus = SettlementStatusFailed
-	}
-	if p.Settlement.Status() != wantStatus || !result.Matches(p.Effect) {
-		return ErrInvalidChildControl
-	}
-	return nil
-}
-
-func (p *preparedEffect) validateWait(operation frameworkEffectOperation) error {
+func (p *preparedEffect) validateWait() error {
 	if p.WaitID != nil && *p.WaitID != p.ID.waitID() {
-		return fmt.Errorf("%s Effect contains a non-derived WaitID", operation)
+		return errors.New("wait Effect contains a non-derived WaitID")
 	}
 	if (p.WaitID == nil) != (p.Phase != effectPhaseSettled) ||
 		p.Settlement != nil && p.Settlement.Status() == SettlementStatusUnknown {
-		return fmt.Errorf("%s Effect has an incomplete or unknown settlement", operation)
+		return errors.New("wait Effect has an incomplete or unknown settlement")
 	}
 	if p.Settlement == nil {
 		return nil
 	}
 	if p.Settlement.Status() != SettlementStatusSucceeded {
-		return fmt.Errorf("%s Effect settlement is not successful", operation)
-	}
-	switch operation {
-	case frameworkEffectWait:
-		_, expected, err := p.Effect.waitRequest()
-		if err != nil {
-			return err
-		}
-		if !bytes.Equal(p.Settlement.payload, expected) {
-			return errors.New("wait Effect settlement differs from its request")
-		}
-	case frameworkEffectWaitChildren:
-		spec, err := decodeChildWaitEffect(p.Effect.payload)
-		if err != nil {
-			return err
-		}
-		opened, err := jsonwire.Decode[childWaitOpenedWire](p.Settlement.payload)
-		if err != nil {
-			return err
-		}
-		got, err := opened.Spec.value()
-		if err != nil {
-			return err
-		}
-		if opened.Operation != childSignalWaitOpened || got.Key != spec.Key || got.Boundary != spec.Boundary || got.Condition != spec.Condition || !slices.Equal(got.Children, spec.Children) {
-			return errors.New("child-wait Effect settlement differs from its request")
-		}
-	}
-
-	return nil
-}
-
-func (p *preparedEffect) validateChildStart() error {
-	if p.WaitID != nil {
-		return ErrInvalidChildStart
-	}
-	if p.Settlement == nil {
-		return nil
-	}
-	spec, err := decodeChildStartEffect(p.Effect.Payload())
-	if err != nil {
-		return err
-	}
-	result, err := decodeChildStartResult(p.Settlement.Payload())
-	if err != nil {
-		return err
-	}
-	if result.Key() != spec.Key || result.DeploymentRef() != spec.DeploymentRef {
-		return ErrInvalidChildStart
-	}
-	status := SettlementStatusFailed
-	if id, started := result.ProcessID(); started {
-		if id != p.ID.childProcessID() {
-			return ErrInvalidChildStart
-		}
-		status = SettlementStatusSucceeded
-	}
-	if p.Settlement.Status() != status {
-		return ErrInvalidChildStart
+		return errors.New("wait Effect settlement is not successful")
 	}
 	return nil
 }
 
 func (p *preparedEffect) settleFramework() error {
-	operation, err := decodeFrameworkEffectOperation(p.Effect.Payload())
+	operation, err := decodeFrameworkOperation(p.Effect.Payload())
 	if err != nil {
 		return err
 	}
-	var payload json.RawMessage
-	switch operation {
-	case frameworkEffectWait:
-		_, payload, err = p.Effect.waitRequest()
-		if err != nil {
-			return err
-		}
-	case frameworkEffectStartChild:
-		// Child start crosses admission and initialization boundaries. treeRuntime
-		// intercepts it and commits its fenced job completion atomically.
-		return fmt.Errorf("%w: child start requires its job outcome", ErrInvalidEffect)
-	case frameworkEffectWaitChildren:
-		spec, decodeErr := decodeChildWaitEffect(p.Effect.Payload())
-		if decodeErr != nil {
-			return decodeErr
-		}
-		payload, err = encodeChildWaitOpened(spec)
-		if err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("%w: unsupported local Framework Effect", ErrInvalidEffect)
-	}
-	settlement, err := NewSettlement(p.ID, SettlementStatusSucceeded, payload)
-	if err != nil {
-		return err
-	}
-	if err := p.settle(settlement, nil); err != nil {
-		return err
-	}
-	waitID := p.ID.waitID()
-	p.WaitID = &waitID
-	return nil
+	return operation.settle(p)
 }
 
 func (p *preparedEffect) settleChildStart(result ChildStartResult) error {
@@ -441,4 +285,17 @@ func (p *preparedEffect) settleChildStart(result ChildStartResult) error {
 		return err
 	}
 	return p.settle(settlement, nil)
+}
+
+func (p *preparedEffect) settleWait(payload json.RawMessage) error {
+	settlement, err := NewSettlement(p.ID, SettlementStatusSucceeded, payload)
+	if err != nil {
+		return err
+	}
+	if err := p.settle(settlement, nil); err != nil {
+		return err
+	}
+	waitID := p.ID.waitID()
+	p.WaitID = &waitID
+	return nil
 }

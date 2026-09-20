@@ -8,14 +8,13 @@ import (
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
 	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
 
 func TestSettledResultsReadsRecoveryFactsWithoutHistoryStorage(t *testing.T) {
-	store := agenttest.NewMemoryTreeDurability()
+	store := agent.NewMemoryTreeCommitter()
 	entered := make(chan struct{})
 	var modelCalls atomic.Int32
 	deployment := configuredInteraction(t, interaction.DefinitionConfig{

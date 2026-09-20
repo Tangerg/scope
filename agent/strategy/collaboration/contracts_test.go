@@ -156,7 +156,7 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 	config.MaxTurns = agent.NewQuota(8)
 	definition := require(NewDefinition(config))
 	trace := &tracedDefinition{Definition: definition}
-	engine := require(agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployments}))
+	engine := require(agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployments}))
 	defer engine.Close(t.Context())
 	process := require(engine.Start(t.Context(), binding(trace), input("initial")))
 	completed(t, process)
@@ -221,7 +221,7 @@ func TestCompletedSnapshotRejectsForgedOutputAndWorkerSchema(t *testing.T) {
 		}
 		return finish(turn, "done"), nil
 	}, echo())
-	engine, process := run(t, definition, deployments, nil)
+	engine, process := run(t, definition, deployments, agent.NewMemoryTreeCommitter())
 	completed(t, process)
 	tree := require(engine.InspectTree(t.Context(), process.ID()))
 	root, _ := tree.Process(process.ID())

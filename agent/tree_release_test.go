@@ -8,7 +8,8 @@ import (
 )
 
 func TestReleaseTreeRemovesRegistryAndPreservesTerminalHandles(t *testing.T) {
-	engine, err := NewEngine(EngineConfig{})
+	store := NewMemoryTreeCommitter()
+	engine, err := NewEngine(EngineConfig{TreeCommitter: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,10 +70,18 @@ func TestReleaseTreeRemovesRegistryAndPreservesTerminalHandles(t *testing.T) {
 	if err := engine.ReleaseTree(t.Context(), other.ID()); err != nil {
 		t.Fatal(err)
 	}
+	if closeErr := engine.Close(t.Context()); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	head, exists, loadErr := store.LoadTree(t.Context(), root.ID())
+	if loadErr != nil || !exists || !head.Valid() || snapshotByID(head.ProcessSnapshots(), root.ID()).Status() != StatusCompleted {
+		t.Fatalf("Engine release or close removed stored recovery facts: exists=%t error=%v", exists, loadErr)
+	}
+
 }
 
 func TestReleaseTreeCancellationLeavesWaitingTreeUsable(t *testing.T) {
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}

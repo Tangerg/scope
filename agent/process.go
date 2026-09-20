@@ -37,7 +37,7 @@ const treeCommandBufferCapacity = 32
 // already canceled before submission never admits a command. If termination or
 // runtime failure races a queued command, an error may replace its response even
 // after the command took effect. Reconcile delivery through SignalReceipts and
-// effect resolution through the Host's authoritative durability records. Retained
+// effect resolution through the Host's authoritative committer records. Retained
 // snapshot Settlements expose current evidence, not a historical journal.
 type Process struct {
 	handle *processHandle
@@ -84,7 +84,7 @@ func (p *Process) StartedAt() time.Time {
 // are invalid SignalRequests. A batch exceeding mailbox,
 // work-budget, Process snapshot, or tree snapshot capacity returns
 // ErrResourceLimitExceeded before changing the mailbox.
-// In durable mode, accepted is true only after the mailbox and budget changes
+// Accepted is true only after the mailbox and budget changes
 // commit to the authoritative tree head. A caller timeout does not revoke an
 // admitted command; retry the identical batch to reconcile uncertain delivery.
 // If the Process has since terminated, inspect its SignalReceipts instead.
@@ -107,7 +107,7 @@ func (p *Process) DeliverSignals(ctx context.Context, requests ...SignalRequest)
 // Signals; Resume recomputes that Step from committed state.
 // A nil error acknowledges the local control intent, not its durable publication
 // or completion; [Engine.InspectTree] reports StatusPaused only after a tree
-// commit acknowledges the paused state in durable mode.
+// commit acknowledges the paused state.
 func (p *Process) Pause(ctx context.Context, reason string) error {
 	_, err := p.request(ctx, processCommand{kind: commandPause, reason: reason})
 	return err

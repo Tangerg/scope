@@ -82,7 +82,7 @@ func TestEventRejectsMismatchedFrameworkFactContracts(t *testing.T) {
 		{
 			name: "runtime stop is not a committed Process outcome",
 			spec: eventSpec{name: EventRuntimeStopped, phase: EventPhaseCommitted,
-				payload: json.RawMessage(`{"failure_kind":"external","failure_code":"engine.tree.durability_failed"}`)},
+				payload: json.RawMessage(`{"failure_kind":"external","failure_code":"engine.tree.committer_failed"}`)},
 		},
 		{
 			name: "runtime stop requires a classification",
@@ -146,7 +146,7 @@ func FuzzEventJSONRoundTrip(f *testing.F) {
 			SignalID: "signal:event-fuzz",
 		}},
 		{name: EventRuntimeStopped, phase: EventPhaseAttempt, payload: runtimeStoppedEventPayload{
-			FailureKind: FailureKindExternal, FailureCode: failureCodeEngineTreeDurabilityFailed,
+			FailureKind: FailureKindExternal, FailureCode: failureCodeEngineTreeCommitterFailed,
 		}},
 		{name: EventStepFinished, phase: EventPhaseAttempt, stepSequence: 1, payload: stepFinishedEventPayload{
 			StepStatus: StepStatusSucceeded, WorkDurationNS: &durationMS, AdoptionDelayNS: new(int64),
@@ -322,7 +322,7 @@ func TestObservationFailuresAreCountedWithoutAffectingDelivery(t *testing.T) {
 func TestStepPausePublishesCommittedProcessPausedFact(t *testing.T) {
 	paused := make(chan struct{}, 1)
 	var events []Event
-	engine, err := NewEngine(EngineConfig{EventListeners: []EventListener{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), EventListeners: []EventListener{
 		EventListenerFunc(func(_ context.Context, event Event) {
 			events = append(events, event)
 			if event.Name() == EventProcessPaused {
@@ -377,7 +377,7 @@ func TestProcessEventSequenceAdvancesOnlyAtPublication(t *testing.T) {
 	processID, _ := ParseProcessID("process:event-sequence")
 	relation := rootProcessRelation(processID)
 	var events []Event
-	engine, err := NewEngine(EngineConfig{EventListeners: []EventListener{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), EventListeners: []EventListener{
 		EventListenerFunc(func(_ context.Context, event Event) { events = append(events, event) }),
 	}})
 	if err != nil {

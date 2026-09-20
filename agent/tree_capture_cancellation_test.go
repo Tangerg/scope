@@ -18,7 +18,7 @@ func TestCaptureTreeAllowsTerminationWhileEffectsDrain(t *testing.T) {
 				}
 				release := sync.OnceFunc(func() { close(dispatcher.release) })
 				defer release()
-				engine, err := NewEngine(EngineConfig{})
+				engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -110,7 +110,7 @@ func TestCaptureTreeAllowsTerminationWhileEffectsDrain(t *testing.T) {
 					wire.Prepared.Effects[0].ID != request.ID() || !wire.Prepared.Effects[0].definitelySettled() {
 					t.Fatalf("capture lost the settled Effect: %+v, %v", wire.Prepared, err)
 				}
-				restoredEngine, err := NewEngine(EngineConfig{})
+				restoredEngine, err := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(capture.snapshot)})
 				if err != nil {
 					t.Fatal(err)
 				}

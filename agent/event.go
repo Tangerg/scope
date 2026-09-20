@@ -50,8 +50,8 @@ const (
 var ErrInvalidEvent = errors.New("agent: invalid event")
 
 // EventPhase distinguishes runtime observations from facts supported by
-// authoritative Process state. Durable trees publish committed facts only after
-// TreeDurability acknowledges the resulting tree state. Attempt facts do not
+// authoritative Process state. Engines publish committed facts only after
+// TreeCommitter acknowledges the resulting tree state. Attempt facts do not
 // assert a committed Process state change.
 type EventPhase string
 
@@ -192,8 +192,8 @@ func (e Event) DeploymentRef() DeploymentRef { return e.deploymentRef }
 // Relation returns the Process tree location that emitted the fact.
 func (e Event) Relation() ProcessRelation { return e.relation }
 
-// TreeIncarnationID returns the active durable writer that emitted this event.
-// Events from ephemeral trees return false.
+// TreeIncarnationID returns the active writer that emitted this event.
+// Engine-produced Events always identify their active writer.
 func (e Event) TreeIncarnationID() (TreeIncarnationID, bool) {
 	return e.incarnationID, e.incarnationID.Valid()
 }

@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-type recordingTreeDurability struct {
+type recordingTreeCommitter struct {
 	mu          sync.Mutex
 	activations []TreeActivation
 	effects     []EffectBoundary
@@ -18,7 +18,7 @@ type recordingTreeDurability struct {
 	pending     atomic.Bool
 }
 
-func (r *recordingTreeDurability) ActivateTree(
+func (r *recordingTreeCommitter) ActivateTree(
 	_ context.Context,
 	activation TreeActivation,
 ) error {
@@ -28,7 +28,7 @@ func (r *recordingTreeDurability) ActivateTree(
 	return nil
 }
 
-func (r *recordingTreeDurability) CommitEffect(
+func (r *recordingTreeCommitter) CommitEffect(
 	_ context.Context,
 	boundary EffectBoundary,
 ) error {
@@ -41,7 +41,7 @@ func (r *recordingTreeDurability) CommitEffect(
 	return nil
 }
 
-func (r *recordingTreeDurability) CommitCheckpoint(
+func (r *recordingTreeCommitter) CommitCheckpoint(
 	_ context.Context,
 	checkpoint TreeCheckpoint,
 ) error {
@@ -51,32 +51,32 @@ func (r *recordingTreeDurability) CommitCheckpoint(
 	return nil
 }
 
-func (r *recordingTreeDurability) effectBoundaries() []EffectBoundary {
+func (r *recordingTreeCommitter) effectBoundaries() []EffectBoundary {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]EffectBoundary(nil), r.effects...)
 }
 
-func (r *recordingTreeDurability) treeCheckpoints() []TreeCheckpoint {
+func (r *recordingTreeCommitter) treeCheckpoints() []TreeCheckpoint {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]TreeCheckpoint(nil), r.checkpoints...)
 }
 
-func (r *recordingTreeDurability) treeActivations() []TreeActivation {
+func (r *recordingTreeCommitter) treeActivations() []TreeActivation {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]TreeActivation(nil), r.activations...)
 }
 
 type rejectingEffectDurability struct {
-	*recordingTreeDurability
+	*recordingTreeCommitter
 	rejectedKind EffectBoundaryKind
 	err          error
 }
 
 type blockingTerminalCheckpointDurability struct {
-	*recordingTreeDurability
+	*recordingTreeCommitter
 	entered chan struct{}
 	release chan struct{}
 	once    sync.Once
@@ -118,29 +118,32 @@ func (b *blockingTerminalCheckpointDurability) CommitCheckpoint(
 			return ctx.Err()
 		}
 	}
-	return b.recordingTreeDurability.CommitCheckpoint(ctx, checkpoint)
+	return b.recordingTreeCommitter.CommitCheckpoint(ctx, checkpoint)
 }
 
-type typedNilTreeDurability struct{}
+type typedNilTreeCommitter struct{}
 
-func (*typedNilTreeDurability) ActivateTree(context.Context, TreeActivation) error {
+func (*typedNilTreeCommitter) ActivateTree(context.Context, TreeActivation) error {
 	return nil
 }
 
-func (*typedNilTreeDurability) CommitEffect(context.Context, EffectBoundary) error {
+func (*typedNilTreeCommitter) CommitEffect(context.Context, EffectBoundary) error {
 	return nil
 }
 
-func (*typedNilTreeDurability) CommitCheckpoint(context.Context, TreeCheckpoint) error {
+func (*typedNilTreeCommitter) CommitCheckpoint(context.Context, TreeCheckpoint) error {
 	return nil
 }
 
-func TestTreeDurabilityConfigurationIsUnambiguous(t *testing.T) {
-	var typedNil *typedNilTreeDurability
-	if _, err := NewEngine(EngineConfig{TreeDurability: typedNil}); !errors.Is(err, ErrInvalidEngineConfig) {
-		t.Fatalf("typed-nil TreeDurability error=%v", err)
+func TestTreeCommitterConfigurationIsUnambiguous(t *testing.T) {
+	if _, err := NewEngine(EngineConfig{}); !errors.Is(err, ErrInvalidEngineConfig) {
+		t.Fatalf("missing committer: %v", err)
 	}
-	durability := &recordingTreeDurability{}
+	var typedNil *typedNilTreeCommitter
+	if _, err := NewEngine(EngineConfig{TreeCommitter: typedNil}); !errors.Is(err, ErrInvalidEngineConfig) {
+		t.Fatalf("typed-nil TreeCommitter error=%v", err)
+	}
+	committer := &recordingTreeCommitter{}
 	acknowledger := ProcessInitializationOutcomeAcknowledgerFunc(func(
 		context.Context,
 		ProcessInitializationOutcome,
@@ -148,52 +151,28 @@ func TestTreeDurabilityConfigurationIsUnambiguous(t *testing.T) {
 		return nil
 	})
 	if _, err := NewEngine(EngineConfig{
-		TreeDurability: durability, ProcessInitializationOutcomeAcknowledger: acknowledger,
+		TreeCommitter: committer, ProcessInitializationOutcomeAcknowledger: acknowledger,
 	}); err != nil {
-		t.Fatalf("independent durability and initialization ports error=%v", err)
+		t.Fatalf("independent committer and initialization ports error=%v", err)
 	}
 }
 
-func TestRestoreTreeRejectsDurabilityModeMismatch(t *testing.T) {
-	ephemeral := completedTreeSnapshot(t)
-	durability := &recordingTreeDurability{}
-	durableEngine, _ := NewEngine(EngineConfig{TreeDurability: durability})
-	definition := newEngineTestDefinition(t, "engine.effect", "effect")
-	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
-	if _, err := durableEngine.RestoreTree(context.Background(), deployment, ephemeral); !errors.Is(err, ErrTreeDurabilityMismatch) {
-		t.Fatalf("ephemeral-to-durable restore error=%v", err)
-	}
-
-	runningEngine, _ := NewEngine(EngineConfig{TreeDurability: durability})
-	input, _ := EncodePayload(engineTestInput{Value: "durable"})
-	result, err := runningEngine.Run(context.Background(), deployment, input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var durableSnapshot TreeSnapshot
-	for _, checkpoint := range durability.treeCheckpoints() {
-		if checkpoint.TreeSnapshot().RootID() == result.ProcessID() {
-			durableSnapshot = checkpoint.TreeSnapshot()
-		}
-	}
-	if !durableSnapshot.Valid() {
-		t.Fatal("durable terminal snapshot is missing")
-	}
-	ephemeralEngine, _ := NewEngine(EngineConfig{})
-	if _, err := ephemeralEngine.RestoreTree(
-		context.Background(), deployment, durableSnapshot,
-	); !errors.Is(err, ErrTreeDurabilityMismatch) {
-		t.Fatalf("durable-to-ephemeral restore error=%v", err)
+func TestRestoreRequiresAnAuthoritativeHead(t *testing.T) {
+	tree := completedTreeSnapshot(t)
+	engine := controlValue(NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}))
+	_, err := engine.RestoreTree(t.Context(), engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), &engineTestDispatcher{policy: ReplayPolicyNever}), tree)
+	if !errors.Is(err, ErrTreeIncarnationConflict) {
+		t.Fatalf("restore without head = %v", err)
 	}
 }
 
 func TestRestoreTreeRejectsLocalRegistrationBeforeActivation(t *testing.T) {
-	durability := &recordingTreeDurability{}
+	committer := &recordingTreeCommitter{}
 	definition := newEngineTestDefinition(t, "engine.wait", "wait")
 	deployment := engineTestDeployment(
 		t, definition, &engineTestDispatcher{policy: ReplayPolicyNever},
 	)
-	source, err := NewEngine(EngineConfig{TreeDurability: durability})
+	source, err := NewEngine(EngineConfig{TreeCommitter: committer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,9 +182,9 @@ func TestRestoreTreeRejectsLocalRegistrationBeforeActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForStatus(t, original, StatusWaiting)
-	parked := waitForDurableCheckpoint(t, durability, original.ID(), TreeCheckpointKindParked)
+	parked := waitForDurableCheckpoint(t, committer, original.ID(), TreeCheckpointKindParked)
 
-	destination, err := NewEngine(EngineConfig{TreeDurability: durability})
+	destination, err := NewEngine(EngineConfig{TreeCommitter: committer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +192,7 @@ func TestRestoreTreeRejectsLocalRegistrationBeforeActivation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := len(durability.treeActivations()); got != 1 {
+	if got := len(committer.treeActivations()); got != 1 {
 		t.Fatalf("activation count=%d, want 1", got)
 	}
 	if _, err := destination.RestoreTree(
@@ -221,7 +200,7 @@ func TestRestoreTreeRejectsLocalRegistrationBeforeActivation(t *testing.T) {
 	); !errors.Is(err, ErrProcessAlreadyExists) {
 		t.Fatalf("duplicate RestoreTree error=%v", err)
 	}
-	if got := len(durability.treeActivations()); got != 1 {
+	if got := len(committer.treeActivations()); got != 1 {
 		t.Fatalf("duplicate restore reached activation; count=%d", got)
 	}
 
@@ -239,7 +218,7 @@ func TestRestoreTreeRejectsLocalRegistrationBeforeActivation(t *testing.T) {
 
 func waitForDurableCheckpoint(
 	t *testing.T,
-	durability *recordingTreeDurability,
+	committer *recordingTreeCommitter,
 	rootID ProcessID,
 	kind TreeCheckpointKind,
 ) TreeSnapshot {
@@ -249,7 +228,7 @@ func waitForDurableCheckpoint(
 	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()
 	for {
-		for _, checkpoint := range durability.treeCheckpoints() {
+		for _, checkpoint := range committer.treeCheckpoints() {
 			if checkpoint.Kind() == kind && checkpoint.TreeSnapshot().RootID() == rootID {
 				return checkpoint.TreeSnapshot()
 			}
@@ -266,7 +245,7 @@ func (r *rejectingEffectDurability) CommitEffect(
 	ctx context.Context,
 	boundary EffectBoundary,
 ) error {
-	if err := r.recordingTreeDurability.CommitEffect(ctx, boundary); err != nil {
+	if err := r.recordingTreeCommitter.CommitEffect(ctx, boundary); err != nil {
 		return err
 	}
 	if boundary.Kind() == r.rejectedKind {
@@ -287,19 +266,19 @@ func TestDurableEffectCommitFailuresStopTheTreeAtTheCorrectBoundary(t *testing.T
 	}{
 		{
 			name: "pending is definitely undispatched", kind: EffectBoundaryKindPending,
-			cause:           errors.New("durability unavailable"),
-			wantFailureKind: FailureKindExternal, wantFailureCode: failureCodeEngineTreeDurabilityFailed,
+			cause:           errors.New("committer unavailable"),
+			wantFailureKind: FailureKindExternal, wantFailureCode: failureCodeEngineTreeCommitterFailed,
 		},
 		{
 			name: "settled preserves ambiguous Effect identity", kind: EffectBoundaryKindSettled,
-			cause: errors.New("durability unavailable"), wantDispatches: 1,
+			cause: errors.New("committer unavailable"), wantDispatches: 1,
 			wantUnresolvedID: true, wantFailureKind: FailureKindExternal,
-			wantFailureCode: failureCodeEngineTreeDurabilityFailed,
+			wantFailureCode: failureCodeEngineTreeCommitterFailed,
 		},
 		{
 			name: "content conflict is a Host contract violation", kind: EffectBoundaryKindPending,
-			cause: ErrDurabilityConflict, wantFailureKind: FailureKindContract,
-			wantFailureCode: failureCodeEngineTreeDurabilityConflict,
+			cause: ErrCommitConflict, wantFailureKind: FailureKindContract,
+			wantFailureCode: failureCodeEngineTreeCommitterConflict,
 		},
 		{
 			name: "stale writer is fenced", kind: EffectBoundaryKindPending,
@@ -308,19 +287,19 @@ func TestDurableEffectCommitFailuresStopTheTreeAtTheCorrectBoundary(t *testing.T
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			recorder := &recordingTreeDurability{}
-			durability := &rejectingEffectDurability{
-				recordingTreeDurability: recorder, rejectedKind: test.kind, err: test.cause,
+			recorder := &recordingTreeCommitter{}
+			committer := &rejectingEffectDurability{
+				recordingTreeCommitter: recorder, rejectedKind: test.kind, err: test.cause,
 			}
 			dispatcher := &engineTestDispatcher{policy: ReplayPolicyNever}
 			definition := newEngineTestDefinition(t, "engine.effect", "effect")
 			deployment := engineTestDeployment(t, definition, dispatcher)
 			listener := &recordingEventListener{}
-			engine, err := NewEngine(EngineConfig{TreeDurability: durability, EventListeners: []EventListener{listener}})
+			engine, err := NewEngine(EngineConfig{TreeCommitter: committer, EventListeners: []EventListener{listener}})
 			if err != nil {
 				t.Fatal(err)
 			}
-			input, _ := EncodePayload(engineTestInput{Value: "durability"})
+			input, _ := EncodePayload(engineTestInput{Value: "committer"})
 			process, err := engine.Start(context.Background(), deployment, input)
 			if err != nil {
 				t.Fatal(err)
@@ -383,17 +362,17 @@ func TestDurableEffectCommitFailuresStopTheTreeAtTheCorrectBoundary(t *testing.T
 	}
 }
 
-func TestTreeDurabilityFaultPreservesEveryConcurrentEffectForReconciliation(t *testing.T) {
-	recorder := &recordingTreeDurability{}
-	durability := &rejectingEffectDurability{
-		recordingTreeDurability: recorder,
-		rejectedKind:            EffectBoundaryKindSettled,
-		err:                     errors.New("durability unavailable"),
+func TestTreeCommitterFaultPreservesEveryConcurrentEffectForReconciliation(t *testing.T) {
+	recorder := &recordingTreeCommitter{}
+	committer := &rejectingEffectDurability{
+		recordingTreeCommitter: recorder,
+		rejectedKind:           EffectBoundaryKindSettled,
+		err:                    errors.New("committer unavailable"),
 	}
 	dispatcher := newBlockingChildDispatcher("first", "second", "third")
 	t.Cleanup(dispatcher.ReleaseAll)
 	deployment := newChildTestDeploymentWithDispatcher(t, dispatcher)
-	engine, err := NewEngine(EngineConfig{TreeDurability: durability})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: committer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,7 +403,7 @@ func TestTreeDurabilityFaultPreservesEveryConcurrentEffectForReconciliation(t *t
 		}
 	}
 	dispatcher.Release(started[0])
-	awaitRuntimeError(t, root, durability.err)
+	awaitRuntimeError(t, root, committer.err)
 
 	childIDs := directChildIDs(t, engine, root.ID())
 	if len(childIDs) != len(started) {
@@ -439,7 +418,7 @@ func TestTreeDurabilityFaultPreservesEveryConcurrentEffectForReconciliation(t *t
 		if !exists {
 			t.Fatalf("child %s is missing", childID)
 		}
-		runtimeErr := awaitRuntimeError(t, child, durability.err)
+		runtimeErr := awaitRuntimeError(t, child, committer.err)
 		unresolved := runtimeErr.UnresolvedEffectIDs()
 		if len(unresolved) != 1 {
 			t.Fatalf("child %s unresolved=%v", childID, unresolved)
@@ -450,7 +429,7 @@ func TestTreeDurabilityFaultPreservesEveryConcurrentEffectForReconciliation(t *t
 	closeEngineEventually(t, engine)
 }
 
-func TestTreeDurabilityFaultReleasesConcurrentChildAdmissionOwnership(t *testing.T) {
+func TestTreeCommitterFaultReleasesConcurrentChildAdmissionOwnership(t *testing.T) {
 	secondKey, err := ParseChildKey("second")
 	if err != nil {
 		t.Fatal(err)
@@ -470,14 +449,14 @@ func TestTreeDurabilityFaultReleasesConcurrentChildAdmissionOwnership(t *testing
 		}
 		dispatcher.ReleaseAll()
 	})
-	durability := &rejectingEffectDurability{
-		recordingTreeDurability: &recordingTreeDurability{},
-		rejectedKind:            EffectBoundaryKindSettled,
-		err:                     errors.New("durability unavailable"),
+	committer := &rejectingEffectDurability{
+		recordingTreeCommitter: &recordingTreeCommitter{},
+		rejectedKind:           EffectBoundaryKindSettled,
+		err:                    errors.New("committer unavailable"),
 	}
 	deployment := newChildTestDeploymentWithDispatcher(t, dispatcher)
 	engine, err := NewEngine(EngineConfig{
-		TreeDurability:  durability,
+		TreeCommitter:   committer,
 		ProcessAdmitter: admitter,
 	})
 	if err != nil {
@@ -506,7 +485,7 @@ func TestTreeDurabilityFaultReleasesConcurrentChildAdmissionOwnership(t *testing
 	}
 
 	dispatcher.Release(startedEffect)
-	runtimeErr := awaitRuntimeError(t, root, durability.err)
+	runtimeErr := awaitRuntimeError(t, root, committer.err)
 	if len(runtimeErr.UnresolvedEffectIDs()) != 1 {
 		t.Fatalf("root unresolved=%v", runtimeErr.UnresolvedEffectIDs())
 	}
@@ -556,18 +535,18 @@ func closeEngineEventually(t *testing.T, engine *Engine) {
 		}
 		select {
 		case <-deadline.C:
-			t.Fatal("Engine retained work after concurrent durability fault")
+			t.Fatal("Engine retained work after concurrent committer fault")
 		case <-ticker.C:
 		}
 	}
 }
 
 func TestDurableUnknownResolutionCommitsAResolvedBoundary(t *testing.T) {
-	durability := &recordingTreeDurability{}
+	committer := &recordingTreeCommitter{}
 	dispatcher := &failingEngineTestDispatcher{}
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(t, definition, dispatcher)
-	engine, err := NewEngine(EngineConfig{TreeDurability: durability})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: committer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -587,7 +566,7 @@ func TestDurableUnknownResolutionCommitsAResolvedBoundary(t *testing.T) {
 	if result := awaitResult(t, process); result.Status() != StatusCompleted {
 		t.Fatalf("result status=%s", result.Status())
 	}
-	boundaries := durability.effectBoundaries()
+	boundaries := committer.effectBoundaries()
 	if len(boundaries) != 3 || boundaries[0].Kind() != EffectBoundaryKindPending ||
 		boundaries[1].Kind() != EffectBoundaryKindSettled ||
 		boundaries[2].Kind() != EffectBoundaryKindResolved {
@@ -641,10 +620,10 @@ func runPendingEffectRecoveryCase(
 	test pendingEffectRecoveryCase,
 ) {
 	t.Helper()
-	durability := &recordingTreeDurability{}
+	committer := &recordingTreeCommitter{}
 	dispatcher := &engineTestDispatcher{policy: test.policy}
 	restoredDeployment := engineTestDeployment(t, deployment.Definition(), dispatcher)
-	engine, err := NewEngine(EngineConfig{TreeDurability: durability})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: committer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -656,7 +635,7 @@ func runPendingEffectRecoveryCase(
 	if got := dispatcher.calls.Load(); got != test.wantCalls {
 		t.Fatalf("recovery dispatch calls=%d, want %d", got, test.wantCalls)
 	}
-	assertRecoveryBoundary(t, durability, effectID, test.wantStatus)
+	assertRecoveryBoundary(t, committer, effectID, test.wantStatus)
 	if test.wantStatus == SettlementStatusUnknown {
 		_ = process.Kill(context.Background(), "test cleanup")
 		_ = awaitResult(t, process)
@@ -683,12 +662,12 @@ func assertRecoveredProcess(t *testing.T, process *Process, effectID EffectID, w
 
 func assertRecoveryBoundary(
 	t *testing.T,
-	durability *recordingTreeDurability,
+	committer *recordingTreeCommitter,
 	effectID EffectID,
 	wantStatus SettlementStatus,
 ) {
 	t.Helper()
-	boundaries := durability.effectBoundaries()
+	boundaries := committer.effectBoundaries()
 	if len(boundaries) == 0 {
 		t.Fatal("recovery settlement boundary is missing")
 	}
@@ -699,7 +678,7 @@ func assertRecoveryBoundary(
 		settlement.Status() != wantStatus {
 		t.Fatalf("recovery boundary=%+v settlement=%+v present=%t", boundary, settlement, present)
 	}
-	activations := durability.treeActivations()
+	activations := committer.treeActivations()
 	if len(activations) != 1 || boundary.PreviousTreeDigest() != activations[0].TreeSnapshot().Digest() {
 		t.Fatalf("activation=%v previous head=%s", activations, boundary.PreviousTreeDigest())
 	}
@@ -707,11 +686,11 @@ func assertRecoveryBoundary(
 
 func TestRestorePendingEffectRejectsInvalidReplayPolicyBeforeActivation(t *testing.T) {
 	pending, deployment, _ := durablePendingTreeSnapshot(t)
-	durability := &recordingTreeDurability{}
+	committer := &recordingTreeCommitter{}
 	restoredDeployment := engineTestDeployment(
 		t, deployment.Definition(), &engineTestDispatcher{policy: ReplayPolicyInvalid},
 	)
-	engine, err := NewEngine(EngineConfig{TreeDurability: durability})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: committer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -720,7 +699,7 @@ func TestRestorePendingEffectRejectsInvalidReplayPolicyBeforeActivation(t *testi
 	); !errors.Is(err, ErrInvalidTreeSnapshot) {
 		t.Fatalf("invalid replay policy restore error=%v", err)
 	}
-	if got := len(durability.treeActivations()); got != 0 {
+	if got := len(committer.treeActivations()); got != 0 {
 		t.Fatalf("invalid replay policy reached activation; count=%d", got)
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
@@ -732,12 +711,12 @@ func durablePendingTreeSnapshot(
 	t *testing.T,
 ) (TreeSnapshot, Deployment, EffectID) {
 	t.Helper()
-	durability := &recordingTreeDurability{}
+	committer := &recordingTreeCommitter{}
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(
 		t, definition, &engineTestDispatcher{policy: ReplayPolicyNever},
 	)
-	engine, err := NewEngine(EngineConfig{TreeDurability: durability})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: committer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -745,7 +724,7 @@ func durablePendingTreeSnapshot(
 	if _, err := engine.Run(context.Background(), deployment, input); err != nil {
 		t.Fatal(err)
 	}
-	boundaries := durability.effectBoundaries()
+	boundaries := committer.effectBoundaries()
 	if len(boundaries) == 0 || boundaries[0].Kind() != EffectBoundaryKindPending {
 		t.Fatalf("pending boundary is missing: %v", boundaries)
 	}
@@ -759,7 +738,7 @@ func TestKillPreservesUnknownEffectIdentityInTermination(t *testing.T) {
 	dispatcher := &failingEngineTestDispatcher{}
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(t, definition, dispatcher)
-	engine, _ := NewEngine(EngineConfig{})
+	engine, _ := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	input, _ := EncodePayload(engineTestInput{Value: "unknown"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
@@ -778,34 +757,39 @@ func TestKillPreservesUnknownEffectIdentityInTermination(t *testing.T) {
 	}
 }
 
-func TestDurableTreeRejectsCallerDrivenCapture(t *testing.T) {
-	durability := &recordingTreeDurability{}
+func TestCaptureReturnsAcknowledgedHead(t *testing.T) {
+	committer := NewMemoryTreeCommitter()
 	definition := newEngineTestDefinition(t, "engine.wait", "wait")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
-	engine, _ := NewEngine(EngineConfig{TreeDurability: durability})
+	engine, _ := NewEngine(EngineConfig{TreeCommitter: committer})
 	input, _ := EncodePayload(engineTestInput{Value: "capture"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.CaptureTree(context.Background(), process.ID()); !errors.Is(err, ErrTreeCaptureUnavailable) {
-		t.Fatalf("CaptureTree error=%v", err)
+	snapshot, err := engine.CaptureTree(context.Background(), process.ID())
+	if err != nil || !snapshot.Valid() {
+		t.Fatalf("CaptureTree valid=%v error=%v", snapshot.Valid(), err)
+	}
+	head, exists, loadErr := committer.LoadTree(t.Context(), process.ID())
+	if loadErr != nil || !exists || head.Digest() != snapshot.Digest() {
+		t.Fatalf("capture differs from acknowledged head: exists=%t error=%v", exists, loadErr)
 	}
 	_ = process.Kill(context.Background(), "test cleanup")
 	_ = awaitResult(t, process)
 }
 
 func TestEngineCloseRejectsUnpublishedTerminalCheckpoint(t *testing.T) {
-	durability := &blockingTerminalCheckpointDurability{
-		recordingTreeDurability: &recordingTreeDurability{},
-		entered:                 make(chan struct{}),
-		release:                 make(chan struct{}),
+	committer := &blockingTerminalCheckpointDurability{
+		recordingTreeCommitter: &recordingTreeCommitter{},
+		entered:                make(chan struct{}),
+		release:                make(chan struct{}),
 	}
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(
 		t, definition, &engineTestDispatcher{policy: ReplayPolicyNever},
 	)
-	engine, err := NewEngine(EngineConfig{TreeDurability: durability})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: committer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -815,7 +799,7 @@ func TestEngineCloseRejectsUnpublishedTerminalCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case <-durability.entered:
+	case <-committer.entered:
 	case <-time.After(2 * time.Second):
 		t.Fatal("terminal checkpoint did not start")
 	}
@@ -825,7 +809,7 @@ func TestEngineCloseRejectsUnpublishedTerminalCheckpoint(t *testing.T) {
 	if err := engine.Close(context.WithoutCancel(t.Context())); !errors.Is(err, ErrEngineHasActiveProcesses) {
 		t.Fatalf("Close during terminal checkpoint error=%v", err)
 	}
-	close(durability.release)
+	close(committer.release)
 	if result := awaitResult(t, process); result.Status() != StatusCompleted {
 		t.Fatalf("result status=%s", result.Status())
 	}
@@ -836,14 +820,14 @@ func TestEngineCloseRejectsUnpublishedTerminalCheckpoint(t *testing.T) {
 
 func TestDurableObservationsCarryCurrentIncarnation(t *testing.T) {
 	const observationBufferCapacity = 32
-	durability := &recordingTreeDurability{}
+	committer := &recordingTreeCommitter{}
 	events := make(chan Event, observationBufferCapacity)
 	deltas := make(chan Delta, observationBufferCapacity)
 	dispatcher := &engineTestDispatcher{policy: ReplayPolicyNever}
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(t, definition, dispatcher)
 	engine, err := NewEngine(EngineConfig{
-		TreeDurability: durability,
+		TreeCommitter: committer,
 		EventListeners: []EventListener{EventListenerFunc(func(_ context.Context, event Event) {
 			events <- event
 		})},
@@ -862,9 +846,9 @@ func TestDurableObservationsCarryCurrentIncarnation(t *testing.T) {
 	if err := engine.FlushDeltas(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	tree := durability.treeCheckpoints()[0].TreeSnapshot()
-	want, _ := tree.IncarnationID()
-	for _, boundary := range durability.effectBoundaries() {
+	tree := committer.treeCheckpoints()[0].TreeSnapshot()
+	want := tree.IncarnationID()
+	for _, boundary := range committer.effectBoundaries() {
 		if got, ok := boundary.Request().TreeIncarnationID(); !ok || got != want {
 			t.Fatalf("EffectRequest incarnation=%s present=%t, want %s", got, ok, want)
 		}
@@ -891,12 +875,12 @@ func TestDurableObservationsCarryCurrentIncarnation(t *testing.T) {
 }
 
 type rejectingStartCheckpointDurability struct {
-	*recordingTreeDurability
+	*recordingTreeCommitter
 	err error
 }
 
 func (r *rejectingStartCheckpointDurability) CommitCheckpoint(ctx context.Context, checkpoint TreeCheckpoint) error {
-	if err := r.recordingTreeDurability.CommitCheckpoint(ctx, checkpoint); err != nil {
+	if err := r.recordingTreeCommitter.CommitCheckpoint(ctx, checkpoint); err != nil {
 		return err
 	}
 	if checkpoint.Kind() == TreeCheckpointKindStart {
@@ -923,11 +907,11 @@ func TestDurableStartSeparatesInitializationAcceptanceFromCheckpoint(t *testing.
 		{name: "persistence failure after initialization acceptance", persistenceErr: persistenceErr, wantError: persistenceErr, wantStatus: ProcessInitializationOutcomeStatusInitialized, wantCheckpoints: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			recorder := &recordingTreeDurability{}
-			durability := &rejectingStartCheckpointDurability{recordingTreeDurability: recorder, err: test.persistenceErr}
+			recorder := &recordingTreeCommitter{}
+			committer := &rejectingStartCheckpointDurability{recordingTreeCommitter: recorder, err: test.persistenceErr}
 			var outcomes []ProcessInitializationOutcome
 			engine, err := NewEngine(EngineConfig{
-				TreeDurability: durability,
+				TreeCommitter: committer,
 				ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(_ context.Context, outcome ProcessInitializationOutcome) error {
 					if len(recorder.treeCheckpoints()) != 0 {
 						t.Error("persistence preceded initialization acceptance")

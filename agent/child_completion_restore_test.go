@@ -65,7 +65,7 @@ func TestRestoreDoesNotChargeExistingChildCompletion(t *testing.T) {
 	definition.base.reference = deployment.DeploymentRef()
 	limits := DefaultLimits()
 	limits.MaxPendingSignals = 1
-	engine, err := NewEngine(EngineConfig{Limits: limits})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: limits})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestRestoreDoesNotChargeExistingChildCompletion(t *testing.T) {
 	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
-	restoredEngine, err := NewEngine(EngineConfig{Limits: limits})
+	restoredEngine, err := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree), Limits: limits})
 	if err != nil {
 		t.Fatal(err)
 	}

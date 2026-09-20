@@ -19,7 +19,7 @@ func TestImmediateChildCompletionLimitReportsExecutionFailure(t *testing.T) {
 		{name: "allocated child budget", limits: Limits{MaxPendingSignals: 52, Budget: Budget{Signals: NewQuota(52)}}},
 	} {
 		for _, durable := range []bool{false, true} {
-			mode := "ephemeral"
+			mode := "memory"
 			if durable {
 				mode = "durable"
 			}
@@ -34,9 +34,9 @@ func TestImmediateChildCompletionLimitReportsExecutionFailure(t *testing.T) {
 					defer release()
 					deployment := engineTestDeployment(t, definition, childTestDispatcher{})
 					definition.reference = deployment.DeploymentRef()
-					config := EngineConfig{Limits: limit.limits}
+					config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: limit.limits}
 					if durable {
-						config.TreeDurability = &recordingTreeDurability{}
+						config.TreeCommitter = &recordingTreeCommitter{}
 					}
 					engine, err := NewEngine(config)
 					if err != nil {
@@ -130,14 +130,14 @@ func (h *heldChildWaitExecution) Step(ctx context.Context, signals []Signal) (Tr
 
 func TestWaitConflictsAreRejectedBeforeDispatch(t *testing.T) {
 	for _, durable := range []bool{false, true} {
-		name := "ephemeral"
+		name := "memory"
 		if durable {
 			name = "durable"
 		}
 		t.Run(name, func(t *testing.T) {
-			config := EngineConfig{}
+			config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
 			if durable {
-				config.TreeDurability = &recordingTreeDurability{}
+				config.TreeCommitter = &recordingTreeCommitter{}
 			}
 			engine, err := NewEngine(config)
 			if err != nil {

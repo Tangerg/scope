@@ -20,7 +20,7 @@ func TestChildCompletionPreservesParentSchedulingAcrossRestore(t *testing.T) {
 			dispatcher := newBlockingChildDispatcher("first", "second", "third")
 			t.Cleanup(dispatcher.ReleaseAll)
 			deployment := newChildTestDeploymentWithDispatcher(t, dispatcher)
-			engine, err := NewEngine(EngineConfig{})
+			engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -52,7 +52,7 @@ func TestChildCompletionPreservesParentSchedulingAcrossRestore(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			restoredEngine, err := NewEngine(EngineConfig{})
+			restoredEngine, err := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(parsed)})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -136,7 +136,7 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 	if !runtime.advanceOne() {
 		t.Fatal("failed parent was not scheduled")
 	}
-	result := mustAwait(t, &Process{handle: handle})
+	result := parent.result()
 	failure, present := result.Termination().Failure()
 	if result.Status() != StatusFailed || !present || failure.Code() != "engine.child.wait.satisfaction.encoding_failed" {
 		t.Fatalf("parent result = %s, failure = %+v", result.Status(), failure)
@@ -168,7 +168,7 @@ func TestPendingFailureRetainsUnknownExternalEffect(t *testing.T) {
 	parent.prepared = &preparedStep{Effects: []preparedEffect{record}}
 	parent.counters.PreparedEffects = 1
 	runtime.advancePrepared(parent)
-	result := mustAwait(t, &Process{handle: parent.handle})
+	result := parent.result()
 	if result.Status() != StatusFailed || !slices.Equal(result.Termination().UnresolvedEffectIDs(), []EffectID{id}) {
 		t.Fatalf("failure lost unresolved effect: %+v", result.Termination())
 	}
@@ -176,7 +176,7 @@ func TestPendingFailureRetainsUnknownExternalEffect(t *testing.T) {
 
 func newChildCompletionTestProcess(t *testing.T) (*treeRuntime, *processState) {
 	t.Helper()
-	engine, err := NewEngine(EngineConfig{Limits: Limits{Budget: Budget{Steps: NewQuota(10000), Effects: NewQuota(10000), Signals: NewQuota(100000)}}})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: Limits{Budget: Budget{Steps: NewQuota(10000), Effects: NewQuota(10000), Signals: NewQuota(100000)}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,5 +193,11 @@ func newChildCompletionTestProcess(t *testing.T) (*treeRuntime, *processState) {
 		engine.limits.Budget, engine.capabilities, engine.treeLimits, now)
 	parent := newProcessState(handle, deployment, execution, state, now, engine.limits)
 	runtime := newTreeRuntime(engine, parentID, t.Context(), parent)
+	snapshot := controlValue(runtime.captureTree())
+	checkpoint := controlValue(newTreeCheckpoint(TreeCheckpointKindStart, Digest{}, snapshot))
+	if err := engine.committer.CommitCheckpoint(t.Context(), checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	runtime.establishHead(runtime.incarnation, snapshot)
 	return runtime, parent
 }

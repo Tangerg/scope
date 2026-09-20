@@ -79,7 +79,7 @@ func TestBrokenStepErrorDoesNotCrashHost(t *testing.T) {
 	if os.Getenv("SCOPE_BROKEN_STEP_CHILD") == "1" {
 		cause := brokenUnwrapError{}
 		definition := &rejectedStepDefinition{descriptor: newEngineTestDefinition(t, "test.broken_step", "complete").Descriptor(), err: cause}
-		engine := controlValue(NewEngine(EngineConfig{}))
+		engine := controlValue(NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}))
 		defer mustCloseEngine(t, engine)
 		process := controlValue(engine.Start(t.Context(), engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever}), controlValue(EncodePayload(engineTestInput{Value: "input"}))))
 		waitForStatus(t, process, StatusPaused)
@@ -145,7 +145,7 @@ func TestRuntimeUsesSealedErrorFacts(t *testing.T) {
 	if got := dispatchFailure(errors.Join(err, nil)); got.Code() != failureCodeEngineDispatchFailed {
 		t.Fatalf("dispatch=%+v", got)
 	}
-	if got := newTreeRuntimeFailure(fmt.Errorf("wrapped: %w", err)); got.Code() != failureCodeEngineTreeDurabilityFailed {
+	if got := newTreeRuntimeFailure(fmt.Errorf("wrapped: %w", err)); got.Code() != failureCodeEngineTreeCommitterFailed {
 		t.Fatalf("runtime=%+v", got)
 	}
 	if got := newEngineFailure(FailureKindExecution, failureCodeExecutionStepFailed, err); got.Message() != "guarded error" {

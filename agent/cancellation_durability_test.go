@@ -17,14 +17,14 @@ func TestCancellationPreservesSettlementAcknowledgment(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				durability := &cancellationSettlementDurability{
-					recordingTreeDurability: &recordingTreeDurability{},
-					entered:                 make(chan context.Context, 1), release: make(chan struct{}),
+				committer := &cancellationSettlementDurability{
+					recordingTreeCommitter: &recordingTreeCommitter{},
+					entered:                make(chan context.Context, 1), release: make(chan struct{}),
 				}
 				if reject {
-					durability.failure = errors.New("settlement acknowledgment unavailable")
+					committer.failure = errors.New("settlement acknowledgment unavailable")
 				}
-				releaseCommit := sync.OnceFunc(func() { close(durability.release) })
+				releaseCommit := sync.OnceFunc(func() { close(committer.release) })
 				defer releaseCommit()
 				dispatcher := &cancellationDispatcher{
 					entered: make(chan EffectRequest, 1), canceled: make(chan struct{}),
@@ -32,7 +32,7 @@ func TestCancellationPreservesSettlementAcknowledgment(t *testing.T) {
 				}
 				releaseDispatch := sync.OnceFunc(func() { close(dispatcher.release) })
 				defer releaseDispatch()
-				engine, err := NewEngine(EngineConfig{TreeDurability: durability})
+				engine, err := NewEngine(EngineConfig{TreeCommitter: committer})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -48,7 +48,7 @@ func TestCancellationPreservesSettlementAcknowledgment(t *testing.T) {
 				}
 				<-dispatcher.canceled
 				releaseDispatch()
-				commitContext := <-durability.entered
+				commitContext := <-committer.entered
 				if commitContext.Done() != nil || commitContext.Err() != nil {
 					t.Error("Process cancellation reached required settlement acknowledgment")
 				}
@@ -58,7 +58,7 @@ func TestCancellationPreservesSettlementAcknowledgment(t *testing.T) {
 				}
 				releaseCommit()
 				if reject {
-					runtimeErr := awaitRuntimeError(t, process, durability.failure)
+					runtimeErr := awaitRuntimeError(t, process, committer.failure)
 					unresolved := runtimeErr.UnresolvedEffectIDs()
 					if len(unresolved) != 1 || unresolved[0] != request.ID() ||
 						!bytes.Equal(inspectProcessSnapshot(t, process).JSON(), before.JSON()) {
@@ -74,7 +74,7 @@ func TestCancellationPreservesSettlementAcknowledgment(t *testing.T) {
 }
 
 type cancellationSettlementDurability struct {
-	*recordingTreeDurability
+	*recordingTreeCommitter
 	entered chan context.Context
 	release chan struct{}
 	failure error
@@ -88,5 +88,5 @@ func (c *cancellationSettlementDurability) CommitEffect(ctx context.Context, bou
 			return c.failure
 		}
 	}
-	return c.recordingTreeDurability.CommitEffect(ctx, boundary)
+	return c.recordingTreeCommitter.CommitEffect(ctx, boundary)
 }

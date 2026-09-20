@@ -28,7 +28,7 @@ func TestProcessAdmitterReceivesRootAndChildResourceContracts(t *testing.T) {
 		mu.Unlock()
 		return nil
 	})
-	engine, err := NewEngine(EngineConfig{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
 		DeploymentResolver: deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment},
 		ProcessAdmitter:    admitter,
 		Capabilities:       capabilities,
@@ -93,7 +93,7 @@ func TestProcessAdmitterRejectsBeforeDefinitionStarts(t *testing.T) {
 		t.Fatal(err)
 	}
 	rejection := errors.New("deployment is disabled")
-	engine, err := NewEngine(EngineConfig{ProcessAdmitter: ProcessAdmitterFunc(
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), ProcessAdmitter: ProcessAdmitterFunc(
 		func(context.Context, ProcessAdmission) error { return rejection },
 	)})
 	if err != nil {
@@ -129,7 +129,7 @@ func TestProcessAdmitterRejectsChildWithoutPublishingIt(t *testing.T) {
 		}
 		return nil
 	})
-	engine, err := NewEngine(EngineConfig{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
 		DeploymentResolver: deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment},
 		ProcessAdmitter:    admitter,
 	})
@@ -163,7 +163,7 @@ func TestProcessAdmitterRejectsChildWithoutPublishingIt(t *testing.T) {
 func TestProcessAdmitterCannotOverrideCapabilityAttenuation(t *testing.T) {
 	deployment := newChildTestDeployment(t)
 	var calls atomic.Uint32
-	engine, err := NewEngine(EngineConfig{ProcessAdmitter: ProcessAdmitterFunc(
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), ProcessAdmitter: ProcessAdmitterFunc(
 		func(context.Context, ProcessAdmission) error {
 			calls.Add(1)
 			return nil
@@ -192,11 +192,11 @@ func TestProcessAdmitterCannotOverrideCapabilityAttenuation(t *testing.T) {
 
 func TestProcessAdmitterPanicAndTypedNilAreRejected(t *testing.T) {
 	var typedNil ProcessAdmitterFunc
-	if _, err := NewEngine(EngineConfig{ProcessAdmitter: typedNil}); !errors.Is(err, ErrInvalidEngineConfig) {
+	if _, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), ProcessAdmitter: typedNil}); !errors.Is(err, ErrInvalidEngineConfig) {
 		t.Fatalf("typed-nil error = %v, want %v", err, ErrInvalidEngineConfig)
 	}
 	deployment := newChildTestDeployment(t)
-	engine, err := NewEngine(EngineConfig{ProcessAdmitter: ProcessAdmitterFunc(
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), ProcessAdmitter: ProcessAdmitterFunc(
 		func(context.Context, ProcessAdmission) error { panic("admission panic") },
 	)})
 	if err != nil {
@@ -222,7 +222,7 @@ func TestRestoreDoesNotReadmitPreviouslyAdmittedProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := NewEngine(EngineConfig{Capabilities: capabilities})
+	first, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Capabilities: capabilities})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestRestoreDoesNotReadmitPreviouslyAdmittedProcess(t *testing.T) {
 	}
 	var admissionCalls atomic.Uint32
 	var outcomeCalls atomic.Uint32
-	restoredEngine, err := NewEngine(EngineConfig{
+	restoredEngine, err := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(snapshot),
 		Limits:     Limits{Budget: Budget{Steps: NewQuota(1)}},
 		TreeLimits: TreeLimits{MaxDepth: 1},
 		ProcessAdmitter: ProcessAdmitterFunc(func(context.Context, ProcessAdmission) error {
@@ -291,7 +291,7 @@ func TestRestoreDoesNotReadmitPreviouslyAdmittedProcess(t *testing.T) {
 func TestProcessAdmitterReceivesStartContext(t *testing.T) {
 	type contextKey struct{}
 	want := "admission-context"
-	engine, err := NewEngine(EngineConfig{ProcessAdmitter: ProcessAdmitterFunc(
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), ProcessAdmitter: ProcessAdmitterFunc(
 		func(ctx context.Context, _ ProcessAdmission) error {
 			if got, _ := ctx.Value(contextKey{}).(string); got != want {
 				return fmt.Errorf("admission context value = %q, want %q", got, want)

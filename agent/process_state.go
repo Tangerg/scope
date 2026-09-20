@@ -1,11 +1,13 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"time"
 )
 
@@ -350,7 +352,7 @@ func (p *processState) result() Result {
 	}
 }
 
-func (p *processState) restorePreparedStep(ctx context.Context, stored *preparedStep, durable bool) error {
+func (p *processState) restorePreparedStep(ctx context.Context, stored *preparedStep) error {
 	if stored == nil {
 		return nil
 	}
@@ -394,12 +396,6 @@ func (p *processState) restorePreparedStep(ctx context.Context, stored *prepared
 			if err != nil {
 				return fmt.Errorf("%w: restore pending Effect: %w", ErrInvalidSnapshot, err)
 			}
-		}
-		if record.Effect.Target() == EffectTargetDispatcher && !durable && policy == ReplayPolicyNever {
-			if err := record.settleUnknown(); err != nil {
-				return fmt.Errorf("%w: restore pending Effect: %w", ErrInvalidSnapshot, err)
-			}
-			continue
 		}
 		if p.restoredPending.id.Valid() {
 			return fmt.Errorf("%w: multiple pending Effects", ErrInvalidSnapshot)
@@ -680,4 +676,24 @@ func (p *processState) snapshotWire() processSnapshotWire {
 		wire.Prepared = &prepared
 	}
 	return wire
+}
+
+func orderedProcesses(values map[ProcessID]*processState) []*processState {
+	processes := make([]*processState, 0, len(values))
+	for _, process := range values {
+		processes = append(processes, process)
+	}
+	slices.SortFunc(processes, func(left, right *processState) int {
+		if order := cmp.Compare(
+			left.handle.relation.Depth(),
+			right.handle.relation.Depth(),
+		); order != 0 {
+			return order
+		}
+		return cmp.Compare(
+			left.handle.processID.String(),
+			right.handle.processID.String(),
+		)
+	})
+	return processes
 }

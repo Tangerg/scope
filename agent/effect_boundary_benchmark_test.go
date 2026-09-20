@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-type effectBenchmarkDurability struct{ TreeDurability }
+type effectBenchmarkDurability struct{ TreeCommitter }
 
 func (e effectBenchmarkDurability) CommitEffect(context.Context, EffectBoundary) error { return nil }
 
@@ -39,7 +39,7 @@ func BenchmarkEffectBoundaryCommit(b *testing.B) {
 func effectBoundaryFixture(t testing.TB, count, size int) (*treeRuntime, EffectRequest, TreeSnapshot) {
 	t.Helper()
 	runtime := newWaitingSnapshotTree(t, count)
-	runtime.engine.durability = effectBenchmarkDurability{}
+	runtime.engine.committer = effectBenchmarkDurability{}
 	runtime.incarnation = newTreeIncarnationID()
 	root := runtime.processes[runtime.rootID]
 	effect, err := NewDispatcherEffect([]byte(`{"text":"` + strings.Repeat("x", size) + `"}`))

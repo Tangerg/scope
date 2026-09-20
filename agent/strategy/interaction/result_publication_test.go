@@ -280,7 +280,7 @@ func TestPublicationConflictAndStaleWriterAreRejected(t *testing.T) {
 		t.Fatal(joinErr)
 	}
 	current := store.tree()
-	writer, _ := old.IncarnationID()
+	writer := old.IncarnationID()
 	if err := store.commit(old, old.Digest(), writer, "stale"); !errors.Is(err, agent.ErrTreeIncarnationConflict) {
 		t.Fatalf("stale error=%v", err)
 	}
@@ -292,7 +292,7 @@ func TestPublicationConflictAndStaleWriterAreRejected(t *testing.T) {
 	if err := store.database.recordPublication(id, original); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.database.recordPublication(id, []byte(`{"result":"changed"}`)); !errors.Is(err, agent.ErrDurabilityConflict) {
+	if err := store.database.recordPublication(id, []byte(`{"result":"changed"}`)); !errors.Is(err, agent.ErrCommitConflict) {
 		t.Fatalf("conflict=%v", err)
 	}
 	if string(store.database.Publications[id.String()]) != string(original) {

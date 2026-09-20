@@ -12,18 +12,18 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-// TreeDurabilityConformanceDriver separates commits from reads so the suite can
+// TreeCommitterConformanceDriver separates commits from reads so the suite can
 // detect acknowledgments that did not install the claimed authoritative head.
-type TreeDurabilityConformanceDriver interface {
-	// TreeDurability must share storage with LoadTree so the suite can verify
+type TreeCommitterConformanceDriver interface {
+	// TreeCommitter must share storage with LoadTree so the suite can verify
 	// acknowledged writes through an independent read.
-	TreeDurability() agent.TreeDurability
+	agent.TreeCommitter
 	// LoadTree must not activate the tree, because observation cannot take
 	// ownership from the writer being tested.
 	LoadTree(ctx context.Context, rootID agent.ProcessID) (agent.TreeSnapshot, bool, error)
 }
 
-// RunTreeDurabilityConformance injects failures on both sides of storage commits
+// RunTreeCommitterConformance injects failures on both sides of storage commits
 // because a lost response must not cause duplicate dispatch or false publication.
 // Scenarios include explicit Unknown resolution, child publication, subsequent
 // input consumption, budget preservation, and subtree cancellation recovery.
@@ -31,13 +31,13 @@ type TreeDurabilityConformanceDriver interface {
 // cannot mask a missing compare-and-swap or idempotency check.
 // Runtime and storage operations inherit the test context; cleanup may continue
 // after cancellation to join owned work.
-func RunTreeDurabilityConformance(
+func RunTreeCommitterConformance(
 	t *testing.T,
-	factory func() TreeDurabilityConformanceDriver,
+	factory func() TreeCommitterConformanceDriver,
 ) {
 	t.Helper()
 	if factory == nil {
-		t.Fatal("TreeDurability conformance factory is nil")
+		t.Fatal("TreeCommitter conformance factory is nil")
 	}
 	t.Run("effect boundaries and terminal head", func(t *testing.T) {
 		runEffectBoundaryConformance(t, factory)
@@ -51,7 +51,7 @@ func RunTreeDurabilityConformance(
 		runDelayedCommitConformance(t, factory)
 	})
 	t.Run("crash boundaries", func(t *testing.T) {
-		runTreeDurabilityCrashConformance(t, factory)
+		runTreeCommitterCrashConformance(t, factory)
 	})
 	t.Run("durable signal admission", func(t *testing.T) {
 		runSignalAdmissionConformance(t, factory)
@@ -60,13 +60,13 @@ func RunTreeDurabilityConformance(
 
 func runEffectBoundaryConformance(
 	t *testing.T,
-	factory func() TreeDurabilityConformanceDriver,
+	factory func() TreeCommitterConformanceDriver,
 ) {
 	t.Helper()
 	driver := factory()
-	probe := newConformanceDurabilityProbe(t, driver.TreeDurability())
+	probe := newConformanceDurabilityProbe(t, driver)
 	deployment := conformanceDeployment(t, conformanceModeUnknownEffect)
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: probe})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: probe})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,8 +106,8 @@ func runEffectBoundaryConformance(
 	}
 	probe.assertEffectLifecycle(t)
 	for _, boundary := range probe.effects {
-		if commitErr := driver.TreeDurability().CommitEffect(t.Context(), boundary); !errors.Is(commitErr, agent.ErrDurabilityConflict) {
-			t.Fatalf("stale %s duplicate error=%v, want ErrDurabilityConflict", boundary.Kind(), commitErr)
+		if commitErr := driver.CommitEffect(t.Context(), boundary); !errors.Is(commitErr, agent.ErrCommitConflict) {
+			t.Fatalf("stale %s duplicate error=%v, want ErrCommitConflict", boundary.Kind(), commitErr)
 		}
 	}
 	after, _, err := driver.LoadTree(t.Context(), result.ProcessID())
@@ -119,12 +119,12 @@ func runEffectBoundaryConformance(
 	}
 	// A separate writer produces a valid competing history from the same base.
 	// No private snapshot or boundary representation is synthesized here.
-	branch := NewMemoryTreeDurability()
+	branch := agent.NewMemoryTreeCommitter()
 	if commitErr := branch.CommitCheckpoint(t.Context(), probe.start); commitErr != nil {
 		t.Fatal(commitErr)
 	}
 	branchProbe := newConformanceDurabilityProbe(t, branch)
-	branchEngine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: branchProbe})
+	branchEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: branchProbe})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func runEffectBoundaryConformance(
 		if boundary.Kind() != original.Kind() || boundary.Request().ID() != original.Request().ID() || boundary.TreeSnapshot().Digest() == original.TreeSnapshot().Digest() {
 			t.Fatal("fixture did not produce conflicting content under the same Effect key")
 		}
-		if commitErr := driver.TreeDurability().CommitEffect(t.Context(), boundary); !errors.Is(commitErr, agent.ErrDurabilityConflict) && !errors.Is(commitErr, agent.ErrTreeIncarnationConflict) {
+		if commitErr := driver.CommitEffect(t.Context(), boundary); !errors.Is(commitErr, agent.ErrCommitConflict) && !errors.Is(commitErr, agent.ErrTreeIncarnationConflict) {
 			t.Fatalf("conflicting duplicate error=%v", commitErr)
 		}
 	}
@@ -172,13 +172,13 @@ type conformanceRestoreResult struct {
 
 func runConcurrentRestoreConformance(
 	t *testing.T,
-	factory func() TreeDurabilityConformanceDriver,
+	factory func() TreeCommitterConformanceDriver,
 ) {
 	t.Helper()
 	driver := factory()
-	probe := newConformanceDurabilityProbe(t, driver.TreeDurability())
+	probe := newConformanceDurabilityProbe(t, driver)
 	deployment := conformanceDeployment(t, conformanceModePause)
-	originalEngine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: probe})
+	originalEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: probe})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,12 +220,12 @@ func runConcurrentRestoreConformance(
 
 func restoreConformanceTree(
 	ctx context.Context,
-	durability agent.TreeDurability,
+	committer agent.TreeCommitter,
 	deployment agent.Deployment,
 	head agent.TreeSnapshot,
 	results chan<- conformanceRestoreResult,
 ) {
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: durability})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: committer})
 	if err != nil {
 		results <- conformanceRestoreResult{err: err}
 		return
@@ -260,15 +260,15 @@ func collectConformanceRestoreResults(
 
 func runDelayedCommitConformance(
 	t *testing.T,
-	factory func() TreeDurabilityConformanceDriver,
+	factory func() TreeCommitterConformanceDriver,
 ) {
 	t.Helper()
 	driver := factory()
-	blocking := newTreeDurabilityCommitGate(t, driver.TreeDurability(), crashCommitPoint{
+	blocking := newTreeCommitterCommitGate(t, driver, crashCommitPoint{
 		kind: crashCommitEffectPending, phase: crashCommitBefore,
 	})
 	deployment := conformanceDeployment(t, conformanceModeEffect)
-	originalEngine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: blocking})
+	originalEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: blocking})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func runDelayedCommitConformance(
 		t.Fatalf("authoritative base head exists=%t error=%v", exists, err)
 	}
 
-	restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: blocking})
+	restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: blocking})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +316,7 @@ func runDelayedCommitConformance(
 }
 
 type conformanceDurabilityProbe struct {
-	durability agent.TreeDurability
+	committer agent.TreeCommitter
 
 	mu          sync.Mutex
 	effects     []agent.EffectBoundary
@@ -326,27 +326,27 @@ type conformanceDurabilityProbe struct {
 
 func newConformanceDurabilityProbe(
 	t *testing.T,
-	durability agent.TreeDurability,
+	committer agent.TreeCommitter,
 ) *conformanceDurabilityProbe {
 	t.Helper()
-	if durability == nil {
-		t.Fatal("TreeDurability conformance driver returned nil")
+	if committer == nil {
+		t.Fatal("TreeCommitter conformance driver returned nil")
 	}
-	return &conformanceDurabilityProbe{durability: durability}
+	return &conformanceDurabilityProbe{committer: committer}
 }
 
 func (c *conformanceDurabilityProbe) ActivateTree(
 	ctx context.Context,
 	activation agent.TreeActivation,
 ) error {
-	return c.retry(func() error { return c.durability.ActivateTree(ctx, activation) })
+	return c.retry(func() error { return c.committer.ActivateTree(ctx, activation) })
 }
 
 func (c *conformanceDurabilityProbe) CommitEffect(
 	ctx context.Context,
 	boundary agent.EffectBoundary,
 ) error {
-	err := c.retry(func() error { return c.durability.CommitEffect(ctx, boundary) })
+	err := c.retry(func() error { return c.committer.CommitEffect(ctx, boundary) })
 	if err == nil {
 		c.mu.Lock()
 		c.effects = append(c.effects, boundary)
@@ -360,7 +360,7 @@ func (c *conformanceDurabilityProbe) CommitCheckpoint(
 	checkpoint agent.TreeCheckpoint,
 ) error {
 	err := c.retry(func() error {
-		return c.durability.CommitCheckpoint(ctx, checkpoint)
+		return c.committer.CommitCheckpoint(ctx, checkpoint)
 	})
 	if err == nil {
 		c.mu.Lock()
@@ -465,7 +465,7 @@ func conformanceDeployment(t *testing.T, mode conformanceMode) agent.Deployment 
 	}
 	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
 		SignalSchema: signalSchema,
-		Name:         "agenttest.durability_conformance",
+		Name:         "agenttest.committer_conformance",
 		Description:  "Exercises the complete durable tree commit contract.",
 		InputSchema:  inputSchema, OutputSchema: outputSchema,
 	})
@@ -477,7 +477,7 @@ func conformanceDeployment(t *testing.T, mode conformanceMode) agent.Deployment 
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
 		Definition:           definition,
 		Dispatcher:           dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("agenttest durability implementation")),
+		ImplementationDigest: agent.ComputeDigest([]byte("agenttest committer implementation")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte{byte(mode)}),
 	})
 	if err != nil {
@@ -538,7 +538,7 @@ func (c *conformanceExecution) Step(
 			return agent.Transition{}, errors.New("agenttest: paused execution cannot advance")
 		}
 		c.state.Phase = conformancePhaseFinished
-		return agent.Pause(0, "durability conformance parked state")
+		return agent.Pause(0, "committer conformance parked state")
 	default:
 		return agent.Transition{}, errors.New("agenttest: invalid conformance mode")
 	}
@@ -680,7 +680,7 @@ func waitForConformanceStatus(
 
 func waitForConformanceHeadStatus(
 	t *testing.T,
-	driver TreeDurabilityConformanceDriver,
+	driver TreeCommitterConformanceDriver,
 	rootID agent.ProcessID,
 	want agent.Status,
 ) agent.TreeSnapshot {

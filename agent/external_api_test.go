@@ -46,7 +46,7 @@ func TestExternalPackageCanComposeAndRunDefinition(t *testing.T) {
 		t.Fatal(err)
 	}
 	observations := &agenttest.ObservationRecorder{}
-	engine, err := agent.NewEngine(agent.EngineConfig{
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
 		EventListeners: []agent.EventListener{observations},
 		DeltaListeners: []agent.DeltaListener{observations},
 	})

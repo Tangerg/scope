@@ -52,7 +52,14 @@ func TestPreparedFailurePreservesDispatchEvidence(t *testing.T) {
 					dispatch: dispatchJobResult{effectID: record.ID, settlement: settlement},
 				})
 			}
+			if runtime.commit != nil {
+				runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+			}
 			runtime.advanceOne()
+			if runtime.commit != nil {
+				runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+				runtime.advanceOne()
+			}
 			record = &process.prepared.Effects[0]
 			var wantUnresolved []EffectID
 			wantPhase := effectPhasePlanned
@@ -68,7 +75,7 @@ func TestPreparedFailurePreservesDispatchEvidence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			restoredEngine, err := NewEngine(EngineConfig{})
+			restoredEngine, err := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(snapshot)})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -88,36 +95,27 @@ func TestPreparedFailurePreservesDispatchEvidence(t *testing.T) {
 }
 
 func TestTerminalOutcomeCannotBeReplacedOrRepublished(t *testing.T) {
-	for _, durable := range []bool{false, true} {
-		runtime, process := newChildCompletionTestProcess(t)
-		if durable {
-			runtime.engine.durability = &recordingTreeDurability{}
-		}
-		runtime.failProcessContract(process, "engine.first.failure", errors.New("first failure"))
-		if durable {
-			snapshot, err := runtime.captureTree()
-			if err != nil {
-				t.Fatal(err)
-			}
-			runtime.head = snapshot
-			runtime.publishAcknowledgedChanges()
-		}
-		before, err := runtime.captureTree()
-		if err != nil {
-			t.Fatal(err)
-		}
-		runtime.failProcessContract(process, "engine.late.failure", errors.New("late failure"))
-		runtime.finishIfTerminal(process)
-		runtime.publishAcknowledgedChanges()
-		after, err := runtime.captureTree()
-		if err != nil || !bytes.Equal(before.JSON(), after.JSON()) {
-			t.Fatalf("late failure changed terminal state: %v", err)
-		}
-		result := mustAwait(t, &Process{handle: process.handle})
-		failure, _ := result.Termination().Failure()
-		if failure.Code() != "engine.first.failure" {
-			t.Fatalf("terminal failure replaced: %+v", failure)
-		}
+	runtime, process := newChildCompletionTestProcess(t)
+	runtime.failProcessContract(process, "engine.first.failure", errors.New("first failure"))
+	if !runtime.tryStartCheckpoint() {
+		t.Fatal("terminal outcome did not require a checkpoint")
+	}
+	runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+	before, err := runtime.captureTree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.failProcessContract(process, "engine.late.failure", errors.New("late failure"))
+	runtime.finishIfTerminal(process)
+	runtime.publishAcknowledgedChanges()
+	after, err := runtime.captureTree()
+	if err != nil || !bytes.Equal(before.JSON(), after.JSON()) {
+		t.Fatalf("late failure changed terminal state: %v", err)
+	}
+	result := mustAwait(t, &Process{handle: process.handle})
+	failure, _ := result.Termination().Failure()
+	if failure.Code() != "engine.first.failure" {
+		t.Fatalf("terminal failure replaced: %+v", failure)
 	}
 }
 

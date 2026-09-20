@@ -17,9 +17,10 @@ import (
 )
 
 func TestToolCheckpointRestoresWithoutRepeatingSettledPrefix(t *testing.T) {
+	store := agent.NewMemoryTreeCommitter()
 	fixture := newCheckpointFixture(t)
-	tree, pending := captureWaitingCheckpoint(t, fixture.deployment)
-	restored, result := restoreWaitingCheckpoint(t, fixture.deployment, tree, pending, fixture.waiting)
+	tree, pending := captureWaitingCheckpoint(t, fixture.deployment, store)
+	restored, result := restoreWaitingCheckpoint(t, fixture.deployment, tree, pending, fixture.waiting, store)
 	assertCheckpointResult(t, result, fixture)
 	assertFinishedCheckpointRejectsStaleSignal(t, restored, pending)
 }
@@ -59,9 +60,10 @@ func newCheckpointFixture(t *testing.T) checkpointFixture {
 func captureWaitingCheckpoint(
 	t *testing.T,
 	deployment interactionDeployment,
+	store *agent.MemoryTreeCommitter,
 ) (agent.TreeSnapshot, interaction.PendingToolInput) {
 	t.Helper()
-	firstEngine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
+	firstEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,21 +72,7 @@ func captureWaitingCheckpoint(
 		t.Fatal(err)
 	}
 	tree, pending := captureToolInput(t, firstEngine, process)
-	if killErr := process.Kill(context.Background(), "replace with restored Process"); killErr != nil {
-		t.Fatal(killErr)
-	}
-	for _, captured := range tree.ProcessSnapshots() {
-		owned, found := firstEngine.Process(captured.ProcessID())
-		if !found {
-			t.Fatal("captured Process is missing")
-		}
-		if _, awaitErr := owned.Await(t.Context()); awaitErr != nil {
-			t.Fatal(awaitErr)
-		}
-	}
-	if closeErr := firstEngine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
-		t.Fatal(closeErr)
-	}
+	t.Cleanup(func() { retireTestWriter(t, firstEngine, process) })
 	if string(pending.Prompt()) != `{"question":"What is your name?"}` {
 		t.Fatalf("pending prompt=%s", pending.Prompt())
 	}
@@ -97,9 +85,10 @@ func restoreWaitingCheckpoint(
 	tree agent.TreeSnapshot,
 	pending interaction.PendingToolInput,
 	waiting *inputRequestTool,
+	store *agent.MemoryTreeCommitter,
 ) (*agent.Process, agent.Result) {
 	t.Helper()
-	restoredEngine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
+	restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}

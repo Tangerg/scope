@@ -84,11 +84,11 @@ type ResultEntry struct {
 // terminal subtree without unresolved Effects.
 //
 // This is a read-only projection of current recovery facts, not a historical
-// transcript or a required durability adapter. Later cuts may retire an admitted
-// round. TreeDurability preserves recovery facts whether or not this view is read.
+// transcript or a required committer adapter. Later cuts may retire an admitted
+// round. TreeCommitter preserves recovery facts whether or not this view is read.
 //
 // Hosts that need a separate result history can derive it within each
-// TreeDurability transaction, atomically with the proposed head and writer fence.
+// TreeCommitter transaction, atomically with the proposed head and writer fence.
 // Overlapping cuts repeat facts: (ProcessID, ModelCallSequence, ToolCallIndex)
 // identifies one logical call. The host owns history storage, retention, and
 // delivery; reading or storing this projection never authorizes tool reexecution.

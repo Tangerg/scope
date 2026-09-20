@@ -24,7 +24,7 @@ func TestStepErrorDiscardsCandidateAndPreservesFailure(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			definition := &rejectedStepDefinition{descriptor: newEngineTestDefinition(t, "test.rejected_step", "complete").Descriptor(), err: test.err}
-			engine := controlValue(NewEngine(EngineConfig{}))
+			engine := controlValue(NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}))
 			defer mustCloseEngine(t, engine)
 			deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
 			process := controlValue(engine.Start(t.Context(), deployment, controlValue(EncodePayload(engineTestInput{Value: "input"}))))

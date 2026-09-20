@@ -10,7 +10,7 @@ func TestSignalBatchDeduplicatesBeforeChargingFullMailbox(t *testing.T) {
 	limits := DefaultLimits()
 	limits.Budget.Signals = NewQuota(2)
 	limits.MaxPendingSignals = 2
-	engine, err := NewEngine(EngineConfig{Limits: limits})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: limits})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestSignalSchemaRejectionIsAtomic(t *testing.T) {
 		InputSchema: controlValue(SchemaFor[engineTestInput]()), OutputSchema: controlValue(SchemaFor[engineTestOutput]()),
 		SignalSchema: controlValue(SchemaFor[string]()),
 	})), err: errors.New("test finished")}
-	engine := controlValue(NewEngine(EngineConfig{}))
+	engine := controlValue(NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}))
 	defer mustCloseEngine(t, engine)
 	deployment := engineTestDeployment(t, definition, nil)
 	process := controlValue(engine.Start(t.Context(), deployment, controlValue(EncodePayload(engineTestInput{}))))
@@ -134,7 +134,7 @@ func TestSignalSchemaRejectionIsAtomic(t *testing.T) {
 	wire := controlValue(inspectProcessSnapshot(t, process).wire())
 	wire.Mailbox.Signals[0] = mailboxRecordWire(1, controlValue(newSignal(invalid.ID(), WaitID{}, invalid.Payload())))
 	tampered := controlValue(newProcessSnapshot(wire))
-	if _, _, _, err := prepareRestoredProcess(t.Context(), false, deployment, tampered); !errors.Is(err, ErrInvalidSnapshot) || !errors.Is(err, ErrSignalRejected) {
+	if _, _, _, err := prepareRestoredProcess(t.Context(), deployment, tampered); !errors.Is(err, ErrInvalidSnapshot) || !errors.Is(err, ErrSignalRejected) {
 		t.Fatalf("restoration bypassed the declared Signal schema: %v", err)
 	}
 	if err := process.Kill(t.Context(), "finished"); err != nil {

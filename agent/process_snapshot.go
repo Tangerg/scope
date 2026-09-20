@@ -302,7 +302,8 @@ const (
 func (p processSnapshotWire) admissionSize() (uint64, error) {
 	var pendingSize, terminalGrowth, effectGrowth uint64
 	if !p.Status.Terminal() && (p.Limits.MaxSnapshotBytes.limited || p.TreeLimits.MaxSnapshotBytes.limited) {
-		failure := Failure{kind: FailureKindExecution, code: snapshotReservationText, message: snapshotReservationText}
+		reservation := snapshotTextReservation{}
+		failure := reservation.failure()
 		var unresolved []EffectID
 		if p.Prepared != nil {
 			prepared := *p.Prepared
@@ -313,32 +314,32 @@ func (p processSnapshotWire) admissionSize() (uint64, error) {
 				if record.unknown() || record.Phase == effectPhasePending {
 					unresolved = append(unresolved, record.ID)
 				}
-				growth, err := record.reserveSnapshotSettlement()
+				projection, growth, err := record.snapshotReservation()
 				if err != nil {
 					return 0, err
 				}
 				if !resourceQuantitiesFit(^uint64(0), effectGrowth, growth) {
 					return 0, ErrCounterExhausted
 				}
+				prepared.Effects[index] = projection
 				effectGrowth += growth
 			}
 		}
 		// Current and pending control fields reserve independently, including
 		// a Step pause racing a Host pause.
-		reason := snapshotReservationText
-		p.PauseReason = reason
+		p.PauseReason = reservation.reason()
 		p.Status = StatusRunning
 		p.Counters.DroppedDeltas = ^uint64(0)
 		p.PendingControl = pendingControlWire{
-			Failure: &failure, KillReason: reason, PauseReason: reason,
-			DeadlineOwner: deadlineOwnerParent, DeadlineReason: reason,
-			CancellationOwner: cancellationOwnerParent, CancellationReason: reason,
+			Failure: &failure, KillReason: reservation.reason(), PauseReason: reservation.reason(),
+			DeadlineOwner: deadlineOwnerParent, DeadlineReason: reservation.reason(),
+			CancellationOwner: cancellationOwnerParent, CancellationReason: reservation.reason(),
 		}
 		pending, err := json.Marshal(p)
 		if err != nil {
 			return 0, err
 		}
-		pendingSize = uint64(len(pending)) + 5*snapshotReasonGrowth + snapshotFailureGrowth
+		pendingSize = uint64(len(pending)) + reservation.growth
 		terminalGrowth = snapshotFailureGrowth + uint64(6*MaxDiagnosticBytes-len(snapshotReservationText))
 		p.PendingControl = pendingControlWire{}
 		p.PauseReason = ""

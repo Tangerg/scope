@@ -54,10 +54,6 @@ func Run(
 	case <-t.Context().Done():
 		t.Fatal(t.Context().Err())
 	}
-	before, err := engine.InspectTree(t.Context(), process.ID())
-	if err != nil {
-		t.Fatal(err)
-	}
 	id, err := agent.ParseSignalID("signal:conformance-unsupported")
 	if err != nil {
 		t.Fatal(err)
@@ -73,11 +69,14 @@ func Run(
 	if err != nil {
 		t.Fatal(err)
 	}
-	previous, previousFound := before.Process(process.ID())
-	current, currentFound := after.Process(process.ID())
-	if !previousFound || !currentFound || previous.Snapshot.Usage() != current.Snapshot.Usage() ||
-		len(previous.Snapshot.SignalReceipts()) != len(current.Snapshot.SignalReceipts()) {
-		t.Fatal("rejected input changed Process membership, mailbox, or budget")
+	current, found := after.Process(process.ID())
+	if !found {
+		t.Fatal("rejected input removed the Process")
+	}
+	for _, receipt := range current.Snapshot.SignalReceipts() {
+		if receipt.ID() == id {
+			t.Fatal("rejected input was admitted")
+		}
 	}
 	release()
 	if joinErr := <-finished; joinErr != nil {

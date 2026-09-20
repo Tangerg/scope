@@ -16,8 +16,7 @@ const (
 var ErrInvalidEffectAttemptID = errors.New("agent: invalid Effect attempt identity")
 
 // EffectAttemptID identifies one actual Effect invocation. Each invocation gets a
-// fresh random identity, including replay and invocations after restore in both
-// durable and ephemeral trees. It is observation metadata, not Process recovery state.
+// fresh random identity, including replay and invocations after restore. It is observation metadata, not Process recovery state.
 type EffectAttemptID struct{ identity }
 
 // ParseEffectAttemptID validates the canonical wire representation of an

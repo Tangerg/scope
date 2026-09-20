@@ -11,7 +11,6 @@ import (
 	"time"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
 	"github.com/Tangerg/scope/agent/strategy/collaboration"
 	"github.com/Tangerg/scope/agent/strategy/coordination"
 	"github.com/Tangerg/scope/agent/strategy/workflow"
@@ -117,8 +116,8 @@ func assertSafetyFailure(t *testing.T, root agent.Deployment, resolver safetyRes
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	store := agenttest.NewMemoryTreeDurability()
-	config := agent.EngineConfig{DeploymentResolver: resolver, TreeDurability: store}
+	store := agent.NewMemoryTreeCommitter()
+	config := agent.EngineConfig{DeploymentResolver: resolver, TreeCommitter: store}
 	engine := safetyValue(agent.NewEngine(config))
 	defer func() {
 		if err := engine.Close(context.WithoutCancel(ctx)); err != nil {

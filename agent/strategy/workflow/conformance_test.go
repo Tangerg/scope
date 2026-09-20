@@ -29,7 +29,7 @@ func TestDefinitionConformance(t *testing.T) {
 		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte("workflow-conformance")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte("child-call")),
-	}, agent.EngineConfig{
+	}, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
 		DeploymentResolver: deploymentResolver{child.DeploymentRef(): child},
 	}, input)
 	output, present := result.Output()

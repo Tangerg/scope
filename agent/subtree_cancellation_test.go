@@ -8,7 +8,7 @@ import (
 )
 
 func TestProcessCancellationPropagatesThroughSubtreeAndResumesParentStrategy(t *testing.T) {
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func TestProcessCancellationPropagatesThroughSubtreeAndResumesParentStrategy(t *
 
 func TestProcessCancellationPreservesUnsatisfiedSiblingWait(t *testing.T) {
 	deployment := newChildTestDeployment(t)
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestProcessCancellationPreservesUnsatisfiedSiblingWait(t *testing.T) {
 	if inspectProcessSnapshot(t, root).Status() != StatusWaiting || inspectProcessSnapshot(t, sibling).Status() != StatusPaused {
 		t.Fatalf("unsatisfied parent=%s, sibling=%s", inspectProcessSnapshot(t, root).Status(), inspectProcessSnapshot(t, sibling).Status())
 	}
-	restoredEngine, err := NewEngine(EngineConfig{})
+	restoredEngine, err := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,21 +89,21 @@ func TestProcessCancellationPreservesUnsatisfiedSiblingWait(t *testing.T) {
 
 func TestSubtreeCancellationPublishesOnlyAfterCheckpointAcknowledgment(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		durability := &blockingCancellationCheckpointDurability{
-			recordingTreeDurability: &recordingTreeDurability{},
-			entered:                 make(chan struct{}), release: make(chan struct{}),
+		committer := &blockingCancellationCheckpointDurability{
+			recordingTreeCommitter: &recordingTreeCommitter{},
+			entered:                make(chan struct{}), release: make(chan struct{}),
 		}
-		release := sync.OnceFunc(func() { close(durability.release) })
+		release := sync.OnceFunc(func() { close(committer.release) })
 		t.Cleanup(release)
-		engine, err := NewEngine(EngineConfig{TreeDurability: durability})
+		engine, err := NewEngine(EngineConfig{TreeCommitter: committer})
 		if err != nil {
 			t.Fatal(err)
 		}
 		root, target, descendant := startWaitingSubtreeInEngine(t, engine, newChildTestDeployment(t))
-		if err := target.RequestCancellation(t.Context(), "cancel through the durability port"); err != nil {
+		if err := target.RequestCancellation(t.Context(), "cancel through the committer port"); err != nil {
 			t.Fatal(err)
 		}
-		<-durability.entered
+		<-committer.entered
 		for _, process := range []*Process{root, target, descendant} {
 			if inspectProcessSnapshot(t, process).Status() != StatusWaiting {
 				t.Fatalf("Process %s published %s before acknowledgment", process.ID(), inspectProcessSnapshot(t, process).Status())
@@ -115,7 +115,7 @@ func TestSubtreeCancellationPublishesOnlyAfterCheckpointAcknowledgment(t *testin
 		if joinErr := root.Join(t.Context()); joinErr != nil {
 			t.Fatal(joinErr)
 		}
-		checkpoints := durability.treeCheckpoints()
+		checkpoints := committer.treeCheckpoints()
 		last := checkpoints[len(checkpoints)-1]
 		if last.Kind() != TreeCheckpointKindTerminal {
 			t.Fatalf("cancellation checkpoint=%s", last.Kind())
@@ -130,7 +130,7 @@ func TestSubtreeCancellationPublishesOnlyAfterCheckpointAcknowledgment(t *testin
 }
 
 type blockingCancellationCheckpointDurability struct {
-	*recordingTreeDurability
+	*recordingTreeCommitter
 	entered chan struct{}
 	release chan struct{}
 	once    sync.Once
@@ -150,7 +150,7 @@ func (b *blockingCancellationCheckpointDurability) CommitCheckpoint(ctx context.
 			break
 		}
 	}
-	return b.recordingTreeDurability.CommitCheckpoint(ctx, checkpoint)
+	return b.recordingTreeCommitter.CommitCheckpoint(ctx, checkpoint)
 }
 
 func assertCanceledSubtree(t *testing.T, target, descendant *Process) {

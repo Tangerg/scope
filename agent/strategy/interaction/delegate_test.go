@@ -52,7 +52,7 @@ func TestManagedDelegatePreservesMixedToolCallOrder(t *testing.T) {
 	}
 	model := &mixedDelegateModel{}
 	root := delegateInteraction(t, model, []tool.Tool{echo}, []interaction.Delegate{delegate})
-	engine, err := agent.NewEngine(agent.EngineConfig{
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
 		DeploymentResolver: root.resolveWith(child), Capabilities: capabilities,
 	})
 	if err != nil {
@@ -166,7 +166,7 @@ func TestManagedDelegateReturnsArgumentAndStartFailuresToModel(t *testing.T) {
 	}
 	model := &delegateFailureModel{}
 	root := delegateInteraction(t, model, nil, []interaction.Delegate{delegate})
-	engine, err := agent.NewEngine(agent.EngineConfig{})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,6 +196,7 @@ func TestWaitingManagedDelegateTreeRestoresWithoutRestartingChild(t *testing.T) 
 }
 
 type delegateRestoreFixture struct {
+	store    *agent.MemoryTreeCommitter
 	child    agent.Deployment
 	root     agent.Deployment
 	resolver delegateResolver
@@ -216,7 +217,7 @@ func newDelegateRestoreFixture(t *testing.T) delegateRestoreFixture {
 	model := &restorableDelegateModel{}
 	rootDeployment := delegateInteraction(t, model, nil, []interaction.Delegate{delegate})
 	resolver := delegateResolver{child.DeploymentRef(): child}
-	return delegateRestoreFixture{child: child, root: rootDeployment.Deployment, resolver: resolver, model: model}
+	return delegateRestoreFixture{store: agent.NewMemoryTreeCommitter(), child: child, root: rootDeployment.Deployment, resolver: resolver, model: model}
 }
 
 func captureWaitingDelegateTree(
@@ -224,7 +225,7 @@ func captureWaitingDelegateTree(
 	fixture delegateRestoreFixture,
 ) (agent.TreeSnapshot, agent.ProcessID) {
 	t.Helper()
-	engine, _ := agent.NewEngine(agent.EngineConfig{DeploymentResolver: fixture.resolver})
+	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: fixture.store, DeploymentResolver: fixture.resolver})
 	root, err := engine.Start(context.Background(), fixture.root, interactionInput(t, "pause and restore"))
 	if err != nil {
 		t.Fatal(err)
@@ -236,7 +237,7 @@ func captureWaitingDelegateTree(
 	}
 	rootSnapshot := rootProcessSnapshot(tree)
 	assertActiveDelegateChild(t, rootSnapshot, childID)
-	terminateOriginalDelegateTree(t, engine, root, childID)
+	t.Cleanup(func() { retireTestWriter(t, engine, root) })
 	return tree, childID
 }
 
@@ -263,31 +264,6 @@ func assertActiveDelegateChild(t *testing.T, rootSnapshot agent.ProcessSnapshot,
 	}
 }
 
-func terminateOriginalDelegateTree(
-	t *testing.T,
-	engine *agent.Engine,
-	root *agent.Process,
-	childID agent.ProcessID,
-) {
-	t.Helper()
-	if killErr := root.Kill(context.Background(), "replace captured Delegate tree"); killErr != nil {
-		t.Fatal(killErr)
-	}
-	if result, awaitErr := root.Await(context.Background()); awaitErr != nil || result.Status() != agent.StatusKilled {
-		t.Fatalf("original root result = %#v, %v", result.Termination(), awaitErr)
-	}
-	originalChild, found := engine.Process(childID)
-	if !found {
-		t.Fatalf("original child %s was not registered", childID)
-	}
-	if childResult, awaitErr := originalChild.Await(context.Background()); awaitErr != nil || childResult.Status() != agent.StatusCanceled {
-		t.Fatalf("original child result = %#v, %v", childResult.Termination(), awaitErr)
-	}
-	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
-		t.Fatal(closeErr)
-	}
-}
-
 func completeRestoredDelegateTree(
 	t *testing.T,
 	fixture delegateRestoreFixture,
@@ -295,7 +271,7 @@ func completeRestoredDelegateTree(
 	childID agent.ProcessID,
 ) {
 	t.Helper()
-	restoredEngine, _ := agent.NewEngine(agent.EngineConfig{DeploymentResolver: fixture.resolver})
+	restoredEngine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: fixture.store, DeploymentResolver: fixture.resolver})
 	restoredRoot, err := restoredEngine.RestoreTree(context.Background(), fixture.root, tree)
 	if err != nil {
 		t.Fatal(err)

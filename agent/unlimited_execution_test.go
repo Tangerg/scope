@@ -54,7 +54,7 @@ func TestUnlimitedExecutionExceedsFormerDefaultSteps(t *testing.T) {
 	schema := controlValue(SchemaFor[uint64]())
 	definition := quotaLoopDefinition{descriptor: controlValue(NewDescriptor(DescriptorConfig{Name: "test.quota_loop", Description: "Continue for the requested number of Steps.", InputSchema: schema, OutputSchema: schema}))}
 	deployment := controlValue(NewDeployment(DeploymentConfig{Definition: definition, ImplementationDigest: ComputeDigest([]byte("quota-loop")), ConfigurationDigest: ComputeDigest([]byte("unlimited"))}))
-	engine := controlValue(NewEngine(EngineConfig{}))
+	engine := controlValue(NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}))
 	defer mustCloseEngine(t, engine)
 	result, err := engine.Run(t.Context(), deployment, controlValue(EncodePayload(uint64(10001))))
 	if err != nil || result.Status() != StatusCompleted || result.Usage().CommittedSteps != 10002 {

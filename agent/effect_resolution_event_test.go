@@ -13,24 +13,24 @@ import (
 )
 
 func TestUnknownResolutionSeparatesAttemptsFromCommittedFacts(t *testing.T) {
-	for _, mode := range []string{"ephemeral", "durable", "lost_acknowledgment"} {
+	for _, mode := range []string{"memory", "durable", "lost_acknowledgment"} {
 		for _, replay := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/replay_%t", mode, replay), func(t *testing.T) {
 				synctest.Test(t, func(t *testing.T) {
 					listener := &recordingEventListener{}
-					config := EngineConfig{EventListeners: []EventListener{listener}}
-					durability := &inspectionDurability{
-						recordingTreeDurability: &recordingTreeDurability{},
-						effectKind:              EffectBoundaryKindResolved,
-						entered:                 make(chan inspectionCommit, 1), release: make(chan struct{}),
+					config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), EventListeners: []EventListener{listener}}
+					committer := &inspectionDurability{
+						recordingTreeCommitter: &recordingTreeCommitter{},
+						effectKind:             EffectBoundaryKindResolved,
+						entered:                make(chan inspectionCommit, 1), release: make(chan struct{}),
 					}
-					if mode != "ephemeral" {
-						config.TreeDurability = durability
+					if mode != "memory" {
+						config.TreeCommitter = committer
 					}
 					if mode == "lost_acknowledgment" {
-						durability.failure = errors.New("resolution acknowledgment lost")
+						committer.failure = errors.New("resolution acknowledgment lost")
 					}
-					defer durability.unblock()
+					defer committer.unblock()
 					engine, err := NewEngine(config)
 					if err != nil {
 						t.Fatal(err)
@@ -77,23 +77,23 @@ func TestUnknownResolutionSeparatesAttemptsFromCommittedFacts(t *testing.T) {
 						}
 						result <- process.ResolveUnknownEffect(t.Context(), settlement)
 					}()
-					if mode != "ephemeral" {
-						<-durability.entered
+					if mode != "memory" {
+						<-committer.entered
 						for _, event := range listener.snapshot() {
 							if event.Name() == EventEffectResolved {
 								t.Fatal("resolution published before acknowledgment")
 							}
 						}
 						time.Sleep(50 * time.Millisecond)
-						durability.unblock()
+						committer.unblock()
 					}
-					if err := <-result; !errors.Is(err, durability.failure) {
+					if err := <-result; !errors.Is(err, committer.failure) {
 						t.Fatalf("resolution: %v", err)
 					}
-					if _, err := process.Await(t.Context()); !errors.Is(err, durability.failure) {
+					if _, err := process.Await(t.Context()); !errors.Is(err, committer.failure) {
 						t.Fatalf("await: %v", err)
 					}
-					if err := process.Join(t.Context()); !errors.Is(err, durability.failure) {
+					if err := process.Join(t.Context()); !errors.Is(err, committer.failure) {
 						t.Fatalf("join: %v", err)
 					}
 					var names []string
@@ -136,7 +136,7 @@ func TestUnknownResolutionSeparatesAttemptsFromCommittedFacts(t *testing.T) {
 						wantSettlements = append(wantSettlements, SettlementStatusSucceeded)
 						wantCalls++
 					}
-					if durability.failure == nil {
+					if committer.failure == nil {
 						wantNames = append(wantNames, EventEffectResolved)
 					}
 					if !slices.Equal(names, wantNames) || !slices.Equal(durations, wantDurations) || !slices.Equal(settlements, wantSettlements) || calls != wantCalls {

@@ -31,7 +31,7 @@ func TestTransformAndCallRunAsManagedChildProcess(t *testing.T) {
 			return textValue{Text: strconv.Itoa(output.Value)}, nil
 		}),
 	), "parent")
-	engine, err := agent.NewEngine(agent.EngineConfig{
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
 		DeploymentResolver: deploymentResolver{child.DeploymentRef(): child},
 	})
 	if err != nil {
@@ -77,7 +77,7 @@ func TestCallPropagatesChildFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	parent := mustDeployment(t, mustDefinition(t, "test.workflow.failure_parent", call), "failure-parent")
-	engine, err := agent.NewEngine(agent.EngineConfig{
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
 		DeploymentResolver: deploymentResolver{child.DeploymentRef(): child},
 	})
 	if err != nil {

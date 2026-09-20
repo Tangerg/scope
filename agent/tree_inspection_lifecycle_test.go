@@ -15,7 +15,7 @@ func TestInspectTreeRemainsAvailableWhileFreezeOperationIsHeld(t *testing.T) {
 	t.Cleanup(unblock)
 	dispatcher := &engineTestDispatcher{policy: ReplayPolicyNever, started: make(chan struct{}, 1), block: release}
 	deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestInspectTreeFloodCannotDelayCompletionOrRelease(t *testing.T) {
 	t.Cleanup(unblock)
 	dispatcher := &engineTestDispatcher{policy: ReplayPolicyNever, started: make(chan struct{}, 1), block: release}
 	deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)
-	engine, err := NewEngine(EngineConfig{TreeDurability: &recordingTreeDurability{}})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: &recordingTreeCommitter{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestInspectionWaitAuthoritySurvivesRestoreWithoutChangingFacts(t *testing.T
 	} {
 		t.Run(scenario.mode, func(t *testing.T) {
 			deployment := newChildTestDeployment(t)
-			engine, err := NewEngine(EngineConfig{})
+			engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -213,15 +213,15 @@ func TestInspectionWaitAuthoritySurvivesRestoreWithoutChangingFacts(t *testing.T
 				inspection := requireTreeInspection(t, engine, root.ID())
 				report, found := inspection.Process(root.ID())
 				kind, waiting := report.Snapshot.WaitKind()
-				if !found || !waiting || kind != scenario.kind || inspection.HeadDigest.Valid() || inspection.IncarnationID.Valid() {
-					t.Fatalf("ephemeral wait inspection=%+v kind=%s waiting=%t", inspection, kind, waiting)
+				if !found || !waiting || kind != scenario.kind || !inspection.HeadDigest.Valid() || !inspection.IncarnationID.Valid() {
+					t.Fatalf("acknowledged wait inspection=%+v kind=%s waiting=%t", inspection, kind, waiting)
 				}
 			}
 			after, err := engine.CaptureTree(t.Context(), root.ID())
 			if err != nil || after.Digest() != before.Digest() {
 				t.Fatalf("pure inspection changed execution facts: %v", err)
 			}
-			restoredEngine, err := NewEngine(EngineConfig{})
+			restoredEngine, err := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(before)})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -14,7 +14,7 @@ import (
 )
 
 func TestEngineStartRejectsNilContextBeforePublication(t *testing.T) {
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestEngineStartRejectsNilContextBeforePublication(t *testing.T) {
 }
 
 func TestProcessRejectsNilContextBeforeControl(t *testing.T) {
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestResumeRunningProcessReportsInvalidControl(t *testing.T) {
 		entered:              make(chan int, 1), release: make(chan struct{}),
 	}
 	release := sync.OnceFunc(func() { close(definition.release) })
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestStepCannotConsumeSignalsThatArriveDuringItsExecution(t *testing.T) {
 				engineTestDefinition: newEngineTestDefinition(t, "engine.effect", "effect"),
 				entered:              make(chan int, 1), release: make(chan struct{}), consumed: consumed,
 			}
-			engine, err := NewEngine(EngineConfig{})
+			engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -243,7 +243,7 @@ type engineTestDefinition struct {
 
 func TestStartCanceledBeforeSubmissionHasNoAdmissionSideEffects(t *testing.T) {
 	calls := 0
-	engine := controlValue(NewEngine(EngineConfig{ProcessAdmitter: ProcessAdmitterFunc(func(context.Context, ProcessAdmission) error {
+	engine := controlValue(NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), ProcessAdmitter: ProcessAdmitterFunc(func(context.Context, ProcessAdmission) error {
 		calls++
 		return nil
 	})}))
@@ -531,7 +531,7 @@ func TestEngineRunsEffectToValidatedOutput(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	dispatcher := &engineTestDispatcher{policy: ReplayPolicyNever}
 	deployment := engineTestDeployment(t, definition, dispatcher)
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -559,7 +559,7 @@ func TestEngineRunsEffectToValidatedOutput(t *testing.T) {
 func TestEngineMintsWaitIDAndRequiresAddressedAnswer(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.wait", "wait")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
-	engine, _ := NewEngine(EngineConfig{})
+	engine, _ := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	input, _ := EncodePayload(engineTestInput{Value: "question"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
@@ -591,16 +591,16 @@ func TestEngineMintsWaitIDAndRequiresAddressedAnswer(t *testing.T) {
 
 func TestEngineCommitsPendingTreeBeforeDispatch(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
-	durability := &recordingTreeDurability{}
+	committer := &recordingTreeCommitter{}
 	dispatcher := &engineTestDispatcher{policy: ReplayPolicyNever}
 	dispatcher.check = func() error {
-		if !durability.pending.Load() {
+		if !committer.pending.Load() {
 			return errors.New("dispatch happened before pending tree commit")
 		}
 		return nil
 	}
 	deployment := engineTestDeployment(t, definition, dispatcher)
-	engine, err := NewEngine(EngineConfig{TreeDurability: durability})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: committer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -609,7 +609,7 @@ func TestEngineCommitsPendingTreeBeforeDispatch(t *testing.T) {
 	if err != nil || result.Status() != StatusCompleted {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
-	boundaries := durability.effectBoundaries()
+	boundaries := committer.effectBoundaries()
 	if len(boundaries) < 2 || boundaries[0].Kind() != EffectBoundaryKindPending ||
 		boundaries[1].Kind() != EffectBoundaryKindSettled {
 		t.Fatalf("Effect boundaries = %#v", boundaries)
@@ -626,7 +626,7 @@ func TestUnknownSettlementRequiresExplicitResolutionAndSurvivesRestore(t *testin
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	dispatcher := &failingEngineTestDispatcher{}
 	deployment := engineTestDeployment(t, definition, dispatcher)
-	engine, _ := NewEngine(EngineConfig{})
+	engine, _ := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	input, _ := EncodePayload(engineTestInput{Value: "uncertain"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
@@ -644,7 +644,7 @@ func TestUnknownSettlementRequiresExplicitResolutionAndSurvivesRestore(t *testin
 		t.Fatal(err)
 	}
 
-	restoredEngine, _ := NewEngine(EngineConfig{})
+	restoredEngine, _ := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree)})
 	restored, err := restoredEngine.RestoreTree(context.Background(), deployment, tree)
 	if err != nil {
 		t.Fatal(err)
@@ -680,7 +680,7 @@ func TestPartialEffectBatchPreservesSettlementsAndDeclarationOrder(t *testing.T)
 	definition := newEngineTestDefinition(t, "engine.batch", "batch")
 	dispatcher := &partialBatchDispatcher{}
 	deployment := engineTestDeployment(t, definition, dispatcher)
-	engine, _ := NewEngine(EngineConfig{})
+	engine, _ := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	input, _ := EncodePayload(engineTestInput{Value: "batch"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
@@ -698,7 +698,7 @@ func TestPartialEffectBatchPreservesSettlementsAndDeclarationOrder(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	restoredEngine, _ := NewEngine(EngineConfig{})
+	restoredEngine, _ := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree)})
 	restored, err := restoredEngine.RestoreTree(context.Background(), deployment, tree)
 	if err != nil {
 		t.Fatal(err)
@@ -734,7 +734,7 @@ func TestPausedProcessCapturesRestoresAndResumesAtSafeBoundary(t *testing.T) {
 		block:   release,
 	}
 	deployment := engineTestDeployment(t, definition, dispatcher)
-	engine, _ := NewEngine(EngineConfig{})
+	engine, _ := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	input, _ := EncodePayload(engineTestInput{Value: "paused"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
@@ -753,7 +753,7 @@ func TestPausedProcessCapturesRestoresAndResumesAtSafeBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restoredEngine, _ := NewEngine(EngineConfig{})
+	restoredEngine, _ := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree)})
 	restored, err := restoredEngine.RestoreTree(context.Background(), deployment, tree)
 	if err != nil {
 		t.Fatal(err)
@@ -776,7 +776,7 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.wait", "wait")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
 	limits := Limits{MaxPendingSignals: 2, Budget: Budget{Steps: NewQuota(3), Effects: NewQuota(1), Signals: NewQuota(2)}}
-	engine, _ := NewEngine(EngineConfig{Limits: limits})
+	engine, _ := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: limits})
 	t.Cleanup(func() { _ = engine.Close(context.WithoutCancel(t.Context())) })
 	input, _ := EncodePayload(engineTestInput{Value: "question"})
 	process, err := engine.Start(context.Background(), deployment, input)
@@ -790,7 +790,7 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	listener := &recordingEventListener{}
-	restoredEngine, _ := NewEngine(EngineConfig{
+	restoredEngine, _ := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree),
 		Limits:         limits,
 		EventListeners: []EventListener{listener},
 	})
@@ -845,17 +845,17 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 
 func TestRestoredPreparedEffectReplaysOnlyWithSameIdentityPolicy(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
-	durability := &recordingTreeDurability{}
+	committer := &recordingTreeCommitter{}
 	dispatcher := &engineTestDispatcher{policy: ReplayPolicySameIdentity}
 	deployment := engineTestDeployment(t, definition, dispatcher)
-	engine, _ := NewEngine(EngineConfig{TreeDurability: durability})
+	engine, _ := NewEngine(EngineConfig{TreeCommitter: committer})
 	input, _ := EncodePayload(engineTestInput{Value: "replay"})
 	if _, err := engine.Run(context.Background(), deployment, input); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := durability.effectBoundaries()[0].TreeSnapshot().ProcessSnapshots()[0]
+	snapshot := committer.effectBoundaries()[0].TreeSnapshot().ProcessSnapshots()[0]
 	tree := singleProcessTreeSnapshot(t, snapshot)
-	restoredEngine, _ := NewEngine(EngineConfig{})
+	restoredEngine, _ := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree)})
 	restored, err := restoredEngine.RestoreTree(context.Background(), deployment, tree)
 	if err != nil {
 		t.Fatal(err)
@@ -875,12 +875,13 @@ func TestRestoreDistinguishesPlannedFromPendingEffect(t *testing.T) {
 	t.Run("planned dispatches even under never-replay policy", func(t *testing.T) {
 		dispatcher := &engineTestDispatcher{policy: ReplayPolicyNever}
 		deployment := engineTestDeployment(t, definition, dispatcher)
-		engine, err := NewEngine(EngineConfig{})
+		tree := singleProcessTreeSnapshot(t, prepared)
+		engine, err := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree)})
 		if err != nil {
 			t.Fatal(err)
 		}
 		restored, err := engine.RestoreTree(
-			context.Background(), deployment, singleProcessTreeSnapshot(t, prepared),
+			context.Background(), deployment, tree,
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -910,17 +911,18 @@ func TestRestoreDistinguishesPlannedFromPendingEffect(t *testing.T) {
 		}
 		dispatcher := &engineTestDispatcher{policy: ReplayPolicyNever}
 		deployment := engineTestDeployment(t, definition, dispatcher)
-		engine, err := NewEngine(EngineConfig{})
+		tree := singleProcessTreeSnapshot(t, pending)
+		engine, err := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree)})
 		if err != nil {
 			t.Fatal(err)
 		}
 		restored, err := engine.RestoreTree(
-			context.Background(), deployment, singleProcessTreeSnapshot(t, pending),
+			context.Background(), deployment, tree,
 		)
 		if err != nil {
 			t.Fatal(err)
 		}
-		unknown := inspectProcessSnapshot(t, restored).UnknownEffectIDs()
+		unknown := waitForUnknownSettlement(t, restored).UnknownEffectIDs()
 		if len(unknown) != 1 {
 			t.Fatalf("unknown Effects = %v", unknown)
 		}
@@ -940,7 +942,7 @@ func TestRestoreDistinguishesPlannedFromPendingEffect(t *testing.T) {
 func TestStartContextCancellationMapsToHostCancellation(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.wait", "wait")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
-	engine, _ := NewEngine(EngineConfig{})
+	engine, _ := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	ctx, cancel := context.WithCancel(context.Background())
 	input, _ := EncodePayload(engineTestInput{Value: "cancel"})
 	process, err := engine.Start(ctx, deployment, input)
@@ -964,7 +966,7 @@ func TestRequestCancellationReturnsAfterSubmissionAndSurvivesContextCancellation
 		block:   release,
 	}
 	deployment := engineTestDeployment(t, definition, dispatcher)
-	engine, _ := NewEngine(EngineConfig{})
+	engine, _ := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	input, _ := EncodePayload(engineTestInput{Value: "cancel after submission"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
@@ -991,7 +993,7 @@ func TestRequestCancellationReturnsAfterSubmissionAndSurvivesContextCancellation
 func TestRequestCancellationRejectsAnAlreadyCanceledSubmissionContext(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.wait", "wait")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
-	engine, _ := NewEngine(EngineConfig{})
+	engine, _ := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	input, _ := EncodePayload(engineTestInput{Value: "remain waiting"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
@@ -1023,7 +1025,7 @@ func TestKillWaitsForInflightEffectSettlement(t *testing.T) {
 		block:   release,
 	}
 	deployment := engineTestDeployment(t, definition, dispatcher)
-	engine, _ := NewEngine(EngineConfig{})
+	engine, _ := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	input, _ := EncodePayload(engineTestInput{Value: "slow"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
@@ -1047,7 +1049,7 @@ func TestStepFailureDiscardsMutatedExecutionAndPreservesCursor(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.fail", "fail")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
 	listener := &recordingEventListener{}
-	engine, _ := NewEngine(EngineConfig{EventListeners: []EventListener{listener}})
+	engine, _ := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), EventListeners: []EventListener{listener}})
 	input, _ := EncodePayload(engineTestInput{Value: "stable"})
 	process, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
@@ -1085,7 +1087,7 @@ func TestStepFailureDiscardsMutatedExecutionAndPreservesCursor(t *testing.T) {
 func TestEngineEnforcesStepLimitAndReportsMonotonicUsage(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
-	engine, err := NewEngine(EngineConfig{Limits: Limits{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: Limits{
 		MaxPendingSignals: 1, Budget: Budget{Steps: NewQuota(1), Effects: NewQuota(1), Signals: NewQuota(1)},
 	}})
 	if err != nil {
@@ -1110,7 +1112,7 @@ func TestEngineEnforcesStepLimitAndReportsMonotonicUsage(t *testing.T) {
 }
 
 func TestEngineSeparatesCapacityFromCumulativeQuota(t *testing.T) {
-	engine, err := NewEngine(EngineConfig{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
 		Limits:     Limits{MaxPendingSignals: 2, Budget: Budget{Signals: NewQuota(1)}},
 		TreeLimits: TreeLimits{MaxChildren: NewQuota(1), MaxActiveChildren: 2},
 	})
@@ -1159,7 +1161,7 @@ func TestDeltaBufferDropsAreObservableAndListenerPanicIsIsolated(t *testing.T) {
 	deployment := engineTestDeployment(t, definition, dispatcher)
 	events := &recordingEventListener{panic: true}
 	deltas := &blockingDeltaListener{entered: make(chan struct{}), release: make(chan struct{})}
-	engine, err := NewEngine(EngineConfig{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
 		EventListeners: []EventListener{events}, DeltaListeners: []DeltaListener{deltas}, DeltaBufferCapacity: 1,
 	})
 	if err != nil {
@@ -1191,7 +1193,7 @@ func TestFlushDeltasWaitsForAcceptedListenerDelivery(t *testing.T) {
 	dispatcher := &engineTestDispatcher{policy: ReplayPolicyNever, deltas: 2}
 	deployment := engineTestDeployment(t, definition, dispatcher)
 	deltas := &blockingDeltaListener{entered: make(chan struct{}), release: make(chan struct{})}
-	engine, err := NewEngine(EngineConfig{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
 		DeltaListeners: []DeltaListener{deltas}, DeltaBufferCapacity: 2,
 	})
 	if err != nil {
@@ -1227,7 +1229,7 @@ func TestEventLifecycleCarriesExactBindingAndAttemptDurations(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
 	listener := &recordingEventListener{}
-	engine, err := NewEngine(EngineConfig{EventListeners: []EventListener{listener}})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), EventListeners: []EventListener{listener}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1243,8 +1245,8 @@ func TestEventLifecycleCarriesExactBindingAndAttemptDurations(t *testing.T) {
 	wantNames := []string{
 		EventProcessStarted,
 		EventStepStarted, EventStepFinished, EventStepPrepared,
-		EventEffectStarted, EventEffectFinished, EventStepCommitted,
-		EventStepStarted, EventStepFinished, EventStepPrepared, EventStepCommitted,
+		EventEffectStarted, EventEffectFinished,
+		EventStepStarted, EventStepFinished, EventStepPrepared, EventStepCommitted, EventStepCommitted,
 		EventProcessFinished,
 	}
 	assertEventSequence(t, events, wantNames)
@@ -1311,7 +1313,7 @@ func validEventPayload(event Event, result Result) bool {
 func TestFrameworkEffectPublishesTheSameLifecycleContract(t *testing.T) {
 	deployment := newChildTestDeployment(t)
 	listener := &recordingEventListener{}
-	engine, err := NewEngine(EngineConfig{EventListeners: []EventListener{listener}})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), EventListeners: []EventListener{listener}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1416,7 +1418,7 @@ func waitForUnknownSettlement(t testing.TB, process *Process) ProcessSnapshot {
 
 func singleProcessTreeSnapshot(t *testing.T, snapshot ProcessSnapshot) TreeSnapshot {
 	t.Helper()
-	tree, err := newTreeSnapshot(treeSnapshotWire{
+	tree, err := newTreeSnapshot(treeSnapshotWire{IncarnationID: newTreeIncarnationID(),
 		RootID:           snapshot.ProcessID(),
 		ProcessSnapshots: []ProcessSnapshot{snapshot},
 	})
@@ -1432,7 +1434,7 @@ func TestCanceledControlDoesNotEnterTheRuntime(t *testing.T) {
 		policy: ReplayPolicyNever, started: make(chan struct{}, 1), block: release,
 	}
 	deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)
-	engine, _ := NewEngine(EngineConfig{})
+	engine, _ := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	input, _ := EncodePayload(engineTestInput{Value: "complete normally"})
 	process, err := engine.Start(t.Context(), deployment, input)
 	if err != nil {

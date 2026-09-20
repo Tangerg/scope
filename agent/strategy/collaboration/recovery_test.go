@@ -9,11 +9,10 @@ import (
 	"testing/synctest"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
 )
 
 // A paused receiver permits next-boundary input without consuming it. Its pure
-// transition lets the durability test distinguish admission from adoption.
+// transition lets the committer test distinguish admission from adoption.
 type pausedDefinition struct{ descriptor agent.Descriptor }
 
 func pausedWorker() agent.Deployment {
@@ -60,7 +59,7 @@ func (p *pausedExecution) Snapshot() (agent.ExecutionState, error) {
 }
 
 type heldControlDurability struct {
-	*agenttest.MemoryTreeDurability
+	*agent.MemoryTreeCommitter
 	operation string
 	entered   chan agent.EffectBoundary
 	release   chan struct{}
@@ -68,7 +67,7 @@ type heldControlDurability struct {
 }
 
 func (h *heldControlDurability) CommitEffect(ctx context.Context, boundary agent.EffectBoundary) error {
-	if err := h.MemoryTreeDurability.CommitEffect(ctx, boundary); err != nil {
+	if err := h.MemoryTreeCommitter.CommitEffect(ctx, boundary); err != nil {
 		return err
 	}
 	var payload struct {
@@ -110,7 +109,7 @@ func TestControlAdmissionAndReceiptRecoverAsOneTreeCut(t *testing.T) {
 						return finish(turn, "recovered once"), nil
 					}
 				}, pausedWorker())
-				store := &heldControlDurability{MemoryTreeDurability: agenttest.NewMemoryTreeDurability(), operation: operation, entered: make(chan agent.EffectBoundary, 1), release: make(chan struct{})}
+				store := &heldControlDurability{MemoryTreeCommitter: agent.NewMemoryTreeCommitter(), operation: operation, entered: make(chan agent.EffectBoundary, 1), release: make(chan struct{})}
 				release := sync.OnceFunc(func() { close(store.release) })
 				defer release()
 				engine, process := run(t, definition, deployments, store)
@@ -136,7 +135,7 @@ func TestControlAdmissionAndReceiptRecoverAsOneTreeCut(t *testing.T) {
 				if err != nil || !present || head.Digest() != boundary.TreeSnapshot().Digest() {
 					t.Fatalf("head: %t %v", present, err)
 				}
-				restoredEngine := require(agent.NewEngine(agent.EngineConfig{TreeDurability: store, DeploymentResolver: deployments}))
+				restoredEngine := require(agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployments}))
 				t.Cleanup(func() {
 					if err := restoredEngine.Close(context.Background()); err != nil {
 						t.Error(err)

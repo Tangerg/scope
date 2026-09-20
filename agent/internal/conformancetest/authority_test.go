@@ -18,7 +18,7 @@ func TestProcessAuthorityFollowsTypesAndPorts(t *testing.T) {
 	}{
 		{value: reflect.TypeFor[struct{ Value *agent.Engine }](), forbidden: true},
 		{value: reflect.TypeFor[struct {
-			Value map[string][]agent.TreeDurability
+			Value map[string][]agent.TreeCommitter
 		}](), forbidden: true},
 		{value: reflect.TypeFor[struct{ Value func() *agent.Process }](), forbidden: true},
 		{value: reflect.TypeFor[interface {

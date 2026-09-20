@@ -51,7 +51,7 @@ func TestModelResponseLimitIncludesEncodingAndReplacementContext(t *testing.T) {
 			}
 			deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "interaction.response_limit", Description: "Reject unusable model output.", MaxModelCalls: agent.NewQuota(1)}, config, interaction.ToolSetConfig{})
 			events := &agenttest.ObservationRecorder{}
-			engine, err := agent.NewEngine(agent.EngineConfig{EventListeners: []agent.EventListener{events}})
+			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), EventListeners: []agent.EventListener{events}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -126,7 +126,7 @@ func dispatchLimitedResponse(t *testing.T, config interaction.DispatcherConfig) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}

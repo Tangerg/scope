@@ -30,8 +30,8 @@ func TestFirstSuccessRestoresRejectedResultAndAcceptsInputWithoutWaitingForDeadl
 			candidate(t, "deadline", timer, encodedInput(t, started.Add(time.Hour))),
 		}
 		bindings := resolver{gate.DeploymentRef(): gate, timer.DeploymentRef(): timer}
-		store := agenttest.NewMemoryTreeDurability()
-		config := agent.EngineConfig{TreeDurability: store, DeploymentResolver: bindings}
+		store := agent.NewMemoryTreeCommitter()
+		config := agent.EngineConfig{TreeCommitter: store, DeploymentResolver: bindings}
 		engine, err := agent.NewEngine(config)
 		if err != nil {
 			t.Fatal(err)
@@ -119,7 +119,7 @@ func TestFirstSuccessUsesRequestOrderWhenSeveralResultsAreAlreadyVisible(t *test
 		release := sync.OnceFunc(func() { close(probe.release) })
 		defer release()
 		deployment := bind(t, probe, nil)
-		engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver{timer.DeploymentRef(): timer}})
+		engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver{timer.DeploymentRef(): timer}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -160,7 +160,7 @@ func TestFirstSuccessWaitsForAllAdmissionsBeforeAcceptingCompletedChild(t *testi
 		entered, released := make(chan struct{}), make(chan struct{})
 		release := sync.OnceFunc(func() { close(released) })
 		defer release()
-		engine, err := agent.NewEngine(agent.EngineConfig{
+		engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
 			DeploymentResolver: resolver{timer.DeploymentRef(): timer},
 			ProcessAdmitter: agent.ProcessAdmitterFunc(func(ctx context.Context, admission agent.ProcessAdmission) error {
 				key, child := admission.Relation().ChildKey()
@@ -214,7 +214,7 @@ func TestFirstSuccessRetainsFailedAdmissionAndAllRejectedResults(t *testing.T) {
 		timer := deadlineBinding(t, coordination.Timer{})
 		definition := competition(t, func(_ context.Context, _ agent.ChildOutcome) (bool, error) { return false, nil }, 2)
 		deployment := bind(t, definition, nil)
-		engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver{timer.DeploymentRef(): timer}})
+		engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver{timer.DeploymentRef(): timer}})
 		if err != nil {
 			t.Fatal(err)
 		}

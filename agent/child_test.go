@@ -16,7 +16,7 @@ import (
 
 func TestEngineStartsSameDeploymentChildWithStableRelation(t *testing.T) {
 	deployment := newChildTestDeployment(t)
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestChildEffectPreservesStartContextValuesWithOwnedCancellation(t *testing.
 		want: wantValue,
 	}
 	deployment := newChildTestDeploymentWithDispatcher(t, dispatcher)
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestChildEffectPreservesStartContextValuesWithOwnedCancellation(t *testing.
 
 func TestEngineRejectsDuplicateChildKeyInOneParent(t *testing.T) {
 	deployment := newChildTestDeployment(t)
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func runChildWaitTest(t *testing.T, test childWaitTestCase) {
 	dispatcher := newBlockingChildDispatcher("first", "second", "third")
 	t.Cleanup(dispatcher.ReleaseAll)
 	deployment := newChildTestDeploymentWithDispatcher(t, dispatcher)
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func rejectForgedChildCompletion(t *testing.T, root *Process) {
 
 func TestEngineSupportsBoundedSameDefinitionRecursion(t *testing.T) {
 	deployment := newChildTestDeployment(t)
-	engine, err := NewEngine(EngineConfig{TreeLimits: TreeLimits{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), TreeLimits: TreeLimits{
 		MaxDepth: 3, MaxChildren: NewQuota(2), MaxActiveChildren: 2, MaxTreeProcesses: NewQuota(4),
 	}})
 	if err != nil {
@@ -251,7 +251,7 @@ func TestEngineEnforcesChildDepthFanoutActiveAndTreeLimits(t *testing.T) {
 }
 
 func testChildDepthLimit(t *testing.T) {
-	engine, err := NewEngine(EngineConfig{TreeLimits: TreeLimits{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), TreeLimits: TreeLimits{
 		MaxDepth: 1, MaxChildren: NewQuota(2), MaxActiveChildren: 2, MaxTreeProcesses: NewQuota(3),
 	}})
 	if err != nil {
@@ -273,7 +273,7 @@ func testChildDepthLimit(t *testing.T) {
 }
 
 func testChildLifetimeFanoutLimit(t *testing.T) {
-	engine, err := NewEngine(EngineConfig{TreeLimits: TreeLimits{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), TreeLimits: TreeLimits{
 		MaxDepth: 2, MaxChildren: NewQuota(2), MaxActiveChildren: 2, MaxTreeProcesses: NewQuota(4),
 	}})
 	if err != nil {
@@ -295,7 +295,7 @@ func testChildLifetimeFanoutLimit(t *testing.T) {
 func testActiveChildLimit(t *testing.T) {
 	dispatcher := newBlockingChildDispatcher("first", "second", "third")
 	t.Cleanup(dispatcher.ReleaseAll)
-	engine, err := NewEngine(EngineConfig{TreeLimits: TreeLimits{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), TreeLimits: TreeLimits{
 		MaxDepth: 2, MaxChildren: NewQuota(3), MaxActiveChildren: 1, MaxTreeProcesses: NewQuota(4),
 	}})
 	if err != nil {
@@ -323,7 +323,7 @@ func testActiveChildLimit(t *testing.T) {
 }
 
 func testTreeProcessLimit(t *testing.T) {
-	engine, err := NewEngine(EngineConfig{TreeLimits: TreeLimits{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), TreeLimits: TreeLimits{
 		MaxDepth: 2, MaxChildren: NewQuota(3), MaxActiveChildren: 3, MaxTreeProcesses: NewQuota(2),
 	}})
 	if err != nil {
@@ -349,7 +349,7 @@ func TestTreeProcessLimitBoundsRecursiveBinaryExpansion(t *testing.T) {
 	limits.Budget.Effects = NewQuota(100_000)
 	limits.Budget.Signals = NewQuota(100_000)
 	limits.MaxPendingSignals = 100_000
-	engine, err := NewEngine(EngineConfig{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
 		Limits: limits,
 		TreeLimits: TreeLimits{
 			MaxDepth: 8, MaxChildren: NewQuota(2), MaxActiveChildren: 2, MaxTreeProcesses: NewQuota(15),
@@ -390,7 +390,7 @@ func TestEngineAttenuatesChildBudgetAndCapabilities(t *testing.T) {
 	deployment := newChildTestDeployment(t)
 
 	t.Run("subset", func(t *testing.T) {
-		engine, err := NewEngine(EngineConfig{Capabilities: rootCapabilities, Limits: Limits{Budget: Budget{Steps: NewQuota(100), Effects: NewQuota(100), Signals: NewQuota(1000)}}})
+		engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Capabilities: rootCapabilities, Limits: Limits{Budget: Budget{Steps: NewQuota(100), Effects: NewQuota(100), Signals: NewQuota(1000)}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -420,7 +420,7 @@ func TestEngineAttenuatesChildBudgetAndCapabilities(t *testing.T) {
 		{name: "budget escalation", mode: "budget_escalation", code: "engine.child.budget_exhausted"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			engine, err := NewEngine(EngineConfig{Capabilities: rootCapabilities, Limits: Limits{Budget: Budget{Steps: NewQuota(100), Effects: NewQuota(100), Signals: NewQuota(1000)}}})
+			engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Capabilities: rootCapabilities, Limits: Limits{Budget: Budget{Steps: NewQuota(100), Effects: NewQuota(100), Signals: NewQuota(1000)}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -478,7 +478,7 @@ func runParentTerminationTest(t *testing.T, test parentTerminationTestCase) {
 	if test.terminate != nil {
 		mode = "wait:all"
 	}
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -536,7 +536,7 @@ func TestParentDeadlinePropagatesAsParentDeadline(t *testing.T) {
 		dispatcher := newBlockingChildDispatcher("first", "second", "third")
 		t.Cleanup(dispatcher.ReleaseAll)
 		deployment := newChildTestDeploymentWithDispatcher(t, dispatcher)
-		engine, err := NewEngine(EngineConfig{})
+		engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -572,7 +572,7 @@ func TestParentDeadlinePropagatesAsParentDeadline(t *testing.T) {
 
 func TestChildFailureRemainsExplicitStrategyInput(t *testing.T) {
 	deployment := newChildTestDeployment(t)
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -595,7 +595,7 @@ func TestChildFailureRemainsExplicitStrategyInput(t *testing.T) {
 
 func TestEngineRejectsWaitingOnDescendantThatIsNotDirectChild(t *testing.T) {
 	deployment := newChildTestDeployment(t)
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}

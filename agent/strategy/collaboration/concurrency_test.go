@@ -10,7 +10,6 @@ import (
 	"testing/synctest"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
 	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/agent/strategy/workflow"
 	"github.com/Tangerg/scope/core/chat"
@@ -35,7 +34,7 @@ func modelDeployment(name string, model chat.Model) agent.Deployment {
 }
 
 func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) {
-	for _, mode := range []string{"ephemeral", "durable", "restored"} {
+	for _, mode := range []string{"memory", "durable", "restored"} {
 		for _, count := range []int{1, 2} {
 			t.Run(fmt.Sprintf("%s/tasks_%d", mode, count), func(t *testing.T) {
 				synctest.Test(t, func(t *testing.T) {
@@ -98,15 +97,15 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 					config.Coordinator = WorkerConfig{Deployment: coordinator, Budget: agent.Budget{Steps: agent.NewQuota(64), Effects: agent.NewQuota(32), Signals: agent.NewQuota(64)}}
 					definition := require(NewDefinition(config))
 					deployments[model.DeploymentRef()], deployments[coordinator.DeploymentRef()] = model, coordinator
-					var durability agent.TreeDurability
-					store := agenttest.NewMemoryTreeDurability()
-					if mode != "ephemeral" {
-						durability = store
+					store := agent.NewMemoryTreeCommitter()
+					var committer agent.TreeCommitter = store
+					if mode != "memory" {
+						committer = store
 					}
 					if mode == "restored" {
-						durability = &coordinatorSettlementCrash{MemoryTreeDurability: store}
+						committer = &coordinatorSettlementCrash{MemoryTreeCommitter: store}
 					}
-					engine, process := run(t, definition, deployments, durability)
+					engine, process := run(t, definition, deployments, committer)
 					<-entered
 					synctest.Wait()
 					tree := require(engine.InspectTree(t.Context(), process.ID()))
@@ -150,7 +149,7 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 						if err := json.Unmarshal(head.JSON(), &restoredHead); err != nil {
 							t.Fatal(err)
 						}
-						restoredEngine := require(agent.NewEngine(agent.EngineConfig{TreeDurability: store, DeploymentResolver: deployments}))
+						restoredEngine := require(agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployments}))
 						defer func() {
 							if err := restoredEngine.Close(t.Context()); err != nil {
 								t.Error(err)
@@ -215,7 +214,7 @@ func TestCoordinatorSteersInteractionThroughItsCanonicalSignalContract(t *testin
 			}
 		}, worker)
 		engine := require(agent.NewEngine(agent.EngineConfig{
-			DeploymentResolver: deployments, TreeDurability: agenttest.NewMemoryTreeDurability(),
+			DeploymentResolver: deployments, TreeCommitter: agent.NewMemoryTreeCommitter(),
 			ProcessAdmitter: agent.ProcessAdmitterFunc(func(ctx context.Context, admission agent.ProcessAdmission) error {
 				if key, child := admission.Relation().ChildKey(); child && key.String() == "collaboration.turn.2" {
 					select {
@@ -245,11 +244,11 @@ func TestCoordinatorSteersInteractionThroughItsCanonicalSignalContract(t *testin
 // Stop after the second coordinator's model result is durable but before the
 // collaboration can adopt its decision. Worker outcomes are already committed.
 type coordinatorSettlementCrash struct {
-	*agenttest.MemoryTreeDurability
+	*agent.MemoryTreeCommitter
 }
 
 func (c *coordinatorSettlementCrash) CommitEffect(ctx context.Context, boundary agent.EffectBoundary) error {
-	if err := c.MemoryTreeDurability.CommitEffect(ctx, boundary); err != nil {
+	if err := c.MemoryTreeCommitter.CommitEffect(ctx, boundary); err != nil {
 		return err
 	}
 	if boundary.Kind() != agent.EffectBoundaryKindSettled || boundary.Request().DeploymentRef().Name() != "test.coordinator_model" {

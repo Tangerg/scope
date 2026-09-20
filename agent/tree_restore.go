@@ -40,7 +40,7 @@ func (t *treeRestoration) prepareProcesses(ctx context.Context) error {
 			return err
 		}
 		handle, state, processWire, err := prepareRestoredProcess(ctx,
-			t.engine.durability != nil, deployment, processSnapshot,
+			deployment, processSnapshot,
 		)
 		if err != nil {
 			return fmt.Errorf(

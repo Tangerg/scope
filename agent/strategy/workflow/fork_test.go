@@ -61,7 +61,7 @@ func testForkUsesBoundedWindowsAndDeclarationOrder(t *testing.T) {
 		t.Fatalf("Fork Stage = %#v", stage)
 	}
 	deployment := mustDeployment(t, mustDefinition(t, "test.workflow.fork", stage), "fork")
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestForkPropagatesLowestFailingBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 	deployment := mustDeployment(t, mustDefinition(t, "test.workflow.fork_failure", stage), "fork-failure")
-	engine, _ := agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver})
+	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver})
 	input, _ := agent.EncodePayload(forkInput{Value: 1})
 	result, err := engine.Run(context.Background(), deployment, input)
 	if err != nil {
@@ -167,7 +167,7 @@ func TestForkPreservesFailedAdmissionWhileDrainingSiblings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver})
 	if err != nil {
 		t.Fatal(err)
 	}

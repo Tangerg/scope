@@ -115,7 +115,7 @@ func TestJoinReadinessSurvivesCommitAndFreeze(t *testing.T) {
 
 func waitingOwnerFixture(b testing.TB, parents int) (*treeRuntime, *processState) {
 	b.Helper()
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		b.Fatal(err)
 	}

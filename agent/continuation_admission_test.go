@@ -16,7 +16,7 @@ func prepareEpisode(t testing.TB, store *episodeStore) (*agent.Engine, *agent.Pr
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: store.trees})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store.trees})
 	if err != nil {
 		t.Fatal(err)
 	}

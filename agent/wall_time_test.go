@@ -91,7 +91,7 @@ func TestRestoreAcceptsChildrenWithEarlierWallTimes(t *testing.T) {
 }
 
 func testWallTimeMode(durable, cancel bool) string {
-	mode := "ephemeral/"
+	mode := "memory/"
 	if durable {
 		mode = "durable/"
 	}
@@ -103,9 +103,9 @@ func testWallTimeMode(durable, cancel bool) string {
 
 func clockSkewedTree(t *testing.T, durable, children bool) (Deployment, TreeSnapshot, EngineConfig) {
 	t.Helper()
-	config := EngineConfig{}
+	config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
 	if durable {
-		config.TreeDurability = &recordingTreeDurability{}
+		config.TreeCommitter = &recordingTreeCommitter{}
 	}
 	engine, err := NewEngine(config)
 	if err != nil {
@@ -168,12 +168,13 @@ func clockSkewedTree(t *testing.T, durable, children bool) (Deployment, TreeSnap
 	if err != nil {
 		t.Fatal(err)
 	}
+	config.TreeCommitter = newSnapshotTestCommitter(snapshot)
 	return deployment, snapshot, config
 }
 
 func wallTimeSnapshot(t *testing.T, engine *Engine, root *Process, config EngineConfig) TreeSnapshot {
 	t.Helper()
-	if recorder, ok := config.TreeDurability.(*recordingTreeDurability); ok {
+	if recorder, ok := config.TreeCommitter.(*recordingTreeCommitter); ok {
 		checkpoints := recorder.treeCheckpoints()
 		if len(checkpoints) == 0 {
 			t.Fatal("missing acknowledged checkpoint")

@@ -102,7 +102,7 @@ func TestSenderConformsAndMessageEffectOwnsRecipient(t *testing.T) {
 
 func TestCancellationCollectsUnacknowledgedDelivery(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		engine, err := agent.NewEngine(agent.EngineConfig{})
+		engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 		if err != nil {
 			t.Fatal(err)
 		}

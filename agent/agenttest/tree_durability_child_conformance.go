@@ -9,18 +9,18 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-func runCrashBeforeChildCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+func runCrashBeforeChildCommit(t *testing.T, store TreeCommitterConformanceDriver) {
 	runCrashChildCommit(t, store, crashCommitBefore)
 }
 
-func runCrashAfterChildCommit(t *testing.T, store TreeDurabilityConformanceDriver) {
+func runCrashAfterChildCommit(t *testing.T, store TreeCommitterConformanceDriver) {
 	runCrashChildCommit(t, store, crashCommitAfter)
 }
 
-func runCrashChildCommit(t *testing.T, store TreeDurabilityConformanceDriver, phase crashCommitPhase) {
+func runCrashChildCommit(t *testing.T, store TreeCommitterConformanceDriver, phase crashCommitPhase) {
 	t.Helper()
-	durability := store.TreeDurability()
-	gate := newTreeDurabilityCommitGate(t, durability, crashCommitPoint{
+	committer := store
+	gate := newTreeCommitterCommitGate(t, committer, crashCommitPoint{
 		kind: crashCommitCheckpointChild, phase: phase,
 	})
 	deployment := newCrashTreeDeployment(t)
@@ -47,7 +47,7 @@ func runCrashChildCommit(t *testing.T, store TreeDurabilityConformanceDriver, ph
 	if len(head.ProcessSnapshots()) != wantProcesses {
 		t.Fatalf("child boundary processes=%d want=%d", len(head.ProcessSnapshots()), wantProcesses)
 	}
-	restoredEngine := newCrashEngine(t, durability, nil)
+	restoredEngine := newCrashEngine(t, committer, nil)
 	root := restoreCrashTree(t, restoredEngine, deployment, head)
 	waitForConformanceStatus(t, restoredEngine, root, agent.StatusWaiting)
 	child, found := restoredEngine.Process(childID)
@@ -118,9 +118,9 @@ func runCrashChildCommit(t *testing.T, store TreeDurabilityConformanceDriver, ph
 	closeCrashEngine(t, engine)
 }
 
-func runCrashAfterSubtreeCancellationCheckpoint(t *testing.T, store TreeDurabilityConformanceDriver) {
-	durability := store.TreeDurability()
-	gate := newTreeDurabilityCommitGate(t, durability, crashCommitPoint{
+func runCrashAfterSubtreeCancellationCheckpoint(t *testing.T, store TreeCommitterConformanceDriver) {
+	committer := store
+	gate := newTreeCommitterCommitGate(t, committer, crashCommitPoint{
 		kind: crashCommitCheckpointCancellation, phase: crashCommitAfter,
 	})
 	deployment := newCrashTreeDeployment(t)
@@ -145,7 +145,7 @@ func runCrashAfterSubtreeCancellationCheckpoint(t *testing.T, store TreeDurabili
 	if inspectConformanceProcess(t, engine, root).Status() != agent.StatusWaiting || inspectConformanceProcess(t, engine, child).Status() != agent.StatusWaiting {
 		t.Fatal("cancellation was published before checkpoint acknowledgment")
 	}
-	restoredEngine := newCrashEngine(t, durability, nil)
+	restoredEngine := newCrashEngine(t, committer, nil)
 	restoredRoot := restoreCrashTree(t, restoredEngine, deployment, head)
 	if result := awaitCrashProcess(t, restoredRoot); result.Status() != agent.StatusCompleted {
 		t.Fatalf("restored parent status=%s", result.Status())
@@ -203,10 +203,10 @@ func (c crashTreePhase) valid() bool {
 }
 
 const (
-	crashTreeDeploymentName        = "agenttest.durability_crash_tree"
+	crashTreeDeploymentName        = "agenttest.committer_crash_tree"
 	crashTreeDeploymentDescription = "Exercises child publication, input, and cancellation recovery."
-	crashTreeImplementationSeed    = "agenttest durability crash tree implementation"
-	crashTreeConfigurationSeed     = "agenttest durability crash tree configuration"
+	crashTreeImplementationSeed    = "agenttest committer crash tree implementation"
+	crashTreeConfigurationSeed     = "agenttest committer crash tree configuration"
 	crashTreeChildKey              = "worker"
 	crashTreeRootWaitKey           = "child_completion"
 	crashTreeChildWaitKey          = "external_input"

@@ -13,7 +13,7 @@ import (
 )
 
 func TestCaptureTreeRejectsAlreadyCanceledContext(t *testing.T) {
-	engine, _ := NewEngine(EngineConfig{})
+	engine, _ := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
 	root, err := engine.Start(t.Context(), newChildTestDeployment(t), input)
 	if err != nil {
@@ -44,6 +44,7 @@ func TestParseTreeSnapshotRejectsInvalidWire(t *testing.T) {
 		malformed json.RawMessage
 	}{
 		{name: "missing root", omit: "root_id"},
+		{name: "missing writer", omit: "incarnation_id"},
 		{name: "missing processes", omit: "process_snapshots"},
 		{name: "unknown member", unknown: true},
 		{name: "malformed JSON", malformed: json.RawMessage(`{"root_id":`)},
@@ -84,11 +85,11 @@ func TestTreeSnapshotDigestIsCanonicalAndStable(t *testing.T) {
 	if err := json.Unmarshal(tree.JSON(), &fields); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := slices.Sorted(maps.Keys(fields)), []string{"process_snapshots", "root_id"}; !slices.Equal(got, want) {
-		t.Fatalf("ephemeral tree fields = %v, want %v", got, want)
+	if got, want := slices.Sorted(maps.Keys(fields)), []string{"incarnation_id", "process_snapshots", "root_id"}; !slices.Equal(got, want) {
+		t.Fatalf("tree fields = %v, want %v", got, want)
 	}
-	if _, durable := tree.IncarnationID(); durable {
-		t.Fatal("ephemeral capture unexpectedly contains a TreeIncarnationID")
+	if !tree.IncarnationID().Valid() {
+		t.Fatal("capture is missing its writer identity")
 	}
 }
 
@@ -104,22 +105,22 @@ func TestTreeSnapshotCarriesOneTypedIncarnationIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire.IncarnationID = new(incarnationID)
+	wire.IncarnationID = incarnationID
 	durable, err := newTreeSnapshot(wire)
 	if err != nil {
 		t.Fatal(err)
 	}
-	*wire.IncarnationID = TreeIncarnationID{}
-	got, ok := durable.IncarnationID()
-	if !ok || got != incarnationID {
-		t.Fatalf("IncarnationID = %s, %t, want %s, true", got, ok, incarnationID)
+	wire.IncarnationID = TreeIncarnationID{}
+	got := durable.IncarnationID()
+	if got != incarnationID {
+		t.Fatalf("IncarnationID = %s, want %s", got, incarnationID)
 	}
 	parsed, err := ParseTreeSnapshot(durable.JSON())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parsedID, parsedOK := parsed.IncarnationID(); !parsedOK || parsedID != incarnationID {
-		t.Fatalf("parsed IncarnationID = %s, %t", parsedID, parsedOK)
+	if parsedID := parsed.IncarnationID(); parsedID != incarnationID {
+		t.Fatalf("parsed IncarnationID = %s", parsedID)
 	}
 }
 
@@ -147,7 +148,7 @@ func FuzzTreeSnapshotJSONRoundTrip(f *testing.F) {
 
 func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 	deployment := newChildTestDeployment(t)
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +282,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 		}
 	}
 
-	restoredEngine, err := NewEngine(EngineConfig{})
+	restoredEngine, err := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(parsed)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +329,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 
 func TestTerminalTreeSnapshotClosesUnconsumedChildWait(t *testing.T) {
 	deployment := newChildTestDeployment(t)
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +366,7 @@ func testTreeCaptureWaitsForInflightChildEffectsToSettle(t *testing.T) {
 	dispatcher := newBlockingChildDispatcher("first", "second", "third")
 	t.Cleanup(dispatcher.ReleaseAll)
 	deployment := newChildTestDeploymentWithDispatcher(t, dispatcher)
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +412,7 @@ func testTreeCaptureWaitsForInflightChildEffectsToSettle(t *testing.T) {
 			}
 		}
 	}
-	restoredEngine, _ := NewEngine(EngineConfig{})
+	restoredEngine, _ := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(result.snapshot)})
 	restored, err := restoredEngine.RestoreTree(context.Background(), deployment, result.snapshot)
 	if err != nil {
 		t.Fatal(err)
@@ -432,7 +433,7 @@ func TestTreeRestoreResolvesEveryExactDeployment(t *testing.T) {
 	childDeployment := newChildTestDeployment(t)
 	parentDeployment := newCrossParentDeployment(t, childDeployment.DeploymentRef())
 	resolver := deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment}
-	engine, _ := NewEngine(EngineConfig{DeploymentResolver: resolver})
+	engine, _ := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), DeploymentResolver: resolver})
 	input, _ := EncodePayload(struct{}{})
 	root, err := engine.Start(context.Background(), parentDeployment, input)
 	if err != nil {
@@ -446,14 +447,14 @@ func TestTreeRestoreResolvesEveryExactDeployment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	withoutResolver, _ := NewEngine(EngineConfig{})
+	withoutResolver, _ := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree)})
 	if _, restoreTreeErr := withoutResolver.RestoreTree(context.Background(), parentDeployment, tree); !errors.Is(restoreTreeErr, ErrInvalidTreeSnapshot) {
 		t.Fatalf("missing resolver error = %v", restoreTreeErr)
 	}
 	if closeErr := withoutResolver.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
-	restoredEngine, _ := NewEngine(EngineConfig{DeploymentResolver: resolver})
+	restoredEngine, _ := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree), DeploymentResolver: resolver})
 	restored, err := restoredEngine.RestoreTree(context.Background(), parentDeployment, tree)
 	if err != nil {
 		t.Fatal(err)
@@ -476,9 +477,9 @@ func TestTreeRestoreResolvesEveryExactDeployment(t *testing.T) {
 }
 
 func TestDurableChildOutcomeCommitsWholeProspectiveTree(t *testing.T) {
-	durability := &recordingTreeDurability{}
+	committer := &recordingTreeCommitter{}
 	deployment := newChildTestDeployment(t)
-	engine, err := NewEngine(EngineConfig{TreeDurability: durability})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: committer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,7 +498,7 @@ func TestDurableChildOutcomeCommitsWholeProspectiveTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	var childCheckpoint TreeCheckpoint
-	for _, checkpoint := range durability.treeCheckpoints() {
+	for _, checkpoint := range committer.treeCheckpoints() {
 		if checkpoint.Kind() == TreeCheckpointKindChildStart {
 			childCheckpoint = checkpoint
 			break
@@ -527,7 +528,7 @@ func TestDurableChildOutcomeCommitsWholeProspectiveTree(t *testing.T) {
 
 func TestTreeRestoreValidatesTerminalOutputAgainstExactDeployment(t *testing.T) {
 	deployment := newChildTestDeployment(t)
-	engine, _ := NewEngine(EngineConfig{})
+	engine, _ := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
 	root, err := engine.Start(context.Background(), deployment, input)
 	if err != nil {
@@ -544,13 +545,13 @@ func TestTreeRestoreValidatesTerminalOutputAgainstExactDeployment(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	tree, err := newTreeSnapshot(treeSnapshotWire{
+	tree, err := newTreeSnapshot(treeSnapshotWire{IncarnationID: newTreeIncarnationID(),
 		RootID: forged.ProcessID(), ProcessSnapshots: []ProcessSnapshot{forged},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	restoredEngine, _ := NewEngine(EngineConfig{})
+	restoredEngine, _ := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree)})
 	if _, err := restoredEngine.RestoreTree(context.Background(), deployment, tree); !errors.Is(err, ErrInvalidTreeSnapshot) {
 		t.Fatalf("schema mismatch error = %v", err)
 	}
@@ -589,7 +590,7 @@ func completedTreeSnapshot(t testing.TB) TreeSnapshot {
 	t.Helper()
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -614,7 +615,7 @@ func completedTreeSnapshot(t testing.TB) TreeSnapshot {
 func TestRestoreReservationAdmissionIsAtomicAndReleasesEveryIdentity(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 3)
 	engine := runtime.engine
-	restoration := &treeRestoration{wire: treeSnapshotWire{RootID: runtime.rootID}}
+	restoration := &treeRestoration{wire: treeSnapshotWire{IncarnationID: newTreeIncarnationID(), RootID: runtime.rootID}}
 	for _, process := range orderedProcesses(runtime.processes) {
 		restoration.wire.ProcessSnapshots = append(restoration.wire.ProcessSnapshots, controlValue(process.capture()))
 	}
@@ -683,14 +684,14 @@ func TestTreeSnapshotReportsFirstRelationErrorInCanonicalOrder(t *testing.T) {
 		{[]ProcessSnapshot{tree.ProcessSnapshots()[0], foreignSnapshot, orphanSnapshot}, "Process belongs to another tree contract"},
 		{[]ProcessSnapshot{tree.ProcessSnapshots()[0], orphanSnapshot, foreignSnapshot}, "Process belongs to another tree contract"},
 	} {
-		data, err := json.Marshal(treeSnapshotWire{RootID: tree.RootID(), ProcessSnapshots: test.snapshots})
+		data, err := json.Marshal(treeSnapshotWire{IncarnationID: newTreeIncarnationID(), RootID: tree.RootID(), ProcessSnapshots: test.snapshots})
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, capture := range []func() (TreeSnapshot, error){
 			func() (TreeSnapshot, error) { return ParseTreeSnapshot(data) },
 			func() (TreeSnapshot, error) {
-				return newTreeSnapshot(treeSnapshotWire{RootID: tree.RootID(), ProcessSnapshots: test.snapshots})
+				return newTreeSnapshot(treeSnapshotWire{IncarnationID: newTreeIncarnationID(), RootID: tree.RootID(), ProcessSnapshots: test.snapshots})
 			},
 		} {
 			_, err := capture()

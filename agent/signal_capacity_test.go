@@ -12,8 +12,8 @@ import (
 )
 
 func TestOversizedSignalBatchLeavesDurableTreeUsable(t *testing.T) {
-	store := &recordingTreeDurability{}
-	engine, err := NewEngine(EngineConfig{TreeDurability: store, Limits: Limits{MaxSnapshotBytes: NewQuota(128 << 14)}})
+	store := &recordingTreeCommitter{}
+	engine, err := NewEngine(EngineConfig{TreeCommitter: store, Limits: Limits{MaxSnapshotBytes: NewQuota(128 << 14)}})
 	if err != nil {
 		t.Fatal(err)
 	}

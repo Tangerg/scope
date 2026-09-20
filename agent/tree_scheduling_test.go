@@ -29,6 +29,9 @@ func TestTreeSchedulingMakesProgressUnderContinuousRequests(t *testing.T) {
 	advance := func() {
 		t.Helper()
 		runtime.advanceReadyWork()
+		if runtime.commit != nil {
+			runtime.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, runtime.commitDone))
+		}
 		runtime.tryInspection()
 		for len(responses) != 0 {
 			response := <-responses
@@ -85,6 +88,9 @@ func TestTreeSchedulingHonorsControlBeforeAdoptingReadyWork(t *testing.T) {
 	})
 	for range schedulingProgressTurns {
 		runtime.advanceReadyWork()
+		if runtime.commit != nil {
+			runtime.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, runtime.commitDone))
+		}
 		select {
 		case <-process.handle.outcomePublished:
 			select {
@@ -108,8 +114,8 @@ func TestTreeSchedulingHonorsControlBeforeAdoptingReadyWork(t *testing.T) {
 
 func TestTreeSchedulingCommitsParkedStateUnderContinuousQueries(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
-	durability := &recordingTreeDurability{}
-	runtime.engine.durability = durability
+	committer := &recordingTreeCommitter{}
+	runtime.engine.committer = committer
 	runtime.commitDone = make(chan treeCommitCompletion, 1)
 	incarnation := newTreeIncarnationID()
 	runtime.incarnation = incarnation
@@ -117,7 +123,7 @@ func TestTreeSchedulingCommitsParkedStateUnderContinuousQueries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime.establishDurableHead(incarnation, initial)
+	runtime.establishHead(incarnation, initial)
 	process.status = StatusPaused
 	process.pauseReason = "wait for explicit resumption"
 	runtime.dequeueProcess()
@@ -140,7 +146,7 @@ func TestTreeSchedulingCommitsParkedStateUnderContinuousQueries(t *testing.T) {
 		t.Fatal("parked state was published before checkpoint acknowledgment")
 	}
 	runtime.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, runtime.commitDone))
-	checkpoints := durability.treeCheckpoints()
+	checkpoints := committer.treeCheckpoints()
 	if len(checkpoints) != 1 || checkpoints[0].Kind() != TreeCheckpointKindParked ||
 		inspectionStatus(t, runtime, process.handle.processID) != StatusPaused {
 		t.Fatal("safe checkpoint did not publish the parked state")
@@ -153,6 +159,8 @@ func TestTreeInspectionDoesNotWakePausedExecution(t *testing.T) {
 	process.pauseReason = "wait for explicit resumption"
 
 	runtime.dequeueProcess()
+	runtime.tryStartCheckpoint()
+	runtime.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, runtime.commitDone))
 	response := make(chan treeInspectionResponse, 1)
 	runtime.inspections <- response
 	if !runtime.tryInspection() {

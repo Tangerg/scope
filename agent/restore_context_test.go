@@ -24,7 +24,7 @@ func TestInitializationRestoreHonorsCallerCancellation(t *testing.T) {
 			Definition: newEngineTestDefinition(t, "restore.cancel", "wait"),
 			entered:    make(chan context.Context, 1),
 		}
-		engine, err := NewEngine(EngineConfig{})
+		engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 		if err != nil {
 			t.Fatal(err)
 		}

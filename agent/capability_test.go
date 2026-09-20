@@ -36,7 +36,7 @@ func TestEngineEnforcesDispatcherEffectCapabilities(t *testing.T) {
 	}
 	input, _ := EncodePayload(struct{}{})
 
-	deniedEngine, err := NewEngine(EngineConfig{})
+	deniedEngine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestEngineEnforcesDispatcherEffectCapabilities(t *testing.T) {
 	}
 
 	capabilities, _ := NewCapabilitySet(required)
-	allowedEngine, err := NewEngine(EngineConfig{Capabilities: capabilities})
+	allowedEngine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Capabilities: capabilities})
 	if err != nil {
 		t.Fatal(err)
 	}

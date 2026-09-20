@@ -108,7 +108,7 @@ func TestAgentOwnershipVocabularyRules(t *testing.T) {
 		{name: "product import", path: ".", source: `import _ "example.com/billing"`, want: []string{`Host-owned vocabulary "billing"`}},
 		{name: "strategy", path: "strategy/interaction", source: "type ModelToolPolicy struct{}"},
 		{name: "strategy helper", path: "strategy/internal/childcall", source: "type ModelInvocation struct{}"},
-		{name: "generic delegation", path: "agenttest", source: "type Store struct { delegate TreeDurability }"},
+		{name: "generic delegation", path: "agenttest", source: "type Store struct { delegate TreeCommitter }"},
 		{name: "generic plan", path: ".", source: "type childStartPlan struct{}; const phase = \"planned\""},
 		{name: "substrings", path: ".", source: "type Remodeling struct { ToolingCount int; Tenanted bool }"},
 		{name: "opaque payload and comment", path: ".", source: "// Billing and models belong elsewhere.\nfunc payload() string { return `billing model tool` }"},

@@ -334,7 +334,7 @@ func completedEngineTestSnapshot(t testing.TB) ProcessSnapshot {
 	t.Helper()
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
-	engine, err := NewEngine(EngineConfig{})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,10 +359,10 @@ func completedEngineTestSnapshot(t testing.TB) ProcessSnapshot {
 
 func preparedEngineTestSnapshot(t testing.TB) ProcessSnapshot {
 	t.Helper()
-	durability := &recordingTreeDurability{}
+	committer := &recordingTreeCommitter{}
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
-	engine, err := NewEngine(EngineConfig{Limits: Limits{Budget: Budget{Steps: NewQuota(10000), Effects: NewQuota(10000), Signals: NewQuota(100000)}}, TreeDurability: durability})
+	engine, err := NewEngine(EngineConfig{Limits: Limits{Budget: Budget{Steps: NewQuota(10000), Effects: NewQuota(10000), Signals: NewQuota(100000)}}, TreeCommitter: committer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +373,7 @@ func preparedEngineTestSnapshot(t testing.TB) ProcessSnapshot {
 	if _, runErr := engine.Run(context.Background(), deployment, input); runErr != nil {
 		t.Fatal(runErr)
 	}
-	boundaries := durability.effectBoundaries()
+	boundaries := committer.effectBoundaries()
 	if len(boundaries) == 0 || boundaries[0].Kind() != EffectBoundaryKindPending {
 		t.Fatalf("pending Effect boundary is missing: %#v", boundaries)
 	}

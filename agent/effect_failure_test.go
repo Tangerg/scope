@@ -53,13 +53,13 @@ func TestDispatcherUnknownRetainsControlledFailureObservation(t *testing.T) {
 		for _, durable := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/durable=%t", test.name, durable), func(t *testing.T) {
 				finished := make(chan Event, 1)
-				config := EngineConfig{EventListeners: []EventListener{EventListenerFunc(func(_ context.Context, event Event) {
+				config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), EventListeners: []EventListener{EventListenerFunc(func(_ context.Context, event Event) {
 					if event.Name() == EventEffectFinished {
 						finished <- event
 					}
 				})}}
 				if durable {
-					config.TreeDurability = &recordingTreeDurability{}
+					config.TreeCommitter = &recordingTreeCommitter{}
 				}
 				engine, err := NewEngine(config)
 				if err != nil {
@@ -188,7 +188,7 @@ func TestPreparedContractFailureRetainsRestorableSettlementEvidence(t *testing.T
 		wire.usage() != (Usage{PreparedEffects: 2}) || len(wire.Termination.UnresolvedEffectIDs()) != 0 {
 		t.Fatalf("contract failure changed settled evidence or adopted candidate: %+v", wire)
 	}
-	restoredEngine, err := NewEngine(EngineConfig{})
+	restoredEngine, err := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(snapshot)})
 	if err != nil {
 		t.Fatal(err)
 	}

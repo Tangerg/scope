@@ -47,7 +47,7 @@ func TestConcurrentDeltaEmitterDeliversIncreasingSequences(t *testing.T) {
 		payloads[index] = payload
 	}
 	var received []Delta
-	engine, err := NewEngine(EngineConfig{
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
 		DeltaBufferCapacity: count,
 		DeltaListeners: []DeltaListener{DeltaListenerFunc(func(_ context.Context, delta Delta) {
 			received = append(received, delta)
@@ -111,7 +111,7 @@ func (o optionalDeltaDispatcher) ReplayPolicy(Effect) ReplayPolicy { return Repl
 
 func TestEngineOnlySuppliesEmitterWithListeners(t *testing.T) {
 	for _, observed := range []bool{false, true} {
-		config := EngineConfig{}
+		config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
 		var delivered int
 		if observed {
 			config.DeltaListeners = []DeltaListener{DeltaListenerFunc(func(context.Context, Delta) { delivered++ })}
@@ -169,7 +169,7 @@ func TestReplayDeltasCarryAttemptIdentityAcrossSlowDelivery(t *testing.T) {
 				defer unblock()
 				var received []Delta
 				var events []Event
-				config := EngineConfig{DeltaBufferCapacity: 2,
+				config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), DeltaBufferCapacity: 2,
 					DeltaListeners: []DeltaListener{DeltaListenerFunc(func(_ context.Context, delta Delta) {
 						if len(received) == 0 {
 							close(entered)
@@ -180,7 +180,7 @@ func TestReplayDeltasCarryAttemptIdentityAcrossSlowDelivery(t *testing.T) {
 					EventListeners: []EventListener{EventListenerFunc(func(_ context.Context, event Event) { events = append(events, event) })},
 				}
 				if durable {
-					config.TreeDurability = &recordingTreeDurability{}
+					config.TreeCommitter = &recordingTreeCommitter{}
 				}
 				engine := controlValue(NewEngine(config))
 				defer mustCloseEngine(t, engine)

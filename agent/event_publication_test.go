@@ -30,18 +30,18 @@ func TestCommittedEventsWaitForDurabilityAcknowledgment(t *testing.T) {
 				name = scenario.name + "/failed"
 			}
 			t.Run(name, func(t *testing.T) {
-				durability := &inspectionDurability{
-					recordingTreeDurability: &recordingTreeDurability{},
-					checkpointKind:          scenario.kind,
-					entered:                 make(chan inspectionCommit, 1), release: make(chan struct{}),
+				committer := &inspectionDurability{
+					recordingTreeCommitter: &recordingTreeCommitter{},
+					checkpointKind:         scenario.kind,
+					entered:                make(chan inspectionCommit, 1), release: make(chan struct{}),
 				}
 				if fail {
-					durability.failure = errors.New("checkpoint acknowledgment failed")
+					committer.failure = errors.New("checkpoint acknowledgment failed")
 				}
-				t.Cleanup(durability.unblock)
+				t.Cleanup(committer.unblock)
 				listener := &recordingEventListener{}
 				engine, err := NewEngine(EngineConfig{
-					TreeDurability: durability, EventListeners: []EventListener{listener},
+					TreeCommitter: committer, EventListeners: []EventListener{listener},
 				})
 				if err != nil {
 					t.Fatal(err)
@@ -57,7 +57,7 @@ func TestCommittedEventsWaitForDurabilityAcknowledgment(t *testing.T) {
 						t.Fatal(resumeErr)
 					}
 				}
-				receiveTreeRuntimeProbe(t, durability.entered)
+				receiveTreeRuntimeProbe(t, committer.entered)
 				unconfirmed := func(event Event) bool {
 					step, _ := event.StepSequence()
 					return event.Name() == EventStepCommitted && step == scenario.step ||
@@ -70,7 +70,7 @@ func TestCommittedEventsWaitForDurabilityAcknowledgment(t *testing.T) {
 						t.Errorf("published %s before acknowledgment", event.Name())
 					}
 				}
-				durability.unblock()
+				committer.unblock()
 				if !fail && scenario.kind == TreeCheckpointKindParked {
 					waitForStatus(t, root, StatusPaused)
 					if resumeErr := root.Resume(t.Context()); resumeErr != nil {
@@ -78,8 +78,8 @@ func TestCommittedEventsWaitForDurabilityAcknowledgment(t *testing.T) {
 					}
 				}
 				_, err = root.Await(t.Context())
-				if !errors.Is(err, durability.failure) {
-					t.Fatalf("Await error=%v, want %v", err, durability.failure)
+				if !errors.Is(err, committer.failure) {
+					t.Fatalf("Await error=%v, want %v", err, committer.failure)
 				}
 				if releaseErr := engine.ReleaseTree(t.Context(), root.ID()); releaseErr != nil {
 					t.Fatal(releaseErr)
@@ -95,7 +95,7 @@ func TestCommittedEventsWaitForDurabilityAcknowledgment(t *testing.T) {
 					wantCheckpoints = append(wantCheckpoints, TreeCheckpointKindTerminal)
 				}
 				var checkpointKinds []TreeCheckpointKind
-				for _, checkpoint := range durability.treeCheckpoints() {
+				for _, checkpoint := range committer.treeCheckpoints() {
 					checkpointKinds = append(checkpointKinds, checkpoint.Kind())
 				}
 				if !slices.Equal(checkpointKinds, wantCheckpoints) {
@@ -148,7 +148,7 @@ func (e *eventPublicationDurability) CommitEffect(_ context.Context, boundary Ef
 
 func TestChildEventsDescribeAcknowledgedTreeState(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		durability := &eventPublicationDurability{}
+		committer := &eventPublicationDurability{}
 		sequences := make(map[ProcessID]uint64)
 		var acceptedSignals int
 		listener := EventListenerFunc(func(_ context.Context, event Event) {
@@ -159,9 +159,9 @@ func TestChildEventsDescribeAcknowledgedTreeState(t *testing.T) {
 			if event.Phase() != EventPhaseCommitted {
 				return
 			}
-			durability.mu.Lock()
-			head := durability.head
-			durability.mu.Unlock()
+			committer.mu.Lock()
+			head := committer.head
+			committer.mu.Unlock()
 			snapshot := snapshotByID(head.ProcessSnapshots(), event.ProcessID())
 			if !snapshot.Valid() {
 				t.Errorf("%s published before Process admission", event.Name())
@@ -182,7 +182,7 @@ func TestChildEventsDescribeAcknowledgedTreeState(t *testing.T) {
 				}
 			}
 		})
-		engine, err := NewEngine(EngineConfig{TreeDurability: durability, EventListeners: []EventListener{listener}})
+		engine, err := NewEngine(EngineConfig{TreeCommitter: committer, EventListeners: []EventListener{listener}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -216,7 +216,7 @@ func TestChildEventsDescribeAcknowledgedTreeState(t *testing.T) {
 
 func TestRestoredProcessStartsANewPublicationSequence(t *testing.T) {
 	listener := &recordingEventListener{}
-	engine, _ := NewEngine(EngineConfig{EventListeners: []EventListener{listener}})
+	engine, _ := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), EventListeners: []EventListener{listener}})
 	deployment := newChildTestDeployment(t)
 	input, _ := EncodePayload(childTestInput{Mode: "leaf_pause"})
 	root, err := engine.Start(t.Context(), deployment, input)
@@ -235,6 +235,8 @@ func TestRestoredProcessStartsANewPublicationSequence(t *testing.T) {
 		t.Fatal(releaseErr)
 	}
 	previousEvents := len(listener.snapshot())
+	mustCloseEngine(t, engine)
+	engine = controlValue(NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(snapshot), EventListeners: []EventListener{listener}}))
 	root, err = engine.RestoreTree(t.Context(), deployment, snapshot)
 	if err != nil {
 		t.Fatal(err)
@@ -262,9 +264,9 @@ func TestRestoredProcessStartsANewPublicationSequence(t *testing.T) {
 
 func TestEquivalentPausedStatePublishesWithoutAnotherCommit(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		durability := &recordingTreeDurability{}
+		committer := &recordingTreeCommitter{}
 		listener := &recordingEventListener{}
-		engine, _ := NewEngine(EngineConfig{TreeDurability: durability, EventListeners: []EventListener{listener}})
+		engine, _ := NewEngine(EngineConfig{TreeCommitter: committer, EventListeners: []EventListener{listener}})
 		deployment, probe := newTreeRuntimeTestDeployment(t)
 		input, _ := EncodePayload(treeRuntimeTestInput{Role: treeRuntimeRoleBlocked})
 		root, err := engine.Start(t.Context(), deployment, input)
@@ -276,7 +278,7 @@ func TestEquivalentPausedStatePublishesWithoutAnotherCommit(t *testing.T) {
 			t.Fatal(err)
 		}
 		synctest.Wait()
-		checkpoints := durability.treeCheckpoints()
+		checkpoints := committer.treeCheckpoints()
 		if len(checkpoints) != 2 || checkpoints[1].Kind() != TreeCheckpointKindParked {
 			t.Fatal("initial pause was not acknowledged")
 		}
@@ -288,7 +290,7 @@ func TestEquivalentPausedStatePublishesWithoutAnotherCommit(t *testing.T) {
 			t.Fatal(err)
 		}
 		synctest.Wait()
-		if len(durability.treeCheckpoints()) != len(checkpoints) {
+		if len(committer.treeCheckpoints()) != len(checkpoints) {
 			t.Error("publication alone caused another commit of the same state")
 		}
 		var pauses, resumptions int

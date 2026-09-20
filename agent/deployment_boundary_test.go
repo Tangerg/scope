@@ -19,7 +19,7 @@ func TestDeploymentValidityUsesFrozenContract(t *testing.T) {
 			original := newEngineTestDefinition(t, "engine.wait", "wait")
 			definition := &descriptorBoundaryDefinition{Definition: original, descriptor: original.Descriptor}
 			deployment := engineTestDeployment(t, definition, nil)
-			engine, err := NewEngine(EngineConfig{})
+			engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 			if err != nil {
 				t.Fatal(err)
 			}

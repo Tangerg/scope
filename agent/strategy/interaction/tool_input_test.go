@@ -50,7 +50,7 @@ func TestPendingToolInputsTracksPausedWaitUntilAnswered(t *testing.T) {
 		return toolCallResponse(chat.ToolCall{ID: "ask", Name: "ask_name", Arguments: `{}`}), nil
 	})
 	deployment := newDeployment(t, model, []tool.Tool{waiting}, 2)
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,8 @@ func testNumericToolInputRestore(t *testing.T, facade bool, response string) {
 		return toolCallResponse(chat.ToolCall{ID: "confirm", Name: "confirm_number", Arguments: `{}`}), nil
 	})
 	deployment := newDeployment(t, model, []tool.Tool{executable}, 2)
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver})
+	store := agent.NewMemoryTreeCommitter()
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployment.resolver})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,15 +195,12 @@ func testNumericToolInputRestore(t *testing.T, facade bool, response string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if killErr := process.Kill(ctx, "restore numeric input checkpoint"); killErr != nil {
-		t.Fatal(killErr)
+	oldEngine, oldProcess := engine, process
+	engine, err = agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployment.resolver})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, awaitErr := process.Await(ctx); awaitErr != nil {
-		t.Fatal(awaitErr)
-	}
-	if releaseErr := engine.ReleaseTree(ctx, process.ID()); releaseErr != nil {
-		t.Fatal(releaseErr)
-	}
+	t.Cleanup(func() { retireTestWriter(t, oldEngine, oldProcess) })
 	process, err = engine.RestoreTree(ctx, deployment.Deployment, tree)
 	if err != nil {
 		t.Fatal(err)

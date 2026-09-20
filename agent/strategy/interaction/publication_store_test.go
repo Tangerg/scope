@@ -28,7 +28,7 @@ type publicationDatabase struct {
 }
 
 // publicationStore models a host that chooses to keep a separate result history.
-// The framework's durability contract requires only the authoritative tree cut.
+// The framework's committer contract requires only the authoritative tree cut.
 type publicationStore struct {
 	mu       sync.Mutex
 	path     string
@@ -85,12 +85,12 @@ func (p *publicationStore) ActivateTree(_ context.Context, activation agent.Tree
 }
 
 func (p *publicationStore) CommitEffect(_ context.Context, boundary agent.EffectBoundary) error {
-	writer, _ := boundary.TreeSnapshot().IncarnationID()
+	writer := boundary.TreeSnapshot().IncarnationID()
 	return p.commit(boundary.TreeSnapshot(), boundary.PreviousTreeDigest(), writer, "effect/"+boundary.Request().ID().String()+"/"+boundary.Kind().String())
 }
 
 func (p *publicationStore) CommitCheckpoint(_ context.Context, checkpoint agent.TreeCheckpoint) error {
-	writer, _ := checkpoint.TreeSnapshot().IncarnationID()
+	writer := checkpoint.TreeSnapshot().IncarnationID()
 	key := "checkpoint/" + checkpoint.TreeSnapshot().Digest().String()
 	if checkpoint.Kind() == agent.TreeCheckpointKindStart {
 		key = "start"
@@ -126,14 +126,14 @@ func (p *publicationStore) advance(snapshot agent.TreeSnapshot, previous agent.D
 		return os.ErrClosed
 	}
 	head := p.database.Tree
-	writer, _ := head.IncarnationID()
-	proposedWriter, _ := snapshot.IncarnationID()
+	writer := head.IncarnationID()
+	proposedWriter := snapshot.IncarnationID()
 	if writer != expected && (writer != proposedWriter || head.Digest() != snapshot.Digest()) {
 		return agent.ErrTreeIncarnationConflict
 	}
 	if stored, exists := p.database.Transactions[key]; exists {
 		if stored != snapshot.Digest() {
-			return agent.ErrDurabilityConflict
+			return agent.ErrCommitConflict
 		}
 		if head.Digest() != snapshot.Digest() {
 			return agent.ErrTreeIncarnationConflict
@@ -169,7 +169,7 @@ func (p *publicationStore) advance(snapshot agent.TreeSnapshot, previous agent.D
 						return err
 					}
 					if !bytes.Equal(oldData, newData) {
-						return agent.ErrDurabilityConflict
+						return agent.ErrCommitConflict
 					}
 					found = true
 					break
@@ -206,18 +206,18 @@ func (p *publicationStore) advance(snapshot agent.TreeSnapshot, previous agent.D
 
 func (p *publicationDatabase) recordPublication(id agent.Digest, payload json.RawMessage) error {
 	if agent.ComputeDigest(payload) != id {
-		return agent.ErrDurabilityConflict
+		return agent.ErrCommitConflict
 	}
 	if previous, found := p.Publications[id.String()]; found && !bytes.Equal(previous, payload) {
-		return agent.ErrDurabilityConflict
+		return agent.ErrCommitConflict
 	}
 	p.Publications[id.String()] = bytes.Clone(payload)
 	return nil
 }
 
-func publicationEngine(t *testing.T, deployment interactionDeployment, store agent.TreeDurability) *agent.Engine {
+func publicationEngine(t *testing.T, deployment interactionDeployment, store agent.TreeCommitter) *agent.Engine {
 	t.Helper()
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver, TreeDurability: store})
+	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver, TreeCommitter: store})
 	if err != nil {
 		t.Fatal(err)
 	}

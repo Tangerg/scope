@@ -21,6 +21,7 @@ func TestWaitingForkTreeRestoresWithoutDuplicateChildren(t *testing.T) {
 }
 
 type restorableForkFixture struct {
+	store    *agent.MemoryTreeCommitter
 	root     agent.Deployment
 	resolver deploymentResolver
 }
@@ -51,7 +52,7 @@ func newRestorableForkFixture(t *testing.T) restorableForkFixture {
 		t.Fatal(err)
 	}
 	rootDeployment := mustDeployment(t, mustDefinition(t, "test.workflow.restorable_fork", stage), "restorable-fork")
-	return restorableForkFixture{root: rootDeployment, resolver: resolver}
+	return restorableForkFixture{store: agent.NewMemoryTreeCommitter(), root: rootDeployment, resolver: resolver}
 }
 
 func captureWaitingForkTree(
@@ -59,7 +60,7 @@ func captureWaitingForkTree(
 	fixture restorableForkFixture,
 ) (agent.TreeSnapshot, []agent.ProcessID) {
 	t.Helper()
-	engine, _ := agent.NewEngine(agent.EngineConfig{DeploymentResolver: fixture.resolver})
+	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: fixture.store, DeploymentResolver: fixture.resolver})
 	input, _ := agent.EncodePayload(forkInput{Value: 7})
 	root, err := engine.Start(context.Background(), fixture.root, input)
 	if err != nil {
@@ -70,18 +71,15 @@ func captureWaitingForkTree(
 	if len(initialChildren) != 2 {
 		t.Fatalf("initial child count = %d", len(initialChildren))
 	}
-	if killErr := root.Kill(context.Background(), "replace captured Workflow tree"); killErr != nil {
-		t.Fatal(killErr)
-	}
-	if result, awaitErr := root.Await(context.Background()); awaitErr != nil || result.Status() != agent.StatusKilled {
-		t.Fatalf("original root result = %#v, %v", result, awaitErr)
-	}
-	if releaseErr := engine.ReleaseTree(context.Background(), root.ID()); releaseErr != nil {
-		t.Fatal(releaseErr)
-	}
-	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
-		t.Fatal(closeErr)
-	}
+	t.Cleanup(func() {
+		_ = root.Kill(context.Background(), "release retired writer")
+		if err := root.Join(context.Background()); err != nil && !errors.Is(err, agent.ErrTreeIncarnationConflict) {
+			t.Error(err)
+		}
+		if err := engine.Close(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
 	return snapshot, initialChildren
 }
 
@@ -92,7 +90,7 @@ func completeRestoredForkTree(
 	initialChildren []agent.ProcessID,
 ) {
 	t.Helper()
-	restoredEngine, _ := agent.NewEngine(agent.EngineConfig{DeploymentResolver: fixture.resolver})
+	restoredEngine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: fixture.store, DeploymentResolver: fixture.resolver})
 	restoredRoot, err := restoredEngine.RestoreTree(context.Background(), fixture.root, snapshot)
 	if err != nil {
 		t.Fatal(err)
@@ -185,7 +183,7 @@ func TestWorkflowCancellationPropagatesToPausedChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	rootDeployment := mustDeployment(t, mustDefinition(t, "test.workflow.cancel", call), "cancel")
-	engine, _ := agent.NewEngine(agent.EngineConfig{
+	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
 		DeploymentResolver: deploymentResolver{childDeployment.DeploymentRef(): childDeployment},
 	})
 	input, _ := agent.EncodePayload(forkInput{Value: 1})
@@ -242,14 +240,15 @@ func TestCallCannotEscalateBudgetOrCapabilities(t *testing.T) {
 	}{
 		{
 			name: "budget", budget: largeBudget,
-			engine: agent.EngineConfig{Limits: agent.Limits{
+			engine: agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), Limits: agent.Limits{
 				MaxPendingSignals: 16, Budget: agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(16), Signals: agent.NewQuota(16)},
 			}},
 			wantCause: "engine.child.budget_exhausted",
 			wantKind:  agent.FailureKindExecution,
 		},
 		{
-			name: "capability", budget: smallBudget, capabilities: capabilities,
+			engine: agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()},
+			name:   "capability", budget: smallBudget, capabilities: capabilities,
 			wantCause: "engine.child.capability_escalation",
 			wantKind:  agent.FailureKindContract,
 		},
@@ -293,7 +292,10 @@ func awaitPausedWindow(
 	defer cancel()
 	for {
 		snapshot, err := engine.CaptureTree(ctx, rootID)
-		if err == nil && len(snapshot.ProcessSnapshots()) == wantProcesses {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(snapshot.ProcessSnapshots()) == wantProcesses {
 			rootWaiting := false
 			allChildrenReady := true
 			paused := 0

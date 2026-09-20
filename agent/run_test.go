@@ -11,7 +11,7 @@ import (
 func TestRunWaitsForDescendantCleanup(t *testing.T) {
 	for _, durable := range []bool{false, true} {
 		for _, canceled := range []bool{false, true} {
-			name := "ephemeral/completed"
+			name := "memory/completed"
 			if durable {
 				name = "durable/completed"
 			}
@@ -22,9 +22,9 @@ func TestRunWaitsForDescendantCleanup(t *testing.T) {
 				synctest.Test(t, func(t *testing.T) {
 					dispatcher := newBlockingChildDispatcher("cleanup")
 					defer dispatcher.ReleaseAll()
-					config := EngineConfig{}
+					config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
 					if durable {
-						config.TreeDurability = &recordingTreeDurability{}
+						config.TreeCommitter = &recordingTreeCommitter{}
 					}
 					ctx, cancel := context.WithCancel(t.Context())
 					defer cancel()
@@ -64,13 +64,13 @@ func TestRunWaitsForDescendantAcknowledgmentAndReportsItsFailure(t *testing.T) {
 		dispatcher := newBlockingChildDispatcher("cleanup")
 		defer dispatcher.ReleaseAll()
 		failure := errors.New("descendant checkpoint acknowledgment failed")
-		durability := &blockingCancellationCheckpointDurability{
-			recordingTreeDurability: &recordingTreeDurability{},
-			entered:                 make(chan struct{}), release: make(chan struct{}), err: failure,
+		committer := &blockingCancellationCheckpointDurability{
+			recordingTreeCommitter: &recordingTreeCommitter{},
+			entered:                make(chan struct{}), release: make(chan struct{}), err: failure,
 		}
-		release := sync.OnceFunc(func() { close(durability.release) })
+		release := sync.OnceFunc(func() { close(committer.release) })
 		defer release()
-		engine, root, returned := startRunScope(t, t.Context(), EngineConfig{TreeDurability: durability}, dispatcher)
+		engine, root, returned := startRunScope(t, t.Context(), EngineConfig{TreeCommitter: committer}, dispatcher)
 		<-dispatcher.started
 		waitForStatus(t, root, StatusPaused)
 		if err := root.Resume(t.Context()); err != nil {
@@ -81,7 +81,7 @@ func TestRunWaitsForDescendantAcknowledgmentAndReportsItsFailure(t *testing.T) {
 			t.Fatalf("root status = %s", acknowledged.Status())
 		}
 		dispatcher.ReleaseAll()
-		<-durability.entered
+		<-committer.entered
 		synctest.Wait()
 		select {
 		case result := <-returned:

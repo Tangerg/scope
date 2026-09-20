@@ -53,10 +53,10 @@ func TestReplayUnknownEffectRetainsEvidenceAndSerializesResolution(t *testing.T)
 						}
 						return NewSettlement(request.ID(), SettlementStatusSucceeded, []byte(`{"kind":"result","value":"confirmed"}`))
 					}}
-					config := EngineConfig{}
-					store := &recordingTreeDurability{}
+					config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
+					store := &recordingTreeCommitter{}
 					if durable {
-						config.TreeDurability = store
+						config.TreeCommitter = store
 					}
 					engine, err := NewEngine(config)
 					if err != nil {
@@ -170,7 +170,7 @@ func TestReplayUnknownEffectRequiresSameIdentityPolicy(t *testing.T) {
 			calls++
 			return Settlement{}, errors.New("uncertain")
 		}}
-		engine, err := NewEngine(EngineConfig{})
+		engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
 		if err != nil {
 			t.Fatal(err)
 		}

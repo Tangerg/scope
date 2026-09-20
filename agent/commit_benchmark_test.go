@@ -11,7 +11,7 @@ import (
 // Each admission starts from the same paused tree so retained history does not
 // grow with b.N. Timed work covers DeliverSignals through checkpoint ACK; setup,
 // restoration, and teardown are excluded. The delay models storage waiting,
-// not database throughput or a production adapter's durability guarantees.
+// not database throughput or a production adapter's committer guarantees.
 func BenchmarkTreeSignalCommit(b *testing.B) {
 	for _, processCount := range []int{1, 15, 63} {
 		deployment, config, snapshot := benchmarkSignalCommitTree(b, processCount)
@@ -57,10 +57,10 @@ func benchmarkSignalCommit(
 ) (time.Duration, int) {
 	b.StopTimer()
 	b.Helper()
-	durability := &signalCommitBenchmarkDurability{
-		recordingTreeDurability: &recordingTreeDurability{}, delay: delay,
+	committer := &signalCommitBenchmarkDurability{
+		recordingTreeCommitter: &recordingTreeCommitter{}, delay: delay,
 	}
-	config.TreeDurability = durability
+	config.TreeCommitter = committer
 	engine, err := NewEngine(config)
 	if err != nil {
 		b.Fatal(err)
@@ -81,11 +81,11 @@ func benchmarkSignalCommit(
 	if err != nil || !accepted {
 		b.Fatalf("DeliverSignals accepted=%t error=%v", accepted, err)
 	}
-	checkpoints := durability.treeCheckpoints()
+	checkpoints := committer.treeCheckpoints()
 	if len(checkpoints) != 1 {
 		b.Fatalf("signal batch committed %d checkpoints, want 1", len(checkpoints))
 	}
-	return durability.acknowledgmentTime, len(checkpoints[0].TreeSnapshot().JSON())
+	return committer.acknowledgmentTime, len(checkpoints[0].TreeSnapshot().JSON())
 }
 
 func benchmarkSignalCommitTree(b *testing.B, processCount int) (Deployment, EngineConfig, TreeSnapshot) {
@@ -127,10 +127,10 @@ func benchmarkSignalCommitTree(b *testing.B, processCount int) (Deployment, Engi
 	if err != nil {
 		b.Fatal(err)
 	}
-	durability := &recordingTreeDurability{}
+	committer := &recordingTreeCommitter{}
 	paused := make(chan struct{})
 	config := EngineConfig{
-		TreeDurability:     durability,
+		TreeCommitter:      committer,
 		DeploymentResolver: deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment},
 		EventListeners: []EventListener{EventListenerFunc(func(_ context.Context, event Event) {
 			if event.Name() == EventProcessPaused && event.Relation().IsRoot() {
@@ -183,7 +183,7 @@ func benchmarkSignalCommitTree(b *testing.B, processCount int) (Deployment, Engi
 			b.Fatalf("benchmark child status=%s error=%v", result.Status(), err)
 		}
 	}
-	checkpoints := durability.treeCheckpoints()
+	checkpoints := committer.treeCheckpoints()
 	snapshot := checkpoints[len(checkpoints)-1].TreeSnapshot()
 	if len(snapshot.ProcessSnapshots()) != processCount {
 		b.Fatalf("benchmark tree has %d Processes, want %d", len(snapshot.ProcessSnapshots()), processCount)
@@ -193,7 +193,7 @@ func benchmarkSignalCommitTree(b *testing.B, processCount int) (Deployment, Engi
 }
 
 type signalCommitBenchmarkDurability struct {
-	*recordingTreeDurability
+	*recordingTreeCommitter
 	delay              time.Duration
 	acknowledgmentTime time.Duration
 }
@@ -209,7 +209,7 @@ func (s *signalCommitBenchmarkDurability) CommitCheckpoint(ctx context.Context, 
 			return ctx.Err()
 		}
 	}
-	err := s.recordingTreeDurability.CommitCheckpoint(ctx, checkpoint)
+	err := s.recordingTreeCommitter.CommitCheckpoint(ctx, checkpoint)
 	s.acknowledgmentTime += time.Since(started)
 	return err
 }

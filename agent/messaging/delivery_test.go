@@ -9,14 +9,13 @@ import (
 	"testing/synctest"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
 	"github.com/Tangerg/scope/agent/messaging"
 )
 
 func TestReplayReconcilesConsumedMessageAtOriginalRecipient(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		store := agenttest.NewMemoryTreeDurability()
-		receiverEngine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: store})
+		store := agent.NewMemoryTreeCommitter()
+		receiverEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -37,7 +36,7 @@ func TestReplayReconcilesConsumedMessageAtOriginalRecipient(t *testing.T) {
 			t.Fatal(err)
 		}
 		deployment := bind(t, newSender(t), dispatcher)
-		senderEngine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: store})
+		senderEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -54,7 +53,7 @@ func TestReplayReconcilesConsumedMessageAtOriginalRecipient(t *testing.T) {
 		if loadErr != nil || !present {
 			t.Fatalf("sender checkpoint=%t %v", present, loadErr)
 		}
-		restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeDurability: store})
+		restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -122,7 +121,7 @@ func TestReplayReconcilesConsumedMessageAtOriginalRecipient(t *testing.T) {
 
 func TestLostDeliveryAcknowledgmentRemainsUnknownUntilAdjudicated(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		engine, err := agent.NewEngine(agent.EngineConfig{})
+		engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -168,7 +167,7 @@ func TestLostDeliveryAcknowledgmentRemainsUnknownUntilAdjudicated(t *testing.T) 
 
 func TestTerminalRecipientWithoutAdmissionEvidenceRemainsUnknown(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		engine, err := agent.NewEngine(agent.EngineConfig{})
+		engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 		if err != nil {
 			t.Fatal(err)
 		}

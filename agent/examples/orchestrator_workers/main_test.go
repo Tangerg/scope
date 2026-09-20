@@ -35,7 +35,7 @@ func TestInteractionCanDelegateExactPlanningWorkers(t *testing.T) {
 	planningWorker, taskState := newPlanningWorker(t)
 	model := &planningDelegateModel{}
 	root := newPlanningDelegateRoot(t, planningWorker, model)
-	engine, err := agent.NewEngine(agent.EngineConfig{
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
 		DeploymentResolver: deploymentResolver{planningWorker.DeploymentRef(): planningWorker},
 	})
 	if err != nil {

@@ -16,7 +16,7 @@ import (
 
 func TestStreamingOutputDoesNotDependOnDeltaListeners(t *testing.T) {
 	collector := &deltaCollector{}
-	engine, err := agent.NewEngine(agent.EngineConfig{
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
 		EventListeners: []agent.EventListener{passiveEventListener{}, panickingEventListener{}},
 		DeltaListeners: []agent.DeltaListener{collector, passiveDeltaListener{}, panickingDeltaListener{}},
 	})
@@ -74,7 +74,7 @@ func TestStreamingUsesBoundedBestEffortDeltaQueue(t *testing.T) {
 	listener := newBlockingDeltaListener()
 	t.Cleanup(listener.Release)
 	events := &eventRecorder{}
-	engine, err := agent.NewEngine(agent.EngineConfig{
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
 		EventListeners:      []agent.EventListener{events},
 		DeltaListeners:      []agent.DeltaListener{listener},
 		DeltaBufferCapacity: 1,
@@ -125,7 +125,8 @@ func TestStreamingUsesBoundedBestEffortDeltaQueue(t *testing.T) {
 }
 
 func TestRestoringCompletedInteractionDoesNotReplayDeltas(t *testing.T) {
-	firstEngine, err := agent.NewEngine(agent.EngineConfig{})
+	store := agent.NewMemoryTreeCommitter()
+	firstEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +148,7 @@ func TestRestoringCompletedInteractionDoesNotReplayDeltas(t *testing.T) {
 	}
 
 	collector := &deltaCollector{}
-	restoredEngine, err := agent.NewEngine(agent.EngineConfig{DeltaListeners: []agent.DeltaListener{collector}})
+	restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeltaListeners: []agent.DeltaListener{collector}})
 	if err != nil {
 		t.Fatal(err)
 	}

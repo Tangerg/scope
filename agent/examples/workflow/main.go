@@ -37,7 +37,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 		return errors.New("root does not contain a Workflow Definition")
 	}
 	topology := definition.Topology()
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver})
 	if err != nil {
 		return err
 	}

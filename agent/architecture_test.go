@@ -89,7 +89,7 @@ func assertNoRuntimeAuthority(t interface {
 	switch value {
 	case reflect.TypeFor[Engine](), reflect.TypeFor[Process](), reflect.TypeFor[Deployment](),
 		reflect.TypeFor[Definition](), reflect.TypeFor[Execution](), reflect.TypeFor[Dispatcher](),
-		reflect.TypeFor[DeploymentResolver](), reflect.TypeFor[TreeDurability]():
+		reflect.TypeFor[DeploymentResolver](), reflect.TypeFor[TreeCommitter]():
 		t.Errorf("boundary value carries runtime authority through %v", value)
 		return
 	}

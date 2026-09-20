@@ -27,7 +27,7 @@ func TestMapUsesManagedChildrenAndPreservesItemOrder(t *testing.T) {
 		t.Fatalf("Map Stage = %#v", stage)
 	}
 	deployment := mustDeployment(t, mustDefinition(t, "test.workflow.map", stage), "map")
-	engine, err := agent.NewEngine(agent.EngineConfig{
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
 		DeploymentResolver: deploymentResolver{child.DeploymentRef(): child},
 	})
 	if err != nil {
@@ -61,7 +61,7 @@ func TestMapEmptyInputProducesNonNilEmptyOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	deployment := mustDeployment(t, mustDefinition(t, "test.workflow.empty_map", stage), "empty-map")
-	engine, _ := agent.NewEngine(agent.EngineConfig{})
+	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	input, _ := agent.EncodePayload([]forkInput{})
 	result, err := engine.Run(context.Background(), deployment, input)
 	if err != nil {
@@ -90,7 +90,7 @@ func TestMapRejectsInputAboveMaxItemsBeforeStartingChildren(t *testing.T) {
 		t.Fatal(err)
 	}
 	deployment := mustDeployment(t, mustDefinition(t, "test.workflow.limited_map", stage), "limited-map")
-	engine, _ := agent.NewEngine(agent.EngineConfig{})
+	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	input, _ := agent.EncodePayload([]forkInput{{Value: 1}, {Value: 2}, {Value: 3}})
 	result, err := engine.Run(context.Background(), deployment, input)
 	if err != nil {
