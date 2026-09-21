@@ -2,6 +2,7 @@ package coordination_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -43,6 +44,30 @@ func TestInputGatePreservesIdentityAcrossRecoveryAndEarlyAnswer(t *testing.T) {
 				waitID, present := opening.WaitID()
 				if !present {
 					t.Fatal("opening has no wait identity")
+				}
+				initial, startErr := gate.Start(encodedInput(t, "request"))
+				if startErr != nil {
+					t.Fatal(startErr)
+				}
+				state, snapshotErr := initial.Snapshot()
+				if snapshotErr != nil {
+					t.Fatal(snapshotErr)
+				}
+				forgedBytes, marshalErr := json.Marshal(struct {
+					Phase   string       `json:"phase"`
+					Request string       `json:"request"`
+					WaitID  agent.WaitID `json:"wait_id"`
+					Answer  agent.Signal `json:"answer"`
+				}{"completed", "request", waitID, opening})
+				if marshalErr != nil {
+					t.Fatal(marshalErr)
+				}
+				forged, stateErr := agent.NewExecutionState(state.Kind(), forgedBytes)
+				if stateErr != nil {
+					t.Fatal(stateErr)
+				}
+				if _, restoreErr := gate.Restore(t.Context(), forged); restoreErr == nil {
+					t.Fatal("gate accepted opening evidence as an answer")
 				}
 				id, parseErr := agent.ParseSignalID("signal:early-answer")
 				if parseErr != nil {

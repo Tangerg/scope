@@ -141,7 +141,7 @@ func (i inputGateState) validate(ctx context.Context, definition *InputGate) err
 
 func (i inputGateState) acceptsAnswer(definition *InputGate, signal agent.Signal) error {
 	waitID, addressed := signal.WaitID()
-	if !signal.Valid() || i.WaitID == nil || !addressed || waitID != *i.WaitID {
+	if !signal.Valid() || signal.EngineOwned() || i.WaitID == nil || !addressed || waitID != *i.WaitID {
 		return fmt.Errorf("%w: answer does not address the input gate", ErrInvalidProtocol)
 	}
 	payload, err := agent.ParsePayload(signal.Payload())
