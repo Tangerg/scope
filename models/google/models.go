@@ -215,16 +215,6 @@ func (a *AudioTTSModel) Call(ctx context.Context, req *tts.Request) (*tts.Respon
 	return a.protocol.Call(ctx, req)
 }
 
-func (a *AudioTTSModel) Stream(ctx context.Context, req *tts.Request) iter.Seq2[*tts.Response, error] {
-	if a == nil || a.protocol == nil {
-		return func(yield func(*tts.Response, error) bool) { yield(nil, errors.New("google: nil AudioTTSModel")) }
-	}
-	if err := req.Validate(); err != nil {
-		return func(yield func(*tts.Response, error) bool) { yield(nil, err) }
-	}
-	return a.protocol.Stream(ctx, req)
-}
-
 // AudioTranscriptionModelConfig binds provider access and defaults shared by every transcription call.
 type AudioTranscriptionModelConfig struct {
 	APIKey         string

@@ -7,8 +7,10 @@
 // Provider-specific knobs (description, voice (named or cloned),
 // trailing_silence, format, timestamps, and instant_mode) ride through
 // extension-threaded [TTSRequest] fields. [speech.Options].Model selects the
-// official Octave protocol version ("1" or "2"). Streaming uses Hume's
-// newline-delimited /v0/tts/stream/json endpoint directly.
+// official Octave protocol version ("1" or "2"). [NewStreamingAudioTTSModel]
+// exposes streaming separately through Hume's
+// newline-delimited /v0/tts/stream/json endpoint. Timestamp output belongs
+// to unary synthesis; instant_mode belongs to streaming synthesis.
 //
 // Hume's broader expression-measurement APIs (face / voice / language
 // emotion analysis) aren't exposed — they don't fit core/model's

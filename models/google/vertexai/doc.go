@@ -23,4 +23,8 @@
 // or cancel its own wiring instead of a background context deciding for it.
 //
 // See https://cloud.google.com/vertex-ai/generative-ai/docs.
+//
+// [NewAudioTTSModel] performs unary speech synthesis.
+// [NewStreamingAudioTTSModel] exposes incremental audio for Gemini 3.1 Flash TTS;
+// unary-only models cannot construct this streaming capability.
 package vertexai

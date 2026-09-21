@@ -24,6 +24,10 @@ func TestConstructorsRejectAnAbsentCredential(t *testing.T) {
 			_, err := google.NewEmbeddingModel(t.Context(), google.EmbeddingModelConfig{})
 			return err
 		},
+		"NewStreamingAudioTTSModel": func() error {
+			_, err := google.NewStreamingAudioTTSModel(t.Context(), google.AudioTTSModelConfig{})
+			return err
+		},
 		"NewAudioTTSModel": func() error {
 			_, err := google.NewAudioTTSModel(t.Context(), google.AudioTTSModelConfig{})
 			return err

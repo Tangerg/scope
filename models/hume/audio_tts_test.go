@@ -62,7 +62,7 @@ func TestAudioTTSModel_Stream_Mock(t *testing.T) {
 		t.Fatal(err)
 	}
 	opts.Voice = "test-voice"
-	model, err := hume.NewAudioTTSModel(t.Context(), hume.AudioTTSModelConfig{
+	model, err := hume.NewStreamingAudioTTSModel(t.Context(), hume.AudioTTSModelConfig{
 		APIKey:         "test-key",
 		DefaultOptions: opts,
 		BaseURL:        srv.URL,
@@ -80,5 +80,14 @@ func TestAudioTTSModel_Stream_Mock(t *testing.T) {
 	}
 	if got := audio.String(); got != "firstsecond" {
 		t.Fatalf("streamed audio = %q", got)
+	}
+}
+
+func TestSpeechCapabilitiesAreSeparate(t *testing.T) {
+	if _, ok := any((*hume.AudioTTSModel)(nil)).(tts.Streamer); ok {
+		t.Fatal("unary synthesis exposes streaming")
+	}
+	if _, ok := any((*hume.StreamingAudioTTSModel)(nil)).(tts.Model); ok {
+		t.Fatal("streaming synthesis exposes independent unary protocol")
 	}
 }

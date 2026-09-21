@@ -11,4 +11,8 @@
 // or cancel its own wiring instead of a background context deciding for it.
 // [NewChatCompletions] is the exception: it builds an OpenAI-compatible client
 // and performs no I/O.
+//
+// [NewAudioTTSModel] performs unary speech synthesis.
+// [NewStreamingAudioTTSModel] exposes incremental audio for Gemini 3.1 Flash TTS;
+// unary-only models cannot construct this streaming capability.
 package google
