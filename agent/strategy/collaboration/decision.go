@@ -87,3 +87,17 @@ type Decision struct {
 	Controls []Control     `json:"controls,omitempty"`
 	Output   agent.Payload `json:"output,omitzero"`
 }
+
+func (c Control) effect(task *Task) (agent.Effect, error) {
+	if task == nil || task.Request.Key != c.Task || task.Start == nil || (c.Signal == nil) == (c.CancelReason == nil) {
+		return agent.Effect{}, ErrInvalidDecision
+	}
+	id, started := task.Start.ProcessID()
+	if !started {
+		return agent.Effect{}, ErrInvalidDecision
+	}
+	if c.Signal != nil {
+		return agent.NewChildSignalEffect(id, *c.Signal)
+	}
+	return agent.NewChildCancelEffect(id, *c.CancelReason)
+}

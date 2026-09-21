@@ -35,21 +35,18 @@ func (f firstSuccessState) validate(ctx context.Context, maxCandidates uint32) e
 	if len(f.Candidates) == 0 || uint64(len(f.Candidates)) > uint64(maxCandidates) || len(f.Starts) > len(f.Candidates) {
 		return fmt.Errorf("%w: candidate or start count exceeds its bound", ErrInvalidState)
 	}
-	for index, candidate := range f.Candidates {
+	keys := make(map[agent.ChildKey]struct{}, len(f.Candidates))
+	for _, candidate := range f.Candidates {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if !candidate.Valid() {
 			return fmt.Errorf("%w: invalid candidate", ErrInvalidState)
 		}
-		for _, previous := range f.Candidates[:index] {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if candidate.Key == previous.Key {
-				return fmt.Errorf("%w: duplicate candidate key", ErrInvalidState)
-			}
+		if _, duplicate := keys[candidate.Key]; duplicate {
+			return fmt.Errorf("%w: duplicate candidate key", ErrInvalidState)
 		}
+		keys[candidate.Key] = struct{}{}
 	}
 	if len(f.Starts) > 0 {
 		pending := f
@@ -113,12 +110,18 @@ func (f firstSuccessState) batch() childcall.Batch {
 	if f.WaitID != nil {
 		batch.WaitID = *f.WaitID
 	}
+	next := 0
 	for index, candidate := range f.Candidates {
 		child := &batch.Children[index]
 		child.Key, child.Deployment = candidate.Key, candidate.DeploymentRef
 		if index < len(f.Starts) {
 			id, started := f.Starts[index].ProcessID()
-			child.ProcessID, child.Done = id, !started || observedProcess(f.Outcomes, id)
+			child.ProcessID, child.Done = id, !started
+			// Outcomes are a validated subset in candidate order.
+			if started && next < len(f.Outcomes) && f.Outcomes[next].Result().ProcessID() == id {
+				child.Done = true
+				next++
+			}
 		}
 	}
 	return batch
@@ -126,9 +129,9 @@ func (f firstSuccessState) batch() childcall.Batch {
 
 func (f firstSuccessState) remaining() []agent.ProcessID {
 	var children []agent.ProcessID
-	for _, started := range f.Starts {
-		if id, present := started.ProcessID(); present && !observedProcess(f.Outcomes, id) {
-			children = append(children, id)
+	for _, child := range f.batch().Children {
+		if child.ProcessID.Valid() && !child.Done {
+			children = append(children, child.ProcessID)
 		}
 	}
 	return children

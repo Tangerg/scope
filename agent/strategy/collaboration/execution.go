@@ -247,6 +247,7 @@ func (e *execution) acceptActions(signals []agent.Signal) (agent.Transition, err
 	if count < batch.PendingStarts() {
 		return agent.Continue(consumed)
 	}
+	tasks := e.state.taskIndex()
 	for index := range e.state.Controls {
 		receipt := &e.state.Controls[index]
 		if receipt.Result != nil {
@@ -259,7 +260,7 @@ func (e *execution) acceptActions(signals []agent.Signal) (agent.Transition, err
 		if err != nil {
 			return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 		}
-		effect, err := e.state.controlEffect(receipt.Control)
+		effect, err := receipt.Control.effect(tasks[receipt.Control.Task])
 		if err != nil || !result.Matches(effect) {
 			return agent.Transition{}, ErrInvalidProtocol
 		}
@@ -289,8 +290,9 @@ func (e *execution) applyDecision(ctx context.Context, decision Decision, consum
 		}
 		effects = append(effects, effect)
 	}
+	tasks := e.state.taskIndex()
 	for _, control := range decision.Controls {
-		effect, err := e.state.controlEffect(control)
+		effect, err := control.effect(tasks[control.Task])
 		if err != nil {
 			return agent.Transition{}, err
 		}

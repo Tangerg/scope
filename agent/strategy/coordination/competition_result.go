@@ -38,19 +38,11 @@ func (f FirstSuccessResult) Valid() bool {
 		}
 		return false
 	}
+	startedCount := 0
 	for _, started := range f.Starts {
-		if id, present := started.ProcessID(); present && !observedProcess(f.Outcomes, id) {
-			return false
+		if _, present := started.ProcessID(); present {
+			startedCount++
 		}
 	}
-	return true
-}
-
-func observedProcess(outcomes []agent.ChildOutcome, processID agent.ProcessID) bool {
-	for _, outcome := range outcomes {
-		if outcome.Result().ProcessID() == processID {
-			return true
-		}
-	}
-	return false
+	return startedCount == len(f.Outcomes)
 }

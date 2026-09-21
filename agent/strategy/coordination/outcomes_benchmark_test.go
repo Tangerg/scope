@@ -1,6 +1,7 @@
 package coordination
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -65,4 +66,41 @@ func competitionOutcomes(t testing.TB, count int) ([]agent.ChildStartResult, []a
 		}
 	}
 	return starts, outcomes
+}
+
+func BenchmarkCompetitionRecovery(b *testing.B) {
+	for _, count := range []int{64, 256, 1024} {
+		starts, outcomes := competitionOutcomes(b, count)
+		state := firstSuccessState{Phase: competitionCompleted, Starts: starts, Outcomes: outcomes}
+		input, err := agent.EncodePayload("input")
+		if err != nil {
+			b.Fatal(err)
+		}
+		for _, start := range starts {
+			state.Candidates = append(state.Candidates, agent.ChildSpec{Key: start.Key(), DeploymentRef: start.DeploymentRef(), Input: input})
+		}
+		definition, err := NewFirstSuccess(FirstSuccessConfig{Name: "benchmark.competition", Description: "Measure recovery.", MaxCandidates: uint32(count), Accept: func(context.Context, agent.ChildOutcome) (bool, error) { return false, nil }})
+		if err != nil {
+			b.Fatal(err)
+		}
+		execution := &firstSuccessExecution{definition: definition, state: state}
+		snapshot, err := execution.Snapshot()
+		if err != nil {
+			b.Fatal(err)
+		}
+		b.Run(fmt.Sprintf("validate/%d", count), func(b *testing.B) {
+			for b.Loop() {
+				if err := state.validate(b.Context(), uint32(count)); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("restore/%d", count), func(b *testing.B) {
+			for b.Loop() {
+				if _, err := definition.Restore(b.Context(), snapshot); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
 }

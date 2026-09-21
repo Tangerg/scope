@@ -60,13 +60,12 @@ type executionState struct {
 	Output       agent.Payload    `json:"output,omitzero"`
 }
 
-func (e executionState) task(key agent.ChildKey) *Task {
+func (e executionState) taskIndex() map[agent.ChildKey]*Task {
+	tasks := make(map[agent.ChildKey]*Task, len(e.Tasks))
 	for index := range e.Tasks {
-		if e.Tasks[index].Request.Key == key {
-			return &e.Tasks[index]
-		}
+		tasks[e.Tasks[index].Request.Key] = &e.Tasks[index]
 	}
-	return nil
+	return tasks
 }
 
 func (e executionState) remaining() []agent.ProcessID {
@@ -320,12 +319,13 @@ func (e executionState) validateControls(ctx context.Context, pending int) (int,
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
+	tasks := e.taskIndex()
 	pendingControls := 0
 	for index, receipt := range e.Controls {
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
-		effect, err := e.controlEffect(receipt.Control)
+		effect, err := receipt.Control.effect(tasks[receipt.Control.Task])
 		if err != nil {
 			return 0, fmt.Errorf("%w: control %d: %w", ErrInvalidState, index, err)
 		}
@@ -377,12 +377,12 @@ func (e executionState) validateTurn(ctx context.Context, d *Definition, ids map
 	if uint64(len(e.Turn.Input.Controls)) > uint64(d.maxControlsPerTurn) {
 		return fmt.Errorf("%w: turn controls exceed the per-turn bound", ErrInvalidState)
 	}
-	captured := executionState{Tasks: e.Turn.Input.Tasks}
+	captured := (executionState{Tasks: e.Turn.Input.Tasks}).taskIndex()
 	for index, receipt := range e.Turn.Input.Controls {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		effect, err := captured.controlEffect(receipt.Control)
+		effect, err := receipt.Control.effect(captured[receipt.Control.Task])
 		if err != nil {
 			return fmt.Errorf("%w: turn control %d: %w", ErrInvalidState, index, err)
 		}
@@ -483,30 +483,28 @@ func (e executionState) validateDecision(ctx context.Context, definition *Defini
 		uint64(len(decision.Controls)) > uint64(definition.maxControlsPerTurn) {
 		return fmt.Errorf("%w: task or control bound exceeded", ErrInvalidDecision)
 	}
-	for index, request := range decision.Tasks {
+	tasks := e.taskIndex()
+	keys := make(map[agent.ChildKey]struct{}, len(decision.Tasks))
+	for _, request := range decision.Tasks {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if err := definition.validateRequest(request); err != nil {
 			return err
 		}
-		if e.task(request.Key) != nil {
+		if tasks[request.Key] != nil {
 			return fmt.Errorf("%w: reused task key", ErrInvalidDecision)
 		}
-		for _, previous := range decision.Tasks[:index] {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if previous.Key == request.Key {
-				return fmt.Errorf("%w: duplicate task key", ErrInvalidDecision)
-			}
+		if _, duplicate := keys[request.Key]; duplicate {
+			return fmt.Errorf("%w: duplicate task key", ErrInvalidDecision)
 		}
+		keys[request.Key] = struct{}{}
 	}
 	for _, control := range decision.Controls {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if _, err := e.controlEffect(control); err != nil {
+		if _, err := control.effect(tasks[control.Task]); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidDecision, err)
 		}
 	}
@@ -514,21 +512,6 @@ func (e executionState) validateDecision(ctx context.Context, definition *Defini
 		return fmt.Errorf("%w: wait has no outstanding tasks", ErrInvalidDecision)
 	}
 	return ctx.Err()
-}
-
-func (e executionState) controlEffect(control Control) (agent.Effect, error) {
-	task := e.task(control.Task)
-	if task == nil || task.Start == nil || (control.Signal == nil) == (control.CancelReason == nil) {
-		return agent.Effect{}, ErrInvalidDecision
-	}
-	id, started := task.Start.ProcessID()
-	if !started {
-		return agent.Effect{}, ErrInvalidDecision
-	}
-	if control.Signal != nil {
-		return agent.NewChildSignalEffect(id, *control.Signal)
-	}
-	return agent.NewChildCancelEffect(id, *control.CancelReason)
 }
 
 func (e executionState) hasUnseenOutcome() bool {
