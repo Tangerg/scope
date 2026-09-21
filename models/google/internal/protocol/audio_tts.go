@@ -33,9 +33,8 @@ func (a AudioTTSModelConfig) Validate() error {
 
 var _ tts.Model = (*AudioTTSModel)(nil)
 
-// AudioTTSModel wraps Gemini's native TTS through GenerateContent with
-// ResponseModalities=AUDIO. Current supported models are declared in
-// constant.go. Incremental synthesis uses StreamingAudioTTSModel.
+// AudioTTSModel owns Gemini 2.5's unary-only synthesis protocol.
+// Gemini 3.1 uses StreamingAudioTTSModel for both aggregate and streaming output.
 //
 // Speed and OutputFormat are not honored: Gemini's TTS has no
 // playback-rate knob. GenerateContent returns 24 kHz signed 16-bit
@@ -44,6 +43,9 @@ var _ tts.Model = (*AudioTTSModel)(nil)
 type AudioTTSModel struct{ binding *speechBinding }
 
 func NewAudioTTSModel(ctx context.Context, config AudioTTSModelConfig) (*AudioTTSModel, error) {
+	if err := validateUnarySpeechModel(config.DefaultOptions.Model); err != nil {
+		return nil, err
+	}
 	binding, err := newSpeechBinding(ctx, config)
 	if err != nil {
 		return nil, err
@@ -59,6 +61,9 @@ func (a *AudioTTSModel) Call(ctx context.Context, req *tts.Request) (*tts.Respon
 	if err != nil {
 		return nil, err
 	}
+	if modelErr := validateUnarySpeechModel(modelName); modelErr != nil {
+		return nil, modelErr
+	}
 
 	apiResp, err := a.binding.api.chatCompletion(ctx, modelName, contents, config)
 	if err != nil {
@@ -66,4 +71,11 @@ func (a *AudioTTSModel) Call(ctx context.Context, req *tts.Request) (*tts.Respon
 	}
 
 	return a.binding.buildTTSResponse(apiResp)
+}
+
+func validateUnarySpeechModel(model string) error {
+	if model != ModelGemini25FlashPreviewTTS && model != ModelGemini25ProPreviewTTS {
+		return fmt.Errorf("google: unary speech requires %q or %q; Gemini 3.1 uses StreamingAudioTTSModel", ModelGemini25FlashPreviewTTS, ModelGemini25ProPreviewTTS)
+	}
+	return nil
 }

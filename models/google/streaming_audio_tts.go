@@ -33,3 +33,10 @@ func (s *StreamingAudioTTSModel) Stream(ctx context.Context, req *tts.Request) i
 	}
 	return s.protocol.Stream(ctx, req)
 }
+
+func (s *StreamingAudioTTSModel) Call(ctx context.Context, req *tts.Request) (*tts.Response, error) {
+	if s == nil || s.protocol == nil {
+		return nil, errors.New("google: nil StreamingAudioTTSModel")
+	}
+	return s.protocol.Call(ctx, req)
+}

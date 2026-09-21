@@ -12,7 +12,9 @@
 // [NewChatCompletions] is the exception: it builds an OpenAI-compatible client
 // and performs no I/O.
 //
-// [NewAudioTTSModel] performs unary speech synthesis.
-// [NewStreamingAudioTTSModel] exposes incremental audio for Gemini 3.1 Flash TTS;
-// unary-only models cannot construct this streaming capability.
+// [NewAudioTTSModel] performs unary-only Gemini 2.5 speech synthesis.
+// Gemini 3.1 uses [NewStreamingAudioTTSModel]: Call aggregates Stream, and both
+// require successful stream completion. Call discards partial audio on error.
+// Native speech_response metadata describes the latest stream event, not a
+// fabricated unary response. Request model overrides must stay in that capability.
 package google

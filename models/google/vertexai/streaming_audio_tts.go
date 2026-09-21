@@ -31,3 +31,10 @@ func (s *StreamingAudioTTSModel) Stream(ctx context.Context, req *tts.Request) i
 	}
 	return (*protocol.StreamingAudioTTSModel)(s).Stream(ctx, req)
 }
+
+func (s *StreamingAudioTTSModel) Call(ctx context.Context, req *tts.Request) (*tts.Response, error) {
+	if s == nil {
+		return nil, errors.New("vertexai: nil StreamingAudioTTSModel")
+	}
+	return (*protocol.StreamingAudioTTSModel)(s).Call(ctx, req)
+}

@@ -26,7 +26,7 @@ func TestAudioTTSModel_Call_Mock(t *testing.T) {
 	srv := modeltest.JSONServer(http.StatusOK, body)
 	t.Cleanup(srv.Close)
 
-	opts := tts.Options{Model: protocol.ModelGemini31FlashTTSPreview}
+	opts := tts.Options{Model: protocol.ModelGemini25FlashPreviewTTS}
 	err := opts.Validate()
 	if err != nil {
 		t.Fatal(err)
@@ -54,8 +54,8 @@ func TestSpeechCapabilitiesAreSeparate(t *testing.T) {
 	if _, ok := any((*protocol.AudioTTSModel)(nil)).(tts.Streamer); ok {
 		t.Fatal("unary synthesis must not expose a streaming protocol")
 	}
-	if _, ok := any((*protocol.StreamingAudioTTSModel)(nil)).(tts.Model); ok {
-		t.Fatal("streaming synthesis must not expose an independent unary protocol")
+	if _, ok := any((*protocol.StreamingAudioTTSModel)(nil)).(tts.Model); !ok {
+		t.Fatal("streaming synthesis must support aggregation")
 	}
 	_, err := protocol.NewStreamingAudioTTSModel(t.Context(), protocol.AudioTTSModelConfig{
 		Provider: "google", Client: protocol.ClientConfig{APIKey: "test"},
@@ -72,6 +72,7 @@ func TestStreamingSpeechUsesIncrementalEndpoint(t *testing.T) {
 		for _, audio := range []string{"first", "second"} {
 			fmt.Fprintf(w, "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"inlineData\":{\"mimeType\":\"audio/L16\",\"data\":%q}}]}}]}\n\n", base64.StdEncoding.EncodeToString([]byte(audio)))
 		}
+		fmt.Fprint(w, "data: {\"candidates\":[{\"finishReason\":\"STOP\"}]}\n\n")
 	}})
 	t.Cleanup(srv.Close)
 	model, err := protocol.NewStreamingAudioTTSModel(t.Context(), protocol.AudioTTSModelConfig{

@@ -10,7 +10,8 @@
 //   - [NewEmbeddingModel] — gemini-embedding-2
 //     with output_dimensionality truncation;
 //   - [NewImageModel] — Gemini image generation through Interactions;
-//   - [NewAudioTTSModel] — Gemini-TTS via generate_content with
+//   - [NewStreamingAudioTTSModel] — Gemini 3.1 TTS; Call consumes Stream;
+//   - [NewAudioTTSModel] — unary-only Gemini 2.5 TTS via generate_content with
 //     audio response modality;
 //   - [NewAudioTranscriptionModel] — audio-input → text via
 //     generate_content (Gemini transcribes any audio attachment).
