@@ -4,7 +4,7 @@ go 1.27.0
 
 require (
 	github.com/Tangerg/scope/core v0.31.0
-	github.com/Tangerg/scope/models/protocol/openai v0.31.1-0.20260921132009-654d77bc7d10
+	github.com/Tangerg/scope/models/protocol/openai v0.31.1-0.20260921150837-69e36e402379
 	github.com/go-resty/resty/v2 v2.17.2
 	google.golang.org/genai v1.71.0
 )

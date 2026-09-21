@@ -2,8 +2,8 @@ github.com/Tangerg/scope/core v0.31.0 h1:ywiW2Q+vAsDmEuwCxqbvHWJAinq7rBenHPm7wQ/
 github.com/Tangerg/scope/core v0.31.0/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
 github.com/Tangerg/scope/models/protocol/anthropic v0.31.1-0.20260921132009-654d77bc7d10 h1:7TRvgzjlW1iu1ARFpcXaZAUqIDPRhP1IlNcda0OtpDg=
 github.com/Tangerg/scope/models/protocol/anthropic v0.31.1-0.20260921132009-654d77bc7d10/go.mod h1:MChbeAad6OCgbzDWw4mOtvkcDl/3dFSGrytSmNRal8A=
-github.com/Tangerg/scope/models/protocol/openai v0.31.1-0.20260921132009-654d77bc7d10 h1:gn0iRve3x1QVVJb+1Dlu+QpDU85B4yBaX+WTJCLhXVE=
-github.com/Tangerg/scope/models/protocol/openai v0.31.1-0.20260921132009-654d77bc7d10/go.mod h1:EYnyeWWpfUgkBFj4QmMCnba2CrU1tctph3GDPXmK5LY=
+github.com/Tangerg/scope/models/protocol/openai v0.31.1-0.20260921150837-69e36e402379 h1:oO0GwVCN4vHFKgg8bBrxj9RcMowDMpbDkANHOe2i+5I=
+github.com/Tangerg/scope/models/protocol/openai v0.31.1-0.20260921150837-69e36e402379/go.mod h1:EYnyeWWpfUgkBFj4QmMCnba2CrU1tctph3GDPXmK5LY=
 github.com/anthropics/anthropic-sdk-go v1.71.0 h1:DK9xG3s5t+xUIOp+R+1LIRjkU/wG57YyQO3630+gYOE=
 github.com/anthropics/anthropic-sdk-go v1.71.0/go.mod h1:x+lPk/cCl48uRegeP0hlYYBN1b7bEBTveInIMgLicnY=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
