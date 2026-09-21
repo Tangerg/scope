@@ -37,6 +37,9 @@ type DefinitionConfig struct {
 
 	// MaxActionAttempts bounds external Action attempts. Its zero value is
 	// unlimited; a finite zero is rejected because Planning must admit an Action.
+	// This is an execution limit, not a Planner path-length constraint. A lowest-cost
+	// plan may exceed the remaining attempts and finish Stuck even when a more
+	// expensive shorter plan could reach the Goal within that limit.
 	MaxActionAttempts agent.Quota
 }
 

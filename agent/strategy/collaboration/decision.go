@@ -13,7 +13,9 @@ const (
 	// Continue starts the next turn after action receipts, while tasks run.
 	Continue Mode = "continue"
 	// Wait starts the next turn after at least one outstanding task drains.
-	// If every attempted start failed, their receipts trigger the next turn.
+	// If no tasks remain outstanding, failed-start receipts trigger the next turn.
+	// Older outstanding tasks still delay the turn when every new start fails;
+	// use Continue to process action receipts without waiting for those tasks.
 	Wait Mode = "wait"
 	// Complete ends this collaboration and cancels unfinished descendants.
 	Complete Mode = "complete"
