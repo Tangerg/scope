@@ -17,7 +17,7 @@ func collectChildStarts(signals []agent.Signal) ([]agent.ChildStartResult, steer
 		}
 		start, err := agent.ParseChildStartResult(signal)
 		if err != nil {
-			return nil, steerBatch{}, 0, fmt.Errorf("%w: invalid child-start Signal", ErrInvalidExecutionState)
+			return nil, steerBatch{}, 0, fmt.Errorf("%w: invalid child-start Signal: %w", ErrInvalidExecutionState, err)
 		}
 		starts = append(starts, start)
 	}
@@ -53,7 +53,7 @@ func collectChildWaitOpened(signals []agent.Signal) (agent.ChildWaitOpened, stee
 				break
 			}
 		}
-		return agent.ChildWaitOpened{}, steerBatch{}, 0, fmt.Errorf("%w: invalid child wait-opened Signal", ErrInvalidExecutionState)
+		return agent.ChildWaitOpened{}, steerBatch{}, 0, fmt.Errorf("%w: invalid child wait-opened Signal: %w", ErrInvalidExecutionState, err)
 	}
 	if !found {
 		return agent.ChildWaitOpened{}, steerBatch{}, 0, fmt.Errorf("%w: child wait-opened Signal is missing", ErrInvalidExecutionState)
@@ -72,8 +72,11 @@ func collectChildWaitSatisfied(signals []agent.Signal) (agent.ChildWaitSatisfied
 			continue
 		}
 		value, err := agent.ParseChildWaitSatisfied(signal)
-		if err != nil || found {
-			return agent.ChildWaitSatisfied{}, steerBatch{}, 0, fmt.Errorf("%w: invalid or duplicate child completion Signal", ErrInvalidExecutionState)
+		if err != nil {
+			return agent.ChildWaitSatisfied{}, steerBatch{}, 0, fmt.Errorf("%w: invalid child completion Signal: %w", ErrInvalidExecutionState, err)
+		}
+		if found {
+			return agent.ChildWaitSatisfied{}, steerBatch{}, 0, fmt.Errorf("%w: duplicate child completion Signal", ErrInvalidExecutionState)
 		}
 		completed, found = value, true
 	}

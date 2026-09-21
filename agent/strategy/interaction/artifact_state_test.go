@@ -66,7 +66,11 @@ func TestArtifactStateRestoreRejectsInvalidProvenanceAndValue(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := definition.Restore(t.Context(), envelope); !errors.Is(err, ErrInvalidExecutionState) {
+			_, err = definition.Restore(t.Context(), envelope)
+			if test.name == "wrong schema" && !errors.Is(err, agent.ErrSchemaValidation) {
+				t.Fatalf("schema cause lost: %v", err)
+			}
+			if !errors.Is(err, ErrInvalidExecutionState) {
 				t.Fatalf("Restore error=%v, want ErrInvalidExecutionState", err)
 			}
 		})
@@ -126,6 +130,18 @@ func TestArtifactIdentitySurvivesRestoreWithoutCallHistory(t *testing.T) {
 	for index, artifact := range artifacts {
 		if artifact.ModelCallSequence() != uint64(index+1) || artifact.ToolCallID() != "reused" || artifact.DelegateName() != "delegate_fuzz" {
 			t.Fatalf("provenance=%+v", artifact)
+		}
+	}
+}
+
+func TestChildSignalFailuresPreserveProtocolCause(t *testing.T) {
+	signals := []agent.Signal{{}}
+	_, _, _, startErr := collectChildStarts(signals)
+	_, _, _, openedErr := collectChildWaitOpened(signals)
+	_, _, _, completedErr := collectChildWaitSatisfied(signals)
+	for _, test := range []struct{ err, cause error }{{startErr, agent.ErrInvalidSignal}, {openedErr, agent.ErrInvalidChildWait}, {completedErr, agent.ErrInvalidChildWait}} {
+		if !errors.Is(test.err, ErrInvalidExecutionState) || !errors.Is(test.err, test.cause) {
+			t.Fatalf("protocol cause lost: %v", test.err)
 		}
 	}
 }

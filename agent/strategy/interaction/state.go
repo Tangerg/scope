@@ -220,7 +220,7 @@ func (e executionState) validateArtifacts(ctx context.Context, definition *Defin
 		}
 		seen[identity] = struct{}{}
 		if err := delegate.outputSchema.Validate(artifact.Output.JSON()); err != nil {
-			return fmt.Errorf("%w: artifact %d violates Delegate output contract", ErrInvalidExecutionState, index)
+			return fmt.Errorf("%w: artifact %d violates Delegate output contract: %w", ErrInvalidExecutionState, index, err)
 		}
 		previousModelCallSequence = artifact.ModelCallSequence
 		previousToolCallIndex = artifact.ToolCallIndex
