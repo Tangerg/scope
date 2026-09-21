@@ -1,6 +1,7 @@
 package planning
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"slices"
@@ -60,14 +61,21 @@ func (p Problem) Valid() bool { return p.goal.Valid() }
 
 // ValidatePlan verifies that every referenced Action exists and is applicable
 // in sequence, the reported cost equals the evaluated path cost, and the
-// predicted final state satisfies the Goal.
-func (p Problem) ValidatePlan(plan Plan) error {
+// predicted final state satisfies the Goal. Cancellation is checked between
+// actions and after each bounded Cost callback.
+func (p Problem) ValidatePlan(ctx context.Context, plan Plan) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !p.Valid() || !plan.Valid() {
 		return ErrInvalidPlan
 	}
 	state := p.initial
 	totalCost := 0.0
 	for index, planned := range plan.actions {
+		if cancelErr := ctx.Err(); cancelErr != nil {
+			return cancelErr
+		}
 		action, found := p.Action(planned.name)
 		if !found {
 			return fmt.Errorf("%w: Action %d references unknown %q", ErrInvalidPlan, index, planned.name)
@@ -78,6 +86,9 @@ func (p Problem) ValidatePlan(plan Plan) error {
 		cost, err := action.Cost(state)
 		if err != nil {
 			return err
+		}
+		if cancelErr := ctx.Err(); cancelErr != nil {
+			return cancelErr
 		}
 		totalCost += cost
 		if math.IsInf(totalCost, 0) {

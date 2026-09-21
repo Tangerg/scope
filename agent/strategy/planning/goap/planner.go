@@ -79,7 +79,7 @@ func (p *Planner) Plan(ctx context.Context, problem planning.Problem) (planning.
 	if err != nil {
 		return planning.Plan{}, false, err
 	}
-	if err := problem.ValidatePlan(plan); err != nil {
+	if err := problem.ValidatePlan(ctx, plan); err != nil {
 		return planning.Plan{}, false, fmt.Errorf("goap: validate result: %w", err)
 	}
 	if err := ctx.Err(); err != nil {

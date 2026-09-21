@@ -1,8 +1,10 @@
 package planning_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"slices"
 	"testing"
@@ -184,16 +186,16 @@ func TestProblemValidatesPlannerOutputAgainstItsActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := problem.ValidatePlan(valid); err != nil {
+	if err := problem.ValidatePlan(t.Context(), valid); err != nil {
 		t.Fatal(err)
 	}
 	wrongCost, _ := planning.NewPlan([]planning.PlannedAction{planned}, 3)
-	if err := problem.ValidatePlan(wrongCost); !errors.Is(err, planning.ErrInvalidPlan) {
+	if err := problem.ValidatePlan(t.Context(), wrongCost); !errors.Is(err, planning.ErrInvalidPlan) {
 		t.Fatalf("wrong-cost error = %v", err)
 	}
 	unknown, _ := planning.NewPlannedAction("action.unknown")
 	unknownPlan, _ := planning.NewPlan([]planning.PlannedAction{unknown}, 2)
-	if err := problem.ValidatePlan(unknownPlan); !errors.Is(err, planning.ErrInvalidPlan) {
+	if err := problem.ValidatePlan(t.Context(), unknownPlan); !errors.Is(err, planning.ErrInvalidPlan) {
 		t.Fatalf("unknown-Action error = %v", err)
 	}
 }
@@ -289,5 +291,38 @@ func TestAttemptAndOutputValidationShareResultClassification(t *testing.T) {
 	}
 	if err := (planning.Output{}).Validate(); !errors.Is(err, planning.ErrInvalidResult) {
 		t.Fatalf("output classification lost: %v", err)
+	}
+}
+
+func TestValidatePlanStopsAfterCanceledCost(t *testing.T) {
+	for _, count := range []int{1, 2} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			calls := 0
+			done := mustCondition(t, "world.done", planning.True)
+			action := mustAction(t, planning.ActionConfig{Name: "action.finish", Description: "Finish work.", Effects: []planning.Condition{done}, Cost: func(planning.WorldState) (float64, error) {
+				calls++
+				cancel()
+				return 1, nil
+			}})
+			problem, err := planning.NewProblem(planning.WorldState{}, mustGoal(t, done), action)
+			if err != nil {
+				t.Fatal(err)
+			}
+			planned, _ := planning.NewPlannedAction("action.finish")
+			actions := make([]planning.PlannedAction, count)
+			for i := range actions {
+				actions[i] = planned
+			}
+			plan, err := planning.NewPlan(actions, float64(count))
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = problem.ValidatePlan(ctx, plan)
+			if !errors.Is(err, context.Canceled) || calls != 1 {
+				t.Fatalf("error=%v calls=%d", err, calls)
+			}
+		})
 	}
 }
