@@ -330,7 +330,8 @@ func TestTrajectoryJSONRoundTripPreservesCanonicalBehavior(t *testing.T) {
 }
 
 type fixtureInput struct {
-	Value string `json:"value"`
+	Value      string `json:"value"`
+	NullOutput bool   `json:"null_output,omitempty"`
 }
 
 type fixtureOutput struct {
@@ -346,7 +347,7 @@ func (fixtureDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &fixtureExecution{Value: value.Value}, nil
+	return &fixtureExecution{Value: value.Value, NullOutput: value.NullOutput}, nil
 }
 
 func (fixtureDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
@@ -358,8 +359,9 @@ func (fixtureDefinition) Restore(ctx context.Context, state agent.ExecutionState
 }
 
 type fixtureExecution struct {
-	Value string `json:"value"`
-	Done  bool   `json:"done"`
+	NullOutput bool   `json:"null_output,omitempty"`
+	Value      string `json:"value"`
+	Done       bool   `json:"done"`
 }
 
 func (f *fixtureExecution) Step(context.Context, []agent.Signal) (agent.Transition, error) {
@@ -367,7 +369,11 @@ func (f *fixtureExecution) Step(context.Context, []agent.Signal) (agent.Transiti
 		return agent.Transition{}, agent.ErrInvalidExecutionState
 	}
 	f.Done = true
-	output, err := agent.EncodePayload(fixtureOutput{Value: f.Value})
+	var value *fixtureOutput
+	if !f.NullOutput {
+		value = &fixtureOutput{Value: f.Value}
+	}
+	output, err := agent.EncodePayload(value)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -453,6 +459,11 @@ func (f fixtureWeatherTool) Call(ctx context.Context, _ tool.Invocation) (chat.T
 
 func runTrajectory(t *testing.T) trajectory.Trajectory {
 	t.Helper()
+	return runTrajectoryInput(t, fixtureInput{Value: "done"})
+}
+
+func runTrajectoryInput(t *testing.T, value fixtureInput) trajectory.Trajectory {
+	t.Helper()
 	inputSchema, err := agent.SchemaFor[fixtureInput]()
 	if err != nil {
 		t.Fatal(err)
@@ -460,6 +471,12 @@ func runTrajectory(t *testing.T) trajectory.Trajectory {
 	outputSchema, err := agent.SchemaFor[fixtureOutput]()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if value.NullOutput {
+		outputSchema, err = agent.ParseSchema(json.RawMessage(`{"type":"null"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
 		Name: "test.trajectory", Description: "Complete one deterministic trajectory.",
@@ -482,7 +499,7 @@ func runTrajectory(t *testing.T) trajectory.Trajectory {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = engine.Close(context.WithoutCancel(t.Context())) })
-	input, err := agent.EncodePayload(fixtureInput{Value: "done"})
+	input, err := agent.EncodePayload(value)
 	if err != nil {
 		t.Fatal(err)
 	}

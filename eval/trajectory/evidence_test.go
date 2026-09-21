@@ -146,7 +146,7 @@ func TestSemanticProjectionCoversRealInteractionOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config.Output = &output
+	config.Output = output
 	candidate, err := trajectory.New(config)
 	if err != nil {
 		t.Fatal(err)
@@ -164,7 +164,7 @@ func TestSemanticProjectionCoversRealInteractionOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config.Output = &output
+	config.Output = output
 	changed, err := trajectory.New(config)
 	if err != nil {
 		t.Fatal(err)

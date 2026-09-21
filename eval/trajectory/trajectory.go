@@ -28,7 +28,7 @@ const (
 type Trajectory struct {
 	rootProcessID agent.ProcessID
 	termination   agent.Termination
-	output        *agent.Payload
+	output        agent.Payload
 	rootUsage     agent.Usage
 	coverage      *Coverage
 	elapsed       *time.Duration
@@ -45,7 +45,7 @@ func New(config Config) (Trajectory, error) {
 	trajectory := Trajectory{
 		rootProcessID: config.RootProcessID,
 		termination:   config.Termination,
-		output:        cloneOutput(config.Output),
+		output:        config.Output,
 		rootUsage:     config.RootUsage,
 		coverage:      config.Coverage.clone(),
 		elapsed:       cloneElapsed(config.Elapsed),
@@ -66,7 +66,7 @@ func New(config Config) (Trajectory, error) {
 type Config struct {
 	RootProcessID agent.ProcessID
 	Termination   agent.Termination
-	Output        *agent.Payload
+	Output        agent.Payload
 	RootUsage     agent.Usage
 	Coverage      *Coverage
 	Elapsed       *time.Duration
@@ -83,7 +83,9 @@ func (t Trajectory) RootProcessID() agent.ProcessID { return t.rootProcessID }
 
 func (t Trajectory) Termination() agent.Termination { return t.termination }
 
-func (t Trajectory) Output() *agent.Payload { return cloneOutput(t.output) }
+// Output returns the root output; a zero Payload means absent, while JSON null
+// is a present output.
+func (t Trajectory) Output() agent.Payload { return t.output }
 
 func (t Trajectory) RootUsage() agent.Usage { return t.rootUsage }
 
@@ -110,7 +112,7 @@ func (t Trajectory) config() Config {
 type trajectoryWire struct {
 	RootProcessID agent.ProcessID   `json:"root_process_id"`
 	Termination   agent.Termination `json:"termination"`
-	Output        *agent.Payload    `json:"output,omitempty"`
+	Output        agent.Payload     `json:"output,omitzero"`
 	RootUsage     agent.Usage       `json:"root_usage"`
 	Coverage      *Coverage         `json:"coverage,omitempty"`
 	Elapsed       *time.Duration    `json:"elapsed_ns,omitempty"`
@@ -151,10 +153,10 @@ func (t Trajectory) Validate() error {
 		return fmt.Errorf("%w: root outcome is incomplete", ErrInvalidTrajectory)
 	}
 	if t.termination.Status() == agent.StatusCompleted {
-		if t.output == nil || !t.output.Valid() {
+		if !t.output.Valid() {
 			return fmt.Errorf("%w: completed trajectory requires output", ErrInvalidTrajectory)
 		}
-	} else if t.output != nil {
+	} else if !t.output.IsZero() {
 		return fmt.Errorf("%w: non-completed trajectory cannot carry output", ErrInvalidTrajectory)
 	}
 	if len(t.events) == 0 {
@@ -323,8 +325,8 @@ func (t Trajectory) behavior(project eval.Projection[agent.Payload, json.RawMess
 	projection := behaviorProjection{
 		Termination: behaviorTerminationOf(t.termination),
 	}
-	if t.output != nil {
-		projection.Output, err = project(*t.output)
+	if !t.output.IsZero() {
+		projection.Output, err = project(t.output)
 		if err != nil {
 			return behaviorProjection{}, fmt.Errorf("project output: %w", err)
 		}
@@ -479,14 +481,6 @@ func processPaths(root agent.ProcessID, events []agent.Event) (map[agent.Process
 		}
 	}
 	return paths, nil
-}
-
-func cloneOutput(output *agent.Payload) *agent.Payload {
-	if output == nil {
-		return nil
-	}
-	clone := *output
-	return &clone
 }
 
 func cloneModelCalls(calls []ModelCall) []ModelCall {

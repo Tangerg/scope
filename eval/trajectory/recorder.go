@@ -206,10 +206,7 @@ func (r *Recorder) Take(ctx context.Context, process *agent.Process, coverage *C
 		}
 		calls = append(calls, observation.call)
 	}
-	var output *agent.Payload
-	if value, ok := result.Output(); ok {
-		output = &value
-	}
+	output, _ := result.Output()
 	var elapsed *time.Duration
 	if !startedAt.IsZero() {
 		elapsed = new(time.Since(startedAt))

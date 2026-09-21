@@ -197,22 +197,20 @@ func (l Limits) reports(actual Trajectory) ([]eval.Report, error) {
 
 // Expectation describes case-specific success without contaminating Metric
 // identity. Baseline is optional and enables deterministic replay comparison.
+// A zero Output omits the assertion; a valid JSON null asserts a null output.
 type Expectation struct {
-	Status   agent.Status   `json:"status"`
-	Output   *agent.Payload `json:"output,omitempty"`
-	Tools    *ToolSequence  `json:"tools,omitempty"`
-	Baseline *Trajectory    `json:"baseline,omitempty"`
-	Limits   Limits         `json:"limits,omitzero"`
+	Status   agent.Status  `json:"status"`
+	Output   agent.Payload `json:"output,omitzero"`
+	Tools    *ToolSequence `json:"tools,omitempty"`
+	Baseline *Trajectory   `json:"baseline,omitempty"`
+	Limits   Limits        `json:"limits,omitzero"`
 }
 
 func (e Expectation) Validate() error {
 	if !e.Status.Terminal() {
 		return fmt.Errorf("%w: expected status must be terminal", ErrInvalidSample)
 	}
-	if e.Output != nil && !e.Output.Valid() {
-		return fmt.Errorf("%w: expected output is invalid", ErrInvalidSample)
-	}
-	if e.Status != agent.StatusCompleted && e.Output != nil {
+	if e.Status != agent.StatusCompleted && !e.Output.IsZero() {
 		return fmt.Errorf("%w: only completed status can expect output", ErrInvalidSample)
 	}
 	if e.Tools != nil {
@@ -255,8 +253,8 @@ func (s Sample) outcomeReport() (eval.Report, error) {
 			s.Actual.termination.Status(), s.Expected.Status,
 		)
 	}
-	if passed && s.Expected.Output != nil {
-		passed = s.Actual.output != nil &&
+	if passed && !s.Expected.Output.IsZero() {
+		passed = !s.Actual.output.IsZero() &&
 			bytes.Equal(s.Actual.output.JSON(), s.Expected.Output.JSON())
 		if passed {
 			feedback = "terminal status and output matched"
