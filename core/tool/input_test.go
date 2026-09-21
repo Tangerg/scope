@@ -60,3 +60,28 @@ func TestInputAdmissionFreezesDeclarationAndRejectsPanics(t *testing.T) {
 		})
 	}
 }
+
+func TestInputValidationPanicPreservesDiagnosticCause(t *testing.T) {
+	cause := errors.New("validator defect")
+	for _, declaration := range []bool{false, true} {
+		binding, err := tool.Bind(validatingTool{declare: func() func([]byte) error {
+			if declaration {
+				panic(cause)
+			}
+			return func([]byte) error { panic(cause) }
+		}})
+		if !declaration {
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = binding.Contract().Prepare(chat.ToolCall{ID: "call", Name: "marked", Arguments: `{}`})
+			if !errors.Is(err, tool.ErrInvalidInvocation) {
+				t.Fatalf("lost rejection: %v", err)
+			}
+		}
+		panicErr, ok := errors.AsType[*tool.InputValidationPanicError](err)
+		if !ok || !errors.Is(panicErr.Unwrap(), cause) || !errors.Is(err, cause) {
+			t.Fatalf("lost validator panic: %v", err)
+		}
+	}
+}

@@ -20,7 +20,7 @@ func inputValidator(executable Tool) (validator func([]byte) error, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			validator = nil
-			err = fmt.Errorf("input validation declaration panicked: %v", recovered)
+			err = fmt.Errorf("input validation declaration: %w", &InputValidationPanicError{Value: recovered})
 		}
 	}()
 	capability, found, err := Capability[InputValidatingTool](executable)
@@ -28,4 +28,18 @@ func inputValidator(executable Tool) (validator func([]byte) error, err error) {
 		return nil, err
 	}
 	return capability.InputValidator(), nil
+}
+
+// InputValidationPanicError identifies a contained panic while declaring or running
+// input validation. Prepare still rejects the invocation with ErrInvalidInvocation;
+// this diagnostic distinguishes a validator defect from invalid caller input.
+// Value retains the recovered value; an error value remains available through Unwrap.
+type InputValidationPanicError struct{ Value any }
+
+func (i *InputValidationPanicError) Error() string {
+	return fmt.Sprintf("tool: input validation panicked: %v", i.Value)
+}
+func (i *InputValidationPanicError) Unwrap() error {
+	cause, _ := i.Value.(error)
+	return cause
 }

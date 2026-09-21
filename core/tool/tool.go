@@ -137,7 +137,7 @@ func (c Contract) validateInput(arguments []byte) (err error) {
 	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("input validator panicked: %v", recovered)
+			err = &InputValidationPanicError{Value: recovered}
 		}
 	}()
 	return c.state.validate(arguments)
