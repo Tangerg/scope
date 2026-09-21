@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 
 	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/agenttest"
