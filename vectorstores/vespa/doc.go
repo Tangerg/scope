@@ -1,14 +1,17 @@
 // Package vespa exposes Yahoo Vespa's vector search
 // through the Core vector-store capability interfaces. Documents are regular Vespa documents in a
 // schema with id / content / embedding (tensor) fields plus any
-// metadata attributes — reached over the HTTP Document / Search REST
+// metadata attributes and a scope_namespace string attribute — reached over the HTTP Document / Search REST
 // APIs.
 // Documents containing media are rejected before indexing I/O because this
 // adapter persists document text and metadata only.
 //
 // Requirements: a Vespa application (Vespa Cloud or self-hosted) with
 // a schema (.sd file) declaring the embedding tensor field and any
-// metadata attributes the filter visitor will address. The store
+// metadata attributes the filter visitor will address. scope_namespace must use
+// attribute and summary indexing with exact matching. Index writes the configured
+// namespace, and Search and DeleteWhere restrict selection to it. Returned native
+// document IDs must belong to the same namespace and schema. The store
 // does NOT create the schema — Vespa schemas are part of the
 // application package, not a runtime API.
 //

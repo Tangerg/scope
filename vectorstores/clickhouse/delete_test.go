@@ -51,7 +51,7 @@ func TestDeletesIssueLightweightStatements(t *testing.T) {
 		{
 			name: "by filter",
 			call: func(store *Store) error { return store.DeleteWhere(t.Context(), expression) },
-			want: `DELETE FROM scope.vector_store WHERE (mapContains(metadata, 'tenant') AND metadata['tenant'] != 'null' AND metadata['tenant'] = ?)`,
+			want: `DELETE FROM scope.vector_store WHERE id IN (SELECT id FROM scope.vector_store FINAL WHERE (mapContains(metadata, 'tenant') AND metadata['tenant'] != 'null' AND metadata['tenant'] = ?))`,
 		},
 		{
 			name: "by ids",

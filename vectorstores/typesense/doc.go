@@ -11,7 +11,7 @@
 // the collection.
 //
 // Distance metric: cosine only. Typesense's vector search always uses
-// cosine distance — the result `vector_distance` is in [0, 2] and the
+// cosine distance when configured by this adapter — the result `vector_distance` is in [0, 2] and the
 // store maps it onto a higher-is-better score in [0, 1].
 // Hybrid search supplies lexical and vector evidence together. Typesense owns
 // the fused ordering; [StoreConfig.HybridAlpha] optionally controls vector
@@ -20,7 +20,7 @@
 // Schema bootstrap. When [StoreConfig.InitializeSchema] is true the
 // store probes for the collection and creates it with the right
 // fields + dimensionality if missing. Existing collections are
-// trusted as-is.
+// always checked for a compatible vector distance, even when creation is disabled.
 //
 // Import acknowledgment. Typesense answers the document import endpoint with
 // HTTP 200 even when individual documents were rejected, so the store requires
@@ -35,7 +35,8 @@
 //
 // NOT caveat. Typesense `filter_by` has no top-level NOT operator —
 // the visitor rewrites `NOT (x op y)` into the operator's inverse
-// (e.g. `NOT (year >= 2020)` → `metadata.year:< 2020`). NOT wrapping
+// for equality predicates. Negated ordering requires null semantics unavailable
+// in Typesense and is rejected. NOT wrapping
 // anything other than a single binary comparison is rejected.
 //
 // Scoring depends on the vector field's vec_dist. Typesense reports

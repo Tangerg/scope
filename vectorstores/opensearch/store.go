@@ -483,7 +483,9 @@ func (s *Store) toDocument(hit opensearchapi.SearchHit) (*document.Document, err
 	}
 
 	var source map[string]any
-	if err := json.Unmarshal(hit.Source, &source); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(hit.Source))
+	decoder.UseNumber()
+	if err := decoder.Decode(&source); err != nil {
 		return nil, fmt.Errorf("opensearch: decode _source for %s: %w", hit.ID, err)
 	}
 

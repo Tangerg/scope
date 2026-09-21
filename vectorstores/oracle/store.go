@@ -492,53 +492,17 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	return nil
 }
 
-// buildFilter wraps the visitor and renumbers placeholders so they
-// continue from startIdx — Oracle uses positional `:N` bindings, so
-// the search path that prepends the query-vector parameter at `:1`
-// must skip ahead.
 func (s *Store) buildFilter(expr filter.Predicate, startIdx int) (string, []any, error) {
 	if expr == nil {
 		return "", nil, nil
 	}
 	v := newVisitor(s.metadataColumn)
+	v.parameterOffset = startIdx - 1
 	if err := expr.Accept(v); err != nil {
 		return "", nil, fmt.Errorf("oracle: convert filter: %w", err)
 	}
 	predicate, args := v.snapshot()
-	if startIdx > 1 && len(args) > 0 {
-		predicate = renumberPlaceholders(predicate, startIdx)
-	}
 	return predicate, args, nil
-}
-
-// renumberPlaceholders shifts every `:N` placeholder in fragment by
-// (offset - 1). The visitor produces `:1`, `:2`, … starting from 1;
-// when the call site has already consumed some bind positions we
-// rewrite them so the executed SQL matches the args slice.
-func renumberPlaceholders(fragment string, offset int) string {
-	var b strings.Builder
-	b.Grow(len(fragment))
-	i := 0
-	for i < len(fragment) {
-		if fragment[i] == ':' && i+1 < len(fragment) && fragment[i+1] >= '0' && fragment[i+1] <= '9' {
-			j := i + 1
-			for j < len(fragment) && fragment[j] >= '0' && fragment[j] <= '9' {
-				j++
-			}
-			// The scan above already established fragment[i+1:j] is a
-			// non-empty run of ASCII digits, and the visitor numbers one
-			// placeholder per bound argument, so the only way Atoi could fail
-			// is a digit run wider than an int — unreachable for this input.
-			n, _ := strconv.Atoi(fragment[i+1 : j])
-			b.WriteByte(':')
-			b.WriteString(strconv.Itoa(n + offset - 1))
-			i = j
-			continue
-		}
-		b.WriteByte(fragment[i])
-		i++
-	}
-	return b.String()
 }
 
 func marshalMetadata(m metadata.Map) ([]byte, error) {

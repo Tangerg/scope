@@ -444,8 +444,11 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		return nil, fmt.Errorf("pinecone: query index: %w", err)
 	}
 
-	if resp == nil || len(resp.Matches) == 0 {
-		return nil, nil
+	if resp == nil {
+		return nil, errors.New("pinecone: query returned no response")
+	}
+	if len(resp.Matches) == 0 {
+		return &vectorstore.SearchResponse{}, nil
 	}
 
 	docs, err = s.buildDocumentsFromScoredVectors(resp.Matches, req.Options.MinScore)

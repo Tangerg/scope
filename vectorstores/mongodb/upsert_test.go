@@ -12,6 +12,7 @@ import (
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
 	"github.com/Tangerg/scope/core/vectorstore"
+	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
 // countingCollection answers a bulk write with a scripted result. The embedded
@@ -139,3 +140,24 @@ func TestIndexRequiresEveryReplacementToApply(t *testing.T) {
 }
 
 var _ DocumentCollection = (*mongo.Collection)(nil)
+
+type deletionCollection struct {
+	DocumentCollection
+	result *mongo.DeleteResult
+}
+
+func (d *deletionCollection) DeleteMany(context.Context, any, ...options.Lister[options.DeleteManyOptions]) (*mongo.DeleteResult, error) {
+	return d.result, nil
+}
+
+func TestDeleteRequiresAcknowledgment(t *testing.T) {
+	for _, result := range []*mongo.DeleteResult{nil, {}, {Acknowledged: true}, {Acknowledged: true, DeletedCount: 1}} {
+		store := upsertStore(t, &deletionCollection{result: result})
+		wantError := result == nil || !result.Acknowledged
+		for _, err := range []error{store.DeleteIDs(t.Context(), []string{"one"}), store.DeleteWhere(t.Context(), filter.EQ("tag", "one"))} {
+			if (err != nil) != wantError {
+				t.Fatalf("result=%v error=%v", result, err)
+			}
+		}
+	}
+}

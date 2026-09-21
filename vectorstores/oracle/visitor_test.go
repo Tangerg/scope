@@ -25,7 +25,7 @@ func TestVisitor_CollectionMembershipUsesJSONExists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `json_exists(metadata, '$.profile.tags[*]?(@ == $member)' PASSING :1 AS "member")`
+	want := `json_exists(metadata, '$.profile."tags"[*]?(@ == $member)' PASSING :1 AS "member")`
 	if sql != want {
 		t.Fatalf("sql = %q, want %q", sql, want)
 	}
@@ -77,5 +77,35 @@ func TestVisitor_IsNotNull(t *testing.T) {
 	// NOT(field IS NULL) — semantically IS NOT NULL.
 	if !strings.Contains(sql, "NOT") || !strings.Contains(sql, "IS NULL") {
 		t.Fatalf("sql=%q must wrap IS NULL in NOT", sql)
+	}
+}
+
+func TestJSONPathPreservesLiteralKeysAndIndexes(t *testing.T) {
+	for _, sample := range []struct{ expression, want string }{
+		{`profile['a.b'] == 'keep'`, `$.profile."a.b"`},
+		{`profile[':1'] == 'keep'`, `$.profile.":1"`},
+		{`profile['0'] == 'keep'`, `$.profile."0"`},
+		{`profile[0] == 'keep'`, `$.profile[0]`},
+	} {
+		predicate, err := filter.Parse(sample.expression)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path, err := buildJSONPath(predicate.(*filter.BinaryExpr))
+		if err != nil || path != sample.want {
+			t.Fatalf("path=%q err=%v, want %q", path, err, sample.want)
+		}
+	}
+}
+
+func TestSearchBindsDoNotRewriteLiteralKeys(t *testing.T) {
+	predicate, err := filter.Parse(`profile[':1'] == 'keep'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &Store{metadataColumn: "metadata"}
+	query, args, err := store.buildFilter(predicate, 2)
+	if err != nil || query != `(json_value(metadata, '$.profile.":1"') IS NOT NULL AND json_value(metadata, '$.profile.":1"') = :2)` || len(args) != 1 || args[0] != "keep" {
+		t.Fatalf("query=%q args=%v error=%v", query, args, err)
 	}
 }

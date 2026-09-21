@@ -15,3 +15,10 @@ func TestVisitorCollectionMembershipUsesExactArrayMatch(t *testing.T) {
 		t.Fatalf("Result() = %q, want %q", got, want)
 	}
 }
+
+func TestNegatedOrderingRejectsUnrepresentableNullBranch(t *testing.T) {
+	predicate := filter.Not(filter.GT("price", 5))
+	if err := predicate.Accept(newVisitor("metadata")); err == nil {
+		t.Fatal("negated ordering silently omitted missing and null records")
+	}
+}

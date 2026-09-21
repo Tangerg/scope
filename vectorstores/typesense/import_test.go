@@ -2,6 +2,7 @@ package typesense
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,6 +27,29 @@ func (importTestBatcher) Batch(
 func newImportTestStore(t *testing.T, body string) *Store {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodGet {
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write([]byte(`{"name":"documents","fields":[{"name":"embedding","type":"float[]","num_dim":2,"vec_dist":"cosine"}]}`))
+			return
+		}
+		decoder := json.NewDecoder(request.Body)
+		for _, expectedID := range []string{"one", "two"} {
+			var document map[string]json.RawMessage
+			if err := decoder.Decode(&document); err != nil {
+				t.Error(err)
+				break
+			}
+			var id string
+			if err := json.Unmarshal(document["id"], &id); err != nil || id != expectedID {
+				t.Errorf("provider id = %q, error=%v; want %q", id, err, expectedID)
+			}
+			if _, duplicate := document["doc_id"]; duplicate {
+				t.Error("obsolete identity field sent")
+			}
+		}
+		if request.URL.Query().Get("action") != "upsert" {
+			t.Errorf("import action = %s", request.URL.RawQuery)
+		}
 		writer.Header().Set("Content-Type", "text/plain")
 		writer.WriteHeader(http.StatusOK)
 		if _, err := writer.Write([]byte(body)); err != nil {

@@ -115,3 +115,10 @@ func TestVisitor_CollectionMembership(t *testing.T) {
 		t.Fatalf("filter = %T, want *types.RetrievalFilterMemberListContains", result)
 	}
 }
+
+func TestNegatedOrderingRejectsUnrepresentableNullBranch(t *testing.T) {
+	predicate := filter.Not(filter.GT("price", 5))
+	if err := predicate.Accept(newVisitor()); err == nil {
+		t.Fatal("negated ordering silently omitted missing and null records")
+	}
+}

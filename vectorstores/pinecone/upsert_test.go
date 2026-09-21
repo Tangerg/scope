@@ -145,3 +145,24 @@ func (c *chunkCountingIndex) UpsertVectors(_ context.Context, in []*pinecone.Vec
 	c.sizes = append(c.sizes, len(in))
 	return uint32(len(in)), nil
 }
+
+type emptyQueryIndex struct {
+	indexConnection
+	response *pinecone.QueryVectorsResponse
+}
+
+func (e *emptyQueryIndex) QueryByVectorValues(context.Context, *pinecone.QueryByVectorValuesRequest) (*pinecone.QueryVectorsResponse, error) {
+	return e.response, nil
+}
+
+func TestSearchDistinguishesEmptyFromMissingResponse(t *testing.T) {
+	store := upsertStore(t, &emptyQueryIndex{response: &pinecone.QueryVectorsResponse{}})
+	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "text"})
+	if err != nil || response == nil || len(response.Results) != 0 {
+		t.Fatalf("empty result=%v err=%v", response, err)
+	}
+	store = upsertStore(t, &emptyQueryIndex{})
+	if _, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "text"}); err == nil {
+		t.Fatal("missing response succeeded")
+	}
+}

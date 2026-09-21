@@ -226,7 +226,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 
 func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 	if !initSchema {
-		return nil
+		return s.validateTable(ctx)
 	}
 	if s.dimensions <= 0 {
 		return errors.New("clickhouse: Dimensions must be > 0")
@@ -240,7 +240,7 @@ func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 			%s Array(Float32),
 			CONSTRAINT vec_len CHECK length(%s) = %d,
 			INDEX vec_idx %s TYPE vector_similarity('hnsw', '%s', %d) GRANULARITY 1
-		) ENGINE = MergeTree() ORDER BY (%s)`,
+		) ENGINE = ReplacingMergeTree() ORDER BY (%s)`,
 		s.fullTable,
 		s.idColumn,
 		s.contentColumn,
@@ -253,7 +253,7 @@ func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 	if err := s.conn.Exec(ctx, stmt); err != nil {
 		return fmt.Errorf("create table %s: %w", s.fullTable, err)
 	}
-	return nil
+	return s.validateTable(ctx)
 }
 
 // Index embeds documents and inserts them as a single batch.
@@ -347,7 +347,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	}
 
 	stmt := fmt.Sprintf(
-		`SELECT %s, %s, %s, %s(%s, ?) AS distance FROM %s WHERE 1=1%s ORDER BY distance ASC LIMIT ?`,
+		`SELECT %s, %s, %s, %s(%s, ?) AS distance FROM %s FINAL WHERE 1=1%s ORDER BY distance ASC LIMIT ?`,
 		s.idColumn, s.contentColumn, s.metadataColumn,
 		s.distanceMetric.function(), s.embeddingColumn,
 		s.fullTable, wherePart,
@@ -418,7 +418,7 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 	if predicate == "" {
 		return errors.New("clickhouse: refusing to delete on empty filter")
 	}
-	return s.deleteMatching(ctx, predicate, args...)
+	return s.deleteMatching(ctx, fmt.Sprintf("%s IN (SELECT %s FROM %s FINAL WHERE %s)", s.idColumn, s.idColumn, s.fullTable, predicate), args...)
 }
 
 // DeleteIDs removes rows by primary key, matching the form DeleteWhere uses. An
@@ -512,4 +512,34 @@ func stringMapToMetadata(m map[string]string) (metadata.Map, error) {
 		return nil, fmt.Errorf("clickhouse: decode metadata: %w", err)
 	}
 	return out, nil
+}
+
+func (s *Store) validateTable(ctx context.Context) error {
+	database := "currentDatabase()"
+	args := []any{}
+	if s.databaseName != "" {
+		database = "?"
+		args = append(args, s.databaseName)
+	}
+	args = append(args, s.tableName)
+	rows, err := s.conn.Query(ctx, "SELECT engine_full, sorting_key, partition_key FROM system.tables WHERE database = "+database+" AND name = ?", args...)
+	if err != nil {
+		return fmt.Errorf("clickhouse: inspect table: %w", err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		return fmt.Errorf("clickhouse: table %s does not exist", s.fullTable)
+	}
+	var engine, sortingKey, partitionKey string
+	if err := rows.Scan(&engine, &sortingKey, &partitionKey); err != nil {
+		return err
+	}
+	engineName, _, _ := strings.Cut(engine, " ORDER BY ")
+	if (engineName != "ReplacingMergeTree" && engineName != "ReplacingMergeTree()") || sortingKey != s.idColumn || partitionKey != "" {
+		return fmt.Errorf("clickhouse: table %s must use unpartitioned ReplacingMergeTree without version arguments, ordered by %s", s.fullTable, s.idColumn)
+	}
+	return rows.Err()
 }

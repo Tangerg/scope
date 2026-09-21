@@ -517,8 +517,12 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		return errors.New("mongodb: refusing to delete on empty filter")
 	}
 
-	if _, err := s.collection.DeleteMany(ctx, filter); err != nil {
+	result, err := s.collection.DeleteMany(ctx, filter)
+	if err != nil {
 		return fmt.Errorf("mongodb: DeleteMany: %w", err)
+	}
+	if result == nil || !result.Acknowledged {
+		return errors.New("mongodb: deletion was not acknowledged")
 	}
 	return nil
 }
@@ -531,8 +535,12 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 		return nil
 	}
 
-	if _, err = s.collection.DeleteMany(ctx, bson.M{defaultIDField: bson.M{"$in": ids}}); err != nil {
+	result, err := s.collection.DeleteMany(ctx, bson.M{defaultIDField: bson.M{"$in": ids}})
+	if err != nil {
 		return fmt.Errorf("mongodb: DeleteMany by ids: %w", err)
+	}
+	if result == nil || !result.Acknowledged {
+		return errors.New("mongodb: deletion was not acknowledged")
 	}
 	return nil
 }

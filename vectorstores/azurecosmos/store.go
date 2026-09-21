@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 	"github.com/samber/lo"
@@ -245,7 +244,10 @@ func validateContainer(
 	}
 
 	wantPath := "/" + partitionKeyField
-	if paths := properties.PartitionKeyDefinition.Paths; !slices.Contains(paths, wantPath) {
+	if properties.PartitionKeyDefinition.Kind != azcosmos.PartitionKeyKindHash {
+		return fmt.Errorf("%w: partition key kind must be Hash, got %q", ErrIncompatibleContainer, properties.PartitionKeyDefinition.Kind)
+	}
+	if paths := properties.PartitionKeyDefinition.Paths; len(paths) != 1 || paths[0] != wantPath {
 		return fmt.Errorf("%w: container %s is partitioned on %v, but the store writes its key at %s",
 			ErrIncompatibleContainer, properties.ID, paths, wantPath)
 	}

@@ -211,8 +211,8 @@ func (v *visitor) convertLike(expr *filter.BinaryExpr) (types.RetrievalFilter, e
 	}
 }
 
-// invertBinary returns the boolean inverse of a single comparison —
-// EQ↔NE, LT↔GE, and LE↔GT.
+// invertBinary preserves Core null semantics; unsupported null branches are
+// rejected by the visitor instead of narrowing the selected records.
 func invertBinary(expr *filter.BinaryExpr) (*filter.BinaryExpr, error) {
 	inverted, err := expr.Inverse()
 	if err != nil {

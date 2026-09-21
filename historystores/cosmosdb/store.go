@@ -94,7 +94,10 @@ func validatePartitionKey(properties *azcosmos.ContainerProperties) error {
 	if properties == nil {
 		return fmt.Errorf("%w: the container returned no properties", ErrIncompatibleContainer)
 	}
-	if paths := properties.PartitionKeyDefinition.Paths; !slices.Contains(paths, PartitionKeyPath) {
+	if properties.PartitionKeyDefinition.Kind != azcosmos.PartitionKeyKindHash {
+		return fmt.Errorf("%w: partition key kind must be Hash, got %q", ErrIncompatibleContainer, properties.PartitionKeyDefinition.Kind)
+	}
+	if paths := properties.PartitionKeyDefinition.Paths; len(paths) != 1 || paths[0] != PartitionKeyPath {
 		return fmt.Errorf("%w: container %s is partitioned on %v, but every document carries its conversation id at %s",
 			ErrIncompatibleContainer, properties.ID, paths, PartitionKeyPath)
 	}

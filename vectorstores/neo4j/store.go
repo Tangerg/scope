@@ -111,7 +111,7 @@ type StoreConfig struct {
 
 func (s StoreConfig) Validate() error {
 	s.applyDefaults()
-	if s.Driver == nil {
+	if lo.IsNil(s.Driver) {
 		return errors.New("neo4j: Driver is required")
 	}
 	if lo.IsNil(s.EmbeddingModel) {

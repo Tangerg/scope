@@ -59,3 +59,21 @@ func TestCollectionMembershipUsesArrayContains(t *testing.T) {
 		t.Fatalf("params = %#v", params)
 	}
 }
+
+func TestFieldPathPreservesLiteralKeysAndIndexes(t *testing.T) {
+	for _, sample := range []struct{ expression, want string }{
+		{`profile['a.b'] == 'keep'`, `c.metadata.profile["a.b"]`},
+		{`profile['a b'] == 'keep'`, `c.metadata.profile["a b"]`},
+		{`profile['0'] == 'keep'`, `c.metadata.profile["0"]`},
+		{`profile[0] == 'keep'`, `c.metadata.profile[0]`},
+	} {
+		predicate, err := filter.Parse(sample.expression)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path, err := newVisitor("c", "metadata").fieldPath(predicate.(*filter.BinaryExpr))
+		if err != nil || path != sample.want {
+			t.Fatalf("path=%q err=%v, want %q", path, err, sample.want)
+		}
+	}
+}

@@ -1,5 +1,5 @@
 // Package clickhouse exposes ClickHouse vector similarity search
-// through the Core vector-store capability interfaces. Documents live in a MergeTree table
+// through the Core vector-store capability interfaces. Documents live in an unpartitioned ReplacingMergeTree table
 // (id / content / metadata Map(String,String) / embedding
 // Array(Float32)) reached through the official clickhouse-go v2
 // driver.
@@ -28,7 +28,11 @@
 //
 // Insert path. Uses the typed batch API (`Conn.PrepareBatch` +
 // `Batch.Append` + `Batch.Send`) — efficient for the bulk-insert
-// shape ClickHouse expects.
+// shape ClickHouse expects. Repeated IDs replace the visible record in insertion
+// order; reads use FINAL before filtering, and filtered deletion selects IDs
+// from that same current-record view before deleting all their versions.
+// Construction requires this unpartitioned engine without version arguments,
+// ordered only by the document ID.
 //
 // Delete uses a lightweight `DELETE FROM`, which waits until the rows are
 // marked deleted before returning, so both delete paths keep the contract they

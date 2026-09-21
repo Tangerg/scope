@@ -76,3 +76,21 @@ func TestVisitorCollectionMembershipPreservesJSONType(t *testing.T) {
 		})
 	}
 }
+
+func TestJSONPathPreservesLiteralKeysAndIndexes(t *testing.T) {
+	for _, sample := range []struct{ expression, want string }{
+		{`profile['a.b'] == 'keep'`, `$.profile."a.b"`},
+		{`profile[':1'] == 'keep'`, `$.profile.":1"`},
+		{`profile['0'] == 'keep'`, `$.profile."0"`},
+		{`profile[0] == 'keep'`, `$.profile[0]`},
+	} {
+		predicate, err := filter.Parse(sample.expression)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path, err := buildJSONPath(predicate.(*filter.BinaryExpr))
+		if err != nil || path != sample.want {
+			t.Fatalf("path=%q err=%v, want %q", path, err, sample.want)
+		}
+	}
+}

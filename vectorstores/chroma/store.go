@@ -95,7 +95,7 @@ type StoreConfig struct {
 
 func (s StoreConfig) Validate() error {
 	s.applyDefaults()
-	if s.Client == nil {
+	if lo.IsNil(s.Client) {
 		return ErrMissingClient
 	}
 	if s.CollectionName == "" {

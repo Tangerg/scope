@@ -333,6 +333,13 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 			return fmt.Errorf("redis.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, index)
 		}
 	}
+	for index, doc := range request.Documents {
+		for _, field := range []string{s.contentField, s.embeddingField, s.metadataJSONField} {
+			if _, exists := doc.Metadata[field]; exists {
+				return fmt.Errorf("redis: documents[%d] metadata key %q is reserved", index, field)
+			}
+		}
+	}
 
 	var batches []*vectorstore.IndexRequest
 	batches, err = request.Batch(ctx, s.documentBatcher)
@@ -379,11 +386,15 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 				}
 				fields[k] = field
 			}
-			pipe.HSet(ctx, s.keyPrefix+id, fields)
+			arguments := make([]any, 0, len(fields)*2)
+			for key, value := range fields {
+				arguments = append(arguments, key, value)
+			}
+			pipe.Eval(ctx, replaceDocumentHash, []string{s.keyPrefix + id}, arguments...)
 		}
 
 		if _, err = pipe.Exec(ctx); err != nil {
-			return fmt.Errorf("redis: pipeline HSET: %w", err)
+			return fmt.Errorf("redis: replace document hashes: %w", err)
 		}
 	}
 	return nil
@@ -516,3 +527,16 @@ func (s *Store) toDocument(hit goredis.Document) (*document.Document, error) {
 	}
 	return doc, nil
 }
+
+// The hash is one owned record. Install the complete new projection before
+// pruning old fields, so a malformed HSET cannot destroy the previous value.
+const replaceDocumentHash = `
+local previous = redis.call('HKEYS', KEYS[1])
+redis.call('HSET', KEYS[1], unpack(ARGV))
+local current = {}
+for i = 1, #ARGV, 2 do current[ARGV[i]] = true end
+for _, field in ipairs(previous) do
+    if not current[field] then redis.call('HDEL', KEYS[1], field) end
+end
+return 1
+`

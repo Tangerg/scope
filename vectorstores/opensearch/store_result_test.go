@@ -63,3 +63,16 @@ func TestToDocumentRejectsMalformedOwnedMetadata(t *testing.T) {
 		t.Fatalf("toDocument error = %v", err)
 	}
 }
+
+func TestToDocumentPreservesExactJSONNumbers(t *testing.T) {
+	store := &Store{contentField: "content", metadataField: "metadata"}
+	for _, value := range []string{`9007199254740993`, `18446744073709551615`, `0.1`, `1.25e-3`, `{"nested":9007199254740993}`} {
+		doc, err := store.toDocument(opensearchapi.SearchHit{ID: "one", Source: json.RawMessage(`{"content":"hello","metadata":{"value":` + value + `}}`)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(doc.Metadata["value"]) != value {
+			t.Fatalf("got %s, want %s", doc.Metadata["value"], value)
+		}
+	}
+}

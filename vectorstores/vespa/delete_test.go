@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -36,7 +37,7 @@ func TestDeleteWhereRestartsSearchAfterMutation(t *testing.T) {
 
 			children := make([]map[string]any, 0, len(remaining))
 			for _, id := range remaining {
-				children = append(children, map[string]any{"fields": map[string]any{"doc_id": id}})
+				children = append(children, map[string]any{"id": "id:scope:document::" + id, "fields": map[string]any{"doc_id": id}})
 			}
 			_ = json.NewEncoder(writer).Encode(map[string]any{
 				"root": map[string]any{
@@ -83,5 +84,47 @@ func TestDeleteWhereRestartsSearchAfterMutation(t *testing.T) {
 	}
 	if searches != 2 {
 		t.Fatalf("search requests = %d, want 2", searches)
+	}
+}
+
+func TestDeleteWhereRejectsForeignAndRepeatedHits(t *testing.T) {
+	for _, foreign := range []bool{false, true} {
+		t.Run(fmt.Sprintf("foreign=%t", foreign), func(t *testing.T) {
+			searches, deletes := 0, 0
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if request.Method == http.MethodDelete {
+					deletes++
+					fmt.Fprint(writer, `{}`)
+					return
+				}
+				searches++
+				var body struct {
+					YQL string `json:"yql"`
+				}
+				if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				if !strings.Contains(body.YQL, `scope_namespace contains "scope"`) {
+					t.Errorf("unscoped query: %s", body.YQL)
+				}
+				namespace := "scope"
+				if foreign {
+					namespace = "other"
+				}
+				fmt.Fprintf(writer, `{"root":{"coverage":{"coverage":100,"full":true},"children":[{"id":"id:%s:document::same","fields":{"doc_id":"same"}}]}}`, namespace)
+			}))
+			defer server.Close()
+			store := &Store{endpoint: server.URL, schemaName: "document", namespace: "scope", idField: "doc_id", httpClient: server.Client()}
+			err := store.DeleteWhere(t.Context(), filter.EQ("tenant", "scope"))
+			if err == nil {
+				t.Fatal("unsafe/repeated hit accepted")
+			}
+			if foreign && (deletes != 0 || searches != 1) {
+				t.Fatalf("foreign hit: deletes=%d searches=%d", deletes, searches)
+			}
+			if !foreign && (deletes != 1 || searches != 2) {
+				t.Fatalf("repeated hit: deletes=%d searches=%d", deletes, searches)
+			}
+		})
 	}
 }

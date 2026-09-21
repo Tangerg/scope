@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/samber/lo"
@@ -135,6 +136,11 @@ func (s StoreConfig) Validate() error {
 }
 
 func (s StoreConfig) validateIdentifiers() error {
+	for _, field := range []string{s.IDField, s.ContentField, s.EmbeddingField} {
+		if field == namespaceField {
+			return fmt.Errorf("vespa: field %q is reserved for namespace", field)
+		}
+	}
 	if err := identifier(s.SchemaName).validate("SchemaName"); err != nil {
 		return err
 	}
@@ -172,6 +178,8 @@ func (s *StoreConfig) applyDefaults() {
 		s.HTTPClient = http.DefaultClient
 	}
 }
+
+const namespaceField = "scope_namespace"
 
 var (
 	_ vectorstore.Indexer       = (*Store)(nil)
@@ -241,6 +249,13 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 			return fmt.Errorf("vespa.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, index)
 		}
 	}
+	for index, doc := range request.Documents {
+		for _, field := range []string{s.contentField, s.embeddingField, s.idField, namespaceField} {
+			if _, exists := doc.Metadata[field]; exists {
+				return fmt.Errorf("vespa: documents[%d] metadata key %q is reserved", index, field)
+			}
+		}
+	}
 
 	var batches []*vectorstore.IndexRequest
 	batches, err = request.Batch(ctx, s.documentBatcher)
@@ -262,6 +277,7 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 			id := doc.ID
 			fields := map[string]any{
 				s.idField:        id,
+				namespaceField:   s.namespace,
 				s.contentField:   doc.Text,
 				s.embeddingField: map[string]any{"values": embedding.Float32Vector(vectors[i])},
 			}
@@ -308,7 +324,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 
 	nn := fmt.Sprintf("{targetHits:%d}nearestNeighbor(%s, %s)",
 		req.Options.ResultLimit(), s.embeddingField, s.queryTensorName)
-	yql := fmt.Sprintf("select * from %s where %s", s.schemaName, nn)
+	yql := fmt.Sprintf("select * from %s where %s and %s contains %s", s.schemaName, nn, namespaceField, strconv.Quote(s.namespace))
 	if filterFragment != "" {
 		yql = yql + " and " + filterFragment
 	}
@@ -365,9 +381,10 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		return errors.New("vespa: refusing to delete on empty filter")
 	}
 
+	deleted := make(map[string]struct{})
 	for {
-		yql := fmt.Sprintf("select %s from %s where %s",
-			s.idField, s.schemaName, filterFragment)
+		yql := fmt.Sprintf("select %s from %s where (%s) and %s contains %s",
+			s.idField, s.schemaName, filterFragment, namespaceField, strconv.Quote(s.namespace))
 		body := map[string]any{
 			"yql":  yql,
 			"hits": s.maxHits,
@@ -379,19 +396,24 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		if len(hits) == 0 {
 			return nil
 		}
-		for _, hit := range hits {
-			id, present, err := hit.Fields.Decode[string](s.idField)
+		ids := make([]string, len(hits))
+		for index, hit := range hits {
+			id, err := s.documentID(hit.ID)
 			if err != nil {
-				return fmt.Errorf("vespa: enumerate ids: decode field %q: %w", s.idField, err)
+				return err
 			}
-			if !present || id == "" {
-				return fmt.Errorf("vespa: enumerate ids: search hit is missing string field %q", s.idField)
+			if _, repeated := deleted[id]; repeated {
+				return fmt.Errorf("vespa: delete made no progress: document %q remains visible", id)
 			}
+			ids[index] = id
+		}
+		for _, id := range ids {
 			path := fmt.Sprintf("/document/v1/%s/%s/docid/%s",
 				url.PathEscape(s.namespace), url.PathEscape(s.schemaName), url.PathEscape(id))
 			if _, err := s.sendJSON(ctx, http.MethodDelete, path, nil); err != nil {
 				return fmt.Errorf("vespa: delete %s: %w", id, err)
 			}
+			deleted[id] = struct{}{}
 		}
 	}
 }
@@ -482,24 +504,11 @@ func (s *Store) buildFilter(expr filter.Predicate) (string, error) {
 }
 
 func (s *Store) toDocument(rawID string, fields metadata.Map) (*document.Document, error) {
-	doc := &document.Document{}
-	id, present, err := fields.Decode[string](s.idField)
+	id, err := s.documentID(rawID)
 	if err != nil {
-		return nil, fmt.Errorf("vespa: decode field %q: %w", s.idField, err)
+		return nil, err
 	}
-	if present && id != "" {
-		doc.ID = id
-	} else {
-		// Fall back to the Vespa-native id like "id:namespace:schema::docid".
-		if idx := strings.LastIndex(rawID, "::"); idx > 0 {
-			doc.ID = rawID[idx+2:]
-		} else {
-			doc.ID = rawID
-		}
-	}
-	if doc.ID == "" {
-		return nil, errors.New("vespa: search hit has no stable document ID")
-	}
+	doc := &document.Document{ID: id}
 	text, present, err := fields.Decode[string](s.contentField)
 	if err != nil {
 		return nil, fmt.Errorf("vespa: decode field %q: %w", s.contentField, err)
@@ -514,7 +523,7 @@ func (s *Store) toDocument(rawID string, fields metadata.Map) (*document.Documen
 	meta := make(metadata.Map, len(fields))
 	for key, value := range fields {
 		switch key {
-		case s.idField, s.contentField, s.embeddingField:
+		case s.idField, s.contentField, s.embeddingField, namespaceField:
 			continue
 		}
 		meta[key] = value
@@ -561,4 +570,13 @@ func (s *Store) sendJSON(ctx context.Context, method, path string, body any) ([]
 		return nil, fmt.Errorf("status=%d body=%s", resp.StatusCode, string(respBody))
 	}
 	return respBody, nil
+}
+
+func (s *Store) documentID(raw string) (string, error) {
+	prefix := "id:" + s.namespace + ":" + s.schemaName + "::"
+	id, matches := strings.CutPrefix(raw, prefix)
+	if !matches || id == "" {
+		return "", fmt.Errorf("vespa: search hit %q is outside document scope %q", raw, prefix)
+	}
+	return id, nil
 }

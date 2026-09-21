@@ -1,6 +1,7 @@
 package tidb
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -297,14 +298,41 @@ func (v *visitor) appendValuePlaceholder(value any) {
 }
 
 func buildJSONPath(expr *filter.BinaryExpr) (string, error) {
-	keys, err := expr.Path()
+	selector, err := expr.Selector()
 	if err != nil {
 		return "", err
 	}
-	if len(keys) == 0 {
-		return "", errors.New("empty key path")
+	return selectorJSONPath(selector)
+}
+
+func selectorJSONPath(selector filter.Selector) (string, error) {
+	switch node := selector.(type) {
+	case *filter.Ident:
+		return "$." + node.Name(), nil
+	case *filter.IndexExpr:
+		parent, err := selectorJSONPath(node.Left())
+		if err != nil {
+			return "", err
+		}
+		if node.Index().IsString() {
+			key, keyErr := node.Index().AsString()
+			if keyErr != nil {
+				return "", keyErr
+			}
+			quoted, marshalErr := json.Marshal(key)
+			if marshalErr != nil {
+				return "", marshalErr
+			}
+			return parent + "." + string(quoted), nil
+		}
+		index, err := node.Index().Int64()
+		if err != nil || index < 0 {
+			return "", fmt.Errorf("invalid array index %s", node.Index().Text())
+		}
+		return fmt.Sprintf("%s[%d]", parent, index), nil
+	default:
+		return "", fmt.Errorf("unsupported selector %T", selector)
 	}
-	return "$." + strings.Join(keys, "."), nil
 }
 
 func sqlOpFor(kind filter.Operator) (string, error) {

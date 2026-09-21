@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
@@ -29,7 +30,7 @@ var collectionNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // Exported defaults keep constructor behavior visible and overridable.
 const (
 	DefaultCollectionName = "scope_vector_store"
-	idField               = "doc_id"
+	idField               = "id"
 	contentField          = "content"
 	metadataField         = "metadata"
 	embeddingField        = "embedding"
@@ -146,17 +147,16 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 // initialize creates the collection when
 // requested.
 func (s *Store) initialize(ctx context.Context, initSchema bool) error {
-	if !initSchema {
-		return nil
+	existing, err := s.client.Collection(s.collectionName).Retrieve(ctx)
+	if err == nil {
+		return s.checkVectorDistance(existing)
+	}
+	var httpErr *typesense.HTTPError
+	if !initSchema || !errors.As(err, &httpErr) || httpErr.Status != http.StatusNotFound {
+		return fmt.Errorf("typesense: retrieve collection %s: %w", s.collectionName, err)
 	}
 	if s.dimensions <= 0 {
 		return errors.New("typesense: Dimensions must be > 0")
-	}
-
-	// An existing collection carries its own vec_dist, which decides what
-	// vector_distance means, so it is checked rather than assumed.
-	if existing, err := s.client.Collection(s.collectionName).Retrieve(ctx); err == nil {
-		return s.checkVectorDistance(existing)
 	}
 
 	schema := &api.CollectionSchema{

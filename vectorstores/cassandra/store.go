@@ -417,15 +417,13 @@ func (s *Store) insertOne(ctx context.Context, id string, doc *document.Document
 	// The typed columns are the filterable projection. The record above is what
 	// a search reads back, so a key without a declared column is no longer lost.
 	for _, m := range s.metadataColumns {
-		val, ok, err := doc.Metadata.Decode[any](m.Name)
+		val, _, err := doc.Metadata.Decode[any](m.Name)
 		if err != nil {
 			return fmt.Errorf("cassandra: decode metadata %s: %w", m.Name, err)
 		}
-		if ok {
-			columns = append(columns, m.Name)
-			placeholders = append(placeholders, "?")
-			args = append(args, val)
-		}
+		columns = append(columns, m.Name)
+		placeholders = append(placeholders, "?")
+		args = append(args, val)
 	}
 
 	stmt := fmt.Sprintf(

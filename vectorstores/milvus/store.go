@@ -119,7 +119,6 @@ type collectionClient interface {
 	Upsert(context.Context, milvusclient.UpsertOption, ...grpc.CallOption) (milvusclient.UpsertResult, error)
 	Search(context.Context, milvusclient.SearchOption, ...grpc.CallOption) ([]milvusclient.ResultSet, error)
 	Delete(context.Context, milvusclient.DeleteOption, ...grpc.CallOption) (milvusclient.DeleteResult, error)
-	Close(context.Context) error
 }
 
 // Store implements [vectorstore.Store] against a Milvus collection. Milvus
@@ -484,8 +483,4 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	}
 
 	return nil
-}
-
-func (s *Store) Close(ctx context.Context) error {
-	return s.client.Close(ctx)
 }

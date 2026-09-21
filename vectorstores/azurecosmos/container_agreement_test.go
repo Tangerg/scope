@@ -19,7 +19,7 @@ func TestValidateContainer(t *testing.T) {
 	agreeing := func() *azcosmos.ContainerProperties {
 		return &azcosmos.ContainerProperties{
 			ID:                     "vectors",
-			PartitionKeyDefinition: azcosmos.PartitionKeyDefinition{Paths: []string{"/" + DefaultPartitionKeyField}},
+			PartitionKeyDefinition: azcosmos.PartitionKeyDefinition{Kind: azcosmos.PartitionKeyKindHash, Paths: []string{"/" + DefaultPartitionKeyField}},
 			VectorEmbeddingPolicy: &azcosmos.VectorEmbeddingPolicy{
 				VectorEmbeddings: []azcosmos.VectorEmbedding{{
 					Path:             "/" + DefaultEmbeddingField,
@@ -38,6 +38,16 @@ func TestValidateContainer(t *testing.T) {
 		wantErr    bool
 	}{
 		{name: "agrees", properties: agreeing, want: DistanceCosine},
+		{name: "hierarchical key", want: DistanceCosine, wantErr: true, properties: func() *azcosmos.ContainerProperties {
+			p := agreeing()
+			p.PartitionKeyDefinition.Paths = append(p.PartitionKeyDefinition.Paths, "/tenant")
+			return p
+		}},
+		{name: "multihash key", want: DistanceCosine, wantErr: true, properties: func() *azcosmos.ContainerProperties {
+			p := agreeing()
+			p.PartitionKeyDefinition.Kind = azcosmos.PartitionKeyKindMultiHash
+			return p
+		}},
 		{
 			name: "distance function disagrees",
 			properties: func() *azcosmos.ContainerProperties {
@@ -52,7 +62,7 @@ func TestValidateContainer(t *testing.T) {
 			name: "partitioned on another path",
 			properties: func() *azcosmos.ContainerProperties {
 				properties := agreeing()
-				properties.PartitionKeyDefinition = azcosmos.PartitionKeyDefinition{Paths: []string{"/tenant"}}
+				properties.PartitionKeyDefinition = azcosmos.PartitionKeyDefinition{Kind: azcosmos.PartitionKeyKindHash, Paths: []string{"/tenant"}}
 				return properties
 			},
 			want:    DistanceCosine,

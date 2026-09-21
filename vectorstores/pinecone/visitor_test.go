@@ -132,3 +132,14 @@ func TestNullTestUsesExists(t *testing.T) {
 		})
 	}
 }
+
+func TestNegatedOrderingIncludesMissingRecords(t *testing.T) {
+	compiled, err := compileFilter(filter.Not(filter.GT("price", 5)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"$or": []any{map[string]any{"price": map[string]any{"$exists": false}}, map[string]any{"price": map[string]any{"$lte": float64(5)}}}}
+	if !reflect.DeepEqual(compiled.AsMap(), want) {
+		t.Fatalf("negated ordering = %#v; want %#v", compiled.AsMap(), want)
+	}
+}

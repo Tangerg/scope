@@ -21,11 +21,11 @@ var _ filter.Visitor = (*visitor)(nil)
 //	author == "Alice"         →  metadata.author:= Alice
 //	year >= 2020              →  metadata.year:>= 2020
 //	category IN ("a", "b")    →  metadata.category:= [a,b]
-//	NOT (year >= 2020)        →  metadata.year:< 2020 (rewritten)
 //	a == "x" AND b == "y"     →  (metadata.a:= x && metadata.b:= y)
 //
 // Typesense `filter_by` doesn't have a standalone NOT operator — the
-// visitor rewrites `NOT (x op y)` into the operator's inverse.
+// visitor lowers it through Core negation. Negated ordering requires null
+// matching, which this backend cannot represent and therefore rejects.
 type visitor struct {
 	err            error
 	sql            strings.Builder

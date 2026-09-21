@@ -1,9 +1,13 @@
 package typesense
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/typesense/typesense-go/v3/typesense"
 	"github.com/typesense/typesense-go/v3/typesense/api"
 )
 
@@ -68,5 +72,29 @@ func TestCheckVectorDistanceRequiresTheEmbeddingField(t *testing.T) {
 	}
 	if err := store.checkVectorDistance(nil); err == nil {
 		t.Fatal("checkVectorDistance(nil) = nil, want an error")
+	}
+}
+
+func TestInitializeChecksExistingMetricRegardlessOfCreationPermission(t *testing.T) {
+	for _, initializeSchema := range []bool{false, true} {
+		t.Run(fmt.Sprint(initializeSchema), func(t *testing.T) {
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				requests++
+				if request.Method != http.MethodGet {
+					t.Errorf("unexpected schema mutation: %s", request.Method)
+				}
+				writer.Header().Set("Content-Type", "application/json")
+				fmt.Fprint(writer, `{"name":"documents","fields":[{"name":"embedding","type":"float[]","num_dim":2,"vec_dist":"ip"}]}`)
+			}))
+			defer server.Close()
+			store := &Store{client: typesense.NewClient(typesense.WithServer(server.URL), typesense.WithAPIKey("test")), collectionName: "documents", dimensions: 2}
+			if err := store.initialize(t.Context(), initializeSchema); err == nil || !strings.Contains(err.Error(), "vec_dist") {
+				t.Fatalf("metric mismatch = %v", err)
+			}
+			if requests != 1 {
+				t.Fatalf("requests = %d", requests)
+			}
+		})
 	}
 }

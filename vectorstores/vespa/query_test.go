@@ -115,7 +115,7 @@ func TestDeleteWhereRejectsDegradedEnumeration(t *testing.T) {
 func TestToDocumentPreservesLargeIntegerMetadata(t *testing.T) {
 	t.Parallel()
 
-	store := &Store{contentField: "content", embeddingField: "embedding", idField: "doc_id"}
+	store := &Store{namespace: "scope", schemaName: "document", contentField: "content", embeddingField: "embedding", idField: "doc_id"}
 	var fields metadata.Map
 	if err := json.Unmarshal(
 		[]byte(`{"doc_id":"one","content":"hello","embedding":[0.1],"ordinal":9007199254740993}`),
