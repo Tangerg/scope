@@ -185,6 +185,24 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 			mutations["duplicate task"] = func(state *executionState) { state.Tasks = append(state.Tasks, state.Tasks[0]) }
 			mutations["changed task input"] = func(state *executionState) { state.Tasks[0].Request.Input = input("forged") }
 		}
+		if len(state.Tasks) > 0 && state.Tasks[0].Outcome != nil {
+			mutations["worker terminal boundary"] = func(state *executionState) {
+				var wire map[string]json.RawMessage
+				if err := json.Unmarshal(require(json.Marshal(state.Tasks[0].Outcome)), &wire); err != nil {
+					t.Fatal(err)
+				}
+				wire["boundary"] = json.RawMessage(`"terminal_result"`)
+				delete(wire, "unresolved_effect_ids")
+				var outcome agent.ChildOutcome
+				if err := json.Unmarshal(require(json.Marshal(wire)), &outcome); err != nil {
+					t.Fatal(err)
+				}
+				state.Tasks[0].Outcome = &outcome
+				if state.Turn != nil && len(state.Turn.Input.Tasks) > 0 && state.Turn.Input.Tasks[0].Outcome != nil {
+					state.Turn.Input.Tasks[0].Outcome = &outcome
+				}
+			}
+		}
 		for name, mutate := range mutations {
 			t.Run(cases[index].Name+"/"+name, func(t *testing.T) {
 				var altered executionState

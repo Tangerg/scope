@@ -172,6 +172,11 @@ func (e executionState) validateOutcomes(ctx context.Context, d *Definition) err
 		outcomes = append(outcomes, *e.Turn.Outcome)
 		expected = append(expected, len(e.Tasks))
 	}
+	for _, outcome := range outcomes {
+		if outcome.Boundary() != agent.ChildWaitBoundaryDrained {
+			return fmt.Errorf("%w: child outcome requires drained boundary", ErrInvalidState)
+		}
+	}
 	indices, err := batch.MatchOutcomes(outcomes)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidState, err)
