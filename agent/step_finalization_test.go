@@ -3,6 +3,8 @@ package agent
 import (
 	"bytes"
 	"context"
+	"fmt"
+
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -203,6 +205,32 @@ func TestWaitConflictsAreRejectedBeforeDispatch(t *testing.T) {
 			}
 			if !bytes.Equal(inspectProcessSnapshot(t, restored).JSON(), snapshot.JSON()) || dispatcher.calls.Load() != 0 {
 				t.Fatal("restoration changed settlement evidence or repeated the external operation")
+			}
+		})
+	}
+}
+
+func TestInvalidChildWaitRejectsWholeBatchBeforeDispatch(t *testing.T) {
+	for _, externalFirst := range []bool{false, true} {
+		t.Run(fmt.Sprint(externalFirst), func(t *testing.T) {
+			engine := controlValue(NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}))
+			defer mustCloseEngine(t, engine)
+			wait := controlValue(NewChildWaitEffect(ChildWaitSpec{Key: controlValue(ParseWaitKey("children")), Children: []ProcessID{newProcessID()}, Boundary: ChildWaitBoundaryDrained, Condition: AllChildren()}))
+			external := controlValue(NewDispatcherEffect([]byte(`{"kind":"effect","value":"retained"}`)))
+			effects := []Effect{wait, external}
+			if externalFirst {
+				effects = []Effect{external, wait}
+			}
+			definition := &effectSequenceDefinition{descriptor: newEngineTestDefinition(t, "engine.invalid-child-wait", "effect").Descriptor(), effects: effects}
+			dispatcher := &engineTestDispatcher{policy: ReplayPolicySameIdentity}
+			process := controlValue(engine.Start(t.Context(), engineTestDeployment(t, definition, dispatcher), controlValue(EncodePayload(engineTestInput{Value: "retained"}))))
+			result := mustAwait(t, process)
+			if result.Status() != StatusFailed || dispatcher.calls.Load() != 0 {
+				t.Fatalf("status=%s dispatches=%d", result.Status(), dispatcher.calls.Load())
+			}
+			wire := inspectProcessSnapshot(t, process).state
+			if wire.Prepared != nil || wire.Mailbox.SignalCursor != 0 || len(wire.Mailbox.Waits) != 0 || wire.usage() != (Usage{}) {
+				t.Fatalf("invalid batch advanced process: %+v", wire)
 			}
 		})
 	}

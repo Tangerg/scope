@@ -172,3 +172,23 @@ func TestDrainedSnapshotAcceptsOrderedQuorumSubset(t *testing.T) {
 		t.Fatalf("ordered quorum subset rejected: %v", err)
 	}
 }
+
+func TestPreparedChildWaitRecoveryRequiresDirectChildren(t *testing.T) {
+	for _, invalid := range []bool{false, true} {
+		runtime := newWaitingSnapshotTree(t, 2)
+		root := runtime.processes[runtime.rootID]
+		child := runtime.childrenByParent[runtime.rootID][0]
+		if invalid {
+			child = newProcessID()
+		}
+		effect := controlValue(NewChildWaitEffect(ChildWaitSpec{Key: controlValue(ParseWaitKey("children")), Children: []ProcessID{child}, Boundary: ChildWaitBoundaryDrained, Condition: AllChildren()}))
+		transition := controlValue(Continue(0, effect))
+		if failure := prepareTestStep(root, stepJobResult{transition: transition, candidateState: root.committedExecutionState}); failure != nil {
+			t.Fatal(failure.cause)
+		}
+		_, err := runtime.captureTree()
+		if invalid && !errors.Is(err, ErrInvalidTreeSnapshot) || !invalid && err != nil {
+			t.Fatalf("invalid=%t error=%v", invalid, err)
+		}
+	}
+}

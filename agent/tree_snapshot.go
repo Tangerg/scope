@@ -335,16 +335,8 @@ func (t *treeSnapshotValidation) validateChildWaits() error {
 		if err := t.validateChildWaitSignals(facts.signals, encoded.WaitID, spec); err != nil {
 			return err
 		}
-		for _, childID := range spec.Children {
-			child, exists := t.processes[childID]
-			if !exists {
-				return fmt.Errorf("%w: wait references an absent child", ErrInvalidTreeSnapshot)
-			}
-			relation := mustProcessRelation(childID, child.Relation)
-			parentID, isChild := relation.ParentID()
-			if !isChild || parentID != encoded.ParentProcessID {
-				return fmt.Errorf("%w: wait references a non-direct child", ErrInvalidTreeSnapshot)
-			}
+		if err := spec.validateRelations(encoded.ParentProcessID, t.processRelation); err != nil {
+			return fmt.Errorf("%w: child wait: %w", ErrInvalidTreeSnapshot, err)
 		}
 		waitOwners[encoded.WaitID] = encoded.ParentProcessID
 	}
@@ -361,6 +353,13 @@ func (t *treeSnapshotValidation) validateChildWaits() error {
 	return nil
 }
 
+func (t *treeSnapshotValidation) processRelation(id ProcessID) ProcessRelation {
+	if process, exists := t.processes[id]; exists {
+		return mustProcessRelation(id, process.Relation)
+	}
+	return ProcessRelation{}
+}
+
 func (t *treeSnapshotValidation) validateChildSettlements() error {
 	for _, snapshot := range t.wire.ProcessSnapshots {
 		parent := snapshot.state
@@ -368,6 +367,17 @@ func (t *treeSnapshotValidation) validateChildSettlements() error {
 			continue
 		}
 		for _, record := range parent.Prepared.Effects {
+			if !parent.Status.Terminal() && record.Effect.Target() == EffectTargetFramework {
+				operation, err := decodeFrameworkOperation(record.Effect.Payload())
+				if err != nil {
+					return err
+				}
+				if wait, ok := operation.(childWaitOperation); ok {
+					if err := wait.spec.validateRelations(parent.ProcessID, t.processRelation); err != nil {
+						return fmt.Errorf("%w: prepared child wait: %w", ErrInvalidTreeSnapshot, err)
+					}
+				}
+			}
 			if record.Effect.Target() != EffectTargetFramework || !record.definitelySettled() {
 				continue
 			}

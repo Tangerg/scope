@@ -2258,6 +2258,21 @@ func (t *treeRuntime) applyStepCompletion(
 		t.failProcess(process, failure.kind, failure.code, failure.cause)
 		return
 	}
+	for _, record := range candidate.prepared.Effects {
+		if record.Effect.Target() != EffectTargetFramework {
+			continue
+		}
+		operation, err := decodeFrameworkOperation(record.Effect.Payload())
+		if err == nil {
+			if wait, ok := operation.(childWaitOperation); ok {
+				err = wait.spec.validateRelations(process.handle.processID, t.processRelation)
+			}
+		}
+		if err != nil {
+			t.failProcessContract(process, failureCodeExecutionEffectInvalid, err)
+			return
+		}
+	}
 	if err := t.validateSnapshotCapacity(candidate); err != nil {
 		t.failProcess(process, FailureKindExecution, failureCodeEngineLimitSnapshot, err)
 		return
@@ -2516,6 +2531,13 @@ func (t *treeRuntime) subtreeUnresolvedEffects(processID ProcessID) []Unresolved
 		func(id ProcessID) Termination { return t.processes[id].termination })
 }
 
+func (t *treeRuntime) processRelation(id ProcessID) ProcessRelation {
+	if process := t.processes[id]; process != nil {
+		return process.handle.relation
+	}
+	return ProcessRelation{}
+}
+
 func (t *treeRuntime) registerChildWait(
 	parentID ProcessID,
 	waitID WaitID,
@@ -2527,15 +2549,8 @@ func (t *treeRuntime) registerChildWait(
 	if t.childWaits[parentID][waitID] != nil {
 		return Signal{}, false, ErrInvalidChildWait
 	}
-	for _, childID := range spec.Children {
-		child := t.processes[childID]
-		if child == nil {
-			return Signal{}, false, ErrInvalidChildWait
-		}
-		actualParent, isChild := child.handle.relation.ParentID()
-		if !isChild || actualParent != parentID {
-			return Signal{}, false, ErrInvalidChildWait
-		}
+	if err := spec.validateRelations(parentID, t.processRelation); err != nil {
+		return Signal{}, false, err
 	}
 	registration := &childWaitRegistration{
 		waitID: waitID,

@@ -110,6 +110,16 @@ func (c ChildWaitSpec) Valid() bool {
 	return true
 }
 
+func (c ChildWaitSpec) validateRelations(parent ProcessID, relation func(ProcessID) ProcessRelation) error {
+	for _, id := range c.Children {
+		actualParent, child := relation(id).ParentID()
+		if !child || actualParent != parent {
+			return ErrInvalidChildWait
+		}
+	}
+	return nil
+}
+
 // required is total; Valid owns the child-count and condition constraints.
 func (c ChildWaitSpec) required() uint32 {
 	switch c.Condition.kind {
