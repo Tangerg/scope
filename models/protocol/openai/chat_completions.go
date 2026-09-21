@@ -59,7 +59,29 @@ type ChatCompletions struct {
 
 // NewChatCompletions rejects an invalid provider binding before the first Chat Completions call.
 func NewChatCompletions(_ context.Context, config ChatCompletionsConfig) (*ChatCompletions, error) {
-	return newChatCompletions(config, Dialect{Provider: protocolProvider, TokenLimitField: TokenLimitMaxCompletionTokens})
+	return newChatCompletions(config, Dialect{Provider: protocolProvider, TokenLimitField: TokenLimitMaxCompletionTokens, PrepareRequest: prepareOpenAIChatRequest})
+}
+
+func prepareOpenAIChatRequest(_ *corechat.Request, target *CompatibleRequest) error {
+	options := make(map[string]any)
+	if value, supplied := target.extraFields["stream_options"]; supplied {
+		if value == nil {
+			return nil
+		}
+		fields, ok := value.(map[string]any)
+		if !ok {
+			return errors.New("openai: stream_options must be an object or null")
+		}
+		maps.Copy(options, fields)
+	}
+	if value, supplied := options["include_usage"]; supplied {
+		if _, ok := value.(bool); !ok {
+			return errors.New("openai: stream_options.include_usage must be a boolean")
+		}
+	} else {
+		options["include_usage"] = true
+	}
+	return target.SetExtraField("stream_options", options)
 }
 
 // NewCompatibleChatCompletions rejects an invalid compatible binding before the first call.

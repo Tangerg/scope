@@ -27,6 +27,11 @@
 // extensions scoped to the endpoint provider. Raw response details use that
 // same namespace, so compatible endpoints never leak OpenAI provider metadata.
 //
+// Standard Chat Completions requests stream_options.include_usage by default
+// for both Call and Stream. Explicit false or null stream_options are respected;
+// compatible providers retain their own request policy. Missing provider usage
+// remains unknown, never a fabricated zero.
+//
 // Responses Call and Stream share terminal-state mapping: incomplete generation
 // preserves its stop reason, failed generation returns an error, and a stream
 // ending before a terminal response returns chat.ErrInvalidResponse.
