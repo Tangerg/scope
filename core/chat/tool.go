@@ -46,7 +46,7 @@ func (t ToolCallDelta) Validate() error {
 // Content cannot contain chat control payloads or recursively contain results.
 type ToolOutput struct {
 	Content []ToolContent   `json:"content,omitempty"`
-	Details json.RawMessage `json:"details,omitempty"`
+	Details json.RawMessage `json:"details,omitzero"`
 }
 
 // NewTextToolOutput returns a text output. Empty text is represented by the

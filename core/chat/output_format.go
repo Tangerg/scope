@@ -41,7 +41,7 @@ type OutputFormat struct {
 	Type        OutputFormatType `json:"type"`
 	Name        string           `json:"name,omitempty"`
 	Description string           `json:"description,omitempty"`
-	Schema      json.RawMessage  `json:"schema,omitempty"`
+	Schema      json.RawMessage  `json:"schema,omitzero"`
 }
 
 // NewOutputFormat constructs the schema-free text or JSON contract. JSON

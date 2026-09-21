@@ -126,3 +126,25 @@ func TestToolOutputJSONOwnsValidation(t *testing.T) {
 		t.Fatalf("nil receiver error = %v, want ErrInvalidToolOutput", err)
 	}
 }
+
+func TestToolOutputPreservesEmptyJSONValues(t *testing.T) {
+	for _, raw := range []string{`null`, `""`, `{}`, `[]`, `false`, `0`} {
+		t.Run(raw, func(t *testing.T) {
+			output, err := chat.NewJSONToolOutput(json.RawMessage(raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := json.Marshal(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var restored chat.ToolOutput
+			if err := json.Unmarshal(data, &restored); err != nil {
+				t.Fatal(err)
+			}
+			if string(restored.Details) != raw {
+				t.Fatalf("details = %s, want %s; wire = %s", restored.Details, raw, data)
+			}
+		})
+	}
+}

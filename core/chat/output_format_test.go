@@ -130,3 +130,21 @@ func TestOutputFormatCloneAndAtomicUnmarshal(t *testing.T) {
 		t.Fatalf("nil receiver = %v, want ErrInvalidOutputFormat", err)
 	}
 }
+
+func TestEmptyOutputSchemaRoundTrip(t *testing.T) {
+	format, err := chat.NewJSONSchemaOutputFormat(chat.JSONSchemaConfig{Name: "anything", Schema: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(format)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored chat.OutputFormat
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if string(restored.Schema) != `{}` {
+		t.Fatalf("schema = %s", restored.Schema)
+	}
+}
