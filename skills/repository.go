@@ -260,7 +260,12 @@ func (r *Repository) openSkillFile(ctx context.Context, name string) (fs.File, e
 			return nil, errors.Join(statErr, file.Close(), contextError(ctx, "close skill"))
 		}
 		if !info.Mode().IsRegular() {
-			return nil, errors.Join(invalidSkill(name, fmt.Errorf("%s must be a regular file: mode %s", SkillFile, info.Mode().Type())), file.Close(), contextError(ctx, "close skill"))
+			cause := fmt.Errorf("%s must be a regular file: mode %s", SkillFile, info.Mode().Type())
+			// List may skip invalid skills, but must propagate cleanup failures.
+			if closeErr := errors.Join(file.Close(), contextError(ctx, "close skill")); closeErr != nil {
+				return nil, errors.Join(cause, closeErr)
+			}
+			return nil, invalidSkill(name, cause)
 		}
 		return file, nil
 	}

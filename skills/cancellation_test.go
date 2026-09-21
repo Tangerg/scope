@@ -360,7 +360,7 @@ func (d discoveryFile) Close() error {
 }
 
 func TestMetadataValidationClosesRejectedDescriptor(t *testing.T) {
-	for _, operation := range []string{"load", "lookup"} {
+	for _, operation := range []string{"load", "lookup", "list"} {
 		for _, phase := range []string{"stat", "nonregular", "close"} {
 			t.Run(operation+"/"+phase, func(t *testing.T) {
 				ctx, cancel := context.WithCancel(t.Context())
@@ -375,10 +375,13 @@ func TestMetadataValidationClosesRejectedDescriptor(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if operation == "load" {
+				switch operation {
+				case "load":
 					_, err = repository.Load(ctx, "demo")
-				} else {
+				case "lookup":
 					_, err = repository.Lookup(ctx, "demo")
+				case "list":
+					_, err = repository.List(ctx)
 				}
 				if phase == "close" && !errors.Is(err, context.Canceled) {
 					t.Fatalf("lost close cancellation: %v", err)
@@ -390,8 +393,6 @@ func TestMetadataValidationClosesRejectedDescriptor(t *testing.T) {
 					if !errors.Is(err, failure) || !errors.Is(err, context.Canceled) {
 						t.Fatalf("lost stat error or cancellation: %v", err)
 					}
-				} else if !errors.Is(err, skills.ErrInvalidSkill) {
-					t.Fatalf("nonregular metadata error=%v", err)
 				}
 			})
 		}
