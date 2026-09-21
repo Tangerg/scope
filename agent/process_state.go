@@ -663,10 +663,7 @@ func (p *processState) snapshotWire() processSnapshotWire {
 		waitID := p.currentWaitID
 		wire.CurrentWaitID = &waitID
 	}
-	if p.finalOutput.Valid() {
-		output := p.finalOutput
-		wire.Output = &output
-	}
+	wire.Output = p.finalOutput
 	if p.termination.Valid() {
 		termination := p.termination
 		wire.Termination = &termination

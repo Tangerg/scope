@@ -149,7 +149,7 @@ func (d decisionModel) decide(turn collaboration.Turn) (collaboration.Decision, 
 		if err != nil {
 			return decision, err
 		}
-		decision.Mode, decision.Output = collaboration.Complete, &final
+		decision.Mode, decision.Output = collaboration.Complete, final
 	default:
 		return decision, errors.New("unexpected coordinator turn")
 	}

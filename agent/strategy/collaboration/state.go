@@ -57,7 +57,7 @@ type executionState struct {
 	Mode         Mode             `json:"mode,omitempty"`
 	WaitSequence uint64           `json:"wait_sequence"`
 	WaitID       *agent.WaitID    `json:"wait_id,omitzero"`
-	Output       *agent.Payload   `json:"output,omitzero"`
+	Output       agent.Payload    `json:"output,omitzero"`
 }
 
 func (e executionState) task(key agent.ChildKey) *Task {
@@ -208,7 +208,7 @@ func (e executionState) validate(ctx context.Context, d *Definition) error {
 		return err
 	}
 	if e.Phase == phaseReady {
-		if e.Number != 0 || len(e.Tasks)+len(e.Controls) != 0 || e.Turn != nil || e.Mode != Undecided || e.WaitSequence != 0 || e.WaitID != nil || e.Output != nil {
+		if e.Number != 0 || len(e.Tasks)+len(e.Controls) != 0 || e.Turn != nil || e.Mode != Undecided || e.WaitSequence != 0 || e.WaitID != nil || e.Output.Valid() {
 			return fmt.Errorf("%w: ready phase retains execution progress", ErrInvalidState)
 		}
 		return nil
@@ -222,7 +222,7 @@ func (e executionState) validate(ctx context.Context, d *Definition) error {
 	if (e.Phase == phaseWaiting) != (e.WaitID != nil) || e.WaitID != nil && !e.WaitID.Valid() {
 		return fmt.Errorf("%w: wait identity does not match phase %q", ErrInvalidState, e.Phase)
 	}
-	if (e.Phase == phaseCompleted) != (e.Output != nil) {
+	if (e.Phase == phaseCompleted) != (e.Output.Valid()) {
 		return fmt.Errorf("%w: output does not match phase %q", ErrInvalidState, e.Phase)
 	}
 	switch e.Phase {
@@ -251,7 +251,7 @@ func (e executionState) validate(ctx context.Context, d *Definition) error {
 		if e.Turn.Outcome == nil || e.Mode != Complete {
 			return fmt.Errorf("%w: completed phase requires a completed turn decision", ErrInvalidState)
 		}
-		if err := d.descriptor.ValidateOutput(*e.Output); err != nil {
+		if err := d.descriptor.ValidateOutput(e.Output); err != nil {
 			return fmt.Errorf("%w: completed output: %w", ErrInvalidState, err)
 		}
 	case phaseFailed:
@@ -432,7 +432,7 @@ func (e executionState) validateAppliedDecision(ctx context.Context, d *Definiti
 	}
 	previousCount := len(e.Turn.Input.Tasks)
 	if len(e.Tasks) != previousCount+len(decision.Tasks) || len(e.Controls) != len(decision.Controls) ||
-		e.Mode != decision.Mode || !sameJSON(e.State, decision.State) || !sameJSON(e.Output, decision.Output) {
+		e.Mode != decision.Mode || !sameJSON(e.State, decision.State) || !bytes.Equal(e.Output.JSON(), decision.Output.JSON()) {
 		return fmt.Errorf("%w: applied state does not match the coordinator decision", ErrInvalidState)
 	}
 	for index, request := range decision.Tasks {
@@ -467,15 +467,15 @@ func (e executionState) validateDecision(ctx context.Context, definition *Defini
 		return fmt.Errorf("%w: state: %w", ErrInvalidDecision, err)
 	}
 	if decision.Mode == Complete {
-		if decision.Output == nil || len(decision.Tasks) != 0 || len(decision.Controls) != 0 {
+		if !decision.Output.Valid() || len(decision.Tasks) != 0 || len(decision.Controls) != 0 {
 			return ErrInvalidDecision
 		}
-		if err := definition.descriptor.ValidateOutput(*decision.Output); err != nil {
+		if err := definition.descriptor.ValidateOutput(decision.Output); err != nil {
 			return fmt.Errorf("%w: output: %w", ErrInvalidDecision, err)
 		}
 		return nil
 	}
-	if decision.Mode != Continue && decision.Mode != Wait || decision.Output != nil {
+	if decision.Mode != Continue && decision.Mode != Wait || decision.Output.Valid() {
 		return ErrInvalidDecision
 	}
 	if !definition.maxTasks.Allows(uint64(len(e.Tasks)), uint64(len(decision.Tasks))) ||

@@ -138,3 +138,18 @@ func fuzzToolCheckpoint(f *testing.F) *toolCheckpoint {
 	}
 	return &toolCheckpoint{PauseCount: 2, InputRequest: request}
 }
+
+func TestInputResponseRequiresPresentJSON(t *testing.T) {
+	if _, err := decodeSignal([]byte(`{"operation":"input_response"}`)); err == nil {
+		t.Fatal("accepted a missing answer")
+	}
+	for _, raw := range []string{`null`, `""`, `{}`, `[]`, `false`, `0`} {
+		signal, err := decodeSignal([]byte(`{"operation":"input_response","input_response":` + raw + `}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(signal.InputResponse) != raw {
+			t.Fatalf("answer = %s, want %s", signal.InputResponse, raw)
+		}
+	}
+}

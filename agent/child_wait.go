@@ -436,7 +436,7 @@ type resultWire struct {
 	ProcessID   ProcessID   `json:"process_id"`
 	StartedAt   time.Time   `json:"started_at"`
 	FinishedAt  time.Time   `json:"finished_at"`
-	Output      *Payload    `json:"output,omitempty"`
+	Output      Payload     `json:"output,omitzero"`
 	Termination Termination `json:"termination"`
 	Usage       Usage       `json:"usage"`
 }
@@ -488,13 +488,9 @@ func (c childOutcomeWire) value() (ChildOutcome, error) {
 }
 
 func (r resultWire) value() (Result, error) {
-	var output Payload
-	if r.Output != nil {
-		output = *r.Output
-	}
 	result := Result{
 		processID: r.ProcessID, startedAt: r.StartedAt, finishedAt: r.FinishedAt,
-		output: output, termination: r.Termination, usage: r.Usage,
+		output: r.Output, termination: r.Termination, usage: r.Usage,
 	}
 	if !result.Valid() {
 		return Result{}, ErrInvalidChildWait

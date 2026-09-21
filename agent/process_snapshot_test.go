@@ -64,7 +64,6 @@ func TestProcessSnapshotOwnsMutableWire(t *testing.T) {
 				}
 				if value.FinishedAt != nil {
 					*value.FinishedAt = value.StartedAt
-					*value.Output = Payload{}
 					*value.Termination = Termination{}
 				}
 			}
@@ -391,4 +390,48 @@ func preparedEngineTestSnapshot(t testing.TB) ProcessSnapshot {
 		t.Fatal(err)
 	}
 	return snapshot
+}
+
+func TestSnapshotAndChildResultPreserveNullOutput(t *testing.T) {
+	wire, err := completedEngineTestSnapshot(t).wire()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire.Output, err = ParsePayload([]byte(`null`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := newProcessSnapshot(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := ParseProcessSnapshot(snapshot.JSON())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, present := restored.Result()
+	output, hasOutput := result.Output()
+	if !present || !hasOutput || string(output.JSON()) != `null` {
+		t.Fatalf("lost null output: %s", output.JSON())
+	}
+	for _, boundary := range []ChildWaitBoundary{ChildWaitBoundaryResult, ChildWaitBoundaryDrained} {
+		key, _ := ParseChildKey("null-child")
+		original := ChildOutcome{key: key, result: result, boundary: boundary}
+		data, err := json.Marshal(original)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded ChildOutcome
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		output, present := decoded.Result().Output()
+		if !present || string(output.JSON()) != `null` {
+			t.Fatalf("child output = %s", output.JSON())
+		}
+	}
+	wire.Output = Payload{}
+	if _, err := newProcessSnapshot(wire); !errors.Is(err, ErrInvalidSnapshot) {
+		t.Fatalf("missing output = %v", err)
+	}
 }

@@ -183,9 +183,7 @@ func (p ProcessSnapshot) Result() (Result, bool) {
 	result := Result{processID: p.state.ProcessID, startedAt: p.state.StartedAt,
 		finishedAt: *p.state.FinishedAt, termination: *p.state.Termination,
 		usage: p.state.usage()}
-	if p.state.Output != nil {
-		result.output = *p.state.Output
-	}
+	result.output = p.state.Output
 	return result, true
 }
 
@@ -283,7 +281,7 @@ type processSnapshotWire struct {
 	CurrentWaitID           *WaitID             `json:"current_wait_id,omitempty"`
 	PauseReason             string              `json:"pause_reason,omitempty"`
 	PendingControl          pendingControlWire  `json:"pending_control"`
-	Output                  *Payload            `json:"output,omitempty"`
+	Output                  Payload             `json:"output,omitzero"`
 	Termination             *Termination        `json:"termination,omitempty"`
 }
 
@@ -387,9 +385,6 @@ func (p processSnapshotWire) clone() processSnapshotWire {
 	}
 	if p.PendingControl.Failure != nil {
 		clone.PendingControl.Failure = new(*p.PendingControl.Failure)
-	}
-	if p.Output != nil {
-		clone.Output = new(*p.Output)
 	}
 	if p.Termination != nil {
 		clone.Termination = new(*p.Termination)
@@ -532,10 +527,10 @@ func (p processSnapshotWire) validateLifecycle(mailbox signalMailbox) error {
 		return fmt.Errorf("%w: termination does not match status", ErrInvalidSnapshot)
 	}
 	if p.Status == StatusCompleted {
-		if p.Output == nil || !p.Output.Valid() {
+		if !p.Output.Valid() {
 			return fmt.Errorf("%w: completed process requires output", ErrInvalidSnapshot)
 		}
-	} else if p.Output != nil {
+	} else if p.Output.Valid() {
 		return fmt.Errorf("%w: only Completed Process may contain Output", ErrInvalidSnapshot)
 	}
 	if p.Status == StatusWaiting && p.CurrentWaitID == nil {

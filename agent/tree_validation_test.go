@@ -91,7 +91,7 @@ func TestDrainedSnapshotRejectsActiveDeepDescendant(t *testing.T) {
 	index := len(wire.ProcessSnapshots) - 1
 	leaf := wire.ProcessSnapshots[index].state
 	leaf.Status, leaf.PauseReason = StatusPaused, "unfinished descendant"
-	leaf.Termination, leaf.FinishedAt, leaf.Output = nil, nil, nil
+	leaf.Termination, leaf.FinishedAt, leaf.Output = nil, nil, Payload{}
 	wire.ProcessSnapshots[index] = controlValue(newProcessSnapshot(leaf))
 	if _, err := ParseTreeSnapshot(controlValue(json.Marshal(wire))); !errors.Is(err, ErrInvalidTreeSnapshot) {
 		t.Fatalf("drained outcome accepted active descendant: %v", err)

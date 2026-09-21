@@ -337,10 +337,7 @@ func (r Result) wire() resultWire {
 		ProcessID: r.processID, StartedAt: r.startedAt, FinishedAt: r.finishedAt,
 		Termination: r.termination, Usage: r.usage,
 	}
-	if r.output.Valid() {
-		output := r.output
-		wire.Output = &output
-	}
+	wire.Output = r.output
 	return wire
 }
 

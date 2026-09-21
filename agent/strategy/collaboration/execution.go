@@ -308,7 +308,7 @@ func (e *execution) applyDecision(ctx context.Context, decision Decision, consum
 	if decision.Mode == Complete {
 		e.state.Phase = phaseCompleted
 		e.state.Output = decision.Output
-		return agent.Complete(consumed, *decision.Output)
+		return agent.Complete(consumed, decision.Output)
 	}
 	if len(effects) == 0 {
 		return e.afterActions(consumed)

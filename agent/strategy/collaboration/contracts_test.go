@@ -45,9 +45,9 @@ func TestRejectsDecisionBatchBeforeDeclaringActions(t *testing.T) {
 	}
 }
 
-func requireOutput[T any](value T) *agent.Payload {
+func requireOutput[T any](value T) agent.Payload {
 	output := require(agent.EncodePayload(value))
-	return &output
+	return output
 }
 
 func TestConfigurationAndProtocolContracts(t *testing.T) {

@@ -201,7 +201,7 @@ func TestCollaborationRejectsUnresolvedCoordinatorDecision(t *testing.T) {
 			decision := collaboration.Decision{Mode: mode, State: safetyValue(agent.EncodePayload("initial"))}
 			worker := safetyBinding(safetyValue(coordination.NewInputGate(coordination.InputGateConfig{Name: "safety.worker", Description: "Never admitted.", RequestSchema: safetyValue(agent.SchemaFor[string]()), AnswerSchema: safetyValue(agent.SchemaFor[string]())})), nil)
 			if mode == collaboration.Complete {
-				decision.Output = &output
+				decision.Output = output
 			} else {
 				decision.Tasks = []collaboration.TaskRequest{{Key: safetyValue(agent.ParseChildKey("new-work")), Worker: "safety.worker", Input: safetyValue(agent.EncodePayload("work"))}}
 			}

@@ -67,7 +67,7 @@ func request(key, worker, value string) TaskRequest {
 }
 func finish(turn Turn, text string) Decision {
 	output := require(agent.EncodePayload(text))
-	return Decision{Mode: Complete, State: turn.State, Output: &output}
+	return Decision{Mode: Complete, State: turn.State, Output: output}
 }
 func echo() agent.Deployment {
 	return transformed("test.echo", func(_ context.Context, text string) (string, error) { return "echo: " + text, nil })
@@ -205,4 +205,34 @@ func TestAddressedInputWakesWaitingCollaboration(t *testing.T) {
 func TestDefinitionConformance(t *testing.T) {
 	definition, _ := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
 	agenttest.RunDefinitionConformance(t, agenttest.DefinitionConformanceConfig{Definition: definition, Input: input("initial")})
+}
+
+func TestNullCompletionSurvivesTreeRecovery(t *testing.T) {
+	config, deployments := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) {
+		return Decision{Mode: Complete, State: turn.State, Output: require(agent.ParsePayload([]byte(`null`)))}, nil
+	}, echo())
+	config.OutputSchema = require(agent.ParseSchema([]byte(`{"type":"null"}`)))
+	definition := require(NewDefinition(config))
+	store := agent.NewMemoryTreeCommitter()
+	engine, process := run(t, definition, deployments, store)
+	result := require(process.Await(t.Context()))
+	if result.Status() != agent.StatusCompleted {
+		t.Fatalf("termination = %+v", result.Termination())
+	}
+	tree := require(engine.CaptureTree(t.Context(), process.ID()))
+	parsed := require(agent.ParseTreeSnapshot(tree.JSON()))
+	if err := engine.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	restoredEngine := require(agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployments}))
+	defer func() {
+		if err := restoredEngine.Close(t.Context()); err != nil {
+			t.Error(err)
+		}
+	}()
+	restored := require(restoredEngine.RestoreTree(t.Context(), binding(definition), parsed))
+	output, present := require(restored.Await(t.Context())).Output()
+	if !present || string(output.JSON()) != `null` {
+		t.Fatalf("output = %s", output.JSON())
+	}
 }

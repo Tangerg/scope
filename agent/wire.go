@@ -64,6 +64,9 @@ func (p Payload) Decode[T any]() (T, error) {
 // JSON returns an independently owned JSON representation.
 func (p Payload) JSON() json.RawMessage { return bytes.Clone(p.data) }
 
+// IsZero distinguishes an absent optional payload from an explicit JSON null.
+func (p Payload) IsZero() bool { return !p.Valid() }
+
 func (p Payload) Valid() bool { return len(p.data) > 0 }
 
 func (Payload) JSONSchemaAlias() any { return json.RawMessage{} }

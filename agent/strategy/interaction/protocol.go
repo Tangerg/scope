@@ -77,7 +77,7 @@ type signalEnvelope struct {
 	ModelResult   *modelCallResult    `json:"model_result,omitempty"`
 	ToolResult    *toolDispatchResult `json:"tool_result,omitempty"`
 	WaitOpened    *toolInputRequest   `json:"wait_opened,omitempty"`
-	InputResponse json.RawMessage     `json:"input_response,omitempty"`
+	InputResponse json.RawMessage     `json:"input_response,omitzero"`
 	Steer         *steerInput         `json:"steer,omitempty"`
 }
 

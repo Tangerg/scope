@@ -78,11 +78,12 @@ type Turn struct {
 
 // Decision is the coordinator's output contract. The entire batch is validated
 // before any action is declared. Complete requires Output and no actions; other
-// modes prohibit Output. Input and Output retain the configured domain schemas.
+// modes require a zero Output. An explicit JSON null is a present Output.
+// Input and Output retain the configured domain schemas.
 type Decision struct {
-	Mode     Mode           `json:"mode"`
-	State    agent.Payload  `json:"state"`
-	Tasks    []TaskRequest  `json:"tasks,omitempty"`
-	Controls []Control      `json:"controls,omitempty"`
-	Output   *agent.Payload `json:"output,omitzero"`
+	Mode     Mode          `json:"mode"`
+	State    agent.Payload `json:"state"`
+	Tasks    []TaskRequest `json:"tasks,omitempty"`
+	Controls []Control     `json:"controls,omitempty"`
+	Output   agent.Payload `json:"output,omitzero"`
 }
