@@ -6,9 +6,11 @@
 //
 // Model-call and child work quotas default to unlimited. Host cancellation and
 // independently configured concurrency and mailbox capacity remain effective.
-// A finite zero MaxModelCalls is rejected at construction. Invalid provider
-// output terminates with external / interaction.model.invalid_response, without
-// retrying the model or committing the rejected Step.
+// A finite zero MaxModelCalls is rejected at construction. Model boundary errors,
+// including nil or structurally invalid responses, leave the Effect Unknown and
+// require explicit Host resolution. A structurally valid response that violates
+// Interaction constraints terminates with external / interaction.model.invalid_response,
+// without retrying the model or committing the rejected Step.
 //
 // A Definition owns the serializable working context, model/Tool state
 // machine, exact managed Delegate bindings, typed Delegate Artifacts, and an
@@ -24,6 +26,9 @@
 // for input. Hosts use [ToolSet.SettleToolResult] to validate investigated Tool
 // results against the original EffectRequest and frozen binding, then submit
 // them through agent.Process.ResolveUnknownEffect. Recovery never replays Tools.
+// Hosts use [Dispatcher.SettleModelResult] for investigated model responses,
+// supplying the actual messages sent to the model so reduced context survives
+// recovery. The helper never calls the model or reducer.
 // Model context receives the complete results in original call order.
 // A Tool child's input describes only its initial invocation, and its output
 // describes only completion. Resumption belongs to the child's dispatcher

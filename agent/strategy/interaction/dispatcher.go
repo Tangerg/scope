@@ -203,16 +203,39 @@ func (d *Dispatcher) dispatchModel(
 	}
 	d.observeModel(ctx, invocation, response)
 	result.Response = response
-	payload, err := agent.EncodePayload(signalEnvelope{
-		Operation: operationModelCall, ModelResult: result,
-	})
+	return result.settlement(request.ID(), d.maxResponseBytes)
+}
+
+// SettleModelResult validates an investigated response without calling the model
+// or context reducer. The Host must use the Dispatcher bound to the original
+// Engine-minted request. messages must be the complete context actually sent to
+// the model, including any reduction; it is required even when unchanged.
+// The returned settlement is submitted through Process.ResolveUnknownEffect.
+func (d *Dispatcher) SettleModelResult(request agent.EffectRequest, response *chat.Response, messages []chat.Message) (agent.Settlement, error) {
+	if d == nil || !request.Valid() || response == nil || len(messages) == 0 {
+		return agent.Settlement{}, fmt.Errorf("%w: model recovery requires the original request, response, and effective messages", ErrInvalidProtocol)
+	}
+	envelope, err := decodeEffect(request.Effect().Payload())
 	if err != nil {
 		return agent.Settlement{}, err
 	}
-	if len(payload.JSON()) > d.maxResponseBytes {
-		return agent.Settlement{}, ErrModelResponseTooLarge
+	if envelope.Operation != operationModelCall {
+		return agent.Settlement{}, fmt.Errorf("%w: model recovery requires a model_call", ErrInvalidProtocol)
 	}
-	return agent.NewSettlement(request.ID(), agent.SettlementStatusSucceeded, payload.JSON())
+	definitions, err := d.modelDefinitions(envelope.ModelCall.AdvertisedToolNames)
+	if err != nil {
+		return agent.Settlement{}, err
+	}
+	effective := envelope.ModelCall.Request.Clone()
+	effective.Tools, effective.Messages = definitions, cloneMessages(messages)
+	if validateErr := effective.Validate(); validateErr != nil {
+		return agent.Settlement{}, fmt.Errorf("%w: effective model request: %w", ErrInvalidProtocol, validateErr)
+	}
+	result := &modelCallResult{Response: response}
+	if !reflect.DeepEqual(envelope.ModelCall.Request.Messages, effective.Messages) {
+		result.ReplacementMessages = effective.Messages
+	}
+	return result.settlement(request.ID(), d.maxResponseBytes)
 }
 
 func (d *Dispatcher) modelDefinitions(advertisedToolNames []string) ([]chat.ToolDefinition, error) {

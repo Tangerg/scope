@@ -88,6 +88,21 @@ type modelCallResult struct {
 	HostError           string         `json:"host_error,omitempty"`
 }
 
+func (m modelCallResult) settlement(id agent.EffectID, maxBytes int) (agent.Settlement, error) {
+	signal := signalEnvelope{Operation: operationModelCall, ModelResult: &m}
+	if err := signal.validateModelResult(); err != nil {
+		return agent.Settlement{}, err
+	}
+	payload, err := agent.EncodePayload(signal)
+	if err != nil {
+		return agent.Settlement{}, err
+	}
+	if len(payload.JSON()) > maxBytes {
+		return agent.Settlement{}, ErrModelResponseTooLarge
+	}
+	return agent.NewSettlement(id, agent.SettlementStatusSucceeded, payload.JSON())
+}
+
 type steerInput struct {
 	Messages []chat.Message `json:"messages" jsonschema:"minItems=1"`
 }

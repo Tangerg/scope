@@ -117,9 +117,16 @@ func TestManagedInteractionExecutesToolLoopInModelOrder(t *testing.T) {
 }
 
 func TestManagedInteractionPreservesUnknownModelOutcomes(t *testing.T) {
-	for _, cause := range []error{context.Canceled, context.DeadlineExceeded, interaction.HostFailure(errors.New("boundary unavailable")), errors.New("connection lost")} {
-		t.Run(cause.Error(), func(t *testing.T) {
-			model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return nil, cause })
+	for name, outcome := range map[string]struct {
+		response *chat.Response
+		cause    error
+	}{
+		"canceled": {cause: context.Canceled}, "deadline": {cause: context.DeadlineExceeded},
+		"host":    {cause: interaction.HostFailure(errors.New("boundary unavailable"))},
+		"network": {cause: errors.New("connection lost")}, "nil response": {}, "invalid response": {response: &chat.Response{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return outcome.response, outcome.cause })
 			deployment := newDeployment(t, model, nil, 2)
 			events := &agenttest.ObservationRecorder{}
 			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolver, EventListeners: []agent.EventListener{events}})
