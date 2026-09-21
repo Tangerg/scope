@@ -44,17 +44,17 @@ type mapSource struct {
 	decodeItem func(jsontext.Value) (agent.Payload, error)
 }
 
-func (m mapSource) count(raw json.RawMessage) (uint32, error) {
-	return m.codec.scan(raw, 0, 0, nil)
+func (m mapSource) count(ctx context.Context, raw json.RawMessage) (uint32, error) {
+	return m.codec.scan(ctx, raw, 0, 0, nil)
 }
 
-func (m mapSource) windowInputs(raw json.RawMessage, start, windowSize uint32) ([]agent.Payload, uint32, error) {
+func (m mapSource) windowInputs(ctx context.Context, raw json.RawMessage, start, windowSize uint32) ([]agent.Payload, uint32, error) {
 	if start > m.codec.maxItems {
 		return nil, 0, ErrInvalidExecutionState
 	}
 	end := start + min(windowSize, m.codec.maxItems-start)
 	var items []agent.Payload
-	count, err := m.codec.scan(raw, start, end, func(value jsontext.Value) error {
+	count, err := m.codec.scan(ctx, raw, start, end, func(value jsontext.Value) error {
 		input, err := m.decodeItem(value)
 		if err != nil {
 			return err
@@ -97,8 +97,8 @@ func Map[I, O any](config MapConfig[I, O]) (Stage, error) {
 		return Stage{}, fmt.Errorf("%w: Map %q child schema mismatch", ErrInvalidStage, config.ID)
 	}
 	codec := mapValueCodec{id: config.ID, maxItems: config.MaxItems, schemas: schemas}
-	collect := func(_ context.Context, raw []json.RawMessage) (json.RawMessage, error) {
-		return codec.collect[O](raw)
+	collect := func(ctx context.Context, raw []json.RawMessage) (json.RawMessage, error) {
+		return codec.collect[O](ctx, raw)
 	}
 	return Stage{
 		id: config.ID, kind: StageKindMap,
@@ -151,10 +151,14 @@ type mapValueCodec struct {
 // scan enforces the item limit before materializing the next value. Values
 // outside the selected window are checked structurally without typed decoding.
 func (m mapValueCodec) scan(
+	ctx context.Context,
 	raw json.RawMessage,
 	start, end uint32,
 	consume func(jsontext.Value) error,
 ) (uint32, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	decoder := jsontext.NewDecoder(bytes.NewReader(raw))
 	token, err := decoder.ReadToken()
 	if err != nil || token.Kind() != '[' {
@@ -162,6 +166,9 @@ func (m mapValueCodec) scan(
 	}
 	var count uint32
 	for decoder.PeekKind() != ']' {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
 		if count == m.maxItems {
 			return 0, mapMaxItemsExceededError{count: uint64(count) + 1, maximum: m.maxItems}
 		}
@@ -177,6 +184,9 @@ func (m mapValueCodec) scan(
 			return 0, err
 		}
 		count++
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
 	}
 	if _, err := decoder.ReadToken(); err != nil {
 		return 0, err
@@ -208,11 +218,11 @@ func (m mapValueCodec) item[I any](raw jsontext.Value) (agent.Payload, error) {
 	return item, nil
 }
 
-func (m mapValueCodec) collect[O any](raw []json.RawMessage) (json.RawMessage, error) {
+func (m mapValueCodec) collect[O any](ctx context.Context, raw []json.RawMessage) (json.RawMessage, error) {
 	decoder := fanoutOutputDecoder{
 		stageName: "Map", stageID: m.id, memberName: "item", schema: m.schemas.itemOutput,
 	}
-	values, err := decoder.decode[O](raw)
+	values, err := decoder.decode[O](ctx, raw)
 	if err != nil {
 		return nil, err
 	}

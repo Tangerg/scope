@@ -336,7 +336,7 @@ func (e *execution) finishLoopIteration(
 func (e *execution) startFanoutWindow(ctx context.Context, consumedSignals uint32) (agent.Transition, error) {
 	stage := e.stage()
 	start := e.state.fanoutWindowStart()
-	inputs, count, err := stage.fanout.source.windowInputs(e.state.CurrentValue, start, stage.fanout.windowSize)
+	inputs, count, err := stage.fanout.source.windowInputs(ctx, e.state.CurrentValue, start, stage.fanout.windowSize)
 	if err != nil {
 		if _, exceeded := errors.AsType[mapMaxItemsExceededError](err); exceeded {
 			return e.failContract(consumedSignals, stage.failureCode("max_items_exceeded"),
@@ -360,6 +360,9 @@ func (e *execution) startFanoutWindow(ctx context.Context, consumedSignals uint3
 	window := make([]fanoutChildState, end-start)
 	effects := make([]agent.Effect, 0, end-start)
 	for index := start; index < end; index++ {
+		if err := ctx.Err(); err != nil {
+			return agent.Transition{}, err
+		}
 		member, found := stage.fanout.source.member(index)
 		if !found {
 			return agent.Transition{}, ErrInvalidStage

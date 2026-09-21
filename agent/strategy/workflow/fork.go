@@ -48,11 +48,14 @@ type ForkConfig[I, B, O any] struct {
 
 type forkSource struct{ branches []fanoutMember }
 
-func (f forkSource) count(json.RawMessage) (uint32, error) {
-	return uint32(len(f.branches)), nil
+func (f forkSource) count(ctx context.Context, _ json.RawMessage) (uint32, error) {
+	return uint32(len(f.branches)), ctx.Err()
 }
 
-func (f forkSource) windowInputs(raw json.RawMessage, start, windowSize uint32) ([]agent.Payload, uint32, error) {
+func (f forkSource) windowInputs(ctx context.Context, raw json.RawMessage, start, windowSize uint32) ([]agent.Payload, uint32, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
 	count := uint32(len(f.branches))
 	if start > count {
 		return nil, 0, ErrInvalidExecutionState
@@ -66,6 +69,9 @@ func (f forkSource) windowInputs(raw json.RawMessage, start, windowSize uint32) 
 		inputs = make([]agent.Payload, size)
 	}
 	for index := range inputs {
+		if err := ctx.Err(); err != nil {
+			return nil, 0, err
+		}
 		inputs[index] = input
 	}
 	return inputs, count, nil
@@ -136,7 +142,7 @@ func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
 		stageName: "Fork", stageID: config.ID, memberName: "branch", schema: branchSchema,
 	}
 	reduce := func(ctx context.Context, raw []json.RawMessage) (json.RawMessage, error) {
-		values, err := decoder.decode[B](raw)
+		values, err := decoder.decode[B](ctx, raw)
 		if err != nil {
 			return nil, err
 		}

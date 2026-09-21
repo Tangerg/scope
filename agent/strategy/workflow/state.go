@@ -141,7 +141,7 @@ func (e executionState) validateFanout(ctx context.Context, definition *Definiti
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	stage, err := e.validateFanoutBoundary(definition)
+	stage, err := e.validateFanoutBoundary(ctx, definition)
 	if err != nil {
 		return err
 	}
@@ -159,7 +159,7 @@ func (e executionState) fanoutWindowStart() uint32 {
 	return uint32(len(e.CompletedFanoutOutputs))
 }
 
-func (e executionState) validateFanoutBoundary(definition *Definition) (Stage, error) {
+func (e executionState) validateFanoutBoundary(ctx context.Context, definition *Definition) (Stage, error) {
 	if e.StageIndex >= uint32(len(definition.stages)) {
 		return Stage{}, fmt.Errorf("%w: fan-out stage index exceeds stage count", ErrInvalidExecutionState)
 	}
@@ -167,7 +167,7 @@ func (e executionState) validateFanoutBoundary(definition *Definition) (Stage, e
 	if stage.kind != StageKindFork && stage.kind != StageKindMap {
 		return Stage{}, fmt.Errorf("%w: fan-out progress requires a fork or map stage", ErrInvalidExecutionState)
 	}
-	count, err := stage.fanout.source.count(e.CurrentValue)
+	count, err := stage.fanout.source.count(ctx, e.CurrentValue)
 	windowSize := stage.fanout.windowSize
 	if err != nil {
 		return Stage{}, fmt.Errorf("%w: fan-out count: %w", ErrInvalidExecutionState, err)

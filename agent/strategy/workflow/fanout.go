@@ -12,10 +12,10 @@ import (
 // handling belong to fanoutStage for both fixed branches and repeated items.
 // Its unexported methods keep the Workflow operation set closed.
 type fanoutSource interface {
-	count(raw json.RawMessage) (uint32, error)
+	count(ctx context.Context, raw json.RawMessage) (uint32, error)
 	// windowInputs rejects start beyond the source count and returns the
 	// ordered window plus the total count. A start at count returns an empty window.
-	windowInputs(raw json.RawMessage, start, windowSize uint32) (inputs []agent.Payload, count uint32, err error)
+	windowInputs(ctx context.Context, raw json.RawMessage, start, windowSize uint32) (inputs []agent.Payload, count uint32, err error)
 	member(index uint32) (fanoutMember, bool)
 	topology(inputSchema, outputSchema agent.Schema) ([]BindingTopology, uint32)
 }
@@ -39,9 +39,15 @@ type fanoutOutputDecoder struct {
 	schema     agent.Schema
 }
 
-func (f fanoutOutputDecoder) decode[T any](encodedOutputs []json.RawMessage) ([]T, error) {
+func (f fanoutOutputDecoder) decode[T any](ctx context.Context, encodedOutputs []json.RawMessage) ([]T, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	values := make([]T, len(encodedOutputs))
 	for index, encoded := range encodedOutputs {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		output, err := agent.ParsePayload(encoded)
 		if err != nil {
 			return nil, fmt.Errorf("%s %q %s %d output: %w", f.stageName, f.stageID, f.memberName, index, err)
@@ -54,6 +60,9 @@ func (f fanoutOutputDecoder) decode[T any](encodedOutputs []json.RawMessage) ([]
 			return nil, fmt.Errorf("%s %q %s %d decode output: %w", f.stageName, f.stageID, f.memberName, index, err)
 		}
 		values[index] = decoded
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	return values, nil
 }
