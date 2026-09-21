@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 )

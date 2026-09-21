@@ -3,7 +3,7 @@ package mcp_test
 import (
 	"testing"
 
-	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 
 	scopemcp "github.com/Tangerg/scope/mcp"
 )

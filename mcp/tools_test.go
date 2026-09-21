@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"

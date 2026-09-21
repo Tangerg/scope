@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
-	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/Tangerg/go-sdk/jsonrpc"
+	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"

@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
+	"github.com/Tangerg/go-sdk/jsonrpc"
 	"github.com/stretchr/testify/require"
 
 	"github.com/Tangerg/scope/core/chat"

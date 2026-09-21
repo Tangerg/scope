@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 )
 
 // ErrNoServerSession reports a reverse call made outside an MCP tool invocation.

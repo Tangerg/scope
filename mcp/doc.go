@@ -1,7 +1,7 @@
 // Package mcp provides Scope helpers around the Model Context Protocol
 // (https://modelcontextprotocol.io/).
 //
-// Use the official Go SDK package (github.com/modelcontextprotocol/go-sdk/mcp)
+// Use the official Go SDK package (github.com/Tangerg/go-sdk/mcp)
 // for protocol clients, servers, sessions, and transports. The Scope package
 // keeps the small adapters needed around those SDK primitives:
 // context metadata, reverse-capability helpers, tool.Tool wrapping, tool
@@ -23,12 +23,12 @@
 // # Naming
 //
 // The package shares its name with the official Go SDK
-// (github.com/modelcontextprotocol/go-sdk/mcp). Consumers will normally
+// (github.com/Tangerg/go-sdk/mcp). Consumers will normally
 // import it as:
 //
 //	import (
 //	    scopemcp "github.com/Tangerg/scope/mcp"
-//	    sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+//	    sdkmcp "github.com/Tangerg/go-sdk/mcp"
 //	)
 //
 // Inside this package the SDK is imported under the alias sdkmcp.

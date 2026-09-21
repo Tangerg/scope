@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )

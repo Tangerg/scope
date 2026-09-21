@@ -4,7 +4,7 @@ import (
 	"context"
 	"maps"
 
-	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 )
 
 // RequestMetaFunc resolves per-call MCP metadata from the context rather than

@@ -7,11 +7,11 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
+	"github.com/Tangerg/go-sdk/jsonrpc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
