@@ -2,7 +2,7 @@
 // its single-method [Model] capability.
 //
 // NewRequest accepts validated media audio. Options carries the shared language
-// hint and provider extensions written through Options.SetExtension so they are JSON-safe.
+// hint and provider extensions written through Options.Extensions.Set so they are JSON-safe.
 // Request has no arbitrary parameter bag. Implementations and defaults live
 // outside Core.
 package transcription

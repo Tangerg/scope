@@ -9,6 +9,8 @@ import (
 	"io"
 	"iter"
 	"net/http"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -204,8 +206,9 @@ type fakeEmbedding struct{}
 
 func (fakeEmbedding) Call(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
 	outputs := make([]*embedding.Output, 0, len(request.Texts))
-	for range request.Texts {
-		output, err := embedding.NewOutput([]float64{0.1, 0.2}, nil)
+	for index := range request.Texts {
+		values := [][]float64{{0.1, 0.2}, {0.3, 0.4}}
+		output, err := embedding.NewOutput(values[index], nil)
 		if err != nil {
 			return nil, err
 		}
@@ -219,9 +222,11 @@ func (fakeEmbedding) Call(_ context.Context, request *embedding.Request) (*embed
 func TestRunEmbeddingContract(t *testing.T) {
 	built := false
 	modeltest.RunEmbeddingContract(t, modeltest.EmbeddingContract{
-		ModelID:      "embedding-model",
-		Response:     `{"outputs":[]}`,
-		ExpectedPath: "/embeddings",
+		InputField:         "input",
+		ExpectedEmbeddings: [][]float64{{0.1, 0.2}, {0.3, 0.4}},
+		ModelID:            "embedding-model",
+		Response:           `{"outputs":[]}`,
+		ExpectedPath:       "/embeddings",
 		Build: func(t *testing.T, baseURL string) embedding.Model {
 			built = true
 			if baseURL == "" {
@@ -237,10 +242,12 @@ func TestRunEmbeddingContract(t *testing.T) {
 
 func TestRunEmbeddingContractAllowsUnspecifiedPath(t *testing.T) {
 	modeltest.RunEmbeddingContract(t, modeltest.EmbeddingContract{
-		ModelID:  "embedding-model",
-		Response: `{"outputs":[]}`,
-		Build: func(*testing.T, string) embedding.Model {
-			return fakeEmbedding{}
+		InputField:         "input",
+		ExpectedEmbeddings: [][]float64{{0.1, 0.2}, {0.3, 0.4}},
+		ModelID:            "embedding-model",
+		Response:           `{"outputs":[]}`,
+		Build: func(_ *testing.T, baseURL string) embedding.Model {
+			return probeEmbedding{baseURL: baseURL}
 		},
 	})
 }
@@ -296,7 +303,11 @@ func TestRunRerankContract(t *testing.T) {
 type probeEmbedding struct{ baseURL string }
 
 func (p probeEmbedding) Call(ctx context.Context, request *embedding.Request) (*embedding.Response, error) {
-	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/embeddings", nil)
+	payload, err := json.Marshal(map[string]any{"model": request.Options.Model, "input": request.Texts})
+	if err != nil {
+		return nil, err
+	}
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/embeddings", bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
@@ -655,4 +666,61 @@ func post(t *testing.T, url string) string {
 		t.Fatal(err)
 	}
 	return string(body)
+}
+
+func TestEmbeddingContractRejectsBrokenProviders(t *testing.T) {
+	if mode := os.Getenv("SCOPE_TEST_BROKEN_EMBEDDING"); mode != "" {
+		modeltest.RunEmbeddingContract(t, modeltest.EmbeddingContract{
+			ModelID: "embedding-model", InputField: "input", Response: `{}`, ExpectedEmbeddings: [][]float64{{0.1, 0.2}, {0.3, 0.4}},
+			Build: func(_ *testing.T, baseURL string) embedding.Model {
+				return brokenEmbedding{mode: mode, baseURL: baseURL}
+			},
+		})
+		return
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"no request", "wrong model", "reordered inputs", "reordered outputs", "nil response"} {
+		t.Run(mode, func(t *testing.T) {
+			command := exec.CommandContext(t.Context(), executable, "-test.run=^TestEmbeddingContractRejectsBrokenProviders$")
+			command.Env = append(os.Environ(), "SCOPE_TEST_BROKEN_EMBEDDING="+mode)
+			output, err := command.CombinedOutput()
+			if err == nil {
+				t.Fatalf("contract accepted %s: %s", mode, output)
+			}
+			if !bytes.Contains(output, []byte("--- FAIL:")) {
+				t.Fatalf("child failed outside contract assertions: %v\n%s", err, output)
+			}
+		})
+	}
+}
+
+type brokenEmbedding struct{ mode, baseURL string }
+
+func (b brokenEmbedding) Call(ctx context.Context, request *embedding.Request) (*embedding.Response, error) {
+	if b.mode == "no request" {
+		return fakeEmbedding{}.Call(ctx, request)
+	}
+	sent := *request
+	sent.Options = request.Options.Clone()
+	sent.Texts = append([]string(nil), request.Texts...)
+	if b.mode == "wrong model" {
+		sent.Options.Model = "wrong"
+	}
+	if b.mode == "reordered inputs" {
+		sent.Texts[0], sent.Texts[1] = sent.Texts[1], sent.Texts[0]
+	}
+	response, err := (probeEmbedding{baseURL: b.baseURL}).Call(ctx, &sent)
+	if err != nil {
+		return nil, err
+	}
+	if b.mode == "nil response" {
+		return nil, nil
+	}
+	if b.mode == "reordered outputs" {
+		response.Outputs[0], response.Outputs[1] = response.Outputs[1], response.Outputs[0]
+	}
+	return response, nil
 }

@@ -118,6 +118,11 @@ func filterCases() []filterCase {
 	strings := filterValues("Alice", "alice", "Bob")
 	nullable := []map[string]any{{}, {"value": nil}, {"value": "present"}}
 	return []filterCase{
+		{name: "equal_decimal", source: `value == 0.1`, values: filterValues(0.1, 0.2, 0.3), want: []int{0}},
+		{name: "decimal_ordering", source: `value < 0.2`, values: filterValues(-0.1, 0.1, 0.2, 0.3), want: []int{0, 1}},
+		{name: "decimal_membership", source: `value in (0.1, 0.3)`, values: filterValues(0.1, 0.2, 0.3), want: []int{0, 2}},
+		{name: "decimal_collection", source: `value has 0.1`, values: filterValues([]float64{0.1, 0.2}, []float64{0.2}, []float64{}), want: []int{0}},
+		{name: "negated_ordering_null", source: `not (value < 5)`, values: []map[string]any{{}, {"value": nil}, {"value": 4}, {"value": 5}, {"value": 6}}, want: []int{0, 1, 3, 4}},
 		{name: "equal_string", source: `value == 'Alice'`, values: strings, want: []int{0}},
 		{name: "equal_number", source: `value == 10`, values: numbers, want: []int{1}},
 		{name: "equal_bool", source: `value == true`, values: filterValues(true, false), want: []int{0}},

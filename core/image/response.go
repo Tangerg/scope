@@ -24,7 +24,7 @@ type Output struct {
 
 // NewOutput validates and snapshots one provider result before it enters a Response.
 func NewOutput(value *media.Media, outputMetadata metadata.Map) (*Output, error) {
-	output := &Output{Media: value, Metadata: outputMetadata.Clone()}
+	output := &Output{Media: value.Clone(), Metadata: outputMetadata.Clone()}
 	if err := output.Validate(); err != nil {
 		return nil, fmt.Errorf("image: create output: %w", err)
 	}

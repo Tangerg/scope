@@ -70,8 +70,9 @@ type Store struct {
 	embeddingClient embeddingclient.Client
 	similarity      Similarity
 
-	mu      sync.RWMutex
-	records map[string]record
+	mu         sync.RWMutex
+	records    map[string]record
+	dimensions int
 }
 
 // NewStore builds the zero-dependency reference implementation. It exists so
@@ -80,8 +81,7 @@ type Store struct {
 // in-process state that is lost when the process exits.
 //
 // The context is unused — there is no service to reach — and taken anyway so
-// this store is a drop-in for a backend one, every [vectorstore.Store]
-// implementation being constructed the same way.
+// construction has the same shape as external backend constructors.
 func NewStore(_ context.Context, config StoreConfig) (*Store, error) {
 	config.applyDefaults()
 	if err := config.Validate(); err != nil {
@@ -130,6 +130,14 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("inmemory: index documents: %w", err)
+	}
+	dimensions := len(embeddings[0])
+	if s.dimensions != 0 && s.dimensions != dimensions {
+		return fmt.Errorf("inmemory: index documents: embedding dimensions %d do not match index dimensions %d", dimensions, s.dimensions)
+	}
+	s.dimensions = dimensions
 	for i, doc := range docs {
 		s.records[doc.ID] = record{doc: doc, embedding: embeddings[i]}
 	}
@@ -156,7 +164,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		return nil, fmt.Errorf("inmemory: search: embed query: %w", err)
 	}
 
-	candidates, err := s.searchCandidates(query, req.Options)
+	candidates, err := s.searchCandidates(ctx, query, req.Options)
 	if err != nil {
 		return nil, err
 	}
@@ -169,6 +177,9 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	for i := range limit {
 		out = append(out, &vectorstore.SearchResult{Document: candidates[i].doc.Clone(), Score: candidates[i].score})
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return &vectorstore.SearchResponse{Results: out}, nil
 }
 
@@ -177,11 +188,20 @@ type scoredDocument struct {
 	score vectorstore.Score
 }
 
-func (s *Store) searchCandidates(query []float64, options vectorstore.SearchOptions) ([]scoredDocument, error) {
+func (s *Store) searchCandidates(ctx context.Context, query []float64, options vectorstore.SearchOptions) ([]scoredDocument, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if s.dimensions != 0 && len(query) != s.dimensions {
+		return nil, fmt.Errorf("inmemory: search: query dimensions %d do not match index dimensions %d", len(query), s.dimensions)
+	}
 	candidates := make([]scoredDocument, 0, len(s.records))
 	for _, rec := range s.records {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if options.Filter != nil {
 			metadataValues, decodeErr := rec.doc.Metadata.Values()
 			if decodeErr != nil {
@@ -204,7 +224,7 @@ func (s *Store) searchCandidates(query []float64, options vectorstore.SearchOpti
 		}
 		candidates = append(candidates, scoredDocument{doc: rec.doc, score: score})
 	}
-	return candidates, nil
+	return candidates, ctx.Err()
 }
 
 func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
@@ -217,6 +237,9 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	for id, rec := range s.records {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("inmemory: delete by filter: %w", err)
@@ -252,8 +275,10 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	return nil
 }
 
+// Clear removes all records and resets the index embedding dimensions.
 func (s *Store) Clear() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	clear(s.records)
+	s.dimensions = 0
 }

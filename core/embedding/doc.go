@@ -6,6 +6,6 @@
 // not exposed through Model. Dimension discovery belongs to the consuming
 // workflow because it requires an actual embedding request. [Float32Vector]
 // bridges the protocol's float64 representation to storage SDKs that require
-// float32. Provider options use Options.SetExtension so Extensions remains
+// float32. Provider options use Options.Extensions.Set so Extensions remains
 // JSON-safe; Request has no arbitrary parameter bag.
 package embedding

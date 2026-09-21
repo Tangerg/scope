@@ -69,8 +69,8 @@ func TestOptimizerDoesNotMutateCallerTree(t *testing.T) {
 	if predicate.left != left || predicate.right != right || left.left != a || right.left != a {
 		t.Fatal("optimizer mutated the caller-owned boolean tree")
 	}
-	if !optimized.Equal(And(a, Or(b, c))) {
-		t.Fatalf("optimized = %#v, want factored predicate", optimized)
+	if !optimized.Equal(predicate) {
+		t.Fatalf("optimized = %#v, want unchanged evaluation order", optimized)
 	}
 }
 

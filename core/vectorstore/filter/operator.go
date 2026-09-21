@@ -100,8 +100,8 @@ func (o Operator) LogicalString() (string, error) {
 	return o.Name(), nil
 }
 
-// Inverse returns the exact inverse comparison operator.
-func (o Operator) Inverse() (Operator, error) {
+// inverseComparison applies only to non-null operands.
+func (o Operator) inverseComparison() (Operator, error) {
 	switch o {
 	case OpEqual:
 		return OpNotEqual, nil
@@ -118,14 +118,4 @@ func (o Operator) Inverse() (Operator, error) {
 	default:
 		return "", fmt.Errorf("filter: invert operator: %s has no direct inverse", o.Name())
 	}
-}
-
-func (o Operator) dual() Operator {
-	if o == OpAnd {
-		return OpOr
-	}
-	if o == OpOr {
-		return OpAnd
-	}
-	return ""
 }

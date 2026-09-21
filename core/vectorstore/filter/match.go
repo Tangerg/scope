@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/big"
 	"reflect"
+	"strconv"
 )
 
 type evaluator struct {
@@ -324,8 +325,8 @@ func compareNumbers(left, right any) (order int, numeric, ordered bool) {
 	return leftNumber.Cmp(rightNumber), true, true
 }
 
-// Rational conversion preserves each number's value, including a float's
-// binary fraction, without rounding an integer to the float's precision.
+// Numbers use their JSON decimal value so metadata serialization does not
+// change comparisons. Integers never pass through floating-point conversion.
 func numberValue(value any) (*big.Rat, bool) {
 	switch number := value.(type) {
 	case int:
@@ -349,9 +350,15 @@ func numberValue(value any) (*big.Rat, bool) {
 	case uint64:
 		return new(big.Rat).SetUint64(number), true
 	case float32:
-		return new(big.Rat).SetFloat64(float64(number)), true
+		if math.IsNaN(float64(number)) || math.IsInf(float64(number), 0) {
+			return nil, true
+		}
+		return new(big.Rat).SetString(strconv.FormatFloat(float64(number), 'g', -1, 32))
 	case float64:
-		return new(big.Rat).SetFloat64(number), true
+		if math.IsNaN(number) || math.IsInf(number, 0) {
+			return nil, true
+		}
+		return new(big.Rat).SetString(strconv.FormatFloat(number, 'g', -1, 64))
 	case json.Number:
 		return new(big.Rat).SetString(number.String())
 	default:

@@ -1,7 +1,9 @@
 package modeltest
 
 import (
+	"encoding/json"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 
@@ -20,6 +22,10 @@ type EmbeddingContract struct {
 	// Response is the canned JSON body — must encode 2 outputs so the
 	// contract can validate batching.
 	Response string
+	// InputField names the provider JSON field containing the ordered input texts.
+	InputField string
+	// ExpectedEmbeddings is the exact ordered result encoded by Response.
+	ExpectedEmbeddings [][]float64
 	// ExpectedPath is the URL path the SDK should hit (e.g. "/embeddings"
 	// or "/embedding/text"). Empty means skip the path assertion.
 	ExpectedPath string
@@ -27,49 +33,70 @@ type EmbeddingContract struct {
 	Build func(t *testing.T, baseURL string) embedding.Model
 }
 
-// RunEmbeddingContract sends two inputs rather than one because a provider
-// that drops or collapses a batch still satisfies a single-input test. Pairing
-// the output count with the requested path also catches an adapter that
-// reaches the wrong endpoint yet happens to decode a plausible response.
+// RunEmbeddingContract checks the request and its exact ordered response through
+// the provider transport boundary.
 func RunEmbeddingContract(t *testing.T, contract EmbeddingContract) {
 	t.Helper()
 	t.Run("Call_Mock", func(t *testing.T) {
-		seenPath := make(chan string, 1)
+		if contract.ModelID == "" || contract.InputField == "" || len(contract.ExpectedEmbeddings) != 2 {
+			t.Fatal("contract requires a model, input field, and two expected embeddings")
+		}
+		type observation struct {
+			path, method string
+			body         map[string]json.RawMessage
+			err          error
+		}
+		seen := make(chan observation, 1)
 		server := JSONServer(http.StatusOK, contract.Response, func(request *http.Request) {
-			seenPath <- request.URL.Path
+			observed := observation{path: request.URL.Path, method: request.Method}
+			observed.err = json.NewDecoder(request.Body).Decode(&observed.body)
+			select {
+			case seen <- observed:
+			default:
+			}
 		})
 		t.Cleanup(server.Close)
-
 		model := contract.Build(t, server.URL)
 		request, err := embedding.NewRequest([]string{"foo", "bar"})
 		if err != nil {
-			t.Fatalf("NewRequest: %v", err)
+			t.Fatal(err)
 		}
-
+		request.Options.Model = contract.ModelID
 		response, err := model.Call(t.Context(), request)
 		if err != nil {
 			t.Fatalf("Call: %v", err)
 		}
-		if contract.ExpectedPath != "" {
-			select {
-			case path := <-seenPath:
-				if path != contract.ExpectedPath {
-					t.Errorf("URL = %q; want %q", path, contract.ExpectedPath)
-				}
-			default:
-				t.Fatal("provider sent no request")
+		select {
+		case observed := <-seen:
+			if observed.err != nil {
+				t.Fatalf("decode request: %v", observed.err)
 			}
+			if observed.method != http.MethodPost {
+				t.Errorf("method = %q; want POST", observed.method)
+			}
+			if contract.ExpectedPath != "" && observed.path != contract.ExpectedPath {
+				t.Errorf("URL = %q; want %q", observed.path, contract.ExpectedPath)
+			}
+			var modelID string
+			if err := json.Unmarshal(observed.body["model"], &modelID); err != nil || modelID != contract.ModelID {
+				t.Errorf("wire model = %q, error = %v; want %q", modelID, err, contract.ModelID)
+			}
+			var texts []string
+			if err := json.Unmarshal(observed.body[contract.InputField], &texts); err != nil || !slices.Equal(texts, request.Texts) {
+				t.Errorf("wire texts = %q, error = %v; want %q", texts, err, request.Texts)
+			}
+		default:
+			t.Fatal("provider sent no request")
 		}
-		if len(response.Outputs) != len(request.Texts) {
-			t.Fatalf("got %d outputs; want %d", len(response.Outputs), len(request.Texts))
+		if err := response.ValidateFor(request); err != nil {
+			t.Fatalf("response: %v", err)
 		}
 		for index, output := range response.Outputs {
-			if len(output.Embedding) == 0 {
-				t.Errorf("output %d has empty embedding", index)
+			if !slices.Equal(output.Embedding, contract.ExpectedEmbeddings[index]) {
+				t.Errorf("output %d = %v; want %v", index, output.Embedding, contract.ExpectedEmbeddings[index])
 			}
 		}
 	})
-
 }
 
 // IntegrationEmbeddingProbe is the standard real-API embedding smoke

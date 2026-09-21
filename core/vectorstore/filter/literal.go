@@ -264,7 +264,8 @@ func (l *Literal) Key() (string, error) {
 	}
 }
 
-// Value decodes the literal into its exact Go scalar representation.
+// Value decodes the literal into a Go scalar. Decimal and exponent literals
+// use the float64 representation selected during literal construction.
 func (l *Literal) Value() (any, error) {
 	if l == nil {
 		return nil, errors.New("filter: decode literal value: literal is nil")

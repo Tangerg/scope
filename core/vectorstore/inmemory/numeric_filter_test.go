@@ -50,8 +50,8 @@ func TestStoreNumericFiltersPreserveMixedNumberValues(t *testing.T) {
 			predicate: filter.Has("value", float64(9007199254740992)),
 		},
 		{
-			name: "JSON integer beyond uint64", stored: json.Number("18446744073709551616"),
-			predicate: filter.EQ("value", float64(1<<64)), matches: true,
+			name: "JSON integer differs from float decimal representation", stored: json.Number("18446744073709551616"),
+			predicate: filter.EQ("value", float64(1<<64)),
 		},
 		{
 			name: "JSON integer below int64", stored: json.Number("-9223372036854775809"),

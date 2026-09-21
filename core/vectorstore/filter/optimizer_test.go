@@ -1,8 +1,10 @@
 package filter_test
 
 import (
+	"encoding/json"
 	"testing"
 
+	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
@@ -82,8 +84,17 @@ func TestParseOptimizerBooleanIdentities(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !actual.Equal(tt.expect) {
-				t.Fatalf("Parse(%q) = %#v, want %#v", tt.input, actual, tt.expect)
+			for _, a := range []int{0, 1} {
+				for _, b := range []int{0, 2} {
+					for _, c := range []int{0, 3} {
+						values := map[string]any{"a": a, "b": b, "c": c, "active": true}
+						got, err := filter.Match(actual, values)
+						want, wantErr := filter.Match(tt.expect, values)
+						if err != nil || wantErr != nil || got != want {
+							t.Fatalf("%s: got %v, %v; want %v, %v", tt.input, got, err, want, wantErr)
+						}
+					}
+				}
 			}
 		})
 	}
@@ -110,5 +121,30 @@ func TestParseOptimizerPreservesMembershipOperands(t *testing.T) {
 	values := list.Literals()
 	if len(values) != 3 || values[0].Text() != "active" || values[1].Text() != "active" {
 		t.Fatalf("membership values = %#v, want source order and duplicates preserved", values)
+	}
+}
+
+func TestFilterRoundTripPreservesEvaluationErrors(t *testing.T) {
+	for _, predicate := range []filter.Predicate{
+		filter.Or(filter.And(filter.GT("bad", 0), filter.EQ("a", 1)), filter.EQ("a", 1)),
+		filter.And(filter.Or(filter.GT("bad", 0), filter.EQ("a", 1)), filter.EQ("a", 1)),
+		filter.Or(filter.And(filter.GT("bad", 0), filter.EQ("a", 1)), filter.And(filter.EQ("a", 1), filter.EQ("b", 2))),
+	} {
+		encoded, err := json.Marshal(vectorstore.SearchOptions{Filter: predicate})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var options vectorstore.SearchOptions
+		if err := json.Unmarshal(encoded, &options); err != nil {
+			t.Fatal(err)
+		}
+		for _, a := range []int{0, 1} {
+			values := map[string]any{"a": a, "b": 2, "bad": "invalid"}
+			before, beforeErr := filter.Match(predicate, values)
+			after, afterErr := filter.Match(options.Filter, values)
+			if before != after || beforeErr == nil || afterErr == nil || beforeErr.Error() != afterErr.Error() {
+				t.Fatalf("roundtrip: %v %v -> %v %v", before, beforeErr, after, afterErr)
+			}
+		}
 	}
 }

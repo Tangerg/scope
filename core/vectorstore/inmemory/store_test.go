@@ -531,3 +531,90 @@ func TestStore_DeleteIDs(t *testing.T) {
 		}
 	}
 }
+
+func TestDecimalFilterSearchAndDelete(t *testing.T) {
+	store := newStore(t)
+	for _, value := range []float64{0.1, 0.2, 0.3, -0.1} {
+		store.Clear()
+		doc := mustDoc(t, "decimal", "text", map[string]any{"x": value, "xs": []float64{value}})
+		if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{doc}}); err != nil {
+			t.Fatal(err)
+		}
+		for _, expression := range []string{
+			fmt.Sprintf("x == %g", value), fmt.Sprintf("x <= %g", value), fmt.Sprintf("x >= %g", value),
+			fmt.Sprintf("x in (%g)", value), fmt.Sprintf("xs has %g", value),
+		} {
+			predicate, err := filter.Parse(expression)
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "text", Options: vectorstore.SearchOptions{Filter: predicate}})
+			if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "decimal" {
+				t.Fatalf("%s: %v %v", expression, response, err)
+			}
+		}
+		for _, predicate := range []filter.Predicate{filter.LT("x", value), filter.GT("x", value), filter.NE("x", value)} {
+			if err := store.DeleteWhere(t.Context(), predicate); err != nil {
+				t.Fatal(err)
+			}
+			if store.Len() != 1 {
+				t.Fatalf("equal decimal deleted by %v", predicate)
+			}
+		}
+	}
+}
+
+func TestSearchCancellationDuringScoring(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	calls := 0
+	store, err := inmemory.NewStore(ctx, inmemory.StoreConfig{EmbeddingModel: fakeEmbeddingModel{}, Similarity: func(_, _ []float64) vectorstore.Score { calls++; cancel(); return 1 }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Index(ctx, &vectorstore.IndexRequest{Documents: []*document.Document{mustDoc(t, "a", "a", nil), mustDoc(t, "b", "b", nil), mustDoc(t, "c", "c", nil)}}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "a"})
+	if result != nil || !errors.Is(err, context.Canceled) || calls != 1 {
+		t.Fatalf("result=%v err=%v calls=%d", result, err, calls)
+	}
+	store.Clear()
+	if err := store.DeleteWhere(ctx, filter.EQ("a", 1)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("empty delete: %v", err)
+	}
+}
+
+func TestStoreOwnsEmbeddingDimensions(t *testing.T) {
+	dimensions := 2
+	scores := 0
+	model := embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
+		outputs := make([]*embedding.Output, len(request.Texts))
+		for i := range outputs {
+			outputs[i] = &embedding.Output{Embedding: make([]float64, dimensions)}
+		}
+		return embedding.NewResponse(outputs, &embedding.ResponseMetadata{Model: "test"})
+	})
+	store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{EmbeddingModel: model, Similarity: func(_, _ []float64) vectorstore.Score { scores++; return 1 }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := &vectorstore.IndexRequest{Documents: []*document.Document{mustDoc(t, "a", "text", nil)}}
+	if err := store.Index(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	dimensions = 3
+	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{mustDoc(t, "b", "text", nil)}}); err == nil || store.Len() != 1 {
+		t.Fatalf("index: %v, records=%d", err, store.Len())
+	}
+	if _, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "text"}); err == nil || scores != 0 {
+		t.Fatalf("search: %v, scores=%d", err, scores)
+	}
+	store.Clear()
+	if err := store.Index(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "text"}); err != nil || scores != 1 {
+		t.Fatalf("search after clear: %v, scores=%d", err, scores)
+	}
+}

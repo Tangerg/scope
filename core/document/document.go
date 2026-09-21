@@ -91,6 +91,9 @@ func (d *Document) Validate() error {
 	if d.Text == "" && d.Media == nil {
 		return fmt.Errorf("%w: text or media is required", ErrInvalidDocument)
 	}
+	if !utf8.ValidString(d.ID) {
+		return fmt.Errorf("%w: ID is not valid UTF-8", ErrInvalidDocument)
+	}
 	if !utf8.ValidString(d.Text) {
 		return fmt.Errorf("%w: text is not valid UTF-8", ErrInvalidDocument)
 	}

@@ -382,3 +382,13 @@ func response(text string) *chat.Response {
 func chunk(text string) *chat.ResponseDelta {
 	return &chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewTextDelta(text)}}
 }
+
+func TestCallScreensUnsafeResponseWithError(t *testing.T) {
+	cause := errors.New("commit failed")
+	blocks := 0
+	middleware := mustMiddleware(t, mustSubstring(t, "blocked"), safeguard.MiddlewareConfig{Scope: safeguard.ScopeOutput, OnBlock: func(context.Context, safeguard.Block) { blocks++ }})
+	got, err := middleware.Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return response("blocked"), cause })).Call(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello"))))
+	if got != nil || !errors.Is(err, cause) || !errors.Is(err, safeguard.ErrUnsafeContent) || blocks != 1 {
+		t.Fatalf("response=%v error=%v blocks=%d", got, err, blocks)
+	}
+}

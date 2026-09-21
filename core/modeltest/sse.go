@@ -15,8 +15,7 @@ import (
 //	data: [DONE]\n\n
 //
 // Each chunk should be a JSON-encoded `ChatCompletionChunk` body.
-// The server is registered with t.Cleanup so callers don't have to
-// defer Close().
+// The caller owns the server and must close it after use.
 //
 // Used by every OpenAI-compatible vendor (openai / azureopenai /
 // deepseek / moonshot / openrouter / xai / groq / together / fireworks /

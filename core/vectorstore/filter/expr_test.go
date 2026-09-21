@@ -137,10 +137,26 @@ func TestComparisonInverseIsImmutable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if original.Operator() != filter.OpGreater || inverse.Operator() != filter.OpLessEqual {
+	if original.Operator() != filter.OpGreater || inverse.Operator() != filter.OpOr {
 		t.Fatalf("operators = %s, %s", original.Operator(), inverse.Operator())
 	}
 	if _, err := filter.And(filter.EQ("a", 1), filter.EQ("b", 2)).Inverse(); err == nil || !strings.Contains(err.Error(), "inverse") {
 		t.Fatalf("logical inverse error = %v", err)
+	}
+}
+
+func TestComparisonInverseIncludesNullDomain(t *testing.T) {
+	for _, predicate := range []*filter.BinaryExpr{filter.LT("x", 5), filter.LE("x", 5), filter.GT("x", 5), filter.GE("x", 5)} {
+		inverse, err := predicate.Inverse()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, values := range []map[string]any{{}, {"x": nil}, {"x": 4}, {"x": 5}, {"x": 6}, {"x": "invalid"}} {
+			got, gotErr := filter.Match(inverse, values)
+			want, wantErr := filter.Match(filter.Not(predicate), values)
+			if got != want || (gotErr == nil) != (wantErr == nil) {
+				t.Fatalf("%s on %v: got %v %v, want %v %v", predicate, values, got, gotErr, want, wantErr)
+			}
+		}
 	}
 }

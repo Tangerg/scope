@@ -192,3 +192,30 @@ func mustDecodeExtension[T any](t *testing.T, values metadata.Extensions, key st
 	}
 	return value
 }
+
+func TestOutputSnapshotsMedia(t *testing.T) {
+	source, err := media.NewBytes("image/png", []byte{1, 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.Metadata = metadata.Map{}
+	if err = source.Metadata.Set("key", "original"); err != nil {
+		t.Fatal(err)
+	}
+	output, err := image.NewOutput(source, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.Source.Bytes[0] = 9
+	source.MIME = "image/jpeg"
+	if err = source.Metadata.Set("key", "changed"); err != nil {
+		t.Fatal(err)
+	}
+	if output.Media.Source.Bytes[0] != 1 || output.Media.MIME != "image/png" || string(output.Media.Metadata["key"]) != `"original"` {
+		t.Fatalf("output shares source: %#v", output.Media)
+	}
+	output.Media.Source.Bytes[1] = 7
+	if source.Source.Bytes[1] != 2 {
+		t.Fatal("source shares output buffer")
+	}
+}

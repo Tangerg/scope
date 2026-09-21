@@ -207,17 +207,22 @@ func (b *BinaryExpr) Validate() error              { return validatePredicate(b)
 func (b *BinaryExpr) Accept(visitor Visitor) error { return accept(b, visitor) }
 func (b *BinaryExpr) String() string               { return formatPredicate(b) }
 
-// Inverse returns an equivalent binary expression using the exact inverse
-// comparison operator. The receiver is not mutated.
+// Inverse negates a comparison, including missing and null metadata values.
+// The receiver is not mutated.
 func (b *BinaryExpr) Inverse() (*BinaryExpr, error) {
 	if b == nil {
 		return nil, errors.New("filter: invert expression: expression is nil")
 	}
-	operator, err := b.operator.Inverse()
+	operator, err := b.operator.inverseComparison()
 	if err != nil {
 		return nil, err
 	}
-	return &BinaryExpr{left: b.left, operator: operator, right: b.right, start: b.start, end: b.end}, nil
+	inverse := &BinaryExpr{left: b.left, operator: operator, right: b.right, start: b.start, end: b.end}
+	if b.operator.IsOrderingOperator() {
+		nullTest := &BinaryExpr{left: b.left, operator: OpIs, right: &Literal{kind: LiteralNull, text: "null"}, start: b.start, end: b.end}
+		return Or(nullTest, inverse), nil
+	}
+	return inverse, nil
 }
 
 // Dispatch routes the expression to the handler for its operator family.

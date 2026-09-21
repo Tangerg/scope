@@ -109,3 +109,24 @@ func TestDocumentJSONRejectsInvalidValuesTransactionally(t *testing.T) {
 		t.Fatalf("nil receiver error = %v, want ErrInvalidDocument", err)
 	}
 }
+
+func TestDocumentRejectsInvalidUTF8Identity(t *testing.T) {
+	for _, id := range []string{string([]byte{0xff}), string([]byte{0xfe})} {
+		doc := &document.Document{ID: id, Text: "hello"}
+		if err := doc.Validate(); !errors.Is(err, document.ErrInvalidDocument) {
+			t.Fatalf("Validate: %v", err)
+		}
+		if _, err := json.Marshal(doc); !errors.Is(err, document.ErrInvalidDocument) {
+			t.Fatalf("Marshal: %v", err)
+		}
+	}
+	doc := &document.Document{ID: "文档", Text: "hello"}
+	data, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored document.Document
+	if err := json.Unmarshal(data, &restored); err != nil || restored.ID != doc.ID {
+		t.Fatalf("roundtrip: %v %v", restored, err)
+	}
+}

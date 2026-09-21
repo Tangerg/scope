@@ -2,6 +2,7 @@ package safeguard
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 
@@ -128,13 +129,12 @@ func (m *Middleware) Call(next chat.Model) chat.Model {
 		}
 
 		response, err := next.Call(ctx, request)
-		if err != nil {
-			return response, err
+		if response != nil {
+			if screeningErr := m.outputError(ctx, response); screeningErr != nil {
+				return nil, errors.Join(err, screeningErr)
+			}
 		}
-		if err := m.outputError(ctx, response); err != nil {
-			return nil, err
-		}
-		return response, nil
+		return response, err
 	})
 }
 
