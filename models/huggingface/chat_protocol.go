@@ -15,7 +15,6 @@ import (
 // shared Core protocol or colliding with another provider.
 const (
 	OpenAIRequestExtensionKey     = "huggingface/openai_request"
-	OpenAIResponseExtensionKey    = "huggingface/openai_response"
 	OpenAIStreamChunkExtensionKey = "huggingface/openai_stream_chunk"
 )
 

@@ -14,7 +14,6 @@ import (
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
 const (
-	OpenAIResponseExtensionKey    = "deepseek/openai_response"
 	OpenAIStreamChunkExtensionKey = "deepseek/openai_stream_chunk"
 )
 

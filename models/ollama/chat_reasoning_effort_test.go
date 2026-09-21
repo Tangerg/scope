@@ -17,7 +17,6 @@ func reasoningRequest(t *testing.T, effort corechat.ReasoningEffort) (*nativeCha
 			Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hi"))},
 			Options:  corechat.Options{ReasoningEffort: effort},
 		},
-		false,
 	)
 }
 
@@ -80,7 +79,6 @@ func TestEmptyReasoningEffortLeavesNativeThinkAlone(t *testing.T) {
 			Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hi"))},
 			Options:  options,
 		},
-		false,
 	)
 	if err != nil {
 		t.Fatalf("mapProtocolRequest() = %v, want nil", err)

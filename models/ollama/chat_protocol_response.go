@@ -28,30 +28,8 @@ func newProtocolResponseMapper() *protocolResponseMapper {
 	return new(protocolResponseMapper)
 }
 
-// terminated reports whether a chunk marked the generation done. mapResponse
-// already refuses a nonterminal unary response; a stream has to ask the same
-// question, because a body that ends between chunks is indistinguishable from
-// a finished answer to whoever is reading the deltas.
+// terminated distinguishes a complete generation from premature EOF.
 func (p *protocolResponseMapper) terminated() bool { return p.finished }
-
-func (p *protocolResponseMapper) mapResponse(requestModel string, response nativeChatResponse) (*corechat.Response, error) {
-	if !response.Done {
-		return nil, errors.New("ollama: non-streaming chat returned a nonterminal response")
-	}
-	metadata, err := response.metadata(requestModel)
-	if err != nil {
-		return nil, err
-	}
-	output, err := p.mapOutput(response)
-	if err != nil {
-		return nil, err
-	}
-	mapped := &corechat.Response{Output: output, Metadata: metadata}
-	if err := mapped.Validate(); err != nil {
-		return nil, fmt.Errorf("ollama: mapped response: %w", err)
-	}
-	return mapped, nil
-}
 
 func (p *protocolResponseMapper) mapDelta(requestModel string, response nativeChatResponse) (*corechat.ResponseDelta, error) {
 	metadata, err := response.metadata(requestModel)
@@ -97,25 +75,6 @@ func (p *protocolResponseMapper) mapDelta(requestModel string, response nativeCh
 		return nil, fmt.Errorf("ollama: mapped response delta: %w", err)
 	}
 	return mapped, nil
-}
-
-func (p *protocolResponseMapper) mapOutput(response nativeChatResponse) (*corechat.Output, error) {
-	output := &corechat.Output{}
-	if response.DoneReason != "" {
-		output.Metadata = &corechat.OutputMetadata{}
-		if err := output.Metadata.Extra.Set(protocolNativeDoneReasonKey, response.DoneReason); err != nil {
-			return nil, err
-		}
-	}
-	parts, err := p.mapParts(response.Message)
-	if err != nil {
-		return nil, err
-	}
-	output.FinishReason = normalizeProtocolDoneReason(response.DoneReason, p.hasToolCalls)
-	if len(parts) > 0 {
-		output.Message = &corechat.Message{Role: corechat.RoleAssistant, Parts: parts}
-	}
-	return output, nil
 }
 
 func (p *protocolResponseMapper) mapParts(message nativeMessage) ([]corechat.Part, error) {

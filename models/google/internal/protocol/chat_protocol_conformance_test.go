@@ -42,27 +42,7 @@ func newProtocolChatModel(t *testing.T) (corechat.Model, corechat.Streamer) {
 
 func assertProtocolChatCall(t *testing.T, response *corechat.Response) {
 	t.Helper()
-	if response.Metadata.ID != "response-1" || response.Metadata.Model != "gemini-3-pro-001" {
-		t.Fatalf("identity = %q/%q", response.Metadata.ID, response.Metadata.Model)
-	}
-	result := response.Output
-	if result.Message == nil || len(result.Message.Parts) != 3 || result.FinishReason != corechat.FinishReasonToolCalls {
-		t.Fatalf("result = %#v", result)
-	}
-	reasoning := result.Message.Parts[0]
-	if reasoning.Kind != corechat.PartReasoning || reasoning.Text != "verify result" || string(reasoning.ReasoningState) != "sig-google" {
-		t.Errorf("reasoning = %#v", reasoning)
-	}
-	call := result.Message.Parts[2].ToolCall
-	if call == nil || call.ID != "google/generated/2" || call.Name != "calculate" || call.Arguments != `{"x":2}` {
-		t.Errorf("tool call = %#v", call)
-	}
-	usage := response.Metadata.Usage
-	if usage.InputTokens != 23 || usage.OutputTokens != 13 ||
-		usage.ReasoningTokens == nil || *usage.ReasoningTokens != 4 ||
-		usage.CacheReadInputTokens == nil || *usage.CacheReadInputTokens != 6 {
-		t.Errorf("usage = %#v", usage)
-	}
+	assertProtocolChatAggregated(t, response)
 }
 
 func assertProtocolChatStream(t *testing.T, responses []*corechat.ResponseDelta) {
@@ -116,12 +96,7 @@ func assertProtocolChatAggregated(t *testing.T, response *corechat.Response) {
 }
 
 func TestChatRejectsMultipleProviderCandidates(t *testing.T) {
-	server := modeltest.JSONServer(http.StatusOK, `{
-		"responseId":"response-multiple","modelVersion":"gemini-3-pro-001","candidates":[
-			{"index":0,"content":{"role":"model","parts":[{"text":"first"}]}},
-			{"index":1,"content":{"role":"model","parts":[{"text":"second"}]}}
-		]
-	}`)
+	server := modeltest.OpenAISSEServer([]string{`{ "responseId":"response-multiple","modelVersion":"gemini-3-pro-001","candidates":[ {"index":0,"content":{"role":"model","parts":[{"text":"first"}]}}, {"index":1,"content":{"role":"model","parts":[{"text":"second"}]}} ] }`})
 	t.Cleanup(server.Close)
 	model, err := protocol.NewChat(t.Context(), protocol.ChatConfig{
 		Provider: "google", Client: protocol.ClientConfig{APIKey: "test-key", BaseURL: server.URL},
@@ -267,12 +242,10 @@ func newProtocolChatServer(t *testing.T) *httptest.Server {
 		if toolResult.ID != "google/0/2" || toolResult.Name != "calculate" || toolResult.Response["value"] != float64(4) {
 			t.Errorf("tool result = %#v", toolResult)
 		}
-		if strings.Contains(request.URL.Path, "streamGenerateContent") {
-			writeProtocolChatStream(writer)
-			return
+		if !strings.Contains(request.URL.Path, "streamGenerateContent") {
+			t.Error("chat must use streaming transport")
 		}
-		writer.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(writer, protocolChatResponseJSON)
+		writeProtocolChatStream(writer)
 	}))
 }
 
@@ -288,27 +261,3 @@ func writeProtocolChatStream(writer http.ResponseWriter) {
 		fmt.Fprintf(writer, "data: %s\n\n", chunk)
 	}
 }
-
-const protocolChatResponseJSON = `{
-  "responseId":"response-1",
-  "modelVersion":"gemini-3-pro-001",
-  "candidates":[
-    {
-      "index":0,
-      "content":{"role":"model","parts":[
-        {"thought":true,"text":"verify result","thoughtSignature":"c2lnLWdvb2dsZQ=="},
-        {"text":"The value is four."},
-        {"functionCall":{"name":"calculate","args":{"x":2}}}
-      ]},
-      "finishReason":"STOP"
-    }
-  ],
-  "usageMetadata":{
-    "promptTokenCount":20,
-    "candidatesTokenCount":9,
-    "thoughtsTokenCount":4,
-    "toolUsePromptTokenCount":3,
-    "cachedContentTokenCount":6,
-    "totalTokenCount":36
-  }
-}`

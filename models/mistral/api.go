@@ -99,28 +99,6 @@ func (a *api) moderation(ctx context.Context, req *moderationRequest) (*moderati
 	return &out, nil
 }
 
-func (a *api) chatCompletion(ctx context.Context, request *chatCompletionRequest) (*chatCompletionResponse, error) {
-	if a == nil || a.http == nil {
-		return nil, errors.New("mistral: nil API")
-	}
-	if request == nil {
-		return nil, errors.New("mistral: chat completion request must not be nil")
-	}
-	var result chatCompletionResponse
-	response, err := a.http.R().
-		SetContext(ctx).
-		SetBody(request).
-		SetResult(&result).
-		Post("/chat/completions")
-	if err != nil {
-		return nil, fmt.Errorf("mistral: chat completion request: %w", err)
-	}
-	if !response.IsSuccess() {
-		return nil, newAPIError("chat completion", response.StatusCode(), response.Header(), response.Body())
-	}
-	return &result, nil
-}
-
 func (a *api) chatCompletionStream(ctx context.Context, request *chatCompletionRequest) (io.ReadCloser, error) {
 	if a == nil || a.http == nil {
 		return nil, errors.New("mistral: nil API")

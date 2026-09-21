@@ -1,6 +1,7 @@
 package mistral_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -90,14 +91,14 @@ func newThinkingReplayServer(t *testing.T, requests *[]map[string]any) *httptest
 			return
 		}
 		*requests = append(*requests, body)
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{
+		writer.Header().Set("Content-Type", "text/event-stream")
+		payload := `{
 			"id":"cmpl-1",
 			"model":"mistral-medium-3-5",
 			"choices":[{
 				"index":0,
 				"finish_reason":"tool_calls",
-				"message":{
+				"delta":{
 					"role":"assistant",
 					"content":[
 						{"type":"thinking","thinking":[{"type":"text","text":"inspect inputs"}],"closed":true},
@@ -107,7 +108,13 @@ func newThinkingReplayServer(t *testing.T, requests *[]map[string]any) *httptest
 				}
 			}],
 			"usage":{"prompt_tokens":10,"completion_tokens":6,"total_tokens":16,"prompt_tokens_details":{"cached_tokens":4}}
-		}`))
+		}`
+		var compact bytes.Buffer
+		if err := json.Compact(&compact, []byte(payload)); err != nil {
+			t.Error(err)
+			return
+		}
+		fmt.Fprintf(writer, "data: %s\n\ndata: [DONE]\n\n", compact.Bytes())
 	}))
 }
 
@@ -140,8 +147,8 @@ func assertThinkingResponse(t *testing.T, requests []map[string]any, maxTokens i
 
 func TestChatMapsReferenceChunksToCitations(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(writer, `{"id":"cmpl-1","model":"mistral-small-latest","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":[{"type":"text","text":"Grounded answer."},{"type":"reference","reference_ids":[7,"doc-9"]}]}}],"usage":{}}`)
+		writer.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(writer, "data: %s\n\ndata: [DONE]\n\n", `{"id":"cmpl-1","model":"mistral-small-latest","choices":[{"index":0,"finish_reason":"stop","delta":{"role":"assistant","content":[{"type":"text","text":"Grounded answer."},{"type":"reference","reference_ids":[7,"doc-9"]}]}}],"usage":{}}`)
 	}))
 	t.Cleanup(server.Close)
 	model, err := mistral.NewChat(t.Context(), mistral.ChatConfig{
@@ -207,7 +214,7 @@ func TestChatCoalescesStreamedThinkingForReplay(t *testing.T) {
 			http.Error(writer, "invalid request", http.StatusBadRequest)
 			return
 		}
-		if streaming, _ := body["stream"].(bool); streaming {
+		if len(body["messages"].([]any)) == 1 {
 			writer.Header().Set("Content-Type", "text/event-stream")
 			fmt.Fprint(writer, "data: {\"id\":\"cmpl-stream\",\"model\":\"mistral-small-latest\",\"choices\":[{\"index\":0,\"finish_reason\":null,\"delta\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":[{\"type\":\"text\",\"text\":\"plan \"}],\"closed\":false}]}}]}\n\n")
 			fmt.Fprint(writer, "data: {\"id\":\"cmpl-stream\",\"model\":\"mistral-small-latest\",\"choices\":[{\"index\":0,\"finish_reason\":null,\"delta\":{\"content\":[{\"type\":\"thinking\",\"thinking\":[{\"type\":\"text\",\"text\":\"next\"}],\"closed\":true},{\"type\":\"text\",\"text\":\"answer \"}]}}]}\n\n")
@@ -216,8 +223,8 @@ func TestChatCoalescesStreamedThinkingForReplay(t *testing.T) {
 			return
 		}
 		replayRequest = body
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"id":"cmpl-2","model":"mistral-small-latest","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`))
+		writer.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(writer, "data: %s\n\ndata: [DONE]\n\n", `{"id":"cmpl-2","model":"mistral-small-latest","choices":[{"index":0,"finish_reason":"stop","delta":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
 	}))
 	t.Cleanup(server.Close)
 

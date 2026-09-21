@@ -3,7 +3,7 @@
 // Bedrock is a model-aggregation gateway — a single endpoint that
 // fronts foundation models from Anthropic, Meta, Mistral, Amazon
 // Titan / Nova, Cohere, AI21, Stability and others. [NewChat]
-// uses the unified Converse / ConverseStream API which speaks a
+// uses the ConverseStream API which speaks a
 // provider-agnostic message shape; [NewEmbeddingModel] targets the native
 // InvokeModel contracts for Titan Text Embeddings V1/V2 and Cohere Embed
 // V3/V4. Provider-only embedding controls use [EmbeddingRequestOptions] under
@@ -17,6 +17,9 @@
 //
 // AWS auth is handled by the standard aws-sdk-go-v2 chain (env vars,
 // shared config, IRSA, instance role); no custom APIKey is required.
+//
+// Call aggregates Stream through Core's ResponseAccumulator; both methods share
+// transport, parsing, cancellation, and terminal errors.
 //
 // Stop reasons. Converse reports two truncations — max_tokens for the budget
 // the caller set and model_context_window_exceeded for the model's own window

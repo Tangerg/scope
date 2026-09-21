@@ -1,6 +1,7 @@
 package bedrock
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -78,14 +79,28 @@ func (p *protocolChunkAccumulator) add(event types.ConverseStreamOutput) (*corec
 			}
 		}
 	case *types.ConverseStreamOutputMemberMetadata:
-		if typed.Value.Usage == nil {
-			return nil, false, nil
-		}
 		response.Metadata.Usage = mapProtocolUsage(typed.Value.Usage)
 	default:
 		return nil, false, nil
 	}
 
+	var nativeValue any
+	var nativeKey string
+	switch value := event.(type) {
+	case *types.ConverseStreamOutputMemberMessageStop:
+		nativeKey, nativeValue = ChatMessageStopExtensionKey, value.Value
+	case *types.ConverseStreamOutputMemberMetadata:
+		nativeKey, nativeValue = ChatMetadataExtensionKey, value.Value
+	}
+	if nativeValue != nil {
+		native, err := marshalProtocolJSON(nativeValue)
+		if err != nil {
+			return nil, false, fmt.Errorf("bedrock: encode stream metadata: %w", err)
+		}
+		if err := response.Metadata.Extra.Set(nativeKey, json.RawMessage(native)); err != nil {
+			return nil, false, err
+		}
+	}
 	if err := response.Validate(); err != nil {
 		return nil, false, fmt.Errorf("bedrock: stream response: %w", err)
 	}

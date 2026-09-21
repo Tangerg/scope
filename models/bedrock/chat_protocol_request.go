@@ -23,18 +23,7 @@ type preparedChatRequest struct {
 	native       ChatRequestOptions
 }
 
-func mapGuardrailOptions(options *GuardrailOptions) *types.GuardrailConfiguration {
-	if options == nil {
-		return nil
-	}
-	return &types.GuardrailConfiguration{
-		GuardrailIdentifier: aws.String(options.Identifier),
-		GuardrailVersion:    aws.String(options.Version),
-		Trace:               types.GuardrailTrace(options.Trace),
-	}
-}
-
-func mapStreamGuardrailOptions(options *StreamGuardrailOptions) *types.GuardrailStreamConfiguration {
+func mapGuardrailOptions(options *GuardrailOptions) *types.GuardrailStreamConfiguration {
 	if options == nil {
 		return nil
 	}

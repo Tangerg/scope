@@ -16,10 +16,8 @@ import (
 // shared Core protocol or colliding with another provider.
 const (
 	OpenAIRequestExtensionKey        = "xiaomi/openai_request"
-	OpenAIResponseExtensionKey       = "xiaomi/openai_response"
 	OpenAIStreamChunkExtensionKey    = "xiaomi/openai_stream_chunk"
 	AnthropicRequestExtensionKey     = "xiaomi/anthropic_request"
-	AnthropicResponseExtensionKey    = "xiaomi/anthropic_response"
 	AnthropicStreamEventExtensionKey = "xiaomi/anthropic_stream_event"
 )
 

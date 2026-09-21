@@ -12,7 +12,6 @@ import (
 // shared Core protocol or colliding with another provider.
 const (
 	OpenAIRequestExtensionKey     = "azureopenai/openai_request"
-	OpenAIResponseExtensionKey    = "azureopenai/openai_response"
 	OpenAIStreamChunkExtensionKey = "azureopenai/openai_stream_chunk"
 )
 

@@ -56,16 +56,16 @@ func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
 }
 
 func (c *Chat) Call(ctx context.Context, req *corechat.Request) (*corechat.Response, error) {
-	modelName, contents, config, err := c.buildProtocolRequest(req)
-	if err != nil {
-		return nil, err
+	var accumulator corechat.ResponseAccumulator
+	for delta, err := range c.Stream(ctx, req) {
+		if err != nil {
+			return nil, err
+		}
+		if addErr := accumulator.Add(delta); addErr != nil {
+			return nil, addErr
+		}
 	}
-	response, err := c.api.chatCompletion(ctx, modelName, contents, config)
-	if err != nil {
-		return nil, err
-	}
-	mapper := newProtocolResponseMapper(c.provider)
-	return mapper.mapResponse(modelName, response)
+	return accumulator.Response()
 }
 
 // Stream performs one streaming GenerateContent request. Candidate and logical

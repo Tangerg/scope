@@ -22,7 +22,7 @@ const (
 	protocolGeneratedToolPrefix = "ollama/generated/"
 )
 
-func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, stream bool) (*nativeChatRequest, error) {
+func mapProtocolRequest(defaults corechat.Options, req *corechat.Request) (*nativeChatRequest, error) {
 	options, err := defaults.Resolve(req.Options)
 	if err != nil {
 		return nil, fmt.Errorf("ollama: options: %w", err)
@@ -43,7 +43,7 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, stream
 		return nil, err
 	}
 	apiReq.Model = options.Model
-	apiReq.Stream = &stream
+	apiReq.Stream = new(true)
 	apiReq.Format, err = mapProtocolOutputFormat(options.OutputFormat)
 	if err != nil {
 		return nil, err

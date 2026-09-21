@@ -16,10 +16,8 @@ import (
 // shared Core protocol or colliding with another provider.
 const (
 	OpenAIRequestExtensionKey        = "openrouter/openai_request"
-	OpenAIResponseExtensionKey       = "openrouter/openai_response"
 	OpenAIStreamChunkExtensionKey    = "openrouter/openai_stream_chunk"
 	AnthropicRequestExtensionKey     = "openrouter/anthropic_request"
-	AnthropicResponseExtensionKey    = "openrouter/anthropic_response"
 	AnthropicStreamEventExtensionKey = "openrouter/anthropic_stream_event"
 )
 

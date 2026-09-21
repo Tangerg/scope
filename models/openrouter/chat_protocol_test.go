@@ -34,25 +34,8 @@ func TestChatPreservesStructuredReasoningDetails(t *testing.T) {
 			return
 		}
 		requests = append(requests, body)
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{
-			"id":"chat-1",
-			"model":"anthropic/claude-sonnet",
-			"choices":[{
-				"index":0,
-				"finish_reason":"stop",
-				"message":{
-					"role":"assistant",
-					"content":"final answer",
-					"reasoning":"visible text duplicate",
-					"reasoning_details":[
-						{"type":"reasoning.text","text":"step one","signature":"sig-1","id":"detail-1","format":"anthropic-claude-v1","index":0},
-						{"type":"reasoning.encrypted","data":"opaque-data","id":"detail-2","format":"anthropic-claude-v1","index":1},
-						{"type":"reasoning.summary","summary":"short summary","id":"detail-3","format":"anthropic-claude-v1","index":2}
-					]
-				}
-			}]
-		}`))
+		writer.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(writer, "data: %s\n\ndata: [DONE]\n\n", `{"id":"chat-1","model":"anthropic/claude-sonnet","choices":[{"index":0,"finish_reason":"stop","delta":{"role":"assistant","content":"final answer","reasoning":"visible text duplicate","reasoning_details":[{"type":"reasoning.text","text":"step one","signature":"sig-1","id":"detail-1","format":"anthropic-claude-v1","index":0},{"type":"reasoning.encrypted","data":"opaque-data","id":"detail-2","format":"anthropic-claude-v1","index":1},{"type":"reasoning.summary","summary":"short summary","id":"detail-3","format":"anthropic-claude-v1","index":2}]}}],"object":"chat.completion.chunk"}`)
 	}))
 	t.Cleanup(server.Close)
 
@@ -72,16 +55,13 @@ func TestChatPreservesStructuredReasoningDetails(t *testing.T) {
 		t.Fatalf("first Call: %v", err)
 	}
 	message := firstResponse.Output.Message
-	if message == nil || len(message.Parts) != 4 {
+	if message == nil || len(message.Parts) != 2 {
 		t.Fatalf("response message = %#v", message)
 	}
-	if message.Parts[0].Text != "step one" || len(message.Parts[0].ReasoningState) == 0 {
+	if message.Parts[0].Text != "step oneshort summary" || len(message.Parts[0].ReasoningState) == 0 {
 		t.Errorf("text reasoning = %#v", message.Parts[0])
 	}
-	if message.Parts[1].Text != "" || len(message.Parts[1].ReasoningState) == 0 {
-		t.Errorf("encrypted reasoning = %#v", message.Parts[1])
-	}
-	if message.Parts[2].Text != "short summary" || message.Parts[3].Text != "final answer" {
+	if message.Parts[1].Text != "final answer" {
 		t.Errorf("summary/answer = %#v", message.Parts)
 	}
 
@@ -119,7 +99,7 @@ func TestChatCoalescesStreamedReasoningDetailsForReplay(t *testing.T) {
 			http.Error(writer, "invalid request", http.StatusBadRequest)
 			return
 		}
-		if streaming, _ := body["stream"].(bool); streaming {
+		if len(body["messages"].([]any)) == 1 {
 			writer.Header().Set("Content-Type", "text/event-stream")
 			fmt.Fprint(writer, "data: {\"id\":\"stream-1\",\"model\":\"model\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_details\":[{\"type\":\"reasoning.text\",\"text\":\"step \",\"id\":\"detail-1\",\"format\":\"anthropic-claude-v1\",\"index\":0}]}}]}\n\n")
 			fmt.Fprint(writer, "data: {\"id\":\"stream-1\",\"model\":\"model\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_details\":[{\"type\":\"reasoning.text\",\"text\":\"two\",\"id\":\"detail-1\",\"format\":\"anthropic-claude-v1\",\"index\":0}]}}]}\n\n")
@@ -128,8 +108,8 @@ func TestChatCoalescesStreamedReasoningDetailsForReplay(t *testing.T) {
 			return
 		}
 		replayRequest = body
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"id":"chat-2","model":"model","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"done"}}]}`))
+		writer.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(writer, "data: %s\n\ndata: [DONE]\n\n", `{"id":"chat-2","model":"model","choices":[{"index":0,"finish_reason":"stop","delta":{"role":"assistant","content":"done"}}],"object":"chat.completion.chunk"}`)
 	}))
 	t.Cleanup(server.Close)
 

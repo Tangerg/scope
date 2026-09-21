@@ -6,8 +6,8 @@ cloud.google.com/go/compute/metadata v0.9.0 h1:pDUj4QMoPejqq20dK0Pg2N4yG9zIkYGdB
 cloud.google.com/go/compute/metadata v0.9.0/go.mod h1:E0bWwX5wTnLPedCKqk3pJmVgCBSM6qQI1yTBdEb3C10=
 github.com/Tangerg/scope/core v0.31.0 h1:ywiW2Q+vAsDmEuwCxqbvHWJAinq7rBenHPm7wQ/odcU=
 github.com/Tangerg/scope/core v0.31.0/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
-github.com/Tangerg/scope/models/protocol/openai v0.31.0 h1:wWqtDIJOQ5P5f8mMUuGG51SuVsEdhZM8zWPzx0JajPE=
-github.com/Tangerg/scope/models/protocol/openai v0.31.0/go.mod h1:EYnyeWWpfUgkBFj4QmMCnba2CrU1tctph3GDPXmK5LY=
+github.com/Tangerg/scope/models/protocol/openai v0.31.1-0.20260921132009-654d77bc7d10 h1:gn0iRve3x1QVVJb+1Dlu+QpDU85B4yBaX+WTJCLhXVE=
+github.com/Tangerg/scope/models/protocol/openai v0.31.1-0.20260921132009-654d77bc7d10/go.mod h1:EYnyeWWpfUgkBFj4QmMCnba2CrU1tctph3GDPXmK5LY=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
 github.com/bahlo/generic-list-go v0.2.0/go.mod h1:2KvAjgMlE5NNynlg/5iLrrCCZ2+5xWbdbCW3pNTGyYg=
 github.com/buger/jsonparser v1.6.1 h1:I0phFv0PlbLHnM7TZAVjZ2MJ2/eWRTDyuO7GLR98IEs=

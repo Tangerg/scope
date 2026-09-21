@@ -1,6 +1,7 @@
 package azureopenai_test
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -20,8 +21,8 @@ func TestChatUsesAzureOpenAIV1Protocol(t *testing.T) {
 		if got := request.Header.Get("Authorization"); got != "Bearer test-key" {
 			t.Errorf("Authorization = %q; want Bearer test-key", got)
 		}
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"id":"chat-1","object":"chat.completion","model":"gpt-deployment","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
+		writer.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(writer, "data: %s\n\ndata: [DONE]\n\n", `{"id":"chat-1","object":"chat.completion.chunk","model":"gpt-deployment","choices":[{"index":0,"finish_reason":"stop","delta":{"role":"assistant","content":"ok"}}]}`)
 	}))
 	t.Cleanup(server.Close)
 

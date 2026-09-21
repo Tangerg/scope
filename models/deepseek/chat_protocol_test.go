@@ -2,6 +2,7 @@ package deepseek_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -64,8 +65,8 @@ func TestChat_ReasoningReplay(t *testing.T) {
 					http.Error(writer, "invalid request", http.StatusBadRequest)
 					return
 				}
-				writer.Header().Set("Content-Type", "application/json")
-				_, _ = writer.Write([]byte(`{"id":"chat-1","model":"deepseek-v4-flash","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
+				writer.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprintf(writer, "data: %s\n\ndata: [DONE]\n\n", `{"id":"chat-1","model":"deepseek-v4-flash","choices":[{"index":0,"finish_reason":"stop","delta":{"role":"assistant","content":"ok"}}],"object":"chat.completion.chunk"}`)
 			}))
 			t.Cleanup(server.Close)
 
@@ -100,8 +101,8 @@ func TestChatMapsOfficialRequestOptions(t *testing.T) {
 			http.Error(writer, "invalid request", http.StatusBadRequest)
 			return
 		}
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"id":"chat-1","model":"deepseek-v4-flash","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
+		writer.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(writer, "data: %s\n\ndata: [DONE]\n\n", `{"id":"chat-1","model":"deepseek-v4-flash","choices":[{"index":0,"finish_reason":"stop","delta":{"role":"assistant","content":"ok"}}],"object":"chat.completion.chunk"}`)
 	}))
 	t.Cleanup(server.Close)
 
@@ -174,8 +175,8 @@ func TestChatThinkingDisabledAllowsSampling(t *testing.T) {
 			http.Error(writer, "invalid request", http.StatusBadRequest)
 			return
 		}
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"id":"chat-1","model":"deepseek-v4-flash","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
+		writer.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(writer, "data: %s\n\ndata: [DONE]\n\n", `{"id":"chat-1","model":"deepseek-v4-flash","choices":[{"index":0,"finish_reason":"stop","delta":{"role":"assistant","content":"ok"}}],"object":"chat.completion.chunk"}`)
 	}))
 	t.Cleanup(server.Close)
 
@@ -250,7 +251,6 @@ func TestChatRejectsInvalidDeepSeekOptions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewChat: %v", err)
 	}
-	trueValue := true
 	topLogProbs := int64(1)
 	tests := []struct {
 		name    string
@@ -265,7 +265,7 @@ func TestChatRejectsInvalidDeepSeekOptions(t *testing.T) {
 		{name: "unknown effort", core: corechat.Options{ReasoningEffort: "turbo"}, want: "reasoning_effort has unsupported value"},
 		{name: "ignored temperature", core: corechat.Options{Temperature: new(0.5)}, want: "temperature has no effect"},
 		{name: "top logprobs without logprobs", options: deepseek.RequestOptions{TopLogProbs: &topLogProbs}, want: "top_logprobs requires logprobs=true"},
-		{name: "usage on non-streaming call", options: deepseek.RequestOptions{IncludeUsage: &trueValue}, want: "include_usage is valid only for streaming"},
+
 		{name: "invalid user id", options: deepseek.RequestOptions{UserID: "private@example.com"}, want: "user_id may contain only"},
 		{
 			name:   "missing named tool",

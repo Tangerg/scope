@@ -2,6 +2,7 @@ package xiaomi_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -91,9 +92,8 @@ func newDiscardTestModel(t *testing.T) (*xiaomi.Chat, func() int) {
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 			t.Errorf("decode request: %v", err)
 		}
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"id":"c","model":"m","choices":[{"index":0,"finish_reason":"stop",` +
-			`"message":{"role":"assistant","content":"hi"}}],"usage":{}}`))
+		writer.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(writer, "data: %s\n\ndata: [DONE]\n\n", `{"id":"c","model":"m","choices":[{"index":0,"finish_reason":"stop","delta":{"role":"assistant","content":"hi"}}],"usage":{},"object":"chat.completion.chunk"}`)
 	}))
 	t.Cleanup(server.Close)
 

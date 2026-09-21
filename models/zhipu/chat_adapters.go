@@ -16,10 +16,8 @@ import (
 // shared Core protocol or colliding with another provider.
 const (
 	OpenAIRequestExtensionKey        = "zhipu/openai_request"
-	OpenAIResponseExtensionKey       = "zhipu/openai_response"
 	OpenAIStreamChunkExtensionKey    = "zhipu/openai_stream_chunk"
 	AnthropicRequestExtensionKey     = "zhipu/anthropic_request"
-	AnthropicResponseExtensionKey    = "zhipu/anthropic_response"
 	AnthropicStreamEventExtensionKey = "zhipu/anthropic_stream_event"
 )
 

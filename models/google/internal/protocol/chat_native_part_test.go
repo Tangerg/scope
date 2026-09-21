@@ -11,7 +11,7 @@ import (
 )
 
 func TestProtocolMetadataUsesEndpointNamespace(t *testing.T) {
-	mapped, err := newProtocolResponseMapper("vertexai").mapResponse("gemini", &genai.GenerateContentResponse{
+	mapped, err := aggregateProtocolResponse(t, "vertexai", &genai.GenerateContentResponse{
 		ResponseID: "response-1",
 		Candidates: []*genai.Candidate{{
 			Index:        0,
@@ -117,7 +117,7 @@ func TestProtocolToolChoiceUsesOneCoreSurface(t *testing.T) {
 }
 
 func TestProtocolMapsCitationMetadata(t *testing.T) {
-	response, err := newProtocolResponseMapper("google").mapResponse("gemini", &genai.GenerateContentResponse{
+	response, err := aggregateProtocolResponse(t, "google", &genai.GenerateContentResponse{
 		Candidates: []*genai.Candidate{{
 			Content:      &genai.Content{Parts: []*genai.Part{{Text: "Grounded answer."}}},
 			FinishReason: genai.FinishReasonStop,
@@ -148,7 +148,7 @@ func TestProtocolToolCompletionPreservesProviderOutcome(t *testing.T) {
 	} {
 		t.Run(string(tc.reason), func(t *testing.T) {
 			content := &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{{FunctionCall: &genai.FunctionCall{Name: "inspect", Args: map[string]any{}}}}}
-			response, err := newProtocolResponseMapper("google").mapResponse("gemini", &genai.GenerateContentResponse{Candidates: []*genai.Candidate{{Content: content, FinishReason: tc.reason}}})
+			response, err := aggregateProtocolResponse(t, "google", &genai.GenerateContentResponse{Candidates: []*genai.Candidate{{Content: content, FinishReason: tc.reason}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -276,4 +276,22 @@ func TestReplayUsesCurrentCoreContentAfterHistoryRoundTrip(t *testing.T) {
 			}
 		})
 	}
+}
+
+func aggregateProtocolResponse(t *testing.T, provider string, response *genai.GenerateContentResponse) (*corechat.Response, error) {
+	t.Helper()
+	mapper := newProtocolResponseMapper(provider)
+	delta, err := mapper.mapDelta("gemini", response)
+	if err != nil {
+		return nil, err
+	}
+	delta, err = mapper.complete(delta)
+	if err != nil {
+		return nil, err
+	}
+	var accumulator corechat.ResponseAccumulator
+	if err := accumulator.Add(delta); err != nil {
+		return nil, err
+	}
+	return accumulator.Response()
 }

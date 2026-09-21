@@ -15,7 +15,6 @@ import (
 // shared Core protocol or colliding with another provider.
 const (
 	OpenAIRequestExtensionKey     = "alibaba/openai_request"
-	OpenAIResponseExtensionKey    = "alibaba/openai_response"
 	OpenAIStreamChunkExtensionKey = "alibaba/openai_stream_chunk"
 )
 

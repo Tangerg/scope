@@ -23,13 +23,6 @@ func TestToolCompletionPreservesProviderOutcome(t *testing.T) {
 				t.Fatal(err)
 			}
 			native.DoneReason = tc.reason
-			response, err := newProtocolResponseMapper().mapResponse("test", native)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if response.Output.FinishReason != tc.want {
-				t.Fatalf("Call finish = %s, want %s", response.Output.FinishReason, tc.want)
-			}
 			mapper := newProtocolResponseMapper()
 			native.Done = false
 			native.DoneReason = ""
@@ -61,7 +54,7 @@ func TestToolCompletionPreservesProviderOutcome(t *testing.T) {
 				t.Fatalf("Stream finish = %s, want %s", streamed.Output.FinishReason, tc.want)
 			}
 			if tc.reason != "" {
-				for _, output := range []*corechat.Output{response.Output, streamed.Output} {
+				for _, output := range []*corechat.Output{streamed.Output} {
 					reason, found, err := output.Metadata.Extra.Decode[string](protocolNativeDoneReasonKey)
 					if err != nil || !found || reason != tc.reason {
 						t.Fatalf("native reason = %s, found %v, error %v", reason, found, err)

@@ -37,7 +37,6 @@ const (
 	ImageResponseExtensionKey         = "google/image_response"
 
 	OpenAIRequestExtensionKey     = "google/openai_request"
-	OpenAIResponseExtensionKey    = "google/openai_response"
 	OpenAIStreamChunkExtensionKey = "google/openai_stream_chunk"
 
 	ModelGemini36Flash      = protocol.ModelGemini36Flash

@@ -75,13 +75,6 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	return &api{client: client}, nil
 }
 
-func (a *api) converse(ctx context.Context, params *bedrockruntime.ConverseInput, opts ...func(*bedrockruntime.Options)) (*bedrockruntime.ConverseOutput, error) {
-	if params == nil {
-		return nil, errors.New("bedrock: request must not be nil")
-	}
-	return a.client.Converse(ctx, params, opts...)
-}
-
 // converseStream returns the event stream rather than the output envelope,
 // because that is all a caller does with the output: the envelope carries the
 // stream and nothing else a caller reads. It also keeps the surface one the SDK

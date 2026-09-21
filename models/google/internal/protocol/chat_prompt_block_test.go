@@ -39,11 +39,7 @@ func TestMapResponseReportsBlockedPrompt(t *testing.T) {
 		t.Run(sample.name, func(t *testing.T) {
 			response := &genai.GenerateContentResponse{PromptFeedback: sample.feedback}
 
-			_, err := newProtocolResponseMapper("google").mapResponse("model", response)
-			if err == nil || err.Error() != sample.want {
-				t.Fatalf("mapResponse() = %v, want %q", err, sample.want)
-			}
-			_, err = newProtocolResponseMapper("google").mapDelta("model", response)
+			_, err := newProtocolResponseMapper("google").mapDelta("model", response)
 			if err == nil || err.Error() != sample.want {
 				t.Fatalf("mapDelta() = %v, want %q", err, sample.want)
 			}
@@ -63,9 +59,9 @@ func TestMapResponseIgnoresUnspecifiedBlockReason(t *testing.T) {
 		{SafetyRatings: []*genai.SafetyRating{{Category: genai.HarmCategoryHarassment}}},
 	} {
 		response := &genai.GenerateContentResponse{PromptFeedback: feedback}
-		_, err := newProtocolResponseMapper("google").mapResponse("model", response)
+		_, err := aggregateProtocolResponse(t, "google", response)
 		if err == nil || strings.Contains(err.Error(), "prompt blocked") {
-			t.Fatalf("mapResponse() = %v, want the candidate-count error", err)
+			t.Fatalf("mapResponse() = %v, want missing terminal response", err)
 		}
 	}
 }

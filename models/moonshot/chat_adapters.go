@@ -16,10 +16,8 @@ import (
 // shared Core protocol or colliding with another provider.
 const (
 	OpenAIRequestExtensionKey        = "moonshot/openai_request"
-	OpenAIResponseExtensionKey       = "moonshot/openai_response"
 	OpenAIStreamChunkExtensionKey    = "moonshot/openai_stream_chunk"
 	AnthropicRequestExtensionKey     = "moonshot/anthropic_request"
-	AnthropicResponseExtensionKey    = "moonshot/anthropic_response"
 	AnthropicStreamEventExtensionKey = "moonshot/anthropic_stream_event"
 )
 

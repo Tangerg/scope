@@ -15,7 +15,6 @@ import (
 // shared Core protocol or colliding with another provider.
 const (
 	OpenAIRequestExtensionKey     = "fireworks/openai_request"
-	OpenAIResponseExtensionKey    = "fireworks/openai_response"
 	OpenAIStreamChunkExtensionKey = "fireworks/openai_stream_chunk"
 )
 

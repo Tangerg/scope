@@ -18,7 +18,6 @@ const (
 	BaseURLOpenAI = "https://api.anthropic.com/v1"
 
 	OpenAIRequestExtensionKey     = "anthropic/openai_request"
-	OpenAIResponseExtensionKey    = "anthropic/openai_response"
 	OpenAIStreamChunkExtensionKey = "anthropic/openai_stream_chunk"
 )
 

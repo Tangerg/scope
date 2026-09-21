@@ -2,7 +2,6 @@ package mistral
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -216,62 +215,6 @@ type chatToolCall struct {
 type chatFunctionCall struct {
 	Name      string          `json:"name,omitempty"`
 	Arguments json.RawMessage `json:"arguments,omitempty"`
-}
-
-type chatCompletionResponse struct {
-	ID      string                 `json:"id"`
-	Model   string                 `json:"model"`
-	Choices []chatCompletionChoice `json:"choices"`
-	Usage   *chatUsage             `json:"usage"`
-}
-
-func (c *chatCompletionResponse) response() (*corechat.Response, error) {
-	if c == nil {
-		return nil, errors.New("mistral: nil chat completion response")
-	}
-	if len(c.Choices) != expectedResponseChoices {
-		return nil, fmt.Errorf("mistral: response has %d choices; Core requires one output", len(c.Choices))
-	}
-	response := &corechat.Response{
-		Metadata: &corechat.ResponseMetadata{
-			ID: c.ID, Model: c.Model, Usage: c.Usage.usage(),
-		},
-	}
-	if err := response.Metadata.Extra.Set(responseExtensionKey, c); err != nil {
-		return nil, err
-	}
-	wireChoice := c.Choices[0]
-	if wireChoice.Index != firstChoiceIndex {
-		return nil, fmt.Errorf("mistral: choice index is %d, want %d", wireChoice.Index, firstChoiceIndex)
-	}
-	parts, err := mapMistralContent(wireChoice.Message.Content)
-	if err != nil {
-		return nil, fmt.Errorf("mistral: output message content: %w", err)
-	}
-	toolParts, err := mapMistralToolCalls(wireChoice.Message.ToolCalls)
-	if err != nil {
-		return nil, fmt.Errorf("mistral: output message tool calls: %w", err)
-	}
-	parts = append(parts, toolParts...)
-	finish := wireChoice.FinishReason.normalized()
-	nativeFinish, err := wireChoice.FinishReason.metadata(finish)
-	if err != nil {
-		return nil, err
-	}
-	response.Output = &corechat.Output{FinishReason: finish, Metadata: nativeFinish}
-	if len(parts) > 0 {
-		response.Output.Message = &corechat.Message{Role: corechat.RoleAssistant, Parts: parts}
-	}
-	if err := response.Validate(); err != nil {
-		return nil, fmt.Errorf("mistral: mapped chat completion: %w", err)
-	}
-	return response, nil
-}
-
-type chatCompletionChoice struct {
-	Index        int                   `json:"index"`
-	Message      chatCompletionMessage `json:"message"`
-	FinishReason finishReason          `json:"finish_reason"`
 }
 
 type chatCompletionMessage struct {

@@ -7,14 +7,13 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
 )
 
-func TestChatBuildConverseInput(t *testing.T) {
+func TestChatBuildConverseStreamInput(t *testing.T) {
 	temperature := 0.4
 	image, err := media.NewBytes("image/png", []byte("png"))
 	if err != nil {
@@ -49,7 +48,7 @@ func TestChatBuildConverseInput(t *testing.T) {
 	}
 
 	model := &Chat{api: &api{}, defaults: corechat.Options{Model: "anthropic.claude-test"}}
-	input, modelName, err := model.buildConverseInput(request)
+	input, modelName, err := model.buildConverseStreamInput(request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,75 +70,6 @@ func TestChatBuildConverseInput(t *testing.T) {
 	toolResult, ok := input.Messages[2].Content[0].(*types.ContentBlockMemberToolResult)
 	if !ok || toolResult.Value.Status != types.ToolResultStatusError {
 		t.Fatalf("tool result = %#v", input.Messages[2].Content[0])
-	}
-}
-
-func TestMapProtocolConverseResponse(t *testing.T) {
-	output := &bedrockruntime.ConverseOutput{
-		Output: &types.ConverseOutputMemberMessage{Value: types.Message{
-			Role: types.ConversationRoleAssistant,
-			Content: []types.ContentBlock{
-				&types.ContentBlockMemberReasoningContent{Value: &types.ReasoningContentBlockMemberReasoningText{Value: types.ReasoningTextBlock{Text: aws.String("think"), Signature: aws.String("sig")}}},
-				&types.ContentBlockMemberReasoningContent{Value: &types.ReasoningContentBlockMemberRedactedContent{Value: []byte("opaque")}},
-				&types.ContentBlockMemberText{Value: "answer"},
-				&types.ContentBlockMemberToolUse{Value: types.ToolUseBlock{ToolUseId: aws.String("call-1"), Name: aws.String("weather"), Input: toBedrockDocument(map[string]any{"city": "Paris"})}},
-			},
-		}},
-		StopReason: types.StopReasonToolUse,
-		Usage: &types.TokenUsage{
-			InputTokens: aws.Int32(11), OutputTokens: aws.Int32(7), CacheReadInputTokens: aws.Int32(3),
-		},
-		AdditionalModelResponseFields: toBedrockDocument(map[string]any{"provider_count": int64(9007199254740993)}),
-	}
-
-	response, err := mapProtocolConverseResponse("model", output)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response.Metadata.Model != "model" || response.Output.FinishReason != corechat.FinishReasonToolCalls {
-		t.Fatalf("response = %#v", response)
-	}
-	wantKinds := []corechat.PartKind{corechat.PartReasoning, corechat.PartReasoning, corechat.PartText, corechat.PartToolCall}
-	parts := response.Output.Message.Parts
-	for index, want := range wantKinds {
-		if parts[index].Kind != want {
-			t.Fatalf("part[%d] = %q, want %q", index, parts[index].Kind, want)
-		}
-	}
-	if parts[3].ToolCall.Arguments != `{"city":"Paris"}` {
-		t.Fatalf("Smithy tool arguments were lost: %s", parts[3].ToolCall.Arguments)
-	}
-	native, found, err := response.Metadata.Extra.Decode[map[string]json.RawMessage](ChatResponseExtensionKey)
-	if err != nil || !found {
-		t.Fatalf("native response is missing: %v", err)
-	}
-	if _, present := native["ResultMetadata"]; present {
-		t.Fatal("SDK runtime metadata entered the portable response")
-	}
-	if string(native["AdditionalModelResponseFields"]) != `{"provider_count":9007199254740993}` {
-		t.Fatalf("native document was changed: %s", native["AdditionalModelResponseFields"])
-	}
-	var nativeOutput struct {
-		Value struct {
-			Content []struct{ Value json.RawMessage }
-		}
-	}
-	if decodeErr := json.Unmarshal(native["Output"], &nativeOutput); decodeErr != nil {
-		t.Fatal(decodeErr)
-	}
-	var toolUse struct{ Input map[string]string }
-	if decodeErr := json.Unmarshal(nativeOutput.Value.Content[3].Value, &toolUse); decodeErr != nil || toolUse.Input["city"] != "Paris" {
-		t.Fatalf("native tool document was lost: %+v, %v", toolUse, decodeErr)
-	}
-	kind, found, err := ReasoningBlockKindOf(parts[1])
-	if err != nil || !found || kind != ReasoningBlockRedacted || string(parts[1].ReasoningState) != "opaque" {
-		t.Fatalf("redacted reasoning = %#v/%q/%v/%v", parts[1], kind, found, err)
-	}
-	// Converse reports inputTokens as the non-cached part only, so the Core
-	// total is 11 + 3.
-	usage := response.Metadata.Usage
-	if usage.InputTokens != 14 || usage.OutputTokens != 7 || usage.CacheReadInputTokens == nil || *usage.CacheReadInputTokens != 3 {
-		t.Fatalf("usage = %#v", usage)
 	}
 }
 
@@ -169,27 +99,6 @@ func TestProtocolChunkAccumulatorRetainsToolIdentity(t *testing.T) {
 	call := response.Parts[0].ToolCall
 	if call.ID != "call-1" || call.Name != "weather" || call.Arguments != arguments {
 		t.Fatalf("tool call = %#v", call)
-	}
-}
-
-func TestConverseRejectsUnrepresentableDocuments(t *testing.T) {
-	for _, toolInput := range []bool{false, true} {
-		message := &types.ConverseOutputMemberMessage{Value: types.Message{
-			Role: types.ConversationRoleAssistant, Content: []types.ContentBlock{&types.ContentBlockMemberText{Value: "answer"}},
-		}}
-		output := &bedrockruntime.ConverseOutput{Output: message, StopReason: types.StopReasonEndTurn}
-		unsupported := toBedrockDocument(make(chan int))
-		if toolInput {
-			message.Value.Content = []types.ContentBlock{&types.ContentBlockMemberToolUse{Value: types.ToolUseBlock{
-				ToolUseId: aws.String("call"), Name: aws.String("tool"), Input: unsupported,
-			}}}
-			output.StopReason = types.StopReasonToolUse
-		} else {
-			output.AdditionalModelResponseFields = unsupported
-		}
-		if response, err := mapProtocolConverseResponse("model", output); err == nil || response != nil {
-			t.Fatalf("unrepresentable document produced a response: %+v, %v", response, err)
-		}
 	}
 }
 
@@ -353,5 +262,38 @@ func TestInferenceOptionsRejectMaxTokensBeyondInt32(t *testing.T) {
 	}
 	if configuration.MaxTokens == nil || *configuration.MaxTokens != math.MaxInt32 {
 		t.Fatalf("MaxTokens = %v, want %d", configuration.MaxTokens, int32(math.MaxInt32))
+	}
+}
+
+func TestConverseStreamPreservesNativeDocuments(t *testing.T) {
+	event := &types.ConverseStreamOutputMemberMessageStop{Value: types.MessageStopEvent{
+		StopReason:                    types.StopReasonEndTurn,
+		AdditionalModelResponseFields: toBedrockDocument(map[string]any{"provider_count": int64(9007199254740993)}),
+	}}
+	mapper := newProtocolChunkAccumulator("model")
+	delta, include, err := mapper.add(event)
+	if err != nil || !include {
+		t.Fatalf("add = %v, %v", include, err)
+	}
+	native, found, err := delta.Metadata.Extra.Decode[json.RawMessage](ChatMessageStopExtensionKey)
+	if err != nil || !found || !strings.Contains(string(native), `"AdditionalModelResponseFields":{"provider_count":9007199254740993}`) {
+		t.Fatalf("native event = %s, %v, %v", native, found, err)
+	}
+	model := &Chat{defaults: corechat.Options{Model: "model"}, api: &scriptedConverse{events: []types.ConverseStreamOutput{event, &types.ConverseStreamOutputMemberMetadata{Value: types.ConverseStreamMetadataEvent{Usage: &types.TokenUsage{InputTokens: aws.Int32(11), OutputTokens: aws.Int32(7), CacheReadInputTokens: aws.Int32(3)}}}}}}
+	response, err := model.Call(t.Context(), &corechat.Request{Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hello"))}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preserved, found, err := response.Metadata.Extra.Decode[json.RawMessage](ChatMessageStopExtensionKey)
+	if err != nil || !found || string(preserved) != string(native) {
+		t.Fatalf("aggregated native stop = %s, %v, %v", preserved, found, err)
+	}
+	usage := response.Metadata.Usage
+	if usage.InputTokens != 14 || usage.OutputTokens != 7 || usage.CacheReadInputTokens == nil || *usage.CacheReadInputTokens != 3 {
+		t.Fatalf("usage = %#v", usage)
+	}
+	event.Value.AdditionalModelResponseFields = toBedrockDocument(make(chan int))
+	if delta, _, err := newProtocolChunkAccumulator("model").add(event); err == nil || delta != nil {
+		t.Fatalf("invalid native document = %v, %v", delta, err)
 	}
 }

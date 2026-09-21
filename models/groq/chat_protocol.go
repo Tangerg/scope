@@ -15,7 +15,6 @@ import (
 // shared Core protocol or colliding with another provider.
 const (
 	OpenAIRequestExtensionKey     = "groq/openai_request"
-	OpenAIResponseExtensionKey    = "groq/openai_response"
 	OpenAIStreamChunkExtensionKey = "groq/openai_stream_chunk"
 )
 

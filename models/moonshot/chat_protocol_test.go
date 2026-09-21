@@ -2,6 +2,7 @@ package moonshot_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -32,8 +33,8 @@ func TestChatUsesCurrentKimiWireContract(t *testing.T) {
 			http.Error(writer, "invalid request", http.StatusBadRequest)
 			return
 		}
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"id":"chat-1","model":"kimi-k3","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"answer","reasoning_content":"thinking"}}]}`))
+		writer.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(writer, "data: %s\n\ndata: [DONE]\n\n", `{"id":"chat-1","model":"kimi-k3","choices":[{"index":0,"finish_reason":"stop","delta":{"role":"assistant","content":"answer","reasoning_content":"thinking"}}],"object":"chat.completion.chunk"}`)
 	}))
 	t.Cleanup(server.Close)
 

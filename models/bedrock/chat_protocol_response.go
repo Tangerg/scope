@@ -1,153 +1,17 @@
 package bedrock
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
-	"errors"
-	"fmt"
 
-	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
-// SDK transport metadata has no JSON contract. Response data keeps its SDK
-// field names, while Smithy documents use their own serialization contract.
-type converseResponseFields struct {
-	Metrics                       *types.ConverseMetrics
-	Output                        types.ConverseOutput
-	StopReason                    types.StopReason
-	Usage                         *types.TokenUsage
-	AdditionalModelResponseFields document.Interface
-	PerformanceConfig             *types.PerformanceConfiguration
-	ServiceTier                   *types.ServiceTier
-	Trace                         *types.ConverseTrace
-}
-
 func marshalProtocolJSON(value any) ([]byte, error) {
 	return jsonv2.Marshal(value, jsonv2.Deterministic(true),
 		jsonv2.WithMarshalers(jsonv2.MarshalFunc(document.Interface.MarshalSmithyDocument)))
-}
-
-func mapProtocolConverseResponse(model string, output *bedrockruntime.ConverseOutput) (*corechat.Response, error) {
-	if output == nil || output.Output == nil {
-		return nil, errors.New("bedrock: response has no output")
-	}
-	messageOutput, ok := output.Output.(*types.ConverseOutputMemberMessage)
-	if !ok || messageOutput == nil {
-		return nil, errors.New("bedrock: response has no message output")
-	}
-	parts, err := mapProtocolResponseBlocks(messageOutput.Value.Content)
-	if err != nil {
-		return nil, err
-	}
-	modelOutput := &corechat.Output{FinishReason: mapProtocolStopReason(output.StopReason)}
-	if len(parts) != 0 {
-		message := corechat.NewAssistantMessage(parts...)
-		modelOutput.Message = &message
-	}
-	if modelOutput.FinishReason == corechat.FinishReasonOther {
-		modelOutput.Metadata = &corechat.OutputMetadata{}
-		if metadataErr := modelOutput.Metadata.Extra.Set(chatNativeFinishReasonKey, string(output.StopReason)); metadataErr != nil {
-			return nil, metadataErr
-		}
-	}
-	response := &corechat.Response{
-		Output:   modelOutput,
-		Metadata: &corechat.ResponseMetadata{Model: model, Usage: mapProtocolUsage(output.Usage)},
-	}
-	native, err := marshalProtocolJSON(converseResponseFields{
-		Metrics: output.Metrics, Output: output.Output, StopReason: output.StopReason, Usage: output.Usage,
-		AdditionalModelResponseFields: output.AdditionalModelResponseFields, PerformanceConfig: output.PerformanceConfig,
-		ServiceTier: output.ServiceTier, Trace: output.Trace,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("bedrock: encode native response: %w", err)
-	}
-	if err := response.Metadata.Extra.Set(ChatResponseExtensionKey, json.RawMessage(native)); err != nil {
-		return nil, fmt.Errorf("bedrock: preserve native response: %w", err)
-	}
-	if err := response.Validate(); err != nil {
-		return nil, fmt.Errorf("bedrock: response: %w", err)
-	}
-	return response, nil
-}
-
-func mapProtocolResponseBlocks(blocks []types.ContentBlock) ([]corechat.Part, error) {
-	parts := make([]corechat.Part, 0, len(blocks))
-	for index := range blocks {
-		part, include, err := mapProtocolResponseBlock(blocks[index])
-		if err != nil {
-			return nil, fmt.Errorf("bedrock: response content[%d]: %w", index, err)
-		}
-		if include {
-			parts = append(parts, part)
-		}
-	}
-	return parts, nil
-}
-
-func mapProtocolResponseBlock(block types.ContentBlock) (corechat.Part, bool, error) {
-	switch block := block.(type) {
-	case *types.ContentBlockMemberText:
-		return corechat.NewTextPart(block.Value), block.Value != "", nil
-	case *types.ContentBlockMemberImage:
-		value, err := bedrockImageToMedia(block.Value)
-		if err != nil {
-			return corechat.Part{}, false, err
-		}
-		return corechat.NewMediaPart(value), true, nil
-	case *types.ContentBlockMemberAudio:
-		value, err := bedrockAudioToMedia(block.Value)
-		if err != nil {
-			return corechat.Part{}, false, err
-		}
-		return corechat.NewMediaPart(value), true, nil
-	case *types.ContentBlockMemberVideo:
-		value, err := bedrockVideoToMedia(block.Value)
-		if err != nil {
-			return corechat.Part{}, false, err
-		}
-		return corechat.NewMediaPart(value), true, nil
-	case *types.ContentBlockMemberReasoningContent:
-		return mapProtocolReasoningContent(block.Value)
-	case *types.ContentBlockMemberToolUse:
-		part, err := mapProtocolToolUse(block.Value)
-		return part, err == nil, err
-	default:
-		return corechat.Part{}, false, nil
-	}
-}
-
-func mapProtocolReasoningContent(block types.ReasoningContentBlock) (corechat.Part, bool, error) {
-	switch reasoning := block.(type) {
-	case *types.ReasoningContentBlockMemberReasoningText:
-		if reasoning.Value.Text == nil || reasoning.Value.Signature == nil {
-			return corechat.Part{}, false, errors.New("reasoning text lacks text or signature")
-		}
-		part, err := NewReasoningPart(*reasoning.Value.Text, []byte(*reasoning.Value.Signature))
-		return part, err == nil, err
-	case *types.ReasoningContentBlockMemberRedactedContent:
-		part, err := NewRedactedReasoningPart(reasoning.Value)
-		return part, err == nil, err
-	default:
-		return corechat.Part{}, false, nil
-	}
-}
-
-func mapProtocolToolUse(value types.ToolUseBlock) (corechat.Part, error) {
-	if value.ToolUseId == nil || value.Name == nil || value.Input == nil {
-		return corechat.Part{}, errors.New("tool use lacks ID, name, or input")
-	}
-	arguments, err := marshalProtocolJSON(value.Input)
-	if err != nil {
-		return corechat.Part{}, fmt.Errorf("tool arguments: %w", err)
-	}
-	return corechat.NewToolCallPart(corechat.ToolCall{
-		ID: *value.ToolUseId, Name: *value.Name, Arguments: string(arguments),
-	}), nil
 }
 
 func mapProtocolStopReason(reason types.StopReason) corechat.FinishReason {

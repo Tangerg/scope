@@ -2,6 +2,7 @@ package minimax_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -31,8 +32,8 @@ func TestChatUsesSplitReasoningByDefault(t *testing.T) {
 			http.Error(writer, "invalid request", http.StatusBadRequest)
 			return
 		}
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"id":"chat-1","model":"MiniMax-M3","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"answer","reasoning_content":"thinking","reasoning_details":[{"type":"reasoning.text","text":"thinking","format":"MiniMax-response-v1","index":0}]}}]}`))
+		writer.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(writer, "data: %s\n\ndata: [DONE]\n\n", `{"id":"chat-1","model":"MiniMax-M3","choices":[{"index":0,"finish_reason":"stop","delta":{"role":"assistant","content":"answer","reasoning_content":"thinking","reasoning_details":[{"type":"reasoning.text","text":"thinking","format":"MiniMax-response-v1","index":0}]}}],"object":"chat.completion.chunk"}`)
 	}))
 	t.Cleanup(server.Close)
 
@@ -67,8 +68,8 @@ func TestChatRespectsExplicitReasoningSplit(t *testing.T) {
 			http.Error(writer, "invalid request", http.StatusBadRequest)
 			return
 		}
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"id":"chat-1","model":"MiniMax-M3","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"<think>thinking</think>answer"}}]}`))
+		writer.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(writer, "data: %s\n\ndata: [DONE]\n\n", `{"id":"chat-1","model":"MiniMax-M3","choices":[{"index":0,"finish_reason":"stop","delta":{"role":"assistant","content":"<think>thinking</think>answer"}}],"object":"chat.completion.chunk"}`)
 	}))
 	t.Cleanup(server.Close)
 
@@ -105,8 +106,8 @@ func TestChatReplaysStructuredReasoningDetails(t *testing.T) {
 			return
 		}
 		requests = append(requests, body)
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"id":"chat-1","model":"MiniMax-M3","choices":[{"index":0,"finish_reason":"tool_calls","message":{"role":"assistant","content":"","tool_calls":[{"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{}"}}],"reasoning_content":"thinking","reasoning_details":[{"type":"reasoning.text","id":"reasoning-text-1","format":"MiniMax-response-v1","index":0,"text":"thinking"}]}}]}`))
+		writer.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(writer, "data: %s\n\ndata: [DONE]\n\n", `{"id":"chat-1","model":"MiniMax-M3","choices":[{"index":0,"finish_reason":"tool_calls","delta":{"role":"assistant","content":"","tool_calls":[{"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{}"},"index":0}],"reasoning_content":"thinking","reasoning_details":[{"type":"reasoning.text","id":"reasoning-text-1","format":"MiniMax-response-v1","index":0,"text":"thinking"}]}}],"object":"chat.completion.chunk"}`)
 	}))
 	t.Cleanup(server.Close)
 

@@ -16,10 +16,8 @@ import (
 // shared Core protocol or colliding with another provider.
 const (
 	OpenAIRequestExtensionKey        = "minimax/openai_request"
-	OpenAIResponseExtensionKey       = "minimax/openai_response"
 	OpenAIStreamChunkExtensionKey    = "minimax/openai_stream_chunk"
 	AnthropicRequestExtensionKey     = "minimax/anthropic_request"
-	AnthropicResponseExtensionKey    = "minimax/anthropic_response"
 	AnthropicStreamEventExtensionKey = "minimax/anthropic_stream_event"
 )
 

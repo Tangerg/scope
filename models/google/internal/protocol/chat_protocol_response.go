@@ -29,36 +29,6 @@ func newProtocolResponseMapper(provider string) *protocolResponseMapper {
 	return &protocolResponseMapper{provider: provider}
 }
 
-func (p *protocolResponseMapper) mapResponse(requestModel string, response *genai.GenerateContentResponse) (*corechat.Response, error) {
-	if response == nil {
-		return nil, errors.New("google: nil response")
-	}
-	if err := protocolPromptBlockError(response); err != nil {
-		return nil, err
-	}
-	if len(response.Candidates) != 1 {
-		return nil, fmt.Errorf("google: response has %d candidates; Core supports one output", len(response.Candidates))
-	}
-	metadata, err := p.mapMetadata(requestModel, response)
-	if err != nil {
-		return nil, err
-	}
-	candidate, err := p.candidate(response.Candidates[0])
-	if err != nil {
-		return nil, err
-	}
-	output, err := p.mapCandidate(candidate)
-	if err != nil {
-		return nil, fmt.Errorf("google: output: %w", err)
-	}
-	output.FinishReason = normalizeProtocolFinishReason(candidate.FinishReason, p.hasToolCalls)
-	mapped := &corechat.Response{Output: output, Metadata: metadata}
-	if err := mapped.Validate(); err != nil {
-		return nil, fmt.Errorf("google: mapped response: %w", err)
-	}
-	return mapped, nil
-}
-
 func (p *protocolResponseMapper) mapDelta(requestModel string, response *genai.GenerateContentResponse) (*corechat.ResponseDelta, error) {
 	if response == nil {
 		return nil, errors.New("google: nil stream response")
@@ -174,53 +144,6 @@ func (p *protocolResponseMapper) mapMetadata(requestModel string, response *gena
 		}
 	}
 	return metadata, nil
-}
-
-func (p *protocolResponseMapper) mapCandidate(candidate *genai.Candidate) (*corechat.Output, error) {
-	output := &corechat.Output{
-		Metadata: &corechat.OutputMetadata{},
-	}
-	if candidate.FinishReason != "" {
-		if err := output.Metadata.Extra.Set(protocolKey(p.provider, "native_finish_reason"), candidate.FinishReason); err != nil {
-			return nil, err
-		}
-	}
-	if len(candidate.SafetyRatings) > 0 {
-		if err := output.Metadata.Extra.Set(protocolKey(p.provider, "safety_ratings"), candidate.SafetyRatings); err != nil {
-			return nil, err
-		}
-	}
-	if candidate.FinishMessage != "" {
-		if err := output.Metadata.Extra.Set(protocolKey(p.provider, "finish_message"), candidate.FinishMessage); err != nil {
-			return nil, err
-		}
-	}
-	if candidate.Content == nil || len(candidate.Content.Parts) == 0 {
-		return output, nil
-	}
-
-	offset := p.partOffset
-	parts := make([]corechat.Part, 0, len(candidate.Content.Parts))
-	for partIndex, part := range candidate.Content.Parts {
-		if part == nil {
-			return nil, fmt.Errorf("content.parts[%d]: nil part", partIndex)
-		}
-		mapped, include, err := mapProtocolCandidatePart(p.provider, offset+partIndex, part)
-		if err != nil {
-			return nil, fmt.Errorf("content.parts[%d]: %w", partIndex, err)
-		}
-		if include {
-			parts = append(parts, mapped)
-			p.hasToolCalls = p.hasToolCalls || mapped.Kind == corechat.PartToolCall
-		}
-	}
-	p.partOffset = offset + len(candidate.Content.Parts)
-	attachProtocolCitations(parts, candidate.CitationMetadata)
-	if len(parts) == 0 {
-		return output, nil
-	}
-	output.Message = &corechat.Message{Role: corechat.RoleAssistant, Parts: parts}
-	return output, nil
 }
 
 func mapProtocolCandidatePart(provider string, partIndex int, part *genai.Part) (corechat.Part, bool, error) {
@@ -370,19 +293,6 @@ func protocolToolArguments(arguments map[string]any) (string, error) {
 		return "", nil
 	}
 	return protocolJSON(arguments)
-}
-
-func attachProtocolCitations(parts []corechat.Part, citations *genai.CitationMetadata) {
-	mapped := protocolCitations(citations)
-	if len(mapped) == 0 {
-		return
-	}
-	for index := len(parts) - 1; index >= 0; index-- {
-		if parts[index].Kind == corechat.PartText {
-			parts[index].Citations = append(parts[index].Citations, mapped...)
-			return
-		}
-	}
 }
 
 func protocolCitations(metadata *genai.CitationMetadata) []corechat.Citation {

@@ -19,9 +19,10 @@ import (
 const (
 	// ChatRequestExtensionKey stores [ChatRequestOptions] in a Core request.
 	ChatRequestExtensionKey = "bedrock/request"
-	// ChatResponseExtensionKey preserves Converse response data using SDK field
-	// names and JSON document values. SDK transport metadata is excluded.
-	ChatResponseExtensionKey  = "bedrock/response"
+	// ChatMessageStopExtensionKey preserves the terminal provider outcome and native fields.
+	ChatMessageStopExtensionKey = "bedrock/message_stop"
+	// ChatMetadataExtensionKey preserves provider usage, metrics, and trace data.
+	ChatMetadataExtensionKey  = "bedrock/metadata"
 	chatReasoningKindKey      = "bedrock/reasoning_kind"
 	chatReasoningText         = "reasoning_text"
 	chatReasoningRedacted     = "redacted_content"
@@ -32,25 +33,16 @@ const (
 // provider-neutral Core equivalent. Common model, message, tool, and sampling
 // fields are always derived from the Core request and take precedence.
 type ChatRequestOptions struct {
-	AdditionalModelRequestFields      map[string]any          `json:"additional_model_request_fields,omitempty"`
-	AdditionalModelResponseFieldPaths []string                `json:"additional_model_response_field_paths,omitempty"`
-	Guardrail                         *GuardrailOptions       `json:"guardrail,omitempty"`
-	StreamGuardrail                   *StreamGuardrailOptions `json:"stream_guardrail,omitempty"`
-	PerformanceLatency                string                  `json:"performance_latency,omitempty"`
-	RequestMetadata                   map[string]string       `json:"request_metadata,omitempty"`
-	ServiceTier                       string                  `json:"service_tier,omitempty"`
+	AdditionalModelRequestFields      map[string]any    `json:"additional_model_request_fields,omitempty"`
+	AdditionalModelResponseFieldPaths []string          `json:"additional_model_response_field_paths,omitempty"`
+	Guardrail                         *GuardrailOptions `json:"guardrail,omitempty"`
+	PerformanceLatency                string            `json:"performance_latency,omitempty"`
+	RequestMetadata                   map[string]string `json:"request_metadata,omitempty"`
+	ServiceTier                       string            `json:"service_tier,omitempty"`
 }
 
-// GuardrailOptions configures a Bedrock guardrail without exposing AWS SDK
-// wire types.
+// GuardrailOptions configures a Bedrock streaming guardrail.
 type GuardrailOptions struct {
-	Identifier string `json:"identifier"`
-	Version    string `json:"version"`
-	Trace      string `json:"trace,omitempty"`
-}
-
-// StreamGuardrailOptions adds the streaming processing mode to a guardrail.
-type StreamGuardrailOptions struct {
 	Identifier     string `json:"identifier"`
 	Version        string `json:"version"`
 	Trace          string `json:"trace,omitempty"`
@@ -78,19 +70,8 @@ var (
 	_ corechat.Streamer = (*Chat)(nil)
 )
 
-// converseAPI is the Converse surface Chat uses.
-//
-// Naming the two calls it makes keeps the chat path off the rest of the runtime
-// client — invokeModel belongs to the embedding path and Chat never touches it
-// — and lets the shared Model and Streamer suites drive this adapter's own
-// mapping without an AWS endpoint. The event stream reader the SDK exposes for
-// exactly that purpose supplies the streaming half.
+// converseAPI consumes only the streaming capability of the runtime client.
 type converseAPI interface {
-	converse(
-		ctx context.Context,
-		params *bedrockruntime.ConverseInput,
-		opts ...func(*bedrockruntime.Options),
-	) (*bedrockruntime.ConverseOutput, error)
 	converseStream(
 		ctx context.Context,
 		params *bedrockruntime.ConverseStreamInput,
@@ -122,15 +103,16 @@ func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
 }
 
 func (c *Chat) Call(ctx context.Context, req *corechat.Request) (*corechat.Response, error) {
-	input, model, err := c.buildConverseInput(req)
-	if err != nil {
-		return nil, err
+	var accumulator corechat.ResponseAccumulator
+	for delta, err := range c.Stream(ctx, req) {
+		if err != nil {
+			return nil, err
+		}
+		if addErr := accumulator.Add(delta); addErr != nil {
+			return nil, addErr
+		}
 	}
-	output, err := c.api.converse(ctx, input)
-	if err != nil {
-		return nil, err
-	}
-	return mapProtocolConverseResponse(model, output)
+	return accumulator.Response()
 }
 
 // Stream performs one Bedrock ConverseStream request and yields validated
@@ -192,27 +174,6 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 	}
 }
 
-func (c *Chat) buildConverseInput(req *corechat.Request) (*bedrockruntime.ConverseInput, string, error) {
-	prepared, err := c.prepareRequest(req)
-	if err != nil {
-		return nil, "", err
-	}
-	return &bedrockruntime.ConverseInput{
-		ModelId:                           aws.String(prepared.model),
-		AdditionalModelRequestFields:      toBedrockDocument(prepared.native.AdditionalModelRequestFields),
-		AdditionalModelResponseFieldPaths: slices.Clone(prepared.native.AdditionalModelResponseFieldPaths),
-		GuardrailConfig:                   mapGuardrailOptions(prepared.native.Guardrail),
-		InferenceConfig:                   prepared.inference,
-		Messages:                          prepared.messages,
-		OutputConfig:                      mapOutputFormat(prepared.outputFormat),
-		PerformanceConfig:                 mapPerformanceOptions(prepared.native.PerformanceLatency),
-		RequestMetadata:                   maps.Clone(prepared.native.RequestMetadata),
-		ServiceTier:                       mapServiceTier(prepared.native.ServiceTier),
-		System:                            prepared.system,
-		ToolConfig:                        prepared.tools,
-	}, prepared.model, nil
-}
-
 func (c *Chat) buildConverseStreamInput(req *corechat.Request) (*bedrockruntime.ConverseStreamInput, string, error) {
 	prepared, err := c.prepareRequest(req)
 	if err != nil {
@@ -222,7 +183,7 @@ func (c *Chat) buildConverseStreamInput(req *corechat.Request) (*bedrockruntime.
 		ModelId:                           aws.String(prepared.model),
 		AdditionalModelRequestFields:      toBedrockDocument(prepared.native.AdditionalModelRequestFields),
 		AdditionalModelResponseFieldPaths: slices.Clone(prepared.native.AdditionalModelResponseFieldPaths),
-		GuardrailConfig:                   mapStreamGuardrailOptions(prepared.native.StreamGuardrail),
+		GuardrailConfig:                   mapGuardrailOptions(prepared.native.Guardrail),
 		InferenceConfig:                   prepared.inference,
 		Messages:                          prepared.messages,
 		OutputConfig:                      mapOutputFormat(prepared.outputFormat),

@@ -12,20 +12,9 @@ import (
 	"github.com/Tangerg/scope/core/modeltest"
 )
 
-// scriptedConverse answers both Converse calls from a fixed script. Chat needs
-// only these two, which is why it holds a narrow interface rather than the
-// runtime client.
+// scriptedConverse supplies the canonical ConverseStream transport.
 type scriptedConverse struct {
-	output *bedrockruntime.ConverseOutput
 	events []types.ConverseStreamOutput
-}
-
-func (s *scriptedConverse) converse(
-	_ context.Context,
-	_ *bedrockruntime.ConverseInput,
-	_ ...func(*bedrockruntime.Options),
-) (*bedrockruntime.ConverseOutput, error) {
-	return s.output, nil
 }
 
 func (s *scriptedConverse) converseStream(
@@ -65,7 +54,6 @@ func TestChat_CoreConformance(t *testing.T) {
 			t.Helper()
 			adapter := &Chat{
 				api: &scriptedConverse{
-					output: scriptedConverseOutput(),
 					events: scriptedConverseEvents(),
 				},
 				defaults: corechat.Options{Model: "anthropic.claude-test"},
@@ -82,17 +70,6 @@ func TestChat_CoreConformance(t *testing.T) {
 			}
 		},
 	}.Run(t)
-}
-
-func scriptedConverseOutput() *bedrockruntime.ConverseOutput {
-	return &bedrockruntime.ConverseOutput{
-		Output: &types.ConverseOutputMemberMessage{Value: types.Message{
-			Role:    types.ConversationRoleAssistant,
-			Content: []types.ContentBlock{&types.ContentBlockMemberText{Value: "hello there"}},
-		}},
-		StopReason: types.StopReasonEndTurn,
-		Usage:      &types.TokenUsage{InputTokens: aws.Int32(9), OutputTokens: aws.Int32(3)},
-	}
 }
 
 func scriptedConverseEvents() []types.ConverseStreamOutput {

@@ -20,7 +20,6 @@ import (
 // shared Core protocol or colliding with another provider.
 const (
 	RequestExtensionKey     = "mistral/request"
-	responseExtensionKey    = "mistral/response"
 	streamChunkExtensionKey = "mistral/chunk"
 	nativeFinishReasonKey   = "mistral/native_finish_reason"
 	mistralStreamDone       = "[DONE]"
@@ -157,15 +156,16 @@ func NewChat(_ context.Context, config ChatConfig) (*Chat, error) {
 }
 
 func (c *Chat) Call(ctx context.Context, request *corechat.Request) (*corechat.Response, error) {
-	wireRequest, err := c.buildRequest(request, false)
-	if err != nil {
-		return nil, err
+	var accumulator corechat.ResponseAccumulator
+	for delta, err := range c.Stream(ctx, request) {
+		if err != nil {
+			return nil, err
+		}
+		if addErr := accumulator.Add(delta); addErr != nil {
+			return nil, addErr
+		}
 	}
-	wireResponse, err := c.api.chatCompletion(ctx, wireRequest)
-	if err != nil {
-		return nil, err
-	}
-	return wireResponse.response()
+	return accumulator.Response()
 }
 
 func (c *Chat) Stream(ctx context.Context, request *corechat.Request) iter.Seq2[*corechat.ResponseDelta, error] {
