@@ -57,7 +57,7 @@ type observerHarness struct {
 func newObserverHarness(t *testing.T) observerHarness {
 	t.Helper()
 	recorder := tracetest.NewSpanRecorder()
-	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(recorder))
 	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
 	reader := sdkmetric.NewManualReader()
 	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
@@ -188,7 +188,7 @@ func assertObservedMetrics(t *testing.T, reader *sdkmetric.ManualReader, result 
 
 func TestObserverRecordsStableProcessFailureAttribution(t *testing.T) {
 	recorder := tracetest.NewSpanRecorder()
-	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(recorder))
 	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
 	reader := sdkmetric.NewManualReader()
 	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
@@ -262,7 +262,7 @@ func TestObserverRecordsStepAndEffectFactErrors(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			recorder := tracetest.NewSpanRecorder()
-			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+			provider := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(recorder))
 			t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
 			observer, err := agentotel.NewObserver(agentotel.ObserverConfig{TracerProvider: provider})
 			if err != nil {
@@ -322,7 +322,7 @@ func TestObserverDistinguishesRestoredProcessActivation(t *testing.T) {
 	}
 
 	recorder := tracetest.NewSpanRecorder()
-	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(recorder))
 	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
 	reader := sdkmetric.NewManualReader()
 	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
@@ -456,7 +456,7 @@ func assertNoRecordedMetrics(t *testing.T, metrics metricdata.ResourceMetrics) {
 
 func TestObserverCloseRecordsIncompleteSpanError(t *testing.T) {
 	recorder := tracetest.NewSpanRecorder()
-	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(recorder))
 	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
 	observer, err := agentotel.NewObserver(agentotel.ObserverConfig{TracerProvider: provider})
 	if err != nil {

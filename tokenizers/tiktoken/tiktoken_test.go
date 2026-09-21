@@ -88,3 +88,20 @@ func TestEncodingValidate(t *testing.T) {
 		t.Fatalf("unknown Encoding.Validate() error = %v, want ErrInvalidEncoding", err)
 	}
 }
+
+func TestDecodeRejectsUnknownVocabularyIDs(t *testing.T) {
+	tokenizer, err := tiktoken.New(tiktoken.CL100KBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tokens := range [][]int{{-1}, {999999999}, {100256}, {15339, -1}} {
+		got, decodeErr := tokenizer.Decode(t.Context(), tokens)
+		if decodeErr == nil || got != "" {
+			t.Fatalf("Decode(%v) = %q, %v", tokens, got, decodeErr)
+		}
+	}
+	got, err := tokenizer.Decode(t.Context(), []int{100257})
+	if err != nil || got != "<|endoftext|>" {
+		t.Fatalf("special token = %q, %v", got, err)
+	}
+}

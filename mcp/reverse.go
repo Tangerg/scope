@@ -55,7 +55,7 @@ func serverCallFromContext(ctx context.Context) serverCall {
 //	        _ = mcp.ReportProgress(ctx, float64(i+1), new(100.0),
 //	            fmt.Sprintf("processed %d/100", i+1))
 //	    }
-//	    return "done", nil
+//	    return chat.NewTextToolOutput("done"), nil
 //	}
 func ReportProgress(ctx context.Context, progress float64, total *float64, message string) error {
 	return serverCallFromContext(ctx).reportProgress(ctx, progress, total, message)

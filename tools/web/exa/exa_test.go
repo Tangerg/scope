@@ -50,3 +50,30 @@ func TestSearch(t *testing.T) {
 		t.Fatalf("response = %#v", response)
 	}
 }
+
+func TestFetchRequestsTextAndRequiresItsPresence(t *testing.T) {
+	for _, format := range []web.ContentFormat{"", web.FormatText, web.FormatMarkdown, web.FormatHTML} {
+		for _, body := range []string{`{"results":[{}]}`, `{"results":[{"text":""}]}`, `{"results":[{"text":"content"}]}`} {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var request map[string]json.RawMessage
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+				}
+				if _, exists := request["text"]; !exists {
+					t.Error("text extraction was not requested")
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(body))
+			}))
+			client, err := NewClient(Config{APIKey: "test", BaseURL: server.URL})
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := client.Fetch(t.Context(), &web.FetchRequest{URL: "https://example.com", Format: format})
+			server.Close()
+			if (err != nil) != (body == `{"results":[{}]}`) {
+				t.Fatalf("body=%s response=%v err=%v", body, response, err)
+			}
+		}
+	}
+}

@@ -29,7 +29,7 @@ func (f *fetchRequest) validate() error {
 }
 
 type fetchResponseData struct {
-	Markdown string  `json:"markdown,omitempty"`
+	Markdown *string `json:"markdown,omitempty"`
 	HTML     *string `json:"html,omitempty"`
 }
 

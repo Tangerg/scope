@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -81,4 +82,20 @@ func TestRemoteFailureRetainsMediaAndStructuredDetails(t *testing.T) {
 	failure, ok := errors.AsType[*tool.Failure](err)
 	require.True(t, ok)
 	assert.Equal(t, want, failure.Output())
+}
+
+func TestRemoteResultRejectsIncompleteOutput(t *testing.T) {
+	for _, payload := range []string{
+		`{"resultType":"input_required","inputRequests":{}}`,
+		`{"resultType":"input_required","inputRequests":{},"content":[{"type":"text","text":"unfinished"}],"isError":true}`,
+	} {
+		var value sdkmcp.CallToolResult
+		require.NoError(t, json.Unmarshal([]byte(payload), &value))
+		require.True(t, value.NeedsInput())
+		output, err := (remoteResult{remoteName: "pending", value: &value}).unwrap()
+		require.ErrorIs(t, err, ErrIncompleteResult)
+		assert.Empty(t, output.Content)
+		_, failure := errors.AsType[*tool.Failure](err)
+		assert.False(t, failure)
+	}
 }

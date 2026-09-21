@@ -95,7 +95,20 @@ func (t Tokenizer) Decode(ctx context.Context, tokens []int) (string, error) {
 	if err := t.validate(); err != nil {
 		return "", err
 	}
-	return t.encoding.Decode(tokens), nil
+	var text strings.Builder
+	for index, token := range tokens {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		// Every token in the supported vocabularies has a non-empty byte sequence;
+		// the SDK returns an empty string for an unknown ID, including holes.
+		decoded := t.encoding.Decode([]int{token})
+		if decoded == "" {
+			return "", fmt.Errorf("tiktoken: decode token[%d]: ID %d is outside the vocabulary", index, token)
+		}
+		text.WriteString(decoded)
+	}
+	return text.String(), nil
 }
 
 func (t Tokenizer) validate() error {

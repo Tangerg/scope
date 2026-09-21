@@ -154,10 +154,13 @@ func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.Fet
 		return nil, err
 	}
 	content := raw.Data.Markdown
-	if format == web.FormatHTML && raw.Data.HTML != nil {
-		content = *raw.Data.HTML
+	if format == web.FormatHTML {
+		content = raw.Data.HTML
 	}
-	return &web.FetchResponse{Content: content, Format: format}, nil
+	if content == nil {
+		return nil, fmt.Errorf("firecrawl: response is missing requested %s content", format)
+	}
+	return &web.FetchResponse{Content: *content, Format: format}, nil
 }
 
 func buildSearchRequest(request *web.SearchRequest) *searchRequest {

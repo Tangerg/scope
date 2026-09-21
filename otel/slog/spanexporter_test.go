@@ -49,7 +49,7 @@ func attrMap(r stdslog.Record) map[string]any {
 }
 
 func newTestProvider(exporter sdktrace.SpanExporter) *sdktrace.TracerProvider {
-	return sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	return sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSyncer(exporter))
 }
 
 func TestExporter_SuccessSpan(t *testing.T) {

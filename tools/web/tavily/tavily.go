@@ -110,6 +110,9 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 		return nil, fmt.Errorf("tavily: prepare search request: %w", err)
 	}
 	request = prepared
+	if request.Recency == web.RecencyHour {
+		return nil, fmt.Errorf("tavily: %w: hourly recency", web.ErrUnsupportedFilter)
+	}
 	raw, err := c.search(ctx, buildSearchRequest(request))
 	if err != nil {
 		return nil, err
@@ -181,7 +184,7 @@ func buildSearchRequest(request *web.SearchRequest) *searchRequest {
 
 func recencyToTimeRange(r web.Recency) string {
 	switch r {
-	case web.RecencyHour, web.RecencyDay:
+	case web.RecencyDay:
 		return "day" // Tavily's minimum granularity
 	case web.RecencyWeek:
 		return "week"

@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 // rootedFS confines each open to its root without retaining a directory
@@ -13,7 +14,7 @@ import (
 type rootedFS string
 
 func (r rootedFS) Open(name string) (fs.File, error) {
-	return os.OpenInRoot(string(r), name)
+	return r.openInDir(".", name)
 }
 
 // confinedResourceFS lets a filesystem anchor resource symlink resolution at
@@ -31,7 +32,7 @@ func (r rootedFS) openInDir(dir, name string) (fs.File, error) {
 	if err != nil {
 		return nil, errors.Join(err, root.Close())
 	}
-	file, err := sub.Open(filepath.FromSlash(name))
+	file, err := sub.OpenFile(filepath.FromSlash(name), os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	closeErr := errors.Join(sub.Close(), root.Close())
 	if err != nil {
 		return nil, errors.Join(err, closeErr)

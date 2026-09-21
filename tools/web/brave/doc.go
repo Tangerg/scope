@@ -13,8 +13,7 @@
 //   - MaxResults     → count (default 10 when omitted)
 //   - AllowedDomains → inlined as `site:foo.com` operators
 //   - BlockedDomains → inlined as `-site:foo.com` operators
-//   - Recency        → freshness=pd/pw/pm/py (hour collapses to "pd"
-//     since Brave's minimum granularity is "past day")
+//   - Recency        → freshness=pd/pw/pm/py; hourly filtering is rejected
 //
 // Brave has no native allow/block-domain fields, so the query is
 // rewritten with site:/-site: like the Serper provider does.

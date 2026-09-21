@@ -104,7 +104,7 @@ func (r *Reader) Read(ctx context.Context) (docs []*document.Document, err error
 			docs, err = nil, fmt.Errorf("pdf: malformed document: %v", rec)
 		}
 	}()
-	pdfReader, err := r.openReader()
+	pdfReader, err := r.openReader(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -119,9 +119,20 @@ func (r *Reader) Read(ctx context.Context) (docs []*document.Document, err error
 	return r.readWhole(ctx, pdfReader, total)
 }
 
-func (r *Reader) openReader() (*ledongthuc.Reader, error) {
+func (r *Reader) openReader(ctx context.Context) (*ledongthuc.Reader, error) {
 	if r.password != "" {
-		pdfReader, err := ledongthuc.NewReaderEncrypted(r.source, r.size, func() string { return r.password })
+		password := r.password
+		pdfReader, err := ledongthuc.NewReaderEncrypted(r.source, r.size, func() string {
+			if ctx.Err() != nil {
+				return ""
+			}
+			attempt := password
+			password = ""
+			return attempt
+		})
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		if err != nil {
 			return nil, fmt.Errorf("pdf: open encrypted: %w", err)
 		}
@@ -153,16 +164,13 @@ func (r *Reader) readWhole(ctx context.Context, pdfReader *ledongthuc.Reader, to
 
 func (r *Reader) readPages(ctx context.Context, pdfReader *ledongthuc.Reader, total int) ([]*document.Document, error) {
 	docs := make([]*document.Document, 0, total)
-	// fonts caches parsed font charmaps across pages — GetPlainText
-	// rebuilds every font per call when handed nil.
-	fonts := make(map[string]*ledongthuc.Font)
 	var failures pageErrors
 	for index := range total {
 		page := index + 1
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		text, err := r.pageText(pdfReader, page, fonts)
+		text, err := r.pageText(pdfReader, page)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
 		}
@@ -211,14 +219,13 @@ func (r *Reader) baseMetadata(total int) (coremetadata.Map, error) {
 // cancellation is honored between pages.
 func (r *Reader) readAllText(ctx context.Context, pdfReader *ledongthuc.Reader, total int) (string, error) {
 	var b strings.Builder
-	fonts := make(map[string]*ledongthuc.Font)
 	var failures pageErrors
 	for index := range total {
 		page := index + 1
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
-		text, err := r.pageText(pdfReader, page, fonts)
+		text, err := r.pageText(pdfReader, page)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return "", ctxErr
 		}
@@ -250,8 +257,7 @@ func (p pageErrors) err() error {
 // on malformed page content (its panic-as-error style only recovers
 // inside GetPlainText itself, not in Page / object resolution), so the
 // recover here converts a bad page into an error the caller can skip.
-// fonts is the cross-page font cache GetPlainText fills as it goes.
-func (*Reader) pageText(pdfReader *ledongthuc.Reader, pageIndex int, fonts map[string]*ledongthuc.Font) (text string, err error) {
+func (*Reader) pageText(pdfReader *ledongthuc.Reader, pageIndex int) (text string, err error) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			text, err = "", fmt.Errorf("page %d: malformed page: %v", pageIndex, rec)
@@ -261,7 +267,7 @@ func (*Reader) pageText(pdfReader *ledongthuc.Reader, pageIndex int, fonts map[s
 	if page.V.IsNull() {
 		return "", nil
 	}
-	text, err = page.GetPlainText(fonts)
+	text, err = page.GetPlainText(nil)
 	if err != nil {
 		return "", fmt.Errorf("page %d: %w", pageIndex, err)
 	}

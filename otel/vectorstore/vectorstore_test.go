@@ -38,7 +38,7 @@ type telemetryRig struct {
 func newVectorStoreMiddleware(t *testing.T) (vectorotel.Middleware, *telemetryRig) {
 	t.Helper()
 	recorder := tracetest.NewSpanRecorder()
-	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(recorder))
 	reader := sdkmetric.NewManualReader()
 	meters := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	t.Cleanup(func() {
@@ -108,6 +108,9 @@ func TestIndexPreservesNarrowCapabilityAndError(t *testing.T) {
 		t.Fatalf("Index() error/span = %v/%t", err, sawSpan)
 	}
 
+	if len(rig.spans.Ended()) == 0 {
+		t.Fatal("expected a recorded span")
+	}
 	span := rig.spans.Ended()[0]
 	if span.Name() != "index knowledge" || span.SpanKind() != trace.SpanKindClient || span.Status().Code != codes.Error {
 		t.Fatalf("span name/kind/status = %q/%v/%v", span.Name(), span.SpanKind(), span.Status())
@@ -137,6 +140,9 @@ func TestSearchPreservesMatchesAndRecordsCount(t *testing.T) {
 	got, err := wrapped.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1}})
 	if err != nil || got != want {
 		t.Fatalf("Search() = %#v, %v", got, err)
+	}
+	if len(rig.spans.Ended()) == 0 {
+		t.Fatal("expected a recorded span")
 	}
 	attrs := spanAttributes(t, rig.spans.Ended()[0])
 	if count := attrs["db.response.returned_rows"].AsInt64(); count != 1 {

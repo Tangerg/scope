@@ -50,7 +50,7 @@ type telemetryRig struct {
 func newHistoryMiddleware(t *testing.T) (historyotel.Middleware, *telemetryRig) {
 	t.Helper()
 	recorder := tracetest.NewSpanRecorder()
-	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(recorder))
 	reader := sdkmetric.NewManualReader()
 	meters := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	t.Cleanup(func() {
@@ -130,6 +130,9 @@ func TestListerRecordsResultCount(t *testing.T) {
 	ids, err := lister.Conversations(t.Context())
 	if err != nil || len(ids) != 2 {
 		t.Fatalf("Conversations() = %v, %v", ids, err)
+	}
+	if len(rig.spans.Ended()) == 0 {
+		t.Fatal("expected a recorded span")
 	}
 	attrs := spanAttributes(t, rig.spans.Ended()[0])
 	if count := attrs["chat_history.conversation.count"].AsInt64(); count != 2 {

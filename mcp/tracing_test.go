@@ -29,7 +29,7 @@ func (f failingTraceTool) Call(context.Context, tool.Invocation) (corechat.ToolO
 
 func TestRoundTripErrorTelemetryExcludesContent(t *testing.T) {
 	recorder := tracetest.NewSpanRecorder()
-	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(recorder))
 	previous := mcpTracer
 	mcpTracer = provider.Tracer("test")
 	t.Cleanup(func() {
@@ -86,7 +86,7 @@ func TestErrorTelemetryClassifiesWrappedFailures(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			recorder := tracetest.NewSpanRecorder()
-			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+			provider := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(recorder))
 			defer func() {
 				if err := provider.Shutdown(context.Background()); err != nil {
 					t.Error(err)
@@ -95,6 +95,9 @@ func TestErrorTelemetryClassifiesWrappedFailures(t *testing.T) {
 			_, span := provider.Tracer("test").Start(t.Context(), "failure")
 			recordSpanError(span, fmt.Errorf("private-wrapper: %w", test.err))
 			span.End()
+			if len(recorder.Ended()) == 0 {
+				t.Fatal("expected a recorded span")
+			}
 			recorded := recorder.Ended()[0]
 			assertSpanErrorClassification(t, recorded, test.want)
 			if recorded.Status().Code != codes.Error || recorded.Status().Description != test.want {

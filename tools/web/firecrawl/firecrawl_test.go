@@ -61,3 +61,28 @@ func TestSearch(t *testing.T) {
 		})
 	}
 }
+
+func TestFetchDoesNotSubstituteMarkdownForHTML(t *testing.T) {
+	for _, sample := range []struct {
+		body      string
+		wantError bool
+	}{
+		{`{"success":true,"data":{"markdown":"wrong format"}}`, true},
+		{`{"success":true,"data":{"html":""}}`, false},
+		{`{"success":true,"data":{"html":"<p>right</p>"}}`, false},
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(sample.body))
+		}))
+		client, err := NewClient(Config{APIKey: "test", BaseURL: server.URL})
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := client.Fetch(t.Context(), &web.FetchRequest{URL: "https://example.com", Format: web.FormatHTML})
+		server.Close()
+		if (err != nil) != sample.wantError {
+			t.Fatalf("response=%v err=%v", response, err)
+		}
+	}
+}

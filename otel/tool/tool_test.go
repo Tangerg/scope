@@ -50,7 +50,7 @@ type telemetryRig struct {
 func newRig(t *testing.T) (toolotel.Middleware, *telemetryRig) {
 	t.Helper()
 	spans := tracetest.NewSpanRecorder()
-	traces := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans))
+	traces := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(spans))
 	reader := sdkmetric.NewManualReader()
 	meters := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	t.Cleanup(func() {
@@ -88,6 +88,9 @@ func TestMiddlewareTracesAndMeasuresExactToolBoundary(t *testing.T) {
 	}
 	if _, found, err := coretool.Capability[marked](wrapped); err != nil || !found {
 		t.Fatalf("wrapped capability = found:%t error:%v", found, err)
+	}
+	if len(rig.spans.Ended()) == 0 {
+		t.Fatal("expected a recorded span")
 	}
 	span := rig.spans.Ended()[0]
 	if span.Name() != "execute_tool lookup" || span.SpanKind() != trace.SpanKindInternal {
@@ -131,6 +134,9 @@ func TestMiddlewareClassifiesWrappedCancellationWithoutChangingError(t *testing.
 	}
 	if _, gotErr := binding.Call(t.Context(), invocation); !errors.Is(gotErr, context.Canceled) {
 		t.Fatalf("Call error = %v", gotErr)
+	}
+	if len(rig.spans.Ended()) == 0 {
+		t.Fatal("expected a recorded span")
 	}
 	span := rig.spans.Ended()[0]
 	assertString(t, attributeMap(span.Attributes()), "error.type", "context.canceled")

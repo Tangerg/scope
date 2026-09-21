@@ -156,10 +156,10 @@ func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.Fet
 	if err != nil {
 		return nil, err
 	}
-	if len(raw.Results) == 0 || raw.Results[0] == nil {
+	if len(raw.Results) == 0 || raw.Results[0] == nil || raw.Results[0].Text == nil {
 		return nil, errors.New("exa: fetch response contains no result")
 	}
-	return &web.FetchResponse{Content: raw.Results[0].Text, Format: format}, nil
+	return &web.FetchResponse{Content: *raw.Results[0].Text, Format: format}, nil
 }
 
 func buildSearchRequest(request *web.SearchRequest) *searchRequest {

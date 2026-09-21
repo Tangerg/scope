@@ -16,6 +16,9 @@
 // imply that execution began. Unknown local outcomes and authorization errors
 // become generic protocol errors, never model-visible internal diagnostics or
 // definite Tool results. Input validation remains public Tool error feedback.
+// Results requiring further input return ErrIncompleteResult without exposing
+// unfinished content. This adapter does not implement multi-round-trip input
+// fulfillment; hosts that need it must complete the exchange through the SDK.
 //
 // # Naming
 //

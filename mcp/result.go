@@ -20,6 +20,9 @@ func (r remoteResult) unwrap() (chat.ToolOutput, error) {
 	if r.value == nil {
 		return chat.ToolOutput{}, fmt.Errorf("mcp: call tool %q: server returned a nil result", r.remoteName)
 	}
+	if r.value.NeedsInput() {
+		return chat.ToolOutput{}, fmt.Errorf("mcp: call tool %q: %w", r.remoteName, ErrIncompleteResult)
+	}
 	output, err := r.content()
 	if err != nil {
 		return chat.ToolOutput{}, err

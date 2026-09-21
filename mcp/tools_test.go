@@ -316,3 +316,30 @@ func TestToolsZeroOptionsUsesDefaults(t *testing.T) {
 	require.Len(t, tools, 1)
 	assert.Equal(t, "primary_echo", tools[0].Definition().Name, "default naming should join source and tool")
 }
+
+func TestIncompleteRemoteToolResultIsNotACompletion(t *testing.T) {
+	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
+	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "pending-server"}, nil)
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "manual-client"}, &sdkmcp.ClientOptions{MultiRoundTrip: &sdkmcp.MultiRoundTripOptions{Disabled: true}})
+	serverSession, err := server.Connect(t.Context(), serverTransport, nil)
+	require.NoError(t, err)
+	defer serverSession.Close()
+	session, err := client.Connect(t.Context(), clientTransport, nil)
+	require.NoError(t, err)
+	defer session.Close()
+	server.AddTool(&sdkmcp.Tool{Name: "pending", InputSchema: json.RawMessage(`{"type":"object"}`)}, func(context.Context, *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+		return &sdkmcp.CallToolResult{InputRequests: sdkmcp.InputRequestMap{}, RequestState: "pending"}, nil
+	})
+	tools, err := scopemcp.DiscoverTools(t.Context(), []scopemcp.ToolSource{{Session: session}}, scopemcp.ToolDiscoveryConfig{})
+	require.NoError(t, err)
+	for _, candidate := range tools {
+		if candidate.Definition().Name != "pending" {
+			continue
+		}
+		output, err := invokeTestTool(t.Context(), candidate, `{}`)
+		require.ErrorIs(t, err, scopemcp.ErrIncompleteResult)
+		assert.Empty(t, output.Content)
+		return
+	}
+	t.Fatal("pending tool was not discovered")
+}

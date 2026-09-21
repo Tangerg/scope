@@ -14,7 +14,7 @@ type fetchTextOptions struct {
 
 type fetchRequest struct {
 	URLs []string         `json:"urls,omitempty"`
-	Text fetchTextOptions `json:"text,omitzero"`
+	Text fetchTextOptions `json:"text"`
 }
 
 func (f *fetchRequest) validate() error {
@@ -28,7 +28,7 @@ func (f *fetchRequest) validate() error {
 }
 
 type fetchResult struct {
-	Text string `json:"text,omitempty"`
+	Text *string `json:"text,omitempty"`
 }
 
 type fetchResponse struct {

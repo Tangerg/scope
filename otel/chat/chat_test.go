@@ -29,7 +29,7 @@ type telemetryRig struct {
 func newRig(t *testing.T, provider string) (otelchat.Middleware, *telemetryRig) {
 	t.Helper()
 	spans := tracetest.NewSpanRecorder()
-	traces := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans))
+	traces := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(spans))
 	reader := sdkmetric.NewManualReader()
 	meters := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	t.Cleanup(func() {
@@ -105,6 +105,9 @@ func TestNewMiddlewareValidatesAndNormalizesProvider(t *testing.T) {
 	}))
 	if _, err := wrapped.Call(t.Context(), request("model")); err != nil {
 		t.Fatal(err)
+	}
+	if len(rig.spans.Ended()) == 0 {
+		t.Fatal("expected a recorded span")
 	}
 	attrs := spanAttributes(t, rig.spans.Ended()[0])
 	if got := attrs["gen_ai.provider.name"].AsString(); got != "openai" {
@@ -248,6 +251,9 @@ func TestStreamingAccountingUsesTheLastReportedSnapshot(t *testing.T) {
 					*delta.Metadata.Usage.CacheReadInputTokens = 1
 				}
 			}
+			if len(rig.spans.Ended()) == 0 {
+				t.Fatal("expected a recorded span")
+			}
 			attrs := spanAttributes(t, rig.spans.Ended()[0])
 			input, present := attrs["gen_ai.usage.input_tokens"]
 			if present != sample.known || present && input.AsInt64() != sample.input {
@@ -284,6 +290,9 @@ func TestCallPreservesResponseAndError(t *testing.T) {
 	})).Call(t.Context(), request("gpt"))
 	if gotResponse != wantResponse || !errors.Is(gotErr, wantErr) {
 		t.Fatalf("response/error = %p/%v, want %p/%v", gotResponse, gotErr, wantResponse, wantErr)
+	}
+	if len(rig.spans.Ended()) == 0 {
+		t.Fatal("expected a recorded span")
 	}
 	span := rig.spans.Ended()[0]
 	if span.Status().Code != codes.Error || len(span.Events()) != 1 || span.Events()[0].Name != "exception" {
@@ -351,6 +360,9 @@ func TestStreamIsLazyAndObservesMetadata(t *testing.T) {
 	if !called || len(chunks) != 2 || chunks[0].Text() != "hel" || chunks[1].Text() != "lo" {
 		t.Fatalf("stream forwarding = called:%v chunks:%d", called, len(chunks))
 	}
+	if len(rig.spans.Ended()) == 0 {
+		t.Fatal("expected a recorded span")
+	}
 	span := rig.spans.Ended()[0]
 	attrs := spanAttributes(t, span)
 	assertStringAttr(t, attrs, "gen_ai.response.model", "served-model")
@@ -388,6 +400,9 @@ func TestStreamEndsSynchronouslyOnConsumerStop(t *testing.T) {
 	if !released || seen != 1 || len(rig.spans.Ended()) != 1 {
 		t.Fatalf("released/seen/spans = %v/%d/%d", released, seen, len(rig.spans.Ended()))
 	}
+	if len(rig.spans.Ended()) == 0 {
+		t.Fatal("expected a recorded span")
+	}
 	if rig.spans.Ended()[0].Status().Code == codes.Error {
 		t.Fatal("consumer stop must not be reported as provider failure")
 	}
@@ -400,6 +415,9 @@ func TestStreamReportsNilAndProviderErrors(t *testing.T) {
 		var got error
 		for _, err := range middleware.Stream(streamer).Stream(t.Context(), request("gpt")) {
 			got = err
+		}
+		if len(rig.spans.Ended()) == 0 {
+			t.Fatal("expected a recorded span")
 		}
 		if !errors.Is(got, otelchat.ErrNilStream) || rig.spans.Ended()[0].Status().Code != codes.Error {
 			t.Fatalf("error/status = %v/%v", got, rig.spans.Ended()[0].Status())
@@ -415,6 +433,9 @@ func TestStreamReportsNilAndProviderErrors(t *testing.T) {
 		var got error
 		for _, err := range middleware.Stream(streamer).Stream(t.Context(), request("gpt")) {
 			got = err
+		}
+		if len(rig.spans.Ended()) == 0 {
+			t.Fatal("expected a recorded span")
 		}
 		if !errors.Is(got, want) || rig.spans.Ended()[0].Status().Code != codes.Error {
 			t.Fatalf("error/status = %v/%v", got, rig.spans.Ended()[0].Status())
@@ -435,6 +456,9 @@ func TestStreamReportsNilAndProviderErrors(t *testing.T) {
 		}
 		if gotResponse != partial || !errors.Is(gotErr, want) {
 			t.Fatalf("response/error = %p/%v, want %p/%v", gotResponse, gotErr, partial, want)
+		}
+		if len(rig.spans.Ended()) == 0 {
+			t.Fatal("expected a recorded span")
 		}
 		span := rig.spans.Ended()[0]
 		assertStringAttr(t, spanAttributes(t, span), "gen_ai.response.model", "served-model")
@@ -459,6 +483,9 @@ func TestStreamForwardsInvalidContentWithoutReassemblingIt(t *testing.T) {
 	}
 	if got != invalid {
 		t.Fatal("invalid provider chunk was replaced")
+	}
+	if len(rig.spans.Ended()) == 0 {
+		t.Fatal("expected a recorded span")
 	}
 	events := rig.spans.Ended()[0].Events()
 	if len(events) != 0 {

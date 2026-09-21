@@ -16,7 +16,7 @@ import (
 
 func TestStreamRemainsLazyAndDoesNotObserveContent(t *testing.T) {
 	spans := tracetest.NewSpanRecorder()
-	traces := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans))
+	traces := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(spans))
 	meters := sdkmetric.NewMeterProvider()
 	t.Cleanup(func() {
 		_ = traces.Shutdown(context.Background())
@@ -55,6 +55,9 @@ func TestStreamRemainsLazyAndDoesNotObserveContent(t *testing.T) {
 	}
 	if !started || len(spans.Ended()) != 1 {
 		t.Fatalf("started/spans = %t/%d", started, len(spans.Ended()))
+	}
+	if len(spans.Ended()) == 0 {
+		t.Fatal("expected a recorded span")
 	}
 	for _, value := range spans.Ended()[0].Attributes() {
 		if value.Value.AsString() == request.Text || value.Value.AsString() == "sensitive audio" {

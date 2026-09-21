@@ -1,6 +1,7 @@
 package brave
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/Tangerg/scope/tools/web"
@@ -12,7 +13,6 @@ func TestRecencyMappingMatchesBraveFreshness(t *testing.T) {
 		recency web.Recency
 		want    string
 	}{
-		{name: "hour uses minimum granularity", recency: web.RecencyHour, want: "pd"},
 		{name: "day", recency: web.RecencyDay, want: "pd"},
 		{name: "week", recency: web.RecencyWeek, want: "pw"},
 		{name: "month", recency: web.RecencyMonth, want: "pm"},
@@ -26,5 +26,16 @@ func TestRecencyMappingMatchesBraveFreshness(t *testing.T) {
 				t.Fatalf("recencyToFreshness(%q) = %q, want %q", test.recency, got, test.want)
 			}
 		})
+	}
+}
+
+func TestSearchRejectsUnsupportedHourBeforeIO(t *testing.T) {
+	client, err := NewClient(Config{APIKey: "test-key", BaseURL: "http://127.0.0.1:1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Search(t.Context(), &web.SearchRequest{Query: "scope", Recency: web.RecencyHour})
+	if !errors.Is(err, web.ErrUnsupportedFilter) {
+		t.Fatalf("Search error=%v", err)
 	}
 }

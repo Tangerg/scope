@@ -15,7 +15,7 @@ import (
 
 func TestMiddlewarePreservesCallAndDoesNotObserveContent(t *testing.T) {
 	spans := tracetest.NewSpanRecorder()
-	traces := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans))
+	traces := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(spans))
 	meters := sdkmetric.NewMeterProvider()
 	t.Cleanup(func() {
 		_ = traces.Shutdown(context.Background())
@@ -39,6 +39,9 @@ func TestMiddlewarePreservesCallAndDoesNotObserveContent(t *testing.T) {
 	got, err := model.Call(t.Context(), request)
 	if err != nil || got != want {
 		t.Fatalf("Call = (%p, %v), want (%p, nil)", got, err, want)
+	}
+	if len(spans.Ended()) == 0 {
+		t.Fatal("expected a recorded span")
 	}
 	span := spans.Ended()[0]
 	for _, value := range span.Attributes() {

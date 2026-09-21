@@ -1,6 +1,7 @@
 package tavily
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/Tangerg/scope/tools/web"
@@ -12,7 +13,6 @@ func TestRecencyMappingMatchesTavilyTimeRange(t *testing.T) {
 		recency web.Recency
 		want    string
 	}{
-		{name: "hour uses minimum granularity", recency: web.RecencyHour, want: "day"},
 		{name: "day", recency: web.RecencyDay, want: "day"},
 		{name: "week", recency: web.RecencyWeek, want: "week"},
 		{name: "month", recency: web.RecencyMonth, want: "month"},
@@ -26,5 +26,16 @@ func TestRecencyMappingMatchesTavilyTimeRange(t *testing.T) {
 				t.Fatalf("recencyToTimeRange(%q) = %q, want %q", test.recency, got, test.want)
 			}
 		})
+	}
+}
+
+func TestSearchRejectsUnsupportedHourBeforeIO(t *testing.T) {
+	client, err := NewClient(Config{APIKey: "test-key", BaseURL: "http://127.0.0.1:1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Search(t.Context(), &web.SearchRequest{Query: "scope", Recency: web.RecencyHour})
+	if !errors.Is(err, web.ErrUnsupportedFilter) {
+		t.Fatalf("Search error=%v", err)
 	}
 }

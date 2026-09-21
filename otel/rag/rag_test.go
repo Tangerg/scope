@@ -37,7 +37,7 @@ type telemetryRig struct {
 func newRig(t *testing.T) (ragotel.Middleware, *telemetryRig) {
 	t.Helper()
 	spans := tracetest.NewSpanRecorder()
-	traces := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans))
+	traces := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(spans))
 	reader := sdkmetric.NewManualReader()
 	meters := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	t.Cleanup(func() {
@@ -72,6 +72,9 @@ func TestMiddlewareObservesExactRetrievalBoundary(t *testing.T) {
 	if err != nil || len(candidates) != 1 || !inner.observed {
 		t.Fatalf("Retrieve = (%d, %v), context observed = %t", len(candidates), err, inner.observed)
 	}
+	if len(rig.spans.Ended()) == 0 {
+		t.Fatal("expected a recorded span")
+	}
 	span := rig.spans.Ended()[0]
 	if span.Name() != "rag.retrieve" || span.SpanKind() != trace.SpanKindInternal {
 		t.Fatalf("span = %q/%v", span.Name(), span.SpanKind())
@@ -100,6 +103,9 @@ func TestMiddlewareClassifiesWrappedCancellationWithoutChangingError(t *testing.
 	if _, gotErr := wrapped.Retrieve(t.Context(), query); !errors.Is(gotErr, context.Canceled) {
 		t.Fatalf("Retrieve error = %v", gotErr)
 	}
+	if len(rig.spans.Ended()) == 0 {
+		t.Fatal("expected a recorded span")
+	}
 	assertString(t, attributeMap(rig.spans.Ended()[0].Attributes()), "error.type", "context.canceled")
 	assertHistogramAttribute(t, durationMetric(t, rig.reader), "error.type", "context.canceled")
 }
@@ -120,6 +126,9 @@ func TestMiddlewarePreservesRetrieverCancellationPolicy(t *testing.T) {
 	cancel()
 	if _, err := wrapped.Retrieve(ctx, query); !errors.Is(err, want) || !inner.observed {
 		t.Fatalf("Retrieve error = %v, retriever observed = %t", err, inner.observed)
+	}
+	if len(rig.spans.Ended()) == 0 {
+		t.Fatal("expected a recorded span")
 	}
 	assertString(t, attributeMap(rig.spans.Ended()[0].Attributes()), "error.type", "context.canceled")
 }

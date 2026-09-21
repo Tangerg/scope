@@ -131,7 +131,7 @@ func TestClientMetricsDescribeOnlyObservedResponse(t *testing.T) {
 			}
 			t.Run(call.name+"/"+name, func(t *testing.T) {
 				spans := tracetest.NewSpanRecorder()
-				traces := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans))
+				traces := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(spans))
 				reader := sdkmetric.NewManualReader()
 				meters := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 				t.Cleanup(func() {
@@ -226,7 +226,7 @@ func TestSpeechStreamRecordsChunkLatency(t *testing.T) {
 		t.Run(strconv.Itoa(stopAfter)+" chunks", func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				spans := tracetest.NewSpanRecorder()
-				traces := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans))
+				traces := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(spans))
 				reader := sdkmetric.NewManualReader()
 				meters := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 				t.Cleanup(func() {
@@ -269,6 +269,9 @@ func TestSpeechStreamRecordsChunkLatency(t *testing.T) {
 				}
 				if !closed {
 					t.Error("stream resources were not released synchronously")
+				}
+				if len(spans.Ended()) == 0 {
+					t.Fatal("expected a recorded span")
 				}
 				span := spans.Ended()[0]
 				attributes := attribute.NewSet(span.Attributes()...)

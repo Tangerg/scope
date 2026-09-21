@@ -52,7 +52,7 @@ fi
 
 # Checks to run; default = all.
 if [[ $# -eq 0 ]]; then
-  CHECKS=(build vet test bench tidy pinned-test lint vuln)
+  CHECKS=(build vet test integration-compile bench tidy pinned-test lint vuln)
 else
   CHECKS=("$@")
 fi
@@ -82,6 +82,7 @@ run_in_module() {
       fi
       ;;
     vet)   (cd "$mod" && go vet "${MODULE_PACKAGES[@]}") ;;
+    integration-compile) (cd "$mod" && go test -tags=integration -run '^$' ./...) ;;
     test)  (cd "$mod" && go test -count=1 "${MODULE_PACKAGES[@]}") ;;
     bench) (cd "$mod" && go test -run '^$' -bench . -benchtime=1x "${MODULE_PACKAGES[@]}") ;;
     race)  (cd "$mod" && go test -race -count=1 "${MODULE_PACKAGES[@]}") ;;

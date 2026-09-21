@@ -25,6 +25,9 @@ func TestCallDoesNotExportErrorText(t *testing.T) {
 	if !errors.Is(err, want) {
 		t.Fatalf("error = %v, want original provider error", err)
 	}
+	if len(rig.spans.Ended()) == 0 {
+		t.Fatal("expected a recorded span")
+	}
 	span := rig.spans.Ended()[0]
 	if strings.Contains(span.Status().Description, secret) {
 		t.Error("provider error text leaked through span status")
@@ -59,6 +62,9 @@ func TestStreamMeasuresEveryReceivedChunk(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+		}
+		if len(rig.spans.Ended()) == 0 {
+			t.Fatal("expected a recorded span")
 		}
 		span := rig.spans.Ended()[0]
 		attributes := spanAttributes(t, span)
@@ -98,6 +104,9 @@ func TestStreamPreservesKnownUsageWithoutCompleteContent(t *testing.T) {
 	}
 	if !errors.Is(received, wantErr) {
 		t.Fatalf("error = %v, want original error", received)
+	}
+	if len(rig.spans.Ended()) == 0 {
+		t.Fatal("expected a recorded span")
 	}
 	attributes := spanAttributes(t, rig.spans.Ended()[0])
 	assertStringAttr(t, attributes, "gen_ai.response.model", "served-model")
@@ -159,6 +168,9 @@ func TestCallRecordsRequestedOutputTypeWithoutGuessingResponseModel(t *testing.T
 			})).Call(t.Context(), input)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if len(rig.spans.Ended()) == 0 {
+				t.Fatal("expected a recorded span")
 			}
 			attributes := spanAttributes(t, rig.spans.Ended()[0])
 			assertStringAttr(t, attributes, "gen_ai.output.type", test.want)

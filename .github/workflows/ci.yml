@@ -68,7 +68,7 @@ jobs:
       - name: Build, vet, test, race, module hygiene, isolation, and pinned dependency tests
         env:
           MODULE: ${{ matrix.module }}
-        run: scripts/check.sh build vet test race bench tidy isolate pinned-test
+        run: scripts/check.sh build vet test integration-compile race bench tidy isolate pinned-test
 
       - name: Core coverage budget
         if: matrix.module == 'core'

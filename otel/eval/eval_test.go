@@ -15,7 +15,7 @@ import (
 
 func TestMiddlewareObservesOutcomeWithoutSubject(t *testing.T) {
 	spans := tracetest.NewSpanRecorder()
-	traces := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans))
+	traces := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(spans))
 	meters := sdkmetric.NewMeterProvider()
 	t.Cleanup(func() {
 		_ = traces.Shutdown(context.Background())
@@ -42,6 +42,9 @@ func TestMiddlewareObservesOutcomeWithoutSubject(t *testing.T) {
 	got, err := evaluator.Evaluate(t.Context(), subject)
 	if err != nil || got.Metric.String() != want.Metric.String() {
 		t.Fatalf("Evaluate = (%#v, %v)", got, err)
+	}
+	if len(spans.Ended()) == 0 {
+		t.Fatal("expected a recorded span")
 	}
 	span := spans.Ended()[0]
 	if span.Name() != "eval.evaluate" {

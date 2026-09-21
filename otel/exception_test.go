@@ -180,7 +180,7 @@ func TestModelExceptionsRemainCorrelatedAndContentFree(t *testing.T) {
 			} {
 				t.Run(failure.name, func(t *testing.T) {
 					spans := tracetest.NewSpanRecorder()
-					tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans))
+					tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(spans))
 					exporter := new(exceptionLogExporter)
 					loggerProvider := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewSimpleProcessor(exporter)))
 					t.Cleanup(func() {
