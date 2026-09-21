@@ -36,8 +36,9 @@ func (a AudioTranscriptionModelConfig) Validate() error {
 var _ transcription.Model = (*AudioTranscriptionModel)(nil)
 
 // AudioTranscriptionModel wraps ElevenLabs' /v1/speech-to-text endpoint
-// (Scribe model family). Diarization / language / per-word timestamps
-// are reached through the extension-threaded [TranscriptionRequest].
+// (Scribe model family). Language uses transcription.Options.Language.
+// Diarization and per-word timestamps use Options.Extensions under
+// TranscriptionRequestExtensionKey.
 type AudioTranscriptionModel struct {
 	api            *api
 	defaultOptions transcription.Options

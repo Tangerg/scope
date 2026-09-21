@@ -6,9 +6,10 @@
 // metadata (speaker channels, custom vocabularies, profanity
 // filter, language ID).
 //
-// Provider extras (speaker_channels_count, custom_vocabulary_id,
-// language, remove_disfluencies, transcriber selection) ride through
-// extension-threaded JobOptions fields.
+// Set language through transcription.Options.Language and select machine or
+// human transcription through transcription.Options.Model. Provider extras
+// such as speaker_channels_count, custom_vocabulary_id, and remove_disfluencies
+// belong in Options.Extensions under RequestExtensionKey.
 //
 // See https://docs.rev.ai/ for the full reference.
 package revai

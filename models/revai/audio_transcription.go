@@ -46,9 +46,10 @@ var _ transcription.Model = (*AudioTranscriptionModel)(nil)
 // Rev is async-only: Call submits the audio, polls /jobs/{id} until
 // "transcribed", then fetches the plain-text transcript.
 //
-// Diarization, custom vocabularies, profanity filtering, language
-// hints and transcriber selection (machine vs human) all live on the
-// extension-threaded [JobOptions].
+// Language and transcriber selection use transcription.Options.Language and
+// transcription.Options.Model (ModelMachine or ModelHuman). Diarization, custom
+// vocabularies, and profanity filtering use Options.Extensions under
+// RequestExtensionKey.
 type AudioTranscriptionModel struct {
 	api            *api
 	defaultOptions transcription.Options
