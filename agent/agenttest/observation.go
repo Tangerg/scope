@@ -21,9 +21,6 @@ type ObservationRecorder struct {
 }
 
 func (o *ObservationRecorder) OnEvent(_ context.Context, event agent.Event) {
-	if o == nil {
-		return
-	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.events = append(o.events, event)
@@ -31,9 +28,6 @@ func (o *ObservationRecorder) OnEvent(_ context.Context, event agent.Event) {
 }
 
 func (o *ObservationRecorder) OnDelta(_ context.Context, delta agent.Delta) {
-	if o == nil {
-		return
-	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.deltas = append(o.deltas, delta)
