@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/agenttest"
 	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
@@ -123,17 +125,17 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 				{ID: "call_uncertain", Name: "first", Output: chat.NewTextToolOutput("resolved")},
 				{ID: "call_uncertain", Name: "uncertain", Output: chat.ToolOutput{Content: []chat.ToolContent{{Kind: "invalid"}}}},
 			} {
-				if _, settlementErr := tools.SettleToolResult(gate.unknownRequest, invalid, nil); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
+				if _, settlementErr := tools.SettleToolResult(gate.unknownRequest, invalid, interaction.ResultSucceeded, nil); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
 					t.Fatalf("invalid recovery result accepted: %v", settlementErr)
 				}
 			}
-			if _, settlementErr := tools.SettleToolResult(agent.EffectRequest{}, recoveredResult, nil); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
+			if _, settlementErr := tools.SettleToolResult(agent.EffectRequest{}, recoveredResult, interaction.ResultSucceeded, nil); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
 				t.Fatalf("invalid recovery request accepted: %v", settlementErr)
 			}
-			if _, settlementErr := tools.SettleToolResult(gate.unknownRequest, recoveredResult, []string{"unbound"}); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
+			if _, settlementErr := tools.SettleToolResult(gate.unknownRequest, recoveredResult, interaction.ResultSucceeded, []string{"unbound"}); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
 				t.Fatalf("invalid recovery advertisement accepted: %v", settlementErr)
 			}
-			resolution, err := tools.SettleToolResult(gate.unknownRequest, recoveredResult, nil)
+			resolution, err := tools.SettleToolResult(gate.unknownRequest, recoveredResult, interaction.ResultSucceeded, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -256,18 +258,18 @@ func TestToolRecoveryDerivesDirectPolicyFromExactBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, settlementErr := other.SettleToolResult(request, resolved, nil); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
+	if _, settlementErr := other.SettleToolResult(request, resolved, interaction.ResultSucceeded, nil); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
 		t.Fatalf("foreign binding accepted request: %v", settlementErr)
 	}
 	failed := resolved.Clone()
 	failed.IsError = true
-	if _, settlementErr := tools.SettleToolResult(request, failed, nil); settlementErr != nil {
+	if _, settlementErr := tools.SettleToolResult(request, failed, interaction.ResultFailed, nil); settlementErr != nil {
 		t.Fatalf("definite Tool failure inherited direct-return policy: %v", settlementErr)
 	}
-	if _, settlementErr := tools.SettleToolResult(request, failed, []string{"deferred"}); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
+	if _, settlementErr := tools.SettleToolResult(request, failed, interaction.ResultFailed, []string{"deferred"}); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
 		t.Fatalf("failed recovery advertised Tools: %v", settlementErr)
 	}
-	settlement, err := tools.SettleToolResult(request, resolved, nil)
+	settlement, err := tools.SettleToolResult(request, resolved, interaction.ResultSucceeded, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,4 +310,112 @@ func (r *recoveryRequestRecorder) CommitEffect(ctx context.Context, boundary age
 		r.unknown <- boundary.Request()
 	}
 	return nil
+}
+
+func TestReconciledToolDispositionMatchesLiveOutcome(t *testing.T) {
+	for _, disposition := range []interaction.ResultDisposition{interaction.ResultSucceeded, interaction.ResultFailed, interaction.ResultRejected} {
+		t.Run(disposition.String(), func(t *testing.T) {
+			var outcomes []interaction.ResultEntry
+			for _, reconcile := range []bool{false, true} {
+				store := newPublicationStore(t)
+				defer store.Close()
+				events := &agenttest.ObservationRecorder{}
+				calls := 0
+				executable := &callbackTool{name: "recover", call: func(context.Context, string) (string, error) {
+					calls++
+					if reconcile {
+						return "", errors.New("response lost")
+					}
+					if disposition == interaction.ResultSucceeded {
+						return "confirmed", nil
+					}
+					kind := tool.FailureKindFailed
+					if disposition == interaction.ResultRejected {
+						kind = tool.FailureKindRejected
+					}
+					failure, err := tool.NewFailure(tool.FailureConfig{Kind: kind, Output: chat.NewTextToolOutput("confirmed"), Cause: errors.New("definite failure")})
+					if err != nil {
+						return "", err
+					}
+					return "", failure
+				}}
+				tools := testToolSet(t, interaction.ToolSetConfig{Tools: []tool.Tool{executable}})
+				modelCalls := 0
+				deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "interaction.disposition", Description: "Preserve investigated outcomes.", MaxModelCalls: agent.NewQuota(2), Tools: tools}, interaction.DispatcherConfig{Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+					modelCalls++
+					if modelCalls == 1 {
+						return toolBatchResponse(chat.ToolCall{ID: "call", Name: "recover", Arguments: `{}`}), nil
+					}
+					return textResponse("done"), nil
+				})}, interaction.ToolSetConfig{})
+				deployment = toolInteractionDeployment(deployment.Deployment, tools)
+				engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployment.resolver, EventListeners: []agent.EventListener{events}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer engine.Close(context.WithoutCancel(t.Context()))
+				root, err := engine.Start(t.Context(), deployment.Deployment, interactionInput(t, "recover"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if reconcile {
+					event, awaitErr := events.AwaitEvent(t.Context(), func(event agent.Event) bool {
+						fact, ok := event.EffectFinished()
+						return ok && fact.SettlementStatus() == agent.SettlementStatusUnknown
+					})
+					if awaitErr != nil {
+						t.Fatal(awaitErr)
+					}
+					snapshot, captureErr := engine.CaptureTree(t.Context(), root.ID())
+					if captureErr != nil {
+						t.Fatal(captureErr)
+					}
+					id, _ := event.EffectID()
+					request, found := snapshot.EffectRequest(event.ProcessID(), id)
+					if !found {
+						t.Fatal("missing retained request")
+					}
+					result := chat.ToolResult{ID: "call", Name: "recover", Output: chat.NewTextToolOutput("confirmed"), IsError: disposition != interaction.ResultSucceeded}
+					for _, invalid := range []interaction.ResultDisposition{interaction.ResultInvalid, "unknown"} {
+						if _, settlementErr := tools.SettleToolResult(request, result, invalid, nil); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
+							t.Fatalf("invalid disposition accepted: %v", settlementErr)
+						}
+					}
+					contradictory := interaction.ResultSucceeded
+					if disposition == interaction.ResultSucceeded {
+						contradictory = interaction.ResultRejected
+					}
+					if _, settlementErr := tools.SettleToolResult(request, result, contradictory, nil); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
+						t.Fatalf("contradictory disposition accepted: %v", settlementErr)
+					}
+					settlement, settlementErr := tools.SettleToolResult(request, result, disposition, nil)
+					if settlementErr != nil {
+						t.Fatal(settlementErr)
+					}
+					owner, ok := engine.Process(request.ProcessID())
+					if !ok {
+						t.Fatal("missing owner")
+					}
+					if resolveErr := owner.ResolveUnknownEffect(t.Context(), settlement); resolveErr != nil {
+						t.Fatal(resolveErr)
+					}
+				}
+				final, err := root.Await(t.Context())
+				if err != nil || final.Status() != agent.StatusCompleted {
+					t.Fatalf("status=%s error=%v", final.Status(), err)
+				}
+				if err := root.Join(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				entries := store.entries()
+				if len(entries) != 1 || entries[0].Disposition != disposition || calls != 1 || modelCalls != 2 {
+					t.Fatalf("entries=%+v calls=%d models=%d", entries, calls, modelCalls)
+				}
+				outcomes = append(outcomes, entries[0])
+			}
+			if !reflect.DeepEqual(outcomes[0], outcomes[1]) {
+				t.Fatalf("live=%+v reconciled=%+v", outcomes[0], outcomes[1])
+			}
+		})
+	}
 }

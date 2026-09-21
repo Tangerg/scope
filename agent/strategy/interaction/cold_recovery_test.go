@@ -84,7 +84,7 @@ func TestTypedRecoveryFromPersistedUnknownWithoutOldHost(t *testing.T) {
 			} else {
 				settlement, err = tools.SettleToolResult(request, chat.ToolResult{
 					ID: "call", Name: "uncertain", Output: chat.NewTextToolOutput("recovered"),
-				}, nil)
+				}, interaction.ResultSucceeded, nil)
 			}
 			if err != nil {
 				t.Fatal(err)

@@ -91,11 +91,15 @@ func (t ToolSet) Deployment() agent.Deployment { return t.deployment }
 // request must be the original Engine-minted request for this exact Deployment;
 // result must match its call. TreeSnapshot.EffectRequest supplies retained
 // requests after a restart. Direct-return policy comes only from the binding.
-// Failed results cannot advertise Tools. The Host submits the returned settlement
+// disposition must agree with result.IsError; rejected and failed results cannot
+// advertise Tools. The Host submits the returned settlement
 // through Process.ResolveUnknownEffect, which owns unknown-effect resolution.
-func (t ToolSet) SettleToolResult(request agent.EffectRequest, result chat.ToolResult, advertisedToolNames []string) (agent.Settlement, error) {
+func (t ToolSet) SettleToolResult(request agent.EffectRequest, result chat.ToolResult, disposition ResultDisposition, advertisedToolNames []string) (agent.Settlement, error) {
 	if !t.Configured() || !request.Valid() || request.DeploymentRef() != t.deployment.DeploymentRef() {
 		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery requires its exact Deployment request", ErrInvalidProtocol)
+	}
+	if !disposition.Valid() || result.IsError != (disposition != ResultSucceeded) {
+		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery disposition disagrees with result", ErrInvalidProtocol)
 	}
 	envelope, err := decodeEffect(request.Effect().Payload())
 	if err != nil {
@@ -112,7 +116,7 @@ func (t ToolSet) SettleToolResult(request agent.EffectRequest, result chat.ToolR
 	if err := t.manifest.validateAdvertisements(advertisedToolNames); err != nil {
 		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery advertisements: %w", ErrInvalidProtocol, err)
 	}
-	completion := prepared.completion(result, false, advertisedToolNames)
+	completion := prepared.completion(result, disposition == ResultRejected, advertisedToolNames)
 	if err := completion.validateCall(call); err != nil {
 		return agent.Settlement{}, err
 	}
