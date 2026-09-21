@@ -173,6 +173,25 @@ func TestDrainedSnapshotAcceptsOrderedQuorumSubset(t *testing.T) {
 	}
 }
 
+func TestTreeSnapshotRejectsDepthBeyondCapturedLimit(t *testing.T) {
+	snapshot := deepDrainedSnapshotFixture(t)
+	if _, err := ParseTreeSnapshot(snapshot.JSON()); err != nil {
+		t.Fatal(err)
+	}
+	wire := snapshot.state.clone()
+	for i := range wire.ProcessSnapshots {
+		wire.ProcessSnapshots[i].state.TreeLimits.MaxDepth = 15
+		wire.ProcessSnapshots[i].data = controlValue(json.Marshal(wire.ProcessSnapshots[i].state))
+	}
+	if _, err := ParseTreeSnapshot(controlValue(json.Marshal(wire))); !errors.Is(err, ErrInvalidTreeSnapshot) {
+		t.Fatalf("over-depth tree accepted: %v", err)
+	}
+	leaf := wire.ProcessSnapshots[len(wire.ProcessSnapshots)-1]
+	if _, err := ParseProcessSnapshot(leaf.JSON()); !errors.Is(err, ErrInvalidSnapshot) {
+		t.Fatalf("over-depth process accepted: %v", err)
+	}
+}
+
 func TestPreparedChildWaitRecoveryRequiresDirectChildren(t *testing.T) {
 	for _, invalid := range []bool{false, true} {
 		runtime := newWaitingSnapshotTree(t, 2)

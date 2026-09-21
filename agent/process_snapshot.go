@@ -440,6 +440,9 @@ func (p processSnapshotWire) validateRelation() error {
 	if err != nil {
 		return fmt.Errorf("%w: relation: %w", ErrInvalidSnapshot, err)
 	}
+	if relation.Depth() > p.TreeLimits.MaxDepth {
+		return fmt.Errorf("%w: relation depth exceeds captured MaxDepth", ErrInvalidSnapshot)
+	}
 	if relation.IsRoot() != (p.ChildRequestDigest == nil) ||
 		p.ChildRequestDigest != nil && !p.ChildRequestDigest.Valid() {
 		return fmt.Errorf("%w: child request digest does not match relation", ErrInvalidSnapshot)
