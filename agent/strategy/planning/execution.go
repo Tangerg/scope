@@ -152,6 +152,9 @@ func (e *execution) acceptSense(
 		return e.complete(ctx, consumedSignals)
 	}
 	if err := problem.ValidatePlan(ctx, plan); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return agent.Transition{}, err
+		}
 		return e.fail(consumedSignals, agent.FailureKindContract, failureCodePlanningPlannerContract, err.Error())
 	}
 	actions := plan.Actions()

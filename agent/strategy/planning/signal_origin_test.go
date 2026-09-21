@@ -14,7 +14,7 @@ func TestExternalSignalsCannotAdvanceSensingOrActions(t *testing.T) {
 	definition := cancellationDefinition(t, PlannerFunc(func(context.Context, Problem) (Plan, bool, error) {
 		t.Fatal("external sensing result reached the planner")
 		return Plan{}, false, nil
-	}))
+	}), nil)
 	for _, current := range []phase{phaseAwaitingSense, phaseAwaitingAction} {
 		t.Run(string(current), func(t *testing.T) {
 			state := executionState{Phase: current, Input: json.RawMessage(`{}`)}
