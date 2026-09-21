@@ -89,7 +89,8 @@ func (t ToolSet) Deployment() agent.Deployment { return t.deployment }
 // SettleToolResult converts an investigated external outcome into the same
 // completion protocol used by live dispatch. It performs no Tool call or replay.
 // request must be the original Engine-minted request for this exact Deployment;
-// result must match its call. Direct-return policy comes only from the binding.
+// result must match its call. TreeSnapshot.EffectRequest supplies retained
+// requests after a restart. Direct-return policy comes only from the binding.
 // Failed results cannot advertise Tools. The Host submits the returned settlement
 // through Process.ResolveUnknownEffect, which owns unknown-effect resolution.
 func (t ToolSet) SettleToolResult(request agent.EffectRequest, result chat.ToolResult, advertisedToolNames []string) (agent.Settlement, error) {

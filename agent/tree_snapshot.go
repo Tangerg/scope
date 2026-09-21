@@ -93,6 +93,27 @@ func (t TreeSnapshot) ProcessSnapshots() []ProcessSnapshot {
 	return slices.Clone(t.state.ProcessSnapshots)
 }
 
+// EffectRequest returns a frozen request retained in a captured prepared Step.
+// The request carries this capture's writer identity, not a restored writer's
+// authority. It can supply typed settlement helpers after a restart; it does not
+// authorize dispatch or replay. Adopted Steps are no longer retained, so absence
+// does not prove non-execution. The enclosing snapshot defines acknowledgment.
+func (t TreeSnapshot) EffectRequest(processID ProcessID, id EffectID) (EffectRequest, bool) {
+	for _, process := range t.state.ProcessSnapshots {
+		if process.ProcessID() != processID || process.state.Prepared == nil {
+			continue
+		}
+		for index, record := range process.state.Prepared.Effects {
+			if record.ID == id {
+				return newEffectRequest(processID, t.IncarnationID(), process.DeploymentRef(),
+					process.Relation(), process.state.Prepared.StepSequence, uint32(index),
+					record.ID, record.Effect), true
+			}
+		}
+	}
+	return EffectRequest{}, false
+}
+
 func (t TreeSnapshot) Valid() bool {
 	return len(t.data) > 0 && t.digest.Valid() && t.state.RootID.Valid() &&
 		t.state.IncarnationID.Valid() && len(t.state.ProcessSnapshots) > 0

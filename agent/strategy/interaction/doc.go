@@ -28,7 +28,9 @@
 // them through agent.Process.ResolveUnknownEffect. Recovery never replays Tools.
 // Hosts use [Dispatcher.SettleModelResult] for investigated model responses,
 // supplying the actual messages sent to the model so reduced context survives
-// recovery. The helper never calls the model or reducer.
+// recovery. The helper never calls the model or reducer. After a restart, Hosts
+// obtain retained frozen requests through [agent.TreeSnapshot.EffectRequest],
+// using the Process identity and its UnknownEffectIDs from the durable capture.
 // Model context receives the complete results in original call order.
 // A Tool child's input describes only its initial invocation, and its output
 // describes only completion. Resumption belongs to the child's dispatcher

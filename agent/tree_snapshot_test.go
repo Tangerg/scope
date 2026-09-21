@@ -701,3 +701,36 @@ func TestTreeSnapshotReportsFirstRelationErrorInCanonicalOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestTreeSnapshotEffectRequestPreservesFrozenEvidence(t *testing.T) {
+	pending, deployment, id := durablePendingTreeSnapshot(t)
+	parsed, err := ParseTreeSnapshot(pending.JSON())
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, found := parsed.EffectRequest(parsed.RootID(), id)
+	if !found || !request.Valid() || request.ID() != id ||
+		request.ProcessID() != parsed.RootID() || request.DeploymentRef() != deployment.DeploymentRef() ||
+		request.StepSequence() != 1 || request.BatchIndex() != 0 ||
+		request.Relation() != parsed.ProcessSnapshots()[0].Relation() {
+		t.Fatalf("frozen request identity changed: %+v", request)
+	}
+	if writer, present := request.TreeIncarnationID(); !present || writer != parsed.IncarnationID() {
+		t.Fatal("frozen request writer changed")
+	}
+	frozen := request.Effect().Payload()
+	mutated := request.Effect().Payload()
+	mutated[0] = '!'
+	again, found := parsed.EffectRequest(parsed.RootID(), id)
+	if !found || !bytes.Equal(again.Effect().Payload(), frozen) {
+		t.Fatal("caller mutated frozen Effect evidence")
+	}
+	for _, capture := range []TreeSnapshot{{}, completedTreeSnapshot(t), parsed} {
+		if missing, found := capture.EffectRequest(capture.RootID(), EffectID{}); found || missing.Valid() {
+			t.Fatal("snapshot manufactured an absent Effect")
+		}
+		if missing, found := capture.EffectRequest(ProcessID{}, id); found || missing.Valid() {
+			t.Fatal("snapshot manufactured an absent Process")
+		}
+	}
+}

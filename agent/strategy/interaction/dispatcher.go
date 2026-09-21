@@ -210,6 +210,7 @@ func (d *Dispatcher) dispatchModel(
 // or context reducer. The Host must use the Dispatcher bound to the original
 // Engine-minted request. messages must be the complete context actually sent to
 // the model, including any reduction; it is required even when unchanged.
+// After a restart, TreeSnapshot.EffectRequest supplies the retained request.
 // The returned settlement is submitted through Process.ResolveUnknownEffect.
 func (d *Dispatcher) SettleModelResult(request agent.EffectRequest, response *chat.Response, messages []chat.Message) (agent.Settlement, error) {
 	if d == nil || !request.Valid() || response == nil || len(messages) == 0 {
