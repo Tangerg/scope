@@ -192,7 +192,7 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 					t.Fatal(err)
 				}
 				wire["boundary"] = json.RawMessage(`"terminal_result"`)
-				delete(wire, "unresolved_effect_ids")
+				delete(wire, "subtree_unresolved_effects")
 				var outcome agent.ChildOutcome
 				if err := json.Unmarshal(require(json.Marshal(wire)), &outcome); err != nil {
 					t.Fatal(err)
