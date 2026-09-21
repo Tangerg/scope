@@ -255,6 +255,13 @@ func (r *Repository) openSkillFile(ctx context.Context, name string) (fs.File, e
 	}
 	file, err := r.fsys.Open(name + "/" + SkillFile)
 	if err == nil {
+		info, statErr := file.Stat()
+		if statErr = errors.Join(statErr, contextError(ctx, "open skill")); statErr != nil {
+			return nil, errors.Join(statErr, file.Close(), contextError(ctx, "close skill"))
+		}
+		if !info.Mode().IsRegular() {
+			return nil, errors.Join(invalidSkill(name, fmt.Errorf("%s must be a regular file: mode %s", SkillFile, info.Mode().Type())), file.Close(), contextError(ctx, "close skill"))
+		}
 		return file, nil
 	}
 	if ctxErr := contextError(ctx, "open skill"); ctxErr != nil {

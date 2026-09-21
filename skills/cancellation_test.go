@@ -358,3 +358,42 @@ func (d discoveryFile) Close() error {
 	*d.source.closed++
 	return d.File.Close()
 }
+
+func TestMetadataValidationClosesRejectedDescriptor(t *testing.T) {
+	for _, operation := range []string{"load", "lookup"} {
+		for _, phase := range []string{"stat", "nonregular", "close"} {
+			t.Run(operation+"/"+phase, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				failure := errors.New("metadata stat failed")
+				closeFailure := errors.New("metadata close failed")
+				closed := 0
+				repository, err := skills.NewRepository(cancellationFS{
+					FS: fstest.MapFS{"demo/SKILL.md": {Mode: fs.ModeNamedPipe}}, path: "demo/SKILL.md", phase: phase,
+					cancel: cancel, failure: failure, closeErr: closeFailure, closed: &closed,
+				}, skills.RepositoryConfig{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if operation == "load" {
+					_, err = repository.Load(ctx, "demo")
+				} else {
+					_, err = repository.Lookup(ctx, "demo")
+				}
+				if phase == "close" && !errors.Is(err, context.Canceled) {
+					t.Fatalf("lost close cancellation: %v", err)
+				}
+				if closed != 1 || !errors.Is(err, closeFailure) {
+					t.Fatalf("closed=%d error=%v", closed, err)
+				}
+				if phase == "stat" {
+					if !errors.Is(err, failure) || !errors.Is(err, context.Canceled) {
+						t.Fatalf("lost stat error or cancellation: %v", err)
+					}
+				} else if !errors.Is(err, skills.ErrInvalidSkill) {
+					t.Fatalf("nonregular metadata error=%v", err)
+				}
+			})
+		}
+	}
+}
