@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -94,4 +95,35 @@ func (s *speechStreamBody) Read(buffer []byte) (int, error) {
 func (s *speechStreamBody) Close() error {
 	s.closed = true
 	return nil
+}
+
+func TestSpeechCallDiscardsPartialAudioAndClosesBody(t *testing.T) {
+	for _, readErr := range []error{io.EOF, io.ErrUnexpectedEOF, context.Canceled} {
+		t.Run(readErr.Error(), func(t *testing.T) {
+			body := &speechStreamBody{readErr: readErr}
+			model, err := NewAudioTTSModel(t.Context(), AudioTTSModelConfig{
+				APIKey: "test-key", Provider: "openai",
+				DefaultOptions: speech.Options{Model: "test-model", Voice: "test-voice"},
+				HTTPClient:     &http.Client{Transport: speechStreamTransport{body: body, status: http.StatusOK}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, err := speech.NewRequest("hello")
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := model.Call(t.Context(), request)
+			if errors.Is(readErr, io.EOF) {
+				if err != nil || response == nil || string(response.Output.Audio) != "audio" {
+					t.Fatalf("Call = %v, %v", response, err)
+				}
+			} else if response != nil || !errors.Is(err, readErr) {
+				t.Fatalf("Call = %v, %v; want nil, %v", response, err, readErr)
+			}
+			if body.reads != 1 || !body.closed {
+				t.Fatalf("reads = %d, closed = %v", body.reads, body.closed)
+			}
+		})
+	}
 }

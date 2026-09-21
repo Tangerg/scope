@@ -12,54 +12,9 @@ import (
 )
 
 const (
-	// ResponseExtensionKey preserves the complete official Anthropic response.
-	ResponseExtensionKey = "anthropic/response"
 	// StreamEventExtensionKey preserves each official Anthropic stream event.
 	StreamEventExtensionKey = "anthropic/stream_event"
 )
-
-func mapProtocolMessage(message *anthropicsdk.Message, provider string) (*corechat.Response, error) {
-	if message == nil {
-		return nil, errors.New("anthropic: nil response")
-	}
-	parts, err := mapProtocolContent(message.Content, provider)
-	if err != nil {
-		return nil, err
-	}
-	output := &corechat.Output{
-		FinishReason: normalizeProtocolStopReason(message.StopReason),
-		Metadata:     &corechat.OutputMetadata{},
-	}
-	if err := output.Metadata.Extra.Set(protocolNativeStopReasonKey, message.StopReason); err != nil {
-		return nil, err
-	}
-	if len(parts) > 0 {
-		output.Message = &corechat.Message{Role: corechat.RoleAssistant, Parts: parts}
-	}
-	response := &corechat.Response{
-		Output: output,
-		Metadata: &corechat.ResponseMetadata{
-			ID:    message.ID,
-			Model: string(message.Model),
-			Usage: mapProtocolUsage(message.Usage),
-		},
-	}
-	if err := response.Metadata.Extra.Set(protocolResponseExtensionKey(provider), message); err != nil {
-		return nil, err
-	}
-	if message.StopSequence != "" {
-		if err := response.Metadata.Extra.Set(protocolStopSequenceKey, message.StopSequence); err != nil {
-			return nil, err
-		}
-	}
-	if err := response.Metadata.Extra.Set(protocolUsageKey, message.Usage); err != nil {
-		return nil, err
-	}
-	if err := response.Validate(); err != nil {
-		return nil, fmt.Errorf("anthropic: mapped response: %w", err)
-	}
-	return response, nil
-}
 
 func mapProtocolContent(blocks []anthropicsdk.ContentBlockUnion, provider string) ([]corechat.Part, error) {
 	parts := make([]corechat.Part, 0, len(blocks))
@@ -107,7 +62,7 @@ func mapProtocolContent(blocks []anthropicsdk.ContentBlockUnion, provider string
 		default:
 			// Server-tool and future native blocks have no provider-neutral Core
 			// part. The complete message remains available under
-			// ResponseExtensionKey, so skipping them here is lossless.
+			// StreamEventExtensionKey, so skipping them here is lossless.
 			continue
 		}
 	}

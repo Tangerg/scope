@@ -50,25 +50,11 @@ func newAPI(config apiConfig) (*api, error) {
 	return &api{client: &client}, nil
 }
 
-func (a *api) chatCompletion(ctx context.Context, req *openai.ChatCompletionNewParams, opts ...option.RequestOption) (*openai.ChatCompletion, error) {
-	if req == nil {
-		return nil, errors.New("openai: request must not be nil")
-	}
-	return a.wrapResult(a.client.Chat.Completions.New(ctx, *req, opts...))
-}
-
 func (a *api) chatCompletionStream(ctx context.Context, req *openai.ChatCompletionNewParams, opts ...option.RequestOption) (*ssestream.Stream[openai.ChatCompletionChunk], error) {
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}
 	return a.client.Chat.Completions.NewStreaming(ctx, *req, opts...), nil
-}
-
-func (a *api) responseNew(ctx context.Context, req *responses.ResponseNewParams, opts ...option.RequestOption) (*responses.Response, error) {
-	if req == nil {
-		return nil, errors.New("openai: request must not be nil")
-	}
-	return a.wrapResult(a.client.Responses.New(ctx, *req, opts...))
 }
 
 func (a *api) responseNewStream(ctx context.Context, req *responses.ResponseNewParams, opts ...option.RequestOption) (*ssestream.Stream[responses.ResponseStreamEventUnion], error) {

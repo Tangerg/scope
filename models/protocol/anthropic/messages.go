@@ -89,19 +89,16 @@ func newMessages(config MessagesConfig, dialect Dialect) (*Messages, error) {
 }
 
 func (m *Messages) Call(ctx context.Context, req *corechat.Request) (*corechat.Response, error) {
-	params, err := m.buildProtocolRequest(req)
-	if err != nil {
-		return nil, err
+	var accumulator corechat.ResponseAccumulator
+	for delta, err := range m.Stream(ctx, req) {
+		if err != nil {
+			return nil, err
+		}
+		if addErr := accumulator.Add(delta); addErr != nil {
+			return nil, addErr
+		}
 	}
-	response, err := m.api.chatCompletion(ctx, params)
-	if err != nil {
-		return nil, err
-	}
-	mapped, err := mapProtocolMessage(response, m.dialect.Provider)
-	if err != nil {
-		return nil, err
-	}
-	return mapped, nil
+	return accumulator.Response()
 }
 
 // CountInputTokens calls the provider's Messages token-count endpoint with the

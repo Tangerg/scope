@@ -16,7 +16,7 @@ func TestChatMapsCoreReasoningEffort(t *testing.T) {
 		defaults: corechat.Options{Model: "gpt-5"},
 		dialect:  Dialect{Provider: "openai", TokenLimitField: TokenLimitMaxCompletionTokens},
 	}
-	params, err := model.buildRequest(request, false)
+	params, err := model.buildRequest(request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestChatMapsCoreReasoningEffort(t *testing.T) {
 	if err := request.Options.Extensions.Set(RequestExtensionKey, map[string]any{"reasoning_effort": "low"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := model.buildRequest(request, false); err == nil || !strings.Contains(err.Error(), "owned by Core") {
+	if _, err := model.buildRequest(request); err == nil || !strings.Contains(err.Error(), "owned by Core") {
 		t.Fatalf("duplicate owner error = %v", err)
 	}
 }

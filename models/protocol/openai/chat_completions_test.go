@@ -1,7 +1,6 @@
 package openai_test
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -45,38 +44,9 @@ func newCoreChatModel(t *testing.T) (corechat.Model, corechat.Streamer) {
 
 func assertCoreChatCall(t *testing.T, response *corechat.Response) {
 	t.Helper()
-	if _, found := response.Metadata.Extra["test/openai_response"]; !found {
-		t.Fatal("compatible response did not preserve the provider-scoped official response")
-	}
-	if _, found := response.Metadata.Extra[scopeopenai.ResponseExtensionKey]; found {
-		t.Fatal("compatible response leaked into OpenAI's native extension namespace")
-	}
-	if response.Metadata.ID != "chatcmpl-core" || response.Metadata.Model != "gpt-5.2" {
-		t.Fatalf("identity = %q/%q", response.Metadata.ID, response.Metadata.Model)
-	}
-	result := response.Output
-	if result.FinishReason != corechat.FinishReasonToolCalls {
-		t.Errorf("finish reason = %q", result.FinishReason)
-	}
-	if result.Message == nil || len(result.Message.Parts) != 4 {
-		t.Fatalf("result message = %#v; want reasoning/text/tool/media", result.Message)
-	}
-	if result.Message.Parts[0].Kind != corechat.PartReasoning || result.Message.Parts[0].Text != "checking sources" {
-		t.Errorf("reasoning part = %#v", result.Message.Parts[0])
-	}
-	call := result.Message.Parts[2].ToolCall
-	if call == nil || call.ID != "call-2" || call.Name != "search" {
-		t.Errorf("tool call = %#v", call)
-	}
-	audio := result.Message.Parts[3].Media
-	if audio == nil || audio.MIME != "audio/wav" || audio.Source.Kind != media.SourceReference || audio.Source.Ref != "audio-1" {
-		t.Errorf("audio = %#v", audio)
-	}
-	usage := response.Metadata.Usage
-	if usage.InputTokens != 12 || usage.OutputTokens != 7 ||
-		usage.ReasoningTokens == nil || *usage.ReasoningTokens != 3 ||
-		usage.CacheReadInputTokens == nil || *usage.CacheReadInputTokens != 5 {
-		t.Errorf("usage = %#v", usage)
+	assertCoreChatAggregated(t, response)
+	if _, found := response.Metadata.Extra["test/openai_stream_chunk"]; !found {
+		t.Fatal("missing native stream metadata")
 	}
 }
 
@@ -133,12 +103,23 @@ func assertCoreChatAggregated(t *testing.T, response *corechat.Response) {
 		t.Fatalf("aggregated response = %#v", response)
 	}
 	result := response.Output
-	if result.Message == nil || len(result.Message.Parts) != 3 || result.FinishReason != corechat.FinishReasonToolCalls {
+	if result.Message == nil || len(result.Message.Parts) != 4 || result.FinishReason != corechat.FinishReasonToolCalls {
 		t.Fatalf("aggregated result = %#v", result)
 	}
 	call := result.Message.Parts[2].ToolCall
 	if result.Message.Parts[0].Text != "think " || result.Message.Parts[1].Text != "hello world" || call == nil || call.Arguments != `{"q":"scope"}` {
 		t.Errorf("aggregated parts = %#v; call = %#v", result.Message.Parts, call)
+	}
+	citations := result.Message.Parts[1].Citations
+	if len(citations) != 1 || citations[0].Source.Value != "https://example.com/source" || citations[0].Title != "Source" {
+		t.Fatalf("citations = %#v", citations)
+	}
+	audio := result.Message.Parts[3].Media
+	if audio == nil || audio.MIME != "audio/wav" || audio.Source.Ref != "audio-1" {
+		t.Fatalf("audio = %#v", audio)
+	}
+	if response.Metadata.Usage.ReasoningTokens == nil || *response.Metadata.Usage.ReasoningTokens != 3 || response.Metadata.Usage.CacheReadInputTokens == nil || *response.Metadata.Usage.CacheReadInputTokens != 5 {
+		t.Fatalf("usage detail = %#v", response.Metadata.Usage)
 	}
 	if response.Metadata.Usage.InputTokens != 8 || response.Metadata.Usage.OutputTokens != 4 {
 		t.Errorf("aggregated usage = %#v", response.Metadata.Usage)
@@ -146,12 +127,7 @@ func assertCoreChatAggregated(t *testing.T, response *corechat.Response) {
 }
 
 func TestCompatibleChatRejectsMultipleProviderChoices(t *testing.T) {
-	server := modeltest.JSONServer(http.StatusOK, `{
-		"id":"chatcmpl-multiple","model":"gpt-5.2","choices":[
-			{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"first"}},
-			{"index":1,"finish_reason":"stop","message":{"role":"assistant","content":"second"}}
-		]
-	}`)
+	server := modeltest.OpenAISSEServer([]string{`{ "id":"chatcmpl-multiple","model":"gpt-5.2","choices":[ {"index":0,"finish_reason":"stop","delta":{"role":"assistant","content":"first"}}, {"index":1,"finish_reason":"stop","delta":{"role":"assistant","content":"second"}} ] }`})
 	t.Cleanup(server.Close)
 	model, err := scopeopenai.NewCompatibleChatCompletions(t.Context(), scopeopenai.ChatCompletionsConfig{
 		APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "gpt-5.2"},
@@ -287,12 +263,10 @@ func newCoreChatServer(t *testing.T) *httptest.Server {
 		if err := json.Unmarshal(body.Messages[2], &assistant); err != nil || assistant.Audio.ID != "audio-prev" {
 			t.Errorf("assistant audio replay = %q/%v", assistant.Audio.ID, err)
 		}
-		if body.Stream {
-			writeCoreChatStream(writer)
-			return
+		if !body.Stream {
+			t.Error("chat must use streaming transport")
 		}
-		writer.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(writer, coreChatCompletionJSON)
+		writeCoreChatStream(writer)
 	}))
 }
 
@@ -302,45 +276,15 @@ func writeCoreChatStream(writer http.ResponseWriter) {
 		`{"id":"chatcmpl-stream","object":"chat.completion.chunk","created":1770000001,"model":"gpt-5.2","choices":[{"index":0,"delta":{"role":"assistant"}}]}`,
 		`{"id":"chatcmpl-stream","object":"chat.completion.chunk","created":1770000001,"model":"gpt-5.2","choices":[{"index":0,"delta":{"reasoning_content":"think "}}]}`,
 		`{"id":"chatcmpl-stream","object":"chat.completion.chunk","created":1770000001,"model":"gpt-5.2","choices":[{"index":0,"delta":{"content":"hello "}}]}`,
-		`{"id":"chatcmpl-stream","object":"chat.completion.chunk","created":1770000001,"model":"gpt-5.2","choices":[{"index":0,"delta":{"content":"world"}}]}`,
+		`{"id":"chatcmpl-stream","object":"chat.completion.chunk","created":1770000001,"model":"gpt-5.2","choices":[{"index":0,"delta":{"content":"world","annotations":[{"type":"url_citation","url_citation":{"url":"https://example.com/source","title":"Source","start_index":0,"end_index":5}}]}}]}`,
 		`{"id":"chatcmpl-stream","object":"chat.completion.chunk","created":1770000001,"model":"gpt-5.2","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"q\":"}}]}}]}`,
 		`{"id":"chatcmpl-stream","object":"chat.completion.chunk","created":1770000001,"model":"gpt-5.2","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-stream","type":"function","function":{"name":"search","arguments":"\"scope\""}}]}}]}`,
 		`{"id":"chatcmpl-stream","object":"chat.completion.chunk","created":1770000001,"model":"gpt-5.2","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"}"}}]},"finish_reason":"tool_calls"}]}`,
-		`{"id":"chatcmpl-stream","object":"chat.completion.chunk","created":1770000001,"model":"gpt-5.2","choices":[],"usage":{"prompt_tokens":8,"completion_tokens":4,"total_tokens":12}}`,
+		`{"id":"chatcmpl-stream","model":"gpt-5.2","choices":[{"index":0,"delta":{"audio":{"id":"audio-1","data":"YXVkaW8=","transcript":"spoken"}}}]}`,
+		`{"id":"chatcmpl-stream","object":"chat.completion.chunk","created":1770000001,"model":"gpt-5.2","choices":[],"usage":{"prompt_tokens":8,"completion_tokens":4,"total_tokens":12,"completion_tokens_details":{"reasoning_tokens":3},"prompt_tokens_details":{"cached_tokens":5}}}`,
 	}
 	for _, chunk := range chunks {
 		fmt.Fprintf(writer, "data: %s\n\n", chunk)
 	}
 	fmt.Fprint(writer, "data: [DONE]\n\n")
 }
-
-var coreChatCompletionJSON = `{
-  "id":"chatcmpl-core",
-  "object":"chat.completion",
-  "created":1770000000,
-  "model":"gpt-5.2",
-  "service_tier":"priority",
-  "choices":[
-    {
-      "index":0,
-      "finish_reason":"tool_calls",
-      "message":{
-        "role":"assistant",
-        "reasoning_content":"checking sources",
-        "content":"I found two results.",
-        "refusal":"",
-        "annotations":[],
-        "tool_calls":[{"id":"call-2","type":"function","function":{"name":"search","arguments":"{\"q\":\"more\"}"}}],
-        "audio":{"id":"audio-1","data":"` + base64.StdEncoding.EncodeToString([]byte("audio")) + `","expires_at":1770000100,"transcript":"spoken"}
-      },
-      "logprobs":{"content":[],"refusal":[]}
-    }
-  ],
-  "usage":{
-    "prompt_tokens":12,
-    "completion_tokens":7,
-    "total_tokens":19,
-    "completion_tokens_details":{"reasoning_tokens":3},
-    "prompt_tokens_details":{"cached_tokens":5}
-  }
-}`

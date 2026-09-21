@@ -69,8 +69,8 @@ func publishesModelInterface(file *ast.File) bool {
 
 // TestModalityModelBoundariesValidateRequests prevents adapters from
 // dereferencing or translating a Core request before its complete protocol
-// value has been checked. Stream implementations may delegate to their
-// validated Call method.
+// value has been checked. A convenience method may delegate to the validated
+// canonical method; the delegated method is checked independently.
 func TestModalityModelBoundariesValidateRequests(t *testing.T) {
 	t.Parallel()
 
@@ -364,7 +364,7 @@ func validatesOrDelegates(body *ast.BlockStmt, requestName string) bool {
 			found = true
 			return false
 		}
-		if selector.Sel.Name != "Call" {
+		if selector.Sel.Name != "Call" && selector.Sel.Name != "Stream" {
 			return !found
 		}
 		for _, argument := range call.Args {

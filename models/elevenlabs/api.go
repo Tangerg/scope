@@ -79,20 +79,6 @@ type voiceSettings struct {
 	Speed           *float64 `json:"speed,omitempty"`
 }
 
-// textToSpeech buffers the entire audio body into memory and returns it
-// alongside the response headers (used by callers to surface mime type
-// and request id).
-func (a *api) textToSpeech(ctx context.Context, voiceID, outputFormat string, body *ttsRequest) ([]byte, http.Header, error) {
-	resp, err := a.buildAudioRequest(ctx, outputFormat, body).Post("/text-to-speech/" + voiceID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("elevenlabs: request failed: %w", err)
-	}
-	if !resp.IsSuccess() {
-		return nil, nil, fmt.Errorf("elevenlabs: http %d: %s", resp.StatusCode(), resp.String())
-	}
-	return resp.Body(), resp.Header(), nil
-}
-
 // textToSpeechStream opts out of resty's response parsing so callers can
 // stream audio chunks directly off the wire. The returned ReadCloser
 // MUST be closed by the caller.

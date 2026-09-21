@@ -76,15 +76,16 @@ func NewResponses(_ context.Context, config ResponsesConfig) (*Responses, error)
 }
 
 func (r *Responses) Call(ctx context.Context, req *corechat.Request) (*corechat.Response, error) {
-	params, err := r.buildResponsesRequest(req)
-	if err != nil {
-		return nil, err
+	var accumulator corechat.ResponseAccumulator
+	for delta, err := range r.Stream(ctx, req) {
+		if err != nil {
+			return nil, err
+		}
+		if addErr := accumulator.Add(delta); addErr != nil {
+			return nil, addErr
+		}
 	}
-	response, err := r.api.responseNew(ctx, params)
-	if err != nil {
-		return nil, err
-	}
-	return mapResponsesResponse(response)
+	return accumulator.Response()
 }
 
 // CountInputTokens calls the provider's Responses input-token endpoint with

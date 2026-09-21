@@ -3,88 +3,12 @@ package openai
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/openai/openai-go/v3/responses"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 )
-
-func mapResponsesResponse(response *responses.Response) (*corechat.Response, error) {
-	terminal, err := responsesTerminalDelta(response)
-	if err != nil {
-		return nil, err
-	}
-	parts, err := responsesOutputParts(response.Output)
-	if err != nil {
-		return nil, err
-	}
-	output := &corechat.Output{FinishReason: terminal.FinishReason}
-	if len(parts) != 0 {
-		message := corechat.NewAssistantMessage(parts...)
-		output.Message = &message
-	}
-	mapped := &corechat.Response{Output: output, Metadata: terminal.Metadata}
-	if err := mapped.Validate(); err != nil {
-		return nil, fmt.Errorf("openai responses: response: %w", err)
-	}
-	return mapped, nil
-}
-
-func responsesOutputParts(output []responses.ResponseOutputItemUnion) ([]corechat.Part, error) {
-	parts := make([]corechat.Part, 0, len(output))
-	for index := range output {
-		item := output[index]
-		switch item.Type {
-		case responsesItemTypeMessage:
-			message := item.AsMessage()
-			for contentIndex := range message.Content {
-				content := message.Content[contentIndex]
-				switch content.Type {
-				case responsesContentTypeText:
-					if content.Text == "" {
-						continue
-					}
-					part := corechat.NewTextPart(content.Text)
-					for annotationIndex := range content.Annotations {
-						citation, include, mapErr := responsesCitation(content.Annotations[annotationIndex])
-						if mapErr != nil {
-							return nil, fmt.Errorf("openai responses: output[%d].content[%d].annotations[%d]: %w", index, contentIndex, annotationIndex, mapErr)
-						}
-						if include {
-							part.Citations = append(part.Citations, citation)
-						}
-					}
-					parts = append(parts, part)
-				case responsesContentTypeRefusal:
-					if content.Refusal != "" {
-						parts = append(parts, corechat.NewRefusalPart(content.Refusal))
-					}
-				}
-			}
-		case responsesItemTypeReasoning:
-			reasoning := item.AsReasoning()
-			text := joinResponsesReasoning(reasoning)
-			signature, encodeErr := encodeResponsesReasoningFrame(reasoning.ToParam())
-			if encodeErr != nil {
-				return nil, fmt.Errorf("openai responses: output[%d] reasoning: %w", index, encodeErr)
-			}
-			parts = append(parts, corechat.NewReasoningPart(text, signature))
-		case responsesItemTypeFunctionCall:
-			call := item.AsFunctionCall()
-			id := call.CallID
-			if id == "" {
-				id = call.ID
-			}
-			if id == "" || call.Name == "" {
-				return nil, fmt.Errorf("openai responses: output[%d] function call lacks ID or name", index)
-			}
-			parts = append(parts, corechat.NewToolCallPart(corechat.ToolCall{ID: id, Name: call.Name, Arguments: call.Arguments}))
-		}
-	}
-	return parts, nil
-}
 
 func responsesCitation(annotation responses.ResponseOutputTextAnnotationUnion) (corechat.Citation, bool, error) {
 	switch typed := annotation.AsAny().(type) {
@@ -112,20 +36,6 @@ func responsesCitation(annotation responses.ResponseOutputTextAnnotationUnion) (
 	default:
 		return corechat.Citation{}, false, fmt.Errorf("unsupported annotation %T", typed)
 	}
-}
-
-func joinResponsesReasoning(reasoning responses.ResponseReasoningItem) string {
-	var text strings.Builder
-	if len(reasoning.Content) != 0 {
-		for _, content := range reasoning.Content {
-			text.WriteString(content.Text)
-		}
-	} else {
-		for _, summary := range reasoning.Summary {
-			text.WriteString(summary.Text)
-		}
-	}
-	return text.String()
 }
 
 func responsesTerminalDelta(response *responses.Response) (*corechat.ResponseDelta, error) {

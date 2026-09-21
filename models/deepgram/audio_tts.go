@@ -161,20 +161,23 @@ func (a *AudioTTSModel) buildResponse(audio []byte, hdr http.Header) (*tts.Respo
 }
 
 func (a *AudioTTSModel) Call(ctx context.Context, req *tts.Request) (*tts.Response, error) {
-	if err := req.Validate(); err != nil {
-		return nil, err
+	var audio []byte
+	var response *tts.Response
+	for chunk, err := range a.Stream(ctx, req) {
+		if err != nil {
+			return nil, err
+		}
+		if int64(len(chunk.Output.Audio)) > a.api.maxResponseBytes-int64(len(audio)) {
+			return nil, fmt.Errorf("deepgram: speech response exceeds %d-byte limit", a.api.maxResponseBytes)
+		}
+		audio = append(audio, chunk.Output.Audio...)
+		response = chunk
 	}
-	text, params, err := a.buildAPIRequest(req)
-	if err != nil {
-		return nil, err
+	if response == nil {
+		return nil, fmt.Errorf("deepgram: %w: speech stream returned no audio", tts.ErrInvalidResponse)
 	}
-
-	audio, hdr, err := a.api.speak(ctx, text, params)
-	if err != nil {
-		return nil, err
-	}
-
-	return a.buildResponse(audio, hdr)
+	response.Output.Audio = audio
+	return response, nil
 }
 
 func (a *AudioTTSModel) Stream(ctx context.Context, req *tts.Request) iter.Seq2[*tts.Response, error] {

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -37,10 +36,10 @@ func TestResponsesTerminalStatesMatchAcrossCallAndStream(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			server := modeltest.JSONServer(http.StatusOK, body, func(*http.Request) {})
+			event := "response." + test.status
+			server := modeltest.AnthropicSSEServer([]modeltest.AnthropicEvent{{Event: event, Data: fmt.Sprintf(`{"type":%q,"response":%s}`, event, body)}})
 			t.Cleanup(server.Close)
 			response, callErr := newResponsesModel(t, server.URL, "gpt-5").Call(t.Context(), request)
-			event := "response." + test.status
 			streamServer := modeltest.AnthropicSSEServer([]modeltest.AnthropicEvent{{Event: event, Data: fmt.Sprintf(`{"type":%q,"response":%s}`, event, body)}})
 			t.Cleanup(streamServer.Close)
 			var terminal *chat.ResponseDelta
@@ -90,7 +89,7 @@ func TestResponsesTerminalStatesMatchAcrossCallAndStream(t *testing.T) {
 func TestResponsesCallRejectsNonSuccessfulStates(t *testing.T) {
 	for _, status := range []string{"queued", "in_progress", "", "unknown", string(responses.ResponseStatusCancelled)} {
 		t.Run(status, func(t *testing.T) {
-			server := modeltest.JSONServer(http.StatusOK, fmt.Sprintf(`{"status":%q,"output":[]}`, status), func(*http.Request) {})
+			server := modeltest.AnthropicSSEServer([]modeltest.AnthropicEvent{{Event: "response.created", Data: fmt.Sprintf(`{"type":"response.created","response":{"status":%q,"output":[]}}`, status)}})
 			t.Cleanup(server.Close)
 			request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("hello")))
 			if err != nil {
@@ -132,6 +131,10 @@ func TestResponsesStreamRejectsErrorAndPrematureEOF(t *testing.T) {
 			}
 			if got == nil || !strings.Contains(got.Error(), test.wantError) {
 				t.Fatalf("error = %v, want %q", got, test.wantError)
+			}
+			response, callErr := newResponsesModel(t, server.URL, "gpt-5").Call(t.Context(), request)
+			if response != nil || callErr == nil || callErr.Error() != got.Error() {
+				t.Fatalf("Call = %v, %v; want nil, %v", response, callErr, got)
 			}
 			if test.name != "error event" && !errors.Is(got, chat.ErrInvalidResponse) {
 				t.Fatalf("error = %v, want ErrInvalidResponse", got)

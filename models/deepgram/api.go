@@ -228,24 +228,6 @@ func (s *speakParams) query() url.Values {
 	return q
 }
 
-// speak posts text to /speak and returns the raw audio bytes plus the
-// response headers (request id / content-type live there).
-func (a *api) speak(ctx context.Context, text string, params *speakParams) ([]byte, http.Header, error) {
-	body, headers, err := a.speakStream(ctx, text, params)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer body.Close()
-	audio, err := readBounded(body, a.maxResponseBytes)
-	if err != nil {
-		return nil, nil, fmt.Errorf("deepgram: read speech response: %w", err)
-	}
-	if len(audio) == 0 {
-		return nil, nil, errors.New("deepgram: speech response is empty")
-	}
-	return audio, headers, nil
-}
-
 // speakStream posts text to /speak and exposes the response body as it arrives.
 func (a *api) speakStream(ctx context.Context, text string, params *speakParams) (io.ReadCloser, http.Header, error) {
 	if text == "" {

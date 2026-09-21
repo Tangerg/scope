@@ -18,9 +18,6 @@ const (
 	// RequestExtensionKey identifies provider-owned Chat Completions fields
 	// encoded as [RequestFields].
 	RequestExtensionKey = "openai/request"
-	// ResponseExtensionKey preserves the complete official Chat Completions
-	// response after provider-neutral fields have been mapped.
-	ResponseExtensionKey = "openai/response"
 	// StreamChunkExtensionKey preserves each complete official Chat
 	// Completions stream chunk.
 	StreamChunkExtensionKey = "openai/stream_chunk"
@@ -94,15 +91,16 @@ func newChatCompletions(config ChatCompletionsConfig, dialect Dialect) (*ChatCom
 }
 
 func (c *ChatCompletions) Call(ctx context.Context, req *corechat.Request) (*corechat.Response, error) {
-	params, err := c.buildRequest(req, false)
-	if err != nil {
-		return nil, err
+	var accumulator corechat.ResponseAccumulator
+	for delta, err := range c.Stream(ctx, req) {
+		if err != nil {
+			return nil, err
+		}
+		if addErr := accumulator.Add(delta); addErr != nil {
+			return nil, addErr
+		}
 	}
-	response, err := c.api.chatCompletion(ctx, params)
-	if err != nil {
-		return nil, err
-	}
-	return mapCompletion(params, response, c.dialect)
+	return accumulator.Response()
 }
 
 // Stream performs one streaming Chat Completions request. Stable tool identity
@@ -110,7 +108,7 @@ func (c *ChatCompletions) Call(ctx context.Context, req *corechat.Request) (*cor
 // expressed as a Core response delta.
 func (c *ChatCompletions) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*corechat.ResponseDelta, error] {
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
-		params, err := c.buildRequest(req, true)
+		params, err := c.buildRequest(req)
 		if err != nil {
 			yield(nil, err)
 			return
@@ -124,6 +122,7 @@ func (c *ChatCompletions) Stream(ctx context.Context, req *corechat.Request) ite
 		defer stream.Close()
 
 		state := newOpenAIStreamState(c.dialect)
+		state.params = params
 		var terminal *corechat.ResponseDelta
 		for stream.Next() {
 			response, mapErr := state.mapChunk(stream.Current())
@@ -159,7 +158,7 @@ func (c *ChatCompletions) Stream(ctx context.Context, req *corechat.Request) ite
 	}
 }
 
-func (c *ChatCompletions) buildRequest(req *corechat.Request, stream bool) (*openaisdk.ChatCompletionNewParams, error) {
+func (c *ChatCompletions) buildRequest(req *corechat.Request) (*openaisdk.ChatCompletionNewParams, error) {
 	if c == nil || c.api == nil {
 		return nil, errors.New("openai: nil ChatCompletions")
 	}
@@ -193,7 +192,7 @@ func (c *ChatCompletions) buildRequest(req *corechat.Request, stream bool) (*ope
 	if formatErr := applyChatOutputFormat(options.OutputFormat, &params, c.dialect); formatErr != nil {
 		return nil, formatErr
 	}
-	if prepareErr := c.prepareRequest(req, stream, &params); prepareErr != nil {
+	if prepareErr := c.prepareRequest(req, &params); prepareErr != nil {
 		return nil, prepareErr
 	}
 	return &params, nil
@@ -297,7 +296,7 @@ func (c *ChatCompletions) applyTokenLimit(limit *int64, params *openaisdk.ChatCo
 	return nil
 }
 
-func (c *ChatCompletions) prepareRequest(req *corechat.Request, stream bool, params *openaisdk.ChatCompletionNewParams) error {
+func (c *ChatCompletions) prepareRequest(req *corechat.Request, params *openaisdk.ChatCompletionNewParams) error {
 	if c.dialect.request != nil {
 		if err := c.dialect.request.PrepareRequest(req, params); err != nil {
 			return fmt.Errorf("openai: request dialect: %w", err)
@@ -309,7 +308,7 @@ func (c *ChatCompletions) prepareRequest(req *corechat.Request, stream bool, par
 
 	compatible := &CompatibleRequest{
 		model:       string(params.Model),
-		stream:      stream,
+		stream:      true,
 		extraFields: maps.Clone(params.ExtraFields()),
 	}
 	if params.Temperature.Valid() {

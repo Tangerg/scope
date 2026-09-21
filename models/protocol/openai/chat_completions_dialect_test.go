@@ -3,6 +3,7 @@ package openai_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -87,17 +88,19 @@ func newTextReasoningServer(t *testing.T, responseField string, requestBody any)
 			http.Error(writer, "invalid request", http.StatusBadRequest)
 			return
 		}
-		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("Content-Type", "text/event-stream")
 		response := map[string]any{
 			"id": "chat-1", "model": "provider-model",
 			"choices": []any{map[string]any{
 				"index": 0, "finish_reason": "stop",
-				"message": map[string]any{"role": "assistant", "content": "answer", responseField: "fresh reasoning"},
+				"delta": map[string]any{"role": "assistant", "content": "answer", responseField: "fresh reasoning"},
 			}},
 		}
-		if err := json.NewEncoder(writer).Encode(response); err != nil {
+		payload, err := json.Marshal(response)
+		if err != nil {
 			t.Errorf("encode response: %v", err)
 		}
+		fmt.Fprintf(writer, "data: %s\n\ndata: [DONE]\n\n", payload)
 	}))
 }
 
@@ -139,8 +142,8 @@ func TestChatTokenLimitFieldMatchesProtocol(t *testing.T) {
 					http.Error(writer, "invalid request", http.StatusBadRequest)
 					return
 				}
-				writer.Header().Set("Content-Type", "application/json")
-				_, _ = writer.Write([]byte(`{"id":"chat-1","model":"model","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"ok"}}]}`))
+				writer.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(writer, "data: {\"id\":\"chat-1\",\"model\":\"model\",\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"delta\":{\"role\":\"assistant\",\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n")
 			}))
 			t.Cleanup(server.Close)
 

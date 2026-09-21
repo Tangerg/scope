@@ -49,13 +49,6 @@ func newAPI(config apiConfig) (*api, error) {
 	return &api{client: &client}, nil
 }
 
-func (a *api) chatCompletion(ctx context.Context, req *anthropicsdk.MessageNewParams, opts ...option.RequestOption) (*anthropicsdk.Message, error) {
-	if req == nil {
-		return nil, errors.New("anthropic: request must not be nil")
-	}
-	return a.wrapResult(a.client.Messages.New(ctx, *req, opts...))
-}
-
 func (a *api) chatCompletionStream(ctx context.Context, req *anthropicsdk.MessageNewParams, opts ...option.RequestOption) *ssestream.Stream[anthropicsdk.MessageStreamEventUnion] {
 	if req == nil {
 		return nil

@@ -186,20 +186,21 @@ func isSupportedOutputFormat(format string) bool {
 }
 
 func (a *AudioTTSModel) Call(ctx context.Context, req *tts.Request) (*tts.Response, error) {
-	if err := req.Validate(); err != nil {
-		return nil, err
-	}
-	voiceID, outputFormat, body, err := a.buildAPIRequest(req)
-	if err != nil {
-		return nil, err
-	}
+	var audio []byte
+	var response *tts.Response
+	for chunk, err := range a.Stream(ctx, req) {
+		if err != nil {
+			return nil, err
+		}
 
-	audio, hdr, err := a.api.textToSpeech(ctx, voiceID, outputFormat, body)
-	if err != nil {
-		return nil, err
+		audio = append(audio, chunk.Output.Audio...)
+		response = chunk
 	}
-
-	return a.buildResponse(audio, hdr)
+	if response == nil {
+		return nil, fmt.Errorf("elevenlabs: %w: speech stream returned no audio", tts.ErrInvalidResponse)
+	}
+	response.Output.Audio = audio
+	return response, nil
 }
 
 func (a *AudioTTSModel) Stream(ctx context.Context, req *tts.Request) iter.Seq2[*tts.Response, error] {

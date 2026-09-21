@@ -23,13 +23,6 @@ func protocolRequestExtensionKey(provider string) string {
 	return provider + "/anthropic_request"
 }
 
-func protocolResponseExtensionKey(provider string) string {
-	if provider == protocolProvider {
-		return ResponseExtensionKey
-	}
-	return provider + "/anthropic_response"
-}
-
 func protocolStreamEventExtensionKey(provider string) string {
 	if provider == protocolProvider {
 		return StreamEventExtensionKey

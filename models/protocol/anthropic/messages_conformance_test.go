@@ -41,40 +41,7 @@ func newProtocolChatModel(t *testing.T) (corechat.Model, corechat.Streamer) {
 
 func assertProtocolChatCall(t *testing.T, response *corechat.Response) {
 	t.Helper()
-	if response.Metadata.ID != "msg-1" || response.Metadata.Model != "claude-opus-4-6" {
-		t.Fatalf("identity = %q/%q", response.Metadata.ID, response.Metadata.Model)
-	}
-	result := response.Output
-	if result.FinishReason != corechat.FinishReasonToolCalls || result.Message == nil {
-		t.Fatalf("result = %#v", result)
-	}
-	if len(result.Message.Parts) != 4 {
-		t.Fatalf("parts = %#v", result.Message.Parts)
-	}
-	reasoning := result.Message.Parts[0]
-	if reasoning.Kind != corechat.PartReasoning || reasoning.Text != "compare the evidence" || string(reasoning.ReasoningState) != "sig-response" {
-		t.Errorf("reasoning = %#v", reasoning)
-	}
-	redacted := result.Message.Parts[1]
-	kind, found, err := anthropic.ReasoningBlockKindOf(redacted)
-	if err != nil || !found || kind != anthropic.ReasoningBlockRedacted || string(redacted.ReasoningState) != "opaque-redacted-block" {
-		t.Errorf("redacted reasoning = %#v/%q/%v/%v", redacted, kind, found, err)
-	}
-	text := result.Message.Parts[2]
-	if len(text.Citations) != 2 || text.Citations[0].Source.Value != "file-1" || text.Citations[1].Source.Value != "https://example.com/source" {
-		t.Errorf("citations = %#v", text.Citations)
-	}
-	call := result.Message.Parts[3].ToolCall
-	if call == nil || call.ID != "toolu-2" || call.Name != "lookup" || call.Arguments != `{"id":8}` {
-		t.Errorf("tool call = %#v", call)
-	}
-	usage := response.Metadata.Usage
-	if usage.InputTokens != 160 || usage.OutputTokens != 30 ||
-		usage.ReasoningTokens == nil || *usage.ReasoningTokens != 10 ||
-		usage.CacheReadInputTokens == nil || *usage.CacheReadInputTokens != 40 ||
-		usage.CacheWriteInputTokens == nil || *usage.CacheWriteInputTokens != 20 {
-		t.Errorf("usage = %#v", usage)
-	}
+	assertProtocolChatAggregated(t, response)
 }
 
 func assertProtocolChatStream(t *testing.T, responses []*corechat.ResponseDelta) {
@@ -272,12 +239,10 @@ func serveProtocolChat(t *testing.T, writer http.ResponseWriter, request *http.R
 		return
 	}
 	assertProtocolRequestMessages(t, body)
-	if body.Stream {
-		writeProtocolChatStream(writer)
-		return
+	if !body.Stream {
+		t.Error("chat must use streaming transport")
 	}
-	writer.Header().Set("Content-Type", "application/json")
-	fmt.Fprint(writer, protocolChatResponseJSON)
+	writeProtocolChatStream(writer)
 }
 
 func assertProtocolRequestEnvelope(t *testing.T, request *http.Request, body protocolChatRequestBody) bool {
@@ -347,28 +312,3 @@ func writeProtocolChatStream(writer http.ResponseWriter) {
 		fmt.Fprintf(writer, "event: %s\ndata: %s\n\n", event.name, event.data)
 	}
 }
-
-const protocolChatResponseJSON = `{
-  "id":"msg-1",
-  "type":"message",
-  "role":"assistant",
-  "model":"claude-opus-4-6",
-  "content":[
-    {"type":"thinking","thinking":"compare the evidence","signature":"sig-response"},
-    {"type":"redacted_thinking","data":"opaque-redacted-block"},
-    {"type":"text","text":"I need another lookup.","citations":[
-      {"type":"char_location","cited_text":"document quote","document_index":0,"document_title":"Paper","end_char_index":14,"file_id":"file-1","start_char_index":0},
-      {"type":"web_search_result_location","cited_text":"web quote","encrypted_index":"encrypted","title":"Web source","url":"https://example.com/source"}
-    ]},
-    {"type":"tool_use","id":"toolu-2","name":"lookup","input":{"id":8}}
-  ],
-  "stop_reason":"tool_use",
-  "stop_sequence":"END",
-  "usage":{
-    "input_tokens":100,
-    "output_tokens":30,
-    "cache_read_input_tokens":40,
-    "cache_creation_input_tokens":20,
-    "output_tokens_details":{"thinking_tokens":10}
-  }
-}`

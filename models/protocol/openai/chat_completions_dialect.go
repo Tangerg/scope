@@ -37,7 +37,6 @@ type requestDialect interface {
 }
 
 type responseDialect interface {
-	FinalizeMessage(source openaisdk.ChatCompletionMessage, target *corechat.Message) error
 	FinalizeDelta(source openaisdk.ChatCompletionChunkChoiceDelta, target *corechat.Message) error
 }
 
@@ -236,13 +235,6 @@ func protocolModalityRequestExtensionKey(provider, modality string) string {
 	return provider + "/" + modality + "_request"
 }
 
-func protocolResponseExtensionKey(provider string) string {
-	if provider == protocolProvider {
-		return ResponseExtensionKey
-	}
-	return provider + "/openai_response"
-}
-
 func protocolStreamChunkExtensionKey(provider string) string {
 	if provider == protocolProvider {
 		return StreamChunkExtensionKey
@@ -274,10 +266,6 @@ func (t textReasoningCodec) PrepareRequest(source *corechat.Request, target *ope
 		return fmt.Errorf("wire message count = %d; mapped source count = %d", len(target.Messages), wireIndex)
 	}
 	return nil
-}
-
-func (t textReasoningCodec) FinalizeMessage(source openaisdk.ChatCompletionMessage, target *corechat.Message) error {
-	return prependTextReasoning(source.JSON.ExtraFields, t.provider, t.field, target)
 }
 
 func (t textReasoningCodec) FinalizeDelta(source openaisdk.ChatCompletionChunkChoiceDelta, target *corechat.Message) error {

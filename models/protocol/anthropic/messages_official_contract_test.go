@@ -83,21 +83,29 @@ func TestNativeClaudePreservesServerToolResponse(t *testing.T) {
 			{Type: "server_tool_use", ID: "srvtoolu_1", Name: "web_search", Input: []byte(`{"query":"official docs"}`)},
 			{Type: "text", Text: "result"},
 		},
-		StopReason: anthropicsdk.StopReasonEndTurn,
 	}
-	response, err := mapProtocolMessage(message, "anthropic")
+	mapper := newProtocolStreamState("anthropic")
+	payload, err := json.Marshal(map[string]any{"type": "message_start", "message": message})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var event anthropicsdk.MessageStreamEventUnion
+	if decodeErr := json.Unmarshal(payload, &event); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	response, err := mapper.mapEvent(event)
 	if err != nil {
 		t.Fatalf("mapProtocolMessage: %v", err)
 	}
-	if response.Output.Message == nil || response.Output.Message.Text() != "result" {
-		t.Fatalf("Core response = %#v", response.Output)
+	if len(response.Parts) != 1 || response.Parts[0].Text != "result" {
+		t.Fatalf("Core response = %#v", response.Parts)
 	}
-	preserved, found, err := response.Metadata.Extra.Decode[anthropicsdk.Message](ResponseExtensionKey)
+	preserved, found, err := response.Metadata.Extra.Decode[anthropicsdk.MessageStreamEventUnion](StreamEventExtensionKey)
 	if err != nil || !found {
 		t.Fatalf("decode native response = found %v, error %v", found, err)
 	}
-	if len(preserved.Content) != 2 || preserved.Content[0].Type != "server_tool_use" || preserved.Content[0].ID != "srvtoolu_1" {
-		t.Fatalf("preserved content = %#v", preserved.Content)
+	if len(preserved.Message.Content) != 2 || preserved.Message.Content[0].Type != "server_tool_use" || preserved.Message.Content[0].ID != "srvtoolu_1" {
+		t.Fatalf("preserved content = %#v", preserved.Message.Content)
 	}
 }
 
@@ -219,16 +227,14 @@ func TestProtocolPartsAsDeltasPreservesPortableSemantics(t *testing.T) {
 
 func TestReasoningReplayIsScopedToIssuingProvider(t *testing.T) {
 	message := &anthropicsdk.Message{
-		ID:         "msg-provider-scope",
-		Model:      "compatible-model",
-		Content:    []anthropicsdk.ContentBlockUnion{{Type: "thinking", Thinking: "private", Signature: "provider-signature"}},
-		StopReason: anthropicsdk.StopReasonEndTurn,
+
+		Content: []anthropicsdk.ContentBlockUnion{{Type: "thinking", Thinking: "private", Signature: "provider-signature"}},
 	}
-	response, err := mapProtocolMessage(message, "minimax")
+	parts, err := mapProtocolContent(message.Content, "minimax")
 	if err != nil {
 		t.Fatalf("mapProtocolMessage: %v", err)
 	}
-	assistant := *response.Output.Message
+	assistant := corechat.NewAssistantMessage(parts...)
 
 	matching, err := mapProtocolAssistant(assistant, "minimax")
 	if err != nil || len(matching) != 1 || matching[0].GetSignature() == nil || *matching[0].GetSignature() != "provider-signature" {

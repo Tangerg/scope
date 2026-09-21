@@ -1,14 +1,18 @@
 package openai
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	openaisdk "github.com/openai/openai-go/v3"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/media"
 )
 
 type openAIStreamTool struct {
@@ -18,11 +22,16 @@ type openAIStreamTool struct {
 }
 
 type openAIStreamState struct {
-	tools    map[int64]openAIStreamTool
-	dialect  responseDialect
-	chunkKey string
-	refused  bool
-	finish   corechat.FinishReason
+	tools      map[int64]openAIStreamTool
+	dialect    responseDialect
+	chunkKey   string
+	refused    bool
+	finish     corechat.FinishReason
+	params     *openaisdk.ChatCompletionNewParams
+	audioID    string
+	audio      []byte
+	transcript strings.Builder
+	hasText    bool
 }
 
 func newOpenAIStreamState(dialect Dialect) *openAIStreamState {
@@ -91,6 +100,29 @@ func (o *openAIStreamState) complete(delta *corechat.ResponseDelta) (*corechat.R
 		return nil, fmt.Errorf("openai: stream: %w: tool_calls[%d] ended with id=%q name=%q and %d buffered argument byte(s), so the call cannot be reported",
 			corechat.ErrInvalidResponse, index, tool.id, tool.name, len(tool.pendingArguments))
 	}
+	if o.audioID != "" || len(o.audio) != 0 {
+		format := string(o.params.Audio.Format)
+		if format == "" {
+			if audio, ok := o.params.ExtraFields()["audio"].(map[string]any); ok {
+				format, _ = audio["format"].(string)
+			}
+		}
+		var value *media.Media
+		var err error
+		if o.audioID != "" {
+			value, err = media.NewReference(audioMIME(format), o.audioID)
+		} else {
+			value, err = media.NewBytes(audioMIME(format), o.audio)
+		}
+		if err != nil {
+			return nil, err
+		}
+		value.ID = o.audioID
+		if !o.hasText && o.transcript.Len() != 0 {
+			delta.Parts = append(delta.Parts, corechat.NewTextDelta(o.transcript.String()))
+		}
+		delta.Parts = append(delta.Parts, corechat.NewMediaDelta(value))
+	}
 	delta.FinishReason = o.finish
 	if err := delta.Validate(); err != nil {
 		return nil, fmt.Errorf("openai: terminal stream response: %w", err)
@@ -104,6 +136,7 @@ func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkC
 	}
 	message := &corechat.Message{Role: corechat.RoleAssistant}
 	if choice.Delta.Content != "" {
+		o.hasText = true
 		message.Parts = append(message.Parts, corechat.NewTextPart(choice.Delta.Content))
 	}
 	if o.dialect != nil {
@@ -114,6 +147,15 @@ func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkC
 	parts, err := stablePartsAsDeltas(message.Parts)
 	if err != nil {
 		return nil, "", err
+	}
+	if field, found := choice.Delta.JSON.ExtraFields["annotations"]; found && field.Raw() != "null" {
+		var annotations []openaisdk.ChatCompletionMessageAnnotation
+		if decodeErr := json.Unmarshal([]byte(field.Raw()), &annotations); decodeErr != nil {
+			return nil, "", fmt.Errorf("annotations: %w", decodeErr)
+		}
+		for _, annotation := range annotations {
+			parts = append(parts, corechat.NewCitationDelta(corechat.Citation{Source: corechat.CitationSource{Kind: corechat.CitationSourceURI, Value: annotation.URLCitation.URL}, Title: annotation.URLCitation.Title}))
+		}
 	}
 	for i := range choice.Delta.ToolCalls {
 		call, include, err := o.mapChunkTool(choice.Delta.ToolCalls[i])
@@ -127,6 +169,28 @@ func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkC
 	if choice.Delta.Refusal != "" {
 		o.refused = true
 		parts = append(parts, corechat.NewRefusalDelta(choice.Delta.Refusal))
+	}
+	if field, found := choice.Delta.JSON.ExtraFields["audio"]; found && field.Raw() != "null" {
+		var audio struct {
+			ID         string `json:"id"`
+			Data       string `json:"data"`
+			Transcript string `json:"transcript"`
+		}
+		if err := json.Unmarshal([]byte(field.Raw()), &audio); err != nil {
+			return nil, "", fmt.Errorf("audio delta: %w", err)
+		}
+		if audio.ID != "" {
+			if o.audioID != "" && o.audioID != audio.ID {
+				return nil, "", fmt.Errorf("audio identity changed from %q to %q", o.audioID, audio.ID)
+			}
+			o.audioID = audio.ID
+		}
+		data, err := base64.StdEncoding.DecodeString(audio.Data)
+		if err != nil {
+			return nil, "", fmt.Errorf("audio data: %w", err)
+		}
+		o.audio = append(o.audio, data...)
+		o.transcript.WriteString(audio.Transcript)
 	}
 	finish := normalizeFinishReason(choice.FinishReason)
 	if finish != "" && o.refused {

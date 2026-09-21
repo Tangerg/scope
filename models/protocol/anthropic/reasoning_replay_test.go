@@ -25,8 +25,7 @@ func TestChat_OmitsUnsignedReasoningFromPortableHistory(t *testing.T) {
 			http.Error(writer, "invalid request", http.StatusBadRequest)
 			return
 		}
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"id":"msg-1","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+		writeProtocolChatStream(writer)
 	}))
 	t.Cleanup(server.Close)
 

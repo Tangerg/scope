@@ -126,29 +126,23 @@ func (a *AudioTTSModel) buildTTSResponse(data []byte) (*tts.Response, error) {
 }
 
 func (a *AudioTTSModel) Call(ctx context.Context, req *tts.Request) (*tts.Response, error) {
-	if err := req.Validate(); err != nil {
-		return nil, err
+	var audio []byte
+	var response *tts.Response
+	for chunk, err := range a.Stream(ctx, req) {
+		if err != nil {
+			return nil, err
+		}
+		if int64(len(chunk.Output.Audio)) > a.maxResponseBytes-int64(len(audio)) {
+			return nil, fmt.Errorf("openai: speech response exceeds %d-byte limit", a.maxResponseBytes)
+		}
+		audio = append(audio, chunk.Output.Audio...)
+		response = chunk
 	}
-	apiReq, err := a.buildAPITTSRequest(req)
-	if err != nil {
-		return nil, err
+	if response == nil {
+		return nil, fmt.Errorf("openai: %w: speech stream returned no audio", tts.ErrInvalidResponse)
 	}
-
-	apiResp, err := a.api.audioTTS(ctx, apiReq)
-	if err != nil {
-		return nil, err
-	}
-	defer apiResp.Body.Close()
-
-	data, err := io.ReadAll(io.LimitReader(apiResp.Body, a.maxResponseBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(data)) > a.maxResponseBytes {
-		return nil, fmt.Errorf("openai: speech response exceeds %d-byte limit", a.maxResponseBytes)
-	}
-
-	return a.buildTTSResponse(data)
+	response.Output.Audio = audio
+	return response, nil
 }
 
 func (a *AudioTTSModel) Stream(ctx context.Context, req *tts.Request) iter.Seq2[*tts.Response, error] {

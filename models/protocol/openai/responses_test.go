@@ -2,6 +2,7 @@ package openai_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -29,41 +30,13 @@ func newResponsesModel(t *testing.T, baseURL, modelID string) *openai.Responses 
 // Single-shot /v1/responses payload: a reasoning item, then text, then
 // a function_call, then more text — exactly the interleaved shape the
 // Responses API gives us (and Chat Completions cannot).
-const responsesInterleavedJSON = `{
-  "id": "resp_abc",
-  "object": "response",
-  "model": "gpt-5",
-  "created_at": 1700000000,
-  "status": "completed",
-  "error": null,
-  "incomplete_details": null,
-  "instructions": null,
-  "metadata": null,
-  "output": [
-    {"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"想想看"}],"encrypted_content":"enc_xyz","status":"completed"},
-    {"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"先查天气：","annotations":[{"type":"url_citation","url":"https://example.com/weather","title":"Weather source","start_index":0,"end_index":6}]}]},
-    {"type":"function_call","id":"fc_1","call_id":"call_w","name":"weather","arguments":"{\"city\":\"BJ\"}","status":"completed"},
-    {"type":"message","id":"msg_2","role":"assistant","status":"completed","content":[{"type":"output_text","text":"等结果。","annotations":[]}]}
-  ],
-  "parallel_tool_calls": false,
-  "temperature": 1,
-  "tool_choice": "auto",
-  "tools": [],
-  "top_p": 1,
-  "usage": {
-    "input_tokens": 12,
-    "output_tokens": 8,
-    "total_tokens": 20,
-    "input_tokens_details": {"cached_tokens": 0},
-    "output_tokens_details": {"reasoning_tokens": 3}
-  }
-}`
 
 func TestResponsesChatModel_Call_InterleavedOutput(t *testing.T) {
 	var seenURL string
-	srv := modeltest.JSONServer(http.StatusOK, responsesInterleavedJSON, func(r *http.Request) {
-		seenURL = r.URL.Path
-	})
+	srv := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		seenURL = request.URL.Path
+		writeResponsesCompletion(writer)
+	}))
 	t.Cleanup(srv.Close)
 
 	m := newResponsesModel(t, srv.URL, "gpt-5")
@@ -199,30 +172,7 @@ func TestResponsesChatModel_Stream_InterleavedDeltas(t *testing.T) {
 	// Build the SSE event sequence by hand. Each event ships exactly one
 	// part delta to scope — reasoning → text → tool_call → text — and the
 	// final response.completed carries usage + finish reason.
-	events := []modeltest.AnthropicEvent{
-		{Event: "response.created", Data: `{"type":"response.created","sequence_number":1,"response":{"id":"resp_x","object":"response","model":"gpt-5","created_at":1700000000,"status":"in_progress","error":null,"incomplete_details":null,"instructions":null,"metadata":null,"output":[],"parallel_tool_calls":false,"temperature":1,"tool_choice":"auto","tools":[],"top_p":1}}`},
-
-		// reasoning item: added (id pickup) + text delta + done (signature)
-		{Event: "response.output_item.added", Data: `{"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[],"status":"in_progress"}}`},
-		{Event: "response.reasoning_text.delta", Data: `{"type":"response.reasoning_text.delta","sequence_number":3,"item_id":"rs_1","output_index":0,"content_index":0,"delta":"想想看"}`},
-		{Event: "response.output_item.done", Data: `{"type":"response.output_item.done","sequence_number":4,"output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"想想看"}],"encrypted_content":"enc_xyz","status":"completed"}}`},
-
-		// first text message: added + delta
-		{Event: "response.output_item.added", Data: `{"type":"response.output_item.added","sequence_number":5,"output_index":1,"item":{"type":"message","id":"msg_1","role":"assistant","status":"in_progress","content":[]}}`},
-		{Event: "response.output_text.delta", Data: `{"type":"response.output_text.delta","sequence_number":6,"item_id":"msg_1","output_index":1,"content_index":0,"delta":"先查天气：","logprobs":[]}`},
-		{Event: "response.output_text.annotation.added", Data: `{"type":"response.output_text.annotation.added","sequence_number":7,"item_id":"msg_1","output_index":1,"content_index":0,"annotation_index":0,"annotation":{"type":"url_citation","url":"https://example.com/weather","title":"Weather source","start_index":0,"end_index":6}}`},
-
-		// function call: added (gets id mapping rs_1 → call_w) + arg delta
-		{Event: "response.output_item.added", Data: `{"type":"response.output_item.added","sequence_number":8,"output_index":2,"item":{"type":"function_call","id":"fc_1","call_id":"call_w","name":"weather","arguments":"","status":"in_progress"}}`},
-		{Event: "response.function_call_arguments.delta", Data: `{"type":"response.function_call_arguments.delta","sequence_number":9,"item_id":"fc_1","output_index":2,"delta":"{\"city\":\"BJ\"}"}`},
-
-		// trailing text
-		{Event: "response.output_item.added", Data: `{"type":"response.output_item.added","sequence_number":10,"output_index":3,"item":{"type":"message","id":"msg_2","role":"assistant","status":"in_progress","content":[]}}`},
-		{Event: "response.output_text.delta", Data: `{"type":"response.output_text.delta","sequence_number":11,"item_id":"msg_2","output_index":3,"content_index":0,"delta":"等结果。","logprobs":[]}`},
-
-		// completed: usage + finish reason via final Response.output
-		{Event: "response.completed", Data: `{"type":"response.completed","sequence_number":12,"response":{"id":"resp_x","object":"response","model":"gpt-5","created_at":1700000000,"status":"completed","error":null,"incomplete_details":null,"instructions":null,"metadata":null,"output":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"想想看"}],"encrypted_content":"enc_xyz","status":"completed"},{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"先查天气：","annotations":[{"type":"url_citation","url":"https://example.com/weather","title":"Weather source","start_index":0,"end_index":6}]}]},{"type":"function_call","id":"fc_1","call_id":"call_w","name":"weather","arguments":"{\"city\":\"BJ\"}","status":"completed"},{"type":"message","id":"msg_2","role":"assistant","status":"completed","content":[{"type":"output_text","text":"等结果。","annotations":[]}]}],"parallel_tool_calls":false,"temperature":1,"tool_choice":"auto","tools":[],"top_p":1,"usage":{"input_tokens":12,"output_tokens":8,"total_tokens":20,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":3}}}}`},
-	}
+	events := responsesInterleavedEvents()
 	srv := modeltest.AnthropicSSEServer(events)
 	t.Cleanup(srv.Close)
 
@@ -293,8 +243,7 @@ func TestResponsesChatReplaysProviderIssuedReasoningItem(t *testing.T) {
 			return
 		}
 		requests = append(requests, body)
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(responsesInterleavedJSON))
+		writeResponsesCompletion(writer)
 	}))
 	t.Cleanup(server.Close)
 
@@ -354,8 +303,7 @@ func TestResponsesChatMapsPortableToolChoice(t *testing.T) {
 			http.Error(writer, "invalid request", http.StatusBadRequest)
 			return
 		}
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(responsesInterleavedJSON))
+		writeResponsesCompletion(writer)
 	}))
 	t.Cleanup(server.Close)
 	model := newResponsesModel(t, server.URL, "gpt-5")
@@ -374,5 +322,39 @@ func TestResponsesChatMapsPortableToolChoice(t *testing.T) {
 	choice, ok := captured["tool_choice"].(map[string]any)
 	if !ok || choice["name"] != "weather" || captured["parallel_tool_calls"] != false {
 		t.Fatalf("tool choice = %#v / %#v", captured["tool_choice"], captured["parallel_tool_calls"])
+	}
+}
+
+func responsesInterleavedEvents() []modeltest.AnthropicEvent {
+	return []modeltest.AnthropicEvent{
+		{Event: "response.created", Data: `{"type":"response.created","sequence_number":1,"response":{"id":"resp_x","object":"response","model":"gpt-5","created_at":1700000000,"status":"in_progress","error":null,"incomplete_details":null,"instructions":null,"metadata":null,"output":[],"parallel_tool_calls":false,"temperature":1,"tool_choice":"auto","tools":[],"top_p":1}}`},
+
+		// reasoning item: added (id pickup) + text delta + done (signature)
+		{Event: "response.output_item.added", Data: `{"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[],"status":"in_progress"}}`},
+		{Event: "response.reasoning_text.delta", Data: `{"type":"response.reasoning_text.delta","sequence_number":3,"item_id":"rs_1","output_index":0,"content_index":0,"delta":"想想看"}`},
+		{Event: "response.output_item.done", Data: `{"type":"response.output_item.done","sequence_number":4,"output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"想想看"}],"encrypted_content":"enc_xyz","status":"completed"}}`},
+
+		// first text message: added + delta
+		{Event: "response.output_item.added", Data: `{"type":"response.output_item.added","sequence_number":5,"output_index":1,"item":{"type":"message","id":"msg_1","role":"assistant","status":"in_progress","content":[]}}`},
+		{Event: "response.output_text.delta", Data: `{"type":"response.output_text.delta","sequence_number":6,"item_id":"msg_1","output_index":1,"content_index":0,"delta":"先查天气：","logprobs":[]}`},
+		{Event: "response.output_text.annotation.added", Data: `{"type":"response.output_text.annotation.added","sequence_number":7,"item_id":"msg_1","output_index":1,"content_index":0,"annotation_index":0,"annotation":{"type":"url_citation","url":"https://example.com/weather","title":"Weather source","start_index":0,"end_index":6}}`},
+
+		// function call: added (gets id mapping rs_1 → call_w) + arg delta
+		{Event: "response.output_item.added", Data: `{"type":"response.output_item.added","sequence_number":8,"output_index":2,"item":{"type":"function_call","id":"fc_1","call_id":"call_w","name":"weather","arguments":"","status":"in_progress"}}`},
+		{Event: "response.function_call_arguments.delta", Data: `{"type":"response.function_call_arguments.delta","sequence_number":9,"item_id":"fc_1","output_index":2,"delta":"{\"city\":\"BJ\"}"}`},
+
+		// trailing text
+		{Event: "response.output_item.added", Data: `{"type":"response.output_item.added","sequence_number":10,"output_index":3,"item":{"type":"message","id":"msg_2","role":"assistant","status":"in_progress","content":[]}}`},
+		{Event: "response.output_text.delta", Data: `{"type":"response.output_text.delta","sequence_number":11,"item_id":"msg_2","output_index":3,"content_index":0,"delta":"等结果。","logprobs":[]}`},
+
+		// completed: usage + finish reason via final Response.output
+		{Event: "response.completed", Data: `{"type":"response.completed","sequence_number":12,"response":{"id":"resp_x","object":"response","model":"gpt-5","created_at":1700000000,"status":"completed","error":null,"incomplete_details":null,"instructions":null,"metadata":null,"output":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"想想看"}],"encrypted_content":"enc_xyz","status":"completed"},{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"先查天气：","annotations":[{"type":"url_citation","url":"https://example.com/weather","title":"Weather source","start_index":0,"end_index":6}]}]},{"type":"function_call","id":"fc_1","call_id":"call_w","name":"weather","arguments":"{\"city\":\"BJ\"}","status":"completed"},{"type":"message","id":"msg_2","role":"assistant","status":"completed","content":[{"type":"output_text","text":"等结果。","annotations":[]}]}],"parallel_tool_calls":false,"temperature":1,"tool_choice":"auto","tools":[],"top_p":1,"usage":{"input_tokens":12,"output_tokens":8,"total_tokens":20,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":3}}}}`},
+	}
+}
+
+func writeResponsesCompletion(writer http.ResponseWriter) {
+	writer.Header().Set("Content-Type", "text/event-stream")
+	for _, event := range responsesInterleavedEvents() {
+		fmt.Fprintf(writer, "event: %s\ndata: %s\n\n", event.Event, event.Data)
 	}
 }

@@ -47,7 +47,7 @@ func TestChatDefaultsReachNativeExtensionAndDialect(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			parameters, err := model.buildRequest(request, false)
+			parameters, err := model.buildRequest(request)
 			if err != nil {
 				t.Fatal(err)
 			}

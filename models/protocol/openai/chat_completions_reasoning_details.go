@@ -105,10 +105,6 @@ func (r reasoningDetailsCodec) prepareMessage(messageIndex, wireIndex int, messa
 	return nil
 }
 
-func (r reasoningDetailsCodec) FinalizeMessage(source openaisdk.ChatCompletionMessage, target *corechat.Message) error {
-	return r.prependReasoning(source.JSON.ExtraFields, target)
-}
-
 func (r reasoningDetailsCodec) FinalizeDelta(source openaisdk.ChatCompletionChunkChoiceDelta, target *corechat.Message) error {
 	return r.prependReasoning(source.JSON.ExtraFields, target)
 }
