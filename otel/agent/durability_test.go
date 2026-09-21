@@ -202,3 +202,57 @@ func ExampleObserver_WrapTreeCommitter() {
 	fmt.Println("committer observation configured")
 	// Output: committer observation configured
 }
+
+type settlementFailureCommitter struct {
+	*agent.MemoryTreeCommitter
+	cause error
+}
+
+func (s *settlementFailureCommitter) CommitEffect(ctx context.Context, boundary agent.EffectBoundary) error {
+	if boundary.Kind() == agent.EffectBoundaryKindSettled {
+		return s.cause
+	}
+	return s.MemoryTreeCommitter.CommitEffect(ctx, boundary)
+}
+
+func TestObserverRetainsDispatchOutcomeWhenSettlementCommitFails(t *testing.T) {
+	harness := newObserverHarness(t)
+	cause := errors.New("settlement storage failure")
+	store := &settlementFailureCommitter{MemoryTreeCommitter: agent.NewMemoryTreeCommitter(), cause: cause}
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, EventListeners: []agent.EventListener{harness.observer}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := agent.EncodePayload(testInput{Value: "observed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = engine.Run(t.Context(), testDeployment(t), input)
+	if !errors.Is(err, cause) {
+		t.Fatalf("Run error=%v", err)
+	}
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+	var metrics metricdata.ResourceMetrics
+	if err := harness.reader.Collect(t.Context(), &metrics); err != nil {
+		t.Fatal(err)
+	}
+	duration := metricByName(t, metrics, "agent.effect.duration")
+	if count := histogramCount(t, duration); count != 1 {
+		t.Fatalf("attempt durations=%d", count)
+	}
+	assertHistogramAttribute(t, duration, "agent.effect.status", "succeeded")
+	found := false
+	for _, span := range harness.recorder.Ended() {
+		if stringAttribute(span.Attributes(), "agent.effect.status") == "succeeded" {
+			found = true
+			if span.Status().Code == codes.Error {
+				t.Fatal("successful dispatch inherited storage failure")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("missing successful effect span")
+	}
+}
