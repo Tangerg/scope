@@ -280,7 +280,17 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 			if !found {
 				t.Fatal("unknown Tool Process is missing")
 			}
-			unknown := inspectProcessSnapshot(t, engine, toolProcess).UnknownEffectIDs()
+			// Attempt completion precedes acknowledgment; capture waits for the durable cut.
+			captured, err := engine.CaptureTree(ctx, process.ID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			var unknown []agent.EffectID
+			for _, snapshot := range captured.ProcessSnapshots() {
+				if snapshot.ProcessID() == toolProcess.ID() {
+					unknown = snapshot.UnknownEffectIDs()
+				}
+			}
 			effectID, _ := settled.EffectID()
 			if len(unknown) != 1 || unknown[0] != effectID {
 				t.Fatalf("unknown Effects=%v", unknown)

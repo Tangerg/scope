@@ -147,3 +147,92 @@ func TestUnknownResolutionSeparatesAttemptsFromCommittedFacts(t *testing.T) {
 		}
 	}
 }
+
+func TestDispatchFinishedPrecedesSettlementAcknowledgment(t *testing.T) {
+	for _, status := range []SettlementStatus{SettlementStatusSucceeded, SettlementStatusFailed, SettlementStatusUnknown} {
+		t.Run(status.String(), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				listener := &recordingEventListener{}
+				cause := errors.New("settlement acknowledgment lost")
+				committer := &inspectionDurability{recordingTreeCommitter: &recordingTreeCommitter{}, effectKind: EffectBoundaryKindSettled, entered: make(chan inspectionCommit, 1), release: make(chan struct{}), failure: cause}
+				defer committer.unblock()
+				engine := controlValue(NewEngine(EngineConfig{TreeCommitter: committer, EventListeners: []EventListener{listener}}))
+				defer mustCloseEngine(t, engine)
+				dispatcher := replayTestDispatcher{policy: ReplayPolicyNever, dispatch: func(_ context.Context, request EffectRequest) (Settlement, error) {
+					return NewSettlement(request.ID(), status, []byte(`{"kind":"result","value":"done"}`))
+				}}
+				process := controlValue(engine.Start(t.Context(), engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher), controlValue(EncodePayload(engineTestInput{Value: "input"}))))
+				<-committer.entered
+				synctest.Wait()
+				check := func() {
+					t.Helper()
+					started, finished := 0, 0
+					for _, event := range listener.snapshot() {
+						if event.Name() == EventEffectStarted {
+							started++
+						}
+						if fact, ok := event.EffectFinished(); ok {
+							finished++
+							if fact.SettlementStatus() != status {
+								t.Fatalf("settlement=%s", fact.SettlementStatus())
+							}
+						}
+						if event.Name() == EventEffectResolved || event.Name() == EventProcessFinished {
+							t.Fatal("unacknowledged state was published")
+						}
+					}
+					if started != 1 || finished != 1 {
+						t.Errorf("started=%d finished=%d", started, finished)
+					}
+				}
+				check()
+				committer.unblock()
+				if _, err := process.Await(t.Context()); !errors.Is(err, cause) {
+					t.Fatal(err)
+				}
+				if err := process.Join(t.Context()); !errors.Is(err, cause) {
+					t.Fatal(err)
+				}
+				check()
+			})
+		})
+	}
+}
+
+func TestDispatchCompletionRemainsObservableAfterRuntimeRejection(t *testing.T) {
+	for _, mode := range []string{"capacity", "sibling fault"} {
+		t.Run(mode, func(t *testing.T) {
+			runtime, request, head := effectBoundaryFixture(t, 1, 16)
+			process := runtime.processes[runtime.rootID]
+			runtime.establishHead(runtime.incarnation, head)
+			listener := &recordingEventListener{}
+			runtime.engine.observation.events = []EventListener{listener}
+			attempt := runtime.beginEffectAttempt(process, process.prepared.StepSequence, request.ID(), EffectTargetDispatcher)
+			job := &processJob{kind: processJobDispatch, effectID: request.ID(), effectAttempt: attempt}
+			runtime.setProcessJob(runtime.rootID, job)
+			if mode == "sibling fault" {
+				runtime.failRuntime(errors.New("sibling storage failed"), runtime.rootID, EffectID{})
+			} else {
+				process.limits.MaxSnapshotBytes = NewQuota(1)
+			}
+			completion := treeJobCompletion{processID: runtime.rootID, kind: processJobDispatch, dispatch: dispatchJobResult{effectID: request.ID(), settlement: controlValue(NewSettlement(request.ID(), SettlementStatusSucceeded, json.RawMessage(`null`)))}}
+			runtime.applyCompletion(completion)
+			runtime.applyCompletion(completion)
+			started, finished := 0, 0
+			for _, event := range listener.snapshot() {
+				if event.Name() == EventEffectStarted {
+					started++
+				}
+				if fact, ok := event.EffectFinished(); ok {
+					finished++
+					if fact.SettlementStatus() != SettlementStatusSucceeded {
+						t.Fatal("lost returned outcome")
+					}
+				}
+			}
+			if runtime.fault == nil || started != 1 || finished != 1 {
+				t.Fatalf("fault=%v started=%d finished=%d", runtime.fault, started, finished)
+			}
+		})
+	}
+}

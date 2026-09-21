@@ -2043,6 +2043,9 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 	if completion.kind == processJobStep {
 		t.publishStepFinished(process, completion.step, job.stale || t.fault != nil)
 	}
+	if completion.kind == processJobDispatch {
+		t.publishDispatchFinished(process, job, completion.dispatch)
+	}
 	if t.fault != nil {
 		return
 	}
@@ -2282,6 +2285,26 @@ func (t *treeRuntime) applyStepCompletion(
 	t.publishEvent(process, EventStepPrepared, EventPhaseAttempt, sequence, EffectID{}, emptyEventPayload())
 }
 
+// Attempt completion remains observable even when its candidate cannot be committed
+// or a sibling has already stopped the runtime.
+func (t *treeRuntime) publishDispatchFinished(process *processState, job *processJob, result dispatchJobResult) {
+	if result.dropped > 0 {
+		process.counters.DroppedDeltas = saturatingCountAdd(
+			process.counters.DroppedDeltas,
+			result.dropped,
+		)
+
+		payload := marshalEventPayload(deltaDroppedEventPayload{DroppedDeltaCount: result.dropped, AttemptID: job.effectAttempt.id})
+
+		t.publishPreparedEvent(process, t.prepareEvent(process,
+			EventDeltaDropped, EventPhaseAttempt,
+			process.prepared.StepSequence, result.effectID, payload,
+		))
+
+	}
+	t.publishSettlementEvent(process, result.effectID, EffectTargetDispatcher, result.settlement.Status(), job.effectAttempt, result.err)
+}
+
 func (t *treeRuntime) applyDispatchCompletion(
 	process *processState,
 	job *processJob,
@@ -2306,28 +2329,8 @@ func (t *treeRuntime) applyDispatchCompletion(
 		process.adoptCandidate(candidate)
 		record = &process.prepared.Effects[index]
 	}
-	var events []eventFact
-	if result.dropped > 0 {
-		process.counters.DroppedDeltas = saturatingCountAdd(
-			process.counters.DroppedDeltas,
-			result.dropped,
-		)
-
-		payload := marshalEventPayload(deltaDroppedEventPayload{DroppedDeltaCount: result.dropped, AttemptID: job.effectAttempt.id})
-
-		events = append(events, t.prepareEvent(process,
-			EventDeltaDropped, EventPhaseAttempt,
-			process.prepared.StepSequence, record.ID, payload,
-		))
-
-	}
 	if replaying {
-		for _, event := range events {
-			t.publishPreparedEvent(process, event)
-		}
 		command := processCommand{settlement: settlement, response: job.response}
-		t.publishSettlementEvent(process, result.effectID, EffectTargetDispatcher,
-			settlement.Status(), job.effectAttempt, result.err)
 		if result.err != nil || settlement.Status() == SettlementStatusUnknown {
 			command.reply(processResponse{err: errors.Join(ErrEffectOutcomeUnknown, result.err)})
 			return
@@ -2336,9 +2339,6 @@ func (t *treeRuntime) applyDispatchCompletion(
 		return
 	}
 
-	events = append(events, t.prepareSettlementEvent(process,
-		record.ID, EffectTargetDispatcher, settlement.Status(), job.effectAttempt, result.err,
-	))
 	snapshot, err := t.captureTree()
 	if err != nil {
 		t.failRuntime(err, process.handle.processID, record.ID)
@@ -2354,7 +2354,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 	}
 	commit := &treeCommit{
 		kind: treeCommitEffectSettled, processID: process.handle.processID,
-		effectID: record.ID, snapshot: snapshot, events: events,
+		effectID: record.ID, snapshot: snapshot,
 	}
 	t.startEffectCommit(commit, boundary)
 }
