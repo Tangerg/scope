@@ -60,7 +60,9 @@ func For[T any]() (Schema, error) {
 	return Parse(raw)
 }
 
-// Parse validates, compiles, and takes ownership of one JSON Schema document.
+// Parse validates, compiles, and takes ownership of one self-contained JSON Schema
+// document. References may resolve within the document or to standard metaschemas;
+// implicit loading of external resources is prohibited.
 func Parse(raw []byte) (Schema, error) {
 	normalized, err := normalize(raw)
 	if err != nil {
@@ -71,6 +73,7 @@ func Parse(raw []byte) (Schema, error) {
 		return Schema{}, fmt.Errorf("%w: decode: %w", ErrInvalid, err)
 	}
 	compiler := validation.NewCompiler()
+	compiler.UseLoader(nil)
 	compiler.DefaultDraft(validation.Draft2020)
 	compiler.AssertFormat()
 	if err = compiler.AddResource(resourceURL, document); err != nil {

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -323,5 +325,37 @@ func TestForPreservesIntegerRepresentationBounds(t *testing.T) {
 		if err := schema.Validate([]byte(test.raw)); (err == nil) != test.valid {
 			t.Errorf("Validate(%s) = %v, want valid=%t", test.raw, err, test.valid)
 		}
+	}
+}
+
+func TestParseRejectsImplicitExternalResources(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "external.json")
+	ref, err := json.Marshal(map[string]string{"$ref": "file://" + path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, contents := range []string{`{"type":"string"}`, `{"type":"number"}`} {
+		if writeErr := os.WriteFile(path, []byte(contents), 0600); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+		if _, parseErr := jsonschema.Parse(ref); !errors.Is(parseErr, jsonschema.ErrInvalid) {
+			t.Fatalf("external reference = %v", parseErr)
+		}
+	}
+	if removeErr := os.Remove(path); removeErr != nil {
+		t.Fatal(removeErr)
+	}
+	if _, parseErr := jsonschema.Parse(ref); !errors.Is(parseErr, jsonschema.ErrInvalid) {
+		t.Fatalf("missing external reference = %v", parseErr)
+	}
+	schema, err := jsonschema.Parse([]byte(`{"$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"value":{"type":"string"}},"$ref":"#/$defs/value"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Validate([]byte(`"valid"`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Validate([]byte(`1`)); err == nil {
+		t.Fatal("internal reference was ignored")
 	}
 }
