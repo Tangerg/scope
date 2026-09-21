@@ -245,6 +245,10 @@ func (c *Chat) prepareRequest(req *corechat.Request) (*preparedChatRequest, erro
 	if err != nil {
 		return nil, fmt.Errorf("bedrock: options: %w", err)
 	}
+	resolvedRequest := *req
+	resolvedRequest.Options = options
+	req = &resolvedRequest
+
 	if options.Model == "" {
 		return nil, errors.New("bedrock: model is required in defaults or request options")
 	}

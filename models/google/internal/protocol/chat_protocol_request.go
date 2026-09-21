@@ -21,14 +21,18 @@ const (
 )
 
 func mapProtocolRequest(provider string, defaults corechat.Options, req *corechat.Request) (string, []*genai.Content, *genai.GenerateContentConfig, error) {
-	config, err := decodeProtocolConfig(provider, req)
-	if err != nil {
-		return "", nil, nil, err
-	}
 	options, err := defaults.Resolve(req.Options)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("google: options: %w", err)
 	}
+	resolvedRequest := *req
+	resolvedRequest.Options = options
+	req = &resolvedRequest
+	config, err := decodeProtocolConfig(provider, req)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
 	if options.Model == "" {
 		return "", nil, nil, errors.New("google: model is required in defaults or request options")
 	}
@@ -278,14 +282,10 @@ func mapProtocolAssistantParts(provider string, parts []corechat.Part) ([]*genai
 	mapped := make([]*genai.Part, 0, len(parts))
 	for i := range parts {
 		part := parts[i]
-		nativePartKey := protocolKey(provider, "native_part")
-		native, found, err := part.Metadata.Decode[genai.Part](nativePartKey)
+		stateKey := protocolKey(provider, "part_state")
+		state, _, err := part.Metadata.Decode[partReplayState](stateKey)
 		if err != nil {
-			return nil, fmt.Errorf("parts[%d].metadata[%q]: %w", i, nativePartKey, err)
-		}
-		if found {
-			mapped = append(mapped, &native)
-			continue
+			return nil, fmt.Errorf("parts[%d].metadata[%q]: %w", i, stateKey, err)
 		}
 		switch part.Kind {
 		case corechat.PartText:
@@ -319,6 +319,7 @@ func mapProtocolAssistantParts(provider string, parts []corechat.Part) ([]*genai
 		default:
 			return nil, fmt.Errorf("parts[%d]: unsupported assistant part %q", i, part.Kind)
 		}
+		state.apply(mapped[len(mapped)-1])
 	}
 	return mapped, nil
 }

@@ -20,9 +20,11 @@ const cohereEmbeddingResponseJSON = `{
 
 func TestEmbeddingModel(t *testing.T) {
 	modeltest.RunEmbeddingContract(t, modeltest.EmbeddingContract{
-		ModelID:      "embed-english-v3.0",
-		Response:     cohereEmbeddingResponseJSON,
-		ExpectedPath: "/v2/embed",
+		InputField:         "texts",
+		ExpectedEmbeddings: [][]float64{{0.1, 0.2}, {0.3, 0.4}},
+		ModelID:            "embed-english-v3.0",
+		Response:           cohereEmbeddingResponseJSON,
+		ExpectedPath:       "/v2/embed",
 		Build: func(t *testing.T, baseURL string) embedding.Model {
 			t.Helper()
 			var extensions metadata.Extensions

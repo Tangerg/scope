@@ -147,8 +147,15 @@ func (r *Responses) buildResponsesRequest(req *corechat.Request) (*responses.Res
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("openai responses: request: %w", err)
 	}
-	if err := rejectCoreOwnedResponsesExtension(req.Options.Extensions); err != nil {
-		return nil, err
+	options, err := r.defaults.Resolve(req.Options)
+	if err != nil {
+		return nil, fmt.Errorf("openai responses: options: %w", err)
+	}
+	resolvedRequest := *req
+	resolvedRequest.Options = options
+	req = &resolvedRequest
+	if extensionErr := rejectCoreOwnedResponsesExtension(req.Options.Extensions); extensionErr != nil {
+		return nil, extensionErr
 	}
 	params, found, err := req.Options.Extensions.Decode[responses.ResponseNewParams](ResponsesRequestExtensionKey)
 	if err != nil {
@@ -158,10 +165,6 @@ func (r *Responses) buildResponsesRequest(req *corechat.Request) (*responses.Res
 		params = responses.ResponseNewParams{}
 	}
 
-	options, err := r.defaults.Resolve(req.Options)
-	if err != nil {
-		return nil, fmt.Errorf("openai responses: options: %w", err)
-	}
 	if options.Model == "" {
 		return nil, errors.New("openai responses: model is required in defaults or request options")
 	}

@@ -94,22 +94,17 @@ func (a *AudioTTSModel) buildAPITTSRequest(req *tts.Request) (string, []*genai.C
 		config.ResponseModalities = []string{string(genai.ModalityAudio)}
 	}
 
-	// Voice routes onto SpeechConfig.VoiceConfig.PrebuiltVoiceConfig.VoiceName.
-	// If the caller already threaded a richer SpeechConfig through Extra
-	// (multi-speaker dialog, language code, replicated voice) it is
-	// kept; the prebuilt-voice slot is only filled when the caller
-	// did not supply one.
+	if config.SpeechConfig != nil && config.SpeechConfig.VoiceConfig != nil {
+		return "", nil, nil, errors.New("google: speech: native voiceConfig is owned by Core Voice")
+	}
 	if effectiveOptions.Voice != "" {
 		if config.SpeechConfig == nil {
 			config.SpeechConfig = &genai.SpeechConfig{}
 		}
-		if config.SpeechConfig.VoiceConfig == nil && config.SpeechConfig.MultiSpeakerVoiceConfig == nil {
-			config.SpeechConfig.VoiceConfig = &genai.VoiceConfig{
-				PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{
-					VoiceName: effectiveOptions.Voice,
-				},
-			}
+		if config.SpeechConfig.MultiSpeakerVoiceConfig != nil {
+			return "", nil, nil, errors.New("google: speech: Core Voice conflicts with multi-speaker configuration")
 		}
+		config.SpeechConfig.VoiceConfig = &genai.VoiceConfig{PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{VoiceName: effectiveOptions.Voice}}
 	}
 
 	contents := []*genai.Content{

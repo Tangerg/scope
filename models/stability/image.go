@@ -86,6 +86,16 @@ func (i *ImageModel) buildAPIRequest(req *image.Request) (string, *generateReque
 		return "", nil, errors.New("stability: image: unsupported option: width")
 	}
 
+	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]any](RequestExtensionKey)
+	if decodeErr != nil {
+		return "", nil, decodeErr
+	}
+	for _, field := range []string{"prompt", "negative_prompt", "seed", "output_format", "model"} {
+		if _, exists := nativeFields[field]; exists {
+			return "", nil, fmt.Errorf("stability: extension %q field %q is owned by Core", RequestExtensionKey, field)
+		}
+	}
+
 	apiReqValue, _, err := effectiveOptions.Extensions.Decode[generateRequest](RequestExtensionKey)
 
 	apiReq := &apiReqValue
@@ -105,7 +115,7 @@ func (i *ImageModel) buildAPIRequest(req *image.Request) (string, *generateReque
 	if effectiveOptions.Seed != nil {
 		apiReq.Seed = effectiveOptions.Seed
 	}
-	if effectiveOptions.OutputFormat != "" && apiReq.OutputFormat == "" {
+	if effectiveOptions.OutputFormat != "" {
 		apiReq.OutputFormat = strings.TrimPrefix(effectiveOptions.OutputFormat, "image/")
 	}
 

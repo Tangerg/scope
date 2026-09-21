@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/models/zhipu
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.31.0
+	github.com/Tangerg/scope/core v0.31.1-0.20260921123434-edaad3f97564
 	github.com/Tangerg/scope/models/protocol/anthropic v0.31.0
 	github.com/Tangerg/scope/models/protocol/openai v0.31.0
 )

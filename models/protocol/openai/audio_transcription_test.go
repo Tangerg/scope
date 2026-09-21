@@ -1,6 +1,7 @@
 package openai_test
 
 import (
+	"io"
 	"net/http"
 	"testing"
 
@@ -46,7 +47,26 @@ func TestAudioTextModels_Call_Mock(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			srv := modeltest.JSONServer(http.StatusOK, test.response)
+			srv := modeltest.JSONServer(http.StatusOK, test.response, func(wire *http.Request) {
+				if err := wire.ParseMultipartForm(1 << 20); err != nil {
+					t.Error(err)
+					return
+				}
+				defer wire.MultipartForm.RemoveAll()
+				file, header, err := wire.FormFile("file")
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				defer file.Close()
+				data, err := io.ReadAll(file)
+				if err != nil {
+					t.Error(err)
+				}
+				if header.Filename != "audio.mp3" || header.Header.Get("Content-Type") != "audio/mpeg" || string(data) != "FAKE-AUDIO" {
+					t.Errorf("multipart file = %q, %q, %q", header.Filename, header.Header.Get("Content-Type"), data)
+				}
+			})
 			t.Cleanup(srv.Close)
 			model, err := test.newModel(srv.URL)
 			if err != nil {

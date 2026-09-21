@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"bytes"
+	"encoding/json"
 	"testing"
 
 	"google.golang.org/genai"
@@ -27,7 +28,7 @@ func TestProtocolMetadataUsesEndpointNamespace(t *testing.T) {
 	if _, leaked := mapped.Metadata.Extra[ResponseExtensionKey]; leaked {
 		t.Fatal("response metadata leaked the Google provider namespace")
 	}
-	if _, found := mapped.Output.Message.Parts[0].Metadata["vertexai/native_part"]; !found {
+	if _, found := mapped.Output.Message.Parts[0].Metadata["vertexai/part_state"]; !found {
 		t.Fatal("part metadata does not use the endpoint namespace")
 	}
 }
@@ -188,6 +189,90 @@ func TestProtocolToolCompletionPreservesProviderOutcome(t *testing.T) {
 				if err != nil || !found || native != tc.reason {
 					t.Fatalf("native reason = %s, found %v, error %v", native, found, err)
 				}
+			}
+		})
+	}
+}
+
+func TestRepeatedStreamTextReplaysCurrentCoreContent(t *testing.T) {
+	for _, provider := range []string{"google", "vertexai"} {
+		for _, reasoning := range []bool{false, true} {
+			var accumulator corechat.ResponseAccumulator
+			mapper := newProtocolResponseMapper(provider)
+			for range 3 {
+				delta, err := mapper.mapDelta("gemini", &genai.GenerateContentResponse{Candidates: []*genai.Candidate{{Content: &genai.Content{Parts: []*genai.Part{{Text: "ha", Thought: reasoning}}}}}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := accumulator.Add(delta); err != nil {
+					t.Fatal(err)
+				}
+			}
+			terminal, err := mapper.mapDelta("gemini", &genai.GenerateContentResponse{Candidates: []*genai.Candidate{{FinishReason: genai.FinishReasonStop}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			terminal, err = mapper.complete(terminal)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if addErr := accumulator.Add(terminal); addErr != nil {
+				t.Fatal(addErr)
+			}
+			response, err := accumulator.Response()
+			if err != nil {
+				t.Fatal(err)
+			}
+			replay, err := mapProtocolAssistantParts(provider, response.Output.Message.Parts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var text string
+			for _, part := range replay {
+				text += part.Text
+			}
+			if text != "hahaha" {
+				t.Fatalf("replayed %q", text)
+			}
+		}
+	}
+}
+
+func TestReplayUsesCurrentCoreContentAfterHistoryRoundTrip(t *testing.T) {
+	for _, provider := range []string{"google", "vertexai"} {
+		t.Run(provider, func(t *testing.T) {
+			text, _, err := mapProtocolCandidatePart(provider, 0, &genai.Part{Text: "old", ThoughtSignature: []byte("signature")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			call, _, err := mapProtocolCandidatePart(provider, 1, &genai.Part{FunctionCall: &genai.FunctionCall{Name: "lookup", Args: map[string]any{"id": 1}}, ThoughtSignature: []byte("tool-signature")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			message := corechat.NewAssistantMessage(text, call)
+			data, err := json.Marshal(message)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var restored corechat.Message
+			if decodeErr := json.Unmarshal(data, &restored); decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+			restored.Parts[0].Text = "current"
+			restored.Parts[1].ToolCall.Arguments = `{"id":2}`
+			wire, err := mapProtocolAssistantParts(provider, restored.Parts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(wire) != 2 || wire[0].Text != "current" || !bytes.Equal(wire[0].ThoughtSignature, []byte("signature")) {
+				t.Fatalf("replayed text: %#v", wire)
+			}
+			arguments, err := json.Marshal(wire[1].FunctionCall.Args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(arguments) != `{"id":2}` || !bytes.Equal(wire[1].ThoughtSignature, []byte("tool-signature")) {
+				t.Fatalf("replayed arguments = %s", arguments)
 			}
 		})
 	}

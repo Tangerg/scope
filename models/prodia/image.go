@@ -3,6 +3,7 @@ package prodia
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -35,10 +36,9 @@ var _ image.Model = (*ImageModel)(nil)
 
 // ImageModel wraps Prodia's /v2/job inference endpoint. Model id
 // ([image.Options].Model) carries the full Prodia type, e.g.
-// "inference.flux.dev.txt2img.v1". Prompt-level config (negative,
-// seed, sampler, steps, width, height) is threaded through the Extra
-// JobRequest.Config map; the typed Width/Height/NegativePrompt/Seed
-// are copied into Config automatically when set.
+// "inference.flux.dev.txt2img.v1". Core owns the prompt, model, dimensions,
+// negative prompt, and seed. The native config extension accepts provider-only
+// options such as sampler and steps; duplicate Core fields are rejected.
 type ImageModel struct {
 	api            *api
 	defaultOptions image.Options
@@ -64,42 +64,45 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 	if err != nil {
 		return nil, err
 	}
+	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]any](ImageRequestExtensionKey)
+	if decodeErr != nil {
+		return nil, decodeErr
+	}
+	for _, field := range []string{"type"} {
+		if _, exists := nativeFields[field]; exists {
+			return nil, fmt.Errorf("prodia: extension %q field %q is owned by Core", ImageRequestExtensionKey, field)
+		}
+	}
+
 	apiReqValue, _, err := effectiveOptions.Extensions.Decode[jobRequest](ImageRequestExtensionKey)
 	apiReq := &apiReqValue
 	if err != nil {
 		return nil, err
 	}
-	if apiReq.Type == "" {
-		apiReq.Type = effectiveOptions.Model
-	}
+	apiReq.Type = effectiveOptions.Model
 	if !strings.Contains(apiReq.Type, ".txt2img.") {
 		return nil, errors.New("prodia: image model requires a text-to-image job type containing .txt2img")
 	}
 	if apiReq.Config == nil {
 		apiReq.Config = map[string]any{}
 	}
-	if _, ok := apiReq.Config["prompt"]; !ok {
-		apiReq.Config["prompt"] = req.Prompt
-	}
-	if effectiveOptions.NegativePrompt != "" {
-		if _, ok := apiReq.Config["negative_prompt"]; !ok {
-			apiReq.Config["negative_prompt"] = effectiveOptions.NegativePrompt
+	for _, field := range []string{"prompt", "negative_prompt", "width", "height", "seed"} {
+		if _, exists := apiReq.Config[field]; exists {
+			return nil, fmt.Errorf("prodia: config field %q is owned by Core", field)
 		}
+	}
+	apiReq.Config["prompt"] = req.Prompt
+	if effectiveOptions.NegativePrompt != "" {
+		apiReq.Config["negative_prompt"] = effectiveOptions.NegativePrompt
 	}
 	if effectiveOptions.Width != nil {
-		if _, ok := apiReq.Config["width"]; !ok {
-			apiReq.Config["width"] = *effectiveOptions.Width
-		}
+		apiReq.Config["width"] = *effectiveOptions.Width
 	}
 	if effectiveOptions.Height != nil {
-		if _, ok := apiReq.Config["height"]; !ok {
-			apiReq.Config["height"] = *effectiveOptions.Height
-		}
+		apiReq.Config["height"] = *effectiveOptions.Height
 	}
 	if effectiveOptions.Seed != nil {
-		if _, ok := apiReq.Config["seed"]; !ok {
-			apiReq.Config["seed"] = *effectiveOptions.Seed
-		}
+		apiReq.Config["seed"] = *effectiveOptions.Seed
 	}
 
 	accept := effectiveOptions.OutputFormat

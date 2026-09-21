@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/Tangerg/scope/core/metadata"
@@ -82,17 +83,23 @@ func (a *AudioTranscriptionModel) Call(ctx context.Context, req *transcription.R
 	if err != nil {
 		return nil, err
 	}
+	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]any](TranscriptionRequestExtensionKey)
+	if decodeErr != nil {
+		return nil, decodeErr
+	}
+	for _, field := range []string{"model", "language"} {
+		if _, exists := nativeFields[field]; exists {
+			return nil, fmt.Errorf("deepgram: extension %q field %q is owned by Core", TranscriptionRequestExtensionKey, field)
+		}
+	}
+
 	paramsValue, _, err := effectiveOptions.Extensions.Decode[listenParams](TranscriptionRequestExtensionKey)
 	params := &paramsValue
 	if err != nil {
 		return nil, err
 	}
-	if params.Model == "" {
-		params.Model = effectiveOptions.Model
-	}
-	if params.Language == "" && effectiveOptions.Language != "" {
-		params.Language = effectiveOptions.Language
-	}
+	params.Model = effectiveOptions.Model
+	params.Language = effectiveOptions.Language
 	if params.Summarize == "v1" {
 		return nil, errors.New("deepgram: summarize=v1 is deprecated; use true or v2")
 	}

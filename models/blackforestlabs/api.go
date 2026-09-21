@@ -41,16 +41,37 @@ func newAPI(config apiConfig) (*api, error) {
 		return nil, fmt.Errorf("blackforestlabs: invalid BaseURL %q", baseURL)
 	}
 
-	client := resty.New()
-	download := resty.New()
-	if config.HTTPClient != nil {
-		client = resty.NewWithClient(config.HTTPClient)
-		download = resty.NewWithClient(config.HTTPClient)
-	}
-	client.SetBaseURL(baseURL).
+	adapter := &api{baseURL: parsedBaseURL}
+	adapter.http = resty.NewWithClient(adapter.httpClient(config.HTTPClient))
+	adapter.download = resty.NewWithClient(adapter.httpClient(config.HTTPClient))
+	adapter.http.SetBaseURL(baseURL).
 		SetHeader("x-key", config.APIKey).
 		SetHeader("Content-Type", "application/json")
-	return &api{http: client, download: download, baseURL: parsedBaseURL}, nil
+	return adapter, nil
+}
+
+func (a *api) httpClient(source *http.Client) *http.Client {
+	client := &http.Client{}
+	if source != nil {
+		*client = *source
+	}
+	previous := client.CheckRedirect
+	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+		if err := a.validateProviderURL(request.URL.String()); err != nil {
+			return err
+		}
+		if len(via) > 0 && via[len(via)-1].URL.Scheme == "https" && request.URL.Scheme != "https" {
+			return errors.New("blackforestlabs: HTTPS redirect downgrade is forbidden")
+		}
+		if previous != nil {
+			return previous(request, via)
+		}
+		if len(via) >= 10 {
+			return errors.New("blackforestlabs: stopped after 10 redirects")
+		}
+		return nil
+	}
+	return client
 }
 
 // GenerateRequest is the union of fields the various Flux endpoints

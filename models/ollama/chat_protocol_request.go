@@ -27,6 +27,10 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, stream
 	if err != nil {
 		return nil, fmt.Errorf("ollama: options: %w", err)
 	}
+	resolvedRequest := *req
+	resolvedRequest.Options = options
+	req = &resolvedRequest
+
 	if options.Model == "" {
 		return nil, errors.New("ollama: model is required in defaults or request options")
 	}

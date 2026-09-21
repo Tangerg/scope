@@ -1,7 +1,6 @@
 package openai
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -97,11 +96,10 @@ func (a *AudioTranslationModel) buildAPITranslationRequest(req *transcription.Re
 	params.SetExtraFields(fields)
 
 	params.Model = effectiveOptions.Model
-	data, err := req.Audio.Bytes()
+	params.File, err = audioFile(req.Audio)
 	if err != nil {
 		return nil, err
 	}
-	params.File = bytes.NewReader(data)
 
 	return params, nil
 }

@@ -222,6 +222,13 @@ func (c *Chat) buildRequest(request *corechat.Request, stream bool) (*chatComple
 	if err := request.Validate(); err != nil {
 		return nil, fmt.Errorf("mistral: request: %w", err)
 	}
+	options, err := c.defaults.Resolve(request.Options)
+	if err != nil {
+		return nil, fmt.Errorf("mistral: options: %w", err)
+	}
+	resolvedRequest := *request
+	resolvedRequest.Options = options
+	request = &resolvedRequest
 	extension, _, err := request.Options.Extensions.Decode[ChatRequestOptions](RequestExtensionKey)
 	if err != nil {
 		return nil, fmt.Errorf("mistral: extension %q: %w", RequestExtensionKey, err)
@@ -229,10 +236,7 @@ func (c *Chat) buildRequest(request *corechat.Request, stream bool) (*chatComple
 	if validateErr := extension.Validate(); validateErr != nil {
 		return nil, fmt.Errorf("mistral: extension %q: %w", RequestExtensionKey, validateErr)
 	}
-	options, err := c.defaults.Resolve(request.Options)
-	if err != nil {
-		return nil, fmt.Errorf("mistral: options: %w", err)
-	}
+
 	if options.Model == "" {
 		return nil, errors.New("mistral: model is required in defaults or request options")
 	}

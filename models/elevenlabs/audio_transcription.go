@@ -3,6 +3,7 @@ package elevenlabs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/Tangerg/scope/core/metadata"
@@ -71,17 +72,23 @@ func (a *AudioTranscriptionModel) Call(ctx context.Context, req *transcription.R
 	if err != nil {
 		return nil, err
 	}
+	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]any](TranscriptionRequestExtensionKey)
+	if decodeErr != nil {
+		return nil, decodeErr
+	}
+	for _, field := range []string{"model_id", "language_code"} {
+		if _, exists := nativeFields[field]; exists {
+			return nil, fmt.Errorf("elevenlabs: extension %q field %q is owned by Core", TranscriptionRequestExtensionKey, field)
+		}
+	}
+
 	apiReqValue, _, err := effectiveOptions.Extensions.Decode[transcriptionRequest](TranscriptionRequestExtensionKey)
 	apiReq := &apiReqValue
 	if err != nil {
 		return nil, err
 	}
-	if apiReq.ModelID == "" {
-		apiReq.ModelID = effectiveOptions.Model
-	}
-	if apiReq.LanguageCode == "" && effectiveOptions.Language != "" {
-		apiReq.LanguageCode = effectiveOptions.Language
-	}
+	apiReq.ModelID = effectiveOptions.Model
+	apiReq.LanguageCode = effectiveOptions.Language
 	if validateTranscriptionRequestErr := apiReq.validate(); validateTranscriptionRequestErr != nil {
 		return nil, validateTranscriptionRequestErr
 	}

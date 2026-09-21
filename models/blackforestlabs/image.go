@@ -112,6 +112,16 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, *generateRequest,
 		return "", nil, errors.New("blackforestlabs: image: unsupported option: negative_prompt")
 	}
 
+	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]any](ImageRequestExtensionKey)
+	if decodeErr != nil {
+		return "", nil, decodeErr
+	}
+	for _, field := range []string{"prompt", "width", "height", "seed", "output_format"} {
+		if _, exists := nativeFields[field]; exists {
+			return "", nil, fmt.Errorf("blackforestlabs: extension %q field %q is owned by Core", ImageRequestExtensionKey, field)
+		}
+	}
+
 	apiReqValue, _, err := effectiveOptions.Extensions.Decode[generateRequest](ImageRequestExtensionKey)
 	if err != nil {
 		return "", nil, err
@@ -133,7 +143,7 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, *generateRequest,
 	if effectiveOptions.Seed != nil {
 		apiReq.Seed = effectiveOptions.Seed
 	}
-	if effectiveOptions.OutputFormat != "" && apiReq.OutputFormat == "" {
+	if effectiveOptions.OutputFormat != "" {
 		apiReq.OutputFormat = strings.TrimPrefix(effectiveOptions.OutputFormat, "image/")
 	}
 	return effectiveOptions.Model, apiReq, nil

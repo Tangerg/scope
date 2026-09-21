@@ -1,5 +1,5 @@
-github.com/Tangerg/scope/core v0.31.0 h1:ywiW2Q+vAsDmEuwCxqbvHWJAinq7rBenHPm7wQ/odcU=
-github.com/Tangerg/scope/core v0.31.0/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
+github.com/Tangerg/scope/core v0.31.1-0.20260921123434-edaad3f97564 h1:u9Icifzg9vmJZ+eSUzlZRbx11CH4O0fvsT4sijujAD8=
+github.com/Tangerg/scope/core v0.31.1-0.20260921123434-edaad3f97564/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
 github.com/Tangerg/scope/models/protocol/anthropic v0.31.0 h1:IoonvBNS8ayIkG/TKAzhWjihJaGQl+jZTeEZSjma53Q=
 github.com/Tangerg/scope/models/protocol/anthropic v0.31.0/go.mod h1:MChbeAad6OCgbzDWw4mOtvkcDl/3dFSGrytSmNRal8A=
 github.com/Tangerg/scope/models/protocol/openai v0.31.0 h1:wWqtDIJOQ5P5f8mMUuGG51SuVsEdhZM8zWPzx0JajPE=

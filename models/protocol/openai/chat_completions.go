@@ -166,14 +166,18 @@ func (c *ChatCompletions) buildRequest(req *corechat.Request, stream bool) (*ope
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("openai: request: %w", err)
 	}
-	params := openaisdk.ChatCompletionNewParams{}
-	if err := c.applyRequestExtension(req, &params); err != nil {
-		return nil, err
-	}
 	options, err := c.defaults.Resolve(req.Options)
 	if err != nil {
 		return nil, fmt.Errorf("openai: options: %w", err)
 	}
+	resolvedRequest := *req
+	resolvedRequest.Options = options
+	req = &resolvedRequest
+	params := openaisdk.ChatCompletionNewParams{}
+	if extensionErr := c.applyRequestExtension(req, &params); extensionErr != nil {
+		return nil, extensionErr
+	}
+
 	if applyErr := c.applyOptions(options, req.ToolChoice, &params); applyErr != nil {
 		return nil, applyErr
 	}

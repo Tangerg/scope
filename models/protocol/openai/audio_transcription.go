@@ -1,7 +1,6 @@
 package openai
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -88,12 +87,10 @@ func (a *AudioTranscriptionModel) buildAPITranscriptionRequest(req *transcriptio
 		params.Language = param.NewOpt(effectiveOptions.Language)
 	}
 
-	data, err := req.Audio.Bytes()
+	params.File, err = audioFile(req.Audio)
 	if err != nil {
 		return nil, err
 	}
-
-	params.File = bytes.NewReader(data)
 
 	return params, nil
 }

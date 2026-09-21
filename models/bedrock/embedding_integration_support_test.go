@@ -31,10 +31,10 @@ func runIntegrationEmbedding(t *testing.T, p integrationEmbeddingProbe) {
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
-	if len(resp.Results) != 2 {
-		t.Fatalf("got %d results; want 2", len(resp.Results))
+	if len(resp.Outputs) != 2 {
+		t.Fatalf("got %d outputs; want 2", len(resp.Outputs))
 	}
-	for i, r := range resp.Results {
+	for i, r := range resp.Outputs {
 		if len(r.Embedding) == 0 {
 			t.Errorf("result %d has empty embedding", i)
 		}

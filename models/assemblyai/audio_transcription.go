@@ -110,6 +110,16 @@ func (a *AudioTranscriptionModel) Call(ctx context.Context, req *transcription.R
 	if err != nil {
 		return nil, err
 	}
+	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]any](RequestExtensionKey)
+	if decodeErr != nil {
+		return nil, decodeErr
+	}
+	for _, field := range []string{"language_code"} {
+		if _, exists := nativeFields[field]; exists {
+			return nil, fmt.Errorf("assemblyai: extension %q field %q is owned by Core", RequestExtensionKey, field)
+		}
+	}
+
 	apiReqValue, _, err := effectiveOptions.Extensions.Decode[transcriptRequest](RequestExtensionKey)
 	apiReq := &apiReqValue
 	if err != nil {
@@ -119,9 +129,7 @@ func (a *AudioTranscriptionModel) Call(ctx context.Context, req *transcription.R
 	if validateTranscriptRequestErr := apiReq.validate(); validateTranscriptRequestErr != nil {
 		return nil, validateTranscriptRequestErr
 	}
-	if apiReq.LanguageCode == "" && effectiveOptions.Language != "" {
-		apiReq.LanguageCode = effectiveOptions.Language
-	}
+	apiReq.LanguageCode = effectiveOptions.Language
 
 	// Skip the /upload roundtrip when the caller already gave us a
 	// reachable URL via Extra; otherwise upload the bytes.

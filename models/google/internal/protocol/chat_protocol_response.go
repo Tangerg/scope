@@ -263,7 +263,7 @@ func mapProtocolCandidatePart(provider string, partIndex int, part *genai.Part) 
 	default:
 		return corechat.Part{}, false, nil
 	}
-	if err := mapped.Metadata.Set(protocolKey(provider, "native_part"), part); err != nil {
+	if err := mapped.Metadata.Set(protocolKey(provider, "part_state"), newPartReplayState(part, mapped.Kind)); err != nil {
 		return corechat.Part{}, false, fmt.Errorf("preserve native part: %w", err)
 	}
 	return mapped, true, nil
@@ -359,7 +359,7 @@ func mapProtocolCandidatePartDelta(provider string, partIndex int, part *genai.P
 	default:
 		return corechat.PartDelta{}, "", false, nil
 	}
-	if err := mapped.Metadata.Set(protocolKey(provider, "native_part"), part); err != nil {
+	if err := mapped.Metadata.Set(protocolKey(provider, "part_state"), newPartReplayState(part, kind)); err != nil {
 		return corechat.PartDelta{}, "", false, fmt.Errorf("preserve native part: %w", err)
 	}
 	return mapped, kind, true, nil

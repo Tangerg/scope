@@ -87,15 +87,23 @@ func (a *AudioTTSModel) buildAPIRequest(req *tts.Request) (string, *speakParams,
 		return "", nil, errors.New("deepgram: speech: unsupported option: voice")
 	}
 
+	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]any](SpeechRequestExtensionKey)
+	if decodeErr != nil {
+		return "", nil, decodeErr
+	}
+	for _, field := range []string{"model"} {
+		if _, exists := nativeFields[field]; exists {
+			return "", nil, fmt.Errorf("deepgram: extension %q field %q is owned by Core", SpeechRequestExtensionKey, field)
+		}
+	}
+
 	paramsValue, _, err := effectiveOptions.Extensions.Decode[speakParams](SpeechRequestExtensionKey)
 
 	params := &paramsValue
 	if err != nil {
 		return "", nil, err
 	}
-	if params.Model == "" {
-		params.Model = effectiveOptions.Model
-	}
+	params.Model = effectiveOptions.Model
 	if effectiveOptions.OutputFormat != "" {
 		switch effectiveOptions.OutputFormat {
 		case "wav":

@@ -20,9 +20,11 @@ const voyageResponseJSON = `{
 
 func TestEmbeddingModel(t *testing.T) {
 	modeltest.RunEmbeddingContract(t, modeltest.EmbeddingContract{
-		ModelID:      "voyage-3-large",
-		Response:     voyageResponseJSON,
-		ExpectedPath: "/embeddings",
+		InputField:         "input",
+		ExpectedEmbeddings: [][]float64{{0.1, 0.2, 0.3}, {0.4, 0.5, 0.6}},
+		ModelID:            "voyage-3-large",
+		Response:           voyageResponseJSON,
+		ExpectedPath:       "/embeddings",
 		Build: func(t *testing.T, baseURL string) embedding.Model {
 			t.Helper()
 			opts := embedding.Options{Model: "voyage-3-large"}

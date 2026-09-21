@@ -5,7 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
+	"io/fs"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -38,17 +38,28 @@ func modelProviderDirectories(t *testing.T) []string {
 		t.Fatal("resolve provider conformance source path")
 	}
 	modelsRoot := filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", "..", "models"))
-	providers, err := filepath.Glob(filepath.Join(modelsRoot, "*"))
+	var directories []string
+	err := filepath.WalkDir(modelsRoot, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !entry.IsDir() {
+			return nil
+		}
+		if entry.Name() == "internal" || entry.Name() == "catalog" {
+			return filepath.SkipDir
+		}
+		files, err := filepath.Glob(filepath.Join(path, "*.go"))
+		if err != nil {
+			return err
+		}
+		if len(files) > 0 {
+			directories = append(directories, path)
+		}
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
-	}
-	var directories []string
-	for _, provider := range providers {
-		info, err := os.Stat(provider)
-		if err != nil || !info.IsDir() {
-			continue
-		}
-		directories = append(directories, provider)
 	}
 	return directories
 }
@@ -104,10 +115,10 @@ func validateProviderConstructor(
 	if configType == "" {
 		return false
 	}
-	if parameterCount != 1 && parameterCount != 2 {
+	if parameterCount != 2 && (parameterCount != 3 || namedType(function.Type.Params.List[len(function.Type.Params.List)-1].Type) != "Dialect") {
 		t.Errorf("%s: constructor with config has %d parameters", function.Name.Name, parameterCount)
 	}
-	if parameterCount == 2 && !startsWithContext(function.Type.Params) {
+	if !startsWithContext(function.Type.Params) {
 		t.Errorf("%s: only context.Context may precede config", function.Name.Name)
 	}
 	if _, ok := validateReceivers[configType]; !ok {
@@ -164,4 +175,39 @@ func returnsValueAndError(results *ast.FieldList) bool {
 	}
 	errorType, ok := results.List[1].Type.(*ast.Ident)
 	return ok && errorType.Name == "error"
+}
+
+func TestProviderDiscoveryIncludesNestedPublicProtocols(t *testing.T) {
+	directories := modelProviderDirectories(t)
+	for _, suffix := range []string{"google/vertexai", "protocol/openai", "protocol/anthropic"} {
+		found := false
+		for _, directory := range directories {
+			if strings.HasSuffix(filepath.ToSlash(directory), "/"+suffix) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("provider discovery omitted %s", suffix)
+		}
+	}
+}
+
+func TestConstructorContextIsMandatory(t *testing.T) {
+	for _, test := range []struct {
+		signature string
+		valid     bool
+	}{
+		{"func New(config Config) (*Model, error) { return nil,nil }", false},
+		{"func New(config Config, ctx context.Context) (*Model, error) { return nil,nil }", false},
+		{"func New(ctx context.Context, config Config) (*Model, error) { return nil,nil }", true},
+	} {
+		parsed, err := parser.ParseFile(token.NewFileSet(), "constructor.go", "package provider\n"+test.signature, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		function := parsed.Decls[0].(*ast.FuncDecl)
+		if got := startsWithContext(function.Type.Params); got != test.valid {
+			t.Errorf("context check = %t for %s", got, test.signature)
+		}
+	}
 }

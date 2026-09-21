@@ -84,14 +84,22 @@ func (a *AudioTranscriptionModel) Call(ctx context.Context, req *transcription.R
 	if err != nil {
 		return nil, err
 	}
+	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]any](RequestExtensionKey)
+	if decodeErr != nil {
+		return nil, decodeErr
+	}
+	for _, field := range []string{"language", "transcriber"} {
+		if _, exists := nativeFields[field]; exists {
+			return nil, fmt.Errorf("revai: extension %q field %q is owned by Core", RequestExtensionKey, field)
+		}
+	}
+
 	jobOptsValue, _, err := effectiveOptions.Extensions.Decode[jobOptions](RequestExtensionKey)
 	jobOpts := &jobOptsValue
 	if err != nil {
 		return nil, err
 	}
-	if jobOpts.Language == "" && effectiveOptions.Language != "" {
-		jobOpts.Language = effectiveOptions.Language
-	}
+	jobOpts.Language = effectiveOptions.Language
 	jobOpts.Transcriber = effectiveOptions.Model
 	if jobOpts.Transcriber != ModelMachine && jobOpts.Transcriber != ModelHuman {
 		return nil, fmt.Errorf("revai: transcription model must be %q or %q, got %q", ModelMachine, ModelHuman, jobOpts.Transcriber)
