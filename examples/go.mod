@@ -4,10 +4,10 @@ go 1.27.0
 
 require (
 	github.com/Tangerg/go-sdk v1.8.1-scope.1
-	github.com/Tangerg/scope/agent v0.31.1-0.20260920012715-5dc762ec1b2b
-	github.com/Tangerg/scope/core v0.31.0
-	github.com/Tangerg/scope/mcp v0.31.1-0.20260921135953-4db423ebd3cd
-	github.com/Tangerg/scope/tools v0.31.0
+	github.com/Tangerg/scope/agent v0.32.0
+	github.com/Tangerg/scope/core v0.32.0
+	github.com/Tangerg/scope/mcp v0.32.0
+	github.com/Tangerg/scope/tools v0.32.0
 )
 
 require (

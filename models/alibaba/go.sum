@@ -1,7 +1,7 @@
-github.com/Tangerg/scope/core v0.31.1-0.20260921123434-edaad3f97564 h1:u9Icifzg9vmJZ+eSUzlZRbx11CH4O0fvsT4sijujAD8=
-github.com/Tangerg/scope/core v0.31.1-0.20260921123434-edaad3f97564/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
-github.com/Tangerg/scope/models/protocol/openai v0.31.1-0.20260921150837-69e36e402379 h1:oO0GwVCN4vHFKgg8bBrxj9RcMowDMpbDkANHOe2i+5I=
-github.com/Tangerg/scope/models/protocol/openai v0.31.1-0.20260921150837-69e36e402379/go.mod h1:EYnyeWWpfUgkBFj4QmMCnba2CrU1tctph3GDPXmK5LY=
+github.com/Tangerg/scope/core v0.32.0 h1:gA82a8iTeyu7n7HsV7mUqljUGOnlvckCOrN7Cl2njuw=
+github.com/Tangerg/scope/core v0.32.0/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
+github.com/Tangerg/scope/models/protocol/openai v0.32.0 h1:kd6A9YrsOYXNsZ0Aee02IBW0oQLCy9dTuRx1SGcHb94=
+github.com/Tangerg/scope/models/protocol/openai v0.32.0/go.mod h1:w3sSTwxAvQzv0mdqfISsUnYgeJ5R9NCyNfz4NUKvok4=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
 github.com/bahlo/generic-list-go v0.2.0/go.mod h1:2KvAjgMlE5NNynlg/5iLrrCCZ2+5xWbdbCW3pNTGyYg=
 github.com/buger/jsonparser v1.6.1 h1:I0phFv0PlbLHnM7TZAVjZ2MJ2/eWRTDyuO7GLR98IEs=
