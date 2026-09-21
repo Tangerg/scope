@@ -325,6 +325,12 @@ func (t TreeActivation) Valid() bool {
 // portable snapshot and backend revisions. An identical retry succeeds only while
 // its sequence is still current; historical replay must fail even if content cycles.
 // A checkpoint is identified by root, incarnation, and sequence, never by digest.
+// An Effect commit is identified by root, Effect identity, and boundary kind.
+// Each Effect contributes at most one pending, one settled, and one resolved
+// commit for the lifetime of its tree, including across incarnations, so its
+// deduplication fact needs neither the incarnation nor the sequence. A definite
+// replay result uses the resolved boundary; it never commits a second settled
+// boundary over a retained Unknown.
 // Activation replaces writer and head and resets the sequence atomically before
 // restoration can publish a Process. Initialization acknowledgment is separate
 // because failed root initialization has no execution tree to persist.
