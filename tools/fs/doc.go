@@ -1,5 +1,5 @@
 // Package fs exposes LLM-callable filesystem tools (read, write, edit,
-// glob, grep) on top of minimal per-operation ports. Local, sandbox, and
+// apply_patch, glob, grep) on top of minimal per-operation ports. Local, sandbox, and
 // remote backends implement only the capabilities they provide; the tools
 // themselves are thin adapters that marshal LLM JSON into port calls and back.
 //
@@ -17,6 +17,12 @@
 // **Tools stay thin.** All content processing — line windowing,
 // binary detection, exact / fuzzy match, append-vs-overwrite — lives
 // in the backend, not the tool. The tool's job is JSON in, JSON out.
+//
+// ApplyPatchTool.MutationPaths exposes prospective patch endpoints without I/O,
+// using LocalExecutor's parser and supported-operation rules. Hosts may discover
+// this optional method through core/tool.Capability for approval or locking.
+// Filesystem authority and hunk applicability are checked during execution;
+// ApplyPatchResponse, including a partial response on error, reports actual effects.
 //
 // Why Glob and Grep have dedicated ports (instead of "walk + match" in the
 // tool layer): a remote backend cannot afford to ship every file

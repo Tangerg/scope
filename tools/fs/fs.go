@@ -34,6 +34,8 @@ type Editor interface {
 // acknowledged file effect, including on error. A multi-file patch is not a
 // filesystem transaction: commit failures can leave earlier changes applied.
 // Implementations may create parent directories while committing files.
+// Patch endpoints must follow [ApplyPatchTool.MutationPaths] so hosts can inspect
+// the complete prospective write set before invoking the backend.
 type PatchApplier interface {
 	ApplyPatch(ctx context.Context, request ApplyPatchRequest) (ApplyPatchResponse, error)
 }

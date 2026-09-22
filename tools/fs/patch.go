@@ -182,14 +182,20 @@ func parseUnifiedPatch(patch string) (unifiedPatch, error) {
 	normalized := strings.ReplaceAll(patch, "\r\n", "\n")
 	files, _, err := gitdiff.Parse(strings.NewReader(normalized))
 	if err != nil {
-		return unifiedPatch{}, fmt.Errorf("fs.ApplyPatch: parse unified diff: %w", err)
+		return unifiedPatch{}, fmt.Errorf("fs.ApplyPatch: parse unified diff: %w. "+
+			"In each @@ -oldStart,oldCount +newStart,newCount @@ header, oldCount must count context and removed lines, "+
+			"and newCount must count context and added lines. Recount every hunk", err)
 	}
 	if len(files) == 0 {
 		return unifiedPatch{}, errors.New("fs.ApplyPatch: no file patches found")
 	}
 	parsed := unifiedPatch{files: make([]filePatch, len(files))}
 	for index, file := range files {
-		parsed.files[index] = newFilePatch(file)
+		next := newFilePatch(file)
+		if err := next.validate(); err != nil {
+			return unifiedPatch{}, err
+		}
+		parsed.files[index] = next
 	}
 	return parsed, nil
 }
