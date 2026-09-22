@@ -38,8 +38,8 @@ func writeTemp(t *testing.T, dir, name, content string) string {
 }
 
 func TestNewLocalExecutorRequiresExplicitRoot(t *testing.T) {
-	if _, err := NewLocalExecutor(""); !errors.Is(err, ErrInvalidRoot) {
-		t.Fatalf("NewLocalExecutor(\"\") error = %v, want ErrInvalidRoot", err)
+	if _, err := NewLocalExecutor(nil); !errors.Is(err, ErrInvalidRoot) {
+		t.Fatalf("NewLocalExecutor(nil) error = %v, want ErrInvalidRoot", err)
 	}
 }
 

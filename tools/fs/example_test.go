@@ -2,12 +2,22 @@ package fs_test
 
 import (
 	"fmt"
+	"os"
 
 	toolfs "github.com/Tangerg/scope/tools/fs"
 )
 
 func ExampleNewReadTool() {
-	executor, err := toolfs.NewLocalExecutor(".")
+	path, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
+	root, err := os.OpenRoot(path)
+	if err != nil {
+		panic(err)
+	}
+	defer root.Close()
+	executor, err := toolfs.NewLocalExecutor(root)
 	if err != nil {
 		panic(err)
 	}

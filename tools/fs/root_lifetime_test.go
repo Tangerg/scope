@@ -45,7 +45,12 @@ func TestLocalExecutorKeepsDirectoryAuthorityAfterPathReplacement(t *testing.T) 
 }
 
 func TestLocalExecutorCloseEndsNewAuthorityAcquisition(t *testing.T) {
-	executor, err := NewLocalExecutor(t.TempDir())
+	root, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	executor, err := NewLocalExecutor(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,9 +74,80 @@ func TestLocalExecutorCloseEndsNewAuthorityAcquisition(t *testing.T) {
 	}
 }
 
-func TestLocalExecutorRequiresExistingDirectory(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "missing")
-	if executor, err := NewLocalExecutor(root); executor != nil || !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("missing directory = %v, %v", executor, err)
+func TestLocalExecutorRequiresOpenDirectory(t *testing.T) {
+	root, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := root.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if executor, err := NewLocalExecutor(root); executor != nil || !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("closed directory = %v, %v", executor, err)
+	}
+}
+
+func TestLocalExecutorRequiresAbsoluteRootName(t *testing.T) {
+	t.Chdir(t.TempDir())
+	root, err := os.OpenRoot(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if executor, err := NewLocalExecutor(root); executor != nil || !errors.Is(err, ErrInvalidRoot) {
+		t.Fatalf("relative root = %v, %v", executor, err)
+	}
+	if _, err := root.Stat("."); err != nil {
+		t.Fatalf("failed construction closed the host root: %v", err)
+	}
+}
+
+func TestLocalExecutorAndHostOwnIndependentLifetimes(t *testing.T) {
+	for _, closeHost := range []bool{true, false} {
+		name := "executor closes first"
+		if closeHost {
+			name = "host closes first"
+		}
+		t.Run(name, func(t *testing.T) {
+			root, openErr := os.OpenRoot(t.TempDir())
+			if openErr != nil {
+				t.Fatal(openErr)
+			}
+			closeRoot := sync.OnceValue(root.Close)
+			t.Cleanup(func() {
+				if err := closeRoot(); err != nil {
+					t.Error(err)
+				}
+			})
+			if err := root.WriteFile("file", []byte("original"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			executor, err := NewLocalExecutor(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			closeExecutor := sync.OnceValue(executor.Close)
+			t.Cleanup(func() {
+				if err := closeExecutor(); err != nil {
+					t.Error(err)
+				}
+			})
+			if closeHost {
+				if err := closeRoot(); err != nil {
+					t.Fatal(err)
+				}
+				read, err := executor.Read(t.Context(), ReadInput{Path: "file"})
+				if err != nil || read.Content != "original" {
+					t.Fatalf("host close revoked executor authority: %+v, %v", read, err)
+				}
+			} else {
+				if err := closeExecutor(); err != nil {
+					t.Fatal(err)
+				}
+				if data, err := root.ReadFile("file"); err != nil || string(data) != "original" {
+					t.Fatalf("executor close revoked host authority: %q, %v", data, err)
+				}
+			}
+		})
 	}
 }

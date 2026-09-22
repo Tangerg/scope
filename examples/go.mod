@@ -7,7 +7,7 @@ require (
 	github.com/Tangerg/scope/agent v0.33.0
 	github.com/Tangerg/scope/core v0.33.0
 	github.com/Tangerg/scope/mcp v0.33.0
-	github.com/Tangerg/scope/tools v0.33.0
+	github.com/Tangerg/scope/tools v0.34.0
 )
 
 require (

@@ -9,7 +9,7 @@
 // # Capabilities
 //
 //   - shell: run a command and capture its output.
-//   - fs: read, write, edit, glob, and grep inside a fixed path authority.
+//   - fs: read, write, edit, glob, and grep inside an explicitly supplied directory authority.
 //   - textread: read text with line numbering and limits.
 //   - httpreq: issue an HTTP request against an explicit allowlist.
 //   - web: the neutral Searcher and Fetcher SPIs plus the search and fetch

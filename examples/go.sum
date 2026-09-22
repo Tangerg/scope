@@ -6,8 +6,8 @@ github.com/Tangerg/scope/core v0.33.0 h1:B+QMV7FgtwuzE8MXFFC1iB42Z0AkBDkx+LCejKG
 github.com/Tangerg/scope/core v0.33.0/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
 github.com/Tangerg/scope/mcp v0.33.0 h1:O/H0Pk/XmfqWbQqi5asFVR47j9ZLbWOLxqNU4250JAA=
 github.com/Tangerg/scope/mcp v0.33.0/go.mod h1:O2MGQrJ4e//4zF4i8Irl5hJski+YsIeX74wej5u1eJs=
-github.com/Tangerg/scope/tools v0.33.0 h1:5WWYjrOJ1HKWhLmB8hlhZQ2WvFMUC486Wu9kAWWtvh0=
-github.com/Tangerg/scope/tools v0.33.0/go.mod h1:k95oVbMgIeyRMA2jq7vlk8kfWRfS6fjmNaCRbE26u1Y=
+github.com/Tangerg/scope/tools v0.34.0 h1:avvo0B+te4ijTH9VI7E1DaWhLC/5KBYYvlOsZxqBltY=
+github.com/Tangerg/scope/tools v0.34.0/go.mod h1:k95oVbMgIeyRMA2jq7vlk8kfWRfS6fjmNaCRbE26u1Y=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
 github.com/bahlo/generic-list-go v0.2.0/go.mod h1:2KvAjgMlE5NNynlg/5iLrrCCZ2+5xWbdbCW3pNTGyYg=
 github.com/bluekeyes/go-gitdiff v0.9.0 h1:w+O6lkRBOqfGcwF0Lf6FFHQrhmxM0hCJW5+rbilGuSs=

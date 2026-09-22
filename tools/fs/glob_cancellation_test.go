@@ -16,7 +16,12 @@ func TestLocalGlobRejectsCancellationWithoutMatches(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "present.txt"), []byte("text"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	executor, err := filesystem.NewLocalExecutor(root)
+	directory, err := os.OpenRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer directory.Close()
+	executor, err := filesystem.NewLocalExecutor(directory)
 	if err != nil {
 		t.Fatal(err)
 	}

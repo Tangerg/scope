@@ -1,10 +1,23 @@
 package fs
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func mustLocalExecutor(t testing.TB, root string) *LocalExecutor {
 	t.Helper()
-	executor, err := NewLocalExecutor(root)
+	root, err := filepath.Abs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory, err := os.OpenRoot(root)
+	if err != nil {
+		t.Fatalf("OpenRoot(%q): %v", root, err)
+	}
+	defer directory.Close()
+	executor, err := NewLocalExecutor(directory)
 	if err != nil {
 		t.Fatalf("NewLocalExecutor(%q): %v", root, err)
 	}

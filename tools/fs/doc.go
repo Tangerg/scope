@@ -3,6 +3,12 @@
 // remote backends implement only the capabilities they provide; the tools
 // themselves are thin adapters that marshal LLM JSON into port calls and back.
 //
+// The local backend accepts one already-open [os.Root] with an absolute Name.
+// Hosts retain that authority for additional inspection or policy instead of
+// resolving its pathname again. [NewLocalExecutor] derives its own handle from
+// the supplied root; the host and executor each close the handle they own.
+// Sharing a directory does not synchronize separate host and executor operations.
+//
 // **Text files only.** Backend implementations MUST reject files
 // that look binary (NUL byte in the first 8 KiB is a good default
 // heuristic) and reject Write content that contains NUL bytes. Use

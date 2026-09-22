@@ -49,24 +49,28 @@ type LocalExecutor struct {
 	mutations sync.Mutex
 }
 
-// NewLocalExecutor fixes one immutable directory-tree authority for every
-// operation performed by the returned backend. The directory must exist and
-// remains the authority even if its original path is renamed or replaced.
-// The caller must Close the executor when it is no longer needed.
-func NewLocalExecutor(root string) (*LocalExecutor, error) {
-	if root == "" {
+// NewLocalExecutor derives an independent directory handle from root, never
+// reopening its pathname. Host policies can retain root and inspect the same
+// directory that the executor uses, even after its pathname is replaced.
+//
+// root must be open and have an absolute Name, which defines the namespace for
+// absolute operation paths without consulting the process working directory.
+// The caller retains ownership of root and must also Close the returned executor.
+// Closing either handle does not revoke the other. Host policies own any
+// synchronization they require across inspection and execution; sharing a root
+// does not make separately issued filesystem operations atomic.
+func NewLocalExecutor(root *os.Root) (*LocalExecutor, error) {
+	if root == nil {
 		return nil, ErrInvalidRoot
 	}
-	root = expandHome(root)
-	absolute, err := filepath.Abs(root)
-	if err != nil {
-		return nil, fmt.Errorf("fs.NewLocalExecutor: resolve root %q: %w", root, err)
+	if !filepath.IsAbs(root.Name()) {
+		return nil, fmt.Errorf("%w: root name must be absolute", ErrInvalidRoot)
 	}
-	directory, err := os.OpenRoot(absolute)
+	directory, err := root.OpenRoot(".")
 	if err != nil {
-		return nil, fmt.Errorf("fs.NewLocalExecutor: open root %q: %w", absolute, err)
+		return nil, fmt.Errorf("fs.NewLocalExecutor: acquire root %q: %w", root.Name(), err)
 	}
-	return &LocalExecutor{rootPath: filepath.Clean(absolute), root: directory}, nil
+	return &LocalExecutor{rootPath: filepath.Clean(root.Name()), root: directory}, nil
 }
 
 // Close releases the directory authority and prevents new operations. Operations
