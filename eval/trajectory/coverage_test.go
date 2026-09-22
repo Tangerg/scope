@@ -1,7 +1,7 @@
 package trajectory_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"reflect"
 	"testing"
@@ -37,12 +37,12 @@ func TestCoverageClassifiesEffectsWithinOneDeployment(t *testing.T) {
 	if len(coverage.Models) != 2 || len(coverage.Tools) != 1 || len(coverage.Other) != 0 {
 		t.Fatalf("coverage = %+v", coverage)
 	}
-	encoded, err := json.Marshal(recorded)
+	encoded, err := jsonv2.Marshal(recorded)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var restored trajectory.Trajectory
-	if err := json.Unmarshal(encoded, &restored); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &restored); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(coverage, restored.Coverage()) {

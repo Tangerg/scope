@@ -3,7 +3,7 @@ package replicate
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -132,7 +132,7 @@ func (p predictionRequest) validate() error {
 	if p.Input == nil {
 		return errors.New("replicate: prediction input is required")
 	}
-	if _, err := json.Marshal(p.Input); err != nil {
+	if _, err := jsonv2.Marshal(p.Input); err != nil {
 		return fmt.Errorf("replicate: prediction input is not valid JSON: %w", err)
 	}
 	if p.Webhook != "" {
@@ -193,13 +193,13 @@ type predictionResponse struct {
 	Version     string           `json:"version,omitempty"`
 	Status      predictionStatus `json:"status"`
 	Input       map[string]any   `json:"input,omitzero"`
-	Output      any              `json:"output,omitempty"`
+	Output      any              `json:"output,omitzero"`
 	Error       string           `json:"error,omitempty"`
 	Logs        string           `json:"logs,omitempty"`
 	CreatedAt   string           `json:"created_at,omitempty"`
 	StartedAt   string           `json:"started_at,omitempty"`
 	CompletedAt string           `json:"completed_at,omitempty"`
-	DataRemoved bool             `json:"data_removed,omitempty"`
+	DataRemoved bool             `json:"data_removed,omitzero"`
 	Source      string           `json:"source,omitempty"`
 	URLs        struct {
 		Get    string `json:"get"`
@@ -207,8 +207,8 @@ type predictionResponse struct {
 		Stream string `json:"stream,omitempty"`
 	} `json:"urls"`
 	Metrics struct {
-		PredictTime float64 `json:"predict_time,omitempty"`
-		TotalTime   float64 `json:"total_time,omitempty"`
+		PredictTime float64 `json:"predict_time,omitzero"`
+		TotalTime   float64 `json:"total_time,omitzero"`
 	} `json:"metrics"`
 }
 

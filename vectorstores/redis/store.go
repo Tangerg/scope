@@ -2,7 +2,7 @@ package redis
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -365,7 +365,7 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 			if valuesErr != nil {
 				return fmt.Errorf("redis: decode metadata for %s: %w", id, valuesErr)
 			}
-			metadataJSON, marshalErr := json.Marshal(doc.Metadata)
+			metadataJSON, marshalErr := jsonv2.Marshal(doc.Metadata)
 			if marshalErr != nil {
 				return fmt.Errorf("redis: encode metadata for %s: %w", id, marshalErr)
 			}
@@ -521,7 +521,7 @@ func (s *Store) toDocument(hit goredis.Document) (*document.Document, error) {
 	// else into a string, and an undeclared key had no field to read at all —
 	// a search returned a document that differed from the one that was written.
 	if raw, ok := hit.Fields[s.metadataJSONField]; ok && raw != "" {
-		if err := json.Unmarshal([]byte(raw), &doc.Metadata); err != nil {
+		if err := jsonv2.Unmarshal([]byte(raw), &doc.Metadata); err != nil {
 			return nil, fmt.Errorf("redis: decode metadata for %q: %w", id, err)
 		}
 	}

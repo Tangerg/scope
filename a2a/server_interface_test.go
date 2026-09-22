@@ -1,7 +1,7 @@
 package a2a_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -70,7 +70,7 @@ func TestServerRoutesOnlyTheAdvertisedPath(t *testing.T) {
 			Code int `json:"code"`
 		} `json:"error"`
 	}
-	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+	if err := jsonv2.Unmarshal(response.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
 	if response.Code != http.StatusOK || result.Error.Code != -32700 {

@@ -3,6 +3,7 @@ package mcp_test
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -32,7 +33,7 @@ func newEchoTool() tool.Tool {
 		},
 		call: func(_ context.Context, invocation tool.Invocation) (corechat.ToolOutput, error) {
 			var input echoInput
-			if err := json.Unmarshal(invocation.Arguments(), &input); err != nil {
+			if err := jsonv2.Unmarshal(invocation.Arguments(), &input); err != nil {
 				return corechat.ToolOutput{}, err
 			}
 			return corechat.NewTextToolOutput(input.Text), nil

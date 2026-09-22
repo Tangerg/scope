@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 )
@@ -38,12 +39,12 @@ func TestSignalStrictJSONRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(signal)
+	data, err := jsonv2.Marshal(signal)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded Signal
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := decoded.WaitID(); ok {
@@ -52,10 +53,10 @@ func TestSignalStrictJSONRoundTrip(t *testing.T) {
 	if decoded.ID() != signal.ID() || string(decoded.Payload()) != string(signal.Payload()) {
 		t.Fatalf("decoded Signal = %+v, want %+v", decoded, signal)
 	}
-	if err := json.Unmarshal([]byte(`{"id":"signal:1","payload":{},"unknown":true}`), &decoded); !errors.Is(err, ErrInvalidSignal) {
+	if err := jsonv2.Unmarshal([]byte(`{"id":"signal:1","payload":{},"unknown":true}`), &decoded); !errors.Is(err, ErrInvalidSignal) {
 		t.Fatalf("unknown field error = %v, want ErrInvalidSignal", err)
 	}
-	if err := json.Unmarshal([]byte(`{"id":"signal:1","received_at":"2026-08-06T00:00:00Z","payload":{}}`), &decoded); !errors.Is(err, ErrInvalidSignal) {
+	if err := jsonv2.Unmarshal([]byte(`{"id":"signal:1","received_at":"2026-08-06T00:00:00Z","payload":{}}`), &decoded); !errors.Is(err, ErrInvalidSignal) {
 		t.Fatalf("retired received_at error = %v, want ErrInvalidSignal", err)
 	}
 }
@@ -75,11 +76,11 @@ func TestSignalRequestProducesByteEquivalentStrategyInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstJSON, err := json.Marshal(first)
+	firstJSON, err := jsonv2.Marshal(first)
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondJSON, err := json.Marshal(second)
+	secondJSON, err := jsonv2.Marshal(second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,12 +102,12 @@ func TestDispatcherEffectIsOpaqueAndImmutable(t *testing.T) {
 		t.Fatalf("Effect = target %s payload %s", effect.Target(), effect.Payload())
 	}
 
-	data, err := json.Marshal(effect)
+	data, err := jsonv2.Marshal(effect)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded Effect
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.Target() != EffectTargetDispatcher || string(decoded.Payload()) != string(effect.Payload()) {
@@ -123,12 +124,12 @@ func TestSettlementPreservesUnknownWithoutImplyingRetry(t *testing.T) {
 	if settlement.Status() != SettlementStatusUnknown || settlement.EffectID() != effectID {
 		t.Fatalf("Settlement = status %s effect %v", settlement.Status(), settlement.EffectID())
 	}
-	data, err := json.Marshal(settlement)
+	data, err := jsonv2.Marshal(settlement)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded Settlement
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.Status() != SettlementStatusUnknown || string(decoded.Payload()) != `{"reason":"connection_lost"}` {
@@ -153,12 +154,12 @@ func TestWaitRequestKeepsEngineKeySeparateFromStrategySignalPayload(t *testing.T
 		t.Fatalf("decoded wait request = key %v payload %s", decodedKey, signalPayload)
 	}
 
-	data, err := json.Marshal(effect)
+	data, err := jsonv2.Marshal(effect)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var restored Effect
-	if err := json.Unmarshal(data, &restored); err != nil {
+	if err := jsonv2.Unmarshal(data, &restored); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := restored.waitRequest(); err != nil {
@@ -169,7 +170,7 @@ func TestWaitRequestKeepsEngineKeySeparateFromStrategySignalPayload(t *testing.T
 func TestFrameworkEffectRejectsUnknownOperations(t *testing.T) {
 	data := []byte(`{"target":"framework","payload":{"operation":"tool","key":"approval","signal_payload":{}}}`)
 	var effect Effect
-	if err := json.Unmarshal(data, &effect); !errors.Is(err, ErrInvalidEffect) {
+	if err := jsonv2.Unmarshal(data, &effect); !errors.Is(err, ErrInvalidEffect) {
 		t.Fatalf("unknown Framework Effect error = %v, want ErrInvalidEffect", err)
 	}
 }
@@ -179,7 +180,7 @@ func TestEffectEqualityUsesTheCompleteCanonicalRequest(t *testing.T) {
 		t.Helper()
 		var value Effect
 		if raw != "" {
-			if err := json.Unmarshal([]byte(raw), &value); err != nil {
+			if err := jsonv2.Unmarshal([]byte(raw), &value); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -218,7 +219,7 @@ func TestSettlementEqualityKeepsIdentityStatusAndPayload(t *testing.T) {
 		t.Helper()
 		var value Settlement
 		if raw != "" {
-			if err := json.Unmarshal([]byte(raw), &value); err != nil {
+			if err := jsonv2.Unmarshal([]byte(raw), &value); err != nil {
 				t.Fatal(err)
 			}
 		}

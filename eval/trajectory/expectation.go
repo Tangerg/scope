@@ -2,6 +2,7 @@ package trajectory
 
 import (
 	"bytes"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
 	"time"
@@ -54,7 +55,7 @@ func (t ToolArguments) Validate() error {
 // field would break on unrelated prompt or model changes and stop being run.
 type ToolExpectation struct {
 	Name      string         `json:"name"`
-	Arguments *ToolArguments `json:"arguments,omitempty"`
+	Arguments *ToolArguments `json:"arguments,omitzero"`
 	Outcome   ToolOutcome    `json:"outcome,omitempty"`
 }
 
@@ -96,12 +97,34 @@ func (t ToolExpectation) matches(actual ToolCall) (bool, error) {
 // Limits defines optional upper bounds. Pointers distinguish an asserted zero
 // from a dimension the case does not evaluate.
 type Limits struct {
-	CommittedSteps  *uint64        `json:"committed_steps,omitempty"`
-	PreparedEffects *uint64        `json:"prepared_effects,omitempty"`
-	AcceptedSignals *uint64        `json:"accepted_signals,omitempty"`
-	DroppedDeltas   *uint64        `json:"dropped_deltas,omitempty"`
-	TotalTokens     *int64         `json:"total_tokens,omitempty"`
-	Elapsed         *time.Duration `json:"elapsed_ns,omitempty"`
+	CommittedSteps  *uint64        `json:"committed_steps,omitzero"`
+	PreparedEffects *uint64        `json:"prepared_effects,omitzero"`
+	AcceptedSignals *uint64        `json:"accepted_signals,omitzero"`
+	DroppedDeltas   *uint64        `json:"dropped_deltas,omitzero"`
+	TotalTokens     *int64         `json:"total_tokens,omitzero"`
+	Elapsed         *time.Duration `json:"elapsed_ns,omitzero"`
+}
+
+type limitsWire struct {
+	CommittedSteps  *uint64 `json:"committed_steps,omitzero"`
+	PreparedEffects *uint64 `json:"prepared_effects,omitzero"`
+	AcceptedSignals *uint64 `json:"accepted_signals,omitzero"`
+	DroppedDeltas   *uint64 `json:"dropped_deltas,omitzero"`
+	TotalTokens     *int64  `json:"total_tokens,omitzero"`
+	Elapsed         *int64  `json:"elapsed_ns,omitzero"`
+}
+
+func (l Limits) MarshalJSON() ([]byte, error) {
+	return jsonv2.Marshal(limitsWire{l.CommittedSteps, l.PreparedEffects, l.AcceptedSignals, l.DroppedDeltas, l.TotalTokens, (*int64)(l.Elapsed)})
+}
+
+func (l *Limits) UnmarshalJSON(data []byte) error {
+	var wire limitsWire
+	if err := jsonv2.Unmarshal(data, &wire, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	*l = Limits{wire.CommittedSteps, wire.PreparedEffects, wire.AcceptedSignals, wire.DroppedDeltas, wire.TotalTokens, (*time.Duration)(wire.Elapsed)}
+	return nil
 }
 
 func (l Limits) Validate() error {
@@ -201,8 +224,8 @@ func (l Limits) reports(actual Trajectory) ([]eval.Report, error) {
 type Expectation struct {
 	Status   agent.Status  `json:"status"`
 	Output   agent.Payload `json:"output,omitzero"`
-	Tools    *ToolSequence `json:"tools,omitempty"`
-	Baseline *Trajectory   `json:"baseline,omitempty"`
+	Tools    *ToolSequence `json:"tools,omitzero"`
+	Baseline *Trajectory   `json:"baseline,omitzero"`
 	Limits   Limits        `json:"limits,omitzero"`
 }
 

@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 )
@@ -40,12 +40,12 @@ func TestDeploymentRefStrictJSONRejectsTampering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(reference)
+	data, err := jsonv2.Marshal(reference)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded DeploymentRef
-	if unmarshalErr := json.Unmarshal(data, &decoded); unmarshalErr != nil {
+	if unmarshalErr := jsonv2.Unmarshal(data, &decoded); unmarshalErr != nil {
 		t.Fatal(unmarshalErr)
 	}
 	if decoded != reference {
@@ -53,15 +53,15 @@ func TestDeploymentRefStrictJSONRejectsTampering(t *testing.T) {
 	}
 
 	var wire map[string]any
-	if unmarshalErr := json.Unmarshal(data, &wire); unmarshalErr != nil {
+	if unmarshalErr := jsonv2.Unmarshal(data, &wire); unmarshalErr != nil {
 		t.Fatal(unmarshalErr)
 	}
 	wire["name"] = "deployment.tampered"
-	tampered, err := json.Marshal(wire)
+	tampered, err := jsonv2.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal(tampered, &decoded); !errors.Is(err, ErrInvalidDeploymentRef) {
+	if err := jsonv2.Unmarshal(tampered, &decoded); !errors.Is(err, ErrInvalidDeploymentRef) {
 		t.Fatalf("tampered DeploymentRef error = %v, want ErrInvalidDeploymentRef", err)
 	}
 }
@@ -71,22 +71,22 @@ func FuzzDeploymentRefJSONRoundTrip(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	seed, err := json.Marshal(reference)
+	seed, err := jsonv2.Marshal(reference)
 	if err != nil {
 		f.Fatal(err)
 	}
 	f.Add(seed)
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var decoded DeploymentRef
-		if err := json.Unmarshal(data, &decoded); err != nil {
+		if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 			return
 		}
-		encoded, err := json.Marshal(decoded)
+		encoded, err := jsonv2.Marshal(decoded)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var roundTrip DeploymentRef
-		if err := json.Unmarshal(encoded, &roundTrip); err != nil {
+		if err := jsonv2.Unmarshal(encoded, &roundTrip); err != nil {
 			t.Fatal(err)
 		}
 		if roundTrip != decoded {
@@ -121,16 +121,16 @@ func TestDeploymentRefRejectsInvalidIdentityWithMatchingDigest(t *testing.T) {
 	for _, name := range []string{"", "Invalid.Name", "invalid name"} {
 		identity := reference.identityWire()
 		identity.Name = name
-		encodedIdentity, err := json.Marshal(identity)
+		encodedIdentity, err := jsonv2.Marshal(identity)
 		if err != nil {
 			t.Fatal(err)
 		}
-		encoded, err := json.Marshal(deploymentRefWire{deploymentIdentityWire: identity, Digest: ComputeDigest(encodedIdentity)})
+		encoded, err := jsonv2.Marshal(deploymentRefWire{deploymentIdentityWire: identity, Digest: ComputeDigest(encodedIdentity)})
 		if err != nil {
 			t.Fatal(err)
 		}
 		decoded := reference
-		if err := json.Unmarshal(encoded, &decoded); !errors.Is(err, ErrInvalidDeploymentRef) {
+		if err := jsonv2.Unmarshal(encoded, &decoded); !errors.Is(err, ErrInvalidDeploymentRef) {
 			t.Fatalf("invalid identity %q accepted: %v", name, err)
 		}
 		if decoded != reference {

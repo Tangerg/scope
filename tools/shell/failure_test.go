@@ -2,7 +2,7 @@ package shell
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"strings"
 	"testing"
@@ -30,7 +30,7 @@ func TestToolPreservesFailedExecutionOutput(t *testing.T) {
 		t.Fatalf("error = %v, want Failure retaining diagnostic cause", err)
 	}
 	var response Response
-	if err := json.Unmarshal(failure.Output().Details, &response); err != nil {
+	if err := jsonv2.Unmarshal(failure.Output().Details, &response); err != nil {
 		t.Fatal(err)
 	}
 	want := Response{Stdout: "file written", Stderr: "partial stderr", ExitCode: -1, Duration: "1s", CancellationObserved: true}

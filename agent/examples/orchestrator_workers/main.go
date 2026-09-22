@@ -6,7 +6,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -264,7 +263,7 @@ func transformDeployment[I, O any](
 }
 
 func interactionInput[T any](_ context.Context, value T) (interaction.Input, error) {
-	data, err := json.Marshal(value)
+	data, err := jsonv2.Marshal(value)
 	if err != nil {
 		return interaction.Input{}, err
 	}
@@ -300,7 +299,7 @@ type decompositionModel struct{}
 
 func (decompositionModel) Call(_ context.Context, request *chat.Request) (*chat.Response, error) {
 	var goal orchestrationGoal
-	if err := json.Unmarshal([]byte(request.Messages[0].Text()), &goal); err != nil || goal.Objective == "" {
+	if err := jsonv2.Unmarshal([]byte(request.Messages[0].Text()), &goal); err != nil || goal.Objective == "" {
 		return nil, errors.New("decomposition model received an invalid objective")
 	}
 	plan := workPlan{Tasks: []workerTask{
@@ -315,7 +314,7 @@ type synthesisModel struct{}
 
 func (synthesisModel) Call(_ context.Context, request *chat.Request) (*chat.Response, error) {
 	var results []workerResult
-	if err := json.Unmarshal([]byte(request.Messages[0].Text()), &results); err != nil || len(results) == 0 {
+	if err := jsonv2.Unmarshal([]byte(request.Messages[0].Text()), &results); err != nil || len(results) == 0 {
 		return nil, errors.New("synthesis model received invalid worker results")
 	}
 	objective := results[0].Objective
@@ -332,7 +331,7 @@ func (synthesisModel) Call(_ context.Context, request *chat.Request) (*chat.Resp
 }
 
 func jsonResponse(value any) (*chat.Response, error) {
-	data, err := json.Marshal(value)
+	data, err := jsonv2.Marshal(value)
 	if err != nil {
 		return nil, err
 	}

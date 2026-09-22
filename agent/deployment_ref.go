@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -78,7 +78,7 @@ func (d DeploymentRef) MarshalJSON() ([]byte, error) {
 	if !d.Valid() {
 		return nil, ErrInvalidDeploymentRef
 	}
-	return json.Marshal(deploymentRefWire{
+	return jsonv2.Marshal(deploymentRefWire{
 		deploymentIdentityWire: d.identityWire(),
 		Digest:                 d.digest,
 	})
@@ -138,7 +138,7 @@ func (d DeploymentRef) identityWire() deploymentIdentityWire {
 }
 
 func (d DeploymentRef) computeDigest() (Digest, error) {
-	data, err := json.Marshal(d.identityWire())
+	data, err := jsonv2.Marshal(d.identityWire())
 	if err != nil {
 		return Digest{}, err
 	}

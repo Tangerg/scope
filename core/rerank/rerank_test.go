@@ -2,7 +2,7 @@ package rerank_test
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"math"
 	"reflect"
@@ -179,12 +179,12 @@ func TestJSONRoundTripAndTransactionalDecode(t *testing.T) {
 		Results:  []*rerank.Result{{Index: 1, Score: 0.75}},
 		Metadata: &rerank.ResponseMetadata{Model: "model", Usage: &rerank.Usage{InputTokens: 3}},
 	}
-	data, err := json.Marshal(response)
+	data, err := jsonv2.Marshal(response)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded rerank.Response
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(decoded, *response) {
@@ -192,31 +192,31 @@ func TestJSONRoundTripAndTransactionalDecode(t *testing.T) {
 	}
 
 	request := rerank.Request{Query: "keep", Documents: []string{"document"}}
-	if err := json.Unmarshal([]byte(`{"query":" ","documents":[]}`), &request); !errors.Is(err, rerank.ErrInvalidRequest) {
+	if err := jsonv2.Unmarshal([]byte(`{"query":" ","documents":[]}`), &request); !errors.Is(err, rerank.ErrInvalidRequest) {
 		t.Fatalf("Unmarshal Request error = %v", err)
 	}
 	if request.Query != "keep" || len(request.Documents) != 1 {
 		t.Fatalf("failed decode mutated receiver: %#v", request)
 	}
-	if _, err := json.Marshal(rerank.Usage{InputTokens: -1}); !errors.Is(err, rerank.ErrInvalidResponse) {
+	if _, err := jsonv2.Marshal(rerank.Usage{InputTokens: -1}); !errors.Is(err, rerank.ErrInvalidResponse) {
 		t.Fatalf("negative Usage marshal error = %v", err)
 	}
 }
 
 func TestOptionsAndRequestJSONBoundaries(t *testing.T) {
 	options := rerank.Options{Model: "model", TopK: 1}
-	data, marshalErr := json.Marshal(options)
+	data, marshalErr := jsonv2.Marshal(options)
 	if marshalErr != nil {
 		t.Fatal(marshalErr)
 	}
 	var decodedOptions rerank.Options
-	if err := json.Unmarshal(data, &decodedOptions); err != nil {
+	if err := jsonv2.Unmarshal(data, &decodedOptions); err != nil {
 		t.Fatal(err)
 	}
 	if decodedOptions.Model != options.Model || decodedOptions.TopK != options.TopK {
 		t.Fatalf("options round trip = %#v", decodedOptions)
 	}
-	if _, err := json.Marshal(rerank.Options{TopK: -1}); !errors.Is(err, rerank.ErrInvalidOptions) {
+	if _, err := jsonv2.Marshal(rerank.Options{TopK: -1}); !errors.Is(err, rerank.ErrInvalidOptions) {
 		t.Fatalf("invalid options marshal error = %v", err)
 	}
 	if err := decodedOptions.UnmarshalJSON([]byte(`{`)); !errors.Is(err, rerank.ErrInvalidOptions) {
@@ -231,13 +231,13 @@ func TestOptionsAndRequestJSONBoundaries(t *testing.T) {
 	if requestErr != nil {
 		t.Fatal(requestErr)
 	}
-	if _, err := json.Marshal(request); err != nil {
+	if _, err := jsonv2.Marshal(request); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := rerank.NewRequest("", []string{"document"}); !errors.Is(err, rerank.ErrInvalidRequest) {
 		t.Fatalf("invalid NewRequest error = %v", err)
 	}
-	if _, err := json.Marshal(rerank.Request{}); !errors.Is(err, rerank.ErrInvalidRequest) {
+	if _, err := jsonv2.Marshal(rerank.Request{}); !errors.Is(err, rerank.ErrInvalidRequest) {
 		t.Fatalf("invalid request marshal error = %v", err)
 	}
 	if err := request.UnmarshalJSON([]byte(`{`)); !errors.Is(err, rerank.ErrInvalidRequest) {
@@ -254,15 +254,15 @@ func TestResponseValueJSONBoundaries(t *testing.T) {
 	if score.Float64() != 0.75 {
 		t.Fatalf("Score.Float64 = %v", score.Float64())
 	}
-	data, marshalErr := json.Marshal(score)
+	data, marshalErr := jsonv2.Marshal(score)
 	if marshalErr != nil {
 		t.Fatal(marshalErr)
 	}
 	var decodedScore rerank.Score
-	if err := json.Unmarshal(data, &decodedScore); err != nil || decodedScore != score {
+	if err := jsonv2.Unmarshal(data, &decodedScore); err != nil || decodedScore != score {
 		t.Fatalf("score round trip = %v, %v", decodedScore, err)
 	}
-	if err := json.Unmarshal([]byte(`2`), &decodedScore); !errors.Is(err, rerank.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`2`), &decodedScore); !errors.Is(err, rerank.ErrInvalidResponse) {
 		t.Fatalf("invalid score error = %v", err)
 	}
 	if err := decodedScore.UnmarshalJSON([]byte(`{`)); !errors.Is(err, rerank.ErrInvalidResponse) {
@@ -277,12 +277,12 @@ func TestResponseValueJSONBoundaries(t *testing.T) {
 	if resultErr != nil {
 		t.Fatal(resultErr)
 	}
-	data, marshalErr = json.Marshal(result)
+	data, marshalErr = jsonv2.Marshal(result)
 	if marshalErr != nil {
 		t.Fatal(marshalErr)
 	}
 	var decodedResult rerank.Result
-	if err := json.Unmarshal(data, &decodedResult); err != nil || decodedResult != *result {
+	if err := jsonv2.Unmarshal(data, &decodedResult); err != nil || decodedResult != *result {
 		t.Fatalf("result round trip = %#v, %v", decodedResult, err)
 	}
 	if _, err := rerank.NewResult(-1, score); !errors.Is(err, rerank.ErrInvalidResponse) {
@@ -292,7 +292,7 @@ func TestResponseValueJSONBoundaries(t *testing.T) {
 	if err := nilResult.Validate(); !errors.Is(err, rerank.ErrInvalidResponse) {
 		t.Fatalf("nil result validation error = %v", err)
 	}
-	if _, err := json.Marshal(rerank.Result{Index: -1}); !errors.Is(err, rerank.ErrInvalidResponse) {
+	if _, err := jsonv2.Marshal(rerank.Result{Index: -1}); !errors.Is(err, rerank.ErrInvalidResponse) {
 		t.Fatalf("invalid result marshal error = %v", err)
 	}
 	if err := decodedResult.UnmarshalJSON([]byte(`{`)); !errors.Is(err, rerank.ErrInvalidResponse) {
@@ -305,15 +305,15 @@ func TestResponseValueJSONBoundaries(t *testing.T) {
 
 func TestResponseMetadataJSONBoundaries(t *testing.T) {
 	usage := rerank.Usage{InputTokens: 3}
-	data, marshalErr := json.Marshal(usage)
+	data, marshalErr := jsonv2.Marshal(usage)
 	if marshalErr != nil {
 		t.Fatal(marshalErr)
 	}
 	var decodedUsage rerank.Usage
-	if err := json.Unmarshal(data, &decodedUsage); err != nil || decodedUsage != usage {
+	if err := jsonv2.Unmarshal(data, &decodedUsage); err != nil || decodedUsage != usage {
 		t.Fatalf("usage round trip = %#v, %v", decodedUsage, err)
 	}
-	if err := json.Unmarshal([]byte(`{"input_tokens":-1}`), &decodedUsage); !errors.Is(err, rerank.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"input_tokens":-1}`), &decodedUsage); !errors.Is(err, rerank.ErrInvalidResponse) {
 		t.Fatalf("invalid usage error = %v", err)
 	}
 	if err := decodedUsage.UnmarshalJSON([]byte(`{`)); !errors.Is(err, rerank.ErrInvalidResponse) {
@@ -325,15 +325,15 @@ func TestResponseMetadataJSONBoundaries(t *testing.T) {
 	}
 
 	responseMetadata := rerank.ResponseMetadata{Model: "model", Usage: &usage}
-	data, marshalErr = json.Marshal(responseMetadata)
+	data, marshalErr = jsonv2.Marshal(responseMetadata)
 	if marshalErr != nil {
 		t.Fatal(marshalErr)
 	}
 	var decodedMetadata rerank.ResponseMetadata
-	if err := json.Unmarshal(data, &decodedMetadata); err != nil || decodedMetadata.Model != responseMetadata.Model {
+	if err := jsonv2.Unmarshal(data, &decodedMetadata); err != nil || decodedMetadata.Model != responseMetadata.Model {
 		t.Fatalf("metadata round trip = %#v, %v", decodedMetadata, err)
 	}
-	if _, err := json.Marshal(rerank.ResponseMetadata{Model: " model "}); !errors.Is(err, rerank.ErrInvalidResponse) {
+	if _, err := jsonv2.Marshal(rerank.ResponseMetadata{Model: " model "}); !errors.Is(err, rerank.ErrInvalidResponse) {
 		t.Fatalf("invalid metadata marshal error = %v", err)
 	}
 	if err := decodedMetadata.UnmarshalJSON([]byte(`{`)); !errors.Is(err, rerank.ErrInvalidResponse) {
@@ -347,12 +347,12 @@ func TestResponseMetadataJSONBoundaries(t *testing.T) {
 
 func TestResponseJSONRejectsInvalidReceiversAndValues(t *testing.T) {
 	response := rerank.Response{Results: []*rerank.Result{{Index: 0, Score: 1}}}
-	data, err := json.Marshal(response)
+	data, err := jsonv2.Marshal(response)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded rerank.Response
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.First() == nil || decoded.First().Index != 0 {
@@ -361,7 +361,7 @@ func TestResponseJSONRejectsInvalidReceiversAndValues(t *testing.T) {
 	if (*rerank.Response)(nil).First() != nil || (&rerank.Response{}).First() != nil {
 		t.Fatal("empty response returned a first result")
 	}
-	if _, err := json.Marshal(rerank.Response{}); !errors.Is(err, rerank.ErrInvalidResponse) {
+	if _, err := jsonv2.Marshal(rerank.Response{}); !errors.Is(err, rerank.ErrInvalidResponse) {
 		t.Fatalf("invalid response marshal error = %v", err)
 	}
 	if err := decoded.UnmarshalJSON([]byte(`{`)); !errors.Is(err, rerank.ErrInvalidResponse) {

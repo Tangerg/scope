@@ -2,6 +2,7 @@ package trajectory_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -51,7 +52,7 @@ func TestTrajectoryRequiresAgreementWithRootFinishedEvent(t *testing.T) {
 			})
 		}
 	}
-	encoded, err := json.Marshal(recorded)
+	encoded, err := jsonv2.Marshal(recorded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,19 +69,19 @@ func TestTrajectoryRequiresAgreementWithRootFinishedEvent(t *testing.T) {
 				ModelCalls: recorded.ModelCalls(), ToolCalls: recorded.ToolCalls(),
 			})
 			var wire map[string]json.RawMessage
-			if wireErr := json.Unmarshal(encoded, &wire); wireErr != nil {
+			if wireErr := jsonv2.Unmarshal(encoded, &wire); wireErr != nil {
 				t.Fatal(wireErr)
 			}
-			wire["termination"], err = json.Marshal(termination)
+			wire["termination"], err = jsonv2.Marshal(termination)
 			if err != nil {
 				t.Fatal(err)
 			}
-			modified, err := json.Marshal(wire)
+			modified, err := jsonv2.Marshal(wire)
 			if err != nil {
 				t.Fatal(err)
 			}
 			var decoded trajectory.Trajectory
-			decodeErr := json.Unmarshal(modified, &decoded)
+			decodeErr := jsonv2.Unmarshal(modified, &decoded)
 			if testCase.conflict {
 				if !errors.Is(constructErr, trajectory.ErrInvalidTrajectory) || !errors.Is(decodeErr, trajectory.ErrInvalidTrajectory) {
 					t.Fatalf("conflicting root outcome: New error %v, UnmarshalJSON error %v", constructErr, decodeErr)
@@ -102,7 +103,7 @@ func TestTrajectoryRequiresAgreementWithRootFinishedEvent(t *testing.T) {
 
 func trajectoryFailureTermination(t *testing.T, original agent.Termination, cause agent.TerminationCause, failure agent.Failure) agent.Termination {
 	t.Helper()
-	encoded, err := json.Marshal(struct {
+	encoded, err := jsonv2.Marshal(struct {
 		Status              agent.Status           `json:"status"`
 		Cause               agent.TerminationCause `json:"cause"`
 		Reason              string                 `json:"reason"`
@@ -116,7 +117,7 @@ func trajectoryFailureTermination(t *testing.T, original agent.Termination, caus
 		t.Fatal(err)
 	}
 	var termination agent.Termination
-	if err := json.Unmarshal(encoded, &termination); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &termination); err != nil {
 		t.Fatal(err)
 	}
 	return termination

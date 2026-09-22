@@ -2,6 +2,7 @@ package chat_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"reflect"
 	"strings"
@@ -141,7 +142,7 @@ func TestMessageJSONRoundTrip(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		encoded, err := json.Marshal(messages[i])
+		encoded, err := jsonv2.Marshal(messages[i])
 		if err != nil {
 			t.Fatalf("messages[%d] Marshal: %v", i, err)
 		}
@@ -150,7 +151,7 @@ func TestMessageJSONRoundTrip(t *testing.T) {
 		}
 
 		var got chat.Message
-		if err := json.Unmarshal(encoded, &got); err != nil {
+		if err := jsonv2.Unmarshal(encoded, &got); err != nil {
 			t.Fatalf("messages[%d] Unmarshal: %v", i, err)
 		}
 		if !reflect.DeepEqual(got, messages[i]) {
@@ -161,7 +162,7 @@ func TestMessageJSONRoundTrip(t *testing.T) {
 
 func TestMessageUnmarshalRejectsUnknownRoleWithoutMutatingReceiver(t *testing.T) {
 	got := chat.NewSystemMessage("keep")
-	err := json.Unmarshal([]byte(`{"role":"future","parts":[{"kind":"text","text":"replace"}]}`), &got)
+	err := jsonv2.Unmarshal([]byte(`{"role":"future","parts":[{"kind":"text","text":"replace"}]}`), &got)
 	if !errors.Is(err, chat.ErrInvalidMessage) {
 		t.Fatalf("Unmarshal error = %v, want ErrInvalidMessage", err)
 	}

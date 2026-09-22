@@ -1,7 +1,7 @@
 package planning
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -40,7 +40,7 @@ func (c Condition) MarshalJSON() ([]byte, error) {
 	if !c.Valid() {
 		return nil, ErrInvalidCondition
 	}
-	return json.Marshal(conditionWire{Key: c.key, Truth: c.truth})
+	return jsonv2.Marshal(conditionWire{Key: c.key, Truth: c.truth})
 }
 
 func (c *Condition) UnmarshalJSON(data []byte) error {

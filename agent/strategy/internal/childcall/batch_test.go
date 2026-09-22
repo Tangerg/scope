@@ -2,6 +2,7 @@ package childcall_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"reflect"
 	"slices"
@@ -232,7 +233,7 @@ func batchCompletion(t *testing.T, waitID, key, boundary string, children [][2]s
 		Boundary  string               `json:"boundary"`
 		Outcomes  []agent.ChildOutcome `json:"outcomes"`
 	}{"child_wait_satisfied", key, boundary, outcomes}
-	data, err := json.Marshal(payload)
+	data, err := jsonv2.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}

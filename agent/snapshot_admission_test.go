@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -15,7 +16,7 @@ import (
 func materializedAdmissionSize(p processSnapshotWire) (uint64, error) {
 	var pendingSize int
 	if !p.Status.Terminal() && (p.Limits.MaxSnapshotBytes.limited || p.TreeLimits.MaxSnapshotBytes.limited) {
-		failure := Failure{kind: FailureKindExecution, code: strings.Repeat("x", maxFailureCodeBytes), message: strings.Repeat("<", MaxDiagnosticBytes)}
+		failure := Failure{kind: FailureKindExecution, code: strings.Repeat("x", maxFailureCodeBytes), message: strings.Repeat("\x00", MaxDiagnosticBytes)}
 		var unresolved []EffectID
 		if p.Prepared != nil {
 			prepared := p.Prepared.clone()
@@ -33,7 +34,7 @@ func materializedAdmissionSize(p processSnapshotWire) (uint64, error) {
 		// JSON encodes '<' as six bytes (\u003c), the maximum expansion per UTF-8
 		// byte. Current and pending control fields reserve independently, including
 		// a Step pause racing a Host pause.
-		reason := strings.Repeat("<", maxTerminationReasonBytes)
+		reason := strings.Repeat("\x00", maxTerminationReasonBytes)
 		p.PauseReason = reason
 		p.Status = StatusRunning
 		p.Counters.DroppedDeltas = ^uint64(0)
@@ -42,7 +43,7 @@ func materializedAdmissionSize(p processSnapshotWire) (uint64, error) {
 			DeadlineOwner: deadlineOwnerParent, DeadlineReason: reason,
 			CancellationOwner: cancellationOwnerParent, CancellationReason: reason,
 		}
-		pending, err := json.Marshal(p)
+		pending, err := jsonv2.Marshal(p)
 		if err != nil {
 			return 0, err
 		}
@@ -57,7 +58,7 @@ func materializedAdmissionSize(p processSnapshotWire) (uint64, error) {
 		termination := failure.termination().withUnresolvedEffectIDs(unresolved)
 		p.Termination = &termination
 	}
-	encoded, err := json.Marshal(p)
+	encoded, err := jsonv2.Marshal(p)
 	if err != nil {
 		return 0, err
 	}
@@ -151,13 +152,13 @@ func TestArithmeticAdmissionMatchesMaterializedWire(t *testing.T) {
 						record.Diagnostic = &diagnostic
 					}
 					wire.Prepared = &preparedStep{StepSequence: 1, CommittedExecutionStateDigest: controlValue(root.committedExecutionState.digest()), CandidateState: root.committedExecutionState, Intent: controlValue(Continue(0)), Effects: preparedEffects{record}}
-					before := controlValue(json.Marshal(wire))
+					before := controlValue(jsonv2.Marshal(wire))
 					want := controlValue(materializedAdmissionSize(wire))
 					got := controlValue(wire.admissionSize())
 					if got != want {
 						t.Fatalf("size = %d, materialized = %d", got, want)
 					}
-					if after := controlValue(json.Marshal(wire)); !bytes.Equal(before, after) {
+					if after := controlValue(jsonv2.Marshal(wire)); !bytes.Equal(before, after) {
 						t.Fatal("admission mutated source wire")
 					}
 					// The quota's decimal width participates in its own encoded size.
@@ -189,7 +190,7 @@ func TestArithmeticAdmissionMatchesMaterializedWire(t *testing.T) {
 		termination := controlValue(NewFailure(FailureKindExecution, "test.failure", "done")).termination()
 		wire.Termination = &termination
 		wire.FinishedAt = new(time.Now().UTC())
-		if got, want := controlValue(wire.admissionSize()), uint64(len(controlValue(json.Marshal(wire)))); got != want {
+		if got, want := controlValue(wire.admissionSize()), uint64(len(controlValue(jsonv2.Marshal(wire)))); got != want {
 			t.Fatalf("terminal: %d != %d", got, want)
 		}
 	}

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"mime"
@@ -195,7 +197,7 @@ func mapMistralAssistantMessage(parts []corechat.Part) (chatMessage, error) {
 			if len(arguments) == 0 {
 				arguments = json.RawMessage(emptyJSONObject)
 			}
-			if !json.Valid(arguments) {
+			if !jsontext.Value(arguments).IsValid() {
 				return chatMessage{}, fmt.Errorf("parts[%d].tool_call.arguments contains invalid JSON", partIndex)
 			}
 			message.ToolCalls = append(message.ToolCalls, chatToolCall{
@@ -226,7 +228,7 @@ func mapChatTools(definitions []corechat.ToolDefinition) ([]chatTool, error) {
 	tools := make([]chatTool, 0, len(definitions))
 	for index := range definitions {
 		var parameters map[string]any
-		if err := json.Unmarshal(definitions[index].InputSchema, &parameters); err != nil {
+		if err := jsonv2.Unmarshal(definitions[index].InputSchema, &parameters); err != nil {
 			return nil, fmt.Errorf("mistral: tools[%d].input_schema: %w", index, err)
 		}
 		tools = append(tools, chatTool{

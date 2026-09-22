@@ -1,7 +1,6 @@
 package vectorstore
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"math"
@@ -32,7 +31,7 @@ func (s Score) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireScore Score
-	return json.Marshal(wireScore(s))
+	return jsonv2.Marshal(wireScore(s))
 }
 
 func (s *Score) UnmarshalJSON(data []byte) error {

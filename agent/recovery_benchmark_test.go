@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
 	"testing"
@@ -56,7 +57,7 @@ func BenchmarkTreeRecoveryBoundary(b *testing.B) {
 					return validation.validate()
 				}},
 				{name: "encode", run: func() error {
-					benchmarkSnapshotBytesSink, err = json.Marshal(wire)
+					benchmarkSnapshotBytesSink, err = jsonv2.Marshal(wire)
 					return err
 				}},
 				{name: "parse", run: func() error {
@@ -238,7 +239,7 @@ func (t *treeRecoveryBenchmarkDefinition) Restore(ctx context.Context, state Exe
 		return nil, ErrInvalidExecutionState
 	}
 	var decoded executionReplayBenchmarkState
-	if err := json.Unmarshal(state.Payload(), &decoded); err != nil {
+	if err := jsonv2.Unmarshal(state.Payload(), &decoded); err != nil {
 		return nil, err
 	}
 	return &treeRecoveryBenchmarkExecution{definition: t, state: decoded}, nil
@@ -277,7 +278,7 @@ func (t *treeRecoveryBenchmarkExecution) Step(_ context.Context, signals []Signa
 }
 
 func (t *treeRecoveryBenchmarkExecution) Snapshot() (ExecutionState, error) {
-	payload, err := json.Marshal(t.state)
+	payload, err := jsonv2.Marshal(t.state)
 	if err != nil {
 		return ExecutionState{}, err
 	}

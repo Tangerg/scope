@@ -3,7 +3,7 @@ package couchbase
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -424,7 +424,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		return nil, fmt.Errorf("couchbase: embed query: %w", err)
 	}
 	queryVec := embedding.Float32Vector(vector)
-	vectorJSON, err := json.Marshal(queryVec)
+	vectorJSON, err := jsonv2.Marshal(queryVec)
 	if err != nil {
 		return nil, fmt.Errorf("couchbase: encode query vector: %w", err)
 	}

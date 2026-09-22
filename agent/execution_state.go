@@ -76,7 +76,7 @@ func (e ExecutionState) MarshalJSON() ([]byte, error) {
 	if !e.Valid() {
 		return nil, ErrInvalidExecutionState
 	}
-	return json.Marshal(executionStateWire{
+	return jsonv2.Marshal(executionStateWire{
 		Kind:    e.kind,
 		Payload: e.payload,
 	})
@@ -99,7 +99,7 @@ func (e *ExecutionState) UnmarshalJSON(data []byte) error {
 }
 
 func (e ExecutionState) digest() (Digest, error) {
-	data, err := json.Marshal(e)
+	data, err := jsonv2.Marshal(e)
 	if err != nil {
 		return Digest{}, err
 	}

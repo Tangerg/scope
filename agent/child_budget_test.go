@@ -2,7 +2,7 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 )
@@ -78,7 +78,7 @@ func TestSnapshotRejectsChildBudgetThatConsumesPreparedStep(t *testing.T) {
 		t.Fatal(err)
 	}
 	wire.AllocatedResources.Steps = wire.Limits.Budget.Steps.maximum - wire.CommittedSteps
-	data, err := json.Marshal(wire)
+	data, err := jsonv2.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
 	}

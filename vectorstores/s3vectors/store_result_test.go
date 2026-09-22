@@ -3,6 +3,7 @@ package s3vectors
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"strings"
 	"testing"
 
@@ -87,7 +88,7 @@ func TestIndexEncodesMetadataNumbersAsSmithyNumbers(t *testing.T) {
 		t.Fatal(err)
 	}
 	var encoded metadata.Map
-	if decodeErr := json.Unmarshal(client.encoded, &encoded); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal(client.encoded, &encoded); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
 	content, found, err := encoded.Decode[string](contentMetaKey)

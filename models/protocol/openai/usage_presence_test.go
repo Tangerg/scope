@@ -1,7 +1,7 @@
 package openai
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 
 	openaisdk "github.com/openai/openai-go/v3"
@@ -17,7 +17,7 @@ func TestCompletionUsageRequiresReportedTotals(t *testing.T) {
 		{`{"prompt_tokens":3,"completion_tokens":2}`, true},
 	} {
 		var usage openaisdk.CompletionUsage
-		if err := json.Unmarshal([]byte(test.wire), &usage); err != nil {
+		if err := jsonv2.Unmarshal([]byte(test.wire), &usage); err != nil {
 			t.Fatal(err)
 		}
 		if actual := mapUsage(usage); (actual != nil) != test.known {

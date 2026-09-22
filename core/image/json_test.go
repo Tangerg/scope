@@ -1,7 +1,7 @@
 package image_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -24,18 +24,18 @@ func TestJSONBoundaries(t *testing.T) {
 		t.Fatalf("SetExtension error = %v", err)
 	}
 
-	if _, err := json.Marshal(image.Options{Model: " invalid "}); !errors.Is(err, image.ErrInvalidOptions) {
+	if _, err := jsonv2.Marshal(image.Options{Model: " invalid "}); !errors.Is(err, image.ErrInvalidOptions) {
 		t.Fatalf("Marshal Options error = %v", err)
 	}
-	if _, err := json.Marshal(image.Request{}); !errors.Is(err, image.ErrInvalidRequest) {
+	if _, err := jsonv2.Marshal(image.Request{}); !errors.Is(err, image.ErrInvalidRequest) {
 		t.Fatalf("Marshal Request error = %v", err)
 	}
-	if _, err := json.Marshal(image.Response{}); !errors.Is(err, image.ErrInvalidResponse) {
+	if _, err := jsonv2.Marshal(image.Response{}); !errors.Is(err, image.ErrInvalidResponse) {
 		t.Fatalf("Marshal Response error = %v", err)
 	}
 
 	options := image.Options{Model: "keep"}
-	if err := json.Unmarshal([]byte(`{"model":" invalid "}`), &options); !errors.Is(err, image.ErrInvalidOptions) {
+	if err := jsonv2.Unmarshal([]byte(`{"model":" invalid "}`), &options); !errors.Is(err, image.ErrInvalidOptions) {
 		t.Fatalf("Unmarshal Options error = %v", err)
 	}
 	if options.Model != "keep" {
@@ -43,7 +43,7 @@ func TestJSONBoundaries(t *testing.T) {
 	}
 
 	request := image.Request{Prompt: "keep"}
-	if err := json.Unmarshal([]byte(`{"prompt":""}`), &request); !errors.Is(err, image.ErrInvalidRequest) {
+	if err := jsonv2.Unmarshal([]byte(`{"prompt":""}`), &request); !errors.Is(err, image.ErrInvalidRequest) {
 		t.Fatalf("Unmarshal Request error = %v", err)
 	}
 	if request.Prompt != "keep" {
@@ -62,7 +62,7 @@ func TestJSONBoundaries(t *testing.T) {
 		Outputs:  []*image.Output{output},
 		Metadata: &image.ResponseMetadata{},
 	}
-	if err := json.Unmarshal([]byte(`{"outputs":[],"metadata":{}}`), &response); !errors.Is(err, image.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"outputs":[],"metadata":{}}`), &response); !errors.Is(err, image.ErrInvalidResponse) {
 		t.Fatalf("Unmarshal Response error = %v", err)
 	}
 	if response.First() != output {

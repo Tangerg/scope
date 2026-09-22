@@ -2,7 +2,7 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 )
 
@@ -43,7 +43,7 @@ func (q *quotaLoopExecution) Step(ctx context.Context, _ []Signal) (Transition, 
 }
 
 func (q *quotaLoopExecution) Snapshot() (ExecutionState, error) {
-	encoded, err := json.Marshal(q.remaining)
+	encoded, err := jsonv2.Marshal(q.remaining)
 	if err != nil {
 		return ExecutionState{}, err
 	}

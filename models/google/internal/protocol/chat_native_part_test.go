@@ -2,7 +2,7 @@ package protocol
 
 import (
 	"bytes"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 
 	"google.golang.org/genai"
@@ -250,12 +250,12 @@ func TestReplayUsesCurrentCoreContentAfterHistoryRoundTrip(t *testing.T) {
 				t.Fatal(err)
 			}
 			message := corechat.NewAssistantMessage(text, call)
-			data, err := json.Marshal(message)
+			data, err := jsonv2.Marshal(message)
 			if err != nil {
 				t.Fatal(err)
 			}
 			var restored corechat.Message
-			if decodeErr := json.Unmarshal(data, &restored); decodeErr != nil {
+			if decodeErr := jsonv2.Unmarshal(data, &restored); decodeErr != nil {
 				t.Fatal(decodeErr)
 			}
 			restored.Parts[0].Text = "current"
@@ -267,7 +267,7 @@ func TestReplayUsesCurrentCoreContentAfterHistoryRoundTrip(t *testing.T) {
 			if len(wire) != 2 || wire[0].Text != "current" || !bytes.Equal(wire[0].ThoughtSignature, []byte("signature")) {
 				t.Fatalf("replayed text: %#v", wire)
 			}
-			arguments, err := json.Marshal(wire[1].FunctionCall.Args)
+			arguments, err := jsonv2.Marshal(wire[1].FunctionCall.Args)
 			if err != nil {
 				t.Fatal(err)
 			}

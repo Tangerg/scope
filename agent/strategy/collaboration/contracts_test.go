@@ -3,6 +3,7 @@ package collaboration
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"strings"
 	"sync"
@@ -93,7 +94,7 @@ func TestConfigurationAndProtocolContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	var signal agent.Signal
-	if err := json.Unmarshal([]byte(`{"id":"signal:unexpected","payload":"x"}`), &signal); err != nil {
+	if err := jsonv2.Unmarshal([]byte(`{"id":"signal:unexpected","payload":"x"}`), &signal); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := execution.Step(context.Background(), []agent.Signal{signal}); !errors.Is(err, ErrInvalidProtocol) {
@@ -166,7 +167,7 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 	phases := make(map[phase]bool)
 	for index := range cases {
 		var state executionState
-		if err := json.Unmarshal(cases[index].State.Payload(), &state); err != nil {
+		if err := jsonv2.Unmarshal(cases[index].State.Payload(), &state); err != nil {
 			t.Fatal(err)
 		}
 		cases[index].Name = string(state.Phase) + "-" + string(rune('a'+index))
@@ -188,13 +189,13 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 		if len(state.Tasks) > 0 && state.Tasks[0].Outcome != nil {
 			mutations["worker terminal boundary"] = func(state *executionState) {
 				var wire map[string]json.RawMessage
-				if err := json.Unmarshal(require(json.Marshal(state.Tasks[0].Outcome)), &wire); err != nil {
+				if err := jsonv2.Unmarshal(require(jsonv2.Marshal(state.Tasks[0].Outcome)), &wire); err != nil {
 					t.Fatal(err)
 				}
 				wire["boundary"] = json.RawMessage(`"terminal_result"`)
 				delete(wire, "subtree_unresolved_effects")
 				var outcome agent.ChildOutcome
-				if err := json.Unmarshal(require(json.Marshal(wire)), &outcome); err != nil {
+				if err := jsonv2.Unmarshal(require(jsonv2.Marshal(wire)), &outcome); err != nil {
 					t.Fatal(err)
 				}
 				state.Tasks[0].Outcome = &outcome
@@ -206,11 +207,11 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 		for name, mutate := range mutations {
 			t.Run(cases[index].Name+"/"+name, func(t *testing.T) {
 				var altered executionState
-				if err := json.Unmarshal(cases[index].State.Payload(), &altered); err != nil {
+				if err := jsonv2.Unmarshal(cases[index].State.Payload(), &altered); err != nil {
 					t.Fatal(err)
 				}
 				mutate(&altered)
-				encoded := require(agent.NewExecutionState(stateKind, require(json.Marshal(altered))))
+				encoded := require(agent.NewExecutionState(stateKind, require(jsonv2.Marshal(altered))))
 				if _, err := definition.Restore(t.Context(), encoded); !errors.Is(err, ErrInvalidState) {
 					t.Fatalf("forged snapshot accepted: %v", err)
 				}
@@ -269,11 +270,11 @@ func TestCompletedSnapshotRejectsForgedOutputAndWorkerSchema(t *testing.T) {
 		},
 	} {
 		var wire map[string]any
-		if err := json.Unmarshal(state.Payload(), &wire); err != nil {
+		if err := jsonv2.Unmarshal(state.Payload(), &wire); err != nil {
 			t.Fatal(err)
 		}
 		mutate(wire)
-		altered := require(agent.NewExecutionState(stateKind, require(json.Marshal(wire))))
+		altered := require(agent.NewExecutionState(stateKind, require(jsonv2.Marshal(wire))))
 		if _, err := definition.Restore(t.Context(), altered); !errors.Is(err, ErrInvalidState) {
 			t.Fatal("forged completed state accepted", err)
 		}

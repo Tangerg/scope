@@ -2,7 +2,7 @@ package planning_test
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -80,18 +80,18 @@ func TestPlanningValuesUseStrictPortableJSON(t *testing.T) {
 		mustCondition(t, "world.alpha", planning.True),
 		mustCondition(t, "world.beta", planning.False),
 	)
-	data, err := json.Marshal(state)
+	data, err := jsonv2.Marshal(state)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var restored planning.WorldState
-	if err := json.Unmarshal(data, &restored); err != nil {
+	if err := jsonv2.Unmarshal(data, &restored); err != nil {
 		t.Fatal(err)
 	}
 	if restored.Key() != state.Key() {
 		t.Fatalf("restored key = %q, want %q", restored.Key(), state.Key())
 	}
-	if err := json.Unmarshal([]byte(`{"conditions":[],"extra":true}`), &restored); !errors.Is(err, planning.ErrInvalidWorldState) {
+	if err := jsonv2.Unmarshal([]byte(`{"conditions":[],"extra":true}`), &restored); !errors.Is(err, planning.ErrInvalidWorldState) {
 		t.Fatalf("unknown-field error = %v", err)
 	}
 	var truth planning.Truth

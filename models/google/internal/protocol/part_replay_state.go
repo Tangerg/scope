@@ -11,10 +11,10 @@ import (
 // partReplayState carries only fields without a Core content owner.
 type partReplayState struct {
 	ThoughtSignature   []byte                     `json:"thoughtSignature,omitempty"`
-	MediaResolution    *genai.PartMediaResolution `json:"mediaResolution,omitempty"`
-	VideoMetadata      *genai.VideoMetadata       `json:"videoMetadata,omitempty"`
+	MediaResolution    *genai.PartMediaResolution `json:"mediaResolution,omitzero"`
+	VideoMetadata      *genai.VideoMetadata       `json:"videoMetadata,omitzero"`
 	PartMetadata       map[string]any             `json:"partMetadata,omitempty"`
-	AudioTranscription *genai.Transcription       `json:"audioTranscription,omitempty"`
+	AudioTranscription *genai.Transcription       `json:"audioTranscription,omitzero"`
 	MediaProcessing    genai.MediaProcessing      `json:"mediaProcessing,omitempty"`
 }
 

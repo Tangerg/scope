@@ -3,6 +3,7 @@ package elasticsearch
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"strings"
 	"testing"
 
@@ -51,12 +52,12 @@ func TestStoreConfigRejectsTypedNilDependencies(t *testing.T) {
 
 func TestToDocumentAcceptsIndexedNilMetadata(t *testing.T) {
 	store := &Store{contentField: "content", metadataField: "metadata"}
-	encoded, err := json.Marshal(map[string]any{"content": "hello", "metadata": metadata.Map(nil)})
+	encoded, err := jsonv2.Marshal(map[string]any{"content": "hello", "metadata": metadata.Map(nil)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var source metadata.Map
-	if decodeErr := json.Unmarshal(encoded, &source); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal(encoded, &source); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
 	document, err := store.toDocument(searchHit{ID: "doc-1", Source: source})
@@ -109,7 +110,7 @@ func TestToDocumentRejectsMalformedConfiguredMetadata(t *testing.T) {
 func TestToDocumentPreservesLargeIntegerMetadata(t *testing.T) {
 	store := &Store{contentField: "content", metadataField: "metadata"}
 	var source metadata.Map
-	if err := json.Unmarshal(
+	if err := jsonv2.Unmarshal(
 		[]byte(`{"content":"hello","metadata":{"ordinal":9007199254740993}}`), &source,
 	); err != nil {
 		t.Fatal(err)

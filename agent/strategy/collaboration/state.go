@@ -3,7 +3,7 @@ package collaboration
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
 
@@ -539,11 +539,11 @@ func nilIfEmpty[T any](values []T) []T {
 }
 
 func sameJSON(left, right any) bool {
-	first, err := json.Marshal(left)
+	first, err := jsonv2.Marshal(left)
 	if err != nil {
 		return false
 	}
-	second, err := json.Marshal(right)
+	second, err := jsonv2.Marshal(right)
 	return err == nil && bytes.Equal(first, second)
 }
 

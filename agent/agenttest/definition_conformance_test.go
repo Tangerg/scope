@@ -2,7 +2,7 @@ package agenttest
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"strings"
 	"sync/atomic"
@@ -57,7 +57,7 @@ func (d *definitionConformanceDefinition) Start(input agent.Payload) (agent.Exec
 
 func (d *definitionConformanceDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
 	var value definitionConformanceInput
-	if err := json.Unmarshal(state.Payload(), &value); err != nil {
+	if err := jsonv2.Unmarshal(state.Payload(), &value); err != nil {
 		return nil, err
 	}
 	return &definitionConformanceExecution{definition: d, value: value.Value, restored: d.lossy}, nil
@@ -89,7 +89,7 @@ func (d *definitionConformanceExecution) Snapshot() (agent.ExecutionState, error
 	if d.shared != nil {
 		value = *d.shared
 	}
-	payload, err := json.Marshal(definitionConformanceInput{Value: value})
+	payload, err := jsonv2.Marshal(definitionConformanceInput{Value: value})
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
@@ -234,5 +234,19 @@ func TestConformanceStepPreservesCallerCancellationAndClosesItsScope(t *testing.
 	cancel()
 	if _, err := callStep(ctx, execution, nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("caller cancellation did not reach Step: %v", err)
+	}
+}
+
+func TestEquivalentStateIgnoresObjectMemberOrder(t *testing.T) {
+	left := map[string]any{"first": 1, "second": map[string]any{"a": true, "b": false}}
+	right := map[string]any{"second": map[string]any{"b": false, "a": true}, "first": 1}
+	for range 32 {
+		if err := requireEquivalent("state", left, right); err != nil {
+			t.Fatal(err)
+		}
+	}
+	right["first"] = 2
+	if err := requireEquivalent("state", left, right); !errors.Is(err, errConformanceValuesDiffer) {
+		t.Fatalf("changed state = %v, want conformance mismatch", err)
 	}
 }

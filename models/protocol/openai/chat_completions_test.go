@@ -2,6 +2,7 @@ package openai_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -238,7 +239,7 @@ func newCoreChatServer(t *testing.T) *httptest.Server {
 			Modalities        []string          `json:"modalities"`
 			MaxTokens         int64             `json:"max_tokens"`
 		}
-		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
 			t.Errorf("decode request: %v", err)
 			http.Error(writer, "bad request", http.StatusBadRequest)
 			return
@@ -260,7 +261,7 @@ func newCoreChatServer(t *testing.T) *httptest.Server {
 				ID string `json:"id"`
 			} `json:"audio"`
 		}
-		if err := json.Unmarshal(body.Messages[2], &assistant); err != nil || assistant.Audio.ID != "audio-prev" {
+		if err := jsonv2.Unmarshal(body.Messages[2], &assistant); err != nil || assistant.Audio.ID != "audio-prev" {
 			t.Errorf("assistant audio replay = %q/%v", assistant.Audio.ID, err)
 		}
 		if !body.Stream {

@@ -3,6 +3,7 @@ package interaction_test
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"runtime"
 	"sync"
@@ -236,11 +237,11 @@ func (i *inputRequestTool) Call(ctx context.Context, _ tool.Invocation) (chat.To
 	var state struct {
 		Stage string `json:"stage"`
 	}
-	if err := json.Unmarshal(continuation.State(), &state); err != nil || state.Stage != "awaiting_name" {
+	if err := jsonv2.Unmarshal(continuation.State(), &state); err != nil || state.Stage != "awaiting_name" {
 		return chat.ToolOutput{}, errors.New("invalid continuation state")
 	}
 	var name string
-	if err := json.Unmarshal(continuation.Response(), &name); err != nil {
+	if err := jsonv2.Unmarshal(continuation.Response(), &name); err != nil {
 		return chat.ToolOutput{}, err
 	}
 	return chat.NewTextToolOutput("hello " + name), nil

@@ -1,7 +1,7 @@
 package perplexity
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -139,26 +139,26 @@ type UserLocation struct {
 	Country   string   `json:"country,omitempty"`
 	Region    string   `json:"region,omitempty"`
 	City      string   `json:"city,omitempty"`
-	Latitude  *float64 `json:"latitude,omitempty"`
-	Longitude *float64 `json:"longitude,omitempty"`
+	Latitude  *float64 `json:"latitude,omitzero"`
+	Longitude *float64 `json:"longitude,omitzero"`
 }
 
 // WebSearchOptions controls Sonar's retrieval depth and Pro Search routing.
 type WebSearchOptions struct {
 	SearchContextSize SearchContextSize `json:"search_context_size,omitempty"`
 	SearchType        SearchType        `json:"search_type,omitempty"`
-	UserLocation      *UserLocation     `json:"user_location,omitempty"`
+	UserLocation      *UserLocation     `json:"user_location,omitzero"`
 }
 
 // RequestOptions contains the documented Sonar fields without a neutral Core
 // equivalent. Store it in [chat.Options.Extensions] under RequestExtensionKey.
 type RequestOptions struct {
-	WebSearchOptions        *WebSearchOptions `json:"web_search_options,omitempty"`
+	WebSearchOptions        *WebSearchOptions `json:"web_search_options,omitzero"`
 	SearchMode              SearchMode        `json:"search_mode,omitempty"`
-	ReturnImages            *bool             `json:"return_images,omitempty"`
-	ReturnRelatedQuestions  *bool             `json:"return_related_questions,omitempty"`
-	EnableSearchClassifier  *bool             `json:"enable_search_classifier,omitempty"`
-	DisableSearch           *bool             `json:"disable_search,omitempty"`
+	ReturnImages            *bool             `json:"return_images,omitzero"`
+	ReturnRelatedQuestions  *bool             `json:"return_related_questions,omitzero"`
+	EnableSearchClassifier  *bool             `json:"enable_search_classifier,omitzero"`
+	DisableSearch           *bool             `json:"disable_search,omitzero"`
 	SearchDomainFilter      []string          `json:"search_domain_filter,omitempty"`
 	SearchLanguageFilter    []string          `json:"search_language_filter,omitempty"`
 	SearchRecencyFilter     SearchRecency     `json:"search_recency_filter,omitempty"`
@@ -197,12 +197,12 @@ func prepareRequest(source *corechat.Request, target *openai.CompatibleRequest) 
 	if validationErr := options.ValidateFor(target.Model(), target.Stream()); validationErr != nil {
 		return validationErr
 	}
-	encoded, err := json.Marshal(options)
+	encoded, err := jsonv2.Marshal(options)
 	if err != nil {
 		return fmt.Errorf("encode extension %q: %w", RequestExtensionKey, err)
 	}
 	var fields map[string]any
-	if err := json.Unmarshal(encoded, &fields); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &fields); err != nil {
 		return fmt.Errorf("normalize extension %q: %w", RequestExtensionKey, err)
 	}
 	for field, value := range fields {

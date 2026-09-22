@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -312,7 +313,7 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 				s.metadataField:     lo.CoalesceMapOrEmpty(metadataValues),
 				s.embeddingField:    embedding.Float32Vector(vectors[i]),
 			}
-			body, err := json.Marshal(payload)
+			body, err := jsonv2.Marshal(payload)
 			if err != nil {
 				return fmt.Errorf("azurecosmos: marshal item %s: %w", id, err)
 			}
@@ -435,7 +436,7 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 			var holder struct {
 				ID string `json:"_id"`
 			}
-			if err := json.Unmarshal(item, &holder); err != nil {
+			if err := jsonv2.Unmarshal(item, &holder); err != nil {
 				return fmt.Errorf("azurecosmos: decode id: %w", err)
 			}
 			ids = append(ids, holder.ID)
@@ -472,7 +473,7 @@ func (s *Store) decodeRow(raw json.RawMessage, minScore vectorstore.Score) (*vec
 		Metadata    metadata.Map `json:"_metadata"`
 		VectorScore *float64     `json:"_vector_score"`
 	}
-	if err := json.Unmarshal(raw, &row); err != nil {
+	if err := jsonv2.Unmarshal(raw, &row); err != nil {
 		return nil, fmt.Errorf("azurecosmos: decode row: %w", err)
 	}
 

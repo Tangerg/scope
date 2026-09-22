@@ -2,7 +2,7 @@ package eval_test
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -46,7 +46,7 @@ func TestReportBoundsRecursiveDetails(t *testing.T) {
 	if _, err := overLimit.Clone(); !errors.Is(err, eval.ErrInvalidReport) {
 		t.Fatalf("Clone() over limit error = %v, want ErrInvalidReport", err)
 	}
-	if _, err := json.Marshal(overLimit); !errors.Is(err, eval.ErrInvalidReport) {
+	if _, err := jsonv2.Marshal(overLimit); !errors.Is(err, eval.ErrInvalidReport) {
 		t.Fatalf("Marshal() over limit error = %v, want ErrInvalidReport", err)
 	}
 }

@@ -2,6 +2,7 @@ package exa
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -26,7 +27,7 @@ func TestSearch(t *testing.T) {
 			NumResults int      `json:"numResults"`
 			Domains    []string `json:"includeDomains"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := jsonv2.UnmarshalRead(r.Body, &body); err != nil {
 			t.Errorf("decode body: %v", err)
 			return
 		}
@@ -56,7 +57,7 @@ func TestFetchRequestsTextAndRequiresItsPresence(t *testing.T) {
 		for _, body := range []string{`{"results":[{}]}`, `{"results":[{"text":""}]}`, `{"results":[{"text":"content"}]}`} {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var request map[string]json.RawMessage
-				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				if err := jsonv2.UnmarshalRead(r.Body, &request); err != nil {
 					t.Error(err)
 				}
 				if _, exists := request["text"]; !exists {

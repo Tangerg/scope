@@ -1,7 +1,7 @@
 package perplexity_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -18,7 +18,7 @@ func TestChatMapsOfficialSonarOptionsAndResponse(t *testing.T) {
 		if request.URL.Path != "/chat/completions" {
 			t.Errorf("path = %q; want official OpenAI-compatible alias /chat/completions", request.URL.Path)
 		}
-		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
 			t.Errorf("decode request: %v", err)
 			http.Error(writer, "invalid request", http.StatusBadRequest)
 			return
@@ -88,7 +88,7 @@ func TestChatMapsOfficialSonarOptionsAndResponse(t *testing.T) {
 func TestChatCallSupportsProSearch(t *testing.T) {
 	var wire map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if err := json.NewDecoder(request.Body).Decode(&wire); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, &wire); err != nil {
 			t.Error(err)
 			return
 		}

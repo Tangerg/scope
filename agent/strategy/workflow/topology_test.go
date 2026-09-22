@@ -161,7 +161,7 @@ func assertTopologyCase(
 	for index, want := range test.bindings {
 		assertTopologyBinding(t, index, stage.Bindings[index], want, budget, capabilities)
 	}
-	wire, err := json.Marshal(topology)
+	wire, err := jsonv2.Marshal(topology)
 	if err != nil {
 		t.Fatalf("marshal Topology: %v", err)
 	}
@@ -171,7 +171,7 @@ func assertTopologyCase(
 				MaxItems uint32 `json:"max_items"`
 			} `json:"stages"`
 		}
-		if err := json.Unmarshal(wire, &projection); err != nil {
+		if err := jsonv2.Unmarshal(wire, &projection); err != nil {
 			t.Fatalf("unmarshal Topology projection: %v", err)
 		}
 		if len(projection.Stages) != 1 || projection.Stages[0].MaxItems != test.maxItems {
@@ -257,7 +257,7 @@ func mustTopologyDeployment[I, O any](
 	return deployment
 }
 
-func TestTopologyLimitPresenceIsIndependentOfJSONMarshaller(t *testing.T) {
+func TestTopologyLimitPresence(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		maximum *agent.Quota
@@ -273,18 +273,16 @@ func TestTopologyLimitPresenceIsIndependentOfJSONMarshaller(t *testing.T) {
 				t.Fatal(err)
 			}
 			stage := workflow.StageTopology{ID: "test", Kind: workflow.StageKindTransform, InputSchema: schema, OutputSchema: schema, MaxIterations: test.maximum}
-			for _, marshal := range []func(any) ([]byte, error){json.Marshal, func(value any) ([]byte, error) { return jsonv2.Marshal(value) }} {
-				data, err := marshal(stage)
-				if err != nil {
-					t.Fatal(err)
-				}
-				var fields map[string]json.RawMessage
-				if err := json.Unmarshal(data, &fields); err != nil {
-					t.Fatal(err)
-				}
-				if string(fields["max_iterations"]) != test.want || fields["window_size"] != nil || fields["max_items"] != nil {
-					t.Fatalf("unexpected projected limits: %s", data)
-				}
+			data, err := jsonv2.Marshal(stage)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]json.RawMessage
+			if err := jsonv2.Unmarshal(data, &fields); err != nil {
+				t.Fatal(err)
+			}
+			if string(fields["max_iterations"]) != test.want || fields["window_size"] != nil || fields["max_items"] != nil {
+				t.Fatalf("unexpected projected limits: %s", data)
 			}
 		})
 	}

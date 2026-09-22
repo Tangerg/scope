@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -78,7 +79,7 @@ func processSnapshotFromWire(wire processSnapshotWire) (ProcessSnapshot, error) 
 	if err := wire.validate(); err != nil {
 		return ProcessSnapshot{}, err
 	}
-	normalized, err := json.Marshal(wire)
+	normalized, err := jsonv2.Marshal(wire, jsonv2.Deterministic(true))
 	if err != nil {
 		return ProcessSnapshot{}, fmt.Errorf("%w: encode: %w", ErrInvalidSnapshot, err)
 	}
@@ -252,7 +253,7 @@ func (p ProcessSnapshot) wire() (processSnapshotWire, error) {
 }
 
 type pendingControlWire struct {
-	Failure            *Failure          `json:"failure,omitempty"`
+	Failure            *Failure          `json:"failure,omitzero"`
 	KillReason         string            `json:"kill_reason,omitempty"`
 	DeadlineOwner      deadlineOwner     `json:"deadline_owner,omitempty"`
 	DeadlineReason     string            `json:"deadline_reason,omitempty"`
@@ -264,10 +265,10 @@ type pendingControlWire struct {
 type processSnapshotWire struct {
 	ProcessID               ProcessID           `json:"process_id"`
 	Relation                processRelationWire `json:"relation"`
-	ChildRequestDigest      *Digest             `json:"child_request_digest,omitempty"`
+	ChildRequestDigest      *Digest             `json:"child_request_digest,omitzero"`
 	DeploymentRef           DeploymentRef       `json:"deployment_ref"`
 	StartedAt               time.Time           `json:"started_at"`
-	FinishedAt              *time.Time          `json:"finished_at,omitempty"`
+	FinishedAt              *time.Time          `json:"finished_at,omitzero"`
 	Status                  Status              `json:"status"`
 	CommittedSteps          uint64              `json:"committed_steps"`
 	Limits                  Limits              `json:"limits"`
@@ -277,12 +278,12 @@ type processSnapshotWire struct {
 	Counters                processCounters     `json:"counters"`
 	CommittedExecutionState ExecutionState      `json:"committed_execution_state"`
 	Mailbox                 mailboxWire         `json:"mailbox"`
-	Prepared                *preparedStep       `json:"prepared,omitempty"`
-	CurrentWaitID           *WaitID             `json:"current_wait_id,omitempty"`
+	Prepared                *preparedStep       `json:"prepared,omitzero"`
+	CurrentWaitID           *WaitID             `json:"current_wait_id,omitzero"`
 	PauseReason             string              `json:"pause_reason,omitempty"`
 	PendingControl          pendingControlWire  `json:"pending_control"`
 	Output                  Payload             `json:"output,omitzero"`
-	Termination             *Termination        `json:"termination,omitempty"`
+	Termination             *Termination        `json:"termination,omitzero"`
 }
 
 // A one-byte placeholder keeps optional fields present in the real wire codec.
@@ -333,7 +334,7 @@ func (p processSnapshotWire) admissionSize() (uint64, error) {
 			DeadlineOwner: deadlineOwnerParent, DeadlineReason: reservation.reason(),
 			CancellationOwner: cancellationOwnerParent, CancellationReason: reservation.reason(),
 		}
-		pending, err := json.Marshal(p)
+		pending, err := jsonv2.Marshal(p)
 		if err != nil {
 			return 0, err
 		}
@@ -349,7 +350,7 @@ func (p processSnapshotWire) admissionSize() (uint64, error) {
 		termination := failure.termination().withUnresolvedEffectIDs(unresolved)
 		p.Termination = &termination
 	}
-	encoded, err := json.Marshal(p)
+	encoded, err := jsonv2.Marshal(p)
 	if err != nil {
 		return 0, err
 	}

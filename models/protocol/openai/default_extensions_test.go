@@ -1,7 +1,7 @@
 package openai
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -31,7 +31,7 @@ func TestChatDefaultsReachNativeExtensionAndDialect(t *testing.T) {
 					t.Fatal(setErr)
 				}
 			}
-			before, err := json.Marshal(request)
+			before, err := jsonv2.Marshal(request)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -51,20 +51,20 @@ func TestChatDefaultsReachNativeExtensionAndDialect(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			body, err := json.Marshal(parameters)
+			body, err := jsonv2.Marshal(parameters)
 			if err != nil {
 				t.Fatal(err)
 			}
 			var wire struct {
 				ServiceTier string `json:"service_tier"`
 			}
-			if decodeErr := json.Unmarshal(body, &wire); decodeErr != nil {
+			if decodeErr := jsonv2.Unmarshal(body, &wire); decodeErr != nil {
 				t.Fatal(decodeErr)
 			}
 			if wire.ServiceTier != wantTier || !called {
 				t.Fatalf("wire tier=%q dialect=%t", wire.ServiceTier, called)
 			}
-			after, err := json.Marshal(request)
+			after, err := jsonv2.Marshal(request)
 			if err != nil {
 				t.Fatal(err)
 			}

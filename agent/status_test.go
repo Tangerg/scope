@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 )
@@ -57,7 +57,7 @@ func TestStatusStrictJSONRoundTrip(t *testing.T) {
 		StatusCompleted, StatusFailed, StatusCanceled, StatusTimedOut, StatusKilled,
 	}
 	for _, status := range statuses {
-		data, err := json.Marshal(status)
+		data, err := jsonv2.Marshal(status)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -65,19 +65,19 @@ func TestStatusStrictJSONRoundTrip(t *testing.T) {
 			t.Fatalf("Status %q JSON = %s, want %s", status, got, want)
 		}
 		var decoded Status
-		if err := json.Unmarshal(data, &decoded); err != nil {
+		if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 			t.Fatal(err)
 		}
 		if decoded != status {
 			t.Fatalf("decoded Status = %s, want %s", decoded, status)
 		}
 	}
-	if _, err := json.Marshal(StatusInvalid); !errors.Is(err, ErrInvalidStatus) {
+	if _, err := jsonv2.Marshal(StatusInvalid); !errors.Is(err, ErrInvalidStatus) {
 		t.Fatalf("marshal invalid Status error = %v, want ErrInvalidStatus", err)
 	}
 	var decoded Status
 	priorSpelling := []byte{'"', 'c', 'a', 'n', 'c', 'e', 'l', 'l', 'e', 'd', '"'}
-	if err := json.Unmarshal(priorSpelling, &decoded); !errors.Is(err, ErrInvalidStatus) {
+	if err := jsonv2.Unmarshal(priorSpelling, &decoded); !errors.Is(err, ErrInvalidStatus) {
 		t.Fatalf("prior Status spelling error = %v, want ErrInvalidStatus", err)
 	}
 }
@@ -94,26 +94,26 @@ func TestResolveTerminationRejectsMissingFacts(t *testing.T) {
 func TestTerminationJSONRoundTripRejectsContradictoryState(t *testing.T) {
 	failure, _ := NewFailure(FailureKindExternal, "dispatcher.failed", "dispatcher failed")
 	termination := failure.termination()
-	data, err := json.Marshal(termination)
+	data, err := jsonv2.Marshal(termination)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded Termination
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if !decoded.Valid() || decoded.Status() != StatusFailed || decoded.Cause() != TerminationCauseExternalFailure {
 		t.Fatalf("decoded termination=%+v", decoded)
 	}
 	contradictory := []byte(`{"status":"completed","cause":"external_failure","reason":"failed","failure":{"kind":"external","code":"dispatcher.failed","message":"failed"}}`)
-	if err := json.Unmarshal(contradictory, &decoded); err == nil {
+	if err := jsonv2.Unmarshal(contradictory, &decoded); err == nil {
 		t.Fatal("Termination accepted contradictory status and cause")
 	}
 }
 
 func TestStatusRejectsUnoccupiedLifecycleState(t *testing.T) {
 	status := StatusRunning
-	if err := json.Unmarshal([]byte(`"not_started"`), &status); !errors.Is(err, ErrInvalidStatus) {
+	if err := jsonv2.Unmarshal([]byte(`"not_started"`), &status); !errors.Is(err, ErrInvalidStatus) {
 		t.Fatalf("decode unoccupied state: %v", err)
 	}
 	if status != StatusRunning || Status("not_started").Valid() {

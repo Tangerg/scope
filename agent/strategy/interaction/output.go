@@ -44,7 +44,7 @@ type Output struct {
 
 	// ModelResponse is the authoritative accumulated response when Source is
 	// CompletionSourceModelResponse.
-	ModelResponse *chat.Response `json:"model_response,omitempty"`
+	ModelResponse *chat.Response `json:"model_response,omitzero"`
 
 	// DirectToolResults preserves model ToolCall order when Source is
 	// CompletionSourceDirectToolResults.

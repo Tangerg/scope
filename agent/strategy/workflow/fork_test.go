@@ -2,7 +2,7 @@ package workflow_test
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -310,7 +310,7 @@ func (m *managedBranchDefinition) Restore(ctx context.Context, state agent.Execu
 		return nil, agent.ErrInvalidExecutionState
 	}
 	var execution managedBranchExecution
-	if err := json.Unmarshal(state.Payload(), &execution); err != nil {
+	if err := jsonv2.Unmarshal(state.Payload(), &execution); err != nil {
 		return nil, err
 	}
 	if execution.Branch != m.branch || execution.Phase > 2 {
@@ -328,7 +328,7 @@ type managedBranchExecution struct {
 func (m *managedBranchExecution) Step(_ context.Context, signals []agent.Signal) (agent.Transition, error) {
 	switch m.Phase {
 	case 0:
-		payload, _ := json.Marshal(struct {
+		payload, _ := jsonv2.Marshal(struct {
 			Branch string `json:"branch"`
 			Value  int    `json:"value"`
 		}{Branch: m.Branch, Value: m.Value})
@@ -354,7 +354,7 @@ func (m *managedBranchExecution) Step(_ context.Context, signals []agent.Signal)
 }
 
 func (m *managedBranchExecution) Snapshot() (agent.ExecutionState, error) {
-	payload, err := json.Marshal(m)
+	payload, err := jsonv2.Marshal(m)
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
@@ -372,7 +372,7 @@ func (m managedBranchDispatcher) Dispatch(
 		Branch string `json:"branch"`
 		Value  int    `json:"value"`
 	}
-	if err := json.Unmarshal(request.Effect().Payload(), &call); err != nil {
+	if err := jsonv2.Unmarshal(request.Effect().Payload(), &call); err != nil {
 		return agent.Settlement{}, err
 	}
 	m.tracker.started <- call.Branch
@@ -381,7 +381,7 @@ func (m managedBranchDispatcher) Dispatch(
 	case <-ctx.Done():
 		return agent.Settlement{}, ctx.Err()
 	}
-	payload, _ := json.Marshal(branchOutput{Branch: call.Branch, Value: call.Value})
+	payload, _ := jsonv2.Marshal(branchOutput{Branch: call.Branch, Value: call.Value})
 	return agent.NewSettlement(request.ID(), agent.SettlementStatusSucceeded, payload)
 }
 

@@ -2,7 +2,7 @@ package catalog
 
 import (
 	"embed"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"io/fs"
 	"strings"
@@ -57,7 +57,7 @@ func mustLoad() map[string]catalogEntry {
 			panic(fmt.Errorf("catalog: read %s: %w", name, err))
 		}
 		var config providerConfig
-		if err := json.Unmarshal(raw, &config); err != nil {
+		if err := jsonv2.Unmarshal(raw, &config); err != nil {
 			panic(fmt.Errorf("catalog: invalid config %s: %w", name, err))
 		}
 		models := make(map[string]Model, len(config.Models))

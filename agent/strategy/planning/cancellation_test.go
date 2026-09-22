@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"testing"
@@ -100,7 +101,7 @@ func TestPlannerCancellationRemainsAnError(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			raw, err := json.Marshal(struct {
+			raw, err := jsonv2.Marshal(struct {
 				ID      string          `json:"id"`
 				Payload json.RawMessage `json:"payload"`
 			}{ID: "signal:engine:sense", Payload: payload})
@@ -108,7 +109,7 @@ func TestPlannerCancellationRemainsAnError(t *testing.T) {
 				t.Fatal(err)
 			}
 			var signal agent.Signal
-			if err = json.Unmarshal(raw, &signal); err != nil {
+			if err = jsonv2.Unmarshal(raw, &signal); err != nil {
 				t.Fatal(err)
 			}
 			transition, err := execution.Step(t.Context(), []agent.Signal{signal})
@@ -177,7 +178,7 @@ func TestManagedPlanValidationCancellation(t *testing.T) {
 					t.Fatal(err)
 				}
 				var signal agent.Signal
-				if err = json.Unmarshal([]byte(`{"id":"signal:engine:sense","payload":`+string(payload)+`}`), &signal); err != nil {
+				if err = jsonv2.Unmarshal([]byte(`{"id":"signal:engine:sense","payload":`+string(payload)+`}`), &signal); err != nil {
 					t.Fatal(err)
 				}
 				transition, err := execution.Step(ctx, []agent.Signal{signal})

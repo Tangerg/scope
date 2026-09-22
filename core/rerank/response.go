@@ -1,7 +1,6 @@
 package rerank
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"math"
@@ -29,7 +28,7 @@ func (s Score) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireScore Score
-	return json.Marshal(wireScore(s))
+	return jsonv2.Marshal(wireScore(s))
 }
 
 func (s *Score) UnmarshalJSON(data []byte) error {
@@ -85,7 +84,7 @@ func (r Result) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireResult Result
-	return json.Marshal(wireResult(r))
+	return jsonv2.Marshal(wireResult(r))
 }
 
 func (r *Result) UnmarshalJSON(data []byte) error {
@@ -122,7 +121,7 @@ func (u Usage) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireUsage Usage
-	return json.Marshal(wireUsage(u))
+	return jsonv2.Marshal(wireUsage(u))
 }
 
 func (u *Usage) UnmarshalJSON(data []byte) error {
@@ -146,7 +145,7 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 // provider response metadata.
 type ResponseMetadata struct {
 	Model string       `json:"model"`
-	Usage *Usage       `json:"usage,omitempty"`
+	Usage *Usage       `json:"usage,omitzero"`
 	Extra metadata.Map `json:"extra,omitzero"`
 }
 
@@ -173,7 +172,7 @@ func (r ResponseMetadata) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireResponseMetadata ResponseMetadata
-	return json.Marshal(wireResponseMetadata(r))
+	return jsonv2.Marshal(wireResponseMetadata(r))
 }
 
 func (r *ResponseMetadata) UnmarshalJSON(data []byte) error {
@@ -196,7 +195,7 @@ func (r *ResponseMetadata) UnmarshalJSON(data []byte) error {
 // Response is a relevance-descending subset of the input document indices.
 type Response struct {
 	Results  []*Result         `json:"results"`
-	Metadata *ResponseMetadata `json:"metadata,omitempty"`
+	Metadata *ResponseMetadata `json:"metadata,omitzero"`
 }
 
 // NewResponse validates a complete provider result at the protocol boundary.
@@ -265,7 +264,7 @@ func (r Response) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireResponse Response
-	return json.Marshal(wireResponse(r))
+	return jsonv2.Marshal(wireResponse(r))
 }
 
 func (r *Response) UnmarshalJSON(data []byte) error {

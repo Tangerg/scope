@@ -1,7 +1,6 @@
 package metadata
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
@@ -75,7 +74,7 @@ func (e *Extensions) UnmarshalJSON(data []byte) error {
 		return ErrNilMap
 	}
 	var values Map
-	if err := json.Unmarshal(data, &values); err != nil {
+	if err := jsonv2.Unmarshal(data, &values); err != nil {
 		return fmt.Errorf("metadata: decode extensions: %w", err)
 	}
 	candidate := Extensions{values: values}

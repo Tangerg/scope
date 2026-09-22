@@ -1,7 +1,7 @@
 package planning
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
@@ -129,7 +129,7 @@ func (w WorldState) MarshalJSON() ([]byte, error) {
 	if conditions == nil {
 		conditions = []Condition{}
 	}
-	return json.Marshal(worldStateWire{Conditions: conditions})
+	return jsonv2.Marshal(worldStateWire{Conditions: conditions})
 }
 
 func (w *WorldState) UnmarshalJSON(data []byte) error {

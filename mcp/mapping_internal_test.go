@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"strings"
 	"testing"
 
@@ -257,12 +258,12 @@ func TestMapServerToolOutputPreservesStructuredJSON(t *testing.T) {
 				t.Fatal(err)
 			}
 			clear(output.Details)
-			data, err := json.Marshal(result)
+			data, err := jsonv2.Marshal(result)
 			if err != nil {
 				t.Fatal(err)
 			}
 			var wire map[string]json.RawMessage
-			if decodeErr := json.Unmarshal(data, &wire); decodeErr != nil {
+			if decodeErr := jsonv2.Unmarshal(data, &wire); decodeErr != nil {
 				t.Fatal(decodeErr)
 			}
 			if got := string(wire["structuredContent"]); got != details {
@@ -274,12 +275,12 @@ func TestMapServerToolOutputPreservesStructuredJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(empty)
+	data, err := jsonv2.Marshal(empty)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var wire map[string]json.RawMessage
-	if decodeErr := json.Unmarshal(data, &wire); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal(data, &wire); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
 	if _, present := wire["structuredContent"]; present {

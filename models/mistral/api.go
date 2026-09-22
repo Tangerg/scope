@@ -3,7 +3,7 @@ package mistral
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -136,12 +136,12 @@ func newAPIError(operation string, statusCode int, header http.Header, body []by
 		Message string `json:"message"`
 		Detail  any    `json:"detail"`
 	}
-	if json.Unmarshal(body, &payload) == nil {
+	if jsonv2.Unmarshal(body, &payload) == nil {
 		switch {
 		case payload.Message != "":
 			message = payload.Message
 		case payload.Detail != nil:
-			if encoded, err := json.Marshal(payload.Detail); err == nil {
+			if encoded, err := jsonv2.Marshal(payload.Detail); err == nil {
 				message = string(encoded)
 			}
 		}

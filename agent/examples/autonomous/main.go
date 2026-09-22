@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -113,7 +114,7 @@ func (additionTool) Call(_ context.Context, invocation tool.Invocation) (chat.To
 		Left  float64 `json:"left"`
 		Right float64 `json:"right"`
 	}
-	if err := json.Unmarshal(invocation.Arguments(), &input); err != nil {
+	if err := jsonv2.Unmarshal(invocation.Arguments(), &input); err != nil {
 		return chat.ToolOutput{}, err
 	}
 	return chat.NewTextToolOutput(fmt.Sprintf("%g", input.Left+input.Right)), nil

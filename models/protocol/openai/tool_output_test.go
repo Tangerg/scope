@@ -2,6 +2,7 @@ package openai
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"strings"
 	"testing"
 
@@ -77,14 +78,14 @@ func TestResponsesCitationsCoverOfficialAnnotationVariants(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var annotation responses.ResponseOutputTextAnnotationUnion
-			if unmarshalErr := json.Unmarshal([]byte(tt.data), &annotation); unmarshalErr != nil {
+			if unmarshalErr := jsonv2.Unmarshal([]byte(tt.data), &annotation); unmarshalErr != nil {
 				t.Fatal(unmarshalErr)
 			}
 			citation, include, err := responsesCitation(annotation)
 			assertProjectedCitation(t, citation, include, err, tt.wantKind, tt.wantValue)
 
 			var streamAnnotation responses.ResponseOutputTextAnnotationAddedEventAnnotationUnion
-			if unmarshalErr := json.Unmarshal([]byte(tt.data), &streamAnnotation); unmarshalErr != nil {
+			if unmarshalErr := jsonv2.Unmarshal([]byte(tt.data), &streamAnnotation); unmarshalErr != nil {
 				t.Fatal(unmarshalErr)
 			}
 			citation, include, err = responsesStreamCitation(streamAnnotation)

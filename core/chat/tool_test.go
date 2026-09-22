@@ -2,6 +2,7 @@ package chat_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -95,12 +96,12 @@ func TestToolOutputJSONOwnsValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(original)
+	data, err := jsonv2.Marshal(original)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded chat.ToolOutput
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if text, ok := decoded.Text(); !ok || text != `{"ok":true}` {
@@ -108,13 +109,13 @@ func TestToolOutputJSONOwnsValidation(t *testing.T) {
 	}
 
 	invalid := chat.ToolOutput{Content: []chat.ToolContent{{Kind: chat.PartToolCall}}}
-	if _, err := json.Marshal(invalid); !errors.Is(err, chat.ErrInvalidToolOutput) {
+	if _, err := jsonv2.Marshal(invalid); !errors.Is(err, chat.ErrInvalidToolOutput) {
 		t.Fatalf("Marshal error = %v, want ErrInvalidToolOutput", err)
 	}
 
 	decoded = original
 	malformed := []byte(`{"content":[{"kind":"tool_call","tool_call":{"id":"call","name":"tool"}}]}`)
-	if err := json.Unmarshal(malformed, &decoded); !errors.Is(err, chat.ErrInvalidToolOutput) {
+	if err := jsonv2.Unmarshal(malformed, &decoded); !errors.Is(err, chat.ErrInvalidToolOutput) {
 		t.Fatalf("Unmarshal error = %v, want ErrInvalidToolOutput", err)
 	}
 	if text, ok := decoded.Text(); !ok || text != `{"ok":true}` {
@@ -134,12 +135,12 @@ func TestToolOutputPreservesEmptyJSONValues(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			data, err := json.Marshal(output)
+			data, err := jsonv2.Marshal(output)
 			if err != nil {
 				t.Fatal(err)
 			}
 			var restored chat.ToolOutput
-			if err := json.Unmarshal(data, &restored); err != nil {
+			if err := jsonv2.Unmarshal(data, &restored); err != nil {
 				t.Fatal(err)
 			}
 			if string(restored.Details) != raw {

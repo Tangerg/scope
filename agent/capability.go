@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -112,7 +112,7 @@ func (c CapabilitySet) MarshalJSON() ([]byte, error) {
 	if len(c.values) == 0 {
 		return []byte("[]"), nil
 	}
-	return json.Marshal(c.values)
+	return jsonv2.Marshal(c.values)
 }
 
 func (CapabilitySet) JSONSchemaAlias() any { return []Capability{} }

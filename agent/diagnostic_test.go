@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"strings"
 	"testing"
 )
@@ -27,12 +27,12 @@ func TestNormalizedDiagnosticsSurviveFailurePersistence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			data, err := json.Marshal(failure)
+			data, err := jsonv2.Marshal(failure)
 			if err != nil {
 				t.Fatal(err)
 			}
 			var restored Failure
-			if err := json.Unmarshal(data, &restored); err != nil || restored != failure {
+			if err := jsonv2.Unmarshal(data, &restored); err != nil || restored != failure {
 				t.Fatalf("restored failure = %+v, error = %v", restored, err)
 			}
 		})

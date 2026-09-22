@@ -1,7 +1,7 @@
 package planning
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"math"
 	"slices"
@@ -34,7 +34,7 @@ func (p PlannedAction) MarshalJSON() ([]byte, error) {
 	if !p.Valid() {
 		return nil, ErrInvalidPlan
 	}
-	return json.Marshal(p.name)
+	return jsonv2.Marshal(p.name)
 }
 
 func (p *PlannedAction) UnmarshalJSON(data []byte) error {
@@ -106,7 +106,7 @@ func (p Plan) MarshalJSON() ([]byte, error) {
 	if actions == nil {
 		actions = []PlannedAction{}
 	}
-	return json.Marshal(planWire{Actions: actions, TotalCost: p.totalCost})
+	return jsonv2.Marshal(planWire{Actions: actions, TotalCost: p.totalCost})
 }
 
 func (p *Plan) UnmarshalJSON(data []byte) error {

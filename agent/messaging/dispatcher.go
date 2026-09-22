@@ -2,7 +2,7 @@ package messaging
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 
 	"github.com/samber/lo"
@@ -97,7 +97,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, 
 	if deliveryErr := d.port.Deliver(ctx, request.ProcessID(), message.Recipient, signal); deliveryErr != nil {
 		return agent.Settlement{}, deliveryErr
 	}
-	payload, err := json.Marshal(Receipt{Recipient: message.Recipient, SignalID: id})
+	payload, err := jsonv2.Marshal(Receipt{Recipient: message.Recipient, SignalID: id})
 	if err != nil {
 		return agent.Settlement{}, err
 	}
@@ -108,7 +108,7 @@ var _ agent.Dispatcher = (*Dispatcher)(nil)
 
 // A failed payload carries a diagnostic string; a successful payload is Receipt.
 func messageFailureSettlement(id agent.EffectID, cause error) (agent.Settlement, error) {
-	payload, err := json.Marshal(agent.NormalizeDiagnostic(cause.Error()))
+	payload, err := jsonv2.Marshal(agent.NormalizeDiagnostic(cause.Error()))
 	if err != nil {
 		return agent.Settlement{}, err
 	}

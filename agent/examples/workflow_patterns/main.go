@@ -5,7 +5,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -348,7 +348,7 @@ func newPatternRoot(
 	for _, child := range children {
 		configuration.Children = append(configuration.Children, child.DeploymentRef().Digest().String())
 	}
-	configurationJSON, err := json.Marshal(configuration)
+	configurationJSON, err := jsonv2.Marshal(configuration)
 	if err != nil {
 		return agent.Deployment{}, err
 	}
@@ -492,7 +492,7 @@ func transformDeployment[I, O any](
 	if err != nil {
 		return agent.Deployment{}, err
 	}
-	configurationJSON, err := json.Marshal(configuration)
+	configurationJSON, err := jsonv2.Marshal(configuration)
 	if err != nil {
 		return agent.Deployment{}, fmt.Errorf("encode %s configuration: %w", name, err)
 	}

@@ -1,7 +1,7 @@
 package protocol
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -316,7 +316,7 @@ func protocolCitations(metadata *genai.CitationMetadata) []corechat.Citation {
 }
 
 func protocolJSON(value any) (string, error) {
-	encoded, err := json.Marshal(value)
+	encoded, err := jsonv2.Marshal(value)
 	if err != nil {
 		return "", err
 	}
@@ -378,12 +378,12 @@ func mapProtocolUsage(usage *genai.GenerateContentResponseUsageMetadata) *corech
 }
 
 type protocolUsageExtension struct {
-	PromptTokenCount        int32 `json:"prompt_token_count,omitempty"`
-	CandidatesTokenCount    int32 `json:"candidates_token_count,omitempty"`
-	ThoughtsTokenCount      int32 `json:"thoughts_token_count,omitempty"`
-	ToolUsePromptTokenCount int32 `json:"tool_use_prompt_token_count,omitempty"`
-	CachedContentTokenCount int32 `json:"cached_content_token_count,omitempty"`
-	TotalTokenCount         int32 `json:"total_token_count,omitempty"`
+	PromptTokenCount        int32 `json:"prompt_token_count,omitzero"`
+	CandidatesTokenCount    int32 `json:"candidates_token_count,omitzero"`
+	ThoughtsTokenCount      int32 `json:"thoughts_token_count,omitzero"`
+	ToolUsePromptTokenCount int32 `json:"tool_use_prompt_token_count,omitzero"`
+	CachedContentTokenCount int32 `json:"cached_content_token_count,omitzero"`
+	TotalTokenCount         int32 `json:"total_token_count,omitzero"`
 }
 
 func protocolUsageExtensionFrom(usage *genai.GenerateContentResponseUsageMetadata) protocolUsageExtension {

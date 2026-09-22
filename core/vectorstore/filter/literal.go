@@ -2,6 +2,7 @@ package filter
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -96,7 +97,7 @@ func (l *Literal) AsNumber() (json.Number, error) {
 		return "", fmt.Errorf("filter: read number literal: expected number, got %s", l.kind)
 	}
 	var number json.Number
-	if err := json.Unmarshal([]byte(l.text), &number); err != nil {
+	if err := jsonv2.Unmarshal([]byte(l.text), &number); err != nil {
 		return "", fmt.Errorf("filter: read number literal: parse %q: %w", l.text, err)
 	}
 	return number, nil

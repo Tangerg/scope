@@ -1,7 +1,7 @@
 package chat_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
 	"testing"
@@ -23,7 +23,7 @@ func BenchmarkRequestJSONHistory(b *testing.B) {
 			}
 			b.ReportAllocs()
 			for b.Loop() {
-				if _, err := json.Marshal(request); err != nil {
+				if _, err := jsonv2.Marshal(request); err != nil {
 					b.Fatal(err)
 				}
 			}

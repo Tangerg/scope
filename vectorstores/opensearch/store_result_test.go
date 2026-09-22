@@ -2,6 +2,8 @@ package opensearch
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
+	"errors"
 	"strings"
 	"testing"
 
@@ -12,7 +14,7 @@ import (
 
 func TestToDocumentAcceptsIndexedNilMetadata(t *testing.T) {
 	store := &Store{contentField: "content", metadataField: "metadata"}
-	source, err := json.Marshal(map[string]any{"content": "hello", "metadata": metadata.Map(nil)})
+	source, err := jsonv2.Marshal(map[string]any{"content": "hello", "metadata": metadata.Map(nil)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,8 +37,9 @@ func TestStoreConfigRejectsFieldCollisions(t *testing.T) {
 
 func TestToDocumentDecodesOwnedMetadata(t *testing.T) {
 	store := &Store{contentField: "content", embeddingField: "embedding", metadataField: "metadata"}
-	source, err := json.Marshal(map[string]any{
+	source, err := jsonv2.Marshal(map[string]any{
 		"content":  "hello",
+		"":         "unrelated source field",
 		"metadata": map[string]any{"tenant": "acme"},
 	})
 	if err != nil {
@@ -59,7 +62,8 @@ func TestToDocumentRejectsMalformedOwnedMetadata(t *testing.T) {
 	store := &Store{contentField: "content", embeddingField: "embedding", metadataField: "metadata"}
 	source := json.RawMessage(`{"content":"hello","metadata":"not-an-object"}`)
 	_, err := store.toDocument(opensearchapi.SearchHit{ID: "doc-1", Source: source})
-	if err == nil || !strings.Contains(err.Error(), `field "metadata" must be an object`) {
+	semantic, ok := errors.AsType[*jsonv2.SemanticError](err)
+	if !ok || semantic.JSONKind != '"' || !strings.Contains(err.Error(), `field "metadata"`) {
 		t.Fatalf("toDocument error = %v", err)
 	}
 }

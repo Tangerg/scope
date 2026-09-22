@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 )
@@ -88,12 +89,12 @@ func TestDescriptorDigestChangesWithContract(t *testing.T) {
 
 func TestDescriptorJSONRejectsDrift(t *testing.T) {
 	descriptor := testDescriptor(t)
-	data, err := json.Marshal(descriptor)
+	data, err := jsonv2.Marshal(descriptor)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded Descriptor
-	if unmarshalErr := json.Unmarshal(data, &decoded); unmarshalErr != nil {
+	if unmarshalErr := jsonv2.Unmarshal(data, &decoded); unmarshalErr != nil {
 		t.Fatal(unmarshalErr)
 	}
 	if decoded.Digest() != descriptor.Digest() {
@@ -101,15 +102,15 @@ func TestDescriptorJSONRejectsDrift(t *testing.T) {
 	}
 
 	var wire map[string]any
-	if unmarshalErr := json.Unmarshal(data, &wire); unmarshalErr != nil {
+	if unmarshalErr := jsonv2.Unmarshal(data, &wire); unmarshalErr != nil {
 		t.Fatal(unmarshalErr)
 	}
 	wire["description"] = "Tampered descriptor."
-	tampered, err := json.Marshal(wire)
+	tampered, err := jsonv2.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal(tampered, &decoded); !errors.Is(err, ErrInvalidDescriptor) {
+	if err := jsonv2.Unmarshal(tampered, &decoded); !errors.Is(err, ErrInvalidDescriptor) {
 		t.Fatalf("unmarshal tampered descriptor error = %v, want ErrInvalidDescriptor", err)
 	}
 }
@@ -163,12 +164,12 @@ func TestDescriptorDecodingEnforcesConstructionRules(t *testing.T) {
 	for _, description := range []string{" leading", "", "trailing "} {
 		wire := descriptorWire{descriptorContractWire: descriptor.contractWire(), Digest: descriptor.Digest()}
 		wire.Description = description
-		data, err := json.Marshal(wire)
+		data, err := jsonv2.Marshal(wire)
 		if err != nil {
 			t.Fatal(err)
 		}
 		decoded := descriptor
-		if err := json.Unmarshal(data, &decoded); !errors.Is(err, ErrInvalidDescriptor) {
+		if err := jsonv2.Unmarshal(data, &decoded); !errors.Is(err, ErrInvalidDescriptor) {
 			t.Fatalf("decode description %q: %v", description, err)
 		}
 		if !decoded.Valid() || decoded.Digest() != descriptor.Digest() {
@@ -198,20 +199,20 @@ func TestDescriptorSignalContractIsFrozenAndRequiredOnWire(t *testing.T) {
 	if err := accepting.ValidateSignal(controlValue(EncodePayload(42))); !errors.Is(err, ErrSignalRejected) {
 		t.Fatalf("invalid Signal admission=%v", err)
 	}
-	data := controlValue(json.Marshal(accepting))
+	data := controlValue(jsonv2.Marshal(accepting))
 	var restored Descriptor
-	if err := json.Unmarshal(data, &restored); err != nil {
+	if err := jsonv2.Unmarshal(data, &restored); err != nil {
 		t.Fatal(err)
 	}
 	if restored.Digest() != accepting.Digest() || restored.ValidateSignal(input) != nil {
 		t.Fatal("signal contract changed on round trip")
 	}
 	var wire map[string]json.RawMessage
-	if err := json.Unmarshal(data, &wire); err != nil {
+	if err := jsonv2.Unmarshal(data, &wire); err != nil {
 		t.Fatal(err)
 	}
 	delete(wire, "signal_schema")
-	if err := json.Unmarshal(controlValue(json.Marshal(wire)), &restored); !errors.Is(err, ErrInvalidDescriptor) {
+	if err := jsonv2.Unmarshal(controlValue(jsonv2.Marshal(wire)), &restored); !errors.Is(err, ErrInvalidDescriptor) {
 		t.Fatalf("missing signal contract accepted: %v", err)
 	}
 }

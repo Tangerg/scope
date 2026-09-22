@@ -2,6 +2,7 @@ package openai_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -117,7 +118,7 @@ func TestResponsesChatCountsTheSameMultimodalInput(t *testing.T) {
 		if request.URL.Path != "/responses/input_tokens" {
 			t.Errorf("path = %q, want /responses/input_tokens", request.URL.Path)
 		}
-		if err := json.NewDecoder(request.Body).Decode(&captured); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, &captured); err != nil {
 			t.Errorf("decode count request: %v", err)
 			http.Error(writer, "invalid request", http.StatusBadRequest)
 			return
@@ -237,7 +238,7 @@ func TestResponsesChatReplaysProviderIssuedReasoningItem(t *testing.T) {
 	requests := make([]map[string]any, 0, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var body map[string]any
-		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
 			t.Errorf("decode request: %v", err)
 			http.Error(writer, "invalid request", http.StatusBadRequest)
 			return
@@ -298,7 +299,7 @@ func TestResponsesChatRejectsUnsupportedOptions(t *testing.T) {
 func TestResponsesChatMapsPortableToolChoice(t *testing.T) {
 	var captured map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if err := json.NewDecoder(request.Body).Decode(&captured); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, &captured); err != nil {
 			t.Errorf("decode request: %v", err)
 			http.Error(writer, "invalid request", http.StatusBadRequest)
 			return

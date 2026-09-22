@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"testing"
@@ -81,12 +82,12 @@ func TestDispatcherUnknownRetainsControlledFailureObservation(t *testing.T) {
 				}()
 				snapshot := waitForUnknownSettlement(t, process)
 				event := receiveTreeRuntimeProbe(t, finished)
-				encoded, err := json.Marshal(event)
+				encoded, err := jsonv2.Marshal(event)
 				if err != nil || bytes.Contains(encoded, []byte(secret)) || bytes.Contains(snapshot.JSON(), []byte(secret)) {
 					t.Fatalf("dispatcher diagnostic escaped observation boundary: %v", err)
 				}
 				var decoded Event
-				if decodeErr := json.Unmarshal(encoded, &decoded); decodeErr != nil {
+				if decodeErr := jsonv2.Unmarshal(encoded, &decoded); decodeErr != nil {
 					t.Fatal(decodeErr)
 				}
 				fact, ok := decoded.EffectFinished()
@@ -224,7 +225,7 @@ func TestEffectFinishedRejectsMisleadingFailureClassification(t *testing.T) {
 				continue
 			}
 			duration := int64(0)
-			payload, err := json.Marshal(effectFinishedEventPayload{AttemptID: newEffectAttemptID(),
+			payload, err := jsonv2.Marshal(effectFinishedEventPayload{AttemptID: newEffectAttemptID(),
 				EffectTarget: target, SettlementStatus: status, DurationMS: &duration,
 				FailureKind: FailureKindExternal, FailureCode: "engine.dispatch.failed",
 			})

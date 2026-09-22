@@ -3,6 +3,7 @@ package cosmosdb_test
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -87,7 +88,7 @@ func TestConversationsUsesPageableProjectionAndReturnsUniqueIDs(t *testing.T) {
 		var query struct {
 			Query string `json:"query"`
 		}
-		if err := json.NewDecoder(request.Body).Decode(&query); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, &query); err != nil {
 			t.Error(err)
 			writer.WriteHeader(http.StatusBadRequest)
 			return
@@ -173,7 +174,7 @@ func TestWriteSendsOneTransactionalBatch(t *testing.T) {
 		if got := request.Header.Get("x-ms-cosmos-is-batch-request"); got != "True" {
 			t.Errorf("batch header = %q, want True", got)
 		}
-		if err := json.NewDecoder(request.Body).Decode(&operations); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, &operations); err != nil {
 			t.Error(err)
 		}
 		fmt.Fprint(writer, `[{"statusCode":201},{"statusCode":201}]`)

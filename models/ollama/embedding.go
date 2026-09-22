@@ -102,10 +102,10 @@ func (e *EmbeddingModel) buildResponse(apiResp *nativeEmbedResponse, expectedRes
 	meta := &embedding.ResponseMetadata{
 		Model: apiResp.Model,
 	}
-	if err := meta.Extra.Set("ollama/total_duration_ns", apiResp.TotalDuration.Nanoseconds()); err != nil {
+	if err := meta.Extra.Set("ollama/total_duration_ns", apiResp.TotalDuration); err != nil {
 		return nil, err
 	}
-	if err := meta.Extra.Set("ollama/load_duration_ns", apiResp.LoadDuration.Nanoseconds()); err != nil {
+	if err := meta.Extra.Set("ollama/load_duration_ns", apiResp.LoadDuration); err != nil {
 		return nil, err
 	}
 	if err := meta.Extra.Set("ollama/prompt_eval_count", apiResp.PromptEvalCount); err != nil {

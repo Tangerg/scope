@@ -17,7 +17,7 @@ type EditRequest struct {
 	Path       string `json:"path" jsonschema:"minLength=1" jsonschema_description:"File path, absolute or relative to the workspace root."`
 	OldString  string `json:"old_string" jsonschema:"required" jsonschema_description:"Exact text to find, copied verbatim from the file (the read tool returns raw text — there is no line-number prefix to strip). Keep it to the few unique lines needed; fails when the match is not unique unless replace_all=true."`
 	NewString  string `json:"new_string" jsonschema:"required" jsonschema_description:"Replacement text. Preserve the surrounding indentation exactly. Must differ from old_string and must not contain NUL bytes."`
-	ReplaceAll bool   `json:"replace_all,omitempty" jsonschema_description:"Replace every occurrence. Default false. Use this for renaming a symbol across the file."`
+	ReplaceAll bool   `json:"replace_all,omitzero" jsonschema_description:"Replace every occurrence. Default false. Use this for renaming a symbol across the file."`
 }
 
 // EditResponse makes replacement cardinality observable to the model.

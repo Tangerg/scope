@@ -51,7 +51,7 @@ type embeddingRequest struct {
 	Model          string   `json:"model"`
 	Texts          []string `json:"texts"`
 	TaskType       string   `json:"task_type,omitempty"`
-	Dimensionality *int64   `json:"dimensionality,omitempty"`
+	Dimensionality *int64   `json:"dimensionality,omitzero"`
 	LongTextMode   string   `json:"long_text_mode,omitempty"`
 }
 

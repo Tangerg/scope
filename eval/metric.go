@@ -129,7 +129,7 @@ func (m Metric) MarshalJSON() ([]byte, error) {
 	if err := m.Validate(); err != nil {
 		return nil, err
 	}
-	return json.Marshal(metricWire{
+	return jsonv2.Marshal(metricWire{
 		Namespace: m.namespace, Name: m.name, Unit: m.unit,
 		Direction: m.direction, Parameters: m.parameters,
 	})
@@ -152,7 +152,7 @@ func (m *Metric) UnmarshalJSON(data []byte) error {
 }
 
 func (m Metric) identity() (string, error) {
-	encoded, err := json.Marshal(m)
+	encoded, err := jsonv2.Marshal(m)
 	if err != nil {
 		return "", fmt.Errorf("%w: encode identity: %w", ErrInvalidMetric, err)
 	}

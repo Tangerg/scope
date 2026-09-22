@@ -2,6 +2,7 @@ package metadata_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"reflect"
 	"testing"
@@ -213,12 +214,12 @@ func TestJSONRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	encoded, err := json.Marshal(src)
+	encoded, err := jsonv2.Marshal(src)
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
 	var got metadata.Map
-	if err := json.Unmarshal(encoded, &got); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &got); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 	if !reflect.DeepEqual(got, src) {
@@ -228,14 +229,14 @@ func TestJSONRoundTrip(t *testing.T) {
 
 func TestMarshalRejectsInvalidRawMessage(t *testing.T) {
 	m := metadata.Map{"bad": json.RawMessage(`{`)}
-	if _, err := json.Marshal(m); !errors.Is(err, metadata.ErrInvalidValue) {
+	if _, err := jsonv2.Marshal(m); !errors.Is(err, metadata.ErrInvalidValue) {
 		t.Fatalf("Marshal error = %v, want ErrInvalidValue", err)
 	}
 }
 
 func TestUnmarshalRejectsNonObject(t *testing.T) {
 	var m metadata.Map
-	if err := json.Unmarshal([]byte(`[]`), &m); err == nil {
+	if err := jsonv2.Unmarshal([]byte(`[]`), &m); err == nil {
 		t.Fatal("Unmarshal accepted an array")
 	}
 }
@@ -316,7 +317,7 @@ func TestMetadataRejectsLossyJSONAtomically(t *testing.T) {
 		}
 	}
 	for _, raw := range [][]byte{[]byte(`{"value":{"key":1,"key":2}}`), {'{', '"', 0xff, '"', ':', '1', '}'}} {
-		if err := json.Unmarshal(raw, &value); err == nil {
+		if err := jsonv2.Unmarshal(raw, &value); err == nil {
 			t.Fatal("metadata parsed lossy JSON")
 		}
 		if len(value) != 1 || string(value["retained"]) != "true" {
@@ -330,12 +331,12 @@ func TestMetadataPreservesAbsentAndExplicitlyEmptyValues(t *testing.T) {
 		value metadata.Map
 		json  string
 	}{{nil, "null"}, {metadata.Map{}, "{}"}} {
-		encoded, err := json.Marshal(test.value)
+		encoded, err := jsonv2.Marshal(test.value)
 		if err != nil || string(encoded) != test.json {
 			t.Fatalf("metadata = %s, %v; want %s", encoded, err, test.json)
 		}
 		var decoded metadata.Map
-		if decodeErr := json.Unmarshal(encoded, &decoded); decodeErr != nil {
+		if decodeErr := jsonv2.Unmarshal(encoded, &decoded); decodeErr != nil {
 			t.Fatal(decodeErr)
 		}
 		if (test.value == nil) != (decoded == nil) || len(decoded) != 0 {

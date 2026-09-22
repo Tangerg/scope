@@ -39,7 +39,7 @@ func TestChildBatchRequiresDrainedWaitBoundaries(t *testing.T) {
 							Operation string          `json:"operation"`
 							Spec      json.RawMessage `json:"spec"`
 						}
-						if decodeErr := json.Unmarshal(effect.Payload(), &opening); decodeErr != nil {
+						if decodeErr := jsonv2.Unmarshal(effect.Payload(), &opening); decodeErr != nil {
 							t.Fatal(decodeErr)
 						}
 						opening.Operation = "child_wait_opened"
@@ -224,7 +224,7 @@ type childResultTestWire struct {
 
 func childBatchTestSignal(t testing.TB, waitID agent.WaitID, payload any) agent.Signal {
 	t.Helper()
-	encoded, err := json.Marshal(struct {
+	encoded, err := jsonv2.Marshal(struct {
 		ID      string       `json:"id"`
 		WaitID  agent.WaitID `json:"wait_id"`
 		Payload any          `json:"payload"`
@@ -233,7 +233,7 @@ func childBatchTestSignal(t testing.TB, waitID agent.WaitID, payload any) agent.
 		t.Fatal(err)
 	}
 	var signal agent.Signal
-	if err := json.Unmarshal(encoded, &signal); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &signal); err != nil {
 		t.Fatal(err)
 	}
 	return signal

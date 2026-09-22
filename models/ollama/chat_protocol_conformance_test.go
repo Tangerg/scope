@@ -2,6 +2,7 @@ package ollama_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -124,7 +125,7 @@ func TestChat_RejectsUnsupportedInputBeforeProviderIO(t *testing.T) {
 			message: corechat.NewAssistantMessage(corechat.NewToolCallPart(corechat.ToolCall{
 				ID: "call-1", Name: "inspect", Arguments: `[true]`,
 			})),
-			want: "cannot unmarshal array",
+			want: "cannot unmarshal JSON array",
 		},
 	}
 	for _, test := range tests {
@@ -248,7 +249,7 @@ func newProtocolChatServer(t *testing.T) *httptest.Server {
 			t.Errorf("request path = %q", request.URL.Path)
 		}
 		var body protocolChatRequestWire
-		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
 			t.Errorf("decode request: %v", err)
 			http.Error(writer, "bad request", http.StatusBadRequest)
 			return

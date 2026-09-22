@@ -56,11 +56,11 @@ type embeddingRequest struct {
 	Model         string   `json:"model"`
 	Input         []string `json:"input"`
 	Task          string   `json:"task,omitempty"`
-	LateChunking  *bool    `json:"late_chunking,omitempty"`
-	Dimensions    *int64   `json:"dimensions,omitempty"`
-	Truncate      *bool    `json:"truncate,omitempty"`
+	LateChunking  *bool    `json:"late_chunking,omitzero"`
+	Dimensions    *int64   `json:"dimensions,omitzero"`
+	Truncate      *bool    `json:"truncate,omitzero"`
 	EmbeddingType string   `json:"embedding_type,omitempty"`
-	Normalized    *bool    `json:"normalized,omitempty"`
+	Normalized    *bool    `json:"normalized,omitzero"`
 }
 
 type embeddingResponse struct {
@@ -81,7 +81,7 @@ type rerankRequest struct {
 	Model           string   `json:"model"`
 	Query           string   `json:"query"`
 	Documents       []string `json:"documents"`
-	TopN            *int     `json:"top_n,omitempty"`
+	TopN            *int     `json:"top_n,omitzero"`
 	ReturnDocuments bool     `json:"return_documents"`
 }
 

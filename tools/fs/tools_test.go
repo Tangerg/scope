@@ -2,7 +2,7 @@ package fs
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"os"
 	"path/filepath"
@@ -143,7 +143,7 @@ func TestReadTool_OneBasedStartLineTranslation(t *testing.T) {
 		t.Fatalf("Call: %v", err)
 	}
 	var resp ReadResponse
-	if err := json.Unmarshal(output.Details, &resp); err != nil {
+	if err := jsonv2.Unmarshal(output.Details, &resp); err != nil {
 		t.Fatalf("Unmarshal: %v body=%s", err, output.Details)
 	}
 	if resp.Content != "line2\nline3" {
@@ -165,7 +165,7 @@ func TestReadTool_OmittedStartLineMeansFirstLine(t *testing.T) {
 		t.Fatalf("Call: %v", err)
 	}
 	var resp ReadResponse
-	_ = json.Unmarshal(output.Details, &resp)
+	_ = jsonv2.Unmarshal(output.Details, &resp)
 	if resp.StartLine != 1 {
 		t.Errorf("StartLine = %d, want 1 when start_line is omitted", resp.StartLine)
 	}
@@ -198,7 +198,7 @@ func TestWriteTool_RoundTrip(t *testing.T) {
 		t.Fatalf("Call: %v", err)
 	}
 	var resp WriteResponse
-	if err := json.Unmarshal(output.Details, &resp); err != nil {
+	if err := jsonv2.Unmarshal(output.Details, &resp); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 	if resp.BytesWritten != 2 {
@@ -219,7 +219,7 @@ func TestEditTool_HappyPath(t *testing.T) {
 		t.Fatalf("Call: %v", err)
 	}
 	var resp EditResponse
-	_ = json.Unmarshal(output.Details, &resp)
+	_ = jsonv2.Unmarshal(output.Details, &resp)
 	if resp.Replacements != 1 {
 		t.Errorf("Replacements = %d, want 1", resp.Replacements)
 	}
@@ -244,7 +244,7 @@ func TestApplyPatchTool_HappyPath(t *testing.T) {
 		t.Fatalf("Call: %v", err)
 	}
 	var resp ApplyPatchResponse
-	if err := json.Unmarshal(output.Details, &resp); err != nil {
+	if err := jsonv2.Unmarshal(output.Details, &resp); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 	if resp.Hunks != 1 || len(resp.Files) != 1 {
@@ -265,7 +265,7 @@ func TestGrepTool_ContentMode(t *testing.T) {
 		t.Fatalf("Call: %v", err)
 	}
 	var resp GrepResponse
-	if err := json.Unmarshal(output.Details, &resp); err != nil {
+	if err := jsonv2.Unmarshal(output.Details, &resp); err != nil {
 		t.Fatalf("Unmarshal: %v body=%s", err, output.Details)
 	}
 	if len(resp.Lines) == 0 {
@@ -284,7 +284,7 @@ func TestGrepTool_FilesWithMatchesMode(t *testing.T) {
 		t.Fatalf("Call: %v", err)
 	}
 	var resp GrepResponse
-	if err := json.Unmarshal(output.Details, &resp); err != nil {
+	if err := jsonv2.Unmarshal(output.Details, &resp); err != nil {
 		t.Fatalf("Unmarshal: %v body=%s", err, output.Details)
 	}
 	if len(resp.Files) == 0 {
@@ -340,7 +340,7 @@ func TestBadJSONArguments(t *testing.T) {
 
 func mustJSON(t *testing.T, v any) []byte {
 	t.Helper()
-	b, err := json.Marshal(v)
+	b, err := jsonv2.Marshal(v)
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}

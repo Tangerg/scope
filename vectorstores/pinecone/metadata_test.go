@@ -2,6 +2,7 @@ package pinecone
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 
 	pineconeclient "github.com/pinecone-io/go-pinecone/v4/pinecone"
@@ -22,12 +23,12 @@ func TestMetadataNumbersRoundTripThroughProtobuf(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.Marshal(vectors[0].Metadata)
+	encoded, err := jsonv2.Marshal(vectors[0].Metadata)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var wire metadata.Map
-	if decodeErr := json.Unmarshal(encoded, &wire); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal(encoded, &wire); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
 	delete(wire, payloadDocumentContentKey)
@@ -45,7 +46,7 @@ func TestMetadataNumbersRoundTripThroughProtobuf(t *testing.T) {
 
 func mustEncodeMetadata(t *testing.T, values metadata.Map) []byte {
 	t.Helper()
-	encoded, err := json.Marshal(values)
+	encoded, err := jsonv2.Marshal(values)
 	if err != nil {
 		t.Fatal(err)
 	}

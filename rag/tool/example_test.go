@@ -2,7 +2,7 @@ package tool_test
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -41,7 +41,7 @@ func ExampleRetrieval() {
 		panic(err)
 	}
 	var output ragtool.RetrievalOutput
-	if decodeErr := json.Unmarshal(result.Details, &output); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal(result.Details, &output); decodeErr != nil {
 		panic(decodeErr)
 	}
 	fmt.Println(output.Candidates[0].Document.Text)

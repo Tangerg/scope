@@ -1,7 +1,7 @@
 package a2a_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -28,7 +28,7 @@ func ExampleNewHTTPHandler() {
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, a2asrv.WellKnownAgentCardPath, nil))
 	var card sdka2a.AgentCard
-	if err := json.Unmarshal(response.Body.Bytes(), &card); err != nil {
+	if err := jsonv2.Unmarshal(response.Body.Bytes(), &card); err != nil {
 		panic(err)
 	}
 	fmt.Println(card.SupportedInterfaces[0].URL)

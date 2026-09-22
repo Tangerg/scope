@@ -2,7 +2,7 @@ package fs
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -34,8 +34,8 @@ type PatchFileResponse struct {
 	// Path is where the file ended up.
 	Path    string `json:"path"`
 	Hunks   int    `json:"hunks"`
-	Created bool   `json:"created,omitempty"`
-	Deleted bool   `json:"deleted,omitempty"`
+	Created bool   `json:"created,omitzero"`
+	Deleted bool   `json:"deleted,omitzero"`
 	// MovedFrom is the path the file left, set only for a move. Path alone would
 	// say a file exists somewhere new without saying which one stopped existing.
 	MovedFrom string `json:"moved_from,omitempty"`
@@ -84,7 +84,7 @@ func (a *ApplyPatchTool) apply(ctx context.Context, req ApplyPatchRequest) (Appl
 	res, err := a.executor.ApplyPatch(ctx, req)
 	if err != nil {
 		cause := fmt.Errorf("fs.apply_patch: %w", err)
-		encoded, encodeErr := json.Marshal(res)
+		encoded, encodeErr := jsonv2.Marshal(res)
 		if encodeErr != nil {
 			return ApplyPatchResponse{}, errors.Join(cause, encodeErr)
 		}

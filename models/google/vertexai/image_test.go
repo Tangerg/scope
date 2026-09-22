@@ -2,7 +2,7 @@ package vertexai_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,7 +19,7 @@ func TestImageModelUsesVertexGenerateContent(t *testing.T) {
 			t.Errorf("path = %q", request.URL.Path)
 		}
 		var body map[string]any
-		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
 			t.Errorf("decode request: %v", err)
 		}
 		generationConfig, _ := body["generationConfig"].(map[string]any)

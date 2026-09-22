@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -62,7 +63,7 @@ func treeSnapshotFromWire(wire treeSnapshotWire) (TreeSnapshot, error) {
 	if validateErr := validation.validate(); validateErr != nil {
 		return TreeSnapshot{}, validateErr
 	}
-	normalized, err := json.Marshal(wire)
+	normalized, err := jsonv2.Marshal(wire, jsonv2.Deterministic(true))
 	if err != nil {
 		return TreeSnapshot{}, fmt.Errorf("%w: encode: %w", ErrInvalidTreeSnapshot, err)
 	}
@@ -522,8 +523,8 @@ func (t *treeSnapshotValidation) matchesChildWaitOutcome(outcome ChildOutcome, b
 		ProcessID: child.ProcessID, StartedAt: child.StartedAt, FinishedAt: *child.FinishedAt,
 		Output: child.Output, Termination: *child.Termination, Usage: child.usage(),
 	}
-	expectedJSON, expectedErr := json.Marshal(expected)
-	actualJSON, actualErr := json.Marshal(outcome.result.wire())
+	expectedJSON, expectedErr := jsonv2.Marshal(expected, jsonv2.Deterministic(true))
+	actualJSON, actualErr := jsonv2.Marshal(outcome.result.wire(), jsonv2.Deterministic(true))
 	if expectedErr != nil || actualErr != nil || !bytes.Equal(expectedJSON, actualJSON) {
 		return false
 	}

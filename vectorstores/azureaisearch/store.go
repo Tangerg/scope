@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -396,7 +397,7 @@ func (s *Store) verifyIndex(ctx context.Context) error {
 		return fmt.Errorf("azureaisearch: read index %s: %w", s.indexName, err)
 	}
 	var schema indexSchema
-	if err = json.Unmarshal(raw, &schema); err != nil {
+	if err = jsonv2.Unmarshal(raw, &schema); err != nil {
 		return fmt.Errorf("azureaisearch: decode index %s: %w", s.indexName, err)
 	}
 	if err = (&schema).validateIDField(s.idField); err != nil {
@@ -627,7 +628,7 @@ func (s *Store) searchPage(ctx context.Context, body any) ([]metadata.Map, map[s
 		NextParameters map[string]json.RawMessage `json:"@search.nextPageParameters"`
 		NextLink       string                     `json:"@odata.nextLink"`
 	}
-	if err := json.Unmarshal(raw, &page); err != nil {
+	if err := jsonv2.Unmarshal(raw, &page); err != nil {
 		return nil, nil, fmt.Errorf("decode search response: %w", err)
 	}
 	if page.Value == nil {
@@ -671,7 +672,7 @@ func (s *Store) writeActions(ctx context.Context, actions []map[string]any) erro
 				ErrorMessage string `json:"errorMessage"`
 			} `json:"value"`
 		}
-		if err := json.Unmarshal(raw, &response); err != nil {
+		if err := jsonv2.Unmarshal(raw, &response); err != nil {
 			return fmt.Errorf("decode write response: %w", err)
 		}
 		if len(response.Value) != len(batch) {
@@ -761,7 +762,7 @@ func (s *Store) sendJSON(ctx context.Context, method, path string, body any) ([]
 
 	var reqBody io.Reader
 	if body != nil {
-		buf, err := json.Marshal(body)
+		buf, err := jsonv2.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("encode request: %w", err)
 		}

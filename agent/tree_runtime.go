@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -2822,7 +2823,7 @@ func (t *treeRuntime) validateSnapshotCapacity(candidates ...*processState) erro
 		return nil
 	}
 
-	header, err := json.Marshal(t.treeSnapshotBase())
+	header, err := jsonv2.Marshal(t.treeSnapshotBase())
 	if err != nil {
 		return err
 	}

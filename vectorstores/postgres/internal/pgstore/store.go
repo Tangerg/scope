@@ -5,7 +5,7 @@ package pgstore
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -354,7 +354,7 @@ func marshalMetadata(m metadata.Map) ([]byte, error) {
 	if m == nil {
 		return []byte("null"), nil
 	}
-	return json.Marshal(m)
+	return jsonv2.Marshal(m)
 }
 
 // unmarshalMetadata reverses marshalMetadata. NULL jsonb columns
@@ -364,7 +364,7 @@ func unmarshalMetadata(b []byte) (metadata.Map, error) {
 		return nil, nil
 	}
 	var out metadata.Map
-	if err := json.Unmarshal(b, &out); err != nil {
+	if err := jsonv2.Unmarshal(b, &out); err != nil {
 		return nil, err
 	}
 	return out, nil

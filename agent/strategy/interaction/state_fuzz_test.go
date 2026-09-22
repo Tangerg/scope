@@ -3,7 +3,7 @@ package interaction
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -67,7 +67,7 @@ func TestRestoreValidatesFinishReasonInPendingRound(t *testing.T) {
 	definition := fuzzInteractionDefinition(t)
 	for _, seed := range fuzzInteractionStates(t, definition) {
 		var state executionState
-		if err := json.Unmarshal(seed.Payload(), &state); err != nil {
+		if err := jsonv2.Unmarshal(seed.Payload(), &state); err != nil {
 			t.Fatal(err)
 		}
 		if state.ToolRound == nil {
@@ -76,7 +76,7 @@ func TestRestoreValidatesFinishReasonInPendingRound(t *testing.T) {
 		for _, reason := range []chat.FinishReason{chat.FinishReasonStop, chat.FinishReasonLength, chat.FinishReasonContentFilter, chat.FinishReasonRefusal, chat.FinishReasonOther} {
 			t.Run(string(state.Phase)+"/"+reason.String(), func(t *testing.T) {
 				state.ToolRound.Response.Output.FinishReason = reason
-				payload, err := json.Marshal(state)
+				payload, err := jsonv2.Marshal(state)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -236,7 +236,7 @@ func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.Executi
 		if err := state.validate(f.Context(), definition); err != nil {
 			f.Fatal(err)
 		}
-		payload, err := json.Marshal(state)
+		payload, err := jsonv2.Marshal(state)
 		if err != nil {
 			f.Fatal(err)
 		}

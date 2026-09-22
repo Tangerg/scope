@@ -3,7 +3,7 @@ package stability
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -131,7 +131,7 @@ func (a *api) generate(ctx context.Context, path string, req *generateRequest) (
 // decodeJSON decodes Stability's JSON image envelope.
 func decodeJSON(body []byte) (*jsonResponse, error) {
 	var resp jsonResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
+	if err := jsonv2.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("stability: decode json: %w", err)
 	}
 	return &resp, nil

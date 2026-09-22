@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -66,7 +67,7 @@ func TestWireZeroValuesAreInvalid(t *testing.T) {
 	if (Payload{}).Valid() {
 		t.Fatal("zero wire values reported valid")
 	}
-	if _, err := json.Marshal(Payload{}); !errors.Is(err, ErrInvalidPayload) {
+	if _, err := jsonv2.Marshal(Payload{}); !errors.Is(err, ErrInvalidPayload) {
 		t.Fatalf("marshal Payload error = %v, want ErrInvalidPayload", err)
 	}
 }
@@ -85,12 +86,12 @@ func FuzzPayloadJSONRoundTrip(f *testing.F) {
 		if err != nil {
 			return
 		}
-		encoded, err := json.Marshal(input)
+		encoded, err := jsonv2.Marshal(input)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var decoded Payload
-		if err := json.Unmarshal(encoded, &decoded); err != nil {
+		if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
 			t.Fatal(err)
 		}
 		if string(decoded.JSON()) != string(input.JSON()) {

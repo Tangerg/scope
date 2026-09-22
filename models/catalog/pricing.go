@@ -7,11 +7,11 @@ const tokensPerMillion = 1_000_000
 // Pricing is one rate-card band in USD per one million tokens. Threshold is
 // the input-token count at which the band reprices the whole call.
 type Pricing struct {
-	Threshold       int64   `json:"threshold,omitempty"`
+	Threshold       int64   `json:"threshold,omitzero"`
 	InputPer1M      float64 `json:"input_per_1m"`
 	OutputPer1M     float64 `json:"output_per_1m"`
-	CacheReadPer1M  float64 `json:"cache_read_per_1m,omitempty"`
-	CacheWritePer1M float64 `json:"cache_write_per_1m,omitempty"`
+	CacheReadPer1M  float64 `json:"cache_read_per_1m,omitzero"`
+	CacheWritePer1M float64 `json:"cache_write_per_1m,omitzero"`
 }
 
 func (p Pricing) IsZero() bool { return p == Pricing{} }

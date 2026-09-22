@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 )
@@ -139,7 +140,7 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 				t.Fatal(err)
 			}
 			test.mutate(&wire)
-			data, err := json.Marshal(wire)
+			data, err := jsonv2.Marshal(wire)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -147,14 +148,14 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 				t.Errorf("Process parser = %v; want ErrInvalidSnapshot", parseErr)
 			}
 			var fields map[string]json.RawMessage
-			if decodeErr := json.Unmarshal(test.tree.JSON(), &fields); decodeErr != nil {
+			if decodeErr := jsonv2.Unmarshal(test.tree.JSON(), &fields); decodeErr != nil {
 				t.Fatal(decodeErr)
 			}
-			fields["process_snapshots"], err = json.Marshal([]json.RawMessage{data})
+			fields["process_snapshots"], err = jsonv2.Marshal([]json.RawMessage{data})
 			if err != nil {
 				t.Fatal(err)
 			}
-			encoded, err := json.Marshal(fields)
+			encoded, err := jsonv2.Marshal(fields)
 			if err != nil {
 				t.Fatal(err)
 			}

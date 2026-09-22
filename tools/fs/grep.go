@@ -22,15 +22,15 @@ type GrepRequest struct {
 	FileGlob string `json:"file_glob,omitempty" jsonschema_description:"Optional file filter glob, such as **/*.go."`
 	FileType string `json:"file_type,omitempty" jsonschema_description:"Optional ripgrep file type, such as go, ts, or rust."`
 
-	IgnoreCase bool `json:"ignore_case,omitempty" jsonschema_description:"Case-insensitive search. Default false."`
-	Multiline  bool `json:"multiline,omitempty" jsonschema_description:"Allow patterns to span line breaks. Default false. Requires ripgrep."`
+	IgnoreCase bool `json:"ignore_case,omitzero" jsonschema_description:"Case-insensitive search. Default false."`
+	Multiline  bool `json:"multiline,omitzero" jsonschema_description:"Allow patterns to span line breaks. Default false. Requires ripgrep."`
 
-	BeforeContextLines int `json:"before_context_lines,omitempty" jsonschema:"minimum=0,maximum=20" jsonschema_description:"Lines to include before each match. Defaults to 0 and cannot exceed 20."`
-	AfterContextLines  int `json:"after_context_lines,omitempty" jsonschema:"minimum=0,maximum=20" jsonschema_description:"Lines to include after each match. Defaults to 0 and cannot exceed 20."`
+	BeforeContextLines int `json:"before_context_lines,omitzero" jsonschema:"minimum=0,maximum=20" jsonschema_description:"Lines to include before each match. Defaults to 0 and cannot exceed 20."`
+	AfterContextLines  int `json:"after_context_lines,omitzero" jsonschema:"minimum=0,maximum=20" jsonschema_description:"Lines to include after each match. Defaults to 0 and cannot exceed 20."`
 
 	OutputMode GrepOutputMode `json:"output_mode,omitempty" jsonschema:"enum=content,enum=files_with_matches,enum=count" jsonschema_description:"Result projection: content (default), files_with_matches, or count."`
 
-	MaxResults int `json:"max_results,omitempty" jsonschema:"minimum=1,maximum=1000" jsonschema_description:"Maximum result entries. Defaults to 250 and cannot exceed 1000."`
+	MaxResults int `json:"max_results,omitzero" jsonschema:"minimum=1,maximum=1000" jsonschema_description:"Maximum result entries. Defaults to 250 and cannot exceed 1000."`
 }
 
 // GrepResponse is the LLM-facing return shape. Exactly one of
@@ -40,7 +40,7 @@ type GrepResponse struct {
 	Lines     []GrepLine      `json:"lines,omitempty"`
 	Files     []string        `json:"files,omitempty"`
 	Counts    []GrepFileCount `json:"counts,omitempty"`
-	Truncated bool            `json:"truncated,omitempty"`
+	Truncated bool            `json:"truncated,omitzero"`
 }
 
 var _ toolcontract.Tool = (*GrepTool)(nil)

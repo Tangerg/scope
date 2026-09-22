@@ -1,7 +1,7 @@
 package modeltest
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -49,7 +49,7 @@ func RunRerankContract(t *testing.T, contract RerankContract) {
 		seen := make(chan observation, 1)
 		server := JSONServer(http.StatusOK, contract.Response, func(request *http.Request) {
 			var decoded wireRequest
-			if err := json.NewDecoder(request.Body).Decode(&decoded); err != nil {
+			if err := jsonv2.UnmarshalRead(request.Body, &decoded); err != nil {
 				seen <- observation{path: request.URL.Path, err: fmt.Errorf("decode request: %w", err)}
 				return
 			}

@@ -1,7 +1,7 @@
 package repoarch
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -57,7 +57,7 @@ func catalogProviderKeys(t *testing.T, root string) map[string]string {
 		var entry struct {
 			Provider string `json:"provider"`
 		}
-		if err := json.Unmarshal(raw, &entry); err != nil {
+		if err := jsonv2.Unmarshal(raw, &entry); err != nil {
 			t.Fatalf("decode %s: %v", name.Name(), err)
 		}
 		if entry.Provider == "" {

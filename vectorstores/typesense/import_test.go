@@ -3,6 +3,8 @@ package typesense
 import (
 	"context"
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -32,15 +34,15 @@ func newImportTestStore(t *testing.T, body string) *Store {
 			_, _ = writer.Write([]byte(`{"name":"documents","fields":[{"name":"embedding","type":"float[]","num_dim":2,"vec_dist":"cosine"}]}`))
 			return
 		}
-		decoder := json.NewDecoder(request.Body)
+		decoder := jsontext.NewDecoder(request.Body)
 		for _, expectedID := range []string{"one", "two"} {
 			var document map[string]json.RawMessage
-			if err := decoder.Decode(&document); err != nil {
+			if err := jsonv2.UnmarshalDecode(decoder, &document); err != nil {
 				t.Error(err)
 				break
 			}
 			var id string
-			if err := json.Unmarshal(document["id"], &id); err != nil || id != expectedID {
+			if err := jsonv2.Unmarshal(document["id"], &id); err != nil || id != expectedID {
 				t.Errorf("provider id = %q, error=%v; want %q", id, err, expectedID)
 			}
 			if _, duplicate := document["doc_id"]; duplicate {

@@ -2,7 +2,6 @@ package tool
 
 import (
 	"context"
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -130,7 +129,7 @@ func (Func[In, Out]) encodeResult(output Out) (chat.ToolOutput, error) {
 	if value.IsValid() && value.Kind() == reflect.String {
 		return chat.NewTextToolOutput(value.String()), nil
 	}
-	encoded, err := json.Marshal(output)
+	encoded, err := jsonv2.Marshal(output)
 	if err != nil {
 		return chat.ToolOutput{}, err
 	}

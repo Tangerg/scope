@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 )
@@ -56,18 +57,18 @@ func TestExecutionStateStrictJSONRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(state)
+	data, err := jsonv2.Marshal(state)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded ExecutionState
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.Kind() != state.Kind() || string(decoded.Payload()) != string(state.Payload()) {
 		t.Fatalf("decoded state = %+v, want %+v", decoded, state)
 	}
-	if err := json.Unmarshal([]byte(`{"kind":"planning","payload":{},"unknown":true}`), &decoded); !errors.Is(err, ErrInvalidExecutionState) {
+	if err := jsonv2.Unmarshal([]byte(`{"kind":"planning","payload":{},"unknown":true}`), &decoded); !errors.Is(err, ErrInvalidExecutionState) {
 		t.Fatalf("unknown field error = %v, want ErrInvalidExecutionState", err)
 	}
 }
@@ -90,15 +91,15 @@ func FuzzExecutionStateJSONRoundTrip(f *testing.F) {
 	f.Add([]byte(`{"kind":"interaction","payload":{"round":2}}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var state ExecutionState
-		if err := json.Unmarshal(data, &state); err != nil {
+		if err := jsonv2.Unmarshal(data, &state); err != nil {
 			return
 		}
-		encoded, err := json.Marshal(state)
+		encoded, err := jsonv2.Marshal(state)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var decoded ExecutionState
-		if err := json.Unmarshal(encoded, &decoded); err != nil {
+		if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
 			t.Fatal(err)
 		}
 		if decoded.Kind() != state.Kind() || string(decoded.Payload()) != string(state.Payload()) {

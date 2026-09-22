@@ -3,21 +3,22 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"sync/atomic"
 	"testing"
 )
 
 func TestEmptyCapabilitySetHasOneArrayRepresentation(t *testing.T) {
-	encoded, err := json.Marshal(CapabilitySet{})
+	encoded, err := jsonv2.Marshal(CapabilitySet{})
 	if err != nil || string(encoded) != "[]" {
 		t.Fatalf("empty capability wire = %s, error=%v", encoded, err)
 	}
 	var capabilities CapabilitySet
-	if err := json.Unmarshal([]byte("null"), &capabilities); !errors.Is(err, ErrInvalidCapability) {
+	if err := jsonv2.Unmarshal([]byte("null"), &capabilities); !errors.Is(err, ErrInvalidCapability) {
 		t.Fatalf("null capability set = %v", err)
 	}
-	if err := json.Unmarshal(encoded, &capabilities); err != nil || !capabilities.Valid() || len(capabilities.Values()) != 0 {
+	if err := jsonv2.Unmarshal(encoded, &capabilities); err != nil || !capabilities.Valid() || len(capabilities.Values()) != 0 {
 		t.Fatalf("empty capability round trip = %+v, error=%v", capabilities, err)
 	}
 }
@@ -98,7 +99,7 @@ func (c *capabilityTestDefinition) Start(Payload) (Execution, error) {
 
 func (c *capabilityTestDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
 	var phase uint8
-	if err := json.Unmarshal(state.Payload(), &phase); err != nil {
+	if err := jsonv2.Unmarshal(state.Payload(), &phase); err != nil {
 		return nil, err
 	}
 	return &capabilityTestExecution{required: c.required, phase: phase}, nil
@@ -124,7 +125,7 @@ func (c *capabilityTestExecution) Step(context.Context, []Signal) (Transition, e
 }
 
 func (c *capabilityTestExecution) Snapshot() (ExecutionState, error) {
-	payload, _ := json.Marshal(c.phase)
+	payload, _ := jsonv2.Marshal(c.phase)
 	return NewExecutionState("test.capability", payload)
 }
 

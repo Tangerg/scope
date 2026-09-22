@@ -1,7 +1,7 @@
 package bedrock
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -165,7 +165,7 @@ func mapProtocolPart(part corechat.Part) (types.ContentBlock, bool, error) {
 	case corechat.PartToolCall:
 		var arguments any
 		if part.ToolCall.Arguments != "" {
-			if err := json.Unmarshal([]byte(part.ToolCall.Arguments), &arguments); err != nil {
+			if err := jsonv2.Unmarshal([]byte(part.ToolCall.Arguments), &arguments); err != nil {
 				return nil, false, fmt.Errorf("tool call arguments: %w", err)
 			}
 		}
@@ -199,7 +199,7 @@ func mapToolResultContent(output corechat.ToolOutput) ([]types.ToolResultContent
 			return []types.ToolResultContentBlock{&types.ToolResultContentBlockMemberText{}}, nil
 		}
 		var value any
-		if err := json.Unmarshal(output.Details, &value); err != nil {
+		if err := jsonv2.Unmarshal(output.Details, &value); err != nil {
 			return nil, err
 		}
 		return []types.ToolResultContentBlock{
@@ -247,7 +247,7 @@ func mapProtocolTools(definitions []corechat.ToolDefinition, choice *corechat.To
 	tools := make([]types.Tool, 0, len(definitions))
 	for index := range definitions {
 		var schema any
-		if err := json.Unmarshal(definitions[index].InputSchema, &schema); err != nil {
+		if err := jsonv2.Unmarshal(definitions[index].InputSchema, &schema); err != nil {
 			return nil, fmt.Errorf("bedrock: tools[%d].input_schema: %w", index, err)
 		}
 		tools = append(tools, &types.ToolMemberToolSpec{Value: types.ToolSpecification{

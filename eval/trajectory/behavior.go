@@ -12,7 +12,7 @@ import (
 
 type behaviorProjection struct {
 	Termination behaviorTermination `json:"termination"`
-	Output      json.RawMessage     `json:"output,omitempty"`
+	Output      json.RawMessage     `json:"output,omitzero"`
 	Events      []behaviorEvent     `json:"events"`
 	Models      []behaviorModel     `json:"models,omitempty"`
 	Tools       []behaviorTool      `json:"tools,omitempty"`
@@ -21,9 +21,9 @@ type behaviorProjection struct {
 type behaviorTermination struct {
 	Status            agent.Status           `json:"status"`
 	Cause             agent.TerminationCause `json:"cause"`
-	FailureKind       agent.FailureKind      `json:"failure_kind,omitempty"`
+	FailureKind       agent.FailureKind      `json:"failure_kind,omitzero"`
 	FailureCode       string                 `json:"failure_code,omitempty"`
-	UnresolvedEffects int                    `json:"unresolved_effects,omitempty"`
+	UnresolvedEffects int                    `json:"unresolved_effects,omitzero"`
 }
 
 type behaviorEventStream struct {
@@ -34,16 +34,16 @@ type behaviorEventStream struct {
 type behaviorEvent struct {
 	ProcessPath      string                 `json:"process_path"`
 	Sequence         uint64                 `json:"sequence"`
-	StepSequence     uint64                 `json:"step_sequence,omitempty"`
+	StepSequence     uint64                 `json:"step_sequence,omitzero"`
 	Name             string                 `json:"name"`
 	Phase            agent.EventPhase       `json:"phase"`
-	ProcessStatus    agent.Status           `json:"process_status,omitempty"`
+	ProcessStatus    agent.Status           `json:"process_status,omitzero"`
 	TerminationCause agent.TerminationCause `json:"termination_cause,omitempty"`
-	FailureKind      agent.FailureKind      `json:"failure_kind,omitempty"`
+	FailureKind      agent.FailureKind      `json:"failure_kind,omitzero"`
 	FailureCode      string                 `json:"failure_code,omitempty"`
-	StepStatus       agent.StepStatus       `json:"step_status,omitempty"`
+	StepStatus       agent.StepStatus       `json:"step_status,omitzero"`
 	EffectTarget     agent.EffectTarget     `json:"effect_target,omitempty"`
-	Settlement       agent.SettlementStatus `json:"settlement,omitempty"`
+	Settlement       agent.SettlementStatus `json:"settlement,omitzero"`
 }
 
 func (b behaviorEvent) compare(other behaviorEvent) int {
@@ -68,15 +68,15 @@ type behaviorTool struct {
 	ModelCall   uint64              `json:"model_call"`
 	Index       uint32              `json:"index"`
 	Name        string              `json:"name"`
-	Arguments   json.RawMessage     `json:"arguments,omitempty"`
+	Arguments   json.RawMessage     `json:"arguments,omitzero"`
 	Outcome     ToolOutcome         `json:"outcome"`
-	Result      *behaviorToolResult `json:"result,omitempty"`
+	Result      *behaviorToolResult `json:"result,omitzero"`
 }
 
 type behaviorToolResult struct {
 	Name    string          `json:"name"`
 	Output  chat.ToolOutput `json:"output"`
-	IsError bool            `json:"is_error,omitempty"`
+	IsError bool            `json:"is_error,omitzero"`
 }
 
 func behaviorTerminationOf(termination agent.Termination) behaviorTermination {

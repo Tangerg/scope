@@ -1,7 +1,7 @@
 package chat_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"reflect"
 	"testing"
@@ -28,12 +28,12 @@ func TestUsageZeroAndRoundTrip(t *testing.T) {
 	if err := usage.Validate(); err != nil || usage.TotalTokens() != 16 {
 		t.Fatalf("Usage = (%d, %v)", usage.TotalTokens(), err)
 	}
-	encoded, err := json.Marshal(usage)
+	encoded, err := jsonv2.Marshal(usage)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got chat.Usage
-	if err := json.Unmarshal(encoded, &got); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &got); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(got, usage) {
@@ -57,7 +57,7 @@ func TestUsageValidateRejectsInvalidValues(t *testing.T) {
 		if err := usage.Validate(); !errors.Is(err, chat.ErrInvalidUsage) {
 			t.Errorf("Validate(%+v) error = %v", usage, err)
 		}
-		if _, err := json.Marshal(usage); !errors.Is(err, chat.ErrInvalidUsage) {
+		if _, err := jsonv2.Marshal(usage); !errors.Is(err, chat.ErrInvalidUsage) {
 			t.Errorf("Marshal(%+v) error = %v", usage, err)
 		}
 	}
@@ -65,7 +65,7 @@ func TestUsageValidateRejectsInvalidValues(t *testing.T) {
 
 func TestUsageUnmarshalIsAtomic(t *testing.T) {
 	usage := chat.Usage{InputTokens: 10}
-	if err := json.Unmarshal([]byte(`{"input_tokens":-1}`), &usage); !errors.Is(err, chat.ErrInvalidUsage) {
+	if err := jsonv2.Unmarshal([]byte(`{"input_tokens":-1}`), &usage); !errors.Is(err, chat.ErrInvalidUsage) {
 		t.Fatalf("Unmarshal error = %v", err)
 	}
 	if usage.InputTokens != 10 {

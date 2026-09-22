@@ -3,6 +3,7 @@ package agenttest_test
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"testing"
@@ -173,7 +174,7 @@ func (s *scriptedEffectDefinition) Restore(ctx context.Context, state agent.Exec
 		return nil, errors.New("unexpected scripted-effect state")
 	}
 	var restored scriptedEffectState
-	if err := json.Unmarshal(state.Payload(), &restored); err != nil {
+	if err := jsonv2.Unmarshal(state.Payload(), &restored); err != nil {
 		return nil, fmt.Errorf("decode scripted-effect state: %w", err)
 	}
 	return &scriptedEffectExecution{effect: s.effect, dispatched: restored.Dispatched}, nil
@@ -204,7 +205,7 @@ func (s *scriptedEffectExecution) Step(
 }
 
 func (s *scriptedEffectExecution) Snapshot() (agent.ExecutionState, error) {
-	payload, err := json.Marshal(scriptedEffectState{Dispatched: s.dispatched})
+	payload, err := jsonv2.Marshal(scriptedEffectState{Dispatched: s.dispatched})
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}

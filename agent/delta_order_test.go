@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -37,7 +38,7 @@ func TestConcurrentDeltaEmitterDeliversIncreasingSequences(t *testing.T) {
 	const count = 64
 	payloads := make([]json.RawMessage, count)
 	for index := range count {
-		payload, err := json.Marshal(struct {
+		payload, err := jsonv2.Marshal(struct {
 			Index int    `json:"index"`
 			Text  string `json:"text"`
 		}{Index: index, Text: strings.Repeat("x", (index%4)*32*1024)})
@@ -82,7 +83,7 @@ func TestConcurrentDeltaEmitterDeliversIncreasingSequences(t *testing.T) {
 			Index int    `json:"index"`
 			Text  string `json:"text"`
 		}
-		if err := json.Unmarshal(delta.Payload(), &payload); err != nil {
+		if err := jsonv2.Unmarshal(delta.Payload(), &payload); err != nil {
 			t.Fatal(err)
 		}
 		if payload.Index < 0 || payload.Index >= count || seen[payload.Index] ||
@@ -212,12 +213,12 @@ func TestReplayDeltasCarryAttemptIdentityAcrossSlowDelivery(t *testing.T) {
 					if delta.EffectID() != ids[0] || delta.EffectSequence() != []uint64{1, 2, 1}[index] {
 						t.Fatalf("delta=%+v", delta)
 					}
-					data, err := json.Marshal(delta)
+					data, err := jsonv2.Marshal(delta)
 					if err != nil {
 						t.Fatal(err)
 					}
 					var decoded Delta
-					if err := json.Unmarshal(data, &decoded); err != nil || decoded.AttemptID() != delta.AttemptID() {
+					if err := jsonv2.Unmarshal(data, &decoded); err != nil || decoded.AttemptID() != delta.AttemptID() {
 						t.Fatalf("roundtrip: %v", err)
 					}
 				}

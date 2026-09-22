@@ -4,7 +4,7 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -298,7 +298,7 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 				if err != nil {
 					return fmt.Errorf("marshal metadata for %s: %w", id, err)
 				}
-				vectorJSON, err := json.Marshal(embedding.Float32Vector(vectors[i]))
+				vectorJSON, err := jsonv2.Marshal(embedding.Float32Vector(vectors[i]))
 				if err != nil {
 					return fmt.Errorf("tidb: marshal vector for %s: %w", id, err)
 				}
@@ -336,7 +336,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	if err != nil {
 		return nil, fmt.Errorf("tidb: embed query: %w", err)
 	}
-	vectorJSON, err := json.Marshal(embedding.Float32Vector(vector))
+	vectorJSON, err := jsonv2.Marshal(embedding.Float32Vector(vector))
 	if err != nil {
 		return nil, fmt.Errorf("tidb: marshal query vector: %w", err)
 	}
@@ -467,7 +467,7 @@ func marshalMetadata(m metadata.Map) ([]byte, error) {
 	if m == nil {
 		return []byte("{}"), nil
 	}
-	return json.Marshal(m)
+	return jsonv2.Marshal(m)
 }
 
 func unmarshalMetadata(b []byte) (metadata.Map, error) {
@@ -475,7 +475,7 @@ func unmarshalMetadata(b []byte) (metadata.Map, error) {
 		return nil, nil
 	}
 	var out metadata.Map
-	if err := json.Unmarshal(b, &out); err != nil {
+	if err := jsonv2.Unmarshal(b, &out); err != nil {
 		return nil, err
 	}
 	return out, nil

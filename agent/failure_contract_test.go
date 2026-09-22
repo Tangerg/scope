@@ -2,7 +2,7 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"strings"
 	"testing"
@@ -51,12 +51,12 @@ func TestInitializationFailureDiagnosticsSurviveJSON(t *testing.T) {
 			if failure.Kind() != FailureKindExecution || failure.Code() != "engine.process.start.failed" || failure.Message() != test.want {
 				t.Errorf("failure kind/code = %s/%s, diagnostic matches = %t", failure.Kind(), failure.Code(), failure.Message() == test.want)
 			}
-			data, err := json.Marshal(failure)
+			data, err := jsonv2.Marshal(failure)
 			if err != nil {
 				t.Fatal(err)
 			}
 			var restored Failure
-			if err := json.Unmarshal(data, &restored); err != nil {
+			if err := jsonv2.Unmarshal(data, &restored); err != nil {
 				t.Fatal(err)
 			}
 			if restored != failure {
@@ -82,12 +82,12 @@ func TestTerminationRestorationMatchesFailureKind(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				data, err := json.Marshal(terminationWire{Status: StatusFailed, Cause: cause, Reason: "failure", Failure: &failure})
+				data, err := jsonv2.Marshal(terminationWire{Status: StatusFailed, Cause: cause, Reason: "failure", Failure: &failure})
 				if err != nil {
 					t.Fatal(err)
 				}
 				var restored Termination
-				err = json.Unmarshal(data, &restored)
+				err = jsonv2.Unmarshal(data, &restored)
 				if kindIndex == causeIndex {
 					if err != nil || restored.Cause() != cause {
 						t.Fatalf("restore matching failure = %v, cause = %s", err, restored.Cause())
@@ -110,12 +110,12 @@ func TestTerminationRestorationEnforcesReasonBounds(t *testing.T) {
 				{Status: StatusCanceled, Cause: TerminationCauseHostCancellation, Reason: reason},
 				{Status: StatusKilled, Cause: TerminationCauseEngineKill, Reason: reason},
 			} {
-				data, err := json.Marshal(wire)
+				data, err := jsonv2.Marshal(wire)
 				if err != nil {
 					t.Fatal(err)
 				}
 				var restored Termination
-				if err := json.Unmarshal(data, &restored); !errors.Is(err, errInvalidTermination) {
+				if err := jsonv2.Unmarshal(data, &restored); !errors.Is(err, errInvalidTermination) {
 					t.Errorf("restore %s = %v, want invalid termination", wire.Status, err)
 				}
 			}

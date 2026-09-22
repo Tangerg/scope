@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -71,7 +71,7 @@ type jobOptions struct {
 	RemoveDisfluencies   bool           `json:"remove_disfluencies,omitzero"`
 	RemoveAtmospherics   bool           `json:"remove_atmospherics,omitzero"`
 	FilterProfanity      bool           `json:"filter_profanity,omitzero"`
-	SpeakerChannelsCount int            `json:"speaker_channels_count,omitempty"`
+	SpeakerChannelsCount int            `json:"speaker_channels_count,omitzero"`
 	Speakers             map[string]any `json:"speakers,omitzero"`
 	DiarizationType      string         `json:"diarization_type,omitempty"`
 	CustomVocabularyID   string         `json:"custom_vocabulary_id,omitempty"`
@@ -118,7 +118,7 @@ func (a *api) upload(ctx context.Context, audio []byte, mimeType string, opts jo
 	if len(audio) == 0 {
 		return nil, errors.New("revai: upload audio must not be empty")
 	}
-	optsJSON, err := json.Marshal(opts)
+	optsJSON, err := jsonv2.Marshal(opts)
 	if err != nil {
 		return nil, fmt.Errorf("revai: encode job options: %w", err)
 	}

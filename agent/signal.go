@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -71,7 +72,7 @@ func (s Signal) MarshalJSON() ([]byte, error) {
 	if s.waitID.Valid() {
 		wire.WaitID = &s.waitID
 	}
-	return json.Marshal(wire)
+	return jsonv2.Marshal(wire)
 }
 
 func (s *Signal) UnmarshalJSON(data []byte) error {
@@ -96,7 +97,7 @@ func (s *Signal) UnmarshalJSON(data []byte) error {
 
 type signalWire struct {
 	ID      SignalID        `json:"id"`
-	WaitID  *WaitID         `json:"wait_id,omitempty"`
+	WaitID  *WaitID         `json:"wait_id,omitzero"`
 	Payload json.RawMessage `json:"payload"`
 }
 

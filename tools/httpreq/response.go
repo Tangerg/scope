@@ -10,7 +10,7 @@ type Response struct {
 	Status    int                 `json:"status"`
 	Headers   map[string][]string `json:"headers,omitempty"`
 	Body      string              `json:"body"`
-	Truncated bool                `json:"truncated,omitempty"`
+	Truncated bool                `json:"truncated,omitzero"`
 	// Duration includes transport execution, body reading, and body closure.
 	Duration string `json:"duration"`
 }

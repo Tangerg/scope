@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -77,7 +78,7 @@ func TestSnapshotAdmissionPreservesTerminationAtCapacity(t *testing.T) {
 						}
 						return controlValue(engine.CaptureTree(t.Context(), process.ID()))
 					}
-					payload := controlValue(json.Marshal(strings.Repeat("x", 16<<10)))
+					payload := controlValue(jsonv2.Marshal(strings.Repeat("x", 16<<10)))
 					acceptedCount := 0
 					for ; acceptedCount < 32; acceptedCount++ {
 						before := capture()
@@ -155,7 +156,7 @@ func TestImmediateChildWaitCapacityRejectionIsAtomic(t *testing.T) {
 			child.installTermination(controlValue((terminationFacts{outcome: completedOutcome()}).resolve()),
 				controlValue(EncodePayload(childTestOutput{CompletedKeys: []string{strings.Repeat("x", 200<<10)}})), child.startedAt)
 			child.mailbox.closeAllWaits()
-			signal := controlValue(newSignal(controlValue(ParseSignalID("signal:padding")), WaitID{}, controlValue(json.Marshal(strings.Repeat("x", 150<<10)))))
+			signal := controlValue(newSignal(controlValue(ParseSignalID("signal:padding")), WaitID{}, controlValue(jsonv2.Marshal(strings.Repeat("x", 150<<10)))))
 			if _, err := runtime.admitSignals(parent, []Signal{signal}, signalSourceExternal); err != nil {
 				t.Fatal(err)
 			}
@@ -283,7 +284,7 @@ func TestSnapshotAdmissionPreservesFailureAndUnresolvedEvidence(t *testing.T) {
 			if err := process.prepared.Effects[0].begin(); err != nil {
 				t.Fatal(err)
 			}
-			payload := controlValue(json.Marshal(strings.Repeat("x", 16<<10)))
+			payload := controlValue(jsonv2.Marshal(strings.Repeat("x", 16<<10)))
 			acceptedCount := 0
 			for ; acceptedCount < 64; acceptedCount++ {
 				signal := controlValue(newSignal(controlValue(ParseSignalID(fmt.Sprintf("signal:failure-capacity-%d", acceptedCount))), WaitID{}, payload))
@@ -341,7 +342,7 @@ func TestOversizedSettlementPreservesRecoverableAdmissionBoundary(t *testing.T) 
 					config.Limits.MaxSnapshotBytes = NewQuota(512 << 10)
 				}
 				var calls atomic.Int32
-				payload := controlValue(json.Marshal(engineTestMessage{Kind: "result", Value: strings.Repeat("x", 400<<10)}))
+				payload := controlValue(jsonv2.Marshal(engineTestMessage{Kind: "result", Value: strings.Repeat("x", 400<<10)}))
 				dispatcher := effectFailureTestDispatcher{dispatch: func(request EffectRequest) (Settlement, error) {
 					calls.Add(1)
 					return NewSettlement(request.ID(), SettlementStatusSucceeded, payload)
@@ -424,7 +425,7 @@ func TestDispatchPermissionRequiresUncertainOutcomeCapacity(t *testing.T) {
 				} else {
 					config.Limits.MaxSnapshotBytes = NewQuota(512 << 10)
 				}
-				effect := controlValue(NewDispatcherEffect(controlValue(json.Marshal(strings.Repeat("x", 350<<10)))))
+				effect := controlValue(NewDispatcherEffect(controlValue(jsonv2.Marshal(strings.Repeat("x", 350<<10)))))
 				definition := &capacityDefinition{
 					engineTestDefinition: newEngineTestDefinition(t, "engine.effect", "effect"),
 					effects:              []Effect{effect},

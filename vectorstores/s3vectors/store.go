@@ -1,10 +1,9 @@
 package s3vectors
 
 import (
-	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -518,11 +517,13 @@ func decodeVectorMetadata(key string, raw s3vdoc.Interface) (string, map[string]
 	if err != nil {
 		return "", nil, fmt.Errorf("s3vectors: encode metadata document for %s: %w", key, err)
 	}
-	var values map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(encodedDocument))
-	decoder.UseNumber()
-	if decodeErr := decoder.Decode(&values); decodeErr != nil {
+	var encodedValues metadata.Map
+	if decodeErr := jsonv2.Unmarshal(encodedDocument, &encodedValues); decodeErr != nil {
 		return "", nil, fmt.Errorf("s3vectors: decode metadata for %s: %w", key, decodeErr)
+	}
+	values, err := encodedValues.Values()
+	if err != nil {
+		return "", nil, err
 	}
 	rawText, present := values[contentMetaKey]
 	if !present {

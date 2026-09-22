@@ -41,13 +41,13 @@ func TestReportSurvivesJSON(t *testing.T) {
 		},
 	}
 
-	encoded, err := json.Marshal(report)
+	encoded, err := jsonv2.Marshal(report)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var decoded eval.Report
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.Score == nil || *decoded.Score != score {
@@ -72,7 +72,7 @@ func TestReportJSONRejectsUnknownMembers(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			kept := eval.Report{Metric: accuracyMetric(t), Feedback: "kept"}
-			if err := json.Unmarshal([]byte(data), &kept); !errors.Is(err, jsonv2.ErrUnknownName) {
+			if err := jsonv2.Unmarshal([]byte(data), &kept); !errors.Is(err, jsonv2.ErrUnknownName) {
 				t.Fatalf("decode error = %v, want unknown object member", err)
 			}
 			if kept.Feedback != "kept" || len(kept.Details) != 0 || kept.Metric.Namespace() != "quality" {
@@ -87,12 +87,12 @@ func TestReportJSONRejectsUnknownMembers(t *testing.T) {
 // read a zero score as a real judgment.
 func TestAbsentMeasurementsStayAbsent(t *testing.T) {
 	qualitative := eval.Report{Metric: accuracyMetric(t), Feedback: "reads well"}
-	encoded, err := json.Marshal(qualitative)
+	encoded, err := jsonv2.Marshal(qualitative)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var wire map[string]any
-	if err := json.Unmarshal(encoded, &wire); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &wire); err != nil {
 		t.Fatal(err)
 	}
 	for _, field := range []string{"score", "measurement", "verdict", "details"} {
@@ -124,7 +124,7 @@ func TestReportDecodeIsValidatedBeforeAssignment(t *testing.T) {
 // TestReportMarshalRefusesAnInvalidReport keeps a report that would fail
 // validation from reaching a store, where it would only fail on the way back.
 func TestReportMarshalRefusesAnInvalidReport(t *testing.T) {
-	if _, err := json.Marshal(eval.Report{}); !errors.Is(err, eval.ErrInvalidReport) {
+	if _, err := jsonv2.Marshal(eval.Report{}); !errors.Is(err, eval.ErrInvalidReport) {
 		t.Fatalf("Marshal error = %v", err)
 	}
 }
@@ -145,7 +145,7 @@ func TestReportDepthIsBoundedAtEveryBoundary(t *testing.T) {
 	if _, err := deep.Clone(); !errors.Is(err, eval.ErrInvalidReport) {
 		t.Fatalf("Clone error = %v", err)
 	}
-	if _, err := json.Marshal(deep); !errors.Is(err, eval.ErrInvalidReport) {
+	if _, err := jsonv2.Marshal(deep); !errors.Is(err, eval.ErrInvalidReport) {
 		t.Fatalf("Marshal error = %v", err)
 	}
 }
@@ -196,7 +196,7 @@ func TestMetricCopiesPreserveParameterIsolation(t *testing.T) {
 	if got := string(copied.Parameters()["threshold"]); got != "0.5" {
 		t.Fatalf("copied metric threshold = %s, want 0.5", got)
 	}
-	if err := json.Unmarshal([]byte(`{"name":"accuracy","parameters":{"threshold":0.9}}`), &copied); err != nil {
+	if err := jsonv2.Unmarshal([]byte(`{"name":"accuracy","parameters":{"threshold":0.9}}`), &copied); err != nil {
 		t.Fatal(err)
 	}
 	if got := string(copied.Parameters()["threshold"]); got != "0.9" {

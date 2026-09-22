@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"os"
 	"path/filepath"
@@ -51,7 +52,7 @@ func openPublicationStore(t *testing.T, path string) *publicationStore {
 		store.database = publicationDatabase{Publications: make(map[string]json.RawMessage), Transactions: make(map[string]agent.Digest)}
 	} else if err != nil {
 		t.Fatal(err)
-	} else if err := json.Unmarshal(data, &store.database); err != nil {
+	} else if err := jsonv2.Unmarshal(data, &store.database); err != nil {
 		t.Fatal(err)
 	}
 	return store
@@ -160,11 +161,11 @@ func (p *publicationStore) advance(snapshot agent.TreeSnapshot, previous agent.D
 			found := false
 			for _, existing := range candidate.Results {
 				if existing.ProcessID == publication.Relation().ProcessID() && existing.Sequence == publication.ModelCallSequence() && existing.Entry.ToolCallIndex == entry.ToolCallIndex {
-					oldData, err := json.Marshal(existing.Entry)
+					oldData, err := jsonv2.Marshal(existing.Entry)
 					if err != nil {
 						return err
 					}
-					newData, err := json.Marshal(entry)
+					newData, err := jsonv2.Marshal(entry)
 					if err != nil {
 						return err
 					}
@@ -181,7 +182,7 @@ func (p *publicationStore) advance(snapshot agent.TreeSnapshot, previous agent.D
 		}
 	}
 	candidate.Transactions[key] = snapshot.Digest()
-	data, err := json.Marshal(candidate)
+	data, err := jsonv2.Marshal(candidate)
 	if err != nil {
 		return err
 	}

@@ -2,7 +2,7 @@ package web
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"strings"
 	"testing"
@@ -61,7 +61,7 @@ func TestFetchTool_Call_HappyPath(t *testing.T) {
 		t.Fatalf("Call: %v", err)
 	}
 	var resp FetchResponse
-	if err := json.Unmarshal(output.Details, &resp); err != nil {
+	if err := jsonv2.Unmarshal(output.Details, &resp); err != nil {
 		t.Fatalf("Unmarshal: %v body=%s", err, output.Details)
 	}
 	if resp.Content != "# Hello" {

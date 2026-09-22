@@ -1,7 +1,7 @@
 package ollama
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"strings"
 	"testing"
 
@@ -37,7 +37,7 @@ func TestReasoningEffortReachesThink(t *testing.T) {
 			if request.Think == nil {
 				t.Fatal("Think = nil, wanted the reasoning effort carried")
 			}
-			encoded, err := json.Marshal(request.Think)
+			encoded, err := jsonv2.Marshal(request.Think)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -86,7 +86,7 @@ func TestEmptyReasoningEffortLeavesNativeThinkAlone(t *testing.T) {
 	if request.Think == nil {
 		t.Fatal("Think = nil, want the natively set value preserved")
 	}
-	encoded, err := json.Marshal(request.Think)
+	encoded, err := jsonv2.Marshal(request.Think)
 	if err != nil {
 		t.Fatal(err)
 	}

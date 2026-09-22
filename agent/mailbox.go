@@ -300,10 +300,10 @@ func (s *signalMailbox) contains(id SignalID) bool {
 type signalRecordWire struct {
 	ArrivalSequence uint64          `json:"arrival_sequence"`
 	ID              SignalID        `json:"id"`
-	WaitID          *WaitID         `json:"wait_id,omitempty"`
+	WaitID          *WaitID         `json:"wait_id,omitzero"`
 	PayloadDigest   Digest          `json:"payload_digest"`
-	Payload         json.RawMessage `json:"payload,omitempty"`
-	OpensWait       bool            `json:"opens_wait,omitempty"`
+	Payload         json.RawMessage `json:"payload,omitzero"`
+	OpensWait       bool            `json:"opens_wait,omitzero"`
 	Source          signalSource    `json:"source"`
 }
 

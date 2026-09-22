@@ -2,7 +2,7 @@ package azureaisearch
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -22,7 +22,7 @@ func TestHybridSearchSendsLexicalAndVectorEvidence(t *testing.T) {
 	seen := make(chan map[string]any, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var body map[string]any
-		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
 			http.Error(writer, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -79,7 +79,7 @@ func TestSearchPreservesMetadataAcrossServerPages(t *testing.T) {
 			Skip int `json:"skip"`
 			Top  int `json:"top"`
 		}
-		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
 			t.Error(err)
 		}
 		if body.Skip != 1 || body.Top != 1 {
@@ -128,7 +128,7 @@ func TestDeleteWherePagesByKeyRatherThanSkip(t *testing.T) {
 						OrderBy string `json:"orderby"`
 						Skip    *int   `json:"skip"`
 					}
-					if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+					if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
 						t.Error(err)
 					}
 					if body.OrderBy != DefaultIDField+" asc" {

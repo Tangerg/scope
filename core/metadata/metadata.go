@@ -64,10 +64,19 @@ func (m Map) Values() (map[string]any, error) {
 }
 
 func decodeValue(raw json.RawMessage) (any, error) {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
+	numbers := jsonv2.UnmarshalFromFunc(func(decoder *jsontext.Decoder, value *any) error {
+		if decoder.PeekKind() != jsontext.KindNumber {
+			return errors.ErrUnsupported
+		}
+		number, err := decoder.ReadValue()
+		if err != nil {
+			return err
+		}
+		*value = json.Number(number)
+		return nil
+	})
 	var value any
-	if err := decoder.Decode(&value); err != nil {
+	if err := jsonv2.Unmarshal(raw, &value, jsonv2.WithUnmarshalers(numbers)); err != nil {
 		return nil, err
 	}
 	return value, nil

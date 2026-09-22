@@ -3,6 +3,7 @@ package agent_test
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -210,16 +211,16 @@ func TestCollaborationRejectsUnresolvedCoordinatorDecision(t *testing.T) {
 			definition := safetyValue(collaboration.NewDefinition(collaboration.DefinitionConfig{Name: "safety.collaboration", Description: "Reject unsafe coordinator decisions.", Coordinator: collaboration.WorkerConfig{Deployment: child, Budget: agent.Budget{Steps: agent.NewQuota(128), Effects: agent.NewQuota(128), Signals: agent.NewQuota(128)}}, Workers: []collaboration.WorkerConfig{{Deployment: worker, Budget: agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(16), Signals: agent.NewQuota(16)}}}, StateSchema: safetyValue(agent.SchemaFor[string]()), OutputSchema: safetyValue(agent.SchemaFor[string]()), MaxTurns: agent.NewQuota(2), MaxTasks: agent.NewQuota(2), MaxConcurrentTasks: 2, MaxControlsPerTurn: 2}))
 			state := assertSafetyFailure(t, safetyBinding(definition, nil), resolver, safetyValue(agent.EncodePayload("initial")), "coordinator.unresolved_effects")
 			var wire map[string]json.RawMessage
-			if err := json.Unmarshal(state.Payload(), &wire); err != nil {
+			if err := jsonv2.Unmarshal(state.Payload(), &wire); err != nil {
 				t.Fatal(err)
 			}
 			if string(wire["number"]) != "1" || len(wire["tasks"]) != 0 || len(wire["controls"]) != 0 {
 				t.Fatalf("unsafe decision adopted: %s", state.Payload())
 			}
-			wire["mode"] = safetyValue(json.Marshal(mode))
+			wire["mode"] = safetyValue(jsonv2.Marshal(mode))
 			wire["phase"] = json.RawMessage(`"completed"`)
 			wire["output"] = output.JSON()
-			forged := safetyValue(agent.NewExecutionState(state.Kind(), safetyValue(json.Marshal(wire))))
+			forged := safetyValue(agent.NewExecutionState(state.Kind(), safetyValue(jsonv2.Marshal(wire))))
 			if _, err := definition.Restore(t.Context(), forged); !errors.Is(err, collaboration.ErrInvalidState) {
 				t.Fatal(fmt.Errorf("unsafe applied decision restored: %w", err))
 			}

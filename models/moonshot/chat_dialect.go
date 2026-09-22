@@ -47,11 +47,11 @@ type Thinking struct {
 // ChatRequestOptions contains Kimi Chat Completions fields without a
 // provider-neutral Core equivalent.
 type ChatRequestOptions struct {
-	Thinking         *Thinking       `json:"thinking,omitempty"`
+	Thinking         *Thinking       `json:"thinking,omitzero"`
 	ReasoningEffort  ReasoningEffort `json:"reasoning_effort,omitempty"`
 	PromptCacheKey   string          `json:"prompt_cache_key,omitempty"`
 	SafetyIdentifier string          `json:"safety_identifier,omitempty"`
-	Partial          *bool           `json:"partial,omitempty"`
+	Partial          *bool           `json:"partial,omitzero"`
 }
 
 func (c ChatRequestOptions) ValidateFor(model string) error {

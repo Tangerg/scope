@@ -3,7 +3,7 @@
 package childcall
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -136,8 +136,8 @@ func (s Single) Complete(signal agent.Signal, key agent.ChildKey, waitKey agent.
 }
 
 type singleWire struct {
-	ProcessID *agent.ProcessID `json:"process_id,omitempty"`
-	WaitID    *agent.WaitID    `json:"wait_id,omitempty"`
+	ProcessID *agent.ProcessID `json:"process_id,omitzero"`
+	WaitID    *agent.WaitID    `json:"wait_id,omitzero"`
 }
 
 func (s Single) MarshalJSON() ([]byte, error) {
@@ -148,7 +148,7 @@ func (s Single) MarshalJSON() ([]byte, error) {
 	if s.waitID.Valid() {
 		wire.WaitID = &s.waitID
 	}
-	return json.Marshal(wire)
+	return jsonv2.Marshal(wire)
 }
 
 func (s *Single) UnmarshalJSON(data []byte) error {

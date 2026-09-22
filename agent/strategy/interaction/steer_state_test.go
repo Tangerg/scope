@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"slices"
 	"testing"
@@ -193,12 +194,12 @@ func signalFromRequest(t testing.TB, request agent.SignalRequest) agent.Signal {
 	}{
 		ID: request.ID(), Payload: request.Payload(),
 	}
-	encoded, err := json.Marshal(wire)
+	encoded, err := jsonv2.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var signal agent.Signal
-	if err := json.Unmarshal(encoded, &signal); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &signal); err != nil {
 		t.Fatal(err)
 	}
 	return signal
@@ -231,12 +232,12 @@ func childWaitOpenedTestSignal(t testing.TB) agent.Signal {
 		ID: id, WaitID: waitID,
 		Payload: payload,
 	}
-	encoded, err := json.Marshal(wire)
+	encoded, err := jsonv2.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var signal agent.Signal
-	if err := json.Unmarshal(encoded, &signal); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &signal); err != nil {
 		t.Fatal(err)
 	}
 	return signal

@@ -3,7 +3,7 @@ package agenttest
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -138,7 +138,7 @@ func verifyDescriptorStability(definition agent.Definition) error {
 				results <- result{err: err}
 				return
 			}
-			data, err := json.Marshal(descriptor)
+			data, err := jsonv2.Marshal(descriptor)
 			results <- result{data: data, err: err}
 		}()
 	}
@@ -345,11 +345,11 @@ func validateTransition(transition agent.Transition, signalCount int) error {
 }
 
 func requireEquivalent(label string, left, right any) error {
-	leftData, err := json.Marshal(left)
+	leftData, err := jsonv2.Marshal(left, jsonv2.Deterministic(true))
 	if err != nil {
 		return fmt.Errorf("agenttest: encode first %s: %w", label, err)
 	}
-	rightData, err := json.Marshal(right)
+	rightData, err := jsonv2.Marshal(right, jsonv2.Deterministic(true))
 	if err != nil {
 		return fmt.Errorf("agenttest: encode second %s: %w", label, err)
 	}

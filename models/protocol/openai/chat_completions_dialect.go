@@ -1,7 +1,7 @@
 package openai
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -309,7 +309,7 @@ func prependTextReasoning(fields map[string]respjson.Field, provider, fieldName 
 		return nil
 	}
 	var reasoning string
-	if err := json.Unmarshal([]byte(field.Raw()), &reasoning); err != nil {
+	if err := jsonv2.Unmarshal([]byte(field.Raw()), &reasoning); err != nil {
 		return fmt.Errorf("decode %s: %w", fieldName, err)
 	}
 	if reasoning == "" {

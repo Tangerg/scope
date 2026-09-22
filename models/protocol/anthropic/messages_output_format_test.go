@@ -2,6 +2,7 @@ package anthropic
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"strings"
 	"testing"
@@ -54,12 +55,12 @@ func TestOutputConfigExtensionKeepsNonFormatFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.Marshal(config)
+	encoded, err := jsonv2.Marshal(config)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got map[string]any
-	if err := json.Unmarshal(encoded, &got); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &got); err != nil {
 		t.Fatal(err)
 	}
 	if got["future_field"] != "preserved" {

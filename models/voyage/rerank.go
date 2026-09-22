@@ -12,7 +12,7 @@ import (
 // RerankRequestOptions contains Voyage controls that do not alter Core's
 // reranking result semantics.
 type RerankRequestOptions struct {
-	Truncation *bool `json:"truncation,omitempty"`
+	Truncation *bool `json:"truncation,omitzero"`
 }
 
 // RerankModelConfig binds provider access and defaults shared by every reranking call.

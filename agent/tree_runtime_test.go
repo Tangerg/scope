@@ -2,7 +2,7 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"sync"
 	"testing"
 	"time"
@@ -199,7 +199,7 @@ func (t *treeRuntimeTestDefinition) Restore(ctx context.Context, state Execution
 		return nil, ErrInvalidExecutionState
 	}
 	var decoded treeRuntimeTestState
-	if err := json.Unmarshal(state.Payload(), &decoded); err != nil {
+	if err := jsonv2.Unmarshal(state.Payload(), &decoded); err != nil {
 		return nil, err
 	}
 	return &treeRuntimeTestExecution{definition: t, state: decoded}, nil
@@ -282,7 +282,7 @@ func (t *treeRuntimeTestExecution) complete() (Transition, error) {
 }
 
 func (t *treeRuntimeTestExecution) Snapshot() (ExecutionState, error) {
-	payload, err := json.Marshal(t.state)
+	payload, err := jsonv2.Marshal(t.state)
 	if err != nil {
 		return ExecutionState{}, err
 	}

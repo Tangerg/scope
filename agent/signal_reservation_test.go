@@ -2,7 +2,7 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"sync"
 	"testing"
@@ -204,7 +204,7 @@ func TestSnapshotRejectsUnfundedSignalReservations(t *testing.T) {
 			}
 			wire.Mailbox = mailbox.wire()
 			test.modify(&wire)
-			data, err := json.Marshal(wire)
+			data, err := jsonv2.Marshal(wire)
 			if err != nil {
 				t.Fatal(err)
 			}

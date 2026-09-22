@@ -3,6 +3,7 @@ package interaction_test
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
 	"sync"
@@ -27,7 +28,7 @@ func TestModelSettlementCarriesOnlyChangedContext(t *testing.T) {
 						ReplacementMessages []chat.Message `json:"replacement_messages"`
 					} `json:"model_result"`
 				}
-				if err := json.Unmarshal(payload, &result); err != nil {
+				if err := jsonv2.Unmarshal(payload, &result); err != nil {
 					t.Fatal(err)
 				}
 				if changed := result.ModelResult.ReplacementMessages != nil; changed != (mode == "changed") {
@@ -143,7 +144,7 @@ func (c *contextSettlementRecorder) Dispatch(ctx context.Context, request agent.
 	var envelope struct {
 		ModelResult json.RawMessage `json:"model_result"`
 	}
-	if decodeErr := json.Unmarshal(settlement.Payload(), &envelope); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal(settlement.Payload(), &envelope); decodeErr != nil {
 		return agent.Settlement{}, decodeErr
 	}
 	if len(envelope.ModelResult) != 0 {

@@ -3,6 +3,7 @@ package workflow_test
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -99,13 +100,13 @@ func TestFanoutRestoreRejectsInvalidWindowState(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var fields map[string]json.RawMessage
-			if err := json.Unmarshal(snapshot.Payload(), &fields); err != nil {
+			if err := jsonv2.Unmarshal(snapshot.Payload(), &fields); err != nil {
 				t.Fatal(err)
 			}
 			for key, value := range test.fields {
 				fields[key] = value
 			}
-			payload, err := json.Marshal(fields)
+			payload, err := jsonv2.Marshal(fields)
 			if err != nil {
 				t.Fatal(err)
 			}

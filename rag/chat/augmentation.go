@@ -2,7 +2,7 @@ package chat
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -225,7 +225,7 @@ func (c *ContextualAugmenter) formatContext(ctx context.Context, candidates rag.
 			Content:  content,
 		})
 		if c.budget.limited() {
-			candidateEncoding, err := json.Marshal(evidence)
+			candidateEncoding, err := jsonv2.Marshal(evidence)
 			if err != nil {
 				return "", nil, fmt.Errorf("rag: encode contextual evidence: %w", err)
 			}
@@ -246,7 +246,7 @@ func (c *ContextualAugmenter) formatContext(ctx context.Context, candidates rag.
 		return "", nil, ErrContextBudgetExceeded
 	}
 	if !c.budget.limited() {
-		contextEncoding, err := json.Marshal(evidence)
+		contextEncoding, err := jsonv2.Marshal(evidence)
 		if err != nil {
 			return "", nil, fmt.Errorf("rag: encode contextual evidence: %w", err)
 		}

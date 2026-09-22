@@ -2,7 +2,7 @@ package collaboration
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"strings"
 	"testing"
@@ -62,7 +62,7 @@ func TestRestoreIdentifiesInvalidTurnState(t *testing.T) {
 				t.Fatal(err)
 			}
 			test.mutate(&execution.state)
-			state := require(agent.NewExecutionState(stateKind, require(json.Marshal(execution.state))))
+			state := require(agent.NewExecutionState(stateKind, require(jsonv2.Marshal(execution.state))))
 			_, err := definition.Restore(t.Context(), state)
 			if !errors.Is(err, ErrInvalidState) || !strings.Contains(err.Error(), test.context) {
 				t.Fatalf("Restore error = %v, want invalid state with %q", err, test.context)

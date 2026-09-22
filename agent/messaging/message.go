@@ -1,7 +1,7 @@
 package messaging
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -14,7 +14,7 @@ var ErrInvalidMessage = errors.New("messaging: invalid message")
 // Recipient and WaitID must remain bound to this payload across restoration.
 type Message struct {
 	Recipient agent.ProcessID `json:"recipient"`
-	WaitID    *agent.WaitID   `json:"wait_id,omitempty"`
+	WaitID    *agent.WaitID   `json:"wait_id,omitzero"`
 	Payload   agent.Payload   `json:"payload"`
 }
 
@@ -28,7 +28,7 @@ func (m Message) Effect() (agent.Effect, error) {
 	if !m.Valid() {
 		return agent.Effect{}, ErrInvalidMessage
 	}
-	payload, err := json.Marshal(m)
+	payload, err := jsonv2.Marshal(m)
 	if err != nil {
 		return agent.Effect{}, err
 	}

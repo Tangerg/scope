@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"io"
 	"iter"
@@ -263,7 +263,7 @@ func (p probeRerank) Call(ctx context.Context, request *rerank.Request) (*rerank
 	}{
 		Model: "rerank-model", Query: request.Query, Documents: request.Documents, TopN: request.Options.TopK,
 	}
-	payload, err := json.Marshal(wireRequest)
+	payload, err := jsonv2.Marshal(wireRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -303,7 +303,7 @@ func TestRunRerankContract(t *testing.T) {
 type probeEmbedding struct{ baseURL string }
 
 func (p probeEmbedding) Call(ctx context.Context, request *embedding.Request) (*embedding.Response, error) {
-	payload, err := json.Marshal(map[string]any{"model": request.Options.Model, "input": request.Texts})
+	payload, err := jsonv2.Marshal(map[string]any{"model": request.Options.Model, "input": request.Texts})
 	if err != nil {
 		return nil, err
 	}

@@ -2,7 +2,7 @@ package collaboration
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"sync"
 	"testing"
@@ -31,7 +31,7 @@ func (p *pausedDefinition) Restore(ctx context.Context, state agent.ExecutionSta
 	if state.Kind() != "test.paused" {
 		return nil, errors.New("unexpected state")
 	}
-	if err := json.Unmarshal(state.Payload(), &execution); err != nil {
+	if err := jsonv2.Unmarshal(state.Payload(), &execution); err != nil {
 		return nil, err
 	}
 	return &execution, nil
@@ -55,7 +55,7 @@ func (p *pausedExecution) Step(ctx context.Context, signals []agent.Signal) (age
 	return agent.Complete(1, require(agent.ParsePayload(signals[0].Payload())))
 }
 func (p *pausedExecution) Snapshot() (agent.ExecutionState, error) {
-	return agent.NewExecutionState("test.paused", require(json.Marshal(p)))
+	return agent.NewExecutionState("test.paused", require(jsonv2.Marshal(p)))
 }
 
 type heldControlDurability struct {
@@ -73,7 +73,7 @@ func (h *heldControlDurability) CommitEffect(ctx context.Context, boundary agent
 	var payload struct {
 		Operation string `json:"operation"`
 	}
-	if err := json.Unmarshal(boundary.Request().Effect().Payload(), &payload); err != nil {
+	if err := jsonv2.Unmarshal(boundary.Request().Effect().Payload(), &payload); err != nil {
 		return err
 	}
 	if payload.Operation == h.operation {

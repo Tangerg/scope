@@ -2,7 +2,7 @@ package fs
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"os"
 	"path/filepath"
@@ -67,7 +67,7 @@ func TestApplyPatchCommitFailurePreservesAcknowledgedChanges(t *testing.T) {
 			if constructorErr != nil {
 				t.Fatal(constructorErr)
 			}
-			arguments, encodeErr := json.Marshal(request)
+			arguments, encodeErr := jsonv2.Marshal(request)
 			if encodeErr != nil {
 				t.Fatal(encodeErr)
 			}
@@ -76,7 +76,7 @@ func TestApplyPatchCommitFailurePreservesAcknowledgedChanges(t *testing.T) {
 			if !found {
 				t.Fatalf("tool failure lost its output: %v", err)
 			}
-			if decodeErr := json.Unmarshal(failure.Output().Details, &out); decodeErr != nil {
+			if decodeErr := jsonv2.Unmarshal(failure.Output().Details, &out); decodeErr != nil {
 				t.Fatal(decodeErr)
 			}
 			text, _ := failure.Output().Text()

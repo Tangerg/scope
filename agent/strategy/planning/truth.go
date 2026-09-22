@@ -1,7 +1,7 @@
 package planning
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
@@ -38,7 +38,7 @@ func (t Truth) MarshalJSON() ([]byte, error) {
 	if !t.Valid() {
 		return nil, fmt.Errorf("%w: truth value %q", ErrInvalidCondition, t)
 	}
-	return json.Marshal(t.String())
+	return jsonv2.Marshal(t.String())
 }
 
 func (t *Truth) UnmarshalJSON(data []byte) error {

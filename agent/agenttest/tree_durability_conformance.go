@@ -2,7 +2,7 @@ package agenttest
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"slices"
 	"sync"
@@ -90,7 +90,7 @@ func runEffectBoundaryConformance(
 		t.Fatal(err)
 	}
 	effectID := waitForConformanceUnknownEffect(t, engine, process)
-	payload, err := json.Marshal(conformanceOutput{Value: "committed"})
+	payload, err := jsonv2.Marshal(conformanceOutput{Value: "committed"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -595,7 +595,7 @@ func (c *conformanceExecution) stepEffect(signals []agent.Signal) (agent.Transit
 			return agent.Transition{}, errors.New("agenttest: unexpected initial Signal")
 		}
 		c.state.Phase = conformancePhaseAwaitingEffect
-		payload, err := json.Marshal(conformanceInput{Value: c.state.Value})
+		payload, err := jsonv2.Marshal(conformanceInput{Value: c.state.Value})
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -609,7 +609,7 @@ func (c *conformanceExecution) stepEffect(signals []agent.Signal) (agent.Transit
 			return agent.Transition{}, errors.New("agenttest: settlement Signal is missing")
 		}
 		var output conformanceOutput
-		if err := json.Unmarshal(signals[0].Payload(), &output); err != nil {
+		if err := jsonv2.Unmarshal(signals[0].Payload(), &output); err != nil {
 			return agent.Transition{}, err
 		}
 		c.state.Phase = conformancePhaseFinished
@@ -624,7 +624,7 @@ func (c *conformanceExecution) stepEffect(signals []agent.Signal) (agent.Transit
 }
 
 func (c *conformanceExecution) Snapshot() (agent.ExecutionState, error) {
-	payload, err := json.Marshal(c.state)
+	payload, err := jsonv2.Marshal(c.state)
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
@@ -646,10 +646,10 @@ func (c conformanceDispatcher) Dispatch(
 	_ agent.DeltaEmitter,
 ) (agent.Settlement, error) {
 	var input conformanceInput
-	if err := json.Unmarshal(request.Effect().Payload(), &input); err != nil {
+	if err := jsonv2.Unmarshal(request.Effect().Payload(), &input); err != nil {
 		return agent.Settlement{}, err
 	}
-	payload, err := json.Marshal(conformanceOutput(input))
+	payload, err := jsonv2.Marshal(conformanceOutput(input))
 	if err != nil {
 		return agent.Settlement{}, err
 	}

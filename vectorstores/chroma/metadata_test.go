@@ -2,6 +2,7 @@ package chroma
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 
 	v2 "github.com/amikos-tech/chroma-go/pkg/api/v2"
@@ -29,12 +30,12 @@ func TestMetadataNumbersUseLosslessSDKWireValues(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			encoded, err := json.Marshal(operation.Metadatas[0])
+			encoded, err := jsonv2.Marshal(operation.Metadatas[0])
 			if err != nil {
 				t.Fatal(err)
 			}
 			var wire metadata.Map
-			if err := json.Unmarshal(encoded, &wire); err != nil {
+			if err := jsonv2.Unmarshal(encoded, &wire); err != nil {
 				t.Fatal(err)
 			}
 			if got := string(wire["value"]); got != sample.want {

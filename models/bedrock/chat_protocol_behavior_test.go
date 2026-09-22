@@ -2,7 +2,7 @@ package bedrock_test
 
 import (
 	"bytes"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -124,7 +124,7 @@ func writeBedrockEvent(writer http.ResponseWriter, eventType string, payload []b
 }
 
 func mustBedrockJSON(value any) []byte {
-	encoded, err := json.Marshal(value)
+	encoded, err := jsonv2.Marshal(value)
 	if err != nil {
 		panic(err)
 	}

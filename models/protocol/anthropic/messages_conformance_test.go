@@ -2,6 +2,7 @@ package anthropic_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -229,7 +230,7 @@ func newProtocolChatServer(t *testing.T) *httptest.Server {
 func serveProtocolChat(t *testing.T, writer http.ResponseWriter, request *http.Request) {
 	t.Helper()
 	var body protocolChatRequestBody
-	if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+	if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
 		t.Errorf("decode request: %v", err)
 		http.Error(writer, "bad request", http.StatusBadRequest)
 		return

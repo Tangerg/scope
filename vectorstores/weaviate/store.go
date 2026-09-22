@@ -2,7 +2,7 @@ package weaviate
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -370,7 +370,7 @@ func (s *Store) buildObjects(docs []*document.Document, vectors [][]float64) ([]
 	objects := make([]*models.Object, 0, len(docs))
 
 	for i, doc := range docs {
-		metaBytes, err := json.Marshal(doc.Metadata)
+		metaBytes, err := jsonv2.Marshal(doc.Metadata)
 		if err != nil {
 			return nil, fmt.Errorf("weaviate: marshal metadata for document %s: %w", doc.ID, err)
 		}
@@ -647,7 +647,7 @@ func (s *Store) buildDocumentsFromResult(
 		doc.Text = content
 
 		if metaStr, ok := objMap[fieldMetadata].(string); ok && metaStr != "" && metaStr != "null" {
-			if err := json.Unmarshal([]byte(metaStr), &doc.Metadata); err != nil {
+			if err := jsonv2.Unmarshal([]byte(metaStr), &doc.Metadata); err != nil {
 				return nil, fmt.Errorf("weaviate: decode metadata: %w", err)
 			}
 		}

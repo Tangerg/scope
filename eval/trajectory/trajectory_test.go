@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
 	"iter"
 	"sync/atomic"
 	"testing"
@@ -294,12 +295,12 @@ func TestToolArgumentsRejectAmbiguousJSON(t *testing.T) {
 
 func TestTrajectoryJSONRoundTripPreservesCanonicalBehavior(t *testing.T) {
 	recorded := runTrajectory(t)
-	encoded, err := json.Marshal(recorded)
+	encoded, err := jsonv2.Marshal(recorded)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded trajectory.Trajectory
-	if decodeErr := json.Unmarshal(encoded, &decoded); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal(encoded, &decoded); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
 	want, err := recorded.BehaviorDigest(rawOutputProjection)
@@ -317,21 +318,21 @@ func TestTrajectoryJSONRoundTripPreservesCanonicalBehavior(t *testing.T) {
 		t.Fatalf("decoded duration = %s, want %s", decoded.Elapsed(), recorded.Elapsed())
 	}
 	unknown := []byte(string(encoded[:len(encoded)-1]) + `,"unexpected":true}`)
-	if decodeErr := json.Unmarshal(unknown, &decoded); !errors.Is(decodeErr, jsonv2.ErrUnknownName) {
+	if decodeErr := jsonv2.Unmarshal(unknown, &decoded); !errors.Is(decodeErr, jsonv2.ErrUnknownName) {
 		t.Fatalf("decode error = %v, want unknown object member", decodeErr)
 	}
-	retained, marshalErr := json.Marshal(decoded)
+	retained, marshalErr := jsonv2.Marshal(decoded)
 	if marshalErr != nil || string(retained) != string(encoded) {
 		t.Fatalf("rejected decode changed trajectory: %s, error = %v", retained, marshalErr)
 	}
-	if err := json.Unmarshal([]byte(`{}`), &decoded); !errors.Is(err, trajectory.ErrInvalidTrajectory) {
+	if err := jsonv2.Unmarshal([]byte(`{}`), &decoded); !errors.Is(err, trajectory.ErrInvalidTrajectory) {
 		t.Fatalf("invalid trajectory JSON error = %v", err)
 	}
 }
 
 type fixtureInput struct {
 	Value      string `json:"value"`
-	NullOutput bool   `json:"null_output,omitempty"`
+	NullOutput bool   `json:"null_output,omitzero"`
 }
 
 type fixtureOutput struct {
@@ -352,14 +353,14 @@ func (fixtureDefinition) Start(input agent.Payload) (agent.Execution, error) {
 
 func (fixtureDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
 	var execution fixtureExecution
-	if err := json.Unmarshal(state.Payload(), &execution); err != nil {
+	if err := jsonv2.Unmarshal(state.Payload(), &execution); err != nil {
 		return nil, err
 	}
 	return &execution, nil
 }
 
 type fixtureExecution struct {
-	NullOutput bool   `json:"null_output,omitempty"`
+	NullOutput bool   `json:"null_output,omitzero"`
 	Value      string `json:"value"`
 	Done       bool   `json:"done"`
 }
@@ -381,7 +382,7 @@ func (f *fixtureExecution) Step(context.Context, []agent.Signal) (agent.Transiti
 }
 
 func (f *fixtureExecution) Snapshot() (agent.ExecutionState, error) {
-	payload, err := json.Marshal(f)
+	payload, err := jsonv2.Marshal(f)
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
@@ -529,3 +530,24 @@ func (t trajectoryDeploymentResolver) Resolve(reference agent.DeploymentRef) (ag
 }
 
 func rawOutputProjection(output agent.Payload) (json.RawMessage, error) { return output.JSON(), nil }
+
+func TestLimitsJSONPreservesNanoseconds(t *testing.T) {
+	for _, elapsed := range []time.Duration{0, 9007199254740993} {
+		limits := trajectory.Limits{Elapsed: &elapsed}
+		encoded, err := jsonv2.Marshal(limits)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := fmt.Sprintf(`{"elapsed_ns":%d}`, elapsed)
+		if string(encoded) != want {
+			t.Fatalf("limits = %s, want %s", encoded, want)
+		}
+		var restored trajectory.Limits
+		if err := jsonv2.Unmarshal(encoded, &restored); err != nil {
+			t.Fatal(err)
+		}
+		if restored.Elapsed == nil || *restored.Elapsed != elapsed {
+			t.Fatalf("restored = %+v", restored)
+		}
+	}
+}

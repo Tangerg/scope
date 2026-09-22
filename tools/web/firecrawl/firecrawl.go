@@ -57,7 +57,7 @@ func NewClient(config Config) (*Client, error) {
 
 type searchRequest struct {
 	Query string `json:"query"`
-	Limit int    `json:"limit,omitempty"`
+	Limit int    `json:"limit,omitzero"`
 	Tbs   string `json:"tbs,omitempty"`
 }
 

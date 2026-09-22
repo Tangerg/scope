@@ -1,7 +1,7 @@
 package openai_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -40,7 +40,7 @@ func TestImageModel_Call_Mock(t *testing.T) {
 			{URL: "https://example.com/img2.png", B64JSON: ""},
 		},
 	}
-	body, _ := json.Marshal(resp)
+	body, _ := jsonv2.Marshal(resp)
 
 	var seenURL string
 	srv := modeltest.JSONServer(http.StatusOK, string(body), func(r *http.Request) {

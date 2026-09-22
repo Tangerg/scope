@@ -2,7 +2,7 @@ package chat_test
 
 import (
 	"bytes"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -15,7 +15,7 @@ type protocolValue interface {
 func assertJSONFixedPoint[T any](t *testing.T, data []byte) {
 	t.Helper()
 	var first T
-	if err := json.Unmarshal(data, &first); err != nil {
+	if err := jsonv2.Unmarshal(data, &first); err != nil {
 		return
 	}
 	validator, ok := any(&first).(protocolValue)
@@ -25,16 +25,16 @@ func assertJSONFixedPoint[T any](t *testing.T, data []byte) {
 	if err := validator.Validate(); err != nil {
 		t.Fatalf("successful Unmarshal produced invalid %T: %v", first, err)
 	}
-	firstWire, err := json.Marshal(first)
+	firstWire, err := jsonv2.Marshal(first)
 	if err != nil {
 		t.Fatalf("Marshal after successful Unmarshal: %v", err)
 	}
 
 	var second T
-	if unmarshalErr := json.Unmarshal(firstWire, &second); unmarshalErr != nil {
+	if unmarshalErr := jsonv2.Unmarshal(firstWire, &second); unmarshalErr != nil {
 		t.Fatalf("Unmarshal canonical wire: %v", unmarshalErr)
 	}
-	secondWire, err := json.Marshal(second)
+	secondWire, err := jsonv2.Marshal(second)
 	if err != nil {
 		t.Fatalf("Marshal second value: %v", err)
 	}

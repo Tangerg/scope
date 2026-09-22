@@ -1,7 +1,7 @@
 package filter_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 
 	"github.com/Tangerg/scope/core/vectorstore"
@@ -130,12 +130,12 @@ func TestFilterRoundTripPreservesEvaluationErrors(t *testing.T) {
 		filter.And(filter.Or(filter.GT("bad", 0), filter.EQ("a", 1)), filter.EQ("a", 1)),
 		filter.Or(filter.And(filter.GT("bad", 0), filter.EQ("a", 1)), filter.And(filter.EQ("a", 1), filter.EQ("b", 2))),
 	} {
-		encoded, err := json.Marshal(vectorstore.SearchOptions{Filter: predicate})
+		encoded, err := jsonv2.Marshal(vectorstore.SearchOptions{Filter: predicate})
 		if err != nil {
 			t.Fatal(err)
 		}
 		var options vectorstore.SearchOptions
-		if err := json.Unmarshal(encoded, &options); err != nil {
+		if err := jsonv2.Unmarshal(encoded, &options); err != nil {
 			t.Fatal(err)
 		}
 		for _, a := range []int{0, 1} {

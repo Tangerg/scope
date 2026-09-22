@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"time"
 
@@ -46,7 +47,7 @@ type effectFinishedEventPayload struct {
 	EffectTarget     EffectTarget     `json:"effect_target"`
 	SettlementStatus SettlementStatus `json:"settlement_status"`
 	DurationMS       *int64           `json:"duration_ms"`
-	FailureKind      FailureKind      `json:"failure_kind,omitempty"`
+	FailureKind      FailureKind      `json:"failure_kind,omitzero"`
 	FailureCode      string           `json:"failure_code,omitempty"`
 }
 
@@ -90,7 +91,7 @@ type signalAcceptedEventPayload struct {
 type processFinishedEventPayload struct {
 	ProcessStatus    Status           `json:"process_status"`
 	TerminationCause TerminationCause `json:"termination_cause"`
-	FailureKind      FailureKind      `json:"failure_kind,omitempty"`
+	FailureKind      FailureKind      `json:"failure_kind,omitzero"`
 	FailureCode      string           `json:"failure_code,omitempty"`
 	Usage            *Usage           `json:"usage"`
 }
@@ -414,7 +415,7 @@ func durationFromMilliseconds(milliseconds int64) (time.Duration, bool) {
 
 // Kernel facts use closed payloads; failure to encode one is a programming error.
 func marshalEventPayload(payload any) json.RawMessage {
-	encoded, err := json.Marshal(payload)
+	encoded, err := jsonv2.Marshal(payload)
 	if err != nil {
 		panic(err)
 	}

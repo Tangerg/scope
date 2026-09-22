@@ -1,7 +1,7 @@
 package exa
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -26,7 +26,7 @@ func TestFetch(t *testing.T) {
 				IncludeHTMLTags bool `json:"includeHtmlTags"`
 			} `json:"text"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := jsonv2.UnmarshalRead(r.Body, &body); err != nil {
 			t.Errorf("decode body: %v", err)
 			return
 		}

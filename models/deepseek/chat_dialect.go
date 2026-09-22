@@ -53,10 +53,10 @@ func (t ThinkingConfig) Validate() error {
 // have no provider-neutral Core equivalent. Store it in
 // [chat.Options.Extensions] under [RequestExtensionKey].
 type RequestOptions struct {
-	Thinking     *ThinkingConfig `json:"thinking,omitempty"`
-	LogProbs     *bool           `json:"logprobs,omitempty"`
-	TopLogProbs  *int64          `json:"top_logprobs,omitempty"`
-	IncludeUsage *bool           `json:"include_usage,omitempty"`
+	Thinking     *ThinkingConfig `json:"thinking,omitzero"`
+	LogProbs     *bool           `json:"logprobs,omitzero"`
+	TopLogProbs  *int64          `json:"top_logprobs,omitzero"`
+	IncludeUsage *bool           `json:"include_usage,omitzero"`
 	UserID       string          `json:"user_id,omitempty"`
 }
 

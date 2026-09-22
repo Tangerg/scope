@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 )
@@ -11,15 +11,15 @@ func TestIdentityTypesRemainDistinctAndRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(processID)
+	data, err := jsonv2.Marshal(processID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := string(data); got != `"process:01J1-test"` {
-		t.Fatalf("json.Marshal(ProcessID) = %s", got)
+		t.Fatalf("jsonv2.Marshal(ProcessID) = %s", got)
 	}
 	var decoded ProcessID
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded != processID {
@@ -34,7 +34,7 @@ func TestIdentityRejectsEmptyUnsafeAndOversizedValues(t *testing.T) {
 			t.Fatalf("ParseSignalID(%q) error = %v, want ErrInvalidIdentity", value, err)
 		}
 	}
-	if _, err := json.Marshal(ProcessID{}); !errors.Is(err, ErrInvalidIdentity) {
+	if _, err := jsonv2.Marshal(ProcessID{}); !errors.Is(err, ErrInvalidIdentity) {
 		t.Fatalf("marshal zero ProcessID error = %v, want ErrInvalidIdentity", err)
 	}
 }

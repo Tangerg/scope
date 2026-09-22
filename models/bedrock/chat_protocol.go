@@ -35,7 +35,7 @@ const (
 type ChatRequestOptions struct {
 	AdditionalModelRequestFields      map[string]any    `json:"additional_model_request_fields,omitempty"`
 	AdditionalModelResponseFieldPaths []string          `json:"additional_model_response_field_paths,omitempty"`
-	Guardrail                         *GuardrailOptions `json:"guardrail,omitempty"`
+	Guardrail                         *GuardrailOptions `json:"guardrail,omitzero"`
 	PerformanceLatency                string            `json:"performance_latency,omitempty"`
 	RequestMetadata                   map[string]string `json:"request_metadata,omitempty"`
 	ServiceTier                       string            `json:"service_tier,omitempty"`

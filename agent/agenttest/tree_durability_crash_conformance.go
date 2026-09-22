@@ -2,7 +2,7 @@ package agenttest
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"sync"
 	"testing"
@@ -594,7 +594,7 @@ func newCrashDeployment(
 
 func crashSucceededDispatchStep(t *testing.T) DispatchStep {
 	t.Helper()
-	payload, err := json.Marshal(conformanceOutput{Value: crashInputValue})
+	payload, err := jsonv2.Marshal(conformanceOutput{Value: crashInputValue})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -740,7 +740,7 @@ func resolveCrashUnknown(t *testing.T, engine *agent.Engine, process *agent.Proc
 
 func crashResolution(t *testing.T, effectID agent.EffectID) agent.Settlement {
 	t.Helper()
-	payload, err := json.Marshal(conformanceOutput{Value: crashInputValue})
+	payload, err := jsonv2.Marshal(conformanceOutput{Value: crashInputValue})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,6 +3,7 @@ package agent
 import (
 	"cmp"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -290,7 +291,7 @@ func (c ChildOutcome) MarshalJSON() ([]byte, error) {
 	if !c.Valid() {
 		return nil, ErrInvalidChildWait
 	}
-	return json.Marshal(c.wire())
+	return jsonv2.Marshal(c.wire())
 }
 
 func (c *ChildOutcome) UnmarshalJSON(data []byte) error {
@@ -408,7 +409,7 @@ const (
 
 type childWaitConditionWire struct {
 	Kind   childWaitKind `json:"kind"`
-	Quorum uint32        `json:"quorum,omitempty"`
+	Quorum uint32        `json:"quorum,omitzero"`
 }
 
 type childWaitSpecWire struct {
@@ -478,7 +479,7 @@ func encodeChildWaitOpened(spec ChildWaitSpec) (json.RawMessage, error) {
 	if !spec.Valid() {
 		return nil, ErrInvalidChildWait
 	}
-	return json.Marshal(childWaitOpenedWire{
+	return jsonv2.Marshal(childWaitOpenedWire{
 		Operation: childSignalWaitOpened,
 		Spec:      spec.wire(),
 	})
@@ -527,7 +528,7 @@ func encodeChildWaitSatisfied(
 	for index, outcome := range outcomes {
 		wire.Outcomes[index] = outcome.wire()
 	}
-	payload, err := json.Marshal(wire)
+	payload, err := jsonv2.Marshal(wire)
 	if err != nil {
 		return Signal{}, err
 	}

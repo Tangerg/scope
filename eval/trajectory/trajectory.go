@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
@@ -114,8 +115,8 @@ type trajectoryWire struct {
 	Termination   agent.Termination `json:"termination"`
 	Output        agent.Payload     `json:"output,omitzero"`
 	RootUsage     agent.Usage       `json:"root_usage"`
-	Coverage      *Coverage         `json:"coverage,omitempty"`
-	Elapsed       *time.Duration    `json:"elapsed_ns,omitempty"`
+	Coverage      *Coverage         `json:"coverage,omitzero"`
+	Elapsed       *int64            `json:"elapsed_ns,omitzero"`
 	Events        []agent.Event     `json:"events"`
 	ModelCalls    []ModelCall       `json:"model_calls,omitempty"`
 	ToolCalls     []ToolCall        `json:"tool_calls,omitempty"`
@@ -125,9 +126,9 @@ func (t Trajectory) MarshalJSON() ([]byte, error) {
 	if err := t.Validate(); err != nil {
 		return nil, err
 	}
-	return json.Marshal(trajectoryWire{
+	return jsonv2.Marshal(trajectoryWire{
 		RootProcessID: t.rootProcessID, Termination: t.termination,
-		Output: t.output, RootUsage: t.rootUsage, Coverage: t.coverage, Elapsed: t.elapsed,
+		Output: t.output, RootUsage: t.rootUsage, Coverage: t.coverage, Elapsed: (*int64)(t.elapsed),
 		Events: t.events, ModelCalls: t.modelCalls, ToolCalls: t.toolCalls,
 	})
 }
@@ -137,10 +138,10 @@ func (t *Trajectory) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidTrajectory)
 	}
 	var decoded trajectoryWire
-	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true), json.FormatDurationAsNano(true)); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidTrajectory, err)
 	}
-	canonical, err := New(Config(decoded))
+	canonical, err := New(Config{RootProcessID: decoded.RootProcessID, Termination: decoded.Termination, Output: decoded.Output, RootUsage: decoded.RootUsage, Coverage: decoded.Coverage, Elapsed: (*time.Duration)(decoded.Elapsed), Events: decoded.Events, ModelCalls: decoded.ModelCalls, ToolCalls: decoded.ToolCalls})
 	if err != nil {
 		return err
 	}
@@ -309,7 +310,7 @@ func (t Trajectory) BehaviorDigest(project eval.Projection[agent.Payload, json.R
 	if err != nil {
 		return "", err
 	}
-	encoded, err := json.Marshal(projection)
+	encoded, err := jsonv2.Marshal(projection, jsonv2.Deterministic(true))
 	if err != nil {
 		return "", fmt.Errorf("%w: encode behavior: %w", ErrInvalidTrajectory, err)
 	}
@@ -330,7 +331,7 @@ func (t Trajectory) behavior(project eval.Projection[agent.Payload, json.RawMess
 		if err != nil {
 			return behaviorProjection{}, fmt.Errorf("project output: %w", err)
 		}
-		if len(projection.Output) == 0 || !json.Valid(projection.Output) {
+		if len(projection.Output) == 0 || !jsontext.Value(projection.Output).IsValid() {
 			return behaviorProjection{}, fmt.Errorf("%w: projection must return JSON", ErrInvalidSample)
 		}
 	}

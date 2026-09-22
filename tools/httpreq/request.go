@@ -17,7 +17,7 @@ type Request struct {
 	Headers   map[string]string `json:"headers,omitempty" jsonschema_description:"Optional request headers. Values here override this tool's configured default headers."`
 	Query     map[string]string `json:"query,omitempty" jsonschema_description:"Optional query parameters appended to the URL."`
 	Body      string            `json:"body,omitempty" jsonschema_description:"Optional request body — for JSON, pass a JSON-encoded string and set Content-Type via Headers."`
-	TimeoutMS int               `json:"timeout_ms,omitempty" jsonschema:"minimum=1,maximum=120000" jsonschema_description:"Per-call timeout in milliseconds, from 1 to 120000. Omit to use the configured default."`
+	TimeoutMS int               `json:"timeout_ms,omitzero" jsonschema:"minimum=1,maximum=120000" jsonschema_description:"Per-call timeout in milliseconds, from 1 to 120000. Omit to use the configured default."`
 }
 
 func (r *Request) prepare() (*Request, error) {

@@ -2,7 +2,7 @@ package a2a
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -196,7 +196,7 @@ func serveAgentCard(t *testing.T, card *sdka2a.AgentCard) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(card); err != nil {
+		if err := jsonv2.MarshalWrite(w, card); err != nil {
 			t.Errorf("encode Agent Card: %v", err)
 		}
 	}))

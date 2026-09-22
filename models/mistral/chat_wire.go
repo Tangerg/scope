@@ -2,6 +2,7 @@ package mistral
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -110,7 +111,7 @@ func (f finishReason) metadata(
 
 type responseFormat struct {
 	Type       outputFormatType      `json:"type"`
-	JSONSchema *jsonSchemaDefinition `json:"json_schema,omitempty"`
+	JSONSchema *jsonSchemaDefinition `json:"json_schema,omitzero"`
 }
 
 type jsonSchemaDefinition struct {
@@ -123,23 +124,23 @@ type jsonSchemaDefinition struct {
 type chatCompletionRequest struct {
 	Model             string          `json:"model"`
 	Messages          []chatMessage   `json:"messages"`
-	Temperature       *float64        `json:"temperature,omitempty"`
-	TopP              *float64        `json:"top_p,omitempty"`
-	MaxTokens         *int64          `json:"max_tokens,omitempty"`
+	Temperature       *float64        `json:"temperature,omitzero"`
+	TopP              *float64        `json:"top_p,omitzero"`
+	MaxTokens         *int64          `json:"max_tokens,omitzero"`
 	Stream            bool            `json:"stream"`
-	Stop              []string        `json:"stop,omitempty"`
-	PresencePenalty   *float64        `json:"presence_penalty,omitempty"`
-	FrequencyPenalty  *float64        `json:"frequency_penalty,omitempty"`
+	Stop              []string        `json:"stop,omitzero"`
+	PresencePenalty   *float64        `json:"presence_penalty,omitzero"`
+	FrequencyPenalty  *float64        `json:"frequency_penalty,omitzero"`
 	Tools             []chatTool      `json:"tools,omitempty"`
 	ToolChoice        toolChoice      `json:"tool_choice,omitempty"`
-	ParallelToolCalls *bool           `json:"parallel_tool_calls,omitempty"`
-	ResponseFormat    *responseFormat `json:"response_format,omitempty"`
+	ParallelToolCalls *bool           `json:"parallel_tool_calls,omitzero"`
+	ResponseFormat    *responseFormat `json:"response_format,omitzero"`
 	ChatRequestOptions
 }
 
 type chatMessage struct {
 	Role       chatRole       `json:"role"`
-	Content    any            `json:"content,omitempty"`
+	Content    any            `json:"content,omitzero"`
 	ToolCalls  []chatToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string         `json:"tool_call_id,omitempty"`
 	Name       string         `json:"name,omitempty"`
@@ -164,19 +165,19 @@ type imageURLChunk struct {
 type imageURLValue string
 
 func (i imageURLValue) MarshalJSON() ([]byte, error) {
-	return json.Marshal(string(i))
+	return jsonv2.Marshal(string(i))
 }
 
 func (i *imageURLValue) UnmarshalJSON(data []byte) error {
 	var direct string
-	if err := json.Unmarshal(data, &direct); err == nil {
+	if err := jsonv2.Unmarshal(data, &direct); err == nil {
 		*i = imageURLValue(direct)
 		return nil
 	}
 	var object struct {
 		URL string `json:"url"`
 	}
-	if err := json.Unmarshal(data, &object); err != nil {
+	if err := jsonv2.Unmarshal(data, &object); err != nil {
 		return err
 	}
 	*i = imageURLValue(object.URL)
@@ -209,12 +210,12 @@ type chatToolCall struct {
 	ID       string           `json:"id,omitempty"`
 	Type     toolType         `json:"type,omitempty"`
 	Function chatFunctionCall `json:"function"`
-	Index    int              `json:"index,omitempty"`
+	Index    int              `json:"index,omitzero"`
 }
 
 type chatFunctionCall struct {
 	Name      string          `json:"name,omitempty"`
-	Arguments json.RawMessage `json:"arguments,omitempty"`
+	Arguments json.RawMessage `json:"arguments,omitzero"`
 }
 
 type chatCompletionMessage struct {

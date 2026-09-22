@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"iter"
@@ -175,7 +175,7 @@ func run(ctx context.Context) (err error) {
 		return fmt.Errorf("MCP briefing completed from source %q without a model response", output.Source)
 	}
 	var brief briefOutput
-	if err := json.Unmarshal([]byte(output.ModelResponse.Text()), &brief); err != nil {
+	if err := jsonv2.Unmarshal([]byte(output.ModelResponse.Text()), &brief); err != nil {
 		return fmt.Errorf("decode model response as brief: %w", err)
 	}
 

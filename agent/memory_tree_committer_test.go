@@ -66,3 +66,36 @@ func TestCommitSequenceValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestEffectBoundaryDigestIncludesProcessRelation(t *testing.T) {
+	_, request, snapshot := effectBoundaryFixture(t, 2, 64)
+	boundary, err := newEffectBoundary(1, EffectBoundaryKindPending, request, Settlement{}, ComputeDigest([]byte("previous")), snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := effectBoundaryDigest(boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mutation := range []struct {
+		name   string
+		change func(*ProcessRelation)
+	}{
+		{"root", func(relation *ProcessRelation) { relation.rootID = newProcessID() }},
+		{"parent", func(relation *ProcessRelation) { relation.parentID = newProcessID() }},
+		{"child key", func(relation *ProcessRelation) { relation.childKey = controlValue(ParseChildKey("other")) }},
+		{"depth", func(relation *ProcessRelation) { relation.depth++ }},
+	} {
+		t.Run(mutation.name, func(t *testing.T) {
+			changed := boundary
+			mutation.change(&changed.request.relation)
+			digest, err := effectBoundaryDigest(changed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if digest == original {
+				t.Fatal("relation change did not change the committed fact digest")
+			}
+		})
+	}
+}

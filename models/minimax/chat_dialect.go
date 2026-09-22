@@ -37,7 +37,7 @@ const (
 // Core equivalent.
 type ChatRequestOptions struct {
 	Thinking       ThinkingType `json:"thinking,omitempty"`
-	ReasoningSplit *bool        `json:"reasoning_split,omitempty"`
+	ReasoningSplit *bool        `json:"reasoning_split,omitzero"`
 	ServiceTier    ServiceTier  `json:"service_tier,omitempty"`
 }
 

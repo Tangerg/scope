@@ -3,7 +3,7 @@ package cassandra
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -402,11 +402,11 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 // primary key). The vector is inlined as a CQL literal because the
 // gocql v1.x driver doesn't support typed vector binding.
 func (s *Store) insertOne(ctx context.Context, id string, doc *document.Document, vec []float64) error {
-	vectorJSON, err := json.Marshal(embedding.Float32Vector(vec))
+	vectorJSON, err := jsonv2.Marshal(embedding.Float32Vector(vec))
 	if err != nil {
 		return fmt.Errorf("cassandra: marshal vector for %s: %w", id, err)
 	}
-	metadataJSON, err := json.Marshal(doc.Metadata)
+	metadataJSON, err := jsonv2.Marshal(doc.Metadata)
 	if err != nil {
 		return fmt.Errorf("cassandra: marshal metadata for %s: %w", id, err)
 	}
@@ -456,7 +456,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	if err != nil {
 		return nil, fmt.Errorf("cassandra: embed query: %w", err)
 	}
-	vectorJSON, err := json.Marshal(embedding.Float32Vector(vector))
+	vectorJSON, err := jsonv2.Marshal(embedding.Float32Vector(vector))
 	if err != nil {
 		return nil, fmt.Errorf("cassandra: marshal query vector: %w", err)
 	}
@@ -565,7 +565,7 @@ func (s *Store) searchResultFromScan(destinations []any, minScore vectorstore.Sc
 	// returned a document without every key that had no column — including the
 	// keys this store had itself refused to write.
 	if raw := *destinations[scanMetadataIndex].(*string); raw != "" {
-		if err := json.Unmarshal([]byte(raw), &doc.Metadata); err != nil {
+		if err := jsonv2.Unmarshal([]byte(raw), &doc.Metadata); err != nil {
 			return nil, fmt.Errorf("cassandra: decode metadata for %q: %w", id, err)
 		}
 	}

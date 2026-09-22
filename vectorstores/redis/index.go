@@ -1,7 +1,7 @@
 package redis
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 )
 
@@ -22,7 +22,7 @@ func formatMetadataValue(v any) (any, error) {
 	case []byte:
 		return val, nil
 	default:
-		b, err := json.Marshal(val)
+		b, err := jsonv2.Marshal(val)
 		if err != nil {
 			return nil, fmt.Errorf("redis: encode metadata value of type %T: %w", val, err)
 		}

@@ -1,7 +1,6 @@
 package rerank
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
@@ -13,7 +12,7 @@ import (
 // document; provider-specific controls remain in Extensions.
 type Options struct {
 	Model      string              `json:"model"`
-	TopK       int                 `json:"top_k,omitempty"`
+	TopK       int                 `json:"top_k,omitzero"`
 	Extensions metadata.Extensions `json:"extensions,omitzero"`
 }
 
@@ -72,7 +71,7 @@ func (o Options) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireOptions Options
-	return json.Marshal(wireOptions(o))
+	return jsonv2.Marshal(wireOptions(o))
 }
 
 func (o *Options) UnmarshalJSON(data []byte) error {

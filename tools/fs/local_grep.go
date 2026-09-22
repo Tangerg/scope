@@ -2,7 +2,8 @@ package fs
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -69,10 +70,10 @@ func newRipgrepDecoder(mode GrepOutputMode, maxResults int) *ripgrepDecoder {
 }
 
 func (r *ripgrepDecoder) decode(reader io.Reader) (GrepResponse, error) {
-	decoder := json.NewDecoder(reader)
+	decoder := jsontext.NewDecoder(reader)
 	for {
 		var event ripgrepEvent
-		if err := decoder.Decode(&event); err != nil {
+		if err := jsonv2.UnmarshalDecode(decoder, &event); err != nil {
 			if errors.Is(err, io.EOF) {
 				return r.response, nil
 			}

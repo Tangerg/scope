@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 	"time"
@@ -26,7 +26,7 @@ func TestFrameworkParsersRejectCallerOwnedSignals(t *testing.T) {
 		parse  func(Signal) error
 	}{
 		{"start", controlValue(newSignal(effectID.settlementSignalID(), WaitID{}, controlValue(start.MarshalJSON()))), func(signal Signal) error { _, err := ParseChildStartResult(signal); return err }},
-		{"control", controlValue(newSignal(effectID.settlementSignalID(), WaitID{}, controlValue(json.Marshal(control)))), func(signal Signal) error { _, err := ParseChildControlResult(signal); return err }},
+		{"control", controlValue(newSignal(effectID.settlementSignalID(), WaitID{}, controlValue(jsonv2.Marshal(control)))), func(signal Signal) error { _, err := ParseChildControlResult(signal); return err }},
 		{"opening", controlValue(newSignal(effectID.settlementSignalID(), waitID, controlValue(encodeChildWaitOpened(spec)))), func(signal Signal) error { _, err := ParseChildWaitOpened(signal); return err }},
 		{"completion", completed, func(signal Signal) error { _, err := ParseChildWaitSatisfied(signal); return err }},
 	} {
@@ -70,7 +70,7 @@ func TestWaitSettlementMustMatchDeclaredRequest(t *testing.T) {
 					payload = []byte(`{"forged":true}`)
 				}
 				candidate.Prepared.Effects[0].Settlement = new(controlValue(NewSettlement(record.ID, status, payload)))
-				encoded := controlValue(json.Marshal(candidate))
+				encoded := controlValue(jsonv2.Marshal(candidate))
 				if _, err := ParseProcessSnapshot(encoded); !errors.Is(err, ErrInvalidSnapshot) {
 					t.Fatalf("forged wait settlement accepted: %v", err)
 				}
@@ -113,7 +113,7 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 				payload = []byte(`{"operation":"start_child","key":"bad key"}`)
 			}
 			candidate.Prepared.Effects[0].Settlement = new(controlValue(NewSettlement(record.ID, status, payload)))
-			_, err := ParseProcessSnapshot(controlValue(json.Marshal(candidate)))
+			_, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(candidate)))
 			if !errors.Is(err, ErrInvalidSnapshot) {
 				t.Fatalf("contradictory child start accepted: %v", err)
 			}
@@ -194,9 +194,9 @@ func TestChildOutcomeBoundarySurvivesEmptySubtreeRoundTrip(t *testing.T) {
 	for _, boundary := range []ChildWaitBoundary{ChildWaitBoundaryResult, ChildWaitBoundaryDrained} {
 		for _, effects := range [][]UnresolvedEffect{nil, {}} {
 			outcome := ChildOutcome{key: controlValue(ParseChildKey("child")), result: result, boundary: boundary, subtreeUnresolvedEffects: effects}
-			data := controlValue(json.Marshal(outcome))
+			data := controlValue(jsonv2.Marshal(outcome))
 			var restored ChildOutcome
-			if err := json.Unmarshal(data, &restored); err != nil {
+			if err := jsonv2.Unmarshal(data, &restored); err != nil {
 				t.Fatal(err)
 			}
 			unresolved, known := restored.SubtreeUnresolvedEffects()
@@ -205,7 +205,7 @@ func TestChildOutcomeBoundarySurvivesEmptySubtreeRoundTrip(t *testing.T) {
 			}
 			wire := outcome.wire()
 			wire.Boundary = ChildWaitBoundaryInvalid
-			if err := json.Unmarshal(controlValue(json.Marshal(wire)), &restored); !errors.Is(err, ErrInvalidChildWait) {
+			if err := jsonv2.Unmarshal(controlValue(jsonv2.Marshal(wire)), &restored); !errors.Is(err, ErrInvalidChildWait) {
 				t.Fatalf("outcome without its own boundary accepted: %v", err)
 			}
 			if restored.Boundary() != boundary {

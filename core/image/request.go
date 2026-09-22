@@ -1,7 +1,6 @@
 package image
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"mime"
@@ -23,11 +22,11 @@ type Options struct {
 	NegativePrompt string `json:"negative_prompt"`
 
 	// Width / Height set the output dimensions in pixels.
-	Width  *int64 `json:"width,omitempty"`
-	Height *int64 `json:"height,omitempty"`
+	Width  *int64 `json:"width,omitzero"`
+	Height *int64 `json:"height,omitzero"`
 
 	// Seed pins the RNG so repeated calls produce the same image.
-	Seed *int64 `json:"seed,omitempty"`
+	Seed *int64 `json:"seed,omitzero"`
 
 	// OutputFormat picks the image MIME type of the rendered bytes.
 	// Empty leaves the format to the provider.
@@ -136,7 +135,7 @@ func (o Options) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireOptions Options
-	return json.Marshal(wireOptions(o))
+	return jsonv2.Marshal(wireOptions(o))
 }
 
 func (o *Options) UnmarshalJSON(data []byte) error {
@@ -192,7 +191,7 @@ func (r Request) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireRequest Request
-	return json.Marshal(wireRequest(r))
+	return jsonv2.Marshal(wireRequest(r))
 }
 
 func (r *Request) UnmarshalJSON(data []byte) error {

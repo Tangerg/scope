@@ -1,8 +1,9 @@
 package mistral_test
 
 import (
-	"bytes"
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -85,7 +86,7 @@ func newThinkingReplayServer(t *testing.T, requests *[]map[string]any) *httptest
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var body map[string]any
-		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
 			t.Errorf("decode request: %v", err)
 			http.Error(writer, "invalid request", http.StatusBadRequest)
 			return
@@ -109,12 +110,12 @@ func newThinkingReplayServer(t *testing.T, requests *[]map[string]any) *httptest
 			}],
 			"usage":{"prompt_tokens":10,"completion_tokens":6,"total_tokens":16,"prompt_tokens_details":{"cached_tokens":4}}
 		}`
-		var compact bytes.Buffer
-		if err := json.Compact(&compact, []byte(payload)); err != nil {
+		compact := jsontext.Value([]byte(payload)).Clone()
+		if err := compact.Compact(); err != nil {
 			t.Error(err)
 			return
 		}
-		fmt.Fprintf(writer, "data: %s\n\ndata: [DONE]\n\n", compact.Bytes())
+		fmt.Fprintf(writer, "data: %s\n\ndata: [DONE]\n\n", []byte(compact))
 	}))
 }
 
@@ -209,7 +210,7 @@ func TestChatCoalescesStreamedThinkingForReplay(t *testing.T) {
 	var replayRequest map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var body map[string]any
-		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
 			t.Errorf("decode request: %v", err)
 			http.Error(writer, "invalid request", http.StatusBadRequest)
 			return
@@ -322,4 +323,34 @@ func TestChatStreamSurfacesMalformedEvent(t *testing.T) {
 		return
 	}
 	t.Fatal("Stream completed without surfacing malformed event")
+}
+
+func TestChatPreservesExplicitEmptyStopOverride(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body map[string]json.RawMessage
+		if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
+			t.Error(err)
+			return
+		}
+		if string(body["stop"]) != `[]` {
+			t.Errorf("stop = %s, want explicit empty list", body["stop"])
+		}
+		writer.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(writer, "data: %s\n\ndata: [DONE]\n\n", `{"id":"chat","model":"mistral-small-latest","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
+	}))
+	t.Cleanup(server.Close)
+	model, err := mistral.NewChat(t.Context(), mistral.ChatConfig{
+		APIKey: "test-key", BaseURL: server.URL,
+		DefaultOptions: corechat.Options{Model: "mistral-small-latest", Stop: []string{"halt"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = model.Call(t.Context(), &corechat.Request{
+		Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hello"))},
+		Options:  corechat.Options{Stop: []string{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }

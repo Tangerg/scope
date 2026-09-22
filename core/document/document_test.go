@@ -1,7 +1,7 @@
 package document_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"reflect"
 	"testing"
@@ -76,12 +76,12 @@ func TestDocumentJSONRoundTrip(t *testing.T) {
 	if err := original.Metadata.Set("source", "test"); err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(original)
+	data, err := jsonv2.Marshal(original)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded document.Document
-	if unmarshalErr := json.Unmarshal(data, &decoded); unmarshalErr != nil {
+	if unmarshalErr := jsonv2.Unmarshal(data, &decoded); unmarshalErr != nil {
 		t.Fatal(unmarshalErr)
 	}
 	source, ok, err := decoded.Metadata.Decode[string]("source")
@@ -91,13 +91,13 @@ func TestDocumentJSONRoundTrip(t *testing.T) {
 }
 
 func TestDocumentJSONRejectsInvalidValuesTransactionally(t *testing.T) {
-	if _, err := json.Marshal(document.Document{}); !errors.Is(err, document.ErrInvalidDocument) {
+	if _, err := jsonv2.Marshal(document.Document{}); !errors.Is(err, document.ErrInvalidDocument) {
 		t.Fatalf("Marshal error = %v, want ErrInvalidDocument", err)
 	}
 
 	original := document.Document{ID: "stable", Text: "original"}
 	decoded := original
-	if err := json.Unmarshal([]byte(`{"id":"replacement"}`), &decoded); !errors.Is(err, document.ErrInvalidDocument) {
+	if err := jsonv2.Unmarshal([]byte(`{"id":"replacement"}`), &decoded); !errors.Is(err, document.ErrInvalidDocument) {
 		t.Fatalf("Unmarshal error = %v, want ErrInvalidDocument", err)
 	}
 	if !reflect.DeepEqual(decoded, original) {
@@ -116,17 +116,17 @@ func TestDocumentRejectsInvalidUTF8Identity(t *testing.T) {
 		if err := doc.Validate(); !errors.Is(err, document.ErrInvalidDocument) {
 			t.Fatalf("Validate: %v", err)
 		}
-		if _, err := json.Marshal(doc); !errors.Is(err, document.ErrInvalidDocument) {
+		if _, err := jsonv2.Marshal(doc); !errors.Is(err, document.ErrInvalidDocument) {
 			t.Fatalf("Marshal: %v", err)
 		}
 	}
 	doc := &document.Document{ID: "文档", Text: "hello"}
-	data, err := json.Marshal(doc)
+	data, err := jsonv2.Marshal(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var restored document.Document
-	if err := json.Unmarshal(data, &restored); err != nil || restored.ID != doc.ID {
+	if err := jsonv2.Unmarshal(data, &restored); err != nil || restored.ID != doc.ID {
 		t.Fatalf("roundtrip: %v %v", restored, err)
 	}
 }

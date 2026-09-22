@@ -1,7 +1,7 @@
 package mcp
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -20,7 +20,7 @@ func newDescriptorSnapshot(descriptor sdkmcp.Tool, publicName string) (descripto
 	if descriptor.Name == "" {
 		return descriptorSnapshot{}, errors.New("mcp: descriptor name must not be empty")
 	}
-	schema, err := json.Marshal(descriptor.InputSchema)
+	schema, err := jsonv2.Marshal(descriptor.InputSchema)
 	if err != nil {
 		return descriptorSnapshot{}, fmt.Errorf("mcp: encode tool input schema: %w", err)
 	}

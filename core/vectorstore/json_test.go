@@ -1,7 +1,7 @@
 package vectorstore_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -41,7 +41,7 @@ func TestJSONRejectsInvalidModels(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := json.Marshal(test.value); !errors.Is(err, test.want) {
+			if _, err := jsonv2.Marshal(test.value); !errors.Is(err, test.want) {
 				t.Fatalf("json.Marshal error = %v, want %v", err, test.want)
 			}
 		})
@@ -89,21 +89,21 @@ func TestSearchOptionsJSONPreservesFilterPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	options := vectorstore.SearchOptions{TopK: 3, MinScore: 0.5, Filter: expression}
-	data, err := json.Marshal(options)
+	data, err := jsonv2.Marshal(options)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var wire struct {
 		Filter string `json:"filter"`
 	}
-	if err := json.Unmarshal(data, &wire); err != nil {
+	if err := jsonv2.Unmarshal(data, &wire); err != nil {
 		t.Fatal(err)
 	}
 	if wire.Filter != expression.String() {
 		t.Fatalf("wire filter = %q, want %q", wire.Filter, expression.String())
 	}
 	var decoded vectorstore.SearchOptions
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if !expression.Equal(decoded.Filter) || decoded.TopK != 3 || decoded.MinScore != 0.5 {
@@ -115,7 +115,7 @@ func TestSearchOptionsJSONPreservesFilterPolicy(t *testing.T) {
 	} {
 		t.Run(data, func(t *testing.T) {
 			decoded := options
-			if err := json.Unmarshal([]byte(data), &decoded); !errors.Is(err, vectorstore.ErrInvalidOptions) {
+			if err := jsonv2.Unmarshal([]byte(data), &decoded); !errors.Is(err, vectorstore.ErrInvalidOptions) {
 				t.Fatalf("decode error = %v, want ErrInvalidOptions", err)
 			}
 			if decoded.Filter != options.Filter || decoded.TopK != options.TopK || decoded.MinScore != options.MinScore {
@@ -125,7 +125,7 @@ func TestSearchOptionsJSONPreservesFilterPolicy(t *testing.T) {
 	}
 	for _, data := range []string{`{}`, `{"filter":null}`} {
 		decoded := options
-		if err := json.Unmarshal([]byte(data), &decoded); err != nil {
+		if err := jsonv2.Unmarshal([]byte(data), &decoded); err != nil {
 			t.Fatal(err)
 		}
 		if decoded.Filter != nil {
@@ -151,7 +151,7 @@ func TestJSONUnmarshalRejectsInvalidModels(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if err := json.Unmarshal([]byte(test.data), test.target); !errors.Is(err, test.want) {
+			if err := jsonv2.Unmarshal([]byte(test.data), test.target); !errors.Is(err, test.want) {
 				t.Fatalf("json.Unmarshal error = %v, want %v", err, test.want)
 			}
 		})
@@ -187,11 +187,11 @@ func TestNilJSONReceiversAreRejected(t *testing.T) {
 
 func roundTripJSON(t *testing.T, source, target any) {
 	t.Helper()
-	data, err := json.Marshal(source)
+	data, err := jsonv2.Marshal(source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal(data, target); err != nil {
+	if err := jsonv2.Unmarshal(data, target); err != nil {
 		t.Fatal(err)
 	}
 }

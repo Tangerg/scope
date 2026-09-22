@@ -5,8 +5,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -59,14 +59,14 @@ func (s SHA256IDGenerator) Generate(ctx context.Context, doc *document.Document)
 	}
 	projection := struct {
 		Text     string       `json:"text,omitempty"`
-		Media    *media.Media `json:"media,omitempty"`
+		Media    *media.Media `json:"media,omitzero"`
 		Metadata metadata.Map `json:"metadata,omitzero"`
 	}{
 		Text:     doc.Text,
 		Media:    doc.Media,
 		Metadata: doc.Metadata,
 	}
-	encoded, err := json.Marshal(projection)
+	encoded, err := jsonv2.Marshal(projection)
 	if err != nil {
 		return "", fmt.Errorf("etl: encode document identity: %w", err)
 	}

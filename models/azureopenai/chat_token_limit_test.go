@@ -1,7 +1,7 @@
 package azureopenai_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -26,7 +26,7 @@ func TestChatSendsTheDocumentedTokenLimitField(t *testing.T) {
 	bodies := make(chan map[string]any, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var body map[string]any
-		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
 			t.Errorf("decode request: %v", err)
 			http.Error(writer, "bad request", http.StatusBadRequest)
 			return

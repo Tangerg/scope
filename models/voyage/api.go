@@ -52,8 +52,8 @@ type embeddingRequest struct {
 	Input           []string `json:"input"`
 	Model           string   `json:"model"`
 	InputType       string   `json:"input_type,omitempty"`
-	Truncation      *bool    `json:"truncation,omitempty"`
-	OutputDimension *int64   `json:"output_dimension,omitempty"`
+	Truncation      *bool    `json:"truncation,omitzero"`
+	OutputDimension *int64   `json:"output_dimension,omitzero"`
 	OutputDtype     string   `json:"output_dtype,omitempty"`
 	EncodingFormat  string   `json:"encoding_format,omitempty"`
 }
@@ -75,9 +75,9 @@ type rerankRequest struct {
 	Query           string   `json:"query"`
 	Documents       []string `json:"documents"`
 	Model           string   `json:"model"`
-	TopK            *int     `json:"top_k,omitempty"`
+	TopK            *int     `json:"top_k,omitzero"`
 	ReturnDocuments bool     `json:"return_documents"`
-	Truncation      *bool    `json:"truncation,omitempty"`
+	Truncation      *bool    `json:"truncation,omitzero"`
 }
 
 type rerankResponse struct {

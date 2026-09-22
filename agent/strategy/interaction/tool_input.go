@@ -57,7 +57,7 @@ func (t toolInputRequest) MarshalJSON() ([]byte, error) {
 	if !t.valid() {
 		return nil, ErrInvalidToolInputRequest
 	}
-	return json.Marshal(toolInputRequestWire{
+	return jsonv2.Marshal(toolInputRequestWire{
 		Prompt: t.prompt, ResponseSchema: t.responseSchema.JSON(), ContinuationState: t.continuationState,
 	})
 }

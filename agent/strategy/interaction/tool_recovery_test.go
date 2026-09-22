@@ -3,6 +3,7 @@ package interaction_test
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"reflect"
@@ -209,7 +210,7 @@ func (t *toolSettlementCrash) CommitEffect(ctx context.Context, boundary agent.E
 			} `json:"invocation"`
 		} `json:"tool_call"`
 	}
-	if err := json.Unmarshal(boundary.Request().Effect().Payload(), &envelope); err != nil {
+	if err := jsonv2.Unmarshal(boundary.Request().Effect().Payload(), &envelope); err != nil {
 		return err
 	}
 	if envelope.ToolCall != nil && envelope.ToolCall.Invocation.Call.Name == "first" {

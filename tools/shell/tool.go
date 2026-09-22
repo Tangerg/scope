@@ -3,7 +3,7 @@ package shell
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"time"
@@ -19,7 +19,7 @@ import (
 // executor-side concerns, not LLM knobs.
 type Request struct {
 	Command   string `json:"command" jsonschema:"minLength=1" jsonschema_description:"Command line interpreted by the host-configured shell executor."`
-	TimeoutMS int    `json:"timeout_ms,omitempty" jsonschema:"minimum=1,maximum=600000" jsonschema_description:"Hard execution timeout in milliseconds, from 1 to 600000. Omit for no timeout."`
+	TimeoutMS int    `json:"timeout_ms,omitzero" jsonschema:"minimum=1,maximum=600000" jsonschema_description:"Hard execution timeout in milliseconds, from 1 to 600000. Omit for no timeout."`
 }
 
 // Response is the LLM-facing return shape. Stdout/stderr are strings
@@ -28,7 +28,7 @@ type Response struct {
 	Stdout               string `json:"stdout"`
 	Stderr               string `json:"stderr"`
 	ExitCode             int    `json:"exit_code"`
-	CancellationObserved bool   `json:"cancellation_observed,omitempty"`
+	CancellationObserved bool   `json:"cancellation_observed,omitzero"`
 	Duration             string `json:"duration"`
 }
 
@@ -97,7 +97,7 @@ func (t *Tool) run(ctx context.Context, req Request) (Response, error) {
 		return response, nil
 	}
 	cause := fmt.Errorf("shell.tool: run: %w", err)
-	encoded, encodeErr := json.Marshal(response)
+	encoded, encodeErr := jsonv2.Marshal(response)
 	if encodeErr != nil {
 		return Response{}, errors.Join(cause, encodeErr)
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 	"testing/synctest"
@@ -29,7 +30,7 @@ func TestFirstSuccessRejectsExternalChildStartWithoutChangingProgress(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, err := json.Marshal(struct {
+	payload, err := jsonv2.Marshal(struct {
 		Operation     string              `json:"operation"`
 		Key           agent.ChildKey      `json:"key"`
 		ProcessID     string              `json:"process_id"`
@@ -38,7 +39,7 @@ func TestFirstSuccessRejectsExternalChildStartWithoutChangingProgress(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire, err := json.Marshal(struct {
+	wire, err := jsonv2.Marshal(struct {
 		ID      string          `json:"id"`
 		Payload json.RawMessage `json:"payload"`
 	}{ID: "signal:external", Payload: payload})
@@ -46,7 +47,7 @@ func TestFirstSuccessRejectsExternalChildStartWithoutChangingProgress(t *testing
 		t.Fatal(err)
 	}
 	var signal agent.Signal
-	if decodeErr := json.Unmarshal(wire, &signal); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal(wire, &signal); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
 	if _, stepErr := execution.Step(t.Context(), []agent.Signal{signal}); !errors.Is(stepErr, agent.ErrInvalidSignal) {
@@ -93,7 +94,7 @@ func TestCoordinationRejectsExternalTimerAndWaitOpening(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wire, err := json.Marshal(struct {
+			wire, err := jsonv2.Marshal(struct {
 				ID      string `json:"id"`
 				WaitID  string `json:"wait_id,omitempty"`
 				Payload any    `json:"payload"`
@@ -102,7 +103,7 @@ func TestCoordinationRejectsExternalTimerAndWaitOpening(t *testing.T) {
 				t.Fatal(err)
 			}
 			var signal agent.Signal
-			if decodeErr := json.Unmarshal(wire, &signal); decodeErr != nil {
+			if decodeErr := jsonv2.Unmarshal(wire, &signal); decodeErr != nil {
 				t.Fatal(decodeErr)
 			}
 			if _, stepErr := execution.Step(t.Context(), []agent.Signal{signal}); !errors.Is(stepErr, coordination.ErrInvalidProtocol) {
@@ -250,15 +251,15 @@ func TestTimerRejectsAnUnrelatedOperation(t *testing.T) {
 func mutatedState(t testing.TB, state agent.ExecutionState, field string, value any) agent.ExecutionState {
 	t.Helper()
 	var wire map[string]json.RawMessage
-	if err := json.Unmarshal(state.Payload(), &wire); err != nil {
+	if err := jsonv2.Unmarshal(state.Payload(), &wire); err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.Marshal(value)
+	encoded, err := jsonv2.Marshal(value)
 	if err != nil {
 		t.Fatal(err)
 	}
 	wire[field] = encoded
-	payload, err := json.Marshal(wire)
+	payload, err := jsonv2.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
 	}

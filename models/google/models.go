@@ -276,13 +276,13 @@ type ImageGenerationOptions struct {
 	ImageSize             string                    `json:"image_size,omitempty"`
 	Delivery              string                    `json:"delivery,omitempty"`
 	PreviousInteractionID string                    `json:"previous_interaction_id,omitempty"`
-	Store                 *bool                     `json:"store,omitempty"`
+	Store                 *bool                     `json:"store,omitzero"`
 	ThinkingLevel         string                    `json:"thinking_level,omitempty"`
 	ThinkingSummaries     string                    `json:"thinking_summaries,omitempty"`
 	ServiceTier           string                    `json:"service_tier,omitempty"`
 	Labels                map[string]string         `json:"labels,omitempty"`
 	InputImages           []*media.Media            `json:"input_images,omitempty"`
-	GoogleSearch          *ImageGoogleSearchOptions `json:"google_search,omitempty"`
+	GoogleSearch          *ImageGoogleSearchOptions `json:"google_search,omitzero"`
 	SafetySettings        []ImageSafetySetting      `json:"safety_settings,omitempty"`
 }
 

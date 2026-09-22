@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 	"time"
@@ -26,7 +26,7 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 			effect = controlValue(NewChildCancelEffect(child, "stop work"))
 		}
 		var roundTrip Effect
-		if err := json.Unmarshal(controlValue(json.Marshal(effect)), &roundTrip); err != nil || !effect.equal(roundTrip) {
+		if err := jsonv2.Unmarshal(controlValue(jsonv2.Marshal(effect)), &roundTrip); err != nil || !effect.equal(roundTrip) {
 			t.Fatalf("effect codec: %v", err)
 		}
 		for _, failed := range []bool{false, true} {
@@ -37,9 +37,9 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 			if operation == frameworkEffectSignalChild {
 				result.signalID = request.ID()
 			}
-			payload := controlValue(json.Marshal(result))
+			payload := controlValue(jsonv2.Marshal(result))
 			var decoded ChildControlResult
-			if err := json.Unmarshal(payload, &decoded); err != nil || !decoded.Matches(effect) || decoded.ChildID() != child {
+			if err := jsonv2.Unmarshal(payload, &decoded); err != nil || !decoded.Matches(effect) || decoded.ChildID() != child {
 				t.Fatalf("result codec: %v", err)
 			}
 			if _, present := decoded.SignalID(); present != (operation == frameworkEffectSignalChild) {
@@ -110,7 +110,7 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 	if _, err := ParseChildControlResult(Signal{}); !errors.Is(err, ErrInvalidSignal) {
 		t.Fatal(err)
 	}
-	if _, err := json.Marshal(ChildControlResult{}); err == nil {
+	if _, err := jsonv2.Marshal(ChildControlResult{}); err == nil {
 		t.Fatal("encoded invalid result")
 	}
 	var nilResult *ChildControlResult
@@ -122,7 +122,7 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 			t.Fatal("accepted malformed effect", payload)
 		}
 		var result ChildControlResult
-		if err := json.Unmarshal([]byte(payload), &result); err == nil {
+		if err := jsonv2.Unmarshal([]byte(payload), &result); err == nil {
 			t.Fatal("accepted malformed result", payload)
 		}
 	}
@@ -132,9 +132,9 @@ func TestSignalRequestWireSchemaAndOpeningIdentity(t *testing.T) {
 	id := controlValue(ParseSignalID("signal:request"))
 	wait := newProcessID().effectID(1, 0).waitID()
 	request := controlValue(NewSignalRequest(id, wait, []byte(`"request"`)))
-	payload := controlValue(json.Marshal(request))
+	payload := controlValue(jsonv2.Marshal(request))
 	var decoded SignalRequest
-	if err := json.Unmarshal(payload, &decoded); err != nil || !decoded.Valid() || decoded.ID() != id || string(decoded.Payload()) != `"request"` {
+	if err := jsonv2.Unmarshal(payload, &decoded); err != nil || !decoded.Valid() || decoded.ID() != id || string(decoded.Payload()) != `"request"` {
 		t.Fatal(err)
 	}
 	if got, addressed := decoded.WaitID(); !addressed || got != wait {
@@ -143,14 +143,14 @@ func TestSignalRequestWireSchemaAndOpeningIdentity(t *testing.T) {
 	if err := controlValue(SchemaFor[SignalRequest]()).Validate((controlValue(ParsePayload(payload))).JSON()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := json.Marshal(SignalRequest{}); err == nil {
+	if _, err := jsonv2.Marshal(SignalRequest{}); err == nil {
 		t.Fatal("encoded invalid request")
 	}
 	var nilRequest *SignalRequest
 	if err := nilRequest.UnmarshalJSON(payload); !errors.Is(err, ErrInvalidSignalRequest) {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal([]byte(`{"id":"signal:1","payload":1,"extra":1}`), &decoded); err == nil {
+	if err := jsonv2.Unmarshal([]byte(`{"id":"signal:1","payload":1,"extra":1}`), &decoded); err == nil {
 		t.Fatal("accepted unknown member")
 	}
 	mailbox := newSignalMailbox()
@@ -253,7 +253,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 	result := ChildControlResult{childID: childID, operation: frameworkEffectSignalChild, signalID: request.ID()}
 	id := parentID.effectID(1, 0)
 	record := preparedEffect{ID: id, Effect: effect, Phase: effectPhaseSettled,
-		Settlement: new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(json.Marshal(result)))))}
+		Settlement: new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(jsonv2.Marshal(result)))))}
 	receipt := newSignalRecord(controlValue(request.signal()), false).wire()
 	receipt.ArrivalSequence = 1
 	child := processSnapshotWire{ProcessID: childID, Status: StatusRunning,
@@ -294,7 +294,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 	cancel := controlValue(NewChildCancelEffect(childID, "stop"))
 	canceled := ChildControlResult{childID: childID, operation: frameworkEffectCancelChild}
 	record.Effect = cancel
-	record.Settlement = new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(json.Marshal(canceled)))))
+	record.Settlement = new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(jsonv2.Marshal(canceled)))))
 	if err := validation.validateChildControl(parentID, record); err == nil {
 		t.Fatal("cancellation without intent accepted")
 	}

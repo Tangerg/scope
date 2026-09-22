@@ -2,6 +2,8 @@ package chat_test
 
 import (
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"reflect"
 	"testing"
@@ -15,12 +17,12 @@ func TestOutputFormatConstructorsAndJSON(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewOutputFormat(%q): %v", formatType, err)
 		}
-		encoded, err := json.Marshal(format)
+		encoded, err := jsonv2.Marshal(format)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var decoded chat.OutputFormat
-		if err := json.Unmarshal(encoded, &decoded); err != nil {
+		if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(decoded, format) {
@@ -89,7 +91,7 @@ func TestOutputFormatRejectsInvalidContracts(t *testing.T) {
 		if err := format.Validate(); !errors.Is(err, chat.ErrInvalidOutputFormat) {
 			t.Errorf("Validate(%#v) = %v, want ErrInvalidOutputFormat", format, err)
 		}
-		if _, err := json.Marshal(format); !errors.Is(err, chat.ErrInvalidOutputFormat) {
+		if _, err := jsonv2.Marshal(format); !errors.Is(err, chat.ErrInvalidOutputFormat) {
 			t.Errorf("Marshal(%#v) = %v, want ErrInvalidOutputFormat", format, err)
 		}
 	}
@@ -109,14 +111,14 @@ func TestOutputFormatCloneAndAtomicUnmarshal(t *testing.T) {
 	}
 
 	before := format.Clone()
-	if err := json.Unmarshal([]byte(`{"type":"json_schema","name":"answer","schema":[]}`), &format); !errors.Is(err, chat.ErrInvalidOutputFormat) {
+	if err := jsonv2.Unmarshal([]byte(`{"type":"json_schema","name":"answer","schema":[]}`), &format); !errors.Is(err, chat.ErrInvalidOutputFormat) {
 		t.Fatalf("Unmarshal = %v, want ErrInvalidOutputFormat", err)
 	}
 	if !reflect.DeepEqual(format, *before) {
 		t.Fatalf("failed Unmarshal mutated receiver: %#v", format)
 	}
-	if err := json.Unmarshal([]byte(`{"type":"text","type":"json"}`), &format); !errors.Is(err, chat.ErrInvalidOutputFormat) {
-		t.Fatalf("duplicate field Unmarshal = %v, want ErrInvalidOutputFormat", err)
+	if err := jsonv2.Unmarshal([]byte(`{"type":"text","type":"json"}`), &format); !errors.Is(err, jsontext.ErrDuplicateName) {
+		t.Fatalf("duplicate field Unmarshal = %v, want jsontext.ErrDuplicateName", err)
 	}
 	if !reflect.DeepEqual(format, *before) {
 		t.Fatalf("duplicate field Unmarshal mutated receiver: %#v", format)
@@ -136,12 +138,12 @@ func TestEmptyOutputSchemaRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(format)
+	data, err := jsonv2.Marshal(format)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var restored chat.OutputFormat
-	if err := json.Unmarshal(data, &restored); err != nil {
+	if err := jsonv2.Unmarshal(data, &restored); err != nil {
 		t.Fatal(err)
 	}
 	if string(restored.Schema) != `{}` {

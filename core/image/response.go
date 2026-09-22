@@ -1,7 +1,6 @@
 package image
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"mime"
@@ -16,7 +15,7 @@ import (
 // Output is one generated image plus its metadata.
 type Output struct {
 	// Media holds the generated image as bytes or an absolute URI.
-	Media *media.Media `json:"media,omitempty"`
+	Media *media.Media `json:"media,omitzero"`
 
 	// Metadata carries per-image extras.
 	Metadata metadata.Map `json:"metadata,omitzero"`
@@ -53,7 +52,7 @@ func (o Output) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireOutput Output
-	return json.Marshal(wireOutput(o))
+	return jsonv2.Marshal(wireOutput(o))
 }
 
 func (o *Output) UnmarshalJSON(data []byte) error {
@@ -98,7 +97,7 @@ func (r ResponseMetadata) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireResponseMetadata ResponseMetadata
-	return json.Marshal(wireResponseMetadata(r))
+	return jsonv2.Marshal(wireResponseMetadata(r))
 }
 
 func (r *ResponseMetadata) UnmarshalJSON(data []byte) error {
@@ -125,7 +124,7 @@ type Response struct {
 	Outputs []*Output `json:"outputs,omitzero"`
 
 	// Metadata carries shared response-level fields.
-	Metadata *ResponseMetadata `json:"metadata,omitempty"`
+	Metadata *ResponseMetadata `json:"metadata,omitzero"`
 }
 
 // NewResponse validates a complete provider result at the protocol boundary.
@@ -167,7 +166,7 @@ func (r Response) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireResponse Response
-	return json.Marshal(wireResponse(r))
+	return jsonv2.Marshal(wireResponse(r))
 }
 
 func (r *Response) UnmarshalJSON(data []byte) error {

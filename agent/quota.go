@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
@@ -41,7 +42,7 @@ func (q Quota) MarshalJSON() ([]byte, error) {
 	if q.limited {
 		wire.Maximum = new(q.maximum)
 	}
-	return json.Marshal(wire)
+	return jsonv2.Marshal(wire)
 }
 
 func (q *Quota) UnmarshalJSON(data []byte) error {

@@ -3,6 +3,7 @@ package ollama
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -20,12 +21,12 @@ func (n nativeDuration) MarshalJSON() ([]byte, error) {
 	if n.Duration < 0 {
 		return []byte("-1"), nil
 	}
-	return json.Marshal(n.String())
+	return jsonv2.Marshal(n.String())
 }
 
 func (n *nativeDuration) UnmarshalJSON(data []byte) error {
 	var value any
-	if err := json.Unmarshal(data, &value); err != nil {
+	if err := jsonv2.Unmarshal(data, &value); err != nil {
 		return err
 	}
 	switch typed := value.(type) {
@@ -70,12 +71,12 @@ func newNativeThinkLevel(level string) (*nativeThinkValue, error) {
 
 func (n *nativeThinkValue) UnmarshalJSON(data []byte) error {
 	var boolean bool
-	if err := json.Unmarshal(data, &boolean); err == nil {
+	if err := jsonv2.Unmarshal(data, &boolean); err == nil {
 		n.value = boolean
 		return nil
 	}
 	var level string
-	if err := json.Unmarshal(data, &level); err != nil {
+	if err := jsonv2.Unmarshal(data, &level); err != nil {
 		return errors.New("ollama: think must be a boolean or one of high, medium, low, max")
 	}
 	value, err := newNativeThinkLevel(level)
@@ -87,7 +88,7 @@ func (n *nativeThinkValue) UnmarshalJSON(data []byte) error {
 }
 
 func (n nativeThinkValue) MarshalJSON() ([]byte, error) {
-	return json.Marshal(n.value)
+	return jsonv2.Marshal(n.value)
 }
 
 type nativeJSONObject struct {
@@ -100,7 +101,7 @@ func emptyNativeJSONObject() nativeJSONObject {
 
 func (n *nativeJSONObject) UnmarshalJSON(data []byte) error {
 	var value map[string]any
-	if err := json.Unmarshal(data, &value); err != nil {
+	if err := jsonv2.Unmarshal(data, &value); err != nil {
 		return err
 	}
 	if value == nil {
@@ -132,7 +133,7 @@ type nativeMessage struct {
 func (n *nativeMessage) UnmarshalJSON(data []byte) error {
 	type alias nativeMessage
 	var decoded alias
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		return err
 	}
 	*n = nativeMessage(decoded)
@@ -155,7 +156,7 @@ type nativeTools []nativeTool
 
 type nativeTool struct {
 	Type     string             `json:"type"`
-	Items    any                `json:"items,omitempty"`
+	Items    any                `json:"items,omitzero"`
 	Function nativeToolFunction `json:"function"`
 }
 
@@ -168,26 +169,26 @@ type nativeToolFunction struct {
 type nativeChatRequest struct {
 	Model           string            `json:"model"`
 	Messages        []nativeMessage   `json:"messages"`
-	Stream          *bool             `json:"stream,omitempty"`
-	Format          json.RawMessage   `json:"format,omitempty"`
-	KeepAlive       *nativeDuration   `json:"keep_alive,omitempty"`
+	Stream          *bool             `json:"stream,omitzero"`
+	Format          json.RawMessage   `json:"format,omitzero"`
+	KeepAlive       *nativeDuration   `json:"keep_alive,omitzero"`
 	Tools           nativeTools       `json:"tools,omitempty"`
 	Options         map[string]any    `json:"options"`
-	Think           *nativeThinkValue `json:"think,omitempty"`
-	Truncate        *bool             `json:"truncate,omitempty"`
-	Shift           *bool             `json:"shift,omitempty"`
-	DebugRenderOnly bool              `json:"_debug_render_only,omitempty"`
-	Logprobs        bool              `json:"logprobs,omitempty"`
-	TopLogprobs     int               `json:"top_logprobs,omitempty"`
+	Think           *nativeThinkValue `json:"think,omitzero"`
+	Truncate        *bool             `json:"truncate,omitzero"`
+	Shift           *bool             `json:"shift,omitzero"`
+	DebugRenderOnly bool              `json:"_debug_render_only,omitzero"`
+	Logprobs        bool              `json:"logprobs,omitzero"`
+	TopLogprobs     int               `json:"top_logprobs,omitzero"`
 }
 
 type nativeMetrics struct {
-	TotalDuration      time.Duration `json:"total_duration,omitempty"`
-	LoadDuration       time.Duration `json:"load_duration,omitempty"`
-	PromptEvalCount    *int          `json:"prompt_eval_count,omitempty"`
-	PromptEvalDuration time.Duration `json:"prompt_eval_duration,omitempty"`
-	EvalCount          *int          `json:"eval_count,omitempty"`
-	EvalDuration       time.Duration `json:"eval_duration,omitempty"`
+	TotalDuration      int64 `json:"total_duration,omitzero"`
+	LoadDuration       int64 `json:"load_duration,omitzero"`
+	PromptEvalCount    *int  `json:"prompt_eval_count,omitzero"`
+	PromptEvalDuration int64 `json:"prompt_eval_duration,omitzero"`
+	EvalCount          *int  `json:"eval_count,omitzero"`
+	EvalDuration       int64 `json:"eval_duration,omitzero"`
 }
 
 func (n nativeMetrics) hasDurations() bool {
@@ -204,8 +205,8 @@ type nativeChatResponse struct {
 	Message     nativeMessage   `json:"message"`
 	Done        bool            `json:"done"`
 	DoneReason  string          `json:"done_reason,omitempty"`
-	DebugInfo   json.RawMessage `json:"_debug_info,omitempty"`
-	Logprobs    json.RawMessage `json:"logprobs,omitempty"`
+	DebugInfo   json.RawMessage `json:"_debug_info,omitzero"`
+	Logprobs    json.RawMessage `json:"logprobs,omitzero"`
 	nativeMetrics
 	raw json.RawMessage
 }
@@ -213,7 +214,7 @@ type nativeChatResponse struct {
 func (n *nativeChatResponse) UnmarshalJSON(data []byte) error {
 	type alias nativeChatResponse
 	var decoded alias
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		return err
 	}
 	*n = nativeChatResponse(decoded)
@@ -240,10 +241,10 @@ func (n nativeChatResponse) metadata(requestModel string) (*corechat.ResponseMet
 	}
 	if n.hasDurations() {
 		durations := map[string]int64{
-			"total":       int64(n.TotalDuration),
-			"load":        int64(n.LoadDuration),
-			"prompt_eval": int64(n.PromptEvalDuration),
-			"eval":        int64(n.EvalDuration),
+			"total":       n.TotalDuration,
+			"load":        n.LoadDuration,
+			"prompt_eval": n.PromptEvalDuration,
+			"eval":        n.EvalDuration,
 		}
 		if err := metadata.Extra.Set(protocolDurationsKey, durations); err != nil {
 			return nil, err
@@ -264,16 +265,16 @@ func (n nativeChatResponse) metadata(requestModel string) (*corechat.ResponseMet
 type nativeEmbedRequest struct {
 	Model      string          `json:"model"`
 	Input      any             `json:"input"`
-	KeepAlive  *nativeDuration `json:"keep_alive,omitempty"`
-	Truncate   *bool           `json:"truncate,omitempty"`
-	Dimensions int             `json:"dimensions,omitempty"`
+	KeepAlive  *nativeDuration `json:"keep_alive,omitzero"`
+	Truncate   *bool           `json:"truncate,omitzero"`
+	Dimensions int             `json:"dimensions,omitzero"`
 	Options    map[string]any  `json:"options"`
 }
 
 type nativeEmbedResponse struct {
-	Model           string        `json:"model"`
-	Embeddings      [][]float32   `json:"embeddings"`
-	TotalDuration   time.Duration `json:"total_duration,omitempty"`
-	LoadDuration    time.Duration `json:"load_duration,omitempty"`
-	PromptEvalCount int           `json:"prompt_eval_count,omitempty"`
+	Model           string      `json:"model"`
+	Embeddings      [][]float32 `json:"embeddings"`
+	TotalDuration   int64       `json:"total_duration,omitzero"`
+	LoadDuration    int64       `json:"load_duration,omitzero"`
+	PromptEvalCount int         `json:"prompt_eval_count,omitzero"`
 }

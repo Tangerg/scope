@@ -2,7 +2,7 @@ package modeltest
 
 import (
 	"bytes"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -122,7 +122,7 @@ func assertResponse(t *testing.T, response *chat.Response) {
 
 func requestWire(t *testing.T, request *chat.Request) []byte {
 	t.Helper()
-	body, err := json.Marshal(request)
+	body, err := jsonv2.Marshal(request)
 	if err != nil {
 		t.Fatalf("marshal Request: %v", err)
 	}

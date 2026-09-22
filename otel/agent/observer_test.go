@@ -2,7 +2,7 @@ package agent_test
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"slices"
 	"sync"
@@ -612,7 +612,7 @@ func (testDefinition) Restore(ctx context.Context, state agent.ExecutionState) (
 		return nil, agent.ErrInvalidExecutionState
 	}
 	var execution testExecution
-	if err := json.Unmarshal(state.Payload(), &execution); err != nil {
+	if err := jsonv2.Unmarshal(state.Payload(), &execution); err != nil {
 		return nil, err
 	}
 	return &execution, nil
@@ -644,7 +644,7 @@ func (t *testExecution) Step(context.Context, []agent.Signal) (agent.Transition,
 		if t.Value == testValueEffectFailure {
 			operation = testEffectFail
 		}
-		payload, err := json.Marshal(testEffectRequest{Operation: operation})
+		payload, err := jsonv2.Marshal(testEffectRequest{Operation: operation})
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -668,7 +668,7 @@ func (t *testExecution) Step(context.Context, []agent.Signal) (agent.Transition,
 }
 
 func (t *testExecution) Snapshot() (agent.ExecutionState, error) {
-	payload, err := json.Marshal(struct {
+	payload, err := jsonv2.Marshal(struct {
 		Value string `json:"value"`
 		Phase uint8  `json:"phase"`
 	}{Value: t.Value, Phase: t.Phase})
@@ -686,14 +686,14 @@ func (testDispatcher) Dispatch(
 	_ agent.DeltaEmitter,
 ) (agent.Settlement, error) {
 	var effectRequest testEffectRequest
-	if err := json.Unmarshal(request.Effect().Payload(), &effectRequest); err != nil {
+	if err := jsonv2.Unmarshal(request.Effect().Payload(), &effectRequest); err != nil {
 		return agent.Settlement{}, err
 	}
 	status := agent.SettlementStatusSucceeded
 	if effectRequest.Operation == testEffectFail {
 		status = agent.SettlementStatusFailed
 	}
-	payload, err := json.Marshal(testEffectResponse{OK: status == agent.SettlementStatusSucceeded})
+	payload, err := jsonv2.Marshal(testEffectResponse{OK: status == agent.SettlementStatusSucceeded})
 	if err != nil {
 		return agent.Settlement{}, err
 	}

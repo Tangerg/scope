@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -37,7 +38,7 @@ func TestExternalSignalsCannotAdvanceSensingOrActions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wire, err := json.Marshal(struct {
+			wire, err := jsonv2.Marshal(struct {
 				ID      string          `json:"id"`
 				Payload json.RawMessage `json:"payload"`
 			}{ID: "signal:external", Payload: payload})
@@ -45,7 +46,7 @@ func TestExternalSignalsCannotAdvanceSensingOrActions(t *testing.T) {
 				t.Fatal(err)
 			}
 			var signal agent.Signal
-			if decodeErr := json.Unmarshal(wire, &signal); decodeErr != nil {
+			if decodeErr := jsonv2.Unmarshal(wire, &signal); decodeErr != nil {
 				t.Fatal(decodeErr)
 			}
 			if _, stepErr := execution.Step(t.Context(), []agent.Signal{signal}); !errors.Is(stepErr, ErrInvalidProtocol) {

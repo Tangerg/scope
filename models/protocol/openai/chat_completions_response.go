@@ -2,6 +2,7 @@ package openai
 
 import (
 	"encoding/json"
+	"encoding/json/jsontext"
 
 	openaisdk "github.com/openai/openai-go/v3"
 
@@ -68,7 +69,7 @@ func normalizeFinishReason(reason string) corechat.FinishReason {
 }
 
 func exactProviderResponse(raw string, fallback any) any {
-	if json.Valid([]byte(raw)) {
+	if jsontext.Value([]byte(raw)).IsValid() {
 		return json.RawMessage(raw)
 	}
 	return fallback

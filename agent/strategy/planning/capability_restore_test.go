@@ -1,12 +1,13 @@
 package planning_test
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/Tangerg/scope/core/metadata"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/agenttest"
@@ -60,13 +61,15 @@ func TestRestoredPlanningEffectsCannotDropBindingCapabilities(t *testing.T) {
 			if closeErr := source.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 				t.Fatal(closeErr)
 			}
-			var wire map[string]any
-			decoder := json.NewDecoder(bytes.NewReader(interrupted.snapshot.JSON()))
-			decoder.UseNumber()
-			if decodeErr := decoder.Decode(&wire); decodeErr != nil {
+			var wire metadata.Map
+			if decodeErr := jsonv2.Unmarshal(interrupted.snapshot.JSON(), &wire); decodeErr != nil {
 				t.Fatal(decodeErr)
 			}
-			processWire := wire["process_snapshots"].([]any)[0].(map[string]any)
+			wireValues, err := wire.Values()
+			if err != nil {
+				t.Fatal(err)
+			}
+			processWire := wireValues["process_snapshots"].([]any)[0].(map[string]any)
 			prepared := processWire["prepared"].(map[string]any)
 			record := prepared["effects"].([]any)[0].(map[string]any)
 			record["phase"] = "planned"
@@ -74,7 +77,7 @@ func TestRestoredPlanningEffectsCannotDropBindingCapabilities(t *testing.T) {
 				processWire["capabilities"] = []any{}
 				delete(record["effect"].(map[string]any), "required_capabilities")
 			}
-			snapshot, err := agent.ParseTreeSnapshot(mustJSON(t, wire))
+			snapshot, err := agent.ParseTreeSnapshot(mustJSON(t, wireValues))
 			if err != nil {
 				t.Fatal(err)
 			}

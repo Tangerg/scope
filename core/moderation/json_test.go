@@ -1,7 +1,7 @@
 package moderation_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -23,21 +23,21 @@ func TestJSONBoundaries(t *testing.T) {
 		t.Fatalf("SetExtension error = %v", err)
 	}
 
-	if _, err := json.Marshal(moderation.Options{Model: " invalid "}); !errors.Is(err, moderation.ErrInvalidOptions) {
+	if _, err := jsonv2.Marshal(moderation.Options{Model: " invalid "}); !errors.Is(err, moderation.ErrInvalidOptions) {
 		t.Fatalf("Marshal Options error = %v", err)
 	}
-	if _, err := json.Marshal(moderation.Request{}); !errors.Is(err, moderation.ErrInvalidRequest) {
+	if _, err := jsonv2.Marshal(moderation.Request{}); !errors.Is(err, moderation.ErrInvalidRequest) {
 		t.Fatalf("Marshal Request error = %v", err)
 	}
-	if _, err := json.Marshal(moderation.Verdict{Score: 2}); !errors.Is(err, moderation.ErrInvalidResponse) {
+	if _, err := jsonv2.Marshal(moderation.Verdict{Score: 2}); !errors.Is(err, moderation.ErrInvalidResponse) {
 		t.Fatalf("Marshal Verdict error = %v", err)
 	}
-	if _, err := json.Marshal(moderation.Response{}); !errors.Is(err, moderation.ErrInvalidResponse) {
+	if _, err := jsonv2.Marshal(moderation.Response{}); !errors.Is(err, moderation.ErrInvalidResponse) {
 		t.Fatalf("Marshal Response error = %v", err)
 	}
 
 	options := moderation.Options{Model: "keep"}
-	if err := json.Unmarshal([]byte(`{"model":" invalid "}`), &options); !errors.Is(err, moderation.ErrInvalidOptions) {
+	if err := jsonv2.Unmarshal([]byte(`{"model":" invalid "}`), &options); !errors.Is(err, moderation.ErrInvalidOptions) {
 		t.Fatalf("Unmarshal Options error = %v", err)
 	}
 	if options.Model != "keep" {
@@ -45,7 +45,7 @@ func TestJSONBoundaries(t *testing.T) {
 	}
 
 	request := moderation.Request{Texts: []string{"keep"}}
-	if err := json.Unmarshal([]byte(`{"texts":[]}`), &request); !errors.Is(err, moderation.ErrInvalidRequest) {
+	if err := jsonv2.Unmarshal([]byte(`{"texts":[]}`), &request); !errors.Is(err, moderation.ErrInvalidRequest) {
 		t.Fatalf("Unmarshal Request error = %v", err)
 	}
 	if len(request.Texts) != 1 || request.Texts[0] != "keep" {
@@ -63,7 +63,7 @@ func TestJSONBoundaries(t *testing.T) {
 		Outputs:  []*moderation.Output{output},
 		Metadata: &moderation.ResponseMetadata{},
 	}
-	if err := json.Unmarshal([]byte(`{"outputs":[],"metadata":{}}`), &response); !errors.Is(err, moderation.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"outputs":[],"metadata":{}}`), &response); !errors.Is(err, moderation.ErrInvalidResponse) {
 		t.Fatalf("Unmarshal Response error = %v", err)
 	}
 	if response.First() != output {
@@ -71,7 +71,7 @@ func TestJSONBoundaries(t *testing.T) {
 	}
 
 	verdict := moderation.Verdict{Score: 0.25}
-	if err := json.Unmarshal([]byte(`{"score":2}`), &verdict); !errors.Is(err, moderation.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"score":2}`), &verdict); !errors.Is(err, moderation.ErrInvalidResponse) {
 		t.Fatalf("Unmarshal Verdict error = %v", err)
 	}
 	if verdict.Score != 0.25 {

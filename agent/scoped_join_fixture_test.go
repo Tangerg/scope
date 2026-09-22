@@ -2,7 +2,7 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 )
@@ -59,7 +59,7 @@ type scopeJoinState struct {
 	Role    string        `json:"role"`
 	Phase   string        `json:"phase"`
 	WaitID  WaitID        `json:"wait_id,omitzero"`
-	Outcome *ChildOutcome `json:"outcome,omitempty"`
+	Outcome *ChildOutcome `json:"outcome,omitzero"`
 }
 
 type scopeJoinExecution struct {
@@ -76,7 +76,7 @@ func (s *scopeJoinExecution) Step(_ context.Context, signals []Signal) (Transiti
 		case "scope":
 			return Continue(0, s.child("cleanup"))
 		default:
-			payload, err := json.Marshal(struct {
+			payload, err := jsonv2.Marshal(struct {
 				Name string `json:"name"`
 			}{Name: s.state.Role})
 			if err != nil {
@@ -155,7 +155,7 @@ func (s *scopeJoinExecution) child(role string) Effect {
 }
 
 func (s *scopeJoinExecution) Snapshot() (ExecutionState, error) {
-	payload, err := json.Marshal(s.state)
+	payload, err := jsonv2.Marshal(s.state)
 	if err != nil {
 		return ExecutionState{}, err
 	}

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -54,29 +54,29 @@ type uploadResponse struct {
 type transcriptionRequest struct {
 	AudioURL               string          `json:"audio_url"`
 	Model                  string          `json:"model,omitempty"`
-	LanguageConfig         *languageConfig `json:"language_config,omitempty"`
-	CustomVocabulary       any             `json:"custom_vocabulary,omitempty"`
+	LanguageConfig         *languageConfig `json:"language_config,omitzero"`
+	CustomVocabulary       any             `json:"custom_vocabulary,omitzero"`
 	CustomVocabularyConfig map[string]any  `json:"custom_vocabulary_config,omitzero"`
-	Callback               *bool           `json:"callback,omitempty"`
+	Callback               *bool           `json:"callback,omitzero"`
 	CallbackConfig         map[string]any  `json:"callback_config,omitzero"`
-	Diarization            *bool           `json:"diarization,omitempty"`
+	Diarization            *bool           `json:"diarization,omitzero"`
 	DiarizationConfig      map[string]any  `json:"diarization_config,omitzero"`
-	Translation            *bool           `json:"translation,omitempty"`
+	Translation            *bool           `json:"translation,omitzero"`
 	TranslationConfig      map[string]any  `json:"translation_config,omitzero"`
-	Summarization          *bool           `json:"summarization,omitempty"`
+	Summarization          *bool           `json:"summarization,omitzero"`
 	SummarizationConfig    map[string]any  `json:"summarization_config,omitzero"`
-	NamedEntityRecognition *bool           `json:"named_entity_recognition,omitempty"`
-	CustomSpelling         *bool           `json:"custom_spelling,omitempty"`
+	NamedEntityRecognition *bool           `json:"named_entity_recognition,omitzero"`
+	CustomSpelling         *bool           `json:"custom_spelling,omitzero"`
 	CustomSpellingConfig   map[string]any  `json:"custom_spelling_config,omitzero"`
-	SentimentAnalysis      *bool           `json:"sentiment_analysis,omitempty"`
-	AudioToLLM             *bool           `json:"audio_to_llm,omitempty"`
+	SentimentAnalysis      *bool           `json:"sentiment_analysis,omitzero"`
+	AudioToLLM             *bool           `json:"audio_to_llm,omitzero"`
 	AudioToLLMConfig       map[string]any  `json:"audio_to_llm_config,omitzero"`
-	PIIRedaction           *bool           `json:"pii_redaction,omitempty"`
+	PIIRedaction           *bool           `json:"pii_redaction,omitzero"`
 	PIIRedactionConfig     map[string]any  `json:"pii_redaction_config,omitzero"`
-	Subtitles              *bool           `json:"subtitles,omitempty"`
+	Subtitles              *bool           `json:"subtitles,omitzero"`
 	SubtitlesConfig        map[string]any  `json:"subtitles_config,omitzero"`
-	Sentences              *bool           `json:"sentences,omitempty"`
-	PunctuationEnhanced    *bool           `json:"punctuation_enhanced,omitempty"`
+	Sentences              *bool           `json:"sentences,omitzero"`
+	PunctuationEnhanced    *bool           `json:"punctuation_enhanced,omitzero"`
 	CustomMetadata         map[string]any  `json:"custom_metadata,omitzero"`
 }
 
@@ -97,7 +97,7 @@ func (t *transcriptionRequest) validate() error {
 
 type languageConfig struct {
 	Languages     []string `json:"languages,omitzero"`
-	CodeSwitching *bool    `json:"code_switching,omitempty"`
+	CodeSwitching *bool    `json:"code_switching,omitzero"`
 }
 
 type transcriptionCreateResponse struct {
@@ -126,8 +126,8 @@ type transcriptionResult struct {
 			Languages      []string `json:"languages,omitzero"`
 			Utterances     []any    `json:"utterances,omitzero"`
 		} `json:"transcription"`
-		Translation   any `json:"translation,omitempty"`
-		Summarization any `json:"summarization,omitempty"`
+		Translation   any `json:"translation,omitzero"`
+		Summarization any `json:"summarization,omitzero"`
 	} `json:"result"`
 	ErrorCode string         `json:"error_code,omitempty"`
 	Raw       map[string]any `json:"-"`
@@ -189,7 +189,7 @@ func (a *api) getTranscription(ctx context.Context, id string) (*transcriptionRe
 	if !resp.IsSuccess() {
 		return nil, fmt.Errorf("gladia: http %d: %s", resp.StatusCode(), resp.String())
 	}
-	if err := json.Unmarshal(resp.Body(), &out.Raw); err != nil {
+	if err := jsonv2.Unmarshal(resp.Body(), &out.Raw); err != nil {
 		return nil, fmt.Errorf("gladia: preserve transcription response: %w", err)
 	}
 	return &out, nil

@@ -2,7 +2,7 @@ package collaboration
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"sync"
@@ -75,10 +75,10 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 						default:
 							return nil, errors.New("unexpected turn")
 						}
-						return textResponse(string(require(json.Marshal(decision))))
+						return textResponse(string(require(jsonv2.Marshal(decision))))
 					}))
 					render := require(workflow.Transform("render", func(_ context.Context, turn Turn) (interaction.Input, error) {
-						return interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart(string(require(json.Marshal(turn)))))}}, nil
+						return interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart(string(require(jsonv2.Marshal(turn)))))}}, nil
 					}))
 					call := require(workflow.Call(workflow.CallConfig{ID: "call", Deployment: model, Budget: agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(8), Signals: agent.NewQuota(16)}}))
 					decode := require(workflow.Transform("decode", func(_ context.Context, output interaction.Output) (Decision, error) {
@@ -126,7 +126,7 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 						inspection := require(engine.InspectTree(t.Context(), process.ID()))
 						root, _ := inspection.Process(process.ID())
 						var state executionState
-						if err := json.Unmarshal(root.Snapshot.CommittedExecutionState().Payload(), &state); err != nil {
+						if err := jsonv2.Unmarshal(root.Snapshot.CommittedExecutionState().Payload(), &state); err != nil {
 							t.Fatal(err)
 						}
 						if state.Turn.Outcome != nil || state.Tasks[0].Outcome == nil || !state.hasUnseenOutcome() {
@@ -143,7 +143,7 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 							t.Fatalf("head=%t err=%v", found, err)
 						}
 						var restoredHead agent.TreeSnapshot
-						if err := json.Unmarshal(head.JSON(), &restoredHead); err != nil {
+						if err := jsonv2.Unmarshal(head.JSON(), &restoredHead); err != nil {
 							t.Fatal(err)
 						}
 						restoredEngine := require(agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployments}))

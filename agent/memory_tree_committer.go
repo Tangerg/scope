@@ -2,7 +2,7 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -208,7 +208,7 @@ func effectBoundaryDigest(boundary EffectBoundary) (Digest, error) {
 		Kind          EffectBoundaryKind
 		ProcessID     ProcessID
 		DeploymentRef DeploymentRef
-		Relation      ProcessRelation
+		Relation      processRelationWire
 		StepSequence  uint64
 		BatchIndex    uint32
 		EffectID      EffectID
@@ -218,7 +218,7 @@ func effectBoundaryDigest(boundary EffectBoundary) (Digest, error) {
 		Snapshot      Digest
 	}{
 		Sequence: boundary.Sequence(), Kind: boundary.Kind(), ProcessID: request.ProcessID(),
-		DeploymentRef: request.DeploymentRef(), Relation: request.Relation(),
+		DeploymentRef: request.DeploymentRef(), Relation: request.Relation().wire(),
 		StepSequence: request.StepSequence(), BatchIndex: request.BatchIndex(),
 		EffectID: request.ID(), Effect: request.Effect(),
 		Previous: boundary.PreviousTreeDigest(), Snapshot: boundary.TreeSnapshot().Digest(),
@@ -230,7 +230,7 @@ func effectBoundaryDigest(boundary EffectBoundary) (Digest, error) {
 }
 
 func jsonDigest(value any) (Digest, error) {
-	encoded, err := json.Marshal(value)
+	encoded, err := jsonv2.Marshal(value, jsonv2.Deterministic(true))
 	if err != nil {
 		return Digest{}, fmt.Errorf("agent: encode committer fact: %w", err)
 	}

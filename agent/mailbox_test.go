@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"strconv"
 	"strings"
@@ -11,7 +12,7 @@ import (
 
 func TestMailboxConsumptionDropsPayloadOnlyFromAdoptedCandidate(t *testing.T) {
 	mailbox := newSignalMailbox()
-	payload, err := json.Marshal(strings.Repeat("context", 10_000))
+	payload, err := jsonv2.Marshal(strings.Repeat("context", 10_000))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +27,7 @@ func TestMailboxConsumptionDropsPayloadOnlyFromAdoptedCandidate(t *testing.T) {
 	if pending := mailbox.pending(); len(pending) != 1 || !bytes.Equal(pending[0].Payload(), payload) {
 		t.Fatal("candidate consumption changed the authoritative pending input")
 	}
-	encoded, err := json.Marshal(candidate.wire())
+	encoded, err := jsonv2.Marshal(candidate.wire())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +35,7 @@ func TestMailboxConsumptionDropsPayloadOnlyFromAdoptedCandidate(t *testing.T) {
 		t.Fatalf("consumed mailbox retained payload: %d bytes", len(encoded))
 	}
 	var wire mailboxWire
-	if decodeErr := json.Unmarshal(encoded, &wire); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal(encoded, &wire); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
 	restored, err := restoreSignalMailbox(wire, StatusRunning)
@@ -221,12 +222,12 @@ func TestMailboxSnapshotRestoresDeduplicationCursorAndWaitFacts(t *testing.T) {
 	}
 
 	wire := mailbox.wire()
-	data, err := json.Marshal(wire)
+	data, err := jsonv2.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded mailboxWire
-	if unmarshalErr := json.Unmarshal(data, &decoded); unmarshalErr != nil {
+	if unmarshalErr := jsonv2.Unmarshal(data, &decoded); unmarshalErr != nil {
 		t.Fatal(unmarshalErr)
 	}
 	restored, err := restoreSignalMailbox(decoded, StatusRunning)
@@ -386,11 +387,11 @@ func restoredMailbox(t testing.TB, mailbox signalMailbox, status Status) signalM
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := json.Marshal(wire)
+	want, err := jsonv2.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := json.Marshal(restored.wire())
+	got, err := jsonv2.Marshal(restored.wire())
 	if err != nil {
 		t.Fatal(err)
 	}

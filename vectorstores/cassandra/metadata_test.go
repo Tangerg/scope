@@ -1,7 +1,7 @@
 package cassandra
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"slices"
 	"strings"
 	"testing"
@@ -46,7 +46,7 @@ func TestSearchResultMetadataRoundTripsExactly(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	encoded, err := json.Marshal(source)
+	encoded, err := jsonv2.Marshal(source)
 	if err != nil {
 		t.Fatal(err)
 	}

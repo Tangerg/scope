@@ -2,7 +2,7 @@ package coordination_test
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"sync"
 	"testing"
@@ -53,7 +53,7 @@ func TestInputGatePreservesIdentityAcrossRecoveryAndEarlyAnswer(t *testing.T) {
 				if snapshotErr != nil {
 					t.Fatal(snapshotErr)
 				}
-				forgedBytes, marshalErr := json.Marshal(struct {
+				forgedBytes, marshalErr := jsonv2.Marshal(struct {
 					Phase   string       `json:"phase"`
 					Request string       `json:"request"`
 					WaitID  agent.WaitID `json:"wait_id"`

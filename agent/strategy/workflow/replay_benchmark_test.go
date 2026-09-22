@@ -2,7 +2,7 @@ package workflow_test
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
 	"testing"
@@ -66,7 +66,7 @@ func BenchmarkWorkflowReplayBoundary(b *testing.B) {
 					if index == count-1 {
 						output, completed := transition.Output()
 						var value replayValue
-						if !completed || json.Unmarshal(output.JSON(), &value) != nil || value.Steps != count || len(value.Text) != size {
+						if !completed || jsonv2.Unmarshal(output.JSON(), &value) != nil || value.Steps != count || len(value.Text) != size {
 							b.Fatal("replay lost the completed Workflow result")
 						}
 					}

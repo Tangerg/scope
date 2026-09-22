@@ -2,7 +2,6 @@ package vectorstore
 
 import (
 	"context"
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
@@ -56,8 +55,8 @@ func (s SearchMode) String() string {
 // the zero-value mode; hybrid combines semantic and lexical evidence.
 type SearchOptions struct {
 	// TopK limits the result count. Zero uses DefaultTopK.
-	TopK     int   `json:"top_k,omitempty"`
-	MinScore Score `json:"min_score,omitempty"`
+	TopK     int   `json:"top_k,omitzero"`
+	MinScore Score `json:"min_score,omitzero"`
 	// Filter is encoded as its canonical filter DSL string. An omitted or null
 	// JSON filter means no predicate; a present string must parse successfully.
 	Filter filter.Predicate `json:"filter,omitempty"`
@@ -65,9 +64,9 @@ type SearchOptions struct {
 }
 
 type searchOptionsWire struct {
-	TopK     int        `json:"top_k,omitempty"`
-	MinScore Score      `json:"min_score,omitempty"`
-	Filter   *string    `json:"filter,omitempty"`
+	TopK     int        `json:"top_k,omitzero"`
+	MinScore Score      `json:"min_score,omitzero"`
+	Filter   *string    `json:"filter,omitzero"`
 	Mode     SearchMode `json:"mode,omitempty"`
 }
 
@@ -129,7 +128,7 @@ func (s SearchOptions) MarshalJSON() ([]byte, error) {
 	if s.Filter != nil {
 		wire.Filter = new(s.Filter.String())
 	}
-	return json.Marshal(wire)
+	return jsonv2.Marshal(wire)
 }
 
 func (s *SearchOptions) UnmarshalJSON(data []byte) error {
@@ -190,7 +189,7 @@ func (s SearchRequest) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireSearchRequest SearchRequest
-	return json.Marshal(wireSearchRequest(s))
+	return jsonv2.Marshal(wireSearchRequest(s))
 }
 
 func (s *SearchRequest) UnmarshalJSON(data []byte) error {
@@ -253,7 +252,7 @@ func (s SearchResult) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireSearchResult SearchResult
-	return json.Marshal(wireSearchResult(s))
+	return jsonv2.Marshal(wireSearchResult(s))
 }
 
 func (s *SearchResult) UnmarshalJSON(data []byte) error {
@@ -309,7 +308,7 @@ func (s SearchResponse) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireSearchResponse SearchResponse
-	return json.Marshal(wireSearchResponse(s))
+	return jsonv2.Marshal(wireSearchResponse(s))
 }
 
 func (s *SearchResponse) UnmarshalJSON(data []byte) error {

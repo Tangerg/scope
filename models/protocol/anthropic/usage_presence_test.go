@@ -1,7 +1,7 @@
 package anthropic
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 
 	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
@@ -19,7 +19,7 @@ func TestUsageRequiresReportedTotals(t *testing.T) {
 		{`{"input_tokens":3,"output_tokens":2}`, true},
 	} {
 		var usage anthropicsdk.Usage
-		if err := json.Unmarshal([]byte(sample.wire), &usage); err != nil {
+		if err := jsonv2.Unmarshal([]byte(sample.wire), &usage); err != nil {
 			t.Fatal(err)
 		}
 		if actual := mapProtocolUsage(usage); (actual != nil) != sample.known {
@@ -40,7 +40,7 @@ func TestStreamingUsagePreservesOmittedCountersAndAcceptsZero(t *testing.T) {
 		{`{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0}`, 0, 0},
 	} {
 		var delta anthropicsdk.MessageDeltaUsage
-		if err := json.Unmarshal([]byte(sample.wire), &delta); err != nil {
+		if err := jsonv2.Unmarshal([]byte(sample.wire), &delta); err != nil {
 			t.Fatal(err)
 		}
 		state.mergeDeltaUsage(delta)
@@ -49,7 +49,7 @@ func TestStreamingUsagePreservesOmittedCountersAndAcceptsZero(t *testing.T) {
 		}
 	}
 	var partial anthropicsdk.MessageDeltaUsage
-	if err := json.Unmarshal([]byte(`{"input_tokens":0}`), &partial); err != nil {
+	if err := jsonv2.Unmarshal([]byte(`{"input_tokens":0}`), &partial); err != nil {
 		t.Fatal(err)
 	}
 	unknown := protocolStreamState{}

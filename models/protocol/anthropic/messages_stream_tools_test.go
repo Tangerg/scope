@@ -1,7 +1,7 @@
 package anthropic_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -106,7 +106,7 @@ func newToolStreamModel(t *testing.T, events []string) corechat.Streamer {
 			var envelope struct {
 				Type string `json:"type"`
 			}
-			if err := json.Unmarshal([]byte(event), &envelope); err != nil {
+			if err := jsonv2.Unmarshal([]byte(event), &envelope); err != nil {
 				t.Error(err)
 				return
 			}

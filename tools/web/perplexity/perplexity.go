@@ -56,7 +56,7 @@ func NewClient(config Config) (*Client, error) {
 
 type searchRequest struct {
 	Query               string   `json:"query"`
-	MaxResults          int      `json:"max_results,omitempty"`
+	MaxResults          int      `json:"max_results,omitzero"`
 	SearchDomainFilter  []string `json:"search_domain_filter,omitempty"`
 	SearchRecencyFilter string   `json:"search_recency_filter,omitempty"`
 }

@@ -72,9 +72,9 @@ func (p ProcessRelation) Valid() bool {
 }
 
 type processRelationWire struct {
-	ParentID *ProcessID `json:"parent_id,omitempty"`
+	ParentID *ProcessID `json:"parent_id,omitzero"`
 	RootID   ProcessID  `json:"root_id"`
-	ChildKey *ChildKey  `json:"child_key,omitempty"`
+	ChildKey *ChildKey  `json:"child_key,omitzero"`
 	Depth    uint32     `json:"depth"`
 }
 

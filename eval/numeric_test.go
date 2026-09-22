@@ -2,7 +2,7 @@ package eval_test
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"math"
 	"testing"
@@ -38,7 +38,7 @@ func TestComparisonRejectsUnrepresentableMeasurementDeltas(t *testing.T) {
 			if !delta.Present || delta.Mean != testCase.want {
 				t.Errorf("measurement delta = %#v, want %g", delta, testCase.want)
 			}
-			if _, err := json.Marshal(comparison); err != nil {
+			if _, err := jsonv2.Marshal(comparison); err != nil {
 				t.Fatal(err)
 			}
 		})

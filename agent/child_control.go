@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -85,7 +86,7 @@ func (c ChildControlResult) MarshalJSON() ([]byte, error) {
 	if c.failure.Valid() {
 		wire.Failure = &c.failure
 	}
-	return json.Marshal(wire)
+	return jsonv2.Marshal(wire)
 }
 
 func (c *ChildControlResult) UnmarshalJSON(data []byte) error {
@@ -117,7 +118,7 @@ func ParseChildControlResult(signal Signal) (ChildControlResult, error) {
 type childControlEffectWire struct {
 	Operation frameworkEffectOperation `json:"operation"`
 	ChildID   ProcessID                `json:"child_id"`
-	Signal    *SignalRequest           `json:"signal,omitempty"`
+	Signal    *SignalRequest           `json:"signal,omitzero"`
 	Reason    string                   `json:"reason,omitempty"`
 }
 
@@ -156,8 +157,8 @@ func decodeChildControlEffect(payload json.RawMessage) (childControlEffectWire, 
 type childControlResultWire struct {
 	Operation frameworkEffectOperation `json:"operation"`
 	ChildID   ProcessID                `json:"child_id"`
-	SignalID  *SignalID                `json:"signal_id,omitempty"`
-	Failure   *Failure                 `json:"failure,omitempty"`
+	SignalID  *SignalID                `json:"signal_id,omitzero"`
+	Failure   *Failure                 `json:"failure,omitzero"`
 }
 
 func decodeChildControlResult(payload json.RawMessage) (ChildControlResult, error) {

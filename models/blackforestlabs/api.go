@@ -89,13 +89,13 @@ type generateRequest struct {
 	InputImage6      string `json:"input_image_6,omitempty"`
 	InputImage7      string `json:"input_image_7,omitempty"`
 	InputImage8      string `json:"input_image_8,omitempty"`
-	Width            int    `json:"width,omitempty"`
-	Height           int    `json:"height,omitempty"`
+	Width            int    `json:"width,omitzero"`
+	Height           int    `json:"height,omitzero"`
 	AspectRatio      string `json:"aspect_ratio,omitempty"`
 	PromptUpsampling bool   `json:"prompt_upsampling,omitzero"`
 	DisablePUP       bool   `json:"disable_pup,omitzero"`
-	Seed             *int64 `json:"seed,omitempty"`
-	SafetyTolerance  *int   `json:"safety_tolerance,omitempty"`
+	Seed             *int64 `json:"seed,omitzero"`
+	SafetyTolerance  *int   `json:"safety_tolerance,omitzero"`
 	OutputFormat     string `json:"output_format,omitempty"`
 	Raw              bool   `json:"raw,omitzero"`
 	WebhookURL       string `json:"webhook_url,omitempty"`
@@ -107,9 +107,9 @@ type generateRequest struct {
 type asyncResponse struct {
 	ID         string   `json:"id"`
 	PollingURL string   `json:"polling_url"`
-	Cost       *float64 `json:"cost,omitempty"`
-	InputMP    *float64 `json:"input_mp,omitempty"`
-	OutputMP   *float64 `json:"output_mp,omitempty"`
+	Cost       *float64 `json:"cost,omitzero"`
+	InputMP    *float64 `json:"input_mp,omitzero"`
+	OutputMP   *float64 `json:"output_mp,omitzero"`
 }
 
 // pollStatus enumerates the statuses BFL's get_result reference declares.
@@ -139,7 +139,7 @@ const (
 type pollResult struct {
 	ID       string         `json:"id"`
 	Status   pollStatus     `json:"status"`
-	Progress *float64       `json:"progress,omitempty"`
+	Progress *float64       `json:"progress,omitzero"`
 	Details  map[string]any `json:"details,omitempty"`
 	Preview  map[string]any `json:"preview,omitempty"`
 	Result   struct {

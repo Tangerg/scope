@@ -2,7 +2,7 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -558,7 +558,7 @@ func TestDurableUnknownResolutionCommitsAResolvedBoundary(t *testing.T) {
 	snapshot := waitForUnknownSettlement(t, process)
 	wire, _ := snapshot.wire()
 	effectID := wire.Prepared.Effects[0].ID
-	payload, _ := json.Marshal(engineTestMessage{Kind: "result", Value: "resolved"})
+	payload, _ := jsonv2.Marshal(engineTestMessage{Kind: "result", Value: "resolved"})
 	settlement, _ := NewSettlement(effectID, SettlementStatusSucceeded, payload)
 	if err := process.ResolveUnknownEffect(context.Background(), settlement); err != nil {
 		t.Fatal(err)

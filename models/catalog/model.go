@@ -12,12 +12,12 @@ type Model struct {
 	KnowledgeCutoff  time.Time       `json:"knowledge_cutoff,omitzero"`
 	ReleaseDate      time.Time       `json:"release_date,omitzero"`
 	LastUpdated      time.Time       `json:"last_updated,omitzero"`
-	Deprecated       bool            `json:"deprecated,omitempty"`
+	Deprecated       bool            `json:"deprecated,omitzero"`
 	Pricing          PricingSchedule `json:"pricing,omitempty"`
 	Reasoning        Reasoning       `json:"reasoning,omitzero"`
 	Modalities       Modalities      `json:"modalities,omitzero"`
-	ToolCall         bool            `json:"tool_call,omitempty"`
-	StructuredOutput bool            `json:"structured_output,omitempty"`
+	ToolCall         bool            `json:"tool_call,omitzero"`
+	StructuredOutput bool            `json:"structured_output,omitzero"`
 	Limits           Limits          `json:"limits,omitzero"`
 }
 
@@ -38,7 +38,7 @@ func (m Model) Clone() Model {
 
 // Reasoning describes extended-thinking support.
 type Reasoning struct {
-	Supported    bool     `json:"supported,omitempty"`
+	Supported    bool     `json:"supported,omitzero"`
 	Levels       []string `json:"levels,omitempty"`
 	DefaultLevel string   `json:"default_level,omitempty"`
 }
@@ -49,9 +49,9 @@ func (r Reasoning) IsZero() bool {
 
 // Limits contains token limits. Zero means unknown, not unlimited.
 type Limits struct {
-	ContextWindow   int64 `json:"context_window,omitempty"`
-	MaxInputTokens  int64 `json:"max_input_tokens,omitempty"`
-	MaxOutputTokens int64 `json:"max_output_tokens,omitempty"`
+	ContextWindow   int64 `json:"context_window,omitzero"`
+	MaxInputTokens  int64 `json:"max_input_tokens,omitzero"`
+	MaxOutputTokens int64 `json:"max_output_tokens,omitzero"`
 }
 
 func (l Limits) IsZero() bool { return l == Limits{} }

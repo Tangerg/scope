@@ -3,6 +3,7 @@ package trajectory_test
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 	"time"
@@ -134,7 +135,7 @@ func TestSemanticProjectionCoversRealInteractionOutput(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(value.ModelResponse.Text())
+		return jsonv2.Marshal(value.ModelResponse.Text())
 	}
 	config := trajectoryConfig(base)
 	value, err := config.Output.Decode[interaction.Output]()
@@ -210,26 +211,26 @@ func TestBehaviorDigestIncludesAcknowledgedEffectResolution(t *testing.T) {
 
 func changeEvent(t *testing.T, event agent.Event, fields map[string]any) agent.Event {
 	t.Helper()
-	data, err := json.Marshal(event)
+	data, err := jsonv2.Marshal(event)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var wire map[string]json.RawMessage
-	if checkErr := json.Unmarshal(data, &wire); checkErr != nil {
+	if checkErr := jsonv2.Unmarshal(data, &wire); checkErr != nil {
 		t.Fatal(checkErr)
 	}
 	for key, value := range fields {
-		wire[key], err = json.Marshal(value)
+		wire[key], err = jsonv2.Marshal(value)
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
-	data, err = json.Marshal(wire)
+	data, err = jsonv2.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var changed agent.Event
-	if checkErr := json.Unmarshal(data, &changed); checkErr != nil {
+	if checkErr := jsonv2.Unmarshal(data, &changed); checkErr != nil {
 		t.Fatal(checkErr)
 	}
 	return changed
@@ -262,12 +263,12 @@ func TestActivationSegmentsAndWallClockRegressionRemainUsable(t *testing.T) {
 	if _, checkErr := (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{Actual: restored, Expected: trajectory.Expectation{Status: agent.StatusCompleted, Limits: trajectory.Limits{Elapsed: &zero}}}); !errors.Is(checkErr, trajectory.ErrIncompleteRecording) {
 		t.Fatalf("unknown elapsed satisfied zero budget: %v", checkErr)
 	}
-	encoded, err := json.Marshal(restored)
+	encoded, err := jsonv2.Marshal(restored)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded trajectory.Trajectory
-	if checkErr := json.Unmarshal(encoded, &decoded); checkErr != nil {
+	if checkErr := jsonv2.Unmarshal(encoded, &decoded); checkErr != nil {
 		t.Fatal(checkErr)
 	}
 	if len(decoded.Events()) != len(config.Events) {
@@ -294,7 +295,7 @@ func TestObservationLossDoesNotChangeSemanticBehavior(t *testing.T) {
 				Cause  agent.TerminationCause `json:"termination_cause"`
 				Usage  agent.Usage            `json:"usage"`
 			}
-			if checkErr := json.Unmarshal(event.Payload(), &payload); checkErr != nil {
+			if checkErr := jsonv2.Unmarshal(event.Payload(), &payload); checkErr != nil {
 				t.Fatal(checkErr)
 			}
 			payload.Usage.DroppedDeltas = 9
@@ -306,7 +307,7 @@ func TestObservationLossDoesNotChangeSemanticBehavior(t *testing.T) {
 			var attempt struct {
 				ID string `json:"attempt_id"`
 			}
-			if err := json.Unmarshal(event.Payload(), &attempt); err != nil {
+			if err := jsonv2.Unmarshal(event.Payload(), &attempt); err != nil {
 				t.Fatal(err)
 			}
 			dropped := changeEvent(t, event, map[string]any{"process_sequence": rootSequence, "name": agent.EventDeltaDropped, "payload": map[string]any{"dropped_delta_count": 9, "attempt_id": attempt.ID}})

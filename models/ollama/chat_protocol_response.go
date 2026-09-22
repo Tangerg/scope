@@ -1,7 +1,7 @@
 package ollama
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -97,7 +97,7 @@ func (p *protocolResponseMapper) mapParts(message nativeMessage) ([]corechat.Par
 		if toolCall.Function.Name == "" {
 			return nil, fmt.Errorf("ollama: message.tool_calls[%d]: empty function name", i)
 		}
-		arguments, err := json.Marshal(toolCall.Function.Arguments)
+		arguments, err := jsonv2.Marshal(toolCall.Function.Arguments)
 		if err != nil {
 			return nil, fmt.Errorf("ollama: message.tool_calls[%d].arguments: %w", i, err)
 		}
@@ -130,6 +130,6 @@ func normalizeProtocolDoneReason(reason string, hasToolCalls bool) corechat.Fini
 }
 
 type protocolMetrics struct {
-	PromptEvalCount int `json:"prompt_eval_count,omitempty"`
-	EvalCount       int `json:"eval_count,omitempty"`
+	PromptEvalCount int `json:"prompt_eval_count,omitzero"`
+	EvalCount       int `json:"eval_count,omitzero"`
 }

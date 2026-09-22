@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"time"
@@ -326,7 +327,7 @@ func (e Event) MarshalJSON() ([]byte, error) {
 	if e.incarnationID.Valid() {
 		wire.IncarnationID = &e.incarnationID
 	}
-	return json.Marshal(wire)
+	return jsonv2.Marshal(wire)
 }
 
 func (e *Event) UnmarshalJSON(data []byte) error {
@@ -466,9 +467,9 @@ type eventWire struct {
 	ProcessID       ProcessID           `json:"process_id"`
 	DeploymentRef   DeploymentRef       `json:"deployment_ref"`
 	Relation        processRelationWire `json:"relation"`
-	IncarnationID   *TreeIncarnationID  `json:"tree_incarnation_id,omitempty"`
-	StepSequence    uint64              `json:"step_sequence,omitempty"`
-	EffectID        *EffectID           `json:"effect_id,omitempty"`
+	IncarnationID   *TreeIncarnationID  `json:"tree_incarnation_id,omitzero"`
+	StepSequence    uint64              `json:"step_sequence,omitzero"`
+	EffectID        *EffectID           `json:"effect_id,omitzero"`
 	Name            string              `json:"name"`
 	Phase           EventPhase          `json:"phase"`
 	OccurredAt      time.Time           `json:"occurred_at"`

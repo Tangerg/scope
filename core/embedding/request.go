@@ -1,7 +1,6 @@
 package embedding
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
@@ -22,7 +21,7 @@ type Options struct {
 
 	// Dimensions requests an explicit output vector size. nil leaves it
 	// up to the provider's default.
-	Dimensions *int64 `json:"dimensions,omitempty"`
+	Dimensions *int64 `json:"dimensions,omitzero"`
 
 	// Extensions carries JSON-safe provider-specific options unknown to this
 	// struct.
@@ -81,7 +80,7 @@ func (o Options) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireOptions Options
-	return json.Marshal(wireOptions(o))
+	return jsonv2.Marshal(wireOptions(o))
 }
 
 func (o *Options) UnmarshalJSON(data []byte) error {
@@ -142,7 +141,7 @@ func (r Request) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireRequest Request
-	return json.Marshal(wireRequest(r))
+	return jsonv2.Marshal(wireRequest(r))
 }
 
 func (r *Request) UnmarshalJSON(data []byte) error {

@@ -2,7 +2,7 @@ package chat
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -151,7 +151,7 @@ func (r *Reranker) Refine(ctx context.Context, query rag.Query, candidates rag.C
 		}
 		input[index] = chatRerankingInput{Index: index, Content: content}
 	}
-	encoded, err := json.Marshal(input)
+	encoded, err := jsonv2.Marshal(input)
 	if err != nil {
 		return nil, fmt.Errorf("%w: encode candidates: %w", rag.ErrInvalidReranking, err)
 	}

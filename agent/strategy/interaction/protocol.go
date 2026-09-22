@@ -25,8 +25,8 @@ const (
 
 type effectEnvelope struct {
 	Operation operation            `json:"operation"`
-	ModelCall *modelCall           `json:"model_call,omitempty"`
-	ToolCall  *toolDispatchRequest `json:"tool_call,omitempty"`
+	ModelCall *modelCall           `json:"model_call,omitzero"`
+	ToolCall  *toolDispatchRequest `json:"tool_call,omitzero"`
 }
 
 type modelCall struct {
@@ -64,7 +64,7 @@ func (t toolCall) checkpointWaitKey(pauseCount uint64) (agent.WaitKey, error) {
 
 type toolDispatchRequest struct {
 	Invocation toolCall    `json:"invocation"`
-	Resume     *toolResume `json:"resume,omitempty"`
+	Resume     *toolResume `json:"resume,omitzero"`
 }
 
 type toolResume struct {
@@ -74,15 +74,15 @@ type toolResume struct {
 
 type signalEnvelope struct {
 	Operation     operation           `json:"operation"`
-	ModelResult   *modelCallResult    `json:"model_result,omitempty"`
-	ToolResult    *toolDispatchResult `json:"tool_result,omitempty"`
-	WaitOpened    *toolInputRequest   `json:"wait_opened,omitempty"`
+	ModelResult   *modelCallResult    `json:"model_result,omitzero"`
+	ToolResult    *toolDispatchResult `json:"tool_result,omitzero"`
+	WaitOpened    *toolInputRequest   `json:"wait_opened,omitzero"`
 	InputResponse json.RawMessage     `json:"input_response,omitzero"`
-	Steer         *steerInput         `json:"steer,omitempty"`
+	Steer         *steerInput         `json:"steer,omitzero"`
 }
 
 type modelCallResult struct {
-	Response            *chat.Response `json:"response,omitempty"`
+	Response            *chat.Response `json:"response,omitzero"`
 	ReplacementMessages []chat.Message `json:"replacement_messages,omitempty"`
 	Error               string         `json:"error,omitempty"`
 	HostError           string         `json:"host_error,omitempty"`
@@ -108,15 +108,15 @@ type steerInput struct {
 }
 
 type toolCallResult struct {
-	Rejected            bool            `json:"rejected,omitempty"`
+	Rejected            bool            `json:"rejected,omitzero"`
 	Result              chat.ToolResult `json:"result"`
 	Direct              bool            `json:"direct"`
 	AdvertisedToolNames []string        `json:"advertised_tool_names,omitempty"`
 }
 
 type toolDispatchResult struct {
-	Completion *toolCallResult `json:"completion,omitempty"`
-	Checkpoint *toolCheckpoint `json:"checkpoint,omitempty"`
+	Completion *toolCallResult `json:"completion,omitzero"`
+	Checkpoint *toolCheckpoint `json:"checkpoint,omitzero"`
 }
 
 type toolCheckpoint struct {

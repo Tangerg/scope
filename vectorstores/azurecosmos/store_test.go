@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -145,7 +146,7 @@ func TestIndexAndDeleteUseBoundPartition(t *testing.T) {
 					return
 				}
 				var payload map[string]json.RawMessage
-				if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				if err := jsonv2.UnmarshalRead(request.Body, &payload); err != nil {
 					t.Error(err)
 					writer.WriteHeader(http.StatusBadRequest)
 					return
@@ -154,7 +155,7 @@ func TestIndexAndDeleteUseBoundPartition(t *testing.T) {
 					t.Errorf("stored partition field = %s, want library", got)
 				}
 				var id string
-				if err := json.Unmarshal(payload["id"], &id); err != nil {
+				if err := jsonv2.Unmarshal(payload["id"], &id); err != nil {
 					t.Error(err)
 				}
 				indexed = append(indexed, id)

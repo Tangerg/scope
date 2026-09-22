@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 )
@@ -15,12 +15,12 @@ func TestDigestStrictRoundTrip(t *testing.T) {
 	if parsed != want {
 		t.Fatalf("ParseDigest() = %q, want %q", parsed, want)
 	}
-	data, err := json.Marshal(want)
+	data, err := jsonv2.Marshal(want)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded Digest
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded != want {

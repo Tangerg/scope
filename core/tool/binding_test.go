@@ -3,6 +3,7 @@ package tool_test
 import (
 	"context"
 	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -46,7 +47,7 @@ func TestContractPromotesOnlySchemaValidCalls(t *testing.T) {
 	exposed := contract.Definition()
 	executable.name = "changed"
 	exposed.InputSchema[0] = '['
-	if definition := contract.Definition(); definition.Name != "search" || !json.Valid(definition.InputSchema) {
+	if definition := contract.Definition(); definition.Name != "search" || !jsontext.Value(definition.InputSchema).IsValid() {
 		t.Fatalf("Contract retained a caller's definition mutation: %+v", definition)
 	}
 

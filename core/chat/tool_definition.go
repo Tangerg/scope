@@ -36,11 +36,11 @@ func (t ToolDefinition) Validate() error {
 	if len(t.InputSchema) == 0 {
 		return fmt.Errorf("%w: missing input schema", ErrInvalidToolDefinition)
 	}
-	if err := json.Unmarshal(t.InputSchema, &schema); err != nil || schema == nil {
+	if err := jsonv2.Unmarshal(t.InputSchema, &schema); err != nil || schema == nil {
 		return fmt.Errorf("%w: input schema must be a JSON object", ErrInvalidToolDefinition)
 	}
 	var schemaType string
-	if err := json.Unmarshal(schema["type"], &schemaType); err != nil || schemaType != "object" {
+	if err := jsonv2.Unmarshal(schema["type"], &schemaType); err != nil || schemaType != "object" {
 		return fmt.Errorf("%w: input schema type must be %q", ErrInvalidToolDefinition, "object")
 	}
 	return nil

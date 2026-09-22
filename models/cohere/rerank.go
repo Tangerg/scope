@@ -16,8 +16,8 @@ import (
 // reranking result semantics. Each field is keyed by the name Cohere's own
 // reference uses, so a caller reading those docs sets the key they read.
 type RerankRequestOptions struct {
-	MaxTokensPerDoc *int `json:"max_tokens_per_doc,omitempty"`
-	Priority        *int `json:"priority,omitempty"`
+	MaxTokensPerDoc *int `json:"max_tokens_per_doc,omitzero"`
+	Priority        *int `json:"priority,omitzero"`
 }
 
 // RerankModelConfig binds provider access and defaults shared by every reranking call.

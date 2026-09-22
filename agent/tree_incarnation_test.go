@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 )
@@ -11,12 +11,12 @@ func TestTreeIncarnationIDStrictRoundTrip(t *testing.T) {
 	if !id.Valid() {
 		t.Fatal("new TreeIncarnationID is invalid")
 	}
-	data, err := json.Marshal(id)
+	data, err := jsonv2.Marshal(id)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded TreeIncarnationID
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded != id {

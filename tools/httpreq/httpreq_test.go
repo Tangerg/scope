@@ -1,7 +1,7 @@
 package httpreq
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"io"
 	"net"
@@ -33,7 +33,7 @@ func TestToolUsesStrictTypedContract(t *testing.T) {
 	var schema struct {
 		AdditionalProperties bool `json:"additionalProperties"`
 	}
-	if decodeErr := json.Unmarshal(definition.InputSchema, &schema); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal(definition.InputSchema, &schema); decodeErr != nil {
 		t.Fatalf("decode schema: %v", decodeErr)
 	}
 	if schema.AdditionalProperties {

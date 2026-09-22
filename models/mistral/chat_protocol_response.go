@@ -3,6 +3,8 @@ package mistral
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -20,13 +22,13 @@ func mapMistralContentChunk(raw json.RawMessage) (corechat.Part, bool, error) {
 	var discriminator struct {
 		Type contentType `json:"type"`
 	}
-	if err := json.Unmarshal(raw, &discriminator); err != nil {
+	if err := jsonv2.Unmarshal(raw, &discriminator); err != nil {
 		return corechat.Part{}, false, err
 	}
 	switch discriminator.Type {
 	case contentTypeText:
 		var chunk textChunk
-		if err := json.Unmarshal(raw, &chunk); err != nil {
+		if err := jsonv2.Unmarshal(raw, &chunk); err != nil {
 			return corechat.Part{}, false, err
 		}
 		return corechat.NewTextPart(chunk.Text), chunk.Text != "", nil
@@ -48,7 +50,7 @@ func mapMistralContentDeltas(raw json.RawMessage) ([]corechat.PartDelta, error) 
 	}
 	if trimmed[0] == '"' {
 		var text string
-		if err := json.Unmarshal(trimmed, &text); err != nil {
+		if err := jsonv2.Unmarshal(trimmed, &text); err != nil {
 			return nil, err
 		}
 		if text == "" {
@@ -57,7 +59,7 @@ func mapMistralContentDeltas(raw json.RawMessage) ([]corechat.PartDelta, error) 
 		return []corechat.PartDelta{corechat.NewTextDelta(text)}, nil
 	}
 	var chunks []json.RawMessage
-	if err := json.Unmarshal(trimmed, &chunks); err != nil {
+	if err := jsonv2.Unmarshal(trimmed, &chunks); err != nil {
 		return nil, err
 	}
 	deltas := make([]corechat.PartDelta, 0, len(chunks))
@@ -98,7 +100,7 @@ func mapMistralReferenceChunk(raw json.RawMessage) ([]corechat.Citation, bool, e
 		Type         contentType       `json:"type"`
 		ReferenceIDs []json.RawMessage `json:"reference_ids"`
 	}
-	if err := json.Unmarshal(raw, &chunk); err != nil {
+	if err := jsonv2.Unmarshal(raw, &chunk); err != nil {
 		return nil, false, err
 	}
 	if chunk.Type != contentTypeReference && chunk.Type != contentTypeToolReference {
@@ -119,7 +121,7 @@ func mapMistralReferenceChunk(raw json.RawMessage) ([]corechat.Citation, bool, e
 
 func mistralReferenceID(raw json.RawMessage) (string, error) {
 	var text string
-	if err := json.Unmarshal(raw, &text); err == nil {
+	if err := jsonv2.Unmarshal(raw, &text); err == nil {
 		if text == "" {
 			return "", errors.New("reference ID is empty")
 		}
@@ -127,7 +129,7 @@ func mistralReferenceID(raw json.RawMessage) (string, error) {
 	}
 	trimmed := bytes.TrimSpace(raw)
 	var number json.Number
-	if err := json.Unmarshal(trimmed, &number); err != nil || number.String() == "" {
+	if err := jsonv2.Unmarshal(trimmed, &number); err != nil || number.String() == "" {
 		return "", errors.New("reference ID must be a string or number")
 	}
 	return number.String(), nil
@@ -137,13 +139,13 @@ func mapMistralThinkingChunk(raw json.RawMessage) (corechat.Part, error) {
 	var chunk struct {
 		Thinking []json.RawMessage `json:"thinking"`
 	}
-	if err := json.Unmarshal(raw, &chunk); err != nil {
+	if err := jsonv2.Unmarshal(raw, &chunk); err != nil {
 		return corechat.Part{}, err
 	}
 	var reasoning strings.Builder
 	for nestedIndex := range chunk.Thinking {
 		var nested textChunk
-		if err := json.Unmarshal(chunk.Thinking[nestedIndex], &nested); err == nil && nested.Type == contentTypeText {
+		if err := jsonv2.Unmarshal(chunk.Thinking[nestedIndex], &nested); err == nil && nested.Type == contentTypeText {
 			reasoning.WriteString(nested.Text)
 		}
 	}
@@ -156,7 +158,7 @@ func mapMistralThinkingChunk(raw json.RawMessage) (corechat.Part, error) {
 
 func mapMistralImageChunk(raw json.RawMessage) (corechat.Part, error) {
 	var chunk imageURLChunk
-	if err := json.Unmarshal(raw, &chunk); err != nil {
+	if err := jsonv2.Unmarshal(raw, &chunk); err != nil {
 		return corechat.Part{}, err
 	}
 	image, err := media.NewURI("image/*", string(chunk.ImageURL))
@@ -173,12 +175,12 @@ func mistralToolArguments(raw json.RawMessage) (string, error) {
 	}
 	if trimmed[0] == '"' {
 		var value string
-		if err := json.Unmarshal(trimmed, &value); err != nil {
+		if err := jsonv2.Unmarshal(trimmed, &value); err != nil {
 			return "", err
 		}
 		return value, nil
 	}
-	if !json.Valid(trimmed) {
+	if !jsontext.Value(trimmed).IsValid() {
 		return "", errors.New("invalid JSON")
 	}
 	return string(trimmed), nil

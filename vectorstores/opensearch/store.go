@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -14,7 +15,6 @@ import (
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -169,7 +169,7 @@ func (s *Store) verifyVectorField(ctx context.Context) error {
 		var mappings struct {
 			Properties map[string]storedVectorField `json:"properties"`
 		}
-		if err := json.Unmarshal(index.Mappings, &mappings); err != nil {
+		if err := jsonv2.Unmarshal(index.Mappings, &mappings); err != nil {
 			return fmt.Errorf("opensearch: decode mapping for %q: %w", s.indexName, err)
 		}
 		return s.validateVectorField(mappings.Properties[s.embeddingField])
@@ -283,7 +283,7 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 		for index, doc := range docs {
 			id := doc.ID
 
-			actionLine, encErr := json.Marshal(bulkAction{
+			actionLine, encErr := jsonv2.Marshal(bulkAction{
 				Index: &bulkActionTarget{ID: id},
 			})
 			if encErr != nil {
@@ -295,7 +295,7 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 				s.embeddingField: embedding.Float32Vector(vectors[index]),
 				s.metadataField:  doc.Metadata,
 			}
-			docLine, encErr := json.Marshal(docBody)
+			docLine, encErr := jsonv2.Marshal(docBody)
 			if encErr != nil {
 				return fmt.Errorf("opensearch: encode bulk doc: %w", encErr)
 			}
@@ -440,7 +440,7 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	var body bytes.Buffer
 	for _, id := range ids {
 		var actionLine []byte
-		actionLine, err = json.Marshal(bulkAction{
+		actionLine, err = jsonv2.Marshal(bulkAction{
 			Delete: &bulkActionTarget{Index: s.indexName, ID: id},
 		})
 		if err != nil {
@@ -482,40 +482,19 @@ func (s *Store) toDocument(hit opensearchapi.SearchHit) (*document.Document, err
 		return nil, fmt.Errorf("opensearch: search hit %s is missing _source", hit.ID)
 	}
 
-	var source map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(hit.Source))
-	decoder.UseNumber()
-	if err := decoder.Decode(&source); err != nil {
+	var source map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(hit.Source, &source); err != nil {
 		return nil, fmt.Errorf("opensearch: decode _source for %s: %w", hit.ID, err)
 	}
-
-	content, ok := source[s.contentField].(string)
-	if !ok || content == "" {
+	if err := jsonv2.Unmarshal(source[s.contentField], &doc.Text); err != nil || doc.Text == "" {
 		return nil, fmt.Errorf("opensearch: search hit %s is missing string field %q", hit.ID, s.contentField)
 	}
-	doc.Text = content
-
-	metadataValues, err := s.metadataValues(hit.ID, source)
-	if err != nil {
-		return nil, err
-	}
-	doc.Metadata, err = metadata.FromValues(metadataValues)
-	if err != nil {
-		return nil, fmt.Errorf("opensearch: convert metadata: %w", err)
+	if raw, present := source[s.metadataField]; present {
+		if err := jsonv2.Unmarshal(raw, &doc.Metadata); err != nil {
+			return nil, fmt.Errorf("opensearch: decode metadata field %q for %s: %w", s.metadataField, hit.ID, err)
+		}
 	}
 	return doc, nil
-}
-
-func (s *Store) metadataValues(id string, source map[string]any) (map[string]any, error) {
-	raw := source[s.metadataField]
-	if raw == nil {
-		return nil, nil
-	}
-	values, ok := raw.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("opensearch: search hit %s field %q must be an object, got %T", id, s.metadataField, raw)
-	}
-	return values, nil
 }
 
 // checkSearchCompleteness rejects a result assembled from fewer shards than the

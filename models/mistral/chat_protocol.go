@@ -5,6 +5,8 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"iter"
@@ -56,8 +58,8 @@ func (r ReasoningEffort) Validate() error {
 // have no provider-neutral Core equivalent. Store it under RequestExtensionKey.
 type ChatRequestOptions struct {
 	ReasoningEffort ReasoningEffort   `json:"reasoning_effort,omitempty"`
-	RandomSeed      *int64            `json:"random_seed,omitempty"`
-	SafePrompt      *bool             `json:"safe_prompt,omitempty"`
+	RandomSeed      *int64            `json:"random_seed,omitzero"`
+	SafePrompt      *bool             `json:"safe_prompt,omitzero"`
 	PromptCacheKey  string            `json:"prompt_cache_key,omitempty"`
 	Metadata        map[string]any    `json:"metadata,omitempty"`
 	Guardrails      []json.RawMessage `json:"guardrails,omitempty"`
@@ -68,7 +70,7 @@ func (c ChatRequestOptions) Validate() error {
 		return err
 	}
 	for index := range c.Guardrails {
-		if !json.Valid(c.Guardrails[index]) {
+		if !jsontext.Value(c.Guardrails[index]).IsValid() {
 			return fmt.Errorf("guardrails[%d] contains invalid JSON", index)
 		}
 	}
@@ -84,7 +86,7 @@ func (c *ChatRequestOptions) UnmarshalJSON(data []byte) error {
 		ToolChoice        json.RawMessage `json:"tool_choice"`
 		ParallelToolCalls json.RawMessage `json:"parallel_tool_calls"`
 	}
-	if err := json.Unmarshal(data, &reserved); err != nil {
+	if err := jsonv2.Unmarshal(data, &reserved); err != nil {
 		return fmt.Errorf("decode Mistral request options: %w", err)
 	}
 	if len(reserved.ResponseFormat) != 0 {
@@ -98,7 +100,7 @@ func (c *ChatRequestOptions) UnmarshalJSON(data []byte) error {
 	}
 	type wireOptions ChatRequestOptions
 	var decoded wireOptions
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		return fmt.Errorf("decode Mistral request options: %w", err)
 	}
 	candidate := ChatRequestOptions(decoded)
@@ -196,7 +198,7 @@ func (c *Chat) Stream(ctx context.Context, request *corechat.Request) iter.Seq2[
 				break
 			}
 			var chunk chatCompletionChunk
-			if err := json.Unmarshal(data, &chunk); err != nil {
+			if err := jsonv2.Unmarshal(data, &chunk); err != nil {
 				yield(nil, fmt.Errorf("mistral: decode chat stream chunk: %w", err))
 				return
 			}

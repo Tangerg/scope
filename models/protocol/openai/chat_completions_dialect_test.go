@@ -2,7 +2,7 @@ package openai_test
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -83,7 +83,7 @@ func testTextReasoningDialect(t *testing.T, test textReasoningDialectCase) {
 func newTextReasoningServer(t *testing.T, responseField string, requestBody any) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if err := json.NewDecoder(request.Body).Decode(requestBody); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, requestBody); err != nil {
 			t.Errorf("decode request: %v", err)
 			http.Error(writer, "invalid request", http.StatusBadRequest)
 			return
@@ -96,7 +96,7 @@ func newTextReasoningServer(t *testing.T, responseField string, requestBody any)
 				"delta": map[string]any{"role": "assistant", "content": "answer", responseField: "fresh reasoning"},
 			}},
 		}
-		payload, err := json.Marshal(response)
+		payload, err := jsonv2.Marshal(response)
 		if err != nil {
 			t.Errorf("encode response: %v", err)
 		}
@@ -137,7 +137,7 @@ func TestChatTokenLimitFieldMatchesProtocol(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			var body map[string]any
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-				if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
 					t.Errorf("decode request: %v", err)
 					http.Error(writer, "invalid request", http.StatusBadRequest)
 					return

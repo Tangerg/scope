@@ -2,7 +2,7 @@ package coordination
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"slices"
 	"testing"
@@ -127,7 +127,7 @@ func competitionCompletion(t *testing.T, state firstSuccessState, outcomes []age
 		Boundary  agent.ChildWaitBoundary `json:"boundary"`
 		Outcomes  []agent.ChildOutcome    `json:"outcomes"`
 	}{"child_wait_satisfied", spec.Key, spec.Boundary, outcomes}
-	data, err := json.Marshal(struct {
+	data, err := jsonv2.Marshal(struct {
 		ID      string       `json:"id"`
 		WaitID  agent.WaitID `json:"wait_id"`
 		Payload any          `json:"payload"`
@@ -136,7 +136,7 @@ func competitionCompletion(t *testing.T, state firstSuccessState, outcomes []age
 		t.Fatal(err)
 	}
 	var signal agent.Signal
-	if err := json.Unmarshal(data, &signal); err != nil {
+	if err := jsonv2.Unmarshal(data, &signal); err != nil {
 		t.Fatal(err)
 	}
 	return signal

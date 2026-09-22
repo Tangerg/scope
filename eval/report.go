@@ -1,7 +1,6 @@
 package eval
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"math"
@@ -97,7 +96,7 @@ func (r Report) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireReport Report
-	return json.Marshal(wireReport(r))
+	return jsonv2.Marshal(wireReport(r))
 }
 
 func (r *Report) UnmarshalJSON(data []byte) error {

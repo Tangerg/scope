@@ -2,7 +2,7 @@ package openai
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"mime"
 	"strings"
@@ -17,7 +17,7 @@ func mapToolDefinitions(definitions []corechat.ToolDefinition) ([]openaisdk.Chat
 	tools := make([]openaisdk.ChatCompletionToolUnionParam, 0, len(definitions))
 	for i := range definitions {
 		var schema map[string]any
-		if err := json.Unmarshal(definitions[i].InputSchema, &schema); err != nil {
+		if err := jsonv2.Unmarshal(definitions[i].InputSchema, &schema); err != nil {
 			return nil, fmt.Errorf("openai: tools[%d].input_schema: %w", i, err)
 		}
 		tools = append(tools, openaisdk.ChatCompletionToolUnionParam{

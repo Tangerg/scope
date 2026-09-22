@@ -2,6 +2,7 @@ package speech_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 	"time"
@@ -18,13 +19,13 @@ func TestOptionsRoundTrip(t *testing.T) {
 		Speed:        1.25,
 		Extensions:   mustExtensions(t, map[string]any{"provider/sample_rate": 24000}),
 	}
-	encoded, err := json.Marshal(options)
+	encoded, err := jsonv2.Marshal(options)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var decoded speech.Options
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.Model != options.Model || decoded.Voice != options.Voice ||
@@ -41,13 +42,13 @@ func TestRequestRoundTrip(t *testing.T) {
 	}
 	request.Options = speech.Options{Model: "tts-model", Voice: "alloy"}
 
-	encoded, err := json.Marshal(request)
+	encoded, err := jsonv2.Marshal(request)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var decoded speech.Request
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.Text != "say this" || decoded.Options.Voice != "alloy" {
@@ -69,13 +70,13 @@ func TestResponseRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	encoded, err := json.Marshal(response)
+	encoded, err := jsonv2.Marshal(response)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var decoded speech.Response
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.Output == nil || string(decoded.Output.Audio) != "audio" {
@@ -94,12 +95,12 @@ func TestOutputAndResponseMetadataRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.Marshal(output)
+	encoded, err := jsonv2.Marshal(output)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decodedOutput speech.Output
-	if err = json.Unmarshal(encoded, &decodedOutput); err != nil {
+	if err = jsonv2.Unmarshal(encoded, &decodedOutput); err != nil {
 		t.Fatal(err)
 	}
 	if string(decodedOutput.Audio) != "chunk" {
@@ -107,12 +108,12 @@ func TestOutputAndResponseMetadataRoundTrip(t *testing.T) {
 	}
 
 	responseMetadata := speech.ResponseMetadata{Model: "tts-model", CreatedAt: time.Unix(7, 0).UTC()}
-	encoded, err = json.Marshal(responseMetadata)
+	encoded, err = jsonv2.Marshal(responseMetadata)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decodedMetadata speech.ResponseMetadata
-	if err := json.Unmarshal(encoded, &decodedMetadata); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &decodedMetadata); err != nil {
 		t.Fatal(err)
 	}
 	if decodedMetadata.Model != responseMetadata.Model || decodedMetadata.CreatedAt != responseMetadata.CreatedAt {
@@ -171,7 +172,7 @@ func TestNilReceiversAreRejected(t *testing.T) {
 // must keep its previous value.
 func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 	options := speech.Options{Model: "keep"}
-	if err := json.Unmarshal([]byte(`{"model":" padded "}`), &options); !errors.Is(err, speech.ErrInvalidOptions) {
+	if err := jsonv2.Unmarshal([]byte(`{"model":" padded "}`), &options); !errors.Is(err, speech.ErrInvalidOptions) {
 		t.Fatalf("Options decode error = %v", err)
 	}
 	if options.Model != "keep" {
@@ -179,7 +180,7 @@ func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 	}
 
 	request := speech.Request{Text: "keep"}
-	if err := json.Unmarshal([]byte(`{"text":""}`), &request); !errors.Is(err, speech.ErrInvalidRequest) {
+	if err := jsonv2.Unmarshal([]byte(`{"text":""}`), &request); !errors.Is(err, speech.ErrInvalidRequest) {
 		t.Fatalf("Request decode error = %v", err)
 	}
 	if request.Text != "keep" {
@@ -187,7 +188,7 @@ func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 	}
 
 	output := speech.Output{Audio: []byte("keep")}
-	if err := json.Unmarshal([]byte(`{"audio":""}`), &output); !errors.Is(err, speech.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"audio":""}`), &output); !errors.Is(err, speech.ErrInvalidResponse) {
 		t.Fatalf("Output decode error = %v", err)
 	}
 	if string(output.Audio) != "keep" {
@@ -195,7 +196,7 @@ func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 	}
 
 	responseMetadata := speech.ResponseMetadata{Model: "keep"}
-	if err := json.Unmarshal([]byte(`{"model":" padded "}`), &responseMetadata); !errors.Is(err, speech.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"model":" padded "}`), &responseMetadata); !errors.Is(err, speech.ErrInvalidResponse) {
 		t.Fatalf("ResponseMetadata decode error = %v", err)
 	}
 	if responseMetadata.Model != "keep" {
@@ -204,7 +205,7 @@ func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 
 	kept := speech.Output{Audio: []byte("keep")}
 	response := speech.Response{Output: &kept}
-	if err := json.Unmarshal([]byte(`{"output":null}`), &response); !errors.Is(err, speech.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"output":null}`), &response); !errors.Is(err, speech.ErrInvalidResponse) {
 		t.Fatalf("Response decode error = %v", err)
 	}
 	if response.Output == nil {
@@ -227,7 +228,7 @@ func TestInvalidValuesFailToMarshal(t *testing.T) {
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, err := json.Marshal(testCase.value); !errors.Is(err, testCase.want) {
+			if _, err := jsonv2.Marshal(testCase.value); !errors.Is(err, testCase.want) {
 				t.Fatalf("Marshal error = %v, want %v", err, testCase.want)
 			}
 		})

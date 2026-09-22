@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -474,7 +474,7 @@ func (s *Store) query(ctx context.Context, body map[string]any) ([]queryHit, err
 		return nil, err
 	}
 	var parsed queryResponse
-	if err := json.Unmarshal(raw, &parsed); err != nil {
+	if err := jsonv2.Unmarshal(raw, &parsed); err != nil {
 		return nil, fmt.Errorf("decode query response: %w", err)
 	}
 	if len(parsed.Root.Errors) > 0 {
@@ -539,7 +539,7 @@ func (s *Store) sendJSON(ctx context.Context, method, path string, body any) ([]
 
 	var reqBody io.Reader
 	if body != nil {
-		buf, err := json.Marshal(body)
+		buf, err := jsonv2.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("encode request: %w", err)
 		}

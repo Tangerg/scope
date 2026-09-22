@@ -2,6 +2,7 @@ package image_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 	"time"
@@ -32,13 +33,13 @@ func TestOptionsRoundTrip(t *testing.T) {
 		OutputFormat:   "image/png",
 		Extensions:     mustExtensions(t, map[string]any{"provider/style": "vivid"}),
 	}
-	encoded, err := json.Marshal(options)
+	encoded, err := jsonv2.Marshal(options)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var decoded image.Options
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.Model != options.Model || decoded.NegativePrompt != options.NegativePrompt ||
@@ -60,12 +61,12 @@ func TestOptionsRoundTrip(t *testing.T) {
 // rather than a zero-value default: an option the caller never set must not
 // reappear as an explicit 0 on the wire.
 func TestAbsentDimensionsStayAbsent(t *testing.T) {
-	encoded, err := json.Marshal(image.Options{Model: "dall-e-3"})
+	encoded, err := jsonv2.Marshal(image.Options{Model: "dall-e-3"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var wire map[string]any
-	if err := json.Unmarshal(encoded, &wire); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &wire); err != nil {
 		t.Fatal(err)
 	}
 	for _, field := range []string{"width", "height", "seed"} {
@@ -82,13 +83,13 @@ func TestRequestRoundTrip(t *testing.T) {
 	}
 	request.Options = image.Options{Model: "dall-e-3", Width: int64Pointer(512)}
 
-	encoded, err := json.Marshal(request)
+	encoded, err := jsonv2.Marshal(request)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var decoded image.Request
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.Prompt != "a duck on a lake" || decoded.Options.Width == nil || *decoded.Options.Width != 512 {
@@ -109,13 +110,13 @@ func TestResponseRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	encoded, err := json.Marshal(response)
+	encoded, err := jsonv2.Marshal(response)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var decoded image.Response
-	if err = json.Unmarshal(encoded, &decoded); err != nil {
+	if err = jsonv2.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	first := decoded.First()
@@ -139,12 +140,12 @@ func TestOutputAndResponseMetadataRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.Marshal(output)
+	encoded, err := jsonv2.Marshal(output)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decodedOutput image.Output
-	if err = json.Unmarshal(encoded, &decodedOutput); err != nil {
+	if err = jsonv2.Unmarshal(encoded, &decodedOutput); err != nil {
 		t.Fatal(err)
 	}
 	if decodedOutput.Media == nil || decodedOutput.Media.MIME != "image/png" {
@@ -152,12 +153,12 @@ func TestOutputAndResponseMetadataRoundTrip(t *testing.T) {
 	}
 
 	responseMetadata := image.ResponseMetadata{CreatedAt: time.Unix(7, 0).UTC()}
-	encoded, err = json.Marshal(responseMetadata)
+	encoded, err = jsonv2.Marshal(responseMetadata)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decodedMetadata image.ResponseMetadata
-	if err := json.Unmarshal(encoded, &decodedMetadata); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &decodedMetadata); err != nil {
 		t.Fatal(err)
 	}
 	if decodedMetadata.CreatedAt != responseMetadata.CreatedAt {
@@ -216,7 +217,7 @@ func TestNilReceiversAreRejected(t *testing.T) {
 // must keep its previous value.
 func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 	options := image.Options{Model: "keep"}
-	if err := json.Unmarshal([]byte(`{"width":0}`), &options); !errors.Is(err, image.ErrInvalidOptions) {
+	if err := jsonv2.Unmarshal([]byte(`{"width":0}`), &options); !errors.Is(err, image.ErrInvalidOptions) {
 		t.Fatalf("Options decode error = %v", err)
 	}
 	if options.Model != "keep" || options.Width != nil {
@@ -224,7 +225,7 @@ func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 	}
 
 	request := image.Request{Prompt: "keep"}
-	if err := json.Unmarshal([]byte(`{"prompt":""}`), &request); !errors.Is(err, image.ErrInvalidRequest) {
+	if err := jsonv2.Unmarshal([]byte(`{"prompt":""}`), &request); !errors.Is(err, image.ErrInvalidRequest) {
 		t.Fatalf("Request decode error = %v", err)
 	}
 	if request.Prompt != "keep" {
@@ -232,7 +233,7 @@ func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 	}
 
 	output := image.Output{Media: imageFixture(t)}
-	if err := json.Unmarshal([]byte(`{"media":null}`), &output); !errors.Is(err, image.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"media":null}`), &output); !errors.Is(err, image.ErrInvalidResponse) {
 		t.Fatalf("Output decode error = %v", err)
 	}
 	if output.Media == nil {
@@ -240,7 +241,7 @@ func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 	}
 
 	responseMetadata := image.ResponseMetadata{CreatedAt: time.Unix(7, 0).UTC()}
-	if err := json.Unmarshal([]byte(`{"created_at":"not-a-time"}`), &responseMetadata); !errors.Is(err, image.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"created_at":"not-a-time"}`), &responseMetadata); !errors.Is(err, image.ErrInvalidResponse) {
 		t.Fatalf("ResponseMetadata decode error = %v", err)
 	}
 	if !responseMetadata.CreatedAt.Equal(time.Unix(7, 0)) {
@@ -249,7 +250,7 @@ func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 
 	kept := image.Output{Media: imageFixture(t)}
 	response := image.Response{Outputs: []*image.Output{&kept}}
-	if err := json.Unmarshal([]byte(`{"outputs":[]}`), &response); !errors.Is(err, image.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"outputs":[]}`), &response); !errors.Is(err, image.ErrInvalidResponse) {
 		t.Fatalf("Response decode error = %v", err)
 	}
 	if len(response.Outputs) != 1 {
@@ -274,7 +275,7 @@ func TestInvalidValuesFailToMarshal(t *testing.T) {
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, err := json.Marshal(testCase.value); !errors.Is(err, testCase.want) {
+			if _, err := jsonv2.Marshal(testCase.value); !errors.Is(err, testCase.want) {
 				t.Fatalf("Marshal error = %v, want %v", err, testCase.want)
 			}
 		})

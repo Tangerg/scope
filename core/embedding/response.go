@@ -1,7 +1,6 @@
 package embedding
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"math"
@@ -53,7 +52,7 @@ func (o Output) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireOutput Output
-	return json.Marshal(wireOutput(o))
+	return jsonv2.Marshal(wireOutput(o))
 }
 
 func (o *Output) UnmarshalJSON(data []byte) error {
@@ -94,7 +93,7 @@ func (u Usage) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireUsage Usage
-	return json.Marshal(wireUsage(u))
+	return jsonv2.Marshal(wireUsage(u))
 }
 
 func (u *Usage) UnmarshalJSON(data []byte) error {
@@ -122,7 +121,7 @@ type ResponseMetadata struct {
 
 	// Usage breaks down token consumption. nil means the provider did not
 	// report usage.
-	Usage *Usage `json:"usage,omitempty"`
+	Usage *Usage `json:"usage,omitzero"`
 
 	// CreatedAt is the provider-reported creation timestamp.
 	CreatedAt time.Time `json:"created_at,omitzero"`
@@ -154,7 +153,7 @@ func (r ResponseMetadata) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireResponseMetadata ResponseMetadata
-	return json.Marshal(wireResponseMetadata(r))
+	return jsonv2.Marshal(wireResponseMetadata(r))
 }
 
 func (r *ResponseMetadata) UnmarshalJSON(data []byte) error {
@@ -180,7 +179,7 @@ type Response struct {
 	// Outputs holds one entry per input text, in the same order.
 	Outputs []*Output `json:"outputs,omitzero"`
 
-	Metadata *ResponseMetadata `json:"metadata,omitempty"`
+	Metadata *ResponseMetadata `json:"metadata,omitzero"`
 }
 
 // NewResponse validates a complete provider result at the protocol boundary.
@@ -292,7 +291,7 @@ func (r Response) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireResponse Response
-	return json.Marshal(wireResponse(r))
+	return jsonv2.Marshal(wireResponse(r))
 }
 
 func (r *Response) UnmarshalJSON(data []byte) error {

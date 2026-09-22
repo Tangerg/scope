@@ -2,6 +2,7 @@ package anthropic
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"strings"
 	"testing"
 
@@ -56,7 +57,7 @@ func TestNativeClaudeMapsPortableToolChoice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.Marshal(params)
+	encoded, err := jsonv2.Marshal(params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +68,7 @@ func TestNativeClaudeMapsPortableToolChoice(t *testing.T) {
 			DisableParallelToolUse bool   `json:"disable_parallel_tool_use"`
 		} `json:"tool_choice"`
 	}
-	if err := json.Unmarshal(encoded, &body); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &body); err != nil {
 		t.Fatal(err)
 	}
 	if body.ToolChoice.Type != "tool" || body.ToolChoice.Name != "lookup" || !body.ToolChoice.DisableParallelToolUse {
@@ -85,12 +86,12 @@ func TestNativeClaudePreservesServerToolResponse(t *testing.T) {
 		},
 	}
 	mapper := newProtocolStreamState("anthropic")
-	payload, err := json.Marshal(map[string]any{"type": "message_start", "message": message})
+	payload, err := jsonv2.Marshal(map[string]any{"type": "message_start", "message": message})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var event anthropicsdk.MessageStreamEventUnion
-	if decodeErr := json.Unmarshal(payload, &event); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal(payload, &event); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
 	response, err := mapper.mapEvent(event)

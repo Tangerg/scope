@@ -1,7 +1,7 @@
 package tidb
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -319,7 +319,7 @@ func selectorJSONPath(selector filter.Selector) (string, error) {
 			if keyErr != nil {
 				return "", keyErr
 			}
-			quoted, marshalErr := json.Marshal(key)
+			quoted, marshalErr := jsonv2.Marshal(key)
 			if marshalErr != nil {
 				return "", marshalErr
 			}

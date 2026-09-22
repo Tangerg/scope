@@ -63,9 +63,9 @@ type voice struct {
 type utterance struct {
 	Text            string   `json:"text"`
 	Description     string   `json:"description,omitempty"`
-	Voice           *voice   `json:"voice,omitempty"`
-	Speed           *float64 `json:"speed,omitempty"`
-	TrailingSilence *float64 `json:"trailing_silence,omitempty"`
+	Voice           *voice   `json:"voice,omitzero"`
+	Speed           *float64 `json:"speed,omitzero"`
+	TrailingSilence *float64 `json:"trailing_silence,omitzero"`
 }
 
 // TTSRequest mirrors POST /tts. Format is "mp3" / "wav" / "pcm";
@@ -76,12 +76,12 @@ type ttsRequest struct {
 	Context               map[string]any `json:"context,omitzero"`
 	Format                map[string]any `json:"format,omitzero"`
 	IncludeTimestampTypes []string       `json:"include_timestamp_types,omitempty"`
-	NumGenerations        int            `json:"num_generations,omitempty"`
-	SplitUtterances       *bool          `json:"split_utterances,omitempty"`
-	StripHeaders          *bool          `json:"strip_headers,omitempty"`
-	Temperature           *float64       `json:"temperature,omitempty"`
+	NumGenerations        int            `json:"num_generations,omitzero"`
+	SplitUtterances       *bool          `json:"split_utterances,omitzero"`
+	StripHeaders          *bool          `json:"strip_headers,omitzero"`
+	Temperature           *float64       `json:"temperature,omitzero"`
 	Version               string         `json:"version,omitempty"`
-	InstantMode           *bool          `json:"instant_mode,omitempty"`
+	InstantMode           *bool          `json:"instant_mode,omitzero"`
 }
 
 // ttsResponse is the JSON envelope. Generations[0].Audio is the
@@ -96,7 +96,7 @@ type ttsResponse struct {
 		} `json:"encoding"`
 		Duration float64         `json:"duration"`
 		FileSize int64           `json:"file_size"`
-		Snippets json.RawMessage `json:"snippets,omitempty"`
+		Snippets json.RawMessage `json:"snippets,omitzero"`
 	} `json:"generations"`
 	RequestID string `json:"request_id"`
 }
@@ -107,16 +107,16 @@ type ttsStreamEvent struct {
 	Type            string          `json:"type"`
 	Audio           string          `json:"audio,omitempty"`
 	AudioFormat     string          `json:"audio_format,omitempty"`
-	ChunkIndex      int64           `json:"chunk_index,omitempty"`
+	ChunkIndex      int64           `json:"chunk_index,omitzero"`
 	GenerationID    string          `json:"generation_id,omitempty"`
-	IsLastChunk     bool            `json:"is_last_chunk,omitempty"`
+	IsLastChunk     bool            `json:"is_last_chunk,omitzero"`
 	RequestID       string          `json:"request_id,omitempty"`
-	Snippet         json.RawMessage `json:"snippet,omitempty"`
+	Snippet         json.RawMessage `json:"snippet,omitzero"`
 	SnippetID       string          `json:"snippet_id,omitempty"`
 	Text            string          `json:"text,omitempty"`
-	TranscribedText *string         `json:"transcribed_text,omitempty"`
-	UtteranceIndex  *int64          `json:"utterance_index,omitempty"`
-	Timestamp       json.RawMessage `json:"timestamp,omitempty"`
+	TranscribedText *string         `json:"transcribed_text,omitzero"`
+	UtteranceIndex  *int64          `json:"utterance_index,omitzero"`
+	Timestamp       json.RawMessage `json:"timestamp,omitzero"`
 }
 
 func (t *ttsStreamEvent) decodeAudio() ([]byte, error) {

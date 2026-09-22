@@ -1,7 +1,7 @@
 package openai_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"reflect"
@@ -74,7 +74,7 @@ func TestResponsesTerminalStatesMatchAcrossCallAndStream(t *testing.T) {
 					t.Fatalf("terminal identity = %q/%q at %v, usage = %+v", metadata.ID, metadata.Model, metadata.CreatedAt, metadata.Usage)
 				}
 				var wantNative any
-				if decodeErr := json.Unmarshal([]byte(body), &wantNative); decodeErr != nil {
+				if decodeErr := jsonv2.Unmarshal([]byte(body), &wantNative); decodeErr != nil {
 					t.Fatal(decodeErr)
 				}
 				native, found, decodeErr := metadata.Extra.Decode[any](openai.ResponsesResponseExtensionKey)

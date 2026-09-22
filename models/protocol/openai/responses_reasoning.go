@@ -3,7 +3,7 @@ package openai
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -15,7 +15,7 @@ const responsesReasoningFrameSize = 8
 var responsesReasoningFrameMagic = [4]byte{'O', 'A', 'R', 'I'}
 
 func encodeResponsesReasoningFrame(item responses.ResponseReasoningItemParam) ([]byte, error) {
-	raw, err := json.Marshal(item)
+	raw, err := jsonv2.Marshal(item)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +47,7 @@ func decodeResponsesReasoningFrames(signature []byte) ([]responses.ResponseReaso
 			return nil, true, fmt.Errorf("frame length %d exceeds remaining %d bytes", length, len(signature)-offset)
 		}
 		var item responses.ResponseReasoningItemParam
-		if err := json.Unmarshal(signature[offset:offset+length], &item); err != nil {
+		if err := jsonv2.Unmarshal(signature[offset:offset+length], &item); err != nil {
 			return nil, true, fmt.Errorf("decode reasoning item: %w", err)
 		}
 		if item.ID == "" {

@@ -1,7 +1,7 @@
 package clickhouse
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strconv"
@@ -314,7 +314,7 @@ func (v *visitor) appendMapAccess(key string, value any) {
 func (v *visitor) appendValuePlaceholder(value any) error {
 	switch value.(type) {
 	case string, bool:
-		encoded, err := json.Marshal(value)
+		encoded, err := jsonv2.Marshal(value)
 		if err != nil {
 			return fmt.Errorf("clickhouse: encode filter value of type %T: %w", value, err)
 		}

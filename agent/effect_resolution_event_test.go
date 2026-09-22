@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -104,12 +105,12 @@ func TestUnknownResolutionSeparatesAttemptsFromCommittedFacts(t *testing.T) {
 							continue
 						}
 						names = append(names, event.Name())
-						encoded, err := json.Marshal(event)
+						encoded, err := jsonv2.Marshal(event)
 						if err != nil {
 							t.Fatal(err)
 						}
 						var decoded Event
-						if err := json.Unmarshal(encoded, &decoded); err != nil {
+						if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
 							t.Fatal(err)
 						}
 						id, present := decoded.EffectID()

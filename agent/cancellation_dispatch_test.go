@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -200,7 +201,7 @@ func assertInterruptedSnapshotValidation(t *testing.T, snapshot ProcessSnapshot)
 			t.Fatal(err)
 		}
 		change(&wire)
-		data, err := json.Marshal(wire)
+		data, err := jsonv2.Marshal(wire)
 		if err != nil {
 			t.Fatal(err)
 		}

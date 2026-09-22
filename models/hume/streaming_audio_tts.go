@@ -2,7 +2,8 @@ package hume
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -50,10 +51,10 @@ func (s *StreamingAudioTTSModel) Stream(ctx context.Context, req *tts.Request) i
 		}
 		defer body.Close()
 
-		decoder := json.NewDecoder(body)
+		decoder := jsontext.NewDecoder(body)
 		for {
 			var event ttsStreamEvent
-			if err := decoder.Decode(&event); err != nil {
+			if err := jsonv2.UnmarshalDecode(decoder, &event); err != nil {
 				if errors.Is(err, io.EOF) {
 					return
 				}

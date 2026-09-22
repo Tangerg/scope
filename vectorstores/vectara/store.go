@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -236,7 +236,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 			Metadata   metadata.Map `json:"document_metadata"`
 		} `json:"search_results"`
 	}
-	if err := json.Unmarshal(raw, &parsed); err != nil {
+	if err := jsonv2.Unmarshal(raw, &parsed); err != nil {
 		return nil, fmt.Errorf("vectara: decode query response: %w", err)
 	}
 
@@ -324,7 +324,7 @@ func (s *Store) matchingDocumentIDs(ctx context.Context, filterFragment string) 
 				PageKey string `json:"page_key"`
 			} `json:"metadata"`
 		}
-		if err := json.Unmarshal(raw, &parsed); err != nil {
+		if err := jsonv2.Unmarshal(raw, &parsed); err != nil {
 			return nil, fmt.Errorf("vectara: decode list response: %w", err)
 		}
 		for index, doc := range parsed.Documents {
@@ -393,7 +393,7 @@ func (s *Store) sendJSON(ctx context.Context, method, path string, body any) ([]
 
 	var reqBody io.Reader
 	if body != nil {
-		buf, err := json.Marshal(body)
+		buf, err := jsonv2.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("encode request: %w", err)
 		}

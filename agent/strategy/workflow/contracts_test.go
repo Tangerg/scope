@@ -2,7 +2,7 @@ package workflow_test
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"runtime"
 	"slices"
@@ -375,7 +375,7 @@ func (p *pausingBranchDefinition) Restore(ctx context.Context, state agent.Execu
 		return nil, agent.ErrInvalidExecutionState
 	}
 	var execution pausingBranchExecution
-	if err := json.Unmarshal(state.Payload(), &execution); err != nil {
+	if err := jsonv2.Unmarshal(state.Payload(), &execution); err != nil {
 		return nil, err
 	}
 	if execution.Branch != p.branch || execution.Phase > 2 {
@@ -408,7 +408,7 @@ func (p *pausingBranchExecution) Step(_ context.Context, signals []agent.Signal)
 }
 
 func (p *pausingBranchExecution) Snapshot() (agent.ExecutionState, error) {
-	payload, err := json.Marshal(p)
+	payload, err := jsonv2.Marshal(p)
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}

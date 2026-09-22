@@ -1,7 +1,7 @@
 package elasticsearch
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 )
@@ -98,7 +98,7 @@ func TestValidateVectorField(t *testing.T) {
 			t.Parallel()
 
 			var field storedVectorField
-			if err := json.Unmarshal([]byte(test.field), &field); err != nil {
+			if err := jsonv2.Unmarshal([]byte(test.field), &field); err != nil {
 				t.Fatalf("decode field: %v", err)
 			}
 			store := &Store{

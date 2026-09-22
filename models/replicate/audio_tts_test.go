@@ -1,7 +1,7 @@
 package replicate_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -24,7 +24,7 @@ func TestAudioTTSModel_Call_Mock(t *testing.T) {
 				Version string         `json:"version"`
 				Input   map[string]any `json:"input"`
 			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			if err := jsonv2.UnmarshalRead(r.Body, &body); err != nil {
 				t.Errorf("decode request: %v", err)
 			}
 			if body.Version != replicate.ModelXTTSV2 || body.Input["text"] != "hello world" || body.Input["speaker"] != "https://example.com/reference.wav" {

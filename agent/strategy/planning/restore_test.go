@@ -208,7 +208,7 @@ func TestExecutionPreservesSignalDecodeCause(t *testing.T) {
 		t.Fatal(err)
 	}
 	var signal agent.Signal
-	if decodeErr := json.Unmarshal([]byte(`{"id":"signal:engine:sense","payload":{"unknown":true}}`), &signal); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal([]byte(`{"id":"signal:engine:sense","payload":{"unknown":true}}`), &signal); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
 	_, err = execution.Step(t.Context(), []agent.Signal{signal})
@@ -248,7 +248,7 @@ func TestRestoreKeepsSingleChildProgressWithinItsAction(t *testing.T) {
 		{"awaiting_sense", json.RawMessage(`{}`), false},
 		{"awaiting_action", json.RawMessage(`{}`), false},
 	} {
-		payload, encodeErr := json.Marshal(struct {
+		payload, encodeErr := jsonv2.Marshal(struct {
 			Phase          string          `json:"phase"`
 			Input          json.RawMessage `json:"input"`
 			WorldState     json.RawMessage `json:"world_state"`

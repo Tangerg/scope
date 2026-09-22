@@ -2,7 +2,6 @@ package agent_test
 
 import (
 	"context"
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"sync/atomic"
@@ -66,7 +65,7 @@ func (e *echoExecution) Step(ctx context.Context, signals []agent.Signal) (agent
 		if len(signals) != 0 {
 			return agent.Transition{}, agent.ErrInvalidSignal
 		}
-		payload, err := json.Marshal(echoInput{Value: e.state.Value})
+		payload, err := jsonv2.Marshal(echoInput{Value: e.state.Value})
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -96,7 +95,7 @@ func (e *echoExecution) Step(ctx context.Context, signals []agent.Signal) (agent
 }
 
 func (e *echoExecution) Snapshot() (agent.ExecutionState, error) {
-	payload, err := json.Marshal(e.state)
+	payload, err := jsonv2.Marshal(e.state)
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}

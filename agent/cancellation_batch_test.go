@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -137,8 +138,8 @@ func TestCancellationPreservesPreparedInputInAFullMailbox(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		beforeSignals, _ := json.Marshal(before.Mailbox.Signals)
-		afterSignals, _ := json.Marshal(after.Mailbox.Signals)
+		beforeSignals, _ := jsonv2.Marshal(before.Mailbox.Signals)
+		afterSignals, _ := jsonv2.Marshal(after.Mailbox.Signals)
 		if !bytes.Equal(beforeSignals, afterSignals) || before.Mailbox.SignalCursor != after.Mailbox.SignalCursor ||
 			before.usage() != after.usage() || !bytes.Equal(before.CommittedExecutionState.Payload(), after.CommittedExecutionState.Payload()) {
 			t.Errorf("cancellation changed committed input or state: before=%+v after=%+v", before, after)
@@ -192,7 +193,7 @@ func (e *effectSequenceExecution) Step(_ context.Context, signals []Signal) (Tra
 }
 
 func (e *effectSequenceExecution) Snapshot() (ExecutionState, error) {
-	payload, err := json.Marshal(e.state)
+	payload, err := jsonv2.Marshal(e.state)
 	if err != nil {
 		return ExecutionState{}, err
 	}

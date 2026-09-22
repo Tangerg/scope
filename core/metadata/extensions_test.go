@@ -1,7 +1,7 @@
 package metadata_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -33,7 +33,7 @@ func TestExtensionsOwnNamespaceAndValues(t *testing.T) {
 
 func TestExtensionsJSONRejectsInvalidKeys(t *testing.T) {
 	var extensions metadata.Extensions
-	if err := json.Unmarshal([]byte(`{"invalid":true}`), &extensions); err == nil {
+	if err := jsonv2.Unmarshal([]byte(`{"invalid":true}`), &extensions); err == nil {
 		t.Fatal("UnmarshalJSON accepted an unnamespaced key")
 	}
 	if err := (*metadata.Extensions)(nil).Set("provider/value", true); !errors.Is(err, metadata.ErrNilMap) {
@@ -42,7 +42,7 @@ func TestExtensionsJSONRejectsInvalidKeys(t *testing.T) {
 	if _, _, err := extensions.Decode[bool]("invalid"); err == nil {
 		t.Fatal("Decode accepted an unnamespaced key")
 	}
-	if err := json.Unmarshal([]byte(`{"provider/value":`), &extensions); err == nil {
+	if err := jsonv2.Unmarshal([]byte(`{"provider/value":`), &extensions); err == nil {
 		t.Fatal("UnmarshalJSON accepted invalid JSON")
 	}
 	if err := (*metadata.Extensions)(nil).UnmarshalJSON([]byte(`{}`)); !errors.Is(err, metadata.ErrNilMap) {
@@ -70,12 +70,12 @@ func TestExtensionsMergeEqualityAndJSON(t *testing.T) {
 	if first.Equal(second) || !first.Equal(first.Clone()) {
 		t.Fatal("Equal returned the wrong result")
 	}
-	encoded, err := json.Marshal(first)
+	encoded, err := jsonv2.Marshal(first)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded metadata.Extensions
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if !decoded.Equal(first) {

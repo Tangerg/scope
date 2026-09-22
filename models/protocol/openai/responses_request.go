@@ -2,6 +2,7 @@ package openai
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	openaisdk "github.com/openai/openai-go/v3"
@@ -13,12 +14,12 @@ import (
 )
 
 func projectResponsesInputTokenCount(params *responses.ResponseNewParams) (*responses.InputTokenCountParams, error) {
-	encoded, err := json.Marshal(params)
+	encoded, err := jsonv2.Marshal(params)
 	if err != nil {
 		return nil, fmt.Errorf("openai responses: encode input token count request: %w", err)
 	}
 	var projected responses.InputTokenCountParams
-	if err := json.Unmarshal(encoded, &projected); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &projected); err != nil {
 		return nil, fmt.Errorf("openai responses: project input token count request: %w", err)
 	}
 	projected.Input.OfString = params.Input.OfString
@@ -43,7 +44,7 @@ func rejectCoreOwnedResponsesExtension(extensions metadata.Extensions) error {
 	}
 	if raw, exists := fields["reasoning"]; exists {
 		var reasoningFields map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &reasoningFields); err != nil {
+		if err := jsonv2.Unmarshal(raw, &reasoningFields); err != nil {
 			return fmt.Errorf("openai responses: extension %q field %q: %w", ResponsesRequestExtensionKey, "reasoning", err)
 		}
 		if _, exists := reasoningFields["effort"]; exists {
@@ -52,7 +53,7 @@ func rejectCoreOwnedResponsesExtension(extensions metadata.Extensions) error {
 	}
 	if raw, exists := fields["text"]; exists {
 		var textFields map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &textFields); err != nil {
+		if err := jsonv2.Unmarshal(raw, &textFields); err != nil {
 			return fmt.Errorf("openai responses: extension %q field %q: %w", ResponsesRequestExtensionKey, "text", err)
 		}
 		if _, exists := textFields["format"]; exists {
@@ -95,7 +96,7 @@ func mapResponsesTools(definitions []corechat.ToolDefinition) ([]responses.ToolU
 	tools := make([]responses.ToolUnionParam, 0, len(definitions))
 	for index := range definitions {
 		var schema map[string]any
-		if err := json.Unmarshal(definitions[index].InputSchema, &schema); err != nil {
+		if err := jsonv2.Unmarshal(definitions[index].InputSchema, &schema); err != nil {
 			return nil, fmt.Errorf("openai responses: tools[%d].input_schema: %w", index, err)
 		}
 		tools = append(tools, responses.ToolUnionParam{OfFunction: &responses.FunctionToolParam{

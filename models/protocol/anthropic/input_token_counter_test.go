@@ -2,6 +2,7 @@ package anthropic_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -25,7 +26,7 @@ func TestChatCountsTheSameMultimodalMessageInput(t *testing.T) {
 		if !strings.HasSuffix(request.URL.Path, "/messages/count_tokens") {
 			t.Errorf("path = %q, want /messages/count_tokens", request.URL.Path)
 		}
-		if err := json.NewDecoder(request.Body).Decode(&captured); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, &captured); err != nil {
 			t.Errorf("decode count request: %v", err)
 			http.Error(writer, "invalid request", http.StatusBadRequest)
 			return

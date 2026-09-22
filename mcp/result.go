@@ -1,7 +1,7 @@
 package mcp
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
@@ -53,7 +53,7 @@ func (r remoteResult) content() (chat.ToolOutput, error) {
 		}
 	}
 	if r.value.StructuredContent != nil {
-		encoded, err := json.Marshal(r.value.StructuredContent)
+		encoded, err := jsonv2.Marshal(r.value.StructuredContent)
 		if err != nil {
 			return chat.ToolOutput{}, fmt.Errorf("mcp: encode structured tool content: %w", err)
 		}
@@ -91,7 +91,7 @@ func mapRemoteContent(content sdkmcp.Content) (chat.ToolContent, bool, error) {
 			return part, include, err
 		}
 	}
-	encoded, err := json.Marshal(content)
+	encoded, err := jsonv2.Marshal(content)
 	if err != nil {
 		return chat.ToolContent{}, false, fmt.Errorf("encode unsupported content %T: %w", content, err)
 	}

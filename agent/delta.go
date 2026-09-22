@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"time"
@@ -99,7 +100,7 @@ func (d Delta) MarshalJSON() ([]byte, error) {
 	if !d.Valid() {
 		return nil, ErrInvalidDelta
 	}
-	return json.Marshal(deltaWire{
+	return jsonv2.Marshal(deltaWire{
 		ProcessID:      d.processID,
 		EffectID:       d.effectID,
 		AttemptID:      d.attemptID,
@@ -133,7 +134,7 @@ type deltaWire struct {
 	AttemptID      EffectAttemptID    `json:"attempt_id"`
 	ProcessID      ProcessID          `json:"process_id"`
 	EffectID       EffectID           `json:"effect_id"`
-	IncarnationID  *TreeIncarnationID `json:"tree_incarnation_id,omitempty"`
+	IncarnationID  *TreeIncarnationID `json:"tree_incarnation_id,omitzero"`
 	EffectSequence uint64             `json:"effect_sequence"`
 	EmittedAt      time.Time          `json:"emitted_at"`
 	Payload        json.RawMessage    `json:"payload"`

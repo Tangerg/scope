@@ -2,7 +2,7 @@ package opensearch
 
 import (
 	"bytes"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"io"
 
@@ -121,8 +121,8 @@ type objectFieldMapping struct {
 }
 
 type bulkAction struct {
-	Index  *bulkActionTarget `json:"index,omitempty"`
-	Delete *bulkActionTarget `json:"delete,omitempty"`
+	Index  *bulkActionTarget `json:"index,omitzero"`
+	Delete *bulkActionTarget `json:"delete,omitzero"`
 }
 
 type bulkActionTarget struct {
@@ -141,7 +141,7 @@ type queryClause struct {
 type nearestNeighbor struct {
 	Vector []float32    `json:"vector"`
 	K      int          `json:"k"`
-	Filter *queryClause `json:"filter,omitempty"`
+	Filter *queryClause `json:"filter,omitzero"`
 }
 
 type nearestNeighborQuery struct {
@@ -185,7 +185,7 @@ func (b bulkOutcome) err() error {
 }
 
 func encodeJSONRequest(value any) (io.Reader, error) {
-	buf, err := json.Marshal(value)
+	buf, err := jsonv2.Marshal(value)
 	if err != nil {
 		return nil, fmt.Errorf("opensearch: encode request: %w", err)
 	}

@@ -2,7 +2,7 @@ package inmemory_test
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -128,12 +128,12 @@ func TestSearchRequestJSONPreservesMetadataFiltering(t *testing.T) {
 	request := &vectorstore.SearchRequest{
 		Query: "shared text", Options: vectorstore.SearchOptions{Filter: filter.EQ("tenant", "alpha")},
 	}
-	data, err := json.Marshal(request)
+	data, err := jsonv2.Marshal(request)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var restored vectorstore.SearchRequest
-	if decodeErr := json.Unmarshal(data, &restored); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal(data, &restored); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
 	response, err := store.Search(t.Context(), &restored)

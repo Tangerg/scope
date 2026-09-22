@@ -2,7 +2,7 @@ package tool_test
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"strings"
 	"testing"
@@ -39,7 +39,7 @@ func TestRetrievalToolExposesStrictSchemaAndCandidates(t *testing.T) {
 		t.Fatal(err)
 	}
 	var output ragtool.RetrievalOutput
-	if err := json.Unmarshal(raw.Details, &output); err != nil {
+	if err := jsonv2.Unmarshal(raw.Details, &output); err != nil {
 		t.Fatal(err)
 	}
 	if err := output.Candidates.Validate(); err != nil {

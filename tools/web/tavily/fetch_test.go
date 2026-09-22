@@ -1,7 +1,7 @@
 package tavily
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -26,7 +26,7 @@ func TestFetch(t *testing.T) {
 			Depth  string   `json:"extract_depth"`
 			Format string   `json:"format"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := jsonv2.UnmarshalRead(r.Body, &body); err != nil {
 			t.Errorf("decode body: %v", err)
 			return
 		}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -220,7 +221,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	root := runtime.processes[runtime.rootID]
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{})
-	state := controlValue(NewExecutionState("engine.effect", controlValue(json.Marshal(engineTestState{Phase: "ready", Value: strings.Repeat("x", 44<<14)}))))
+	state := controlValue(NewExecutionState("engine.effect", controlValue(jsonv2.Marshal(engineTestState{Phase: "ready", Value: strings.Repeat("x", 44<<14)}))))
 	execution := controlValue(definition.Restore(t.Context(), state))
 	limits := TreeLimits{MaxSnapshotBytes: NewQuota(512 << 14), MaxDepth: 1, MaxChildren: NewQuota(5), MaxActiveChildren: 5, MaxTreeProcesses: NewQuota(6)}
 	for _, process := range runtime.processes {

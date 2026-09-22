@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -201,7 +202,7 @@ func (t Transition) MarshalJSON() ([]byte, error) {
 	case TransitionKindFail:
 		wire.Failure = &t.failure
 	}
-	return json.Marshal(wire)
+	return jsonv2.Marshal(wire)
 }
 
 func (t *Transition) UnmarshalJSON(data []byte) error {
@@ -250,8 +251,8 @@ type transitionWire struct {
 	Kind            TransitionKind  `json:"kind"`
 	ConsumedSignals uint32          `json:"consumed_signals"`
 	Effects         []Effect        `json:"effects,omitempty"`
-	WaitID          *WaitID         `json:"wait_id,omitempty"`
+	WaitID          *WaitID         `json:"wait_id,omitzero"`
 	Reason          string          `json:"reason,omitempty"`
-	Output          json.RawMessage `json:"output,omitempty"`
-	Failure         *Failure        `json:"failure,omitempty"`
+	Output          json.RawMessage `json:"output,omitzero"`
+	Failure         *Failure        `json:"failure,omitzero"`
 }

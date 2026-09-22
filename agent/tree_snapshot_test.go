@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"maps"
 	"slices"
@@ -34,7 +35,7 @@ func TestCaptureTreeRejectsAlreadyCanceledContext(t *testing.T) {
 func TestParseTreeSnapshotRejectsInvalidWire(t *testing.T) {
 	tree := completedTreeSnapshot(t)
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(tree.JSON(), &fields); err != nil {
+	if err := jsonv2.Unmarshal(tree.JSON(), &fields); err != nil {
 		t.Fatal(err)
 	}
 	tests := []struct {
@@ -60,7 +61,7 @@ func TestParseTreeSnapshotRejectsInvalidWire(t *testing.T) {
 			data := test.malformed
 			if data == nil {
 				var err error
-				data, err = json.Marshal(candidate)
+				data, err = jsonv2.Marshal(candidate)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -82,7 +83,7 @@ func TestTreeSnapshotDigestIsCanonicalAndStable(t *testing.T) {
 		t.Fatalf("digest changed across canonical round trip: %s != %s", tree.Digest(), parsed.Digest())
 	}
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(tree.JSON(), &fields); err != nil {
+	if err := jsonv2.Unmarshal(tree.JSON(), &fields); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := slices.Sorted(maps.Keys(fields)), []string{"incarnation_id", "process_snapshots", "root_id"}; !slices.Equal(got, want) {
@@ -132,7 +133,7 @@ func FuzzTreeSnapshotJSONRoundTrip(f *testing.F) {
 		if err != nil {
 			return
 		}
-		encoded, err := json.Marshal(parsed)
+		encoded, err := jsonv2.Marshal(parsed)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -198,7 +199,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 		if retainedErr != nil {
 			t.Fatal(retainedErr)
 		}
-		encoded, encodeErr := json.Marshal(retained)
+		encoded, encodeErr := jsonv2.Marshal(retained)
 		if encodeErr != nil || !bytes.Equal(encoded, tree.JSON()) {
 			t.Fatalf("wire mutation changed retained child wait membership: %v", encodeErr)
 		}
@@ -210,7 +211,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 				t.Fatal(decodeErr)
 			}
 			candidate.ChildWaits[0].Spec.Boundary = boundary
-			encoded, encodeErr := json.Marshal(candidate)
+			encoded, encodeErr := jsonv2.Marshal(candidate)
 			if encodeErr != nil {
 				t.Fatal(encodeErr)
 			}
@@ -252,7 +253,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 			candidate.ProcessSnapshots[index] = changed
 			break
 		}
-		encoded, encodeErr := json.Marshal(candidate)
+		encoded, encodeErr := jsonv2.Marshal(candidate)
 		if encodeErr != nil {
 			t.Fatal(encodeErr)
 		}
@@ -684,7 +685,7 @@ func TestTreeSnapshotReportsFirstRelationErrorInCanonicalOrder(t *testing.T) {
 		{[]ProcessSnapshot{tree.ProcessSnapshots()[0], foreignSnapshot, orphanSnapshot}, "Process belongs to another tree contract"},
 		{[]ProcessSnapshot{tree.ProcessSnapshots()[0], orphanSnapshot, foreignSnapshot}, "Process belongs to another tree contract"},
 	} {
-		data, err := json.Marshal(treeSnapshotWire{IncarnationID: newTreeIncarnationID(), RootID: tree.RootID(), ProcessSnapshots: test.snapshots})
+		data, err := jsonv2.Marshal(treeSnapshotWire{IncarnationID: newTreeIncarnationID(), RootID: tree.RootID(), ProcessSnapshots: test.snapshots})
 		if err != nil {
 			t.Fatal(err)
 		}

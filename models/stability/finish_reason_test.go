@@ -2,7 +2,7 @@ package stability
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"strings"
 	"testing"
 )
@@ -32,7 +32,7 @@ func TestBuildResponseRejectsFilteredGeneration(t *testing.T) {
 		},
 	} {
 		t.Run(sample.name, func(t *testing.T) {
-			body, err := json.Marshal(jsonResponse{
+			body, err := jsonv2.Marshal(jsonResponse{
 				Image:        base64.StdEncoding.EncodeToString([]byte("png-bytes")),
 				FinishReason: sample.reason,
 				Seed:         7,

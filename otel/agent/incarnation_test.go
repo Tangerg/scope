@@ -3,6 +3,7 @@ package agent_test
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 	"testing/synctest"
@@ -50,24 +51,24 @@ func TestObserverSeparatesRepeatedStepSequencesAcrossIncarnations(t *testing.T) 
 
 func eventWithIncarnation(t *testing.T, event agent.Event, incarnation string) agent.Event {
 	t.Helper()
-	data, err := json.Marshal(event)
+	data, err := jsonv2.Marshal(event)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var wire map[string]json.RawMessage
-	if decodeErr := json.Unmarshal(data, &wire); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal(data, &wire); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
-	wire["tree_incarnation_id"], err = json.Marshal(incarnation)
+	wire["tree_incarnation_id"], err = jsonv2.Marshal(incarnation)
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err = json.Marshal(wire)
+	data, err = jsonv2.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var copy agent.Event
-	if decodeErr := json.Unmarshal(data, &copy); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal(data, &copy); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
 	return copy
@@ -200,23 +201,23 @@ func TestActivationMetricUsesMonotonicObservationInterval(t *testing.T) {
 				finished = event
 			}
 		}
-		data, marshalErr := json.Marshal(finished)
+		data, marshalErr := jsonv2.Marshal(finished)
 		if marshalErr != nil {
 			t.Fatal(marshalErr)
 		}
 		var wire map[string]json.RawMessage
-		if decodeErr := json.Unmarshal(data, &wire); decodeErr != nil {
+		if decodeErr := jsonv2.Unmarshal(data, &wire); decodeErr != nil {
 			t.Fatal(decodeErr)
 		}
-		wire["occurred_at"], marshalErr = json.Marshal(started.OccurredAt().Add(-time.Hour))
+		wire["occurred_at"], marshalErr = jsonv2.Marshal(started.OccurredAt().Add(-time.Hour))
 		if marshalErr != nil {
 			t.Fatal(marshalErr)
 		}
-		data, marshalErr = json.Marshal(wire)
+		data, marshalErr = jsonv2.Marshal(wire)
 		if marshalErr != nil {
 			t.Fatal(marshalErr)
 		}
-		if decodeErr := json.Unmarshal(data, &finished); decodeErr != nil {
+		if decodeErr := jsonv2.Unmarshal(data, &finished); decodeErr != nil {
 			t.Fatal(decodeErr)
 		}
 		harness.observer.OnEvent(t.Context(), started)

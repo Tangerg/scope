@@ -2,7 +2,7 @@ package coordination
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"testing"
 
@@ -47,7 +47,7 @@ func competitionOutcomes(t testing.TB, count int) ([]agent.ChildStartResult, []a
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref, err := json.Marshal(deployment.DeploymentRef())
+	ref, err := jsonv2.Marshal(deployment.DeploymentRef())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,11 +57,11 @@ func competitionOutcomes(t testing.TB, count int) ([]agent.ChildStartResult, []a
 		key := fmt.Sprintf("candidate_%04d", index)
 		id := fmt.Sprintf("child_%04d", index)
 		start := fmt.Sprintf(`{"operation":"start_child","key":%q,"deployment_ref":%s,"process_id":%q}`, key, ref, id)
-		if err := json.Unmarshal([]byte(start), &starts[index]); err != nil {
+		if err := jsonv2.Unmarshal([]byte(start), &starts[index]); err != nil {
 			t.Fatal(err)
 		}
 		outcome := fmt.Sprintf(`{"boundary":"terminal_result","key":%q,"result":{"process_id":%q,"started_at":"2026-01-01T00:00:00Z","finished_at":"2026-01-01T00:00:01Z","output":7,"termination":{"status":"completed","cause":"completion"},"usage":{}}}`, key, id)
-		if err := json.Unmarshal([]byte(outcome), &outcomes[index]); err != nil {
+		if err := jsonv2.Unmarshal([]byte(outcome), &outcomes[index]); err != nil {
 			t.Fatal(err)
 		}
 	}

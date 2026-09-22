@@ -2,7 +2,6 @@ package vectorstore
 
 import (
 	"context"
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -79,7 +78,7 @@ func (i IndexRequest) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireIndexRequest IndexRequest
-	return json.Marshal(wireIndexRequest(i))
+	return jsonv2.Marshal(wireIndexRequest(i))
 }
 
 func (i *IndexRequest) UnmarshalJSON(data []byte) error {

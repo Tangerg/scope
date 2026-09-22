@@ -18,9 +18,9 @@ type Request struct {
 
 	Date string `json:"date,omitempty" jsonschema:"pattern=^\\d{4}-\\d{2}-\\d{2}$" jsonschema_description:"Forecast date in YYYY-MM-DD format. Omit to use the current UTC date."`
 
-	IncludeHourly bool `json:"include_hourly,omitempty" jsonschema_description:"Include a 24-hour forecast. Defaults to false."`
+	IncludeHourly bool `json:"include_hourly,omitzero" jsonschema_description:"Include a 24-hour forecast. Defaults to false."`
 
-	IncludeAirQuality bool `json:"include_air_quality,omitempty" jsonschema_description:"Include AQI and pollutant concentrations. Defaults to false."`
+	IncludeAirQuality bool `json:"include_air_quality,omitzero" jsonschema_description:"Include AQI and pollutant concentrations. Defaults to false."`
 }
 
 // Response is the synthesized weather report.
@@ -37,8 +37,8 @@ type Response struct {
 	CloudCover     int              `json:"cloud_cover"` // 0-100
 	DewPoint       int              `json:"dew_point"`
 	Wind           Wind             `json:"wind"`
-	Precipitation  *Precipitation   `json:"precipitation,omitempty"`
-	AirQuality     *AirQuality      `json:"air_quality,omitempty"`
+	Precipitation  *Precipitation   `json:"precipitation,omitzero"`
+	AirQuality     *AirQuality      `json:"air_quality,omitzero"`
 	UVIndex        UVIndex          `json:"uv_index"`
 	Astronomy      Astronomy        `json:"astronomy"`
 	HourlyForecast []HourlyForecast `json:"hourly_forecast,omitempty"`

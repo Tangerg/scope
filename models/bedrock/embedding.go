@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -40,7 +42,7 @@ type EmbeddingRequestOptions struct {
 	// Truncate controls Cohere's over-length behavior.
 	Truncate string `json:"truncate,omitempty"`
 	// Normalize controls Amazon Titan Text Embeddings V2 output normalization.
-	Normalize *bool `json:"normalize,omitempty"`
+	Normalize *bool `json:"normalize,omitzero"`
 }
 
 // EmbeddingModelConfig binds provider access and defaults shared by every embedding call.
@@ -208,8 +210,8 @@ type embeddingBatch struct {
 
 type titanEmbeddingRequest struct {
 	InputText  string `json:"inputText"`
-	Dimensions *int64 `json:"dimensions,omitempty"`
-	Normalize  *bool  `json:"normalize,omitempty"`
+	Dimensions *int64 `json:"dimensions,omitzero"`
+	Normalize  *bool  `json:"normalize,omitzero"`
 }
 
 type titanEmbeddingResponse struct {
@@ -262,7 +264,7 @@ func (e *EmbeddingModel) embedTitan(
 			request.Dimensions = dimensions
 			request.Normalize = native.Normalize
 		}
-		body, err := json.Marshal(request)
+		body, err := jsonv2.Marshal(request)
 		if err != nil {
 			return nil, fmt.Errorf("bedrock: encode Titan embedding request %d: %w", index, err)
 		}
@@ -271,7 +273,7 @@ func (e *EmbeddingModel) embedTitan(
 			return nil, fmt.Errorf("bedrock: invoke Titan embedding request %d: %w", index, err)
 		}
 		var response titanEmbeddingResponse
-		if err := json.Unmarshal(responseBody, &response); err != nil {
+		if err := jsonv2.Unmarshal(responseBody, &response); err != nil {
 			return nil, fmt.Errorf("bedrock: decode Titan embedding response %d: %w", index, err)
 		}
 		if len(response.Embedding) == 0 {
@@ -291,7 +293,7 @@ type cohereEmbeddingRequest struct {
 	Texts           []string `json:"texts"`
 	InputType       string   `json:"input_type"`
 	Truncate        string   `json:"truncate,omitempty"`
-	OutputDimension *int64   `json:"output_dimension,omitempty"`
+	OutputDimension *int64   `json:"output_dimension,omitzero"`
 }
 
 type cohereEmbeddingResponse struct {
@@ -342,7 +344,7 @@ func (e *EmbeddingModel) embedCohere(
 	if family == embeddingFamilyCohereV4 {
 		request.OutputDimension = dimensions
 	}
-	body, err := json.Marshal(request)
+	body, err := jsonv2.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("bedrock: encode Cohere embedding request: %w", err)
 	}
@@ -352,7 +354,7 @@ func (e *EmbeddingModel) embedCohere(
 	}
 
 	var response cohereEmbeddingResponse
-	if unmarshalErr := json.Unmarshal(responseBody, &response); unmarshalErr != nil {
+	if unmarshalErr := jsonv2.Unmarshal(responseBody, &response); unmarshalErr != nil {
 		return nil, fmt.Errorf("bedrock: decode Cohere embedding response: %w", unmarshalErr)
 	}
 	vectors, err := decodeCohereFloatEmbeddings(response.Embeddings)
@@ -394,7 +396,7 @@ func decodeCohereFloatEmbeddings(raw json.RawMessage) ([][]float64, error) {
 		return nil, errors.New("bedrock: Cohere embedding response has no embeddings")
 	}
 	var vectors [][]float64
-	if err := json.Unmarshal(raw, &vectors); err == nil {
+	if err := jsonv2.Unmarshal(raw, &vectors); err == nil {
 		if len(vectors) == 0 {
 			return nil, errors.New("bedrock: Cohere embedding response has no float embeddings")
 		}
@@ -403,7 +405,7 @@ func decodeCohereFloatEmbeddings(raw json.RawMessage) ([][]float64, error) {
 	var byType struct {
 		Float [][]float64 `json:"float"`
 	}
-	if err := json.Unmarshal(raw, &byType); err != nil {
+	if err := jsonv2.Unmarshal(raw, &byType); err != nil {
 		return nil, fmt.Errorf("bedrock: decode Cohere float embeddings: %w", err)
 	}
 	if len(byType.Float) == 0 {
@@ -425,7 +427,7 @@ func (e *EmbeddingModel) invokeEmbedding(ctx context.Context, modelID string, bo
 	if len(output.Body) == 0 {
 		return nil, errors.New("bedrock: InvokeModel returned an empty response body")
 	}
-	if !json.Valid(output.Body) {
+	if !jsontext.Value(output.Body).IsValid() {
 		return nil, errors.New("bedrock: InvokeModel returned invalid JSON")
 	}
 	return output.Body, nil

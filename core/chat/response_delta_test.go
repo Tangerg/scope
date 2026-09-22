@@ -1,7 +1,7 @@
 package chat_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"reflect"
 	"testing"
@@ -34,12 +34,12 @@ func TestResponseDeltaJSONRoundTrip(t *testing.T) {
 		FinishReason: chat.FinishReasonRefusal,
 		Metadata:     &chat.ResponseMetadata{ID: "response-1", Model: "model"},
 	}
-	encoded, err := json.Marshal(delta)
+	encoded, err := jsonv2.Marshal(delta)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded chat.ResponseDelta
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(decoded, delta) {
@@ -97,7 +97,7 @@ func TestResponseDeltaTextProjectsOnlyVisibleText(t *testing.T) {
 
 func TestResponseDeltaUnmarshalIsAtomic(t *testing.T) {
 	delta := chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewTextDelta("keep")}}
-	if err := json.Unmarshal([]byte(`{"parts":[{"kind":"future","text":"replace"}]}`), &delta); !errors.Is(err, chat.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"parts":[{"kind":"future","text":"replace"}]}`), &delta); !errors.Is(err, chat.ErrInvalidResponse) {
 		t.Fatalf("Unmarshal error = %v", err)
 	}
 	if delta.Parts[0].Text != "keep" {

@@ -9,7 +9,7 @@ import (
 var _ web.Fetcher = (*Client)(nil)
 
 type fetchTextOptions struct {
-	IncludeHTMLTags bool `json:"includeHtmlTags,omitempty"`
+	IncludeHTMLTags bool `json:"includeHtmlTags,omitzero"`
 }
 
 type fetchRequest struct {
@@ -28,7 +28,7 @@ func (f *fetchRequest) validate() error {
 }
 
 type fetchResult struct {
-	Text *string `json:"text,omitempty"`
+	Text *string `json:"text,omitzero"`
 }
 
 type fetchResponse struct {

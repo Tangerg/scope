@@ -3,6 +3,7 @@ package protocol
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -50,13 +51,13 @@ type ImageGenerationOptions struct {
 	ImageSize             string                    `json:"image_size,omitempty"`
 	Delivery              string                    `json:"delivery,omitempty"`
 	PreviousInteractionID string                    `json:"previous_interaction_id,omitempty"`
-	Store                 *bool                     `json:"store,omitempty"`
+	Store                 *bool                     `json:"store,omitzero"`
 	ThinkingLevel         string                    `json:"thinking_level,omitempty"`
 	ThinkingSummaries     string                    `json:"thinking_summaries,omitempty"`
 	ServiceTier           string                    `json:"service_tier,omitempty"`
 	Labels                map[string]string         `json:"labels,omitempty"`
 	InputImages           []*media.Media            `json:"input_images,omitempty"`
-	GoogleSearch          *ImageGoogleSearchOptions `json:"google_search,omitempty"`
+	GoogleSearch          *ImageGoogleSearchOptions `json:"google_search,omitzero"`
 	SafetySettings        []ImageSafetySetting      `json:"safety_settings,omitempty"`
 }
 
@@ -173,8 +174,8 @@ type imageInteractionRequest struct {
 	Input                 any                               `json:"input"`
 	Tools                 []imageInteractionTool            `json:"tools,omitempty"`
 	ResponseFormat        imageInteractionResponseFormat    `json:"response_format"`
-	Store                 *bool                             `json:"store,omitempty"`
-	GenerationConfig      *imageInteractionGenerationConfig `json:"generation_config,omitempty"`
+	Store                 *bool                             `json:"store,omitzero"`
+	GenerationConfig      *imageInteractionGenerationConfig `json:"generation_config,omitzero"`
 	PreviousInteractionID string                            `json:"previous_interaction_id,omitempty"`
 	Labels                map[string]string                 `json:"labels,omitempty"`
 	SafetySettings        []ImageSafetySetting              `json:"safety_settings,omitempty"`
@@ -203,7 +204,7 @@ type imageInteractionResponseFormat struct {
 }
 
 type imageInteractionGenerationConfig struct {
-	Seed              *int32 `json:"seed,omitempty"`
+	Seed              *int32 `json:"seed,omitzero"`
 	ThinkingLevel     string `json:"thinking_level,omitempty"`
 	ThinkingSummaries string `json:"thinking_summaries,omitempty"`
 }
@@ -359,7 +360,7 @@ type imageInteractionResponse struct {
 type imageInteractionStep struct {
 	Type    string                     `json:"type"`
 	Content []json.RawMessage          `json:"content"`
-	Error   *imageInteractionStepError `json:"error,omitempty"`
+	Error   *imageInteractionStepError `json:"error,omitzero"`
 }
 
 type imageInteractionStepError struct {
@@ -399,7 +400,7 @@ func (i *ImageModel) buildResponse(apiResp *imageInteractionResponse) (*image.Re
 	var outputs []*image.Output
 	for stepIndex, rawStep := range apiResp.Steps {
 		var step imageInteractionStep
-		if err := json.Unmarshal(rawStep, &step); err != nil {
+		if err := jsonv2.Unmarshal(rawStep, &step); err != nil {
 			return nil, fmt.Errorf("google: image: decode steps[%d]: %w", stepIndex, err)
 		}
 		if step.Error != nil {
@@ -410,7 +411,7 @@ func (i *ImageModel) buildResponse(apiResp *imageInteractionResponse) (*image.Re
 		}
 		for contentIndex, rawContent := range step.Content {
 			var interactionOutput imageInteractionOutput
-			if err := json.Unmarshal(rawContent, &interactionOutput); err != nil {
+			if err := jsonv2.Unmarshal(rawContent, &interactionOutput); err != nil {
 				return nil, fmt.Errorf("google: image: decode steps[%d].content[%d]: %w", stepIndex, contentIndex, err)
 			}
 			if interactionOutput.Type != imageInteractionType {

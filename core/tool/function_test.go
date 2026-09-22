@@ -3,6 +3,7 @@ package tool_test
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"runtime"
 	"strings"
@@ -138,7 +139,7 @@ func TestFuncDecodesStrictObjectArguments(t *testing.T) {
 func TestFuncValidatesArgumentsAgainstDerivedSchema(t *testing.T) {
 	type constrainedInput struct {
 		Query string `json:"query" jsonschema:"minLength=2,maxLength=5,pattern=^[a-z]+$"`
-		Limit int    `json:"limit,omitempty" jsonschema:"minimum=1,maximum=3"`
+		Limit int    `json:"limit,omitzero" jsonschema:"minimum=1,maximum=3"`
 	}
 	function, err := tool.NewFunc(tool.FuncConfig{Name: "constrained"},
 		func(_ context.Context, input constrainedInput) (string, error) { return input.Query, nil },
@@ -265,7 +266,7 @@ func (e *evenInput) UnmarshalJSON(raw []byte) error {
 	var wire struct {
 		N int `json:"n"`
 	}
-	if err := json.Unmarshal(raw, &wire); err != nil {
+	if err := jsonv2.Unmarshal(raw, &wire); err != nil {
 		return err
 	}
 	if wire.N%2 != 0 {
@@ -322,12 +323,12 @@ func TestContractDoesNotRetainFunctionExecutionResources(t *testing.T) {
 
 func TestFuncAdmissionCoversDecoderRepresentationRules(t *testing.T) {
 	type input struct {
-		Signed       int8    `json:"signed,omitempty"`
-		Unsigned     uint64  `json:"unsigned,omitempty"`
-		Float        float32 `json:"float,omitempty"`
+		Signed       int8    `json:"signed,omitzero"`
+		Unsigned     uint64  `json:"unsigned,omitzero"`
+		Float        float32 `json:"float,omitzero"`
 		Bytes        []byte  `json:"bytes,omitempty"`
-		StringNumber int     `json:"string_number,omitempty,string"`
-		Value        any     `json:"value,omitempty"`
+		StringNumber int     `json:"string_number,omitzero,string"`
+		Value        any     `json:"value,omitzero"`
 	}
 	function, err := tool.NewFunc(tool.FuncConfig{Name: "representable"}, func(context.Context, input) (string, error) { return "accepted", nil })
 	if err != nil {

@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -91,7 +92,7 @@ func (s Settlement) MarshalJSON() ([]byte, error) {
 	if !s.Valid() {
 		return nil, ErrInvalidSettlement
 	}
-	return json.Marshal(settlementWire{EffectID: s.effectID, Status: s.status, Payload: s.payload})
+	return jsonv2.Marshal(settlementWire{EffectID: s.effectID, Status: s.status, Payload: s.payload})
 }
 
 func (s *Settlement) UnmarshalJSON(data []byte) error {

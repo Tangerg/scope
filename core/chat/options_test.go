@@ -2,6 +2,7 @@ package chat_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"math"
 	"reflect"
@@ -30,7 +31,7 @@ func TestOptionsZeroValueIsValid(t *testing.T) {
 	if err := options.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	encoded, err := json.Marshal(options)
+	encoded, err := jsonv2.Marshal(options)
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
@@ -55,12 +56,12 @@ func TestOptionsValidateBoundaries(t *testing.T) {
 		t.Fatalf("Validate: %v", err)
 	}
 
-	encoded, err := json.Marshal(options)
+	encoded, err := jsonv2.Marshal(options)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got chat.Options
-	if err := json.Unmarshal(encoded, &got); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &got); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(got, options) {
@@ -221,7 +222,7 @@ func TestOptionsValidateRejectsInvalidOverrides(t *testing.T) {
 			if err := tt.options.Validate(); !errors.Is(err, chat.ErrInvalidOptions) {
 				t.Fatalf("Validate error = %v, want ErrInvalidOptions", err)
 			}
-			if _, err := json.Marshal(tt.options); !errors.Is(err, chat.ErrInvalidOptions) {
+			if _, err := jsonv2.Marshal(tt.options); !errors.Is(err, chat.ErrInvalidOptions) {
 				t.Fatalf("Marshal error = %v, want ErrInvalidOptions", err)
 			}
 		})
@@ -230,7 +231,7 @@ func TestOptionsValidateRejectsInvalidOverrides(t *testing.T) {
 
 func TestOptionsUnmarshalIsAtomic(t *testing.T) {
 	got := chat.Options{Model: "keep"}
-	if err := json.Unmarshal([]byte(`{"temperature":3}`), &got); !errors.Is(err, chat.ErrInvalidOptions) {
+	if err := jsonv2.Unmarshal([]byte(`{"temperature":3}`), &got); !errors.Is(err, chat.ErrInvalidOptions) {
 		t.Fatalf("Unmarshal error = %v, want ErrInvalidOptions", err)
 	}
 	if got.Model != "keep" {

@@ -21,7 +21,7 @@ func (o operation) valid() bool { return o == operationSense || o == operationAc
 type effectEnvelope struct {
 	Operation operation     `json:"operation"`
 	Input     agent.Payload `json:"input"`
-	Action    *actionCall   `json:"action,omitempty"`
+	Action    *actionCall   `json:"action,omitzero"`
 }
 
 type actionCall struct {
@@ -33,12 +33,12 @@ type actionCall struct {
 type signalEnvelope struct {
 	HostError string            `json:"host_error,omitempty"`
 	Operation operation         `json:"operation,omitempty"`
-	Sensing   *senseResult      `json:"sensing,omitempty"`
-	Action    *actionResultWire `json:"action,omitempty"`
+	Sensing   *senseResult      `json:"sensing,omitzero"`
+	Action    *actionResultWire `json:"action,omitzero"`
 }
 
 type senseResult struct {
-	WorldState *WorldState `json:"world_state,omitempty"`
+	WorldState *WorldState `json:"world_state,omitzero"`
 	Error      string      `json:"error,omitempty"`
 }
 

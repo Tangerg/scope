@@ -2,6 +2,7 @@ package chat_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"reflect"
 	"testing"
@@ -104,12 +105,12 @@ func TestResultHelpersAndJSON(t *testing.T) {
 	if err := output.Metadata.Extra.Set("openai/logprobs", []float64{-0.1}); err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.Marshal(output)
+	encoded, err := jsonv2.Marshal(output)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got chat.Output
-	if err := json.Unmarshal(encoded, &got); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &got); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(got, *output) {
@@ -138,7 +139,7 @@ func TestNewOutputEstablishesCompleteOutput(t *testing.T) {
 
 func TestResultUnmarshalIsAtomic(t *testing.T) {
 	output := assistantResult("keep")
-	if err := json.Unmarshal([]byte(`{"finish_reason":"future"}`), output); !errors.Is(err, chat.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"finish_reason":"future"}`), output); !errors.Is(err, chat.ErrInvalidResponse) {
 		t.Fatalf("Unmarshal error = %v", err)
 	}
 	if output.Text() != "keep" {
@@ -186,7 +187,7 @@ func TestResponseZeroAndNilHelpers(t *testing.T) {
 	if response.Output != nil || response.Text() != "" {
 		t.Fatal("empty response helpers must be nil/empty")
 	}
-	if _, err := json.Marshal(response); !errors.Is(err, chat.ErrInvalidResponse) {
+	if _, err := jsonv2.Marshal(response); !errors.Is(err, chat.ErrInvalidResponse) {
 		t.Fatalf("zero Response marshal error = %v, want ErrInvalidResponse", err)
 	}
 	var nilResponse *chat.Response
@@ -237,12 +238,12 @@ func TestResponseJSONRoundTrip(t *testing.T) {
 	if setErr := response.Metadata.Extra.Set("openai/system_fingerprint", "fp-1"); setErr != nil {
 		t.Fatal(setErr)
 	}
-	encoded, err := json.Marshal(response)
+	encoded, err := jsonv2.Marshal(response)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got chat.Response
-	if err := json.Unmarshal(encoded, &got); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &got); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(got, *response) {
@@ -252,7 +253,7 @@ func TestResponseJSONRoundTrip(t *testing.T) {
 
 func TestResponseUnmarshalIsAtomic(t *testing.T) {
 	response := &chat.Response{Output: assistantResult("keep"), Metadata: &chat.ResponseMetadata{ID: "keep"}}
-	if err := json.Unmarshal([]byte(`{"output":{}}`), response); !errors.Is(err, chat.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"output":{}}`), response); !errors.Is(err, chat.ErrInvalidResponse) {
 		t.Fatalf("Unmarshal error = %v", err)
 	}
 	if response.Metadata.ID != "keep" {
@@ -285,13 +286,13 @@ func TestResponseMetadataDistinguishesMissingAndZeroUsage(t *testing.T) {
 		{`{"id":"response"}`, false}, {`{"id":"response","usage":{}}`, true},
 	} {
 		var metadata chat.ResponseMetadata
-		if err := json.Unmarshal([]byte(test.wire), &metadata); err != nil {
+		if err := jsonv2.Unmarshal([]byte(test.wire), &metadata); err != nil {
 			t.Fatal(err)
 		}
 		if (metadata.Usage != nil) != test.known {
 			t.Fatalf("usage presence in %s = %+v", test.wire, metadata.Usage)
 		}
-		encoded, err := json.Marshal(metadata)
+		encoded, err := jsonv2.Marshal(metadata)
 		if err != nil {
 			t.Fatal(err)
 		}

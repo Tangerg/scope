@@ -2,7 +2,8 @@ package media_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"os"
 	"path/filepath"
 	"testing"
@@ -39,7 +40,7 @@ func TestMediaGolden(t *testing.T) {
 
 func assertMediaGolden(t *testing.T, name string, value any) {
 	t.Helper()
-	got, err := json.MarshalIndent(value, "", "  ")
+	got, err := jsonv2.Marshal(value, jsonv2.Deterministic(true), jsontext.WithIndent("  "))
 	if err != nil {
 		t.Fatal(err)
 	}

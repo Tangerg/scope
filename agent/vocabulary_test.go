@@ -1,7 +1,7 @@
 package agent_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"go/importer"
 	"go/token"
 	"go/types"
@@ -190,12 +190,12 @@ func TestStableEnumVocabulary(t *testing.T) {
 					if reflect.TypeOf(value) != typ || !value.Valid() || value.String() != want {
 						t.Fatalf("value = %T(%q), valid = %t; want %s(%q)", value, value.String(), value.Valid(), name, want)
 					}
-					data, err := json.Marshal(value)
+					data, err := jsonv2.Marshal(value)
 					if err != nil || string(data) != strconv.Quote(want) {
 						t.Fatalf("JSON = %s, error = %v; want %q", data, err, want)
 					}
 					decoded := reflect.New(typ)
-					if err := json.Unmarshal(data, decoded.Interface()); err != nil {
+					if err := jsonv2.Unmarshal(data, decoded.Interface()); err != nil {
 						t.Fatal(err)
 					}
 					if !reflect.DeepEqual(decoded.Elem().Interface(), value) {

@@ -2,7 +2,7 @@ package openai
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"maps"
 	"slices"
@@ -150,7 +150,7 @@ func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkC
 	}
 	if field, found := choice.Delta.JSON.ExtraFields["annotations"]; found && field.Raw() != "null" {
 		var annotations []openaisdk.ChatCompletionMessageAnnotation
-		if decodeErr := json.Unmarshal([]byte(field.Raw()), &annotations); decodeErr != nil {
+		if decodeErr := jsonv2.Unmarshal([]byte(field.Raw()), &annotations); decodeErr != nil {
 			return nil, "", fmt.Errorf("annotations: %w", decodeErr)
 		}
 		for _, annotation := range annotations {
@@ -176,7 +176,7 @@ func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkC
 			Data       string `json:"data"`
 			Transcript string `json:"transcript"`
 		}
-		if err := json.Unmarshal([]byte(field.Raw()), &audio); err != nil {
+		if err := jsonv2.Unmarshal([]byte(field.Raw()), &audio); err != nil {
 			return nil, "", fmt.Errorf("audio delta: %w", err)
 		}
 		if audio.ID != "" {

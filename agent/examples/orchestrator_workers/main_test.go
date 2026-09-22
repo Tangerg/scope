@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"sync"
@@ -291,13 +291,13 @@ func (p *planningDelegateModel) Call(_ context.Context, request *chat.Request) (
 		if len(request.Tools) != 1 || request.Tools[0].Name != "review_with_planning" {
 			return nil, fmt.Errorf("planning Delegate manifest=%#v", request.Tools)
 		}
-		first, err := json.Marshal(workerTask{
+		first, err := jsonv2.Marshal(workerTask{
 			ID: "facts", Objective: "ship agent", Instruction: "review facts",
 		})
 		if err != nil {
 			return nil, fmt.Errorf("encode first Planning task: %w", err)
 		}
-		second, err := json.Marshal(workerTask{
+		second, err := jsonv2.Marshal(workerTask{
 			ID: "risks", Objective: "ship agent", Instruction: "review risks",
 		})
 		if err != nil {
@@ -324,7 +324,7 @@ func (p *planningDelegateModel) Call(_ context.Context, request *chat.Request) (
 			return nil, fmt.Errorf("planning tool result %d=%#v", index, part.ToolResult)
 		}
 		var output planning.Output
-		if err := json.Unmarshal(part.ToolResult.Output.Details, &output); err != nil {
+		if err := jsonv2.Unmarshal(part.ToolResult.Output.Details, &output); err != nil {
 			return nil, fmt.Errorf("decode planning tool result %d: %w", index, err)
 		}
 		if output.Outcome != planning.OutcomeAchieved {

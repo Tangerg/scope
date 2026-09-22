@@ -1,11 +1,10 @@
 package couchbase
 
 import (
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
-
-	"encoding/json"
 
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -308,7 +307,7 @@ func sqlOpFor(kind filter.Operator) (string, error) {
 // drops the row. A failure to encode the caller's value became a filter that
 // silently matches nothing.
 func jsonValue(v any) (string, error) {
-	encoded, err := json.Marshal(v)
+	encoded, err := jsonv2.Marshal(v)
 	if err != nil {
 		return "", fmt.Errorf("couchbase: encode filter value of type %T: %w", v, err)
 	}

@@ -2,7 +2,7 @@ package planning_test
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"sync"
 	"testing"
 
@@ -41,7 +41,7 @@ func (f fixtureGatedExecution) Step(ctx context.Context, signals []agent.Signal)
 			ProcessID string `json:"process_id"`
 		} `json:"child"`
 	}
-	if err := json.Unmarshal(s.Payload(), &state); err != nil {
+	if err := jsonv2.Unmarshal(s.Payload(), &state); err != nil {
 		return agent.Transition{}, err
 	}
 	if state.Phase == "child" && state.Child != nil && state.Child.ProcessID == "" {

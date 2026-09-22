@@ -2,7 +2,7 @@ package fs
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"os"
 	"testing"
@@ -43,7 +43,7 @@ func TestEditRejectsInvalidReplacementsWithoutChangingFile(t *testing.T) {
 					if bindErr != nil {
 						t.Fatal(bindErr)
 					}
-					arguments, encodeErr := json.Marshal(request)
+					arguments, encodeErr := jsonv2.Marshal(request)
 					if encodeErr != nil {
 						t.Fatal(encodeErr)
 					}

@@ -2,7 +2,7 @@ package planning
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -172,7 +172,7 @@ func (d *Dispatcher) execute(
 var _ agent.Dispatcher = (*Dispatcher)(nil)
 
 func planningFailureSettlement(id agent.EffectID, cause error) (agent.Settlement, error) {
-	payload, err := json.Marshal(signalEnvelope{HostError: agent.NormalizeDiagnostic(cause.Error())})
+	payload, err := jsonv2.Marshal(signalEnvelope{HostError: agent.NormalizeDiagnostic(cause.Error())})
 	if err != nil {
 		return agent.Settlement{}, err
 	}

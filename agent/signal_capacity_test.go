@@ -2,7 +2,7 @@ package agent
 
 import (
 	"bytes"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -61,13 +61,13 @@ func TestOversizedSignalBatchLeavesDurableTreeUsable(t *testing.T) {
 
 func TestTreeAdmissionSizeMatchesPersistedEncoding(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 3)
-	header, err := json.Marshal(runtime.treeSnapshotBase())
+	header, err := jsonv2.Marshal(runtime.treeSnapshotBase())
 	if err != nil {
 		t.Fatal(err)
 	}
 	size := len(header)
 	for index, process := range slices.Collect(maps.Values(runtime.processes)) {
-		data, encodeErr := json.Marshal(process.snapshotWire())
+		data, encodeErr := jsonv2.Marshal(process.snapshotWire())
 		if encodeErr != nil {
 			t.Fatal(encodeErr)
 		}

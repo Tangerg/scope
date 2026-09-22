@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -183,7 +184,7 @@ func (d Descriptor) MarshalJSON() ([]byte, error) {
 	if !d.Valid() {
 		return nil, ErrInvalidDescriptor
 	}
-	return json.Marshal(descriptorWire{
+	return jsonv2.Marshal(descriptorWire{
 		descriptorContractWire: d.contractWire(),
 		Digest:                 d.digest,
 	})
@@ -252,7 +253,7 @@ func (d Descriptor) contractWire() descriptorContractWire {
 }
 
 func (d Descriptor) computeDigest() (Digest, error) {
-	data, err := json.Marshal(d.contractWire())
+	data, err := jsonv2.Marshal(d.contractWire(), jsonv2.Deterministic(true))
 	if err != nil {
 		return Digest{}, err
 	}

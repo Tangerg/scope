@@ -68,7 +68,7 @@ type ToolCall struct {
 	Index             uint32                  `json:"index"`
 	Call              chat.ToolCall           `json:"call"`
 	Outcome           ToolOutcome             `json:"outcome"`
-	Result            *chat.ToolResult        `json:"result,omitempty"`
+	Result            *chat.ToolResult        `json:"result,omitzero"`
 	// Failure describes a failed call or diagnoses an unknown outcome without
 	// claiming that the external operation definitely failed.
 	Failure string `json:"failure,omitempty"`

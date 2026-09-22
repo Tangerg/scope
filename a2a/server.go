@@ -1,7 +1,7 @@
 package a2a
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -61,7 +61,7 @@ func NewHTTPHandler(config ServerConfig) (http.Handler, error) {
 }
 
 func newStaticAgentCardHandler(card *sdka2a.AgentCard) (http.Handler, error) {
-	if _, err := json.Marshal(card); err != nil {
+	if _, err := jsonv2.Marshal(card); err != nil {
 		return nil, fmt.Errorf("%w %q: encode: %w", ErrInvalidCard, card.Name, err)
 	}
 	return a2asrv.NewStaticAgentCardHandler(card), nil

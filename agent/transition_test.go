@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 )
@@ -25,15 +26,15 @@ func TestTransitionConstructorsEnforceOwnedFields(t *testing.T) {
 	if err != nil || checkpoint.Kind() != TransitionKindCheckpoint || checkpoint.ConsumedSignals() != 2 || len(checkpoint.Effects()) != 0 {
 		t.Fatalf("Checkpoint() = %+v, %v", checkpoint, err)
 	}
-	encoded, err := json.Marshal(checkpoint)
+	encoded, err := jsonv2.Marshal(checkpoint)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var restored Transition
-	if err := json.Unmarshal(encoded, &restored); err != nil || restored.Kind() != TransitionKindCheckpoint || restored.ConsumedSignals() != 2 {
+	if err := jsonv2.Unmarshal(encoded, &restored); err != nil || restored.Kind() != TransitionKindCheckpoint || restored.ConsumedSignals() != 2 {
 		t.Fatalf("checkpoint round trip: %+v, %v", restored, err)
 	}
-	if err := json.Unmarshal([]byte(`{"kind":"checkpoint","consumed_signals":0,"effects":[{"target":"dispatcher","payload":{}}]}`), &restored); !errors.Is(err, ErrInvalidTransition) {
+	if err := jsonv2.Unmarshal([]byte(`{"kind":"checkpoint","consumed_signals":0,"effects":[{"target":"dispatcher","payload":{}}]}`), &restored); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("checkpoint admitted external effects: %v", err)
 	}
 
@@ -57,12 +58,12 @@ func TestTransitionStrictUnionJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(wait)
+	data, err := jsonv2.Marshal(wait)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded Transition
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if got, ok := decoded.WaitID(); !ok || got != waitID {
@@ -70,7 +71,7 @@ func TestTransitionStrictUnionJSON(t *testing.T) {
 	}
 
 	invalid := []byte(`{"kind":"wait","consumed_signals":1,"wait_id":"wait:1","reason":"not allowed"}`)
-	if err := json.Unmarshal(invalid, &decoded); !errors.Is(err, ErrInvalidTransition) {
+	if err := jsonv2.Unmarshal(invalid, &decoded); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("invalid union error = %v, want ErrInvalidTransition", err)
 	}
 }
@@ -80,12 +81,12 @@ func TestFailureStrictRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(failure)
+	data, err := jsonv2.Marshal(failure)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded Failure
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded != failure {
@@ -102,15 +103,15 @@ func FuzzTransitionJSONRoundTrip(f *testing.F) {
 	f.Add([]byte(`{"kind":"wait","consumed_signals":1,"wait_id":"wait:1"}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var transition Transition
-		if err := json.Unmarshal(data, &transition); err != nil {
+		if err := jsonv2.Unmarshal(data, &transition); err != nil {
 			return
 		}
-		encoded, err := json.Marshal(transition)
+		encoded, err := jsonv2.Marshal(transition)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var decoded Transition
-		if err := json.Unmarshal(encoded, &decoded); err != nil {
+		if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
 			t.Fatal(err)
 		}
 		if decoded.Kind() != transition.Kind() || decoded.ConsumedSignals() != transition.ConsumedSignals() || len(decoded.Effects()) != len(transition.Effects()) {

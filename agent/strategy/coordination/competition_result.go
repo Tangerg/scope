@@ -9,7 +9,7 @@ import (
 // before selection. Both slices retain request order. Children absent from
 // Outcomes may still be settling when this result is published.
 type FirstSuccessResult struct {
-	Winner *agent.ChildKey          `json:"winner,omitempty"`
+	Winner *agent.ChildKey          `json:"winner,omitzero"`
 	Starts []agent.ChildStartResult `json:"starts"`
 	// Outcomes is a non-nil ordered collection, including when every start failed.
 	Outcomes []agent.ChildOutcome `json:"outcomes"`

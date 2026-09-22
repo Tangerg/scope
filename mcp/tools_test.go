@@ -3,6 +3,7 @@ package mcp_test
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -40,7 +41,7 @@ func startServerWithEcho(t *testing.T, ctx context.Context) (*sdkmcp.ClientSessi
 			var p struct {
 				Text string `json:"text"`
 			}
-			if err := json.Unmarshal(req.Params.Arguments, &p); err != nil {
+			if err := jsonv2.Unmarshal(req.Params.Arguments, &p); err != nil {
 				return &sdkmcp.CallToolResult{
 					Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error()}},
 					IsError: true,

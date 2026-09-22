@@ -2,6 +2,7 @@ package chat_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"reflect"
 	"strings"
@@ -15,12 +16,12 @@ func TestToolDefinitionValidateAndRoundTrip(t *testing.T) {
 	if err := definition.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	encoded, err := json.Marshal(definition)
+	encoded, err := jsonv2.Marshal(definition)
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
 	var got chat.ToolDefinition
-	if err := json.Unmarshal(encoded, &got); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &got); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 	if !reflect.DeepEqual(got, definition) {
@@ -58,7 +59,7 @@ func TestToolDefinitionRejectsInvalidValues(t *testing.T) {
 		if err := definition.Validate(); !errors.Is(err, chat.ErrInvalidToolDefinition) {
 			t.Errorf("Validate(%+v) error = %v", definition, err)
 		}
-		if _, err := json.Marshal(definition); !errors.Is(err, chat.ErrInvalidToolDefinition) {
+		if _, err := jsonv2.Marshal(definition); !errors.Is(err, chat.ErrInvalidToolDefinition) {
 			t.Errorf("Marshal(%+v) error = %v", definition, err)
 		}
 	}
@@ -79,7 +80,7 @@ func TestToolDefinitionAcceptsProviderNameCharset(t *testing.T) {
 
 func TestToolDefinitionUnmarshalIsAtomic(t *testing.T) {
 	got := validToolDefinition()
-	err := json.Unmarshal([]byte(`{"name":"replacement","input_schema":[]}`), &got)
+	err := jsonv2.Unmarshal([]byte(`{"name":"replacement","input_schema":[]}`), &got)
 	if !errors.Is(err, chat.ErrInvalidToolDefinition) {
 		t.Fatalf("Unmarshal error = %v", err)
 	}

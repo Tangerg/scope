@@ -2,7 +2,7 @@ package a2a_test
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"iter"
 	"net/http"
@@ -110,7 +110,7 @@ func TestNewHTTPHandlerSnapshotsAgentCard(t *testing.T) {
 		t.Fatalf("AgentCard status = %d, want 200", recorder.Code)
 	}
 	var served sdka2a.AgentCard
-	if err := json.Unmarshal(recorder.Body.Bytes(), &served); err != nil {
+	if err := jsonv2.Unmarshal(recorder.Body.Bytes(), &served); err != nil {
 		t.Fatalf("decode served AgentCard: %v", err)
 	}
 	if served.Name != "original" || len(served.Skills) != 1 || served.Skills[0].Name != "Read" {

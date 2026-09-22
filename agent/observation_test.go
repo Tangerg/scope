@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"math"
 	"testing"
@@ -30,12 +31,12 @@ func TestEventSeparatesAttemptFromCommittedFacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(event)
+	data, err := jsonv2.Marshal(event)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded Event
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.Phase() != EventPhaseAttempt || decoded.Name() != EventEffectStarted || decoded.ProcessSequence() != 7 {
@@ -172,7 +173,7 @@ func FuzzEventJSONRoundTrip(f *testing.F) {
 		}},
 	}
 	for index, fixture := range payloads {
-		payload, marshalErr := json.Marshal(fixture.payload)
+		payload, marshalErr := jsonv2.Marshal(fixture.payload)
 		if marshalErr != nil {
 			f.Fatal(marshalErr)
 		}
@@ -185,7 +186,7 @@ func FuzzEventJSONRoundTrip(f *testing.F) {
 		if eventErr != nil {
 			f.Fatal(eventErr)
 		}
-		seed, marshalErr := json.Marshal(event)
+		seed, marshalErr := jsonv2.Marshal(event)
 		if marshalErr != nil {
 			f.Fatal(marshalErr)
 		}
@@ -193,21 +194,21 @@ func FuzzEventJSONRoundTrip(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var event Event
-		if err := json.Unmarshal(data, &event); err != nil {
+		if err := jsonv2.Unmarshal(data, &event); err != nil {
 			return
 		}
 		if !event.Valid() {
 			t.Fatal("decoded Event is invalid")
 		}
-		encoded, err := json.Marshal(event)
+		encoded, err := jsonv2.Marshal(event)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var roundTrip Event
-		if unmarshalErr := json.Unmarshal(encoded, &roundTrip); unmarshalErr != nil {
+		if unmarshalErr := jsonv2.Unmarshal(encoded, &roundTrip); unmarshalErr != nil {
 			t.Fatal(unmarshalErr)
 		}
-		reencoded, err := json.Marshal(roundTrip)
+		reencoded, err := jsonv2.Marshal(roundTrip)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -231,12 +232,12 @@ func TestDeltaIsEffectLocalAndImmutable(t *testing.T) {
 	if delta.EffectSequence() != 1 || string(delta.Payload()) != `{"text":"partial"}` {
 		t.Fatalf("Delta = sequence %d payload %s", delta.EffectSequence(), delta.Payload())
 	}
-	data, err := json.Marshal(delta)
+	data, err := jsonv2.Marshal(delta)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded Delta
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.ProcessID() != processID || decoded.EffectID() != effectID {
@@ -437,21 +438,21 @@ func TestDeltaRejectsMissingAttemptIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.Marshal(delta)
+	encoded, err := jsonv2.Marshal(delta)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var fields map[string]json.RawMessage
-	if decodeErr := json.Unmarshal(encoded, &fields); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal(encoded, &fields); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
 	delete(fields, "attempt_id")
-	obsolete, err := json.Marshal(fields)
+	obsolete, err := jsonv2.Marshal(fields)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded Delta
-	if decodeErr := json.Unmarshal(obsolete, &decoded); !errors.Is(decodeErr, ErrInvalidDelta) {
+	if decodeErr := jsonv2.Unmarshal(obsolete, &decoded); !errors.Is(decodeErr, ErrInvalidDelta) {
 		t.Fatalf("missing attempt admitted: %v", decodeErr)
 	}
 }

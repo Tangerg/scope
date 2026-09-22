@@ -2,7 +2,7 @@ package bedrockkb
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -247,7 +247,7 @@ func toMatch(r types.KnowledgeBaseRetrievalResult) (*vectorstore.SearchResult, e
 	// provider-native location is still stable and losslessly identifies the
 	// retrieval source.
 	if doc.ID == "" && r.Location != nil {
-		location, err := json.Marshal(r.Location)
+		location, err := jsonv2.Marshal(r.Location)
 		if err != nil {
 			return nil, fmt.Errorf("bedrockkb: encode result location: %w", err)
 		}

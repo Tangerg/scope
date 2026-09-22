@@ -2,7 +2,7 @@ package openai_test
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -38,7 +38,7 @@ func TestChatUsageRequestPolicy(t *testing.T) {
 					Stream        bool           `json:"stream"`
 					StreamOptions map[string]any `json:"stream_options"`
 				}
-				if err := json.NewDecoder(r.Body).Decode(&wire); err != nil {
+				if err := jsonv2.UnmarshalRead(r.Body, &wire); err != nil {
 					t.Error(err)
 					return
 				}

@@ -2,7 +2,7 @@ package interaction
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -58,7 +58,7 @@ func TestArtifactStateRestoreRejectsInvalidProvenanceAndValue(t *testing.T) {
 				Phase: phaseAwaitingModel, WorkingContext: request.Clone(), ModelCallCount: 2,
 				ArtifactRecords: test.artifacts,
 			}
-			payload, err := json.Marshal(state)
+			payload, err := jsonv2.Marshal(state)
 			if err != nil {
 				t.Fatal(err)
 			}

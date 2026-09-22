@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 	"time"
 
@@ -16,7 +17,7 @@ func TestExternalPackageCanComposeAndRunDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedPayload, err := json.Marshal(echoInput{Value: "done"})
+	expectedPayload, err := jsonv2.Marshal(echoInput{Value: "done"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,6 +3,8 @@ package interaction
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -72,7 +74,7 @@ func TestToolInputRequestJSONOwnsValidationAndIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.Marshal(request)
+	encoded, err := jsonv2.Marshal(request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,26 +83,31 @@ func TestToolInputRequestJSONOwnsValidationAndIsolation(t *testing.T) {
 		t.Fatalf("checkpoint JSON = %s, want %s", encoded, want)
 	}
 	var restored toolInputRequest
-	if err = json.Unmarshal(encoded, &restored); err != nil || !restored.equal(request) {
+	if err = jsonv2.Unmarshal(encoded, &restored); err != nil || !restored.equal(request) {
 		t.Fatalf("request round trip: %s, %v", encoded, err)
 	}
 	clear(encoded)
 	if !restored.equal(request) {
 		t.Fatal("outward JSON mutated an immutable request")
 	}
-	for _, raw := range []string{
-		`null`, `{}`, `{"prompt":null,"response_schema":false}`,
-		`{"prompt":null,"response_schema":true,"continuation_state":null,"unknown":true}`,
-		`{"prompt":null,"prompt":true,"response_schema":true,"continuation_state":null}`,
+	for _, test := range []struct {
+		raw  string
+		want error
+	}{
+		{`null`, ErrInvalidToolInputRequest},
+		{`{}`, ErrInvalidToolInputRequest},
+		{`{"prompt":null,"response_schema":false}`, ErrInvalidToolInputRequest},
+		{`{"prompt":null,"response_schema":true,"continuation_state":null,"unknown":true}`, ErrInvalidToolInputRequest},
+		{`{"prompt":null,"prompt":true,"response_schema":true,"continuation_state":null}`, jsontext.ErrDuplicateName},
 	} {
-		if err = json.Unmarshal([]byte(raw), &restored); !errors.Is(err, ErrInvalidToolInputRequest) {
-			t.Fatalf("invalid request %s: %v", raw, err)
+		if err = jsonv2.Unmarshal([]byte(test.raw), &restored); !errors.Is(err, test.want) {
+			t.Fatalf("invalid request %s: %v, want %v", test.raw, err, test.want)
 		}
 		if !restored.equal(request) {
 			t.Fatal("failed decode changed the admitted request")
 		}
 	}
-	if _, err = json.Marshal(toolInputRequest{}); !errors.Is(err, ErrInvalidToolInputRequest) {
+	if _, err = jsonv2.Marshal(toolInputRequest{}); !errors.Is(err, ErrInvalidToolInputRequest) {
 		t.Fatalf("zero request encoded: %v", err)
 	}
 	var absent *toolInputRequest

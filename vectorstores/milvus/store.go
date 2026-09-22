@@ -2,7 +2,7 @@ package milvus
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	"github.com/milvus-io/milvus/client/v2/column"
@@ -235,7 +235,7 @@ func (s *Store) buildInsertColumns(docs []*document.Document, vectors [][]float6
 
 		contents[i] = doc.Text
 
-		meta, err := json.Marshal(doc.Metadata)
+		meta, err := jsonv2.Marshal(doc.Metadata)
 		if err != nil {
 			return nil, fmt.Errorf("milvus: marshal metadata for document %s: %w", doc.ID, err)
 		}
@@ -362,7 +362,7 @@ func (s *Store) buildDocumentsFromResults(rs milvusclient.ResultSet, minScore ve
 			return nil, fmt.Errorf("milvus: metadata for result %d has type %T, want []byte", i, raw)
 		}
 		var decodedMetadata metadata.Map
-		if err = json.Unmarshal(metaBytes, &decodedMetadata); err != nil {
+		if err = jsonv2.Unmarshal(metaBytes, &decodedMetadata); err != nil {
 			return nil, fmt.Errorf("milvus: decode metadata for result %d: %w", i, err)
 		}
 

@@ -2,6 +2,7 @@ package chat_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"reflect"
 	"testing"
@@ -76,12 +77,12 @@ func TestPartJSONRoundTrip(t *testing.T) {
 		chat.NewRefusalPart("cannot help"),
 	}
 	for _, part := range parts {
-		encoded, err := json.Marshal(part)
+		encoded, err := jsonv2.Marshal(part)
 		if err != nil {
 			t.Fatalf("Marshal(%q): %v", part.Kind, err)
 		}
 		var got chat.Part
-		if err := json.Unmarshal(encoded, &got); err != nil {
+		if err := jsonv2.Unmarshal(encoded, &got); err != nil {
 			t.Fatalf("Unmarshal(%q): %v", part.Kind, err)
 		}
 		if part.Kind == chat.PartMedia {
@@ -98,7 +99,7 @@ func TestPartJSONRoundTrip(t *testing.T) {
 
 func TestPartUnmarshalRejectsUnknownKindWithoutMutatingReceiver(t *testing.T) {
 	got := chat.NewTextPart("keep")
-	err := json.Unmarshal([]byte(`{"kind":"future","text":"replace"}`), &got)
+	err := jsonv2.Unmarshal([]byte(`{"kind":"future","text":"replace"}`), &got)
 	if !errors.Is(err, chat.ErrInvalidPart) {
 		t.Fatalf("Unmarshal error = %v, want ErrInvalidPart", err)
 	}
@@ -175,7 +176,7 @@ func TestCitationsBelongOnlyToText(t *testing.T) {
 				if err := part.Validate(); !errors.Is(err, chat.ErrInvalidPart) {
 					t.Fatalf("Validate = %v", err)
 				}
-				if _, err := json.Marshal(part); !errors.Is(err, chat.ErrInvalidPart) {
+				if _, err := jsonv2.Marshal(part); !errors.Is(err, chat.ErrInvalidPart) {
 					t.Fatalf("Marshal = %v", err)
 				}
 			}

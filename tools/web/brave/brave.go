@@ -94,7 +94,7 @@ type queryInfo struct {
 
 type searchResponse struct {
 	Query queryInfo   `json:"query"`
-	Web   *webResults `json:"web,omitempty"`
+	Web   *webResults `json:"web,omitzero"`
 }
 
 func (c *Client) search(ctx context.Context, request *searchRequest) (*searchResponse, error) {

@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -117,7 +117,7 @@ func (f Failure) MarshalJSON() ([]byte, error) {
 	if !f.Valid() {
 		return nil, ErrInvalidFailure
 	}
-	return json.Marshal(failureWire{Kind: f.kind, Code: f.code, Message: f.message})
+	return jsonv2.Marshal(failureWire{Kind: f.kind, Code: f.code, Message: f.message})
 }
 
 func (f *Failure) UnmarshalJSON(data []byte) error {

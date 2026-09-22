@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -729,7 +730,7 @@ func (c *childTestDefinition) Restore(ctx context.Context, state ExecutionState)
 		return nil, ErrInvalidExecutionState
 	}
 	var decoded childTestState
-	if err := json.Unmarshal(state.Payload(), &decoded); err != nil {
+	if err := jsonv2.Unmarshal(state.Payload(), &decoded); err != nil {
 		return nil, err
 	}
 	return &childTestExecution{reference: c.reference, state: decoded}, nil
@@ -813,7 +814,7 @@ func (c *childTestExecution) openExternalWait() (Transition, error) {
 }
 
 func (c *childTestExecution) startLeafEffect() (Transition, error) {
-	payload, _ := json.Marshal(struct {
+	payload, _ := jsonv2.Marshal(struct {
 		Name string `json:"name"`
 	}{Name: strings.TrimPrefix(c.state.Mode, "leaf:")})
 	effect, err := NewDispatcherEffect(payload)
@@ -1116,7 +1117,7 @@ func childTestSpec(key ChildKey, deployment DeploymentRef, input Payload) ChildS
 }
 
 func (c *childTestExecution) Snapshot() (ExecutionState, error) {
-	payload, err := json.Marshal(c.state)
+	payload, err := jsonv2.Marshal(c.state)
 	if err != nil {
 		return ExecutionState{}, err
 	}
@@ -1175,7 +1176,7 @@ func (b *blockingChildDispatcher) Dispatch(
 	var input struct {
 		Name string `json:"name"`
 	}
-	if err := json.Unmarshal(request.Effect().Payload(), &input); err != nil {
+	if err := jsonv2.Unmarshal(request.Effect().Payload(), &input); err != nil {
 		return Settlement{}, err
 	}
 	release, exists := b.releases[input.Name]

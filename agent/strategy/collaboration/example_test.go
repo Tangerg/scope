@@ -2,7 +2,7 @@ package collaboration_test
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -29,7 +29,7 @@ func ExampleDefinition() {
 	model := exampleBinding(modelDefinition, dispatcher)
 	budget := agent.Budget{Steps: agent.NewQuota(32), Effects: agent.NewQuota(16), Signals: agent.NewQuota(32)}
 	render := exampleValue(workflow.Transform("render_turn", func(_ context.Context, turn collaboration.Turn) (interaction.Input, error) {
-		payload, err := json.Marshal(turn)
+		payload, err := jsonv2.Marshal(turn)
 		if err != nil {
 			return interaction.Input{}, err
 		}
@@ -106,7 +106,7 @@ func (d decisionModel) Call(_ context.Context, request *chat.Request) (*chat.Res
 	if err != nil {
 		return nil, err
 	}
-	payload, err := json.Marshal(decision)
+	payload, err := jsonv2.Marshal(decision)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +173,7 @@ func exampleBinding(definition agent.Definition, dispatcher agent.Dispatcher, ch
 	return exampleValue(agent.NewDeployment(agent.DeploymentConfig{
 		Definition: definition, Dispatcher: dispatcher,
 		ImplementationDigest: agent.ComputeDigest([]byte("collaboration-example-artifact")),
-		ConfigurationDigest:  agent.ComputeDigest(exampleValue(json.Marshal(configuration))),
+		ConfigurationDigest:  agent.ComputeDigest(exampleValue(jsonv2.Marshal(configuration))),
 	}))
 }
 

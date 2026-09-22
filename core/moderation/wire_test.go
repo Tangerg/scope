@@ -2,6 +2,7 @@ package moderation_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"math"
 	"testing"
@@ -16,13 +17,13 @@ func TestOptionsRoundTrip(t *testing.T) {
 		Model:      "moderation-model",
 		Extensions: mustExtensions(t, map[string]any{"provider/threshold": 0.5}),
 	}
-	encoded, err := json.Marshal(options)
+	encoded, err := jsonv2.Marshal(options)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var decoded moderation.Options
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.Model != options.Model || !decoded.Extensions.Equal(options.Extensions) {
@@ -37,13 +38,13 @@ func TestRequestRoundTrip(t *testing.T) {
 	}
 	request.Options = moderation.Options{Model: "moderation-model"}
 
-	encoded, err := json.Marshal(request)
+	encoded, err := jsonv2.Marshal(request)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var decoded moderation.Request
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if len(decoded.Texts) != 2 || decoded.Texts[1] != "second" || decoded.Options.Model != "moderation-model" {
@@ -69,13 +70,13 @@ func TestResponseRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	encoded, err := json.Marshal(response)
+	encoded, err := jsonv2.Marshal(response)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var decoded moderation.Response
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	first := decoded.First()
@@ -89,12 +90,12 @@ func TestResponseRoundTrip(t *testing.T) {
 
 func TestVerdictAndCategoriesRoundTrip(t *testing.T) {
 	verdict := moderation.Verdict{Flagged: true, Score: 1}
-	encoded, err := json.Marshal(verdict)
+	encoded, err := jsonv2.Marshal(verdict)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decodedVerdict moderation.Verdict
-	if err = json.Unmarshal(encoded, &decodedVerdict); err != nil {
+	if err = jsonv2.Unmarshal(encoded, &decodedVerdict); err != nil {
 		t.Fatal(err)
 	}
 	if decodedVerdict != verdict {
@@ -102,12 +103,12 @@ func TestVerdictAndCategoriesRoundTrip(t *testing.T) {
 	}
 
 	categories := moderation.Categories{"hate": {Score: 0.25}}
-	encoded, err = json.Marshal(categories)
+	encoded, err = jsonv2.Marshal(categories)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decodedCategories moderation.Categories
-	if err := json.Unmarshal(encoded, &decodedCategories); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &decodedCategories); err != nil {
 		t.Fatal(err)
 	}
 	if decodedCategories["hate"].Score != 0.25 {
@@ -122,12 +123,12 @@ func TestResponseMetadataRoundTrip(t *testing.T) {
 		CreatedAt: time.Unix(7, 0).UTC(),
 		Extra:     metadata.Map{"provider/region": json.RawMessage(`"eu"`)},
 	}
-	encoded, err := json.Marshal(responseMetadata)
+	encoded, err := jsonv2.Marshal(responseMetadata)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decoded moderation.ResponseMetadata
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.ID != responseMetadata.ID ||
@@ -212,7 +213,7 @@ func TestCategoriesRejectInvalidKeys(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			categories := moderation.Categories{key: {}}
-			if _, err := json.Marshal(categories); !errors.Is(err, moderation.ErrInvalidResponse) {
+			if _, err := jsonv2.Marshal(categories); !errors.Is(err, moderation.ErrInvalidResponse) {
 				t.Fatalf("Marshal error = %v", err)
 			}
 		})
@@ -227,7 +228,7 @@ func TestResponseMetadataValidation(t *testing.T) {
 	}
 	for name, responseMetadata := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, err := json.Marshal(responseMetadata); !errors.Is(err, moderation.ErrInvalidResponse) {
+			if _, err := jsonv2.Marshal(responseMetadata); !errors.Is(err, moderation.ErrInvalidResponse) {
 				t.Fatalf("Marshal error = %v", err)
 			}
 			output, err := moderation.NewOutput(moderation.Categories{"safe": {}}, nil)
@@ -294,7 +295,7 @@ func TestNewRequestDoesNotAliasCallerSlice(t *testing.T) {
 // must keep its previous value.
 func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 	categories := moderation.Categories{"keep": {}}
-	if err := json.Unmarshal([]byte(`{" padded ":{"flagged":false,"score":0}}`), &categories); !errors.Is(err, moderation.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{" padded ":{"flagged":false,"score":0}}`), &categories); !errors.Is(err, moderation.ErrInvalidResponse) {
 		t.Fatalf("Categories decode error = %v", err)
 	}
 	if _, kept := categories["keep"]; !kept {
@@ -302,7 +303,7 @@ func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 	}
 
 	output := moderation.Output{Categories: moderation.Categories{"keep": {}}}
-	if err := json.Unmarshal([]byte(`{"categories":{}}`), &output); !errors.Is(err, moderation.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"categories":{}}`), &output); !errors.Is(err, moderation.ErrInvalidResponse) {
 		t.Fatalf("Output decode error = %v", err)
 	}
 	if _, kept := output.Categories["keep"]; !kept {
@@ -310,7 +311,7 @@ func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 	}
 
 	responseMetadata := moderation.ResponseMetadata{ID: "keep"}
-	if err := json.Unmarshal([]byte(`{"id":" padded "}`), &responseMetadata); !errors.Is(err, moderation.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"id":" padded "}`), &responseMetadata); !errors.Is(err, moderation.ErrInvalidResponse) {
 		t.Fatalf("ResponseMetadata decode error = %v", err)
 	}
 	if responseMetadata.ID != "keep" {
@@ -320,7 +321,7 @@ func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 
 func TestOutputMarshalRejectsInvalidCategories(t *testing.T) {
 	output := moderation.Output{Categories: moderation.Categories{"hate": {Score: 2}}}
-	if _, err := json.Marshal(output); !errors.Is(err, moderation.ErrInvalidResponse) {
+	if _, err := jsonv2.Marshal(output); !errors.Is(err, moderation.ErrInvalidResponse) {
 		t.Fatalf("Marshal error = %v", err)
 	}
 }

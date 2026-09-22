@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -45,7 +46,7 @@ func (c ChildSpec) Valid() bool {
 }
 
 func (c ChildSpec) digest() (Digest, error) {
-	payload, err := json.Marshal(c)
+	payload, err := jsonv2.Marshal(c)
 	if err != nil {
 		return Digest{}, err
 	}
@@ -109,7 +110,7 @@ func (c ChildStartResult) MarshalJSON() ([]byte, error) {
 	} else {
 		wire.Failure = &c.failure
 	}
-	return json.Marshal(wire)
+	return jsonv2.Marshal(wire)
 }
 
 func (c *ChildStartResult) UnmarshalJSON(data []byte) error {
@@ -146,9 +147,9 @@ type childStartEffectWire struct {
 type childStartResultWire struct {
 	Operation     frameworkEffectOperation `json:"operation"`
 	Key           ChildKey                 `json:"key"`
-	ProcessID     *ProcessID               `json:"process_id,omitempty"`
+	ProcessID     *ProcessID               `json:"process_id,omitzero"`
 	DeploymentRef DeploymentRef            `json:"deployment_ref"`
-	Failure       *Failure                 `json:"failure,omitempty"`
+	Failure       *Failure                 `json:"failure,omitzero"`
 }
 
 func decodeChildStartEffect(payload json.RawMessage) (ChildSpec, error) {

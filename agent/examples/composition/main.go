@@ -5,7 +5,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -165,7 +165,7 @@ func (u *uppercaseExecution) Step(_ context.Context, signals []agent.Signal) (ag
 }
 
 func (u *uppercaseExecution) Snapshot() (agent.ExecutionState, error) {
-	payload, err := json.Marshal(u)
+	payload, err := jsonv2.Marshal(u)
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
@@ -286,7 +286,7 @@ type compositionState struct {
 	Phase    compositionPhase  `json:"phase"`
 	Prompt   string            `json:"prompt"`
 	ChildIDs []agent.ProcessID `json:"child_ids,omitempty"`
-	WaitID   *agent.WaitID     `json:"wait_id,omitempty"`
+	WaitID   *agent.WaitID     `json:"wait_id,omitzero"`
 }
 
 func (c compositionState) validate() error {
@@ -506,7 +506,7 @@ func (c *compositionExecution) Snapshot() (agent.ExecutionState, error) {
 	if err := c.state.validate(); err != nil {
 		return agent.ExecutionState{}, err
 	}
-	payload, err := json.Marshal(c.state)
+	payload, err := jsonv2.Marshal(c.state)
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}

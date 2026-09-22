@@ -3,7 +3,7 @@ package interaction
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"slices"
 	"testing"
@@ -29,7 +29,7 @@ func TestCanceledStepPreservesRecoveryState(t *testing.T) {
 	states := append(fuzzInteractionStates(t, definition), ready)
 	for _, state := range states {
 		var decoded executionState
-		if decodeErr := json.Unmarshal(state.Payload(), &decoded); decodeErr != nil {
+		if decodeErr := jsonv2.Unmarshal(state.Payload(), &decoded); decodeErr != nil {
 			t.Fatal(decodeErr)
 		}
 		t.Run(string(decoded.Phase), func(t *testing.T) {
@@ -130,14 +130,14 @@ func TestChildBatchSettlementIsAtomic(t *testing.T) {
 			{Result: &toolCallResult{Result: second, AdvertisedToolNames: []string{"duplicate", "duplicate"}}},
 		},
 	}}
-	before, err := json.Marshal(round)
+	before, err := jsonv2.Marshal(round)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, settleErr := round.finishChildren(tools, []string{"existing"}); settleErr == nil {
 		t.Fatal("invalid advertisement accepted")
 	}
-	after, err := json.Marshal(round)
+	after, err := jsonv2.Marshal(round)
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatalf("failed settlement partially changed the tool round: %v", err)
 	}

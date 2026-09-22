@@ -1,7 +1,7 @@
 package vespa
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -117,7 +117,7 @@ func TestToDocumentPreservesLargeIntegerMetadata(t *testing.T) {
 
 	store := &Store{namespace: "scope", schemaName: "document", contentField: "content", embeddingField: "embedding", idField: "doc_id"}
 	var fields metadata.Map
-	if err := json.Unmarshal(
+	if err := jsonv2.Unmarshal(
 		[]byte(`{"doc_id":"one","content":"hello","embedding":[0.1],"ordinal":9007199254740993}`),
 		&fields,
 	); err != nil {

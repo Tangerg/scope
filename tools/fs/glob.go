@@ -15,14 +15,14 @@ import (
 type GlobRequest struct {
 	Pattern    string `json:"pattern" jsonschema:"minLength=1" jsonschema_description:"Doublestar path pattern, such as **/*.go or src/**/*.ts."`
 	Path       string `json:"path,omitempty" jsonschema_description:"Directory to search under. Defaults to the workspace root."`
-	IgnoreCase bool   `json:"ignore_case,omitempty" jsonschema_description:"Match path components case-insensitively. Default false."`
-	MaxResults int    `json:"max_results,omitempty" jsonschema:"minimum=1,maximum=1000" jsonschema_description:"Maximum paths to return. Defaults to 100 and cannot exceed 1000."`
+	IgnoreCase bool   `json:"ignore_case,omitzero" jsonschema_description:"Match path components case-insensitively. Default false."`
+	MaxResults int    `json:"max_results,omitzero" jsonschema:"minimum=1,maximum=1000" jsonschema_description:"Maximum paths to return. Defaults to 100 and cannot exceed 1000."`
 }
 
 // GlobResponse distinguishes a complete match set from a bounded prefix.
 type GlobResponse struct {
 	Paths     []string `json:"paths"`
-	Truncated bool     `json:"truncated,omitempty"`
+	Truncated bool     `json:"truncated,omitzero"`
 }
 
 var _ toolcontract.Tool = (*GlobTool)(nil)

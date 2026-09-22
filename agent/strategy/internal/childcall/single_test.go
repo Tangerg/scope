@@ -3,7 +3,9 @@ package childcall_test
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -27,13 +29,13 @@ func TestSingleHandshakeRestoresAtEveryBoundary(t *testing.T) {
 	}
 	want := `{"operation":"wait_children","spec":{"key":"children","children":["child"],"boundary":"subtree_drained","condition":{"kind":"all"}}}`
 	var got, expected any
-	if decodeErr := json.Unmarshal(effect.Payload(), &got); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal(effect.Payload(), &got); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
-	if decodeErr := json.Unmarshal([]byte(want), &expected); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal([]byte(want), &expected); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
-	if string(encoded(t, got)) != string(encoded(t, expected)) {
+	if !reflect.DeepEqual(got, expected) {
 		t.Fatalf("wait effect=%s", effect.Payload())
 	}
 	opening := openingSignal(t, "wait", "children", "subtree_drained", []string{"child"}, "all")
@@ -51,7 +53,7 @@ func TestSingleHandshakeRestoresAtEveryBoundary(t *testing.T) {
 func TestSingleRejectsMismatchedResponsesWithoutAdvancing(t *testing.T) {
 	ref, key, waitKey := invocation(t)
 	var otherKey agent.ChildKey
-	if err := json.Unmarshal([]byte(`"other"`), &otherKey); err != nil {
+	if err := jsonv2.Unmarshal([]byte(`"other"`), &otherKey); err != nil {
 		t.Fatal(err)
 	}
 	start := startSignal(t, ref, key, "child", nil)
@@ -106,13 +108,13 @@ func TestSingleRejectsMismatchedResponsesWithoutAdvancing(t *testing.T) {
 		Boundary  string            `json:"boundary"`
 		Outcomes  []json.RawMessage `json:"outcomes"`
 	}
-	if err := json.Unmarshal(completionSignal(t, "wait", "children", "subtree_drained", "call", "child").Payload(), &extra); err != nil {
+	if err := jsonv2.Unmarshal(completionSignal(t, "wait", "children", "subtree_drained", "call", "child").Payload(), &extra); err != nil {
 		t.Fatal(err)
 	}
 	var other struct {
 		Outcomes []json.RawMessage `json:"outcomes"`
 	}
-	if err := json.Unmarshal(completionSignal(t, "wait", "children", "subtree_drained", "other", "other").Payload(), &other); err != nil {
+	if err := jsonv2.Unmarshal(completionSignal(t, "wait", "children", "subtree_drained", "other", "other").Payload(), &other); err != nil {
 		t.Fatal(err)
 	}
 	extra.Outcomes = append(extra.Outcomes, other.Outcomes...)
@@ -181,11 +183,11 @@ func TestSingleRestoreRejectsMalformedProgressAtomically(t *testing.T) {
 	} {
 		t.Run(payload, func(t *testing.T) {
 			var progress childcall.Single
-			if err := json.Unmarshal([]byte(`{"process_id":"original","wait_id":"wait"}`), &progress); err != nil {
+			if err := jsonv2.Unmarshal([]byte(`{"process_id":"original","wait_id":"wait"}`), &progress); err != nil {
 				t.Fatal(err)
 			}
 			before := string(encoded(t, progress))
-			if err := json.Unmarshal([]byte(payload), &progress); err == nil {
+			if err := progress.UnmarshalJSON([]byte(payload)); err == nil {
 				t.Fatal("malformed progress was accepted")
 			}
 			if string(encoded(t, progress)) != before {
@@ -229,7 +231,7 @@ func roundTrip(t *testing.T, progress *childcall.Single, want childcall.Phase) {
 	t.Helper()
 	payload := encoded(t, progress)
 	var restored childcall.Single
-	if err := json.Unmarshal(payload, &restored); err != nil {
+	if err := jsonv2.Unmarshal(payload, &restored); err != nil {
 		t.Fatal(err)
 	}
 	if restored.Phase() != want || string(encoded(t, restored)) != string(payload) {
@@ -245,7 +247,7 @@ func startSignal(t *testing.T, ref agent.DeploymentRef, key agent.ChildKey, proc
 		Key           agent.ChildKey      `json:"key"`
 		DeploymentRef agent.DeploymentRef `json:"deployment_ref"`
 		ProcessID     string              `json:"process_id,omitempty"`
-		Failure       *agent.Failure      `json:"failure,omitempty"`
+		Failure       *agent.Failure      `json:"failure,omitzero"`
 	}{"start_child", key, ref, process, failure})
 }
 
@@ -272,7 +274,7 @@ func signal(t *testing.T, waitID string, payload any) agent.Signal {
 		Payload any    `json:"payload"`
 	}{"signal:engine:childcall", waitID, payload})
 	var value agent.Signal
-	if err := json.Unmarshal(data, &value); err != nil {
+	if err := jsonv2.Unmarshal(data, &value); err != nil {
 		t.Fatal(err)
 	}
 	return value
@@ -280,7 +282,7 @@ func signal(t *testing.T, waitID string, payload any) agent.Signal {
 
 func encoded(t *testing.T, value any) []byte {
 	t.Helper()
-	data, err := json.Marshal(value)
+	data, err := jsonv2.Marshal(value)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +296,7 @@ func TestSingleOwnsWindowShape(t *testing.T) {
 	opening := openingSignal(t, "wait", "children", "subtree_drained", []string{"child"}, "all")
 	completion := completionSignal(t, "wait", "children", "subtree_drained", "call", "child")
 	var foreign agent.Signal
-	if err := json.Unmarshal([]byte(`{"id":"signal:external","payload":{}}`), &foreign); err != nil {
+	if err := jsonv2.Unmarshal([]byte(`{"id":"signal:external","payload":{}}`), &foreign); err != nil {
 		t.Fatal(err)
 	}
 	for _, phase := range []childcall.Phase{childcall.AwaitingStart, childcall.AwaitingOpening, childcall.AwaitingCompletion} {

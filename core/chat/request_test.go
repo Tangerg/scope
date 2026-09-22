@@ -2,6 +2,7 @@ package chat_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"reflect"
 	"strings"
@@ -186,7 +187,7 @@ func TestRequestJSONRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	encoded, err := json.Marshal(request)
+	encoded, err := jsonv2.Marshal(request)
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
@@ -194,7 +195,7 @@ func TestRequestJSONRoundTrip(t *testing.T) {
 		t.Fatalf("request JSON missing protocol fields: %s", encoded)
 	}
 	var got chat.Request
-	if err := json.Unmarshal(encoded, &got); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &got); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 	if !reflect.DeepEqual(got, *request) {
@@ -204,7 +205,7 @@ func TestRequestJSONRoundTrip(t *testing.T) {
 
 func TestRequestOmitsZeroOptions(t *testing.T) {
 	request, _ := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("hello")))
-	encoded, err := json.Marshal(request)
+	encoded, err := jsonv2.Marshal(request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +216,7 @@ func TestRequestOmitsZeroOptions(t *testing.T) {
 
 func TestRequestUnmarshalIsAtomic(t *testing.T) {
 	request, _ := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("keep")))
-	err := json.Unmarshal([]byte(`{"messages":[]}`), request)
+	err := jsonv2.Unmarshal([]byte(`{"messages":[]}`), request)
 	if !errors.Is(err, chat.ErrInvalidRequest) {
 		t.Fatalf("Unmarshal error = %v, want ErrInvalidRequest", err)
 	}

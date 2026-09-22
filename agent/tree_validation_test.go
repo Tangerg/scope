@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -34,11 +34,11 @@ func TestDrainedTreeSnapshotOutcomeOrder(t *testing.T) {
 			for _, outcome := range outcomes {
 				payload.Outcomes = append(payload.Outcomes, outcome.wire())
 			}
-			record.Payload = controlValue(normalizeJSON(controlValue(json.Marshal(payload)), MaxPayloadBytes))
+			record.Payload = controlValue(normalizeJSON(controlValue(jsonv2.Marshal(payload)), MaxPayloadBytes))
 			record.PayloadDigest = ComputeDigest(record.Payload)
 			process.Mailbox.Signals[len(process.Mailbox.Signals)-1] = record
 			candidate.ProcessSnapshots[0] = controlValue(newProcessSnapshot(process))
-			encoded := controlValue(json.Marshal(candidate))
+			encoded := controlValue(jsonv2.Marshal(candidate))
 			if _, err := ParseTreeSnapshot(encoded); !errors.Is(err, ErrInvalidTreeSnapshot) {
 				t.Fatalf("invalid outcomes accepted: %v", err)
 			}
@@ -93,7 +93,7 @@ func TestDrainedSnapshotRejectsActiveDeepDescendant(t *testing.T) {
 	leaf.Status, leaf.PauseReason = StatusPaused, "unfinished descendant"
 	leaf.Termination, leaf.FinishedAt, leaf.Output = nil, nil, Payload{}
 	wire.ProcessSnapshots[index] = controlValue(newProcessSnapshot(leaf))
-	if _, err := ParseTreeSnapshot(controlValue(json.Marshal(wire))); !errors.Is(err, ErrInvalidTreeSnapshot) {
+	if _, err := ParseTreeSnapshot(controlValue(jsonv2.Marshal(wire))); !errors.Is(err, ErrInvalidTreeSnapshot) {
 		t.Fatalf("drained outcome accepted active descendant: %v", err)
 	}
 }
@@ -148,7 +148,7 @@ func TestTreeSnapshotKeepsWaitSignalsSeparated(t *testing.T) {
 	}
 	wire := snapshot.state.clone()
 	wire.ChildWaits[1].Spec.Boundary = ChildWaitBoundaryResult
-	if _, err := ParseTreeSnapshot(controlValue(json.Marshal(wire))); !errors.Is(err, ErrInvalidTreeSnapshot) {
+	if _, err := ParseTreeSnapshot(controlValue(jsonv2.Marshal(wire))); !errors.Is(err, ErrInvalidTreeSnapshot) {
 		t.Fatalf("changed wait escaped its retained signals: %v", err)
 	}
 }
@@ -168,7 +168,7 @@ func TestDrainedSnapshotAcceptsOrderedQuorumSubset(t *testing.T) {
 	signal := controlValue(encodeChildWaitSatisfied(wait.WaitID, spec.Key, spec.Boundary, []ChildOutcome{satisfied.outcomes[1], satisfied.outcomes[3]}))
 	record.Payload, record.PayloadDigest = signal.Payload(), ComputeDigest(signal.Payload())
 	wire.ProcessSnapshots[0] = controlValue(newProcessSnapshot(root))
-	if _, err := ParseTreeSnapshot(controlValue(json.Marshal(wire))); err != nil {
+	if _, err := ParseTreeSnapshot(controlValue(jsonv2.Marshal(wire))); err != nil {
 		t.Fatalf("ordered quorum subset rejected: %v", err)
 	}
 }
@@ -181,9 +181,9 @@ func TestTreeSnapshotRejectsDepthBeyondCapturedLimit(t *testing.T) {
 	wire := snapshot.state.clone()
 	for i := range wire.ProcessSnapshots {
 		wire.ProcessSnapshots[i].state.TreeLimits.MaxDepth = 15
-		wire.ProcessSnapshots[i].data = controlValue(json.Marshal(wire.ProcessSnapshots[i].state))
+		wire.ProcessSnapshots[i].data = controlValue(jsonv2.Marshal(wire.ProcessSnapshots[i].state))
 	}
-	if _, err := ParseTreeSnapshot(controlValue(json.Marshal(wire))); !errors.Is(err, ErrInvalidTreeSnapshot) {
+	if _, err := ParseTreeSnapshot(controlValue(jsonv2.Marshal(wire))); !errors.Is(err, ErrInvalidTreeSnapshot) {
 		t.Fatalf("over-depth tree accepted: %v", err)
 	}
 	leaf := wire.ProcessSnapshots[len(wire.ProcessSnapshots)-1]

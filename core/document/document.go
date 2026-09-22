@@ -1,7 +1,6 @@
 package document
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -23,7 +22,7 @@ type Document struct {
 	// Text is the textual content. May be empty if Media is set.
 	Text string `json:"text,omitempty"`
 
-	Media *media.Media `json:"media,omitempty"`
+	Media *media.Media `json:"media,omitzero"`
 
 	Metadata metadata.Map `json:"metadata,omitzero"`
 }
@@ -43,7 +42,7 @@ func (d Document) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireDocument Document
-	return json.Marshal(wireDocument(d))
+	return jsonv2.Marshal(wireDocument(d))
 }
 
 func (d *Document) UnmarshalJSON(data []byte) error {

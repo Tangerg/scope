@@ -2,7 +2,7 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"testing"
@@ -96,16 +96,16 @@ func TestUnsupportedDeadlineFactsAreRejected(t *testing.T) {
 	}
 	encoded := []byte(`{"status":"timed_out","cause":"process_deadline","reason":"deadline reached"}`)
 	var termination Termination
-	if err := json.Unmarshal(encoded, &termination); !errors.Is(err, errInvalidTermination) {
+	if err := jsonv2.Unmarshal(encoded, &termination); !errors.Is(err, errInvalidTermination) {
 		t.Errorf("unsupported termination: %v", err)
 	}
-	if _, err := decodeProcessFinishedFact(controlValue(json.Marshal(processFinishedEventPayload{ProcessStatus: StatusTimedOut, TerminationCause: TerminationCause("process_deadline"), Usage: new(Usage)}))); err == nil {
+	if _, err := decodeProcessFinishedFact(controlValue(jsonv2.Marshal(processFinishedEventPayload{ProcessStatus: StatusTimedOut, TerminationCause: TerminationCause("process_deadline"), Usage: new(Usage)}))); err == nil {
 		t.Error("finished fact accepted unsupported deadline")
 	}
 	process := admissionTestProcess(t, 0)
 	wire := controlValue(controlValue(process.capture()).wire())
 	wire.PendingControl = pendingControlWire{DeadlineOwner: deadlineOwner("process"), DeadlineReason: "deadline reached"}
-	if _, err := ParseProcessSnapshot(controlValue(json.Marshal(wire))); !errors.Is(err, ErrInvalidSnapshot) {
+	if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(wire))); !errors.Is(err, ErrInvalidSnapshot) {
 		t.Errorf("snapshot accepted unsupported deadline: %v", err)
 	}
 }

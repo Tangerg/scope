@@ -3,6 +3,7 @@ package media_test
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"strings"
 	"testing"
@@ -189,7 +190,7 @@ func TestJSONRoundTrip(t *testing.T) {
 				t.Fatal(setErr)
 			}
 
-			encoded, err := json.Marshal(src)
+			encoded, err := jsonv2.Marshal(src)
 			if err != nil {
 				t.Fatalf("Marshal: %v", err)
 			}
@@ -198,7 +199,7 @@ func TestJSONRoundTrip(t *testing.T) {
 			}
 
 			var got media.Media
-			if err := json.Unmarshal(encoded, &got); err != nil {
+			if err := jsonv2.Unmarshal(encoded, &got); err != nil {
 				t.Fatalf("Unmarshal: %v", err)
 			}
 			if got.MIME != src.MIME || got.ID != src.ID || got.Name != src.Name || got.Source.Kind != src.Source.Kind {
@@ -219,7 +220,7 @@ func TestJSONRejectsInvalidValues(t *testing.T) {
 	}
 	for _, input := range tests {
 		var got media.Media
-		if err := json.Unmarshal([]byte(input), &got); err == nil {
+		if err := jsonv2.Unmarshal([]byte(input), &got); err == nil {
 			t.Errorf("Unmarshal accepted %s", input)
 		}
 	}
@@ -234,7 +235,7 @@ func TestValidateRecursesIntoMetadata(t *testing.T) {
 	if err := m.Validate(); !errors.Is(err, metadata.ErrInvalidValue) {
 		t.Fatalf("Validate error = %v, want metadata.ErrInvalidValue", err)
 	}
-	if _, err := json.Marshal(m); !errors.Is(err, metadata.ErrInvalidValue) {
+	if _, err := jsonv2.Marshal(m); !errors.Is(err, metadata.ErrInvalidValue) {
 		t.Fatalf("Marshal error = %v, want metadata.ErrInvalidValue", err)
 	}
 }

@@ -2,7 +2,7 @@ package coordination
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"time"
 
@@ -27,7 +27,7 @@ type timerResult struct {
 }
 
 func newTimerEffect(deadline time.Time) (agent.Effect, error) {
-	payload, err := json.Marshal(timerRequest{Deadline: deadline})
+	payload, err := jsonv2.Marshal(timerRequest{Deadline: deadline})
 	if err != nil {
 		return agent.Effect{}, err
 	}
@@ -91,7 +91,7 @@ func (Timer) Dispatch(ctx context.Context, request agent.EffectRequest, _ agent.
 	if result.Reached {
 		status = agent.SettlementStatusSucceeded
 	}
-	payload, err := json.Marshal(result)
+	payload, err := jsonv2.Marshal(result)
 	if err != nil {
 		return timerFailureSettlement(request.ID(), err)
 	}
@@ -99,7 +99,7 @@ func (Timer) Dispatch(ctx context.Context, request agent.EffectRequest, _ agent.
 }
 
 func timerFailureSettlement(id agent.EffectID, cause error) (agent.Settlement, error) {
-	payload, err := json.Marshal(agent.NormalizeDiagnostic(cause.Error()))
+	payload, err := jsonv2.Marshal(agent.NormalizeDiagnostic(cause.Error()))
 	if err != nil {
 		return agent.Settlement{}, err
 	}

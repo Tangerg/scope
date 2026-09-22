@@ -2,7 +2,7 @@ package shell
 
 import (
 	"bytes"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"os/exec"
 	"strings"
@@ -161,7 +161,7 @@ func TestTool_Call_HappyPath(t *testing.T) {
 		t.Fatalf("Call: %v", err)
 	}
 	var resp Response
-	if err := json.Unmarshal(result.Details, &resp); err != nil {
+	if err := jsonv2.Unmarshal(result.Details, &resp); err != nil {
 		t.Fatalf("Unmarshal response: %v\nbody=%s", err, result.Details)
 	}
 	if !strings.Contains(resp.Stdout, "hi") {

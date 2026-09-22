@@ -2,8 +2,7 @@ package planning_test
 
 import (
 	"bytes"
-	"encoding/json"
-	"io"
+	jsonv2 "encoding/json/v2"
 	"testing"
 
 	"github.com/Tangerg/scope/agent/strategy/planning"
@@ -15,15 +14,15 @@ func FuzzWorldStateJSON(f *testing.F) {
 	f.Add([]byte(`{"conditions":[{"key":"world.ready","truth":"unknown"}]}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var state planning.WorldState
-		if err := json.Unmarshal(data, &state); err != nil {
+		if err := jsonv2.Unmarshal(data, &state); err != nil {
 			return
 		}
-		encoded, err := json.Marshal(state)
+		encoded, err := jsonv2.Marshal(state)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var restored planning.WorldState
-		if err := json.Unmarshal(encoded, &restored); err != nil {
+		if err := jsonv2.Unmarshal(encoded, &restored); err != nil {
 			t.Fatal(err)
 		}
 		if restored.Key() != state.Key() {
@@ -38,18 +37,18 @@ func FuzzPlanJSON(f *testing.F) {
 	f.Add([]byte(`{"actions":[],"total_cost":1}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var plan planning.Plan
-		if err := json.Unmarshal(data, &plan); err != nil {
+		if err := jsonv2.Unmarshal(data, &plan); err != nil {
 			return
 		}
 		if !plan.Valid() {
 			t.Fatal("decoded Plan is invalid")
 		}
-		encoded, err := json.Marshal(plan)
+		encoded, err := jsonv2.Marshal(plan)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var restored planning.Plan
-		if err := json.Unmarshal(encoded, &restored); err != nil {
+		if err := jsonv2.Unmarshal(encoded, &restored); err != nil {
 			t.Fatal(err)
 		}
 		restoredJSON := mustJSON(t, restored)
@@ -65,20 +64,18 @@ func FuzzOutputJSON(f *testing.F) {
 	f.Add([]byte(`{"outcome":"achieved","world_state":{"conditions":[]},"attempts":[],"planning_passes":0}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var output planning.Output
-		decoder := json.NewDecoder(bytes.NewReader(data))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&output); err != nil {
+		if err := jsonv2.Unmarshal(data, &output, jsonv2.RejectUnknownMembers(true)); err != nil {
 			return
 		}
-		if err := decoder.Decode(&struct{}{}); err != io.EOF || output.Validate() != nil {
+		if output.Validate() != nil {
 			return
 		}
-		encoded, err := json.Marshal(output)
+		encoded, err := jsonv2.Marshal(output)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var restored planning.Output
-		if err := json.Unmarshal(encoded, &restored); err != nil || restored.Validate() != nil {
+		if err := jsonv2.Unmarshal(encoded, &restored); err != nil || restored.Validate() != nil {
 			t.Fatalf("accepted Output did not round trip: %v", err)
 		}
 	})
@@ -86,7 +83,7 @@ func FuzzOutputJSON(f *testing.F) {
 
 func mustJSON(t *testing.T, value any) []byte {
 	t.Helper()
-	data, err := json.Marshal(value)
+	data, err := jsonv2.Marshal(value)
 	if err != nil {
 		t.Fatal(err)
 	}

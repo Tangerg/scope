@@ -2,7 +2,7 @@ package collaboration
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"strings"
 	"testing"
@@ -61,7 +61,7 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 				}
 			}
 			var decoded executionState
-			if err := json.Unmarshal(state.Payload(), &decoded); err != nil {
+			if err := jsonv2.Unmarshal(state.Payload(), &decoded); err != nil {
 				t.Fatal(err)
 			}
 			if decoded.Phase != "failed" {
@@ -78,11 +78,11 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 			} {
 				t.Run(name, func(t *testing.T) {
 					var altered executionState
-					if err := json.Unmarshal(state.Payload(), &altered); err != nil {
+					if err := jsonv2.Unmarshal(state.Payload(), &altered); err != nil {
 						t.Fatal(err)
 					}
 					mutate(&altered)
-					if _, err := definition.Restore(t.Context(), require(agent.NewExecutionState(stateKind, require(json.Marshal(altered))))); !errors.Is(err, ErrInvalidState) {
+					if _, err := definition.Restore(t.Context(), require(agent.NewExecutionState(stateKind, require(jsonv2.Marshal(altered))))); !errors.Is(err, ErrInvalidState) {
 						t.Fatalf("contradictory failure state accepted: %v", err)
 					}
 				})

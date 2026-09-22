@@ -1,7 +1,7 @@
 package vespa
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -26,7 +26,7 @@ func TestDeleteWhereRestartsSearchAfterMutation(t *testing.T) {
 		case request.Method == http.MethodPost && request.URL.Path == "/search/":
 			searches++
 			var body map[string]any
-			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
 				t.Errorf("decode search request: %v", err)
 				writer.WriteHeader(http.StatusBadRequest)
 				return
@@ -39,7 +39,7 @@ func TestDeleteWhereRestartsSearchAfterMutation(t *testing.T) {
 			for _, id := range remaining {
 				children = append(children, map[string]any{"id": "id:scope:document::" + id, "fields": map[string]any{"doc_id": id}})
 			}
-			_ = json.NewEncoder(writer).Encode(map[string]any{
+			_ = jsonv2.MarshalWrite(writer, map[string]any{
 				"root": map[string]any{
 					"children": children,
 					"coverage": map[string]any{"coverage": 100, "full": true},
@@ -50,7 +50,7 @@ func TestDeleteWhereRestartsSearchAfterMutation(t *testing.T) {
 			for index, id := range remaining {
 				if request.URL.Path == fmt.Sprintf("/document/v1/scope/document/docid/%s", id) {
 					remaining = append(remaining[:index], remaining[index+1:]...)
-					_ = json.NewEncoder(writer).Encode(map[string]any{})
+					_ = jsonv2.MarshalWrite(writer, map[string]any{})
 					return
 				}
 			}
@@ -101,7 +101,7 @@ func TestDeleteWhereRejectsForeignAndRepeatedHits(t *testing.T) {
 				var body struct {
 					YQL string `json:"yql"`
 				}
-				if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
 					t.Error(err)
 				}
 				if !strings.Contains(body.YQL, `scope_namespace contains "scope"`) {

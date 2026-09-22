@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -135,7 +136,7 @@ func decodeProtocolConfig(provider string, req *corechat.Request) (*genai.Genera
 		return &genai.GenerateContentConfig{}, nil
 	}
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	if err := jsonv2.Unmarshal(raw, &fields); err != nil {
 		return nil, fmt.Errorf("google: extension %q: %w", extensionKey, err)
 	}
 	for _, name := range []string{"thinkingConfig", "thinking_config"} {
@@ -144,7 +145,7 @@ func decodeProtocolConfig(provider string, req *corechat.Request) (*genai.Genera
 			continue
 		}
 		var thinkingFields map[string]json.RawMessage
-		if err := json.Unmarshal(value, &thinkingFields); err != nil {
+		if err := jsonv2.Unmarshal(value, &thinkingFields); err != nil {
 			return nil, fmt.Errorf("google: extension %q field %q: %w", extensionKey, name, err)
 		}
 		for _, levelName := range []string{"thinkingLevel", "thinking_level"} {
@@ -164,7 +165,7 @@ func decodeProtocolConfig(provider string, req *corechat.Request) (*genai.Genera
 			continue
 		}
 		var toolFields map[string]json.RawMessage
-		if err := json.Unmarshal(value, &toolFields); err != nil {
+		if err := jsonv2.Unmarshal(value, &toolFields); err != nil {
 			return nil, fmt.Errorf("google: extension %q field %q: %w", extensionKey, name, err)
 		}
 		for _, functionName := range []string{"functionCallingConfig", "function_calling_config"} {
@@ -174,14 +175,14 @@ func decodeProtocolConfig(provider string, req *corechat.Request) (*genai.Genera
 		}
 	}
 	var config genai.GenerateContentConfig
-	if err := json.Unmarshal(raw, &config); err != nil {
+	if err := jsonv2.Unmarshal(raw, &config); err != nil {
 		return nil, fmt.Errorf("google: extension %q: %w", extensionKey, err)
 	}
 	var aliases struct {
 		SafetySettings     []*genai.SafetySetting `json:"safety_settings"`
 		ResponseModalities []string               `json:"response_modalities"`
 	}
-	if err := json.Unmarshal(raw, &aliases); err != nil {
+	if err := jsonv2.Unmarshal(raw, &aliases); err != nil {
 		return nil, fmt.Errorf("google: extension %q aliases: %w", extensionKey, err)
 	}
 	if len(config.SafetySettings) == 0 && len(aliases.SafetySettings) > 0 {
@@ -297,7 +298,7 @@ func mapProtocolAssistantParts(provider string, parts []corechat.Part) ([]*genai
 		case corechat.PartToolCall:
 			var arguments map[string]any
 			if part.ToolCall.Arguments != "" {
-				if err := json.Unmarshal([]byte(part.ToolCall.Arguments), &arguments); err != nil {
+				if err := jsonv2.Unmarshal([]byte(part.ToolCall.Arguments), &arguments); err != nil {
 					return nil, fmt.Errorf("parts[%d].tool_call.arguments: %w", i, err)
 				}
 			}
@@ -396,7 +397,7 @@ func mapProtocolToolMedia(value *media.Media) (*genai.FunctionResponsePart, erro
 
 func protocolToolResultJSON(result []byte, isError bool) map[string]any {
 	var decoded any
-	if len(result) != 0 && json.Unmarshal(result, &decoded) == nil {
+	if len(result) != 0 && jsonv2.Unmarshal(result, &decoded) == nil {
 		if !isError {
 			if object, ok := decoded.(map[string]any); ok {
 				return object
@@ -418,7 +419,7 @@ func mapProtocolTools(definitions []corechat.ToolDefinition) ([]*genai.Tool, err
 	declarations := make([]*genai.FunctionDeclaration, 0, len(definitions))
 	for i := range definitions {
 		var schema map[string]any
-		if err := json.Unmarshal(definitions[i].InputSchema, &schema); err != nil {
+		if err := jsonv2.Unmarshal(definitions[i].InputSchema, &schema); err != nil {
 			return nil, fmt.Errorf("google: tools[%d].input_schema: %w", i, err)
 		}
 		declarations = append(declarations, &genai.FunctionDeclaration{

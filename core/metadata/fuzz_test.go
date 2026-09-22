@@ -2,7 +2,7 @@ package metadata_test
 
 import (
 	"bytes"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 
 	"github.com/Tangerg/scope/core/metadata"
@@ -21,22 +21,22 @@ func FuzzMapJSON(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var first metadata.Map
-		if err := json.Unmarshal(data, &first); err != nil {
+		if err := jsonv2.Unmarshal(data, &first); err != nil {
 			return
 		}
 		if err := first.Validate(); err != nil {
 			t.Fatalf("successful Unmarshal produced invalid Map: %v", err)
 		}
-		firstWire, err := json.Marshal(first)
+		firstWire, err := jsonv2.Marshal(first)
 		if err != nil {
 			t.Fatalf("Marshal after successful Unmarshal: %v", err)
 		}
 
 		var second metadata.Map
-		if unmarshalErr := json.Unmarshal(firstWire, &second); unmarshalErr != nil {
+		if unmarshalErr := jsonv2.Unmarshal(firstWire, &second); unmarshalErr != nil {
 			t.Fatalf("Unmarshal canonical wire: %v", unmarshalErr)
 		}
-		secondWire, err := json.Marshal(second)
+		secondWire, err := jsonv2.Marshal(second)
 		if err != nil {
 			t.Fatalf("Marshal second value: %v", err)
 		}

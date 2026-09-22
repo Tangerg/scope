@@ -1,7 +1,7 @@
 package opensearch
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"strings"
 	"testing"
 )
@@ -37,7 +37,7 @@ func TestMetadataStringsMapToKeyword(t *testing.T) {
 func TestCreateIndexRequestCarriesTheTemplate(t *testing.T) {
 	t.Parallel()
 
-	body, err := json.Marshal(indexMappings{
+	body, err := jsonv2.Marshal(indexMappings{
 		DynamicTemplates: []map[string]dynamicTemplate{metadataKeywordTemplate("metadata")},
 		Properties:       map[string]any{},
 	})

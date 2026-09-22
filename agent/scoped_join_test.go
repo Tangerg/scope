@@ -2,7 +2,7 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"slices"
 	"sync"
@@ -193,7 +193,7 @@ func TestScopedJoinSeparatesResultsFromDescendantCleanup(t *testing.T) {
 					parsed := controlValue(ParseTreeSnapshot(captured.JSON()))
 					var state scopeJoinState
 					rootSnapshot := inspectProcessSnapshot(t, recoveredRoot)
-					if decodeErr := json.Unmarshal(rootSnapshot.CommittedExecutionState().Payload(), &state); decodeErr != nil {
+					if decodeErr := jsonv2.Unmarshal(rootSnapshot.CommittedExecutionState().Payload(), &state); decodeErr != nil {
 						t.Fatal(decodeErr)
 					}
 					if state.Outcome == nil {

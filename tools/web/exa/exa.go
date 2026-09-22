@@ -62,17 +62,17 @@ type summaryOptions struct {
 }
 
 type contentsOptions struct {
-	Summary *summaryOptions `json:"summary,omitempty"`
+	Summary *summaryOptions `json:"summary,omitzero"`
 }
 
 type searchRequest struct {
 	Query              string           `json:"query"`
 	Type               string           `json:"type,omitempty"`
-	NumResults         int              `json:"numResults,omitempty"`
+	NumResults         int              `json:"numResults,omitzero"`
 	IncludeDomains     []string         `json:"includeDomains,omitempty"`
 	ExcludeDomains     []string         `json:"excludeDomains,omitempty"`
 	StartPublishedDate string           `json:"startPublishedDate,omitempty"`
-	Contents           *contentsOptions `json:"contents,omitempty"`
+	Contents           *contentsOptions `json:"contents,omitzero"`
 }
 
 func (s *searchRequest) validate() error {

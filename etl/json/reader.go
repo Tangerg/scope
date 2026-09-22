@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -64,7 +65,7 @@ func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 		return r.parseArray(ctx, trimmed)
 	}
 	var value json.RawMessage
-	if unmarshalErr := json.Unmarshal(trimmed, &value); unmarshalErr != nil {
+	if unmarshalErr := jsonv2.Unmarshal(trimmed, &value); unmarshalErr != nil {
 		return nil, fmt.Errorf("json reader: decode source: %w", unmarshalErr)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
@@ -80,7 +81,7 @@ func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 
 func (*Reader) parseArray(ctx context.Context, data []byte) ([]*document.Document, error) {
 	var items []json.RawMessage
-	if err := json.Unmarshal(data, &items); err != nil {
+	if err := jsonv2.Unmarshal(data, &items); err != nil {
 		return nil, fmt.Errorf("json reader: decode array: %w", err)
 	}
 	if err := ctx.Err(); err != nil {

@@ -4,7 +4,7 @@ import (
 	"cmp"
 	"context"
 	"crypto/rand"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -150,7 +150,7 @@ func (s *Store) Write(ctx context.Context, conversationID history.ConversationID
 	// fails, the entire transaction is rolled back".
 	batch := s.container.NewTransactionalBatch(partitionKey)
 	for index, raw := range encoded {
-		body, marshalErr := json.Marshal(document{
+		body, marshalErr := jsonv2.Marshal(document{
 			ID:             rand.Text(),
 			ConversationID: conversationID.String(),
 			Sequence:       formatSequence(sequenceBase + int64(index)),
@@ -226,7 +226,7 @@ func (s *Store) Read(ctx context.Context, conversationID history.ConversationID)
 		}
 		for _, item := range response.Items {
 			var projected document
-			if err := json.Unmarshal(item, &projected); err != nil {
+			if err := jsonv2.Unmarshal(item, &projected); err != nil {
 				return nil, fmt.Errorf("cosmosdb: read: decode document: %w", err)
 			}
 			if projected.ID == "" {
@@ -286,7 +286,7 @@ func (s *Store) Conversations(ctx context.Context) (ids []history.ConversationID
 		}
 		for _, item := range response.Items {
 			var id string
-			if err = json.Unmarshal(item, &id); err != nil {
+			if err = jsonv2.Unmarshal(item, &id); err != nil {
 				return nil, fmt.Errorf("cosmosdb: list conversations: decode ID: %w", err)
 			}
 			conversationID := history.ConversationID(id)
@@ -343,7 +343,7 @@ func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID
 			var projected struct {
 				ID string `json:"id"`
 			}
-			if err := json.Unmarshal(item, &projected); err != nil {
+			if err := jsonv2.Unmarshal(item, &projected); err != nil {
 				return fmt.Errorf("cosmosdb: clear: decode document ID: %w", err)
 			}
 			if _, err := s.container.DeleteItem(ctx, partitionKey, projected.ID, nil); err != nil {

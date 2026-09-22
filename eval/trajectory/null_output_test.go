@@ -2,7 +2,7 @@ package trajectory_test
 
 import (
 	"bytes"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -13,7 +13,7 @@ import (
 
 func TestRecordedNullOutputSurvivesJSON(t *testing.T) {
 	recorded := runTrajectoryInput(t, fixtureInput{NullOutput: true})
-	encoded, err := json.Marshal(recorded)
+	encoded, err := jsonv2.Marshal(recorded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +21,7 @@ func TestRecordedNullOutputSurvivesJSON(t *testing.T) {
 		t.Fatalf("null output is absent: %s", encoded)
 	}
 	var decoded trajectory.Trajectory
-	if decodeErr := json.Unmarshal(encoded, &decoded); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal(encoded, &decoded); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
 	if decoded.Output().IsZero() || string(decoded.Output().JSON()) != "null" {
@@ -56,14 +56,14 @@ func TestExpectedNullOutputRemainsAnAssertion(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var expected trajectory.Expectation
-			if err := json.Unmarshal([]byte(test.wire), &expected); err != nil {
+			if err := jsonv2.Unmarshal([]byte(test.wire), &expected); err != nil {
 				t.Fatal(err)
 			}
-			encoded, err := json.Marshal(expected)
+			encoded, err := jsonv2.Marshal(expected)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := json.Unmarshal(encoded, &expected); err != nil {
+			if err := jsonv2.Unmarshal(encoded, &expected); err != nil {
 				t.Fatal(err)
 			}
 			if expected.Output.Valid() != test.present || bytes.Contains(encoded, []byte(`"output"`)) != test.present {

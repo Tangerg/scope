@@ -1,7 +1,7 @@
 package fakeweather
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 )
 
@@ -27,7 +27,7 @@ func TestToolUsesOnePreciseContract(t *testing.T) {
 		t.Fatalf("Call(valid): %v", err)
 	}
 	var response Response
-	if err := json.Unmarshal(output.Details, &response); err != nil {
+	if err := jsonv2.Unmarshal(output.Details, &response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 	if response.Location != "Beijing" {

@@ -39,7 +39,7 @@ type executionState struct {
 	FanoutWaitID           *agent.WaitID      `json:"fanout_wait_id,omitzero"`
 	ActiveFanoutWindow     []fanoutChildState `json:"active_fanout_window,omitempty"`
 	CompletedFanoutOutputs []json.RawMessage  `json:"completed_fanout_outputs,omitempty"`
-	LoopIteration          uint64             `json:"loop_iteration,omitempty"`
+	LoopIteration          uint64             `json:"loop_iteration,omitzero"`
 }
 
 type fanoutChildState struct {

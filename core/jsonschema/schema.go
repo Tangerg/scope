@@ -6,9 +6,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"io"
 	"reflect"
 	"strconv"
 	"strings"
@@ -25,12 +25,12 @@ const (
 
 var ErrInvalid = errors.New("jsonschema: invalid schema")
 
-// Modeler is implemented by rich values whose encoding/json representation is
+// Modeler is implemented by rich values whose encoding/json/v2 representation is
 // described by a separate typed model. Implementations must return the same
 // non-nil model type on every call and use a value receiver. The native reflector
 // keeps nested and recursive model references in the same schema definition set.
 type Modeler interface {
-	// JSONSchemaAlias returns a non-nil typed value whose encoding/json wire shape
+	// JSONSchemaAlias returns a non-nil typed value whose encoding/json/v2 wire shape
 	// exactly matches the receiver's custom encoding. The concrete model type is
 	// part of the schema contract and must remain stable across calls.
 	JSONSchemaAlias() any
@@ -44,7 +44,7 @@ type Schema struct {
 }
 
 // For derives and compiles the JSON Schema contract for T. It follows
-// encoding/json field names and options and the invopop/jsonschema tag dialect.
+// encoding/json/v2 field names and options and the invopop/jsonschema tag dialect.
 // Structs reject additional properties by default. Integer bounds preserve the
 // Go representation even when field tags specify a wider semantic range.
 func For[T any]() (Schema, error) {
@@ -53,7 +53,7 @@ func For[T any]() (Schema, error) {
 	if err != nil {
 		return Schema{}, fmt.Errorf("%w: derive %v: %w", ErrInvalid, typeOf, err)
 	}
-	raw, err := json.Marshal(definition)
+	raw, err := jsonv2.Marshal(definition)
 	if err != nil {
 		return Schema{}, fmt.Errorf("%w: encode derived schema: %w", ErrInvalid, err)
 	}
@@ -160,21 +160,8 @@ func normalize(raw []byte) (json.RawMessage, error) {
 	if !jsontext.Value(raw).IsValid() {
 		return nil, errors.New("document is not valid RFC 7493 JSON")
 	}
-	var value any
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	if err := decoder.Decode(&value); err != nil {
-		return nil, fmt.Errorf("decode document: %w", err)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return nil, errors.New("document contains multiple JSON values")
-		}
-		return nil, fmt.Errorf("decode trailing document data: %w", err)
-	}
-	normalized, err := json.Marshal(value)
-	if err != nil {
+	normalized := jsontext.Value(bytes.Clone(raw))
+	if err := normalized.Format(jsontext.ReorderRawObjects(true)); err != nil {
 		return nil, fmt.Errorf("normalize document: %w", err)
 	}
 	if len(normalized) > maxDocumentBytes {

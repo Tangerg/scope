@@ -12,7 +12,7 @@
 //  1. Load models.dev's api.json — a fully-resolved JSON map of
 //     provider id -> { models: { model id -> spec } }. It's already
 //     resolved (TOML parsed, [extends] applied), so this tool needs only
-//     encoding/json and no TOML dependency.
+//     encoding/json/v2 and no TOML dependency.
 //  2. Keep only the providers are available with a chat adapter for (providerMap),
 //     and only chat models (drop embedding / TTS / image-generation —
 //     output modality not "text", or an embedding family).
@@ -30,7 +30,8 @@ package main
 
 import (
 	"cmp"
-	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"flag"
 	"fmt"
 	"io"
@@ -326,7 +327,7 @@ func loadAPI(source string) (map[string]apiProvider, error) {
 		return nil, err
 	}
 	var api map[string]apiProvider
-	if err := json.Unmarshal(raw, &api); err != nil {
+	if err := jsonv2.Unmarshal(raw, &api); err != nil {
 		return nil, err
 	}
 	return api, nil
@@ -343,7 +344,7 @@ func loadAugmentations(path string) (map[string]map[string]augEntry, error) {
 		return nil, err
 	}
 	var augs map[string]map[string]augEntry
-	if err := json.Unmarshal(raw, &augs); err != nil {
+	if err := jsonv2.Unmarshal(raw, &augs); err != nil {
 		return nil, err
 	}
 	return augs, nil
@@ -361,7 +362,7 @@ func readSource(reader io.Reader) ([]byte, error) {
 }
 
 func writeJSON(path string, v any) error {
-	b, err := json.MarshalIndent(v, "", "  ")
+	b, err := jsonv2.Marshal(v, jsonv2.Deterministic(true), jsontext.WithIndent("  "))
 	if err != nil {
 		return err
 	}

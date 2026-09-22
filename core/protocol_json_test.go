@@ -57,18 +57,18 @@ func TestProtocolJSONRejectsUnknownMembersWithoutChangingReceiver(t *testing.T) 
 		{"search options", &vectorstore.SearchOptions{TopK: 1}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			before, marshalErr := json.Marshal(test.value)
+			before, marshalErr := jsonv2.Marshal(test.value)
 			if marshalErr != nil {
 				t.Fatal(marshalErr)
 			}
-			if decodeErr := json.Unmarshal(before, test.value); decodeErr != nil {
+			if decodeErr := jsonv2.Unmarshal(before, test.value); decodeErr != nil {
 				t.Fatalf("valid round trip: %v", decodeErr)
 			}
 			unknown := []byte(string(before[:len(before)-1]) + `,"unexpected":true}`)
-			if decodeErr := json.Unmarshal(unknown, test.value); !errors.Is(decodeErr, jsonv2.ErrUnknownName) {
+			if decodeErr := jsonv2.Unmarshal(unknown, test.value); !errors.Is(decodeErr, jsonv2.ErrUnknownName) {
 				t.Fatalf("decode error = %v, want unknown object member", decodeErr)
 			}
-			after, marshalErr := json.Marshal(test.value)
+			after, marshalErr := jsonv2.Marshal(test.value)
 			if marshalErr != nil || !bytes.Equal(before, after) {
 				t.Fatalf("rejected decode changed receiver: before=%s after=%s error=%v", before, after, marshalErr)
 			}
@@ -80,7 +80,7 @@ func TestProtocolJSONPreservesOpenPayloads(t *testing.T) {
 	const opaque = `{"unexpected":{"large":9007199254740993,"nullable":null}}`
 	var request chat.Request
 	data := []byte(`{"messages":[{"role":"user","parts":[{"kind":"text","text":"question"}],"metadata":{"provider/fact":` + opaque + `}}],"options":{"extensions":{"provider/option":` + opaque + `}}}`)
-	if err := json.Unmarshal(data, &request); err != nil {
+	if err := jsonv2.Unmarshal(data, &request); err != nil {
 		t.Fatal(err)
 	}
 	if got := string(request.Messages[0].Metadata["provider/fact"]); got != opaque {
@@ -91,10 +91,39 @@ func TestProtocolJSONPreservesOpenPayloads(t *testing.T) {
 		t.Fatalf("extension = %s, %t, %v", extension, present, err)
 	}
 	var output chat.ToolOutput
-	if err := json.Unmarshal([]byte(`{"details":`+opaque+`}`), &output); err != nil {
+	if err := jsonv2.Unmarshal([]byte(`{"details":`+opaque+`}`), &output); err != nil {
 		t.Fatal(err)
 	}
 	if got := string(output.Details); got != opaque {
 		t.Fatalf("tool details = %s, want %s", got, opaque)
+	}
+}
+
+func TestProtocolJSONPreservesExplicitEmptyValues(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		value  any
+		member string
+		want   string
+	}{
+		{"empty schema", chat.OutputFormat{Type: chat.OutputFormatJSONSchema, Name: "answer", Schema: json.RawMessage(`{}`)}, "schema", `{}`},
+		{"empty stop override", chat.Options{Stop: []string{}}, "stop", `[]`},
+		{"zero temperature override", chat.Options{Temperature: new(float64)}, "temperature", `0`},
+		{"zero seed override", image.Options{Seed: new(int64)}, "seed", `0`},
+		{"empty response metadata", chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewTextDelta("text")}, Metadata: &chat.ResponseMetadata{}}, "metadata", `{}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			encoded, err := jsonv2.Marshal(test.value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]json.RawMessage
+			if err := jsonv2.Unmarshal(encoded, &fields); err != nil {
+				t.Fatal(err)
+			}
+			if string(fields[test.member]) != test.want {
+				t.Fatalf("%s = %s, want %s in %s", test.member, fields[test.member], test.want, encoded)
+			}
+		})
 	}
 }

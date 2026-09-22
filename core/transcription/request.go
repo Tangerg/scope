@@ -1,7 +1,6 @@
 package transcription
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
@@ -78,7 +77,7 @@ func (o Options) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireOptions Options
-	return json.Marshal(wireOptions(o))
+	return jsonv2.Marshal(wireOptions(o))
 }
 
 func (o *Options) UnmarshalJSON(data []byte) error {
@@ -101,7 +100,7 @@ func (o *Options) UnmarshalJSON(data []byte) error {
 // Request is one transcription call: the audio payload and explicit options.
 type Request struct {
 	// Audio carries the audio bytes (or URL) to transcribe.
-	Audio *media.Media `json:"audio,omitempty"`
+	Audio *media.Media `json:"audio,omitzero"`
 
 	Options Options `json:"options,omitzero"`
 }
@@ -137,7 +136,7 @@ func (r Request) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireRequest Request
-	return json.Marshal(wireRequest(r))
+	return jsonv2.Marshal(wireRequest(r))
 }
 
 func (r *Request) UnmarshalJSON(data []byte) error {

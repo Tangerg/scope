@@ -2,7 +2,7 @@ package agent
 
 import (
 	"cmp"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -347,7 +347,7 @@ func (t Termination) MarshalJSON() ([]byte, error) {
 	if t.failure.Valid() {
 		wire.Failure = &t.failure
 	}
-	return json.Marshal(wire)
+	return jsonv2.Marshal(wire)
 }
 
 func (t *Termination) UnmarshalJSON(data []byte) error {
@@ -376,7 +376,7 @@ type terminationWire struct {
 	Status              Status           `json:"status"`
 	Cause               TerminationCause `json:"cause"`
 	Reason              string           `json:"reason,omitempty"`
-	Failure             *Failure         `json:"failure,omitempty"`
+	Failure             *Failure         `json:"failure,omitzero"`
 	UnresolvedEffectIDs []EffectID       `json:"unresolved_effect_ids,omitempty"`
 }
 

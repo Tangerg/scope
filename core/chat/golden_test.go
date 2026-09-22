@@ -3,6 +3,8 @@ package chat_test
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"os"
 	"path/filepath"
 	"testing"
@@ -68,14 +70,14 @@ func TestGoldenMetadataIsJSONSafe(t *testing.T) {
 	if err := value.Set("fixture", "chat"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := json.Marshal(value); err != nil {
+	if _, err := jsonv2.Marshal(value); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func assertChatGolden(t *testing.T, name string, value any) {
 	t.Helper()
-	got, err := json.MarshalIndent(value, "", "  ")
+	got, err := jsonv2.Marshal(value, jsonv2.Deterministic(true), jsontext.WithIndent("  "))
 	if err != nil {
 		t.Fatal(err)
 	}

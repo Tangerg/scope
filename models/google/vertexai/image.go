@@ -42,7 +42,7 @@ type ImageGenerationOptions struct {
 	ImageSize                string         `json:"image_size,omitempty"`
 	PersonGeneration         string         `json:"person_generation,omitempty"`
 	ProminentPeople          string         `json:"prominent_people,omitempty"`
-	OutputCompressionQuality *int32         `json:"output_compression_quality,omitempty"`
+	OutputCompressionQuality *int32         `json:"output_compression_quality,omitzero"`
 }
 
 var _ image.Model = (*ImageModel)(nil)

@@ -1,12 +1,14 @@
 package chroma
 
 import (
-	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"math/big"
 	"reflect"
 	"strconv"
+
+	"github.com/Tangerg/scope/core/metadata"
 
 	v2 "github.com/amikos-tech/chroma-go/pkg/api/v2"
 )
@@ -22,18 +24,20 @@ func documentMetadata(values map[string]any) (v2.DocumentMetadata, error) {
 	}
 	// The SDK's scalar and array number encoders have different precision.
 	// Verify its actual wire value rather than only its intermediate Go values.
-	encoded, err := json.Marshal(result)
+	encoded, err := jsonv2.Marshal(result)
 	if err != nil {
 		return nil, fmt.Errorf("chroma: encode metadata: %w", err)
 	}
-	decoder := json.NewDecoder(bytes.NewReader(encoded))
-	decoder.UseNumber()
-	var restored map[string]any
-	if err := decoder.Decode(&restored); err != nil {
+	var restored metadata.Map
+	if err = jsonv2.Unmarshal(encoded, &restored); err != nil {
 		return nil, fmt.Errorf("chroma: decode encoded metadata: %w", err)
 	}
+	restoredValues, err := restored.Values()
+	if err != nil {
+		return nil, err
+	}
 	for key, value := range values {
-		if actual, present := restored[key]; !present || !metadataValueEqual(value, actual) {
+		if actual, present := restoredValues[key]; !present || !metadataValueEqual(value, actual) {
 			return nil, fmt.Errorf("chroma: metadata %q cannot be represented without loss", key)
 		}
 	}

@@ -274,7 +274,7 @@ func rejectedDelegateStart(process agent.ProcessSnapshot, key agent.ChildKey, ca
 		var start agent.ChildStartResult
 		// The parent also retains model, steer and child-wait Signals. Only the
 		// Framework's strict child-start decoder can supply a start refusal.
-		if err := json.Unmarshal(payload, &start); err != nil {
+		if err := jsonv2.Unmarshal(payload, &start); err != nil {
 			continue
 		}
 		if start.Key() != key {

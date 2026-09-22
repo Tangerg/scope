@@ -2,7 +2,7 @@ package elasticsearch
 
 import (
 	"bytes"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -24,8 +24,8 @@ const (
 )
 
 type bulkAction struct {
-	Index  *bulkActionTarget `json:"index,omitempty"`
-	Delete *bulkActionTarget `json:"delete,omitempty"`
+	Index  *bulkActionTarget `json:"index,omitzero"`
+	Delete *bulkActionTarget `json:"delete,omitzero"`
 }
 
 type bulkActionTarget struct {
@@ -46,7 +46,7 @@ type nearestNeighborQuery struct {
 	QueryVector   []float32    `json:"query_vector"`
 	K             int          `json:"k"`
 	NumCandidates int          `json:"num_candidates"`
-	Filter        *queryClause `json:"filter,omitempty"`
+	Filter        *queryClause `json:"filter,omitzero"`
 }
 
 type searchRequest struct {
@@ -176,7 +176,7 @@ func parseBulkResponse(response *esapi.Response, operation bulkOperation) (err e
 	}
 
 	var parsed bulkResponse
-	if err := json.NewDecoder(response.Body).Decode(&parsed); err != nil {
+	if err := jsonv2.UnmarshalRead(response.Body, &parsed); err != nil {
 		return fmt.Errorf("elasticsearch: decode bulk %s response: %w", operation, err)
 	}
 	if !parsed.Errors {
@@ -195,7 +195,7 @@ func parseBulkResponse(response *esapi.Response, operation bulkOperation) (err e
 }
 
 func encodeJSONRequest(value any) (io.Reader, error) {
-	buf, err := json.Marshal(value)
+	buf, err := jsonv2.Marshal(value)
 	if err != nil {
 		return nil, fmt.Errorf("elasticsearch: encode request: %w", err)
 	}

@@ -2,6 +2,7 @@ package embedding_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"math"
 	"testing"
@@ -18,13 +19,13 @@ func TestOptionsRoundTrip(t *testing.T) {
 		Dimensions: int64Pointer(256),
 		Extensions: mustExtensions(t, map[string]any{"provider/encoding": "float"}),
 	}
-	encoded, err := json.Marshal(options)
+	encoded, err := jsonv2.Marshal(options)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var decoded embedding.Options
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.Model != options.Model || decoded.Dimensions == nil || *decoded.Dimensions != 256 ||
@@ -37,12 +38,12 @@ func TestOptionsRoundTrip(t *testing.T) {
 // rather than a zero-value default: dimensions the caller never set must not
 // reappear as an explicit 0 on the wire.
 func TestAbsentDimensionsStayAbsent(t *testing.T) {
-	encoded, err := json.Marshal(embedding.Options{Model: "text-embedding-3-small"})
+	encoded, err := jsonv2.Marshal(embedding.Options{Model: "text-embedding-3-small"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var wire map[string]any
-	if err := json.Unmarshal(encoded, &wire); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &wire); err != nil {
 		t.Fatal(err)
 	}
 	if _, present := wire["dimensions"]; present {
@@ -57,13 +58,13 @@ func TestRequestRoundTrip(t *testing.T) {
 	}
 	request.Options = embedding.Options{Model: "text-embedding-3-small"}
 
-	encoded, err := json.Marshal(request)
+	encoded, err := jsonv2.Marshal(request)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var decoded embedding.Request
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if len(decoded.Texts) != 2 || decoded.Texts[1] != "second" ||
@@ -77,12 +78,12 @@ func TestOutputAndUsageRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.Marshal(output)
+	encoded, err := jsonv2.Marshal(output)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decodedOutput embedding.Output
-	if err = json.Unmarshal(encoded, &decodedOutput); err != nil {
+	if err = jsonv2.Unmarshal(encoded, &decodedOutput); err != nil {
 		t.Fatal(err)
 	}
 	if len(decodedOutput.Embedding) != 2 || decodedOutput.Embedding[1] != -0.25 {
@@ -90,12 +91,12 @@ func TestOutputAndUsageRoundTrip(t *testing.T) {
 	}
 
 	usage := embedding.Usage{InputTokens: 42}
-	encoded, err = json.Marshal(usage)
+	encoded, err = jsonv2.Marshal(usage)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var decodedUsage embedding.Usage
-	if err := json.Unmarshal(encoded, &decodedUsage); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &decodedUsage); err != nil {
 		t.Fatal(err)
 	}
 	if decodedUsage != usage {
@@ -156,7 +157,7 @@ func TestNilReceiversAreRejected(t *testing.T) {
 // must keep its previous value.
 func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 	options := embedding.Options{Model: "keep"}
-	if err := json.Unmarshal([]byte(`{"dimensions":0}`), &options); !errors.Is(err, embedding.ErrInvalidOptions) {
+	if err := jsonv2.Unmarshal([]byte(`{"dimensions":0}`), &options); !errors.Is(err, embedding.ErrInvalidOptions) {
 		t.Fatalf("Options decode error = %v", err)
 	}
 	if options.Model != "keep" || options.Dimensions != nil {
@@ -164,7 +165,7 @@ func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 	}
 
 	output := embedding.Output{Embedding: []float64{1}}
-	if err := json.Unmarshal([]byte(`{"embedding":[]}`), &output); !errors.Is(err, embedding.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"embedding":[]}`), &output); !errors.Is(err, embedding.ErrInvalidResponse) {
 		t.Fatalf("Output decode error = %v", err)
 	}
 	if len(output.Embedding) != 1 {
@@ -172,7 +173,7 @@ func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 	}
 
 	usage := embedding.Usage{InputTokens: 7}
-	if err := json.Unmarshal([]byte(`{"input_tokens":-1}`), &usage); !errors.Is(err, embedding.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"input_tokens":-1}`), &usage); !errors.Is(err, embedding.ErrInvalidResponse) {
 		t.Fatalf("Usage decode error = %v", err)
 	}
 	if usage.InputTokens != 7 {
@@ -180,7 +181,7 @@ func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 	}
 
 	responseMetadata := embedding.ResponseMetadata{Model: "keep"}
-	if err := json.Unmarshal([]byte(`{"created_at":"not-a-time"}`), &responseMetadata); !errors.Is(err, embedding.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"created_at":"not-a-time"}`), &responseMetadata); !errors.Is(err, embedding.ErrInvalidResponse) {
 		t.Fatalf("ResponseMetadata decode error = %v", err)
 	}
 	if responseMetadata.Model != "keep" {
@@ -207,7 +208,7 @@ func TestInvalidValuesFailToMarshal(t *testing.T) {
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, err := json.Marshal(testCase.value); !errors.Is(err, testCase.want) {
+			if _, err := jsonv2.Marshal(testCase.value); !errors.Is(err, testCase.want) {
 				t.Fatalf("Marshal error = %v, want %v", err, testCase.want)
 			}
 		})

@@ -1,7 +1,7 @@
 package replicate_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -26,7 +26,7 @@ func TestImageModel_Call_Mock(t *testing.T) {
 			var body struct {
 				Input map[string]any `json:"input"`
 			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			if err := jsonv2.UnmarshalRead(r.Body, &body); err != nil {
 				t.Errorf("decode request: %v", err)
 			}
 			if body.Input["prompt"] != "a serene mountain lake" || body.Input["output_format"] != "jpg" {

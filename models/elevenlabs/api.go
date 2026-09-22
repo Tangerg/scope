@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -55,14 +55,14 @@ type ttsRequest struct {
 	Text                            string                           `json:"text"`
 	ModelID                         string                           `json:"model_id,omitempty"`
 	LanguageCode                    string                           `json:"language_code,omitempty"`
-	VoiceSettings                   *voiceSettings                   `json:"voice_settings,omitempty"`
-	Seed                            *int64                           `json:"seed,omitempty"`
+	VoiceSettings                   *voiceSettings                   `json:"voice_settings,omitzero"`
+	Seed                            *int64                           `json:"seed,omitzero"`
 	PreviousText                    string                           `json:"previous_text,omitempty"`
 	NextText                        string                           `json:"next_text,omitempty"`
 	PreviousRequestIDs              []string                         `json:"previous_request_ids,omitzero"`
 	NextRequestIDs                  []string                         `json:"next_request_ids,omitzero"`
 	ApplyTextNormalization          string                           `json:"apply_text_normalization,omitempty"`
-	ApplyLanguageTextNormalization  *bool                            `json:"apply_language_text_normalization,omitempty"`
+	ApplyLanguageTextNormalization  *bool                            `json:"apply_language_text_normalization,omitzero"`
 	PronunciationDictionaryLocators []pronunciationDictionaryLocator `json:"pronunciation_dictionary_locators,omitzero"`
 }
 
@@ -72,11 +72,11 @@ type pronunciationDictionaryLocator struct {
 }
 
 type voiceSettings struct {
-	Stability       *float64 `json:"stability,omitempty"`
-	SimilarityBoost *float64 `json:"similarity_boost,omitempty"`
-	Style           *float64 `json:"style,omitempty"`
-	UseSpeakerBoost *bool    `json:"use_speaker_boost,omitempty"`
-	Speed           *float64 `json:"speed,omitempty"`
+	Stability       *float64 `json:"stability,omitzero"`
+	SimilarityBoost *float64 `json:"similarity_boost,omitzero"`
+	Style           *float64 `json:"style,omitzero"`
+	UseSpeakerBoost *bool    `json:"use_speaker_boost,omitzero"`
+	Speed           *float64 `json:"speed,omitzero"`
 }
 
 // textToSpeechStream opts out of resty's response parsing so callers can
@@ -183,7 +183,7 @@ func (t *transcriptionRequest) form() (map[string]string, error) {
 		form["detect_speaker_roles"] = strconv.FormatBool(*t.DetectSpeakerRoles)
 	}
 	if len(t.Keyterms) > 0 {
-		encoded, err := json.Marshal(t.Keyterms)
+		encoded, err := jsonv2.Marshal(t.Keyterms)
 		if err != nil {
 			return nil, fmt.Errorf("elevenlabs: encode transcription keyterms: %w", err)
 		}
@@ -238,7 +238,7 @@ type transcriptionWord struct {
 	Start        float64 `json:"start"`
 	End          float64 `json:"end"`
 	SpeakerID    string  `json:"speaker_id,omitempty"`
-	ChannelIndex *int    `json:"channel_index,omitempty"`
+	ChannelIndex *int    `json:"channel_index,omitzero"`
 }
 
 type transcriptionEntity struct {

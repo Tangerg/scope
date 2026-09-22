@@ -1,7 +1,6 @@
 package rerank
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
@@ -56,7 +55,7 @@ func (r Request) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireRequest Request
-	return json.Marshal(wireRequest(r))
+	return jsonv2.Marshal(wireRequest(r))
 }
 
 func (r *Request) UnmarshalJSON(data []byte) error {

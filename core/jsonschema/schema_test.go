@@ -3,6 +3,7 @@ package jsonschema_test
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"os"
 	"path/filepath"
@@ -86,7 +87,7 @@ type recursiveRichFixture struct{}
 
 type recursiveRichFixtureModel struct {
 	Value int                   `json:"value" jsonschema:"minimum=1"`
-	Next  *recursiveRichFixture `json:"next,omitempty"`
+	Next  *recursiveRichFixture `json:"next,omitzero"`
 }
 
 func (recursiveRichFixture) JSONSchemaAlias() any { return recursiveRichFixtureModel{} }
@@ -144,7 +145,7 @@ func TestForQualifiesSameNamedTypesFromDifferentPackages(t *testing.T) {
 		} `json:"properties"`
 		Definitions map[string]json.RawMessage `json:"$defs"`
 	}
-	if err := json.Unmarshal(schema.JSON(), &document); err != nil {
+	if err := jsonv2.Unmarshal(schema.JSON(), &document); err != nil {
 		t.Fatal(err)
 	}
 	chatRef := document.Properties["chat"].Ref
@@ -182,7 +183,7 @@ func TestForMatchesJSONFieldAndSchemaTagSemantics(t *testing.T) {
 		Options   []option  `json:"options,omitempty" jsonschema:"minItems=1,maxItems=4"`
 		Ignored   string    `json:"-"`
 		When      time.Time `json:"when,omitzero"`
-		Score     float64   `json:"score,omitempty" jsonschema:"minimum=-1.5,maximum=2.5"`
+		Score     float64   `json:"score,omitzero" jsonschema:"minimum=-1.5,maximum=2.5"`
 	}
 
 	contract, err := jsonschema.For[input]()
@@ -190,7 +191,7 @@ func TestForMatchesJSONFieldAndSchemaTagSemantics(t *testing.T) {
 		t.Fatal(err)
 	}
 	var schema map[string]any
-	if err := json.Unmarshal(contract.JSON(), &schema); err != nil {
+	if err := jsonv2.Unmarshal(contract.JSON(), &schema); err != nil {
 		t.Fatal(err)
 	}
 	if schema["type"] != "object" || schema["additionalProperties"] != false {
@@ -227,12 +228,12 @@ func TestForSupportsCompositePointerAndEncodingSemantics(t *testing.T) {
 	type input struct {
 		Names  []string          `json:"names"`
 		Labels map[string]string `json:"labels"`
-		Limit  *int              `json:"limit,omitempty"`
-		Value  any               `json:"value,omitempty"`
+		Limit  *int              `json:"limit,omitzero"`
+		Value  any               `json:"value,omitzero"`
 		Debug  bool              `json:"debug,omitzero"`
 	}
 	type recursive struct {
-		Next *recursive `json:"next,omitempty"`
+		Next *recursive `json:"next,omitzero"`
 	}
 	type badPattern struct {
 		Value string `json:"value" jsonschema:"pattern=["`
@@ -249,7 +250,7 @@ func TestForSupportsCompositePointerAndEncodingSemantics(t *testing.T) {
 		t.Fatal(err)
 	}
 	var collectionSchema map[string]any
-	if decodeErr := json.Unmarshal(collection.JSON(), &collectionSchema); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal(collection.JSON(), &collectionSchema); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
 	additional := collectionSchema["additionalProperties"].(map[string]any)
@@ -297,11 +298,11 @@ func TestParseRejectsMalformedAndUnresolvedSchemas(t *testing.T) {
 
 func TestForPreservesIntegerRepresentationBounds(t *testing.T) {
 	type input struct {
-		Signed   int8     `json:"signed,omitempty"`
-		Unsigned uint8    `json:"unsigned,omitempty"`
-		Wide     int64    `json:"wide,omitempty"`
-		Huge     uint64   `json:"huge,omitempty"`
-		Tagged   uint8    `json:"tagged,omitempty" jsonschema:"minimum=-10,maximum=300"`
+		Signed   int8     `json:"signed,omitzero"`
+		Unsigned uint8    `json:"unsigned,omitzero"`
+		Wide     int64    `json:"wide,omitzero"`
+		Huge     uint64   `json:"huge,omitzero"`
+		Tagged   uint8    `json:"tagged,omitzero" jsonschema:"minimum=-10,maximum=300"`
 		Nested   []uint16 `json:"nested,omitempty"`
 	}
 	schema, err := jsonschema.For[input]()
@@ -330,7 +331,7 @@ func TestForPreservesIntegerRepresentationBounds(t *testing.T) {
 
 func TestParseRejectsImplicitExternalResources(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "external.json")
-	ref, err := json.Marshal(map[string]string{"$ref": "file://" + path})
+	ref, err := jsonv2.Marshal(map[string]string{"$ref": "file://" + path})
 	if err != nil {
 		t.Fatal(err)
 	}

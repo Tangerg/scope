@@ -3,6 +3,7 @@ package protocol_test
 import (
 	"encoding/base64"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -218,7 +219,7 @@ func newProtocolChatServer(t *testing.T) *httptest.Server {
 				} `json:"functionDeclarations"`
 			} `json:"tools"`
 		}
-		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
 			t.Errorf("decode request: %v", err)
 			http.Error(writer, "bad request", http.StatusBadRequest)
 			return

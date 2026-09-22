@@ -5,7 +5,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -462,7 +462,7 @@ func transformDeployment[I, O any](
 	if err != nil {
 		return agent.Deployment{}, err
 	}
-	configurationJSON, err := json.Marshal(configuration)
+	configurationJSON, err := jsonv2.Marshal(configuration)
 	if err != nil {
 		return agent.Deployment{}, fmt.Errorf("encode %s configuration: %w", name, err)
 	}
@@ -478,7 +478,7 @@ func newWorkflowDeployment(
 	implementationIdentity string,
 	configuration any,
 ) (agent.Deployment, error) {
-	configurationJSON, err := json.Marshal(configuration)
+	configurationJSON, err := jsonv2.Marshal(configuration)
 	if err != nil {
 		return agent.Deployment{}, fmt.Errorf("encode %s configuration: %w", definition.Descriptor().Name(), err)
 	}

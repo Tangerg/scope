@@ -1,7 +1,7 @@
 package speech_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -23,18 +23,18 @@ func TestJSONBoundaries(t *testing.T) {
 		t.Fatalf("SetExtension error = %v", err)
 	}
 
-	if _, err := json.Marshal(speech.Options{Model: " invalid "}); !errors.Is(err, speech.ErrInvalidOptions) {
+	if _, err := jsonv2.Marshal(speech.Options{Model: " invalid "}); !errors.Is(err, speech.ErrInvalidOptions) {
 		t.Fatalf("Marshal Options error = %v", err)
 	}
-	if _, err := json.Marshal(speech.Request{}); !errors.Is(err, speech.ErrInvalidRequest) {
+	if _, err := jsonv2.Marshal(speech.Request{}); !errors.Is(err, speech.ErrInvalidRequest) {
 		t.Fatalf("Marshal Request error = %v", err)
 	}
-	if _, err := json.Marshal(speech.Response{}); !errors.Is(err, speech.ErrInvalidResponse) {
+	if _, err := jsonv2.Marshal(speech.Response{}); !errors.Is(err, speech.ErrInvalidResponse) {
 		t.Fatalf("Marshal Response error = %v", err)
 	}
 
 	options := speech.Options{Model: "keep"}
-	if err := json.Unmarshal([]byte(`{"model":" invalid "}`), &options); !errors.Is(err, speech.ErrInvalidOptions) {
+	if err := jsonv2.Unmarshal([]byte(`{"model":" invalid "}`), &options); !errors.Is(err, speech.ErrInvalidOptions) {
 		t.Fatalf("Unmarshal Options error = %v", err)
 	}
 	if options.Model != "keep" {
@@ -42,7 +42,7 @@ func TestJSONBoundaries(t *testing.T) {
 	}
 
 	request := speech.Request{Text: "keep"}
-	if err := json.Unmarshal([]byte(`{"text":""}`), &request); !errors.Is(err, speech.ErrInvalidRequest) {
+	if err := jsonv2.Unmarshal([]byte(`{"text":""}`), &request); !errors.Is(err, speech.ErrInvalidRequest) {
 		t.Fatalf("Unmarshal Request error = %v", err)
 	}
 	if request.Text != "keep" {
@@ -57,7 +57,7 @@ func TestJSONBoundaries(t *testing.T) {
 		Output:   output,
 		Metadata: &speech.ResponseMetadata{},
 	}
-	if err := json.Unmarshal([]byte(`{"output":null,"metadata":{}}`), &response); !errors.Is(err, speech.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"output":null,"metadata":{}}`), &response); !errors.Is(err, speech.ErrInvalidResponse) {
 		t.Fatalf("Unmarshal Response error = %v", err)
 	}
 	if response.Output != output {

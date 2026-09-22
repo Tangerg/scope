@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 )
@@ -18,12 +18,12 @@ func TestExternalDeliveryCannotClaimEngineSignalIdentity(t *testing.T) {
 			if _, err := NewSignalRequest(id, WaitID{}, signal.Payload()); !errors.Is(err, ErrInvalidSignalRequest) {
 				t.Errorf("request constructor accepted Engine identity: %v", err)
 			}
-			encoded, err := json.Marshal(signal)
+			encoded, err := jsonv2.Marshal(signal)
 			if err != nil {
 				t.Fatal(err)
 			}
 			var request SignalRequest
-			if err := json.Unmarshal(encoded, &request); !errors.Is(err, ErrInvalidSignalRequest) {
+			if err := jsonv2.Unmarshal(encoded, &request); !errors.Is(err, ErrInvalidSignalRequest) {
 				t.Errorf("request decoding accepted Engine identity: %v", err)
 			}
 		})

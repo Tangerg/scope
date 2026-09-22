@@ -14,8 +14,8 @@ import (
 // 1-based to match editor, grep, and language-server conventions.
 type ReadRequest struct {
 	Path      string `json:"path" jsonschema:"minLength=1" jsonschema_description:"File path, absolute or relative to the workspace root."`
-	StartLine int    `json:"start_line,omitempty" jsonschema:"minimum=1" jsonschema_description:"1-based line at which to start. Omit to start at line 1."`
-	MaxLines  int    `json:"max_lines,omitempty" jsonschema:"minimum=1" jsonschema_description:"Maximum lines to return. Omit to read through the end of the file."`
+	StartLine int    `json:"start_line,omitzero" jsonschema:"minimum=1" jsonschema_description:"1-based line at which to start. Omit to start at line 1."`
+	MaxLines  int    `json:"max_lines,omitzero" jsonschema:"minimum=1" jsonschema_description:"Maximum lines to return. Omit to read through the end of the file."`
 }
 
 // ReadResponse is the LLM-facing return shape. StartLine / EndLine
@@ -25,7 +25,7 @@ type ReadResponse struct {
 	StartLine  int    `json:"start_line"`
 	EndLine    int    `json:"end_line"`
 	TotalLines int    `json:"total_lines"`
-	Truncated  bool   `json:"truncated,omitempty"`
+	Truncated  bool   `json:"truncated,omitzero"`
 }
 
 var _ toolcontract.Tool = (*ReadTool)(nil)

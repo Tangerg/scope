@@ -2,6 +2,7 @@ package modeltest
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"net/http"
 	"slices"
 	"testing"
@@ -49,7 +50,7 @@ func RunEmbeddingContract(t *testing.T, contract EmbeddingContract) {
 		seen := make(chan observation, 1)
 		server := JSONServer(http.StatusOK, contract.Response, func(request *http.Request) {
 			observed := observation{path: request.URL.Path, method: request.Method}
-			observed.err = json.NewDecoder(request.Body).Decode(&observed.body)
+			observed.err = jsonv2.UnmarshalRead(request.Body, &observed.body)
 			select {
 			case seen <- observed:
 			default:
@@ -78,11 +79,11 @@ func RunEmbeddingContract(t *testing.T, contract EmbeddingContract) {
 				t.Errorf("URL = %q; want %q", observed.path, contract.ExpectedPath)
 			}
 			var modelID string
-			if err := json.Unmarshal(observed.body["model"], &modelID); err != nil || modelID != contract.ModelID {
+			if err := jsonv2.Unmarshal(observed.body["model"], &modelID); err != nil || modelID != contract.ModelID {
 				t.Errorf("wire model = %q, error = %v; want %q", modelID, err, contract.ModelID)
 			}
 			var texts []string
-			if err := json.Unmarshal(observed.body[contract.InputField], &texts); err != nil || !slices.Equal(texts, request.Texts) {
+			if err := jsonv2.Unmarshal(observed.body[contract.InputField], &texts); err != nil || !slices.Equal(texts, request.Texts) {
 				t.Errorf("wire texts = %q, error = %v; want %q", texts, err, request.Texts)
 			}
 		default:

@@ -1,7 +1,7 @@
 package jsonschema_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"strings"
 	"testing"
@@ -28,13 +28,13 @@ func personSchema(t *testing.T) jsonschema.Schema {
 func TestSchemaJSONRoundTrip(t *testing.T) {
 	schema := personSchema(t)
 
-	encoded, err := json.Marshal(schema)
+	encoded, err := jsonv2.Marshal(schema)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var decoded jsonschema.Schema
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if !decoded.Valid() {
@@ -192,7 +192,7 @@ func TestForRejectsTypesWithNoJSONRepresentation(t *testing.T) {
 }
 
 // TestForEncodesByteSlicesAsNullableBase64 documents the one wire shape the
-// derivation overrides by hand, because encoding/json writes []byte as a
+// derivation overrides by hand, because encoding/json/v2 writes []byte as a
 // base64 string and a naive reflection would publish an array of integers.
 func TestForEncodesByteSlicesAsNullableBase64(t *testing.T) {
 	type payload struct {

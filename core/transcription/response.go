@@ -1,7 +1,6 @@
 package transcription
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
@@ -44,7 +43,7 @@ func (o Output) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireOutput Output
-	return json.Marshal(wireOutput(o))
+	return jsonv2.Marshal(wireOutput(o))
 }
 
 func (o *Output) UnmarshalJSON(data []byte) error {
@@ -94,7 +93,7 @@ func (r ResponseMetadata) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireResponseMetadata ResponseMetadata
-	return json.Marshal(wireResponseMetadata(r))
+	return jsonv2.Marshal(wireResponseMetadata(r))
 }
 
 func (r *ResponseMetadata) UnmarshalJSON(data []byte) error {
@@ -119,9 +118,9 @@ func (r *ResponseMetadata) UnmarshalJSON(data []byte) error {
 // holds the merged transcript.
 type Response struct {
 	// Output holds the transcribed text. Non-nil after [NewResponse].
-	Output *Output `json:"output,omitempty"`
+	Output *Output `json:"output,omitzero"`
 
-	Metadata *ResponseMetadata `json:"metadata,omitempty"`
+	Metadata *ResponseMetadata `json:"metadata,omitzero"`
 }
 
 // NewResponse validates a complete provider result at the protocol boundary.
@@ -151,7 +150,7 @@ func (r Response) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireResponse Response
-	return json.Marshal(wireResponse(r))
+	return jsonv2.Marshal(wireResponse(r))
 }
 
 func (r *Response) UnmarshalJSON(data []byte) error {

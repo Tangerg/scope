@@ -1,7 +1,7 @@
 package mistral_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -64,7 +64,7 @@ func newMistralChatServer(t *testing.T) *httptest.Server {
 				Role string `json:"role"`
 			} `json:"messages"`
 		}
-		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
 			t.Errorf("decode request: %v", err)
 			http.Error(writer, "bad request", http.StatusBadRequest)
 			return

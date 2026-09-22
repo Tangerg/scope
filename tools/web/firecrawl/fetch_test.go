@@ -1,7 +1,7 @@
 package firecrawl
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -28,7 +28,7 @@ func TestFetch(t *testing.T) {
 			} `json:"formats"`
 			OnlyMain bool `json:"onlyMainContent"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := jsonv2.UnmarshalRead(r.Body, &body); err != nil {
 			t.Errorf("decode body: %v", err)
 			return
 		}

@@ -2,6 +2,7 @@ package chat_test
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -24,7 +25,7 @@ func TestProtocolEncodingRejectsInvalidUTF8(t *testing.T) {
 		"model name":      chat.Options{Model: invalid},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := json.Marshal(value); err == nil {
+			if _, err := jsonv2.Marshal(value); err == nil {
 				t.Fatal("protocol codec silently repaired invalid UTF-8")
 			}
 		})

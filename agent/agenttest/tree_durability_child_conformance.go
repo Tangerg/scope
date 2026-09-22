@@ -2,7 +2,7 @@ package agenttest
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -71,7 +71,7 @@ func runCrashChildCommit(t *testing.T, store TreeCommitterConformanceDriver, pha
 			Signals uint64 `json:"signals"`
 		} `json:"allocated_resources"`
 	}
-	if decodeErr := json.Unmarshal(rootSnapshot.JSON(), &allocation); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal(rootSnapshot.JSON(), &allocation); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
 	if rootSnapshot.Budget() != original.Budget() || childSnapshot.Budget() != wantBudget ||
@@ -87,7 +87,7 @@ func runCrashChildCommit(t *testing.T, store TreeCommitterConformanceDriver, pha
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, err := json.Marshal(crashTreeOutput{Completed: true})
+	payload, err := jsonv2.Marshal(crashTreeOutput{Completed: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,7 +417,7 @@ func (c *crashTreeExecution) stepChild(signals []agent.Signal) (agent.Transition
 		if err != nil {
 			return agent.Transition{}, err
 		}
-		payload, err := json.Marshal(struct {
+		payload, err := jsonv2.Marshal(struct {
 			Kind string `json:"kind"`
 		}{Kind: crashTreeWaitPayloadKind})
 		if err != nil {
@@ -456,7 +456,7 @@ func (c *crashTreeExecution) stepChild(signals []agent.Signal) (agent.Transition
 }
 
 func (c *crashTreeExecution) Snapshot() (agent.ExecutionState, error) {
-	payload, err := json.Marshal(c.state)
+	payload, err := jsonv2.Marshal(c.state)
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}

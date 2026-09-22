@@ -1,7 +1,7 @@
 package azureaisearch
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 )
@@ -87,7 +87,7 @@ func TestValidateIndexMetric(t *testing.T) {
 			t.Parallel()
 
 			var schema indexSchema
-			if err := json.Unmarshal([]byte(test.schema), &schema); err != nil {
+			if err := jsonv2.Unmarshal([]byte(test.schema), &schema); err != nil {
 				t.Fatalf("decode schema: %v", err)
 			}
 			err := (&schema).validateMetric("vector", test.want)
@@ -150,7 +150,7 @@ func TestValidateIndexIDField(t *testing.T) {
 			t.Parallel()
 
 			var schema indexSchema
-			if err := json.Unmarshal([]byte(test.schema), &schema); err != nil {
+			if err := jsonv2.Unmarshal([]byte(test.schema), &schema); err != nil {
 				t.Fatalf("decode schema: %v", err)
 			}
 			err := (&schema).validateIDField("id")

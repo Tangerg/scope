@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"runtime"
 	"sync"
@@ -327,7 +328,7 @@ func (e *engineTestExecution) stepBatch(signals []Signal) (Transition, error) {
 		e.state.Phase = "batch"
 		var effects []Effect
 		for _, value := range []string{"first", "second"} {
-			payload, _ := json.Marshal(engineTestMessage{Kind: "request", Value: value})
+			payload, _ := jsonv2.Marshal(engineTestMessage{Kind: "request", Value: value})
 			effect, err := NewDispatcherEffect(payload)
 			if err != nil {
 				return Transition{}, err
@@ -362,7 +363,7 @@ func (e *engineTestExecution) stepEffect(signals []Signal) (Transition, error) {
 			return Transition{}, errors.New("ready phase expected no Signal")
 		}
 		e.state.Phase = "effect"
-		payload, _ := json.Marshal(engineTestMessage{Kind: "request", Value: e.state.Value})
+		payload, _ := jsonv2.Marshal(engineTestMessage{Kind: "request", Value: e.state.Value})
 		effect, err := NewDispatcherEffect(payload)
 		if err != nil {
 			return Transition{}, err
@@ -389,7 +390,7 @@ func (e *engineTestExecution) stepWait(signals []Signal) (Transition, error) {
 	case "ready":
 		e.state.Phase = "wait_id"
 		key, _ := ParseWaitKey("approval")
-		payload, _ := json.Marshal(engineTestMessage{Kind: "wait_opened"})
+		payload, _ := jsonv2.Marshal(engineTestMessage{Kind: "wait_opened"})
 		effect, err := NewWaitEffect(key, payload)
 		if err != nil {
 			return Transition{}, err
@@ -427,7 +428,7 @@ func (e *engineTestExecution) stepWait(signals []Signal) (Transition, error) {
 }
 
 func (e *engineTestExecution) Snapshot() (ExecutionState, error) {
-	payload, err := json.Marshal(e.state)
+	payload, err := jsonv2.Marshal(e.state)
 	if err != nil {
 		return ExecutionState{}, err
 	}
@@ -473,7 +474,7 @@ func (e *engineTestDispatcher) Dispatch(
 	if err != nil {
 		return Settlement{}, err
 	}
-	delta, _ := json.Marshal(engineTestMessage{Kind: "delta", Value: message.Value})
+	delta, _ := jsonv2.Marshal(engineTestMessage{Kind: "delta", Value: message.Value})
 	count := e.deltas
 	if count == 0 {
 		count = 1
@@ -483,7 +484,7 @@ func (e *engineTestDispatcher) Dispatch(
 			emit(delta)
 		}
 	}
-	payload, _ := json.Marshal(engineTestMessage{Kind: "result", Value: message.Value + ":done"})
+	payload, _ := jsonv2.Marshal(engineTestMessage{Kind: "result", Value: message.Value + ":done"})
 	return NewSettlement(request.ID(), SettlementStatusSucceeded, payload)
 }
 
@@ -510,7 +511,7 @@ func (p *partialBatchDispatcher) Dispatch(
 	if request.BatchIndex() == 1 {
 		return Settlement{}, errors.New("second Effect result is unknown")
 	}
-	payload, _ := json.Marshal(engineTestMessage{Kind: "result", Value: message.Value})
+	payload, _ := jsonv2.Marshal(engineTestMessage{Kind: "result", Value: message.Value})
 	return NewSettlement(request.ID(), SettlementStatusSucceeded, payload)
 }
 
@@ -661,7 +662,7 @@ func TestUnknownSettlementRequiresExplicitResolutionAndSurvivesRestore(t *testin
 	if dispatcher.calls.Load() != 1 {
 		t.Fatalf("ReplayPolicyNever dispatcher calls=%d, want 1", dispatcher.calls.Load())
 	}
-	payload, _ := json.Marshal(engineTestMessage{Kind: "result", Value: "resolved"})
+	payload, _ := jsonv2.Marshal(engineTestMessage{Kind: "result", Value: "resolved"})
 	settlement, _ := NewSettlement(effectID, SettlementStatusSucceeded, payload)
 	if err := restored.ResolveUnknownEffect(context.Background(), settlement); err != nil {
 		t.Fatal(err)
@@ -710,7 +711,7 @@ func TestPartialEffectBatchPreservesSettlementsAndDeclarationOrder(t *testing.T)
 	if dispatcher.calls.Load() != 2 {
 		t.Fatalf("dispatcher calls=%d, want 2", dispatcher.calls.Load())
 	}
-	payload, _ := json.Marshal(engineTestMessage{Kind: "result", Value: "second"})
+	payload, _ := jsonv2.Marshal(engineTestMessage{Kind: "result", Value: "second"})
 	settlement, _ := NewSettlement(wire.Prepared.Effects[1].ID, SettlementStatusSucceeded, payload)
 	if err := restored.ResolveUnknownEffect(context.Background(), settlement); err != nil {
 		t.Fatal(err)

@@ -1,7 +1,7 @@
 package mcp
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -90,7 +90,7 @@ func TestRemoteResultRejectsIncompleteOutput(t *testing.T) {
 		`{"resultType":"input_required","inputRequests":{},"content":[{"type":"text","text":"unfinished"}],"isError":true}`,
 	} {
 		var value sdkmcp.CallToolResult
-		require.NoError(t, json.Unmarshal([]byte(payload), &value))
+		require.NoError(t, jsonv2.Unmarshal([]byte(payload), &value))
 		require.True(t, value.NeedsInput())
 		output, err := (remoteResult{remoteName: "pending", value: &value}).unwrap()
 		require.ErrorIs(t, err, ErrIncompleteResult)

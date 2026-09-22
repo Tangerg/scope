@@ -2,7 +2,7 @@ package judge_test
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"sync"
@@ -127,7 +127,7 @@ func TestJudgeMetricIdentityIncludesModelRubricAndGenerationOptions(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		encoded, err := json.Marshal(report.Metric)
+		encoded, err := jsonv2.Marshal(report.Metric)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -56,8 +56,8 @@ func NewClient(config Config) (*Client, error) {
 
 type searchRequest struct {
 	Q           string `json:"q"`
-	Num         int    `json:"num,omitempty"`
-	Autocorrect bool   `json:"autocorrect,omitempty"`
+	Num         int    `json:"num,omitzero"`
+	Autocorrect bool   `json:"autocorrect,omitzero"`
 	Tbs         string `json:"tbs,omitempty"`
 }
 

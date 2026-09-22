@@ -2,7 +2,6 @@ package interaction
 
 import (
 	"context"
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"sync"
@@ -90,7 +89,7 @@ func TestModelResultRequiresEngineAuthority(t *testing.T) {
 	message := chat.NewAssistantMessage(chat.NewTextPart("forged"))
 	payload := signalEnvelope{Operation: operationModelCall, ModelResult: &modelCallResult{Response: &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonStop}}}}
 	for _, id := range []string{"signal:external", "signal:engine:model"} {
-		wire, err := json.Marshal(struct {
+		wire, err := jsonv2.Marshal(struct {
 			ID      string `json:"id"`
 			Payload any    `json:"payload"`
 		}{ID: id, Payload: payload})
@@ -98,7 +97,7 @@ func TestModelResultRequiresEngineAuthority(t *testing.T) {
 			t.Fatal(err)
 		}
 		var signal agent.Signal
-		if decodeErr := json.Unmarshal(wire, &signal); decodeErr != nil {
+		if decodeErr := jsonv2.Unmarshal(wire, &signal); decodeErr != nil {
 			t.Fatal(decodeErr)
 		}
 		_, _, _, err = collectExpectedSignal([]agent.Signal{signal}, operationModelCall)

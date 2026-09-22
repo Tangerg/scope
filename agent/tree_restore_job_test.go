@@ -2,7 +2,7 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,7 +18,7 @@ type blockedRestoreDefinition struct {
 
 func (b *blockedRestoreDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
 	var decoded treeRuntimeTestState
-	if err := json.Unmarshal(state.Payload(), &decoded); err != nil {
+	if err := jsonv2.Unmarshal(state.Payload(), &decoded); err != nil {
 		return nil, err
 	}
 	if decoded.Role == treeRuntimeRoleBlocked && b.armed.Swap(false) {

@@ -1,7 +1,7 @@
 package anthropic_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -20,7 +20,7 @@ func TestChat_OmitsUnsignedReasoningFromPortableHistory(t *testing.T) {
 		} `json:"messages"`
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if err := json.NewDecoder(request.Body).Decode(&wireRequest); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, &wireRequest); err != nil {
 			t.Errorf("decode request: %v", err)
 			http.Error(writer, "invalid request", http.StatusBadRequest)
 			return

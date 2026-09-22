@@ -2,7 +2,7 @@ package anthropic
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -136,12 +136,12 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 }
 
 func projectMessageInputTokenCount(params *anthropicsdk.MessageNewParams) (*anthropicsdk.MessageCountTokensParams, error) {
-	encoded, err := json.Marshal(params)
+	encoded, err := jsonv2.Marshal(params)
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: encode input token count request: %w", err)
 	}
 	var projected anthropicsdk.MessageCountTokensParams
-	if err := json.Unmarshal(encoded, &projected); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &projected); err != nil {
 		return nil, fmt.Errorf("anthropic: project input token count request: %w", err)
 	}
 	projected.Messages = params.Messages
@@ -165,12 +165,12 @@ func decodeOutputConfig(fields map[string]any, extensionKey string) (anthropicsd
 		}
 		extraFields = maps.Clone(object)
 	}
-	encoded, err := json.Marshal(value)
+	encoded, err := jsonv2.Marshal(value)
 	if err != nil {
 		return anthropicsdk.OutputConfigParam{}, fmt.Errorf("anthropic: extension %q field %q: %w", extensionKey, "output_config", err)
 	}
 	var config anthropicsdk.OutputConfigParam
-	if err := json.Unmarshal(encoded, &config); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &config); err != nil {
 		return anthropicsdk.OutputConfigParam{}, fmt.Errorf("anthropic: extension %q field %q: %w", extensionKey, "output_config", err)
 	}
 	if len(extraFields) > 0 {
@@ -444,7 +444,7 @@ func mapProtocolToolCall(index int, call corechat.ToolCall) (anthropicsdk.Conten
 	var input any
 	if call.Arguments == "" {
 		input = map[string]any{}
-	} else if err := json.Unmarshal([]byte(call.Arguments), &input); err != nil {
+	} else if err := jsonv2.Unmarshal([]byte(call.Arguments), &input); err != nil {
 		return anthropicsdk.ContentBlockParamUnion{}, fmt.Errorf("parts[%d].tool_call.arguments: %w", index, err)
 	}
 	return anthropicsdk.NewToolUseBlock(call.ID, input, call.Name), nil
@@ -454,7 +454,7 @@ func mapProtocolTools(definitions []corechat.ToolDefinition) ([]anthropicsdk.Too
 	tools := make([]anthropicsdk.ToolUnionParam, 0, len(definitions))
 	for i := range definitions {
 		var schema map[string]any
-		if err := json.Unmarshal(definitions[i].InputSchema, &schema); err != nil {
+		if err := jsonv2.Unmarshal(definitions[i].InputSchema, &schema); err != nil {
 			return nil, fmt.Errorf("anthropic: tools[%d].input_schema: %w", i, err)
 		}
 		delete(schema, "type")

@@ -3,6 +3,7 @@ package ollama
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"mime"
@@ -132,7 +133,7 @@ func decodeProtocolRequestExtension(req *corechat.Request) (*nativeChatRequest, 
 		return apiReq, nil
 	}
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	if err := jsonv2.Unmarshal(raw, &fields); err != nil {
 		return nil, fmt.Errorf("ollama: extension %q: %w", RequestExtensionKey, err)
 	}
 	for field := range fields {
@@ -147,7 +148,7 @@ func decodeProtocolRequestExtension(req *corechat.Request) (*nativeChatRequest, 
 	}
 	if rawOptions, exists := fields["options"]; exists {
 		var optionFields map[string]json.RawMessage
-		if err := json.Unmarshal(rawOptions, &optionFields); err != nil {
+		if err := jsonv2.Unmarshal(rawOptions, &optionFields); err != nil {
 			return nil, fmt.Errorf("ollama: extension %q field %q: %w", RequestExtensionKey, "options", err)
 		}
 		for field := range optionFields {
@@ -157,7 +158,7 @@ func decodeProtocolRequestExtension(req *corechat.Request) (*nativeChatRequest, 
 			}
 		}
 	}
-	if err := json.Unmarshal(raw, apiReq); err != nil {
+	if err := jsonv2.Unmarshal(raw, apiReq); err != nil {
 		return nil, fmt.Errorf("ollama: extension %q: %w", RequestExtensionKey, err)
 	}
 	return apiReq, nil
@@ -300,14 +301,14 @@ func mapProtocolToolArguments(arguments string) (nativeJSONObject, error) {
 		return emptyNativeJSONObject(), nil
 	}
 	var object map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(arguments), &object); err != nil || object == nil {
+	if err := jsonv2.Unmarshal([]byte(arguments), &object); err != nil || object == nil {
 		if err == nil {
 			err = errors.New("must be a JSON object")
 		}
 		return nativeJSONObject{}, err
 	}
 	var mapped nativeJSONObject
-	if err := json.Unmarshal([]byte(arguments), &mapped); err != nil {
+	if err := jsonv2.Unmarshal([]byte(arguments), &mapped); err != nil {
 		return nativeJSONObject{}, err
 	}
 	return mapped, nil
@@ -320,7 +321,7 @@ func mapProtocolTools(definitions []corechat.ToolDefinition) (nativeTools, error
 	mapped := make(nativeTools, 0, len(definitions))
 	for i := range definitions {
 		var parameters map[string]any
-		if err := json.Unmarshal(definitions[i].InputSchema, &parameters); err != nil {
+		if err := jsonv2.Unmarshal(definitions[i].InputSchema, &parameters); err != nil {
 			return nil, fmt.Errorf("ollama: tools[%d].input_schema: %w", i, err)
 		}
 		if parameters == nil {

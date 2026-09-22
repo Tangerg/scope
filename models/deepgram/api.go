@@ -3,7 +3,7 @@ package deepgram
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -146,7 +146,7 @@ type listenResponse struct {
 					Word    string  `json:"word"`
 					Start   float64 `json:"start"`
 					End     float64 `json:"end"`
-					Speaker int     `json:"speaker,omitempty"`
+					Speaker int     `json:"speaker,omitzero"`
 				} `json:"words"`
 			} `json:"alternatives"`
 		} `json:"channels"`
@@ -179,7 +179,7 @@ func (a *api) listen(ctx context.Context, audio []byte, contentType string, para
 	if !resp.IsSuccess() {
 		return nil, fmt.Errorf("deepgram: http %d: %s", resp.StatusCode(), resp.String())
 	}
-	if err := json.Unmarshal(resp.Body(), &out.Raw); err != nil {
+	if err := jsonv2.Unmarshal(resp.Body(), &out.Raw); err != nil {
 		return nil, fmt.Errorf("deepgram: preserve transcription response: %w", err)
 	}
 	return &out, nil

@@ -84,7 +84,7 @@ func NewWaitEffect(key WaitKey, signalPayload json.RawMessage) (Effect, error) {
 // Only UnmarshalJSON crosses an untrusted protocol boundary and must decode
 // those fields again. freezeEffect owns JSON validity, size, and immutability.
 func newFrameworkEffect(request any) (Effect, error) {
-	payload, err := json.Marshal(request)
+	payload, err := jsonv2.Marshal(request)
 	if err != nil {
 		return Effect{}, fmt.Errorf("%w: encode Framework request: %w", ErrInvalidEffect, err)
 	}
@@ -133,7 +133,7 @@ func (e Effect) MarshalJSON() ([]byte, error) {
 	if !e.Valid() {
 		return nil, ErrInvalidEffect
 	}
-	return json.Marshal(effectWire{
+	return jsonv2.Marshal(effectWire{
 		Target: e.target, Payload: e.payload,
 		RequiredCapabilities: e.requirements.Values(),
 	})

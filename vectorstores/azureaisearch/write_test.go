@@ -2,7 +2,7 @@ package azureaisearch
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -154,7 +154,7 @@ func TestIndexSplitsActionsAtServiceLimit(t *testing.T) {
 		var body struct {
 			Value []map[string]any `json:"value"`
 		}
-		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+		if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
 			t.Error(err)
 			writer.WriteHeader(http.StatusBadRequest)
 			return
@@ -168,7 +168,7 @@ func TestIndexSplitsActionsAtServiceLimit(t *testing.T) {
 		for index, action := range body.Value {
 			results[index] = map[string]any{"key": action["id"], "status": true, "statusCode": 201}
 		}
-		if err := json.NewEncoder(writer).Encode(map[string]any{"value": results}); err != nil {
+		if err := jsonv2.MarshalWrite(writer, map[string]any{"value": results}); err != nil {
 			t.Error(err)
 		}
 	}, writeTestBatcher{})

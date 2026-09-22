@@ -37,9 +37,9 @@ type preparedEffect struct {
 	ID         EffectID    `json:"id"`
 	Effect     Effect      `json:"effect"`
 	Phase      effectPhase `json:"phase"`
-	WaitID     *WaitID     `json:"wait_id,omitempty"`
-	Settlement *Settlement `json:"settlement,omitempty"`
-	Diagnostic *Failure    `json:"diagnostic,omitempty"`
+	WaitID     *WaitID     `json:"wait_id,omitzero"`
+	Settlement *Settlement `json:"settlement,omitzero"`
+	Diagnostic *Failure    `json:"diagnostic,omitzero"`
 }
 
 // preparedEffects owns the sequential execution frontier. An uncertain result

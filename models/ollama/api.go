@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -84,10 +85,10 @@ func (a *api) chat(ctx context.Context, req *nativeChatRequest, fn func(nativeCh
 		return nativeResponseError(response, body)
 	}
 
-	decoder := json.NewDecoder(response.Body)
+	decoder := jsontext.NewDecoder(response.Body)
 	for {
 		var frame nativeChatResponse
-		if err := decoder.Decode(&frame); err != nil {
+		if err := jsonv2.UnmarshalDecode(decoder, &frame); err != nil {
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
@@ -135,7 +136,7 @@ func (a *api) call(ctx context.Context, path string, requestValue, responseValue
 	if len(body) == 0 || responseValue == nil {
 		return nil
 	}
-	return json.Unmarshal(body, responseValue)
+	return jsonv2.Unmarshal(body, responseValue)
 }
 
 func (a *api) request(
@@ -144,7 +145,7 @@ func (a *api) request(
 	requestValue any,
 	accept string,
 ) (*http.Response, error) {
-	body, err := json.Marshal(requestValue)
+	body, err := jsonv2.Marshal(requestValue)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +190,7 @@ func nativeResponseError(response *http.Response, body []byte) error {
 	var providerFailure struct {
 		Error string `json:"error"`
 	}
-	if err := json.Unmarshal(body, &providerFailure); err != nil || providerFailure.Error == "" {
+	if err := jsonv2.Unmarshal(body, &providerFailure); err != nil || providerFailure.Error == "" {
 		providerFailure.Error = string(body)
 	}
 	return nativeStatusError{

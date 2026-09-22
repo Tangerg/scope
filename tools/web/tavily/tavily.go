@@ -60,11 +60,11 @@ type searchRequest struct {
 	Query          string   `json:"query"`
 	SearchDepth    string   `json:"search_depth,omitempty"`
 	Topic          string   `json:"topic,omitempty"`
-	MaxResults     int      `json:"max_results,omitempty"`
+	MaxResults     int      `json:"max_results,omitzero"`
 	TimeRange      string   `json:"time_range,omitempty"`
 	IncludeDomains []string `json:"include_domains,omitempty"`
 	ExcludeDomains []string `json:"exclude_domains,omitempty"`
-	IncludeFavicon bool     `json:"include_favicon,omitempty"`
+	IncludeFavicon bool     `json:"include_favicon,omitzero"`
 }
 
 func (s *searchRequest) validate() error {

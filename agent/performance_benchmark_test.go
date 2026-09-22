@@ -2,7 +2,7 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
 	"testing"
@@ -147,7 +147,7 @@ func (executionReplayBenchmarkDefinition) Restore(ctx context.Context, state Exe
 		return nil, ErrInvalidExecutionState
 	}
 	var decoded executionReplayBenchmarkState
-	if err := json.Unmarshal(state.Payload(), &decoded); err != nil {
+	if err := jsonv2.Unmarshal(state.Payload(), &decoded); err != nil {
 		return nil, err
 	}
 	return &executionReplayBenchmarkExecution{state: decoded}, nil
@@ -163,7 +163,7 @@ func (e *executionReplayBenchmarkExecution) Step(context.Context, []Signal) (Tra
 }
 
 func (e *executionReplayBenchmarkExecution) Snapshot() (ExecutionState, error) {
-	payload, err := json.Marshal(e.state)
+	payload, err := jsonv2.Marshal(e.state)
 	if err != nil {
 		return ExecutionState{}, err
 	}
@@ -173,7 +173,7 @@ func (e *executionReplayBenchmarkExecution) Snapshot() (ExecutionState, error) {
 func BenchmarkExecutionReplayBoundary(b *testing.B) {
 	for _, payloadBytes := range []int{1 << 10, 64 << 10} {
 		b.Run(fmt.Sprintf("state_bytes_%d", payloadBytes), func(b *testing.B) {
-			payload, err := json.Marshal(executionReplayBenchmarkState{
+			payload, err := jsonv2.Marshal(executionReplayBenchmarkState{
 				Payload: strings.Repeat("x", payloadBytes),
 			})
 			if err != nil {

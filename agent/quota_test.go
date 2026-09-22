@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"testing"
@@ -68,7 +69,7 @@ func TestQuotaPreservesUnlimitedFiniteAndZero(t *testing.T) {
 		{"finite", NewQuota(3), `{"maximum":3}`, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			encoded, err := json.Marshal(test.quota)
+			encoded, err := jsonv2.Marshal(test.quota)
 			if err != nil || string(encoded) != test.wire {
 				t.Fatalf("encoding=%s error=%v", encoded, err)
 			}
@@ -76,7 +77,7 @@ func TestQuotaPreservesUnlimitedFiniteAndZero(t *testing.T) {
 				t.Fatalf("quota schema rejected its encoding: %v", validateErr)
 			}
 			var restored Quota
-			if err := json.Unmarshal(encoded, &restored); err != nil || restored != test.quota {
+			if err := jsonv2.Unmarshal(encoded, &restored); err != nil || restored != test.quota {
 				t.Fatalf("round trip=%+v error=%v", restored, err)
 			}
 			if restored.Allows(1) != test.allowsOne {
@@ -86,7 +87,7 @@ func TestQuotaPreservesUnlimitedFiniteAndZero(t *testing.T) {
 	}
 	for _, data := range []string{`0`, `null`, `{}`, `{"maximum":-1}`, `{"maximum":1,"extra":true}`, `{"maximum":18446744073709551616}`} {
 		var quota Quota
-		if err := json.Unmarshal([]byte(data), &quota); err == nil {
+		if err := jsonv2.Unmarshal([]byte(data), &quota); err == nil {
 			t.Fatalf("invalid quota accepted: %s", data)
 		}
 	}
@@ -165,7 +166,7 @@ func TestQuotaConfigurationIdentityDistinguishesAllModes(t *testing.T) {
 	definition := newChildTestDeployment(t).Definition()
 	seen := make(map[DeploymentRef]bool)
 	for _, quota := range []Quota{{}, NewQuota(0), NewQuota(1)} {
-		config := controlValue(json.Marshal(struct {
+		config := controlValue(jsonv2.Marshal(struct {
 			ModelCalls Quota `json:"model_calls"`
 		}{ModelCalls: quota}))
 		deployment := controlValue(NewDeployment(DeploymentConfig{Definition: definition,
@@ -228,17 +229,17 @@ func TestSnapshotRejectsMissingAndLegacyQuotaAuthority(t *testing.T) {
 	snapshot := preparedEngineTestSnapshot(t)
 	for _, name := range []string{"limits", "allocated_resources"} {
 		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(snapshot.JSON(), &fields); err != nil {
+		if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
 			t.Fatal(err)
 		}
 		delete(fields, name)
-		if _, err := ParseProcessSnapshot(controlValue(json.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
+		if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
 			t.Fatalf("missing %s accepted: %v", name, err)
 		}
 	}
 	for _, data := range []string{`{}`, `{"steps":1,"effects":1,"signals":1}`, `{"steps":{"maximum":null},"effects":{"maximum":null}}`} {
 		var budget Budget
-		if err := json.Unmarshal([]byte(data), &budget); err == nil {
+		if err := jsonv2.Unmarshal([]byte(data), &budget); err == nil {
 			t.Fatalf("invalid grant accepted: %s", data)
 		}
 	}
@@ -250,11 +251,11 @@ func TestSnapshotRequiresCompleteLimitsAuthority(t *testing.T) {
 		for _, replacement := range []json.RawMessage{nil, json.RawMessage(`null`)} {
 			t.Run(name+"/"+string(replacement), func(t *testing.T) {
 				var fields map[string]json.RawMessage
-				if err := json.Unmarshal(snapshot.JSON(), &fields); err != nil {
+				if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
 					t.Fatal(err)
 				}
 				var limits map[string]json.RawMessage
-				if err := json.Unmarshal(fields["limits"], &limits); err != nil {
+				if err := jsonv2.Unmarshal(fields["limits"], &limits); err != nil {
 					t.Fatal(err)
 				}
 				if replacement == nil {
@@ -262,26 +263,26 @@ func TestSnapshotRequiresCompleteLimitsAuthority(t *testing.T) {
 				} else {
 					limits[name] = replacement
 				}
-				fields["limits"] = controlValue(json.Marshal(limits))
-				if _, err := ParseProcessSnapshot(controlValue(json.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
+				fields["limits"] = controlValue(jsonv2.Marshal(limits))
+				if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
 					t.Fatalf("missing/null %s accepted: %v", name, err)
 				}
 			})
 		}
 	}
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(snapshot.JSON(), &fields); err != nil {
+	if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
 		t.Fatal(err)
 	}
 	var limits map[string]json.RawMessage
-	if err := json.Unmarshal(fields["limits"], &limits); err != nil {
+	if err := jsonv2.Unmarshal(fields["limits"], &limits); err != nil {
 		t.Fatal(err)
 	}
 	delete(fields, "limits")
 	for name, value := range limits {
 		fields[name] = value
 	}
-	if _, err := ParseProcessSnapshot(controlValue(json.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
+	if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
 		t.Fatalf("retired flat snapshot accepted: %v", err)
 	}
 }
@@ -289,18 +290,18 @@ func TestSnapshotRequiresCompleteLimitsAuthority(t *testing.T) {
 func TestLimitsUseOneStrictBudgetRepresentation(t *testing.T) {
 	limits := DefaultLimits()
 	limits.Budget = Budget{Steps: NewQuota(5), Effects: NewQuota(7), Signals: NewQuota(9)}
-	encoded := controlValue(json.Marshal(limits))
+	encoded := controlValue(jsonv2.Marshal(limits))
 	var decoded Limits
-	if err := json.Unmarshal(encoded, &decoded); err != nil || decoded != limits {
+	if err := jsonv2.Unmarshal(encoded, &decoded); err != nil || decoded != limits {
 		t.Fatalf("limits round trip=%+v, %v", decoded, err)
 	}
 	for _, field := range []string{"max_steps", "max_effects", "max_signals"} {
 		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(encoded, &fields); err != nil {
+		if err := jsonv2.Unmarshal(encoded, &fields); err != nil {
 			t.Fatal(err)
 		}
-		fields[field] = controlValue(json.Marshal(NewQuota(1)))
-		if err := json.Unmarshal(controlValue(json.Marshal(fields)), &decoded); err == nil {
+		fields[field] = controlValue(jsonv2.Marshal(NewQuota(1)))
+		if err := jsonv2.Unmarshal(controlValue(jsonv2.Marshal(fields)), &decoded); err == nil {
 			t.Fatalf("retired quota field %s accepted", field)
 		}
 	}

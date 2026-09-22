@@ -3,7 +3,7 @@ package assemblyai
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -52,29 +52,29 @@ type transcriptRequest struct {
 	SpeechModels                []string       `json:"speech_models"`
 	LanguageCode                string         `json:"language_code,omitempty"`
 	LanguageCodes               []string       `json:"language_codes,omitzero"`
-	LanguageDetection           *bool          `json:"language_detection,omitempty"`
-	LanguageConfidenceThreshold *float64       `json:"language_confidence_threshold,omitempty"`
-	Punctuate                   *bool          `json:"punctuate,omitempty"`
-	FormatText                  *bool          `json:"format_text,omitempty"`
-	SpeakerLabels               *bool          `json:"speaker_labels,omitempty"`
-	SpeakersExpected            *int           `json:"speakers_expected,omitempty"`
-	SentimentAnalysis           *bool          `json:"sentiment_analysis,omitempty"`
-	EntityDetection             *bool          `json:"entity_detection,omitempty"`
-	IABCategories               *bool          `json:"iab_categories,omitempty"`
-	AutoHighlights              *bool          `json:"auto_highlights,omitempty"`
-	ContentSafety               *bool          `json:"content_safety,omitempty"`
-	ContentSafetyConfidence     *int           `json:"content_safety_confidence,omitempty"`
-	Disfluencies                *bool          `json:"disfluencies,omitempty"`
-	FilterProfanity             *bool          `json:"filter_profanity,omitempty"`
-	Multichannel                *bool          `json:"multichannel,omitempty"`
+	LanguageDetection           *bool          `json:"language_detection,omitzero"`
+	LanguageConfidenceThreshold *float64       `json:"language_confidence_threshold,omitzero"`
+	Punctuate                   *bool          `json:"punctuate,omitzero"`
+	FormatText                  *bool          `json:"format_text,omitzero"`
+	SpeakerLabels               *bool          `json:"speaker_labels,omitzero"`
+	SpeakersExpected            *int           `json:"speakers_expected,omitzero"`
+	SentimentAnalysis           *bool          `json:"sentiment_analysis,omitzero"`
+	EntityDetection             *bool          `json:"entity_detection,omitzero"`
+	IABCategories               *bool          `json:"iab_categories,omitzero"`
+	AutoHighlights              *bool          `json:"auto_highlights,omitzero"`
+	ContentSafety               *bool          `json:"content_safety,omitzero"`
+	ContentSafetyConfidence     *int           `json:"content_safety_confidence,omitzero"`
+	Disfluencies                *bool          `json:"disfluencies,omitzero"`
+	FilterProfanity             *bool          `json:"filter_profanity,omitzero"`
+	Multichannel                *bool          `json:"multichannel,omitzero"`
 	Prompt                      string         `json:"prompt,omitempty"`
 	KeytermsPrompt              []string       `json:"keyterms_prompt,omitzero"`
 	Domain                      string         `json:"domain,omitempty"`
-	RedactPII                   *bool          `json:"redact_pii,omitempty"`
+	RedactPII                   *bool          `json:"redact_pii,omitzero"`
 	RedactPIIPolicies           []string       `json:"redact_pii_policies,omitzero"`
-	SpeechThreshold             *float64       `json:"speech_threshold,omitempty"`
-	AudioStartFrom              *int           `json:"audio_start_from,omitempty"`
-	AudioEndAt                  *int           `json:"audio_end_at,omitempty"`
+	SpeechThreshold             *float64       `json:"speech_threshold,omitzero"`
+	AudioStartFrom              *int           `json:"audio_start_from,omitzero"`
+	AudioEndAt                  *int           `json:"audio_end_at,omitzero"`
 	WebhookURL                  string         `json:"webhook_url,omitempty"`
 	WebhookAuthHeaderName       string         `json:"webhook_auth_header_name,omitempty"`
 	SpeechUnderstanding         map[string]any `json:"speech_understanding,omitzero"`
@@ -181,7 +181,7 @@ func (a *api) createTranscript(ctx context.Context, req *transcriptRequest) (*tr
 	if !resp.IsSuccess() {
 		return nil, fmt.Errorf("assemblyai: http %d: %s", resp.StatusCode(), resp.String())
 	}
-	if err := json.Unmarshal(resp.Body(), &out.Raw); err != nil {
+	if err := jsonv2.Unmarshal(resp.Body(), &out.Raw); err != nil {
 		return nil, fmt.Errorf("assemblyai: preserve create response: %w", err)
 	}
 	return &out, nil
@@ -202,7 +202,7 @@ func (a *api) get(ctx context.Context, id string) (*transcriptResponse, error) {
 	if !resp.IsSuccess() {
 		return nil, fmt.Errorf("assemblyai: http %d: %s", resp.StatusCode(), resp.String())
 	}
-	if err := json.Unmarshal(resp.Body(), &out.Raw); err != nil {
+	if err := jsonv2.Unmarshal(resp.Body(), &out.Raw); err != nil {
 		return nil, fmt.Errorf("assemblyai: preserve transcript response: %w", err)
 	}
 	return &out, nil

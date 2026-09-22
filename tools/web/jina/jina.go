@@ -82,8 +82,8 @@ func NewClient(config Config) (*Client, error) {
 
 type searchRequest struct {
 	Query string   `json:"-"`
-	Count int      `json:"count,omitempty"`
-	Page  int      `json:"page,omitempty"`
+	Count int      `json:"count,omitzero"`
+	Page  int      `json:"page,omitzero"`
 	Site  []string `json:"site,omitempty"`
 }
 

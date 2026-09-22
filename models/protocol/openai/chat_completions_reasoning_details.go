@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -126,7 +128,7 @@ func (r reasoningDetailsCodec) prependReasoning(fields map[string]respjson.Field
 
 func (r reasoningDetailsCodec) decodeDetails(raw []byte) ([]corechat.Part, error) {
 	var details []json.RawMessage
-	if err := json.Unmarshal(raw, &details); err != nil {
+	if err := jsonv2.Unmarshal(raw, &details); err != nil {
 		return nil, fmt.Errorf("%s: decode %s: %w", r.config.Provider, r.config.DetailsField, err)
 	}
 	parts := make([]corechat.Part, 0, len(details))
@@ -146,7 +148,7 @@ func (r reasoningDetailsCodec) decodeDetail(raw json.RawMessage) (corechat.Part,
 		Text    string `json:"text"`
 		Summary string `json:"summary"`
 	}
-	if err := json.Unmarshal(raw, &detail); err != nil {
+	if err := jsonv2.Unmarshal(raw, &detail); err != nil {
 		return corechat.Part{}, err
 	}
 	if detail.Type == "" {
@@ -234,7 +236,7 @@ func (r reasoningDetailsCodec) decodeFrames(signature []byte) ([]json.RawMessage
 			return nil, true, false, fmt.Errorf("frame length %d exceeds remaining %d bytes", payloadLength, len(signature)-offset)
 		}
 		raw := json.RawMessage(bytes.Clone(signature[offset : offset+payloadLength]))
-		if !json.Valid(raw) {
+		if !jsontext.Value(raw).IsValid() {
 			return nil, true, false, errors.New("frame contains invalid JSON")
 		}
 		if provider != r.config.Provider {
@@ -272,10 +274,10 @@ func coalesceReasoningDetailFrames(frames []json.RawMessage) ([]json.RawMessage,
 
 func mergeReasoningDetail(leftRaw, rightRaw json.RawMessage) (json.RawMessage, bool, error) {
 	var left, right map[string]json.RawMessage
-	if err := json.Unmarshal(leftRaw, &left); err != nil {
+	if err := jsonv2.Unmarshal(leftRaw, &left); err != nil {
 		return nil, false, err
 	}
-	if err := json.Unmarshal(rightRaw, &right); err != nil {
+	if err := jsonv2.Unmarshal(rightRaw, &right); err != nil {
 		return nil, false, err
 	}
 	if !sameReasoningDetailIdentity(left, right) {
@@ -293,13 +295,13 @@ func mergeReasoningDetail(leftRaw, rightRaw json.RawMessage) (json.RawMessage, b
 		if !rightOK {
 			continue
 		}
-		encoded, err := json.Marshal(leftValue + rightValue)
+		encoded, err := jsonv2.Marshal(leftValue + rightValue)
 		if err != nil {
 			return nil, false, err
 		}
 		left[field] = encoded
 	}
-	merged, err := json.Marshal(left)
+	merged, err := jsonv2.Marshal(left)
 	return merged, true, err
 }
 
@@ -317,7 +319,7 @@ func decodeOptionalString(raw json.RawMessage) (string, bool, error) {
 		return "", false, nil
 	}
 	var value string
-	if err := json.Unmarshal(raw, &value); err != nil {
+	if err := jsonv2.Unmarshal(raw, &value); err != nil {
 		return "", false, err
 	}
 	return value, true, nil

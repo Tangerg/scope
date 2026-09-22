@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"math"
 	"testing"
@@ -12,11 +13,11 @@ import (
 func TestSnapshotStrictlyRejectsUnknownFields(t *testing.T) {
 	snapshot := completedEngineTestSnapshot(t)
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(snapshot.JSON(), &fields); err != nil {
+	if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
 		t.Fatal(err)
 	}
 	fields["application_revision"] = json.RawMessage(`1`)
-	data, err := json.Marshal(fields)
+	data, err := jsonv2.Marshal(fields)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +78,7 @@ func TestProcessSnapshotOwnsMutableWire(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			encoded, err := json.Marshal(retained)
+			encoded, err := jsonv2.Marshal(retained)
 			if err != nil || !bytes.Equal(encoded, parsed.JSON()) {
 				t.Fatalf("wire mutation changed immutable snapshot facts: %v", err)
 			}
@@ -97,18 +98,18 @@ func TestPreparedSnapshotBindsCommittedExecutionState(t *testing.T) {
 			CandidateState  ExecutionState `json:"candidate_state"`
 		} `json:"prepared"`
 	}
-	if err := json.Unmarshal(snapshot.JSON(), &projection); err != nil {
+	if err := jsonv2.Unmarshal(snapshot.JSON(), &projection); err != nil {
 		t.Fatal(err)
 	}
-	committed, err := json.Marshal(snapshot.CommittedExecutionState())
+	committed, err := jsonv2.Marshal(snapshot.CommittedExecutionState())
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.Marshal(projection.CommittedState)
+	encoded, err := jsonv2.Marshal(projection.CommittedState)
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidate, err := json.Marshal(projection.Prepared.CandidateState)
+	candidate, err := jsonv2.Marshal(projection.Prepared.CandidateState)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,11 +130,11 @@ func TestPreparedSnapshotBindsCommittedExecutionState(t *testing.T) {
 func TestSnapshotRejectsRetiredUsageRepresentation(t *testing.T) {
 	snapshot := completedEngineTestSnapshot(t)
 	var wire map[string]json.RawMessage
-	if err := json.Unmarshal(snapshot.JSON(), &wire); err != nil {
+	if err := jsonv2.Unmarshal(snapshot.JSON(), &wire); err != nil {
 		t.Fatal(err)
 	}
 	wire["usage"] = json.RawMessage(`{"accepted_signals":0}`)
-	data, err := json.Marshal(wire)
+	data, err := jsonv2.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +156,7 @@ func TestSnapshotRejectsPreparedStepSequenceOverflow(t *testing.T) {
 	wire.Limits.Budget.Steps = NewQuota(math.MaxUint64)
 	wire.Prepared.StepSequence = 0
 	wire.Prepared.Effects[0].ID = wire.ProcessID.effectID(0, 0)
-	data, err := json.Marshal(wire)
+	data, err := jsonv2.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +173,7 @@ func TestSnapshotAccountsForPreparedEffectIdentities(t *testing.T) {
 	}
 	for _, count := range []uint64{0, 1, 2} {
 		wire.Counters.PreparedEffects = count
-		data, encodeErr := json.Marshal(wire)
+		data, encodeErr := jsonv2.Marshal(wire)
 		if encodeErr != nil {
 			t.Fatal(encodeErr)
 		}
@@ -227,7 +228,7 @@ func TestPreparedEffectPhaseAndSettlementMustAgree(t *testing.T) {
 	}
 	record := &wire.Prepared.Effects[0]
 	record.Phase = effectPhaseSettled
-	data, err := json.Marshal(wire)
+	data, err := jsonv2.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +293,7 @@ func TestSnapshotEnforcesSequentialEffectProgress(t *testing.T) {
 				t.Fatal(err)
 			}
 			wire.Counters.PreparedEffects = uint64(len(effects))
-			data, err := json.Marshal(wire)
+			data, err := jsonv2.Marshal(wire)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -315,7 +316,7 @@ func FuzzSnapshotJSONRoundTrip(f *testing.F) {
 		if err != nil {
 			return
 		}
-		encoded, err := json.Marshal(parsed)
+		encoded, err := jsonv2.Marshal(parsed)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -417,12 +418,12 @@ func TestSnapshotAndChildResultPreserveNullOutput(t *testing.T) {
 	for _, boundary := range []ChildWaitBoundary{ChildWaitBoundaryResult, ChildWaitBoundaryDrained} {
 		key, _ := ParseChildKey("null-child")
 		original := ChildOutcome{key: key, result: result, boundary: boundary}
-		data, err := json.Marshal(original)
+		data, err := jsonv2.Marshal(original)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var decoded ChildOutcome
-		if err := json.Unmarshal(data, &decoded); err != nil {
+		if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 			t.Fatal(err)
 		}
 		output, present := decoded.Result().Output()

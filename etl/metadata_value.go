@@ -3,6 +3,8 @@ package etl
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 
 	"github.com/Tangerg/scope/core/metadata"
 )
@@ -13,7 +15,7 @@ type metadataValue json.RawMessage
 
 func (m metadataValue) text() (string, error) {
 	value := bytes.TrimSpace(m)
-	if !json.Valid(value) {
+	if !jsontext.Value(value).IsValid() {
 		return "", metadata.ErrInvalidValue
 	}
 	if bytes.Equal(value, []byte("null")) {
@@ -21,13 +23,13 @@ func (m metadataValue) text() (string, error) {
 	}
 	if value[0] == '"' {
 		var text string
-		if err := json.Unmarshal(value, &text); err != nil {
+		if err := jsonv2.Unmarshal(value, &text); err != nil {
 			return "", err
 		}
 		return text, nil
 	}
-	var compact bytes.Buffer
-	if err := json.Compact(&compact, value); err != nil {
+	compact := jsontext.Value(value).Clone()
+	if err := compact.Compact(); err != nil {
 		return "", err
 	}
 	return compact.String(), nil

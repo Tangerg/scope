@@ -1,7 +1,7 @@
 package transcription_test
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -24,18 +24,18 @@ func TestJSONBoundaries(t *testing.T) {
 		t.Fatalf("SetExtension error = %v", err)
 	}
 
-	if _, err := json.Marshal(transcription.Options{Model: " invalid "}); !errors.Is(err, transcription.ErrInvalidOptions) {
+	if _, err := jsonv2.Marshal(transcription.Options{Model: " invalid "}); !errors.Is(err, transcription.ErrInvalidOptions) {
 		t.Fatalf("Marshal Options error = %v", err)
 	}
-	if _, err := json.Marshal(transcription.Request{}); !errors.Is(err, transcription.ErrInvalidRequest) {
+	if _, err := jsonv2.Marshal(transcription.Request{}); !errors.Is(err, transcription.ErrInvalidRequest) {
 		t.Fatalf("Marshal Request error = %v", err)
 	}
-	if _, err := json.Marshal(transcription.Response{}); !errors.Is(err, transcription.ErrInvalidResponse) {
+	if _, err := jsonv2.Marshal(transcription.Response{}); !errors.Is(err, transcription.ErrInvalidResponse) {
 		t.Fatalf("Marshal Response error = %v", err)
 	}
 
 	options := transcription.Options{Model: "keep"}
-	if err := json.Unmarshal([]byte(`{"model":" invalid "}`), &options); !errors.Is(err, transcription.ErrInvalidOptions) {
+	if err := jsonv2.Unmarshal([]byte(`{"model":" invalid "}`), &options); !errors.Is(err, transcription.ErrInvalidOptions) {
 		t.Fatalf("Unmarshal Options error = %v", err)
 	}
 	if options.Model != "keep" {
@@ -47,7 +47,7 @@ func TestJSONBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := transcription.Request{Audio: audio}
-	if unmarshalErr := json.Unmarshal([]byte(`{"audio":null}`), &request); !errors.Is(unmarshalErr, transcription.ErrInvalidRequest) {
+	if unmarshalErr := jsonv2.Unmarshal([]byte(`{"audio":null}`), &request); !errors.Is(unmarshalErr, transcription.ErrInvalidRequest) {
 		t.Fatalf("Unmarshal Request error = %v", unmarshalErr)
 	}
 	if request.Audio != audio {
@@ -62,7 +62,7 @@ func TestJSONBoundaries(t *testing.T) {
 		Output:   output,
 		Metadata: &transcription.ResponseMetadata{},
 	}
-	if err := json.Unmarshal([]byte(`{"output":null,"metadata":{}}`), &response); !errors.Is(err, transcription.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"output":null,"metadata":{}}`), &response); !errors.Is(err, transcription.ErrInvalidResponse) {
 		t.Fatalf("Unmarshal Response error = %v", err)
 	}
 	if response.Output != output {

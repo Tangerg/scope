@@ -1,7 +1,7 @@
 package oracle
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strconv"
 	"strings"
@@ -308,7 +308,7 @@ func selectorJSONPath(selector filter.Selector) (string, error) {
 			if keyErr != nil {
 				return "", keyErr
 			}
-			quoted, marshalErr := json.Marshal(key)
+			quoted, marshalErr := jsonv2.Marshal(key)
 			if marshalErr != nil {
 				return "", marshalErr
 			}

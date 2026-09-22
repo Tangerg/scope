@@ -2,7 +2,7 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -177,7 +177,7 @@ func (c *crossParentDefinition) Restore(ctx context.Context, state ExecutionStat
 		return nil, ErrInvalidExecutionState
 	}
 	var phase uint8
-	if err := json.Unmarshal(state.Payload(), &phase); err != nil {
+	if err := jsonv2.Unmarshal(state.Payload(), &phase); err != nil {
 		return nil, err
 	}
 	return &crossParentExecution{target: c.target, phase: phase}, nil
@@ -220,6 +220,6 @@ func (c *crossParentExecution) Step(_ context.Context, signals []Signal) (Transi
 }
 
 func (c *crossParentExecution) Snapshot() (ExecutionState, error) {
-	payload, _ := json.Marshal(c.phase)
+	payload, _ := jsonv2.Marshal(c.phase)
 	return NewExecutionState("test.cross_parent", payload)
 }

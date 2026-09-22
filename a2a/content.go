@@ -1,7 +1,7 @@
 package a2a
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
 
@@ -34,7 +34,7 @@ func (textProjection) parts(parts sdka2a.ContentParts) string {
 		case sdka2a.Text:
 			b.WriteString(string(content))
 		case sdka2a.Data:
-			if raw, err := json.Marshal(content.Value); err == nil {
+			if raw, err := jsonv2.Marshal(content.Value); err == nil {
 				b.Write(raw)
 			} else {
 				// Don't let the part vanish silently — leave a marker so the

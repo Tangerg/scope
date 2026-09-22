@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -398,7 +398,7 @@ func (s *Store) verifyVectorField(ctx context.Context) (err error) {
 			Properties map[string]storedVectorField `json:"properties"`
 		} `json:"mappings"`
 	}
-	if err := json.NewDecoder(response.Body).Decode(&mappings); err != nil {
+	if err := jsonv2.UnmarshalRead(response.Body, &mappings); err != nil {
 		return fmt.Errorf("elasticsearch: decode mapping for %q: %w", s.indexName, err)
 	}
 	if len(mappings) != 1 {
@@ -523,7 +523,7 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 		for index, doc := range docs {
 			id := doc.ID
 
-			actionLine, encErr := json.Marshal(bulkAction{
+			actionLine, encErr := jsonv2.Marshal(bulkAction{
 				Index: &bulkActionTarget{Index: s.indexName, ID: id},
 			})
 			if encErr != nil {
@@ -535,7 +535,7 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 				s.embeddingField: embedding.Float32Vector(vectors[index]),
 				s.metadataField:  doc.Metadata,
 			}
-			docLine, encErr := json.Marshal(docBody)
+			docLine, encErr := jsonv2.Marshal(docBody)
 			if encErr != nil {
 				return fmt.Errorf("elasticsearch: encode bulk doc: %w", encErr)
 			}
@@ -623,7 +623,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	}
 
 	var parsed searchResponse
-	if err = json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+	if err = jsonv2.UnmarshalRead(resp.Body, &parsed); err != nil {
 		return nil, fmt.Errorf("elasticsearch: decode search response: %w", err)
 	}
 	if err := s.checkSearchCompleteness(parsed); err != nil {
@@ -702,7 +702,7 @@ func (s *Store) parseDeleteByQueryResponse(response *esapi.Response) (err error)
 	}
 
 	var parsed deleteByQueryResponse
-	if err := json.NewDecoder(response.Body).Decode(&parsed); err != nil {
+	if err := jsonv2.UnmarshalRead(response.Body, &parsed); err != nil {
 		return fmt.Errorf("elasticsearch: decode delete_by_query response for %s: %w", s.indexName, err)
 	}
 	if failure := parsed.firstFailure(); failure != nil {
@@ -740,7 +740,7 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	var body bytes.Buffer
 	for _, id := range ids {
 		var actionLine []byte
-		actionLine, err = json.Marshal(bulkAction{
+		actionLine, err = jsonv2.Marshal(bulkAction{
 			Delete: &bulkActionTarget{Index: s.indexName, ID: id},
 		})
 		if err != nil {
@@ -815,7 +815,7 @@ func (s *Store) hitMetadata(hit searchHit) (metadata.Map, error) {
 		return nil, nil
 	}
 	var values metadata.Map
-	if err := json.Unmarshal(raw, &values); err != nil {
+	if err := jsonv2.Unmarshal(raw, &values); err != nil {
 		return nil, fmt.Errorf("elasticsearch: search hit %s field %q must be an object: %w",
 			hit.ID, s.metadataField, err)
 	}

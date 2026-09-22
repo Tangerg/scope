@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -90,7 +92,7 @@ func freezeDispatchStep(source DispatchStep) (dispatchStep, error) {
 		if !source.ExpectedEffect.Valid() {
 			return dispatchStep{}, agent.ErrInvalidEffect
 		}
-		encoded, err := json.Marshal(*source.ExpectedEffect)
+		encoded, err := jsonv2.Marshal(*source.ExpectedEffect)
 		if err != nil {
 			return dispatchStep{}, fmt.Errorf("encode expected Effect: %w", err)
 		}
@@ -98,7 +100,7 @@ func freezeDispatchStep(source DispatchStep) (dispatchStep, error) {
 	}
 	step.deltas = make([]json.RawMessage, len(source.Deltas))
 	for index, delta := range source.Deltas {
-		if !json.Valid(delta) {
+		if !jsontext.Value(delta).IsValid() {
 			return dispatchStep{}, fmt.Errorf("deltas[%d] is not valid JSON", index)
 		}
 		step.deltas[index] = bytes.Clone(delta)
@@ -112,7 +114,7 @@ func freezeDispatchStep(source DispatchStep) (dispatchStep, error) {
 	if !source.SettlementStatus.Valid() {
 		return dispatchStep{}, errors.New("settlement status is required")
 	}
-	if !json.Valid(source.SettlementPayload) {
+	if !jsontext.Value(source.SettlementPayload).IsValid() {
 		return dispatchStep{}, errors.New("settlement payload is not valid JSON")
 	}
 	step.settlementPayload = bytes.Clone(source.SettlementPayload)
@@ -177,7 +179,7 @@ func (d dispatchStep) matches(effect agent.Effect) (bool, error) {
 	if d.expectedEffectJSON == nil {
 		return true, nil
 	}
-	actual, err := json.Marshal(effect)
+	actual, err := jsonv2.Marshal(effect)
 	if err != nil {
 		return false, err
 	}

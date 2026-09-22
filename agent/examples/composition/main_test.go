@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -327,7 +327,7 @@ func TestCompositionRestoresEverySignalBoundary(t *testing.T) {
 	var opening, completion agenttest.ExecutionConformanceCase
 	for _, sample := range definition.samples {
 		var state compositionState
-		if err := json.Unmarshal(sample.State.Payload(), &state); err != nil {
+		if err := jsonv2.Unmarshal(sample.State.Payload(), &state); err != nil {
 			t.Fatal(err)
 		}
 		switch state.Phase {
@@ -368,13 +368,13 @@ func TestCompositionRestoresEverySignalBoundary(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			encoded, err := json.Marshal(sample.Signals[0])
+			encoded, err := jsonv2.Marshal(sample.Signals[0])
 			if err != nil {
 				t.Fatal(err)
 			}
 			encoded = bytes.ReplaceAll(encoded, []byte(`"composition"`), []byte(`"unrelated"`))
 			var signal agent.Signal
-			if err := json.Unmarshal(encoded, &signal); err != nil {
+			if err := jsonv2.Unmarshal(encoded, &signal); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := execution.Step(t.Context(), []agent.Signal{signal}); err == nil {
