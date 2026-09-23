@@ -5,7 +5,7 @@ go 1.27.0
 require (
 	github.com/Tangerg/scope/core v0.33.0
 	github.com/samber/lo v1.53.0
-	go.mongodb.org/mongo-driver/v2 v2.9.0
+	go.mongodb.org/mongo-driver/v2 v2.9.1
 )
 
 require (
