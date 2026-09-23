@@ -10,12 +10,16 @@ import (
 )
 
 func Example() {
-	store := new(inmemory.Store)
-	message := chat.NewUserMessage(chat.NewTextPart("hello"))
-	if _, err := store.Write(context.Background(), history.ConversationID("demo"), message); err != nil {
+	ctx := context.Background()
+	store, err := inmemory.NewStore(ctx, inmemory.StoreConfig{})
+	if err != nil {
 		panic(err)
 	}
-	messages, err := store.Read(context.Background(), history.ConversationID("demo"))
+	message := chat.NewUserMessage(chat.NewTextPart("hello"))
+	if _, err = store.Write(ctx, history.ConversationID("demo"), message); err != nil {
+		panic(err)
+	}
+	messages, err := store.Read(ctx, history.ConversationID("demo"))
 	if err != nil {
 		panic(err)
 	}

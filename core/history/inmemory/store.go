@@ -15,14 +15,30 @@ var (
 	_ history.Lister = (*Store)(nil)
 )
 
+// StoreConfig carries no settings: the store keeps every conversation in
+// process and reads nothing from its caller. It exists so this reference
+// implementation is constructed exactly like a backend store, which is what
+// lets a call site move between them unchanged.
+type StoreConfig struct{}
+
 // Store is a concurrent in-process history store suitable for tests,
-// development, and single-instance applications. Its zero value is ready to
-// use. Writes validate then snapshot messages before locking;
-// reads return deep caller-owned snapshots, and missing conversations behave as
-// empty histories.
+// development, and single-instance applications. Writes validate then snapshot
+// messages before locking; reads return deep caller-owned snapshots, and
+// missing conversations behave as empty histories.
 type Store struct {
 	mu       sync.RWMutex
 	messages map[history.ConversationID][]chat.Message
+}
+
+// NewStore builds the zero-dependency reference implementation. It exists so
+// the shared conformance suite and callers' tests have a store with no
+// external service, not as a production store: state lives in process and is
+// lost when it exits.
+//
+// The context is unused — there is no service to reach — and taken anyway so
+// construction has the same shape as external backend constructors.
+func NewStore(_ context.Context, _ StoreConfig) (*Store, error) {
+	return &Store{}, nil
 }
 
 func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (history.WriteOutcome, error) {

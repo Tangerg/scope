@@ -7,7 +7,7 @@
 // Tool results, reasoning, and final text cannot be split at the read boundary.
 // Optional cross-conversation and replacement capabilities remain separate
 // interfaces.
-// The zero-value-ready reference implementation lives in core/history/inmemory.
+// The reference implementation lives in core/history/inmemory.
 //
 // Conversation IDs are runtime scope carried with [WithConversationID], not
 // serialized request metadata. Middleware binds that scope to model calls.

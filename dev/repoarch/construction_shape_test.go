@@ -31,7 +31,10 @@ import (
 func TestStoresShareOneConstructionShape(t *testing.T) {
 	t.Parallel()
 
-	for _, family := range []string{"vectorstores", "historystores", "core/vectorstore/inmemory"} {
+	for _, family := range []string{
+		"vectorstores", "historystores",
+		"core/vectorstore/inmemory", "core/history/inmemory",
+	} {
 		t.Run(family, func(t *testing.T) {
 			t.Parallel()
 			assertStoreConstructionShape(t, family)
