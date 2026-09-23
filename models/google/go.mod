@@ -3,8 +3,8 @@ module github.com/Tangerg/scope/models/google
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.33.1-0.20260923180437-6f02e56ed30c
-	github.com/Tangerg/scope/models/protocol/openai v0.33.0
+	github.com/Tangerg/scope/core v0.36.0
+	github.com/Tangerg/scope/models/protocol/openai v0.36.0
 	github.com/go-resty/resty/v2 v2.17.2
 	google.golang.org/genai v1.71.0
 )
@@ -16,6 +16,7 @@ require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/coder/websocket v1.8.15 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -25,7 +26,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.24.1 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
-	github.com/openai/openai-go/v3 v3.58.0 // indirect
+	github.com/openai/openai-go/v3 v3.66.0 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	github.com/tidwall/gjson v1.19.0 // indirect
