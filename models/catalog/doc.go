@@ -41,6 +41,8 @@
 //   - deprecated marks a retired model, which stays in the catalog so cost
 //     still attributes for callers on the old id. A consumer hides or flags it.
 //
-// Rows are generated from models.dev, a community model database. Regeneration
-// is a repository change, which is why a lookup performs no I/O.
+// Rows are generated from two community model databases with disjoint
+// responsibilities: models.dev decides which models exist and supplies every
+// field except the reasoning effort ladder, and catwalk supplies that ladder.
+// Regeneration is a repository change, which is why a lookup performs no I/O.
 package catalog

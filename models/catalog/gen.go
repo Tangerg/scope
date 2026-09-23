@@ -1,11 +1,19 @@
 //go:build ignore
 
-// Command gen regenerates the embedded model catalog (configs/*.json)
-// from models.dev — a community model database (the same data behind
-// model profiles). Run it from this directory:
+// Command gen regenerates the embedded model catalog (configs/*.json) from two
+// community model databases. Run it from this directory:
 //
-//	go run gen.go                          # fetch live https://models.dev/api.json
-//	go run gen.go -source ./api.json       # or read a local snapshot
+//	go run gen.go                          # fetch both sources live
+//	go run gen.go -source ./api.json       # or read local snapshots
+//	go run gen.go -ladders ./catwalk.json
+//
+// Each source owns a disjoint set of facts, so no field has two origins that
+// could disagree:
+//
+//   - models.dev decides which models exist and carries everything about
+//     them except the reasoning effort ladder, of which it knows only a bool.
+//   - catwalk (the database behind Crush) carries the ladder, which is where
+//     this catalog's ladders were originally backfilled from.
 //
 // Pipeline:
 //
@@ -19,15 +27,14 @@
 //  3. Map each spec into a catalog.Model. The output is marshaled from
 //     the real struct, so the generated JSON can never drift from the Go
 //     type — that's the reason this is a Go program and not a script.
-//  4. Overlay augmentations.json for fields models.dev lacks. Today that's
-//     only reasoning effort levels (models.dev has a bare reasoning bool);
-//     the file is the seam to hand-fill anything upstream is missing,
-//     mirroring profile_augmentations. Every entry has to reach a model the
-//     source still lists, so a run fails rather than quietly carrying a
-//     hand-fill for a retired model.
+//  4. Attach the effort ladder catwalk publishes for that provider's model.
+//     augmentations.json fills a ladder catwalk does not have, mirroring
+//     LangChain's profile_augmentations approach; an entry that catwalk
+//     later covers fails the run rather than persisting as a second copy.
 //
 // To add a provider: add it to providerMap (left = models.dev provider id,
-// right = the adapter's Provider const, lowercased) and re-run.
+// right = the adapter's Provider const, lowercased), add it to
+// catwalkProviderMap if catwalk serves the same endpoint, and re-run.
 package main
 
 import (
@@ -48,8 +55,9 @@ import (
 )
 
 const (
-	defaultSource      = "https://models.dev/api.json"
-	maximumSourceBytes = int64(32 * 1024 * 1024)
+	defaultSource       = "https://models.dev/api.json"
+	defaultLadderSource = "https://catwalk.charm.sh/v2/providers"
+	maximumSourceBytes  = int64(32 * 1024 * 1024)
 )
 
 // providerMap maps a models.dev provider id to our config/provider name
@@ -78,6 +86,35 @@ var providerMap = map[string]string{
 	"perplexity":     "perplexity",
 	"togetherai":     "together",
 	"xiaomi":         "xiaomi",
+}
+
+// catwalkProviderMap maps our provider name to the catwalk provider serving
+// the same endpoint. A provider absent here has no catwalk counterpart, so its
+// models carry no effort ladder unless augmentations.json supplies one.
+//
+// The mapping is one-to-one on purpose. catwalk also publishes regional and
+// plan-specific twins (bedrock-europe, alibaba-us, zhipu-coding, minimax-china)
+// whose model ids overlap their primary, and merging them would need a rule for
+// which twin wins — a rule that only exists because two sources could advance
+// the same fact. The twins add a handful of models; the ambiguity is not worth
+// them.
+var catwalkProviderMap = map[string]string{
+	"anthropic":     "anthropic",
+	"openai":        "openai",
+	"google":        "gemini",
+	"vertexai":      "vertexai",
+	"deepseek":      "deepseek",
+	"groq":          "groq",
+	"xai":           "xai",
+	"zhipu":         "zhipu",
+	"minimax":       "minimax",
+	"moonshot":      "moonshot",
+	"azureopenai":   "azure",
+	"amazonbedrock": "bedrock",
+	"fireworks":     "fireworks",
+	"huggingface":   "huggingface",
+	"openrouter":    "openrouter",
+	"alibaba":       "alibaba-singapore",
 }
 
 // officialModelIDs corrects an upstream id that does not match the one the
@@ -125,7 +162,7 @@ func (a apiModel) isChat() bool {
 	return true
 }
 
-func (a apiModel) modelInfo(aug augEntry) modelcatalog.Model {
+func (a apiModel) modelInfo(ladder modelcatalog.Reasoning) modelcatalog.Model {
 	info := modelcatalog.Model{
 		ID:               a.ID,
 		DisplayName:      a.Name,
@@ -146,14 +183,11 @@ func (a apiModel) modelInfo(aug augEntry) modelcatalog.Model {
 			MaxOutputTokens: a.Limit.Output,
 		},
 	}
+	// models.dev owns whether a model reasons at all; the ladder is only
+	// meaningful for one that does.
 	if a.Reasoning {
-		// models.dev only knows whether a model reasons; effort levels
-		// come from the augmentation file.
-		info.Reasoning = modelcatalog.Reasoning{
-			Supported:    true,
-			Levels:       aug.Levels,
-			DefaultLevel: aug.DefaultLevel,
-		}
+		ladder.Supported = true
+		info.Reasoning = ladder
 	}
 	return info
 }
@@ -224,14 +258,61 @@ type augEntry struct {
 	DefaultLevel string   `json:"default_level"`
 }
 
+// catwalkProvider mirrors the subset of a catwalk provider consumed here.
+type catwalkProvider struct {
+	ID     string         `json:"id"`
+	Models []catwalkModel `json:"models"`
+}
+
+type catwalkModel struct {
+	ID              string   `json:"id"`
+	ReasoningLevels []string `json:"reasoning_levels"`
+	DefaultEffort   string   `json:"default_reasoning_effort"`
+}
+
+// effortLadders owns the reasoning effort ladder, keyed by our provider name
+// then upstream model id.
+//
+// models.dev knows only whether a model reasons, so the ladder comes from
+// catwalk — the database behind Crush, and the source this catalog's ladders
+// were originally backfilled from.
+//
+// A ladder is read within one provider and never borrowed across providers.
+// The same model reached through two endpoints can take a different default:
+// claude-opus-4-6 defaults to high direct from Anthropic and to medium through
+// Vertex, so a cross-provider fallback would publish a number no endpoint
+// actually uses.
+type effortLadders struct {
+	byProvider map[string]map[string]modelcatalog.Reasoning
+}
+
+func (e *effortLadders) lookup(provider, id string) (modelcatalog.Reasoning, bool) {
+	reasoning, ok := e.byProvider[provider][catwalkModelID(provider, id)]
+	return reasoning, ok
+}
+
+// catwalkModelID reconciles the one id spelling the two sources disagree on:
+// models.dev qualifies a Vertex model with the version it is pinned to
+// (claude-opus-4-6@default), catwalk names the model alone. The qualifier
+// selects a deployment, not a different ladder.
+func catwalkModelID(provider, id string) string {
+	if provider != "vertexai" {
+		return id
+	}
+	name, _, _ := strings.Cut(id, "@")
+	return name
+}
+
 // overlay is a hand-maintained correction to the source, keyed by our provider
 // name then upstream model id.
 //
-// Every entry has to reach a generated model. Upstream retires and renames
-// models between regenerations, and an entry that reaches nothing is curated
-// knowledge about a model that no longer exists — indistinguishable from a
-// typo, and invisible unless the generator says so. take records what it hands
-// out; deadEntries reports the rest, which main turns into a failure.
+// Every entry has to reach a generated model. An entry goes unused when
+// upstream retires or renames its model, and an effort ladder also goes unused
+// once catwalk starts publishing one for that model — at which point keeping
+// the local copy would leave two sources able to advance the same fact. Either
+// way the entry is now indistinguishable from a typo, and invisible unless the
+// generator says so, so take records what it hands out and deadEntries reports
+// the rest, which main turns into a failure.
 type overlay[T any] struct {
 	label   string
 	entries map[string]map[string]T
@@ -291,11 +372,16 @@ type config struct {
 
 func main() {
 	source := flag.String("source", defaultSource, "models.dev api.json URL or local file path")
+	ladderSource := flag.String("ladders", defaultLadderSource, "catwalk providers URL or local file path")
 	flag.Parse()
 
 	api, err := loadAPI(*source)
 	if err != nil {
 		fail("load %s: %v", *source, err)
+	}
+	ladders, err := loadEffortLadders(*ladderSource)
+	if err != nil {
+		fail("load %s: %v", *ladderSource, err)
 	}
 	augs, err := loadAugmentations("augmentations.json")
 	if err != nil {
@@ -320,7 +406,12 @@ func main() {
 			if officialID := officialIDs.take(provider, m.ID); officialID != "" {
 				m.ID = officialID
 			}
-			models = append(models, m.modelInfo(augs.take(provider, id)))
+			ladder, ok := ladders.lookup(provider, id)
+			if !ok {
+				aug := augs.take(provider, id)
+				ladder = modelcatalog.Reasoning{Levels: aug.Levels, DefaultLevel: aug.DefaultLevel}
+			}
+			models = append(models, m.modelInfo(ladder))
 		}
 		slices.SortFunc(models, func(a, b modelcatalog.Model) int {
 			return cmp.Compare(a.ID, b.ID)
@@ -328,7 +419,7 @@ func main() {
 		generated[provider] = models
 	}
 	if dead := deadOverlayEntries(augs, officialIDs); len(dead) > 0 {
-		fail("overlays describe models the source no longer has: %s", strings.Join(dead, ", "))
+		fail("overlay entries reached no generated model: %s", strings.Join(dead, ", "))
 	}
 
 	for provider, models := range generated {
@@ -363,27 +454,28 @@ func toModalities(in []string) []modelcatalog.Modality {
 	return out
 }
 
-func loadAPI(source string) (map[string]apiProvider, error) {
-	var raw []byte
-	var err error
+func fetchSource(source string) ([]byte, error) {
 	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
-		resp, e := http.Get(source)
-		if e != nil {
-			return nil, e
+		resp, err := http.Get(source)
+		if err != nil {
+			return nil, err
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("catalog.fetchSource: HTTP status %s", resp.Status)
+			return nil, fmt.Errorf("fetch %s: HTTP status %s", source, resp.Status)
 		}
-		raw, err = readSource(resp.Body)
-	} else {
-		var file *os.File
-		file, err = os.Open(source)
-		if err == nil {
-			defer file.Close()
-			raw, err = readSource(file)
-		}
+		return readSource(resp.Body)
 	}
+	file, err := os.Open(source)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return readSource(file)
+}
+
+func loadAPI(source string) (map[string]apiProvider, error) {
+	raw, err := fetchSource(source)
 	if err != nil {
 		return nil, err
 	}
@@ -392,6 +484,42 @@ func loadAPI(source string) (map[string]apiProvider, error) {
 		return nil, err
 	}
 	return api, nil
+}
+
+func loadEffortLadders(source string) (*effortLadders, error) {
+	raw, err := fetchSource(source)
+	if err != nil {
+		return nil, err
+	}
+	var providers []catwalkProvider
+	if err := jsonv2.Unmarshal(raw, &providers); err != nil {
+		return nil, err
+	}
+	byCatwalkID := make(map[string]catwalkProvider, len(providers))
+	for _, provider := range providers {
+		byCatwalkID[provider.ID] = provider
+	}
+
+	ladders := &effortLadders{byProvider: make(map[string]map[string]modelcatalog.Reasoning, len(catwalkProviderMap))}
+	for provider, catwalkID := range catwalkProviderMap {
+		source, ok := byCatwalkID[catwalkID]
+		if !ok {
+			return nil, fmt.Errorf("catwalk provider %q not in source", catwalkID)
+		}
+		byModel := make(map[string]modelcatalog.Reasoning)
+		for _, model := range source.Models {
+			if len(model.ReasoningLevels) == 0 {
+				continue
+			}
+			byModel[model.ID] = modelcatalog.Reasoning{
+				Supported:    true,
+				Levels:       model.ReasoningLevels,
+				DefaultLevel: model.DefaultEffort,
+			}
+		}
+		ladders.byProvider[provider] = byModel
+	}
+	return ladders, nil
 }
 
 func loadAugmentations(path string) (*overlay[augEntry], error) {
