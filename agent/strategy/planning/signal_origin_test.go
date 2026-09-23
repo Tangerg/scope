@@ -16,7 +16,7 @@ func TestExternalSignalsCannotAdvanceSensingOrActions(t *testing.T) {
 		t.Fatal("external sensing result reached the planner")
 		return Plan{}, false, nil
 	}), nil)
-	for _, current := range []phase{phaseAwaitingSense, phaseAwaitingAction} {
+	for _, current := range []phase{phaseReadySense, phaseAwaitingSense, phaseAwaitingAction} {
 		t.Run(string(current), func(t *testing.T) {
 			state := executionState{Phase: current, Input: json.RawMessage(`{}`)}
 			payload, err := senseSignal(WorldState{}, nil)
@@ -49,8 +49,16 @@ func TestExternalSignalsCannotAdvanceSensingOrActions(t *testing.T) {
 			if decodeErr := jsonv2.Unmarshal(wire, &signal); decodeErr != nil {
 				t.Fatal(decodeErr)
 			}
-			if _, stepErr := execution.Step(t.Context(), []agent.Signal{signal}); !errors.Is(stepErr, ErrInvalidProtocol) {
+			_, stepErr := execution.Step(t.Context(), []agent.Signal{signal})
+			if !errors.Is(stepErr, ErrInvalidProtocol) {
 				t.Fatalf("external settlement was accepted: %v", stepErr)
+			}
+			// Every phase must reject through the same persisted classification;
+			// an unclassified rejection reaches the Host as execution.step.failed.
+			classified, ok := errors.AsType[*agent.StepError](stepErr)
+			if !ok || classified.Failure.Kind() != agent.FailureKindContract ||
+				classified.Failure.Code() != "planning.protocol.invalid" {
+				t.Fatalf("rejection classification = %v", stepErr)
 			}
 			after, err := execution.Snapshot()
 			if err != nil {

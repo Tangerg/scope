@@ -33,7 +33,7 @@ func (f firstSuccessState) validate(ctx context.Context, maxCandidates uint32) e
 		return err
 	}
 	if len(f.Candidates) == 0 || uint64(len(f.Candidates)) > uint64(maxCandidates) || len(f.Starts) > len(f.Candidates) {
-		return fmt.Errorf("%w: candidate or start count exceeds its bound", ErrInvalidState)
+		return fmt.Errorf("%w: candidate or start count exceeds its bound", ErrInvalidExecutionState)
 	}
 	keys := make(map[agent.ChildKey]struct{}, len(f.Candidates))
 	for _, candidate := range f.Candidates {
@@ -41,10 +41,10 @@ func (f firstSuccessState) validate(ctx context.Context, maxCandidates uint32) e
 			return err
 		}
 		if !candidate.Valid() {
-			return fmt.Errorf("%w: invalid candidate", ErrInvalidState)
+			return fmt.Errorf("%w: invalid candidate", ErrInvalidExecutionState)
 		}
 		if _, duplicate := keys[candidate.Key]; duplicate {
-			return fmt.Errorf("%w: duplicate candidate key", ErrInvalidState)
+			return fmt.Errorf("%w: duplicate candidate key", ErrInvalidExecutionState)
 		}
 		keys[candidate.Key] = struct{}{}
 	}
@@ -52,16 +52,16 @@ func (f firstSuccessState) validate(ctx context.Context, maxCandidates uint32) e
 		pending := f
 		pending.Starts, pending.Outcomes, pending.WaitID = nil, nil, nil
 		if _, err := pending.batch().AcceptStarts(f.Starts); err != nil {
-			return fmt.Errorf("%w: %w", ErrInvalidState, err)
+			return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 		}
 	}
 	unobserved := f
 	unobserved.Outcomes, unobserved.WaitID = nil, nil
 	if _, err := unobserved.batch().MatchOutcomes(f.Outcomes); err != nil {
-		return fmt.Errorf("%w: observed outcomes: %w", ErrInvalidState, err)
+		return fmt.Errorf("%w: observed outcomes: %w", ErrInvalidExecutionState, err)
 	}
 	if f.Phase != competitionCompleted && f.Winner != nil {
-		return fmt.Errorf("%w: unfinished competition contains a winner", ErrInvalidState)
+		return fmt.Errorf("%w: unfinished competition contains a winner", ErrInvalidExecutionState)
 	}
 	return f.validatePhase()
 }
@@ -70,37 +70,37 @@ func (f firstSuccessState) validatePhase() error {
 	switch f.Phase {
 	case competitionReady:
 		if len(f.Starts) != 0 || len(f.Outcomes) != 0 || f.WaitID != nil {
-			return fmt.Errorf("%w: ready competition retains progress", ErrInvalidState)
+			return fmt.Errorf("%w: ready competition retains progress", ErrInvalidExecutionState)
 		}
 	case competitionAwaitingStarts:
 		if len(f.Starts) >= len(f.Candidates) {
-			return fmt.Errorf("%w: awaiting starts has no pending candidate", ErrInvalidState)
+			return fmt.Errorf("%w: awaiting starts has no pending candidate", ErrInvalidExecutionState)
 		}
 		if len(f.Outcomes) != 0 || f.WaitID != nil {
-			return fmt.Errorf("%w: outcomes or wait precede completed starts", ErrInvalidState)
+			return fmt.Errorf("%w: outcomes or wait precede completed starts", ErrInvalidExecutionState)
 		}
 	case competitionAwaitingOpen, competitionWaiting:
 		if len(f.Starts) != len(f.Candidates) {
-			return fmt.Errorf("%w: competition wait precedes completed starts", ErrInvalidState)
+			return fmt.Errorf("%w: competition wait precedes completed starts", ErrInvalidExecutionState)
 		}
 		if len(f.remaining()) == 0 {
-			return fmt.Errorf("%w: competition wait has no remaining candidate", ErrInvalidState)
+			return fmt.Errorf("%w: competition wait has no remaining candidate", ErrInvalidExecutionState)
 		}
 		if f.Phase == competitionAwaitingOpen && f.WaitID != nil {
-			return fmt.Errorf("%w: unopened wait already has a WaitID", ErrInvalidState)
+			return fmt.Errorf("%w: unopened wait already has a WaitID", ErrInvalidExecutionState)
 		}
 		if f.Phase == competitionWaiting && (f.WaitID == nil || !f.WaitID.Valid()) {
-			return fmt.Errorf("%w: waiting competition requires a valid WaitID", ErrInvalidState)
+			return fmt.Errorf("%w: waiting competition requires a valid WaitID", ErrInvalidExecutionState)
 		}
 	case competitionCompleted:
 		if len(f.Starts) != len(f.Candidates) || f.WaitID != nil {
-			return fmt.Errorf("%w: completed competition retains pending starts or wait", ErrInvalidState)
+			return fmt.Errorf("%w: completed competition retains pending starts or wait", ErrInvalidExecutionState)
 		}
 		if !f.result().Valid() {
-			return fmt.Errorf("%w: completed competition has an invalid result", ErrInvalidState)
+			return fmt.Errorf("%w: completed competition has an invalid result", ErrInvalidExecutionState)
 		}
 	default:
-		return fmt.Errorf("%w: unknown competition phase %q", ErrInvalidState, f.Phase)
+		return fmt.Errorf("%w: unknown competition phase %q", ErrInvalidExecutionState, f.Phase)
 	}
 	return nil
 }

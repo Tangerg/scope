@@ -12,7 +12,11 @@ var ErrResourceLimitExceeded = errors.New("agent: resource limit exceeded")
 
 // ErrCounterExhausted reports exhausted numeric identity or accounting space,
 // independently of the Host's quota policy. Work stops before a counter wraps.
-var ErrCounterExhausted = errors.New("agent: counter exhausted")
+// Strategies exhausting their own counters report this same fact and therefore
+// share its classification instead of renaming it per package.
+var ErrCounterExhausted = NewClassifiedError(
+	FailureKindExecution, failureCodeEngineCounterExhausted, "agent: counter exhausted",
+)
 
 const (
 	defaultMaxPendingSignals uint64 = 10_000

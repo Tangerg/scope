@@ -82,7 +82,7 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 						t.Fatal(err)
 					}
 					mutate(&altered)
-					if _, err := definition.Restore(t.Context(), require(agent.NewExecutionState(stateKind, require(jsonv2.Marshal(altered))))); !errors.Is(err, ErrInvalidState) {
+					if _, err := definition.Restore(t.Context(), require(agent.NewExecutionState(stateKind, require(jsonv2.Marshal(altered))))); !errors.Is(err, ErrInvalidExecutionState) {
 						t.Fatalf("contradictory failure state accepted: %v", err)
 					}
 				})

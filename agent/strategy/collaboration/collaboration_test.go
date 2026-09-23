@@ -2,6 +2,7 @@ package collaboration
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 	"testing/synctest"
@@ -204,7 +205,22 @@ func TestAddressedInputWakesWaitingCollaboration(t *testing.T) {
 
 func TestDefinitionConformance(t *testing.T) {
 	definition, _ := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
-	agenttest.RunDefinitionConformance(t, agenttest.DefinitionConformanceConfig{Definition: definition, Input: input("initial")})
+	initial := input("initial")
+	state := require(require(definition.Start(initial)).Snapshot())
+	var unsolicited agent.Signal
+	if err := jsonv2.Unmarshal([]byte(`{"id":"signal:unsolicited","payload":"x"}`), &unsolicited); err != nil {
+		t.Fatal(err)
+	}
+	agenttest.RunDefinitionConformance(t, agenttest.DefinitionConformanceConfig{
+		Definition: definition, Input: initial,
+		RejectedCases: []agenttest.RejectedStepConformanceCase{{
+			Name:        "unsolicited Signal before the first turn",
+			State:       state,
+			Signals:     []agent.Signal{unsolicited},
+			FailureKind: agent.FailureKindContract,
+			FailureCode: "collaboration.protocol.invalid",
+		}},
+	})
 }
 
 func TestNullCompletionSurvivesTreeRecovery(t *testing.T) {

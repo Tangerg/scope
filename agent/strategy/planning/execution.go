@@ -25,26 +25,10 @@ type execution struct {
 // inside this method.
 func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	transition, err := e.step(ctx, signals)
-	if err == nil {
-		return transition, nil
+	if err != nil {
+		return agent.Transition{}, agent.ClassifyStepError(err)
 	}
-	var kind agent.FailureKind
-	var code string
-	switch {
-	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		return agent.Transition{}, err
-	case errors.Is(err, ErrInvalidProtocol):
-		kind, code = agent.FailureKindContract, failureCodePlanningProtocolInvalid
-	case errors.Is(err, ErrInvalidExecutionState):
-		kind, code = agent.FailureKindContract, failureCodePlanningStateInvalid
-	default:
-		return agent.Transition{}, err
-	}
-	failure, failureErr := agent.NewFailure(kind, code, agent.NormalizeDiagnostic(err.Error()))
-	if failureErr != nil {
-		return agent.Transition{}, failureErr
-	}
-	return agent.Transition{}, &agent.StepError{Failure: failure, Cause: err}
+	return transition, nil
 }
 
 func (e *execution) step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
@@ -57,7 +41,7 @@ func (e *execution) step(ctx context.Context, signals []agent.Signal) (agent.Tra
 	switch e.state.Phase {
 	case phaseReadySense:
 		if len(signals) != 0 {
-			return agent.Transition{}, errors.New("planning: initial sensing does not accept Signals")
+			return agent.Transition{}, fmt.Errorf("%w: initial sensing does not accept Signals", ErrInvalidProtocol)
 		}
 		return e.requestSense(0)
 	case phaseAwaitingSense:
@@ -216,7 +200,9 @@ func (e *execution) startAction(
 		e.state.Phase = phaseChild
 		return agent.Continue(consumedSignals, effect)
 	default:
-		return agent.Transition{}, ErrInvalidAction
+		// The Definition validated every binding target, so an unknown one is a
+		// disagreement between restored state and that Definition.
+		return agent.Transition{}, fmt.Errorf("%w: Action %q has an unknown binding target", ErrInvalidExecutionState, binding.action.name)
 	}
 }
 
@@ -352,8 +338,6 @@ func planningIdentity(action string, attempt uint64) string {
 }
 
 const (
-	failureCodePlanningProtocolInvalid        = "planning.protocol.invalid"
-	failureCodePlanningStateInvalid           = "planning.state.invalid"
 	failureCodePlanningChildInputFailed       = "planning.child.input.failed"
 	failureCodePlanningChildInputInvalid      = "planning.child.input.invalid"
 	failureCodePlanningChildUnresolvedEffects = "planning.child.unresolved_effects"

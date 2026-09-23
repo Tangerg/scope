@@ -149,7 +149,7 @@ func (d *Definition) Restore(ctx context.Context, state agent.ExecutionState) (a
 	}
 	decoded, err := state.Decode[executionState](stateKind)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidState, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err

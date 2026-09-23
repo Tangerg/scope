@@ -3,6 +3,8 @@ package interaction
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
+	"errors"
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -64,4 +66,34 @@ func FuzzToolExecutionStateRestore(f *testing.F) {
 			t.Fatalf("Tool continuation changed during round trip: %v", captureErr)
 		}
 	})
+}
+
+// A Tool child and its parent Interaction reject the same domain violation, so
+// they must persist the same Failure. Divergence here reaches the Host as two
+// unrelated codes for one contract.
+func TestToolAndInteractionShareRejectionClassification(t *testing.T) {
+	var unsolicited agent.Signal
+	if err := jsonv2.Unmarshal([]byte(`{"id":"signal:unsolicited","payload":"x"}`), &unsolicited); err != nil {
+		t.Fatal(err)
+	}
+	call := toolCall{ModelCallSequence: 1, Call: chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}}
+	for _, sample := range []struct {
+		name      string
+		execution agent.Execution
+	}{
+		{"tool", &toolExecution{state: toolExecutionState{Phase: toolReady, Call: call}}},
+		{"interaction", &execution{state: executionState{Phase: phaseCompleted}}},
+	} {
+		t.Run(sample.name, func(t *testing.T) {
+			_, stepErr := sample.execution.Step(t.Context(), []agent.Signal{unsolicited})
+			classified, ok := errors.AsType[*agent.StepError](stepErr)
+			if !ok {
+				t.Fatalf("unclassified rejection: %v", stepErr)
+			}
+			if classified.Failure.Kind() != agent.FailureKindContract ||
+				classified.Failure.Code() != "interaction.state.invalid" {
+				t.Fatalf("classification = %s/%s", classified.Failure.Kind(), classified.Failure.Code())
+			}
+		})
+	}
 }

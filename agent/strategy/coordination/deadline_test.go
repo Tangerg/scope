@@ -133,11 +133,9 @@ func TestDeadlineAcceptsPastInstantAndRejectsZero(t *testing.T) {
 
 func TestDeadlineDefinitionConformance(t *testing.T) {
 	deployment := deadlineBinding(t, coordination.Timer{})
-	config := agenttest.DefinitionConformanceConfig{
-		Definition: deployment.Definition(), Input: encodedInput(t, time.Date(2026, time.September, 9, 12, 0, 0, 0, time.UTC)),
-	}
-	agenttest.RunDefinitionConformance(t, config)
-	execution, err := config.Definition.Start(config.Input)
+	definition := deployment.Definition()
+	input := encodedInput(t, time.Date(2026, time.September, 9, 12, 0, 0, 0, time.UTC))
+	execution, err := definition.Start(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,6 +143,17 @@ func TestDeadlineDefinitionConformance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	config := agenttest.DefinitionConformanceConfig{
+		Definition: definition, Input: input,
+		RejectedCases: []agenttest.RejectedStepConformanceCase{{
+			Name:        "unsolicited Signal before the timer",
+			State:       state,
+			Signals:     []agent.Signal{externalSignal(t, "", "unsolicited")},
+			FailureKind: agent.FailureKindContract,
+			FailureCode: "coordination.protocol.invalid",
+		}},
+	}
+	agenttest.RunDefinitionConformance(t, config)
 	conformancetest.CheckRestoreCancellation(t, config.Definition, state)
 }
 

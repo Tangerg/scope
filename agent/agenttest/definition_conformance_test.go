@@ -194,9 +194,34 @@ func TestDefinitionConformanceValidatesEveryConfiguredSignalBatch(t *testing.T) 
 		{"restored following", func(config *DefinitionConformanceConfig) {
 			config.RestoredCases[0].FollowingSignals = [][]agent.Signal{nil, {{}}}
 		}, "restored case \"sample\" Signals: batch 2 signal 0 is invalid"},
+		{"rejected name", func(config *DefinitionConformanceConfig) {
+			config.RejectedCases[0].Name = " padded"
+		}, "rejected case 0 has an invalid name"},
+		{"rejected duplicate", func(config *DefinitionConformanceConfig) {
+			config.RejectedCases = append(config.RejectedCases, config.RejectedCases[0])
+		}, "rejected case name \"rejected\" is duplicated"},
+		{"rejected state", func(config *DefinitionConformanceConfig) {
+			config.RejectedCases[0].State = agent.ExecutionState{}
+		}, "rejected case \"rejected\" has an invalid state"},
+		{"rejected signals", func(config *DefinitionConformanceConfig) {
+			config.RejectedCases[0].Signals = []agent.Signal{{}}
+		}, "rejected case \"rejected\" Signals: batch 0 signal 0 is invalid"},
+		{"rejected kind", func(config *DefinitionConformanceConfig) {
+			config.RejectedCases[0].FailureKind = agent.FailureKindInvalid
+		}, "rejected case \"rejected\" must name the exact Failure kind and code"},
+		{"rejected code", func(config *DefinitionConformanceConfig) {
+			config.RejectedCases[0].FailureCode = "Rejected"
+		}, "rejected case \"rejected\" must name the exact Failure kind and code"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			config := DefinitionConformanceConfig{Definition: definition, Input: input, RestoredCases: []ExecutionConformanceCase{{Name: "sample", State: state}}}
+			config := DefinitionConformanceConfig{
+				Definition: definition, Input: input,
+				RestoredCases: []ExecutionConformanceCase{{Name: "sample", State: state}},
+				RejectedCases: []RejectedStepConformanceCase{{
+					Name: "rejected", State: state,
+					FailureKind: agent.FailureKindContract, FailureCode: "agenttest.rejected",
+				}},
+			}
 			test.mutate(&config)
 			if err := validateDefinitionConformanceConfig(config); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("invalid config error = %v, want %q", err, test.want)
@@ -249,4 +274,106 @@ func TestEquivalentStateIgnoresObjectMemberOrder(t *testing.T) {
 	if err := requireEquivalent("state", left, right); !errors.Is(err, errConformanceValuesDiffer) {
 		t.Fatalf("changed state = %v, want conformance mismatch", err)
 	}
+}
+
+// rejectingDefinition returns one configured Step outcome so the rejection
+// check can be exercised against every shape a Definition might produce.
+type rejectingDefinition struct {
+	descriptor agent.Descriptor
+	err        error
+}
+
+func newRejectingDefinition(t *testing.T, err error) *rejectingDefinition {
+	t.Helper()
+	schema, schemaErr := agent.SchemaFor[definitionConformanceInput]()
+	if schemaErr != nil {
+		t.Fatal(schemaErr)
+	}
+	descriptor, descriptorErr := agent.NewDescriptor(agent.DescriptorConfig{
+		Name:         "agenttest.rejecting",
+		Description:  "Exercise rejected-Step conformance checks.",
+		InputSchema:  schema,
+		OutputSchema: schema,
+	})
+	if descriptorErr != nil {
+		t.Fatal(descriptorErr)
+	}
+	return &rejectingDefinition{descriptor: descriptor, err: err}
+}
+
+func (r *rejectingDefinition) Descriptor() agent.Descriptor { return r.descriptor }
+
+func (r *rejectingDefinition) Start(agent.Payload) (agent.Execution, error) {
+	return &rejectingExecution{err: r.err}, nil
+}
+
+func (r *rejectingDefinition) Restore(context.Context, agent.ExecutionState) (agent.Execution, error) {
+	return &rejectingExecution{err: r.err}, nil
+}
+
+type rejectingExecution struct{ err error }
+
+func (r *rejectingExecution) Step(context.Context, []agent.Signal) (agent.Transition, error) {
+	if r.err == nil {
+		return agent.Continue(0)
+	}
+	return agent.Transition{}, r.err
+}
+
+func (r *rejectingExecution) Snapshot() (agent.ExecutionState, error) {
+	payload, err := jsonv2.Marshal(definitionConformanceInput{})
+	if err != nil {
+		return agent.ExecutionState{}, err
+	}
+	return agent.NewExecutionState("agenttest.rejecting", payload)
+}
+
+func TestVerifyRejectedStepRequiresAStableClassification(t *testing.T) {
+	declared, err := agent.NewFailure(agent.FailureKindContract, "agenttest.rejected", "rejected")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := (&rejectingExecution{}).Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sample := RejectedStepConformanceCase{
+		Name: "sample", State: state,
+		FailureKind: agent.FailureKindContract, FailureCode: "agenttest.rejected",
+	}
+	if verifyErr := verifyRejectedStep(t.Context(),
+		newRejectingDefinition(t, &agent.StepError{Failure: declared}), sample,
+	); verifyErr != nil {
+		t.Fatalf("a correctly classified rejection failed: %v", verifyErr)
+	}
+	for _, test := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"accepted", nil, "instead of a classified Failure"},
+		{"unclassified", errors.New("plain failure"), "unclassified error"},
+		{"invalid failure", &agent.StepError{}, "invalid Failure"},
+		{
+			"wrong classification",
+			&agent.StepError{Failure: mustFailure(t, agent.FailureKindExecution, "agenttest.other")},
+			"want contract/agenttest.rejected",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			verifyErr := verifyRejectedStep(t.Context(), newRejectingDefinition(t, test.err), sample)
+			if verifyErr == nil || !strings.Contains(verifyErr.Error(), test.want) {
+				t.Fatalf("rejection check error = %v, want %q", verifyErr, test.want)
+			}
+		})
+	}
+}
+
+func mustFailure(t *testing.T, kind agent.FailureKind, code string) agent.Failure {
+	t.Helper()
+	failure, err := agent.NewFailure(kind, code, "diagnostic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return failure
 }

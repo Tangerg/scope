@@ -70,7 +70,7 @@ func (d *Deadline) Restore(ctx context.Context, state agent.ExecutionState) (age
 	}
 	decoded, err := state.Decode[deadlineState](deadlineStateKind)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidState, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -99,10 +99,10 @@ type deadlineState struct {
 
 func (d deadlineState) validate() error {
 	if d.Deadline.IsZero() {
-		return fmt.Errorf("%w: absolute deadline is required", ErrInvalidState)
+		return fmt.Errorf("%w: absolute deadline is required", ErrInvalidExecutionState)
 	}
 	if d.Phase != deadlineReady && d.Phase != deadlineAwaiting && d.Phase != deadlineCompleted {
-		return fmt.Errorf("%w: unknown deadline phase %q", ErrInvalidState, d.Phase)
+		return fmt.Errorf("%w: unknown deadline phase %q", ErrInvalidExecutionState, d.Phase)
 	}
 	return nil
 }
@@ -110,13 +110,21 @@ func (d deadlineState) validate() error {
 type deadlineExecution struct{ state deadlineState }
 
 func (d *deadlineExecution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
+	transition, err := d.step(ctx, signals)
+	if err != nil {
+		return agent.Transition{}, agent.ClassifyStepError(err)
+	}
+	return transition, nil
+}
+
+func (d *deadlineExecution) step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if err := ctx.Err(); err != nil {
 		return agent.Transition{}, err
 	}
 	switch d.state.Phase {
 	case deadlineReady:
 		if len(signals) != 0 {
-			return agent.Transition{}, protocolStepError(fmt.Errorf("%w: deadline does not accept external Signals", ErrInvalidProtocol))
+			return agent.Transition{}, fmt.Errorf("%w: deadline does not accept external Signals", ErrInvalidProtocol)
 		}
 		effect, err := newTimerEffect(d.state.Deadline)
 		if err != nil {
@@ -126,21 +134,21 @@ func (d *deadlineExecution) Step(ctx context.Context, signals []agent.Signal) (a
 		return agent.Continue(0, effect)
 	case deadlineAwaiting:
 		if len(signals) != 1 || !signals[0].EngineOwned() {
-			return agent.Transition{}, protocolStepError(fmt.Errorf("%w: deadline requires one Engine-owned timer settlement", ErrInvalidProtocol))
+			return agent.Transition{}, fmt.Errorf("%w: deadline requires one Engine-owned timer settlement", ErrInvalidProtocol)
 		}
 		if _, addressed := signals[0].WaitID(); addressed {
-			return agent.Transition{}, protocolStepError(fmt.Errorf("%w: timer settlement cannot address a wait", ErrInvalidProtocol))
+			return agent.Transition{}, fmt.Errorf("%w: timer settlement cannot address a wait", ErrInvalidProtocol)
 		}
 		payload, err := agent.ParsePayload(signals[0].Payload())
 		if err != nil {
-			return agent.Transition{}, protocolStepError(err)
+			return agent.Transition{}, fmt.Errorf("%w: timer settlement payload: %w", ErrInvalidProtocol, err)
 		}
 		result, err := payload.Decode[timerResult]()
 		if err != nil {
-			return agent.Transition{}, protocolStepError(fmt.Errorf("%w: decode timer settlement: %w", ErrInvalidProtocol, err))
+			return agent.Transition{}, fmt.Errorf("%w: decode timer settlement: %w", ErrInvalidProtocol, err)
 		}
 		if !result.Deadline.Equal(d.state.Deadline) {
-			return agent.Transition{}, protocolStepError(fmt.Errorf("%w: timer settlement disagrees with its deadline", ErrInvalidProtocol))
+			return agent.Transition{}, fmt.Errorf("%w: timer settlement disagrees with its deadline", ErrInvalidProtocol)
 		}
 		if !result.Reached {
 			failure, failureErr := agent.NewFailure(agent.FailureKindExternal, failureCodeCoordinationDeadlineInterrupted, "timer returned before its deadline")
@@ -156,7 +164,7 @@ func (d *deadlineExecution) Step(ctx context.Context, signals []agent.Signal) (a
 		}
 		return agent.Complete(1, output)
 	default:
-		return agent.Transition{}, protocolStepError(fmt.Errorf("%w: deadline has no next Step", ErrInvalidProtocol))
+		return agent.Transition{}, fmt.Errorf("%w: deadline has no next Step", ErrInvalidProtocol)
 	}
 }
 

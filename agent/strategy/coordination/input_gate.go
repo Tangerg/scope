@@ -73,7 +73,7 @@ func (i *InputGate) Restore(ctx context.Context, state agent.ExecutionState) (ag
 	}
 	decoded, err := state.Decode[inputGateState](inputGateStateKind)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidState, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -112,29 +112,29 @@ func (i inputGateState) validate(ctx context.Context, definition *InputGate) err
 		return err
 	}
 	if err := definition.descriptor.ValidateInput(i.Request); err != nil {
-		return fmt.Errorf("%w: opening request: %w", ErrInvalidState, err)
+		return fmt.Errorf("%w: opening request: %w", ErrInvalidExecutionState, err)
 	}
 	switch i.Phase {
 	case gateReady, gateAwaitingOpen:
 		if i.WaitID != nil || i.Answer != nil {
-			return fmt.Errorf("%w: unopened gate retains a wait or answer", ErrInvalidState)
+			return fmt.Errorf("%w: unopened gate retains a wait or answer", ErrInvalidExecutionState)
 		}
 	case gateWaiting:
 		if i.WaitID == nil || !i.WaitID.Valid() {
-			return fmt.Errorf("%w: waiting gate requires a valid WaitID", ErrInvalidState)
+			return fmt.Errorf("%w: waiting gate requires a valid WaitID", ErrInvalidExecutionState)
 		}
 		if i.Answer != nil {
-			return fmt.Errorf("%w: waiting gate already has an answer", ErrInvalidState)
+			return fmt.Errorf("%w: waiting gate already has an answer", ErrInvalidExecutionState)
 		}
 	case gateCompleted:
 		if i.WaitID == nil || !i.WaitID.Valid() || i.Answer == nil {
-			return fmt.Errorf("%w: completed gate requires a wait and answer", ErrInvalidState)
+			return fmt.Errorf("%w: completed gate requires a wait and answer", ErrInvalidExecutionState)
 		}
 		if err := i.acceptsAnswer(definition, *i.Answer); err != nil {
-			return fmt.Errorf("%w: completed answer: %w", ErrInvalidState, err)
+			return fmt.Errorf("%w: completed answer: %w", ErrInvalidExecutionState, err)
 		}
 	default:
-		return fmt.Errorf("%w: unknown input gate phase %q", ErrInvalidState, i.Phase)
+		return fmt.Errorf("%w: unknown input gate phase %q", ErrInvalidExecutionState, i.Phase)
 	}
 	return ctx.Err()
 }
@@ -160,13 +160,21 @@ type inputGateExecution struct {
 }
 
 func (i *inputGateExecution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
+	transition, err := i.step(ctx, signals)
+	if err != nil {
+		return agent.Transition{}, agent.ClassifyStepError(err)
+	}
+	return transition, nil
+}
+
+func (i *inputGateExecution) step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if err := ctx.Err(); err != nil {
 		return agent.Transition{}, err
 	}
 	switch i.state.Phase {
 	case gateReady:
 		if len(signals) != 0 {
-			return agent.Transition{}, protocolStepError(fmt.Errorf("%w: input gate requires an addressed answer", ErrInvalidProtocol))
+			return agent.Transition{}, fmt.Errorf("%w: input gate requires an addressed answer", ErrInvalidProtocol)
 		}
 		key, err := agent.ParseWaitKey("coordination.input")
 		if err != nil {
@@ -180,22 +188,22 @@ func (i *inputGateExecution) Step(ctx context.Context, signals []agent.Signal) (
 		return agent.Continue(0, effect)
 	case gateAwaitingOpen:
 		if len(signals) == 0 {
-			return agent.Transition{}, protocolStepError(fmt.Errorf("%w: input gate opening is missing", ErrInvalidProtocol))
+			return agent.Transition{}, fmt.Errorf("%w: input gate opening is missing", ErrInvalidProtocol)
 		}
 		waitID, addressed := signals[0].WaitID()
 		if !signals[0].EngineOwned() || !addressed || !bytes.Equal(signals[0].Payload(), i.state.Request.JSON()) {
-			return agent.Transition{}, protocolStepError(fmt.Errorf("%w: input gate opening disagrees with its request", ErrInvalidProtocol))
+			return agent.Transition{}, fmt.Errorf("%w: input gate opening disagrees with its request", ErrInvalidProtocol)
 		}
 		i.state.WaitID = &waitID
 		i.state.Phase = gateWaiting
 		return agent.Wait(1, waitID)
 	case gateWaiting:
 		if len(signals) == 0 {
-			return agent.Transition{}, protocolStepError(fmt.Errorf("%w: input gate answer is missing", ErrInvalidProtocol))
+			return agent.Transition{}, fmt.Errorf("%w: input gate answer is missing", ErrInvalidProtocol)
 		}
 		answer := signals[0]
 		if err := i.state.acceptsAnswer(i.definition, answer); err != nil {
-			return agent.Transition{}, protocolStepError(err)
+			return agent.Transition{}, fmt.Errorf("%w: input gate answer: %w", ErrInvalidProtocol, err)
 		}
 		i.state.Answer = &answer
 		i.state.Phase = gateCompleted
@@ -205,7 +213,7 @@ func (i *inputGateExecution) Step(ctx context.Context, signals []agent.Signal) (
 		}
 		return agent.Complete(1, output)
 	default:
-		return agent.Transition{}, protocolStepError(fmt.Errorf("%w: input gate has no next Step", ErrInvalidProtocol))
+		return agent.Transition{}, fmt.Errorf("%w: input gate has no next Step", ErrInvalidProtocol)
 	}
 }
 

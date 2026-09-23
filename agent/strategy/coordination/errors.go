@@ -6,18 +6,21 @@ import (
 	"github.com/Tangerg/scope/agent"
 )
 
+// ErrInvalidConfig rejects construction before execution and therefore carries
+// no Failure classification.
+var ErrInvalidConfig = errors.New("coordination: invalid configuration")
+
+// Execution sentinels own the Failure persisted when they reach Step. Wrapping
+// one is the only way a Step error acquires its classification.
 var (
-	ErrInvalidConfig   = errors.New("coordination: invalid configuration")
-	ErrInvalidState    = errors.New("coordination: invalid execution state")
-	ErrInvalidProtocol = errors.New("coordination: invalid execution protocol")
+	ErrInvalidExecutionState = agent.NewClassifiedError(
+		agent.FailureKindContract,
+		"coordination.state.invalid",
+		"coordination: invalid execution state",
+	)
+	ErrInvalidProtocol = agent.NewClassifiedError(
+		agent.FailureKindContract,
+		"coordination.protocol.invalid",
+		"coordination: invalid execution protocol",
+	)
 )
-
-const failureCodeCoordinationProtocolInvalid = "coordination.protocol.invalid"
-
-func protocolStepError(cause error) error {
-	failure, err := agent.NewFailure(agent.FailureKindContract, failureCodeCoordinationProtocolInvalid, agent.NormalizeDiagnostic(cause.Error()))
-	if err != nil {
-		return err
-	}
-	return &agent.StepError{Failure: failure, Cause: cause}
-}

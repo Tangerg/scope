@@ -36,6 +36,8 @@ type DefinitionConformanceConfig struct {
 	FollowingSignals [][]agent.Signal
 	// RestoredCases exercise additional previously captured states.
 	RestoredCases []ExecutionConformanceCase
+	// RejectedCases exercise domain violations the Definition must classify.
+	RejectedCases []RejectedStepConformanceCase
 }
 
 // ExecutionConformanceCase describes one successful Restore and Step sample.
@@ -49,13 +51,34 @@ type ExecutionConformanceCase struct {
 	FollowingSignals [][]agent.Signal
 }
 
+// RejectedStepConformanceCase describes one domain violation that Step must
+// reject with a stable classification. Without this evidence a violation can
+// reach the Engine as an ordinary error and be recorded as the generic
+// execution.step.failed, which no Host can distinguish from an execution
+// defect.
+type RejectedStepConformanceCase struct {
+	// Name identifies the sample in test output.
+	Name string
+	// State is an exact state previously produced by the Definition.
+	State agent.ExecutionState
+	// Signals are the ordered Signal prefix Step must reject.
+	Signals []agent.Signal
+	// FailureKind and FailureCode are the exact classification persisted for
+	// this violation. Asserting both keeps the reason stable across wording
+	// changes and proves the Definition, not the Engine fallback, classified it.
+	FailureKind agent.FailureKind
+	FailureCode string
+}
+
 // RunDefinitionConformance verifies descriptor stability, concurrent Start
-// isolation, exact Snapshot/Restore, and byte-equivalent Step results for the
-// supplied representative cases. All configured Signals are validated before
-// invoking the Definition. Restore and Step inherit the test context; each Step
-// receives a child context canceled when that call returns.
-// Step cases must describe successful Steps;
-// Strategy-specific failure and cancellation paths remain ordinary tests owned
+// isolation, exact Snapshot/Restore, byte-equivalent Step results, and stable
+// rejection classifications for the supplied representative cases. All
+// configured Signals are validated before invoking the Definition. Restore and
+// Step inherit the test context; each Step receives a child context canceled
+// when that call returns.
+// RestoredCases and the fresh Signal batches must describe successful Steps;
+// RejectedCases describe domain violations and assert the exact Failure the
+// Definition persists for them. Cancellation paths remain ordinary tests owned
 // by the Definition implementation.
 func RunDefinitionConformance(t *testing.T, config DefinitionConformanceConfig) {
 	t.Helper()
@@ -76,6 +99,13 @@ func RunDefinitionConformance(t *testing.T, config DefinitionConformanceConfig) 
 	for _, sample := range config.RestoredCases {
 		t.Run("restored "+sample.Name, func(t *testing.T) {
 			if err := verifyRestoredExecutions(t.Context(), config.Definition, sample); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	for _, sample := range config.RejectedCases {
+		t.Run("rejected "+sample.Name, func(t *testing.T) {
+			if err := verifyRejectedStep(t.Context(), config.Definition, sample); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -106,6 +136,70 @@ func validateDefinitionConformanceConfig(config DefinitionConformanceConfig) err
 		}
 		if err := validateConformanceSignals(sample.Signals, sample.FollowingSignals...); err != nil {
 			return fmt.Errorf("agenttest: Definition conformance restored case %q Signals: %w", sample.Name, err)
+		}
+	}
+	rejectedNames := make(map[string]struct{}, len(config.RejectedCases))
+	for index, sample := range config.RejectedCases {
+		if sample.Name == "" || strings.TrimSpace(sample.Name) != sample.Name {
+			return fmt.Errorf("agenttest: Definition conformance rejected case %d has an invalid name", index)
+		}
+		if _, exists := rejectedNames[sample.Name]; exists {
+			return fmt.Errorf("agenttest: Definition conformance rejected case name %q is duplicated", sample.Name)
+		}
+		rejectedNames[sample.Name] = struct{}{}
+		if !sample.State.Valid() {
+			return fmt.Errorf("agenttest: Definition conformance rejected case %q has an invalid state", sample.Name)
+		}
+		if err := validateConformanceSignals(sample.Signals); err != nil {
+			return fmt.Errorf("agenttest: Definition conformance rejected case %q Signals: %w", sample.Name, err)
+		}
+		if !sample.FailureKind.Valid() || !agent.ValidQualifiedName(sample.FailureCode) {
+			return fmt.Errorf("agenttest: Definition conformance rejected case %q must name the exact Failure kind and code", sample.Name)
+		}
+	}
+	return nil
+}
+
+// verifyRejectedStep restores a fresh Execution per attempt because a failed
+// Step discards its instance. Repeating the attempt proves the classification
+// is a function of the captured state and input rather than of one instance.
+func verifyRejectedStep(
+	ctx context.Context,
+	definition agent.Definition,
+	sample RejectedStepConformanceCase,
+) error {
+	for attempt := range 2 {
+		execution, err := callRestore(ctx, definition, sample.State)
+		if err != nil {
+			return err
+		}
+		transition, stepErr := callStep(ctx, execution, slices.Clone(sample.Signals))
+		if stepErr == nil {
+			return fmt.Errorf(
+				"agenttest: rejected case %q attempt %d returned Transition %v instead of a classified Failure",
+				sample.Name, attempt, transition,
+			)
+		}
+		sealed, classified := errors.AsType[*agent.StepError](stepErr)
+		if !classified {
+			return fmt.Errorf(
+				"agenttest: rejected case %q attempt %d returned an unclassified error, which the Engine records as execution.step.failed: %w",
+				sample.Name, attempt, stepErr,
+			)
+		}
+		if !sealed.Failure.Valid() {
+			return fmt.Errorf(
+				"agenttest: rejected case %q attempt %d carries an invalid Failure",
+				sample.Name, attempt,
+			)
+		}
+		if sealed.Failure.Kind() != sample.FailureKind || sealed.Failure.Code() != sample.FailureCode {
+			return fmt.Errorf(
+				"agenttest: rejected case %q attempt %d classified as %s/%s, want %s/%s",
+				sample.Name, attempt,
+				sealed.Failure.Kind(), sealed.Failure.Code(),
+				sample.FailureKind, sample.FailureCode,
+			)
 		}
 	}
 	return nil

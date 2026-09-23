@@ -53,6 +53,10 @@ type Execution interface {
 	// The Engine serializes calls for one Execution. A *StepError discards the
 	// candidate and preserves its Failure; an ordinary error discards it with
 	// execution.step.failed. Fail instead commits the candidate and consumption.
+	// Declare domain sentinels with NewClassifiedError and return
+	// ClassifyStepError at the Step boundary: that is the one conversion from a
+	// sentinel to this contract, so a violation cannot reach the Host under the
+	// generic code because a mapping elsewhere forgot it.
 	Step(ctx context.Context, signals []Signal) (Transition, error)
 	// Snapshot returns a complete, independently owned state from
 	// which Definition.Restore can reproduce the current Execution exactly. It

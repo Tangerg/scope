@@ -11,10 +11,6 @@ import (
 	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
-const (
-	failureCodeWorkflowProtocolInvalid = "workflow.protocol.invalid"
-)
-
 type execution struct {
 	definition *Definition
 	state      executionState
@@ -22,24 +18,10 @@ type execution struct {
 
 func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	transition, err := e.step(ctx, signals)
-	if err == nil {
-		return transition, nil
+	if err != nil {
+		return agent.Transition{}, agent.ClassifyStepError(err)
 	}
-	var kind agent.FailureKind
-	var code string
-	switch {
-	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		return agent.Transition{}, err
-	case errors.Is(err, ErrInvalidProtocol):
-		kind, code = agent.FailureKindContract, failureCodeWorkflowProtocolInvalid
-	default:
-		return agent.Transition{}, err
-	}
-	failure, failureErr := agent.NewFailure(kind, code, agent.NormalizeDiagnostic(err.Error()))
-	if failureErr != nil {
-		return agent.Transition{}, failureErr
-	}
-	return agent.Transition{}, &agent.StepError{Failure: failure, Cause: err}
+	return transition, nil
 }
 
 func (e *execution) step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
@@ -99,7 +81,7 @@ func (e *execution) advance(ctx context.Context, signals []agent.Signal) (agent.
 		}
 		binding, found := stage.switcher.binding(selected)
 		if !found {
-			return agent.Transition{}, ErrInvalidStage
+			return agent.Transition{}, fmt.Errorf("%w: Switch Stage %q selected case %q has no binding", ErrInvalidExecutionState, stage.id, selected)
 		}
 		e.state.SelectedCaseID = selected
 		return e.startSingleChild(0, binding)
@@ -109,7 +91,7 @@ func (e *execution) advance(ctx context.Context, signals []agent.Signal) (agent.
 		e.state.LoopIteration = 1
 		return e.startSingleChild(0, stage.loop.binding)
 	default:
-		return agent.Transition{}, ErrInvalidStage
+		return agent.Transition{}, fmt.Errorf("%w: Stage %q has an unknown kind %q", ErrInvalidExecutionState, stage.id, stage.kind)
 	}
 }
 
@@ -158,7 +140,7 @@ func (e *execution) stageInvocationLabel() string {
 		return e.stage().id + ".case." + e.state.SelectedCaseID
 	}
 	if e.stage().kind == StageKindLoop {
-		return e.stage().id + ".iteration." + strconv.FormatUint(uint64(e.state.LoopIteration), 10)
+		return e.stage().id + ".iteration." + strconv.FormatUint(e.state.LoopIteration, 10)
 	}
 	return e.stage().id
 }
@@ -286,14 +268,14 @@ func (e *execution) stage() Stage {
 func (e *execution) childKey() (agent.ChildKey, error) {
 	return workflowChildKey(
 		"single", e.stage().id, e.state.SelectedCaseID,
-		strconv.FormatUint(uint64(e.state.LoopIteration), 10),
+		strconv.FormatUint(e.state.LoopIteration, 10),
 	)
 }
 
 func (e *execution) waitKey() (agent.WaitKey, error) {
 	return workflowWaitKey(
 		"single", e.stage().id, e.state.SelectedCaseID,
-		strconv.FormatUint(uint64(e.state.LoopIteration), 10),
+		strconv.FormatUint(e.state.LoopIteration, 10),
 	)
 }
 
@@ -365,7 +347,7 @@ func (e *execution) startFanoutWindow(ctx context.Context, consumedSignals uint3
 		}
 		member, found := stage.fanout.source.member(index)
 		if !found {
-			return agent.Transition{}, ErrInvalidStage
+			return agent.Transition{}, fmt.Errorf("%w: Stage %q has no fan-out member %d", ErrInvalidExecutionState, stage.id, index)
 		}
 		input := inputs[index-start]
 		key, err := e.fanoutChildKey(index)
@@ -395,7 +377,7 @@ func (e *execution) fanoutBatch() (childcall.Batch, error) {
 		index := e.state.fanoutWindowStart() + uint32(offset)
 		member, found := e.stage().fanout.source.member(index)
 		if !found {
-			return childcall.Batch{}, ErrInvalidStage
+			return childcall.Batch{}, fmt.Errorf("%w: Stage %q has no fan-out member %d", ErrInvalidExecutionState, e.stage().id, index)
 		}
 		key, err := e.fanoutChildKey(index)
 		if err != nil {

@@ -163,7 +163,7 @@ func TestCoordinationRejectsMalformedRestoration(t *testing.T) {
 				mutatedState(t, state, "phase", "waiting"),
 				mutatedState(t, state, "phase", "future-phase"),
 			} {
-				if _, restoreErr := sample.definition.Restore(t.Context(), invalid); !errors.Is(restoreErr, coordination.ErrInvalidState) {
+				if _, restoreErr := sample.definition.Restore(t.Context(), invalid); !errors.Is(restoreErr, coordination.ErrInvalidExecutionState) {
 					t.Fatalf("malformed state was not rejected: %v", restoreErr)
 				}
 			}

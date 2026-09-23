@@ -2,6 +2,7 @@ package coordination_test
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"testing"
 
@@ -131,4 +132,23 @@ func (r resolver) Resolve(reference agent.DeploymentRef) (agent.Deployment, erro
 		return agent.Deployment{}, fmt.Errorf("test deployment %s is unavailable", reference.Name())
 	}
 	return deployment, nil
+}
+
+// externalSignal rebuilds the Signal an external sender delivers. The Engine
+// mints Signals at runtime, so tests reconstruct one through its wire form.
+func externalSignal(t testing.TB, waitID string, payload any) agent.Signal {
+	t.Helper()
+	wire, err := jsonv2.Marshal(struct {
+		ID      string `json:"id"`
+		WaitID  string `json:"wait_id,omitempty"`
+		Payload any    `json:"payload"`
+	}{ID: "signal:external", WaitID: waitID, Payload: payload})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var signal agent.Signal
+	if err := jsonv2.Unmarshal(wire, &signal); err != nil {
+		t.Fatal(err)
+	}
+	return signal
 }

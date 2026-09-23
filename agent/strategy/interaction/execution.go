@@ -3,7 +3,6 @@ package interaction
 import (
 	"context"
 	jsonv2 "encoding/json/v2"
-	"errors"
 	"fmt"
 	"slices"
 
@@ -20,28 +19,10 @@ type execution struct {
 // represented as dispatcher Effects and therefore never occur in this method.
 func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	transition, err := e.step(ctx, signals)
-	if err == nil {
-		return transition, nil
+	if err != nil {
+		return agent.Transition{}, agent.ClassifyStepError(err)
 	}
-	var kind agent.FailureKind
-	var code string
-	switch {
-	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		return agent.Transition{}, err
-	case errors.Is(err, ErrInvalidSteer):
-		kind, code = agent.FailureKindContract, failureCodeInteractionSignalInvalid
-	case errors.Is(err, ErrInvalidProtocol):
-		kind, code = agent.FailureKindContract, failureCodeInteractionProtocolInvalid
-	case errors.Is(err, ErrInvalidExecutionState):
-		kind, code = agent.FailureKindContract, failureCodeInteractionStateInvalid
-	default:
-		return agent.Transition{}, err
-	}
-	failure, failureErr := agent.NewFailure(kind, code, agent.NormalizeDiagnostic(err.Error()))
-	if failureErr != nil {
-		return agent.Transition{}, failureErr
-	}
-	return agent.Transition{}, &agent.StepError{Failure: failure, Cause: err}
+	return transition, nil
 }
 
 func (e *execution) step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
@@ -297,49 +278,41 @@ func (e *execution) advanceToolCallBatch(ctx context.Context, consumedSignals ui
 		uint64(e.state.ToolRound.nextCallIndex()) > uint64(len(calls)) {
 		return agent.Transition{}, fmt.Errorf("%w: invalid pending ToolCall batch", ErrInvalidExecutionState)
 	}
-	for {
-		if err := ctx.Err(); err != nil {
+	if err := ctx.Err(); err != nil {
+		return agent.Transition{}, err
+	}
+	if e.state.ToolRound.nextCallIndex() == uint32(len(calls)) {
+		if err := e.state.ToolRound.validateComplete(ctx); err != nil {
 			return agent.Transition{}, err
 		}
-		if e.state.ToolRound.nextCallIndex() == uint32(len(calls)) {
-			if err := e.state.ToolRound.validateComplete(ctx); err != nil {
-				return agent.Transition{}, err
-			}
-			e.state.Phase = phaseRoundComplete
-			return agent.Checkpoint(consumedSignals)
-		}
-		call := calls[e.state.ToolRound.nextCallIndex()]
-		if e.state.ToolRound.Response.Output.FinishReason == chat.FinishReasonLength {
-			e.state.ToolRound.reject(call, fmt.Sprintf("tool %q was not executed because model output reached its token limit; emit the complete call again", call.Name))
-			e.state.Phase = phaseAdvancingTools
-			return agent.Checkpoint(consumedSignals)
-		}
-		if delegate, delegated := e.definition.delegate(call.Name); delegated {
-			if _, err := delegate.prepareInput(call); err != nil {
-				e.state.ToolRound.reject(call, err.Error())
-				e.state.Phase = phaseAdvancingTools
-				return agent.Checkpoint(consumedSignals)
-			}
-			effects, prepareErr := e.prepareDelegateChildren(ctx, calls)
-			if prepareErr != nil {
-				return agent.Transition{}, prepareErr
-			}
-			if len(effects) != 0 {
-				e.state.Phase = phaseAwaitingChildStarts
-				return agent.Continue(consumedSignals, effects...)
-			}
-			if finishErr := e.finishChildBatch(); finishErr != nil {
-				return agent.Transition{}, finishErr
-			}
-			continue
-		}
-		if _, found := e.definition.tools.entries[call.Name]; !found {
-			e.state.ToolRound.reject(call, fmt.Sprintf("tool %q is not available", call.Name))
-			e.state.Phase = phaseAdvancingTools
-			return agent.Checkpoint(consumedSignals)
-		}
-		return e.startToolChildren(ctx, consumedSignals, calls)
+		e.state.Phase = phaseRoundComplete
+		return agent.Checkpoint(consumedSignals)
 	}
+	call := calls[e.state.ToolRound.nextCallIndex()]
+	if e.state.ToolRound.Response.Output.FinishReason == chat.FinishReasonLength {
+		e.state.ToolRound.reject(call, fmt.Sprintf("tool %q was not executed because model output reached its token limit; emit the complete call again", call.Name))
+		e.state.Phase = phaseAdvancingTools
+		return agent.Checkpoint(consumedSignals)
+	}
+	if delegate, delegated := e.definition.delegate(call.Name); delegated {
+		if _, err := delegate.prepareInput(call); err != nil {
+			e.state.ToolRound.reject(call, err.Error())
+			e.state.Phase = phaseAdvancingTools
+			return agent.Checkpoint(consumedSignals)
+		}
+		effects, prepareErr := e.prepareDelegateChildren(ctx, calls)
+		if prepareErr != nil {
+			return agent.Transition{}, prepareErr
+		}
+		e.state.Phase = phaseAwaitingChildStarts
+		return agent.Continue(consumedSignals, effects...)
+	}
+	if _, found := e.definition.tools.entries[call.Name]; !found {
+		e.state.ToolRound.reject(call, fmt.Sprintf("tool %q is not available", call.Name))
+		e.state.Phase = phaseAdvancingTools
+		return agent.Checkpoint(consumedSignals)
+	}
+	return e.startToolChildren(ctx, consumedSignals, calls)
 }
 
 func (e *execution) finishToolCallBatch(
@@ -680,6 +653,12 @@ func (e *execution) prepareDelegateChildren(ctx context.Context, calls []chat.To
 		}
 		end++
 	}
+	// The caller admitted calls[start] as a delegate before asking for this
+	// window. An empty window would leave the round cursor where it is, so the
+	// batch must always contain at least that call.
+	if end == start {
+		return nil, fmt.Errorf("%w: delegate window at ToolCall %d is empty", ErrInvalidExecutionState, start)
+	}
 	batch := &childCallBatch{Kind: childCallsDelegate,
 		Invocations: make([]childInvocationState, end-start), NextStartIndex: end - start}
 	effects := make([]agent.Effect, 0, len(batch.Invocations))
@@ -799,9 +778,6 @@ func (e *execution) scheduleToolChildren(ctx context.Context, consumed uint32) (
 var _ agent.Execution = (*execution)(nil)
 
 const (
-	failureCodeInteractionSignalInvalid              = "interaction.signal.invalid"
-	failureCodeInteractionProtocolInvalid            = "interaction.protocol.invalid"
-	failureCodeInteractionStateInvalid               = "interaction.state.invalid"
 	failureCodeInteractionCompletionDecisionInvalid  = "interaction.completion.decision_invalid"
 	failureCodeInteractionCompletionValidatorFailed  = "interaction.completion.validator_failed"
 	failureCodeInteractionDelegateUnresolvedEffects  = "interaction.delegate.unresolved_effects"

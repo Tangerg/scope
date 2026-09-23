@@ -75,7 +75,7 @@ func TestCompetitionRejectsForeignRetainedOutcomesOnRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := execution.definition.Restore(t.Context(), snapshot); !errors.Is(err, ErrInvalidState) {
+	if _, err := execution.definition.Restore(t.Context(), snapshot); !errors.Is(err, ErrInvalidExecutionState) {
 		t.Fatalf("foreign retained outcome accepted on restore: %v", err)
 	}
 	if execution.state.result().Valid() {

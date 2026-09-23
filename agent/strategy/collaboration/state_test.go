@@ -64,7 +64,7 @@ func TestRestoreIdentifiesInvalidTurnState(t *testing.T) {
 			test.mutate(&execution.state)
 			state := require(agent.NewExecutionState(stateKind, require(jsonv2.Marshal(execution.state))))
 			_, err := definition.Restore(t.Context(), state)
-			if !errors.Is(err, ErrInvalidState) || !strings.Contains(err.Error(), test.context) {
+			if !errors.Is(err, ErrInvalidExecutionState) || !strings.Contains(err.Error(), test.context) {
 				t.Fatalf("Restore error = %v, want invalid state with %q", err, test.context)
 			}
 			if test.cause != nil && !errors.Is(err, test.cause) {

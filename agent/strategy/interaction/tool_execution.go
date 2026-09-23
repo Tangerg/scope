@@ -129,6 +129,14 @@ func (t *toolExecution) Snapshot() (agent.ExecutionState, error) {
 }
 
 func (t *toolExecution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
+	transition, err := t.step(ctx, signals)
+	if err != nil {
+		return agent.Transition{}, agent.ClassifyStepError(err)
+	}
+	return transition, nil
+}
+
+func (t *toolExecution) step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if err := ctx.Err(); err != nil {
 		return agent.Transition{}, err
 	}

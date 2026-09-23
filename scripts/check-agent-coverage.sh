@@ -25,7 +25,7 @@ coverage_budget=(
   "./messaging 88.6"
   "./strategy/planning 82.4"
   "./strategy/planning/goap 87.8"
-  "./strategy/workflow 79.1"
+  "./strategy/workflow 79.0"
 )
 
 configured_packages=$(

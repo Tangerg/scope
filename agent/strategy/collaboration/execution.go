@@ -2,7 +2,6 @@ package collaboration
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -15,30 +14,10 @@ type execution struct {
 
 func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	transition, err := e.step(ctx, signals)
-	if err == nil {
-		return transition, nil
+	if err != nil {
+		return agent.Transition{}, agent.ClassifyStepError(err)
 	}
-	var kind agent.FailureKind
-	var code string
-	switch {
-	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		return agent.Transition{}, err
-	case errors.Is(err, ErrTurnLimit):
-		kind, code = agent.FailureKindExecution, failureCodeCollaborationLimitTurns
-	case errors.Is(err, agent.ErrCounterExhausted):
-		kind, code = agent.FailureKindExecution, failureCodeCollaborationCounterExhausted
-	case errors.Is(err, ErrInvalidDecision):
-		kind, code = agent.FailureKindContract, failureCodeCollaborationDecisionInvalid
-	case errors.Is(err, ErrInvalidProtocol):
-		kind, code = agent.FailureKindContract, failureCodeCollaborationProtocolInvalid
-	default:
-		return agent.Transition{}, err
-	}
-	failure, failureErr := agent.NewFailure(kind, code, agent.NormalizeDiagnostic(err.Error()))
-	if failureErr != nil {
-		return agent.Transition{}, failureErr
-	}
-	return agent.Transition{}, &agent.StepError{Failure: failure, Cause: err}
+	return transition, nil
 }
 
 func (e *execution) step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
@@ -325,10 +304,4 @@ func (e *execution) Snapshot() (agent.ExecutionState, error) {
 
 var _ agent.Execution = (*execution)(nil)
 
-const (
-	failureCodeCollaborationLimitTurns                   = "collaboration.limit.turns"
-	failureCodeCollaborationCounterExhausted             = "collaboration.counter.exhausted"
-	failureCodeCollaborationDecisionInvalid              = "collaboration.decision.invalid"
-	failureCodeCollaborationProtocolInvalid              = "collaboration.protocol.invalid"
-	failureCodeCollaborationCoordinatorUnresolvedEffects = "collaboration.coordinator.unresolved_effects"
-)
+const failureCodeCollaborationCoordinatorUnresolvedEffects = "collaboration.coordinator.unresolved_effects"

@@ -100,3 +100,84 @@ func (r *rejectedStepExecution) Step(_ context.Context, signals []Signal) (Trans
 func (r *rejectedStepExecution) Snapshot() (ExecutionState, error) {
 	return EncodeExecutionState("rejected_step", r.phase)
 }
+
+// ClassifyStepError is the only conversion from a sentinel to the Step
+// contract, so its precedence rules are part of that contract.
+func TestClassifyStepErrorOwnsSentinelClassification(t *testing.T) {
+	sentinel := NewClassifiedError(FailureKindContract, "test.sentinel.invalid", "test: sentinel rejected")
+	if classified := ClassifyStepError(nil); classified != nil {
+		t.Fatalf("nil error became %v", classified)
+	}
+	for _, test := range []struct {
+		name string
+		err  error
+	}{
+		{"sentinel", sentinel},
+		{"wrapped sentinel", fmt.Errorf("step: %w", sentinel)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sealed, ok := errors.AsType[*StepError](ClassifyStepError(test.err))
+			if !ok {
+				t.Fatal("sentinel reached the Engine unclassified")
+			}
+			if sealed.Failure.Kind() != FailureKindContract || sealed.Failure.Code() != "test.sentinel.invalid" {
+				t.Fatalf("classification = %s/%s", sealed.Failure.Kind(), sealed.Failure.Code())
+			}
+			if sealed.Failure.Message() != NormalizeDiagnostic(test.err.Error()) {
+				t.Fatalf("diagnostic = %q, want the complete wrapped chain", sealed.Failure.Message())
+			}
+			if !errors.Is(sealed, sentinel) {
+				t.Fatal("classification dropped its sentinel")
+			}
+		})
+	}
+
+	// Engine-owned outcomes outrank Strategy classification, and an error the
+	// Strategy did not classify stays unclassified for the Engine fallback.
+	for _, test := range []struct {
+		name string
+		err  error
+	}{
+		{"cancellation", fmt.Errorf("%w: %w", sentinel, context.Canceled)},
+		{"deadline", fmt.Errorf("%w: %w", sentinel, context.DeadlineExceeded)},
+		{"contained panic", fmt.Errorf("%w: %w", sentinel, &CallbackPanicError{Operation: "test", Value: "boom"})},
+		{"unclassified", errors.New("plain execution failure")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, sealed := errors.AsType[*StepError](ClassifyStepError(test.err)); sealed {
+				t.Fatalf("Strategy classification overrode the Engine-owned outcome of %v", test.err)
+			}
+		})
+	}
+
+	// An already classified error keeps its own Failure instead of acquiring
+	// the sentinel its chain still carries.
+	declared := controlValue(NewFailure(FailureKindExecution, "test.declared", "declared"))
+	classified := ClassifyStepError(fmt.Errorf("step: %w", &StepError{Failure: declared, Cause: sentinel}))
+	sealed, ok := errors.AsType[*StepError](classified)
+	if !ok || sealed.Failure.Code() != "test.declared" {
+		t.Fatalf("already classified error = %v", classified)
+	}
+}
+
+func TestNewClassifiedErrorRejectsAnUnusableDeclaration(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		kind    FailureKind
+		code    string
+		message string
+	}{
+		{"kind", FailureKindInvalid, "test.code", "message"},
+		{"code", FailureKindContract, "Test.Code", "message"},
+		{"message", FailureKindContract, "test.code", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("an unusable sentinel declaration was admitted")
+				}
+			}()
+			NewClassifiedError(test.kind, test.code, test.message)
+		})
+	}
+}
