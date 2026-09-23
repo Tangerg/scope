@@ -571,6 +571,7 @@
       "knowledge_cutoff": "2025-08-31T00:00:00Z",
       "release_date": "2025-12-11T00:00:00Z",
       "last_updated": "2025-12-11T00:00:00Z",
+      "deprecated": true,
       "pricing": [
         {
           "input_per_1m": 1.75,
@@ -634,6 +635,7 @@
       "knowledge_cutoff": "2025-08-31T00:00:00Z",
       "release_date": "2026-03-03T00:00:00Z",
       "last_updated": "2026-03-03T00:00:00Z",
+      "deprecated": true,
       "pricing": [
         {
           "input_per_1m": 1.75,
@@ -1001,17 +1003,17 @@
       "last_updated": "2026-07-09T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 5,
-          "output_per_1m": 30,
-          "cache_read_per_1m": 0.5,
-          "cache_write_per_1m": 6.25
+          "input_per_1m": 4,
+          "output_per_1m": 20,
+          "cache_read_per_1m": 0.4,
+          "cache_write_per_1m": 5
         },
         {
           "threshold": 272000,
-          "input_per_1m": 10,
-          "output_per_1m": 45,
-          "cache_read_per_1m": 1,
-          "cache_write_per_1m": 12.5
+          "input_per_1m": 8,
+          "output_per_1m": 30,
+          "cache_read_per_1m": 0.8,
+          "cache_write_per_1m": 10
         }
       ],
       "reasoning": {
@@ -1103,17 +1105,17 @@
       "last_updated": "2026-07-09T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 5,
-          "output_per_1m": 30,
-          "cache_read_per_1m": 0.5,
-          "cache_write_per_1m": 6.25
+          "input_per_1m": 4,
+          "output_per_1m": 20,
+          "cache_read_per_1m": 0.4,
+          "cache_write_per_1m": 5
         },
         {
           "threshold": 272000,
-          "input_per_1m": 10,
-          "output_per_1m": 45,
-          "cache_read_per_1m": 1,
-          "cache_write_per_1m": 12.5
+          "input_per_1m": 8,
+          "output_per_1m": 30,
+          "cache_read_per_1m": 0.8,
+          "cache_write_per_1m": 10
         }
       ],
       "reasoning": {
@@ -1178,6 +1180,132 @@
           "max"
         ],
         "default_level": "medium"
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "gpt-6-astra",
+      "display_name": "GPT-6 Astra",
+      "knowledge_cutoff": "2026-04-30T00:00:00Z",
+      "release_date": "2026-09-04T00:00:00Z",
+      "last_updated": "2026-09-04T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 10,
+          "output_per_1m": 50,
+          "cache_read_per_1m": 1,
+          "cache_write_per_1m": 12.5
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 20,
+          "output_per_1m": 75,
+          "cache_read_per_1m": 2,
+          "cache_write_per_1m": 25
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "gpt-6-luna",
+      "display_name": "GPT-6 Luna",
+      "knowledge_cutoff": "2026-05-18T00:00:00Z",
+      "release_date": "2026-09-22T00:00:00Z",
+      "last_updated": "2026-09-22T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.1,
+          "output_per_1m": 0.5,
+          "cache_read_per_1m": 0.01,
+          "cache_write_per_1m": 0.125
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 0.2,
+          "output_per_1m": 0.75,
+          "cache_read_per_1m": 0.02,
+          "cache_write_per_1m": 0.25
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "gpt-6-sol",
+      "display_name": "GPT-6 Sol",
+      "knowledge_cutoff": "2026-04-20T00:00:00Z",
+      "release_date": "2026-09-22T00:00:00Z",
+      "last_updated": "2026-09-22T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 2,
+          "output_per_1m": 10,
+          "cache_read_per_1m": 0.2,
+          "cache_write_per_1m": 2.5
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 4,
+          "output_per_1m": 15,
+          "cache_read_per_1m": 0.4,
+          "cache_write_per_1m": 5
+        }
+      ],
+      "reasoning": {
+        "supported": true
       },
       "modalities": {
         "input": [

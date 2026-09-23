@@ -190,6 +190,102 @@
         "context_window": 1048576,
         "max_output_tokens": 131072
       }
+    },
+    {
+      "id": "mimo-v2.6-flash",
+      "display_name": "MiMo-V2.6-Flash",
+      "release_date": "2026-09-22T00:00:00Z",
+      "last_updated": "2026-09-22T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.14,
+          "output_per_1m": 0.28,
+          "cache_read_per_1m": 0.0028
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1048576,
+        "max_output_tokens": 131072
+      }
+    },
+    {
+      "id": "mimo-v2.6-pro",
+      "display_name": "MiMo-V2.6-Pro",
+      "release_date": "2026-09-22T00:00:00Z",
+      "last_updated": "2026-09-22T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.435,
+          "output_per_1m": 0.87,
+          "cache_read_per_1m": 0.0036
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1048576,
+        "max_output_tokens": 131072
+      }
+    },
+    {
+      "id": "mimo-v2.6-pro-ultraspeed",
+      "display_name": "MiMo-V2.6-Pro-UltraSpeed",
+      "release_date": "2026-09-21T00:00:00Z",
+      "last_updated": "2026-09-21T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 4.35,
+          "output_per_1m": 8.7,
+          "cache_read_per_1m": 0.036
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1048576,
+        "max_output_tokens": 131072
+      }
     }
   ]
 }

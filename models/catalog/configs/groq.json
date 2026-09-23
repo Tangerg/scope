@@ -2,6 +2,24 @@
   "provider": "groq",
   "models": [
     {
+      "id": "allam-2-7b",
+      "display_name": "ALLaM-2-7b",
+      "release_date": "2025-01-23T00:00:00Z",
+      "last_updated": "2025-01-23T00:00:00Z",
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "limits": {
+        "context_window": 4096,
+        "max_output_tokens": 4096
+      }
+    },
+    {
       "id": "groq/compound",
       "display_name": "Compound",
       "release_date": "2025-09-04T00:00:00Z",
@@ -87,34 +105,6 @@
       "limits": {
         "context_window": 131072,
         "max_output_tokens": 32768
-      }
-    },
-    {
-      "id": "meta-llama/llama-4-scout-17b-16e-instruct",
-      "display_name": "Llama 4 Scout 17B 16E",
-      "knowledge_cutoff": "2024-08-01T00:00:00Z",
-      "release_date": "2025-04-05T00:00:00Z",
-      "last_updated": "2025-04-05T00:00:00Z",
-      "pricing": [
-        {
-          "input_per_1m": 0.11,
-          "output_per_1m": 0.34
-        }
-      ],
-      "modalities": {
-        "input": [
-          "text",
-          "image"
-        ],
-        "output": [
-          "text"
-        ]
-      },
-      "tool_call": true,
-      "structured_output": true,
-      "limits": {
-        "context_window": 131072,
-        "max_output_tokens": 8192
       }
     },
     {
@@ -255,14 +245,15 @@
       }
     },
     {
-      "id": "qwen/qwen3-32b",
-      "display_name": "Qwen3-32B",
-      "release_date": "2025-06-11T00:00:00Z",
-      "last_updated": "2025-06-12T00:00:00Z",
+      "id": "qwen/qwen3.6-27b",
+      "display_name": "Qwen3.6 27B",
+      "release_date": "2026-04-22T00:00:00Z",
+      "last_updated": "2026-04-22T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 0.29,
-          "output_per_1m": 0.59
+          "input_per_1m": 0.6,
+          "output_per_1m": 3,
+          "cache_read_per_1m": 0.3
         }
       ],
       "reasoning": {
@@ -270,16 +261,48 @@
       },
       "modalities": {
         "input": [
-          "text"
+          "text",
+          "image"
         ],
         "output": [
           "text"
         ]
       },
       "tool_call": true,
+      "structured_output": true,
       "limits": {
         "context_window": 131072,
-        "max_output_tokens": 40960
+        "max_output_tokens": 16384
+      }
+    },
+    {
+      "id": "qwen/qwen3.8-27b",
+      "display_name": "Qwen3.8 27B",
+      "release_date": "2026-08-14T00:00:00Z",
+      "last_updated": "2026-08-14T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.8,
+          "output_per_1m": 4
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 131042,
+        "max_output_tokens": 16384
       }
     },
     {

@@ -4,12 +4,15 @@
     {
       "id": "amazon.nova-2-lite-v1:0",
       "display_name": "Nova 2 Lite",
-      "release_date": "2024-12-01T00:00:00Z",
-      "last_updated": "2024-12-01T00:00:00Z",
+      "knowledge_cutoff": "2025-10-01T00:00:00Z",
+      "release_date": "2025-12-02T00:00:00Z",
+      "last_updated": "2025-12-01T00:00:00Z",
       "pricing": [
         {
           "input_per_1m": 0.33,
-          "output_per_1m": 2.75
+          "output_per_1m": 2.75,
+          "cache_read_per_1m": 0.0825,
+          "cache_write_per_1m": 0.33
         }
       ],
       "reasoning": {
@@ -19,7 +22,8 @@
         "input": [
           "text",
           "image",
-          "video"
+          "video",
+          "pdf"
         ],
         "output": [
           "text"
@@ -27,8 +31,8 @@
       },
       "tool_call": true,
       "limits": {
-        "context_window": 128000,
-        "max_output_tokens": 4096
+        "context_window": 1000000,
+        "max_output_tokens": 65535
       }
     },
     {
@@ -41,14 +45,16 @@
         {
           "input_per_1m": 0.06,
           "output_per_1m": 0.24,
-          "cache_read_per_1m": 0.015
+          "cache_read_per_1m": 0.015,
+          "cache_write_per_1m": 0.06
         }
       ],
       "modalities": {
         "input": [
           "text",
           "image",
-          "video"
+          "video",
+          "pdf"
         ],
         "output": [
           "text"
@@ -57,7 +63,7 @@
       "tool_call": true,
       "limits": {
         "context_window": 300000,
-        "max_output_tokens": 8192
+        "max_output_tokens": 10000
       }
     },
     {
@@ -70,7 +76,8 @@
         {
           "input_per_1m": 0.035,
           "output_per_1m": 0.14,
-          "cache_read_per_1m": 0.00875
+          "cache_read_per_1m": 0.00875,
+          "cache_write_per_1m": 0.035
         }
       ],
       "modalities": {
@@ -84,7 +91,7 @@
       "tool_call": true,
       "limits": {
         "context_window": 128000,
-        "max_output_tokens": 8192
+        "max_output_tokens": 10000
       }
     },
     {
@@ -97,14 +104,16 @@
         {
           "input_per_1m": 0.8,
           "output_per_1m": 3.2,
-          "cache_read_per_1m": 0.2
+          "cache_read_per_1m": 0.2,
+          "cache_write_per_1m": 0.8
         }
       ],
       "modalities": {
         "input": [
           "text",
           "image",
-          "video"
+          "video",
+          "pdf"
         ],
         "output": [
           "text"
@@ -113,7 +122,7 @@
       "tool_call": true,
       "limits": {
         "context_window": 300000,
-        "max_output_tokens": 8192
+        "max_output_tokens": 10000
       }
     },
     {
@@ -127,6 +136,39 @@
           "input_per_1m": 10,
           "output_per_1m": 50,
           "cache_read_per_1m": 1,
+          "cache_write_per_1m": 12.5
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "anthropic.claude-fable-5-1",
+      "display_name": "Claude Fable 5.1",
+      "knowledge_cutoff": "2026-06-01T00:00:00Z",
+      "release_date": "2026-09-01T00:00:00Z",
+      "last_updated": "2026-09-01T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 10,
+          "output_per_1m": 50,
+          "cache_read_per_1m": 0.25,
           "cache_write_per_1m": 12.5
         }
       ],
@@ -220,9 +262,9 @@
     {
       "id": "anthropic.claude-opus-4-5-20251101-v1:0",
       "display_name": "Claude Opus 4.5",
-      "knowledge_cutoff": "2025-03-31T00:00:00Z",
-      "release_date": "2025-11-24T00:00:00Z",
-      "last_updated": "2025-08-01T00:00:00Z",
+      "knowledge_cutoff": "2025-05-01T00:00:00Z",
+      "release_date": "2025-11-01T00:00:00Z",
+      "last_updated": "2025-11-01T00:00:00Z",
       "pricing": [
         {
           "input_per_1m": 5,
@@ -259,10 +301,10 @@
       "last_updated": "2026-03-13T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 5,
-          "output_per_1m": 25,
-          "cache_read_per_1m": 0.5,
-          "cache_write_per_1m": 6.25
+          "input_per_1m": 5.5,
+          "output_per_1m": 27.5,
+          "cache_read_per_1m": 0.55,
+          "cache_write_per_1m": 6.875
         }
       ],
       "reasoning": {
@@ -385,6 +427,39 @@
       }
     },
     {
+      "id": "anthropic.claude-opus-5-5",
+      "display_name": "Claude Opus 5.5",
+      "knowledge_cutoff": "2026-06-01T00:00:00Z",
+      "release_date": "2026-09-22T00:00:00Z",
+      "last_updated": "2026-09-22T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 4,
+          "output_per_1m": 20,
+          "cache_read_per_1m": 0.2,
+          "cache_write_per_1m": 5
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
       "id": "anthropic.claude-sonnet-4-5-20250929-v1:0",
       "display_name": "Claude Sonnet 4.5",
       "knowledge_cutoff": "2025-07-31T00:00:00Z",
@@ -426,10 +501,10 @@
       "last_updated": "2026-03-13T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 3,
-          "output_per_1m": 15,
-          "cache_read_per_1m": 0.3,
-          "cache_write_per_1m": 3.75
+          "input_per_1m": 3.3,
+          "output_per_1m": 16.5,
+          "cache_read_per_1m": 0.33,
+          "cache_write_per_1m": 4.125
         }
       ],
       "reasoning": {
@@ -449,7 +524,7 @@
       "structured_output": true,
       "limits": {
         "context_window": 1000000,
-        "max_output_tokens": 64000
+        "max_output_tokens": 128000
       }
     },
     {
@@ -480,10 +555,133 @@
         ]
       },
       "tool_call": true,
-      "structured_output": true,
       "limits": {
         "context_window": 1000000,
         "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "apac.amazon.nova-lite-v1:0",
+      "display_name": "Nova Lite (APAC)",
+      "knowledge_cutoff": "2024-10-01T00:00:00Z",
+      "release_date": "2024-12-03T00:00:00Z",
+      "last_updated": "2024-12-03T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.063,
+          "output_per_1m": 0.252,
+          "cache_read_per_1m": 0.01575,
+          "cache_write_per_1m": 0.063
+        }
+      ],
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "video",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 300000,
+        "max_output_tokens": 10000
+      }
+    },
+    {
+      "id": "apac.amazon.nova-micro-v1:0",
+      "display_name": "Nova Micro (APAC)",
+      "knowledge_cutoff": "2024-10-01T00:00:00Z",
+      "release_date": "2024-12-03T00:00:00Z",
+      "last_updated": "2024-12-03T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.037,
+          "output_per_1m": 0.148,
+          "cache_read_per_1m": 0.00925,
+          "cache_write_per_1m": 0.037
+        }
+      ],
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 128000,
+        "max_output_tokens": 10000
+      }
+    },
+    {
+      "id": "apac.amazon.nova-pro-v1:0",
+      "display_name": "Nova Pro (APAC)",
+      "knowledge_cutoff": "2024-10-01T00:00:00Z",
+      "release_date": "2024-12-03T00:00:00Z",
+      "last_updated": "2024-12-03T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.84,
+          "output_per_1m": 3.36,
+          "cache_read_per_1m": 0.21,
+          "cache_write_per_1m": 0.84
+        }
+      ],
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "video",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 300000,
+        "max_output_tokens": 10000
+      }
+    },
+    {
+      "id": "apac.anthropic.claude-sonnet-4-20250514-v1:0",
+      "display_name": "Claude Sonnet 4 (APAC)",
+      "knowledge_cutoff": "2025-03-31T00:00:00Z",
+      "release_date": "2025-05-22T00:00:00Z",
+      "last_updated": "2025-05-22T00:00:00Z",
+      "deprecated": true,
+      "pricing": [
+        {
+          "input_per_1m": 3,
+          "output_per_1m": 15,
+          "cache_read_per_1m": 0.3,
+          "cache_write_per_1m": 3.75
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 200000,
+        "max_output_tokens": 64000
       }
     },
     {
@@ -494,10 +692,10 @@
       "last_updated": "2025-10-15T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 1,
-          "output_per_1m": 5,
-          "cache_read_per_1m": 0.1,
-          "cache_write_per_1m": 1.25
+          "input_per_1m": 1.1,
+          "output_per_1m": 5.5,
+          "cache_read_per_1m": 0.11,
+          "cache_write_per_1m": 1.375
         }
       ],
       "reasoning": {
@@ -523,15 +721,15 @@
     {
       "id": "au.anthropic.claude-opus-4-6-v1",
       "display_name": "AU Anthropic Claude Opus 4.6",
-      "knowledge_cutoff": "2025-05-01T00:00:00Z",
+      "knowledge_cutoff": "2025-05-31T00:00:00Z",
       "release_date": "2026-02-05T00:00:00Z",
-      "last_updated": "2026-02-05T00:00:00Z",
+      "last_updated": "2026-03-13T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 16.5,
-          "output_per_1m": 82.5,
-          "cache_read_per_1m": 1.65,
-          "cache_write_per_1m": 20.625
+          "input_per_1m": 5.5,
+          "output_per_1m": 27.5,
+          "cache_read_per_1m": 0.55,
+          "cache_write_per_1m": 6.875
         }
       ],
       "reasoning": {
@@ -555,6 +753,39 @@
       }
     },
     {
+      "id": "au.anthropic.claude-opus-4-7",
+      "display_name": "Claude Opus 4.7 (AU)",
+      "knowledge_cutoff": "2026-01-31T00:00:00Z",
+      "release_date": "2026-04-16T00:00:00Z",
+      "last_updated": "2026-04-16T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 5.5,
+          "output_per_1m": 27.5,
+          "cache_read_per_1m": 0.55,
+          "cache_write_per_1m": 6.875
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
       "id": "au.anthropic.claude-opus-4-8",
       "display_name": "Claude Opus 4.8 (AU)",
       "knowledge_cutoff": "2026-01-01T00:00:00Z",
@@ -562,10 +793,10 @@
       "last_updated": "2026-05-28T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 5,
-          "output_per_1m": 25,
-          "cache_read_per_1m": 0.5,
-          "cache_write_per_1m": 6.25
+          "input_per_1m": 5.5,
+          "output_per_1m": 27.5,
+          "cache_read_per_1m": 0.55,
+          "cache_write_per_1m": 6.875
         }
       ],
       "reasoning": {
@@ -595,10 +826,43 @@
       "last_updated": "2026-07-24T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 5,
-          "output_per_1m": 25,
-          "cache_read_per_1m": 0.5,
-          "cache_write_per_1m": 6.25
+          "input_per_1m": 5.5,
+          "output_per_1m": 27.5,
+          "cache_read_per_1m": 0.55,
+          "cache_write_per_1m": 6.875
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "au.anthropic.claude-opus-5-5",
+      "display_name": "Claude Opus 5.5 (AU)",
+      "knowledge_cutoff": "2026-06-01T00:00:00Z",
+      "release_date": "2026-09-22T00:00:00Z",
+      "last_updated": "2026-09-22T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 4.4,
+          "output_per_1m": 22,
+          "cache_read_per_1m": 0.22,
+          "cache_write_per_1m": 5.5
         }
       ],
       "reasoning": {
@@ -628,10 +892,10 @@
       "last_updated": "2025-09-29T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 3,
-          "output_per_1m": 15,
-          "cache_read_per_1m": 0.3,
-          "cache_write_per_1m": 3.75
+          "input_per_1m": 3.3,
+          "output_per_1m": 16.5,
+          "cache_read_per_1m": 0.33,
+          "cache_write_per_1m": 4.125
         }
       ],
       "reasoning": {
@@ -657,9 +921,9 @@
     {
       "id": "au.anthropic.claude-sonnet-4-6",
       "display_name": "AU Anthropic Claude Sonnet 4.6",
-      "knowledge_cutoff": "2025-08-01T00:00:00Z",
+      "knowledge_cutoff": "2025-08-31T00:00:00Z",
       "release_date": "2026-02-17T00:00:00Z",
-      "last_updated": "2026-02-17T00:00:00Z",
+      "last_updated": "2026-03-13T00:00:00Z",
       "pricing": [
         {
           "input_per_1m": 3.3,
@@ -696,10 +960,10 @@
       "last_updated": "2026-06-30T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 2,
-          "output_per_1m": 10,
-          "cache_read_per_1m": 0.2,
-          "cache_write_per_1m": 2.5
+          "input_per_1m": 2.2,
+          "output_per_1m": 11,
+          "cache_read_per_1m": 0.22,
+          "cache_write_per_1m": 2.75
         }
       ],
       "reasoning": {
@@ -716,10 +980,40 @@
         ]
       },
       "tool_call": true,
-      "structured_output": true,
       "limits": {
         "context_window": 1000000,
         "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "ca.amazon.nova-lite-v1:0",
+      "display_name": "Nova Lite (CA)",
+      "knowledge_cutoff": "2024-10-01T00:00:00Z",
+      "release_date": "2024-12-03T00:00:00Z",
+      "last_updated": "2024-12-03T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.064,
+          "output_per_1m": 0.256,
+          "cache_read_per_1m": 0.016,
+          "cache_write_per_1m": 0.064
+        }
+      ],
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "video",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 300000,
+        "max_output_tokens": 10000
       }
     },
     {
@@ -745,7 +1039,6 @@
           "text"
         ]
       },
-      "tool_call": true,
       "limits": {
         "context_window": 128000,
         "max_output_tokens": 32768
@@ -754,8 +1047,7 @@
     {
       "id": "deepseek.v3-v1:0",
       "display_name": "DeepSeek-V3.1",
-      "knowledge_cutoff": "2024-07-01T00:00:00Z",
-      "release_date": "2025-09-18T00:00:00Z",
+      "release_date": "2025-08-21T00:00:00Z",
       "last_updated": "2025-09-18T00:00:00Z",
       "pricing": [
         {
@@ -783,9 +1075,9 @@
     },
     {
       "id": "deepseek.v3.2",
-      "display_name": "DeepSeek-V3.2",
+      "display_name": "DeepSeek V3.2",
       "knowledge_cutoff": "2024-07-01T00:00:00Z",
-      "release_date": "2026-02-06T00:00:00Z",
+      "release_date": "2025-12-01T00:00:00Z",
       "last_updated": "2026-02-06T00:00:00Z",
       "pricing": [
         {
@@ -809,6 +1101,130 @@
       "limits": {
         "context_window": 163840,
         "max_output_tokens": 81920
+      }
+    },
+    {
+      "id": "eu.amazon.nova-2-lite-v1:0",
+      "display_name": "Nova 2 Lite (EU)",
+      "knowledge_cutoff": "2025-10-01T00:00:00Z",
+      "release_date": "2025-12-02T00:00:00Z",
+      "last_updated": "2025-12-01T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.374,
+          "output_per_1m": 3.157,
+          "cache_read_per_1m": 0.0935,
+          "cache_write_per_1m": 0.374
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "video",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 65535
+      }
+    },
+    {
+      "id": "eu.amazon.nova-lite-v1:0",
+      "display_name": "Nova Lite (EU)",
+      "knowledge_cutoff": "2024-10-01T00:00:00Z",
+      "release_date": "2024-12-03T00:00:00Z",
+      "last_updated": "2024-12-03T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.069,
+          "output_per_1m": 0.276,
+          "cache_read_per_1m": 0.01725,
+          "cache_write_per_1m": 0.069
+        }
+      ],
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "video",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 300000,
+        "max_output_tokens": 10000
+      }
+    },
+    {
+      "id": "eu.amazon.nova-micro-v1:0",
+      "display_name": "Nova Micro (EU)",
+      "knowledge_cutoff": "2024-10-01T00:00:00Z",
+      "release_date": "2024-12-03T00:00:00Z",
+      "last_updated": "2024-12-03T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.04,
+          "output_per_1m": 0.16,
+          "cache_read_per_1m": 0.01,
+          "cache_write_per_1m": 0.04
+        }
+      ],
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 128000,
+        "max_output_tokens": 10000
+      }
+    },
+    {
+      "id": "eu.amazon.nova-pro-v1:0",
+      "display_name": "Nova Pro (EU)",
+      "knowledge_cutoff": "2024-10-01T00:00:00Z",
+      "release_date": "2024-12-03T00:00:00Z",
+      "last_updated": "2024-12-03T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.92,
+          "output_per_1m": 3.68,
+          "cache_read_per_1m": 0.23,
+          "cache_write_per_1m": 0.92
+        }
+      ],
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "video",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 300000,
+        "max_output_tokens": 10000
       }
     },
     {
@@ -881,9 +1297,9 @@
     {
       "id": "eu.anthropic.claude-opus-4-5-20251101-v1:0",
       "display_name": "Claude Opus 4.5 (EU)",
-      "knowledge_cutoff": "2025-03-31T00:00:00Z",
-      "release_date": "2025-11-24T00:00:00Z",
-      "last_updated": "2025-08-01T00:00:00Z",
+      "knowledge_cutoff": "2025-05-01T00:00:00Z",
+      "release_date": "2025-11-01T00:00:00Z",
+      "last_updated": "2025-11-01T00:00:00Z",
       "pricing": [
         {
           "input_per_1m": 5.5,
@@ -1046,6 +1462,73 @@
       }
     },
     {
+      "id": "eu.anthropic.claude-opus-5-5",
+      "display_name": "Claude Opus 5.5 (EU)",
+      "knowledge_cutoff": "2026-06-01T00:00:00Z",
+      "release_date": "2026-09-22T00:00:00Z",
+      "last_updated": "2026-09-22T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 4.4,
+          "output_per_1m": 22,
+          "cache_read_per_1m": 0.22,
+          "cache_write_per_1m": 5.5
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "eu.anthropic.claude-sonnet-4-20250514-v1:0",
+      "display_name": "Claude Sonnet 4 (EU)",
+      "knowledge_cutoff": "2025-03-31T00:00:00Z",
+      "release_date": "2025-05-22T00:00:00Z",
+      "last_updated": "2025-05-22T00:00:00Z",
+      "deprecated": true,
+      "pricing": [
+        {
+          "input_per_1m": 3,
+          "output_per_1m": 15,
+          "cache_read_per_1m": 0.3,
+          "cache_write_per_1m": 3.75
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 200000,
+        "max_output_tokens": 64000
+      }
+    },
+    {
       "id": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
       "display_name": "Claude Sonnet 4.5 (EU)",
       "knowledge_cutoff": "2025-07-31T00:00:00Z",
@@ -1110,7 +1593,7 @@
       "structured_output": true,
       "limits": {
         "context_window": 1000000,
-        "max_output_tokens": 64000
+        "max_output_tokens": 128000
       }
     },
     {
@@ -1141,10 +1624,69 @@
         ]
       },
       "tool_call": true,
-      "structured_output": true,
       "limits": {
         "context_window": 1000000,
         "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "eu.mistral.pixtral-large-2502-v1:0",
+      "display_name": "Pixtral Large (25.02) (EU)",
+      "release_date": "2025-04-08T00:00:00Z",
+      "last_updated": "2025-04-08T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 2,
+          "output_per_1m": 6
+        }
+      ],
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 128000,
+        "max_output_tokens": 8192
+      }
+    },
+    {
+      "id": "global.amazon.nova-2-lite-v1:0",
+      "display_name": "Nova 2 Lite (Global)",
+      "knowledge_cutoff": "2025-10-01T00:00:00Z",
+      "release_date": "2025-12-02T00:00:00Z",
+      "last_updated": "2025-12-01T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.3,
+          "output_per_1m": 2.5,
+          "cache_read_per_1m": 0.075,
+          "cache_write_per_1m": 0.3
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "video",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 65535
       }
     },
     {
@@ -1158,6 +1700,39 @@
           "input_per_1m": 10,
           "output_per_1m": 50,
           "cache_read_per_1m": 1,
+          "cache_write_per_1m": 12.5
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "global.anthropic.claude-fable-5-1",
+      "display_name": "Claude Fable 5.1 (Global)",
+      "knowledge_cutoff": "2026-06-01T00:00:00Z",
+      "release_date": "2026-09-01T00:00:00Z",
+      "last_updated": "2026-09-01T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 10,
+          "output_per_1m": 50,
+          "cache_read_per_1m": 0.25,
           "cache_write_per_1m": 12.5
         }
       ],
@@ -1217,9 +1792,9 @@
     {
       "id": "global.anthropic.claude-opus-4-5-20251101-v1:0",
       "display_name": "Claude Opus 4.5 (Global)",
-      "knowledge_cutoff": "2025-03-31T00:00:00Z",
-      "release_date": "2025-11-24T00:00:00Z",
-      "last_updated": "2025-08-01T00:00:00Z",
+      "knowledge_cutoff": "2025-05-01T00:00:00Z",
+      "release_date": "2025-11-01T00:00:00Z",
+      "last_updated": "2025-11-01T00:00:00Z",
       "pricing": [
         {
           "input_per_1m": 5,
@@ -1382,6 +1957,73 @@
       }
     },
     {
+      "id": "global.anthropic.claude-opus-5-5",
+      "display_name": "Claude Opus 5.5 (Global)",
+      "knowledge_cutoff": "2026-06-01T00:00:00Z",
+      "release_date": "2026-09-22T00:00:00Z",
+      "last_updated": "2026-09-22T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 4,
+          "output_per_1m": 20,
+          "cache_read_per_1m": 0.2,
+          "cache_write_per_1m": 5
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "global.anthropic.claude-sonnet-4-20250514-v1:0",
+      "display_name": "Claude Sonnet 4 (Global)",
+      "knowledge_cutoff": "2025-03-31T00:00:00Z",
+      "release_date": "2025-05-22T00:00:00Z",
+      "last_updated": "2025-05-22T00:00:00Z",
+      "deprecated": true,
+      "pricing": [
+        {
+          "input_per_1m": 3,
+          "output_per_1m": 15,
+          "cache_read_per_1m": 0.3,
+          "cache_write_per_1m": 3.75
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 200000,
+        "max_output_tokens": 64000
+      }
+    },
+    {
       "id": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
       "display_name": "Claude Sonnet 4.5 (Global)",
       "knowledge_cutoff": "2025-07-31T00:00:00Z",
@@ -1446,7 +2088,7 @@
       "structured_output": true,
       "limits": {
         "context_window": 1000000,
-        "max_output_tokens": 64000
+        "max_output_tokens": 128000
       }
     },
     {
@@ -1477,22 +2119,328 @@
         ]
       },
       "tool_call": true,
-      "structured_output": true,
       "limits": {
         "context_window": 1000000,
         "max_output_tokens": 128000
       }
     },
     {
-      "id": "google.gemma-3-12b-it",
-      "display_name": "Google Gemma 3 12B",
-      "knowledge_cutoff": "2024-12-01T00:00:00Z",
-      "release_date": "2024-12-01T00:00:00Z",
-      "last_updated": "2024-12-01T00:00:00Z",
+      "id": "global.moonshotai.kimi-k3",
+      "display_name": "Kimi K3 (Global)",
+      "release_date": "2026-07-16T00:00:00Z",
+      "last_updated": "2026-07-16T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 0.049999999999999996,
-          "output_per_1m": 0.09999999999999999
+          "input_per_1m": 3,
+          "output_per_1m": 15,
+          "cache_read_per_1m": 0.3,
+          "cache_write_per_1m": 3.75
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1048576,
+        "max_output_tokens": 131072
+      }
+    },
+    {
+      "id": "global.openai.gpt-5.6-luna",
+      "display_name": "GPT-5.6 Luna (Global)",
+      "knowledge_cutoff": "2026-02-16T00:00:00Z",
+      "release_date": "2026-07-09T00:00:00Z",
+      "last_updated": "2026-07-09T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.2,
+          "output_per_1m": 1.2,
+          "cache_read_per_1m": 0.02,
+          "cache_write_per_1m": 0.25
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 0.4,
+          "output_per_1m": 1.8,
+          "cache_read_per_1m": 0.04,
+          "cache_write_per_1m": 0.5
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "global.openai.gpt-5.6-sol",
+      "display_name": "GPT-5.6 Sol (Global)",
+      "knowledge_cutoff": "2026-02-16T00:00:00Z",
+      "release_date": "2026-07-09T00:00:00Z",
+      "last_updated": "2026-07-09T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 4,
+          "output_per_1m": 20,
+          "cache_read_per_1m": 0.4,
+          "cache_write_per_1m": 5
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 8,
+          "output_per_1m": 30,
+          "cache_read_per_1m": 0.8,
+          "cache_write_per_1m": 10
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "global.openai.gpt-5.6-terra",
+      "display_name": "GPT-5.6 Terra (Global)",
+      "knowledge_cutoff": "2026-02-16T00:00:00Z",
+      "release_date": "2026-07-09T00:00:00Z",
+      "last_updated": "2026-07-09T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 2,
+          "output_per_1m": 12,
+          "cache_read_per_1m": 0.2,
+          "cache_write_per_1m": 2.5
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 4,
+          "output_per_1m": 18,
+          "cache_read_per_1m": 0.4,
+          "cache_write_per_1m": 5
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "global.openai.gpt-6-astra",
+      "display_name": "GPT-6 Astra (Global)",
+      "knowledge_cutoff": "2026-04-30T00:00:00Z",
+      "release_date": "2026-09-04T00:00:00Z",
+      "last_updated": "2026-09-04T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 10,
+          "output_per_1m": 50,
+          "cache_read_per_1m": 1,
+          "cache_write_per_1m": 12.5
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 20,
+          "output_per_1m": 75,
+          "cache_read_per_1m": 2,
+          "cache_write_per_1m": 25
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "global.openai.gpt-6-luna",
+      "display_name": "GPT-6 Luna (Global)",
+      "knowledge_cutoff": "2026-05-18T00:00:00Z",
+      "release_date": "2026-09-22T00:00:00Z",
+      "last_updated": "2026-09-22T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.1,
+          "output_per_1m": 0.5,
+          "cache_read_per_1m": 0.01,
+          "cache_write_per_1m": 0.125
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 0.2,
+          "output_per_1m": 0.75,
+          "cache_read_per_1m": 0.02,
+          "cache_write_per_1m": 0.25
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "global.openai.gpt-6-sol",
+      "display_name": "GPT-6 Sol (Global)",
+      "knowledge_cutoff": "2026-04-20T00:00:00Z",
+      "release_date": "2026-09-22T00:00:00Z",
+      "last_updated": "2026-09-22T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 2,
+          "output_per_1m": 10,
+          "cache_read_per_1m": 0.2,
+          "cache_write_per_1m": 2.5
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 4,
+          "output_per_1m": 15,
+          "cache_read_per_1m": 0.4,
+          "cache_write_per_1m": 5
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "global.xai.grok-4.6",
+      "display_name": "Grok 4.6 (Global)",
+      "knowledge_cutoff": "2026-02-01T00:00:00Z",
+      "release_date": "2026-08-12T00:00:00Z",
+      "last_updated": "2026-08-18T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 2,
+          "output_per_1m": 6,
+          "cache_read_per_1m": 0.5
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 500000,
+        "max_output_tokens": 500000
+      }
+    },
+    {
+      "id": "google.gemma-3-12b-it",
+      "display_name": "Gemma 3 12B IT",
+      "knowledge_cutoff": "2024-08-01T00:00:00Z",
+      "release_date": "2025-03-12T00:00:00Z",
+      "last_updated": "2025-03-12T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.09,
+          "output_per_1m": 0.29
         }
       ],
       "modalities": {
@@ -1512,14 +2460,14 @@
     },
     {
       "id": "google.gemma-3-27b-it",
-      "display_name": "Google Gemma 3 27B Instruct",
-      "knowledge_cutoff": "2025-07-01T00:00:00Z",
-      "release_date": "2025-07-27T00:00:00Z",
-      "last_updated": "2025-07-27T00:00:00Z",
+      "display_name": "Gemma 3 27B IT",
+      "knowledge_cutoff": "2024-08-01T00:00:00Z",
+      "release_date": "2025-03-12T00:00:00Z",
+      "last_updated": "2025-03-12T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 0.12,
-          "output_per_1m": 0.2
+          "input_per_1m": 0.23,
+          "output_per_1m": 0.38
         }
       ],
       "modalities": {
@@ -1531,7 +2479,6 @@
           "text"
         ]
       },
-      "tool_call": true,
       "structured_output": true,
       "limits": {
         "context_window": 202752,
@@ -1541,8 +2488,9 @@
     {
       "id": "google.gemma-3-4b-it",
       "display_name": "Gemma 3 4B IT",
-      "release_date": "2024-12-01T00:00:00Z",
-      "last_updated": "2024-12-01T00:00:00Z",
+      "knowledge_cutoff": "2024-08-01T00:00:00Z",
+      "release_date": "2025-03-12T00:00:00Z",
+      "last_updated": "2025-03-12T00:00:00Z",
       "pricing": [
         {
           "input_per_1m": 0.04,
@@ -1558,10 +2506,220 @@
           "text"
         ]
       },
+      "limits": {
+        "context_window": 131072,
+        "max_output_tokens": 4096
+      }
+    },
+    {
+      "id": "google.gemma-4-26b-a4b",
+      "display_name": "Gemma 4 26B A4B IT",
+      "release_date": "2026-04-02T00:00:00Z",
+      "last_updated": "2026-04-02T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.13,
+          "output_per_1m": 0.4
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "video"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 262144,
+        "max_output_tokens": 32768
+      }
+    },
+    {
+      "id": "google.gemma-4-31b",
+      "display_name": "Gemma 4 31B IT",
+      "release_date": "2026-04-02T00:00:00Z",
+      "last_updated": "2026-04-02T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.14,
+          "output_per_1m": 0.4
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "video"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 262144,
+        "max_output_tokens": 32768
+      }
+    },
+    {
+      "id": "google.gemma-4-e2b",
+      "display_name": "Gemma 4 E2B IT",
+      "release_date": "2026-04-02T00:00:00Z",
+      "last_updated": "2026-04-02T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.04,
+          "output_per_1m": 0.08
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 131072,
+        "max_output_tokens": 8192
+      }
+    },
+    {
+      "id": "in.openai.gpt-5.6-luna",
+      "display_name": "GPT-5.6 Luna (India)",
+      "knowledge_cutoff": "2026-02-16T00:00:00Z",
+      "release_date": "2026-07-09T00:00:00Z",
+      "last_updated": "2026-07-09T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.22,
+          "output_per_1m": 1.32,
+          "cache_read_per_1m": 0.022,
+          "cache_write_per_1m": 0.275
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 0.44,
+          "output_per_1m": 1.98,
+          "cache_read_per_1m": 0.044,
+          "cache_write_per_1m": 0.55
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "in.openai.gpt-5.6-terra",
+      "display_name": "GPT-5.6 Terra (India)",
+      "knowledge_cutoff": "2026-02-16T00:00:00Z",
+      "release_date": "2026-07-09T00:00:00Z",
+      "last_updated": "2026-07-09T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 2.2,
+          "output_per_1m": 13.2,
+          "cache_read_per_1m": 0.22,
+          "cache_write_per_1m": 2.75
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 4.4,
+          "output_per_1m": 19.8,
+          "cache_read_per_1m": 0.44,
+          "cache_write_per_1m": 5.5
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
       "tool_call": true,
       "limits": {
-        "context_window": 128000,
-        "max_output_tokens": 4096
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "jp.amazon.nova-2-lite-v1:0",
+      "display_name": "Nova 2 Lite (JP)",
+      "knowledge_cutoff": "2025-10-01T00:00:00Z",
+      "release_date": "2025-12-02T00:00:00Z",
+      "last_updated": "2025-12-01T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.396,
+          "output_per_1m": 3.311,
+          "cache_read_per_1m": 0.099,
+          "cache_write_per_1m": 0.396
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "video",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 65535
       }
     },
     {
@@ -1572,10 +2730,10 @@
       "last_updated": "2025-10-15T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 1,
-          "output_per_1m": 5,
-          "cache_read_per_1m": 0.1,
-          "cache_write_per_1m": 1.25
+          "input_per_1m": 1.1,
+          "output_per_1m": 5.5,
+          "cache_read_per_1m": 0.11,
+          "cache_write_per_1m": 1.375
         }
       ],
       "reasoning": {
@@ -1606,10 +2764,10 @@
       "last_updated": "2026-04-16T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 5,
-          "output_per_1m": 25,
-          "cache_read_per_1m": 0.5,
-          "cache_write_per_1m": 6.25
+          "input_per_1m": 5.5,
+          "output_per_1m": 27.5,
+          "cache_read_per_1m": 0.55,
+          "cache_write_per_1m": 6.875
         }
       ],
       "reasoning": {
@@ -1639,10 +2797,10 @@
       "last_updated": "2026-05-28T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 5,
-          "output_per_1m": 25,
-          "cache_read_per_1m": 0.5,
-          "cache_write_per_1m": 6.25
+          "input_per_1m": 5.5,
+          "output_per_1m": 27.5,
+          "cache_read_per_1m": 0.55,
+          "cache_write_per_1m": 6.875
         }
       ],
       "reasoning": {
@@ -1672,10 +2830,43 @@
       "last_updated": "2026-07-24T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 5,
-          "output_per_1m": 25,
-          "cache_read_per_1m": 0.5,
-          "cache_write_per_1m": 6.25
+          "input_per_1m": 5.5,
+          "output_per_1m": 27.5,
+          "cache_read_per_1m": 0.55,
+          "cache_write_per_1m": 6.875
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "jp.anthropic.claude-opus-5-5",
+      "display_name": "Claude Opus 5.5 (JP)",
+      "knowledge_cutoff": "2026-06-01T00:00:00Z",
+      "release_date": "2026-09-22T00:00:00Z",
+      "last_updated": "2026-09-22T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 4.4,
+          "output_per_1m": 22,
+          "cache_read_per_1m": 0.22,
+          "cache_write_per_1m": 5.5
         }
       ],
       "reasoning": {
@@ -1705,10 +2896,10 @@
       "last_updated": "2025-09-29T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 3,
-          "output_per_1m": 15,
-          "cache_read_per_1m": 0.3,
-          "cache_write_per_1m": 3.75
+          "input_per_1m": 3.3,
+          "output_per_1m": 16.5,
+          "cache_read_per_1m": 0.33,
+          "cache_write_per_1m": 4.125
         }
       ],
       "reasoning": {
@@ -1739,10 +2930,10 @@
       "last_updated": "2026-03-13T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 3,
-          "output_per_1m": 15,
-          "cache_read_per_1m": 0.3,
-          "cache_write_per_1m": 3.75
+          "input_per_1m": 3.3,
+          "output_per_1m": 16.5,
+          "cache_read_per_1m": 0.33,
+          "cache_write_per_1m": 4.125
         }
       ],
       "reasoning": {
@@ -1762,7 +2953,7 @@
       "structured_output": true,
       "limits": {
         "context_window": 1000000,
-        "max_output_tokens": 64000
+        "max_output_tokens": 128000
       }
     },
     {
@@ -1773,10 +2964,10 @@
       "last_updated": "2026-06-30T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 2,
-          "output_per_1m": 10,
-          "cache_read_per_1m": 0.2,
-          "cache_write_per_1m": 2.5
+          "input_per_1m": 2.2,
+          "output_per_1m": 11,
+          "cache_read_per_1m": 0.22,
+          "cache_write_per_1m": 2.75
         }
       ],
       "reasoning": {
@@ -1793,7 +2984,6 @@
         ]
       },
       "tool_call": true,
-      "structured_output": true,
       "limits": {
         "context_window": 1000000,
         "max_output_tokens": 128000
@@ -1901,7 +3091,7 @@
       "tool_call": true,
       "limits": {
         "context_window": 1000000,
-        "max_output_tokens": 16384
+        "max_output_tokens": 8192
       }
     },
     {
@@ -1927,13 +3117,13 @@
       },
       "tool_call": true,
       "limits": {
-        "context_window": 3500000,
-        "max_output_tokens": 16384
+        "context_window": 10000000,
+        "max_output_tokens": 8192
       }
     },
     {
       "id": "minimax.minimax-m2",
-      "display_name": "MiniMax M2",
+      "display_name": "MiniMax-M2",
       "release_date": "2025-10-27T00:00:00Z",
       "last_updated": "2025-10-27T00:00:00Z",
       "pricing": [
@@ -1954,6 +3144,7 @@
         ]
       },
       "tool_call": true,
+      "structured_output": true,
       "limits": {
         "context_window": 204608,
         "max_output_tokens": 128000
@@ -1961,7 +3152,7 @@
     },
     {
       "id": "minimax.minimax-m2.1",
-      "display_name": "MiniMax M2.1",
+      "display_name": "MiniMax-M2.1",
       "release_date": "2025-12-23T00:00:00Z",
       "last_updated": "2025-12-23T00:00:00Z",
       "pricing": [
@@ -1982,6 +3173,7 @@
         ]
       },
       "tool_call": true,
+      "structured_output": true,
       "limits": {
         "context_window": 204800,
         "max_output_tokens": 131072
@@ -1989,8 +3181,8 @@
     },
     {
       "id": "minimax.minimax-m2.5",
-      "display_name": "MiniMax M2.5",
-      "release_date": "2026-03-18T00:00:00Z",
+      "display_name": "MiniMax-M2.5",
+      "release_date": "2026-02-12T00:00:00Z",
       "last_updated": "2026-03-18T00:00:00Z",
       "pricing": [
         {
@@ -2010,6 +3202,7 @@
         ]
       },
       "tool_call": true,
+      "structured_output": true,
       "limits": {
         "context_window": 196608,
         "max_output_tokens": 98304
@@ -2018,8 +3211,9 @@
     {
       "id": "mistral.devstral-2-123b",
       "display_name": "Devstral 2 123B",
-      "release_date": "2026-02-17T00:00:00Z",
-      "last_updated": "2026-02-17T00:00:00Z",
+      "knowledge_cutoff": "2025-12-01T00:00:00Z",
+      "release_date": "2025-12-09T00:00:00Z",
+      "last_updated": "2025-12-09T00:00:00Z",
       "pricing": [
         {
           "input_per_1m": 0.4,
@@ -2044,8 +3238,8 @@
     {
       "id": "mistral.magistral-small-2509",
       "display_name": "Magistral Small 1.2",
-      "release_date": "2025-12-02T00:00:00Z",
-      "last_updated": "2025-12-02T00:00:00Z",
+      "release_date": "2025-09-18T00:00:00Z",
+      "last_updated": "2025-09-18T00:00:00Z",
       "pricing": [
         {
           "input_per_1m": 0.5,
@@ -2074,8 +3268,8 @@
     {
       "id": "mistral.ministral-3-14b-instruct",
       "display_name": "Ministral 14B 3.0",
-      "release_date": "2024-12-01T00:00:00Z",
-      "last_updated": "2024-12-01T00:00:00Z",
+      "release_date": "2025-12-02T00:00:00Z",
+      "last_updated": "2025-12-02T00:00:00Z",
       "pricing": [
         {
           "input_per_1m": 0.2,
@@ -2084,7 +3278,8 @@
       ],
       "modalities": {
         "input": [
-          "text"
+          "text",
+          "image"
         ],
         "output": [
           "text"
@@ -2127,8 +3322,8 @@
     {
       "id": "mistral.ministral-3-8b-instruct",
       "display_name": "Ministral 3 8B",
-      "release_date": "2024-12-01T00:00:00Z",
-      "last_updated": "2024-12-01T00:00:00Z",
+      "release_date": "2025-12-02T00:00:00Z",
+      "last_updated": "2025-12-02T00:00:00Z",
       "pricing": [
         {
           "input_per_1m": 0.15,
@@ -2137,7 +3332,8 @@
       ],
       "modalities": {
         "input": [
-          "text"
+          "text",
+          "image"
         ],
         "output": [
           "text"
@@ -2153,6 +3349,7 @@
     {
       "id": "mistral.mistral-large-3-675b-instruct",
       "display_name": "Mistral Large 3",
+      "knowledge_cutoff": "2024-11-01T00:00:00Z",
       "release_date": "2025-12-02T00:00:00Z",
       "last_updated": "2025-12-02T00:00:00Z",
       "pricing": [
@@ -2206,39 +3403,12 @@
     {
       "id": "mistral.voxtral-mini-3b-2507",
       "display_name": "Voxtral Mini 3B 2507",
-      "release_date": "2024-12-01T00:00:00Z",
-      "last_updated": "2024-12-01T00:00:00Z",
+      "release_date": "2025-07-15T00:00:00Z",
+      "last_updated": "2025-07-15T00:00:00Z",
       "pricing": [
         {
           "input_per_1m": 0.04,
           "output_per_1m": 0.04
-        }
-      ],
-      "modalities": {
-        "input": [
-          "audio",
-          "text"
-        ],
-        "output": [
-          "text"
-        ]
-      },
-      "tool_call": true,
-      "structured_output": true,
-      "limits": {
-        "context_window": 128000,
-        "max_output_tokens": 4096
-      }
-    },
-    {
-      "id": "mistral.voxtral-small-24b-2507",
-      "display_name": "Voxtral Small 24B 2507",
-      "release_date": "2025-07-01T00:00:00Z",
-      "last_updated": "2025-07-01T00:00:00Z",
-      "pricing": [
-        {
-          "input_per_1m": 0.15,
-          "output_per_1m": 0.35
         }
       ],
       "modalities": {
@@ -2253,14 +3423,42 @@
       "tool_call": true,
       "structured_output": true,
       "limits": {
-        "context_window": 32000,
+        "context_window": 32768,
+        "max_output_tokens": 4096
+      }
+    },
+    {
+      "id": "mistral.voxtral-small-24b-2507",
+      "display_name": "Voxtral Small 24B 2507",
+      "release_date": "2025-07-15T00:00:00Z",
+      "last_updated": "2025-07-15T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.1,
+          "output_per_1m": 0.3
+        }
+      ],
+      "modalities": {
+        "input": [
+          "text",
+          "audio"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 32768,
         "max_output_tokens": 8192
       }
     },
     {
       "id": "moonshot.kimi-k2-thinking",
       "display_name": "Kimi K2 Thinking",
-      "release_date": "2025-12-02T00:00:00Z",
+      "knowledge_cutoff": "2024-08-01T00:00:00Z",
+      "release_date": "2025-11-06T00:00:00Z",
       "last_updated": "2025-12-02T00:00:00Z",
       "pricing": [
         {
@@ -2289,7 +3487,8 @@
     {
       "id": "moonshotai.kimi-k2.5",
       "display_name": "Kimi K2.5",
-      "release_date": "2026-02-06T00:00:00Z",
+      "knowledge_cutoff": "2025-01-01T00:00:00Z",
+      "release_date": "2026-01-27T00:00:00Z",
       "last_updated": "2026-02-06T00:00:00Z",
       "pricing": [
         {
@@ -2313,14 +3512,14 @@
       "structured_output": true,
       "limits": {
         "context_window": 262143,
-        "max_output_tokens": 16000
+        "max_output_tokens": 16384
       }
     },
     {
       "id": "nvidia.nemotron-nano-12b-v2",
       "display_name": "NVIDIA Nemotron Nano 12B v2 VL BF16",
-      "release_date": "2024-12-01T00:00:00Z",
-      "last_updated": "2024-12-01T00:00:00Z",
+      "release_date": "2025-10-28T00:00:00Z",
+      "last_updated": "2025-10-28T00:00:00Z",
       "pricing": [
         {
           "input_per_1m": 0.2,
@@ -2340,13 +3539,13 @@
       "structured_output": true,
       "limits": {
         "context_window": 128000,
-        "max_output_tokens": 4096
+        "max_output_tokens": 8192
       }
     },
     {
       "id": "nvidia.nemotron-nano-3-30b",
       "display_name": "NVIDIA Nemotron Nano 3 30B",
-      "release_date": "2025-12-23T00:00:00Z",
+      "release_date": "2025-12-15T00:00:00Z",
       "last_updated": "2025-12-23T00:00:00Z",
       "pricing": [
         {
@@ -2368,15 +3567,15 @@
       "tool_call": true,
       "structured_output": true,
       "limits": {
-        "context_window": 128000,
-        "max_output_tokens": 4096
+        "context_window": 262144,
+        "max_output_tokens": 8192
       }
     },
     {
       "id": "nvidia.nemotron-nano-9b-v2",
       "display_name": "NVIDIA Nemotron Nano 9B v2",
-      "release_date": "2024-12-01T00:00:00Z",
-      "last_updated": "2024-12-01T00:00:00Z",
+      "release_date": "2025-08-18T00:00:00Z",
+      "last_updated": "2025-08-18T00:00:00Z",
       "pricing": [
         {
           "input_per_1m": 0.06,
@@ -2394,8 +3593,8 @@
       "tool_call": true,
       "structured_output": true,
       "limits": {
-        "context_window": 128000,
-        "max_output_tokens": 4096
+        "context_window": 131072,
+        "max_output_tokens": 8192
       }
     },
     {
@@ -2505,6 +3704,13 @@
           "output_per_1m": 1.32,
           "cache_read_per_1m": 0.022,
           "cache_write_per_1m": 0.275
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 0.44,
+          "output_per_1m": 1.98,
+          "cache_read_per_1m": 0.044,
+          "cache_write_per_1m": 0.55
         }
       ],
       "reasoning": {
@@ -2523,7 +3729,8 @@
       "tool_call": true,
       "structured_output": true,
       "limits": {
-        "context_window": 272000,
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
         "max_output_tokens": 128000
       }
     },
@@ -2535,10 +3742,17 @@
       "last_updated": "2026-07-09T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 5.5,
+          "input_per_1m": 4.4,
+          "output_per_1m": 22,
+          "cache_read_per_1m": 0.44,
+          "cache_write_per_1m": 5.5
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 8.8,
           "output_per_1m": 33,
-          "cache_read_per_1m": 0.55,
-          "cache_write_per_1m": 6.88
+          "cache_read_per_1m": 0.88,
+          "cache_write_per_1m": 11
         }
       ],
       "reasoning": {
@@ -2557,7 +3771,8 @@
       "tool_call": true,
       "structured_output": true,
       "limits": {
-        "context_window": 272000,
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
         "max_output_tokens": 128000
       }
     },
@@ -2573,6 +3788,13 @@
           "output_per_1m": 13.2,
           "cache_read_per_1m": 0.22,
           "cache_write_per_1m": 2.75
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 4.4,
+          "output_per_1m": 19.8,
+          "cache_read_per_1m": 0.44,
+          "cache_write_per_1m": 5.5
         }
       ],
       "reasoning": {
@@ -2591,7 +3813,50 @@
       "tool_call": true,
       "structured_output": true,
       "limits": {
-        "context_window": 272000,
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "openai.gpt-6-astra",
+      "display_name": "GPT-6 Astra",
+      "knowledge_cutoff": "2026-04-30T00:00:00Z",
+      "release_date": "2026-09-04T00:00:00Z",
+      "last_updated": "2026-09-04T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 11,
+          "output_per_1m": 55,
+          "cache_read_per_1m": 1.1,
+          "cache_write_per_1m": 13.75
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 22,
+          "output_per_1m": 82.5,
+          "cache_read_per_1m": 2.2,
+          "cache_write_per_1m": 27.5
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
         "max_output_tokens": 128000
       }
     },
@@ -2722,6 +3987,9 @@
           "output_per_1m": 0.6
         }
       ],
+      "reasoning": {
+        "supported": true
+      },
       "modalities": {
         "input": [
           "text"
@@ -2748,6 +4016,9 @@
           "output_per_1m": 0.2
         }
       ],
+      "reasoning": {
+        "supported": true
+      },
       "modalities": {
         "input": [
           "text"
@@ -2765,9 +4036,8 @@
     },
     {
       "id": "qwen.qwen3-235b-a22b-2507-v1:0",
-      "display_name": "Qwen3 235B A22B 2507",
-      "knowledge_cutoff": "2024-04-01T00:00:00Z",
-      "release_date": "2025-09-18T00:00:00Z",
+      "display_name": "Qwen3 235B-A22B Instruct 2507",
+      "release_date": "2025-07-21T00:00:00Z",
       "last_updated": "2025-09-18T00:00:00Z",
       "pricing": [
         {
@@ -2792,9 +4062,9 @@
     },
     {
       "id": "qwen.qwen3-32b-v1:0",
-      "display_name": "Qwen3 32B (dense)",
-      "knowledge_cutoff": "2024-04-01T00:00:00Z",
-      "release_date": "2025-09-18T00:00:00Z",
+      "display_name": "Qwen3 32B",
+      "knowledge_cutoff": "2025-04-01T00:00:00Z",
+      "release_date": "2025-04-01T00:00:00Z",
       "last_updated": "2025-09-18T00:00:00Z",
       "pricing": [
         {
@@ -2816,15 +4086,15 @@
       "tool_call": true,
       "structured_output": true,
       "limits": {
-        "context_window": 16384,
+        "context_window": 32768,
         "max_output_tokens": 16384
       }
     },
     {
       "id": "qwen.qwen3-coder-30b-a3b-v1:0",
-      "display_name": "Qwen3 Coder 30B A3B Instruct",
-      "knowledge_cutoff": "2024-04-01T00:00:00Z",
-      "release_date": "2025-09-18T00:00:00Z",
+      "display_name": "Qwen3-Coder 30B-A3B Instruct",
+      "knowledge_cutoff": "2025-04-01T00:00:00Z",
+      "release_date": "2025-07-31T00:00:00Z",
       "last_updated": "2025-09-18T00:00:00Z",
       "pricing": [
         {
@@ -2849,13 +4119,13 @@
     },
     {
       "id": "qwen.qwen3-coder-480b-a35b-v1:0",
-      "display_name": "Qwen3 Coder 480B A35B Instruct",
-      "knowledge_cutoff": "2024-04-01T00:00:00Z",
-      "release_date": "2025-09-18T00:00:00Z",
+      "display_name": "Qwen3-Coder 480B-A35B Instruct",
+      "knowledge_cutoff": "2025-04-01T00:00:00Z",
+      "release_date": "2025-07-23T00:00:00Z",
       "last_updated": "2025-09-18T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 0.22,
+          "input_per_1m": 0.45,
           "output_per_1m": 1.8
         }
       ],
@@ -2877,12 +4147,94 @@
     {
       "id": "qwen.qwen3-coder-next",
       "display_name": "Qwen3 Coder Next",
-      "release_date": "2026-02-06T00:00:00Z",
+      "knowledge_cutoff": "2025-09-01T00:00:00Z",
+      "release_date": "2026-02-03T00:00:00Z",
       "last_updated": "2026-02-06T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 0.22,
-          "output_per_1m": 1.8
+          "input_per_1m": 0.5,
+          "output_per_1m": 1.2
+        }
+      ],
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 262144,
+        "max_output_tokens": 65536
+      }
+    },
+    {
+      "id": "qwen.qwen3-next-80b-a3b",
+      "display_name": "Qwen3-Next 80B-A3B Instruct",
+      "knowledge_cutoff": "2025-04-01T00:00:00Z",
+      "release_date": "2025-09-11T00:00:00Z",
+      "last_updated": "2025-11-25T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.15,
+          "output_per_1m": 1.2
+        }
+      ],
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 262144,
+        "max_output_tokens": 262000
+      }
+    },
+    {
+      "id": "qwen.qwen3-vl-235b-a22b",
+      "display_name": "Qwen3 VL 235B A22B Instruct",
+      "knowledge_cutoff": "2025-03-31T00:00:00Z",
+      "release_date": "2025-09-23T00:00:00Z",
+      "last_updated": "2025-11-25T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.53,
+          "output_per_1m": 2.66
+        }
+      ],
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 262144,
+        "max_output_tokens": 262000
+      }
+    },
+    {
+      "id": "us-gov.openai.gpt-oss-120b-1:0",
+      "display_name": "gpt-oss-120b (GovCloud)",
+      "release_date": "2025-08-05T00:00:00Z",
+      "last_updated": "2025-08-05T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.18,
+          "output_per_1m": 0.72
         }
       ],
       "reasoning": {
@@ -2899,21 +4251,24 @@
       "tool_call": true,
       "structured_output": true,
       "limits": {
-        "context_window": 131072,
-        "max_output_tokens": 65536
+        "context_window": 128000,
+        "max_output_tokens": 16384
       }
     },
     {
-      "id": "qwen.qwen3-next-80b-a3b",
-      "display_name": "Qwen/Qwen3-Next-80B-A3B-Instruct",
-      "release_date": "2025-09-18T00:00:00Z",
-      "last_updated": "2025-11-25T00:00:00Z",
+      "id": "us-gov.openai.gpt-oss-20b-1:0",
+      "display_name": "gpt-oss-20b (GovCloud)",
+      "release_date": "2025-08-05T00:00:00Z",
+      "last_updated": "2025-08-05T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 0.14,
-          "output_per_1m": 1.4
+          "input_per_1m": 0.084,
+          "output_per_1m": 0.36
         }
       ],
+      "reasoning": {
+        "supported": true
+      },
       "modalities": {
         "input": [
           "text"
@@ -2925,35 +4280,164 @@
       "tool_call": true,
       "structured_output": true,
       "limits": {
-        "context_window": 262000,
-        "max_output_tokens": 262000
+        "context_window": 128000,
+        "max_output_tokens": 16384
       }
     },
     {
-      "id": "qwen.qwen3-vl-235b-a22b",
-      "display_name": "Qwen/Qwen3-VL-235B-A22B-Instruct",
-      "release_date": "2025-10-04T00:00:00Z",
-      "last_updated": "2025-11-25T00:00:00Z",
+      "id": "us.amazon.nova-2-lite-v1:0",
+      "display_name": "Nova 2 Lite (US)",
+      "knowledge_cutoff": "2025-10-01T00:00:00Z",
+      "release_date": "2025-12-02T00:00:00Z",
+      "last_updated": "2025-12-01T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 0.3,
-          "output_per_1m": 1.5
+          "input_per_1m": 0.33,
+          "output_per_1m": 2.75,
+          "cache_read_per_1m": 0.0825,
+          "cache_write_per_1m": 0.33
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "video",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 65535
+      }
+    },
+    {
+      "id": "us.amazon.nova-lite-v1:0",
+      "display_name": "Nova Lite (US)",
+      "knowledge_cutoff": "2024-10-01T00:00:00Z",
+      "release_date": "2024-12-03T00:00:00Z",
+      "last_updated": "2024-12-03T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.06,
+          "output_per_1m": 0.24,
+          "cache_read_per_1m": 0.015,
+          "cache_write_per_1m": 0.06
         }
       ],
       "modalities": {
         "input": [
           "text",
-          "image"
+          "image",
+          "video",
+          "pdf"
         ],
         "output": [
           "text"
         ]
       },
       "tool_call": true,
-      "structured_output": true,
       "limits": {
-        "context_window": 262000,
-        "max_output_tokens": 262000
+        "context_window": 300000,
+        "max_output_tokens": 10000
+      }
+    },
+    {
+      "id": "us.amazon.nova-micro-v1:0",
+      "display_name": "Nova Micro (US)",
+      "knowledge_cutoff": "2024-10-01T00:00:00Z",
+      "release_date": "2024-12-03T00:00:00Z",
+      "last_updated": "2024-12-03T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.035,
+          "output_per_1m": 0.14,
+          "cache_read_per_1m": 0.00875,
+          "cache_write_per_1m": 0.035
+        }
+      ],
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 128000,
+        "max_output_tokens": 10000
+      }
+    },
+    {
+      "id": "us.amazon.nova-premier-v1:0",
+      "display_name": "Nova Premier (US)",
+      "knowledge_cutoff": "2024-10-01T00:00:00Z",
+      "release_date": "2025-04-30T00:00:00Z",
+      "last_updated": "2025-04-30T00:00:00Z",
+      "deprecated": true,
+      "pricing": [
+        {
+          "input_per_1m": 2.5,
+          "output_per_1m": 12.5,
+          "cache_read_per_1m": 0.625,
+          "cache_write_per_1m": 2.5
+        }
+      ],
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "video",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 10000
+      }
+    },
+    {
+      "id": "us.amazon.nova-pro-v1:0",
+      "display_name": "Nova Pro (US)",
+      "knowledge_cutoff": "2024-10-01T00:00:00Z",
+      "release_date": "2024-12-03T00:00:00Z",
+      "last_updated": "2024-12-03T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.8,
+          "output_per_1m": 3.2,
+          "cache_read_per_1m": 0.2,
+          "cache_write_per_1m": 0.8
+        }
+      ],
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "video",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 300000,
+        "max_output_tokens": 10000
       }
     },
     {
@@ -2964,10 +4448,43 @@
       "last_updated": "2026-06-09T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 10,
-          "output_per_1m": 50,
-          "cache_read_per_1m": 1,
-          "cache_write_per_1m": 12.5
+          "input_per_1m": 11,
+          "output_per_1m": 55,
+          "cache_read_per_1m": 1.1,
+          "cache_write_per_1m": 13.75
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "us.anthropic.claude-fable-5-1",
+      "display_name": "Claude Fable 5.1 (US)",
+      "knowledge_cutoff": "2026-06-01T00:00:00Z",
+      "release_date": "2026-09-01T00:00:00Z",
+      "last_updated": "2026-09-01T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 11,
+          "output_per_1m": 55,
+          "cache_read_per_1m": 0.275,
+          "cache_write_per_1m": 13.75
         }
       ],
       "reasoning": {
@@ -2997,10 +4514,10 @@
       "last_updated": "2025-10-15T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 1,
-          "output_per_1m": 5,
-          "cache_read_per_1m": 0.1,
-          "cache_write_per_1m": 1.25
+          "input_per_1m": 1.1,
+          "output_per_1m": 5.5,
+          "cache_read_per_1m": 0.11,
+          "cache_write_per_1m": 1.375
         }
       ],
       "reasoning": {
@@ -3060,15 +4577,15 @@
     {
       "id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
       "display_name": "Claude Opus 4.5 (US)",
-      "knowledge_cutoff": "2025-03-31T00:00:00Z",
-      "release_date": "2025-11-24T00:00:00Z",
-      "last_updated": "2025-08-01T00:00:00Z",
+      "knowledge_cutoff": "2025-05-01T00:00:00Z",
+      "release_date": "2025-11-01T00:00:00Z",
+      "last_updated": "2025-11-01T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 5,
-          "output_per_1m": 25,
-          "cache_read_per_1m": 0.5,
-          "cache_write_per_1m": 6.25
+          "input_per_1m": 5.5,
+          "output_per_1m": 27.5,
+          "cache_read_per_1m": 0.55,
+          "cache_write_per_1m": 6.875
         }
       ],
       "reasoning": {
@@ -3099,10 +4616,10 @@
       "last_updated": "2026-03-13T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 5,
-          "output_per_1m": 25,
-          "cache_read_per_1m": 0.5,
-          "cache_write_per_1m": 6.25
+          "input_per_1m": 5.5,
+          "output_per_1m": 27.5,
+          "cache_read_per_1m": 0.55,
+          "cache_write_per_1m": 6.875
         }
       ],
       "reasoning": {
@@ -3133,10 +4650,10 @@
       "last_updated": "2026-04-16T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 5,
-          "output_per_1m": 25,
-          "cache_read_per_1m": 0.5,
-          "cache_write_per_1m": 6.25
+          "input_per_1m": 5.5,
+          "output_per_1m": 27.5,
+          "cache_read_per_1m": 0.55,
+          "cache_write_per_1m": 6.875
         }
       ],
       "reasoning": {
@@ -3166,10 +4683,10 @@
       "last_updated": "2026-05-28T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 5,
-          "output_per_1m": 25,
-          "cache_read_per_1m": 0.5,
-          "cache_write_per_1m": 6.25
+          "input_per_1m": 5.5,
+          "output_per_1m": 27.5,
+          "cache_read_per_1m": 0.55,
+          "cache_write_per_1m": 6.875
         }
       ],
       "reasoning": {
@@ -3199,10 +4716,10 @@
       "last_updated": "2026-07-24T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 5,
-          "output_per_1m": 25,
-          "cache_read_per_1m": 0.5,
-          "cache_write_per_1m": 6.25
+          "input_per_1m": 5.5,
+          "output_per_1m": 27.5,
+          "cache_read_per_1m": 0.55,
+          "cache_write_per_1m": 6.875
         }
       ],
       "reasoning": {
@@ -3225,6 +4742,73 @@
       }
     },
     {
+      "id": "us.anthropic.claude-opus-5-5",
+      "display_name": "Claude Opus 5.5 (US)",
+      "knowledge_cutoff": "2026-06-01T00:00:00Z",
+      "release_date": "2026-09-22T00:00:00Z",
+      "last_updated": "2026-09-22T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 4.4,
+          "output_per_1m": 22,
+          "cache_read_per_1m": 0.22,
+          "cache_write_per_1m": 5.5
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+      "display_name": "Claude Sonnet 4 (US)",
+      "knowledge_cutoff": "2025-03-31T00:00:00Z",
+      "release_date": "2025-05-22T00:00:00Z",
+      "last_updated": "2025-05-22T00:00:00Z",
+      "deprecated": true,
+      "pricing": [
+        {
+          "input_per_1m": 3,
+          "output_per_1m": 15,
+          "cache_read_per_1m": 0.3,
+          "cache_write_per_1m": 3.75
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 200000,
+        "max_output_tokens": 64000
+      }
+    },
+    {
       "id": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
       "display_name": "Claude Sonnet 4.5 (US)",
       "knowledge_cutoff": "2025-07-31T00:00:00Z",
@@ -3232,10 +4816,10 @@
       "last_updated": "2025-09-29T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 3,
-          "output_per_1m": 15,
-          "cache_read_per_1m": 0.3,
-          "cache_write_per_1m": 3.75
+          "input_per_1m": 3.3,
+          "output_per_1m": 16.5,
+          "cache_read_per_1m": 0.33,
+          "cache_write_per_1m": 4.125
         }
       ],
       "reasoning": {
@@ -3266,10 +4850,10 @@
       "last_updated": "2026-03-13T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 3,
-          "output_per_1m": 15,
-          "cache_read_per_1m": 0.3,
-          "cache_write_per_1m": 3.75
+          "input_per_1m": 3.3,
+          "output_per_1m": 16.5,
+          "cache_read_per_1m": 0.33,
+          "cache_write_per_1m": 4.125
         }
       ],
       "reasoning": {
@@ -3289,7 +4873,7 @@
       "structured_output": true,
       "limits": {
         "context_window": 1000000,
-        "max_output_tokens": 64000
+        "max_output_tokens": 128000
       }
     },
     {
@@ -3300,10 +4884,10 @@
       "last_updated": "2026-06-30T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 2,
-          "output_per_1m": 10,
-          "cache_read_per_1m": 0.2,
-          "cache_write_per_1m": 2.5
+          "input_per_1m": 2.2,
+          "output_per_1m": 11,
+          "cache_read_per_1m": 0.22,
+          "cache_write_per_1m": 2.75
         }
       ],
       "reasoning": {
@@ -3320,7 +4904,6 @@
         ]
       },
       "tool_call": true,
-      "structured_output": true,
       "limits": {
         "context_window": 1000000,
         "max_output_tokens": 128000
@@ -3349,10 +4932,87 @@
           "text"
         ]
       },
-      "tool_call": true,
       "limits": {
         "context_window": 128000,
         "max_output_tokens": 32768
+      }
+    },
+    {
+      "id": "us.meta.llama3-1-70b-instruct-v1:0",
+      "display_name": "Llama 3.1 70B Instruct (US)",
+      "knowledge_cutoff": "2023-12-01T00:00:00Z",
+      "release_date": "2024-07-23T00:00:00Z",
+      "last_updated": "2024-07-23T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.72,
+          "output_per_1m": 0.72
+        }
+      ],
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 128000,
+        "max_output_tokens": 4096
+      }
+    },
+    {
+      "id": "us.meta.llama3-1-8b-instruct-v1:0",
+      "display_name": "Llama 3.1 8B Instruct (US)",
+      "knowledge_cutoff": "2023-12-01T00:00:00Z",
+      "release_date": "2024-07-23T00:00:00Z",
+      "last_updated": "2024-07-23T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.22,
+          "output_per_1m": 0.22
+        }
+      ],
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 128000,
+        "max_output_tokens": 4096
+      }
+    },
+    {
+      "id": "us.meta.llama3-3-70b-instruct-v1:0",
+      "display_name": "Llama 3.3 70B Instruct (US)",
+      "knowledge_cutoff": "2023-12-01T00:00:00Z",
+      "release_date": "2024-12-06T00:00:00Z",
+      "last_updated": "2024-12-06T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.72,
+          "output_per_1m": 0.72
+        }
+      ],
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 128000,
+        "max_output_tokens": 4096
       }
     },
     {
@@ -3379,7 +5039,7 @@
       "tool_call": true,
       "limits": {
         "context_window": 1000000,
-        "max_output_tokens": 16384
+        "max_output_tokens": 8192
       }
     },
     {
@@ -3405,14 +5065,404 @@
       },
       "tool_call": true,
       "limits": {
-        "context_window": 3500000,
-        "max_output_tokens": 16384
+        "context_window": 10000000,
+        "max_output_tokens": 8192
+      }
+    },
+    {
+      "id": "us.mistral.pixtral-large-2502-v1:0",
+      "display_name": "Pixtral Large (25.02) (US)",
+      "release_date": "2025-04-08T00:00:00Z",
+      "last_updated": "2025-04-08T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 2,
+          "output_per_1m": 6
+        }
+      ],
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 128000,
+        "max_output_tokens": 8192
+      }
+    },
+    {
+      "id": "us.moonshotai.kimi-k3",
+      "display_name": "Kimi K3 (US)",
+      "release_date": "2026-07-16T00:00:00Z",
+      "last_updated": "2026-07-16T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 3.3,
+          "output_per_1m": 16.5,
+          "cache_read_per_1m": 0.33,
+          "cache_write_per_1m": 4.125
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1048576,
+        "max_output_tokens": 131072
+      }
+    },
+    {
+      "id": "us.openai.gpt-5.6-luna",
+      "display_name": "GPT-5.6 Luna (US)",
+      "knowledge_cutoff": "2026-02-16T00:00:00Z",
+      "release_date": "2026-07-09T00:00:00Z",
+      "last_updated": "2026-07-09T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.22,
+          "output_per_1m": 1.32,
+          "cache_read_per_1m": 0.022,
+          "cache_write_per_1m": 0.275
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 0.44,
+          "output_per_1m": 1.98,
+          "cache_read_per_1m": 0.044,
+          "cache_write_per_1m": 0.55
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "us.openai.gpt-5.6-sol",
+      "display_name": "GPT-5.6 Sol (US)",
+      "knowledge_cutoff": "2026-02-16T00:00:00Z",
+      "release_date": "2026-07-09T00:00:00Z",
+      "last_updated": "2026-07-09T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 4.4,
+          "output_per_1m": 22,
+          "cache_read_per_1m": 0.44,
+          "cache_write_per_1m": 5.5
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 8.8,
+          "output_per_1m": 33,
+          "cache_read_per_1m": 0.88,
+          "cache_write_per_1m": 11
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "us.openai.gpt-5.6-terra",
+      "display_name": "GPT-5.6 Terra (US)",
+      "knowledge_cutoff": "2026-02-16T00:00:00Z",
+      "release_date": "2026-07-09T00:00:00Z",
+      "last_updated": "2026-07-09T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 2.2,
+          "output_per_1m": 13.2,
+          "cache_read_per_1m": 0.22,
+          "cache_write_per_1m": 2.75
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 4.4,
+          "output_per_1m": 19.8,
+          "cache_read_per_1m": 0.44,
+          "cache_write_per_1m": 5.5
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "us.openai.gpt-6-astra",
+      "display_name": "GPT-6 Astra (US)",
+      "knowledge_cutoff": "2026-04-30T00:00:00Z",
+      "release_date": "2026-09-04T00:00:00Z",
+      "last_updated": "2026-09-04T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 11,
+          "output_per_1m": 55,
+          "cache_read_per_1m": 1.1,
+          "cache_write_per_1m": 13.75
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 22,
+          "output_per_1m": 82.5,
+          "cache_read_per_1m": 2.2,
+          "cache_write_per_1m": 27.5
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "us.openai.gpt-6-luna",
+      "display_name": "GPT-6 Luna (US)",
+      "knowledge_cutoff": "2026-05-18T00:00:00Z",
+      "release_date": "2026-09-22T00:00:00Z",
+      "last_updated": "2026-09-22T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.11,
+          "output_per_1m": 0.55,
+          "cache_read_per_1m": 0.011,
+          "cache_write_per_1m": 0.1375
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 0.22,
+          "output_per_1m": 0.825,
+          "cache_read_per_1m": 0.022,
+          "cache_write_per_1m": 0.275
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "us.openai.gpt-6-sol",
+      "display_name": "GPT-6 Sol (US)",
+      "knowledge_cutoff": "2026-04-20T00:00:00Z",
+      "release_date": "2026-09-22T00:00:00Z",
+      "last_updated": "2026-09-22T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 2.2,
+          "output_per_1m": 11,
+          "cache_read_per_1m": 0.22,
+          "cache_write_per_1m": 2.75
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 4.4,
+          "output_per_1m": 16.5,
+          "cache_read_per_1m": 0.44,
+          "cache_write_per_1m": 5.5
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "us.writer.palmyra-x4-v1:0",
+      "display_name": "Palmyra X4 (US)",
+      "release_date": "2024-10-09T00:00:00Z",
+      "last_updated": "2025-04-28T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 2.5,
+          "output_per_1m": 10
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 122880,
+        "max_output_tokens": 8192
+      }
+    },
+    {
+      "id": "us.writer.palmyra-x5-v1:0",
+      "display_name": "Palmyra X5 (US)",
+      "release_date": "2025-04-28T00:00:00Z",
+      "last_updated": "2025-04-28T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.6,
+          "output_per_1m": 6
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1040000,
+        "max_input_tokens": 1040000,
+        "max_output_tokens": 8192
+      }
+    },
+    {
+      "id": "us.xai.grok-4.6",
+      "display_name": "Grok 4.6 (US)",
+      "knowledge_cutoff": "2026-02-01T00:00:00Z",
+      "release_date": "2026-08-12T00:00:00Z",
+      "last_updated": "2026-08-18T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 2.2,
+          "output_per_1m": 6.6,
+          "cache_read_per_1m": 0.55
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 500000,
+        "max_output_tokens": 500000
       }
     },
     {
       "id": "writer.palmyra-x4-v1:0",
       "display_name": "Palmyra X4",
-      "release_date": "2025-04-28T00:00:00Z",
+      "release_date": "2024-10-09T00:00:00Z",
       "last_updated": "2025-04-28T00:00:00Z",
       "pricing": [
         {
@@ -3462,6 +5512,7 @@
       "tool_call": true,
       "limits": {
         "context_window": 1040000,
+        "max_input_tokens": 1040000,
         "max_output_tokens": 8192
       }
     },
@@ -3494,6 +5545,38 @@
       "limits": {
         "context_window": 1000000,
         "max_output_tokens": 131072
+      }
+    },
+    {
+      "id": "xai.grok-4.6",
+      "display_name": "Grok 4.6",
+      "knowledge_cutoff": "2026-02-01T00:00:00Z",
+      "release_date": "2026-08-12T00:00:00Z",
+      "last_updated": "2026-08-18T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 2.2,
+          "output_per_1m": 6.6,
+          "cache_read_per_1m": 0.55
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 500000,
+        "max_output_tokens": 500000
       }
     },
     {
@@ -3559,7 +5642,7 @@
     {
       "id": "zai.glm-5",
       "display_name": "GLM-5",
-      "release_date": "2026-03-18T00:00:00Z",
+      "release_date": "2026-02-12T00:00:00Z",
       "last_updated": "2026-03-18T00:00:00Z",
       "pricing": [
         {
@@ -3582,7 +5665,7 @@
       "structured_output": true,
       "limits": {
         "context_window": 202752,
-        "max_output_tokens": 101376
+        "max_output_tokens": 131072
       }
     }
   ]

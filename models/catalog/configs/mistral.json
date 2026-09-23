@@ -786,6 +786,106 @@
         "context_window": 128000,
         "max_output_tokens": 128000
       }
+    },
+    {
+      "id": "voxtral-mini-latest",
+      "display_name": "Voxtral Mini (latest)",
+      "release_date": "2026-02-01T00:00:00Z",
+      "last_updated": "2026-02-01T00:00:00Z",
+      "modalities": {
+        "input": [
+          "audio"
+        ],
+        "output": [
+          "text"
+        ]
+      }
+    },
+    {
+      "id": "voxtral-small-latest",
+      "display_name": "Voxtral Small (latest)",
+      "release_date": "2025-07-15T00:00:00Z",
+      "last_updated": "2025-07-15T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.1,
+          "output_per_1m": 0.3
+        }
+      ],
+      "modalities": {
+        "input": [
+          "text",
+          "audio"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 32000,
+        "max_output_tokens": 32000
+      }
+    },
+    {
+      "id": "zai-glm-5-2",
+      "display_name": "GLM-5.2",
+      "release_date": "2026-06-13T00:00:00Z",
+      "last_updated": "2026-06-13T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 1.4,
+          "output_per_1m": 4.4,
+          "cache_read_per_1m": 0.14
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 131072
+      }
+    },
+    {
+      "id": "zai-glm-5-3",
+      "display_name": "GLM-5.3",
+      "release_date": "2026-08-14T00:00:00Z",
+      "last_updated": "2026-08-14T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 1.4,
+          "output_per_1m": 4.4,
+          "cache_read_per_1m": 0.14
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 131072
+      }
     }
   ]
 }

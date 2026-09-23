@@ -35,6 +35,40 @@
       }
     },
     {
+      "id": "claude-fable-5-1",
+      "display_name": "Claude Fable 5.1",
+      "knowledge_cutoff": "2026-06-01T00:00:00Z",
+      "release_date": "2026-09-01T00:00:00Z",
+      "last_updated": "2026-09-01T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 10,
+          "output_per_1m": 50,
+          "cache_read_per_1m": 0.25,
+          "cache_write_per_1m": 12.5
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
       "id": "claude-haiku-4-5",
       "display_name": "Claude Haiku 4.5",
       "knowledge_cutoff": "2025-02-28T00:00:00Z",
@@ -66,6 +100,40 @@
       "limits": {
         "context_window": 200000,
         "max_output_tokens": 64000
+      }
+    },
+    {
+      "id": "claude-mythos-5",
+      "display_name": "Claude Mythos 5",
+      "knowledge_cutoff": "2026-01-31T00:00:00Z",
+      "release_date": "2026-06-09T00:00:00Z",
+      "last_updated": "2026-06-09T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 10,
+          "output_per_1m": 50,
+          "cache_read_per_1m": 1,
+          "cache_write_per_1m": 12.5
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 128000
       }
     },
     {
@@ -176,6 +244,39 @@
       }
     },
     {
+      "id": "claude-opus-4-7",
+      "display_name": "Claude Opus 4.7",
+      "knowledge_cutoff": "2026-01-31T00:00:00Z",
+      "release_date": "2026-04-16T00:00:00Z",
+      "last_updated": "2026-04-16T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 5,
+          "output_per_1m": 25,
+          "cache_read_per_1m": 0.5,
+          "cache_write_per_1m": 6.25
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
       "id": "claude-opus-4-8",
       "display_name": "Claude Opus 4.8",
       "knowledge_cutoff": "2025-12-31T00:00:00Z",
@@ -227,6 +328,40 @@
           "output_per_1m": 25,
           "cache_read_per_1m": 0.5,
           "cache_write_per_1m": 6.25
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "claude-opus-5-5",
+      "display_name": "Claude Opus 5.5",
+      "knowledge_cutoff": "2026-06-01T00:00:00Z",
+      "release_date": "2026-09-22T00:00:00Z",
+      "last_updated": "2026-09-22T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 4,
+          "output_per_1m": 20,
+          "cache_read_per_1m": 0.2,
+          "cache_write_per_1m": 5
         }
       ],
       "reasoning": {
@@ -1449,13 +1584,15 @@
         {
           "input_per_1m": 0.2,
           "output_per_1m": 1.2,
-          "cache_read_per_1m": 0.02
+          "cache_read_per_1m": 0.02,
+          "cache_write_per_1m": 0.25
         },
         {
           "threshold": 272000,
           "input_per_1m": 0.4,
           "output_per_1m": 1.8,
-          "cache_read_per_1m": 0.04
+          "cache_read_per_1m": 0.04,
+          "cache_write_per_1m": 0.5
         }
       ],
       "reasoning": {
@@ -1487,15 +1624,17 @@
       "last_updated": "2026-07-09T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 5,
-          "output_per_1m": 30,
-          "cache_read_per_1m": 0.5
+          "input_per_1m": 4,
+          "output_per_1m": 20,
+          "cache_read_per_1m": 0.5,
+          "cache_write_per_1m": 6.25
         },
         {
           "threshold": 272000,
           "input_per_1m": 10,
           "output_per_1m": 45,
-          "cache_read_per_1m": 1
+          "cache_read_per_1m": 1,
+          "cache_write_per_1m": 12.5
         }
       ],
       "reasoning": {
@@ -1529,13 +1668,141 @@
         {
           "input_per_1m": 2,
           "output_per_1m": 12,
-          "cache_read_per_1m": 0.2
+          "cache_read_per_1m": 0.2,
+          "cache_write_per_1m": 2.5
         },
         {
           "threshold": 272000,
           "input_per_1m": 4,
           "output_per_1m": 18,
-          "cache_read_per_1m": 0.4
+          "cache_read_per_1m": 0.4,
+          "cache_write_per_1m": 5
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "gpt-6-astra",
+      "display_name": "GPT-6 Astra",
+      "knowledge_cutoff": "2026-04-30T00:00:00Z",
+      "release_date": "2026-09-04T00:00:00Z",
+      "last_updated": "2026-09-04T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 10,
+          "output_per_1m": 50,
+          "cache_read_per_1m": 1,
+          "cache_write_per_1m": 12.5
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 20,
+          "output_per_1m": 75,
+          "cache_read_per_1m": 2,
+          "cache_write_per_1m": 25
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "gpt-6-luna",
+      "display_name": "GPT-6 Luna",
+      "knowledge_cutoff": "2026-05-18T00:00:00Z",
+      "release_date": "2026-09-22T00:00:00Z",
+      "last_updated": "2026-09-22T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.1,
+          "output_per_1m": 0.5,
+          "cache_read_per_1m": 0.01,
+          "cache_write_per_1m": 0.125
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 0.2,
+          "output_per_1m": 0.75,
+          "cache_read_per_1m": 0.02,
+          "cache_write_per_1m": 0.25
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1050000,
+        "max_input_tokens": 922000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "gpt-6-sol",
+      "display_name": "GPT-6 Sol",
+      "knowledge_cutoff": "2026-04-20T00:00:00Z",
+      "release_date": "2026-09-22T00:00:00Z",
+      "last_updated": "2026-09-22T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 2,
+          "output_per_1m": 10,
+          "cache_read_per_1m": 0.2,
+          "cache_write_per_1m": 2.5
+        },
+        {
+          "threshold": 272000,
+          "input_per_1m": 4,
+          "output_per_1m": 15,
+          "cache_read_per_1m": 0.4,
+          "cache_write_per_1m": 5
         }
       ],
       "reasoning": {
@@ -1731,6 +1998,31 @@
       }
     },
     {
+      "id": "grok-4.6",
+      "display_name": "Grok 4.6",
+      "knowledge_cutoff": "2026-02-01T00:00:00Z",
+      "release_date": "2026-08-12T00:00:00Z",
+      "last_updated": "2026-08-12T00:00:00Z",
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 200000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
       "id": "kimi-k2.5",
       "display_name": "Kimi K2.5",
       "knowledge_cutoff": "2025-01-01T00:00:00Z",
@@ -1771,6 +2063,38 @@
         {
           "input_per_1m": 0.95,
           "output_per_1m": 4
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 262144,
+        "max_output_tokens": 262144
+      }
+    },
+    {
+      "id": "kimi-k2.7-code",
+      "display_name": "Kimi K2.7 Code",
+      "knowledge_cutoff": "2025-01-01T00:00:00Z",
+      "release_date": "2026-06-12T00:00:00Z",
+      "last_updated": "2026-06-12T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.95,
+          "output_per_1m": 4,
+          "cache_read_per_1m": 0.19
         }
       ],
       "reasoning": {

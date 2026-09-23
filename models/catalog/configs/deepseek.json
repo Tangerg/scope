@@ -2,45 +2,16 @@
   "provider": "deepseek",
   "models": [
     {
-      "id": "deepseek-chat",
-      "display_name": "DeepSeek Chat",
-      "knowledge_cutoff": "2025-09-01T00:00:00Z",
-      "release_date": "2025-12-01T00:00:00Z",
-      "last_updated": "2026-02-28T00:00:00Z",
-      "deprecated": true,
+      "id": "deepseek-flash",
+      "display_name": "DeepSeek V4.1 Flash",
+      "knowledge_cutoff": "2025-05-01T00:00:00Z",
+      "release_date": "2026-09-10T00:00:00Z",
+      "last_updated": "2026-09-10T00:00:00Z",
       "pricing": [
         {
-          "input_per_1m": 0.14,
-          "output_per_1m": 0.28,
-          "cache_read_per_1m": 0.0028
-        }
-      ],
-      "modalities": {
-        "input": [
-          "text"
-        ],
-        "output": [
-          "text"
-        ]
-      },
-      "tool_call": true,
-      "limits": {
-        "context_window": 1000000,
-        "max_output_tokens": 384000
-      }
-    },
-    {
-      "id": "deepseek-reasoner",
-      "display_name": "DeepSeek Reasoner",
-      "knowledge_cutoff": "2025-09-01T00:00:00Z",
-      "release_date": "2025-12-01T00:00:00Z",
-      "last_updated": "2026-02-28T00:00:00Z",
-      "deprecated": true,
-      "pricing": [
-        {
-          "input_per_1m": 0.14,
-          "output_per_1m": 0.28,
-          "cache_read_per_1m": 0.0028
+          "input_per_1m": 0.15,
+          "output_per_1m": 0.6,
+          "cache_read_per_1m": 0.003
         }
       ],
       "reasoning": {
@@ -48,13 +19,15 @@
       },
       "modalities": {
         "input": [
-          "text"
+          "text",
+          "image"
         ],
         "output": [
           "text"
         ]
       },
       "tool_call": true,
+      "structured_output": true,
       "limits": {
         "context_window": 1000000,
         "max_output_tokens": 384000
@@ -64,13 +37,14 @@
       "id": "deepseek-v4-flash",
       "display_name": "DeepSeek V4 Flash",
       "knowledge_cutoff": "2025-05-01T00:00:00Z",
-      "release_date": "2026-04-24T00:00:00Z",
-      "last_updated": "2026-04-24T00:00:00Z",
+      "release_date": "2026-09-10T00:00:00Z",
+      "last_updated": "2026-09-10T00:00:00Z",
+      "deprecated": true,
       "pricing": [
         {
-          "input_per_1m": 0.14,
-          "output_per_1m": 0.28,
-          "cache_read_per_1m": 0.0028
+          "input_per_1m": 0.15,
+          "output_per_1m": 0.6,
+          "cache_read_per_1m": 0.003
         }
       ],
       "reasoning": {
@@ -84,7 +58,41 @@
       },
       "modalities": {
         "input": [
+          "text",
+          "image"
+        ],
+        "output": [
           "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 384000
+      }
+    },
+    {
+      "id": "deepseek-v4-flash-vision-exp",
+      "display_name": "DeepSeek V4 Flash Vision Exp",
+      "knowledge_cutoff": "2025-05-01T00:00:00Z",
+      "release_date": "2026-09-10T00:00:00Z",
+      "last_updated": "2026-09-10T00:00:00Z",
+      "deprecated": true,
+      "pricing": [
+        {
+          "input_per_1m": 0.15,
+          "output_per_1m": 0.6,
+          "cache_read_per_1m": 0.003
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
         ],
         "output": [
           "text"
@@ -100,9 +108,8 @@
     {
       "id": "deepseek-v4-pro",
       "display_name": "DeepSeek V4 Pro",
-      "knowledge_cutoff": "2025-05-01T00:00:00Z",
-      "release_date": "2026-04-24T00:00:00Z",
-      "last_updated": "2026-04-24T00:00:00Z",
+      "release_date": "2026-08-12T00:00:00Z",
+      "last_updated": "2026-08-22T00:00:00Z",
       "pricing": [
         {
           "input_per_1m": 0.435,

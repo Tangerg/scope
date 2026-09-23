@@ -6,6 +6,13 @@
       "display_name": "deepseek-v4-flash",
       "release_date": "2026-04-24T00:00:00Z",
       "last_updated": "2026-04-24T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.22,
+          "output_per_1m": 0.66,
+          "cache_read_per_1m": 0.007
+        }
+      ],
       "reasoning": {
         "supported": true
       },
@@ -18,6 +25,37 @@
         ]
       },
       "tool_call": true,
+      "limits": {
+        "context_window": 1048576,
+        "max_output_tokens": 1048576
+      }
+    },
+    {
+      "id": "deepseek-v4-flash:0731",
+      "display_name": "DeepSeek V4 Flash 0731",
+      "knowledge_cutoff": "2025-05-01T00:00:00Z",
+      "release_date": "2026-07-31T00:00:00Z",
+      "last_updated": "2026-07-31T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.22,
+          "output_per_1m": 0.66,
+          "cache_read_per_1m": 0.007
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
       "limits": {
         "context_window": 1048576,
         "max_output_tokens": 1048576
@@ -28,6 +66,13 @@
       "display_name": "deepseek-v4-pro",
       "release_date": "2026-04-24T00:00:00Z",
       "last_updated": "2026-04-24T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.66,
+          "output_per_1m": 1.98,
+          "cache_read_per_1m": 0.022
+        }
+      ],
       "reasoning": {
         "supported": true
       },
@@ -46,11 +91,80 @@
       }
     },
     {
+      "id": "deepseek-v4-pro:0813",
+      "display_name": "DeepSeek V4 Pro 0813",
+      "release_date": "2026-08-12T00:00:00Z",
+      "last_updated": "2026-08-22T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.66,
+          "output_per_1m": 1.98,
+          "cache_read_per_1m": 0.022
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1048576,
+        "max_output_tokens": 1048576
+      }
+    },
+    {
+      "id": "deepseek-v4.1-flash",
+      "display_name": "DeepSeek V4.1 Flash",
+      "knowledge_cutoff": "2025-05-01T00:00:00Z",
+      "release_date": "2026-09-10T00:00:00Z",
+      "last_updated": "2026-09-10T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.15,
+          "output_per_1m": 0.6,
+          "cache_read_per_1m": 0.003
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1048576,
+        "max_output_tokens": 384000
+      }
+    },
+    {
       "id": "gemma4:31b",
       "display_name": "gemma4:31b",
       "knowledge_cutoff": "2025-01-01T00:00:00Z",
       "release_date": "2026-04-02T00:00:00Z",
       "last_updated": "2026-04-08T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.14,
+          "output_per_1m": 0.4,
+          "cache_read_per_1m": 0.05
+        }
+      ],
       "reasoning": {
         "supported": true
       },
@@ -74,6 +188,13 @@
       "display_name": "glm-5.1",
       "release_date": "2026-03-27T00:00:00Z",
       "last_updated": "2026-04-07T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 1,
+          "output_per_1m": 3.2,
+          "cache_read_per_1m": 0.2
+        }
+      ],
       "reasoning": {
         "supported": true
       },
@@ -96,6 +217,13 @@
       "display_name": "GLM-5.2",
       "release_date": "2026-06-13T00:00:00Z",
       "last_updated": "2026-06-13T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 1.4,
+          "output_per_1m": 4.4,
+          "cache_read_per_1m": 0.26
+        }
+      ],
       "reasoning": {
         "supported": true
       },
@@ -115,10 +243,80 @@
       }
     },
     {
+      "id": "glm-5.3",
+      "display_name": "GLM-5.3",
+      "release_date": "2026-08-14T00:00:00Z",
+      "last_updated": "2026-08-14T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 1.4,
+          "output_per_1m": 4.4,
+          "cache_read_per_1m": 0.26
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1048576,
+        "max_output_tokens": 131072
+      }
+    },
+    {
+      "id": "glm-5.3-flash",
+      "display_name": "GLM-5.3-Flash",
+      "release_date": "2026-08-26T00:00:00Z",
+      "last_updated": "2026-08-26T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.15,
+          "output_per_1m": 0.5,
+          "cache_read_per_1m": 0.03
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "video",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 131072
+      }
+    },
+    {
       "id": "gpt-oss:120b",
       "display_name": "gpt-oss:120b",
       "release_date": "2025-08-05T00:00:00Z",
       "last_updated": "2026-01-19T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.15,
+          "output_per_1m": 0.6,
+          "cache_read_per_1m": 0.014
+        }
+      ],
       "reasoning": {
         "supported": true
       },
@@ -141,6 +339,13 @@
       "display_name": "gpt-oss:20b",
       "release_date": "2025-08-05T00:00:00Z",
       "last_updated": "2026-01-19T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.07,
+          "output_per_1m": 0.3,
+          "cache_read_per_1m": 0.035
+        }
+      ],
       "reasoning": {
         "supported": true
       },
@@ -186,6 +391,13 @@
       "display_name": "kimi-k2.6",
       "release_date": "2026-04-20T00:00:00Z",
       "last_updated": "2026-04-20T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.95,
+          "output_per_1m": 4,
+          "cache_read_per_1m": 0.16
+        }
+      ],
       "reasoning": {
         "supported": true
       },
@@ -210,6 +422,13 @@
       "knowledge_cutoff": "2025-01-01T00:00:00Z",
       "release_date": "2026-06-12T00:00:00Z",
       "last_updated": "2026-06-12T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.95,
+          "output_per_1m": 4,
+          "cache_read_per_1m": 0.19
+        }
+      ],
       "reasoning": {
         "supported": true
       },
@@ -234,6 +453,13 @@
       "display_name": "kimi-k3",
       "release_date": "2026-07-16T00:00:00Z",
       "last_updated": "2026-07-27T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 3,
+          "output_per_1m": 15,
+          "cache_read_per_1m": 0.3
+        }
+      ],
       "reasoning": {
         "supported": true
       },
@@ -281,6 +507,13 @@
       "display_name": "minimax-m2.7",
       "release_date": "2026-03-18T00:00:00Z",
       "last_updated": "2026-03-18T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.3,
+          "output_per_1m": 1.2,
+          "cache_read_per_1m": 0.06
+        }
+      ],
       "reasoning": {
         "supported": true
       },
@@ -304,6 +537,13 @@
       "knowledge_cutoff": "2025-01-01T00:00:00Z",
       "release_date": "2026-05-31T00:00:00Z",
       "last_updated": "2026-05-31T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.6,
+          "output_per_1m": 2.4,
+          "cache_read_per_1m": 0.12
+        }
+      ],
       "reasoning": {
         "supported": true
       },
@@ -328,6 +568,12 @@
       "display_name": "mistral-large-3:675b",
       "release_date": "2025-12-02T00:00:00Z",
       "last_updated": "2026-01-19T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.5,
+          "output_per_1m": 1.5
+        }
+      ],
       "modalities": {
         "input": [
           "text",
@@ -348,6 +594,12 @@
       "display_name": "nemotron-3-nano:30b",
       "release_date": "2025-12-15T00:00:00Z",
       "last_updated": "2026-01-19T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.06,
+          "output_per_1m": 0.24
+        }
+      ],
       "reasoning": {
         "supported": true
       },
@@ -370,6 +622,13 @@
       "display_name": "nemotron-3-super",
       "release_date": "2026-03-11T00:00:00Z",
       "last_updated": "2026-03-12T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.015,
+          "output_per_1m": 0.6,
+          "cache_read_per_1m": 0.015
+        }
+      ],
       "reasoning": {
         "supported": true
       },
@@ -392,6 +651,13 @@
       "display_name": "nemotron-3-ultra",
       "release_date": "2026-06-04T00:00:00Z",
       "last_updated": "2026-06-04T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.1,
+          "output_per_1m": 3,
+          "cache_read_per_1m": 0.1
+        }
+      ],
       "reasoning": {
         "supported": true
       },
@@ -414,6 +680,12 @@
       "display_name": "qwen3.5:397b",
       "release_date": "2026-02-15T00:00:00Z",
       "last_updated": "2026-02-17T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 0.6,
+          "output_per_1m": 3.6
+        }
+      ],
       "reasoning": {
         "supported": true
       },

@@ -25,8 +25,8 @@
       },
       "tool_call": true,
       "limits": {
-        "context_window": 196608,
-        "max_output_tokens": 128000
+        "context_window": 204800,
+        "max_output_tokens": 131072
       }
     },
     {
@@ -37,7 +37,9 @@
       "pricing": [
         {
           "input_per_1m": 0.3,
-          "output_per_1m": 1.2
+          "output_per_1m": 1.2,
+          "cache_read_per_1m": 0.03,
+          "cache_write_per_1m": 0.375
         }
       ],
       "reasoning": {
@@ -210,8 +212,8 @@
       },
       "tool_call": true,
       "limits": {
-        "context_window": 1000000,
-        "max_output_tokens": 128000
+        "context_window": 1048576,
+        "max_output_tokens": 512000
       }
     }
   ]

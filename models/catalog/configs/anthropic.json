@@ -35,6 +35,40 @@
       }
     },
     {
+      "id": "claude-fable-5-1",
+      "display_name": "Claude Fable 5.1",
+      "knowledge_cutoff": "2026-06-01T00:00:00Z",
+      "release_date": "2026-09-01T00:00:00Z",
+      "last_updated": "2026-09-01T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 10,
+          "output_per_1m": 50,
+          "cache_read_per_1m": 0.25,
+          "cache_write_per_1m": 12.5
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
       "id": "claude-haiku-4-5",
       "display_name": "Claude Haiku 4.5 (latest)",
       "knowledge_cutoff": "2025-02-28T00:00:00Z",
@@ -100,76 +134,6 @@
       "limits": {
         "context_window": 200000,
         "max_output_tokens": 64000
-      }
-    },
-    {
-      "id": "claude-opus-4-1",
-      "display_name": "Claude Opus 4.1 (latest)",
-      "knowledge_cutoff": "2025-03-31T00:00:00Z",
-      "release_date": "2025-08-05T00:00:00Z",
-      "last_updated": "2025-08-05T00:00:00Z",
-      "deprecated": true,
-      "pricing": [
-        {
-          "input_per_1m": 15,
-          "output_per_1m": 75,
-          "cache_read_per_1m": 1.5,
-          "cache_write_per_1m": 18.75
-        }
-      ],
-      "reasoning": {
-        "supported": true
-      },
-      "modalities": {
-        "input": [
-          "text",
-          "image",
-          "pdf"
-        ],
-        "output": [
-          "text"
-        ]
-      },
-      "tool_call": true,
-      "structured_output": true,
-      "limits": {
-        "context_window": 200000,
-        "max_output_tokens": 32000
-      }
-    },
-    {
-      "id": "claude-opus-4-1-20250805",
-      "display_name": "Claude Opus 4.1",
-      "knowledge_cutoff": "2025-03-31T00:00:00Z",
-      "release_date": "2025-08-05T00:00:00Z",
-      "last_updated": "2025-08-05T00:00:00Z",
-      "deprecated": true,
-      "pricing": [
-        {
-          "input_per_1m": 15,
-          "output_per_1m": 75,
-          "cache_read_per_1m": 1.5,
-          "cache_write_per_1m": 18.75
-        }
-      ],
-      "reasoning": {
-        "supported": true
-      },
-      "modalities": {
-        "input": [
-          "text",
-          "image",
-          "pdf"
-        ],
-        "output": [
-          "text"
-        ]
-      },
-      "tool_call": true,
-      "structured_output": true,
-      "limits": {
-        "context_window": 200000,
-        "max_output_tokens": 32000
       }
     },
     {
@@ -377,6 +341,40 @@
           "output_per_1m": 25,
           "cache_read_per_1m": 0.5,
           "cache_write_per_1m": 6.25
+        }
+      ],
+      "reasoning": {
+        "supported": true
+      },
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "tool_call": true,
+      "structured_output": true,
+      "limits": {
+        "context_window": 1000000,
+        "max_output_tokens": 128000
+      }
+    },
+    {
+      "id": "claude-opus-5-5",
+      "display_name": "Claude Opus 5.5",
+      "knowledge_cutoff": "2026-06-01T00:00:00Z",
+      "release_date": "2026-09-22T00:00:00Z",
+      "last_updated": "2026-09-22T00:00:00Z",
+      "pricing": [
+        {
+          "input_per_1m": 4,
+          "output_per_1m": 20,
+          "cache_read_per_1m": 0.2,
+          "cache_write_per_1m": 5
         }
       ],
       "reasoning": {
