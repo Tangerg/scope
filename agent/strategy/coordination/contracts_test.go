@@ -145,7 +145,7 @@ func TestCoordinationRejectsMalformedRestoration(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			foreign, err := agent.NewExecutionState("foreign", state.Payload())
+			foreign, err := agent.ParseExecutionState("foreign", state.Payload())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -263,7 +263,7 @@ func mutatedState(t testing.TB, state agent.ExecutionState, field string, value 
 	if err != nil {
 		t.Fatal(err)
 	}
-	changed, err := agent.NewExecutionState(state.Kind(), payload)
+	changed, err := agent.ParseExecutionState(state.Kind(), payload)
 	if err != nil {
 		t.Fatal(err)
 	}

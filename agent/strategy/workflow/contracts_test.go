@@ -412,5 +412,5 @@ func (p *pausingBranchExecution) Snapshot() (agent.ExecutionState, error) {
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.NewExecutionState("test.workflow.pausing_branch", payload)
+	return agent.ParseExecutionState("test.workflow.pausing_branch", payload)
 }

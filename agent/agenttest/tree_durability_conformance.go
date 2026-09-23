@@ -628,7 +628,7 @@ func (c *conformanceExecution) Snapshot() (agent.ExecutionState, error) {
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.NewExecutionState(c.definition.descriptor.Name(), payload)
+	return agent.ParseExecutionState(c.definition.descriptor.Name(), payload)
 }
 
 func (c conformancePhase) valid() bool {

@@ -1121,7 +1121,7 @@ func (c *childTestExecution) Snapshot() (ExecutionState, error) {
 	if err != nil {
 		return ExecutionState{}, err
 	}
-	return NewExecutionState("test.child", payload)
+	return ParseExecutionState("test.child", payload)
 }
 
 type childTestDispatcher struct{}

@@ -100,7 +100,7 @@ func TestTreeSnapshotCarriesOneTypedIncarnationIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	incarnationID, err := ParseTreeIncarnationID(
+	incarnationID, err := parseTreeIncarnationID(
 		treeIncarnationIDPrefix + "0123456789abcdef0123456789abcdef",
 	)
 	if err != nil {

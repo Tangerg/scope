@@ -167,7 +167,7 @@ func (e *executionReplayBenchmarkExecution) Snapshot() (ExecutionState, error) {
 	if err != nil {
 		return ExecutionState{}, err
 	}
-	return NewExecutionState("benchmark.execution_replay", payload)
+	return ParseExecutionState("benchmark.execution_replay", payload)
 }
 
 func BenchmarkExecutionReplayBoundary(b *testing.B) {
@@ -179,7 +179,7 @@ func BenchmarkExecutionReplayBoundary(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			state, err := NewExecutionState("benchmark.execution_replay", payload)
+			state, err := ParseExecutionState("benchmark.execution_replay", payload)
 			if err != nil {
 				b.Fatal(err)
 			}

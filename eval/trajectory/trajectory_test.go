@@ -382,11 +382,7 @@ func (f *fixtureExecution) Step(context.Context, []agent.Signal) (agent.Transiti
 }
 
 func (f *fixtureExecution) Snapshot() (agent.ExecutionState, error) {
-	payload, err := jsonv2.Marshal(f)
-	if err != nil {
-		return agent.ExecutionState{}, err
-	}
-	return agent.NewExecutionState("test.trajectory", payload)
+	return agent.EncodeExecutionState("test.trajectory", f)
 }
 
 type rejectingDispatcher struct{}

@@ -66,7 +66,7 @@ func TestDefinitionRestoreRejectsUnknownCoreMembers(t *testing.T) {
 				t.Fatalf("snapshot is missing %s", marker)
 			}
 			payload = strings.Replace(payload, marker, marker+`"unexpected":true,`, 1)
-			invalid, stateErr := agent.NewExecutionState(snapshot.Kind(), json.RawMessage(payload))
+			invalid, stateErr := agent.ParseExecutionState(snapshot.Kind(), json.RawMessage(payload))
 			if stateErr != nil {
 				t.Fatal(stateErr)
 			}

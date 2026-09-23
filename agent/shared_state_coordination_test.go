@@ -80,7 +80,7 @@ func (r *revisionExecution) Snapshot() (agent.ExecutionState, error) {
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.NewExecutionState("example.revision", payload.JSON())
+	return agent.ParseExecutionState("example.revision", payload.JSON())
 }
 
 // Shared data and idempotency facts belong to the external store. Revision

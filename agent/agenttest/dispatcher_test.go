@@ -209,7 +209,7 @@ func (s *scriptedEffectExecution) Snapshot() (agent.ExecutionState, error) {
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.NewExecutionState("agenttest.scripted_effect", payload)
+	return agent.ParseExecutionState("agenttest.scripted_effect", payload)
 }
 
 func TestScriptedDispatcherSettlementStatuses(t *testing.T) {

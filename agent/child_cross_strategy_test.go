@@ -221,5 +221,5 @@ func (c *crossParentExecution) Step(_ context.Context, signals []Signal) (Transi
 
 func (c *crossParentExecution) Snapshot() (ExecutionState, error) {
 	payload, _ := jsonv2.Marshal(c.phase)
-	return NewExecutionState("test.cross_parent", payload)
+	return ParseExecutionState("test.cross_parent", payload)
 }

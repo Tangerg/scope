@@ -102,7 +102,7 @@ func TestRestoreValidatesPlanningFacts(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			state, err := agent.NewExecutionState("planning", test.payload)
+			state, err := agent.ParseExecutionState("planning", test.payload)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -170,7 +170,7 @@ func TestRestoreCountsPendingActionTowardAttemptLimit(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			state, err := agent.NewExecutionState("planning", test.payload)
+			state, err := agent.ParseExecutionState("planning", test.payload)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -199,7 +199,7 @@ func TestExecutionPreservesSignalDecodeCause(t *testing.T) {
 	definition := newManagedDefinition(t, managedDeploymentConfig{
 		goal: mustGoal(t, done), bindings: []planning.ActionBinding{mustDispatcherBinding(t, action)},
 	})
-	state, err := agent.NewExecutionState("planning", json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]},"planning_passes":0}`))
+	state, err := agent.ParseExecutionState("planning", json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]},"planning_passes":0}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +259,7 @@ func TestRestoreKeepsSingleChildProgressWithinItsAction(t *testing.T) {
 		if encodeErr != nil {
 			t.Fatal(encodeErr)
 		}
-		state, stateErr := agent.NewExecutionState("planning", payload)
+		state, stateErr := agent.ParseExecutionState("planning", payload)
 		if stateErr != nil {
 			t.Fatal(stateErr)
 		}

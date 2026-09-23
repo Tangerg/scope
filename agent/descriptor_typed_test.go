@@ -40,7 +40,7 @@ func (t *typedFixtureExecution) Step(context.Context, []Signal) (Transition, err
 }
 
 func (t *typedFixtureExecution) Snapshot() (ExecutionState, error) {
-	return NewExecutionState("fixture", t.state)
+	return ParseExecutionState("fixture", t.state)
 }
 
 func TestDescriptorOwnsTypedEdges(t *testing.T) {

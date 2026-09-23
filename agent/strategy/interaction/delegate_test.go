@@ -252,7 +252,7 @@ func rootProcessSnapshot(tree agent.TreeSnapshot) agent.ProcessSnapshot {
 
 func assertActiveDelegateChild(t *testing.T, rootSnapshot agent.ProcessSnapshot, childID agent.ProcessID) {
 	t.Helper()
-	activeChildren, found, err := interaction.ActiveDelegateChildrenFromSnapshot(rootSnapshot)
+	activeChildren, found, err := interaction.ActiveDelegateChildren(rootSnapshot)
 	if err != nil || !found || len(activeChildren) != 1 {
 		t.Fatalf("active Delegate children = %#v, found = %t, error = %v", activeChildren, found, err)
 	}
@@ -549,7 +549,7 @@ func (p *pausingDelegateExecution) Snapshot() (agent.ExecutionState, error) {
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.NewExecutionState("test.pausing_delegate", payload)
+	return agent.ParseExecutionState("test.pausing_delegate", payload)
 }
 
 type pausingDelegateDispatcher struct{}

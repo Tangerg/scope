@@ -62,7 +62,7 @@ func TestArtifactStateRestoreRejectsInvalidProvenanceAndValue(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			envelope, err := agent.NewExecutionState(executionStateKind, payload)
+			envelope, err := agent.ParseExecutionState(executionStateKind, payload)
 			if err != nil {
 				t.Fatal(err)
 			}

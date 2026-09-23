@@ -358,7 +358,7 @@ func (m *managedBranchExecution) Snapshot() (agent.ExecutionState, error) {
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.NewExecutionState("test.workflow.branch", payload)
+	return agent.ParseExecutionState("test.workflow.branch", payload)
 }
 
 type managedBranchDispatcher struct{ tracker *branchTracker }

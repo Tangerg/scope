@@ -169,7 +169,7 @@ func (u *uppercaseExecution) Snapshot() (agent.ExecutionState, error) {
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.NewExecutionState("example.uppercase", payload)
+	return agent.ParseExecutionState("example.uppercase", payload)
 }
 
 func newModelDeployment() (agent.Deployment, error) {
@@ -510,7 +510,7 @@ func (c *compositionExecution) Snapshot() (agent.ExecutionState, error) {
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.NewExecutionState("example.composition", payload)
+	return agent.ParseExecutionState("example.composition", payload)
 }
 
 type compositionModel struct{}

@@ -211,14 +211,14 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 					t.Fatal(err)
 				}
 				mutate(&altered)
-				encoded := require(agent.NewExecutionState(stateKind, require(jsonv2.Marshal(altered))))
+				encoded := require(agent.ParseExecutionState(stateKind, require(jsonv2.Marshal(altered))))
 				if _, err := definition.Restore(t.Context(), encoded); !errors.Is(err, ErrInvalidExecutionState) {
 					t.Fatalf("forged snapshot accepted: %v", err)
 				}
 			})
 		}
 		payload := strings.TrimSuffix(string(cases[index].State.Payload()), "}") + `,"unknown":true}`
-		if _, err := definition.Restore(t.Context(), require(agent.NewExecutionState(stateKind, []byte(payload)))); !errors.Is(err, ErrInvalidExecutionState) {
+		if _, err := definition.Restore(t.Context(), require(agent.ParseExecutionState(stateKind, []byte(payload)))); !errors.Is(err, ErrInvalidExecutionState) {
 			t.Fatal(err)
 		}
 	}
@@ -274,7 +274,7 @@ func TestCompletedSnapshotRejectsForgedOutputAndWorkerSchema(t *testing.T) {
 			t.Fatal(err)
 		}
 		mutate(wire)
-		altered := require(agent.NewExecutionState(stateKind, require(jsonv2.Marshal(wire))))
+		altered := require(agent.ParseExecutionState(stateKind, require(jsonv2.Marshal(wire))))
 		if _, err := definition.Restore(t.Context(), altered); !errors.Is(err, ErrInvalidExecutionState) {
 			t.Fatal("forged completed state accepted", err)
 		}

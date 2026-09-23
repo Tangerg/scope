@@ -47,7 +47,7 @@ func (q *quotaLoopExecution) Snapshot() (ExecutionState, error) {
 	if err != nil {
 		return ExecutionState{}, err
 	}
-	return NewExecutionState("quota_loop", encoded)
+	return ParseExecutionState("quota_loop", encoded)
 }
 
 func TestUnlimitedExecutionExceedsFormerDefaultSteps(t *testing.T) {

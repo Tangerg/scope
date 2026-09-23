@@ -148,7 +148,7 @@ func (s *senderExecution) Snapshot() (agent.ExecutionState, error) {
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.NewExecutionState("test.sender", encoded.JSON())
+	return agent.ParseExecutionState("test.sender", encoded.JSON())
 }
 
 // recipientPort grants this bound reviewer access to one concrete mailbox.

@@ -110,7 +110,7 @@ func TestFanoutRestoreRejectsInvalidWindowState(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			state, err := agent.NewExecutionState(snapshot.Kind(), payload)
+			state, err := agent.ParseExecutionState(snapshot.Kind(), payload)
 			if err != nil {
 				t.Fatal(err)
 			}

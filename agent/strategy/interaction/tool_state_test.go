@@ -45,7 +45,7 @@ func FuzzToolExecutionStateRestore(f *testing.F) {
 	f.Add([]byte(`{"phase":"waiting_input"}`))
 	f.Add([]byte(`{"phase":"ready","unknown":true}`))
 	f.Fuzz(func(t *testing.T, payload []byte) {
-		state, stateErr := agent.NewExecutionState(toolExecutionStateKind, payload)
+		state, stateErr := agent.ParseExecutionState(toolExecutionStateKind, payload)
 		if stateErr != nil {
 			return
 		}

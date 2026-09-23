@@ -45,10 +45,10 @@ func (a ActiveDelegateChild) Valid() bool {
 	return err == nil && key == a.childKey
 }
 
-// ActiveDelegateChildrenFromSnapshot interprets only Interaction-owned state.
+// ActiveDelegateChildren interprets only Interaction-owned state.
 // A valid snapshot without an active Interaction Delegate segment returns
 // found=false. Returned children preserve model ToolCall order.
-func ActiveDelegateChildrenFromSnapshot(
+func ActiveDelegateChildren(
 	snapshot agent.ProcessSnapshot,
 ) (children []ActiveDelegateChild, found bool, err error) {
 	if !snapshot.Valid() {

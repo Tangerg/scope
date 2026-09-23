@@ -23,7 +23,7 @@ func TestRestoreRejectsUnknownAndContradictoryState(t *testing.T) {
 		"Loop cursor in Transform": json.RawMessage(`{"phase":"ready","stage_index":0,"current_value":{"value":1},"loop_iteration":1}`),
 	} {
 		t.Run(name, func(t *testing.T) {
-			state, err := agent.NewExecutionState(executionStateKind, payload)
+			state, err := agent.ParseExecutionState(executionStateKind, payload)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -33,7 +33,7 @@ func TestRestoreRejectsUnknownAndContradictoryState(t *testing.T) {
 		})
 	}
 	validPayload := json.RawMessage(`{"phase":"ready","stage_index":0,"current_value":{"value":1}}`)
-	state, err := agent.NewExecutionState("other", validPayload)
+	state, err := agent.ParseExecutionState("other", validPayload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestExecutionRejectsMissingProtocolSignals(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			state, err := agent.NewExecutionState(executionStateKind, json.RawMessage(test.payload))
+			state, err := agent.ParseExecutionState(executionStateKind, json.RawMessage(test.payload))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -105,7 +105,7 @@ func TestRestoreRejectsContradictorySingleChildProgress(t *testing.T) {
 		`{"phase":"child","stage_index":0,"current_value":{"value":1},"child":{},"fanout_wait_id":"wait"}`,
 		`{"phase":"ready","stage_index":0,"current_value":{"value":1},"child":{}}`,
 	} {
-		state, err := agent.NewExecutionState(executionStateKind, json.RawMessage(payload))
+		state, err := agent.ParseExecutionState(executionStateKind, json.RawMessage(payload))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -122,7 +122,7 @@ func FuzzWorkflowExecutionStateRestore(f *testing.F) {
 	f.Add([]byte(`{"phase":"waiting_fanout","stage_index":0,"current_value":{"value":1}}`))
 	f.Add([]byte(`{"phase":"ready","stage_index":0,"current_value":{"value":1},"unknown":true}`))
 	f.Fuzz(func(t *testing.T, payload []byte) {
-		state, err := agent.NewExecutionState(executionStateKind, payload)
+		state, err := agent.ParseExecutionState(executionStateKind, payload)
 		if err != nil {
 			return
 		}
@@ -201,7 +201,7 @@ func protocolTestDefinitions(t testing.TB) (*Definition, *Definition) {
 }
 
 func TestRestorePreservesOutputSchemaError(t *testing.T) {
-	state, err := agent.NewExecutionState(executionStateKind,
+	state, err := agent.ParseExecutionState(executionStateKind,
 		json.RawMessage(`{"phase":"completed","stage_index":1,"current_value":{"value":"invalid"}}`))
 	if err != nil {
 		t.Fatal(err)
@@ -227,7 +227,7 @@ func TestRestoreIdentifiesContradictoryFanoutProgress(t *testing.T) {
 			context: "waiting phase requires a wait identity and settled starts",
 		},
 	} {
-		state, err := agent.NewExecutionState(executionStateKind, json.RawMessage(test.payload))
+		state, err := agent.ParseExecutionState(executionStateKind, json.RawMessage(test.payload))
 		if err != nil {
 			t.Fatal(err)
 		}

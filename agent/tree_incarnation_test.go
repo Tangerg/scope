@@ -31,8 +31,8 @@ func TestTreeIncarnationIDRejectsNoncanonicalValues(t *testing.T) {
 		"incarnation:0123456789ABCDEF0123456789ABCDEF",
 		"generation:0123456789abcdef0123456789abcdef",
 	} {
-		if _, err := ParseTreeIncarnationID(value); !errors.Is(err, ErrInvalidTreeIncarnationID) {
-			t.Fatalf("ParseTreeIncarnationID(%q) error = %v", value, err)
+		if _, err := parseTreeIncarnationID(value); !errors.Is(err, ErrInvalidTreeIncarnationID) {
+			t.Fatalf("parseTreeIncarnationID(%q) error = %v", value, err)
 		}
 	}
 }

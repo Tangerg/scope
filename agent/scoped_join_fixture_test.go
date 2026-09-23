@@ -159,5 +159,5 @@ func (s *scopeJoinExecution) Snapshot() (ExecutionState, error) {
 	if err != nil {
 		return ExecutionState{}, err
 	}
-	return NewExecutionState(s.definition.descriptor.Name(), payload)
+	return ParseExecutionState(s.definition.descriptor.Name(), payload)
 }

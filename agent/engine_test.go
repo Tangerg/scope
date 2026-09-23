@@ -441,7 +441,7 @@ func (e *engineTestExecution) Snapshot() (ExecutionState, error) {
 	case "batch":
 		name = "engine.batch"
 	}
-	return NewExecutionState(name, payload)
+	return ParseExecutionState(name, payload)
 }
 
 type engineTestDispatcher struct {

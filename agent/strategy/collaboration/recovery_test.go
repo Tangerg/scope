@@ -55,7 +55,7 @@ func (p *pausedExecution) Step(ctx context.Context, signals []agent.Signal) (age
 	return agent.Complete(1, require(agent.ParsePayload(signals[0].Payload())))
 }
 func (p *pausedExecution) Snapshot() (agent.ExecutionState, error) {
-	return agent.NewExecutionState("test.paused", require(jsonv2.Marshal(p)))
+	return agent.ParseExecutionState("test.paused", require(jsonv2.Marshal(p)))
 }
 
 type heldControlDurability struct {

@@ -99,7 +99,7 @@ func (e *echoExecution) Snapshot() (agent.ExecutionState, error) {
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.NewExecutionState("example.echo", payload)
+	return agent.ParseExecutionState("example.echo", payload)
 }
 
 func newEchoDefinition() (echoDefinition, error) {

@@ -54,7 +54,7 @@ func TestDefinitionsRejectInvalidBoundaryValues(t *testing.T) {
 			if _, startErr := deployment.Definition().Start(input); startErr == nil {
 				t.Error("Start accepted missing required input")
 			}
-			state, err := agent.NewExecutionState(deployment.Descriptor().Name(), []byte(`{"phase":"ready","prompt":"x","text":"x","unknown":true}`))
+			state, err := agent.ParseExecutionState(deployment.Descriptor().Name(), []byte(`{"phase":"ready","prompt":"x","text":"x","unknown":true}`))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -70,7 +70,7 @@ func TestDefinitionsRejectInvalidBoundaryValues(t *testing.T) {
 		`{"phase":"awaiting_child_wait_open","prompt":"x","child_ids":["same","same"]}`,
 	} {
 		t.Run(payload, func(t *testing.T) {
-			state, err := agent.NewExecutionState("example.composition", []byte(payload))
+			state, err := agent.ParseExecutionState("example.composition", []byte(payload))
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -106,7 +106,7 @@ func TestChildBatchRestoreRejectsUnknownMembers(t *testing.T) {
 				if payload == string(captured.Payload()) {
 					t.Fatal("child batch snapshot lacks its required structure")
 				}
-				invalid, err := agent.NewExecutionState(captured.Kind(), []byte(payload))
+				invalid, err := agent.ParseExecutionState(captured.Kind(), []byte(payload))
 				if err != nil {
 					t.Fatal(err)
 				}

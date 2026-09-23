@@ -282,7 +282,7 @@ func (t *treeRecoveryBenchmarkExecution) Snapshot() (ExecutionState, error) {
 	if err != nil {
 		return ExecutionState{}, err
 	}
-	return NewExecutionState(t.definition.descriptor.Name(), payload)
+	return ParseExecutionState(t.definition.descriptor.Name(), payload)
 }
 
 func waitForPausedStep(t testing.TB, process *Process, steps uint64) {

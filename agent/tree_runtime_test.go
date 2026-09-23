@@ -286,7 +286,7 @@ func (t *treeRuntimeTestExecution) Snapshot() (ExecutionState, error) {
 	if err != nil {
 		return ExecutionState{}, err
 	}
-	return NewExecutionState(treeRuntimeStateKind, payload)
+	return ParseExecutionState(treeRuntimeStateKind, payload)
 }
 
 func TestDiscardedStepAttemptsAlwaysClose(t *testing.T) {

@@ -37,7 +37,7 @@ func FuzzExecutionStateRestore(f *testing.F) {
 	f.Add([]byte(`null`))
 	f.Add([]byte(`{"phase":"waiting_children"}`))
 	f.Fuzz(func(t *testing.T, payload []byte) {
-		state, err := agent.NewExecutionState(executionStateKind, payload)
+		state, err := agent.ParseExecutionState(executionStateKind, payload)
 		if err != nil {
 			return
 		}
@@ -80,7 +80,7 @@ func TestRestoreValidatesFinishReasonInPendingRound(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				captured, err := agent.NewExecutionState(executionStateKind, payload)
+				captured, err := agent.ParseExecutionState(executionStateKind, payload)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -240,7 +240,7 @@ func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.Executi
 		if err != nil {
 			f.Fatal(err)
 		}
-		envelope, err := agent.NewExecutionState(executionStateKind, payload)
+		envelope, err := agent.ParseExecutionState(executionStateKind, payload)
 		if err != nil {
 			f.Fatal(err)
 		}

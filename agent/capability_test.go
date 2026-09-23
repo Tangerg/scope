@@ -126,7 +126,7 @@ func (c *capabilityTestExecution) Step(context.Context, []Signal) (Transition, e
 
 func (c *capabilityTestExecution) Snapshot() (ExecutionState, error) {
 	payload, _ := jsonv2.Marshal(c.phase)
-	return NewExecutionState("test.capability", payload)
+	return ParseExecutionState("test.capability", payload)
 }
 
 type capabilityTestDispatcher struct{ calls atomic.Int32 }

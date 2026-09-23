@@ -26,7 +26,7 @@ func TestRestoreRejectsUnrestorableCandidateBeforeExternalWork(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wire.Prepared.CandidateState, err = NewExecutionState(definition.Descriptor().Name(), json.RawMessage(`{"phase":7,"value":"invalid candidate"}`))
+			wire.Prepared.CandidateState, err = ParseExecutionState(definition.Descriptor().Name(), json.RawMessage(`{"phase":7,"value":"invalid candidate"}`))
 			if err != nil {
 				t.Fatal(err)
 			}

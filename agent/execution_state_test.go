@@ -9,7 +9,7 @@ import (
 
 func TestExecutionStateOwnsOpaquePayload(t *testing.T) {
 	payload := json.RawMessage(` { "round": 2 } `)
-	state, err := NewExecutionState("interaction", payload)
+	state, err := ParseExecutionState("interaction", payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestEncodeExecutionStateRejectsLossyOrAmbiguousValues(t *testing.T) {
 }
 
 func TestExecutionStateStrictJSONRoundTrip(t *testing.T) {
-	state, err := NewExecutionState("planning.goap", json.RawMessage(`{"phase":"observe"}`))
+	state, err := ParseExecutionState("planning.goap", json.RawMessage(`{"phase":"observe"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,8 +81,8 @@ func TestExecutionStateRejectsInvalidEnvelope(t *testing.T) {
 		{kind: "", payload: json.RawMessage(`{}`)},
 		{kind: "interaction"},
 	} {
-		if _, err := NewExecutionState(test.kind, test.payload); !errors.Is(err, ErrInvalidExecutionState) {
-			t.Fatalf("NewExecutionState(%q) error = %v, want ErrInvalidExecutionState", test.kind, err)
+		if _, err := ParseExecutionState(test.kind, test.payload); !errors.Is(err, ErrInvalidExecutionState) {
+			t.Fatalf("ParseExecutionState(%q) error = %v, want ErrInvalidExecutionState", test.kind, err)
 		}
 	}
 }
@@ -112,7 +112,7 @@ func TestExecutionStateDecodeEnforcesKindAndPayload(t *testing.T) {
 	type progress struct {
 		Round int `json:"round"`
 	}
-	state, err := NewExecutionState("strategy.progress", []byte(`{"round":2}`))
+	state, err := ParseExecutionState("strategy.progress", []byte(`{"round":2}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestExecutionStateDecodeEnforcesKindAndPayload(t *testing.T) {
 		{name: "wrong type", kind: "strategy.progress", payload: `{"round":"two"}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			state, err := NewExecutionState(test.kind, []byte(test.payload))
+			state, err := ParseExecutionState(test.kind, []byte(test.payload))
 			if err != nil {
 				t.Fatal(err)
 			}

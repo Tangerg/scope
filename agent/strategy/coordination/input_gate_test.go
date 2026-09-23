@@ -62,7 +62,7 @@ func TestInputGatePreservesIdentityAcrossRecoveryAndEarlyAnswer(t *testing.T) {
 				if marshalErr != nil {
 					t.Fatal(marshalErr)
 				}
-				forged, stateErr := agent.NewExecutionState(state.Kind(), forgedBytes)
+				forged, stateErr := agent.ParseExecutionState(state.Kind(), forgedBytes)
 				if stateErr != nil {
 					t.Fatal(stateErr)
 				}

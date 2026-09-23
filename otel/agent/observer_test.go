@@ -668,14 +668,10 @@ func (t *testExecution) Step(context.Context, []agent.Signal) (agent.Transition,
 }
 
 func (t *testExecution) Snapshot() (agent.ExecutionState, error) {
-	payload, err := jsonv2.Marshal(struct {
+	return agent.EncodeExecutionState("test.otel", struct {
 		Value string `json:"value"`
 		Phase uint8  `json:"phase"`
 	}{Value: t.Value, Phase: t.Phase})
-	if err != nil {
-		return agent.ExecutionState{}, err
-	}
-	return agent.NewExecutionState("test.otel", payload)
 }
 
 type testDispatcher struct{}

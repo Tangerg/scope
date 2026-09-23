@@ -460,7 +460,7 @@ func (c *crashTreeExecution) Snapshot() (agent.ExecutionState, error) {
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.NewExecutionState(c.definition.descriptor.Name(), payload)
+	return agent.ParseExecutionState(c.definition.descriptor.Name(), payload)
 }
 
 func newCrashTreeDeployment(t *testing.T) agent.Deployment {

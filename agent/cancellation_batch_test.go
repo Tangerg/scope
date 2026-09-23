@@ -197,5 +197,5 @@ func (e *effectSequenceExecution) Snapshot() (ExecutionState, error) {
 	if err != nil {
 		return ExecutionState{}, err
 	}
-	return NewExecutionState(e.definition.descriptor.Name(), payload)
+	return ParseExecutionState(e.definition.descriptor.Name(), payload)
 }

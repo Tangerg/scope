@@ -20,10 +20,12 @@ type ExecutionState struct {
 	payload json.RawMessage
 }
 
-// NewExecutionState pairs a strategy kind with an opaque payload. The kind
-// exists so a snapshot can be rejected when restored into the wrong strategy;
-// the payload stays opaque so adding a strategy never widens the kernel.
-func NewExecutionState(kind string, payload json.RawMessage) (ExecutionState, error) {
+// ParseExecutionState pairs a strategy kind with an opaque payload, validating
+// both the way every other Parse in this package validates a wire value. The
+// kind exists so a snapshot can be rejected when restored into the wrong
+// strategy; the payload stays opaque so adding a strategy never widens the
+// kernel.
+func ParseExecutionState(kind string, payload json.RawMessage) (ExecutionState, error) {
 	if !ValidQualifiedName(kind) {
 		return ExecutionState{}, fmt.Errorf("%w: kind must be a lowercase qualified name", ErrInvalidExecutionState)
 	}
@@ -35,13 +37,13 @@ func NewExecutionState(kind string, payload json.RawMessage) (ExecutionState, er
 }
 
 // EncodeExecutionState strictly encodes a typed strategy state and seals it with
-// NewExecutionState. Invalid UTF-8 and duplicate JSON names are rejected.
+// ParseExecutionState. Invalid UTF-8 and duplicate JSON names are rejected.
 func EncodeExecutionState[T any](kind string, value T) (ExecutionState, error) {
 	payload, err := jsonv2.Marshal(value, jsonv2.Deterministic(true))
 	if err != nil {
 		return ExecutionState{}, fmt.Errorf("%w: encode: %w", ErrInvalidExecutionState, err)
 	}
-	return NewExecutionState(kind, payload)
+	return ParseExecutionState(kind, payload)
 }
 
 // Kind returns the Strategy that exclusively interprets Payload.
@@ -90,7 +92,7 @@ func (e *ExecutionState) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidExecutionState, err)
 	}
-	value, err := NewExecutionState(wire.Kind, wire.Payload)
+	value, err := ParseExecutionState(wire.Kind, wire.Payload)
 	if err != nil {
 		return err
 	}

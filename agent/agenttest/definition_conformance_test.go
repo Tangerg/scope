@@ -93,7 +93,7 @@ func (d *definitionConformanceExecution) Snapshot() (agent.ExecutionState, error
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.NewExecutionState("agenttest.definition_conformance", payload)
+	return agent.ParseExecutionState("agenttest.definition_conformance", payload)
 }
 
 func TestRunDefinitionConformanceAcceptsIsolatedDeterministicDefinition(t *testing.T) {
@@ -325,7 +325,7 @@ func (r *rejectingExecution) Snapshot() (agent.ExecutionState, error) {
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.NewExecutionState("agenttest.rejecting", payload)
+	return agent.ParseExecutionState("agenttest.rejecting", payload)
 }
 
 func TestVerifyRejectedStepRequiresAStableClassification(t *testing.T) {
