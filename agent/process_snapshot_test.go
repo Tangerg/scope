@@ -32,7 +32,7 @@ func TestProcessSnapshotOwnsMutableWire(t *testing.T) {
 		t.Fatal(err)
 	}
 	id, _ := ParseSignalID("signal:snapshot-ownership")
-	signal, err := newSignal(id, WaitID{}, []byte(`{"value":"retained"}`))
+	signal, err := NewSignal(id, WaitID{}, []byte(`{"value":"retained"}`))
 	if err != nil {
 		t.Fatal(err)
 	}

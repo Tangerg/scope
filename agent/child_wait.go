@@ -532,5 +532,5 @@ func encodeChildWaitSatisfied(
 	if err != nil {
 		return Signal{}, err
 	}
-	return newSignal(waitID.childWaitSignalID(), waitID, payload)
+	return NewSignal(waitID.childWaitSignalID(), waitID, payload)
 }

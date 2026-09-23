@@ -20,7 +20,10 @@ import (
 // that perform I/O must therefore resolve their own ambiguity before returning.
 type ModelContextReducer interface {
 	// ReduceModelContext returns the complete messages for the attributed model
-	// invocation. The result must be non-empty, valid, and independently owned.
+	// invocation. The result must be non-empty and must satisfy request
+	// validation with those messages installed; a rejected result settles as a
+	// Host failure. The Dispatcher clones the result before using it, so
+	// implementations may return a sequence they still reference.
 	ReduceModelContext(
 		ctx context.Context,
 		invocation ModelInvocation,

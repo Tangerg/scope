@@ -11,7 +11,7 @@ func TestExternalDeliveryCannotClaimEngineSignalIdentity(t *testing.T) {
 	effectID := process.handle.processID.effectID(1, 0)
 	for _, id := range []SignalID{effectID.settlementSignalID(), effectID.waitID().childWaitSignalID()} {
 		t.Run(id.String(), func(t *testing.T) {
-			signal := controlValue(newSignal(id, WaitID{}, []byte(`"forged"`)))
+			signal := controlValue(NewSignal(id, WaitID{}, []byte(`"forged"`)))
 			if accepted, err := admitTestSignals(process, []Signal{signal}, signalSourceExternal); accepted || !errors.Is(err, ErrSignalRejected) {
 				t.Errorf("external admission claimed Engine identity: %t, %v", accepted, err)
 			}

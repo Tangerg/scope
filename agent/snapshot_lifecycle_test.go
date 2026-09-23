@@ -156,7 +156,7 @@ func TestImmediateChildWaitCapacityRejectionIsAtomic(t *testing.T) {
 			child.installTermination(controlValue((terminationFacts{outcome: completedOutcome()}).resolve()),
 				controlValue(EncodePayload(childTestOutput{CompletedKeys: []string{strings.Repeat("x", 200<<10)}})), child.startedAt)
 			child.mailbox.closeAllWaits()
-			signal := controlValue(newSignal(controlValue(ParseSignalID("signal:padding")), WaitID{}, controlValue(jsonv2.Marshal(strings.Repeat("x", 150<<10)))))
+			signal := controlValue(NewSignal(controlValue(ParseSignalID("signal:padding")), WaitID{}, controlValue(jsonv2.Marshal(strings.Repeat("x", 150<<10)))))
 			if _, err := runtime.admitSignals(parent, []Signal{signal}, signalSourceExternal); err != nil {
 				t.Fatal(err)
 			}
@@ -287,7 +287,7 @@ func TestSnapshotAdmissionPreservesFailureAndUnresolvedEvidence(t *testing.T) {
 			payload := controlValue(jsonv2.Marshal(strings.Repeat("x", 16<<10)))
 			acceptedCount := 0
 			for ; acceptedCount < 64; acceptedCount++ {
-				signal := controlValue(newSignal(controlValue(ParseSignalID(fmt.Sprintf("signal:failure-capacity-%d", acceptedCount))), WaitID{}, payload))
+				signal := controlValue(NewSignal(controlValue(ParseSignalID(fmt.Sprintf("signal:failure-capacity-%d", acceptedCount))), WaitID{}, payload))
 				if _, err := runtime.admitSignals(process, []Signal{signal}, signalSourceExternal); err != nil {
 					if !errors.Is(err, ErrResourceLimitExceeded) {
 						t.Fatal(err)

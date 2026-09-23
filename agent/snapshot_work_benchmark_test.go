@@ -50,7 +50,7 @@ func BenchmarkTreeAdmission(b *testing.B) {
 						process.handle.treeLimits = process.treeLimits
 					}
 					root := runtime.processes[runtime.rootID]
-					signal := controlValue(newSignal(controlValue(ParseSignalID("signal:benchmark-admission")), WaitID{}, []byte(`{"value":"input"}`)))
+					signal := controlValue(NewSignal(controlValue(ParseSignalID("signal:benchmark-admission")), WaitID{}, []byte(`{"value":"input"}`)))
 					b.Run("signal", func(b *testing.B) {
 						b.ReportAllocs()
 						for b.Loop() {
@@ -159,7 +159,7 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 		if err != nil {
 			t.Fatal(err)
 		}
-		signal, err := newSignal(signalID, waitID, []byte(`{}`))
+		signal, err := NewSignal(signalID, waitID, []byte(`{}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -241,7 +241,7 @@ func BenchmarkTreeAdmissionRetainedState(b *testing.B) {
 							process.currentWaitID = WaitID{}
 							process.mailbox = newSignalMailbox()
 							for index := range history {
-								signal := controlValue(newSignal(controlValue(ParseSignalID(fmt.Sprintf("signal:history-%d", index))), WaitID{}, []byte(`{}`)))
+								signal := controlValue(NewSignal(controlValue(ParseSignalID(fmt.Sprintf("signal:history-%d", index))), WaitID{}, []byte(`{}`)))
 								process.mailbox.acceptRecord(newSignalRecord(signal, false))
 							}
 							if _, err := process.mailbox.commit(uint32(history)); err != nil {

@@ -52,7 +52,7 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 			if err := schema.Validate((controlValue(ParsePayload(payload))).JSON()); err != nil {
 				t.Fatal(err)
 			}
-			signal := controlValue(newSignal(controlValue(ParseSignalID("signal:engine:receipt")), WaitID{}, payload))
+			signal := controlValue(NewSignal(controlValue(ParseSignalID("signal:engine:receipt")), WaitID{}, payload))
 			if got, err := ParseChildControlResult(signal); err != nil || !got.Matches(effect) {
 				t.Fatal(err)
 			}
@@ -154,7 +154,7 @@ func TestSignalRequestWireSchemaAndOpeningIdentity(t *testing.T) {
 		t.Fatal("accepted unknown member")
 	}
 	mailbox := newSignalMailbox()
-	signal := controlValue(newSignal(controlValue(ParseSignalID("signal:engine:opening")), wait, request.Payload()))
+	signal := controlValue(NewSignal(controlValue(ParseSignalID("signal:engine:opening")), wait, request.Payload()))
 	if err := mailbox.openWait(controlValue(ParseWaitKey("answer")), signal, WaitKindExternal); err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +326,7 @@ func TestDescriptorParticipatesInTypedWireSchemas(t *testing.T) {
 func TestSignalChildRejectsEngineSignalIdentity(t *testing.T) {
 	childID := newProcessID()
 	waitID := childID.effectID(1, 0).waitID()
-	internal := controlValue(newSignal(waitID.childWaitSignalID(), waitID, []byte(`"done"`)))
+	internal := controlValue(NewSignal(waitID.childWaitSignalID(), waitID, []byte(`"done"`)))
 	if _, err := NewChildSignalEffect(childID, SignalRequest(internal)); !errors.Is(err, ErrInvalidChildControl) {
 		t.Fatalf("child control accepted Engine identity: %v", err)
 	}

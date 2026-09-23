@@ -132,7 +132,7 @@ func TestSignalSchemaRejectionIsAtomic(t *testing.T) {
 		t.Fatalf("duplicate identity must not bypass batch schema validation: %t %v", accepted, err)
 	}
 	wire := controlValue(inspectProcessSnapshot(t, process).wire())
-	wire.Mailbox.Signals[0] = mailboxRecordWire(1, controlValue(newSignal(invalid.ID(), WaitID{}, invalid.Payload())))
+	wire.Mailbox.Signals[0] = mailboxRecordWire(1, controlValue(NewSignal(invalid.ID(), WaitID{}, invalid.Payload())))
 	tampered := controlValue(newProcessSnapshot(wire))
 	if _, _, _, err := prepareRestoredProcess(t.Context(), deployment, tampered); !errors.Is(err, ErrInvalidSnapshot) || !errors.Is(err, ErrSignalRejected) {
 		t.Fatalf("restoration bypassed the declared Signal schema: %v", err)

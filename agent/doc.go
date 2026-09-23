@@ -43,6 +43,9 @@
 // supplied head; missing heads, stale digests, and superseded writers fail.
 // Recovery retains captured authority, limits, budgets, and usage. The Host
 // authorizes that captured authority under current policy before restoration.
+// [Engine.ValidateRestorableTree] answers whether a snapshot is restorable
+// using that same validation, without admission, reservation, or writer
+// activation, so asking does not fence the current writer.
 //
 // The runtime may hold a newer private candidate than its acknowledged head.
 // Signal admission, child publication, committed Events, terminal results, and

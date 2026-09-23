@@ -195,7 +195,7 @@ func TestSnapshotRejectsUnfundedSignalReservations(t *testing.T) {
 				t.Fatal(err)
 			}
 			signalID, _ := ParseSignalID("signal:unfunded-reservation")
-			signal, err := newSignal(signalID, WaitID{}, []byte(`{}`))
+			signal, err := NewSignal(signalID, WaitID{}, []byte(`{}`))
 			if err != nil {
 				t.Fatal(err)
 			}

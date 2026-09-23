@@ -13,7 +13,7 @@ func TestDrainedTreeSnapshotOutcomeOrder(t *testing.T) {
 	wait := snapshot.state.ChildWaits[0]
 	root := snapshot.state.ProcessSnapshots[0].state
 	record := root.Mailbox.Signals[len(root.Mailbox.Signals)-1]
-	satisfied := controlValue(ParseChildWaitSatisfied(controlValue(newSignal(record.ID, wait.WaitID, record.Payload))))
+	satisfied := controlValue(ParseChildWaitSatisfied(controlValue(NewSignal(record.ID, wait.WaitID, record.Payload))))
 	for _, test := range []struct {
 		name   string
 		change func([]ChildOutcome) []ChildOutcome
@@ -104,7 +104,7 @@ func retainedWaitsSnapshotFixture(t testing.TB, count int) TreeSnapshot {
 	root := wire.ProcessSnapshots[0].state
 	original := wire.ChildWaits[0]
 	originalSignal := root.Mailbox.Signals[1]
-	outcomes := controlValue(ParseChildWaitSatisfied(controlValue(newSignal(originalSignal.ID, original.WaitID, originalSignal.Payload)))).Outcomes()
+	outcomes := controlValue(ParseChildWaitSatisfied(controlValue(NewSignal(originalSignal.ID, original.WaitID, originalSignal.Payload)))).Outcomes()
 	root.Limits.Budget, root.AllocatedResources = Budget{}, resourceAmounts{}
 	mailbox := newSignalMailbox()
 	wire.ChildWaits = nil
@@ -164,7 +164,7 @@ func TestDrainedSnapshotAcceptsOrderedQuorumSubset(t *testing.T) {
 	opening := controlValue(normalizeJSON(controlValue(encodeChildWaitOpened(spec)), MaxPayloadBytes))
 	root.Mailbox.Signals[0].PayloadDigest = ComputeDigest(opening)
 	record := &root.Mailbox.Signals[1]
-	satisfied := controlValue(ParseChildWaitSatisfied(controlValue(newSignal(record.ID, wait.WaitID, record.Payload))))
+	satisfied := controlValue(ParseChildWaitSatisfied(controlValue(NewSignal(record.ID, wait.WaitID, record.Payload))))
 	signal := controlValue(encodeChildWaitSatisfied(wait.WaitID, spec.Key, spec.Boundary, []ChildOutcome{satisfied.outcomes[1], satisfied.outcomes[3]}))
 	record.Payload, record.PayloadDigest = signal.Payload(), ComputeDigest(signal.Payload())
 	wire.ProcessSnapshots[0] = controlValue(newProcessSnapshot(root))

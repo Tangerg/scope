@@ -59,7 +59,7 @@ func (p *preparedStepFinalization) applySettlement(record preparedEffect) error 
 	if record.WaitID != nil {
 		waitID = *record.WaitID
 	}
-	signal, err := newSignal(record.ID.settlementSignalID(), waitID, record.Settlement.Payload())
+	signal, err := NewSignal(record.ID.settlementSignalID(), waitID, record.Settlement.Payload())
 	if err != nil {
 		return err
 	}

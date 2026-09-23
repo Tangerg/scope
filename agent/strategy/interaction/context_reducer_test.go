@@ -196,3 +196,51 @@ func runContextReductionInteraction(
 	}, interaction.DispatcherConfig{Model: client, ModelContextReducer: reducer}, interaction.ToolSetConfig{Tools: tools})
 	return runInteraction(t, deployment, "original context")
 }
+
+// retainingContextReducer returns a sequence it keeps referencing. The contract
+// permits this because the Dispatcher owns the reduced messages once they are
+// returned.
+type retainingContextReducer struct{ retained []chat.Message }
+
+func (r *retainingContextReducer) ReduceModelContext(
+	_ context.Context, _ interaction.ModelInvocation, _ *chat.Request,
+) ([]chat.Message, error) {
+	r.retained = []chat.Message{chat.NewUserMessage(chat.NewTextPart("reduced"))}
+	return r.retained, nil
+}
+
+// The Dispatcher, not the implementation, owns the reduced sequence. Without
+// that clone a reducer holding its result could rewrite the model request after
+// returning it, so the guarantee needs its own check rather than a promise in
+// the interface documentation.
+func TestModelContextReductionClonesTheReducedSequence(t *testing.T) {
+	reducer := &retainingContextReducer{}
+	var seen atomic.Value
+	model := chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+		// Mutate through the reference the reducer still holds, then read what
+		// the Dispatcher actually handed the model.
+		reducer.retained[0] = chat.NewUserMessage(chat.NewTextPart("tampered"))
+		if len(request.Messages) != 1 {
+			return nil, errors.New("reduction did not replace the whole context")
+		}
+		seen.Store(request.Messages[0].Text())
+		return textResponse("done"), nil
+	})
+	// Bind the model directly: a chatclient in between would copy the request
+	// and hide whether this Dispatcher owns the reduced sequence.
+	deployment := configuredInteraction(t,
+		interaction.DefinitionConfig{
+			Name:        "interaction.context-reducer-ownership",
+			Description: "Exercise ownership of the reduced model context.",
+		},
+		interaction.DispatcherConfig{Model: model, ModelContextReducer: reducer},
+		interaction.ToolSetConfig{},
+	)
+	result := runInteraction(t, deployment, "original context")
+	if result.Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
+	}
+	if text, _ := seen.Load().(string); text != "reduced" {
+		t.Fatalf("model saw %q; the Dispatcher shared the reducer's sequence", text)
+	}
+}

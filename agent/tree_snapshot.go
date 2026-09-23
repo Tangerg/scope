@@ -488,7 +488,7 @@ func (t *treeSnapshotValidation) validateChildWaitSignals(signals []signalRecord
 			}
 			continue
 		}
-		signal, signalErr := newSignal(record.ID, waitID, record.Payload)
+		signal, signalErr := NewSignal(record.ID, waitID, record.Payload)
 		if signalErr != nil {
 			return fmt.Errorf("%w: invalid child wait Signal: %w", ErrInvalidTreeSnapshot, signalErr)
 		}

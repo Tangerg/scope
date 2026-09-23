@@ -407,7 +407,7 @@ func mustMailboxSignal(t testing.TB, value string, waitID WaitID, payload json.R
 	if err != nil {
 		t.Fatal(err)
 	}
-	signal, err := newSignal(signalID, waitID, payload)
+	signal, err := NewSignal(signalID, waitID, payload)
 	if err != nil {
 		t.Fatal(err)
 	}

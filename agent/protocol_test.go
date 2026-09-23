@@ -17,7 +17,7 @@ func TestSignalKeepsDeliveryAndWaitIdentitySeparate(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := json.RawMessage(` { "answer": true } `)
-	signal, err := newSignal(signalID, waitID, payload)
+	signal, err := NewSignal(signalID, waitID, payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestSignalKeepsDeliveryAndWaitIdentitySeparate(t *testing.T) {
 
 func TestSignalStrictJSONRoundTrip(t *testing.T) {
 	signalID, _ := ParseSignalID("signal:1")
-	signal, err := newSignal(signalID, WaitID{}, json.RawMessage(`{"kind":"steer"}`))
+	signal, err := NewSignal(signalID, WaitID{}, json.RawMessage(`{"kind":"steer"}`))
 	if err != nil {
 		t.Fatal(err)
 	}

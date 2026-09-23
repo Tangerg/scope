@@ -86,14 +86,7 @@ func (c *childStartPlan) resolveDeployment() (Deployment, error) {
 	if c.resolver == nil {
 		return Deployment{}, fmt.Errorf("%w: no resolver for %s", ErrInvalidDeployment, reference.Name())
 	}
-	deployment, err := resolveDeployment(c.resolver, reference)
-	if err != nil {
-		return Deployment{}, err
-	}
-	if !deployment.Valid() || deployment.DeploymentRef() != reference {
-		return Deployment{}, fmt.Errorf("%w: resolver returned a different binding", ErrInvalidDeployment)
-	}
-	return deployment, nil
+	return resolveDeployment(c.resolver, reference)
 }
 
 func resolveDeployment(
@@ -113,6 +106,14 @@ func resolveDeployment(
 	}
 	if err := deployment.validateDefinition(); err != nil {
 		return Deployment{}, err
+	}
+	// Behavior is bound by exact reference, so answering with any other binding
+	// leaves this request unresolved. Every caller of this boundary depends on
+	// that guarantee, so the boundary owns it instead of restating it per site.
+	if deployment.DeploymentRef() != reference {
+		return Deployment{}, fmt.Errorf(
+			"%w: resolver answered %s with a different binding", ErrInvalidDeployment, reference.Name(),
+		)
 	}
 	return deployment, nil
 }

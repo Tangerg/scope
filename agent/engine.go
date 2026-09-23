@@ -673,50 +673,32 @@ func (e *Engine) RestoreTree(
 		return nil, ErrInvalidEngineConfig
 	}
 	ctx = RequireContext(ctx)
-	if err := rootDeployment.validateDefinition(); err != nil {
-		return nil, err
-	}
-	wire, err := snapshot.wire()
+	restoration, err := e.newRestoration(rootDeployment, snapshot)
 	if err != nil {
 		return nil, err
 	}
-	previousIncarnation := snapshot.IncarnationID()
-	rootSnapshot := snapshotByID(wire.ProcessSnapshots, wire.RootID)
-	if !rootSnapshot.Valid() || rootSnapshot.DeploymentRef() != rootDeployment.DeploymentRef() {
-		return nil, fmt.Errorf("%w: exact root Deployment does not match", ErrInvalidTreeSnapshot)
-	}
-	operation, err := e.acquireTreeOperation(ctx, wire.RootID)
+	operation, err := e.acquireTreeOperation(ctx, restoration.wire.RootID)
 	if err != nil {
 		return nil, err
 	}
 	defer operation.release()
-	previousDigest := snapshot.Digest()
-	restoration := treeRestoration{
-		engine:      e,
-		wire:        wire,
-		deployments: map[DeploymentRef]Deployment{rootDeployment.DeploymentRef(): rootDeployment},
-	}
-	if err := e.reserveRestoredTree(&restoration); err != nil {
+	previousIncarnation, previousDigest := snapshot.IncarnationID(), snapshot.Digest()
+	// Admission precedes the prepare pass so a closed Engine or a taken
+	// identity refuses without running Host Definition code.
+	if err = e.reserveRestoredTree(restoration); err != nil {
 		return nil, err
 	}
 	published := false
 	defer func() {
 		if !published {
-			e.discardRestoredTree(&restoration)
+			e.discardRestoredTree(restoration)
 		}
 	}()
-	if err := restoration.prepareProcesses(ctx); err != nil {
+	incarnation, err := restoration.prepare(ctx)
+	if err != nil {
 		return nil, err
 	}
-	if err := restoration.prepareChildWaits(); err != nil {
-		return nil, err
-	}
-	incarnation := newTreeIncarnationID()
-
-	if err := restoration.prepareRuntime(ctx, incarnation); err != nil {
-		return nil, fmt.Errorf("%w: snapshot capacity: %w", ErrInvalidTreeSnapshot, err)
-	}
-
+	wire := restoration.wire
 	wire.IncarnationID = incarnation
 	prospectiveSnapshot, snapshotErr := newTreeSnapshot(wire)
 	if snapshotErr != nil {
@@ -734,9 +716,68 @@ func (e *Engine) RestoreTree(
 	restoration.wire = wire
 	restoration.runtime.establishHead(incarnation, prospectiveSnapshot)
 
-	e.publishRestoredTree(&restoration)
+	e.publishRestoredTree(restoration)
 	published = true
-	return e.startRestoredTree(ctx, &restoration), nil
+	return e.startRestoredTree(ctx, restoration), nil
+}
+
+// ValidateRestorableTree reports whether this Engine can rebuild snapshot under
+// rootDeployment. It runs the same prepare pass RestoreTree runs, from the same
+// code, so the two cannot disagree about what is restorable: the exact root
+// binding, every captured DeploymentRef, each committed and prepared Execution
+// state through its own Definition, mailbox and wait history, Signal and output
+// schemas, and captured snapshot capacity.
+//
+// It answers a question about the snapshot, not about this moment. It skips
+// admission, reserves no identity, and activates no writer, so it neither
+// fences the previous writer nor promises a later RestoreTree will succeed:
+// the Engine may close, another writer may advance the stored head, and a
+// concurrent start may take one of the captured identities. Retained Unknown
+// settlements are restorable facts and do not fail this check; whether to
+// reconcile, replay, or refuse them stays a Host decision.
+func (e *Engine) ValidateRestorableTree(
+	ctx context.Context,
+	rootDeployment Deployment,
+	snapshot TreeSnapshot,
+) error {
+	if e == nil {
+		return ErrInvalidEngineConfig
+	}
+	ctx = RequireContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	restoration, err := e.newRestoration(rootDeployment, snapshot)
+	if err != nil {
+		return err
+	}
+	_, err = restoration.prepare(ctx)
+	return err
+}
+
+// newRestoration binds a snapshot to its exact root Deployment. It performs the
+// checks that cost nothing, so admission can refuse before prepare runs Host
+// Definition code.
+func (e *Engine) newRestoration(
+	rootDeployment Deployment,
+	snapshot TreeSnapshot,
+) (*treeRestoration, error) {
+	if err := rootDeployment.validateDefinition(); err != nil {
+		return nil, err
+	}
+	wire, err := snapshot.wire()
+	if err != nil {
+		return nil, err
+	}
+	rootSnapshot := snapshotByID(wire.ProcessSnapshots, wire.RootID)
+	if !rootSnapshot.Valid() || rootSnapshot.DeploymentRef() != rootDeployment.DeploymentRef() {
+		return nil, fmt.Errorf("%w: exact root Deployment does not match", ErrInvalidTreeSnapshot)
+	}
+	return &treeRestoration{
+		engine:      e,
+		wire:        wire,
+		deployments: map[DeploymentRef]Deployment{rootDeployment.DeploymentRef(): rootDeployment},
+	}, nil
 }
 
 func (e *Engine) startRestoredTree(ctx context.Context, restoration *treeRestoration) *Process {

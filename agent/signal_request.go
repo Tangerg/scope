@@ -48,7 +48,7 @@ func (s SignalRequest) signal() (Signal, error) {
 	if !s.Valid() {
 		return Signal{}, ErrInvalidSignalRequest
 	}
-	return newSignal(s.id, s.waitID, s.payload)
+	return NewSignal(s.id, s.waitID, s.payload)
 }
 
 func (s SignalRequest) MarshalJSON() ([]byte, error) {

@@ -23,7 +23,13 @@ type Signal struct {
 	payload json.RawMessage
 }
 
-func newSignal(id SignalID, waitID WaitID, payload json.RawMessage) (Signal, error) {
+// NewSignal builds one delivery envelope with a canonical payload. At runtime
+// the Engine mints every Signal, from an admitted SignalRequest or from an
+// Effect settlement; constructing one does not admit or deliver it, and
+// Process.DeliverSignals still accepts only a SignalRequest. Definition tests
+// and conformance cases need the exact envelope a Step must accept, which is
+// otherwise reachable only by hand-writing this type's wire form.
+func NewSignal(id SignalID, waitID WaitID, payload json.RawMessage) (Signal, error) {
 	if !id.Valid() {
 		return Signal{}, fmt.Errorf("%w: %w", ErrInvalidSignal, ErrInvalidIdentity)
 	}
@@ -87,7 +93,7 @@ func (s *Signal) UnmarshalJSON(data []byte) error {
 	if wire.WaitID != nil {
 		waitID = *wire.WaitID
 	}
-	value, err := newSignal(wire.ID, waitID, wire.Payload)
+	value, err := NewSignal(wire.ID, waitID, wire.Payload)
 	if err != nil {
 		return err
 	}

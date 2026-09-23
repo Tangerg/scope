@@ -21,6 +21,26 @@ type treeRestoration struct {
 	runtime     *treeRuntime
 }
 
+// prepare owns every decision about whether this tree can be rebuilt: it
+// resolves each captured binding, restores every committed and prepared
+// Execution through its own Definition, and admits the captured snapshot
+// capacity. It works entirely in memory, so a discarded attempt leaves no
+// Engine state behind and the same pass can answer a question or begin a
+// restoration.
+func (t *treeRestoration) prepare(ctx context.Context) (TreeIncarnationID, error) {
+	if err := t.prepareProcesses(ctx); err != nil {
+		return TreeIncarnationID{}, err
+	}
+	if err := t.prepareChildWaits(); err != nil {
+		return TreeIncarnationID{}, err
+	}
+	incarnation := newTreeIncarnationID()
+	if err := t.prepareRuntime(ctx, incarnation); err != nil {
+		return TreeIncarnationID{}, fmt.Errorf("%w: snapshot capacity: %w", ErrInvalidTreeSnapshot, err)
+	}
+	return incarnation, nil
+}
+
 func (t *treeRestoration) prepareRuntime(ctx context.Context, incarnation TreeIncarnationID) error {
 	states := make([]*processState, 0, len(t.processes))
 	for index := range t.processes {
@@ -68,11 +88,6 @@ func (t *treeRestoration) deployment(reference DeploymentRef) (Deployment, error
 	if err != nil {
 		return Deployment{}, fmt.Errorf(
 			"%w: resolve exact Deployment %s: %w", ErrInvalidTreeSnapshot, reference.Name(), err,
-		)
-	}
-	if !deployment.Valid() || deployment.DeploymentRef() != reference {
-		return Deployment{}, fmt.Errorf(
-			"%w: resolver returned a mismatched Deployment for %s", ErrInvalidTreeSnapshot, reference.Name(),
 		)
 	}
 	t.deployments[reference] = deployment
