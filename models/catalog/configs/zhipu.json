@@ -385,7 +385,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "high",
+          "xhigh"
+        ],
+        "default_level": "xhigh"
       },
       "modalities": {
         "input": [

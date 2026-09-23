@@ -14,7 +14,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -43,7 +49,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -72,7 +84,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -183,7 +201,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -379,7 +403,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -413,7 +443,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -447,7 +483,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -481,7 +523,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -514,7 +562,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -555,7 +609,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -596,7 +656,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -630,7 +696,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -664,7 +736,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -698,7 +776,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -739,7 +823,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -779,7 +869,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -820,7 +916,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -854,7 +956,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -886,7 +994,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -948,7 +1062,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -984,7 +1104,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1015,7 +1141,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1051,7 +1183,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1087,7 +1225,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1123,7 +1267,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1234,7 +1384,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1338,7 +1494,13 @@
       "release_date": "2026-06-17T00:00:00Z",
       "last_updated": "2026-06-17T00:00:00Z",
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1422,7 +1584,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1452,7 +1620,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1482,7 +1656,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1541,7 +1721,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1572,7 +1758,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1602,7 +1794,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1633,7 +1831,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1664,7 +1868,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1694,7 +1904,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1726,7 +1942,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1756,7 +1978,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1787,7 +2015,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1811,7 +2045,13 @@
       "release_date": "2026-08-14T00:00:00Z",
       "last_updated": "2026-08-14T00:00:00Z",
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1844,7 +2084,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1910,7 +2156,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1952,7 +2204,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1994,7 +2252,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -2029,7 +2293,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -2065,7 +2335,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -2194,7 +2470,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -2260,7 +2542,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -2302,7 +2590,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -2344,7 +2638,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -2380,7 +2680,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -2416,7 +2722,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -2452,7 +2764,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -2488,7 +2806,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -2523,7 +2847,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -2667,7 +2997,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -2692,7 +3028,13 @@
       "release_date": "2026-04-02T00:00:00Z",
       "last_updated": "2026-04-02T00:00:00Z",
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -2723,7 +3065,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -2748,7 +3096,13 @@
       "release_date": "2026-04-02T00:00:00Z",
       "last_updated": "2026-04-02T00:00:00Z",
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -2869,7 +3223,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -2899,7 +3259,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -2929,7 +3295,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -2959,7 +3331,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -2988,7 +3366,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -3011,7 +3395,13 @@
       "release_date": "2026-08-27T00:00:00Z",
       "last_updated": "2026-08-27T00:00:00Z",
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -3033,7 +3423,13 @@
       "release_date": "2026-09-04T00:00:00Z",
       "last_updated": "2026-09-04T00:00:00Z",
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -3062,7 +3458,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -3166,7 +3568,13 @@
       "release_date": "2026-08-11T00:00:00Z",
       "last_updated": "2026-08-11T00:00:00Z",
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -3221,7 +3629,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -3466,7 +3880,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -3497,7 +3917,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -3531,7 +3957,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -3565,7 +3997,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -3599,7 +4037,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -3633,7 +4077,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -3772,7 +4222,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -3827,7 +4283,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -3856,7 +4318,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -3886,7 +4354,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -3916,7 +4390,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -4148,7 +4628,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -4293,7 +4779,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -4491,7 +4983,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -4522,7 +5020,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -4554,7 +5058,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -4586,7 +5096,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -4617,7 +5133,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -4721,7 +5243,13 @@
       "release_date": "2026-09-08T00:00:00Z",
       "last_updated": "2026-09-08T00:00:00Z",
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -4752,7 +5280,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -4776,7 +5310,13 @@
       "release_date": "2026-09-08T00:00:00Z",
       "last_updated": "2026-09-08T00:00:00Z",
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -4887,7 +5427,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -4910,7 +5456,13 @@
       "release_date": "2026-04-28T00:00:00Z",
       "last_updated": "2026-04-28T00:00:00Z",
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -4941,7 +5493,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -4964,7 +5522,13 @@
       "release_date": "2026-03-11T00:00:00Z",
       "last_updated": "2026-03-11T00:00:00Z",
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -4994,7 +5558,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -5017,7 +5587,13 @@
       "release_date": "2026-06-04T00:00:00Z",
       "last_updated": "2026-06-04T00:00:00Z",
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -5096,7 +5672,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -5119,7 +5701,13 @@
       "release_date": "2026-08-11T00:00:00Z",
       "last_updated": "2026-08-11T00:00:00Z",
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -5580,7 +6168,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -5679,7 +6273,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -5713,7 +6313,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -5746,7 +6352,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -5780,7 +6392,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -5814,7 +6432,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -5847,7 +6471,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -5880,7 +6510,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -5913,7 +6549,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -5977,7 +6619,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6009,7 +6657,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6043,7 +6697,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6083,7 +6743,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6149,7 +6815,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6183,7 +6855,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6221,7 +6899,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6261,7 +6945,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6299,7 +6989,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6341,7 +7037,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6383,7 +7085,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6425,7 +7133,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6467,7 +7181,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6509,7 +7229,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6551,7 +7277,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6593,7 +7325,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6634,7 +7372,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6675,7 +7419,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6716,7 +7466,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6757,7 +7513,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6798,7 +7560,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6915,7 +7683,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6944,7 +7718,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -6974,7 +7754,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -7005,7 +7791,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -7069,7 +7861,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -7102,7 +7900,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -7134,7 +7938,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -7165,7 +7975,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -7198,7 +8014,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -7231,7 +8053,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -7534,7 +8362,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -7556,7 +8390,13 @@
       "release_date": "2026-07-21T00:00:00Z",
       "last_updated": "2026-07-21T00:00:00Z",
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -7585,7 +8425,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -7607,7 +8453,13 @@
       "release_date": "2026-07-02T00:00:00Z",
       "last_updated": "2026-07-02T00:00:00Z",
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -7635,7 +8487,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -7841,7 +8699,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -7871,7 +8735,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -7928,7 +8798,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -7956,7 +8832,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -8013,7 +8895,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -8042,7 +8930,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -8072,7 +8966,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -8321,7 +9221,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -8378,7 +9284,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -8437,7 +9349,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -8496,7 +9414,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -8580,7 +9504,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -8610,7 +9540,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -8641,7 +9577,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -8673,7 +9615,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -8705,7 +9653,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -8736,7 +9690,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -8767,7 +9727,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -8804,7 +9770,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -8842,7 +9814,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -8874,7 +9852,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -8906,7 +9890,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -8944,7 +9934,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -8983,7 +9979,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -9020,7 +10022,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -9067,7 +10075,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -9100,7 +10114,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -9139,7 +10159,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -9170,7 +10196,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -9200,7 +10232,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -9225,7 +10263,13 @@
       "release_date": "2026-08-14T00:00:00Z",
       "last_updated": "2026-08-14T00:00:00Z",
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -9258,7 +10302,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -9291,7 +10341,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -9323,7 +10379,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -9462,7 +10524,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -9500,7 +10568,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -9538,7 +10612,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -9570,7 +10650,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -9681,7 +10767,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -9711,7 +10803,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -9847,7 +10945,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -9878,7 +10982,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -9907,7 +11017,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10017,7 +11133,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10048,7 +11170,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10072,7 +11200,13 @@
       "release_date": "2026-07-30T00:00:00Z",
       "last_updated": "2026-07-30T00:00:00Z",
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10096,7 +11230,13 @@
       "release_date": "2026-07-15T00:00:00Z",
       "last_updated": "2026-07-15T00:00:00Z",
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10180,7 +11320,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10210,7 +11356,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10240,7 +11392,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10301,7 +11459,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10377,7 +11541,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10415,7 +11585,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10454,7 +11630,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10493,7 +11675,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10531,7 +11719,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10564,7 +11758,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10598,7 +11798,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10628,7 +11834,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10661,7 +11873,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10694,7 +11912,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10728,7 +11952,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10758,7 +11988,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10788,7 +12024,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10819,7 +12061,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10850,7 +12098,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10882,7 +12136,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10912,7 +12172,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10942,7 +12208,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -10972,7 +12244,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -11001,7 +12279,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -11031,7 +12315,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -11082,7 +12372,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -11112,7 +12408,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -11144,7 +12446,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -11175,7 +12483,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [

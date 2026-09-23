@@ -1221,7 +1221,15 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1263,7 +1271,16 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1305,7 +1322,16 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [

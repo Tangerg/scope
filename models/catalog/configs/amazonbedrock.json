@@ -4455,7 +4455,15 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "default_level": "high"
       },
       "modalities": {
         "input": [
@@ -4623,7 +4631,14 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "default_level": "high"
       },
       "modalities": {
         "input": [
@@ -4657,7 +4672,15 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "default_level": "high"
       },
       "modalities": {
         "input": [
@@ -4690,7 +4713,15 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "default_level": "high"
       },
       "modalities": {
         "input": [
@@ -4723,7 +4754,15 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "default_level": "high"
       },
       "modalities": {
         "input": [
@@ -4857,7 +4896,14 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "default_level": "high"
       },
       "modalities": {
         "input": [
@@ -4891,7 +4937,15 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "default_level": "high"
       },
       "modalities": {
         "input": [

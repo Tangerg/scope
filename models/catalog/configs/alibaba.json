@@ -15,7 +15,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "high",
+          "max"
+        ],
+        "default_level": "high"
       },
       "modalities": {
         "input": [
@@ -45,7 +51,12 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "high",
+          "xhigh"
+        ],
+        "default_level": "high"
       },
       "modalities": {
         "input": [
@@ -75,7 +86,13 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "low",
+          "high",
+          "max"
+        ],
+        "default_level": "high"
       },
       "modalities": {
         "input": [
@@ -1211,7 +1228,15 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "none",
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1243,7 +1268,15 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "none",
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1403,7 +1436,15 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "none",
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1437,7 +1478,15 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "none",
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1475,7 +1524,15 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "none",
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1507,7 +1564,15 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "none",
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1545,7 +1610,15 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "none",
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1577,7 +1650,15 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "none",
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
@@ -1610,7 +1691,15 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "none",
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [

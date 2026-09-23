@@ -1027,7 +1027,14 @@
         }
       ],
       "reasoning": {
-        "supported": true
+        "supported": true,
+        "levels": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "default_level": "medium"
       },
       "modalities": {
         "input": [
