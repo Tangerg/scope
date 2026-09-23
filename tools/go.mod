@@ -3,8 +3,8 @@ module github.com/Tangerg/scope/tools
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.33.0
-	github.com/Tangerg/scope/skills v0.33.0
+	github.com/Tangerg/scope/core v0.36.0
+	github.com/Tangerg/scope/skills v0.36.0
 	github.com/bluekeyes/go-gitdiff v0.9.0
 	github.com/bmatcuk/doublestar/v4 v4.10.2
 	github.com/go-resty/resty/v2 v2.17.2
