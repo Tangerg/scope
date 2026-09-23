@@ -44,5 +44,6 @@
 // Rows are generated from two community model databases with disjoint
 // responsibilities: models.dev decides which models exist and supplies every
 // field except the reasoning effort ladder, and catwalk supplies that ladder.
-// Regeneration is a repository change, which is why a lookup performs no I/O.
+// Regeneration is a repository change, which is why a lookup performs no I/O;
+// scripts/update-model-catalog.sh performs it.
 package catalog

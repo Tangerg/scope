@@ -1,7 +1,15 @@
 //go:build ignore
 
 // Command gen regenerates the embedded model catalog (configs/*.json) from two
-// community model databases. Run it from this directory:
+// community model databases.
+//
+// To refresh the catalog, run the wrapper from the repository root — it
+// regenerates, prints what moved, and runs this module's checks:
+//
+//	scripts/update-model-catalog.sh
+//
+// This command is what the wrapper drives, and takes the same flags. Run it
+// from this directory:
 //
 //	go run gen.go                          # fetch both sources live
 //	go run gen.go -source ./api.json       # or read local snapshots
@@ -35,6 +43,13 @@
 // To add a provider: add it to providerMap (left = models.dev provider id,
 // right = the adapter's Provider const, lowercased), add it to
 // catwalkProviderMap if catwalk serves the same endpoint, and re-run.
+//
+// To fill a ladder neither source publishes: add it to augmentations.json under
+// our provider name and the models.dev model id. Never copy one from a sibling
+// provider — the same model can take a different default through a different
+// endpoint, so a copied ladder publishes a default no endpoint uses. Once
+// catwalk starts publishing that ladder, the run fails until the local entry is
+// removed, which keeps the ladder single-sourced.
 package main
 
 import (
