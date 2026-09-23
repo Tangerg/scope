@@ -109,13 +109,24 @@ func (o ObservationFailures) LastToolSettledPanic() (ObserverPanic, bool) {
 	return *o.lastToolSettledPanic, true
 }
 
-type observationCallback uint8
+// observationCallback selects the counter and latest-diagnostic slot one
+// callback owns. Binding the slot to the callback keeps that mapping in a single
+// declaration: a new callback cannot exist without its slot, and no dispatch
+// table can disagree with it. A table would also have to fail somewhere, and the
+// only place to fail here is inside the recover that isolates observer panics.
+type observationCallback func(*ObservationFailures) (panics *uint64, latest **ObserverPanic)
 
-const (
-	modelResponseCallback observationCallback = iota
-	toolStartedCallback
-	toolSettledCallback
-)
+func modelResponseCallback(failures *ObservationFailures) (*uint64, **ObserverPanic) {
+	return &failures.modelResponsePanics, &failures.lastModelResponsePanic
+}
+
+func toolStartedCallback(failures *ObservationFailures) (*uint64, **ObserverPanic) {
+	return &failures.toolStartedPanics, &failures.lastToolStartedPanic
+}
+
+func toolSettledCallback(failures *ObservationFailures) (*uint64, **ObserverPanic) {
+	return &failures.toolSettledPanics, &failures.lastToolSettledPanic
+}
 
 type observationFailureCounters struct {
 	mu       sync.Mutex
@@ -141,20 +152,8 @@ func (o *observationFailureCounters) recordPanic(callback observationCallback, o
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	var count *uint64
-	switch callback {
-	case modelResponseCallback:
-		count = &o.failures.modelResponsePanics
-		o.failures.lastModelResponsePanic = diagnostic
-	case toolStartedCallback:
-		count = &o.failures.toolStartedPanics
-		o.failures.lastToolStartedPanic = diagnostic
-	case toolSettledCallback:
-		count = &o.failures.toolSettledPanics
-		o.failures.lastToolSettledPanic = diagnostic
-	default:
-		panic("interaction: unknown observation callback")
-	}
+	count, latest := callback(&o.failures)
+	*latest = diagnostic
 	if *count < math.MaxUint64 {
 		*count++
 	}

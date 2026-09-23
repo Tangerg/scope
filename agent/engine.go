@@ -902,7 +902,9 @@ func (e *Engine) runtimeForTree(rootID ProcessID) (*treeRuntime, error) {
 
 func newProcessID() ProcessID {
 	var random [16]byte
-	rand.Read(random[:])
+	// crypto/rand.Read fills b entirely or crashes the program; it never
+	// reports a partial read.
+	_, _ = rand.Read(random[:])
 	return ProcessID{identity{value: processIDPrefix + hex.EncodeToString(random[:])}}
 }
 

@@ -9,7 +9,9 @@ func TestTreeCommandCapacityAppliesDuringCommitAndFreeze(t *testing.T) {
 			if barrier == "commit" {
 				runtime.commit = &treeCommit{}
 			} else {
-				runtime.freeze = &activeTreeFreeze{ready: true, freeze: &treeFreeze{runtime: runtime}, acquisition: &treeFreezeAcquisition{canceled: make(chan struct{})}}
+				// A delivered freeze retains no acquisition: its acquirer already
+				// holds the barrier and is owed no further answer.
+				runtime.freeze = &activeTreeFreeze{freeze: &treeFreeze{runtime: runtime}}
 			}
 			for range treeCommandBufferCapacity {
 				runtime.processCommands <- treeCommand{kind: treeCommandProcess}

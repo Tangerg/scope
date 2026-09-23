@@ -93,10 +93,25 @@ type treeFreezeAcquisitionResult struct {
 	err      error
 }
 
+// activeTreeFreeze owes its acquirer exactly one answer. The acquisition is
+// retained only while that answer is outstanding, so its absence is the barrier
+// phase itself rather than a second flag that could disagree with it.
 type activeTreeFreeze struct {
 	acquisition *treeFreezeAcquisition
 	freeze      *treeFreeze
-	ready       bool
+}
+
+func (a *activeTreeFreeze) delivered() bool { return a.acquisition == nil }
+
+// answer settles the outstanding acquisition exactly once. A delivered freeze
+// has no one waiting, so a later result is not owed to anybody.
+func (a *activeTreeFreeze) answer(result treeFreezeAcquisitionResult) {
+	if a.acquisition == nil {
+		return
+	}
+	acquisition := a.acquisition
+	a.acquisition = nil
+	acquisition.response <- result
 }
 
 type processAttempt uint64
@@ -448,7 +463,7 @@ func (t *treeRuntime) tryCompletion() bool {
 func (t *treeRuntime) mutationsBlocked() bool {
 	// Freeze acquisition stops new jobs, but active jobs may need a cancellation
 	// command to drain. Only the completed snapshot barrier blocks both lanes.
-	return t.commit != nil || t.freeze != nil && t.freeze.ready
+	return t.commit != nil || t.freeze != nil && t.freeze.delivered()
 }
 
 func (t *treeRuntime) enqueueProcess(processID ProcessID) {
@@ -1011,9 +1026,9 @@ func (t *treeRuntime) tryStartCheckpoint() bool {
 	if snapshot.Digest() == t.head.Digest() {
 		// Control changes can return to the acknowledged state without changing
 		// its recovery cut. Publishing those facts must not require another write.
-		pending := len(t.pendingPublications) != 0
+		published := len(t.pendingPublications) != 0
 		t.publishAcknowledgedChanges()
-		return pending
+		return published
 	}
 	if err := t.startCheckpointCommit(kind, snapshot); err != nil {
 		t.failRuntime(err, ProcessID{}, EffectID{})
@@ -1075,19 +1090,24 @@ func (t *treeRuntime) stageCommittedEvent(event eventFact) {
 	t.pendingPublications[processID] = publication
 }
 
+// The acknowledged head supplies publication order and outcomes;
+// pendingPublications owns what is still owed. Every staged fact belongs to a
+// Process the same cut captured, so draining the head must leave nothing owed.
+// A leftover entry would silently make scheduling ready forever, so it stops the
+// writer instead.
 func (t *treeRuntime) publishAcknowledgedChanges() {
 	for _, snapshot := range t.head.state.ProcessSnapshots {
 		processID := snapshot.ProcessID()
-		process := t.processes[processID]
 		publication, pending := t.pendingPublications[processID]
 		if !pending {
 			continue
 		}
+		delete(t.pendingPublications, processID)
+		process := t.processes[processID]
 		for _, event := range publication.events {
 			t.publishPreparedEvent(process, event)
 		}
 		if !publication.terminal {
-			delete(t.pendingPublications, processID)
 			continue
 		}
 		result, terminal := snapshot.Result()
@@ -1096,7 +1116,9 @@ func (t *treeRuntime) publishAcknowledgedChanges() {
 		}
 		process.handle.publishResult(result)
 		t.finishProcessBookkeeping(process)
-		delete(t.pendingPublications, processID)
+	}
+	if len(t.pendingPublications) != 0 {
+		panic("agent: staged facts outlived the acknowledged tree cut")
 	}
 }
 
@@ -1169,9 +1191,11 @@ func (t *treeRuntime) failRuntime(
 		t.finishProcessBookkeeping(process)
 	}
 	if t.freeze != nil {
-		acquisition := t.freeze.acquisition
+		freeze := t.freeze
 		t.releaseCurrentFreeze()
-		acquisition.response <- treeFreezeAcquisitionResult{err: cause}
+		// A delivered freeze has no waiting acquirer; releaseFreeze reports the
+		// fault to its holder instead.
+		freeze.answer(treeFreezeAcquisitionResult{err: cause})
 	}
 }
 
@@ -1346,14 +1370,14 @@ func (t *treeRuntime) acquireFreeze(acquisition *treeFreezeAcquisition) {
 }
 
 func (t *treeRuntime) completeFreeze() {
-	if t.freeze == nil || t.freeze.ready || t.commit != nil || t.freezeBlockedByJob() {
+	if t.freeze == nil || t.freeze.delivered() || t.commit != nil || t.freezeBlockedByJob() {
 		return
 	}
 	snapshot, err := t.captureTree()
 	if err != nil {
-		acquisition := t.freeze.acquisition
+		freeze := t.freeze
 		t.releaseCurrentFreeze()
-		acquisition.response <- treeFreezeAcquisitionResult{err: err}
+		freeze.answer(treeFreezeAcquisitionResult{err: err})
 		return
 	}
 	if snapshot.Digest() != t.head.Digest() {
@@ -1362,10 +1386,9 @@ func (t *treeRuntime) completeFreeze() {
 		}
 		return
 	}
-	t.freeze.ready = true
-	t.freeze.acquisition.response <- treeFreezeAcquisitionResult{
+	t.freeze.answer(treeFreezeAcquisitionResult{
 		freeze: t.freeze.freeze, snapshot: snapshot,
-	}
+	})
 }
 
 func (t *treeRuntime) freezeBlockedByJob() bool {
@@ -1416,6 +1439,11 @@ func (t *treeRuntime) treeSnapshotBase() treeSnapshotWire {
 
 func (t *treeRuntime) releaseFreeze(freeze *treeFreeze) error {
 	if t.freeze == nil || freeze == nil || t.freeze.freeze != freeze {
+		if t.fault != nil {
+			// A runtime failure already released this barrier. Its holder needs
+			// the cause, not the absence it produced.
+			return t.fault
+		}
 		return ErrEngineQuiescenceUnavailable
 	}
 	t.releaseCurrentFreeze()
@@ -1689,7 +1717,7 @@ func (t *treeRuntime) buildInspection() (TreeInspection, error) {
 	}
 	if t.freeze != nil {
 		inspection.Freeze = TreeFreezePhaseAcquiring
-		if t.freeze.ready {
+		if t.freeze.delivered() {
 			inspection.Freeze = TreeFreezePhaseHeld
 		}
 	}
