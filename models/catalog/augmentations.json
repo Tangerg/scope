@@ -155,51 +155,7 @@
       ],
       "default_level": "medium"
     },
-    "gpt-5.2-codex": {
-      "levels": [
-        "minimal",
-        "low",
-        "medium",
-        "high"
-      ],
-      "default_level": "medium"
-    },
     "gpt-5.1": {
-      "levels": [
-        "minimal",
-        "low",
-        "medium",
-        "high"
-      ],
-      "default_level": "medium"
-    },
-    "gpt-5.1-codex": {
-      "levels": [
-        "minimal",
-        "low",
-        "medium",
-        "high"
-      ],
-      "default_level": "medium"
-    },
-    "gpt-5.1-codex-max": {
-      "levels": [
-        "minimal",
-        "low",
-        "medium",
-        "high"
-      ],
-      "default_level": "medium"
-    },
-    "gpt-5.1-codex-mini": {
-      "levels": [
-        "low",
-        "medium",
-        "high"
-      ],
-      "default_level": "medium"
-    },
-    "gpt-5-codex": {
       "levels": [
         "minimal",
         "low",
@@ -268,7 +224,7 @@
       ],
       "default_level": "medium"
     },
-    "gemini-3.1-pro-preview-customtools": {
+    "gemini-3.1-pro-preview": {
       "levels": [
         "low",
         "medium",
@@ -276,12 +232,13 @@
       ],
       "default_level": "medium"
     },
-    "gemini-3-pro-preview": {
+    "gemini-3.1-pro-preview-customtools": {
       "levels": [
         "low",
+        "medium",
         "high"
       ],
-      "default_level": "high"
+      "default_level": "medium"
     },
     "gemini-3-flash-preview": {
       "levels": [
@@ -310,13 +267,6 @@
       ],
       "default_level": "medium"
     },
-    "gemini-3-pro-preview": {
-      "levels": [
-        "low",
-        "high"
-      ],
-      "default_level": "high"
-    },
     "gemini-3-flash-preview": {
       "levels": [
         "minimal",
@@ -326,7 +276,7 @@
       ],
       "default_level": "minimal"
     },
-    "claude-sonnet-4-6": {
+    "claude-sonnet-4-6@default": {
       "levels": [
         "low",
         "medium",
@@ -335,7 +285,7 @@
       ],
       "default_level": "medium"
     },
-    "claude-opus-4-6": {
+    "claude-opus-4-6@default": {
       "levels": [
         "low",
         "medium",
@@ -361,16 +311,6 @@
         "max"
       ],
       "default_level": "high"
-    }
-  },
-  "groq": {
-    "moonshotai/kimi-k2-instruct-0905": {
-      "levels": [
-        "low",
-        "medium",
-        "high"
-      ],
-      "default_level": "medium"
     }
   }
 }

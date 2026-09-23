@@ -1,6 +1,9 @@
 package catalog
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestCatalogIntegrity(t *testing.T) {
 	if len(entries) == 0 {
@@ -23,6 +26,18 @@ func TestCatalogIntegrity(t *testing.T) {
 					t.Errorf("%s/%s: pricing bands are not ascending", provider, id)
 				}
 				previous = band.Threshold
+			}
+			// Effort levels are hand-curated (the upstream source carries only
+			// a reasoning bool), so a default the model does not offer is a
+			// plausible slip and one a caller can only discover by being
+			// rejected by the provider.
+			if len(model.Reasoning.Levels) > 0 {
+				if !model.Reasoning.Supported {
+					t.Errorf("%s/%s: carries reasoning levels without reporting reasoning support", provider, id)
+				}
+				if !slices.Contains(model.Reasoning.Levels, model.Reasoning.DefaultLevel) {
+					t.Errorf("%s/%s: default reasoning level %q is not among %v", provider, id, model.Reasoning.DefaultLevel, model.Reasoning.Levels)
+				}
 			}
 		}
 	}

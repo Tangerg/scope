@@ -22,7 +22,9 @@
 //  4. Overlay augmentations.json for fields models.dev lacks. Today that's
 //     only reasoning effort levels (models.dev has a bare reasoning bool);
 //     the file is the seam to hand-fill anything upstream is missing,
-//     mirroring profile_augmentations.
+//     mirroring profile_augmentations. Every entry has to reach a model the
+//     source still lists, so a run fails rather than quietly carrying a
+//     hand-fill for a retired model.
 //
 // To add a provider: add it to providerMap (left = models.dev provider id,
 // right = the adapter's Provider const, lowercased) and re-run.
@@ -78,19 +80,11 @@ var providerMap = map[string]string{
 	"xiaomi":         "xiaomi",
 }
 
+// officialModelIDs corrects an upstream id that does not match the one the
+// provider's own API accepts.
 var officialModelIDs = map[string]map[string]string{
 	"together": {
 		"essentialai/Rnj-1-Instruct": "essentialai/rnj-1-instruct",
-	},
-}
-
-// officialDeprecatedModelIDs corrects stale upstream status when a provider
-// has published a retirement date. Deprecated rows remain available only for
-// historical cost attribution; provider adapters do not expose legacy aliases.
-var officialDeprecatedModelIDs = map[string]map[string]bool{
-	"deepseek": {
-		"deepseek-chat":     true,
-		"deepseek-reasoner": true,
 	},
 }
 
@@ -230,6 +224,65 @@ type augEntry struct {
 	DefaultLevel string   `json:"default_level"`
 }
 
+// overlay is a hand-maintained correction to the source, keyed by our provider
+// name then upstream model id.
+//
+// Every entry has to reach a generated model. Upstream retires and renames
+// models between regenerations, and an entry that reaches nothing is curated
+// knowledge about a model that no longer exists — indistinguishable from a
+// typo, and invisible unless the generator says so. take records what it hands
+// out; deadEntries reports the rest, which main turns into a failure.
+type overlay[T any] struct {
+	label   string
+	entries map[string]map[string]T
+	used    map[string]bool
+}
+
+func newOverlay[T any](label string, entries map[string]map[string]T) *overlay[T] {
+	return &overlay[T]{label: label, entries: entries, used: make(map[string]bool)}
+}
+
+// take returns the zero value when nothing is overlaid, so a caller reads a
+// missing entry as "no correction" without a second branch.
+func (o *overlay[T]) take(provider, id string) T {
+	entry, ok := o.entries[provider][id]
+	if !ok {
+		var zero T
+		return zero
+	}
+	o.used[provider+"/"+id] = true
+	return entry
+}
+
+func (o *overlay[T]) deadEntries() []string {
+	var dead []string
+	for provider, byModel := range o.entries {
+		for id := range byModel {
+			// Reporting only: model ids contain slashes, so this key is
+			// never parsed back apart.
+			if key := provider + "/" + id; !o.used[key] {
+				dead = append(dead, o.label+" "+key)
+			}
+		}
+	}
+	slices.Sort(dead)
+	return dead
+}
+
+// overlaySource is what main needs from an overlay once every provider is
+// mapped, independent of what the overlay carries.
+type overlaySource interface {
+	deadEntries() []string
+}
+
+func deadOverlayEntries(sources ...overlaySource) []string {
+	var dead []string
+	for _, source := range sources {
+		dead = append(dead, source.deadEntries()...)
+	}
+	return dead
+}
+
 // config is the on-disk shape of each configs/<provider>.json.
 type config struct {
 	Provider string               `json:"provider"`
@@ -248,7 +301,12 @@ func main() {
 	if err != nil {
 		fail("load augmentations: %v", err)
 	}
+	officialIDs := newOverlay("officialModelIDs", officialModelIDs)
 
+	// Nothing is written until every provider has been mapped, so a dead
+	// overlay entry leaves the checked-in configs untouched rather than
+	// half-regenerated.
+	generated := make(map[string][]modelcatalog.Model, len(providerMap))
 	for apiID, provider := range providerMap {
 		p, ok := api[apiID]
 		if !ok {
@@ -259,18 +317,21 @@ func main() {
 			if !m.isChat() {
 				continue
 			}
-			if officialID := officialModelIDs[provider][m.ID]; officialID != "" {
+			if officialID := officialIDs.take(provider, m.ID); officialID != "" {
 				m.ID = officialID
 			}
-			if officialDeprecatedModelIDs[provider][m.ID] {
-				m.Status = "deprecated"
-			}
-			models = append(models, m.modelInfo(augs[provider][id]))
+			models = append(models, m.modelInfo(augs.take(provider, id)))
 		}
 		slices.SortFunc(models, func(a, b modelcatalog.Model) int {
 			return cmp.Compare(a.ID, b.ID)
 		})
+		generated[provider] = models
+	}
+	if dead := deadOverlayEntries(augs, officialIDs); len(dead) > 0 {
+		fail("overlays describe models the source no longer has: %s", strings.Join(dead, ", "))
+	}
 
+	for provider, models := range generated {
 		out := filepath.Join("configs", provider+".json")
 		if err := writeJSON(out, config{Provider: provider, Models: models}); err != nil {
 			fail("write %s: %v", out, err)
@@ -333,7 +394,7 @@ func loadAPI(source string) (map[string]apiProvider, error) {
 	return api, nil
 }
 
-func loadAugmentations(path string) (map[string]map[string]augEntry, error) {
+func loadAugmentations(path string) (*overlay[augEntry], error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -343,11 +404,11 @@ func loadAugmentations(path string) (map[string]map[string]augEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	var augs map[string]map[string]augEntry
-	if err := jsonv2.Unmarshal(raw, &augs); err != nil {
+	var entries map[string]map[string]augEntry
+	if err := jsonv2.Unmarshal(raw, &entries); err != nil {
 		return nil, err
 	}
-	return augs, nil
+	return newOverlay(path, entries), nil
 }
 
 func readSource(reader io.Reader) ([]byte, error) {
