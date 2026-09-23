@@ -18,14 +18,14 @@ import (
 // aggregate through [corechat.ResponseAccumulator] into a valid response. The
 // shared suite is the only place those hold for every provider at once.
 func TestChat_CoreConformance(t *testing.T) {
-	modeltest.ChatSuite{
+	modeltest.RunChatContract(t, modeltest.ChatContract{
 		New: func(t *testing.T) (corechat.Model, corechat.Streamer) {
 			t.Helper()
 			adapter := newMistralConformanceChat(t, newMistralChatServer(t).URL)
 			return adapter, adapter
 		},
 		Request: newMistralConformanceRequest,
-	}.Run(t)
+	})
 }
 
 func newMistralConformanceRequest(t *testing.T) *corechat.Request {

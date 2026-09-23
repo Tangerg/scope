@@ -17,7 +17,7 @@ func TestChat_BehaviorConformance(t *testing.T) {
 		server, lifecycle := modeltest.NewBlockingServer(t, writeOllamaBehaviorChunk)
 		return modeltest.StreamBehaviorCase{Streamer: newOllamaBehaviorChat(t, server.URL), Lifecycle: lifecycle}
 	}
-	modeltest.ChatBehaviorSuite{
+	modeltest.RunChatBehaviorContract(t, modeltest.ChatBehaviorContract{
 		Request: newProtocolChatRequest,
 		CallCancellation: func(t *testing.T) modeltest.CallBehaviorCase {
 			t.Helper()
@@ -37,7 +37,7 @@ func TestChat_BehaviorConformance(t *testing.T) {
 			t.Cleanup(server.Close)
 			return newOllamaBehaviorChat(t, server.URL)
 		},
-	}.Run(t)
+	})
 }
 
 func newOllamaBehaviorChat(t *testing.T, baseURL string) *ollama.Chat {

@@ -19,7 +19,7 @@ import (
 )
 
 func TestChat_CoreConformance(t *testing.T) {
-	modeltest.ChatSuite{
+	modeltest.RunChatContract(t, modeltest.ChatContract{
 		New: func(t *testing.T) (corechat.Model, corechat.Streamer) {
 			t.Helper()
 			server := newProtocolChatServer(t)
@@ -73,7 +73,7 @@ func TestChat_CoreConformance(t *testing.T) {
 			t.Helper()
 			assertProtocolResponse(t, response)
 		},
-	}.Run(t)
+	})
 }
 
 func TestOpenAIChatConstructor(t *testing.T) {

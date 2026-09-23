@@ -16,13 +16,13 @@ import (
 )
 
 func TestCompatibleChat_CoreConformance(t *testing.T) {
-	modeltest.ChatSuite{
+	modeltest.RunChatContract(t, modeltest.ChatContract{
 		New:              newCoreChatModel,
 		Request:          newCoreChatRequest,
 		AssertCall:       assertCoreChatCall,
 		AssertStream:     assertCoreChatStream,
 		AssertAggregated: assertCoreChatAggregated,
-	}.Run(t)
+	})
 }
 
 func newCoreChatModel(t *testing.T) (corechat.Model, corechat.Streamer) {

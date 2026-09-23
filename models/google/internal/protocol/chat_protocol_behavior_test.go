@@ -17,7 +17,7 @@ func TestChat_BehaviorConformance(t *testing.T) {
 		server, lifecycle := modeltest.NewBlockingServer(t, writeGoogleBehaviorChunk)
 		return modeltest.StreamBehaviorCase{Streamer: newGoogleBehaviorChat(t, server.URL), Lifecycle: lifecycle}
 	}
-	modeltest.ChatBehaviorSuite{
+	modeltest.RunChatBehaviorContract(t, modeltest.ChatBehaviorContract{
 		Request: newProtocolChatRequest,
 		CallCancellation: func(t *testing.T) modeltest.CallBehaviorCase {
 			t.Helper()
@@ -37,7 +37,7 @@ func TestChat_BehaviorConformance(t *testing.T) {
 			t.Cleanup(server.Close)
 			return newGoogleBehaviorChat(t, server.URL)
 		},
-	}.Run(t)
+	})
 }
 
 func newGoogleBehaviorChat(t *testing.T, baseURL string) *protocol.Chat {

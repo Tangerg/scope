@@ -17,7 +17,7 @@ func TestChat_BehaviorConformance(t *testing.T) {
 		server, lifecycle := modeltest.NewBlockingServer(t, writeOpenAIBehaviorChunk)
 		return modeltest.StreamBehaviorCase{Streamer: newOpenAIBehaviorChat(t, server.URL), Lifecycle: lifecycle}
 	}
-	modeltest.ChatBehaviorSuite{
+	modeltest.RunChatBehaviorContract(t, modeltest.ChatBehaviorContract{
 		Request: newCoreChatRequest,
 		CallCancellation: func(t *testing.T) modeltest.CallBehaviorCase {
 			t.Helper()
@@ -38,7 +38,7 @@ func TestChat_BehaviorConformance(t *testing.T) {
 			t.Cleanup(server.Close)
 			return newOpenAIBehaviorChat(t, server.URL)
 		},
-	}.Run(t)
+	})
 }
 
 func newOpenAIBehaviorChat(t *testing.T, baseURL string) *scopeopenai.ChatCompletions {

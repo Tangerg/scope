@@ -8,10 +8,10 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-// ChatSuite describes one provider's happy-path Model and Streamer contract.
+// ChatContract describes one provider's happy-path Model and Streamer contract.
 // New and Request are called independently for each subtest so provider state
 // and request mutation cannot leak between Call and Stream.
-type ChatSuite struct {
+type ChatContract struct {
 	New              func(t *testing.T) (chat.Model, chat.Streamer)
 	Request          func(t *testing.T) *chat.Request
 	AssertCall       func(t *testing.T, response *chat.Response)
@@ -19,22 +19,23 @@ type ChatSuite struct {
 	AssertAggregated func(t *testing.T, response *chat.Response)
 }
 
-// Run executes the shared synchronous and streaming conformance cases.
-func (c ChatSuite) Run(t *testing.T) {
+// RunChatContract checks the shared synchronous and streaming cases through the
+// provider transport boundary.
+func RunChatContract(t *testing.T, contract ChatContract) {
 	t.Helper()
-	if c.New == nil {
-		t.Fatal("modeltest.ChatSuite.New must not be nil")
+	if contract.New == nil {
+		t.Fatal("modeltest.ChatContract.New must not be nil")
 	}
-	if c.Request == nil {
-		t.Fatal("modeltest.ChatSuite.Request must not be nil")
+	if contract.Request == nil {
+		t.Fatal("modeltest.ChatContract.Request must not be nil")
 	}
 
 	t.Run("call", func(t *testing.T) {
-		model, _ := c.New(t)
+		model, _ := contract.New(t)
 		if model == nil {
 			t.Fatal("provider returned nil Model")
 		}
-		request := c.validRequest(t)
+		request := contract.validRequest(t)
 		before := requestWire(t, request)
 		response, err := model.Call(t.Context(), request)
 		if err != nil {
@@ -44,17 +45,17 @@ func (c ChatSuite) Run(t *testing.T) {
 		if after := requestWire(t, request); !bytes.Equal(before, after) {
 			t.Fatalf("Call mutated Request\nbefore: %s\nafter:  %s", before, after)
 		}
-		if c.AssertCall != nil {
-			c.AssertCall(t, response)
+		if contract.AssertCall != nil {
+			contract.AssertCall(t, response)
 		}
 	})
 
 	t.Run("stream", func(t *testing.T) {
-		_, streamer := c.New(t)
+		_, streamer := contract.New(t)
 		if streamer == nil {
 			t.Fatal("provider returned nil Streamer")
 		}
-		request := c.validRequest(t)
+		request := contract.validRequest(t)
 		before := requestWire(t, request)
 		var deltas []*chat.ResponseDelta
 		var accumulator chat.ResponseAccumulator
@@ -74,16 +75,16 @@ func (c ChatSuite) Run(t *testing.T) {
 		if after := requestWire(t, request); !bytes.Equal(before, after) {
 			t.Fatalf("Stream mutated Request\nbefore: %s\nafter:  %s", before, after)
 		}
-		if c.AssertStream != nil {
-			c.AssertStream(t, deltas)
+		if contract.AssertStream != nil {
+			contract.AssertStream(t, deltas)
 		}
 		aggregated, err := accumulator.Response()
 		if err != nil {
 			t.Fatalf("ResponseAccumulator.Response: %v", err)
 		}
 		assertResponse(t, aggregated)
-		if c.AssertAggregated != nil {
-			c.AssertAggregated(t, aggregated)
+		if contract.AssertAggregated != nil {
+			contract.AssertAggregated(t, aggregated)
 		}
 	})
 }
@@ -98,7 +99,7 @@ func assertResponseDelta(t *testing.T, delta *chat.ResponseDelta) {
 	}
 }
 
-func (c ChatSuite) validRequest(t *testing.T) *chat.Request {
+func (c ChatContract) validRequest(t *testing.T) *chat.Request {
 	t.Helper()
 	request := c.Request(t)
 	if request == nil {

@@ -29,7 +29,7 @@ func TestChat_BehaviorConformance(t *testing.T) {
 			Lifecycle: lifecycle,
 		}
 	}
-	modeltest.ChatBehaviorSuite{
+	modeltest.RunChatBehaviorContract(t, modeltest.ChatBehaviorContract{
 		Request: newBedrockBehaviorRequest,
 		CallCancellation: func(t *testing.T) modeltest.CallBehaviorCase {
 			t.Helper()
@@ -63,7 +63,7 @@ func TestChat_BehaviorConformance(t *testing.T) {
 			t.Cleanup(server.Close)
 			return newBedrockBehaviorChat(t, server.URL)
 		},
-	}.Run(t)
+	})
 }
 
 func newBedrockBehaviorRequest(t *testing.T) *corechat.Request {

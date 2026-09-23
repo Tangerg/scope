@@ -131,12 +131,12 @@ func writeInitialLine(writer http.ResponseWriter) {
 	writer.(http.Flusher).Flush()
 }
 
-// TestChatBehaviorSuite runs the shared behavior contract against fakes that
+// TestChatBehaviorContract runs the shared behavior contract against fakes that
 // honor it. The suite is the harness every provider module is held to, so a
 // regression in the harness itself has to fail here rather than silently stop
 // checking providers.
-func TestChatBehaviorSuite(t *testing.T) {
-	modeltest.ChatBehaviorSuite{
+func TestChatBehaviorContract(t *testing.T) {
+	modeltest.RunChatBehaviorContract(t, modeltest.ChatBehaviorContract{
 		Request: helloRequest,
 		CallCancellation: func(t *testing.T) modeltest.CallBehaviorCase {
 			server, lifecycle := modeltest.NewBlockingServer(t, writeInitialLine)
@@ -160,7 +160,7 @@ func TestChatBehaviorSuite(t *testing.T) {
 			}
 		},
 		FirstError: func(*testing.T) chat.Streamer { return failingChat{} },
-	}.Run(t)
+	})
 }
 
 // TestNewBlockingServerUsesADefaultInitialWrite covers the branch where a

@@ -23,7 +23,7 @@ func TestChat_BehaviorConformance(t *testing.T) {
 			Lifecycle: lifecycle,
 		}
 	}
-	modeltest.ChatBehaviorSuite{
+	modeltest.RunChatBehaviorContract(t, modeltest.ChatBehaviorContract{
 		Request: newMistralConformanceRequest,
 		CallCancellation: func(t *testing.T) modeltest.CallBehaviorCase {
 			t.Helper()
@@ -49,7 +49,7 @@ func TestChat_BehaviorConformance(t *testing.T) {
 			t.Cleanup(server.Close)
 			return newMistralConformanceChat(t, server.URL)
 		},
-	}.Run(t)
+	})
 }
 
 func writeMistralBehaviorChunk(writer http.ResponseWriter) {

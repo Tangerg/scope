@@ -26,11 +26,11 @@ var (
 	_ chat.Streamer = scriptedChat{}
 )
 
-func TestChatSuite(t *testing.T) {
+func TestChatContract(t *testing.T) {
 	callAsserted := false
 	streamAsserted := false
 	aggregatedAsserted := false
-	modeltest.ChatSuite{
+	modeltest.RunChatContract(t, modeltest.ChatContract{
 		New: func(*testing.T) (chat.Model, chat.Streamer) {
 			model := scriptedChat{}
 			return model, model
@@ -60,7 +60,7 @@ func TestChatSuite(t *testing.T) {
 				t.Fatalf("aggregated response = %#v", response)
 			}
 		},
-	}.Run(t)
+	})
 
 	if !callAsserted || !streamAsserted || !aggregatedAsserted {
 		t.Fatalf("assert callbacks = call:%v stream:%v aggregated:%v", callAsserted, streamAsserted, aggregatedAsserted)

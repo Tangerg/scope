@@ -49,7 +49,7 @@ func (s *scriptedEventReader) Err() error                                { retur
 // request untouched, that every delta is valid on its own, and that the deltas
 // aggregate through [corechat.ResponseAccumulator] into a valid response.
 func TestChat_CoreConformance(t *testing.T) {
-	modeltest.ChatSuite{
+	modeltest.RunChatContract(t, modeltest.ChatContract{
 		New: func(t *testing.T) (corechat.Model, corechat.Streamer) {
 			t.Helper()
 			adapter := &Chat{
@@ -69,7 +69,7 @@ func TestChat_CoreConformance(t *testing.T) {
 				},
 			}
 		},
-	}.Run(t)
+	})
 }
 
 func scriptedConverseEvents() []types.ConverseStreamOutput {
