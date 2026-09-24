@@ -254,6 +254,8 @@ type EffectStartedFact struct {
 
 func (e EffectStartedFact) Target() EffectTarget { return e.target }
 
+func (e EffectStartedFact) AttemptID() EffectAttemptID { return e.attemptID }
+
 func (e EffectStartedFact) Valid() bool { return e.target.Valid() && e.attemptID.Valid() }
 
 // EffectFinishedFact is the immutable settlement observation for one Effect
@@ -268,6 +270,8 @@ type EffectFinishedFact struct {
 }
 
 func (e EffectFinishedFact) Target() EffectTarget { return e.target }
+
+func (e EffectFinishedFact) AttemptID() EffectAttemptID { return e.attemptID }
 
 func (e EffectFinishedFact) SettlementStatus() SettlementStatus { return e.settlement }
 
@@ -299,6 +303,8 @@ type DeltaDroppedFact struct {
 }
 
 func (d DeltaDroppedFact) Count() uint64 { return d.count }
+
+func (d DeltaDroppedFact) AttemptID() EffectAttemptID { return d.attemptID }
 
 func (d DeltaDroppedFact) Valid() bool { return d.count > 0 && d.attemptID.Valid() }
 
@@ -421,9 +427,3 @@ func marshalEventPayload(payload any) json.RawMessage {
 	}
 	return encoded
 }
-
-func (e EffectStartedFact) AttemptID() EffectAttemptID { return e.attemptID }
-
-func (e EffectFinishedFact) AttemptID() EffectAttemptID { return e.attemptID }
-
-func (d DeltaDroppedFact) AttemptID() EffectAttemptID { return d.attemptID }

@@ -47,6 +47,23 @@ func (r Role) Valid() bool {
 	}
 }
 
+// allowsPart reports whether a message with role r may carry a part of the
+// given kind.
+func (r Role) allowsPart(kind PartKind) bool {
+	switch r {
+	case RoleSystem:
+		return kind == PartText
+	case RoleUser:
+		return kind == PartText || kind == PartMedia
+	case RoleAssistant:
+		return kind == PartText || kind == PartMedia || kind == PartReasoning || kind == PartToolCall || kind == PartRefusal
+	case RoleTool:
+		return kind == PartToolResult
+	default:
+		return false
+	}
+}
+
 // Message is one provider-neutral conversation entry. Parts retain their order
 // so interleaved assistant text, reasoning, and tool calls round-trip. Clone
 // recursively owns every mutable protocol value. Text projection concatenates
@@ -128,23 +145,6 @@ func (m Message) Validate() error {
 		}
 	}
 	return nil
-}
-
-// allowsPart reports whether a message with role r may carry a part of the
-// given kind.
-func (r Role) allowsPart(kind PartKind) bool {
-	switch r {
-	case RoleSystem:
-		return kind == PartText
-	case RoleUser:
-		return kind == PartText || kind == PartMedia
-	case RoleAssistant:
-		return kind == PartText || kind == PartMedia || kind == PartReasoning || kind == PartToolCall || kind == PartRefusal
-	case RoleTool:
-		return kind == PartToolResult
-	default:
-		return false
-	}
 }
 
 func (m Message) MarshalJSON() ([]byte, error) {

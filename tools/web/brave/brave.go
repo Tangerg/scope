@@ -77,6 +77,17 @@ func (s *searchRequest) validate() error {
 	return nil
 }
 
+func (s *searchRequest) params() map[string]string {
+	parameters := map[string]string{queryParameterQuery: s.Q}
+	if s.Count > 0 {
+		parameters[queryParameterCount] = strconv.Itoa(s.Count)
+	}
+	if s.Freshness != "" {
+		parameters[queryParameterFreshness] = s.Freshness
+	}
+	return parameters
+}
+
 type searchResult struct {
 	Title       string `json:"title"`
 	URL         string `json:"url"`
@@ -110,17 +121,6 @@ func (c *Client) search(ctx context.Context, request *searchRequest) (*searchRes
 		return nil, fmt.Errorf("brave: search request returned HTTP %d: %s", response.StatusCode(), response.String())
 	}
 	return &raw, nil
-}
-
-func (s *searchRequest) params() map[string]string {
-	parameters := map[string]string{queryParameterQuery: s.Q}
-	if s.Count > 0 {
-		parameters[queryParameterCount] = strconv.Itoa(s.Count)
-	}
-	if s.Freshness != "" {
-		parameters[queryParameterFreshness] = s.Freshness
-	}
-	return parameters
 }
 
 func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {

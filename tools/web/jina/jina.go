@@ -97,6 +97,20 @@ func (s *searchRequest) validate() error {
 	return nil
 }
 
+func (s *searchRequest) params() url.Values {
+	parameters := make(url.Values)
+	if s.Count > 0 {
+		parameters.Set(queryParameterCount, strconv.Itoa(s.Count))
+	}
+	if s.Page > 0 {
+		parameters.Set(queryParameterPage, strconv.Itoa(s.Page))
+	}
+	for _, site := range s.Site {
+		parameters.Add(queryParameterSite, site)
+	}
+	return parameters
+}
+
 type searchResult struct {
 	Title       string `json:"title"`
 	URL         string `json:"url"`
@@ -125,20 +139,6 @@ func (c *Client) search(ctx context.Context, request *searchRequest) (*searchRes
 		return nil, fmt.Errorf("jina: search request returned HTTP %d: %s", response.StatusCode(), response.String())
 	}
 	return &raw, nil
-}
-
-func (s *searchRequest) params() url.Values {
-	parameters := make(url.Values)
-	if s.Count > 0 {
-		parameters.Set(queryParameterCount, strconv.Itoa(s.Count))
-	}
-	if s.Page > 0 {
-		parameters.Set(queryParameterPage, strconv.Itoa(s.Page))
-	}
-	for _, site := range s.Site {
-		parameters.Add(queryParameterSite, site)
-	}
-	return parameters
 }
 
 func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {
