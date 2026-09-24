@@ -11,12 +11,9 @@ import (
 
 func Example() {
 	ctx := context.Background()
-	store, err := inmemory.NewStore(ctx, inmemory.StoreConfig{})
-	if err != nil {
-		panic(err)
-	}
+	store := new(inmemory.Store)
 	message := chat.NewUserMessage(chat.NewTextPart("hello"))
-	if _, err = store.Write(ctx, history.ConversationID("demo"), message); err != nil {
+	if _, err := store.Write(ctx, history.ConversationID("demo"), message); err != nil {
 		panic(err)
 	}
 	messages, err := store.Read(ctx, history.ConversationID("demo"))

@@ -11,10 +11,8 @@ import (
 	"testing"
 )
 
-// Every store is constructed the same way: NewStore(ctx, StoreConfig). That
-// includes Core's in-memory reference implementation, so it is a drop-in for a
-// backend one rather than a store whose call site has to be rewritten when a
-// caller moves off it.
+// A store that has something to configure is constructed the same way
+// everywhere: NewStore(ctx, StoreConfig).
 //
 // The shape is not cosmetic. A store that took no context could not read the
 // backend it was pointed at, and several of them used to declare a fact about
@@ -25,15 +23,23 @@ import (
 // context, so a store reintroducing the context-free form is also giving up
 // the ability to confirm its own configuration.
 //
-// A caller should not have to remember which backend happens to be checkable
-// either, so the parameter is required even where construction has nothing to
-// read.
-func TestStoresShareOneConstructionShape(t *testing.T) {
+// A caller should not have to remember which backend happens to be checkable,
+// so the parameter is required across a family even where one member's
+// construction has nothing to read — core/vectorstore/inmemory reaches no
+// service, but it still has to be handed an embedding model and still rejects
+// a config without one.
+//
+// core/history/inmemory is deliberately absent. It configures nothing and
+// reaches nothing, so its zero value is ready and NewStore there could only be
+// an empty config and an error that never arrives. Moving a call site to a
+// backend store rewrites it regardless — different package, config type, and
+// fields — so the shared shape buys nothing there and costs every caller the
+// ceremony.
+func TestConfigurableStoresShareOneConstructionShape(t *testing.T) {
 	t.Parallel()
 
 	for _, family := range []string{
-		"vectorstores", "historystores",
-		"core/vectorstore/inmemory", "core/history/inmemory",
+		"vectorstores", "historystores", "core/vectorstore/inmemory",
 	} {
 		t.Run(family, func(t *testing.T) {
 			t.Parallel()

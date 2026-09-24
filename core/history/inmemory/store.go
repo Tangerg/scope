@@ -15,30 +15,28 @@ var (
 	_ history.Lister = (*Store)(nil)
 )
 
-// StoreConfig carries no settings: the store keeps every conversation in
-// process and reads nothing from its caller. It exists so this reference
-// implementation is constructed exactly like a backend store, which is what
-// lets a call site move between them unchanged.
-type StoreConfig struct{}
-
 // Store is a concurrent in-process history store suitable for tests,
 // development, and single-instance applications. Writes validate then snapshot
 // messages before locking; reads return deep caller-owned snapshots, and
 // missing conversations behave as empty histories.
+//
+// The zero value is ready to use — this store configures nothing and reaches
+// nothing, so there is no construction step to get wrong and no failure to
+// report:
+//
+//	store := new(inmemory.Store)
+//
+// A backend store is built with NewStore(ctx, StoreConfig) instead, because it
+// has a service to reach and settings to confirm against it. Moving to one is
+// a rewritten call site either way — the package, the config type, and the
+// fields all differ — so this store does not carry an empty config and a
+// never-failing error to make that line look the same.
+//
+// State lives in process and is lost when it exits, so this is a reference
+// implementation rather than a production store.
 type Store struct {
 	mu       sync.RWMutex
 	messages map[history.ConversationID][]chat.Message
-}
-
-// NewStore builds the zero-dependency reference implementation. It exists so
-// the shared conformance suite and callers' tests have a store with no
-// external service, not as a production store: state lives in process and is
-// lost when it exits.
-//
-// The context is unused — there is no service to reach — and taken anyway so
-// construction has the same shape as external backend constructors.
-func NewStore(_ context.Context, _ StoreConfig) (*Store, error) {
-	return &Store{}, nil
 }
 
 func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (history.WriteOutcome, error) {
