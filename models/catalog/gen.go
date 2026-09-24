@@ -323,11 +323,10 @@ func catwalkModelID(provider, id string) string {
 //
 // Every entry has to reach a generated model. An entry goes unused when
 // upstream retires or renames its model, and an effort ladder also goes unused
-// once catwalk starts publishing one for that model — at which point keeping
-// the local copy would leave two sources able to advance the same fact. Either
-// way the entry is now indistinguishable from a typo, and invisible unless the
-// generator says so, so take records what it hands out and deadEntries reports
-// the rest, which main turns into a failure.
+// once catwalk starts publishing one for that model — keeping the local copy
+// then leaves two sources able to advance the same fact. Either way the entry
+// has become indistinguishable from a typo, and invisible unless the generator
+// fails on it.
 type overlay[T any] struct {
 	label   string
 	entries map[string]map[string]T

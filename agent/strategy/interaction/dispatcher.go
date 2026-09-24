@@ -174,17 +174,14 @@ func (d *Dispatcher) dispatchModel(
 		}
 	}
 	result := &modelCallResult{}
-	// Comparing by length or by digest would be cheaper and wrong: a reducer
-	// that rewrites a message without changing the count would compare equal,
-	// the replacement would never be recorded, and the tree would disagree with
-	// what the model actually saw. DeepEqual also stays correct when a new Part
-	// implementation appears, which a hand-written comparison would not.
+	// Comparing lengths or digests would be cheaper and wrong: a reducer that
+	// rewrites a message without changing the count would compare equal, and the
+	// unrecorded replacement would leave the tree disagreeing with what the model
+	// saw. DeepEqual also stays correct when a new Part implementation appears.
 	//
-	// The cost is bounded: a reducer that trims anything changes the length,
-	// which DeepEqual rejects before reading a message. Only a reducer that
-	// returns the conversation unchanged pays the full walk — see
-	// BenchmarkDeepEqualUnchanged, ~150µs at 800 messages against a model call
-	// measured in milliseconds.
+	// A reducer that trims anything changes the length, which DeepEqual rejects
+	// before reading a message; only one returning its input unchanged pays the
+	// full walk. BenchmarkDeepEqualUnchanged measures that case.
 	if d.contextReducer != nil && !reflect.DeepEqual(call.Request.Messages, modelRequest.Messages) {
 		result.ReplacementMessages = cloneMessages(modelRequest.Messages)
 	}

@@ -24,17 +24,13 @@ import (
 // the ability to confirm its own configuration.
 //
 // A caller should not have to remember which backend happens to be checkable,
-// so the parameter is required across a family even where one member's
-// construction has nothing to read — core/vectorstore/inmemory reaches no
-// service, but it still has to be handed an embedding model and still rejects
-// a config without one.
+// so the parameter is required across a family even where one member reaches
+// no service — core/vectorstore/inmemory still has to be handed an embedding
+// model and still rejects a config without one.
 //
-// core/history/inmemory is deliberately absent. It configures nothing and
-// reaches nothing, so its zero value is ready and NewStore there could only be
-// an empty config and an error that never arrives. Moving a call site to a
-// backend store rewrites it regardless — different package, config type, and
-// fields — so the shared shape buys nothing there and costs every caller the
-// ceremony.
+// core/history/inmemory is deliberately absent: it configures nothing, so the
+// shape there could only be an empty config and an error that never arrives,
+// and a call site moving to a backend store is rewritten regardless.
 func TestConfigurableStoresShareOneConstructionShape(t *testing.T) {
 	t.Parallel()
 

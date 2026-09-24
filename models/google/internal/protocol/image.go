@@ -145,8 +145,8 @@ type ImageSafetySetting struct {
 var _ image.Model = (*ImageModel)(nil)
 
 // ImageModel uses the current Gemini Interactions API. Imagen's legacy
-// GenerateImages endpoint is deliberately not exposed: Google has deprecated
-// Imagen and scheduled it for shutdown on 2026-08-17.
+// GenerateImages endpoint is deliberately not exposed: Google deprecated
+// Imagen and scheduled its shutdown for 2026-08-17.
 type ImageModel struct {
 	api            *api
 	defaultOptions image.Options

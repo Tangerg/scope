@@ -20,20 +20,10 @@ var (
 // messages before locking; reads return deep caller-owned snapshots, and
 // missing conversations behave as empty histories.
 //
-// The zero value is ready to use — this store configures nothing and reaches
-// nothing, so there is no construction step to get wrong and no failure to
-// report:
-//
-//	store := new(inmemory.Store)
-//
-// A backend store is built with NewStore(ctx, StoreConfig) instead, because it
-// has a service to reach and settings to confirm against it. Moving to one is
-// a rewritten call site either way — the package, the config type, and the
-// fields all differ — so this store does not carry an empty config and a
-// never-failing error to make that line look the same.
-//
-// State lives in process and is lost when it exits, so this is a reference
-// implementation rather than a production store.
+// The zero value is ready: this store configures nothing and reaches nothing,
+// so there is no construction to fail. State lives in process and is lost when
+// the process exits, which is why this is a reference implementation rather
+// than a production store.
 type Store struct {
 	mu       sync.RWMutex
 	messages map[history.ConversationID][]chat.Message
