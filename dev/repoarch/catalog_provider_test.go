@@ -35,16 +35,13 @@ func TestCatalogProviderKeysMatchTheirAdapterConstants(t *testing.T) {
 	}
 }
 
-// Scope states the same fact twice: models/<provider>/constants.go curates the
-// model ids worth reaching for, and models/catalog answers questions about the
-// models that exist. The two drifted — seventeen constants named a model the
-// catalog could not describe or had already retired — because each could move
-// without the other. The catalog owns which models exist; a constant is a
-// curated selection from it, never a second source for it.
+// The catalog owns which models exist. A provider's Model constants are a
+// curated selection from it, never a second source for it: taking a constant
+// and asking the catalog about it is the intended use, so a constant the
+// catalog cannot answer for is a contradiction a caller meets at runtime.
 //
-// A caller that takes a constant and asks the catalog about it is the intended
-// use, so a constant the catalog cannot answer for is a contradiction the
-// caller discovers at runtime.
+// Without this check the two drift silently, because upstream retiring a model
+// updates the generated catalog and leaves the hand-kept constant behind.
 //
 // A deprecated row stays in the catalog only so cost still attributes for
 // callers already on that id, which is the opposite of a recommendation, so a
@@ -55,6 +52,7 @@ func TestModelConstantsNameCatalogedModels(t *testing.T) {
 	root := repositoryRoot(t)
 	catalogs := catalogModelIDs(t, root)
 
+	claimed := make(map[string]bool, len(nonChatModelConstants))
 	for _, constant := range adapterModelConstants(t, root) {
 		models, covered := catalogs[constant.provider]
 		if !covered {
@@ -63,6 +61,7 @@ func TestModelConstantsNameCatalogedModels(t *testing.T) {
 			continue
 		}
 		if nonChatModelConstants[constant.qualifiedName()] {
+			claimed[constant.qualifiedName()] = true
 			continue
 		}
 		deprecated, found := models[constant.id]
@@ -73,6 +72,14 @@ func TestModelConstantsNameCatalogedModels(t *testing.T) {
 		case deprecated:
 			t.Errorf("%s:%d: %s names %q, which the %s catalog marks deprecated",
 				constant.file, constant.line, constant.qualifiedName(), constant.id, constant.provider)
+		}
+	}
+
+	// An exemption whose constant is gone is indistinguishable from a typo, and
+	// it silently widens the next one that happens to be named the same.
+	for name := range nonChatModelConstants {
+		if !claimed[name] {
+			t.Errorf("nonChatModelConstants exempts %s, which no adapter declares", name)
 		}
 	}
 }

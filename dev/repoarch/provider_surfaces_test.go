@@ -38,10 +38,50 @@ var retiredProtocolChatSymbols = map[string]struct{}{
 }
 
 var coreOwnedChatOptionSymbols = map[string]struct{}{
-	"ParallelToolCalls": {},
-	"ToolChoice":        {},
-	"ToolChoiceMode":    {},
-	"ToolParallelism":   {},
+	"ToolChoice":      {},
+	"ToolChoiceMode":  {},
+	"ToolParallelism": {},
+}
+
+// A name Core has stopped exporting is a ban with nothing behind it: it reads
+// as though Core still defines the option, and it keeps a provider from using
+// a name that is free again for its own wire field.
+func TestCoreOwnedChatOptionSymbolsAreStillCoreOwned(t *testing.T) {
+	t.Parallel()
+
+	owned := make(map[string]struct{})
+	for _, file := range parseImmediateProductionFiles(t, filepath.Join(repositoryRoot(t), "core", "chat")) {
+		for _, declaration := range file.Decls {
+			general, ok := declaration.(*ast.GenDecl)
+			if !ok || general.Tok != token.TYPE {
+				continue
+			}
+			for _, specification := range general.Specs {
+				typeSpec := specification.(*ast.TypeSpec)
+				if !typeSpec.Name.IsExported() {
+					continue
+				}
+				owned[typeSpec.Name.Name] = struct{}{}
+				structure, ok := typeSpec.Type.(*ast.StructType)
+				if !ok {
+					continue
+				}
+				for _, field := range structure.Fields.List {
+					for _, name := range field.Names {
+						if name.IsExported() {
+							owned[name.Name] = struct{}{}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	for symbol := range coreOwnedChatOptionSymbols {
+		if _, found := owned[symbol]; !found {
+			t.Errorf("coreOwnedChatOptionSymbols lists %s, which core/chat no longer exports", symbol)
+		}
+	}
 }
 
 // TestSharedProtocolsArePromotedWithoutDelegatingWrappers keeps exact wire
