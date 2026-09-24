@@ -125,7 +125,11 @@ func TestChat_RejectsUnsupportedInputBeforeProviderIO(t *testing.T) {
 			message: corechat.NewAssistantMessage(corechat.NewToolCallPart(corechat.ToolCall{
 				ID: "call-1", Name: "inspect", Arguments: `[true]`,
 			})),
-			want: "cannot unmarshal JSON array",
+			// The rejection here comes from encoding/json, which words the same
+			// failure two ways ("cannot unmarshal" and "unable to unmarshal")
+			// depending on the path it takes. What this adapter owns, and what
+			// a caller needs, is which part was rejected.
+			want: "parts[0].tool_call.arguments",
 		},
 	}
 	for _, test := range tests {
