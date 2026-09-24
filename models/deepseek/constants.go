@@ -15,6 +15,6 @@ const (
 // https://api-docs.deepseek.com/quick_start/pricing for the current
 // pricing and context-window limits.
 const (
-	ModelV4Flash = "deepseek-v4-flash"
-	ModelV4Pro   = "deepseek-v4-pro"
+	ModelFlash = "deepseek-flash"
+	ModelV4Pro = "deepseek-v4-pro"
 )

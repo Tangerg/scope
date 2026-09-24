@@ -30,5 +30,4 @@ const (
 	ModelK27Code          = "kimi-k2.7-code"
 	ModelK27CodeHighSpeed = "kimi-k2.7-code-highspeed"
 	ModelK26              = "kimi-k2.6"
-	ModelK25              = "kimi-k2.5"
 )

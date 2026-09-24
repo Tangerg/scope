@@ -75,7 +75,7 @@ func TestChat_ReasoningReplay(t *testing.T) {
 				APIKey:  "test-key",
 				BaseURL: server.URL,
 				DefaultOptions: corechat.Options{
-					Model: deepseek.ModelV4Flash,
+					Model: deepseek.ModelFlash,
 				},
 			})
 			if err != nil {
@@ -110,7 +110,7 @@ func TestChatMapsOfficialRequestOptions(t *testing.T) {
 	model, err := deepseek.NewChat(t.Context(), deepseek.ChatConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
-		DefaultOptions: corechat.Options{Model: deepseek.ModelV4Flash},
+		DefaultOptions: corechat.Options{Model: deepseek.ModelFlash},
 	})
 	if err != nil {
 		t.Fatalf("NewChat: %v", err)
@@ -184,7 +184,7 @@ func TestChatThinkingDisabledAllowsSampling(t *testing.T) {
 	model, err := deepseek.NewChat(t.Context(), deepseek.ChatConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
-		DefaultOptions: corechat.Options{Model: deepseek.ModelV4Flash},
+		DefaultOptions: corechat.Options{Model: deepseek.ModelFlash},
 	})
 	if err != nil {
 		t.Fatalf("NewChat: %v", err)
@@ -223,7 +223,7 @@ func TestChatMapsStreamingUsageOption(t *testing.T) {
 	model, err := deepseek.NewChat(t.Context(), deepseek.ChatConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
-		DefaultOptions: corechat.Options{Model: deepseek.ModelV4Flash},
+		DefaultOptions: corechat.Options{Model: deepseek.ModelFlash},
 	})
 	if err != nil {
 		t.Fatalf("NewChat: %v", err)
@@ -247,7 +247,7 @@ func TestChatMapsStreamingUsageOption(t *testing.T) {
 func TestChatRejectsInvalidDeepSeekOptions(t *testing.T) {
 	model, err := deepseek.NewChat(t.Context(), deepseek.ChatConfig{
 		APIKey:         "test-key",
-		DefaultOptions: corechat.Options{Model: deepseek.ModelV4Flash},
+		DefaultOptions: corechat.Options{Model: deepseek.ModelFlash},
 	})
 	if err != nil {
 		t.Fatalf("NewChat: %v", err)
@@ -314,7 +314,7 @@ func TestChatRejectsInvalidDeepSeekOptions(t *testing.T) {
 func TestNewChatRejectsIgnoredDefaultSampling(t *testing.T) {
 	_, err := deepseek.NewChat(t.Context(), deepseek.ChatConfig{
 		APIKey:         "test-key",
-		DefaultOptions: corechat.Options{Model: deepseek.ModelV4Flash, Temperature: new(0.5)},
+		DefaultOptions: corechat.Options{Model: deepseek.ModelFlash, Temperature: new(0.5)},
 	})
 	if err == nil || !strings.Contains(err.Error(), "temperature has no effect") {
 		t.Fatalf("NewChat error = %v; want ignored temperature error", err)

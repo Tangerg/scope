@@ -88,12 +88,9 @@ func (c ChatRequestOptions) ValidateFor(model string) error {
 		if c.Thinking != nil && (c.Thinking.Type != ThinkingEnabled || c.Thinking.Keep != ThinkingKeepAll) {
 			return fmt.Errorf("model %q only accepts thinking {type:%q, keep:%q}", model, ThinkingEnabled, ThinkingKeepAll)
 		}
-	case ModelK26, ModelK25:
+	case ModelK26:
 		if c.ReasoningEffort != "" {
 			return fmt.Errorf("model %q does not accept reasoning_effort", model)
-		}
-		if model == ModelK25 && c.Thinking != nil && c.Thinking.Keep != "" {
-			return fmt.Errorf("model %q does not accept thinking.keep", model)
 		}
 	}
 	return nil

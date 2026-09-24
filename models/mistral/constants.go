@@ -13,7 +13,7 @@ const (
 // Current chat model ids. See https://docs.mistral.ai/models/.
 const (
 	// ModelMedium is the current frontier-class model with adjustable reasoning.
-	ModelMedium = "mistral-medium-3-5"
+	ModelMedium = "mistral-medium-latest"
 
 	// ModelSmall is the current hybrid instruct, reasoning, and coding model.
 	ModelSmall = "mistral-small-2603"
@@ -22,14 +22,13 @@ const (
 	ModelLarge = "mistral-large-2512"
 
 	// ModelCodestral targets code generation and fill-in-the-middle.
-	ModelCodestral = "codestral-2508"
+	ModelCodestral = "codestral-latest"
 
-	ModelMinistral3B  = "ministral-3b-2512"
-	ModelMinistral8B  = "ministral-8b-2512"
-	ModelMinistral14B = "ministral-14b-2512"
+	ModelMinistral3B = "ministral-3b-latest"
+	ModelMinistral8B = "ministral-8b-latest"
 
 	// ModelPixtralLarge remains the supported Pixtral Large model.
-	ModelPixtralLarge = "pixtral-large-2411"
+	ModelPixtralLarge = "pixtral-large-latest"
 )
 
 // Embedding model ids.

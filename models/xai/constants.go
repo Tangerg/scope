@@ -12,5 +12,4 @@ const (
 	ModelGrok45      = "grok-4.5"
 	ModelGrok43      = "grok-4.3"
 	ModelGrokBuild01 = "grok-build-0.1"
-	ModelGrok4       = "grok-4"
 )

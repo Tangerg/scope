@@ -20,7 +20,6 @@ const (
 // https://docs.bigmodel.cn/cn/guide/start/model-overview.
 const (
 	ModelGLM52       = "glm-5.2"
-	ModelGLM5Turbo   = "glm-5-turbo"
 	ModelGLM47       = "glm-4.7"
 	ModelGLM47FlashX = "glm-4.7-flashx"
 )

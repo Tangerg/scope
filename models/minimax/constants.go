@@ -34,6 +34,5 @@ const (
 	ModelM25          = "MiniMax-M2.5"
 	ModelM25HighSpeed = "MiniMax-M2.5-highspeed"
 	ModelM21          = "MiniMax-M2.1"
-	ModelM21HighSpeed = "MiniMax-M2.1-highspeed"
 	ModelM2           = "MiniMax-M2"
 )
