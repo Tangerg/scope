@@ -46,7 +46,6 @@ func (p Problem) Goal() Goal { return p.goal }
 // Actions returns an independently owned slice in declaration order.
 func (p Problem) Actions() []Action { return slices.Clone(p.actions) }
 
-// Action returns the named Action and true, or the zero Action and false.
 func (p Problem) Action(name string) (Action, bool) {
 	for _, action := range p.actions {
 		if action.name == name {

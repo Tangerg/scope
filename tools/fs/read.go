@@ -98,5 +98,4 @@ func (r *ReadTool) read(ctx context.Context, req ReadRequest) (ReadResponse, err
 	}, nil
 }
 
-// Unwrap exposes the typed input contract through tool decorators.
 func (r *ReadTool) Unwrap() toolcontract.Tool { return r.typed }

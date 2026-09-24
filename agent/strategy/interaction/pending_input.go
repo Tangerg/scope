@@ -21,13 +21,11 @@ type PendingToolInput struct {
 // ProcessID returns the Tool child that must receive the response.
 func (p PendingToolInput) ProcessID() agent.ProcessID { return p.processID }
 
-// WaitID returns the Engine-minted identity required to address the response.
 func (p PendingToolInput) WaitID() agent.WaitID { return p.waitID }
 
 // Prompt returns an independently owned Tool-defined JSON prompt.
 func (p PendingToolInput) Prompt() json.RawMessage { return bytes.Clone(p.prompt) }
 
-// ResponseSchema returns the authoritative JSON Schema for a response.
 func (p PendingToolInput) ResponseSchema() json.RawMessage {
 	return p.responseSchema.JSON()
 }

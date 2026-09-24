@@ -41,7 +41,6 @@ func NewTool(client *Client) (*Tool, error) {
 
 func (t *Tool) Definition() chat.ToolDefinition { return t.inner.Definition() }
 
-// Unwrap exposes the typed input contract through tool decorators.
 func (t *Tool) Unwrap() toolcontract.Tool { return t.inner }
 
 const description = `Execute a single HTTP request and return the response.

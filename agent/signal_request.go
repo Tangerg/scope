@@ -36,7 +36,6 @@ func NewSignalRequest(id SignalID, waitID WaitID, payload json.RawMessage) (Sign
 // ID returns the stable delivery and deduplication identity.
 func (s SignalRequest) ID() SignalID { return s.id }
 
-// WaitID returns the addressed wait and true, or a zero WaitID and false.
 func (s SignalRequest) WaitID() (WaitID, bool) { return s.waitID, s.waitID.Valid() }
 
 // Payload returns an independently owned Strategy-defined value.

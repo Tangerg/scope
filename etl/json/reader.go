@@ -47,7 +47,6 @@ func NewReader(source io.Reader, config ReaderConfig) (*Reader, error) {
 	return &Reader{source: source, sourceBudget: config.SourceBudget}, nil
 }
 
-// Read consumes the source and converts its top-level value to documents.
 func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

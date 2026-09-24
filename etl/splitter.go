@@ -66,7 +66,6 @@ func NewSplitter(config SplitterConfig) (*Splitter, error) {
 	}, nil
 }
 
-// SplitText applies the configured text splitting policy directly.
 func (s *Splitter) SplitText(ctx context.Context, text string) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

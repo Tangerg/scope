@@ -83,5 +83,4 @@ func (r Retrieval) Call(ctx context.Context, invocation coretool.Invocation) (ch
 	return r.function.Call(ctx, invocation)
 }
 
-// Unwrap exposes the typed input contract through tool decorators.
 func (r Retrieval) Unwrap() coretool.Tool { return r.function }

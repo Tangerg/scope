@@ -25,7 +25,6 @@ func NewPlannedAction(name string) (PlannedAction, error) {
 	return PlannedAction{name: name}, nil
 }
 
-// Name returns the referenced Action identity.
 func (p PlannedAction) Name() string { return p.name }
 
 func (p PlannedAction) Valid() bool { return agent.ValidQualifiedName(p.name) }
@@ -82,7 +81,6 @@ func NewPlan(actions []PlannedAction, totalCost float64) (Plan, error) {
 // Actions returns independently owned Action references in execution order.
 func (p Plan) Actions() []PlannedAction { return slices.Clone(p.actions) }
 
-// TotalCost returns the predicted sum of Action edge costs.
 func (p Plan) TotalCost() float64 { return p.totalCost }
 
 func (p Plan) Valid() bool {

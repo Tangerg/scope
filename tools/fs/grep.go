@@ -105,5 +105,4 @@ func (g *GrepTool) grep(ctx context.Context, req GrepRequest) (GrepResponse, err
 	return res, nil
 }
 
-// Unwrap exposes the typed input contract through tool decorators.
 func (g *GrepTool) Unwrap() toolcontract.Tool { return g.typed }

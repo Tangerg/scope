@@ -266,7 +266,6 @@ func validateTerminationReason(reason string) error {
 	return nil
 }
 
-// Status returns the resolved terminal Process status.
 func (t Termination) Status() Status { return t.status }
 
 // Cause returns the stable machine-readable terminal category.

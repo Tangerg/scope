@@ -33,7 +33,6 @@ func childProcessRelation(
 	}
 }
 
-// ProcessID returns the Process located by this relation.
 func (p ProcessRelation) ProcessID() ProcessID { return p.processID }
 
 // ParentID returns the direct parent and true for a child, or zero and false
@@ -54,7 +53,6 @@ func (p ProcessRelation) ChildKey() (ChildKey, bool) {
 // Depth returns zero for a root and parent depth plus one for every child.
 func (p ProcessRelation) Depth() uint32 { return p.depth }
 
-// IsRoot reports whether p identifies the root of its tree.
 func (p ProcessRelation) IsRoot() bool {
 	return p.Valid() && p.depth == 0
 }

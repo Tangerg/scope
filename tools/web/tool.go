@@ -69,5 +69,4 @@ func (readOnlyTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, b
 	return func(toolcontract.Invocation) (string, bool) { return "", true }
 }
 
-// Unwrap exposes the typed input contract through tool decorators.
 func (r readOnlyTool) Unwrap() toolcontract.Tool { return r.inner }

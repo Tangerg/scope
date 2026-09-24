@@ -47,7 +47,6 @@ func NewValueKey[T any](name string) (ValueKey[T], error) {
 	return key, nil
 }
 
-// Name returns the key's diagnostic label.
 func (v ValueKey[T]) Name() string {
 	if v.identity == nil {
 		return ""
@@ -96,7 +95,6 @@ func (q Query) Validate() error {
 	return nil
 }
 
-// Text returns the query text.
 func (q Query) Text() string { return q.text }
 
 // Value returns the value stored under key. Missing values are distinct from

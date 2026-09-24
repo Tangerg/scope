@@ -119,22 +119,18 @@ func Fail(consumedSignals uint32, failure Failure) (Transition, error) {
 	return Transition{kind: TransitionKindFail, consumedSignals: consumedSignals, failure: failure}, nil
 }
 
-// Kind returns the requested lifecycle intent.
 func (t Transition) Kind() TransitionKind { return t.kind }
 
-// ConsumedSignals returns the length of the delivered Signal prefix to commit.
 func (t Transition) ConsumedSignals() uint32 { return t.consumedSignals }
 
 // Effects returns independently owned operation intents in declaration order.
 func (t Transition) Effects() []Effect { return cloneEffectsUnchecked(t.effects) }
 
-// WaitID returns the wait target for a Wait transition.
 func (t Transition) WaitID() (WaitID, bool) { return t.waitID, t.kind == TransitionKindWait }
 
 // Reason returns the pause reason for a Pause transition.
 func (t Transition) Reason() (string, bool) { return t.reason, t.kind == TransitionKindPause }
 
-// Output returns the final result for a Complete transition.
 func (t Transition) Output() (Payload, bool) { return t.output, t.kind == TransitionKindComplete }
 
 // Failure returns the terminal failure for a Fail transition.

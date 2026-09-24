@@ -110,5 +110,4 @@ func (t *Tool) run(ctx context.Context, req Request) (Response, error) {
 	return Response{}, failure
 }
 
-// Unwrap exposes the typed input contract through tool decorators.
 func (t *Tool) Unwrap() toolcontract.Tool { return t.typed }

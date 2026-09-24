@@ -164,7 +164,6 @@ type ChildWaitOpened struct {
 	spec   ChildWaitSpec
 }
 
-// WaitID returns the Engine-minted wait identity to store in Execution state.
 func (c ChildWaitOpened) WaitID() WaitID { return c.waitID }
 
 // Spec returns the immutable child-wait request acknowledged by Engine.
@@ -231,13 +230,11 @@ type ChildOutcome struct {
 	subtreeUnresolvedEffects []UnresolvedEffect
 }
 
-// Key returns the parent-scoped logical child identity.
 func (c ChildOutcome) Key() ChildKey { return c.key }
 
 // Result returns the child's immutable terminal result.
 func (c ChildOutcome) Result() Result { return c.result }
 
-// Boundary identifies the lifecycle fact established for this outcome.
 func (c ChildOutcome) Boundary() ChildWaitBoundary { return c.boundary }
 
 // SubtreeUnresolvedEffects returns an independent, ProcessID/EffectID-ordered
@@ -275,7 +272,6 @@ func (c ChildOutcome) Valid() bool {
 	return true
 }
 
-// Matches correlates an outcome with the declared child and its created Process.
 func (c ChildOutcome) Matches(key ChildKey, processID ProcessID) bool {
 	return c.Valid() && c.key == key && c.result.ProcessID() == processID
 }
@@ -322,13 +318,10 @@ type ChildWaitSatisfied struct {
 	outcomes []ChildOutcome
 }
 
-// WaitID returns the addressed wait identity.
 func (c ChildWaitSatisfied) WaitID() WaitID { return c.waitID }
 
-// Key returns the logical wait key declared by the Execution.
 func (c ChildWaitSatisfied) Key() WaitKey { return c.key }
 
-// Boundary identifies the lifecycle fact established by this wait.
 func (c ChildWaitSatisfied) Boundary() ChildWaitBoundary { return c.boundary }
 
 // Outcomes returns terminal children in the original ChildWaitSpec order.

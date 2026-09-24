@@ -78,7 +78,6 @@ func NewRetriever(config RetrieverConfig) (*Retriever, error) {
 	}, nil
 }
 
-// Retrieve issues the configured relevance search via the underlying vector store.
 func (r *Retriever) Retrieve(ctx context.Context, query rag.Query) (rag.Candidates, error) {
 	if err := query.Validate(); err != nil {
 		return nil, err

@@ -116,7 +116,6 @@ func (t ToolInvocation) ModelCallSequence() uint64 {
 // ToolCallIndex returns the zero-based ToolCall position in the model response.
 func (t ToolInvocation) ToolCallIndex() uint32 { return t.toolCallIndex }
 
-// ToolCall returns the exact model ToolCall value being executed.
 func (t ToolInvocation) ToolCall() chat.ToolCall { return t.toolCall }
 
 func (t ToolInvocation) Valid() bool {

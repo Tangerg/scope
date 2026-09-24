@@ -145,7 +145,6 @@ func (l *Literal) NumberText() (string, error) {
 	return strconv.FormatFloat(number, 'f', -1, 64), nil
 }
 
-// IsInteger reports whether a number literal has an integral value.
 func (l *Literal) IsInteger() (bool, error) {
 	number, err := l.numberRat()
 	if err != nil {

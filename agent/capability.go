@@ -74,7 +74,6 @@ func NewCapabilitySet(capabilities ...Capability) (CapabilitySet, error) {
 // Values returns an independently owned, sorted capability slice.
 func (c CapabilitySet) Values() []Capability { return slices.Clone(c.values) }
 
-// Contains reports whether capability belongs to the set.
 func (c CapabilitySet) Contains(capability Capability) bool {
 	if !capability.Valid() {
 		return false
@@ -83,7 +82,6 @@ func (c CapabilitySet) Contains(capability Capability) bool {
 	return found
 }
 
-// Allows reports whether requested is a subset of c.
 func (c CapabilitySet) Allows(requested CapabilitySet) bool {
 	if !c.Valid() || !requested.Valid() {
 		return false

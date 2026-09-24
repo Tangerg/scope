@@ -72,7 +72,6 @@ func (d Deployment) DeploymentRef() DeploymentRef { return d.reference }
 // Descriptor returns the frozen static Definition contract.
 func (d Deployment) Descriptor() Descriptor { return d.descriptor }
 
-// Definition returns the erased behavior definition bound to this Deployment.
 func (d Deployment) Definition() Definition { return d.definition }
 
 // Valid checks the frozen binding without invoking user code. The Engine checks

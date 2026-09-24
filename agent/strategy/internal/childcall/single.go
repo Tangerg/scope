@@ -90,7 +90,6 @@ func (s Single) waitSpec(key agent.WaitKey, boundary agent.ChildWaitBoundary) ag
 	}
 }
 
-// WaitEffect requests the single child's declared completion boundary.
 func (s Single) WaitEffect(key agent.WaitKey, boundary agent.ChildWaitBoundary) (agent.Effect, error) {
 	if s.Phase() != AwaitingOpening {
 		return agent.Effect{}, errors.New("childcall: wait requires a started child without an open wait")
@@ -98,7 +97,6 @@ func (s Single) WaitEffect(key agent.WaitKey, boundary agent.ChildWaitBoundary) 
 	return agent.NewChildWaitEffect(s.waitSpec(key, boundary))
 }
 
-// AcceptOpening binds the Engine-assigned wait to the entire requested spec.
 func (s *Single) AcceptOpening(signal agent.Signal, key agent.WaitKey, boundary agent.ChildWaitBoundary) (agent.WaitID, error) {
 	if s.Phase() != AwaitingOpening {
 		return agent.WaitID{}, errors.New("childcall: opening requires a started child without an open wait")

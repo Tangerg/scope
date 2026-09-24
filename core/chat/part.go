@@ -105,7 +105,6 @@ func NewToolResultPart(result ToolResult) Part {
 	return Part{Kind: PartToolResult, ToolResult: new(result)}
 }
 
-// NewRefusalPart keeps a model refusal distinguishable from ordinary output.
 func NewRefusalPart(text string) Part {
 	return Part{Kind: PartRefusal, Text: text}
 }

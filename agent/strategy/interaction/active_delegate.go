@@ -27,13 +27,10 @@ func (a ActiveDelegateChild) ModelCallSequence() uint64 {
 // ToolCallIndex returns the zero-based ToolCall position in the model response.
 func (a ActiveDelegateChild) ToolCallIndex() uint32 { return a.toolCallIndex }
 
-// ToolCall returns the exact model ToolCall represented by the child.
 func (a ActiveDelegateChild) ToolCall() chat.ToolCall { return a.toolCall }
 
-// ChildKey returns the parent-scoped logical child identity.
 func (a ActiveDelegateChild) ChildKey() agent.ChildKey { return a.childKey }
 
-// ProcessID returns the Engine-minted child Process identity.
 func (a ActiveDelegateChild) ProcessID() agent.ProcessID { return a.processID }
 
 func (a ActiveDelegateChild) Valid() bool {

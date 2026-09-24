@@ -42,7 +42,6 @@ func NewTextSplitter(config TextSplitterConfig) (*TextSplitter, error) {
 	return splitter, nil
 }
 
-// SplitText splits text on the configured separator.
 func (t *TextSplitter) SplitText(ctx context.Context, text string) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

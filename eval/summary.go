@@ -81,7 +81,6 @@ type ExperimentReport struct {
 	summary   ExperimentSummary
 }
 
-// FixtureID identifies the subjects and expectations evaluated by this run.
 func (e ExperimentReport) FixtureID() string { return e.fixtureID }
 
 // Cases returns owned results in Dataset order.

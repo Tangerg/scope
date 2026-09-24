@@ -88,7 +88,6 @@ func (e EffectRequest) TreeIncarnationID() (TreeIncarnationID, bool) {
 	return e.incarnationID, e.incarnationID.Valid()
 }
 
-// DeploymentRef returns the exact behavior binding executing the Effect.
 func (e EffectRequest) DeploymentRef() DeploymentRef { return e.deploymentRef }
 
 // Relation returns the immutable Process tree location executing the Effect.

@@ -103,7 +103,6 @@ func NewDescriptor(config DescriptorConfig) (Descriptor, error) {
 // Name returns the stable Definition name.
 func (d Descriptor) Name() string { return d.name }
 
-// Description returns the human-readable purpose of the Definition.
 func (d Descriptor) Description() string { return d.description }
 
 // InputSchema returns the immutable schema value.
@@ -115,7 +114,6 @@ func (d Descriptor) OutputSchema() Schema { return d.outputSchema }
 // SignalSchema returns the unaddressed input contract; false rejects all input.
 func (d Descriptor) SignalSchema() Schema { return d.signalSchema }
 
-// Digest returns the SHA-256 identity of the complete descriptor contract.
 func (d Descriptor) Digest() Digest { return d.digest }
 
 func (d Descriptor) Valid() bool { return d.digest.Valid() }

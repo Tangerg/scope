@@ -75,7 +75,6 @@ func NewSettlement(effectID EffectID, status SettlementStatus, payload json.RawM
 	return Settlement{effectID: effectID, status: status, payload: normalized}, nil
 }
 
-// EffectID returns the Effect this result settles.
 func (s Settlement) EffectID() EffectID { return s.effectID }
 
 // Status returns whether the external result is definite or unknown.

@@ -93,7 +93,6 @@ func NewAction(config ActionConfig) (Action, error) {
 // Name returns the stable Action identity.
 func (a Action) Name() string { return a.name }
 
-// Description returns the human-readable predicted behavior.
 func (a Action) Description() string { return a.description }
 
 // Preconditions returns an independently owned, key-sorted requirement set.
@@ -102,7 +101,6 @@ func (a Action) Preconditions() []Condition { return slices.Clone(a.precondition
 // Effects returns an independently owned, key-sorted prediction set.
 func (a Action) Effects() []Condition { return slices.Clone(a.effects) }
 
-// Applicable reports whether state establishes every Action precondition.
 func (a Action) Applicable(state WorldState) bool {
 	return a.Valid() && state.Satisfies(a.preconditions...)
 }

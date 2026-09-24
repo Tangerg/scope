@@ -149,7 +149,6 @@ func (b *BinaryExpr) Literal() (*Literal, error) {
 	return literal, nil
 }
 
-// Value decodes the scalar right operand using its exact semantic type.
 func (b *BinaryExpr) Value() (any, error) {
 	literal, err := b.Literal()
 	if err != nil {
@@ -225,7 +224,6 @@ func (b *BinaryExpr) Inverse() (*BinaryExpr, error) {
 	return inverse, nil
 }
 
-// Dispatch routes the expression to the handler for its operator family.
 func (b *BinaryExpr) Dispatch(handlers BinaryHandlers) error {
 	if b == nil {
 		return errors.New("filter: dispatch binary expression: expression is nil")

@@ -184,13 +184,10 @@ func (e eventFact) publish(sequence uint64) Event {
 // publication progress is observation state and is not part of a TreeSnapshot.
 func (e Event) ProcessSequence() uint64 { return e.processSequence }
 
-// ProcessID returns the Process whose fact is described.
 func (e Event) ProcessID() ProcessID { return e.processID }
 
-// DeploymentRef returns the exact execution binding that emitted the fact.
 func (e Event) DeploymentRef() DeploymentRef { return e.deploymentRef }
 
-// Relation returns the Process tree location that emitted the fact.
 func (e Event) Relation() ProcessRelation { return e.relation }
 
 // TreeIncarnationID returns the active writer that emitted this event.
@@ -212,16 +209,13 @@ func (e Event) EffectID() (EffectID, bool) { return e.effectID, e.effectID.Valid
 // Name returns the stable Framework fact name.
 func (e Event) Name() string { return e.name }
 
-// Phase returns whether the fact describes an attempt or committed state.
 func (e Event) Phase() EventPhase { return e.phase }
 
-// OccurredAt returns when the fact occurred.
 func (e Event) OccurredAt() time.Time { return e.occurredAt }
 
 // Payload returns an independently owned descriptive payload.
 func (e Event) Payload() json.RawMessage { return bytes.Clone(e.payload) }
 
-// ProcessFinished returns the typed terminal fact for EventProcessFinished.
 func (e Event) ProcessFinished() (ProcessFinishedFact, bool) {
 	if e.name != EventProcessFinished {
 		return ProcessFinishedFact{}, false
@@ -239,7 +233,6 @@ func (e Event) RuntimeStopped() (RuntimeStoppedFact, bool) {
 	return fact, err == nil
 }
 
-// SignalAccepted returns the typed delivery fact for EventSignalAccepted.
 func (e Event) SignalAccepted() (SignalAcceptedFact, bool) {
 	if e.name != EventSignalAccepted {
 		return SignalAcceptedFact{}, false
@@ -248,7 +241,6 @@ func (e Event) SignalAccepted() (SignalAcceptedFact, bool) {
 	return fact, err == nil
 }
 
-// StepFinished returns the typed attempt fact for EventStepFinished.
 func (e Event) StepFinished() (StepFinishedFact, bool) {
 	if e.name != EventStepFinished {
 		return StepFinishedFact{}, false
@@ -257,7 +249,6 @@ func (e Event) StepFinished() (StepFinishedFact, bool) {
 	return fact, err == nil
 }
 
-// StepCommitted returns the typed state fact for EventStepCommitted.
 func (e Event) StepCommitted() (StepCommittedFact, bool) {
 	if e.name != EventStepCommitted {
 		return StepCommittedFact{}, false
@@ -266,7 +257,6 @@ func (e Event) StepCommitted() (StepCommittedFact, bool) {
 	return fact, err == nil
 }
 
-// EffectStarted returns the typed target fact for EventEffectStarted.
 func (e Event) EffectStarted() (EffectStartedFact, bool) {
 	if e.name != EventEffectStarted {
 		return EffectStartedFact{}, false
@@ -275,7 +265,6 @@ func (e Event) EffectStarted() (EffectStartedFact, bool) {
 	return fact, err == nil
 }
 
-// EffectFinished returns the typed settlement fact for EventEffectFinished.
 func (e Event) EffectFinished() (EffectFinishedFact, bool) {
 	if e.name != EventEffectFinished {
 		return EffectFinishedFact{}, false
@@ -284,7 +273,6 @@ func (e Event) EffectFinished() (EffectFinishedFact, bool) {
 	return fact, err == nil
 }
 
-// EffectResolved returns the committed resolution fact for EventEffectResolved.
 func (e Event) EffectResolved() (EffectResolvedFact, bool) {
 	if e.name != EventEffectResolved {
 		return EffectResolvedFact{}, false
@@ -293,7 +281,6 @@ func (e Event) EffectResolved() (EffectResolvedFact, bool) {
 	return fact, err == nil
 }
 
-// DeltaDropped returns the typed loss fact for EventDeltaDropped.
 func (e Event) DeltaDropped() (DeltaDroppedFact, bool) {
 	if e.name != EventDeltaDropped {
 		return DeltaDroppedFact{}, false

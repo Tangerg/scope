@@ -100,7 +100,6 @@ func NewAugmentation(text string) (Augmentation, error) {
 	return augmentation, nil
 }
 
-// Text returns the final generation input.
 func (a Augmentation) Text() string { return a.text }
 
 // Citations returns an independent citation-order snapshot.

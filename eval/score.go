@@ -28,7 +28,6 @@ func (s Score) Validate() error {
 	return nil
 }
 
-// Verdict returns the categorical judgment for a valid threshold.
 func (s Score) Verdict(threshold Score) (Verdict, error) {
 	if err := s.Validate(); err != nil {
 		return VerdictUnspecified, err

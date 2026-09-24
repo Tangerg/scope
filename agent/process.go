@@ -48,7 +48,6 @@ func (p *Process) ID() ProcessID {
 	return p.handle.processID
 }
 
-// DeploymentRef returns the exact Definition and dispatcher binding identity.
 func (p *Process) DeploymentRef() DeploymentRef {
 	return p.handle.deploymentRef
 }
@@ -302,17 +301,14 @@ type Result struct {
 	usage       Usage
 }
 
-// ProcessID returns the completed Process identity.
 func (r Result) ProcessID() ProcessID { return r.processID }
 
-// StartedAt returns the observed UTC lifecycle start time.
 func (r Result) StartedAt() time.Time { return r.startedAt }
 
 // FinishedAt returns the observed UTC time of committed termination. Wall-clock
 // adjustments and restoration on another writer can make it earlier than StartedAt.
 func (r Result) FinishedAt() time.Time { return r.finishedAt }
 
-// Status returns the terminal lifecycle state.
 func (r Result) Status() Status { return r.termination.Status() }
 
 // Termination returns the stable terminal cause and optional Failure.
@@ -341,7 +337,6 @@ func (r Result) wire() resultWire {
 	return wire
 }
 
-// Budget returns the fixed non-renewable allocation assigned to this Process.
 func (p *Process) Budget() Budget {
 	return p.handle.budget
 }

@@ -14,7 +14,6 @@ func EQ[L IdentifierValue | *IndexExpr, R LiteralValue](left L, right R) *Binary
 	return compare(left, right, OpEqual)
 }
 
-// NE builds `left != right` for any literal type.
 func NE[L IdentifierValue | *IndexExpr, R LiteralValue](left L, right R) *BinaryExpr {
 	return compare(left, right, OpNotEqual)
 }
@@ -74,12 +73,10 @@ func Like[L IdentifierValue | *IndexExpr, R string | *Literal](left L, right R) 
 	}
 }
 
-// IsNull tests the selected value for null.
 func IsNull[L IdentifierValue | *IndexExpr](left L) *BinaryExpr {
 	return &BinaryExpr{left: leftOperand(left), operator: OpIs, right: &Literal{kind: LiteralNull, text: string(LiteralNull)}}
 }
 
-// IsNotNull tests the selected value for non-null.
 func IsNotNull[L IdentifierValue | *IndexExpr](left L) *UnaryExpr {
 	return Not(IsNull(left))
 }

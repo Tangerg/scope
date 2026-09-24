@@ -205,7 +205,6 @@ func (s *ScriptedDispatcher) Requests() []agent.EffectRequest {
 	return slices.Clone(s.requests)
 }
 
-// Remaining reports how many scripted calls have not been consumed.
 func (s *ScriptedDispatcher) Remaining() int {
 	if s == nil {
 		return 0

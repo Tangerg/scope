@@ -73,15 +73,12 @@ type ChildStartResult struct {
 	failure       Failure
 }
 
-// Key returns the logical child identity declared by the Execution.
 func (c ChildStartResult) Key() ChildKey { return c.key }
 
-// ProcessID returns the created child identity and true on success.
 func (c ChildStartResult) ProcessID() (ProcessID, bool) {
 	return c.processID, c.processID.Valid()
 }
 
-// DeploymentRef returns the exact child execution binding.
 func (c ChildStartResult) DeploymentRef() DeploymentRef { return c.deploymentRef }
 
 // Failure returns the definite start failure and true when no child was
@@ -95,7 +92,6 @@ func (c ChildStartResult) Valid() bool {
 		(c.processID.Valid() != c.failure.Valid())
 }
 
-// Matches correlates the result with the declared logical child and exact binding.
 func (c ChildStartResult) Matches(key ChildKey, deployment DeploymentRef) bool {
 	return c.Valid() && c.key == key && c.deploymentRef == deployment
 }

@@ -51,7 +51,6 @@ func NewTextDelta(text string) PartDelta {
 	return PartDelta{Kind: PartDeltaText, Text: text}
 }
 
-// NewMediaDelta carries one complete media value delivered by the stream.
 func NewMediaDelta(value *media.Media) PartDelta {
 	return PartDelta{Kind: PartDeltaMedia, Media: value}
 }
@@ -67,7 +66,6 @@ func NewToolCallDelta(delta ToolCallDelta) PartDelta {
 	return PartDelta{Kind: PartDeltaToolCall, ToolCall: new(delta)}
 }
 
-// NewCitationDelta attaches one complete evidence item to streamed text.
 func NewCitationDelta(citation Citation) PartDelta {
 	return PartDelta{Kind: PartDeltaCitation, Citation: new(citation)}
 }

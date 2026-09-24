@@ -20,16 +20,12 @@ type ProcessAdmission struct {
 	capabilities  CapabilitySet
 }
 
-// Relation returns the prospective Process identity and tree location.
 func (p ProcessAdmission) Relation() ProcessRelation { return p.relation }
 
-// DeploymentRef returns the exact prospective Deployment identity.
 func (p ProcessAdmission) DeploymentRef() DeploymentRef { return p.deploymentRef }
 
-// Descriptor returns the prospective Definition's static contract.
 func (p ProcessAdmission) Descriptor() Descriptor { return p.descriptor }
 
-// Budget returns the prospective Process's fixed non-renewable allocation.
 func (p ProcessAdmission) Budget() Budget { return p.budget }
 
 // Capabilities returns the prospective Process's immutable authority set.

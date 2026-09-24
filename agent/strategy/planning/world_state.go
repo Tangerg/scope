@@ -43,7 +43,6 @@ func (w WorldState) Truth(key string) Truth {
 	return w.conditions[index].truth
 }
 
-// Satisfies reports whether w establishes every required condition.
 func (w WorldState) Satisfies(requirements ...Condition) bool {
 	for _, requirement := range requirements {
 		if !requirement.Valid() || w.Truth(requirement.key) != requirement.truth {

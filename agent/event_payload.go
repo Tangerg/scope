@@ -422,11 +422,8 @@ func marshalEventPayload(payload any) json.RawMessage {
 	return encoded
 }
 
-// AttemptID correlates all observations from this invocation.
 func (e EffectStartedFact) AttemptID() EffectAttemptID { return e.attemptID }
 
-// AttemptID correlates all observations from this invocation.
 func (e EffectFinishedFact) AttemptID() EffectAttemptID { return e.attemptID }
 
-// AttemptID correlates all observations from this invocation.
 func (d DeltaDroppedFact) AttemptID() EffectAttemptID { return d.attemptID }

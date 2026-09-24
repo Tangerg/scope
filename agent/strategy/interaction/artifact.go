@@ -27,10 +27,8 @@ type Artifact struct {
 // Together with ToolCallID it identifies an Artifact across snapshot restoration.
 func (a Artifact) ModelCallSequence() uint64 { return a.modelCallSequence }
 
-// ToolCallID returns the model-provided call ID within ModelCallSequence.
 func (a Artifact) ToolCallID() string { return a.toolCallID }
 
-// DelegateName returns the exact model-facing Delegate name.
 func (a Artifact) DelegateName() string { return a.delegateName }
 
 // Output returns the immutable, schema-validated child output.

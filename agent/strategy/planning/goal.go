@@ -49,13 +49,11 @@ func NewGoal(config GoalConfig) (Goal, error) {
 // Name returns the stable goal identity.
 func (g Goal) Name() string { return g.name }
 
-// Description returns the human-readable desired state.
 func (g Goal) Description() string { return g.description }
 
 // Conditions returns an independently owned, key-sorted requirement set.
 func (g Goal) Conditions() []Condition { return slices.Clone(g.conditions) }
 
-// SatisfiedBy reports whether state establishes every goal condition.
 func (g Goal) SatisfiedBy(state WorldState) bool {
 	return g.Valid() && state.Satisfies(g.conditions...)
 }

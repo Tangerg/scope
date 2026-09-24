@@ -50,17 +50,14 @@ func newDeploymentRef(descriptor Descriptor, implementationDigest, configuration
 // Name returns the stable Definition name.
 func (d DeploymentRef) Name() string { return d.name }
 
-// ContractDigest returns the exact Descriptor contract identity.
 func (d DeploymentRef) ContractDigest() Digest { return d.contractDigest }
 
-// ImplementationDigest returns the exact executable implementation identity.
 func (d DeploymentRef) ImplementationDigest() Digest { return d.implementationDigest }
 
 // ConfigurationDigest returns the frozen behavior-affecting configuration
 // identity, including dispatcher configuration.
 func (d DeploymentRef) ConfigurationDigest() Digest { return d.configurationDigest }
 
-// Digest returns the complete Deployment value identity.
 func (d DeploymentRef) Digest() Digest { return d.digest }
 
 func (d DeploymentRef) String() string {

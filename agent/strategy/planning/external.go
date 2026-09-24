@@ -87,7 +87,6 @@ type ActionResult struct {
 	valid      bool
 }
 
-// ActionSucceeded returns a definite successful Action result.
 func ActionSucceeded() ActionResult { return ActionResult{succeeded: true, valid: true} }
 
 // ActionFailed constructs a definite failed Action result with a bounded
@@ -99,7 +98,6 @@ func ActionFailed(diagnostic string) (ActionResult, error) {
 	return ActionResult{diagnostic: diagnostic, valid: true}, nil
 }
 
-// Succeeded reports whether the definite Action result succeeded.
 func (a ActionResult) Succeeded() bool { return a.valid && a.succeeded }
 
 // Diagnostic returns the definite failure explanation, or an empty string on

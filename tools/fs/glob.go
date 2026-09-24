@@ -75,5 +75,4 @@ func (g *GlobTool) glob(ctx context.Context, req GlobRequest) (GlobResponse, err
 	return res, nil
 }
 
-// Unwrap exposes the typed input contract through tool decorators.
 func (g *GlobTool) Unwrap() toolcontract.Tool { return g.typed }

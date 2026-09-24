@@ -84,7 +84,6 @@ func (d Delta) TreeIncarnationID() (TreeIncarnationID, bool) {
 // attempt. Delivered sequences increase; dropped payloads leave gaps.
 func (d Delta) EffectSequence() uint64 { return d.effectSequence }
 
-// EmittedAt returns when the producer emitted the increment.
 func (d Delta) EmittedAt() time.Time { return d.emittedAt }
 
 // Payload returns an independently owned Strategy-defined increment.
