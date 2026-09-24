@@ -194,11 +194,8 @@ func (e executionState) validate(ctx context.Context, d *Definition) error {
 	if err := d.descriptor.ValidateInput(e.State); err != nil {
 		return fmt.Errorf("%w: state: %w", ErrInvalidExecutionState, err)
 	}
-	if !d.maxTurns.Allows(e.Number) || !d.maxTasks.Allows(uint64(len(e.Tasks))) || uint64(len(e.Controls)) > uint64(d.maxControlsPerTurn) {
-		return fmt.Errorf("%w: turn, task, or control bound exceeded", ErrInvalidExecutionState)
-	}
-	if e.WaitSequence > e.Number && e.WaitSequence-e.Number > uint64(len(e.Tasks)) {
-		return fmt.Errorf("%w: wait sequence exceeds declared turns and tasks", ErrInvalidExecutionState)
+	if err := e.validateBounds(d); err != nil {
+		return err
 	}
 	if err := e.validateOutcomes(ctx, d); err != nil {
 		return err
@@ -212,15 +209,42 @@ func (e executionState) validate(ctx context.Context, d *Definition) error {
 		return err
 	}
 	if e.Phase == phaseReady {
-		if e.Number != 0 || len(e.Tasks)+len(e.Controls) != 0 || e.Turn != nil || e.Mode != Undecided || e.WaitSequence != 0 || e.WaitID != nil || e.Output.Valid() {
-			return fmt.Errorf("%w: ready phase retains execution progress", ErrInvalidExecutionState)
-		}
-		return nil
+		return e.validateReady()
 	}
 	if err := e.validateTurn(ctx, d, ids); err != nil {
 		return err
 	}
-	if e.Phase != phaseApplying && pending+pendingControls != 0 {
+	unapplied := pending + pendingControls
+	if err := e.validatePhaseCorrespondence(unapplied); err != nil {
+		return err
+	}
+	if err := e.validatePhaseProgress(d, unapplied); err != nil {
+		return err
+	}
+	return ctx.Err()
+}
+
+func (e executionState) validateBounds(d *Definition) error {
+	if !d.maxTurns.Allows(e.Number) || !d.maxTasks.Allows(uint64(len(e.Tasks))) || uint64(len(e.Controls)) > uint64(d.maxControlsPerTurn) {
+		return fmt.Errorf("%w: turn, task, or control bound exceeded", ErrInvalidExecutionState)
+	}
+	if e.WaitSequence > e.Number && e.WaitSequence-e.Number > uint64(len(e.Tasks)) {
+		return fmt.Errorf("%w: wait sequence exceeds declared turns and tasks", ErrInvalidExecutionState)
+	}
+	return nil
+}
+
+func (e executionState) validateReady() error {
+	if e.Number != 0 || len(e.Tasks)+len(e.Controls) != 0 || e.Turn != nil || e.Mode != Undecided || e.WaitSequence != 0 || e.WaitID != nil || e.Output.Valid() {
+		return fmt.Errorf("%w: ready phase retains execution progress", ErrInvalidExecutionState)
+	}
+	return nil
+}
+
+// Each of these three facts is carried both by Phase and by a field, so a
+// state that disagrees with itself has two answers to the same question.
+func (e executionState) validatePhaseCorrespondence(unapplied int) error {
+	if e.Phase != phaseApplying && unapplied != 0 {
 		return fmt.Errorf("%w: phase %q retains unapplied work", ErrInvalidExecutionState, e.Phase)
 	}
 	if (e.Phase == phaseWaiting) != (e.WaitID != nil) || e.WaitID != nil && !e.WaitID.Valid() {
@@ -229,43 +253,71 @@ func (e executionState) validate(ctx context.Context, d *Definition) error {
 	if (e.Phase == phaseCompleted) != (e.Output.Valid()) {
 		return fmt.Errorf("%w: output does not match phase %q", ErrInvalidExecutionState, e.Phase)
 	}
+	return nil
+}
+
+func (e executionState) validatePhaseProgress(d *Definition, unapplied int) error {
 	switch e.Phase {
 	case phaseStartingTurn:
-		if e.Turn.Start != nil || e.Turn.Outcome != nil || e.Mode != Undecided {
-			return fmt.Errorf("%w: starting turn retains a start, outcome, or decision", ErrInvalidExecutionState)
-		}
+		return e.validateStartingTurn()
 	case phaseApplying:
-		if e.Turn.Outcome == nil || pending+pendingControls == 0 || e.Mode != Continue && e.Mode != Wait {
-			return fmt.Errorf("%w: applying phase requires a continuing decision and pending work", ErrInvalidExecutionState)
-		}
+		return e.validateApplying(unapplied)
 	case phaseOpening, phaseWaiting:
-		if e.Turn.Start == nil {
-			return fmt.Errorf("%w: waiting requires a turn start", ErrInvalidExecutionState)
-		}
-		if e.Mode == Wait && e.hasUnseenOutcome() {
-			return fmt.Errorf("%w: waiting decision has unseen task outcomes", ErrInvalidExecutionState)
-		}
-		if e.Turn.Outcome == nil && e.Mode != Undecided || e.Turn.Outcome != nil && e.Mode != Wait {
-			return fmt.Errorf("%w: waiting mode contradicts turn outcome", ErrInvalidExecutionState)
-		}
-		if _, err := e.waitSpec(d); err != nil {
-			return fmt.Errorf("%w: child wait: %w", ErrInvalidExecutionState, err)
-		}
+		return e.validateWaitingTurn(d)
 	case phaseCompleted:
-		if e.Turn.Outcome == nil || e.Mode != Complete {
-			return fmt.Errorf("%w: completed phase requires a completed turn decision", ErrInvalidExecutionState)
-		}
-		if err := d.descriptor.ValidateOutput(e.Output); err != nil {
-			return fmt.Errorf("%w: completed output: %w", ErrInvalidExecutionState, err)
-		}
+		return e.validateCompleted(d)
 	case phaseFailed:
-		if _, failed := e.Turn.failure(); !failed && !e.Turn.unresolved() || e.Mode != Undecided {
-			return fmt.Errorf("%w: failed phase requires a failed or unresolved turn without a decision", ErrInvalidExecutionState)
-		}
+		return e.validateFailed()
 	default:
 		return fmt.Errorf("%w: unknown phase %q", ErrInvalidExecutionState, e.Phase)
 	}
-	return ctx.Err()
+}
+
+func (e executionState) validateStartingTurn() error {
+	if e.Turn.Start != nil || e.Turn.Outcome != nil || e.Mode != Undecided {
+		return fmt.Errorf("%w: starting turn retains a start, outcome, or decision", ErrInvalidExecutionState)
+	}
+	return nil
+}
+
+func (e executionState) validateApplying(unapplied int) error {
+	if e.Turn.Outcome == nil || unapplied == 0 || e.Mode != Continue && e.Mode != Wait {
+		return fmt.Errorf("%w: applying phase requires a continuing decision and pending work", ErrInvalidExecutionState)
+	}
+	return nil
+}
+
+func (e executionState) validateWaitingTurn(d *Definition) error {
+	if e.Turn.Start == nil {
+		return fmt.Errorf("%w: waiting requires a turn start", ErrInvalidExecutionState)
+	}
+	if e.Mode == Wait && e.hasUnseenOutcome() {
+		return fmt.Errorf("%w: waiting decision has unseen task outcomes", ErrInvalidExecutionState)
+	}
+	if e.Turn.Outcome == nil && e.Mode != Undecided || e.Turn.Outcome != nil && e.Mode != Wait {
+		return fmt.Errorf("%w: waiting mode contradicts turn outcome", ErrInvalidExecutionState)
+	}
+	if _, err := e.waitSpec(d); err != nil {
+		return fmt.Errorf("%w: child wait: %w", ErrInvalidExecutionState, err)
+	}
+	return nil
+}
+
+func (e executionState) validateCompleted(d *Definition) error {
+	if e.Turn.Outcome == nil || e.Mode != Complete {
+		return fmt.Errorf("%w: completed phase requires a completed turn decision", ErrInvalidExecutionState)
+	}
+	if err := d.descriptor.ValidateOutput(e.Output); err != nil {
+		return fmt.Errorf("%w: completed output: %w", ErrInvalidExecutionState, err)
+	}
+	return nil
+}
+
+func (e executionState) validateFailed() error {
+	if _, failed := e.Turn.failure(); !failed && !e.Turn.unresolved() || e.Mode != Undecided {
+		return fmt.Errorf("%w: failed phase requires a failed or unresolved turn without a decision", ErrInvalidExecutionState)
+	}
+	return nil
 }
 
 func (e executionState) validateTasks(ctx context.Context, d *Definition) (int, map[agent.ProcessID]struct{}, error) {
@@ -349,6 +401,28 @@ func (e executionState) validateTurn(ctx context.Context, d *Definition, ids map
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := e.validateTurnInput(d); err != nil {
+		return err
+	}
+	if err := e.validateTurnWorkers(ctx, d); err != nil {
+		return err
+	}
+	if err := e.validateTurnTasks(ctx); err != nil {
+		return err
+	}
+	if err := e.validateTurnControls(ctx, d); err != nil {
+		return err
+	}
+	if err := e.validateTurnStart(d, ids); err != nil {
+		return err
+	}
+	if e.Mode == Undecided {
+		return e.validateUndecidedTurn()
+	}
+	return e.validateAppliedDecision(ctx, d)
+}
+
+func (e executionState) validateTurnInput(d *Definition) error {
 	if e.Turn == nil || e.Number == 0 || e.Turn.Input.Number != e.Number {
 		return fmt.Errorf("%w: turn is missing or its number does not match", ErrInvalidExecutionState)
 	}
@@ -358,6 +432,10 @@ func (e executionState) validateTurn(ctx context.Context, d *Definition, ids map
 	if err := d.descriptor.ValidateInput(e.Turn.Input.State); err != nil {
 		return fmt.Errorf("%w: turn input state: %w", ErrInvalidExecutionState, err)
 	}
+	return nil
+}
+
+func (e executionState) validateTurnWorkers(ctx context.Context, d *Definition) error {
 	if len(e.Turn.Input.Workers) != len(d.workers) {
 		return fmt.Errorf("%w: turn workers do not match the definition: count differs", ErrInvalidExecutionState)
 	}
@@ -369,6 +447,12 @@ func (e executionState) validateTurn(ctx context.Context, d *Definition, ids map
 			return fmt.Errorf("%w: turn worker %d does not match the definition", ErrInvalidExecutionState, index)
 		}
 	}
+	return nil
+}
+
+// The turn captured its tasks when it opened, so evidence that has since
+// changed means the turn is being judged against a state it never saw.
+func (e executionState) validateTurnTasks(ctx context.Context) error {
 	for index, task := range e.Turn.Input.Tasks {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -379,6 +463,10 @@ func (e executionState) validateTurn(ctx context.Context, d *Definition, ids map
 			return fmt.Errorf("%w: turn task %d does not match current task evidence", ErrInvalidExecutionState, index)
 		}
 	}
+	return nil
+}
+
+func (e executionState) validateTurnControls(ctx context.Context, d *Definition) error {
 	if uint64(len(e.Turn.Input.Controls)) > uint64(d.maxControlsPerTurn) {
 		return fmt.Errorf("%w: turn controls exceed the per-turn bound", ErrInvalidExecutionState)
 	}
@@ -395,28 +483,34 @@ func (e executionState) validateTurn(ctx context.Context, d *Definition, ids map
 			return fmt.Errorf("%w: turn control %d has no matching result", ErrInvalidExecutionState, index)
 		}
 	}
-	if e.Turn.Start != nil {
-		key, err := turnKey(e.Number)
-		if err != nil {
-			return fmt.Errorf("%w: turn key: %w", ErrInvalidExecutionState, err)
-		}
-		if !e.Turn.Start.Matches(key, d.coordinator.deploymentRef) {
-			return fmt.Errorf("%w: turn start does not match the coordinator request", ErrInvalidExecutionState)
-		}
-		id, present := e.Turn.Start.ProcessID()
-		_, reused := ids[id]
-		if !present && e.Phase != phaseFailed || reused {
-			return fmt.Errorf("%w: turn process is absent or reused by a task", ErrInvalidExecutionState)
-		}
-	}
-	if e.Mode == Undecided {
-		if e.Turn.Outcome != nil && e.Phase != phaseFailed || len(e.Tasks) != len(e.Turn.Input.Tasks) ||
-			!sameJSON(e.State, e.Turn.Input.State) || !sameJSON(e.Controls, nilIfEmpty(e.Turn.Input.Controls)) {
-			return fmt.Errorf("%w: turn without a decision changed state, tasks, or controls", ErrInvalidExecutionState)
-		}
+	return nil
+}
+
+func (e executionState) validateTurnStart(d *Definition, ids map[agent.ProcessID]struct{}) error {
+	if e.Turn.Start == nil {
 		return nil
 	}
-	return e.validateAppliedDecision(ctx, d)
+	key, err := turnKey(e.Number)
+	if err != nil {
+		return fmt.Errorf("%w: turn key: %w", ErrInvalidExecutionState, err)
+	}
+	if !e.Turn.Start.Matches(key, d.coordinator.deploymentRef) {
+		return fmt.Errorf("%w: turn start does not match the coordinator request", ErrInvalidExecutionState)
+	}
+	id, present := e.Turn.Start.ProcessID()
+	_, reused := ids[id]
+	if !present && e.Phase != phaseFailed || reused {
+		return fmt.Errorf("%w: turn process is absent or reused by a task", ErrInvalidExecutionState)
+	}
+	return nil
+}
+
+func (e executionState) validateUndecidedTurn() error {
+	if e.Turn.Outcome != nil && e.Phase != phaseFailed || len(e.Tasks) != len(e.Turn.Input.Tasks) ||
+		!sameJSON(e.State, e.Turn.Input.State) || !sameJSON(e.Controls, nilIfEmpty(e.Turn.Input.Controls)) {
+		return fmt.Errorf("%w: turn without a decision changed state, tasks, or controls", ErrInvalidExecutionState)
+	}
+	return nil
 }
 
 func (e executionState) validateAppliedDecision(ctx context.Context, d *Definition) error {

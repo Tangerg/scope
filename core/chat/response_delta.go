@@ -24,13 +24,41 @@ const (
 	PartDeltaRefusal   PartDeltaKind = "refusal"
 )
 
-func (p PartDeltaKind) Valid() bool {
+// deltaPayload names the optional slots an increment can carry. A kind allows
+// a subset, so one exclusion rule replaces restating per kind which of the
+// other slots must stay empty.
+type deltaPayload uint8
+
+const (
+	deltaPayloadText deltaPayload = 1 << iota
+	deltaPayloadMedia
+	deltaPayloadReasoningState
+	deltaPayloadToolCall
+	deltaPayloadCitation
+)
+
+// A kind that allows no payload is not a kind, so this answers validity too
+// rather than letting a second switch drift from this one.
+func (p PartDeltaKind) allowedPayloads() (deltaPayload, bool) {
 	switch p {
-	case PartDeltaText, PartDeltaMedia, PartDeltaReasoning, PartDeltaToolCall, PartDeltaCitation, PartDeltaRefusal:
-		return true
+	case PartDeltaText, PartDeltaRefusal:
+		return deltaPayloadText, true
+	case PartDeltaMedia:
+		return deltaPayloadMedia, true
+	case PartDeltaReasoning:
+		return deltaPayloadText | deltaPayloadReasoningState, true
+	case PartDeltaToolCall:
+		return deltaPayloadToolCall, true
+	case PartDeltaCitation:
+		return deltaPayloadCitation, true
 	default:
-		return false
+		return 0, false
 	}
+}
+
+func (p PartDeltaKind) Valid() bool {
+	_, valid := p.allowedPayloads()
+	return valid
 }
 
 // PartDelta is one transport increment. It is intentionally distinct from
@@ -91,40 +119,52 @@ func (p PartDelta) Clone() PartDelta {
 	return clone
 }
 
+func (p PartDelta) carriedPayloads() deltaPayload {
+	var carried deltaPayload
+	if p.Text != "" {
+		carried |= deltaPayloadText
+	}
+	if p.Media != nil {
+		carried |= deltaPayloadMedia
+	}
+	if len(p.ReasoningState) != 0 {
+		carried |= deltaPayloadReasoningState
+	}
+	if p.ToolCall != nil {
+		carried |= deltaPayloadToolCall
+	}
+	if p.Citation != nil {
+		carried |= deltaPayloadCitation
+	}
+	return carried
+}
+
 func (p PartDelta) Validate() error {
-	if !p.Kind.Valid() {
+	allowed, valid := p.Kind.allowedPayloads()
+	if !valid {
 		return fmt.Errorf("%w: delta has unknown part kind %q", ErrInvalidResponse, p.Kind)
 	}
 	if err := p.Metadata.Validate(); err != nil {
 		return fmt.Errorf("%w: delta metadata: %w", ErrInvalidResponse, err)
 	}
-	switch p.Kind {
-	case PartDeltaText, PartDeltaRefusal:
-		if p.Text == "" || p.Media != nil || len(p.ReasoningState) != 0 || p.ToolCall != nil || p.Citation != nil {
-			return fmt.Errorf("%w: %s delta requires non-empty text and no other payload", ErrInvalidResponse, p.Kind)
-		}
-	case PartDeltaMedia:
-		if p.Text != "" || p.Media == nil || len(p.ReasoningState) != 0 || p.ToolCall != nil || p.Citation != nil {
-			return fmt.Errorf("%w: media delta requires its matching payload", ErrInvalidResponse)
-		}
+	carried := p.carriedPayloads()
+	if carried == 0 || carried&^allowed != 0 {
+		return fmt.Errorf("%w: %s delta carries no payload or one its kind does not allow", ErrInvalidResponse, p.Kind)
+	}
+	return p.validateCarriedPayload()
+}
+
+func (p PartDelta) validateCarriedPayload() error {
+	switch {
+	case p.Media != nil:
 		if err := p.Media.Validate(); err != nil {
 			return fmt.Errorf("%w: media delta: %w", ErrInvalidResponse, err)
 		}
-	case PartDeltaReasoning:
-		if p.Text == "" && len(p.ReasoningState) == 0 || p.Media != nil || p.ToolCall != nil || p.Citation != nil {
-			return fmt.Errorf("%w: reasoning delta requires text or state and no other payload", ErrInvalidResponse)
-		}
-	case PartDeltaToolCall:
-		if p.Text != "" || p.Media != nil || len(p.ReasoningState) != 0 || p.ToolCall == nil || p.Citation != nil {
-			return fmt.Errorf("%w: tool call delta requires its matching payload", ErrInvalidResponse)
-		}
+	case p.ToolCall != nil:
 		if err := p.ToolCall.Validate(); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidResponse, err)
 		}
-	case PartDeltaCitation:
-		if p.Text != "" || p.Media != nil || len(p.ReasoningState) != 0 || p.ToolCall != nil || p.Citation == nil {
-			return fmt.Errorf("%w: citation delta requires its matching payload", ErrInvalidResponse)
-		}
+	case p.Citation != nil:
 		if err := p.Citation.Validate(); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidResponse, err)
 		}
