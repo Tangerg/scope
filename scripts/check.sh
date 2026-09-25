@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Local workspace check runner. With no arguments, run every check supported
-# here; the specialized coverage gates in scripts remain separate.
+# Workspace check runner, and the only declaration of the check set: CI runs
+# this default rather than naming checks itself, so a check cannot reach one
+# and miss the other. The specialized coverage gates in scripts stay separate.
 #
 # Usage:
 #   scripts/check.sh                       # run the complete default set
@@ -12,12 +13,9 @@
 #   MODULE=models/google scripts/check.sh  # nested workspace module only
 #
 # Required tools:
-#   go (1.27.0)
-#   golangci-lint  — install via:
-#     go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
-#   govulncheck    — install via:
-#     go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
-#   jq              — used to enforce the reviewed vulnerability allowlist
+#   go             — the version in go.work
+#   golangci-lint, govulncheck — scripts/install-check-tools.sh
+#   jq             — used to enforce the reviewed vulnerability allowlist
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

@@ -100,6 +100,31 @@ fi
 	}
 }
 
+// A hand-copied CI list and the script's default drifted once, and race and
+// isolate silently ran nowhere but CI. Reconciling two lists would leave both
+// able to advance, so CI names no checks and the default set has one owner.
+func TestCIDoesNotRestateTheCheckSet(t *testing.T) {
+	t.Parallel()
+	workflow, err := os.ReadFile(filepath.Join(repositoryRoot(t), ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	invoked := false
+	for line := range strings.Lines(string(workflow)) {
+		_, selection, invokes := strings.Cut(line, "scripts/check.sh")
+		if !invokes {
+			continue
+		}
+		invoked = true
+		if strings.TrimSpace(selection) != "" {
+			t.Errorf("CI selects checks itself: %s", strings.TrimSpace(line))
+		}
+	}
+	if !invoked {
+		t.Error("CI no longer runs scripts/check.sh")
+	}
+}
+
 func TestPinnedTestsDetectDependencySemanticDrift(t *testing.T) {
 	t.Parallel()
 	fixture := newCheckFixture(t)

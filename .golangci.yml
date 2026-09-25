@@ -1,5 +1,5 @@
-# Project-wide lint policy. scripts/check.sh and CI apply this configuration
-# independently to every Go module in the workspace.
+# Project-wide lint policy. scripts/check.sh applies this configuration to
+# every Go module in the workspace.
 version: "2"
 linters:
   default: none

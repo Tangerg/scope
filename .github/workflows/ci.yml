@@ -22,7 +22,7 @@ jobs:
 
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.27.0"
+          go-version-file: go.work
           cache: false
 
       - name: Repository topology
@@ -59,16 +59,19 @@ jobs:
 
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.27.0"
+          go-version-file: go.work
           cache: true
           cache-dependency-path: |
             go.work.sum
             **/go.sum
 
-      - name: Build, vet, test, race, module hygiene, isolation, and pinned dependency tests
+      - name: Install check tools
+        run: scripts/install-check-tools.sh
+
+      - name: Checks
         env:
           MODULE: ${{ matrix.module }}
-        run: scripts/check.sh build vet test integration-compile race bench tidy isolate pinned-test
+        run: scripts/check.sh
 
       - name: Core coverage budget
         if: matrix.module == 'core'
@@ -81,16 +84,3 @@ jobs:
       - name: Provider coverage budget
         if: startsWith(matrix.module, 'models/') || startsWith(matrix.module, 'vectorstores/') || startsWith(matrix.module, 'historystores/')
         run: scripts/check-provider-coverage.sh '${{ matrix.module }}'
-
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.13.2
-          install-mode: goinstall
-          working-directory: ${{ matrix.module }}
-          args: --config=${{ github.workspace }}/.golangci.yml
-
-      - name: govulncheck
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
-          scripts/check-vulnerabilities.sh '${{ matrix.module }}'
