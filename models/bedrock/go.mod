@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/models/bedrock
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.36.0
+	github.com/Tangerg/scope/core v0.37.0
 	github.com/aws/aws-sdk-go-v2 v1.47.0
 	github.com/aws/aws-sdk-go-v2/config v1.33.5
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.5
