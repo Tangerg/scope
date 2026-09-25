@@ -6,6 +6,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,24 +17,54 @@ type childControlOperation string
 
 const (
 	childControlInvalid childControlOperation = ""
-	childControlSignal  childControlOperation = "signal_child"
-	childControlCancel  childControlOperation = "cancel_child"
+	childControlSignal  childControlOperation = "signal"
+	childControlCancel  childControlOperation = "cancel"
 )
 
+// agent owns the framework operation vocabulary and exports no predicate over
+// it. Recognizing a control by rebuilding what agent's own constructors emit
+// leaves that vocabulary one owner, so a rename cannot make this suite watch
+// for an operation the Engine no longer issues.
+var childControlReferences = sync.OnceValue(func() map[string]childControlOperation {
+	childID, childErr := agent.ParseProcessID("process:child-control-reference")
+	signalID, signalErr := agent.ParseSignalID("signal:child-control-reference")
+	if childErr != nil || signalErr != nil {
+		return nil
+	}
+	request, requestErr := agent.NewSignalRequest(signalID, agent.WaitID{}, []byte("{}"))
+	if requestErr != nil {
+		return nil
+	}
+	signal, signalEffectErr := agent.NewChildSignalEffect(childID, request)
+	cancel, cancelErr := agent.NewChildCancelEffect(childID, childControlCancelReason)
+	if signalEffectErr != nil || cancelErr != nil {
+		return nil
+	}
+	return map[string]childControlOperation{
+		frameworkOperationName(signal): childControlSignal,
+		frameworkOperationName(cancel): childControlCancel,
+	}
+})
+
 func childControlOperationFor(effect agent.Effect) childControlOperation {
+	name := frameworkOperationName(effect)
+	if name == "" {
+		return childControlInvalid
+	}
+	return childControlReferences()[name]
+}
+
+func frameworkOperationName(effect agent.Effect) string {
 	if effect.Target() != agent.EffectTargetFramework {
-		return childControlInvalid
+		return ""
 	}
-	var request struct {
-		Operation childControlOperation `json:"operation"`
+	var wire struct {
+		Operation string `json:"operation"`
 	}
-	if err := jsonv2.Unmarshal(effect.Payload(), &request); err != nil {
-		return childControlInvalid
+	if err := jsonv2.Unmarshal(effect.Payload(), &wire); err != nil {
+		return ""
 	}
-	if request.Operation != childControlSignal && request.Operation != childControlCancel {
-		return childControlInvalid
-	}
-	return request.Operation
+	return wire.Operation
 }
 
 type childControlScenario struct {
