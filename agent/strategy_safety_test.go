@@ -1,19 +1,22 @@
 package agent_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/collaboration"
 	"github.com/Tangerg/scope/agent/strategy/coordination"
+	"github.com/Tangerg/scope/agent/strategy/planning"
+	"github.com/Tangerg/scope/agent/strategy/planning/goap"
 	"github.com/Tangerg/scope/agent/strategy/workflow"
 )
 
@@ -113,7 +116,7 @@ func safetyChild[I, O any](output O) (agent.Deployment, safetyResolver) {
 	return child, safetyResolver{child.DeploymentRef(): child, timer.DeploymentRef(): timer}
 }
 
-func assertSafetyFailure(t *testing.T, root agent.Deployment, resolver safetyResolver, input agent.Payload, code string) agent.ExecutionState {
+func assertSafetyFailure(t *testing.T, root agent.Deployment, resolver safetyResolver, input agent.Payload, code string, assertStopped func()) agent.ExecutionState {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -126,71 +129,132 @@ func assertSafetyFailure(t *testing.T, root agent.Deployment, resolver safetyRes
 		}
 	}()
 	result := safetyValue(engine.Run(ctx, root, input))
-	failure, ok := result.Termination().Failure()
-	if !ok || !strings.HasSuffix(failure.Code(), code) {
-		t.Fatalf("result=%s failure=%+v", result.Status(), failure)
+	assertStopped()
+	assertFailure := func(result agent.Result) {
+		t.Helper()
+		failure, ok := result.Termination().Failure()
+		if result.Status() != agent.StatusFailed || !ok || failure.Kind() != agent.FailureKindExternal || failure.Code() != code {
+			t.Fatalf("result=%s failure=%+v; want failed / external / %s", result.Status(), failure, code)
+		}
+		if output, present := result.Output(); present {
+			t.Fatalf("unsafe child produced parent output: %s", output.JSON())
+		}
 	}
+	assertFailure(result)
 	tree, ok, err := store.LoadTree(ctx, result.ProcessID())
 	if err != nil || !ok {
 		t.Fatalf("load tree=%t %v", ok, err)
 	}
-	var state agent.ExecutionState
-	unresolved, completed := 0, 0
-	for _, process := range tree.ProcessSnapshots() {
-		if process.ProcessID() == result.ProcessID() {
-			state = process.CommittedExecutionState()
-		}
-		unresolved += len(process.UnknownEffectIDs())
-		if process.DeploymentRef().Name() == "safety.competition" && process.Status() == agent.StatusCompleted {
-			completed++
-		}
-	}
-	if unresolved != 1 || completed != 1 {
-		t.Fatalf("competition witness: completed=%d unresolved=%d", completed, unresolved)
-	}
+	state := assertSafetyTree(t, tree, result.ProcessID())
 	restoredEngine := safetyValue(agent.NewEngine(config))
 	defer func() {
-		if err := restoredEngine.Close(context.WithoutCancel(ctx)); err != nil {
-			t.Error(err)
+		if closeErr := restoredEngine.Close(context.WithoutCancel(ctx)); closeErr != nil {
+			t.Error(closeErr)
 		}
 	}()
 	restored := safetyValue(restoredEngine.RestoreTree(ctx, root, tree))
 	recovered := safetyValue(restored.Await(ctx))
-	restoredFailure, ok := recovered.Termination().Failure()
-	if !ok || restoredFailure.Code() != failure.Code() {
-		t.Fatalf("recovered failure=%+v", restoredFailure)
+	assertStopped()
+	assertFailure(recovered)
+	restoredTree, ok, err := store.LoadTree(ctx, result.ProcessID())
+	if err != nil || !ok {
+		t.Fatalf("load restored tree=%t %v", ok, err)
+	}
+	restoredState := assertSafetyTree(t, restoredTree, result.ProcessID())
+	if state.Kind() != restoredState.Kind() || !bytes.Equal(state.Payload(), restoredState.Payload()) {
+		t.Fatalf("failed Strategy advanced on restore: before=%s after=%s", state.Payload(), restoredState.Payload())
+	}
+	return state
+}
+
+func assertSafetyTree(t *testing.T, tree agent.TreeSnapshot, rootID agent.ProcessID) agent.ExecutionState {
+	t.Helper()
+	var state agent.ExecutionState
+	processes := tree.ProcessSnapshots()
+	competitions, winners, losers := 0, 0, 0
+	for _, process := range processes {
+		if process.ProcessID() == rootID {
+			state = process.CommittedExecutionState()
+		}
+		if process.DeploymentRef().Name() == "safety.competition" && process.Status() == agent.StatusCompleted {
+			competitions++
+		}
+		key, _ := process.Relation().ChildKey()
+		if process.DeploymentRef().Name() != "safety.timer" {
+			continue
+		}
+		switch key.String() {
+		case "winner":
+			if process.Status() == agent.StatusCompleted && len(process.UnknownEffectIDs()) == 0 {
+				winners++
+			}
+		case "loser":
+			if len(process.UnknownEffectIDs()) == 1 && process.Usage().PreparedEffects == 1 {
+				losers++
+			}
+		}
+	}
+	if len(processes) != 4 || competitions != 1 || winners != 1 || losers != 1 {
+		t.Fatalf("competition witness: processes=%d completed competitions=%d winners=%d unresolved losers=%d", len(processes), competitions, winners, losers)
 	}
 	return state
 }
 
 func TestWorkflowRejectsUnresolvedFirstSuccessSubtrees(t *testing.T) {
-	for _, kind := range []string{"call", "switch", "loop", "fork", "map"} {
-		t.Run(kind, func(t *testing.T) {
+	for _, test := range []struct {
+		kind string
+		code string
+	}{
+		{kind: "call", code: "workflow.call.unresolved_effects"},
+		{kind: "switch", code: "workflow.switch.unresolved_effects"},
+		{kind: "loop", code: "workflow.loop.unresolved_effects"},
+		{kind: "fork", code: "workflow.fork.branch_unresolved_effects"},
+		{kind: "map", code: "workflow.map.item_unresolved_effects"},
+	} {
+		t.Run(test.kind, func(t *testing.T) {
 			child, resolver := safetyChild[string]("winner")
 			budget := agent.Budget{Steps: agent.NewQuota(128), Effects: agent.NewQuota(128), Signals: agent.NewQuota(128)}
 			var stage, after workflow.Stage
+			var afterCalls, predicateCalls, reducerCalls atomic.Int32
 			input := safetyValue(agent.EncodePayload("work"))
-			failAfter := func(context.Context, string) (string, error) { return "", errors.New("next stage ran") }
+			failAfter := func(context.Context, string) (string, error) {
+				afterCalls.Add(1)
+				return "", errors.New("next stage ran")
+			}
 			after = safetyValue(workflow.Transform("after", failAfter))
-			switch kind {
+			switch test.kind {
 			case "call":
-				stage = safetyValue(workflow.Call(workflow.CallConfig{ID: kind, Deployment: child, Budget: budget}))
+				stage = safetyValue(workflow.Call(workflow.CallConfig{ID: test.kind, Deployment: child, Budget: budget}))
 			case "switch":
-				stage = safetyValue(workflow.Switch(workflow.SwitchConfig[string]{ID: kind, Select: func(context.Context, string) (string, error) { return "chosen", nil }, Cases: []workflow.SwitchCase{{ID: "chosen", Deployment: child, Budget: budget}}}))
+				stage = safetyValue(workflow.Switch(workflow.SwitchConfig[string]{ID: test.kind, Select: func(context.Context, string) (string, error) { return "chosen", nil }, Cases: []workflow.SwitchCase{{ID: "chosen", Deployment: child, Budget: budget}}}))
 			case "loop":
-				stage = safetyValue(workflow.Loop(workflow.LoopConfig[string]{ID: kind, Body: child, Budget: budget, MaxIterations: agent.NewQuota(2), Predicate: func(context.Context, string) (bool, error) { t.Error("loop adopted unsafe output"); return false, nil }}))
+				stage = safetyValue(workflow.Loop(workflow.LoopConfig[string]{ID: test.kind, Body: child, Budget: budget, MaxIterations: agent.NewQuota(2), Predicate: func(context.Context, string) (bool, error) {
+					predicateCalls.Add(1)
+					return false, nil
+				}}))
 				after = safetyValue(workflow.Transform("after", func(context.Context, workflow.LoopResult[string]) (string, error) {
+					afterCalls.Add(1)
 					return "", errors.New("next stage ran")
 				}))
 			case "fork":
-				stage = safetyValue(workflow.Fork(workflow.ForkConfig[string, string, string]{ID: kind, WindowSize: 1, Branches: []workflow.ForkBranch{{ID: "first", Deployment: child, Budget: budget}, {ID: "second", Deployment: child, Budget: budget}}, Reduce: func(context.Context, []string) (string, error) { return "", errors.New("fanout reduced unsafe output") }}))
+				stage = safetyValue(workflow.Fork(workflow.ForkConfig[string, string, string]{ID: test.kind, WindowSize: 1, Branches: []workflow.ForkBranch{{ID: "first", Deployment: child, Budget: budget}, {ID: "second", Deployment: child, Budget: budget}}, Reduce: func(context.Context, []string) (string, error) {
+					reducerCalls.Add(1)
+					return "", errors.New("fanout reduced unsafe output")
+				}}))
 			case "map":
-				stage = safetyValue(workflow.Map(workflow.MapConfig[string, string]{ID: kind, Deployment: child, Budget: budget, WindowSize: 1, MaxItems: 2}))
+				stage = safetyValue(workflow.Map(workflow.MapConfig[string, string]{ID: test.kind, Deployment: child, Budget: budget, WindowSize: 1, MaxItems: 2}))
 				input = safetyValue(agent.EncodePayload([]string{"one", "two"}))
-				after = safetyValue(workflow.Transform("after", func(context.Context, []string) (string, error) { return "", errors.New("next stage ran") }))
+				after = safetyValue(workflow.Transform("after", func(context.Context, []string) (string, error) {
+					afterCalls.Add(1)
+					return "", errors.New("next stage ran")
+				}))
 			}
 			root := safetyBinding(safetyValue(workflow.NewDefinition(workflow.DefinitionConfig{Name: "safety.workflow", Description: "Reject unsafe outputs.", Stages: []workflow.Stage{stage, after}})), nil)
-			assertSafetyFailure(t, root, resolver, input, "unresolved_effects")
+			assertSafetyFailure(t, root, resolver, input, test.code, func() {
+				if afterCalls.Load() != 0 || predicateCalls.Load() != 0 || reducerCalls.Load() != 0 {
+					t.Errorf("unsafe output consumed: after=%d predicate=%d reducer=%d", afterCalls.Load(), predicateCalls.Load(), reducerCalls.Load())
+				}
+			})
 		})
 	}
 }
@@ -209,7 +273,7 @@ func TestCollaborationRejectsUnresolvedCoordinatorDecision(t *testing.T) {
 			child, resolver := safetyChild[collaboration.Turn](decision)
 			resolver[worker.DeploymentRef()] = worker
 			definition := safetyValue(collaboration.NewDefinition(collaboration.DefinitionConfig{Name: "safety.collaboration", Description: "Reject unsafe coordinator decisions.", Coordinator: collaboration.WorkerConfig{Deployment: child, Budget: agent.Budget{Steps: agent.NewQuota(128), Effects: agent.NewQuota(128), Signals: agent.NewQuota(128)}}, Workers: []collaboration.WorkerConfig{{Deployment: worker, Budget: agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(16), Signals: agent.NewQuota(16)}}}, StateSchema: safetyValue(agent.SchemaFor[string]()), OutputSchema: safetyValue(agent.SchemaFor[string]()), MaxTurns: agent.NewQuota(2), MaxTasks: agent.NewQuota(2), MaxConcurrentTasks: 2, MaxControlsPerTurn: 2}))
-			state := assertSafetyFailure(t, safetyBinding(definition, nil), resolver, safetyValue(agent.EncodePayload("initial")), "coordinator.unresolved_effects")
+			state := assertSafetyFailure(t, safetyBinding(definition, nil), resolver, safetyValue(agent.EncodePayload("initial")), "collaboration.coordinator.unresolved_effects", func() {})
 			var wire map[string]json.RawMessage
 			if err := jsonv2.Unmarshal(state.Payload(), &wire); err != nil {
 				t.Fatal(err)
@@ -224,6 +288,70 @@ func TestCollaborationRejectsUnresolvedCoordinatorDecision(t *testing.T) {
 			if _, err := definition.Restore(t.Context(), forged); !errors.Is(err, collaboration.ErrInvalidExecutionState) {
 				t.Fatal(fmt.Errorf("unsafe applied decision restored: %w", err))
 			}
+		})
+	}
+}
+
+func TestPlanningRejectsUnresolvedChildAction(t *testing.T) {
+	for _, next := range []string{"goal achieved", "next action"} {
+		t.Run(next, func(t *testing.T) {
+			child, resolver := safetyChild[string]("winner")
+			ready := safetyValue(planning.NewCondition("world.ready", planning.True))
+			done := safetyValue(planning.NewCondition("world.done", planning.True))
+			goal := safetyValue(planning.NewGoal(planning.GoalConfig{
+				Name: "safety.goal", Description: "Finish the work.", Conditions: []planning.Condition{done},
+			}))
+			delegate := safetyValue(planning.NewAction(planning.ActionConfig{
+				Name: "action.delegate", Description: "Delegate preparation.", Effects: []planning.Condition{ready},
+			}))
+			finish := safetyValue(planning.NewAction(planning.ActionConfig{
+				Name: "action.finish", Description: "Finish after preparation.",
+				Preconditions: []planning.Condition{ready}, Effects: []planning.Condition{done},
+			}))
+			var senseCalls, planCalls, inputCalls, actionCalls atomic.Int32
+			binding := safetyValue(planning.NewChildBinding(planning.ChildBindingConfig{
+				Action: delegate, DeploymentRef: child.DeploymentRef(),
+				Budget: agent.Budget{Steps: agent.NewQuota(128), Effects: agent.NewQuota(128), Signals: agent.NewQuota(128)},
+				Input: func(input agent.Payload, _ planning.WorldState) (agent.Payload, error) {
+					inputCalls.Add(1)
+					return input, nil
+				},
+			}))
+			planner := goap.New(goap.Config{})
+			definition := safetyValue(planning.NewDefinition(planning.DefinitionConfig{
+				Name: "safety.planning", Description: "Reject an uncertain child before reobserving the world.",
+				InputSchema: safetyValue(agent.SchemaFor[string]()), Goal: goal,
+				Actions: []planning.ActionBinding{binding, safetyValue(planning.NewDispatcherBinding(planning.DispatcherBindingConfig{Action: finish}))},
+				Planner: planning.PlannerFunc(func(ctx context.Context, problem planning.Problem) (planning.Plan, bool, error) {
+					planCalls.Add(1)
+					return planner.Plan(ctx, problem)
+				}),
+				MaxActionAttempts: agent.NewQuota(2),
+			}))
+			dispatcher := safetyValue(planning.NewDispatcher(definition, planning.DispatcherConfig{
+				Sensor: planning.SensorFunc(func(context.Context, planning.SenseRequest) (planning.WorldState, error) {
+					switch senseCalls.Add(1) {
+					case 1:
+						return planning.WorldState{}, nil
+					case 2:
+						if next == "next action" {
+							return planning.NewWorldState(ready)
+						}
+					}
+					return planning.NewWorldState(ready, done)
+				}),
+				ActionExecutors: map[string]planning.ActionExecutor{
+					"action.finish": planning.ActionExecutorFunc(func(context.Context, planning.ActionRequest) (planning.ActionResult, error) {
+						actionCalls.Add(1)
+						return planning.ActionSucceeded(), nil
+					}),
+				},
+			}))
+			assertSafetyFailure(t, safetyBinding(definition, dispatcher), resolver, safetyValue(agent.EncodePayload("work")), "planning.child.unresolved_effects", func() {
+				if senseCalls.Load() != 1 || planCalls.Load() != 1 || inputCalls.Load() != 1 || actionCalls.Load() != 0 {
+					t.Errorf("planning advanced past uncertainty: sense=%d plan=%d input=%d action=%d", senseCalls.Load(), planCalls.Load(), inputCalls.Load(), actionCalls.Load())
+				}
+			})
 		})
 	}
 }

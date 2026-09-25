@@ -128,6 +128,8 @@ func TestRequestValidateRejectsInvalidValues(t *testing.T) {
 	invalidMessage := chat.Message{Role: chat.RoleUser}
 	invalidOption := chat.Options{Temperature: new(3.0)}
 	definition := validToolDefinition()
+	invalidDescription := validToolDefinition()
+	invalidDescription.Description = "\xff"
 
 	tests := []struct {
 		name    string
@@ -138,6 +140,7 @@ func TestRequestValidateRejectsInvalidValues(t *testing.T) {
 		{name: "no messages", request: &chat.Request{}},
 		{name: "invalid message", request: &chat.Request{Messages: []chat.Message{invalidMessage}}, also: chat.ErrInvalidMessage},
 		{name: "invalid tool", request: &chat.Request{Messages: []chat.Message{validMessage}, Tools: []chat.ToolDefinition{{}}}, also: chat.ErrInvalidToolDefinition},
+		{name: "invalid tool description", request: &chat.Request{Messages: []chat.Message{validMessage}, Tools: []chat.ToolDefinition{invalidDescription}}, also: chat.ErrInvalidToolDefinition},
 		{name: "duplicate tool", request: &chat.Request{Messages: []chat.Message{validMessage}, Tools: []chat.ToolDefinition{definition, definition}}},
 		{name: "invalid options", request: &chat.Request{Messages: []chat.Message{validMessage}, Options: invalidOption}, also: chat.ErrInvalidOptions},
 	}

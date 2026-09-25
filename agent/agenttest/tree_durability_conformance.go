@@ -27,8 +27,16 @@ type TreeCommitterConformanceDriver interface {
 // because a lost response must not cause duplicate dispatch or false publication.
 // Scenarios include explicit Unknown resolution, child publication, subsequent
 // input consumption, budget preservation, and subtree cancellation recovery.
+// Tree-local child signal and cancel controls settle without a pending boundary;
+// the suite checks their parent receipt and recipient state through LoadTree.
 // Each factory call must return an empty isolated store so prior head ownership
 // cannot mask a missing compare-and-swap or idempotency check.
+// For example, the in-memory driver creates a fresh store for each scenario:
+//
+//	agenttest.RunTreeCommitterConformance(t, func() agenttest.TreeCommitterConformanceDriver {
+//		return agent.NewMemoryTreeCommitter()
+//	})
+//
 // Runtime operations inherit the test context; storage calls detach its
 // cancellation. Cleanup may continue after cancellation to join owned work.
 // Shutdown scenarios release an injected storage gate independently of caller
@@ -66,6 +74,12 @@ func RunTreeCommitterConformance(
 	})
 	t.Run("durable signal admission", func(t *testing.T) {
 		runSignalAdmissionConformance(t, factory)
+	})
+	t.Run("framework child controls", func(t *testing.T) {
+		runChildControlConformance(t, factory)
+	})
+	t.Run("framework child control crashes", func(t *testing.T) {
+		runChildControlCrashConformance(t, factory)
 	})
 }
 
@@ -350,14 +364,14 @@ func (c *conformanceDurabilityProbe) ActivateTree(
 	ctx context.Context,
 	activation agent.TreeActivation,
 ) error {
-	return c.retry(func() error { return c.committer.ActivateTree(ctx, activation) })
+	return c.acknowledgeRepeat(func() error { return c.committer.ActivateTree(ctx, activation) })
 }
 
 func (c *conformanceDurabilityProbe) CommitEffect(
 	ctx context.Context,
 	boundary agent.EffectBoundary,
 ) error {
-	err := c.retry(func() error { return c.committer.CommitEffect(ctx, boundary) })
+	err := c.acknowledgeRepeat(func() error { return c.committer.CommitEffect(ctx, boundary) })
 	if err == nil {
 		c.mu.Lock()
 		c.effects = append(c.effects, boundary)
@@ -370,7 +384,7 @@ func (c *conformanceDurabilityProbe) CommitCheckpoint(
 	ctx context.Context,
 	checkpoint agent.TreeCheckpoint,
 ) error {
-	err := c.retry(func() error {
+	err := c.acknowledgeRepeat(func() error {
 		return c.committer.CommitCheckpoint(ctx, checkpoint)
 	})
 	if err == nil {
@@ -390,7 +404,8 @@ func (c *conformanceDurabilityProbe) latestCheckpoint() agent.TreeCheckpoint {
 	return c.checkpoints[len(c.checkpoints)-1]
 }
 
-func (c *conformanceDurabilityProbe) retry(commit func() error) error {
+// A successful repeat checks idempotent acknowledgment; a failed call is never retried.
+func (c *conformanceDurabilityProbe) acknowledgeRepeat(commit func() error) error {
 	if err := commit(); err != nil {
 		return err
 	}

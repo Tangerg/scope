@@ -2,7 +2,6 @@ package agent
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 )
 
@@ -72,42 +71,104 @@ func BenchmarkDrainedTreeSnapshot(b *testing.B) {
 }
 
 func BenchmarkTreeCaptureLeafMutation(b *testing.B) {
-	for _, count := range []int{1, 100, 1000} {
-		for _, size := range []int{1 << 10, 64 << 10, 1 << 20} {
-			// Keep the fixture below 64 MiB of retained state.
-			if count*size > 64<<20 {
-				continue
+	for _, sample := range []struct {
+		name         string
+		processes    int
+		stateBytes   int
+		opaqueChange bool
+	}{
+		{name: "control_374KiB", processes: 1, stateBytes: 374 << 10},
+		{name: "root_8MiB_framework", processes: 1, stateBytes: 8 << 20},
+		{name: "root_8MiB_opaque", processes: 1, stateBytes: 8 << 20, opaqueChange: true},
+		{name: "root_30MiB_framework", processes: 1, stateBytes: 30 << 20},
+		{name: "distributed_8MiB_opaque", processes: 32, stateBytes: 256 << 10, opaqueChange: true},
+		{name: "processes_1000_framework", processes: 1000, stateBytes: 1 << 10},
+	} {
+		b.Run(sample.name, func(b *testing.B) {
+			owner, leaf := benchmarkMutableSnapshotTree(b, sample.processes, sample.stateBytes)
+			before := leaf.committedExecutionState
+			after := before
+			const changedBytes = 1 << 10
+			if sample.opaqueChange {
+				after = controlValue(EncodeExecutionState("benchmark", benchmarkOpaqueText(sample.stateBytes+changedBytes)))
 			}
-			b.Run(fmt.Sprintf("processes_%d/state_%d", count, size), func(b *testing.B) {
-				owner := newWaitingSnapshotTree(b, count)
-				state := controlValue(EncodeExecutionState("benchmark", strings.Repeat("x", size)))
-				var leaf *processState
-				for _, process := range owner.processes {
-					process.committedExecutionState = state
-					process.status, process.pauseReason = StatusPaused, "before"
-					process.currentWaitID = WaitID{}
-					process.mailbox = newSignalMailbox()
-					if count == 1 || process.handle.processID != owner.rootID {
-						leaf = process
-					}
+			// Alternate a fixed append and reduction. Growing with b.N would
+			// change the workload as the benchmark calibrates its iteration count.
+			appendState := true
+			b.ReportAllocs()
+			for b.Loop() {
+				if appendState {
+					leaf.committedExecutionState, leaf.pauseReason = after, "after"
+				} else {
+					leaf.committedExecutionState, leaf.pauseReason = before, "before"
 				}
-				if _, err := owner.captureTree(); err != nil {
+				appendState = !appendState
+				var err error
+				benchmarkTreeSnapshotSink, err = owner.captureTree()
+				if err != nil {
 					b.Fatal(err)
 				}
-				b.ReportAllocs()
-				for b.Loop() {
-					if leaf.pauseReason == "before" {
-						leaf.pauseReason = "after"
-					} else {
-						leaf.pauseReason = "before"
-					}
-					if _, err := owner.captureTree(); err != nil {
-						b.Fatal(err)
-					}
-				}
-			})
+			}
+			fullBytes, processBytes := len(benchmarkTreeSnapshotSink.JSON()), len(leaf.snapshot.JSON())
+			b.ReportMetric(float64(fullBytes), "snapshot_bytes")
+			b.ReportMetric(float64(processBytes), "changed_process_bytes")
+			b.ReportMetric(float64(processBytes)/float64(fullBytes), "changed_process_fraction")
+			if sample.opaqueChange {
+				b.ReportMetric(changedBytes, "opaque_changed_bytes")
+			}
+		})
+	}
+}
+
+func benchmarkMutableSnapshotTree(b *testing.B, count, stateBytes int) (*treeRuntime, *processState) {
+	b.Helper()
+	owner := newWaitingSnapshotTree(b, count)
+	state := controlValue(EncodeExecutionState("benchmark", benchmarkOpaqueText(stateBytes)))
+	for _, process := range owner.processes {
+		process.committedExecutionState = state
+		process.status, process.pauseReason = StatusPaused, "before"
+		process.currentWaitID = WaitID{}
+		process.mailbox = newSignalMailbox()
+	}
+	if _, err := owner.captureTree(); err != nil {
+		b.Fatal(err)
+	}
+	leaf := owner.processes[owner.rootID]
+	if count > 1 {
+		leaf = owner.processes[owner.childrenByParent[owner.rootID][0]]
+	}
+	return owner, leaf
+}
+
+func BenchmarkTreeCaptureGrowthReduction(b *testing.B) {
+	owner, root := benchmarkMutableSnapshotTree(b, 1, 1<<20)
+	text := benchmarkOpaqueText(4 << 20)
+	states := make([]ExecutionState, 0, 8)
+	// Each cycle retains 1, 2, 3, 4, 1, 2, 3, then 4 MiB. The reduction
+	// is measured in the same complete-state protocol as the growing steps.
+	for range 2 {
+		for size := 1; size <= 4; size++ {
+			states = append(states, controlValue(EncodeExecutionState("benchmark", text[:size<<20])))
 		}
 	}
+	var cumulativeBytes, finalBytes uint64
+	b.ReportAllocs()
+	for b.Loop() {
+		cumulativeBytes = 0
+		for _, state := range states {
+			root.committedExecutionState = state
+			snapshot, err := owner.captureTree()
+			if err != nil {
+				b.Fatal(err)
+			}
+			benchmarkTreeSnapshotSink = snapshot
+			finalBytes = uint64(snapshot.EncodedSize())
+			cumulativeBytes += finalBytes
+		}
+	}
+	b.ReportMetric(float64(len(states)), "captures/op")
+	b.ReportMetric(float64(cumulativeBytes), "snapshot_bytes/op")
+	b.ReportMetric(float64(finalBytes), "final_snapshot_bytes")
 }
 
 func BenchmarkMemoryTreeCommitterRetention(b *testing.B) {

@@ -12,20 +12,32 @@ import (
 )
 
 func TestToolDefinitionValidateAndRoundTrip(t *testing.T) {
-	definition := validToolDefinition()
-	if err := definition.Validate(); err != nil {
-		t.Fatalf("Validate: %v", err)
-	}
-	encoded, err := jsonv2.Marshal(definition)
-	if err != nil {
-		t.Fatalf("Marshal: %v", err)
-	}
-	var got chat.ToolDefinition
-	if err := jsonv2.Unmarshal(encoded, &got); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
-	}
-	if !reflect.DeepEqual(got, definition) {
-		t.Fatalf("round trip = %#v, want %#v", got, definition)
+	for name, description := range map[string]string{
+		"plain":      "look up weather",
+		"empty":      "",
+		"whitespace": " \t\n",
+		"untrimmed":  " look up weather ",
+		"unicode":    "查找天气 ☀️",
+		"long":       strings.Repeat("a", 4097),
+	} {
+		t.Run(name, func(t *testing.T) {
+			definition := validToolDefinition()
+			definition.Description = description
+			if err := definition.Validate(); err != nil {
+				t.Fatalf("Validate: %v", err)
+			}
+			encoded, err := jsonv2.Marshal(definition)
+			if err != nil {
+				t.Fatalf("Marshal: %v", err)
+			}
+			var got chat.ToolDefinition
+			if err := jsonv2.Unmarshal(encoded, &got); err != nil {
+				t.Fatalf("Unmarshal: %v", err)
+			}
+			if !reflect.DeepEqual(got, definition) {
+				t.Fatalf("round trip = %#v, want %#v", got, definition)
+			}
+		})
 	}
 }
 
@@ -54,6 +66,7 @@ func TestToolDefinitionRejectsInvalidValues(t *testing.T) {
 		{Name: "tool", InputSchema: json.RawMessage(`{`)},
 		{Name: "tool", InputSchema: json.RawMessage(`[]`)},
 		{Name: "tool", InputSchema: json.RawMessage(`null`)},
+		{Name: "tool", Description: "\xff", InputSchema: json.RawMessage(`{"type":"object"}`)},
 	}
 	for _, definition := range tests {
 		if err := definition.Validate(); !errors.Is(err, chat.ErrInvalidToolDefinition) {

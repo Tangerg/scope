@@ -74,7 +74,7 @@
 // TreeCommitter transactions; its storage, retention, and delivery remain host policy.
 // Local rejections and complete rounds cross explicit Checkpoint transitions.
 // Only a complete round can cross that boundary into model continuation or direct
-// completion; durable execution also waits for storage acknowledgment. A canceled
+// completion after its TreeCommitter acknowledges the checkpoint. A canceled
 // parent never resumes to collect or publish children.
 //
 // Await fixes the Process terminal; Join additionally drains descendant calls
@@ -83,10 +83,10 @@
 // an explicit host-release cancellation path. Storage failure stops this runtime
 // with RuntimeError; it does not manufacture an unknown ToolResult. An
 // acknowledged or reconciled transaction retains exact execution facts. Recovery
-// loads that authoritative transaction and activates a fenced writer. Ephemeral
-// engines provide no durable recovery. Scope-owned state uses one strict current
-// schema; retired result_commit Effects and awaiting_result_commit checkpoints
-// are rejected.
+// loads that authoritative transaction and activates a fenced writer. Every
+// Engine requires a TreeCommitter and follows the same acknowledgment protocol;
+// MemoryTreeCommitter retains trees only for its in-memory lifetime. Scope-owned
+// state uses one strict current schema.
 //
 // A valid tool.Failure produces its complete model-visible error ToolResult and
 // rejection disposition. Its diagnostic Cause cannot issue cancellation, input,

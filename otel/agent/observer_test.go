@@ -54,7 +54,7 @@ type observerHarness struct {
 	observer *agentotel.Observer
 }
 
-func newObserverHarness(t *testing.T) observerHarness {
+func newObserverHarness(t testing.TB) observerHarness {
 	t.Helper()
 	recorder := tracetest.NewSpanRecorder()
 	provider := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(recorder))
@@ -700,12 +700,12 @@ func (testDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
 	return agent.ReplayPolicySameIdentity
 }
 
-func testDeployment(t *testing.T) agent.Deployment {
+func testDeployment(t testing.TB) agent.Deployment {
 	t.Helper()
 	return testDeploymentWithDispatcher(t, testDispatcher{})
 }
 
-func testDeploymentWithDispatcher(t *testing.T, dispatcher agent.Dispatcher) agent.Deployment {
+func testDeploymentWithDispatcher(t testing.TB, dispatcher agent.Dispatcher) agent.Deployment {
 	t.Helper()
 	inputSchema, err := agent.SchemaFor[testInput]()
 	if err != nil {

@@ -54,6 +54,13 @@ func newTreeSnapshot(wire treeSnapshotWire) (TreeSnapshot, error) {
 	return treeSnapshotFromWire(wire.clone())
 }
 
+// This codec only borrows already validated Process bytes during tree encoding.
+// Reusing its type metadata avoids rebuilding a marshaler on every capture.
+// Public JSON access still transfers an independently owned copy.
+var treeSnapshotMarshalers = jsonv2.MarshalFunc(func(snapshot ProcessSnapshot) ([]byte, error) {
+	return snapshot.data, nil
+})
+
 func treeSnapshotFromWire(wire treeSnapshotWire) (TreeSnapshot, error) {
 	wire.normalize()
 	validation, err := newTreeSnapshotValidation(wire)
@@ -63,7 +70,7 @@ func treeSnapshotFromWire(wire treeSnapshotWire) (TreeSnapshot, error) {
 	if validateErr := validation.validate(); validateErr != nil {
 		return TreeSnapshot{}, validateErr
 	}
-	normalized, err := jsonv2.Marshal(wire, jsonv2.Deterministic(true))
+	normalized, err := jsonv2.Marshal(wire, jsonv2.Deterministic(true), jsonv2.WithMarshalers(treeSnapshotMarshalers))
 	if err != nil {
 		return TreeSnapshot{}, fmt.Errorf("%w: encode: %w", ErrInvalidTreeSnapshot, err)
 	}
@@ -77,6 +84,10 @@ func treeSnapshotFromWire(wire treeSnapshotWire) (TreeSnapshot, error) {
 
 // JSON returns an independently owned tree snapshot representation.
 func (t TreeSnapshot) JSON() json.RawMessage { return bytes.Clone(t.data) }
+
+// EncodedSize returns the canonical JSON byte length without copying the
+// snapshot. The zero value has size zero.
+func (t TreeSnapshot) EncodedSize() int { return len(t.data) }
 
 // RootID returns the identity of the tree's root Process.
 func (t TreeSnapshot) RootID() ProcessID { return t.state.RootID }

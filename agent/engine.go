@@ -70,8 +70,9 @@ type EngineConfig struct {
 
 // Engine keeps admission, publication, and execution under one owner because
 // resource reservations and recoverable tree state must describe the same
-// lifecycle. Construct it with NewEngine; copying an Engine would share its
-// registries while duplicating their synchronization.
+// lifecycle. Construct it with NewEngine; its zero value is not usable. An
+// Engine must not be copied because doing so shares its registries while
+// duplicating their synchronization.
 type Engine struct {
 	committer                         TreeCommitter
 	initializationOutcomeAcknowledger ProcessInitializationOutcomeAcknowledger
@@ -107,6 +108,7 @@ type Engine struct {
 
 // ObservationFailures returns consistent panic counts and the latest bounded
 // diagnostic for each listener kind. Listener failures cannot veto execution.
+// A nil Engine has no observations and returns zero counts and diagnostics.
 func (e *Engine) ObservationFailures() ObservationFailures {
 	if e == nil || e.observation == nil {
 		return ObservationFailures{}
@@ -308,6 +310,8 @@ func (e *Engine) Run(ctx context.Context, deployment Deployment, input Payload) 
 	return process.Await(waitContext)
 }
 
+// Process finds a published Process. A nil Engine contains no Processes and
+// returns nil, false.
 func (e *Engine) Process(id ProcessID) (*Process, bool) {
 	if e == nil || !id.Valid() {
 		return nil, false
@@ -330,10 +334,10 @@ func (e *Engine) Process(id ProcessID) (*Process, bool) {
 // observation workers. Canceling ctx stops only this caller's wait; it does not
 // interrupt that owned shutdown. A later Close joins the same shutdown.
 // Concurrent callers join the same closure; existing handles retain results
-// and RuntimeErrors for later reads.
+// and RuntimeErrors for later reads. A nil Engine returns ErrInvalidEngineConfig.
 func (e *Engine) Close(ctx context.Context) error {
 	if e == nil {
-		return nil
+		return ErrInvalidEngineConfig
 	}
 	ctx = RequireContext(ctx)
 	if err := ctx.Err(); err != nil {

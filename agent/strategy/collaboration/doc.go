@@ -15,7 +15,7 @@
 // Start failures, task failures, and control rejections remain explicit facts.
 // A failed coordinator or exhausted turn bound fails the collaboration.
 // Turn exhaustion uses execution / collaboration.limit.turns; counter overflow
-// uses execution / collaboration.counter.exhausted. Invalid coordinator
+// uses execution / engine.counter.exhausted. Invalid coordinator
 // decisions and protocol frames use contract / collaboration.decision.invalid
 // and collaboration.protocol.invalid. These failures discard the candidate.
 // A finite zero MaxTurns is invalid; MaxTasks may be zero to forbid worker

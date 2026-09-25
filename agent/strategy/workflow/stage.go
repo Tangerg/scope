@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,6 +9,16 @@ import (
 )
 
 const invalidEnumName = "invalid"
+
+const (
+	failureSuffixCaseUnknown       = "case_unknown"
+	failureSuffixUnresolvedEffects = "unresolved_effects"
+	failureSuffixChildNotCompleted = "child_not_completed"
+	failureSuffixNotCompleted      = "not_completed"
+	failureSuffixOutputMissing     = "output_missing"
+	failureSuffixOutputInvalid     = "output_invalid"
+	failureSuffixMaxItemsExceeded  = "max_items_exceeded"
+)
 
 // StageKind is the operation kind owned by a sealed Workflow Stage.
 type StageKind string
@@ -166,7 +175,7 @@ func Call(config CallConfig) (Stage, error) {
 func (s Stage) Valid() bool { return s.kind.Valid() }
 
 func (s Stage) hasIdenticalInputSchema(schema agent.Schema) bool {
-	return schema.Valid() && bytes.Equal(s.inputSchema.JSON(), schema.JSON())
+	return schemasEqual(s.inputSchema, schema)
 }
 
 func (s Stage) fanoutMemberLabel(index uint32) string {

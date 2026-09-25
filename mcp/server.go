@@ -67,11 +67,10 @@ func (s serverTool) descriptor() *sdkmcp.Tool {
 	})
 }
 
-// handle routes a tools/call RPC into a [tool.Tool]. Errors
-// from the tool surface via [sdkmcp.CallToolResult.IsError] plus
-// a [*sdkmcp.TextContent] body — never as a Go error from the handler
-// — because the latter would be promoted to a JSON-RPC protocol error
-// and hide the failure from the LLM's view.
+// Invalid arguments and valid definite [toolcontract.Failure] outcomes return
+// model-visible [sdkmcp.CallToolResult.IsError] results. Ordinary errors, invalid
+// Failures, and outputs that cannot be mapped remain JSON-RPC internal errors:
+// they establish no definite public Tool result and must preserve that uncertainty.
 //
 // The MCP server session is stamped onto the context so tool authors
 // can use the reverse-capability helpers ([ReportProgress] and [Elicit])

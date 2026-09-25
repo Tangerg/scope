@@ -19,6 +19,8 @@ const (
 	crashCommitEffectPending
 	crashCommitEffectSettled
 	crashCommitEffectResolved
+	crashCommitChildSignal
+	crashCommitChildCancel
 	crashCommitCheckpointChild
 	crashCommitCheckpointInput
 	crashCommitCheckpointProgress
@@ -50,6 +52,7 @@ type crashCommitObservation struct {
 	rootID         agent.ProcessID
 	previousDigest agent.Digest
 	prospective    agent.TreeSnapshot
+	boundary       agent.EffectBoundary
 }
 
 var errSimulatedHostCrash = errors.New("agenttest: simulated host crash")
@@ -117,11 +120,20 @@ func (t *treeCommitterCommitGate) CommitEffect(
 	case agent.EffectBoundaryKindResolved:
 		kind = crashCommitEffectResolved
 	}
+	if boundary.Kind() == agent.EffectBoundaryKindSettled {
+		switch childControlOperationFor(boundary.Request().Effect()) {
+		case childControlSignal:
+			kind = crashCommitChildSignal
+		case childControlCancel:
+			kind = crashCommitChildCancel
+		}
+	}
 	observation := crashCommitObservation{
 		ctx:            ctx,
 		rootID:         boundary.TreeSnapshot().RootID(),
 		previousDigest: boundary.PreviousTreeDigest(),
 		prospective:    boundary.TreeSnapshot(),
+		boundary:       boundary,
 	}
 	point := crashCommitPoint{kind: kind, phase: t.point.phase}
 	return t.around(point, observation, func() error {

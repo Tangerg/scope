@@ -5,18 +5,23 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
-	"strings"
+	"math/rand/v2"
 	"testing"
 	"time"
 )
 
-var benchmarkSnapshotBytesSink []byte
+var (
+	benchmarkSnapshotBytesSink []byte
+	benchmarkSnapshotSizeSink  int
+	benchmarkSnapshotHashSink  Digest
+)
 
 type treeRecoveryBenchmarkCase struct {
-	name         string
-	contextBytes int
-	historyCount int
-	effectCount  int
+	name                 string
+	contextBytes         int
+	historyCount         int
+	effectCount          int
+	retainRequestContext bool
 }
 
 // The fixtures pass through the Engine to preserve real mailbox cursors,
@@ -26,9 +31,13 @@ func BenchmarkTreeRecoveryBoundary(b *testing.B) {
 	for _, sample := range []treeRecoveryBenchmarkCase{
 		{name: "baseline", contextBytes: 1 << 10},
 		{name: "context_1MiB", contextBytes: 1 << 20},
+		{name: "control_374KiB", contextBytes: 374 << 10},
+		{name: "context_8MiB", contextBytes: 8 << 20},
+		{name: "context_30MiB", contextBytes: 30 << 20},
 		{name: "history_1024", contextBytes: 1 << 10, historyCount: 1024},
 		{name: "active_batch_64", contextBytes: 1 << 10, effectCount: 64},
 		{name: "combined", contextBytes: 1 << 20, historyCount: 1024, effectCount: 64},
+		{name: "prepared_context_8MiB", contextBytes: 8 << 20, effectCount: 1, retainRequestContext: true},
 	} {
 		b.Run(sample.name, func(b *testing.B) {
 			engine, deployment, process := benchmarkRecoverableProcess(b, sample)
@@ -57,8 +66,16 @@ func BenchmarkTreeRecoveryBoundary(b *testing.B) {
 					return validation.validate()
 				}},
 				{name: "encode", run: func() error {
-					benchmarkSnapshotBytesSink, err = jsonv2.Marshal(wire)
+					benchmarkSnapshotBytesSink, err = jsonv2.Marshal(wire, jsonv2.Deterministic(true))
 					return err
+				}},
+				{name: "hash", run: func() error {
+					benchmarkSnapshotHashSink = ComputeDigest(data)
+					return nil
+				}},
+				{name: "json_copy", run: func() error {
+					benchmarkSnapshotBytesSink = snapshot.JSON()
+					return nil
 				}},
 				{name: "parse", run: func() error {
 					benchmarkTreeSnapshotSink, err = ParseTreeSnapshot(data)
@@ -123,11 +140,13 @@ func benchmarkRecoverableProcess(
 	if err != nil {
 		b.Fatal(err)
 	}
-	definition := &treeRecoveryBenchmarkDefinition{descriptor: descriptor, effectCount: sample.effectCount}
+	definition := &treeRecoveryBenchmarkDefinition{
+		descriptor: descriptor, effectCount: sample.effectCount, retainRequestContext: sample.retainRequestContext,
+	}
 	deployment, err := NewDeployment(DeploymentConfig{
 		Definition: definition, Dispatcher: &failingEngineTestDispatcher{},
 		ImplementationDigest: ComputeDigest([]byte("tree-recovery-benchmark")),
-		ConfigurationDigest:  ComputeDigest(fmt.Appendf(nil, "effects:%d", sample.effectCount)),
+		ConfigurationDigest:  ComputeDigest(fmt.Appendf(nil, "effects:%d/request-context:%t", sample.effectCount, sample.retainRequestContext)),
 	})
 	if err != nil {
 		b.Fatal(err)
@@ -141,7 +160,7 @@ func benchmarkRecoverableProcess(
 			b.Error(closeErr)
 		}
 	})
-	input, err := EncodePayload(executionReplayBenchmarkState{Payload: strings.Repeat("x", sample.contextBytes)})
+	input, err := EncodePayload(executionReplayBenchmarkState{Payload: benchmarkOpaqueText(sample.contextBytes)})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -219,9 +238,10 @@ func stopRecoveryBenchmarkProcess(b *testing.B, process *Process) {
 }
 
 type treeRecoveryBenchmarkDefinition struct {
-	descriptor  Descriptor
-	effectCount int
-	children    []ChildSpec
+	descriptor           Descriptor
+	effectCount          int
+	children             []ChildSpec
+	retainRequestContext bool
 }
 
 func (t *treeRecoveryBenchmarkDefinition) Descriptor() Descriptor { return t.descriptor }
@@ -267,8 +287,20 @@ func (t *treeRecoveryBenchmarkExecution) Step(_ context.Context, signals []Signa
 		return Pause(uint32(len(signals)), "benchmark boundary")
 	}
 	effects := make([]Effect, t.definition.effectCount)
+	request := json.RawMessage(`{"request":"benchmark"}`)
+	if t.definition.retainRequestContext {
+		// The kernel cannot interpret a Strategy's frozen request. Retaining the
+		// same context in all three roles measures their necessary overlap.
+		var err error
+		request, err = jsonv2.Marshal(struct {
+			Context string `json:"context"`
+		}{Context: t.state.Payload})
+		if err != nil {
+			return Transition{}, err
+		}
+	}
 	for index := range effects {
-		effect, err := NewDispatcherEffect(json.RawMessage(`{"request":"benchmark"}`))
+		effect, err := NewDispatcherEffect(request)
 		if err != nil {
 			return Transition{}, err
 		}
@@ -301,5 +333,39 @@ func waitForPausedStep(t testing.TB, process *Process, steps uint64) {
 			t.Fatalf("Process status=%s steps=%d, want paused steps=%d: %v", snapshot.Status(), snapshot.Usage().CommittedSteps, steps, ctx.Err())
 		case <-poll.C:
 		}
+	}
+}
+
+// The deterministic text varies bytes without assuming any production content
+// distribution. These fixtures measure framework work, not codec savings.
+func benchmarkOpaqueText(size int) string {
+	const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 "
+	random := rand.New(rand.NewPCG(1, 2))
+	data := make([]byte, size)
+	for index := range data {
+		data[index] = alphabet[random.IntN(len(alphabet))]
+	}
+	return string(data)
+}
+
+func BenchmarkTreeSnapshotSize(b *testing.B) {
+	for _, size := range []int{1 << 10, 8 << 20, 30 << 20} {
+		b.Run(fmt.Sprintf("state_%d", size), func(b *testing.B) {
+			owner := newWaitingSnapshotTree(b, 1)
+			owner.processes[owner.rootID].committedExecutionState = controlValue(EncodeExecutionState("benchmark", benchmarkOpaqueText(size)))
+			snapshot := controlValue(owner.captureTree())
+			b.Run("json_size", func(b *testing.B) {
+				b.ReportAllocs()
+				for b.Loop() {
+					benchmarkSnapshotSizeSink = len(snapshot.JSON())
+				}
+			})
+			b.Run("encoded_size", func(b *testing.B) {
+				b.ReportAllocs()
+				for b.Loop() {
+					benchmarkSnapshotSizeSink = snapshot.EncodedSize()
+				}
+			})
+		})
 	}
 }

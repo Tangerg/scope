@@ -291,7 +291,6 @@ type processSnapshotWire struct {
 // failure codes need no escaping. Only the byte count grows, never a buffer.
 const (
 	snapshotReservationText = "x"
-	snapshotReasonGrowth    = uint64(6*maxTerminationReasonBytes - len(snapshotReservationText))
 	snapshotFailureGrowth   = uint64(maxFailureCodeBytes - len(snapshotReservationText) + 6*MaxDiagnosticBytes - len(snapshotReservationText))
 )
 
@@ -326,13 +325,13 @@ func (p processSnapshotWire) admissionSize() (uint64, error) {
 		}
 		// Current and pending control fields reserve independently, including
 		// a Step pause racing a Host pause.
-		p.PauseReason = reservation.reason()
+		p.PauseReason = reservation.reason(maxPauseReasonBytes)
 		p.Status = StatusRunning
 		p.Counters.DroppedDeltas = ^uint64(0)
 		p.PendingControl = pendingControlWire{
-			Failure: &failure, KillReason: reservation.reason(), PauseReason: reservation.reason(),
-			DeadlineOwner: deadlineOwnerParent, DeadlineReason: reservation.reason(),
-			CancellationOwner: cancellationOwnerParent, CancellationReason: reservation.reason(),
+			Failure: &failure, KillReason: reservation.reason(maxTerminationReasonBytes), PauseReason: reservation.reason(maxPauseReasonBytes),
+			DeadlineOwner: deadlineOwnerParent, DeadlineReason: reservation.reason(maxTerminationReasonBytes),
+			CancellationOwner: cancellationOwnerParent, CancellationReason: reservation.reason(maxTerminationReasonBytes),
 		}
 		pending, err := jsonv2.Marshal(p)
 		if err != nil {
@@ -549,7 +548,7 @@ func (p processSnapshotWire) validateLifecycle(mailbox signalMailbox) error {
 		}
 	}
 	if p.Status == StatusPaused {
-		if err := validateTerminationReason(p.PauseReason); err != nil {
+		if !validPauseReason(p.PauseReason) {
 			return fmt.Errorf("%w: invalid pause reason", ErrInvalidSnapshot)
 		}
 	} else if p.PauseReason != "" {

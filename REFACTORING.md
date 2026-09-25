@@ -50,7 +50,7 @@ Apply these naming rules:
 - Keep an importable single-capability package singular or uncountable, such as `tool`, `history`, or `web`. Use a plural only for a non-importable namespace of sibling implementations.
 - Keep protocol and industry proper names in their established form when they express an objective integration fact.
 
-Run `dev/repoarch` after naming changes; its gates cover receiver spelling, imported package shadowing, retired layouts, and repository identity.
+Run `dev/repoarch` after naming changes; its gates cover receiver spelling, imported package shadowing, module boundaries, and repository identity.
 
 ## Put behavior on the domain owner
 

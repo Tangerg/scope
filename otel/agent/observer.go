@@ -739,7 +739,7 @@ func (o *Observer) observeDurability(ctx context.Context, operation, boundary st
 		options := metric.WithAttributes(attributes...)
 		o.instruments.durabilityDuration.Record(ctx, finishedAt.Sub(startedAt).Seconds(), options)
 		if snapshot.Valid() {
-			o.instruments.durabilitySnapshotBytes.Record(ctx, int64(len(snapshot.JSON())), options)
+			o.instruments.durabilitySnapshotBytes.Record(ctx, int64(snapshot.EncodedSize()), options)
 		}
 		span.End(trace.WithTimestamp(finishedAt))
 		if panicked != nil {

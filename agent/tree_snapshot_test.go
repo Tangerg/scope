@@ -94,6 +94,54 @@ func TestTreeSnapshotDigestIsCanonicalAndStable(t *testing.T) {
 	}
 }
 
+func TestTreeSnapshotEncodedSizeAndJSONOwnership(t *testing.T) {
+	if size := (TreeSnapshot{}).EncodedSize(); size != 0 {
+		t.Fatalf("zero snapshot size=%d, want 0", size)
+	}
+	owner := newWaitingSnapshotTree(t, 1)
+	root := owner.processes[owner.rootID]
+	root.committedExecutionState = controlValue(EncodeExecutionState("size", "界🙂\n\"\\\x00"))
+	tree := controlValue(owner.captureTree())
+	data := tree.JSON()
+	if tree.EncodedSize() != len(data) {
+		t.Fatalf("snapshot size=%d, want encoded byte length %d", tree.EncodedSize(), len(data))
+	}
+	parsed := controlValue(ParseTreeSnapshot(data))
+	if parsed.EncodedSize() != len(data) || parsed.Digest() != tree.Digest() {
+		t.Fatal("size or content identity changed across round trip")
+	}
+	clear(data)
+	if bytes.Equal(data, tree.JSON()) || tree.EncodedSize() != len(data) ||
+		tree.Digest() != ComputeDigest(tree.JSON()) {
+		t.Fatal("caller mutation changed the retained snapshot")
+	}
+	var size int
+	if allocations := testing.AllocsPerRun(100, func() { size = tree.EncodedSize() }); allocations != 0 || size != len(data) {
+		t.Fatalf("size lookup allocations=%g, want 0", allocations)
+	}
+}
+
+func TestTreeEncodingPreservesCanonicalBytes(t *testing.T) {
+	for _, count := range []int{1, 3} {
+		owner := newWaitingSnapshotTree(t, count)
+		root := owner.processes[owner.rootID]
+		root.committedExecutionState = controlValue(ParseExecutionState("encoding", []byte(`{"z":"界🙂\n\"\\\u0000","a":[1,{},[]]}`)))
+		tree := controlValue(owner.captureTree())
+		wire := controlValue(tree.wire())
+		canonical := controlValue(jsonv2.Marshal(wire, jsonv2.Deterministic(true)))
+		if !bytes.Equal(tree.JSON(), canonical) || tree.Digest() != ComputeDigest(canonical) {
+			t.Fatal("tree encoding changed canonical content or digest")
+		}
+		for _, process := range wire.ProcessSnapshots {
+			encoded := controlValue(process.MarshalJSON())
+			clear(encoded)
+			if !process.Valid() || !bytes.Contains(tree.JSON(), process.JSON()) {
+				t.Fatal("borrowed Process bytes escaped the tree encoder")
+			}
+		}
+	}
+}
+
 func TestTreeSnapshotCarriesOneTypedIncarnationIdentity(t *testing.T) {
 	tree := completedTreeSnapshot(t)
 	wire, err := tree.wire()

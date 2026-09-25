@@ -82,8 +82,9 @@ func newEffectRequest(
 func (e EffectRequest) ProcessID() ProcessID { return e.processID }
 
 // TreeIncarnationID identifies the active durable writer for observation and
-// correlation. Ephemeral requests return false. It does not participate in the
-// Effect's stable idempotency identity, which remains ID across restoration.
+// correlation. Engine-produced requests always carry this identity; unbound
+// values return false. It does not participate in the Effect's stable idempotency
+// identity, which remains ID across restoration.
 func (e EffectRequest) TreeIncarnationID() (TreeIncarnationID, bool) {
 	return e.incarnationID, e.incarnationID.Valid()
 }
@@ -144,8 +145,10 @@ type Dispatcher interface {
 	// cancellation alone proves no external outcome. Host context values are
 	// preserved. Implementations honor ctx and may be called concurrently.
 	// Panics in Dispatch or in interpretation of its returned error are isolated
-	// as unknown outcomes. Original errors remain available for Host inspection;
-	// the runtime only consumes classifications captured inside this boundary.
+	// as unknown outcomes. Direct callers, transparent decorators, and explicit
+	// replay errors preserve the original cause for inspection. Ordinary Await,
+	// durable state, and events retain only the allowed outcome classifications
+	// and bounded diagnostics.
 	Dispatch(ctx context.Context, request EffectRequest, emit DeltaEmitter) (Settlement, error)
 	// ReplayPolicy declares, without I/O or mutable side effects, whether this
 	// exact Effect can be repeated under its original EffectID when restoring

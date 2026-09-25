@@ -16,7 +16,7 @@ type LoopPredicate[T any] func(ctx context.Context, value T) (bool, error)
 // LoopResult is the exact semantic output of a Loop Stage. Satisfied is false
 // when MaxIterations was exhausted; that outcome is still a valid completion.
 type LoopResult[T any] struct {
-	// Value is the latest body output, or the initial input before any iteration.
+	// Value is the output of the last completed body iteration.
 	Value T `json:"value"`
 	// Iterations is the number of completed body child Processes.
 	Iterations uint64 `json:"iterations"`

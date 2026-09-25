@@ -138,8 +138,8 @@ func pendingControlFromWire(wire pendingControlWire) (pendingControl, error) {
 		control.cancellation = cancellation
 	}
 	if wire.PauseReason != "" {
-		if err := validateTerminationReason(wire.PauseReason); err != nil {
-			return pendingControl{}, err
+		if !validPauseReason(wire.PauseReason) {
+			return pendingControl{}, fmt.Errorf("pause reason must be non-empty, trimmed UTF-8 within %d bytes", maxPauseReasonBytes)
 		}
 		control.pauseReason = wire.PauseReason
 	}

@@ -8,8 +8,6 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-const maxDelegateDescriptionBytes = 4096
-
 // DelegateConfig exposes one exact child Deployment as a model-selectable
 // Interaction capability. Name and Description are written for the model;
 // lifecycle identity and resource authority remain frozen Framework values.
@@ -49,8 +47,7 @@ type Delegate struct {
 // an unbounded authority grant.
 func NewDelegate(config DelegateConfig) (Delegate, error) {
 	if !config.Deployment.Valid() || !config.Capabilities.Valid() ||
-		config.Description == "" || strings.TrimSpace(config.Description) != config.Description ||
-		len(config.Description) > maxDelegateDescriptionBytes {
+		!agent.ValidDescription(config.Description) {
 		return Delegate{}, ErrInvalidDelegate
 	}
 	descriptor := config.Deployment.Descriptor()
@@ -69,9 +66,7 @@ func NewDelegate(config DelegateConfig) (Delegate, error) {
 }
 
 func (d Delegate) Valid() bool {
-	return d.definition.Validate() == nil && d.definition.Description != "" &&
-		strings.TrimSpace(d.definition.Description) == d.definition.Description &&
-		len(d.definition.Description) <= maxDelegateDescriptionBytes &&
+	return d.definition.Validate() == nil && agent.ValidDescription(d.definition.Description) &&
 		d.deploymentRef.Valid() && d.inputSchema.Valid() && d.outputSchema.Valid() &&
 		d.capabilities.Valid()
 }

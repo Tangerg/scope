@@ -8,11 +8,97 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"golang.org/x/mod/module"
 )
+
+func TestCheckSelectionRunsRequiredCommands(t *testing.T) {
+	t.Parallel()
+	script, err := os.ReadFile(filepath.Join(repositoryRoot(t), "scripts", "check.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const packages = "example.test/first example.test/second"
+	defaultCalls := []string{
+		"workspace:go build " + packages,
+		"workspace:go vet " + packages,
+		"workspace:go test -count=1 " + packages,
+		"workspace:go test -race -count=1 " + packages,
+		"workspace:go test -tags=integration -run ^$ ./...",
+		"workspace:go test -run ^$ -bench . -benchtime=1x " + packages,
+		"workspace:go mod tidy -diff",
+		"off:go mod tidy -diff",
+		"off:go test -run ^$ ./...",
+		"off:go mod edit -json",
+		"lint",
+		"vuln:consumer",
+	}
+	for _, test := range []struct {
+		name  string
+		fast  string
+		args  []string
+		calls []string
+	}{
+		{name: "default", fast: "0", calls: defaultCalls},
+		{
+			name: "subset", fast: "0", args: []string{"isolate", "race"},
+			calls: []string{
+				"off:go mod tidy -diff", "off:go test -run ^$ ./...",
+				"workspace:go test -race -count=1 " + packages,
+			},
+		},
+		{name: "fast", fast: "1", calls: defaultCalls[:len(defaultCalls)-1]},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			write := func(name string, data []byte) {
+				t.Helper()
+				path := filepath.Join(root, name)
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, data, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			write("scripts/check.sh", script)
+			write("scripts/workspace-modules.sh", []byte("#!/usr/bin/env bash\necho consumer\n"))
+			write("scripts/module-packages.sh", []byte("#!/usr/bin/env bash\nprintf '%s\\n' example.test/first example.test/second\n"))
+			write("scripts/check-vulnerabilities.sh", []byte("#!/usr/bin/env bash\nprintf 'vuln:%s\\n' \"$1\" >> \"$CHECK_CALLS\"\n"))
+			write("bin/go", []byte(`#!/usr/bin/env bash
+printf '%s:go %s\n' "${GOWORK:-workspace}" "$*" >> "$CHECK_CALLS"
+if [[ "$*" == 'mod edit -json' ]]; then
+  printf '{"Require":[]}\n'
+fi
+`))
+			write("bin/golangci-lint", []byte("#!/usr/bin/env bash\necho lint >> \"$CHECK_CALLS\"\n"))
+			if err := os.Mkdir(filepath.Join(root, "consumer"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			callsPath := filepath.Join(root, "calls")
+			fixture := checkFixture{
+				root: root,
+				env: append(os.Environ(), "PATH="+filepath.Join(root, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"),
+					"GOWORK=", "MODULE=", "FAST="+test.fast, "CHECK_CALLS="+callsPath),
+			}
+			args := append([]string{"bash", "scripts/check.sh"}, test.args...)
+			if output, err := fixture.run(t, "", args...); err != nil {
+				t.Fatalf("run checks: %v\n%s", err, output)
+			}
+			data, err := os.ReadFile(callsPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := strings.Split(strings.TrimSpace(string(data)), "\n")
+			if !slices.Equal(calls, test.calls) {
+				t.Fatalf("commands = %q, want %q", calls, test.calls)
+			}
+		})
+	}
+}
 
 func TestPinnedTestsDetectDependencySemanticDrift(t *testing.T) {
 	t.Parallel()

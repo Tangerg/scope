@@ -140,8 +140,11 @@ type toolManifest struct {
 	entries            map[string]toolManifestEntry
 }
 
-func (t toolManifest) mergeAdvertisements(current []string, additions ...[]string) ([]string, error) {
+func (t toolManifest) mergeAdvertisements(current, additions []string) ([]string, error) {
 	if err := t.validateAdvertisements(current); err != nil {
+		return nil, err
+	}
+	if err := t.validateAdvertisements(additions); err != nil {
 		return nil, err
 	}
 	merged := slices.Clone(current)
@@ -149,17 +152,12 @@ func (t toolManifest) mergeAdvertisements(current []string, additions ...[]strin
 	for _, name := range current {
 		seen[name] = struct{}{}
 	}
-	for _, names := range additions {
-		if err := t.validateAdvertisements(names); err != nil {
-			return nil, err
+	for _, name := range additions {
+		if _, duplicate := seen[name]; duplicate {
+			continue
 		}
-		for _, name := range names {
-			if _, duplicate := seen[name]; duplicate {
-				continue
-			}
-			seen[name] = struct{}{}
-			merged = append(merged, name)
-		}
+		seen[name] = struct{}{}
+		merged = append(merged, name)
 	}
 	return merged, nil
 }

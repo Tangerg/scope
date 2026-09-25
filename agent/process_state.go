@@ -188,8 +188,8 @@ func (p *processState) prepareSignals(signals []Signal, source signalSource) (*p
 }
 
 func (p *processState) requestPause(reason string) error {
-	if err := validateTerminationReason(reason); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidProcessControl, err)
+	if !validPauseReason(reason) {
+		return fmt.Errorf("%w: pause reason must be non-empty, trimmed UTF-8 within %d bytes", ErrInvalidProcessControl, maxPauseReasonBytes)
 	}
 	if p.status != StatusRunning && p.status != StatusWaiting {
 		return fmt.Errorf("%w: Pause requires Running or Waiting status, got %s", ErrInvalidProcessControl, p.status)

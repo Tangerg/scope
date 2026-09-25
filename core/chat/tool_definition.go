@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"unicode/utf8"
 )
 
 // ErrInvalidToolDefinition identifies a model-facing tool schema that cannot be
@@ -31,6 +32,9 @@ func (t ToolDefinition) Clone() ToolDefinition {
 func (t ToolDefinition) Validate() error {
 	if !toolNamePattern.MatchString(t.Name) {
 		return fmt.Errorf("%w: name must match %s", ErrInvalidToolDefinition, toolNamePattern)
+	}
+	if !utf8.ValidString(t.Description) {
+		return fmt.Errorf("%w: description must be valid UTF-8", ErrInvalidToolDefinition)
 	}
 	var schema map[string]json.RawMessage
 	if len(t.InputSchema) == 0 {

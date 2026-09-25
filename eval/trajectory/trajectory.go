@@ -580,6 +580,7 @@ func (t Trajectory) validateCoverage() error {
 	for _, call := range t.toolCalls {
 		tools[EffectReference{call.ProcessID, call.TreeIncarnationID, call.EffectID}]++
 	}
+	seen := make(map[EffectReference]bool, len(classifications))
 	for _, event := range t.events {
 		fact, ok := event.EffectStarted()
 		if !ok || fact.Target() != agent.EffectTargetDispatcher {
@@ -587,6 +588,9 @@ func (t Trajectory) validateCoverage() error {
 		}
 		effect, _ := event.EffectID()
 		key := EffectReference{event.ProcessID(), eventIncarnation(event), effect}
+		if seen[key] {
+			continue
+		}
 		switch classifications[key] {
 		case effectRoleModel:
 			if models[key] != 1 {
@@ -602,9 +606,9 @@ func (t Trajectory) validateCoverage() error {
 		default:
 			return fmt.Errorf("%w: dispatcher Effect %s is unclassified", ErrIncompleteRecording, effect)
 		}
-		delete(classifications, key)
+		seen[key] = true
 	}
-	if len(classifications) != 0 {
+	if len(seen) != len(classifications) {
 		return fmt.Errorf("%w: coverage names an unobserved dispatcher Effect", ErrIncompleteRecording)
 	}
 	if len(models) != 0 || len(tools) != 0 {

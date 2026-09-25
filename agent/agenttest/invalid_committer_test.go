@@ -28,6 +28,8 @@ func TestTreeCommitterConformanceRejectsBrokenStores(t *testing.T) {
 		{"accepted_conflict", "effect_boundaries_and_terminal_head", "duplicate error=<nil>, want ErrCommitConflict"},
 		{"stale_checkpoint", "repeated_waiting_pause_resume", "historical waiting replay at identical head: <nil>"},
 		{"missing_cas", "concurrent_restore_fencing", "restore winner=true conflicts=0"},
+		{"framework_requires_pending", "framework_child_controls$/^signal", "framework control commit: framework settlement requires pending"},
+		{"framework_missing_head", "framework_child_controls$/^signal", "framework control acknowledged head digest="},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestTreeCommitterConformanceRejectsBrokenStores$/^"+test.scenario+"$", "-test.timeout=15s")
@@ -59,6 +61,14 @@ func (i *invalidCommitter) LoadTree(ctx context.Context, rootID agent.ProcessID)
 }
 
 func (i *invalidCommitter) CommitEffect(ctx context.Context, boundary agent.EffectBoundary) error {
+	if boundary.Request().Effect().Target() == agent.EffectTargetFramework && boundary.Kind() == agent.EffectBoundaryKindSettled {
+		switch i.fixture {
+		case "framework_requires_pending":
+			return errors.New("framework settlement requires pending")
+		case "framework_missing_head":
+			return nil
+		}
+	}
 	err := i.MemoryTreeCommitter.CommitEffect(ctx, boundary)
 	if i.fixture == "accepted_conflict" && errors.Is(err, agent.ErrCommitConflict) {
 		return nil

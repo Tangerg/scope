@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Local check runner — same set of checks CI runs, easy to invoke
-# before pushing.
+# Local workspace check runner. With no arguments, run every check supported
+# here; the specialized coverage gates in scripts remain separate.
 #
 # Usage:
-#   scripts/check.sh                       # run everything
+#   scripts/check.sh                       # run the complete default set
 #   scripts/check.sh build vet test        # subset
 #   scripts/check.sh isolate               # compile each module without go.work
 #   scripts/check.sh pinned-test           # test Scope pseudo-version dependencies without go.work
@@ -50,14 +50,13 @@ if [[ -n "${MODULE:-}" ]]; then
   MODULES=("$MODULE")
 fi
 
-# Checks to run; default = all.
 if [[ $# -eq 0 ]]; then
-  CHECKS=(build vet test integration-compile bench tidy pinned-test lint vuln)
+  CHECKS=(build vet test race integration-compile bench tidy isolate pinned-test lint vuln)
 else
   CHECKS=("$@")
 fi
 
-# FAST skips the slowest checks (govulncheck hits the net).
+# FAST skips only govulncheck, which accesses the vulnerability database.
 if [[ "${FAST:-0}" == "1" ]]; then
   FAST_CHECKS=()
   for check in "${CHECKS[@]}"; do

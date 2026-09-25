@@ -9,6 +9,19 @@ import (
 	"time"
 )
 
+func TestNilEngineReadAndCloseContracts(t *testing.T) {
+	var engine *Engine
+	if failures := engine.ObservationFailures(); failures != (ObservationFailures{}) {
+		t.Fatalf("nil Engine observation failures = %+v", failures)
+	}
+	if process, exists := engine.Process(newProcessID()); process != nil || exists {
+		t.Fatalf("nil Engine Process = %v, %t", process, exists)
+	}
+	if err := engine.Close(t.Context()); !errors.Is(err, ErrInvalidEngineConfig) {
+		t.Fatalf("nil Engine Close = %v, want ErrInvalidEngineConfig", err)
+	}
+}
+
 func TestEngineCloseCancellationLeavesOwnedShutdownJoinable(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		entered, release := make(chan struct{}), make(chan struct{})

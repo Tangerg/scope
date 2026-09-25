@@ -31,15 +31,16 @@ func materializedAdmissionSize(p processSnapshotWire) (uint64, error) {
 				}
 			}
 		}
-		// JSON encodes '<' as six bytes (\u003c), the maximum expansion per UTF-8
+		// JSON encodes NUL as six bytes (\u0000), the maximum expansion per UTF-8
 		// byte. Current and pending control fields reserve independently, including
 		// a Step pause racing a Host pause.
 		reason := strings.Repeat("\x00", maxTerminationReasonBytes)
-		p.PauseReason = reason
+		pauseReason := strings.Repeat("\x00", maxPauseReasonBytes)
+		p.PauseReason = pauseReason
 		p.Status = StatusRunning
 		p.Counters.DroppedDeltas = ^uint64(0)
 		p.PendingControl = pendingControlWire{
-			Failure: &failure, KillReason: reason, PauseReason: reason,
+			Failure: &failure, KillReason: reason, PauseReason: pauseReason,
 			DeadlineOwner: deadlineOwnerParent, DeadlineReason: reason,
 			CancellationOwner: cancellationOwnerParent, CancellationReason: reason,
 		}

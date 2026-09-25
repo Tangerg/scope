@@ -451,53 +451,6 @@ func TestPackageNamesDescribeTheirDirectories(t *testing.T) {
 	}
 }
 
-func TestRetiredLayoutsCannotReturn(t *testing.T) {
-	t.Parallel()
-	root := repositoryRoot(t)
-	for _, relative := range []string{
-		"go.mod",
-		"chatclient",
-		"embeddingclient",
-		"tool",
-		"tokenizer",
-		"tools/fakeweather",
-		"tools/webfetch",
-		"tools/websearch",
-		"tools/httpreq/go.mod",
-		"tools/skills/go.mod",
-		"vectorstores/inmemory",
-		"models/go.mod",
-		"models/internal",
-		"documentpipeline",
-		"documentreaders",
-		"etl/markdown/go.mod",
-		"history",
-		"evaluation",
-		"evals",
-		"rag/evaluation",
-		"rag/eval",
-		"otel/evaluation",
-		"otel/evals",
-		"internal/historykit",
-		"internal/repoarch",
-		"internal/vectorstorekit",
-		"internal/vectorstorepg",
-		"models/google/internal/options",
-		"models/protocol/openai/internal/options",
-		"tools/function",
-		"tools/internal/schema",
-		"vectorstores/cockroachdb",
-		"vectorstores/pgvector",
-		"vectorstores/storetest",
-	} {
-		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(relative))); err == nil {
-			t.Errorf("retired layout %s has returned", relative)
-		} else if !os.IsNotExist(err) {
-			t.Errorf("inspect retired layout %s: %v", relative, err)
-		}
-	}
-}
-
 func discoverModules(t *testing.T, root string) map[string]repositoryModule {
 	t.Helper()
 	modules := make(map[string]repositoryModule)

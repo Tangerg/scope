@@ -4,8 +4,8 @@ package agent
 // enters the projection. The byte count cannot drift from a separate field count.
 type snapshotTextReservation struct{ growth uint64 }
 
-func (s *snapshotTextReservation) reason() string {
-	s.growth += snapshotReasonGrowth
+func (s *snapshotTextReservation) reason(maxBytes int) string {
+	s.growth += uint64(6*maxBytes - len(snapshotReservationText))
 	return snapshotReservationText
 }
 

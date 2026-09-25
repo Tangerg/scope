@@ -152,6 +152,40 @@ func TestDelegateRejectsNonObjectInputAndToolNameCollision(t *testing.T) {
 
 }
 
+func TestDelegateDescriptionContract(t *testing.T) {
+	child := delegateWorkflow(t, "interaction.description_worker", func(_ context.Context, input delegateRequest) (delegateResponse, error) {
+		return delegateResponse(input), nil
+	})
+	for _, test := range []struct {
+		name        string
+		description string
+		valid       bool
+	}{
+		{name: "unicode", description: "Delegate multilingual work: 你好, café.", valid: true},
+		{name: "ascii byte limit", description: strings.Repeat("a", 4096), valid: true},
+		{name: "multibyte byte limit", description: strings.Repeat("界", 1365) + "a", valid: true},
+		{name: "invalid UTF-8", description: string([]byte{0xff})},
+		{name: "truncated UTF-8", description: string([]byte{0xe7, 0x95})},
+		{name: "above ascii byte limit", description: strings.Repeat("a", 4097)},
+		{name: "above multibyte byte limit", description: strings.Repeat("界", 1365) + "ab"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			delegate, err := interaction.NewDelegate(interaction.DelegateConfig{
+				Name: "worker", Description: test.description, Deployment: child,
+			})
+			if test.valid {
+				if err != nil || !delegate.Valid() {
+					t.Fatalf("NewDelegate with %d description bytes: valid=%v, error=%v", len(test.description), delegate.Valid(), err)
+				}
+				return
+			}
+			if !errors.Is(err, interaction.ErrInvalidDelegate) || delegate.Valid() {
+				t.Fatalf("NewDelegate with %d description bytes: valid=%v, error=%v", len(test.description), delegate.Valid(), err)
+			}
+		})
+	}
+}
+
 func TestManagedDelegateReturnsArgumentAndStartFailuresToModel(t *testing.T) {
 	child := delegateWorkflow(t, "interaction.unavailable_worker", func(_ context.Context, input delegateRequest) (delegateResponse, error) {
 		return delegateResponse(input), nil

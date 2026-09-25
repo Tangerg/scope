@@ -112,12 +112,14 @@ func TestObservedTreeCommitterRecordsAcknowledgedBoundaries(t *testing.T) {
 }
 
 func TestObservedTreeCommitterPreservesErrorsAndRedactsDiagnostics(t *testing.T) {
+	checkpoint := observedCheckpoint(t, "界🙂\n\"\\\x00")
 	for _, test := range []struct {
 		name     string
 		err      error
 		panicked bool
 		outcome  string
 	}{
+		{name: "acknowledged", outcome: "acknowledged"},
 		{name: "response lost", err: errors.New("secret storage connection"), outcome: "unresolved"},
 		{name: "ownership", err: fmt.Errorf("secret storage connection: %w", agent.ErrTreeIncarnationConflict), outcome: "ownership_conflict"},
 		{name: "content", err: fmt.Errorf("secret storage connection: %w", agent.ErrCommitConflict), outcome: "content_conflict"},
@@ -133,7 +135,7 @@ func TestObservedTreeCommitterPreservesErrorsAndRedactsDiagnostics(t *testing.T)
 			var recovered any
 			func() {
 				defer func() { recovered = recover() }()
-				err = observed.CommitCheckpoint(t.Context(), agent.TreeCheckpoint{})
+				err = observed.CommitCheckpoint(t.Context(), checkpoint)
 			}()
 			if next.calls != 1 || !errors.Is(err, test.err) || (recovered != nil) != test.panicked {
 				t.Fatalf("calls=%d error=%v panic=%v", next.calls, err, recovered)
@@ -142,14 +144,61 @@ func TestObservedTreeCommitterPreservesErrorsAndRedactsDiagnostics(t *testing.T)
 				t.Fatal("decorator replaced the adapter panic")
 			}
 			span := spanByName(t, harness.recorder.Ended(), "agent.committer.checkpoint", 0)
-			if stringAttribute(span.Attributes(), "agent.committer.outcome") != test.outcome || span.Status().Code != codes.Error {
+			if stringAttribute(span.Attributes(), "agent.committer.outcome") != test.outcome ||
+				(span.Status().Code == codes.Error) != (test.outcome != "acknowledged") {
 				t.Fatalf("incorrect committer outcome: %v", span.Attributes())
 			}
 			if strings.Contains(fmt.Sprint(span.Attributes(), span.Events(), span.Status()), "secret") {
 				t.Fatal("committer observation exposed adapter diagnostics")
 			}
+			var metrics metricdata.ResourceMetrics
+			if err := harness.reader.Collect(t.Context(), &metrics); err != nil {
+				t.Fatal(err)
+			}
+			sizes := metricByName(t, metrics, "agent.committer.snapshot.size").Data.(metricdata.Histogram[int64])
+			if len(sizes.DataPoints) != 1 {
+				t.Fatalf("snapshot size points=%d, want 1", len(sizes.DataPoints))
+			}
+			point := sizes.DataPoints[0]
+			if point.Count != 1 || point.Sum != int64(len(checkpoint.TreeSnapshot().JSON())) ||
+				stringAttribute(point.Attributes.ToSlice(), "agent.committer.outcome") != test.outcome {
+				t.Fatalf("snapshot measurement=%+v", point)
+			}
 		})
 	}
+}
+
+type checkpointCapture struct {
+	agent.TreeCommitter
+	start agent.TreeCheckpoint
+}
+
+func (c *checkpointCapture) CommitCheckpoint(ctx context.Context, checkpoint agent.TreeCheckpoint) error {
+	if checkpoint.Kind() == agent.TreeCheckpointKindStart {
+		c.start = checkpoint
+	}
+	return c.TreeCommitter.CommitCheckpoint(ctx, checkpoint)
+}
+
+func observedCheckpoint(t testing.TB, value string) agent.TreeCheckpoint {
+	t.Helper()
+	store := &checkpointCapture{TreeCommitter: agent.NewMemoryTreeCommitter()}
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := agent.EncodePayload(testInput{Value: value})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := engine.Run(t.Context(), testDeployment(t), input)
+	if err != nil || result.Status() != agent.StatusCompleted {
+		t.Fatalf("checkpoint fixture status=%s error=%v", result.Status(), err)
+	}
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+	return store.start
 }
 
 type failingObservedDurability struct {

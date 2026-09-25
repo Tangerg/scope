@@ -7,8 +7,10 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-// EffectReference identifies one dispatcher Effect in one runtime activation.
-// TreeIncarnationID is zero for an ephemeral runtime.
+// EffectReference identifies one logical dispatcher Effect in one runtime
+// activation, including every SameIdentity replay attempt. A zero
+// TreeIncarnationID leaves the activation undeclared; Engine-produced requests
+// always carry the active writer incarnation.
 type EffectReference struct {
 	ProcessID         agent.ProcessID         `json:"process_id"`
 	TreeIncarnationID agent.TreeIncarnationID `json:"tree_incarnation_id,omitzero"`
