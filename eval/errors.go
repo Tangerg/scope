@@ -6,6 +6,7 @@ import "errors"
 // boundary without introducing domain-specific error taxonomies.
 var (
 	ErrInvalidEvaluatorConfig = errors.New("eval: evaluator configuration is invalid")
+	ErrInvalidAssessment      = errors.New("eval: invalid assessment")
 	ErrInvalidMetric          = errors.New("eval: invalid metric")
 	ErrInvalidScore           = errors.New("eval: invalid score")
 	ErrInvalidReport          = errors.New("eval: invalid report")
@@ -13,5 +14,5 @@ var (
 	ErrInvalidDataset         = errors.New("eval: invalid dataset")
 	ErrInvalidExperiment      = errors.New("eval: invalid experiment")
 	ErrInvalidComparison      = errors.New("eval: invalid comparison")
-	ErrCaseNotEvaluated       = errors.New("eval: case was not evaluated")
+	ErrNotEvaluated           = errors.New("eval: assessment was not evaluated")
 )

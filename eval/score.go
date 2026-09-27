@@ -3,11 +3,18 @@ package eval
 import (
 	"fmt"
 	"math"
+
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 // Score is a normalized quality score in the closed interval [0, 1], where a
 // higher value is always better.
 type Score float64
+
+const (
+	thresholdPolicy    = "threshold"
+	thresholdParameter = "threshold"
+)
 
 // NewScore rejects non-finite and out-of-range values at construction.
 func NewScore(value float64) (Score, error) {
@@ -28,15 +35,22 @@ func (s Score) Validate() error {
 	return nil
 }
 
-func (s Score) Verdict(threshold Score) (Verdict, error) {
+// Decide applies the higher-is-better threshold without changing the identity
+// of the calculation that produced the Score.
+func (s Score) Decide(threshold Score) (Decision, error) {
 	if err := s.Validate(); err != nil {
-		return VerdictUnspecified, err
+		return Decision{}, err
 	}
 	if err := threshold.Validate(); err != nil {
-		return VerdictUnspecified, fmt.Errorf("eval: threshold: %w", err)
+		return Decision{}, fmt.Errorf("eval: threshold: %w", err)
 	}
+	parameters := metadata.Map{}
+	if err := parameters.Set(thresholdParameter, threshold); err != nil {
+		return Decision{}, fmt.Errorf("eval: threshold identity: %w", err)
+	}
+	decision := Decision{Policy: thresholdPolicy, Parameters: parameters, Verdict: VerdictFail}
 	if s >= threshold {
-		return VerdictPass, nil
+		decision.Verdict = VerdictPass
 	}
-	return VerdictFail, nil
+	return decision, nil
 }

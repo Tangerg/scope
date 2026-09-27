@@ -57,40 +57,46 @@ func TestExecutionConstructorsRejectTypedNilObservers(t *testing.T) {
 
 func TestExecutionObserverFailuresAreCountedAndIsolated(t *testing.T) {
 	dispatcher := &Dispatcher{observer: panickingExecutionObserver{}}
-	dispatcher.observeModel(t.Context(), ModelInvocation{}, &chat.Response{})
+	dispatcher.observeModelStarted(t.Context(), ModelInvocation{}, &chat.Request{})
+	dispatcher.observeModelSettled(t.Context(), ModelInvocation{}, ModelSettlement{Response: &chat.Response{}})
 	tools := &toolDispatcher{observer: panickingExecutionObserver{}}
 	tools.observeToolStarted(t.Context(), ToolInvocation{})
 	tools.observeToolSettled(t.Context(), ToolInvocation{}, ToolSettlement{})
 
 	counts := tools.observationFailures.snapshot()
-	if dispatcher.ObservationFailures().ModelResponsePanics() != 1 ||
+	if dispatcher.ObservationFailures().ModelStartedPanics() != 1 || dispatcher.ObservationFailures().ModelSettledPanics() != 1 ||
 		counts.ToolStartedPanics() != 1 ||
 		counts.ToolSettledPanics() != 1 {
 		t.Fatalf(
 			"observer failures = model %d, tool started %d, tool settled %d, want 1 each",
-			dispatcher.ObservationFailures().ModelResponsePanics(),
+			dispatcher.ObservationFailures().ModelSettledPanics(),
 			counts.ToolStartedPanics(),
 			counts.ToolSettledPanics(),
 		)
 	}
 
-	modelPanic, hasModel := dispatcher.ObservationFailures().LastModelResponsePanic()
+	modelPanic, hasModel := dispatcher.ObservationFailures().LastModelSettledPanic()
+	modelStarted, hasModelStarted := dispatcher.ObservationFailures().LastModelStartedPanic()
 	startedPanic, hasStarted := counts.LastToolStartedPanic()
 	settledPanic, hasSettled := counts.LastToolSettledPanic()
-	if !hasModel || !hasStarted || !hasSettled || modelPanic.Message != "model observer failed" || startedPanic.Message != "tool started observer failed" || settledPanic.Message != "tool settled observer failed" {
+	if !hasModel || !hasModelStarted || modelStarted.Message != "model started observer failed" || !hasStarted || !hasSettled || modelPanic.Message != "model observer failed" || startedPanic.Message != "tool started observer failed" || settledPanic.Message != "tool settled observer failed" {
 		t.Fatal("callback-specific diagnostics were lost")
 	}
 
-	dispatcher.observationFailures.failures.modelResponsePanics = math.MaxUint64
-	dispatcher.observeModel(t.Context(), ModelInvocation{}, &chat.Response{})
-	if got := dispatcher.ObservationFailures().ModelResponsePanics(); got != math.MaxUint64 {
+	dispatcher.observationFailures.failures.modelSettledPanics = math.MaxUint64
+	dispatcher.observeModelSettled(t.Context(), ModelInvocation{}, ModelSettlement{Response: &chat.Response{}})
+	if got := dispatcher.ObservationFailures().ModelSettledPanics(); got != math.MaxUint64 {
 		t.Fatalf("saturated model response panic count = %d", got)
 	}
 }
 
 type panickingExecutionObserver struct{}
 
-func (panickingExecutionObserver) OnModelResponse(context.Context, ModelInvocation, *chat.Response) {
+func (panickingExecutionObserver) OnModelStarted(context.Context, ModelInvocation, *chat.Request) {
+	panic("model started observer failed")
+}
+
+func (panickingExecutionObserver) OnModelSettled(context.Context, ModelInvocation, ModelSettlement) {
 	panic("model observer failed")
 }
 
@@ -106,7 +112,7 @@ func TestObserverPanicDiagnosticsAreBoundedDetachedAndConcurrent(t *testing.T) {
 	processID, _ := agent.ParseProcessID("process:observer")
 	effectID, _ := agent.ParseEffectID("effect:observer")
 	var failures observationFailureCounters
-	if _, present := failures.snapshot().LastModelResponsePanic(); present {
+	if _, present := failures.snapshot().LastModelSettledPanic(); present {
 		t.Fatal("zero report has a diagnostic")
 	}
 	if _, present := failures.snapshot().LastToolStartedPanic(); present {
@@ -118,7 +124,7 @@ func TestObserverPanicDiagnosticsAreBoundedDetachedAndConcurrent(t *testing.T) {
 	var group sync.WaitGroup
 	for range 16 {
 		group.Go(func() {
-			defer failures.recordPanic(toolSettledCallback, panickingExecutionObserver{}, processID, effectID)
+			defer failures.recordPanic(toolSettledCallback, panickingExecutionObserver{}, processID, effectID, agent.EffectAttemptID{})
 			panic(strings.Repeat("x", 5000))
 		})
 	}
@@ -135,7 +141,7 @@ func TestObserverPanicDiagnosticsAreBoundedDetachedAndConcurrent(t *testing.T) {
 	}
 	failures.failures.toolSettledPanics = math.MaxUint64
 	func() {
-		defer failures.recordPanic(toolSettledCallback, panickingExecutionObserver{}, processID, effectID)
+		defer failures.recordPanic(toolSettledCallback, panickingExecutionObserver{}, processID, effectID, agent.EffectAttemptID{})
 		panic("latest")
 	}()
 	latest, _ := failures.snapshot().LastToolSettledPanic()

@@ -14,9 +14,8 @@ import (
 )
 
 const (
-	metricNamespace    = "ranking"
-	metricCutoffKey    = "cutoff"
-	metricThresholdKey = "threshold"
+	metricNamespace = "ranking"
+	metricCutoffKey = "cutoff"
 )
 
 // ErrInvalidSample identifies a ranking or judgment set that cannot define one
@@ -54,15 +53,10 @@ func (m Metric) Validate() error {
 	}
 }
 
-func (m Metric) reportMetric(cutoff int, threshold *eval.Score) (eval.Metric, error) {
+func (m Metric) reportMetric(cutoff int) (eval.Metric, error) {
 	parameters := metadata.Map{}
 	if err := parameters.Set(metricCutoffKey, cutoff); err != nil {
 		return eval.Metric{}, err
-	}
-	if threshold != nil {
-		if err := parameters.Set(metricThresholdKey, threshold); err != nil {
-			return eval.Metric{}, err
-		}
 	}
 	return eval.NewMetric(eval.MetricConfig{
 		Namespace: metricNamespace, Name: eval.MetricName(m), Parameters: parameters,
@@ -302,7 +296,7 @@ func NewEvaluator(config Config) (*Evaluator, error) {
 	if err != nil {
 		return nil, err
 	}
-	reportMetric, err := config.Metric.reportMetric(config.Cutoff, threshold)
+	reportMetric, err := config.Metric.reportMetric(config.Cutoff)
 	if err != nil {
 		return nil, fmt.Errorf("%w: report metric: %w", eval.ErrInvalidEvaluatorConfig, err)
 	}
@@ -326,14 +320,15 @@ func (e *Evaluator) Evaluate(ctx context.Context, sample Sample) (eval.Report, e
 	if err != nil {
 		return eval.Report{}, fmt.Errorf("eval/ranking: calculate %s: %w", e.reportMetric, err)
 	}
-	verdict := eval.VerdictUnspecified
+	var decision *eval.Decision
 	if e.threshold != nil {
-		verdict, err = score.Verdict(*e.threshold)
+		decided, err := score.Decide(*e.threshold)
 		if err != nil {
 			return eval.Report{}, fmt.Errorf("eval/ranking: verdict: %w", err)
 		}
+		decision = &decided
 	}
-	report := eval.Report{Metric: e.reportMetric, Verdict: verdict, Score: &score}
+	report := eval.Report{Metric: e.reportMetric, Decision: decision, Score: &score}
 	if err := report.Validate(); err != nil {
 		return eval.Report{}, err
 	}

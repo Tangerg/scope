@@ -194,6 +194,12 @@ func (l *LocalExecutor) Read(ctx context.Context, in ReadInput) (_ ReadOutput, e
 }
 
 func (l *LocalExecutor) Write(ctx context.Context, in WriteRequest) (_ WriteResponse, err error) {
+	committing := false
+	defer func() {
+		if err != nil && !committing {
+			err = fmt.Errorf("%w: %w", ErrMutationRejected, err)
+		}
+	}()
 	if strings.ContainsRune(in.Content, 0) {
 		return WriteResponse{}, fmt.Errorf("fs.LocalExecutor.Write: %w", ErrBinaryFile)
 	}
@@ -236,6 +242,7 @@ func (l *LocalExecutor) Write(ctx context.Context, in WriteRequest) (_ WriteResp
 	}
 
 	out := restoreFormat(in.Content, hadBOM, hadCRLF)
+	committing = true
 	if err := target.write(ctx, out, mode); err != nil {
 		return WriteResponse{}, err
 	}
@@ -243,6 +250,12 @@ func (l *LocalExecutor) Write(ctx context.Context, in WriteRequest) (_ WriteResp
 }
 
 func (l *LocalExecutor) Edit(ctx context.Context, in EditRequest) (_ EditResponse, err error) {
+	committing := false
+	defer func() {
+		if err != nil && !committing {
+			err = fmt.Errorf("%w: %w", ErrMutationRejected, err)
+		}
+	}()
 	path, err := l.authorize(in.Path, false)
 	if err != nil {
 		return EditResponse{}, err
@@ -269,7 +282,7 @@ func (l *LocalExecutor) Edit(ctx context.Context, in EditRequest) (_ EditRespons
 		return EditResponse{}, err
 	}
 	if looksBinary(data) {
-		return EditResponse{}, fmt.Errorf("%w: %w", ErrEditRejected, ErrBinaryFile)
+		return EditResponse{}, ErrBinaryFile
 	}
 
 	content, hadBOM, hadCRLF := normalizeText(data)
@@ -279,7 +292,7 @@ func (l *LocalExecutor) Edit(ctx context.Context, in EditRequest) (_ EditRespons
 		ReplaceAll: in.ReplaceAll,
 	}).apply(content, in.Path)
 	if err != nil {
-		return EditResponse{}, fmt.Errorf("%w: %w", ErrEditRejected, err)
+		return EditResponse{}, err
 	}
 
 	info, err := root.Stat(path)
@@ -289,6 +302,7 @@ func (l *LocalExecutor) Edit(ctx context.Context, in EditRequest) (_ EditRespons
 	mode := new(info.Mode().Perm())
 
 	out := restoreFormat(updated, hadBOM, hadCRLF)
+	committing = true
 	if err := target.write(ctx, out, mode); err != nil {
 		return EditResponse{}, err
 	}
@@ -422,6 +436,12 @@ func (l *LocalExecutor) Glob(ctx context.Context, in GlobRequest) (_ GlobRespons
 }
 
 func (l *LocalExecutor) ApplyPatch(ctx context.Context, in ApplyPatchRequest) (_ ApplyPatchResponse, err error) {
+	committing := false
+	defer func() {
+		if err != nil && !committing {
+			err = fmt.Errorf("%w: %w", ErrMutationRejected, err)
+		}
+	}()
 	parsed, err := parseUnifiedPatch(in.Patch)
 	if err != nil {
 		return ApplyPatchResponse{}, err
@@ -475,6 +495,7 @@ func (l *LocalExecutor) ApplyPatch(ctx context.Context, in ApplyPatchRequest) (_
 		if err := ctx.Err(); err != nil {
 			return out, err
 		}
+		committing = true
 		result, err := file.commit(ctx)
 		if result.Path != "" {
 			out.Files = append(out.Files, result)

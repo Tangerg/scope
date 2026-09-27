@@ -4,4 +4,8 @@
 //
 // The allowlist is mandatory — there is no "allow all" mode. Callers
 // MUST enumerate the hosts the LLM is permitted to reach.
+// An interrupted response remains an error. Received status, headers, and body
+// bytes are preserved as core/tool.CallError evidence, not a complete tool result.
+// Body and header values use content.Content; UTF-8 text is readable and binary
+// data, partial characters, and HTTP obs-text remain lossless.
 package httpreq

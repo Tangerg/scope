@@ -68,16 +68,16 @@ func NewLocalExecutor(config LocalConfig) (*LocalExecutor, error) {
 
 func (l *LocalExecutor) Run(ctx context.Context, in Input) (Output, error) {
 	if l == nil {
-		return Output{}, ErrNilExecutor
+		return Output{ExitCode: -1}, ErrNilExecutor
 	}
 	if l.directory == "" || l.shell == "" || l.maxBytesPerStream <= 0 {
-		return Output{}, ErrInvalidConfig
+		return Output{ExitCode: -1}, ErrInvalidConfig
 	}
 	if strings.TrimSpace(in.Cmd) == "" {
-		return Output{}, ErrEmptyCommand
+		return Output{ExitCode: -1}, ErrEmptyCommand
 	}
 	if in.Timeout < 0 {
-		return Output{}, fmt.Errorf("%w: timeout must not be negative", ErrInvalidInput)
+		return Output{ExitCode: -1}, fmt.Errorf("%w: timeout must not be negative", ErrInvalidInput)
 	}
 
 	runCtx := ctx
@@ -90,7 +90,7 @@ func (l *LocalExecutor) Run(ctx context.Context, in Input) (Output, error) {
 	cmd := exec.CommandContext(runCtx, l.shell, shellCommandFlag, in.Cmd)
 	cmd.Dir = l.directory
 	if err := configureProcessGroup(cmd); err != nil {
-		return Output{}, err
+		return Output{ExitCode: -1}, err
 	}
 	// Escaped descendants cannot keep inherited pipes alive indefinitely.
 	cmd.WaitDelay = pipeCloseDelay
@@ -106,21 +106,23 @@ func (l *LocalExecutor) Run(ctx context.Context, in Input) (Output, error) {
 	duration := time.Since(start)
 
 	out := Output{
-		Stdout:   stdout.finalize(),
-		Stderr:   stderr.finalize(),
-		Duration: duration,
+		Stdout:               stdout.finalize(),
+		Stderr:               stderr.finalize(),
+		StdoutTruncated:      stdout.dropped != 0,
+		StderrTruncated:      stderr.dropped != 0,
+		ExitCode:             -1,
+		Duration:             duration,
+		CancellationObserved: runCtx.Err() != nil,
+	}
+	if cmd.ProcessState != nil {
+		out.ExitCode = cmd.ProcessState.ExitCode()
 	}
 
 	if err != nil {
-		exitErr, ok := errors.AsType[*exec.ExitError](err)
+		_, ok := errors.AsType[*exec.ExitError](err)
 		if !ok {
 			return out, errors.Join(err, cleanupErr)
 		}
-		out.ExitCode = exitErr.ExitCode()
-	}
-
-	if runCtx.Err() != nil {
-		out.CancellationObserved = true
 	}
 	return out, cleanupErr
 }

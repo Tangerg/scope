@@ -111,8 +111,8 @@ func TestStreamPreservesKnownUsageWithoutCompleteContent(t *testing.T) {
 	attributes := spanAttributes(t, rig.spans.Ended()[0])
 	assertStringAttr(t, attributes, "gen_ai.response.model", "served-model")
 	assertStringAttr(t, attributes, "error.type", "*errors.errorString")
-	if got := attributes["gen_ai.response.finish_reasons"].AsStringSlice(); !slices.Equal(got, []string{"error"}) {
-		t.Errorf("finish reasons = %v, want [error]", got)
+	if _, found := attributes["gen_ai.response.finish_reasons"]; found {
+		t.Error("unobserved provider finish reason must be absent")
 	}
 	for key, want := range map[string]int64{
 		"gen_ai.usage.input_tokens": 9, "gen_ai.usage.output_tokens": 3,

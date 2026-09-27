@@ -55,6 +55,7 @@ const (
 	stepSequenceAttribute         attribute.Key = "agent.step.sequence"
 	stepStatusAttribute           attribute.Key = "agent.step.status"
 	effectIDAttribute             attribute.Key = "agent.effect.id"
+	effectAttemptIDAttribute      attribute.Key = "agent.effect.attempt_id"
 	effectTargetAttribute         attribute.Key = "agent.effect.target"
 	effectStatusAttribute         attribute.Key = "agent.effect.status"
 	eventPhaseAttribute           attribute.Key = "agent.event.phase"
@@ -584,6 +585,7 @@ func (o *Observer) startEffect(ctx context.Context, event agent.Event) {
 		processAttributes(event),
 		processActivationAttribute.String(string(process.activation)),
 		effectIDAttribute.String(effectID.String()),
+		effectAttemptIDAttribute.String(fact.AttemptID().String()),
 		effectTargetAttribute.String(fact.Target().String()),
 	)
 	_, span := o.tracer.Start(
@@ -621,16 +623,20 @@ func (o *Observer) finishEffect(ctx context.Context, event agent.Event) {
 		effectTargetAttribute.String(fact.Target().String()),
 		effectStatusAttribute.String(fact.SettlementStatus().String()),
 	)
+	if failureKind, failureCode, failed := fact.FailureClassification(); failed {
+		metricAttributes = append(metricAttributes,
+			processFailureKindAttribute.String(string(failureKind)),
+			processFailureCodeAttribute.String(failureCode),
+		)
+	}
 	o.instruments.effectDuration.Record(
 		ctx, fact.Duration().Seconds(), metric.WithAttributes(metricAttributes...),
 	)
 	if !found {
 		return
 	}
-	record.SetAttributes(
-		effectTargetAttribute.String(fact.Target().String()),
-		effectStatusAttribute.String(fact.SettlementStatus().String()),
-	)
+	record.SetAttributes(metricAttributes...)
+	record.SetAttributes(effectAttemptIDAttribute.String(fact.AttemptID().String()))
 	if fact.SettlementStatus() != agent.SettlementStatusSucceeded {
 		recordSpanFailure(record, effectFactError{
 			target: fact.Target(), settlement: fact.SettlementStatus(),
@@ -666,6 +672,15 @@ func (o *Observer) addProcessEvent(event agent.Event) {
 	}
 	if effectID, ok := event.EffectID(); ok {
 		attributes = append(attributes, effectIDAttribute.String(effectID.String()))
+	}
+	if fact, ok := event.EffectResolved(); ok {
+		attributes = append(attributes,
+			effectTargetAttribute.String(fact.Target().String()),
+			effectStatusAttribute.String(fact.SettlementStatus().String()),
+		)
+	}
+	if fact, ok := event.DeltaDropped(); ok {
+		attributes = append(attributes, effectAttemptIDAttribute.String(fact.AttemptID().String()))
 	}
 	record.span.AddEvent(
 		event.Name(), trace.WithTimestamp(event.OccurredAt()), trace.WithAttributes(attributes...),

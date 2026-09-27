@@ -740,7 +740,7 @@ func (e *execution) scheduleToolChildren(ctx context.Context, consumed uint32) (
 		}
 		index := batch.NextStartIndex
 		call := calls[index]
-		key, keyErr := toolChildKey(e.state.ModelCallCount, call)
+		key, keyErr := ToolChildKey(e.state.ModelCallCount, call)
 		if keyErr != nil {
 			return agent.Transition{}, keyErr
 		}

@@ -24,13 +24,13 @@ func comparisonReport(t *testing.T, parameters string, fail bool) eval.Experimen
 	}
 	experiment, err := eval.NewExperiment(eval.ExperimentConfig[int]{
 		Dataset: dataset,
-		Evaluator: eval.EvaluatorFunc[int](func(context.Context, int) (eval.Report, error) {
+		Suite: testSuite(t, eval.EvaluatorFunc[int](func(context.Context, int) (eval.Report, error) {
 			if fail {
 				return eval.Report{}, errors.New("evaluation failed")
 			}
 			score := eval.Score(1)
-			return eval.Report{Metric: metric, Score: &score, Verdict: eval.VerdictPass}, nil
-		}),
+			return eval.Report{Metric: metric, Score: &score, Decision: &eval.Decision{Policy: "test", Verdict: eval.VerdictPass}}, nil
+		})),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -67,6 +67,15 @@ func TestComparisonRetainsExecutionFailuresAndMissingMetrics(t *testing.T) {
 				metric.ScoreDelta.Present || metric.MeasurementDelta.Present || metric.EvaluatedDelta != -test.errors {
 				t.Fatalf("missing metric comparison = %#v", metric)
 			}
+			missingScore := eval.DistributionDelta{CandidateOnly: 1}
+			missingDecision := eval.DecisionDelta{CandidateOnly: 1}
+			if test.baselinePresent {
+				missingScore = eval.DistributionDelta{BaselineOnly: 1}
+				missingDecision = eval.DecisionDelta{BaselineOnly: 1}
+			}
+			if metric.ScoreDelta != missingScore || metric.DecisionDelta != missingDecision {
+				t.Fatalf("missing observations = (%+v, %+v), want (%+v, %+v)", metric.ScoreDelta, metric.DecisionDelta, missingScore, missingDecision)
+			}
 		})
 	}
 }
@@ -82,9 +91,9 @@ func TestComparisonRetainsUnjudgedMetricsWithoutNumericObservations(t *testing.T
 	}
 	experiment, err := eval.NewExperiment(eval.ExperimentConfig[int]{
 		Dataset: dataset,
-		Evaluator: eval.EvaluatorFunc[int](func(context.Context, int) (eval.Report, error) {
+		Suite: testSuite(t, eval.EvaluatorFunc[int](func(context.Context, int) (eval.Report, error) {
 			return eval.Report{Metric: metric, Feedback: "insufficient evidence for a verdict"}, nil
-		}),
+		})),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -145,9 +154,9 @@ func TestComparisonRequiresTheSameFixture(t *testing.T) {
 		if datasetErr != nil {
 			t.Fatal(datasetErr)
 		}
-		experiment, experimentErr := eval.NewExperiment(eval.ExperimentConfig[int]{Dataset: dataset, Evaluator: eval.EvaluatorFunc[int](func(context.Context, int) (eval.Report, error) {
-			return eval.Report{Metric: metric, Verdict: eval.VerdictPass}, nil
-		})})
+		experiment, experimentErr := eval.NewExperiment(eval.ExperimentConfig[int]{Dataset: dataset, Suite: testSuite(t, eval.EvaluatorFunc[int](func(context.Context, int) (eval.Report, error) {
+			return eval.Report{Metric: metric, Decision: &eval.Decision{Policy: "test", Verdict: eval.VerdictPass}}, nil
+		}))})
 		if experimentErr != nil {
 			t.Fatal(experimentErr)
 		}
@@ -164,5 +173,137 @@ func TestComparisonRequiresTheSameFixture(t *testing.T) {
 	}
 	if _, compareErr := baseline.Compare(run("original-fixture", 1)); compareErr != nil {
 		t.Fatal(compareErr)
+	}
+}
+
+func TestComparisonPairsCasesWhenSuccessfulCoverageChanges(t *testing.T) {
+	evaluationError := errors.New("evaluation unavailable")
+	metric := testMetric("quality")
+	run := func(t *testing.T, failedCase eval.CaseID, reverse bool) eval.ExperimentReport {
+		t.Helper()
+		cases := []eval.Case[eval.CaseID]{{ID: "A", Subject: "A"}, {ID: "B", Subject: "B"}}
+		if reverse {
+			cases[0], cases[1] = cases[1], cases[0]
+		}
+		dataset, datasetErr := eval.NewDataset("fixed-pairing-fixture", cases...)
+		if datasetErr != nil {
+			t.Fatal(datasetErr)
+		}
+		suite := testSuite(t, eval.EvaluatorFunc[eval.CaseID](func(_ context.Context, id eval.CaseID) (eval.Report, error) {
+			if id == failedCase {
+				return eval.Report{}, evaluationError
+			}
+			score := eval.Score(0)
+			if id == "B" {
+				score = 1
+			}
+			measurement := score.Float64() * 10
+			decision, err := score.Decide(0.5)
+			if err != nil {
+				return eval.Report{}, err
+			}
+			return eval.Report{Metric: metric, Score: &score, Measurement: &measurement, Decision: &decision}, nil
+		}))
+		experiment, err := eval.NewExperiment(eval.ExperimentConfig[eval.CaseID]{Dataset: dataset, Suite: suite})
+		if err != nil {
+			t.Fatal(err)
+		}
+		report, err := experiment.Run(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return report
+	}
+	for _, test := range []struct {
+		name                              string
+		baselineFailure, candidateFailure eval.CaseID
+		baselineMean, candidateMean       float64
+		baselineCount, candidateCount     int
+		errorDelta                        int
+		delta                             eval.DistributionDelta
+		decisions                         eval.DecisionDelta
+	}{
+		{
+			name: "coverage loss", candidateFailure: "A", baselineMean: 0.5, candidateMean: 1,
+			baselineCount: 2, candidateCount: 1, errorDelta: 1,
+			delta:     eval.DistributionDelta{Present: true, Matched: 1, BaselineOnly: 1},
+			decisions: eval.DecisionDelta{Matched: 1, BaselineOnly: 1},
+		},
+		{
+			name: "coverage recovery", baselineFailure: "A", baselineMean: 1, candidateMean: 0.5,
+			baselineCount: 1, candidateCount: 2, errorDelta: -1,
+			delta:     eval.DistributionDelta{Present: true, Matched: 1, CandidateOnly: 1},
+			decisions: eval.DecisionDelta{Matched: 1, CandidateOnly: 1},
+		},
+		{
+			name: "disjoint successes", baselineFailure: "B", candidateFailure: "A", candidateMean: 1,
+			baselineCount: 1, candidateCount: 1,
+			delta:     eval.DistributionDelta{BaselineOnly: 1, CandidateOnly: 1},
+			decisions: eval.DecisionDelta{BaselineOnly: 1, CandidateOnly: 1},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			baseline := run(t, test.baselineFailure, false)
+			candidate := run(t, test.candidateFailure, true)
+			comparison, err := baseline.Compare(candidate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if comparison.Baseline.Total != 2 || comparison.Candidate.Total != 2 || comparison.ErrorDelta != test.errorDelta ||
+				comparison.EvaluatedDelta != -test.errorDelta || len(comparison.Metrics) != 1 {
+				t.Fatalf("execution coverage = %+v", comparison)
+			}
+			compared := comparison.Metrics[0]
+			if compared.AssessmentID != "evaluation" || compared.Baseline == nil || compared.Candidate == nil ||
+				compared.Baseline.Scores.Count != test.baselineCount || compared.Candidate.Scores.Count != test.candidateCount ||
+				compared.Baseline.Scores.Mean != test.baselineMean || compared.Candidate.Scores.Mean != test.candidateMean ||
+				compared.Baseline.Measurements.Mean != test.baselineMean*10 || compared.Candidate.Measurements.Mean != test.candidateMean*10 {
+				t.Fatalf("independent distributions = %+v", compared)
+			}
+			if compared.ScoreDelta != test.delta || compared.MeasurementDelta != test.delta || compared.DecisionDelta != test.decisions {
+				t.Fatalf("paired observations = (%+v, %+v, %+v), want (%+v, %+v, %+v)",
+					compared.ScoreDelta, compared.MeasurementDelta, compared.DecisionDelta, test.delta, test.delta, test.decisions)
+			}
+		})
+	}
+}
+
+func TestComparisonSeparatesDecisionPolicyFromNumericMeasurement(t *testing.T) {
+	dataset, datasetErr := eval.NewDataset("fixed-threshold-fixture", eval.Case[string]{ID: "same", Subject: "answer"})
+	if datasetErr != nil {
+		t.Fatal(datasetErr)
+	}
+	metric := testMetric("quality")
+	run := func(threshold eval.Score) eval.ExperimentReport {
+		t.Helper()
+		suite := testSuite(t, eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
+			score := eval.Score(0.5)
+			decision, err := score.Decide(threshold)
+			if err != nil {
+				return eval.Report{}, err
+			}
+			return eval.Report{Metric: metric, Score: &score, Decision: &decision}, nil
+		}))
+		experiment, err := eval.NewExperiment(eval.ExperimentConfig[string]{Dataset: dataset, Suite: suite})
+		if err != nil {
+			t.Fatal(err)
+		}
+		report, err := experiment.Run(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return report
+	}
+	comparison, err := run(0.4).Compare(run(0.6))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comparison.Metrics) != 1 || comparison.Baseline.Passed != 1 || comparison.Candidate.Failed != 1 {
+		t.Fatalf("changed threshold erased original outcomes: %+v", comparison)
+	}
+	compared := comparison.Metrics[0]
+	if compared.ScoreDelta != (eval.DistributionDelta{Present: true, Matched: 1}) ||
+		compared.DecisionDelta != (eval.DecisionDelta{Incompatible: 1}) {
+		t.Fatalf("threshold comparison = %+v", compared)
 	}
 }

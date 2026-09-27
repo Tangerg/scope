@@ -15,7 +15,29 @@ import (
 const (
 	exceptionEvent      = "exception"
 	genAIExceptionEvent = "gen_ai.client.operation.exception"
+	panicClassification = "panic"
 )
+
+type panicError struct{}
+
+func (panicError) Error() string { return panicClassification }
+
+func (panicError) ErrorType() string { return panicClassification }
+
+// Finish must be deferred directly by the call boundary before invoking its
+// delegate. A panic is observed without inspecting its value, then propagated
+// unchanged. The caller's returned error remains owned by the delegate.
+func Finish(err *error, record func(error)) {
+	panicked := recover()
+	observedError := *err
+	if panicked != nil {
+		observedError = panicError{}
+	}
+	record(observedError)
+	if panicked != nil {
+		panic(panicked)
+	}
+}
 
 // Record accepts only a stable classification so raw provider messages cannot
 // reach span status or exception attributes through this boundary.

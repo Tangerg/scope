@@ -53,9 +53,9 @@ func measurementReport(t *testing.T, measurement float64) eval.ExperimentReport 
 	}
 	experiment, err := eval.NewExperiment(eval.ExperimentConfig[int]{
 		Dataset: dataset,
-		Evaluator: eval.EvaluatorFunc[int](func(context.Context, int) (eval.Report, error) {
+		Suite: testSuite(t, eval.EvaluatorFunc[int](func(context.Context, int) (eval.Report, error) {
 			return eval.Report{Metric: testMetric("measurement"), Measurement: &measurement}, nil
-		}),
+		})),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -136,9 +136,9 @@ func TestExperimentSummarizesFiniteMeasurements(t *testing.T) {
 			}
 			experiment, err := eval.NewExperiment(eval.ExperimentConfig[float64]{
 				Dataset: dataset,
-				Evaluator: eval.EvaluatorFunc[float64](func(_ context.Context, value float64) (eval.Report, error) {
+				Suite: testSuite(t, eval.EvaluatorFunc[float64](func(_ context.Context, value float64) (eval.Report, error) {
 					return eval.Report{Metric: testMetric("measurement"), Measurement: &value}, nil
-				}),
+				})),
 			})
 			if err != nil {
 				t.Fatal(err)

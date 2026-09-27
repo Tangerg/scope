@@ -19,6 +19,7 @@ import (
 // checkpoints are Framework progress and add no external operation to coverage.
 func interactionCoverage(events []agent.Event) *trajectory.Coverage {
 	coverage := &trajectory.Coverage{}
+	seen := make(map[trajectory.EffectReference]bool)
 	for _, event := range events {
 		fact, started := event.EffectStarted()
 		if !started || fact.Target() != agent.EffectTargetDispatcher {
@@ -27,6 +28,10 @@ func interactionCoverage(events []agent.Event) *trajectory.Coverage {
 		id, _ := event.EffectID()
 		incarnation, _ := event.TreeIncarnationID()
 		reference := trajectory.EffectReference{ProcessID: event.ProcessID(), TreeIncarnationID: incarnation, EffectID: id}
+		if seen[reference] {
+			continue
+		}
+		seen[reference] = true
 		if event.Relation().IsRoot() {
 			coverage.Models = append(coverage.Models, reference)
 		} else {
@@ -73,7 +78,11 @@ func TestCoverageClassifiesEffectsWithinOneDeployment(t *testing.T) {
 		t.Run(sample.name, func(t *testing.T) {
 			config := trajectoryConfig(recorded)
 			sample.change(config.Coverage)
-			if _, err := trajectory.New(config); !errors.Is(err, sample.want) {
+			candidate, err := trajectory.New(config)
+			if err == nil {
+				_, err = candidate.TotalTokens()
+			}
+			if !errors.Is(err, sample.want) {
 				t.Fatalf("classification error = %v, want %v", err, sample.want)
 			}
 		})
@@ -108,8 +117,14 @@ func TestCoveragePreservesExactlyOneSemanticObservationPerEffect(t *testing.T) {
 		t.Run(sample.name, func(t *testing.T) {
 			config := trajectoryConfig(recorded)
 			sample.change(&config)
-			if _, err := trajectory.New(config); !errors.Is(err, trajectory.ErrIncompleteRecording) {
-				t.Fatalf("semantic coverage = %v, want ErrIncompleteRecording", err)
+			candidate, err := trajectory.New(config)
+			want := trajectory.ErrInvalidTrajectory
+			if err == nil {
+				_, err = candidate.TotalTokens()
+				want = trajectory.ErrIncompleteRecording
+			}
+			if !errors.Is(err, want) {
+				t.Fatalf("semantic coverage = %v, want %v", err, want)
 			}
 		})
 	}
@@ -237,7 +252,11 @@ func TestRecorderCoverageClassifiesSameIdentityReplaysOnce(t *testing.T) {
 				}
 				config := trajectoryConfig(recorded)
 				config.Coverage = &trajectory.Coverage{}
-				if _, coverageErr := trajectory.New(config); !errors.Is(coverageErr, trajectory.ErrIncompleteRecording) {
+				empty, err := trajectory.New(config)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, coverageErr := empty.TotalTokens(); !errors.Is(coverageErr, trajectory.ErrIncompleteRecording) {
 					t.Fatalf("empty coverage for replayed Effect = %v", coverageErr)
 				}
 				config.Coverage = nil

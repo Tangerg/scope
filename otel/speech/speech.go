@@ -126,11 +126,11 @@ func (m Middleware) Wrap(next corespeech.Model) (corespeech.Model, error) {
 	if lo.IsNil(next) {
 		return nil, fmt.Errorf("%w: value must not be nil", ErrInvalidModel)
 	}
-	return corespeech.ModelFunc(func(ctx context.Context, request *corespeech.Request) (*corespeech.Response, error) {
+	return corespeech.ModelFunc(func(ctx context.Context, request *corespeech.Request) (response *corespeech.Response, err error) {
 		ctx, observation := m.start(ctx, request, false)
-		response, err := next.Call(ctx, request)
+		defer errortelemetry.Finish(&err, func(observedError error) { observation.finish(observedError) })
+		response, err = next.Call(ctx, request)
 		observation.observeResponse(response)
-		observation.finish(err)
 		return response, err
 	}), nil
 }
@@ -148,7 +148,7 @@ func (m Middleware) WrapStream(next corespeech.Streamer) (corespeech.Streamer, e
 		return func(yield func(*corespeech.Response, error) bool) {
 			spanCtx, observation := m.start(ctx, request, true)
 			var streamErr error
-			defer func() { observation.finish(streamErr) }()
+			defer errortelemetry.Finish(&streamErr, func(observedError error) { observation.finish(observedError) })
 			for response, err := range next.Stream(spanCtx, request) {
 				observation.observeChunk(response)
 				streamErr = err

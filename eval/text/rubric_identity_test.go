@@ -29,11 +29,19 @@ func TestComparisonSeparatesDifferentRubrics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	baseline, err := eval.NewExperiment(eval.ExperimentConfig[texteval.AnswerRelevanceSample]{Dataset: dataset, Evaluator: left})
+	leftSuite, err := eval.NewSuite(eval.SuiteConfig[texteval.AnswerRelevanceSample]{Assessments: []eval.Assessment[texteval.AnswerRelevanceSample]{{ID: "relevance", Evaluator: left}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidate, err := eval.NewExperiment(eval.ExperimentConfig[texteval.AnswerRelevanceSample]{Dataset: dataset, Evaluator: right})
+	rightSuite, err := eval.NewSuite(eval.SuiteConfig[texteval.AnswerRelevanceSample]{Assessments: []eval.Assessment[texteval.AnswerRelevanceSample]{{ID: "relevance", Evaluator: right}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline, err := eval.NewExperiment(eval.ExperimentConfig[texteval.AnswerRelevanceSample]{Dataset: dataset, Suite: leftSuite})
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := eval.NewExperiment(eval.ExperimentConfig[texteval.AnswerRelevanceSample]{Dataset: dataset, Suite: rightSuite})
 	if err != nil {
 		t.Fatal(err)
 	}

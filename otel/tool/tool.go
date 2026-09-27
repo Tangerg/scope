@@ -107,7 +107,7 @@ func (i *instrumentedTool) Definition() chat.ToolDefinition {
 
 func (i *instrumentedTool) Unwrap() coretool.Tool { return i.next }
 
-func (i *instrumentedTool) Call(ctx context.Context, invocation coretool.Invocation) (chat.ToolOutput, error) {
+func (i *instrumentedTool) Call(ctx context.Context, invocation coretool.Invocation) (result chat.ToolOutput, err error) {
 	attributes := []attribute.KeyValue{
 		semconv.GenAIOperationNameExecuteTool,
 		semconv.GenAIToolName(i.definition.Name),
@@ -121,20 +121,21 @@ func (i *instrumentedTool) Call(ctx context.Context, invocation coretool.Invocat
 		trace.WithTimestamp(startedAt),
 		trace.WithAttributes(attributes...),
 	)
-	result, err := i.next.Call(ctx, invocation)
-	finishedAt := time.Now()
-	if err != nil {
-		errorType := errorTypeAttribute(err)
-		errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
-		attributes = append(attributes, errorType)
-	}
-	span.End(trace.WithTimestamp(finishedAt))
-	i.middleware.duration.Record(
-		ctx,
-		finishedAt.Sub(startedAt).Seconds(),
-		metric.WithAttributes(attributes...),
-	)
-	return result, err
+	defer errortelemetry.Finish(&err, func(observedError error) {
+		finishedAt := time.Now()
+		defer span.End(trace.WithTimestamp(finishedAt))
+		if observedError != nil {
+			errorType := errorTypeAttribute(observedError)
+			errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
+			attributes = append(attributes, errorType)
+		}
+		i.middleware.duration.Record(
+			ctx,
+			finishedAt.Sub(startedAt).Seconds(),
+			metric.WithAttributes(attributes...),
+		)
+	})
+	return i.next.Call(ctx, invocation)
 }
 
 func errorTypeAttribute(err error) attribute.KeyValue {

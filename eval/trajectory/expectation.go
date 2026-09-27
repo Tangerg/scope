@@ -8,11 +8,15 @@ import (
 	"time"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/eval"
 )
 
 // ToolSequence makes an exact ordered Tool-call assertion explicit. A nil
 // *ToolSequence skips the assertion; a non-nil empty sequence asserts no calls.
+// Order follows semantic process paths; Interaction children use their model
+// call position and Tool index, and repeated calls retain process-local dispatch
+// order. This is not cross-process causal order. Full history is required.
 type ToolSequence struct {
 	Calls []ToolExpectation `json:"calls"`
 }
@@ -33,7 +37,11 @@ func (t ToolSequence) report(actual []ToolCall) (eval.Report, error) {
 			feedback = fmt.Sprintf("Tool call %d did not match its expected name, arguments, or outcome", index)
 		}
 	}
-	return binaryReport(MetricToolCalls, passed, feedback)
+	parameters := metadata.Map{}
+	if err := parameters.Set("expected", t); err != nil {
+		return eval.Report{}, err
+	}
+	return binaryReport(MetricToolCalls, passed, feedback, parameters)
 }
 
 // ToolArguments is one exact semantic JSON argument assertion. Its empty value
@@ -53,6 +61,9 @@ func (t ToolArguments) Validate() error {
 // and Outcome are omissible so a sample can pin the part of the behavior it
 // cares about without freezing the rest; an expectation that had to state every
 // field would break on unrelated prompt or model changes and stop being run.
+// An unknown actual outcome cannot decide an assertion requiring a definite
+// outcome and returns ErrIncompleteRecording. Explicitly expecting Unknown is
+// supported; a known name or argument mismatch remains a definite mismatch.
 type ToolExpectation struct {
 	Name      string         `json:"name"`
 	Arguments *ToolArguments `json:"arguments,omitzero"`
@@ -90,6 +101,9 @@ func (t ToolExpectation) matches(actual ToolCall) (bool, error) {
 		if !bytes.Equal(actualArguments, expectedArguments) {
 			return false, nil
 		}
+	}
+	if actual.Outcome == ToolOutcomeUnknown && t.Outcome != ToolOutcomeInvalid && t.Outcome != ToolOutcomeUnknown {
+		return false, fmt.Errorf("%w: Tool outcome is unknown; expected %s", ErrIncompleteRecording, t.Outcome)
 	}
 	return t.Outcome == ToolOutcomeInvalid || actual.Outcome == t.Outcome, nil
 }
@@ -268,6 +282,9 @@ func (s Sample) Validate() error {
 }
 
 func (s Sample) outcomeReport() (eval.Report, error) {
+	if !s.Actual.termination.Valid() {
+		return eval.Report{}, fmt.Errorf("%w: root result is unknown", ErrIncompleteRecording)
+	}
 	passed := s.Actual.termination.Status() == s.Expected.Status
 	feedback := "terminal status matched"
 	if !passed {
@@ -285,5 +302,14 @@ func (s Sample) outcomeReport() (eval.Report, error) {
 			feedback = "terminal output differed from the expected value"
 		}
 	}
-	return binaryReport(MetricExpectedOutcome, passed, feedback)
+	parameters := metadata.Map{}
+	if err := parameters.Set("status", s.Expected.Status); err != nil {
+		return eval.Report{}, err
+	}
+	if !s.Expected.Output.IsZero() {
+		if err := parameters.Set("output", s.Expected.Output); err != nil {
+			return eval.Report{}, err
+		}
+	}
+	return binaryReport(MetricExpectedOutcome, passed, feedback, parameters)
 }

@@ -66,8 +66,8 @@ func TestEditRejectsInvalidReplacementsWithoutChangingFile(t *testing.T) {
 					}
 					diagnostic = failure.Cause()
 				}
-				if !errors.Is(diagnostic, ErrEditRejected) {
-					t.Fatalf("invalid replacement cause = %v, want ErrEditRejected", diagnostic)
+				if !errors.Is(diagnostic, ErrMutationRejected) {
+					t.Fatalf("invalid replacement cause = %v, want ErrMutationRejected", diagnostic)
 				}
 				if test.binary && !errors.Is(diagnostic, ErrBinaryFile) {
 					t.Fatalf("error = %v, want ErrBinaryFile", err)

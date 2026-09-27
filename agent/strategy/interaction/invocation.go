@@ -22,6 +22,7 @@ type ModelInvocation struct {
 	relation              agent.ProcessRelation
 	deploymentRef         agent.DeploymentRef
 	effectID              agent.EffectID
+	attemptID             agent.EffectAttemptID
 	stepSequence          uint64
 	modelCallSequence     uint64
 	appliedSteerSignalIDs []agent.SignalID
@@ -42,6 +43,12 @@ func (m ModelInvocation) DeploymentRef() agent.DeploymentRef {
 
 // EffectID returns the stable model Effect identity.
 func (m ModelInvocation) EffectID() agent.EffectID { return m.effectID }
+
+// AttemptID identifies this physical invocation. Logical requests retained in
+// snapshots have no attempt identity until the Engine dispatches them again.
+func (m ModelInvocation) AttemptID() (agent.EffectAttemptID, bool) {
+	return m.attemptID, m.attemptID.Valid()
+}
 
 // StepSequence returns the one-based Process Step that declared the model Effect.
 func (m ModelInvocation) StepSequence() uint64 { return m.stepSequence }
@@ -83,6 +90,7 @@ type ToolInvocation struct {
 	relation          agent.ProcessRelation
 	deploymentRef     agent.DeploymentRef
 	effectID          agent.EffectID
+	attemptID         agent.EffectAttemptID
 	stepSequence      uint64
 	modelCallSequence uint64
 	toolCallIndex     uint32
@@ -104,6 +112,11 @@ func (t ToolInvocation) DeploymentRef() agent.DeploymentRef {
 
 // EffectID returns the stable identity of this individual Tool Effect.
 func (t ToolInvocation) EffectID() agent.EffectID { return t.effectID }
+
+// AttemptID identifies this physical invocation, when dispatched by the Engine.
+func (t ToolInvocation) AttemptID() (agent.EffectAttemptID, bool) {
+	return t.attemptID, t.attemptID.Valid()
+}
 
 // StepSequence returns the one-based Tool child Step that declared this attempt.
 func (t ToolInvocation) StepSequence() uint64 { return t.stepSequence }
@@ -140,8 +153,10 @@ func modelInvocationFromRequest(
 	appliedSteerSignalIDs []agent.SignalID,
 ) ModelInvocation {
 	incarnation, _ := request.TreeIncarnationID()
+	attempt, _ := request.AttemptID()
 	return ModelInvocation{
 		incarnationID: incarnation,
+		attemptID:     attempt,
 		relation:      request.Relation(), deploymentRef: request.DeploymentRef(),
 		effectID: request.ID(), stepSequence: request.StepSequence(),
 		modelCallSequence:     modelCallSequence,
@@ -156,8 +171,10 @@ func toolInvocationFromRequest(
 	toolCall chat.ToolCall,
 ) ToolInvocation {
 	incarnation, _ := request.TreeIncarnationID()
+	attempt, _ := request.AttemptID()
 	return ToolInvocation{
 		incarnationID: incarnation,
+		attemptID:     attempt,
 		relation:      request.Relation(), deploymentRef: request.DeploymentRef(),
 		effectID: request.ID(), stepSequence: request.StepSequence(),
 		modelCallSequence: modelCallSequence, toolCallIndex: toolCallIndex,

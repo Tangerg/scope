@@ -40,6 +40,11 @@ type Evaluator struct {
 	OutputProjection eval.Projection[agent.Payload, json.RawMessage]
 }
 
+type decisionRule struct {
+	Policy     string       `json:"policy"`
+	Parameters metadata.Map `json:"parameters,omitzero"`
+}
+
 func (e Evaluator) Evaluate(ctx context.Context, sample Sample) (eval.Report, error) {
 	if checkErr := ctx.Err(); checkErr != nil {
 		return eval.Report{}, checkErr
@@ -54,10 +59,17 @@ func (e Evaluator) Evaluate(ctx context.Context, sample Sample) (eval.Report, er
 	}
 	details = append(details, task)
 	if sample.Expected.Tools != nil {
+		if !sample.Actual.HistoryComplete() {
+			return eval.Report{}, fmt.Errorf("%w: Tool history is incomplete", ErrIncompleteRecording)
+		}
 		if checkErr := sample.Actual.validateCoverage(); checkErr != nil {
 			return eval.Report{}, checkErr
 		}
-		tools, toolErr := sample.Expected.Tools.report(sample.Actual.toolCalls)
+		ordered, orderErr := orderSemanticCalls(sample.Actual.rootProcessID, sample.Actual.events, sample.Actual.modelCalls, sample.Actual.toolCalls)
+		if orderErr != nil {
+			return eval.Report{}, orderErr
+		}
+		tools, toolErr := sample.Expected.Tools.report(ordered.tools)
 		if toolErr != nil {
 			return eval.Report{}, toolErr
 		}
@@ -81,19 +93,27 @@ func (e Evaluator) Evaluate(ctx context.Context, sample Sample) (eval.Report, er
 	}
 	verdict := eval.VerdictPass
 	for _, detail := range details {
-		if detail.Verdict == eval.VerdictFail {
+		if detail.Verdict() == eval.VerdictFail {
 			verdict = eval.VerdictFail
 			break
 		}
 	}
-	report := eval.Report{Metric: metric, Verdict: verdict, Details: details}
+	parameters := metadata.Map{}
+	rules := make([]decisionRule, len(details))
+	for index, detail := range details {
+		rules[index] = decisionRule{Policy: detail.Decision.Policy, Parameters: detail.Decision.Parameters.Clone()}
+	}
+	if err := parameters.Set("rules", rules); err != nil {
+		return eval.Report{}, err
+	}
+	report := eval.Report{Metric: metric, Decision: &eval.Decision{Policy: "trajectory.all_expectations", Parameters: parameters, Verdict: verdict}, Details: details}
 	if checkErr := report.Validate(); checkErr != nil {
 		return eval.Report{}, checkErr
 	}
 	return report, nil
 }
 
-func binaryReport(name eval.MetricName, passed bool, feedback string) (eval.Report, error) {
+func binaryReport(name eval.MetricName, passed bool, feedback string, parameters metadata.Map) (eval.Report, error) {
 	metric, err := eval.NewMetric(eval.MetricConfig{Namespace: metricNamespace, Name: name})
 	if err != nil {
 		return eval.Report{}, err
@@ -104,7 +124,7 @@ func binaryReport(name eval.MetricName, passed bool, feedback string) (eval.Repo
 		score = 1
 		verdict = eval.VerdictPass
 	}
-	report := eval.Report{Metric: metric, Verdict: verdict, Score: &score, Feedback: feedback}
+	report := eval.Report{Metric: metric, Decision: &eval.Decision{Policy: "trajectory." + string(name), Parameters: parameters, Verdict: verdict}, Score: &score, Feedback: feedback}
 	if checkErr := report.Validate(); checkErr != nil {
 		return eval.Report{}, checkErr
 	}
@@ -124,7 +144,7 @@ func measurementReport[Maximum uint64 | int64 | float64](
 	}
 	metric, err := eval.NewMetric(eval.MetricConfig{
 		Namespace: metricNamespace, Name: name, Unit: unit,
-		Direction: eval.DirectionLowerIsBetter, Parameters: parameters,
+		Direction: eval.DirectionLowerIsBetter,
 	})
 	if err != nil {
 		return eval.Report{}, err
@@ -133,7 +153,7 @@ func measurementReport[Maximum uint64 | int64 | float64](
 	if passed {
 		verdict = eval.VerdictPass
 	}
-	report := eval.Report{Metric: metric, Verdict: verdict, Measurement: &measurement}
+	report := eval.Report{Metric: metric, Decision: &eval.Decision{Policy: "trajectory.maximum", Parameters: parameters, Verdict: verdict}, Measurement: &measurement}
 	if checkErr := report.Validate(); checkErr != nil {
 		return eval.Report{}, checkErr
 	}

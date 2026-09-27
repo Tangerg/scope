@@ -205,7 +205,7 @@ type roundResultsWire struct {
 }
 
 func settledChildResult(process agent.ProcessSnapshot, children map[agent.ProcessID]map[agent.ChildKey]agent.ProcessSnapshot, sequence uint64, index uint32, call chat.ToolCall) (*toolCallResult, error) {
-	toolKey, err := toolChildKey(sequence, call)
+	toolKey, err := ToolChildKey(sequence, call)
 	if err != nil {
 		return nil, err
 	}

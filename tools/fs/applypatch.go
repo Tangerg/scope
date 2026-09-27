@@ -3,7 +3,6 @@ package fs
 import (
 	"context"
 	jsonv2 "encoding/json/v2"
-	"errors"
 	"fmt"
 	"slices"
 
@@ -147,18 +146,7 @@ func (a *ApplyPatchTool) MutationPaths(arguments []byte) ([]string, error) {
 func (a *ApplyPatchTool) apply(ctx context.Context, req ApplyPatchRequest) (ApplyPatchResponse, error) {
 	res, err := a.executor.ApplyPatch(ctx, req)
 	if err != nil {
-		cause := fmt.Errorf("fs.apply_patch: %w", err)
-		encoded, encodeErr := jsonv2.Marshal(res)
-		if encodeErr != nil {
-			return ApplyPatchResponse{}, errors.Join(cause, encodeErr)
-		}
-		output := chat.NewTextToolOutput(fmt.Sprintf("%s\nAcknowledged file mutations: %s", cause, encoded))
-		output.Details = encoded
-		failure, failureErr := toolcontract.NewFailure(toolcontract.FailureConfig{Kind: toolcontract.FailureKindFailed, Cause: cause, Output: output})
-		if failureErr != nil {
-			return ApplyPatchResponse{}, errors.Join(cause, failureErr)
-		}
-		return ApplyPatchResponse{}, failure
+		return ApplyPatchResponse{}, mutationError("fs.apply_patch", res, err)
 	}
 	return res, nil
 }

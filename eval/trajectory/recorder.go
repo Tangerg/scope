@@ -14,24 +14,30 @@ import (
 
 var ErrIncompleteRecording = errors.New("eval/trajectory: incomplete recording")
 
-// Recording limits bound retained evidence. Overflow invalidates that recording
-// instead of silently converting missing observations into successful evidence.
+// Recording limits bound retained evidence. Overflow leaves an explicit gap;
+// the exported fragment cannot certify complete history or semantic coverage.
 const (
 	MaxRecordingTrees  = 64
 	MaxRecordingEvents = 65536
 	MaxRecordingCalls  = 8192
 )
 
-type toolIdentity struct {
+type attemptIdentity struct {
 	processID   agent.ProcessID
 	incarnation agent.TreeIncarnationID
 	effectID    agent.EffectID
+	attemptID   agent.EffectAttemptID
 }
+type modelObservation struct {
+	call    ModelCall
+	started bool
+	settled bool
+}
+
 type toolObservation struct {
 	call    ToolCall
 	started bool
 	settled bool
-	invalid bool
 }
 
 type recording struct {
@@ -39,16 +45,16 @@ type recording struct {
 	sealed    bool
 	mu        sync.Mutex
 	events    []agent.Event
-	models    []ModelCall
-	tools     map[toolIdentity]toolObservation
+	models    map[attemptIdentity]modelObservation
+	tools     map[attemptIdentity]toolObservation
 	startedAt time.Time
-	err       error
+	gaps      EvidenceGaps
 }
 
 // Recorder's zero value accepts bounded concurrent tree recordings. Only root
 // start/restore events open a session. Take joins the subtree, detaches the
-// session, and validates outside shared locks. Take consumes failed recordings
-// too; Discard releases trees whose RuntimeError produced no Result.
+// session, and validates outside shared locks. RuntimeStopped and known
+// observation losses remain exportable evidence; they do not invent a Result.
 type Recorder struct {
 	mu    sync.Mutex
 	trees map[agent.ProcessID]*recording
@@ -76,7 +82,7 @@ func (r *Recorder) OnEvent(_ context.Context, event agent.Event) {
 	opensSession := event.Relation().IsRoot() &&
 		(event.Name() == agent.EventProcessStarted || event.Name() == agent.EventProcessRestored)
 	if entry == nil && opensSession && len(r.trees) < MaxRecordingTrees {
-		entry = &recording{tools: make(map[toolIdentity]toolObservation)}
+		entry = &recording{models: make(map[attemptIdentity]modelObservation), tools: make(map[attemptIdentity]toolObservation)}
 		if event.Name() == agent.EventProcessStarted {
 			entry.startedAt = time.Now()
 		}
@@ -92,7 +98,7 @@ func (r *Recorder) OnEvent(_ context.Context, event agent.Event) {
 		return
 	}
 	if len(entry.events) >= MaxRecordingEvents {
-		entry.err = fmt.Errorf("%w: event capacity exceeded", ErrIncompleteRecording)
+		incrementGap(&entry.gaps.DroppedEvents)
 		return
 	}
 	if event.Name() == agent.EventProcessRestored {
@@ -101,9 +107,9 @@ func (r *Recorder) OnEvent(_ context.Context, event agent.Event) {
 	entry.events = append(entry.events, event)
 }
 
-func (r *Recorder) OnModelResponse(_ context.Context, invocation interaction.ModelInvocation, response *chat.Response) {
+func (r *Recorder) OnModelStarted(_ context.Context, invocation interaction.ModelInvocation, request *chat.Request) {
 	entry := r.session(invocation.Relation().RootID())
-	if entry == nil || !invocation.Valid() || response == nil {
+	if entry == nil || !invocation.Valid() || request == nil {
 		return
 	}
 	entry.mu.Lock()
@@ -111,16 +117,54 @@ func (r *Recorder) OnModelResponse(_ context.Context, invocation interaction.Mod
 	if entry.sealed {
 		return
 	}
-	if len(entry.models)+len(entry.tools) >= MaxRecordingCalls {
-		entry.err = fmt.Errorf("%w: call capacity exceeded", ErrIncompleteRecording)
+	incarnation, _ := invocation.TreeIncarnationID()
+	attempt, _ := invocation.AttemptID()
+	identity := attemptIdentity{invocation.Relation().ProcessID(), incarnation, invocation.EffectID(), attempt}
+	observation, exists := entry.models[identity]
+	if !exists && len(entry.models)+len(entry.tools) >= MaxRecordingCalls || observation.started {
+		incrementGap(&entry.gaps.DroppedCallObservations)
+		return
+	}
+	observation.call = ModelCall{
+		ProcessID: identity.processID, TreeIncarnationID: incarnation,
+		EffectID: identity.effectID, AttemptID: attempt, StepSequence: invocation.StepSequence(),
+		CallSequence: invocation.ModelCallSequence(), Request: request.Clone(), Outcome: ModelOutcomeUnobserved,
+	}
+	observation.started = true
+	entry.models[identity] = observation
+}
+
+func (r *Recorder) OnModelSettled(_ context.Context, invocation interaction.ModelInvocation, settlement interaction.ModelSettlement) {
+	entry := r.session(invocation.Relation().RootID())
+	if entry == nil || !invocation.Valid() {
+		return
+	}
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.sealed {
 		return
 	}
 	incarnation, _ := invocation.TreeIncarnationID()
-	entry.models = append(entry.models, ModelCall{
-		ProcessID: invocation.Relation().ProcessID(), TreeIncarnationID: incarnation,
-		EffectID: invocation.EffectID(), StepSequence: invocation.StepSequence(),
-		CallSequence: invocation.ModelCallSequence(), Response: response,
-	})
+	attempt, _ := invocation.AttemptID()
+	identity := attemptIdentity{invocation.Relation().ProcessID(), incarnation, invocation.EffectID(), attempt}
+	observation, exists := entry.models[identity]
+	if !exists || observation.settled {
+		incrementGap(&entry.gaps.DroppedCallObservations)
+		return
+	}
+	switch {
+	case settlement.Response != nil && !settlement.Unknown && settlement.Failure == "":
+		observation.call.Outcome = ModelOutcomeSucceeded
+		observation.call.Response = settlement.Response.Clone()
+	case settlement.Response == nil && settlement.Unknown:
+		observation.call.Outcome = ModelOutcomeUnknown
+		observation.call.Failure = settlement.Failure
+	default:
+		incrementGap(&entry.gaps.DroppedCallObservations)
+		return
+	}
+	observation.settled = true
+	entry.models[identity] = observation
 }
 
 func (r *Recorder) OnToolStarted(_ context.Context, invocation interaction.ToolInvocation) {
@@ -134,12 +178,15 @@ func (r *Recorder) OnToolStarted(_ context.Context, invocation interaction.ToolI
 		return
 	}
 	if len(entry.models)+len(entry.tools) >= MaxRecordingCalls {
-		entry.err = fmt.Errorf("%w: call capacity exceeded", ErrIncompleteRecording)
+		incrementGap(&entry.gaps.DroppedCallObservations)
 		return
 	}
 	identity, call := recordedInvocation(invocation)
 	observation := entry.tools[identity]
-	observation.invalid = observation.invalid || observation.started
+	if observation.started {
+		incrementGap(&entry.gaps.DroppedCallObservations)
+		return
+	}
 	observation.call = call
 	observation.started = true
 	entry.tools[identity] = observation
@@ -158,14 +205,20 @@ func (r *Recorder) OnToolSettled(_ context.Context, invocation interaction.ToolI
 	identity, call := recordedInvocation(invocation)
 	observation, exists := entry.tools[identity]
 	if !exists && len(entry.models)+len(entry.tools) >= MaxRecordingCalls {
-		entry.err = fmt.Errorf("%w: call capacity exceeded", ErrIncompleteRecording)
+		incrementGap(&entry.gaps.DroppedCallObservations)
 		return
 	}
-	observation.invalid = observation.invalid || observation.settled
+	if observation.settled {
+		incrementGap(&entry.gaps.DroppedCallObservations)
+		return
+	}
 	if !observation.started {
 		observation.call = call
 	}
 	observation.call.Outcome, observation.call.Result, observation.call.Failure = recordedOutcome(settlement)
+	if settlement.Evidence != nil {
+		observation.call.Evidence = new(settlement.Evidence.Clone())
+	}
 	observation.settled = true
 	entry.tools[identity] = observation
 }
@@ -173,18 +226,31 @@ func (r *Recorder) OnToolSettled(_ context.Context, invocation interaction.ToolI
 // Take waits for root and descendant work to settle before consuming evidence.
 // Coverage is an exhaustive Host declaration; nil exports observations without
 // asserting semantic completeness. A caller timeout preserves the session.
+// RuntimeError is represented by recorded RuntimeStopped facts, not returned as
+// an export failure. A previously committed root Result remains available;
+// otherwise Termination is zero and no root output or usage is invented.
 func (r *Recorder) Take(ctx context.Context, process *agent.Process, coverage *Coverage) (Trajectory, error) {
-	if r == nil || process == nil {
+	if r == nil || process == nil || !process.Relation().IsRoot() {
 		return Trajectory{}, fmt.Errorf("%w: root process is required", ErrIncompleteRecording)
 	}
+	coverage = coverage.clone()
+	if coverage != nil {
+		if err := coverage.Validate(); err != nil {
+			return Trajectory{}, err
+		}
+	}
 	if err := process.Join(ctx); err != nil {
-		return Trajectory{}, err
+		if _, stopped := errors.AsType[*agent.RuntimeError](err); !stopped {
+			return Trajectory{}, err
+		}
 	}
 	result, err := process.Await(ctx)
 	if err != nil {
-		return Trajectory{}, err
+		if _, stopped := errors.AsType[*agent.RuntimeError](err); !stopped {
+			return Trajectory{}, err
+		}
 	}
-	root := result.ProcessID()
+	root := process.ID()
 	r.mu.Lock()
 	entry := r.trees[root]
 	delete(r.trees, root)
@@ -194,26 +260,51 @@ func (r *Recorder) Take(ctx context.Context, process *agent.Process, coverage *C
 	}
 	entry.mu.Lock()
 	entry.sealed = true
-	events, models, observations, startedAt, recordingErr := entry.events, entry.models, entry.tools, entry.startedAt, entry.err
+	events, modelObservations, observations, startedAt, gaps := entry.events, entry.models, entry.tools, entry.startedAt, entry.gaps
 	entry.mu.Unlock()
-	if recordingErr != nil {
-		return Trajectory{}, recordingErr
+	observedProcesses := make(map[agent.ProcessID]bool)
+	for _, event := range events {
+		observedProcesses[event.ProcessID()] = true
+	}
+	var models []ModelCall
+	for _, observation := range modelObservations {
+		if !observedProcesses[observation.call.ProcessID] && gaps.DroppedEvents > 0 {
+			incrementGap(&gaps.DroppedCallObservations)
+			continue
+		}
+		if !observation.started || !observation.settled {
+			incrementGap(&gaps.UnpairedCalls)
+		}
+		models = append(models, observation.call)
 	}
 	var calls []ToolCall
 	for _, observation := range observations {
-		if observation.invalid || !observation.started || !observation.settled || !observation.call.Outcome.Valid() {
-			return Trajectory{}, fmt.Errorf("%w: tool %q lacks paired observations", ErrIncompleteRecording, observation.call.Call.Name)
+		if !observedProcesses[observation.call.ProcessID] && gaps.DroppedEvents > 0 {
+			incrementGap(&gaps.DroppedCallObservations)
+			continue
+		}
+		if !observation.started || !observation.settled || !observation.call.Outcome.Valid() {
+			incrementGap(&gaps.UnpairedCalls)
+			if !observation.call.Outcome.Valid() {
+				observation.call.Outcome = ToolOutcomeUnobserved
+			}
 		}
 		calls = append(calls, observation.call)
 	}
-	output, _ := result.Output()
+	var output agent.Payload
+	var termination agent.Termination
+	var usage agent.Usage
+	if err == nil {
+		output, _ = result.Output()
+		termination, usage = result.Termination(), result.Usage()
+	}
 	var elapsed *time.Duration
 	if !startedAt.IsZero() {
 		elapsed = new(time.Since(startedAt))
 	}
 	return New(Config{
-		RootProcessID: root, Termination: result.Termination(), Output: output,
-		RootUsage: result.Usage(), Elapsed: elapsed, Coverage: coverage,
+		RootProcessID: root, Termination: termination, Output: output,
+		RootUsage: usage, Elapsed: elapsed, Coverage: coverage, Gaps: gaps,
 		Events: events, ModelCalls: models, ToolCalls: calls,
 	})
 }
@@ -229,13 +320,14 @@ func (r *Recorder) Discard(root agent.ProcessID) {
 	r.mu.Unlock()
 }
 
-func recordedInvocation(invocation interaction.ToolInvocation) (toolIdentity, ToolCall) {
+func recordedInvocation(invocation interaction.ToolInvocation) (attemptIdentity, ToolCall) {
 	incarnation, _ := invocation.TreeIncarnationID()
-	identity := toolIdentity{invocation.Relation().ProcessID(), incarnation, invocation.EffectID()}
+	attempt, _ := invocation.AttemptID()
+	identity := attemptIdentity{invocation.Relation().ProcessID(), incarnation, invocation.EffectID(), attempt}
 	call := ToolCall{
-		ProcessID: identity.processID, TreeIncarnationID: incarnation, EffectID: identity.effectID,
+		ProcessID: identity.processID, TreeIncarnationID: incarnation, EffectID: identity.effectID, AttemptID: attempt,
 		StepSequence: invocation.StepSequence(), ModelCall: invocation.ModelCallSequence(),
-		Index: invocation.ToolCallIndex(), Call: invocation.ToolCall(),
+		Index: invocation.ToolCallIndex(), Call: invocation.ToolCall(), Outcome: ToolOutcomeUnobserved,
 	}
 	return identity, call
 }

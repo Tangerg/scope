@@ -8,6 +8,11 @@
 // stable gen_ai.agent.id values. Model selection stays at the model boundary.
 // Durable Process, Step, and Effect spans are keyed by the active incarnation,
 // so overlapping old and restored instances never share span ownership.
+// Effect spans and dropped-Delta events carry the Engine's physical AttemptID.
+// Replays keep the logical EffectID and receive a fresh AttemptID. Unknown
+// resolution is a Process event with the definite settlement, not another
+// invocation or an extension of the original duration. These identities never
+// become metric dimensions.
 //
 // Register an Observer as an Engine EventListener and wrap each Deployment's
 // Dispatcher with Observer.WrapDispatcher to make downstream model and tool
@@ -21,6 +26,8 @@
 // terminations use agent.<termination cause>; Step and Effect failures use
 // agent.step.failed and agent.effect.<settlement status>. Kernel fact messages
 // contain these stable classifications, never application failure diagnostics.
+// Unknown attempts caused by Dispatcher errors retain the fact's Failure kind
+// and code; a directly returned Unknown does not invent a failure cause.
 // RuntimeStopped ends the affected instance's spans and activation duration
 // without recording a logical Process exit or terminal usage measurements.
 package agent

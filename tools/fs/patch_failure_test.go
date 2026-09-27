@@ -72,18 +72,20 @@ func TestApplyPatchCommitFailurePreservesAcknowledgedChanges(t *testing.T) {
 				t.Fatal(encodeErr)
 			}
 			_, err = invokeTestTool(t.Context(), executable, string(arguments))
-			failure, found := errors.AsType[*tool.Failure](err)
+			callErr, found := errors.AsType[*tool.CallError](err)
 			if !found {
-				t.Fatalf("tool failure lost its output: %v", err)
+				t.Fatalf("tool error lost its evidence: %v", err)
 			}
-			if decodeErr := jsonv2.Unmarshal(failure.Output().Details, &out); decodeErr != nil {
+			if _, definite := errors.AsType[*tool.Failure](err); definite {
+				t.Fatalf("commit error became a definite failure: %v", err)
+			}
+			if decodeErr := jsonv2.Unmarshal(callErr.Evidence().Details, &out); decodeErr != nil {
 				t.Fatal(decodeErr)
 			}
-			text, _ := failure.Output().Text()
+			text, _ := callErr.Evidence().Text()
 			if !strings.Contains(text, `"path":"created"`) {
-				t.Fatalf("model-visible failure lost acknowledged files: %s", text)
+				t.Fatalf("execution evidence lost acknowledged files: %s", text)
 			}
-			err = failure.Cause()
 		} else {
 			out, err = executor.ApplyPatch(t.Context(), request)
 		}

@@ -61,7 +61,7 @@ func (w *WriteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 func (w *WriteTool) write(ctx context.Context, req WriteRequest) (WriteResponse, error) {
 	res, err := w.executor.Write(ctx, req)
 	if err != nil {
-		return WriteResponse{}, fmt.Errorf("fs.write: %w", err)
+		return WriteResponse{}, mutationError("fs.write", res, err)
 	}
 	return res, nil
 }

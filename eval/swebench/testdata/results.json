@@ -1,0 +1,26 @@
+{
+  "total_instances": 7,
+  "submitted_instances": 6,
+  "completed_instances": 4,
+  "resolved_instances": 1,
+  "unresolved_instances": 2,
+  "infra_failure_instances": 2,
+  "ambiguous_failure_instances": 1,
+  "empty_patch_instances": 1,
+  "error_instances": 2,
+  "completed_ids": ["case-infra", "case-invalid", "case-resolved", "case-unresolved"],
+  "incomplete_ids": ["case-missing"],
+  "empty_patch_ids": ["case-empty"],
+  "submitted_ids": ["case-empty", "case-error", "case-infra", "case-invalid", "case-resolved", "case-unresolved"],
+  "resolved_ids": ["case-resolved"],
+  "unresolved_ids": ["case-infra", "case-unresolved"],
+  "infra_failure_ids": ["case-error", "case-infra"],
+  "ambiguous_failure_ids": ["case-invalid"],
+  "failure_reasons": {
+    "case-error": "container_unavailable",
+    "case-infra": "browser_launch_failed",
+    "case-invalid": "tests_timed_out"
+  },
+  "error_ids": ["case-error", "case-invalid"],
+  "schema_version": 2
+}

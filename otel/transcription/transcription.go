@@ -108,7 +108,7 @@ func (m Middleware) Wrap(next coretranscription.Model) (coretranscription.Model,
 	if lo.IsNil(next) {
 		return nil, fmt.Errorf("%w: value must not be nil", ErrInvalidModel)
 	}
-	return coretranscription.ModelFunc(func(ctx context.Context, request *coretranscription.Request) (*coretranscription.Response, error) {
+	return coretranscription.ModelFunc(func(ctx context.Context, request *coretranscription.Request) (response *coretranscription.Response, err error) {
 		startedAt := time.Now()
 		attributes := m.requestAttributes(request)
 		spanCtx, span := m.tracer.Start(ctx, m.spanName(request),
@@ -116,8 +116,10 @@ func (m Middleware) Wrap(next coretranscription.Model) (coretranscription.Model,
 			trace.WithTimestamp(startedAt),
 			trace.WithAttributes(attributes...),
 		)
-		response, err := next.Call(spanCtx, request)
-		m.finish(spanCtx, span, request, response, err, startedAt, time.Now())
+		defer errortelemetry.Finish(&err, func(observedError error) {
+			m.finish(spanCtx, span, request, response, observedError, startedAt, time.Now())
+		})
+		response, err = next.Call(spanCtx, request)
 		return response, err
 	}), nil
 }

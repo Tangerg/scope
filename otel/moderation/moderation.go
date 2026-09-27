@@ -109,7 +109,7 @@ func (m Middleware) Wrap(next coremoderation.Model) (coremoderation.Model, error
 	if lo.IsNil(next) {
 		return nil, fmt.Errorf("%w: value must not be nil", ErrInvalidModel)
 	}
-	return coremoderation.ModelFunc(func(ctx context.Context, request *coremoderation.Request) (*coremoderation.Response, error) {
+	return coremoderation.ModelFunc(func(ctx context.Context, request *coremoderation.Request) (response *coremoderation.Response, err error) {
 		startedAt := time.Now()
 		attributes := m.requestAttributes(request)
 		spanCtx, span := m.tracer.Start(ctx, m.spanName(request),
@@ -117,8 +117,10 @@ func (m Middleware) Wrap(next coremoderation.Model) (coremoderation.Model, error
 			trace.WithTimestamp(startedAt),
 			trace.WithAttributes(attributes...),
 		)
-		response, err := next.Call(spanCtx, request)
-		m.finish(spanCtx, span, request, response, err, startedAt, time.Now())
+		defer errortelemetry.Finish(&err, func(observedError error) {
+			m.finish(spanCtx, span, request, response, observedError, startedAt, time.Now())
+		})
+		response, err = next.Call(spanCtx, request)
 		return response, err
 	}), nil
 }

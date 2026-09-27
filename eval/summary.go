@@ -4,24 +4,32 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-// CaseResult preserves Dataset identity whether evaluation produced a report or
-// an error.
+// CaseResult preserves all assessment outcomes for one fixed case. Result is
+// the sole owner of assessment facts; case completion and verdict are derived.
 type CaseResult struct {
 	ID       CaseID
 	Metadata metadata.Map
-	Report   Report
-	Err      error
+	Result   SuiteResult
+}
+
+func (c CaseResult) Validate() error {
+	if err := c.ID.Validate(); err != nil {
+		return err
+	}
+	if err := c.Metadata.Validate(); err != nil {
+		return fmt.Errorf("%w: case %q metadata: %w", ErrInvalidCase, c.ID, err)
+	}
+	return c.Result.Validate()
 }
 
 func (c CaseResult) clone() CaseResult {
 	c.Metadata = c.Metadata.Clone()
-	if c.Err == nil {
-		c.Report = c.Report.cloneValid()
-	}
+	c.Result = c.Result.cloneValid()
 	return c
 }
 
@@ -37,22 +45,10 @@ type Distribution struct {
 	Maximum float64
 }
 
-func (d Distribution) delta(candidate Distribution) (DistributionDelta, error) {
-	if d.Count == 0 || candidate.Count == 0 {
-		return DistributionDelta{}, nil
-	}
-	difference := candidate.Mean - d.Mean
-	if math.IsInf(difference, 0) {
-		return DistributionDelta{}, fmt.Errorf("%w: mean difference overflows float64", ErrInvalidComparison)
-	}
-	return DistributionDelta{Present: true, Mean: difference}, nil
-}
-
-// MetricSummary keeps score and measurement distributions attached to their
-// full Metric identity so unrelated units, directions, and configurations are
-// never aggregated together. Experiment summarizes both top-level reports and
-// their Details.
+// MetricSummary contains one top-level observation per successful case and
+// assessment. Supporting Report.Details never become additional samples.
 type MetricSummary struct {
+	AssessmentID AssessmentID
 	Metric       Metric
 	Evaluated    int
 	Passed       int
@@ -62,28 +58,66 @@ type MetricSummary struct {
 	Measurements Distribution
 }
 
-// ExperimentSummary aggregates categorical outcomes and homogeneous metric
-// distributions without collapsing unlike metrics.
-type ExperimentSummary struct {
-	Total     int
-	Evaluated int
-	Passed    int
-	Failed    int
-	Unjudged  int
-	Errors    int
-	Metrics   []MetricSummary
+// AssessmentSummary preserves declared membership even if no evaluation
+// produced a metric. Its four execution counts partition its case count.
+type AssessmentSummary struct {
+	ID           AssessmentID
+	Completed    int
+	Failed       int
+	Canceled     int
+	NotEvaluated int
 }
 
-// ExperimentReport owns ordered case results and the summary derived from them.
+// ExperimentSummary counts complete and incomplete cases separately. Partial
+// counts cases with both successful and incomplete assessments; their valid
+// observations remain in Metrics. Errors counts incomplete cases, not task
+// quality failures. Assessment execution classifications remain in Assessments.
+type ExperimentSummary struct {
+	Total       int
+	Evaluated   int
+	Passed      int
+	Failed      int
+	Unjudged    int
+	Errors      int
+	Partial     int
+	Assessments []AssessmentSummary
+	Metrics     []MetricSummary
+}
+
+// ExperimentReport owns ordered case facts and a summary derived only from
+// those facts. NewExperimentReport is also the import boundary for independently
+// generated observations; it never executes a target or an evaluator.
 type ExperimentReport struct {
 	fixtureID string
 	cases     []CaseResult
 	summary   ExperimentSummary
 }
 
+func NewExperimentReport(fixtureID string, results []CaseResult) (ExperimentReport, error) {
+	if fixtureID == "" || strings.TrimSpace(fixtureID) != fixtureID {
+		return ExperimentReport{}, fmt.Errorf("%w: fixture identity is required", ErrInvalidExperiment)
+	}
+	owned := make([]CaseResult, len(results))
+	seen := make(map[CaseID]struct{}, len(results))
+	for index, result := range results {
+		if err := result.Validate(); err != nil {
+			return ExperimentReport{}, fmt.Errorf("%w: case %q: %w", ErrInvalidExperiment, result.ID, err)
+		}
+		if _, exists := seen[result.ID]; exists {
+			return ExperimentReport{}, fmt.Errorf("%w: duplicate case %q", ErrInvalidExperiment, result.ID)
+		}
+		seen[result.ID] = struct{}{}
+		owned[index] = result.clone()
+	}
+	summary, err := summarize(owned)
+	if err != nil {
+		return ExperimentReport{}, err
+	}
+	return ExperimentReport{fixtureID: fixtureID, cases: owned, summary: summary}, nil
+}
+
 func (e ExperimentReport) FixtureID() string { return e.fixtureID }
 
-// Cases returns owned results in Dataset order.
 func (e ExperimentReport) Cases() []CaseResult {
 	results := slices.Clone(e.cases)
 	for index := range results {
@@ -92,20 +126,18 @@ func (e ExperimentReport) Cases() []CaseResult {
 	return results
 }
 
-// Summary returns the owned aggregate calculated from Cases.
 func (e ExperimentReport) Summary() ExperimentSummary {
 	summary := e.summary
+	summary.Assessments = slices.Clone(summary.Assessments)
 	summary.Metrics = slices.Clone(summary.Metrics)
 	return summary
 }
 
-// Compare requires the same explicit fixture identity and ordered Case IDs.
-// Hosts must change fixture identity when subjects or expectations change. Execution
-// counts remain comparable when evaluation fails. Metrics are matched by full
-// identity in baseline order, followed by candidate-only metrics; an absent
-// side remains explicit instead of preventing comparison of the whole run.
-// A mean difference outside the finite float64 range returns ErrInvalidComparison
-// without exposing a partial comparison.
+// Compare requires the same fixed-input fixture and set of Case IDs, independent
+// of declaration order. Numeric deltas pair observations by case, assessment,
+// and calculation identity. Missing observations remain explicit. Decision
+// deltas additionally require the same policy identity, so changing a threshold
+// does not erase comparable scores or invent comparable verdicts.
 func (e ExperimentReport) Compare(candidate ExperimentReport) (Comparison, error) {
 	if e.fixtureID == "" || e.fixtureID != candidate.fixtureID {
 		return Comparison{}, fmt.Errorf("%w: fixture identities are absent or differ", ErrInvalidComparison)
@@ -121,28 +153,22 @@ func (e ExperimentReport) Compare(candidate ExperimentReport) (Comparison, error
 	comparison := Comparison{
 		Baseline: baselineSummary, Candidate: candidateSummary,
 		EvaluatedDelta: candidateSummary.Evaluated - baselineSummary.Evaluated,
-		PassedDelta:    candidateSummary.Passed - baselineSummary.Passed,
-		FailedDelta:    candidateSummary.Failed - baselineSummary.Failed,
-		UnjudgedDelta:  candidateSummary.Unjudged - baselineSummary.Unjudged,
 		ErrorDelta:     candidateSummary.Errors - baselineSummary.Errors,
 		Metrics:        make([]MetricComparison, len(metricPairs)),
 	}
 	for index, pair := range metricPairs {
-		metricComparison, err := pair.compare()
+		compared, err := pair.compare(e.cases, candidate.cases)
 		if err != nil {
 			return Comparison{}, err
 		}
-		comparison.Metrics[index] = metricComparison
+		comparison.Metrics[index] = compared
 	}
 	return comparison, nil
 }
 
-func newCaseResults[T any](cases []Case[T]) []CaseResult {
-	results := make([]CaseResult, len(cases))
-	for index, caseValue := range cases {
-		results[index] = CaseResult{ID: caseValue.ID, Metadata: caseValue.Metadata.Clone()}
-	}
-	return results
+type observationKey struct {
+	assessment AssessmentID
+	metric     string
 }
 
 func summarize(results []CaseResult) (ExperimentSummary, error) {
@@ -152,62 +178,77 @@ func summarize(results []CaseResult) (ExperimentSummary, error) {
 		scores       []float64
 		measurements []float64
 	}
-	metrics := make(map[string]*accumulator)
-	var summarizeMetric func(Report) error
-	summarizeMetric = func(report Report) error {
-		identity, err := report.Metric.identity()
-		if err != nil {
-			return err
-		}
-		current := metrics[identity]
-		if current == nil {
-			current = &accumulator{index: len(summary.Metrics)}
-			metrics[identity] = current
-			summary.Metrics = append(summary.Metrics, MetricSummary{Metric: report.Metric})
-		}
-		metricSummary := &summary.Metrics[current.index]
-		metricSummary.Evaluated++
-		switch report.Verdict {
-		case VerdictPass:
-			metricSummary.Passed++
-		case VerdictFail:
-			metricSummary.Failed++
-		default:
-			metricSummary.Unjudged++
-		}
-		if report.Score != nil {
-			current.scores = append(current.scores, report.Score.Float64())
-		}
-		if report.Measurement != nil {
-			current.measurements = append(current.measurements, *report.Measurement)
-		}
-		for _, detail := range report.Details {
-			if err := summarizeMetric(detail); err != nil {
-				return err
+	metrics := make(map[observationKey]*accumulator)
+	assessments := make(map[AssessmentID]int)
+	for _, result := range results {
+		if result.Result.Complete() {
+			summary.Evaluated++
+			switch result.Result.Verdict() {
+			case VerdictPass:
+				summary.Passed++
+			case VerdictFail:
+				summary.Failed++
+			default:
+				summary.Unjudged++
+			}
+		} else {
+			summary.Errors++
+			for _, assessment := range result.Result.Results {
+				if assessment.Status == AssessmentCompleted {
+					summary.Partial++
+					break
+				}
 			}
 		}
-		return nil
-	}
-	for _, result := range results {
-		if result.Err != nil {
-			summary.Errors++
-			continue
-		}
-		if err := result.Report.Validate(); err != nil {
-			return ExperimentSummary{}, fmt.Errorf("eval: summarize case %q: %w", result.ID, err)
-		}
-		summary.Evaluated++
-		switch result.Report.Verdict {
-		case VerdictPass:
-			summary.Passed++
-		case VerdictFail:
-			summary.Failed++
-		default:
-			summary.Unjudged++
-		}
-
-		if err := summarizeMetric(result.Report); err != nil {
-			return ExperimentSummary{}, fmt.Errorf("eval: summarize case %q: %w", result.ID, err)
+		for _, assessment := range result.Result.Results {
+			index, exists := assessments[assessment.ID]
+			if !exists {
+				index = len(summary.Assessments)
+				assessments[assessment.ID] = index
+				summary.Assessments = append(summary.Assessments, AssessmentSummary{ID: assessment.ID})
+			}
+			counts := &summary.Assessments[index]
+			switch assessment.Status {
+			case AssessmentFailed:
+				counts.Failed++
+				continue
+			case AssessmentCanceled:
+				counts.Canceled++
+				continue
+			case AssessmentNotEvaluated:
+				counts.NotEvaluated++
+				continue
+			case AssessmentCompleted:
+				counts.Completed++
+			}
+			report := assessment.Report
+			identity, err := report.Metric.identity()
+			if err != nil {
+				return ExperimentSummary{}, fmt.Errorf("eval: summarize case %q assessment %q: %w", result.ID, assessment.ID, err)
+			}
+			key := observationKey{assessment: assessment.ID, metric: identity}
+			current := metrics[key]
+			if current == nil {
+				current = &accumulator{index: len(summary.Metrics)}
+				metrics[key] = current
+				summary.Metrics = append(summary.Metrics, MetricSummary{AssessmentID: assessment.ID, Metric: report.Metric})
+			}
+			metricSummary := &summary.Metrics[current.index]
+			metricSummary.Evaluated++
+			switch report.Verdict() {
+			case VerdictPass:
+				metricSummary.Passed++
+			case VerdictFail:
+				metricSummary.Failed++
+			default:
+				metricSummary.Unjudged++
+			}
+			if report.Score != nil {
+				current.scores = append(current.scores, report.Score.Float64())
+			}
+			if report.Measurement != nil {
+				current.measurements = append(current.measurements, *report.Measurement)
+			}
 		}
 	}
 	for _, current := range metrics {
@@ -231,7 +272,6 @@ func distribution(values []float64) Distribution {
 	if scale == 0 {
 		return result
 	}
-	// The mean is bounded by the inputs even when their sum would overflow.
 	for _, value := range values {
 		result.Mean += value / scale
 	}

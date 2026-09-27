@@ -199,17 +199,10 @@ func (d *Dispatcher) dispatchModel(
 	if len(minimum.JSON()) > d.maxResponseBytes {
 		return modelHostFailureSettlement(request.ID(), ErrModelResponseTooLarge)
 	}
-	response, err := d.callModel(ctx, modelRequest, emit, d.maxResponseBytes-len(base.JSON()))
+	response, err := d.callObservedModel(ctx, invocation, modelRequest, emit, d.maxResponseBytes-len(base.JSON()))
 	if err != nil {
-		return agent.Settlement{}, fmt.Errorf("interaction: model outcome unknown: %w", err)
+		return agent.Settlement{}, err
 	}
-	if response == nil {
-		return agent.Settlement{}, errors.New("interaction: model outcome unknown: nil response")
-	}
-	if validateErr := response.Validate(); validateErr != nil {
-		return agent.Settlement{}, fmt.Errorf("interaction: invalid model response: %w", validateErr)
-	}
-	d.observeModel(ctx, invocation, response)
 	result.Response = response
 	return result.settlement(request.ID(), d.maxResponseBytes)
 }
@@ -258,12 +251,51 @@ func (d *Dispatcher) modelDefinitions(advertisedToolNames []string) ([]chat.Tool
 	return definitions, nil
 }
 
-func (d *Dispatcher) observeModel(ctx context.Context, invocation ModelInvocation, response *chat.Response) {
+func (d *Dispatcher) observeModelStarted(ctx context.Context, invocation ModelInvocation, request *chat.Request) {
 	if d.observer == nil {
 		return
 	}
-	defer d.observationFailures.recordPanic(modelResponseCallback, d.observer, invocation.Relation().ProcessID(), invocation.EffectID())
-	d.observer.OnModelResponse(ctx, invocation, response.Clone())
+	attempt, _ := invocation.AttemptID()
+	defer d.observationFailures.recordPanic(modelStartedCallback, d.observer, invocation.Relation().ProcessID(), invocation.EffectID(), attempt)
+	d.observer.OnModelStarted(ctx, invocation, request.Clone())
+}
+
+func (d *Dispatcher) observeModelSettled(ctx context.Context, invocation ModelInvocation, settlement ModelSettlement) {
+	if d.observer == nil {
+		return
+	}
+	attempt, _ := invocation.AttemptID()
+	defer d.observationFailures.recordPanic(modelSettledCallback, d.observer, invocation.Relation().ProcessID(), invocation.EffectID(), attempt)
+	settlement.Response = settlement.Response.Clone()
+	d.observer.OnModelSettled(ctx, invocation, settlement)
+}
+
+func (d *Dispatcher) callObservedModel(ctx context.Context, invocation ModelInvocation, request *chat.Request, emit agent.DeltaEmitter, remainingBytes int) (response *chat.Response, err error) {
+	d.observeModelStarted(ctx, invocation, request)
+	defer func() {
+		if value := recover(); value != nil {
+			d.observeModelSettled(ctx, invocation, ModelSettlement{
+				Unknown: true, Failure: agent.NormalizeDiagnostic(fmt.Sprint(value)),
+			})
+			panic(value)
+		}
+		settlement := ModelSettlement{Response: response}
+		if err != nil {
+			settlement = ModelSettlement{Unknown: true, Failure: agent.NormalizeDiagnostic(err.Error())}
+		}
+		d.observeModelSettled(ctx, invocation, settlement)
+	}()
+	response, err = d.callModel(ctx, request, emit, remainingBytes)
+	if err != nil {
+		return nil, fmt.Errorf("interaction: model outcome unknown: %w", err)
+	}
+	if response == nil {
+		return nil, errors.New("interaction: model outcome unknown: nil response")
+	}
+	if validateErr := response.Validate(); validateErr != nil {
+		return nil, fmt.Errorf("interaction: invalid model response: %w", validateErr)
+	}
+	return response, nil
 }
 
 func (d *Dispatcher) callModel(

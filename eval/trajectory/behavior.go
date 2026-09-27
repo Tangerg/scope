@@ -4,9 +4,12 @@ import (
 	"cmp"
 	"encoding/json"
 	"encoding/json/jsontext"
+	"fmt"
+	"slices"
 	"strings"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/core/chat"
 )
 
@@ -57,9 +60,34 @@ func (b behaviorEvent) compare(other behaviorEvent) int {
 }
 
 type behaviorModel struct {
-	ProcessPath string `json:"process_path"`
-	Step        uint64 `json:"step"`
-	Sequence    uint64 `json:"sequence"`
+	ProcessPath string                 `json:"process_path"`
+	Step        uint64                 `json:"step"`
+	Sequence    uint64                 `json:"sequence"`
+	Outcome     ModelOutcome           `json:"outcome"`
+	ToolCalls   []behaviorToolDecision `json:"tool_calls,omitempty"`
+}
+
+type behaviorToolDecision struct {
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments,omitzero"`
+}
+
+func behaviorModelOf(call ModelCall, path string) (behaviorModel, error) {
+	model := behaviorModel{ProcessPath: path, Step: call.StepSequence, Sequence: call.CallSequence, Outcome: call.Outcome}
+	if call.Response == nil || call.Response.Output.Message == nil {
+		return model, nil
+	}
+	for _, part := range call.Response.Output.Message.Parts {
+		if part.Kind != chat.PartToolCall {
+			continue
+		}
+		arguments, err := canonicalArguments(part.ToolCall.Arguments)
+		if err != nil {
+			return behaviorModel{}, err
+		}
+		model.ToolCalls = append(model.ToolCalls, behaviorToolDecision{Name: part.ToolCall.Name, Arguments: arguments})
+	}
+	return model, nil
 }
 
 type behaviorTool struct {
@@ -130,4 +158,121 @@ func canonicalArguments(arguments string) (json.RawMessage, error) {
 		return nil, err
 	}
 	return json.RawMessage(value), nil
+}
+
+// behaviorChild addresses an actual child in the owning Strategy's namespace.
+type behaviorChild struct {
+	parent agent.ProcessID
+	key    agent.ChildKey
+}
+
+// semanticProcessPaths substitutes only child identities that the Interaction owner
+// can derive exactly from a recorded model decision. Custom Strategy ChildKeys
+// remain semantic. Provider-generated ToolCall IDs are retained in the record
+// but cannot perturb this projection's process identity.
+func semanticProcessPaths(root agent.ProcessID, events []agent.Event, models []ModelCall) (map[agent.ProcessID]string, error) {
+	if _, err := processPaths(root, events); err != nil {
+		return nil, err
+	}
+	segments := make(map[behaviorChild]string)
+	for _, model := range models {
+		if model.Response == nil || model.Response.Output.Message == nil {
+			continue
+		}
+		index := 0
+		for _, part := range model.Response.Output.Message.Parts {
+			if part.Kind != chat.PartToolCall {
+				continue
+			}
+			for _, role := range []string{"tool", "delegate"} {
+				var key agent.ChildKey
+				var err error
+				if role == "tool" {
+					key, err = interaction.ToolChildKey(model.CallSequence, *part.ToolCall)
+				} else {
+					key, err = interaction.DelegateChildKey(model.CallSequence, *part.ToolCall)
+				}
+				if err != nil {
+					return nil, err
+				}
+				identity := behaviorChild{model.ProcessID, key}
+				segment := fmt.Sprintf("@interaction/%s/%020d/%010d", role, model.CallSequence, index)
+				if previous, exists := segments[identity]; exists && previous != segment {
+					return nil, fmt.Errorf("%w: ambiguous Interaction child attribution", ErrInvalidTrajectory)
+				}
+				segments[identity] = segment
+			}
+			index++
+		}
+	}
+	relations := make(map[agent.ProcessID]agent.ProcessRelation)
+	for _, event := range events {
+		relations[event.ProcessID()] = event.Relation()
+	}
+	paths := map[agent.ProcessID]string{root: rootProcessPath}
+	owners := map[string]agent.ProcessID{rootProcessPath: root}
+	for len(paths) < len(relations) {
+		progress := false
+		for process, relation := range relations {
+			if _, known := paths[process]; known {
+				continue
+			}
+			parent, _ := relation.ParentID()
+			prefix, ready := paths[parent]
+			if !ready {
+				continue
+			}
+			key, _ := relation.ChildKey()
+			segment, mapped := segments[behaviorChild{parent, key}]
+			if !mapped {
+				segment = key.String()
+			}
+			path := prefix + processPathSeparator + segment
+			if previous, collision := owners[path]; collision && previous != process {
+				return nil, fmt.Errorf("%w: semantic child path is ambiguous", ErrInvalidTrajectory)
+			}
+			paths[process], owners[path] = path, process
+			progress = true
+		}
+		if !progress {
+			return nil, fmt.Errorf("%w: semantic process relations are incomplete", ErrInvalidTrajectory)
+		}
+	}
+	return paths, nil
+}
+
+// semanticCallOrder is the one structural order used by deterministic behavior
+// comparison and exact Tool assertions. It makes no claim about sibling timing.
+type semanticCallOrder struct {
+	paths  map[agent.ProcessID]string
+	models []ModelCall
+	tools  []ToolCall
+}
+
+func orderSemanticCalls(root agent.ProcessID, events []agent.Event, models []ModelCall, tools []ToolCall) (semanticCallOrder, error) {
+	paths, err := semanticProcessPaths(root, events, models)
+	if err != nil {
+		return semanticCallOrder{}, err
+	}
+	attemptOrder := make(map[agent.EffectAttemptID]uint64)
+	for _, event := range events {
+		if fact, ok := event.EffectStarted(); ok {
+			attemptOrder[fact.AttemptID()] = event.ProcessSequence()
+		}
+	}
+	models = slices.Clone(models)
+	slices.SortFunc(models, func(left, right ModelCall) int {
+		if order := strings.Compare(paths[left.ProcessID], paths[right.ProcessID]); order != 0 {
+			return order
+		}
+		return cmp.Compare(attemptOrder[left.AttemptID], attemptOrder[right.AttemptID])
+	})
+	tools = slices.Clone(tools)
+	slices.SortFunc(tools, func(left, right ToolCall) int {
+		if order := strings.Compare(paths[left.ProcessID], paths[right.ProcessID]); order != 0 {
+			return order
+		}
+		return cmp.Compare(attemptOrder[left.AttemptID], attemptOrder[right.AttemptID])
+	})
+	return semanticCallOrder{paths: paths, models: models, tools: tools}, nil
 }

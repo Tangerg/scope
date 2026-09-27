@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
+
+	"github.com/Tangerg/scope/tools/content"
 )
 
 // Client executes requests through an immutable network and resource policy.
@@ -54,6 +56,10 @@ func NewClient(config ClientConfig) (*Client, error) {
 
 // Do applies the frozen host, method, timeout, redirect, and response-size
 // policy before returning a model-facing response.
+// If body reading or closure fails, the response retains the received status,
+// headers, and admitted body prefix as evidence alongside the error. It is not
+// a completed response, and the error does not establish whether a request with
+// side effects committed at the server.
 func (c *Client) Do(ctx context.Context, request *Request) (*Response, error) {
 	if c == nil {
 		return nil, ErrNilClient
@@ -104,15 +110,21 @@ func (c *Client) Do(ctx context.Context, request *Request) (*Response, error) {
 	bodyReader := response.RawBody()
 	body, truncated, err := readCapped(bodyReader, c.maxResponseBytes)
 	err = errors.Join(err, bodyReader.Close())
-	if err != nil {
-		return nil, fmt.Errorf("httpreq: consume response body from host %q: %w", host, err)
+	headers := make(map[string][]content.Content, len(response.Header()))
+	for name, values := range response.Header() {
+		for _, value := range values {
+			headers[name] = append(headers[name], content.New([]byte(value)))
+		}
 	}
-
-	return &Response{
+	result := &Response{
 		Status:    response.StatusCode(),
-		Headers:   response.Header().Clone(),
-		Body:      string(body),
+		Headers:   headers,
+		Body:      content.New(body),
 		Truncated: truncated,
 		Duration:  time.Since(startedAt).String(),
-	}, nil
+	}
+	if err != nil {
+		return result, fmt.Errorf("httpreq: consume response body from host %q: %w", host, err)
+	}
+	return result, nil
 }

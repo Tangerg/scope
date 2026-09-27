@@ -45,7 +45,9 @@ func (c Case[T]) clone() Case[T] {
 }
 
 // Dataset owns an ordered snapshot of case identities and metadata.
-// FixtureID identifies the exact subjects and expectations, as assigned by the Host.
+// FixtureID identifies fixed inputs and evaluation context, as assigned by the
+// Host. Observed outputs may differ between runs without changing this fixture;
+// changing inputs, references, or the selected cases requires a new identity.
 // Subjects remain borrowed read-only values; callers and evaluators must not mutate
 // referenced objects while the Dataset is in use.
 type Dataset[T any] struct {

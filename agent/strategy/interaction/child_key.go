@@ -10,7 +10,10 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-func toolChildKey(modelSequence uint64, call chat.ToolCall) (agent.ChildKey, error) {
+// ToolChildKey derives the managed ChildKey used for one ordinary ToolCall.
+// Observers can correlate a model decision with its child Process without
+// interpreting provider IDs or introducing ToolCall into the Kernel.
+func ToolChildKey(modelSequence uint64, call chat.ToolCall) (agent.ChildKey, error) {
 	if modelSequence == 0 || call.Validate() != nil {
 		return agent.ChildKey{}, ErrInvalidExecutionState
 	}

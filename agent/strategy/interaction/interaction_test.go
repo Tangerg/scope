@@ -321,7 +321,9 @@ type toolSettlementObserver struct {
 	settlements chan interaction.ToolSettlement
 }
 
-func (*toolSettlementObserver) OnModelResponse(context.Context, interaction.ModelInvocation, *chat.Response) {
+func (*toolSettlementObserver) OnModelStarted(context.Context, interaction.ModelInvocation, *chat.Request) {
+}
+func (*toolSettlementObserver) OnModelSettled(context.Context, interaction.ModelInvocation, interaction.ModelSettlement) {
 }
 func (*toolSettlementObserver) OnToolStarted(context.Context, interaction.ToolInvocation) {}
 func (t *toolSettlementObserver) OnToolSettled(_ context.Context, _ interaction.ToolInvocation, settlement interaction.ToolSettlement) {

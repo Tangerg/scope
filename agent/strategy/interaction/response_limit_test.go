@@ -264,7 +264,14 @@ func TestResponseHostDiagnosticUsesIndependentBoundedBudget(t *testing.T) {
 
 type responseFactObserver struct{ calls atomic.Int32 }
 
-func (r *responseFactObserver) OnModelResponse(_ context.Context, _ interaction.ModelInvocation, response *chat.Response) {
+func (*responseFactObserver) OnModelStarted(context.Context, interaction.ModelInvocation, *chat.Request) {
+}
+
+func (r *responseFactObserver) OnModelSettled(_ context.Context, _ interaction.ModelInvocation, settlement interaction.ModelSettlement) {
+	if settlement.Response == nil {
+		return
+	}
+	response := settlement.Response
 	r.calls.Add(1)
 	response.Output = nil
 }

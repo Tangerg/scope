@@ -6,6 +6,7 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
+	"github.com/Tangerg/scope/tools/internal/toolresult"
 )
 
 var _ toolcontract.Tool = (*Tool)(nil)
@@ -48,6 +49,7 @@ const description = `Execute a single HTTP request and return the response.
 - Method defaults to GET. Write methods (POST/PUT/PATCH/DELETE) only work when configured policy allows them.
 - Configured policy restricts which hosts and methods are reachable. A policy rejection is final for that host and method; do not retry the same request.
 - Response body is capped by the configured policy; when truncated, response.truncated == true.
+- Body and header values contain encoding and data: utf8 is readable text; base64 preserves non-UTF8 bytes.
 - For body with JSON content, pass a JSON-encoded string as "body" and set Content-Type via "headers".
 - Use this for arbitrary REST/JSON APIs. Prefer the dedicated web_search / web_fetch tools for general web pages.`
 
@@ -56,5 +58,9 @@ func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (ch
 }
 
 func (t *Tool) request(ctx context.Context, request Request) (*Response, error) {
-	return t.client.Do(ctx, &request)
+	response, err := t.client.Do(ctx, &request)
+	if err != nil && response != nil {
+		return nil, toolresult.WithEvidence("httpreq: request", response, err)
+	}
+	return response, err
 }

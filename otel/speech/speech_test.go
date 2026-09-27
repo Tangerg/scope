@@ -6,6 +6,7 @@ import (
 	"iter"
 	"testing"
 
+	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -58,6 +59,11 @@ func TestStreamRemainsLazyAndDoesNotObserveContent(t *testing.T) {
 	}
 	if len(spans.Ended()) == 0 {
 		t.Fatal("expected a recorded span")
+	}
+	attributes := attribute.NewSet(spans.Ended()[0].Attributes()...)
+	model, _ := attributes.Value("gen_ai.response.model")
+	if model.AsString() != "served" {
+		t.Fatalf("observed response model = %q, want served", model.AsString())
 	}
 	for _, value := range spans.Ended()[0].Attributes() {
 		if value.Value.AsString() == request.Text || value.Value.AsString() == "sensitive audio" {

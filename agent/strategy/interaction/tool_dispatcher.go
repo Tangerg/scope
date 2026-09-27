@@ -119,6 +119,9 @@ func (t *toolDispatcher) callTool(
 		case err != nil:
 			settlement.Failure = agent.NormalizeDiagnostic(err.Error())
 			settlement.Unknown = true
+			if evidence, ok := errors.AsType[*tool.CallError](err); ok && evidence.Validate() == nil {
+				settlement.Evidence = new(evidence.Evidence())
+			}
 		}
 		t.observeToolSettled(ctx, invocation, settlement)
 	}()
@@ -173,7 +176,8 @@ func (t *toolDispatcher) observeToolStarted(ctx context.Context, invocation Tool
 	if t.observer == nil {
 		return
 	}
-	defer t.observationFailures.recordPanic(toolStartedCallback, t.observer, invocation.Relation().ProcessID(), invocation.EffectID())
+	attempt, _ := invocation.AttemptID()
+	defer t.observationFailures.recordPanic(toolStartedCallback, t.observer, invocation.Relation().ProcessID(), invocation.EffectID(), attempt)
 	t.observer.OnToolStarted(ctx, invocation)
 }
 
@@ -184,7 +188,11 @@ func (t *toolDispatcher) observeToolSettled(ctx context.Context, invocation Tool
 	if settlement.Result != nil {
 		settlement.Result = new(settlement.Result.Clone())
 	}
-	defer t.observationFailures.recordPanic(toolSettledCallback, t.observer, invocation.Relation().ProcessID(), invocation.EffectID())
+	if settlement.Evidence != nil {
+		settlement.Evidence = new(settlement.Evidence.Clone())
+	}
+	attempt, _ := invocation.AttemptID()
+	defer t.observationFailures.recordPanic(toolSettledCallback, t.observer, invocation.Relation().ProcessID(), invocation.EffectID(), attempt)
 	t.observer.OnToolSettled(ctx, invocation, settlement)
 }
 

@@ -180,10 +180,10 @@ func TestDo_HostAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Status != 200 || resp.Body != "ok" {
+	if resp.Status != 200 || string(resp.Body.Bytes()) != "ok" {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
-	if values := resp.Headers["X-Multi"]; len(values) != 2 || values[0] != "first" || values[1] != "second" {
+	if values := resp.Headers["X-Multi"]; len(values) != 2 || string(values[0].Bytes()) != "first" || string(values[1].Bytes()) != "second" {
 		t.Fatalf("multi-value response header = %v", values)
 	}
 
@@ -218,8 +218,8 @@ func TestDo_RedirectHostAllowlist(t *testing.T) {
 		if err != nil {
 			t.Fatalf("follow permitted redirect: %v", err)
 		}
-		if resp.Body != "redirected" {
-			t.Fatalf("body = %q, want redirected", resp.Body)
+		if string(resp.Body.Bytes()) != "redirected" {
+			t.Fatalf("body = %q, want redirected", resp.Body.Bytes())
 		}
 	})
 
@@ -298,7 +298,7 @@ func TestDo_RedirectRevalidatesMethod(t *testing.T) {
 	if err != nil {
 		t.Fatalf("307 redirect: %v", err)
 	}
-	if response.Body != string(MethodPOST) || targetHits.Load() != 1 {
+	if string(response.Body.Bytes()) != string(MethodPOST) || targetHits.Load() != 1 {
 		t.Fatalf("307 response = %#v, target hits = %d", response, targetHits.Load())
 	}
 }
@@ -355,8 +355,8 @@ func TestDo_MethodAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Body != "POST" {
-		t.Fatalf("server saw method %q, want POST", resp.Body)
+	if string(resp.Body.Bytes()) != "POST" {
+		t.Fatalf("server saw method %q, want POST", resp.Body.Bytes())
 	}
 }
 
@@ -409,8 +409,8 @@ func TestDo_ResponseTruncation(t *testing.T) {
 	if !resp.Truncated {
 		t.Error("expected Truncated=true")
 	}
-	if len(resp.Body) != 100 {
-		t.Errorf("body length = %d, want 100", len(resp.Body))
+	if len(resp.Body.Bytes()) != 100 {
+		t.Errorf("body length = %d, want 100", len(resp.Body.Bytes()))
 	}
 }
 

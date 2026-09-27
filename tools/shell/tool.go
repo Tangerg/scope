@@ -3,7 +3,6 @@ package shell
 import (
 	"cmp"
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"time"
@@ -12,6 +11,8 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
+	"github.com/Tangerg/scope/tools/content"
+	"github.com/Tangerg/scope/tools/internal/toolresult"
 )
 
 // Request is the LLM-facing argument shape. It is a strict subset of
@@ -22,14 +23,16 @@ type Request struct {
 	TimeoutMS int    `json:"timeout_ms,omitzero" jsonschema:"minimum=1,maximum=600000" jsonschema_description:"Hard execution timeout in milliseconds, from 1 to 600000. Omit for no timeout."`
 }
 
-// Response is the LLM-facing return shape. Stdout/stderr are strings
-// (not []byte) because every consumer is a chat model.
+// Response is the LLM-facing return shape. Captured bytes remain lossless even
+// when the command emits binary output or a capture limit splits UTF-8 text.
 type Response struct {
-	Stdout               string `json:"stdout"`
-	Stderr               string `json:"stderr"`
-	ExitCode             int    `json:"exit_code"`
-	CancellationObserved bool   `json:"cancellation_observed,omitzero"`
-	Duration             string `json:"duration"`
+	Stdout               content.Content `json:"stdout"`
+	Stderr               content.Content `json:"stderr"`
+	StdoutTruncated      bool            `json:"stdout_truncated,omitzero"`
+	StderrTruncated      bool            `json:"stderr_truncated,omitzero"`
+	ExitCode             int             `json:"exit_code"`
+	CancellationObserved bool            `json:"cancellation_observed,omitzero"`
+	Duration             string          `json:"duration"`
 }
 
 var _ toolcontract.Tool = (*Tool)(nil)
@@ -62,7 +65,7 @@ func NewTool(config Config) (*Tool, error) {
 	typed, err := toolcontract.NewFunc[Request, Response](
 		toolcontract.FuncConfig{
 			Name:        "shell",
-			Description: cmp.Or(config.Description, "Execute a command through the host-configured shell executor. Returns stdout, stderr, exit code, and duration. Use timeout_ms when the command needs a hard deadline."),
+			Description: cmp.Or(config.Description, "Execute a command through the host-configured shell executor. Returns stdout, stderr, exit code, and duration. Each stream contains encoding and data: utf8 is readable text; base64 preserves non-UTF8 bytes. Use timeout_ms when the command needs a hard deadline."),
 		},
 		t.run,
 	)
@@ -87,8 +90,10 @@ func (t *Tool) run(ctx context.Context, req Request) (Response, error) {
 		Timeout: time.Duration(req.TimeoutMS) * time.Millisecond,
 	})
 	response := Response{
-		Stdout:               string(res.Stdout),
-		Stderr:               string(res.Stderr),
+		Stdout:               content.New(res.Stdout),
+		Stderr:               content.New(res.Stderr),
+		StdoutTruncated:      res.StdoutTruncated,
+		StderrTruncated:      res.StderrTruncated,
 		ExitCode:             res.ExitCode,
 		CancellationObserved: res.CancellationObserved,
 		Duration:             res.Duration.String(),
@@ -96,18 +101,19 @@ func (t *Tool) run(ctx context.Context, req Request) (Response, error) {
 	if err == nil {
 		return response, nil
 	}
-	cause := fmt.Errorf("shell.tool: run: %w", err)
-	encoded, encodeErr := jsonv2.Marshal(response)
-	if encodeErr != nil {
-		return Response{}, errors.Join(cause, encodeErr)
+	_, definite := errors.AsType[*toolcontract.Failure](err)
+	_, observed := errors.AsType[*toolcontract.CallError](err)
+	if !definite && !observed && (errors.Is(err, ErrEmptyCommand) || errors.Is(err, ErrInvalidInput)) {
+		cause := fmt.Errorf("shell.tool: run: %w", err)
+		failure, failureErr := toolcontract.NewFailure(toolcontract.FailureConfig{
+			Kind: toolcontract.FailureKindFailed, Cause: cause, Output: chat.NewTextToolOutput(cause.Error()),
+		})
+		if failureErr != nil {
+			return Response{}, errors.Join(cause, failureErr)
+		}
+		return Response{}, failure
 	}
-	output := chat.NewTextToolOutput(fmt.Sprintf("%s\nCaptured execution output: %s", cause, encoded))
-	output.Details = encoded
-	failure, failureErr := toolcontract.NewFailure(toolcontract.FailureConfig{Kind: toolcontract.FailureKindFailed, Cause: cause, Output: output})
-	if failureErr != nil {
-		return Response{}, errors.Join(cause, failureErr)
-	}
-	return Response{}, failure
+	return Response{}, toolresult.WithEvidence("shell.tool: run", response, err)
 }
 
 func (t *Tool) Unwrap() toolcontract.Tool { return t.typed }

@@ -15,7 +15,13 @@ func evaluateAll[T any](ctx context.Context, evaluators []Evaluator[T], maxConcu
 	group, groupContext := errgroup.WithContext(ctx)
 	group.SetLimit(min(max(1, maxConcurrency), len(evaluators)))
 	for index, evaluator := range evaluators {
+		if groupContext.Err() != nil {
+			break
+		}
 		group.Go(func() error {
+			if err := groupContext.Err(); err != nil {
+				return err
+			}
 			report, err := evaluator.Evaluate(groupContext, subject)
 			if err != nil {
 				return fmt.Errorf("eval: evaluator %d: %w", index, err)
@@ -28,6 +34,9 @@ func evaluateAll[T any](ctx context.Context, evaluators []Evaluator[T], maxConcu
 		})
 	}
 	if err := group.Wait(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return reports, nil

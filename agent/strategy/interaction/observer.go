@@ -11,18 +11,29 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-// ModelObserver receives provider-neutral model responses. Callbacks are
+// ModelObserver receives provider-neutral model attempts. Callbacks are
 // observational, must return in bounded time, and have their panics isolated.
 // This Strategy hook exposes model-call details; agent.EventListener observes
 // kernel lifecycle facts and agent.DeltaListener receives ephemeral stream data.
 type ModelObserver interface {
-	// OnModelResponse receives the complete provider-neutral response after the
-	// response validates, before settlement encoding and capacity admission. A
-	// later admission failure does not retract this response fact; kernel Effect
-	// observations report the settlement outcome. The
-	// response is detached and may be mutated by the observer. Panics are
-	// isolated and the callback has no control authority.
-	OnModelResponse(ctx context.Context, invocation ModelInvocation, response *chat.Response)
+	// OnModelStarted receives the effective request after context reduction and
+	// local admission, immediately before calling the model. It is detached.
+	OnModelStarted(ctx context.Context, invocation ModelInvocation, request *chat.Request)
+	// OnModelSettled receives exactly one host-boundary outcome for a started
+	// call, including cancellation, invalid responses and panics. A valid
+	// response is observed before settlement encoding and capacity admission;
+	// a later admission failure does not retract this response fact.
+	OnModelSettled(ctx context.Context, invocation ModelInvocation, settlement ModelSettlement)
+}
+
+// ModelSettlement describes a physical model call, not durable Effect
+// settlement. Response is a detached validated response. Unknown means no
+// complete response was established; Failure is a bounded diagnostic, never
+// proof that the provider did no work or consumed no tokens.
+type ModelSettlement struct {
+	Response *chat.Response
+	Failure  string
+	Unknown  bool
 }
 
 // ToolObserver receives exact Tool-call facts. Callbacks are observational,
@@ -58,6 +69,9 @@ type ToolSettlement struct {
 	Failure string
 	// Unknown reports that the external Tool settlement could not be determined.
 	Unknown bool
+	// Evidence is non-final output from an unknown call. It is never promoted
+	// to Result and cannot establish whether the external operation succeeded.
+	Evidence *chat.ToolOutput
 }
 
 // ObserverPanic is a detached diagnostic for one isolated callback failure.
@@ -68,6 +82,7 @@ type ObserverPanic struct {
 	ObserverType string
 	ProcessID    agent.ProcessID
 	EffectID     agent.EffectID
+	AttemptID    agent.EffectAttemptID
 	Message      string
 	Stack        string
 }
@@ -76,23 +91,33 @@ type ObserverPanic struct {
 // Counts saturate at math.MaxUint64. Only the latest panic per callback is kept;
 // editing a returned diagnostic cannot change the retained evidence.
 type ObservationFailures struct {
-	modelResponsePanics    uint64
-	toolStartedPanics      uint64
-	toolSettledPanics      uint64
-	lastModelResponsePanic *ObserverPanic
-	lastToolStartedPanic   *ObserverPanic
-	lastToolSettledPanic   *ObserverPanic
+	modelStartedPanics    uint64
+	modelSettledPanics    uint64
+	toolStartedPanics     uint64
+	toolSettledPanics     uint64
+	lastModelStartedPanic *ObserverPanic
+	lastModelSettledPanic *ObserverPanic
+	lastToolStartedPanic  *ObserverPanic
+	lastToolSettledPanic  *ObserverPanic
 }
 
-func (o ObservationFailures) ModelResponsePanics() uint64 { return o.modelResponsePanics }
-func (o ObservationFailures) ToolStartedPanics() uint64   { return o.toolStartedPanics }
-func (o ObservationFailures) ToolSettledPanics() uint64   { return o.toolSettledPanics }
+func (o ObservationFailures) ModelStartedPanics() uint64 { return o.modelStartedPanics }
+func (o ObservationFailures) ModelSettledPanics() uint64 { return o.modelSettledPanics }
+func (o ObservationFailures) ToolStartedPanics() uint64  { return o.toolStartedPanics }
+func (o ObservationFailures) ToolSettledPanics() uint64  { return o.toolSettledPanics }
 
-func (o ObservationFailures) LastModelResponsePanic() (ObserverPanic, bool) {
-	if o.lastModelResponsePanic == nil {
+func (o ObservationFailures) LastModelStartedPanic() (ObserverPanic, bool) {
+	if o.lastModelStartedPanic == nil {
 		return ObserverPanic{}, false
 	}
-	return *o.lastModelResponsePanic, true
+	return *o.lastModelStartedPanic, true
+}
+
+func (o ObservationFailures) LastModelSettledPanic() (ObserverPanic, bool) {
+	if o.lastModelSettledPanic == nil {
+		return ObserverPanic{}, false
+	}
+	return *o.lastModelSettledPanic, true
 }
 
 func (o ObservationFailures) LastToolStartedPanic() (ObserverPanic, bool) {
@@ -116,8 +141,12 @@ func (o ObservationFailures) LastToolSettledPanic() (ObserverPanic, bool) {
 // only place to fail here is inside the recover that isolates observer panics.
 type observationCallback func(*ObservationFailures) (panics *uint64, latest **ObserverPanic)
 
-func modelResponseCallback(failures *ObservationFailures) (*uint64, **ObserverPanic) {
-	return &failures.modelResponsePanics, &failures.lastModelResponsePanic
+func modelStartedCallback(failures *ObservationFailures) (*uint64, **ObserverPanic) {
+	return &failures.modelStartedPanics, &failures.lastModelStartedPanic
+}
+
+func modelSettledCallback(failures *ObservationFailures) (*uint64, **ObserverPanic) {
+	return &failures.modelSettledPanics, &failures.lastModelSettledPanic
 }
 
 func toolStartedCallback(failures *ObservationFailures) (*uint64, **ObserverPanic) {
@@ -140,14 +169,14 @@ func (o *observationFailureCounters) snapshot() ObservationFailures {
 }
 
 // recordPanic must be deferred directly: recover cannot intercept a panic through a wrapper.
-func (o *observationFailureCounters) recordPanic(callback observationCallback, observer any, processID agent.ProcessID, effectID agent.EffectID) {
+func (o *observationFailureCounters) recordPanic(callback observationCallback, observer any, processID agent.ProcessID, effectID agent.EffectID, attemptID agent.EffectAttemptID) {
 	value := recover()
 	if value == nil {
 		return
 	}
 	message, stack := panicinfo.Capture(value)
 	diagnostic := &ObserverPanic{
-		ObserverType: fmt.Sprintf("%T", observer), ProcessID: processID, EffectID: effectID,
+		ObserverType: fmt.Sprintf("%T", observer), ProcessID: processID, EffectID: effectID, AttemptID: attemptID,
 		Message: message, Stack: stack,
 	}
 	o.mu.Lock()

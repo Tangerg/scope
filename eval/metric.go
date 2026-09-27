@@ -41,7 +41,8 @@ func (d Direction) Validate() error {
 }
 
 // Metric is an immutable evaluation identity that can be copied by assignment.
-// Parameters holds structured identity for calculation and decision rules.
+// Parameters holds structured identity for the calculation. A Report's
+// Decision owns any separate acceptance policy, including score thresholds.
 // Unit and Direction describe optional raw measurements; normalized scores
 // are always unitless and higher-is-better.
 type Metric struct {

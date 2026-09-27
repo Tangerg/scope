@@ -26,9 +26,11 @@ const (
 	operationDurationDescription = "Eval operation duration."
 	operationDurationUnit        = "s"
 	operationAttribute           = "eval.operation.name"
+	assessmentIDAttribute        = "eval.assessment.id"
 	metricNamespaceAttribute     = "eval.metric.namespace"
 	metricNameAttribute          = "eval.metric.name"
 	verdictAttribute             = "eval.verdict"
+	decisionPolicyAttribute      = "eval.decision.policy"
 	scoreAttribute               = "eval.score"
 	measurementAttribute         = "eval.measurement"
 	operationEvaluate            = "evaluate"
@@ -39,8 +41,8 @@ const (
 )
 
 var (
-	ErrInvalidConfig    = errors.New("otel/eval: invalid config")
-	ErrInvalidEvaluator = errors.New("otel/eval: invalid evaluator")
+	ErrInvalidConfig     = errors.New("otel/eval: invalid config")
+	ErrInvalidAssessment = errors.New("otel/eval: invalid assessment")
 )
 
 // MiddlewareConfig supplies optional OTel providers for evaluation
@@ -81,46 +83,63 @@ func NewMiddleware[T any](config MiddlewareConfig) (Middleware[T], error) {
 	}, nil
 }
 
-// Wrap decorates one evaluator without observing or retaining its subject.
-func (m Middleware[T]) Wrap(next coreeval.Evaluator[T]) (coreeval.Evaluator[T], error) {
+// Wrap decorates one assessment without observing or retaining its subject.
+// Assessment identity is bound before evaluation, including failed attempts.
+// IDs identify configured assessments and must not contain per-case data.
+func (m Middleware[T]) Wrap(next coreeval.Assessment[T]) (coreeval.Assessment[T], error) {
 	if lo.IsNil(m.tracer) || lo.IsNil(m.duration) {
-		return nil, fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
+		return coreeval.Assessment[T]{}, fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
 	}
-	if lo.IsNil(next) {
-		return nil, fmt.Errorf("%w: value must not be nil", ErrInvalidEvaluator)
+	if err := next.Validate(); err != nil {
+		return coreeval.Assessment[T]{}, fmt.Errorf("%w: %w", ErrInvalidAssessment, err)
 	}
-	return coreeval.EvaluatorFunc[T](func(ctx context.Context, subject T) (coreeval.Report, error) {
+	evaluator := next.Evaluator
+	identity := attribute.String(assessmentIDAttribute, string(next.ID))
+	next.Evaluator = coreeval.EvaluatorFunc[T](func(ctx context.Context, subject T) (report coreeval.Report, err error) {
 		startedAt := time.Now()
 		operation := attribute.String(operationAttribute, operationEvaluate)
 		spanCtx, span := m.tracer.Start(ctx, spanName,
 			trace.WithSpanKind(trace.SpanKindInternal),
-			trace.WithAttributes(operation),
+			trace.WithTimestamp(startedAt),
+			trace.WithAttributes(operation, identity),
 		)
-		report, err := next.Evaluate(spanCtx, subject)
-		attributes := []attribute.KeyValue{operation}
+		defer errortelemetry.Finish(&err, func(observedError error) {
+			finishedAt := time.Now()
+			defer span.End(trace.WithTimestamp(finishedAt))
+			attributes := []attribute.KeyValue{operation, identity}
+			if observedError == nil {
+				span.SetAttributes(reportAttributes(report)...)
+				attributes = append(attributes, metricIdentityAttributes(report.Metric)...)
+			} else {
+				errorType := errorTypeAttribute(observedError)
+				errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
+				attributes = append(attributes, errorType)
+			}
+			m.duration.Record(
+				spanCtx,
+				finishedAt.Sub(startedAt).Seconds(),
+				metric.WithAttributes(attributes...),
+			)
+		})
+		report, err = evaluator.Evaluate(spanCtx, subject)
 		if err == nil {
-			outcomeAttributes := reportAttributes(report)
-			span.SetAttributes(outcomeAttributes...)
-			attributes = append(attributes, metricIdentityAttributes(report.Metric)...)
-		} else {
-			errorType := errorTypeAttribute(err)
-			errortelemetry.Record(span, errorType)
-			attributes = append(attributes, errorType)
+			err = report.Validate()
 		}
-		span.End()
-		m.duration.Record(
-			spanCtx,
-			time.Since(startedAt).Seconds(),
-			metric.WithAttributes(attributes...),
-		)
-		return report, err
-	}), nil
+		if err != nil {
+			return coreeval.Report{}, err
+		}
+		return report, nil
+	})
+	return next, nil
 }
 
 func reportAttributes(report coreeval.Report) []attribute.KeyValue {
 	attributes := metricIdentityAttributes(report.Metric)
-	if report.Verdict != coreeval.VerdictUnspecified {
-		attributes = append(attributes, attribute.String(verdictAttribute, string(report.Verdict)))
+	if report.Decision != nil {
+		attributes = append(attributes,
+			attribute.String(verdictAttribute, string(report.Decision.Verdict)),
+			attribute.String(decisionPolicyAttribute, report.Decision.Policy),
+		)
 	}
 	if report.Score != nil {
 		attributes = append(attributes, attribute.Float64(scoreAttribute, float64(*report.Score)))

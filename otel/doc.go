@@ -14,7 +14,7 @@
 //
 //   - chat: chat call and lazy stream.
 //   - embedding, image, moderation, rerank, speech, transcription: one modality each.
-//   - eval: a generic Evaluator result.
+//   - eval: an Assessment with identity bound before its Evaluator runs.
 //   - rag: retrieval.
 //   - tool: tool invocation.
 //   - history: history store and conversation listing.
@@ -26,9 +26,11 @@
 //
 // Chat and speech streaming record gen_ai.client.operation.time_to_first_chunk
 // and gen_ai.client.operation.time_per_output_chunk at chunk arrival. Chat
-// includes metadata-only deltas. Token metrics retain known usage even when
-// generation fails. Response model identity is recorded only when reported by
-// the provider. Cache and reasoning token counts are subsets of the totals.
+// includes metadata-only deltas, so first-chunk latency is not first-token latency.
+// Provider finish reasons are recorded only when observed. Token metrics retain
+// known usage even when generation fails. Response model identity is recorded
+// only when reported by the provider. Cache and reasoning token counts are
+// subsets of the totals.
 //
 // The a2a and mcp modules are protocol integrations and use the official OTel
 // API directly at their own call boundary, so this module has no adapter for
@@ -51,6 +53,8 @@
 // responses with their capability's stable error name. Other errors follow
 // the official semconv.ErrorType convention, including a supplied ErrorType
 // method or the concrete Go error type.
+// Panics end the call observation with error.type=panic and propagate the
+// original value unchanged. Panic values never enter telemetry.
 //
 // # Development sinks
 //

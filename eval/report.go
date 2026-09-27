@@ -13,18 +13,26 @@ import (
 // MaxReportDepth bounds recursive detail trees at every public trust boundary.
 const MaxReportDepth = 64
 
-// Report is one evaluation result. Verdict, normalized Score, and raw
+// Report is one evaluation result. Decision, normalized Score, and raw
 // Measurement are independent and optional so measurement-only and qualitative
 // evaluations do not need to invent a pass threshold or quality score. Details
-// contains owned child reports instead of convention-based metadata keys.
+// contains owned supporting reports. Details are evidence, not additional
+// observations: experiment summaries count only explicit assessment results.
 type Report struct {
 	Metric      Metric       `json:"metric"`
-	Verdict     Verdict      `json:"verdict,omitzero"`
+	Decision    *Decision    `json:"decision,omitzero"`
 	Score       *Score       `json:"score,omitzero"`
 	Measurement *float64     `json:"measurement,omitzero"`
 	Feedback    string       `json:"feedback,omitzero"`
 	Metadata    metadata.Map `json:"metadata,omitzero"`
 	Details     []Report     `json:"details,omitzero"`
+}
+
+func (r Report) Verdict() Verdict {
+	if r.Decision == nil {
+		return VerdictUnspecified
+	}
+	return r.Decision.Verdict
 }
 
 // Clone validates the complete detail tree before allocating its detached copy.
@@ -36,6 +44,10 @@ func (r Report) Clone() (Report, error) {
 }
 
 func (r Report) cloneValid() Report {
+	if r.Decision != nil {
+		decision := r.Decision.clone()
+		r.Decision = &decision
+	}
 	if r.Score != nil {
 		score := *r.Score
 		r.Score = &score
@@ -63,8 +75,10 @@ func (r Report) validate(depth int) error {
 	if err := r.Metric.Validate(); err != nil {
 		return fmt.Errorf("%w: metric: %w", ErrInvalidReport, err)
 	}
-	if err := r.Verdict.Validate(); err != nil {
-		return err
+	if r.Decision != nil {
+		if err := r.Decision.Validate(); err != nil {
+			return err
+		}
 	}
 	if r.Score != nil {
 		if err := r.Score.Validate(); err != nil {
@@ -81,7 +95,7 @@ func (r Report) validate(depth int) error {
 		return fmt.Errorf("%w: metadata: %w", ErrInvalidReport, err)
 	}
 	if !r.hasOutcome() {
-		return fmt.Errorf("%w: at least one verdict, score, measurement, feedback, or detail is required", ErrInvalidReport)
+		return fmt.Errorf("%w: at least one decision, score, measurement, feedback, or detail is required", ErrInvalidReport)
 	}
 	for index, detail := range r.Details {
 		if err := detail.validate(depth + 1); err != nil {
@@ -117,6 +131,6 @@ func (r *Report) UnmarshalJSON(data []byte) error {
 }
 
 func (r Report) hasOutcome() bool {
-	return r.Verdict.Decided() || r.Score != nil || r.Measurement != nil ||
+	return r.Decision != nil || r.Score != nil || r.Measurement != nil ||
 		strings.TrimSpace(r.Feedback) != "" || len(r.Details) > 0
 }

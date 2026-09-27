@@ -5,10 +5,12 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/eval"
 	"github.com/Tangerg/scope/eval/judge"
 )
@@ -44,16 +46,19 @@ func TestEvaluatorSupportsNonTextSubjectsAndMedianSampling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Verdict != eval.VerdictPass || report.Score == nil || *report.Score != 0.7 || report.Feedback != "middle" {
+	if report.Verdict() != eval.VerdictPass || report.Score == nil || *report.Score != 0.7 || report.Feedback != "middle" {
 		t.Fatalf("report = %#v", report)
 	}
 	configuration, found, err := report.Metric.Parameters().Decode[struct {
-		Aggregation string     `json:"aggregation"`
-		Samples     int        `json:"samples"`
-		Threshold   eval.Score `json:"threshold"`
+		Aggregation string `json:"aggregation"`
+		Samples     int    `json:"samples"`
 	}]("judge")
-	if err != nil || !found || configuration.Aggregation != "median" || configuration.Samples != 3 || configuration.Threshold != threshold {
+	if err != nil || !found || configuration.Aggregation != "median" || configuration.Samples != 3 {
 		t.Fatalf("judge metric configuration = (%#v, %v, %v)", configuration, found, err)
+	}
+	gotThreshold, found, err := report.Decision.Parameters.Decode[eval.Score]("threshold")
+	if err != nil || !found || gotThreshold != threshold {
+		t.Fatalf("judge decision threshold = (%v, %v, %v)", gotThreshold, found, err)
 	}
 	scores, found, err := report.Metadata.Decode[[]eval.Score]("sample_scores")
 	if err != nil || !found || len(scores) != 3 || scores[0] != 0.2 || scores[2] != 0.9 {
@@ -77,7 +82,7 @@ func TestEvaluatorDoesNotInventVerdictWithoutThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Verdict != eval.VerdictUnspecified || report.Score == nil || *report.Score != 0.9 {
+	if report.Verdict() != eval.VerdictUnspecified || report.Score == nil || *report.Score != 0.9 {
 		t.Fatalf("report = %#v", report)
 	}
 }
@@ -135,6 +140,63 @@ func TestJudgeMetricIdentityIncludesModelRubricAndGenerationOptions(t *testing.T
 			t.Fatalf("changed scoring configuration retained metric identity: %s", encoded)
 		}
 		seen[string(encoded)] = true
+	}
+}
+
+func TestJudgeRejectsConflictingIdentityAndOutputFormatBeforeCallingModel(t *testing.T) {
+	parameters := metadata.Map{}
+	if err := parameters.Set("judge", "upstream identity"); err != nil {
+		t.Fatal(err)
+	}
+	conflicting, err := eval.NewMetric(eval.MetricConfig{Name: "quality", Parameters: parameters})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metric, err := eval.NewMetric(eval.MetricConfig{Name: "quality"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	format, err := chat.NewOutputFormat(chat.OutputFormatJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := &fakeModel{}
+	for _, config := range []judge.Config[string]{
+		{Metric: conflicting},
+		{Metric: metric, Options: chat.Options{OutputFormat: &format}},
+	} {
+		config.Model, config.ModelID, config.RubricID, config.Prompt = model, "model-v1", "rubric-v1", validPrompt
+		if _, err := judge.NewEvaluator(config); !errors.Is(err, eval.ErrInvalidEvaluatorConfig) {
+			t.Fatalf("accepted ambiguous judge configuration: %#v, %v", config, err)
+		}
+	}
+	if model.calls != 0 || string(conflicting.Parameters()["judge"]) != `"upstream identity"` {
+		t.Fatal("invalid construction called model or rewrote source identity")
+	}
+}
+
+func TestJudgeThresholdChangesOnlyDecisionIdentity(t *testing.T) {
+	metric, err := eval.NewMetric(eval.MetricConfig{Name: "quality"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reports []eval.Report
+	for _, threshold := range []eval.Score{0.5, 0.8} {
+		evaluator, err := judge.NewEvaluator(judge.Config[string]{
+			Model: &fakeModel{replies: []string{`{"score":0.6}`}}, ModelID: "model-v1", RubricID: "rubric-v1",
+			Metric: metric, Prompt: validPrompt, Threshold: &threshold,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		report, err := evaluator.Evaluate(t.Context(), "same output")
+		if err != nil {
+			t.Fatal(err)
+		}
+		reports = append(reports, report)
+	}
+	if !reflect.DeepEqual(reports[0].Metric, reports[1].Metric) || reports[0].Verdict() != eval.VerdictPass || reports[1].Verdict() != eval.VerdictFail || reflect.DeepEqual(reports[0].Decision.Parameters, reports[1].Decision.Parameters) {
+		t.Fatalf("threshold conflated score and decision identity: %#v", reports)
 	}
 }
 

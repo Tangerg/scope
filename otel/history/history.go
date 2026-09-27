@@ -217,28 +217,26 @@ func (i invalidHistoryStore) Clear(context.Context, corehistory.ConversationID) 
 	return i.err
 }
 
-func (h historyStore) Read(ctx context.Context, conversationID corehistory.ConversationID) ([]chat.Message, error) {
+func (h historyStore) Read(ctx context.Context, conversationID corehistory.ConversationID) (messages []chat.Message, err error) {
 	ctx, observation := h.middleware.start(ctx, operationRead, conversationID)
-	messages, err := h.next.Read(ctx, conversationID)
+	defer errortelemetry.Finish(&err, observation.finish)
+	messages, err = h.next.Read(ctx, conversationID)
 	observation.span.SetAttributes(attribute.Int(messageCountAttribute, len(messages)))
-	observation.finish(err)
 	return messages, err
 }
 
-func (h historyStore) Write(ctx context.Context, conversationID corehistory.ConversationID, messages ...chat.Message) (corehistory.WriteOutcome, error) {
+func (h historyStore) Write(ctx context.Context, conversationID corehistory.ConversationID, messages ...chat.Message) (outcome corehistory.WriteOutcome, err error) {
 	ctx, observation := h.middleware.start(ctx, operationWrite, conversationID,
 		attribute.Int(messageCountAttribute, len(messages)),
 	)
-	outcome, err := h.next.Write(ctx, conversationID, messages...)
-	observation.finish(err)
-	return outcome, err
+	defer errortelemetry.Finish(&err, observation.finish)
+	return h.next.Write(ctx, conversationID, messages...)
 }
 
-func (h historyStore) Clear(ctx context.Context, conversationID corehistory.ConversationID) error {
+func (h historyStore) Clear(ctx context.Context, conversationID corehistory.ConversationID) (err error) {
 	ctx, observation := h.middleware.start(ctx, operationClear, conversationID)
-	err := h.next.Clear(ctx, conversationID)
-	observation.finish(err)
-	return err
+	defer errortelemetry.Finish(&err, observation.finish)
+	return h.next.Clear(ctx, conversationID)
 }
 
 type historyLister struct {
@@ -252,10 +250,10 @@ func (i invalidHistoryLister) Conversations(context.Context) ([]corehistory.Conv
 	return nil, i.err
 }
 
-func (h historyLister) Conversations(ctx context.Context) ([]corehistory.ConversationID, error) {
+func (h historyLister) Conversations(ctx context.Context) (ids []corehistory.ConversationID, err error) {
 	ctx, observation := h.middleware.start(ctx, operationList, "")
-	ids, err := h.next.Conversations(ctx)
+	defer errortelemetry.Finish(&err, observation.finish)
+	ids, err = h.next.Conversations(ctx)
 	observation.span.SetAttributes(attribute.Int(conversationCountAttribute, len(ids)))
-	observation.finish(err)
 	return ids, err
 }

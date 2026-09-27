@@ -74,8 +74,8 @@ func TestExpectedNullOutputRemainsAnAssertion(t *testing.T) {
 				verdict eval.Verdict
 			}{{nullActual, eval.VerdictPass}, {valueActual, test.valueVerdict}} {
 				report, err := (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{Actual: actual.record, Expected: expected})
-				if err != nil || report.Verdict != actual.verdict {
-					t.Fatalf("verdict=%s want=%s error=%v", report.Verdict, actual.verdict, err)
+				if err != nil || report.Verdict() != actual.verdict {
+					t.Fatalf("verdict=%s want=%s error=%v", report.Verdict(), actual.verdict, err)
 				}
 			}
 		})

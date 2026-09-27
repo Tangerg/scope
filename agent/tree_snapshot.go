@@ -109,7 +109,8 @@ func (t TreeSnapshot) ProcessSnapshots() []ProcessSnapshot {
 // The request carries this capture's writer identity, not a restored writer's
 // authority. It can supply typed settlement helpers after a restart; it does not
 // authorize dispatch or replay. Adopted Steps are no longer retained, so absence
-// does not prove non-execution. The enclosing snapshot defines acknowledgment.
+// does not prove non-execution. AttemptID is absent because physical invocations
+// are observations, not recovery state. The enclosing snapshot defines acknowledgment.
 func (t TreeSnapshot) EffectRequest(processID ProcessID, id EffectID) (EffectRequest, bool) {
 	for _, process := range t.state.ProcessSnapshots {
 		if process.ProcessID() != processID || process.state.Prepared == nil {

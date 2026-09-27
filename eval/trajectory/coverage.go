@@ -24,7 +24,8 @@ func (e EffectReference) Valid() bool {
 
 // Coverage is the Host's exhaustive classification of dispatcher Effects in
 // this recording. One Deployment may perform several kinds of operation.
-// Models and Tools require exactly one semantic observation for each Effect;
+// Models and Tools require exactly one semantic call for each physical
+// EffectStarted attempt, including Unknown calls;
 // Other asserts that an Effect performs neither kind of call. The Host must
 // classify requests independently of the observations being checked. Deriving
 // coverage from recorded responses would conceal missing observations.

@@ -267,15 +267,14 @@ type invalidIndexer struct{ err error }
 
 func (i invalidIndexer) Index(context.Context, *corevectorstore.IndexRequest) error { return i.err }
 
-func (i indexer) Index(ctx context.Context, request *corevectorstore.IndexRequest) error {
+func (i indexer) Index(ctx context.Context, request *corevectorstore.IndexRequest) (err error) {
 	var extra []attribute.KeyValue
 	if request != nil && len(request.Documents) > 1 {
 		extra = append(extra, semconv.DBOperationBatchSizeKey.Int(len(request.Documents)))
 	}
 	ctx, observation := i.middleware.start(ctx, operationIndex, extra...)
-	err := i.next.Index(ctx, request)
-	observation.finish(err)
-	return err
+	defer errortelemetry.Finish(&err, observation.finish)
+	return i.next.Index(ctx, request)
 }
 
 type searcher struct {
@@ -289,7 +288,7 @@ func (i invalidSearcher) Search(context.Context, *corevectorstore.SearchRequest)
 	return nil, i.err
 }
 
-func (s searcher) Search(ctx context.Context, request *corevectorstore.SearchRequest) (*corevectorstore.SearchResponse, error) {
+func (s searcher) Search(ctx context.Context, request *corevectorstore.SearchRequest) (response *corevectorstore.SearchResponse, err error) {
 	var topK int
 	var minScore float64
 	if request != nil {
@@ -300,12 +299,12 @@ func (s searcher) Search(ctx context.Context, request *corevectorstore.SearchReq
 		queryTopKKey.Int(topK),
 		queryMinScoreKey.Float64(minScore),
 	)
-	response, err := s.next.Search(ctx, request)
+	defer errortelemetry.Finish(&err, observation.finish)
+	response, err = s.next.Search(ctx, request)
 	if err == nil && response != nil {
 		observation.span.SetAttributes(semconv.DBResponseReturnedRowsKey.Int(len(response.Results)))
 		observation.recordReturnedRows(len(response.Results))
 	}
-	observation.finish(err)
 	return response, err
 }
 
@@ -318,15 +317,14 @@ type invalidIDDeleter struct{ err error }
 
 func (i invalidIDDeleter) DeleteIDs(context.Context, []string) error { return i.err }
 
-func (i idDeleter) DeleteIDs(ctx context.Context, ids []string) error {
+func (i idDeleter) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	var extra []attribute.KeyValue
 	if len(ids) > 1 {
 		extra = append(extra, semconv.DBOperationBatchSizeKey.Int(len(ids)))
 	}
 	ctx, observation := i.middleware.start(ctx, operationDeleteIDs, extra...)
-	err := i.next.DeleteIDs(ctx, ids)
-	observation.finish(err)
-	return err
+	defer errortelemetry.Finish(&err, observation.finish)
+	return i.next.DeleteIDs(ctx, ids)
 }
 
 type filterDeleter struct {
@@ -338,9 +336,8 @@ type invalidFilterDeleter struct{ err error }
 
 func (i invalidFilterDeleter) DeleteWhere(context.Context, filter.Predicate) error { return i.err }
 
-func (f filterDeleter) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
+func (f filterDeleter) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
 	ctx, observation := f.middleware.start(ctx, operationDeleteWhere)
-	err := f.next.DeleteWhere(ctx, predicate)
-	observation.finish(err)
-	return err
+	defer errortelemetry.Finish(&err, observation.finish)
+	return f.next.DeleteWhere(ctx, predicate)
 }

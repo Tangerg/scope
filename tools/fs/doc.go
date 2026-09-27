@@ -12,10 +12,10 @@
 // **Text files only.** Backend implementations MUST reject files
 // that look binary (NUL byte in the first 8 KiB is a good default
 // heuristic) and reject Write content that contains NUL bytes. Use
-// the bash tool if you need to manipulate binary data.
+// the shell tool if you need to manipulate binary data.
 //
 // **Tools stay thin.** All content processing — line windowing,
-// binary detection, exact / fuzzy match, append-vs-overwrite — lives
+// binary detection, exact replacement, and complete writes — lives
 // in the backend, not the tool. The tool's job is JSON in, JSON out.
 //
 // ApplyPatchTool.MutationPaths exposes prospective patch endpoints without I/O,
@@ -23,6 +23,10 @@
 // this optional method through core/tool.Capability for approval or locking.
 // Filesystem authority and hunk applicability are checked during execution;
 // ApplyPatchResponse, including a partial response on error, reports actual effects.
+// Mutation tools preserve ordinary backend errors and acknowledged observations
+// through core/tool.CallError. Such evidence is available for evaluation and
+// reconciliation, not a completed result to feed back to the model. Backends
+// establish definite failure or permission refusal explicitly with core/tool.Failure.
 //
 // Why Glob and Grep have dedicated ports (instead of "walk + match" in the
 // tool layer): a remote backend cannot afford to ship every file

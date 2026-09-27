@@ -2,6 +2,7 @@ package fs
 
 import (
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -105,7 +106,7 @@ func TestApplyPatchMutationPathsRejectInvalidPatches(t *testing.T) {
 		if queryErr == nil || paths != nil || executionErr == nil || len(response.Files) != 0 {
 			t.Fatalf("invalid patch %q: query %v, %v; execution %#v, %v", patch, paths, queryErr, response, executionErr)
 		}
-		if queryErr.Error() != executionErr.Error() {
+		if !errors.Is(executionErr, ErrMutationRejected) || executionErr.Error() != ErrMutationRejected.Error()+": "+queryErr.Error() {
 			t.Fatalf("validation differs: query %v; execution %v", queryErr, executionErr)
 		}
 	}

@@ -106,7 +106,7 @@ func (c childCallBatch) childKey(modelSequence uint64, call chat.ToolCall) (agen
 	if c.Kind == childCallsDelegate {
 		return DelegateChildKey(modelSequence, call)
 	}
-	return toolChildKey(modelSequence, call)
+	return ToolChildKey(modelSequence, call)
 }
 
 func (c childCallBatch) validateBindings(ctx context.Context, definition *Definition, calls []chat.ToolCall) error {

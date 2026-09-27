@@ -61,16 +61,16 @@ func TestEvaluatorCalculatesRankingMetricsAtCutoff(t *testing.T) {
 			if err != nil || !found || cutoff != 4 {
 				t.Fatalf("metric cutoff = (%d, %v, %v)", cutoff, found, err)
 			}
-			gotThreshold, found, err := report.Metric.Parameters().Decode[eval.Score]("threshold")
+			gotThreshold, found, err := report.Decision.Parameters.Decode[eval.Score]("threshold")
 			if err != nil || !found || gotThreshold != threshold {
-				t.Fatalf("metric threshold = (%v, %v, %v)", gotThreshold, found, err)
+				t.Fatalf("decision threshold = (%v, %v, %v)", gotThreshold, found, err)
 			}
 			wantVerdict := eval.VerdictFail
 			if test.want >= threshold.Float64() {
 				wantVerdict = eval.VerdictPass
 			}
-			if report.Verdict != wantVerdict {
-				t.Fatalf("verdict = %v for score %v and threshold %v", report.Verdict, report.Score, threshold)
+			if report.Verdict() != wantVerdict {
+				t.Fatalf("verdict = %v for score %v and threshold %v", report.Verdict(), report.Score, threshold)
 			}
 		})
 	}
@@ -95,8 +95,8 @@ func TestPrecisionUsesConfiguredCutoff(t *testing.T) {
 	if report.Score == nil || *report.Score != 0.25 {
 		t.Fatalf("precision@4 = %v, want 0.25", report.Score)
 	}
-	if report.Verdict != eval.VerdictUnspecified {
-		t.Fatalf("verdict = %q without a configured threshold", report.Verdict)
+	if report.Verdict() != eval.VerdictUnspecified {
+		t.Fatalf("verdict = %q without a configured threshold", report.Verdict())
 	}
 }
 

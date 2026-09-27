@@ -164,8 +164,8 @@ func TestTool_Call_HappyPath(t *testing.T) {
 	if err := jsonv2.Unmarshal(result.Details, &resp); err != nil {
 		t.Fatalf("Unmarshal response: %v\nbody=%s", err, result.Details)
 	}
-	if !strings.Contains(resp.Stdout, "hi") {
-		t.Errorf("Response.Stdout = %q, want substring %q", resp.Stdout, "hi")
+	if !bytes.Contains(resp.Stdout.Bytes(), []byte("hi")) {
+		t.Errorf("Response.Stdout = %q, want substring %q", resp.Stdout.Bytes(), "hi")
 	}
 	if resp.ExitCode != 0 {
 		t.Errorf("Response.ExitCode = %d, want 0", resp.ExitCode)

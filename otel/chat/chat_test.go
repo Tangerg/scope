@@ -406,6 +406,47 @@ func TestStreamEndsSynchronouslyOnConsumerStop(t *testing.T) {
 	if rig.spans.Ended()[0].Status().Code == codes.Error {
 		t.Fatal("consumer stop must not be reported as provider failure")
 	}
+	if _, found := spanAttributes(t, rig.spans.Ended()[0])["gen_ai.response.finish_reasons"]; found {
+		t.Fatal("consumer stop must not invent a provider finish reason")
+	}
+}
+
+func TestStreamConsumerPanicReleasesProviderAndPreservesUsage(t *testing.T) {
+	middleware, rig := newRig(t, "openai")
+	released := false
+	streamer := chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
+		return func(yield func(*chat.ResponseDelta, error) bool) {
+			defer func() { released = true }()
+			yield(responseDelta("private response", "", 7, 2), nil)
+		}
+	})
+	panicValue := &struct{ Message string }{Message: "private consumer panic"}
+	var panicked any
+	func() {
+		defer func() { panicked = recover() }()
+		middleware.Stream(streamer).Stream(t.Context(), request("model"))(func(*chat.ResponseDelta, error) bool {
+			panic(panicValue)
+		})
+	}()
+	if panicked != panicValue || !released || len(rig.spans.Ended()) != 1 {
+		t.Fatalf("panic/released/spans = %v/%v/%d", panicked, released, len(rig.spans.Ended()))
+	}
+	span := rig.spans.Ended()[0]
+	attributes := spanAttributes(t, span)
+	assertStringAttr(t, attributes, "error.type", "panic")
+	if span.Status().Code != codes.Error || len(span.Events()) != 1 {
+		t.Fatalf("status/exception events = %v/%d", span.Status(), len(span.Events()))
+	}
+	if _, found := attributes["gen_ai.response.finish_reasons"]; found {
+		t.Fatal("consumer panic invented a provider finish reason")
+	}
+	metrics := collectMetrics(t, rig.reader)
+	if got := histogramInt64Sum(t, metrics, "gen_ai.client.token.usage", "gen_ai.token.type", "input"); got != 7 {
+		t.Fatalf("known input usage = %d, want 7", got)
+	}
+	if got := histogramInt64Sum(t, metrics, "gen_ai.client.token.usage", "gen_ai.token.type", "output"); got != 2 {
+		t.Fatalf("known output usage = %d, want 2", got)
+	}
 }
 
 func TestStreamReportsNilAndProviderErrors(t *testing.T) {

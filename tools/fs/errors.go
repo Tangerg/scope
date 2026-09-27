@@ -24,8 +24,10 @@ var (
 	// ErrRipgrepUnavailable reports that the local grep backend lacks its engine.
 	ErrRipgrepUnavailable = errors.New("fs: ripgrep is unavailable")
 
-	// ErrEditRejected proves that Edit rejected the request before any mutation.
-	ErrEditRejected = errors.New("fs: edit rejected without mutation")
+	// ErrMutationRejected proves that a write, edit, or patch stopped before
+	// changing any file or directory. Backends must not return it after commit
+	// begins, even when the only acknowledged changes are partial.
+	ErrMutationRejected = errors.New("fs: mutation rejected without changes")
 
 	// ErrBinaryFile prevents text tools from silently corrupting binary content.
 	ErrBinaryFile = errors.New("fs: file appears to be binary; only text files are supported")

@@ -102,7 +102,7 @@ func (m Middleware) Wrap(next coreimage.Model) (coreimage.Model, error) {
 	if lo.IsNil(next) {
 		return nil, fmt.Errorf("%w: value must not be nil", ErrInvalidModel)
 	}
-	return coreimage.ModelFunc(func(ctx context.Context, request *coreimage.Request) (*coreimage.Response, error) {
+	return coreimage.ModelFunc(func(ctx context.Context, request *coreimage.Request) (response *coreimage.Response, err error) {
 		startedAt := time.Now()
 		attributes := m.requestAttributes(request)
 		spanCtx, span := m.tracer.Start(ctx, m.spanName(request),
@@ -110,22 +110,23 @@ func (m Middleware) Wrap(next coreimage.Model) (coreimage.Model, error) {
 			trace.WithTimestamp(startedAt),
 			trace.WithAttributes(attributes...),
 		)
-		response, err := next.Call(spanCtx, request)
-		finishedAt := time.Now()
-		defer span.End(trace.WithTimestamp(finishedAt))
-		metricAttributes := m.metricAttributes(request)
-		if err != nil {
-			errorType := errorTypeAttribute(err)
-			errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
-			errortelemetry.EmitGenAIException(spanCtx, m.logger, errorType, finishedAt)
-			metricAttributes = append(metricAttributes, errorType)
-		}
-		m.duration.Record(spanCtx, finishedAt.Sub(startedAt).Seconds(),
-			genaiconv.OperationNameGenerateContent,
-			genaiconv.ProviderNameAttr(m.provider),
-			metricAttributes...,
-		)
-		return response, err
+		defer errortelemetry.Finish(&err, func(observedError error) {
+			finishedAt := time.Now()
+			defer span.End(trace.WithTimestamp(finishedAt))
+			metricAttributes := m.metricAttributes(request)
+			if observedError != nil {
+				errorType := errorTypeAttribute(observedError)
+				errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
+				errortelemetry.EmitGenAIException(spanCtx, m.logger, errorType, finishedAt)
+				metricAttributes = append(metricAttributes, errorType)
+			}
+			m.duration.Record(spanCtx, finishedAt.Sub(startedAt).Seconds(),
+				genaiconv.OperationNameGenerateContent,
+				genaiconv.ProviderNameAttr(m.provider),
+				metricAttributes...,
+			)
+		})
+		return next.Call(spanCtx, request)
 	}), nil
 }
 

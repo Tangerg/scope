@@ -65,8 +65,8 @@ func TestRecorderAndEvaluatorCoverAgentRegressionDimensions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Verdict != eval.VerdictPass || len(report.Details) != 6 {
-		t.Fatalf("trajectory report = verdict %s with %d details", report.Verdict, len(report.Details))
+	if report.Verdict() != eval.VerdictPass || len(report.Details) != 6 {
+		t.Fatalf("trajectory report = verdict %s with %d details", report.Verdict(), len(report.Details))
 	}
 
 	noSteps := uint64(0)
@@ -84,8 +84,8 @@ func TestRecorderAndEvaluatorCoverAgentRegressionDimensions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Verdict != eval.VerdictFail {
-		t.Fatalf("mismatched Tool call and Step limit verdict = %s, want fail", report.Verdict)
+	if report.Verdict() != eval.VerdictFail {
+		t.Fatalf("mismatched Tool call and Step limit verdict = %s, want fail", report.Verdict())
 	}
 }
 
@@ -118,6 +118,11 @@ func runRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observe
 
 func startRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observer interaction.ToolObserver, weather tool.Tool, maxModelCalls uint32) (*agent.Process, *agent.Engine) {
 	t.Helper()
+	return startRecordedInteractionModel(t, recorder, observer, weather, maxModelCalls, &fixtureInteractionClient{})
+}
+
+func startRecordedInteractionModel(t *testing.T, recorder *trajectory.Recorder, observer interaction.ToolObserver, weather tool.Tool, maxModelCalls uint32, model chat.Model) (*agent.Process, *agent.Engine) {
+	t.Helper()
 	toolSet, err := interaction.NewToolSet(interaction.ToolSetConfig{
 		Name: "test.trajectory.tools", Description: "Record independently settled Tool calls.", Tools: []tool.Tool{weather}, Observer: observer,
 		ImplementationDigest: agent.ComputeDigest([]byte("trajectory-tool-implementation")), ConfigurationDigest: agent.ComputeDigest([]byte("trajectory-tool-configuration")),
@@ -133,7 +138,7 @@ func startRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, obser
 		t.Fatal(err)
 	}
 	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-		Model: &fixtureInteractionClient{}, Observer: recorder,
+		Model: model, Observer: recorder,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -399,13 +404,29 @@ func (rejectingDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
 	return agent.ReplayPolicyNever
 }
 
-type fixtureInteractionClient struct{ calls atomic.Uint32 }
+type fixtureInteractionClient struct {
+	calls        atomic.Uint32
+	callID       string
+	secondCallID string
+	city         string
+}
 
 func (f *fixtureInteractionClient) Call(context.Context, *chat.Request) (*chat.Response, error) {
 	if f.calls.Add(1) == 1 {
-		message := chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{
-			ID: "weather-call", Name: "weather", Arguments: `{"city":"Paris"}`,
-		}))
+		callID, city := f.callID, f.city
+		if callID == "" {
+			callID = "weather-call"
+		}
+		if city == "" {
+			city = "Paris"
+		}
+		parts := []chat.Part{chat.NewToolCallPart(chat.ToolCall{
+			ID: callID, Name: "weather", Arguments: fmt.Sprintf(`{"city":%q}`, city),
+		})}
+		if f.secondCallID != "" {
+			parts = append(parts, chat.NewToolCallPart(chat.ToolCall{ID: f.secondCallID, Name: "weather", Arguments: `{"city":"Berlin"}`}))
+		}
+		message := chat.NewAssistantMessage(parts...)
 		return &chat.Response{Output: &chat.Output{
 			Message: &message, FinishReason: chat.FinishReasonToolCalls,
 		}}, nil
@@ -545,5 +566,87 @@ func TestLimitsJSONPreservesNanoseconds(t *testing.T) {
 		if restored.Elapsed == nil || *restored.Elapsed != elapsed {
 			t.Fatalf("restored = %+v", restored)
 		}
+	}
+}
+
+func TestRealProviderToolCallIDsDoNotChangeBehaviorDigest(t *testing.T) {
+	var records []trajectory.Trajectory
+	for _, model := range []*fixtureInteractionClient{
+		{callID: "provider-a", city: "Paris"},
+		{callID: "provider-b", city: "Paris"},
+		{callID: "provider-c", city: "Berlin"},
+	} {
+		recorder := &trajectory.Recorder{}
+		process, _ := startRecordedInteractionModel(t, recorder, recorder, fixtureWeatherTool{}, 2, model)
+		recorded, err := recorder.Take(t.Context(), process, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		config := trajectoryConfig(recorded)
+		config.Coverage = interactionCoverage(config.Events)
+		recorded, err = trajectory.New(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		records = append(records, recorded)
+	}
+	var keys []agent.ChildKey
+	var digests []string
+	for _, record := range records {
+		for _, event := range record.Events() {
+			if event.Name() == agent.EventProcessStarted && !event.Relation().IsRoot() {
+				key, _ := event.Relation().ChildKey()
+				keys = append(keys, key)
+			}
+		}
+		digest, err := record.BehaviorDigest(rawOutputProjection)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digests = append(digests, digest)
+	}
+	if len(keys) != 3 || keys[0] == keys[1] {
+		t.Fatal("fixture did not exercise different real Tool child identities")
+	}
+	if digests[0] != digests[1] {
+		t.Fatal("provider call IDs caused a false behavior difference")
+	}
+	if digests[1] == digests[2] {
+		t.Fatal("semantic Tool arguments disappeared from behavior comparison")
+	}
+}
+
+func TestToolSequenceUsesSemanticOrderAcrossProviderToolCallIDs(t *testing.T) {
+	paris, berlin := trajectory.ToolArguments(`{"city":"Paris"}`), trajectory.ToolArguments(`{"city":"Berlin"}`)
+	var rawFirstIndexes []uint32
+	for _, model := range []*fixtureInteractionClient{
+		{callID: "call-a", secondCallID: "call-b"},
+		{callID: "call-b", secondCallID: "call-a"},
+	} {
+		recorder := &trajectory.Recorder{}
+		process, _ := startRecordedInteractionModel(t, recorder, recorder, fixtureWeatherTool{}, 2, model)
+		recorded, err := recorder.Take(t.Context(), process, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		config := trajectoryConfig(recorded)
+		config.Coverage = interactionCoverage(config.Events)
+		recorded, err = trajectory.New(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rawFirstIndexes = append(rawFirstIndexes, recorded.ToolCalls()[0].Index)
+		report, err := (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{Actual: recorded, Expected: trajectory.Expectation{
+			Status: agent.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{
+				{Name: "weather", Arguments: &paris, Outcome: trajectory.ToolOutcomeSucceeded},
+				{Name: "weather", Arguments: &berlin, Outcome: trajectory.ToolOutcomeSucceeded},
+			}},
+		}})
+		if err != nil || report.Verdict() != eval.VerdictPass {
+			t.Fatalf("provider IDs reordered semantic Tool expectation: report=%+v error=%v", report, err)
+		}
+	}
+	if rawFirstIndexes[0] == rawFirstIndexes[1] {
+		t.Fatal("fixture did not invert raw child ordering")
 	}
 }

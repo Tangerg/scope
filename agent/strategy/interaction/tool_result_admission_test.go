@@ -34,11 +34,11 @@ func TestRestoreRejectsFailedToolAdvertisements(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := []chat.ToolCall{{ID: "failed", Name: "initial", Arguments: `{}`}, {ID: "pending", Name: "initial", Arguments: `{}`}}
-	firstKey, err := toolChildKey(1, calls[0])
+	firstKey, err := ToolChildKey(1, calls[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondKey, err := toolChildKey(1, calls[1])
+	secondKey, err := ToolChildKey(1, calls[1])
 	if err != nil {
 		t.Fatal(err)
 	}

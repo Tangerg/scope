@@ -95,7 +95,7 @@ func TestAbsentMeasurementsStayAbsent(t *testing.T) {
 	if err := jsonv2.Unmarshal(encoded, &wire); err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"score", "measurement", "verdict", "details"} {
+	for _, field := range []string{"score", "measurement", "decision", "details"} {
 		if _, present := wire[field]; present {
 			t.Errorf("unset %s was encoded as %v", field, wire[field])
 		}

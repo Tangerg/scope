@@ -9,6 +9,7 @@
 // # Capabilities
 //
 //   - shell: run a command and capture its output.
+//   - content: preserve arbitrary response bytes as UTF-8 or explicit base64.
 //   - fs: read, write, edit, glob, and grep inside an explicitly supplied directory authority.
 //   - textread: read text with line numbering and limits.
 //   - httpreq: issue an HTTP request against an explicit allowlist.
@@ -39,4 +40,13 @@
 // path, so the loop parallelizes different files and serializes the same file.
 // Output over a limit is truncated and marked, never turned into an error, so
 // the model can decide what to do next.
+//
+// # Execution evidence
+//
+// A backend error does not prove that a command or mutation failed without
+// effects. Shell, filesystem mutation, and HTTP tools retain available observations in
+// core/tool.CallError for diagnostics and evaluation. Runtimes reconcile an
+// uncertain outcome before deciding whether to repeat an operation. Definite
+// failure and permission refusal use core/tool.Failure; filesystem backends can
+// identify rejection before any mutation with fs.ErrMutationRejected.
 package tools

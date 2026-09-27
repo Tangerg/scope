@@ -15,7 +15,7 @@ import (
 )
 
 func trajectoryConfig(recorded trajectory.Trajectory) trajectory.Config {
-	return trajectory.Config{RootProcessID: recorded.RootProcessID(), Termination: recorded.Termination(), Output: recorded.Output(), RootUsage: recorded.RootUsage(), Elapsed: recorded.Elapsed(), Coverage: recorded.Coverage(), Events: recorded.Events(), ModelCalls: recorded.ModelCalls(), ToolCalls: recorded.ToolCalls()}
+	return trajectory.Config{RootProcessID: recorded.RootProcessID(), Termination: recorded.Termination(), Output: recorded.Output(), RootUsage: recorded.RootUsage(), Elapsed: recorded.Elapsed(), Coverage: recorded.Coverage(), Gaps: recorded.Gaps(), Events: recorded.Events(), ModelCalls: recorded.ModelCalls(), ToolCalls: recorded.ToolCalls()}
 }
 
 func coveredInteraction(t *testing.T) trajectory.Trajectory {
@@ -67,7 +67,11 @@ func TestMissingEvidenceCannotProveZeroCost(t *testing.T) {
 	recorded := coveredInteraction(t)
 	config := trajectoryConfig(recorded)
 	config.ModelCalls = nil
-	if _, checkErr := trajectory.New(config); !errors.Is(checkErr, trajectory.ErrIncompleteRecording) {
+	missingModels, err := trajectory.New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, checkErr := missingModels.TotalTokens(); !errors.Is(checkErr, trajectory.ErrIncompleteRecording) {
 		t.Fatalf("missing model calls = %v", checkErr)
 	}
 	config = trajectoryConfig(recorded)
@@ -94,8 +98,12 @@ func TestMissingEvidenceCannotProveZeroCost(t *testing.T) {
 	}
 	config = trajectoryConfig(recorded)
 	config.ToolCalls = nil
-	if _, checkErr := trajectory.New(config); !errors.Is(checkErr, trajectory.ErrIncompleteRecording) {
-		t.Fatalf("missing tools = %v", checkErr)
+	missingTools, err := trajectory.New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, checkErr := (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{Actual: missingTools, Expected: trajectory.Expectation{Status: agent.StatusCompleted, Tools: &trajectory.ToolSequence{}}}); !errors.Is(checkErr, trajectory.ErrIncompleteRecording) {
+		t.Fatalf("missing tools proved absence: %v", checkErr)
 	}
 	config = trajectoryConfig(recorded)
 	config.Coverage = nil
@@ -479,5 +487,86 @@ func TestCommitPublicationTimingDoesNotChangeSemanticBehavior(t *testing.T) {
 	}
 	if digests[0] != digests[1] {
 		t.Fatal("acknowledgment publication timing changed semantic behavior")
+	}
+}
+
+func TestRestoredTailCannotProveNoHistoricalToolCalls(t *testing.T) {
+	baseline := coveredInteraction(t)
+	if len(baseline.ToolCalls()) == 0 {
+		t.Fatal("fixture has no historical Tool call")
+	}
+	config := trajectoryConfig(baseline)
+	var first, terminal agent.Event
+	for _, event := range config.Events {
+		if !event.Relation().IsRoot() {
+			continue
+		}
+		if event.Name() == agent.EventProcessStarted {
+			first = event
+		}
+		if event.Name() == agent.EventProcessFinished {
+			terminal = event
+		}
+	}
+	config.Events = []agent.Event{
+		changeEvent(t, first, map[string]any{"name": agent.EventProcessRestored}),
+		changeEvent(t, terminal, map[string]any{"process_sequence": 2}),
+	}
+	config.ModelCalls, config.ToolCalls, config.Elapsed = nil, nil, nil
+	config.Coverage = &trajectory.Coverage{}
+	tail, err := trajectory.New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tail.HistoryComplete() {
+		t.Fatal("restored activation claimed complete execution history")
+	}
+	if _, err := (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{Actual: tail, Expected: trajectory.Expectation{Status: agent.StatusCompleted, Tools: &trajectory.ToolSequence{}}}); !errors.Is(err, trajectory.ErrIncompleteRecording) {
+		t.Fatalf("missing pre-restart Tool history proved no Tool calls: %v", err)
+	}
+}
+
+func TestDeclaredObservationGapRemainsPortableAndCannotProveCompleteness(t *testing.T) {
+	config := trajectoryConfig(coveredInteraction(t))
+	for index, event := range config.Events {
+		if event.Relation().IsRoot() && event.Name() == agent.EventStepStarted {
+			config.Events = append(config.Events[:index:index], config.Events[index+1:]...)
+			break
+		}
+	}
+	if _, err := trajectory.New(config); !errors.Is(err, trajectory.ErrInvalidTrajectory) {
+		t.Fatalf("undeclared gap was accepted: %v", err)
+	}
+	config.Gaps.DroppedEvents = 1
+	recorded, err := trajectory.New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := jsonv2.Marshal(recorded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded trajectory.Trajectory
+	if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Gaps().DroppedEvents != 1 || decoded.HistoryComplete() {
+		t.Fatal("portable gap was lost")
+	}
+	if _, err := decoded.BehaviorDigest(rawOutputProjection); !errors.Is(err, trajectory.ErrIncompleteRecording) {
+		t.Fatalf("truncated evidence proved behavior: %v", err)
+	}
+}
+
+func TestInvalidCoverageDoesNotConsumeValidRecording(t *testing.T) {
+	recorder := &trajectory.Recorder{}
+	process := runRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{})
+	invalid := &trajectory.Coverage{Other: []trajectory.EffectReference{{}}}
+	if _, err := recorder.Take(t.Context(), process, invalid); !errors.Is(err, trajectory.ErrInvalidTrajectory) {
+		t.Fatalf("invalid coverage was accepted: %v", err)
+	}
+	recorded, err := recorder.Take(t.Context(), process, nil)
+	if err != nil || len(recorded.ModelCalls()) != 2 || len(recorded.ToolCalls()) != 1 {
+		t.Fatalf("invalid export declaration consumed valid evidence: %v", err)
 	}
 }

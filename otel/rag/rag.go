@@ -97,7 +97,7 @@ type instrumentedRetriever struct {
 func (i *instrumentedRetriever) Retrieve(
 	ctx context.Context,
 	query corerag.Query,
-) (corerag.Candidates, error) {
+) (candidates corerag.Candidates, err error) {
 	metricAttributes := []attribute.KeyValue{
 		attribute.String(operationAttributeName, retrieveOperation),
 	}
@@ -108,19 +108,22 @@ func (i *instrumentedRetriever) Retrieve(
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(metricAttributes...),
 	)
-	candidates, err := i.next.Retrieve(ctx, query)
+	defer errortelemetry.Finish(&err, func(observedError error) {
+		finishedAt := time.Now()
+		defer span.End(trace.WithTimestamp(finishedAt))
+		if observedError != nil {
+			errorType := errorTypeAttribute(observedError)
+			errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
+			metricAttributes = append(metricAttributes, errorType)
+		}
+		i.middleware.duration.Record(
+			ctx,
+			finishedAt.Sub(startedAt).Seconds(),
+			metric.WithAttributes(metricAttributes...),
+		)
+	})
+	candidates, err = i.next.Retrieve(ctx, query)
 	span.SetAttributes(attribute.Int(documentCountAttribute, len(candidates)))
-	if err != nil {
-		errorType := errorTypeAttribute(err)
-		errortelemetry.Record(span, errorType)
-		metricAttributes = append(metricAttributes, errorType)
-	}
-	span.End()
-	i.middleware.duration.Record(
-		ctx,
-		time.Since(startedAt).Seconds(),
-		metric.WithAttributes(metricAttributes...),
-	)
 	return candidates, err
 }
 

@@ -18,14 +18,18 @@ type Reader interface {
 	Read(ctx context.Context, in ReadInput) (ReadOutput, error)
 }
 
-// Writer is the narrow backend port consumed by WriteTool.
+// Writer is the narrow backend port consumed by WriteTool. On error the
+// response retains acknowledged writes; an ordinary error does not establish
+// whether a remote write committed or whether it is safe to repeat.
+// ErrMutationRejected explicitly establishes that no mutation began.
 type Writer interface {
 	Write(ctx context.Context, request WriteRequest) (WriteResponse, error)
 }
 
 // Editor keeps read-modify-write atomic inside the filesystem authority owner.
-// ErrEditRejected reports a definite rejection with no mutation. Other errors
+// ErrMutationRejected reports a definite rejection with no mutation. Other errors
 // do not establish the outcome and must not be treated as safe to retry.
+// Responses retain acknowledged replacements even on error.
 type Editor interface {
 	Edit(ctx context.Context, request EditRequest) (EditResponse, error)
 }
@@ -36,6 +40,10 @@ type Editor interface {
 // Implementations may create parent directories while committing files.
 // Patch endpoints must follow [ApplyPatchTool.MutationPaths] so hosts can inspect
 // the complete prospective write set before invoking the backend.
+// A backend may return core/tool.Failure for an established unsuccessful outcome;
+// that value owns the complete model-visible output. An ordinary error preserves
+// uncertainty, and the Tool carries the response as core/tool.CallError evidence.
+// ErrMutationRejected explicitly establishes rejection before any mutation.
 type PatchApplier interface {
 	ApplyPatch(ctx context.Context, request ApplyPatchRequest) (ApplyPatchResponse, error)
 }

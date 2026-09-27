@@ -45,6 +45,7 @@ type EffectRequest struct {
 	stepSequence  uint64
 	batchIndex    uint32
 	id            EffectID
+	attemptID     EffectAttemptID
 	effect        Effect
 }
 
@@ -102,6 +103,13 @@ func (e EffectRequest) BatchIndex() uint32 { return e.batchIndex }
 
 // ID returns the stable identity assigned during Step preparation.
 func (e EffectRequest) ID() EffectID { return e.id }
+
+// AttemptID identifies this physical Dispatch invocation. Captured requests and
+// durability boundaries describe logical Effects without an active invocation;
+// they return false. Replay keeps ID and receives a fresh AttemptID.
+func (e EffectRequest) AttemptID() (EffectAttemptID, bool) {
+	return e.attemptID, e.attemptID.Valid()
+}
 
 // Effect returns an independently owned copy of the frozen intent.
 func (e EffectRequest) Effect() Effect { return e.effect.clone() }

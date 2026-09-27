@@ -1989,6 +1989,7 @@ func (t *treeRuntime) startDispatch(
 	}
 	request := t.effectRequestFor(process, batchIndex, record)
 	observation := t.beginEffectAttempt(process, process.prepared.StepSequence, record.ID, EffectTargetDispatcher)
+	request.attemptID = observation.id
 	dispatchCtx, cancel := context.WithCancel(t.context)
 	job := &processJob{
 		kind:          processJobDispatch,

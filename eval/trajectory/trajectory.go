@@ -13,6 +13,7 @@ import (
 	"time"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/eval"
 )
 
@@ -21,7 +22,9 @@ const (
 	processPathSeparator = "/"
 )
 
-// Trajectory is an owned, portable record of one completed root Process tree.
+// Trajectory is an owned, portable record of one drained root Process tree.
+// A runtime stop may leave no committed root Result. Known observation loss is
+// explicit and remains portable; it never becomes proof of complete history.
 // Absolute timing and provider responses remain available in the record, but
 // BehaviorDigest uses an explicit Host output projection for replay comparison.
 // Root termination and usage must agree with the root Process's finished Event,
@@ -32,6 +35,7 @@ type Trajectory struct {
 	output        agent.Payload
 	rootUsage     agent.Usage
 	coverage      *Coverage
+	gaps          EvidenceGaps
 	elapsed       *time.Duration
 	events        []agent.Event
 	modelCalls    []ModelCall
@@ -49,6 +53,7 @@ func New(config Config) (Trajectory, error) {
 		output:        config.Output,
 		rootUsage:     config.RootUsage,
 		coverage:      config.Coverage.clone(),
+		gaps:          config.Gaps,
 		elapsed:       cloneElapsed(config.Elapsed),
 		events:        slices.Clone(config.Events),
 		modelCalls:    cloneModelCalls(config.ModelCalls),
@@ -63,13 +68,14 @@ func New(config Config) (Trajectory, error) {
 	return trajectory, nil
 }
 
-// Config supplies the complete facts owned by one Trajectory.
+// Config supplies the retained facts and known observation gaps.
 type Config struct {
 	RootProcessID agent.ProcessID
 	Termination   agent.Termination
 	Output        agent.Payload
 	RootUsage     agent.Usage
 	Coverage      *Coverage
+	Gaps          EvidenceGaps
 	Elapsed       *time.Duration
 	Events        []agent.Event
 	ModelCalls    []ModelCall
@@ -82,7 +88,11 @@ func (t Trajectory) Clone() (Trajectory, error) {
 
 func (t Trajectory) RootProcessID() agent.ProcessID { return t.rootProcessID }
 
+// Termination returns the committed root termination. The zero value means no
+// root Result was established; RuntimeStopped is not logical termination.
 func (t Trajectory) Termination() agent.Termination { return t.termination }
+
+func (t Trajectory) Gaps() EvidenceGaps { return t.gaps }
 
 // Output returns the root output; a zero Payload means absent, while JSON null
 // is a present output.
@@ -105,30 +115,35 @@ func (t Trajectory) ToolCalls() []ToolCall { return cloneToolCalls(t.toolCalls) 
 func (t Trajectory) config() Config {
 	return Config{
 		RootProcessID: t.rootProcessID, Termination: t.termination,
-		Output: t.output, RootUsage: t.rootUsage, Coverage: t.coverage, Elapsed: t.elapsed,
+		Output: t.output, RootUsage: t.rootUsage, Coverage: t.coverage, Gaps: t.gaps, Elapsed: t.elapsed,
 		Events: t.events, ModelCalls: t.modelCalls, ToolCalls: t.toolCalls,
 	}
 }
 
 type trajectoryWire struct {
-	RootProcessID agent.ProcessID   `json:"root_process_id"`
-	Termination   agent.Termination `json:"termination"`
-	Output        agent.Payload     `json:"output,omitzero"`
-	RootUsage     agent.Usage       `json:"root_usage"`
-	Coverage      *Coverage         `json:"coverage,omitzero"`
-	Elapsed       *int64            `json:"elapsed_ns,omitzero"`
-	Events        []agent.Event     `json:"events"`
-	ModelCalls    []ModelCall       `json:"model_calls,omitempty"`
-	ToolCalls     []ToolCall        `json:"tool_calls,omitempty"`
+	RootProcessID agent.ProcessID    `json:"root_process_id"`
+	Termination   *agent.Termination `json:"termination,omitzero"`
+	Output        agent.Payload      `json:"output,omitzero"`
+	RootUsage     agent.Usage        `json:"root_usage"`
+	Coverage      *Coverage          `json:"coverage,omitzero"`
+	Gaps          EvidenceGaps       `json:"gaps,omitzero"`
+	Elapsed       *int64             `json:"elapsed_ns,omitzero"`
+	Events        []agent.Event      `json:"events"`
+	ModelCalls    []ModelCall        `json:"model_calls,omitempty"`
+	ToolCalls     []ToolCall         `json:"tool_calls,omitempty"`
 }
 
 func (t Trajectory) MarshalJSON() ([]byte, error) {
 	if err := t.Validate(); err != nil {
 		return nil, err
 	}
+	var termination *agent.Termination
+	if t.termination.Valid() {
+		termination = &t.termination
+	}
 	return jsonv2.Marshal(trajectoryWire{
-		RootProcessID: t.rootProcessID, Termination: t.termination,
-		Output: t.output, RootUsage: t.rootUsage, Coverage: t.coverage, Elapsed: (*int64)(t.elapsed),
+		RootProcessID: t.rootProcessID, Termination: termination,
+		Output: t.output, RootUsage: t.rootUsage, Coverage: t.coverage, Gaps: t.gaps, Elapsed: (*int64)(t.elapsed),
 		Events: t.events, ModelCalls: t.modelCalls, ToolCalls: t.toolCalls,
 	})
 }
@@ -141,7 +156,11 @@ func (t *Trajectory) UnmarshalJSON(data []byte) error {
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidTrajectory, err)
 	}
-	canonical, err := New(Config{RootProcessID: decoded.RootProcessID, Termination: decoded.Termination, Output: decoded.Output, RootUsage: decoded.RootUsage, Coverage: decoded.Coverage, Elapsed: (*time.Duration)(decoded.Elapsed), Events: decoded.Events, ModelCalls: decoded.ModelCalls, ToolCalls: decoded.ToolCalls})
+	var termination agent.Termination
+	if decoded.Termination != nil {
+		termination = *decoded.Termination
+	}
+	canonical, err := New(Config{RootProcessID: decoded.RootProcessID, Termination: termination, Output: decoded.Output, RootUsage: decoded.RootUsage, Coverage: decoded.Coverage, Gaps: decoded.Gaps, Elapsed: (*time.Duration)(decoded.Elapsed), Events: decoded.Events, ModelCalls: decoded.ModelCalls, ToolCalls: decoded.ToolCalls})
 	if err != nil {
 		return err
 	}
@@ -150,7 +169,7 @@ func (t *Trajectory) UnmarshalJSON(data []byte) error {
 }
 
 func (t Trajectory) Validate() error {
-	if !t.rootProcessID.Valid() || !t.termination.Valid() || (t.elapsed != nil && *t.elapsed < 0) {
+	if !t.rootProcessID.Valid() || (t.elapsed != nil && *t.elapsed < 0) {
 		return fmt.Errorf("%w: root outcome is incomplete", ErrInvalidTrajectory)
 	}
 	if t.termination.Status() == agent.StatusCompleted {
@@ -174,16 +193,26 @@ func (t Trajectory) Validate() error {
 	}
 	finished := 0
 	terminals := make(map[agent.ProcessID]bool)
+	stopped := make(map[agent.ProcessID]bool)
 	sequences := make(map[activationProcess]uint64)
+	var missingEvents uint64
 	for index, event := range t.events {
 		if !event.Valid() || event.Relation().RootID() != t.rootProcessID {
 			return fmt.Errorf("%w: events[%d] is invalid or belongs to another tree", ErrInvalidTrajectory, index)
 		}
-		want := sequences[activationProcess{event.ProcessID(), eventIncarnation(event)}] + 1
-		if event.ProcessSequence() != want {
+		previous := sequences[activationProcess{event.ProcessID(), eventIncarnation(event)}]
+		if event.ProcessSequence() <= previous {
 			return fmt.Errorf("%w: events[%d] breaks process-local order", ErrInvalidTrajectory, index)
 		}
-		sequences[activationProcess{event.ProcessID(), eventIncarnation(event)}] = want
+		missing := event.ProcessSequence() - previous - 1
+		if missing > t.gaps.DroppedEvents-missingEvents {
+			return fmt.Errorf("%w: events[%d] exceeds declared observation loss", ErrInvalidTrajectory, index)
+		}
+		missingEvents += missing
+		sequences[activationProcess{event.ProcessID(), eventIncarnation(event)}] = event.ProcessSequence()
+		if event.Name() == agent.EventRuntimeStopped {
+			stopped[event.ProcessID()] = true
+		}
 		if event.Name() == agent.EventProcessFinished {
 			if terminals[event.ProcessID()] {
 				return fmt.Errorf("%w: duplicate process terminal event", ErrInvalidTrajectory)
@@ -199,12 +228,16 @@ func (t Trajectory) Validate() error {
 		}
 	}
 	for process := range paths {
-		if !terminals[process] {
+		if !terminals[process] && !stopped[process] && t.gaps.DroppedEvents == 0 {
 			return fmt.Errorf("%w: process %s has no terminal evidence", ErrIncompleteRecording, process)
 		}
 	}
-	if finished != 1 {
-		return fmt.Errorf("%w: root must have exactly one finished event", ErrInvalidTrajectory)
+	if t.termination.Valid() {
+		if finished != 1 && t.gaps.DroppedEvents == 0 {
+			return fmt.Errorf("%w: root must have exactly one finished event", ErrInvalidTrajectory)
+		}
+	} else if finished != 0 || !stopped[t.rootProcessID] && t.gaps.DroppedEvents == 0 || t.rootUsage != (agent.Usage{}) {
+		return fmt.Errorf("%w: absent root result requires runtime-stop or lost event evidence and no root usage", ErrInvalidTrajectory)
 	}
 	for index, call := range t.modelCalls {
 		if err := call.Validate(); err != nil {
@@ -229,7 +262,12 @@ func (t Trajectory) Validate() error {
 		}
 	}
 	if t.coverage != nil {
-		return t.validateCoverage()
+		if err := t.coverage.Validate(); err != nil {
+			return err
+		}
+	}
+	if err := t.validateObservedAttempts(); err != nil {
+		return err
 	}
 	return nil
 }
@@ -258,7 +296,7 @@ func (t Trajectory) TotalTokens() (int64, error) {
 	}
 	var total int64
 	for _, call := range t.modelCalls {
-		if call.Response.Metadata == nil || call.Response.Metadata.Usage == nil {
+		if call.Response == nil || call.Response.Metadata == nil || call.Response.Metadata.Usage == nil {
 			return 0, fmt.Errorf("%w: model token accounting is absent", ErrIncompleteRecording)
 		}
 		value := call.Response.Metadata.Usage.TotalTokens()
@@ -319,10 +357,11 @@ func (t Trajectory) BehaviorDigest(project eval.Projection[agent.Payload, json.R
 }
 
 func (t Trajectory) behavior(project eval.Projection[agent.Payload, json.RawMessage]) (behaviorProjection, error) {
-	paths, err := processPaths(t.rootProcessID, t.events)
+	ordered, err := orderSemanticCalls(t.rootProcessID, t.events, t.modelCalls, t.toolCalls)
 	if err != nil {
 		return behaviorProjection{}, err
 	}
+	paths := ordered.paths
 	projection := behaviorProjection{
 		Termination: behaviorTerminationOf(t.termination),
 	}
@@ -354,15 +393,17 @@ func (t Trajectory) behavior(project eval.Projection[agent.Payload, json.RawMess
 		projection.Events = append(projection.Events, fact)
 	}
 	slices.SortFunc(projection.Events, behaviorEvent.compare)
-	projection.Models = make([]behaviorModel, len(t.modelCalls))
-	for index, call := range t.modelCalls {
-		projection.Models[index] = behaviorModel{
-			ProcessPath: paths[call.ProcessID], Step: call.StepSequence,
-			Sequence: call.CallSequence,
+	models := ordered.models
+	projection.Models = make([]behaviorModel, len(models))
+	for index, call := range models {
+		projection.Models[index], err = behaviorModelOf(call, paths[call.ProcessID])
+		if err != nil {
+			return behaviorProjection{}, err
 		}
 	}
-	projection.Tools = make([]behaviorTool, len(t.toolCalls))
-	for index, call := range t.toolCalls {
+	tools := ordered.tools
+	projection.Tools = make([]behaviorTool, len(tools))
+	for index, call := range tools {
 		arguments, err := canonicalArguments(call.Call.Arguments)
 		if err != nil {
 			return behaviorProjection{}, err
@@ -395,7 +436,11 @@ func (t Trajectory) consistencyReport(baseline Trajectory, project eval.Projecti
 	if !passed {
 		feedback = "semantic trajectory differed from the replay baseline"
 	}
-	return binaryReport(MetricConsistency, passed, feedback)
+	parameters := metadata.Map{}
+	if err := parameters.Set("baseline_digest", baselineDigest); err != nil {
+		return eval.Report{}, err
+	}
+	return binaryReport(MetricConsistency, passed, feedback, parameters)
 }
 
 func compareEvent(left, right agent.Event, paths map[agent.ProcessID]string) int {
@@ -418,7 +463,10 @@ func compareModelCall(left, right ModelCall, paths map[agent.ProcessID]string) i
 	if left.StepSequence != right.StepSequence {
 		return cmp.Compare(left.StepSequence, right.StepSequence)
 	}
-	return cmp.Compare(left.CallSequence, right.CallSequence)
+	if left.CallSequence != right.CallSequence {
+		return cmp.Compare(left.CallSequence, right.CallSequence)
+	}
+	return strings.Compare(left.AttemptID.String(), right.AttemptID.String())
 }
 
 func compareToolCall(left, right ToolCall, paths map[agent.ProcessID]string) int {
@@ -434,7 +482,10 @@ func compareToolCall(left, right ToolCall, paths map[agent.ProcessID]string) int
 	if left.ModelCall != right.ModelCall {
 		return cmp.Compare(left.ModelCall, right.ModelCall)
 	}
-	return cmp.Compare(left.Index, right.Index)
+	if left.Index != right.Index {
+		return cmp.Compare(left.Index, right.Index)
+	}
+	return strings.Compare(left.AttemptID.String(), right.AttemptID.String())
 }
 
 func processPaths(root agent.ProcessID, events []agent.Event) (map[agent.ProcessID]string, error) {
@@ -521,6 +572,9 @@ func eventIncarnation(event agent.Event) agent.TreeIncarnationID {
 // recording. A restored activation is conservatively a history fragment:
 // neither event continuity nor a final result proves pre-restart coverage.
 func (t Trajectory) HistoryComplete() bool {
+	if !t.gaps.IsZero() {
+		return false
+	}
 	for _, event := range t.events {
 		if event.Name() == agent.EventProcessRestored || event.Name() == agent.EventRuntimeStopped {
 			return false
@@ -565,6 +619,9 @@ func (t Trajectory) TreeUsage() (agent.Usage, error) {
 }
 
 func (t Trajectory) validateCoverage() error {
+	if !t.gaps.IsZero() {
+		return fmt.Errorf("%w: recording contains observation gaps", ErrIncompleteRecording)
+	}
 	if t.coverage == nil {
 		return fmt.Errorf("%w: semantic coverage is undeclared", ErrIncompleteRecording)
 	}
@@ -572,13 +629,19 @@ func (t Trajectory) validateCoverage() error {
 	if err != nil {
 		return err
 	}
-	models := make(map[EffectReference]int)
-	tools := make(map[EffectReference]int)
+	models := make(map[attemptIdentity]int)
+	tools := make(map[attemptIdentity]int)
 	for _, call := range t.modelCalls {
-		models[EffectReference{call.ProcessID, call.TreeIncarnationID, call.EffectID}]++
+		if call.Outcome == ModelOutcomeUnobserved {
+			return fmt.Errorf("%w: model settlement was not observed", ErrIncompleteRecording)
+		}
+		models[attemptIdentity{call.ProcessID, call.TreeIncarnationID, call.EffectID, call.AttemptID}]++
 	}
 	for _, call := range t.toolCalls {
-		tools[EffectReference{call.ProcessID, call.TreeIncarnationID, call.EffectID}]++
+		if call.Outcome == ToolOutcomeUnobserved {
+			return fmt.Errorf("%w: tool settlement was not observed", ErrIncompleteRecording)
+		}
+		tools[attemptIdentity{call.ProcessID, call.TreeIncarnationID, call.EffectID, call.AttemptID}]++
 	}
 	seen := make(map[EffectReference]bool, len(classifications))
 	for _, event := range t.events {
@@ -588,20 +651,18 @@ func (t Trajectory) validateCoverage() error {
 		}
 		effect, _ := event.EffectID()
 		key := EffectReference{event.ProcessID(), eventIncarnation(event), effect}
-		if seen[key] {
-			continue
-		}
+		attempt := attemptIdentity{key.ProcessID, key.TreeIncarnationID, key.EffectID, fact.AttemptID()}
 		switch classifications[key] {
 		case effectRoleModel:
-			if models[key] != 1 {
-				return fmt.Errorf("%w: model effect %s lacks exactly one response", ErrIncompleteRecording, effect)
+			if models[attempt] != 1 {
+				return fmt.Errorf("%w: model attempt %s lacks exactly one call", ErrIncompleteRecording, fact.AttemptID())
 			}
-			delete(models, key)
+			delete(models, attempt)
 		case effectRoleTool:
-			if tools[key] != 1 {
-				return fmt.Errorf("%w: tool effect %s lacks exactly one call", ErrIncompleteRecording, effect)
+			if tools[attempt] != 1 {
+				return fmt.Errorf("%w: tool attempt %s lacks exactly one call", ErrIncompleteRecording, fact.AttemptID())
 			}
-			delete(tools, key)
+			delete(tools, attempt)
 		case effectRoleOther:
 		default:
 			return fmt.Errorf("%w: dispatcher Effect %s is unclassified", ErrIncompleteRecording, effect)
@@ -613,6 +674,68 @@ func (t Trajectory) validateCoverage() error {
 	}
 	if len(models) != 0 || len(tools) != 0 {
 		return fmt.Errorf("%w: semantic observations have no matching dispatcher attempt", ErrIncompleteRecording)
+	}
+	return nil
+}
+
+// validateObservedAttempts rejects fabricated or ambiguous attribution without
+// demanding that the retained evidence be sufficient for any particular rule.
+func (t Trajectory) validateObservedAttempts() error {
+	attempts := make(map[attemptIdentity]uint64)
+	physicalOwners := make(map[agent.EffectAttemptID]attemptIdentity)
+	for _, event := range t.events {
+		fact, ok := event.EffectStarted()
+		if !ok || fact.Target() != agent.EffectTargetDispatcher {
+			continue
+		}
+		effect, _ := event.EffectID()
+		key := attemptIdentity{event.ProcessID(), eventIncarnation(event), effect, fact.AttemptID()}
+		if attempts[key] != 0 {
+			return fmt.Errorf("%w: duplicate physical dispatcher attempt", ErrInvalidTrajectory)
+		}
+		if previous, reused := physicalOwners[key.attemptID]; reused && previous != key {
+			return fmt.Errorf("%w: physical attempt identity has multiple owners", ErrInvalidTrajectory)
+		}
+		physicalOwners[key.attemptID] = key
+		step, _ := event.StepSequence()
+		attempts[key] = step
+	}
+	observed := make(map[attemptIdentity]bool)
+	var unpaired uint64
+	for _, call := range t.modelCalls {
+		key := attemptIdentity{call.ProcessID, call.TreeIncarnationID, call.EffectID, call.AttemptID}
+		if attempts[key] == 0 && t.gaps.DroppedEvents == 0 {
+			return fmt.Errorf("%w: model call has no physical dispatcher attempt", ErrInvalidTrajectory)
+		}
+		if step := attempts[key]; step != 0 && step != call.StepSequence {
+			return fmt.Errorf("%w: call Step disagrees with physical dispatcher attempt", ErrInvalidTrajectory)
+		}
+		if observed[key] {
+			return fmt.Errorf("%w: duplicate call for physical dispatcher attempt", ErrInvalidTrajectory)
+		}
+		observed[key] = true
+		if call.Outcome == ModelOutcomeUnobserved {
+			unpaired++
+		}
+	}
+	for _, call := range t.toolCalls {
+		key := attemptIdentity{call.ProcessID, call.TreeIncarnationID, call.EffectID, call.AttemptID}
+		if attempts[key] == 0 && t.gaps.DroppedEvents == 0 {
+			return fmt.Errorf("%w: tool call has no physical dispatcher attempt", ErrInvalidTrajectory)
+		}
+		if step := attempts[key]; step != 0 && step != call.StepSequence {
+			return fmt.Errorf("%w: call Step disagrees with physical dispatcher attempt", ErrInvalidTrajectory)
+		}
+		if observed[key] {
+			return fmt.Errorf("%w: duplicate call for physical dispatcher attempt", ErrInvalidTrajectory)
+		}
+		observed[key] = true
+		if call.Outcome == ToolOutcomeUnobserved {
+			unpaired++
+		}
+	}
+	if unpaired > t.gaps.UnpairedCalls {
+		return fmt.Errorf("%w: missing settlements exceed declared observation loss", ErrInvalidTrajectory)
 	}
 	return nil
 }

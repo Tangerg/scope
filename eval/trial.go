@@ -1,0 +1,90 @@
+package eval
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/samber/lo"
+)
+
+var ErrInvalidTrial = errors.New("eval: invalid trial")
+
+// TrialSample is the read-only input to an assessment after execution. Keeping
+// Execution separate from Case preserves fixture identity across generated
+// outputs and permits regrading without invoking the target again.
+type TrialSample[I, O any] struct {
+	Case      Case[I]
+	Execution Execution[O]
+}
+
+// TrialConfig binds a target to the assessments of its frozen execution. Both
+// are required and may be shared only when their implementations support the
+// Host's concurrent calls; Trial introduces no additional execution scheduling.
+type TrialConfig[I, O any] struct {
+	Target Target[I, O]
+	Suite  *Suite[TrialSample[I, O]]
+}
+
+// Trial composes one execution with independent assessments. It does not own
+// dataset scheduling, retries, persistence, sandboxes, or an external harness.
+// Offline observations can be passed directly to Suite or Experiment.
+type Trial[I, O any] struct {
+	target Target[I, O]
+	suite  *Suite[TrialSample[I, O]]
+}
+
+func NewTrial[I, O any](config TrialConfig[I, O]) (*Trial[I, O], error) {
+	if lo.IsNil(config.Target) {
+		return nil, fmt.Errorf("%w: target is nil", ErrInvalidTrial)
+	}
+	if config.Suite == nil || len(config.Suite.assessments) == 0 {
+		return nil, fmt.Errorf("%w: suite is uninitialized", ErrInvalidTrial)
+	}
+	return &Trial[I, O]{target: config.Target, suite: config.Suite}, nil
+}
+
+// Run returns all accumulated stage results, including a valid execution when
+// grading fails. ExecutionError means no execution receipt exists; assessments
+// then remain explicitly not evaluated. An execution with no output still goes
+// to the suite, whose assessments decide which evidence they require. The same
+// context covers both stages: a canceled grading stage does not erase execution.
+// Results contain runtime errors; persist the chosen domain facts and artifacts
+// explicitly rather than treating this result as a storage schema.
+func (t *Trial[I, O]) Run(ctx context.Context, caseValue Case[I]) (TrialResult[O], error) {
+	if t == nil || lo.IsNil(t.target) || t.suite == nil {
+		return TrialResult[O]{}, fmt.Errorf("%w: uninitialized trial", ErrInvalidTrial)
+	}
+	if err := caseValue.Validate(); err != nil {
+		return TrialResult[O]{}, err
+	}
+	result := TrialResult[O]{Case: CaseResult{
+		ID: caseValue.ID, Metadata: caseValue.Metadata.Clone(), Result: t.suite.unevaluated(ErrNotEvaluated),
+	}}
+	if err := ctx.Err(); err != nil {
+		result.ExecutionError = err
+		result.Case.Result = t.suite.unevaluated(err)
+		return result, err
+	}
+	execution, err := t.target.Run(ctx, caseValue.Subject)
+	if err == nil {
+		err = execution.Validate()
+	}
+	if err != nil {
+		result.ExecutionError = err
+		return result, err
+	}
+	execution = execution.snapshot()
+	result.Execution = &execution
+	result.Case.Result, err = t.suite.Run(ctx, TrialSample[I, O]{Case: caseValue.clone(), Execution: execution})
+	return result, err
+}
+
+// TrialResult preserves execution and assessment outcomes independently. Case
+// can be included in NewExperimentReport with other cases from the same fixture.
+// ExecutionError is an invocation/protocol error, never a quality judgment.
+type TrialResult[O any] struct {
+	Case           CaseResult
+	Execution      *Execution[O]
+	ExecutionError error
+}

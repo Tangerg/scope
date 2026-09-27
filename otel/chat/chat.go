@@ -27,7 +27,6 @@ import (
 const (
 	instrumentationName            = "github.com/Tangerg/scope/otel/chat"
 	chatOperationName              = "chat"
-	incompleteFinishReason         = "error"
 	errorTypeContextCanceled       = "context.canceled"
 	errorTypeDeadlineExceeded      = "context.deadline_exceeded"
 	errorTypeInvalidRequest        = "chat.invalid_request"
@@ -143,18 +142,20 @@ func (m Middleware) Call(next corechat.Model) corechat.Model {
 			return nil, err
 		})
 	}
-	return corechat.ModelFunc(func(ctx context.Context, request *corechat.Request) (*corechat.Response, error) {
+	return corechat.ModelFunc(func(ctx context.Context, request *corechat.Request) (response *corechat.Response, err error) {
 		started := time.Now()
 		ctx, span := m.start(ctx, request, started, false)
-		response, err := next.Call(ctx, request)
 		var observation responseObservation
+		defer errortelemetry.Finish(&err, func(observedError error) {
+			m.finish(ctx, span, request, observation, observedError, started)
+		})
+		response, err = next.Call(ctx, request)
 		if response != nil {
 			observation.observeMetadata(span, response.Metadata)
 			if response.Output != nil {
 				observation.finishReason = response.Output.FinishReason
 			}
 		}
-		m.finish(ctx, span, request, observation, err, started)
 		return response, err
 	})
 }
@@ -164,7 +165,8 @@ func (m Middleware) Call(next corechat.Model) corechat.Model {
 // early consumer stop. Deltas are forwarded unchanged. Only identity, cumulative
 // usage, finish reason, and arrival times are observed; content is never buffered
 // or assembled into a second response. Each non-nil delta is a received chunk,
-// including metadata-only increments. Known usage survives an incomplete stream.
+// including metadata-only increments. Time to first chunk does not measure
+// time to first visible token. Known usage survives an incomplete stream.
 func (m Middleware) Stream(next corechat.Streamer) corechat.Streamer {
 	if lo.IsNil(next) {
 		return nil
@@ -186,9 +188,9 @@ func (m Middleware) Stream(next corechat.Streamer) corechat.Streamer {
 				streamErr     error
 				stopped       bool
 			)
-			defer func() {
-				m.finish(spanCtx, span, request, observation, streamErr, started)
-			}()
+			defer errortelemetry.Finish(&streamErr, func(observedError error) {
+				m.finish(spanCtx, span, request, observation, observedError, started)
+			})
 
 			sequence := next.Stream(spanCtx, request)
 			if sequence == nil {
@@ -277,12 +279,10 @@ func (m Middleware) finish(
 ) {
 	finished := time.Now()
 	defer span.End(trace.WithTimestamp(finished))
-	finishReason := observation.finishReason.String()
-	if finishReason == "" {
-		finishReason = incompleteFinishReason
-	}
 	observation.recordUsage(span)
-	span.SetAttributes(semconv.GenAIResponseFinishReasons(finishReason))
+	if observation.finishReason != "" {
+		span.SetAttributes(semconv.GenAIResponseFinishReasons(observation.finishReason.String()))
+	}
 	if err != nil {
 		errorType := errorTypeAttribute(err)
 		errortelemetry.Record(span, errorType, trace.WithTimestamp(finished))

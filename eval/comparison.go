@@ -2,40 +2,49 @@ package eval
 
 import (
 	"fmt"
+	"math"
 )
 
-// DistributionDelta is candidate mean minus baseline mean. Present is false
-// when either side has no values, so absence cannot be mistaken for zero.
+// DistributionDelta summarizes candidate-minus-baseline differences for
+// matched case observations. Unmatched observations are counted, never imputed.
 type DistributionDelta struct {
-	Present bool
-	Mean    float64
+	Present       bool
+	Mean          float64
+	Matched       int
+	BaselineOnly  int
+	CandidateOnly int
 }
 
-// MetricComparison relates observations of one full metric identity. A nil side
-// means that run produced no reports for the metric, not a zero measurement.
-// Count deltas treat absent observations as zero; numeric deltas require values
-// on both sides. Different calculation rules always occupy distinct entries.
+// DecisionDelta compares only matched decisions produced by the same policy.
+// Incompatible counts pairs whose policies differ, including threshold changes.
+type DecisionDelta struct {
+	Matched       int
+	BaselineOnly  int
+	CandidateOnly int
+	Incompatible  int
+	PassedDelta   int
+	FailedDelta   int
+}
+
+// MetricComparison relates the same named assessment and calculation. Numeric
+// deltas use paired cases, while the two summaries retain all observations.
 type MetricComparison struct {
+	AssessmentID     AssessmentID
 	Metric           Metric
 	Baseline         *MetricSummary
 	Candidate        *MetricSummary
 	EvaluatedDelta   int
-	PassedDelta      int
-	FailedDelta      int
-	UnjudgedDelta    int
 	ScoreDelta       DistributionDelta
 	MeasurementDelta DistributionDelta
+	DecisionDelta    DecisionDelta
 }
 
-// Comparison reports candidate-minus-baseline deltas without inventing
-// statistical significance.
+// Comparison preserves execution coverage and paired quality differences.
+// It makes no claim about statistical significance.
 type Comparison struct {
 	Baseline       ExperimentSummary
 	Candidate      ExperimentSummary
 	EvaluatedDelta int
-	PassedDelta    int
-	FailedDelta    int
-	UnjudgedDelta  int
 	ErrorDelta     int
 	Metrics        []MetricComparison
 }
@@ -44,83 +53,202 @@ func comparableCases(baseline, candidate []CaseResult) error {
 	if len(baseline) != len(candidate) {
 		return fmt.Errorf("%w: case count differs: baseline %d, candidate %d", ErrInvalidComparison, len(baseline), len(candidate))
 	}
-	for index := range baseline {
-		if baseline[index].ID != candidate[index].ID {
-			return fmt.Errorf(
-				"%w: case %d identity differs: baseline %q, candidate %q",
-				ErrInvalidComparison, index, baseline[index].ID, candidate[index].ID,
-			)
+	identities := make(map[CaseID]struct{}, len(candidate))
+	for _, result := range candidate {
+		identities[result.ID] = struct{}{}
+	}
+	for _, result := range baseline {
+		if _, exists := identities[result.ID]; !exists {
+			return fmt.Errorf("%w: candidate is missing case %q", ErrInvalidComparison, result.ID)
 		}
 	}
 	return nil
 }
 
-// metricPair retains catalog membership independently of observation counts.
 type metricPair struct {
 	baseline  *MetricSummary
 	candidate *MetricSummary
 }
 
 func comparableMetrics(baseline, candidate []MetricSummary) ([]metricPair, error) {
-	candidateByIdentity := make(map[string]*MetricSummary, len(candidate))
+	candidateByIdentity := make(map[observationKey]*MetricSummary, len(candidate))
 	for index := range candidate {
 		identity, err := candidate[index].Metric.identity()
 		if err != nil {
 			return nil, fmt.Errorf("%w: candidate metric %d: %w", ErrInvalidComparison, index, err)
 		}
-		if _, duplicate := candidateByIdentity[identity]; duplicate {
-			return nil, fmt.Errorf("%w: duplicate candidate metric %q", ErrInvalidComparison, candidate[index].Metric)
-		}
-		candidateByIdentity[identity] = &candidate[index]
+		key := observationKey{assessment: candidate[index].AssessmentID, metric: identity}
+		candidateByIdentity[key] = &candidate[index]
 	}
 	pairs := make([]metricPair, 0, len(baseline)+len(candidate))
 	for index := range baseline {
-		baselineIdentity, err := baseline[index].Metric.identity()
+		identity, err := baseline[index].Metric.identity()
 		if err != nil {
 			return nil, fmt.Errorf("%w: baseline metric %d: %w", ErrInvalidComparison, index, err)
 		}
-		candidateMetric := candidateByIdentity[baselineIdentity]
-		pairs = append(pairs, metricPair{baseline: &baseline[index], candidate: candidateMetric})
-		delete(candidateByIdentity, baselineIdentity)
+		key := observationKey{assessment: baseline[index].AssessmentID, metric: identity}
+		pairs = append(pairs, metricPair{baseline: &baseline[index], candidate: candidateByIdentity[key]})
+		delete(candidateByIdentity, key)
 	}
 	for index := range candidate {
 		identity, err := candidate[index].Metric.identity()
 		if err != nil {
 			return nil, err
 		}
-		if remaining, found := candidateByIdentity[identity]; found {
+		key := observationKey{assessment: candidate[index].AssessmentID, metric: identity}
+		if remaining, found := candidateByIdentity[key]; found {
 			pairs = append(pairs, metricPair{candidate: remaining})
 		}
 	}
 	return pairs, nil
 }
 
-func (m metricPair) compare() (MetricComparison, error) {
+func (m metricPair) compare(baselineCases, candidateCases []CaseResult) (MetricComparison, error) {
 	var baseline, candidate MetricSummary
 	comparison := MetricComparison{}
 	if m.baseline != nil {
 		baseline = *m.baseline
-		comparison.Metric = baseline.Metric
+		comparison.Metric, comparison.AssessmentID = baseline.Metric, baseline.AssessmentID
 		comparison.Baseline = &baseline
 	}
 	if m.candidate != nil {
 		candidate = *m.candidate
-		comparison.Metric = candidate.Metric
+		comparison.Metric, comparison.AssessmentID = candidate.Metric, candidate.AssessmentID
 		comparison.Candidate = &candidate
 	}
-	scoreDelta, err := baseline.Scores.delta(candidate.Scores)
+	identity, err := comparison.Metric.identity()
+	if err != nil {
+		return MetricComparison{}, err
+	}
+	key := observationKey{assessment: comparison.AssessmentID, metric: identity}
+	left, err := caseObservations(baselineCases, key)
+	if err != nil {
+		return MetricComparison{}, err
+	}
+	right, err := caseObservations(candidateCases, key)
+	if err != nil {
+		return MetricComparison{}, err
+	}
+	comparison.ScoreDelta, err = signalScore.compare(baselineCases, left, right)
 	if err != nil {
 		return MetricComparison{}, fmt.Errorf("eval: compare metric %q scores: %w", comparison.Metric, err)
 	}
-	measurementDelta, err := baseline.Measurements.delta(candidate.Measurements)
+	comparison.MeasurementDelta, err = signalMeasurement.compare(baselineCases, left, right)
 	if err != nil {
 		return MetricComparison{}, fmt.Errorf("eval: compare metric %q measurements: %w", comparison.Metric, err)
 	}
+	comparison.DecisionDelta, err = compareDecisions(baselineCases, left, right)
+	if err != nil {
+		return MetricComparison{}, err
+	}
 	comparison.EvaluatedDelta = candidate.Evaluated - baseline.Evaluated
-	comparison.PassedDelta = candidate.Passed - baseline.Passed
-	comparison.FailedDelta = candidate.Failed - baseline.Failed
-	comparison.UnjudgedDelta = candidate.Unjudged - baseline.Unjudged
-	comparison.ScoreDelta = scoreDelta
-	comparison.MeasurementDelta = measurementDelta
 	return comparison, nil
+}
+
+func caseObservations(cases []CaseResult, key observationKey) (map[CaseID]*Report, error) {
+	observations := make(map[CaseID]*Report, len(cases))
+	for _, result := range cases {
+		for _, assessment := range result.Result.Results {
+			if assessment.ID != key.assessment || assessment.Status != AssessmentCompleted {
+				continue
+			}
+			identity, err := assessment.Report.Metric.identity()
+			if err != nil {
+				return nil, err
+			}
+			if identity == key.metric {
+				observations[result.ID] = assessment.Report
+			}
+		}
+	}
+	return observations, nil
+}
+
+type numericSignal uint8
+
+const (
+	signalScore numericSignal = iota
+	signalMeasurement
+)
+
+func (n numericSignal) value(report *Report) (float64, bool) {
+	if report == nil {
+		return 0, false
+	}
+	if n == signalScore && report.Score != nil {
+		return report.Score.Float64(), true
+	}
+	if n == signalMeasurement && report.Measurement != nil {
+		return *report.Measurement, true
+	}
+	return 0, false
+}
+
+func (n numericSignal) compare(cases []CaseResult, baseline, candidate map[CaseID]*Report) (DistributionDelta, error) {
+	result := DistributionDelta{}
+	var differences []float64
+	for _, caseValue := range cases {
+		left, hasLeft := n.value(baseline[caseValue.ID])
+		right, hasRight := n.value(candidate[caseValue.ID])
+		switch {
+		case hasLeft && hasRight:
+			difference := right - left
+			if math.IsInf(difference, 0) || math.IsNaN(difference) {
+				return DistributionDelta{}, fmt.Errorf("%w: case %q difference overflows float64", ErrInvalidComparison, caseValue.ID)
+			}
+			result.Matched++
+			differences = append(differences, difference)
+		case hasLeft:
+			result.BaselineOnly++
+		case hasRight:
+			result.CandidateOnly++
+		}
+	}
+	if len(differences) > 0 {
+		result.Present = true
+		result.Mean = distribution(differences).Mean
+	}
+	return result, nil
+}
+
+func compareDecisions(cases []CaseResult, baseline, candidate map[CaseID]*Report) (DecisionDelta, error) {
+	result := DecisionDelta{}
+	for _, caseValue := range cases {
+		var left, right *Decision
+		if report := baseline[caseValue.ID]; report != nil {
+			left = report.Decision
+		}
+		if report := candidate[caseValue.ID]; report != nil {
+			right = report.Decision
+		}
+		switch {
+		case left != nil && right != nil:
+			leftIdentity, err := left.identity()
+			if err != nil {
+				return DecisionDelta{}, err
+			}
+			rightIdentity, err := right.identity()
+			if err != nil {
+				return DecisionDelta{}, err
+			}
+			if leftIdentity != rightIdentity {
+				result.Incompatible++
+				continue
+			}
+			result.Matched++
+			if left.Verdict == VerdictPass {
+				result.PassedDelta--
+				result.FailedDelta++
+			}
+			if right.Verdict == VerdictPass {
+				result.PassedDelta++
+				result.FailedDelta--
+			}
+		case left != nil:
+			result.BaselineOnly++
+		case right != nil:
+			result.CandidateOnly++
+		}
+	}
+	return result, nil
 }

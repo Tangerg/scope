@@ -16,8 +16,16 @@ func ExampleExperiment_Run() {
 		panic(err)
 	}
 	evaluator := eval.EvaluatorFunc[string](func(_ context.Context, subject string) (eval.Report, error) {
-		return eval.Report{Metric: metric, Verdict: eval.VerdictPass}, nil
+		verdict := eval.VerdictFail
+		if subject != "" {
+			verdict = eval.VerdictPass
+		}
+		return eval.Report{Metric: metric, Decision: &eval.Decision{Policy: "non_empty", Verdict: verdict}}, nil
 	})
+	suite, err := eval.NewSuite(eval.SuiteConfig[string]{Assessments: []eval.Assessment[string]{{ID: "non_empty", Evaluator: evaluator}}})
+	if err != nil {
+		panic(err)
+	}
 	dataset, err := eval.NewDataset("test-fixture",
 		eval.Case[string]{ID: "first", Subject: "answer"},
 	)
@@ -25,7 +33,7 @@ func ExampleExperiment_Run() {
 		panic(err)
 	}
 	experiment, err := eval.NewExperiment(eval.ExperimentConfig[string]{
-		Dataset: dataset, Evaluator: evaluator,
+		Dataset: dataset, Suite: suite,
 	})
 	if err != nil {
 		panic(err)
@@ -41,7 +49,7 @@ func ExampleExperiment_Run() {
 	// 1 1
 }
 
-func ExampleScore_Verdict() {
+func ExampleScore_Decide() {
 	score, err := eval.NewScore(0.82)
 	if err != nil {
 		panic(err)
@@ -50,17 +58,17 @@ func ExampleScore_Verdict() {
 	if err != nil {
 		panic(err)
 	}
-	verdict, err := score.Verdict(threshold)
+	decision, err := score.Decide(threshold)
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Println(verdict, score.Float64())
+	fmt.Println(decision.Verdict, score.Float64())
 	// Output:
 	// pass 0.82
 }
 
-func ExampleSuiteEvaluator_Evaluate() {
+func ExampleSuite_Run() {
 	qualityMetric, err := eval.NewMetric(eval.MetricConfig{Namespace: "example", Name: "quality"})
 	if err != nil {
 		panic(err)
@@ -71,10 +79,10 @@ func ExampleSuiteEvaluator_Evaluate() {
 	}
 	quality := eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
 		score, scoreErr := eval.NewScore(0.9)
-		return eval.Report{Metric: qualityMetric, Score: &score, Verdict: eval.VerdictPass}, scoreErr
+		return eval.Report{Metric: qualityMetric, Score: &score}, scoreErr
 	})
 	safety := eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
-		return eval.Report{Metric: safetyMetric, Verdict: eval.VerdictFail, Feedback: "Answer requires review."}, nil
+		return eval.Report{Metric: safetyMetric, Decision: &eval.Decision{Policy: "safety", Verdict: eval.VerdictFail}, Feedback: "Answer requires review."}, nil
 	})
 	scored, err := eval.NewCompositeEvaluator(eval.CompositeConfig[string]{
 		Components: []eval.Component[string]{{Evaluator: quality}},
@@ -84,19 +92,19 @@ func ExampleSuiteEvaluator_Evaluate() {
 	}
 	// A gate determines acceptance without contributing a score. The Suite
 	// preserves the quality Composite's score under its own metric identity.
-	suite, err := eval.NewSuiteEvaluator(eval.SuiteConfig[string]{
-		Evaluators: []eval.Evaluator[string]{scored, safety},
+	suite, err := eval.NewSuite(eval.SuiteConfig[string]{
+		Assessments: []eval.Assessment[string]{{ID: "quality", Evaluator: scored}, {ID: "safety", Evaluator: safety}},
 	})
 	if err != nil {
 		panic(err)
 	}
-	report, err := suite.Evaluate(context.Background(), "answer")
+	report, err := suite.Run(context.Background(), "answer")
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("acceptance:", report.Verdict)
-	fmt.Println("quality:", report.Details[0].Score.Float64())
-	fmt.Println("gate has score:", report.Details[1].Score != nil)
+	fmt.Println("acceptance:", report.Verdict())
+	fmt.Println("quality:", report.Results[0].Report.Score.Float64())
+	fmt.Println("gate has score:", report.Results[1].Report.Score != nil)
 	// Output:
 	// acceptance: fail
 	// quality: 0.9

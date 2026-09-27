@@ -34,7 +34,8 @@ type FailureConfig struct {
 // Failure owns one complete unsuccessful outcome of the current Tool invocation.
 // Output is explicitly public to the model. Cause is diagnostic only: it cannot
 // change Kind, substitute another invocation's output, or issue a control signal.
-// Ordinary errors do not establish a definite outcome.
+// Ordinary errors, including CallError with execution evidence, do not establish
+// a definite outcome.
 type Failure struct {
 	kind   FailureKind
 	cause  error
