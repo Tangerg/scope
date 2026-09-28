@@ -21,7 +21,7 @@ type EmbeddingModelConfig struct {
 	APIKey         string
 	DefaultOptions embedding.Options
 
-	// BaseURL / HTTPClient mirror [APIConfig] for callers that need to
+	// BaseURL and HTTPClient support callers that need to
 	// proxy through a custom endpoint or share an http.Client.
 	BaseURL    string
 	HTTPClient *http.Client
@@ -50,11 +50,9 @@ var _ embedding.Model = (*EmbeddingModel)(nil)
 // Current general-purpose models are voyage-4-large, voyage-4, and
 // voyage-4-lite. Specialized models such as voyage-code-3 remain supported.
 //
-// Voyage-specific knobs that don't fit the generic surface — InputType
-// ("query" / "document" for asymmetric retrieval), Truncation,
-// OutputDtype (int8/uint8/binary quantization) — are reached via the
-// extension-threaded SDK params, see [getOptionsParams] and the
-// [EmbeddingRequest] struct.
+// Provider-specific input_type (query or document) and truncation use
+// EmbeddingRequestExtensionKey. Core owns model, input, and dimensions.
+// Only float output can be represented by the Core embedding protocol.
 type EmbeddingModel struct {
 	api            *api
 	defaultOptions embedding.Options
@@ -82,9 +80,15 @@ func NewEmbeddingModel(_ context.Context, config EmbeddingModelConfig) (*Embeddi
 }
 
 func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequest, error) {
-	effectiveOptions, err := e.defaultOptions.Resolve(req.Options)
+	effectiveOptions := req.Options
+	nativeFields, _, err := effectiveOptions.Extensions.Decode[map[string]any](EmbeddingRequestExtensionKey)
 	if err != nil {
 		return nil, err
+	}
+	for _, field := range []string{"model", "input", "output_dimension"} {
+		if _, exists := nativeFields[field]; exists {
+			return nil, fmt.Errorf("voyage: extension %q field %q is owned by Core", EmbeddingRequestExtensionKey, field)
+		}
 	}
 
 	apiReqValue, _, err := effectiveOptions.Extensions.Decode[embeddingRequest](EmbeddingRequestExtensionKey)
@@ -145,9 +149,18 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (resp
 	if err = req.Validate(); err != nil {
 		return nil, err
 	}
+	effectiveRequest := *req
+	effectiveRequest.Options, err = e.defaultOptions.Resolve(req.Options)
+	if err != nil {
+		return nil, err
+	}
+	req = &effectiveRequest
 	defer func() {
 		if err == nil {
 			err = response.ValidateFor(req)
+			if err != nil {
+				response = nil
+			}
 		}
 	}()
 

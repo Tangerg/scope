@@ -59,10 +59,7 @@ func NewRerankModel(_ context.Context, config RerankModelConfig) (*RerankModel, 
 }
 
 func (r *RerankModel) buildAPIRequest(request *rerank.Request) (*cohere.V2RerankRequest, error) {
-	effective, err := r.defaultOptions.Resolve(request.Options)
-	if err != nil {
-		return nil, err
-	}
+	effective := request.Options
 	extension, _, err := effective.Extensions.Decode[RerankRequestOptions](RerankRequestExtensionKey)
 	if err != nil {
 		return nil, fmt.Errorf("cohere: decode rerank extension: %w", err)
@@ -74,10 +71,8 @@ func (r *RerankModel) buildAPIRequest(request *rerank.Request) (*cohere.V2Rerank
 		MaxTokensPerDoc: extension.MaxTokensPerDoc,
 		Priority:        extension.Priority,
 	}
-	if effective.TopK == 0 {
-		value.TopN = nil
-	} else {
-		value.TopN = new(effective.TopK)
+	if effective.TopK != nil && *effective.TopK > 0 {
+		value.TopN = effective.TopK
 	}
 	return value, nil
 }
@@ -123,6 +118,16 @@ func (r *RerankModel) Call(ctx context.Context, request *rerank.Request) (*reran
 	if err := request.Validate(); err != nil {
 		return nil, err
 	}
+	effectiveRequest := *request
+	var err error
+	effectiveRequest.Options, err = r.defaultOptions.Resolve(request.Options)
+	if err != nil {
+		return nil, err
+	}
+	if err = effectiveRequest.Validate(); err != nil {
+		return nil, err
+	}
+	request = &effectiveRequest
 	apiRequest, err := r.buildAPIRequest(request)
 	if err != nil {
 		return nil, err

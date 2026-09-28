@@ -62,7 +62,7 @@ func RunRerankContract(t *testing.T, contract RerankContract) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		request.Options.TopK = 2
+		request.Options.TopK = new(2)
 		response, err := model.Call(t.Context(), request)
 		if err != nil {
 			t.Fatalf("Call: %v", err)
@@ -83,8 +83,8 @@ func RunRerankContract(t *testing.T, contract RerankContract) {
 			if limit == nil {
 				limit = wireRequest.TopK
 			}
-			if limit == nil || *limit != request.Options.TopK {
-				t.Fatalf("wire top K = %v, want %d", limit, request.Options.TopK)
+			if limit == nil || *limit != *request.Options.TopK {
+				t.Fatalf("wire top K = %v, want %d", limit, *request.Options.TopK)
 			}
 		default:
 			t.Fatal("provider sent no decodable request")

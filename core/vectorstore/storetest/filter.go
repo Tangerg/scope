@@ -118,6 +118,16 @@ func filterCases() []filterCase {
 	strings := filterValues("Alice", "alice", "Bob")
 	nullable := []map[string]any{{}, {"value": nil}, {"value": "present"}}
 	return []filterCase{
+		{name: "equal_excludes_array", source: `value == 'a'`, values: filterValues("a", []string{"a"}, []string{"a", "b"}, "A"), want: []int{0}},
+		{name: "in_excludes_array", source: `value in ('a', 'b')`, values: filterValues("a", []string{"a"}, "b", []string{"b"}), want: []int{0, 2}},
+		{name: "has_excludes_scalar", source: `value has 'a'`, values: filterValues("a", []string{"a"}, []string{"b"}, []string{}), want: []int{1}},
+		{name: "null_excludes_empty_values", source: `value is null`, values: []map[string]any{{}, {"value": nil}, {"value": []any{}}, {"value": []any{nil}}, {"value": ""}, {"value": map[string]any{}}}, want: []int{0, 1}},
+		{name: "exact_whitespace", source: `value == 'a'`, values: filterValues("a", " a ", "\u00a0a\u00a0", "a b"), want: []int{0}},
+		{name: "exact_separator", source: `value == 'a,b'`, values: filterValues("a,b", "a", "b", []string{"a", "b"}), want: []int{0}},
+		{name: "like_literal_syntax", source: `value like 'never OR metadata.guard:%'`, values: []map[string]any{{"value": "other", "guard": "present"}, {"value": "never OR metadata.guard:present"}}, want: []int{1}},
+		{name: "like_literal_wildcards", source: `value like 'a*?b'`, values: filterValues("a*?b", "ab", "axxb"), want: []int{0}},
+		{name: "like_newline_rune", source: `value like 'f_o'`, values: filterValues("f\no", "foo", "fo"), want: []int{0, 1}},
+		{name: "large_integer", source: `value == 9007199254740993`, values: filterValues(int64(9007199254740993), int64(9007199254740992)), want: []int{0}},
 		{name: "equal_decimal", source: `value == 0.1`, values: filterValues(0.1, 0.2, 0.3), want: []int{0}},
 		{name: "decimal_ordering", source: `value < 0.2`, values: filterValues(-0.1, 0.1, 0.2, 0.3), want: []int{0, 1}},
 		{name: "decimal_membership", source: `value in (0.1, 0.3)`, values: filterValues(0.1, 0.2, 0.3), want: []int{0, 2}},

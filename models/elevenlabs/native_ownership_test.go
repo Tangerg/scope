@@ -8,6 +8,7 @@ import (
 
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
+	"github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/core/transcription"
 	"github.com/Tangerg/scope/models/elevenlabs"
 )
@@ -50,5 +51,32 @@ func TestTranscriptionRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestSpeechRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
+	for name, extension := range map[string]any{
+		"text":   map[string]any{"text": "other"},
+		"model":  map[string]any{"model_id": "other"},
+		"voice":  map[string]any{"voice_id": "other"},
+		"format": map[string]any{"output_format": "mp3_44100_128"},
+		"speed":  map[string]any{"voice_settings": map[string]any{"speed": 0.8}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(http.StatusBadRequest) }))
+			defer server.Close()
+			opts := speech.Options{Model: "eleven_multilingual_v2", Voice: "voice-1"}
+			if err := opts.Extensions.Set(elevenlabs.SpeechRequestExtensionKey, extension); err != nil {
+				t.Fatal(err)
+			}
+			model, err := elevenlabs.NewAudioTTSModel(t.Context(), elevenlabs.AudioTTSModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := model.Call(t.Context(), &speech.Request{Text: "hello"}); err == nil || !strings.Contains(err.Error(), "owned by Core") || calls != 0 {
+				t.Fatalf("calls=%d error=%v", calls, err)
+			}
+		})
 	}
 }

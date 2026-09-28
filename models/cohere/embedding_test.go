@@ -3,8 +3,6 @@ package cohere_test
 import (
 	"testing"
 
-	cohere "github.com/cohere-ai/cohere-go/v2"
-
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/modeltest"
@@ -28,7 +26,7 @@ func TestEmbeddingModel(t *testing.T) {
 		Build: func(t *testing.T, baseURL string) embedding.Model {
 			t.Helper()
 			var extensions metadata.Extensions
-			if err := extensions.Set(scohere.EmbeddingRequestExtensionKey, cohere.V2EmbedRequest{InputType: cohere.EmbedInputTypeSearchDocument}); err != nil {
+			if err := extensions.Set(scohere.EmbeddingRequestExtensionKey, scohere.EmbeddingRequestOptions{InputType: "search_document"}); err != nil {
 				t.Fatal(err)
 			}
 			model, err := scohere.NewEmbeddingModel(t.Context(), scohere.EmbeddingModelConfig{

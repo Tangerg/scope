@@ -30,45 +30,17 @@ const (
 	maximumTemperature      = 1.5
 )
 
-// ReasoningEffort controls Mistral's native reasoning mode. The values are the
-// six its chat endpoint documents as the reasoning_effort enum; empty asks the
-// model for its own default.
-type ReasoningEffort string
-
-const (
-	ReasoningEffortNone    ReasoningEffort = "none"
-	ReasoningEffortMinimal ReasoningEffort = "minimal"
-	ReasoningEffortLow     ReasoningEffort = "low"
-	ReasoningEffortMedium  ReasoningEffort = "medium"
-	ReasoningEffortHigh    ReasoningEffort = "high"
-	ReasoningEffortXHigh   ReasoningEffort = "xhigh"
-)
-
-func (r ReasoningEffort) Validate() error {
-	switch r {
-	case "", ReasoningEffortNone, ReasoningEffortMinimal, ReasoningEffortLow,
-		ReasoningEffortMedium, ReasoningEffortHigh, ReasoningEffortXHigh:
-		return nil
-	default:
-		return fmt.Errorf("unsupported reasoning effort %q", r)
-	}
-}
-
 // ChatRequestOptions exposes Mistral-specific Chat Completions parameters that
 // have no provider-neutral Core equivalent. Store it under RequestExtensionKey.
 type ChatRequestOptions struct {
-	ReasoningEffort ReasoningEffort   `json:"reasoning_effort,omitempty"`
-	RandomSeed      *int64            `json:"random_seed,omitzero"`
-	SafePrompt      *bool             `json:"safe_prompt,omitzero"`
-	PromptCacheKey  string            `json:"prompt_cache_key,omitempty"`
-	Metadata        map[string]any    `json:"metadata,omitempty"`
-	Guardrails      []json.RawMessage `json:"guardrails,omitempty"`
+	RandomSeed     *int64            `json:"random_seed,omitzero"`
+	SafePrompt     *bool             `json:"safe_prompt,omitzero"`
+	PromptCacheKey string            `json:"prompt_cache_key,omitempty"`
+	Metadata       map[string]any    `json:"metadata,omitempty"`
+	Guardrails     []json.RawMessage `json:"guardrails,omitempty"`
 }
 
 func (c ChatRequestOptions) Validate() error {
-	if err := c.ReasoningEffort.Validate(); err != nil {
-		return err
-	}
 	for index := range c.Guardrails {
 		if !jsontext.Value(c.Guardrails[index]).IsValid() {
 			return fmt.Errorf("guardrails[%d] contains invalid JSON", index)
@@ -100,7 +72,7 @@ func (c *ChatRequestOptions) UnmarshalJSON(data []byte) error {
 	}
 	type wireOptions ChatRequestOptions
 	var decoded wireOptions
-	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("decode Mistral request options: %w", err)
 	}
 	candidate := ChatRequestOptions(decoded)
@@ -264,21 +236,14 @@ func (c *Chat) buildRequest(request *corechat.Request, stream bool) (*chatComple
 	if err != nil {
 		return nil, err
 	}
-	// Mistral's reasoning_effort enum is Core's vocabulary without max, so the
-	// portable option reaches the wire instead of being dropped -- Core is
-	// explicit that an adapter "must not accept the effort and send a request
-	// that never carried it". An empty effort leaves whatever the native
-	// extension set, because empty means "the model's default" and a caller who
-	// set reasoning_effort natively has already chosen.
-	if options.ReasoningEffort != "" {
-		effort := ReasoningEffort(options.ReasoningEffort)
-		if validateErr := effort.Validate(); validateErr != nil {
-			return nil, fmt.Errorf("mistral: options.reasoning_effort: %w", validateErr)
-		}
-		extension.ReasoningEffort = effort
+	switch options.ReasoningEffort {
+	case "", "none", "minimal", "low", "medium", "high", "xhigh":
+	default:
+		return nil, fmt.Errorf("mistral: options.reasoning_effort has unsupported value %q", options.ReasoningEffort)
 	}
 	return &chatCompletionRequest{
 		Model:              options.Model,
+		ReasoningEffort:    options.ReasoningEffort,
 		Messages:           messages,
 		Temperature:        options.Temperature,
 		TopP:               options.TopP,
@@ -291,6 +256,6 @@ func (c *Chat) buildRequest(request *corechat.Request, stream bool) (*chatComple
 		ToolChoice:         toolChoice,
 		ParallelToolCalls:  parallelToolCalls,
 		ResponseFormat:     responseFormat,
-		ChatRequestOptions: extension,
+		chatRequestOptions: chatRequestOptions(extension),
 	}, nil
 }

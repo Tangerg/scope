@@ -7,8 +7,6 @@ import (
 	"io"
 	"iter"
 
-	"google.golang.org/genai"
-
 	tts "github.com/Tangerg/scope/core/speech"
 )
 
@@ -97,8 +95,8 @@ func (s *StreamingAudioTTSModel) Stream(ctx context.Context, req *tts.Request) i
 				pending = resp
 			}
 			if len(chunk.Candidates) > 0 && chunk.Candidates[0].FinishReason != "" {
-				if chunk.Candidates[0].FinishReason != genai.FinishReasonStop {
-					yield(nil, fmt.Errorf("google: %w: speech ended with %s", tts.ErrInvalidResponse, chunk.Candidates[0].FinishReason))
+				if err := validateProtocolCompletion(chunk); err != nil {
+					yield(nil, fmt.Errorf("google: speech: %w: %w", tts.ErrInvalidResponse, err))
 					return
 				}
 				finished = true

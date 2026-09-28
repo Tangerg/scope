@@ -278,6 +278,13 @@ func (i *ImageModel) prepareRequest(req *image.Request) (image.Options, *predict
 		return image.Options{}, nil, err
 	}
 	apiReq := &apiReqValue
+	for _, key := range []string{i.inputSchema.PromptKey, i.inputSchema.NegativePromptKey, i.inputSchema.WidthKey, i.inputSchema.HeightKey, i.inputSchema.SeedKey, i.inputSchema.OutputFormatKey} {
+		if key != "" {
+			if _, exists := apiReq.Input[key]; exists {
+				return image.Options{}, nil, fmt.Errorf("replicate: extension input %q is owned by Core", key)
+			}
+		}
+	}
 	if apiReq.Input == nil {
 		apiReq.Input = map[string]any{}
 	}

@@ -8,7 +8,7 @@ import (
 )
 
 func TestVisitor_PreservesUnsignedIntegerList(t *testing.T) {
-	visitor := newVisitor()
+	visitor := newVisitor([]MetadataColumn{{Name: "id", CQLType: "varint"}})
 	if err := filter.In("id", []uint64{math.MaxUint64}).Accept(visitor); err != nil {
 		t.Fatal(err)
 	}

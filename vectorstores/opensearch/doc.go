@@ -18,8 +18,15 @@
 // Engines: [EngineLucene] (default, ships with core), [EngineNMSLib],
 // [EngineFaiss]. The chosen value is baked into the index mapping
 // at creation time and cannot be changed without rebuilding.
+// The returned mapping must explicitly identify that engine and agree with
+// the configured engine. An omitted engine is not inferred from the current
+// server default, which differs across OpenSearch versions.
 //
-// An index that already exists is checked rather than taken on trust.
+// New and existing indices undergo the same mapping and source checks.
+// Only concrete index names are supported. A name resolving to a different
+// physical index is rejected because aliases can apply filtering and routing
+// that must not be silently discarded.
+//
 // OpenSearch derives _score from the vector field's own space — "(2 - d) / 2"
 // for cosinesimil is not "1 / (1 + d)" for l2 — and innerproduct is the only
 // space whose score runs above 1. A store configured for one space against a
@@ -41,37 +48,40 @@
 //	  "size": K,
 //	  "query": {"knn": {"embedding": {
 //	    "vector": [...], "k": K,
-//	    "filter": {"query_string": {"query": "<lucene>"}}
+//	    "filter": {"ids": {"values": ["<matched-id>"]}}
 //	  }}}
 //	}
 //
-// Filter visitor produces Lucene query-string syntax under the
-// configured metadata prefix — same dialect as the Elasticsearch
-// store, intentionally so callers can swap between the two.
+// Filtering reads every document's stored metadata through a scroll snapshot,
+// then evaluates the predicate with Core filter.Match. Native term indexes
+// erase scalar/array distinctions and treat empty arrays like missing fields;
+// exact source evaluation also avoids analyzer, wildcard, and query-syntax
+// changes to a caller's predicate. Existing text or keyword metadata mappings
+// therefore do not change filter semantics. Complete, unmodified _source is
+// required; pruned, disabled, or reconstructed source is incompatible.
 //
-// Result completeness. OpenSearch reports lost shards, query timeouts, version
-// conflicts, and per-document failures inside a successful response. Search
-// rejects a result missing any targeted shard, and filtered deletion rejects an
-// incomplete deletion while the documents it already removed stay removed.
+// Filtered Search sends bounded ID selections to native KNN and merges their
+// results by their original provider score, before Core score normalization
+// can collapse distinct ranks. It reads all metadata before selecting TopK, costs O(N)
+// metadata reads, and holds O(N) document IDs. Unfiltered Search remains a
+// single native KNN request. A concurrent update between selection and KNN
+// may change a document, so every returned ID must belong to its selected
+// batch and its actual metadata must still satisfy the predicate. A mismatch
+// or evaluation error fails the entire Search. No cross-request snapshot is
+// promised, and updates that still satisfy the predicate can be returned.
+// Filtered Search requires Lucene HNSW on OpenSearch 2.4+, Faiss HNSW on
+// 2.9+, or Faiss IVF on 2.10+. NMSLib filtered Search returns
+// errors.ErrUnsupported before embedding or search I/O; its unfiltered
+// Search and DeleteWhere remain available.
 //
-// Metadata mapping. Metadata keys are unknown when the index is created, so
-// their fields map dynamically. The default for a JSON string is "text with a
-// .keyword sub-field" and the text field is analyzed, which would make
-// `metadata.author:"Alice"` a tokenized, case-insensitive match — it would
-// match an author of "Alice Smith" or of "alice". A dynamic template maps
-// strings under the metadata path straight to keyword instead, so the field
-// the filter compiler queries is the whole-value, case-sensitive one, and the
-// sub-field's ignore_above cutoff never applies. An index created before this
-// mapping needs a reindex for filters to compare exactly.
-//
-// Filterable keys. A metadata key is written into the Lucene query as text,
-// and query_string cannot quote a field name, so a filter can only name a
-// key that is a plain identifier. An indexed key is a string literal in the
-// filter DSL, so without that limit metadata['a:1 OR b'] compiled to
-// metadata.a:1 OR b and the caller's key became a term boundary and a
-// boolean operator. A document whose metadata key is anything at all still
-// stores and reads back fine; this is only about which keys a filter can
-// name.
+// DeleteWhere uses the same complete selection and sends conditional bulk
+// deletes with each document's sequence number, primary term, and custom
+// routing. A document
+// changed since selection causes a conflict instead of deleting its newer
+// contents. Partial failures return errors; earlier deletions remain applied.
+// Missing pages, missing concurrency tokens, repeated documents, shard
+// failures, and incomplete acknowledgments never become successful results.
+// Scroll cleanup uses a bounded context even when the caller cancels.
 //
 // See https://docs.opensearch.org/latest/search-plugins/knn/ for the
 // k-NN plugin reference.

@@ -47,6 +47,9 @@
 // refused rather than translated into an invented token budget or a guessed
 // generation; state the model's own parameters through the request
 // extension's AdditionalModelRequestFields.
+// Signed and redacted response blocks retain their boundaries when replayed.
+// Unsigned reasoning remains visible in Core output, but is excluded from later
+// Converse requests, as in the documented DeepSeek multi-turn workflow.
 //
 // Stream shape. ConverseStream sends its metadata event — the one carrying
 // usage — after messageStop, so the finish reason is held and stamped onto

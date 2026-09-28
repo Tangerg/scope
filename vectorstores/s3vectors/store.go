@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -79,10 +80,9 @@ type StoreConfig struct {
 	// DocumentBatcher batches documents before upload. Required.
 	DocumentBatcher vectorstore.Batcher
 
-	// DistanceMetric records the metric the index was created with —
-	// the store uses this only to map the raw distance returned by
-	// QueryVectors into a `higher = more similar` [0, 1] score. The
-	// actual metric is set on the index out of band.
+	// DistanceMetric records the metric the index was created with. It maps
+	// QueryVectors distances to scores and scores vectors locally when a
+	// filter requires exhaustive enumeration. The index is provisioned out of band.
 	DistanceMetric DistanceMetric
 }
 
@@ -90,10 +90,8 @@ type StoreConfig struct {
 // configured for: it was registered with a different distance metric.
 var ErrIncompatibleIndex = errors.New("s3vectors: index is incompatible")
 
-// DistanceMetric is the metric registered with the S3 Vectors index. The
-// query response carries a raw distance and nothing that identifies the metric
-// behind it, so the value is declared here and checked against the index at
-// construction.
+// DistanceMetric is the metric registered with the S3 Vectors index, checked
+// against the index at construction so native and local ranking use one metric.
 type DistanceMetric string
 
 // The metric is a closed vocabulary because score direction and threshold
@@ -120,6 +118,29 @@ func (d DistanceMetric) score(distance float64) vectorstore.Score {
 	default:
 		return vectorstore.ScoreFromCosineDistance(distance)
 	}
+}
+
+// distance keeps ranking in the native metric before projection to a bounded
+// score can merge nearby values. Inputs were narrowed to finite float32, so
+// squared components and their sums fit float64 throughout S3's dimension range.
+func (d DistanceMetric) distance(left, right []float64) float64 {
+	if d == DistanceEuclidean {
+		var distance float64
+		for index := range left {
+			distance = math.Hypot(distance, left[index]-right[index])
+		}
+		return distance
+	}
+	var dot, leftSquared, rightSquared float64
+	for index := range left {
+		dot += left[index] * right[index]
+		leftSquared += left[index] * left[index]
+		rightSquared += right[index] * right[index]
+	}
+	if leftSquared == 0 || rightSquared == 0 {
+		return 1
+	}
+	return 1 - max(-1, min(1, dot/(math.Sqrt(leftSquared)*math.Sqrt(rightSquared))))
 }
 
 func (s StoreConfig) Validate() error {
@@ -207,10 +228,8 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 // validateIndexMetric refuses a store whose configured metric is not the one
 // the index was registered with.
 //
-// QueryVectors answers with a raw distance and nothing that says which metric
-// produced it, so a wrong value does not fail: cosine distance read as
-// Euclidean, or the reverse, yields plausible scores in the wrong scale and
-// MinScore then filters the wrong rows. Nothing downstream can notice.
+// Reading cosine distance as Euclidean, or the reverse, yields plausible
+// scores in the wrong scale and MinScore then filters the wrong rows.
 //
 // Dimensionality is deliberately not compared. This store declares no
 // dimension of its own, and a vector of the wrong width is rejected by S3
@@ -299,7 +318,13 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 	return nil
 }
 
-// Search runs QueryVectors with the configured filter.
+// Search uses QueryVectors without a filter. Filtered search exhaustively
+// lists metadata and vector data, evaluates membership with [filter.Match],
+// and ranks every match with the index metric before applying TopK. S3's
+// native scalar equality also matches array elements and its query API cannot
+// restrict results by key, so it cannot express the Core filter contract.
+// Filtered search requires s3vectors:ListVectors and s3vectors:GetVectors and
+// reads the full index. Concurrent writes are not isolated by this scan.
 func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
 	var docs []*vectorstore.SearchResult
 	if err = req.Validate(); err != nil {
@@ -326,6 +351,9 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		return nil, fmt.Errorf("s3vectors.Store.Search: TopK %d exceeds the %d results a query can return",
 			limit, MaxTopK)
 	}
+	if req.Options.Filter != nil {
+		return s.searchFiltered(ctx, req, queryVec)
+	}
 
 	input := &s3vectors.QueryVectorsInput{
 		VectorBucketName: aws.String(s.vectorBucketName),
@@ -334,16 +362,6 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		TopK:             aws.Int32(int32(limit)),
 		ReturnDistance:   true,
 		ReturnMetadata:   true,
-	}
-
-	if req.Options.Filter != nil {
-		filterDoc, filterErr := s.buildFilter(req.Options.Filter)
-		if filterErr != nil {
-			return nil, filterErr
-		}
-		if filterDoc != nil {
-			input.Filter = s3vdoc.NewLazyDocument(filterDoc)
-		}
 	}
 
 	// A QueryVectors response carries at most MaxResultsPerQueryPage hits and
@@ -378,6 +396,54 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	}
 }
 
+func (s *Store) searchFiltered(ctx context.Context, req *vectorstore.SearchRequest, query []float32) (*vectorstore.SearchResponse, error) {
+	queryVector := make([]float64, len(query))
+	for index, value := range query {
+		queryVector[index] = float64(value)
+		if math.IsNaN(queryVector[index]) || math.IsInf(queryVector[index], 0) {
+			return nil, errors.New("s3vectors: query vector is not finite float32")
+		}
+	}
+	type rankedVector struct {
+		distance float64
+		result   *vectorstore.SearchResult
+	}
+	var candidates []rankedVector
+	err := s.visitMatchingVectors(ctx, req.Options.Filter, true, func(listed types.ListOutputVector, doc *document.Document) error {
+		data, ok := listed.Data.(*types.VectorDataMemberFloat32)
+		if !ok || data == nil || len(data.Value) == 0 || len(data.Value) != len(queryVector) {
+			return fmt.Errorf("s3vectors: vector %s has missing or incompatible float32 data", doc.ID)
+		}
+		vector := make([]float64, len(data.Value))
+		for index, value := range data.Value {
+			vector[index] = float64(value)
+			if math.IsNaN(vector[index]) || math.IsInf(vector[index], 0) {
+				return fmt.Errorf("s3vectors: vector %s has non-finite data", doc.ID)
+			}
+		}
+		distance := s.distanceMetric.distance(queryVector, vector)
+		score := s.distanceMetric.score(distance)
+		if score >= req.Options.MinScore {
+			candidates = append(candidates, rankedVector{distance: distance, result: &vectorstore.SearchResult{Document: doc, Score: score}})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	slices.SortFunc(candidates, func(left, right rankedVector) int {
+		if order := cmp.Compare(left.distance, right.distance); order != 0 {
+			return order
+		}
+		return cmp.Compare(left.result.Document.ID, right.result.Document.ID)
+	})
+	results := make([]*vectorstore.SearchResult, min(len(candidates), req.Options.ResultLimit()))
+	for index := range results {
+		results[index] = candidates[index].result
+	}
+	return &vectorstore.SearchResponse{Results: results}, nil
+}
+
 // DeleteWhere removes every document matching expr. S3 Vectors has no
 // filter-based deletion, and QueryVectors is an approximate nearest-neighbor
 // search that answers with up to topK candidates rather than every match, so it
@@ -396,19 +462,21 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		return fmt.Errorf("s3vectors.Store.DeleteWhere: %w", err)
 	}
 
-	keys, err := s.matchingKeys(ctx, expr)
+	var keys []string
+	err = s.visitMatchingVectors(ctx, expr, false, func(_ types.ListOutputVector, doc *document.Document) error {
+		keys = append(keys, doc.ID)
+		return nil
+	})
 	if err != nil {
 		return err
 	}
 	return s.DeleteIDs(ctx, keys)
 }
 
-// matchingKeys walks the whole index. Only a nil continuation token establishes
-// that the listing is complete: a page can come back short, or even empty,
-// while further pages remain.
-func (s *Store) matchingKeys(ctx context.Context, expr filter.Predicate) ([]string, error) {
+// visitMatchingVectors owns complete enumeration and Core membership for both
+// search and deletion. A short or empty page can still have a continuation.
+func (s *Store) visitMatchingVectors(ctx context.Context, expr filter.Predicate, returnData bool, visit func(types.ListOutputVector, *document.Document) error) error {
 	const pageSize int32 = 500
-	var keys []string
 	var token *string
 	for {
 		page, err := s.client.ListVectors(ctx, &s3vectors.ListVectorsInput{
@@ -417,29 +485,42 @@ func (s *Store) matchingKeys(ctx context.Context, expr filter.Predicate) ([]stri
 			MaxResults:       aws.Int32(pageSize),
 			NextToken:        token,
 			ReturnMetadata:   true,
+			ReturnData:       returnData,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("s3vectors: list vectors: %w", err)
+			return fmt.Errorf("s3vectors: list vectors: %w", err)
+		}
+		if page == nil {
+			return errors.New("s3vectors: ListVectors returned no response")
 		}
 		for index := range page.Vectors {
 			listed := &page.Vectors[index]
 			if listed.Key == nil || *listed.Key == "" {
-				return nil, fmt.Errorf("s3vectors: listed vector[%d] is missing key", index)
+				return fmt.Errorf("s3vectors: listed vector[%d] is missing key", index)
 			}
-			_, values, err := decodeVectorMetadata(*listed.Key, listed.Metadata)
+			text, values, err := decodeVectorMetadata(*listed.Key, listed.Metadata)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			matched, err := filter.Match(expr, values)
 			if err != nil {
-				return nil, fmt.Errorf("s3vectors: evaluate filter for %s: %w", *listed.Key, err)
+				return fmt.Errorf("s3vectors: evaluate filter for %s: %w", *listed.Key, err)
 			}
 			if matched {
-				keys = append(keys, *listed.Key)
+				documentMetadata, err := metadata.FromValues(values)
+				if err != nil {
+					return fmt.Errorf("s3vectors: convert metadata for %s: %w", *listed.Key, err)
+				}
+				if err := visit(*listed, &document.Document{ID: *listed.Key, Text: text, Metadata: documentMetadata}); err != nil {
+					return err
+				}
 			}
 		}
 		if page.NextToken == nil || *page.NextToken == "" {
-			return keys, nil
+			return nil
+		}
+		if token != nil && *page.NextToken == *token {
+			return errors.New("s3vectors: ListVectors repeated its continuation token")
 		}
 		token = page.NextToken
 	}
@@ -466,17 +547,6 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 		}
 	}
 	return nil
-}
-
-func (s *Store) buildFilter(expr filter.Predicate) (map[string]any, error) {
-	if expr == nil {
-		return nil, nil
-	}
-	v := newVisitor()
-	if err := expr.Accept(v); err != nil {
-		return nil, fmt.Errorf("s3vectors: convert filter: %w", err)
-	}
-	return v.snapshot(), nil
 }
 
 func (s *Store) toMatch(hit types.QueryOutputVector, minScore vectorstore.Score) (*vectorstore.SearchResult, error) {

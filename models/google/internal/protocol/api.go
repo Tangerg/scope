@@ -3,6 +3,7 @@ package protocol
 import (
 	"cmp"
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"iter"
@@ -104,6 +105,8 @@ func newAPI(ctx context.Context, config ClientConfig) (*api, error) {
 		interactionsHTTP = resty.NewWithClient(config.HTTPClient)
 	}
 	interactionsHTTP.
+		SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
+		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }).
 		SetBaseURL(cmp.Or(config.BaseURL, DefaultBaseURL)).
 		SetHeader("x-goog-api-key", config.APIKey).
 		SetHeader("Content-Type", "application/json")
@@ -139,7 +142,7 @@ func (*api) wrapError(err error) error {
 	if _, ok := errors.AsType[httpError](err); ok {
 		return err
 	}
-	apiErr, ok := errors.AsType[*genai.APIError](err)
+	apiErr, ok := errors.AsType[genai.APIError](err)
 	if !ok {
 		return err
 	}

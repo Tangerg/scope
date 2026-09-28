@@ -3,6 +3,7 @@ package blackforestlabs
 import (
 	"cmp"
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -44,6 +45,8 @@ func newAPI(config apiConfig) (*api, error) {
 	adapter := &api{baseURL: parsedBaseURL}
 	adapter.http = resty.NewWithClient(adapter.httpClient(config.HTTPClient))
 	adapter.download = resty.NewWithClient(adapter.httpClient(config.HTTPClient))
+	adapter.http.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
+		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
 	adapter.http.SetBaseURL(baseURL).
 		SetHeader("x-key", config.APIKey).
 		SetHeader("Content-Type", "application/json")

@@ -3,8 +3,6 @@ package typesense
 import (
 	"testing"
 
-	"github.com/typesense/typesense-go/v3/typesense/api"
-
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -22,8 +20,8 @@ func TestFormatVectorQueryIncludesExplicitHybridAlpha(t *testing.T) {
 func TestHybridMatchAcceptsLexicalOnlyHit(t *testing.T) {
 	t.Parallel()
 
-	document := map[string]any{idField: "one", contentField: "content"}
-	match, err := toMatch(api.SearchResultHit{Document: &document}, vectorstore.SearchModeHybrid, 1)
+	document := &storedDocument{ID: "one", Content: "content"}
+	match, err := toMatch(searchHit{Document: document}, vectorstore.SearchModeHybrid, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,10 +38,7 @@ func TestSearchParametersMapHybridModeOnce(t *testing.T) {
 	request := &vectorstore.SearchRequest{
 		Query: "capital of France", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid, TopK: 3},
 	}
-	params, err := store.searchParameters(request, []float32{1, 0.5})
-	if err != nil {
-		t.Fatal(err)
-	}
+	params := store.searchParameters(request, []float32{1, 0.5})
 	if params.Q == nil || *params.Q != request.Query {
 		t.Fatalf("Q = %v, want %q", params.Q, request.Query)
 	}

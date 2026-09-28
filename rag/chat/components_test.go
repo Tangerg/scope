@@ -192,6 +192,60 @@ func TestContextualAugmenterAppliesWholeDocumentTokenBudget(t *testing.T) {
 	}
 }
 
+type contextBytesCounter struct{}
+
+func (c contextBytesCounter) CountText(_ context.Context, text string) (int, error) {
+	return len(text), nil
+}
+
+func TestContextualAugmenterSkipsOversizedCandidates(t *testing.T) {
+	prompt, parseErr := chatclient.ParseTemplate("{{.Context}}\n{{.Query}}")
+	if parseErr != nil {
+		t.Fatal(parseErr)
+	}
+	for _, contents := range [][]string{
+		{strings.Repeat("oversized", 100), "tiny"},
+		{"tiny", strings.Repeat("oversized", 100), "small"},
+	} {
+		augmenter, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{
+			MaxContextTokens: 128, TokenCounter: contextBytesCounter{}, PromptTemplate: prompt,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var candidates rag.Candidates
+		for _, content := range contents {
+			doc, documentErr := document.NewDocument(content, nil)
+			if documentErr != nil {
+				t.Fatal(documentErr)
+			}
+			candidates = append(candidates, candidate(doc))
+		}
+		augmentation, err := augmenter.Augment(t.Context(), mustQuery(t, "question"), candidates)
+		if err != nil {
+			t.Fatal(err)
+		}
+		citations := augmentation.Citations()
+		if len(citations) != len(contents)-1 || citations[0].Number != 1 || citations[0].Candidate.Document.Text != "tiny" {
+			t.Fatalf("citations = %#v", citations)
+		}
+		if len(citations) == 2 && (citations[1].Number != 2 || citations[1].Candidate.Document.Text != "small") {
+			t.Fatalf("later candidate order or citation number changed: %#v", citations)
+		}
+		if strings.Contains(augmentation.Text(), "oversized") {
+			t.Fatalf("oversized candidate was retained: %q", augmentation.Text())
+		}
+		encoded := strings.TrimSuffix(augmentation.Text(), "\nquestion")
+		var evidence []struct{ Citation, Content string }
+		if decodeErr := jsonv2.Unmarshal([]byte(encoded), &evidence); decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		if len(encoded) > 128 || len(evidence) != len(citations) {
+			t.Fatalf("final evidence = %q (%d bytes), citations = %d", encoded, len(encoded), len(citations))
+		}
+	}
+}
+
 func TestContextualAugmenterEncodesEvidenceAsUntrustedJSON(t *testing.T) {
 	augmenter, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{})
 	if err != nil {

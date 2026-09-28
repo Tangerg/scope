@@ -261,7 +261,7 @@ func (p probeRerank) Call(ctx context.Context, request *rerank.Request) (*rerank
 		Documents []string `json:"documents"`
 		TopN      int      `json:"top_n"`
 	}{
-		Model: "rerank-model", Query: request.Query, Documents: request.Documents, TopN: request.Options.TopK,
+		Model: "rerank-model", Query: request.Query, Documents: request.Documents, TopN: request.Options.ResultLimit(len(request.Documents)),
 	}
 	payload, err := jsonv2.Marshal(wireRequest)
 	if err != nil {

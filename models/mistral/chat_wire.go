@@ -121,21 +121,26 @@ type jsonSchemaDefinition struct {
 	Strict      bool            `json:"strict"`
 }
 
+// JSON v2 cannot inline a field with custom codecs, so the wire projection
+// carries the extension's fields without its public validation methods.
+type chatRequestOptions ChatRequestOptions
+
 type chatCompletionRequest struct {
-	Model             string          `json:"model"`
-	Messages          []chatMessage   `json:"messages"`
-	Temperature       *float64        `json:"temperature,omitzero"`
-	TopP              *float64        `json:"top_p,omitzero"`
-	MaxTokens         *int64          `json:"max_tokens,omitzero"`
-	Stream            bool            `json:"stream"`
-	Stop              []string        `json:"stop,omitzero"`
-	PresencePenalty   *float64        `json:"presence_penalty,omitzero"`
-	FrequencyPenalty  *float64        `json:"frequency_penalty,omitzero"`
-	Tools             []chatTool      `json:"tools,omitempty"`
-	ToolChoice        toolChoice      `json:"tool_choice,omitempty"`
-	ParallelToolCalls *bool           `json:"parallel_tool_calls,omitzero"`
-	ResponseFormat    *responseFormat `json:"response_format,omitzero"`
-	ChatRequestOptions
+	ReasoningEffort   corechat.ReasoningEffort `json:"reasoning_effort,omitempty"`
+	Model             string                   `json:"model"`
+	Messages          []chatMessage            `json:"messages"`
+	Temperature       *float64                 `json:"temperature,omitzero"`
+	TopP              *float64                 `json:"top_p,omitzero"`
+	MaxTokens         *int64                   `json:"max_tokens,omitzero"`
+	Stream            bool                     `json:"stream"`
+	Stop              []string                 `json:"stop,omitzero"`
+	PresencePenalty   *float64                 `json:"presence_penalty,omitzero"`
+	FrequencyPenalty  *float64                 `json:"frequency_penalty,omitzero"`
+	Tools             []chatTool               `json:"tools,omitempty"`
+	ToolChoice        toolChoice               `json:"tool_choice,omitempty"`
+	ParallelToolCalls *bool                    `json:"parallel_tool_calls,omitzero"`
+	ResponseFormat    *responseFormat          `json:"response_format,omitzero"`
+	chatRequestOptions
 }
 
 type chatMessage struct {
@@ -241,9 +246,9 @@ type chatUsage struct {
 	PromptTokens        *int64 `json:"prompt_tokens"`
 	CompletionTokens    *int64 `json:"completion_tokens"`
 	TotalTokens         int64  `json:"total_tokens"`
-	NumCachedTokens     int64  `json:"num_cached_tokens"`
+	NumCachedTokens     *int64 `json:"num_cached_tokens"`
 	PromptTokensDetails *struct {
-		CachedTokens int64 `json:"cached_tokens"`
+		CachedTokens *int64 `json:"cached_tokens"`
 	} `json:"prompt_tokens_details"`
 }
 
@@ -253,11 +258,11 @@ func (c *chatUsage) usage() *corechat.Usage {
 	}
 	mapped := corechat.Usage{InputTokens: *c.PromptTokens, OutputTokens: *c.CompletionTokens}
 	cached := c.NumCachedTokens
-	if c.PromptTokensDetails != nil && c.PromptTokensDetails.CachedTokens != 0 {
+	if c.PromptTokensDetails != nil && c.PromptTokensDetails.CachedTokens != nil {
 		cached = c.PromptTokensDetails.CachedTokens
 	}
-	if cached != 0 {
-		mapped.CacheReadInputTokens = &cached
+	if cached != nil {
+		mapped.CacheReadInputTokens = new(*cached)
 	}
 	return &mapped
 }

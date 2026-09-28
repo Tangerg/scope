@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -43,6 +44,8 @@ func newAPI(config apiConfig) (*api, error) {
 	if config.HTTPClient != nil {
 		client = resty.NewWithClient(config.HTTPClient)
 	}
+	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
+		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
 	client.SetBaseURL(cmp.Or(config.BaseURL, DefaultBaseURL)).
 		SetHeader("X-Hume-API-Key", config.APIKey).
 		SetHeader("Content-Type", "application/json")

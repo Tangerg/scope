@@ -8,16 +8,22 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-// Options holds per-request reranking configuration. TopK zero means every
-// document; provider-specific controls remain in Extensions.
+// Options holds per-request reranking configuration. A nil TopK inherits the
+// configured default; without a default, every document is returned. A pointer
+// to zero explicitly requests every document. Provider-specific controls remain
+// in Extensions.
 type Options struct {
 	Model      string              `json:"model"`
-	TopK       int                 `json:"top_k,omitzero"`
+	TopK       *int                `json:"top_k,omitzero"`
 	Extensions metadata.Extensions `json:"extensions,omitzero"`
 }
 
 func (o Options) Clone() Options {
-	return Options{Model: o.Model, TopK: o.TopK, Extensions: o.Extensions.Clone()}
+	clone := Options{Model: o.Model, Extensions: o.Extensions.Clone()}
+	if o.TopK != nil {
+		clone.TopK = new(*o.TopK)
+	}
+	return clone
 }
 
 func (o Options) Resolve(override Options) (Options, error) {
@@ -35,8 +41,8 @@ func (o *Options) applyOverride(override Options) error {
 	if override.Model != "" {
 		o.Model = override.Model
 	}
-	if override.TopK != 0 {
-		o.TopK = override.TopK
+	if override.TopK != nil {
+		o.TopK = new(*override.TopK)
 	}
 	if !override.Extensions.IsZero() {
 		if err := o.Extensions.Merge(override.Extensions); err != nil {
@@ -50,7 +56,7 @@ func (o Options) Validate() error {
 	if o.Model != "" && strings.TrimSpace(o.Model) != o.Model {
 		return fmt.Errorf("%w: model id must not have surrounding whitespace", ErrInvalidOptions)
 	}
-	if o.TopK < 0 {
+	if o.TopK != nil && *o.TopK < 0 {
 		return fmt.Errorf("%w: top K must not be negative", ErrInvalidOptions)
 	}
 	if err := o.Extensions.Validate(); err != nil {
@@ -60,10 +66,10 @@ func (o Options) Validate() error {
 }
 
 func (o Options) ResultLimit(documentCount int) int {
-	if o.TopK == 0 {
+	if o.TopK == nil || *o.TopK == 0 {
 		return documentCount
 	}
-	return o.TopK
+	return *o.TopK
 }
 
 func (o Options) MarshalJSON() ([]byte, error) {

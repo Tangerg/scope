@@ -91,7 +91,7 @@ func (a *AudioTTSModel) buildAPIRequest(req *tts.Request) (string, *speakParams,
 	if decodeErr != nil {
 		return "", nil, decodeErr
 	}
-	for _, field := range []string{"model"} {
+	for _, field := range []string{"model", "encoding", "container", "speed", "text"} {
 		if _, exists := nativeFields[field]; exists {
 			return "", nil, fmt.Errorf("deepgram: extension %q field %q is owned by Core", SpeechRequestExtensionKey, field)
 		}
@@ -102,6 +102,11 @@ func (a *AudioTTSModel) buildAPIRequest(req *tts.Request) (string, *speakParams,
 	params := &paramsValue
 	if err != nil {
 		return "", nil, err
+	}
+	for _, field := range []string{"model", "encoding", "container", "sample_rate", "bit_rate", "speed", "text"} {
+		if _, exists := params.Extra[field]; exists {
+			return "", nil, fmt.Errorf("deepgram: extension %q extra field %q has a dedicated request field", SpeechRequestExtensionKey, field)
+		}
 	}
 	params.Model = effectiveOptions.Model
 	if effectiveOptions.OutputFormat != "" {

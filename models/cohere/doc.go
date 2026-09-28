@@ -2,7 +2,9 @@
 //
 // Embedding callers select the official input_type explicitly because query,
 // document, classification, and clustering embeddings have different task
-// semantics. Reranking returns indices into the caller-owned document batch.
+// semantics. EmbeddingRequestOptions carries these controls; SDK outbound
+// requests are not extension input types. Only float vectors are represented.
+// Reranking returns indices into the caller-owned document batch.
 //
 // Embedding limits. "Maximum number of texts per call is 96", which
 // [MaxTextsPerEmbedRequest] names and the model refuses above rather than

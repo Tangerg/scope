@@ -5,6 +5,8 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"io"
+	"path"
+	"strings"
 
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 )
@@ -38,22 +40,14 @@ type indexMappings struct {
 	Properties       map[string]any               `json:"properties"`
 }
 
-// dynamicTemplate names one dynamic-mapping rule. Metadata keys are unknown at
-// index-creation time, so their fields have to be mapped dynamically; the
-// default for a JSON string is "text with a .keyword sub-field", and the text
-// field is analyzed. Filters compare whole values, so the metadata path maps
-// strings straight to keyword instead, which also avoids the sub-field's
-// ignore_above cutoff.
+// dynamicTemplate preserves the index creation policy for native metadata terms.
+// Core predicates are evaluated from stored source, independently of these terms.
 type dynamicTemplate struct {
 	PathMatch        string         `json:"path_match"`
 	MatchMappingType string         `json:"match_mapping_type"`
 	Mapping          map[string]any `json:"mapping"`
 }
 
-// metadataKeywordTemplate keeps string metadata exactly comparable. Without it
-// `metadata.author:"Alice"` reaches the analyzed text field and matches an
-// author of "Alice Smith" or "alice", which is neither whole-value nor
-// case-sensitive and disagrees with filter.Match.
 func metadataKeywordTemplate(metadataField string) map[string]dynamicTemplate {
 	return map[string]dynamicTemplate{
 		"metadata_strings_are_keywords": {
@@ -90,6 +84,7 @@ type storedVectorField struct {
 	ModelID    string    `json:"model_id"`
 	Method     *struct {
 		SpaceType SpaceType `json:"space_type"`
+		Engine    Engine    `json:"engine"`
 	} `json:"method"`
 }
 
@@ -126,16 +121,26 @@ type bulkAction struct {
 }
 
 type bulkActionTarget struct {
-	Index string `json:"_index,omitempty"`
-	ID    string `json:"_id"`
+	Index       string `json:"_index,omitempty"`
+	ID          string `json:"_id"`
+	Routing     string `json:"routing,omitzero"`
+	SeqNo       *int   `json:"if_seq_no,omitzero"`
+	PrimaryTerm *int   `json:"if_primary_term,omitzero"`
 }
 
-type queryString struct {
-	Query string `json:"query"`
+type idsQuery struct {
+	Values []string `json:"values"`
 }
-
 type queryClause struct {
-	QueryString queryString `json:"query_string"`
+	IDs idsQuery `json:"ids"`
+}
+
+type metadataScanRequest struct {
+	Size             int      `json:"size"`
+	Source           []string `json:"_source"`
+	StoredFields     []string `json:"stored_fields"`
+	Sort             []string `json:"sort"`
+	SeqNoPrimaryTerm bool     `json:"seq_no_primary_term"`
 }
 
 type nearestNeighbor struct {
@@ -153,35 +158,38 @@ type searchRequest struct {
 	Query nearestNeighborQuery `json:"query"`
 }
 
-type deleteByQueryRequest struct {
-	Query queryClause `json:"query"`
-}
-
 type bulkOutcome struct {
-	operation bulkOperation
-	response  *opensearchapi.BulkResp
+	operation   bulkOperation
+	response    *opensearchapi.BulkResp
+	expectedIDs []string
 }
 
 func (b bulkOutcome) err() error {
 	if b.response == nil {
 		return fmt.Errorf("opensearch: bulk %s returned no response", b.operation)
 	}
-	if !b.response.Errors {
-		return nil
+	if len(b.response.Items) != len(b.expectedIDs) {
+		return fmt.Errorf("opensearch: bulk %s acknowledged %d of %d documents", b.operation, len(b.response.Items), len(b.expectedIDs))
 	}
-	for _, item := range b.response.Items {
-		for _, info := range item {
-			if info.Error != nil {
-				reason := info.Error.Reason
-				if reason == "" {
-					reason = "provider returned no reason"
-				}
-				return fmt.Errorf("opensearch: bulk %s failed for document %q with status %d: %s",
-					b.operation, info.ID, info.Status, reason)
+	for index, item := range b.response.Items {
+		info, found := item[string(b.operation)]
+		if !found || len(item) != 1 || info.ID != b.expectedIDs[index] {
+			return fmt.Errorf("opensearch: bulk %s response item %d does not identify requested document %q", b.operation, index, b.expectedIDs[index])
+		}
+		success := info.Status >= 200 && info.Status < 300
+		missing := b.operation == bulkOperationDelete && info.Status == 404
+		if !success && !missing || info.Error != nil && !missing {
+			reason := "provider returned no reason"
+			if info.Error != nil && info.Error.Reason != "" {
+				reason = info.Error.Reason
 			}
+			return fmt.Errorf("opensearch: bulk %s failed for document %q with status %d: %s", b.operation, info.ID, info.Status, reason)
 		}
 	}
-	return fmt.Errorf("opensearch: bulk %s reported errors without an item failure", b.operation)
+	if b.response.Errors {
+		return fmt.Errorf("opensearch: bulk %s reported an unexplained failure", b.operation)
+	}
+	return nil
 }
 
 func encodeJSONRequest(value any) (io.Reader, error) {
@@ -190,4 +198,41 @@ func encodeJSONRequest(value any) (io.Reader, error) {
 		return nil, fmt.Errorf("opensearch: encode request: %w", err)
 	}
 	return bytes.NewReader(buf), nil
+}
+
+type storedSource struct {
+	Enabled  *bool    `json:"enabled"`
+	Includes []string `json:"includes"`
+	Excludes []string `json:"excludes"`
+	Mode     string   `json:"mode"`
+}
+
+func (s storedSource) validate(fields ...string) error {
+	if s.Enabled != nil && !*s.Enabled || s.Mode != "" && s.Mode != "stored" {
+		return fmt.Errorf("%w: filtering requires stored _source", ErrIncompatibleIndex)
+	}
+	for _, field := range fields {
+		if field == "" {
+			continue
+		}
+		included := len(s.Includes) == 0
+		for _, pattern := range s.Includes {
+			if pattern == "*" || pattern == field {
+				included = true
+			}
+		}
+		if !included {
+			return fmt.Errorf("%w: source includes must preserve complete field %q", ErrIncompatibleIndex, field)
+		}
+		for _, pattern := range s.Excludes {
+			// A wildcard that can address this root may prune a descendant. Exact
+			// exclusions of unrelated fields, such as embedding, remain acceptable.
+			root := strings.SplitN(pattern, ".", 2)[0]
+			match, err := path.Match(root, strings.SplitN(field, ".", 2)[0])
+			if err != nil || match {
+				return fmt.Errorf("%w: source exclusion %q may prune field %q", ErrIncompatibleIndex, pattern, field)
+			}
+		}
+	}
+	return nil
 }

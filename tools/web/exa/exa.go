@@ -3,6 +3,7 @@ package exa
 import (
 	"cmp"
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -49,12 +50,15 @@ func NewClient(config Config) (*Client, error) {
 	if config.HTTPClient == nil {
 		config.HTTPClient = &http.Client{}
 	}
-	return &Client{
+	client := &Client{
 		http: resty.NewWithClient(config.HTTPClient).
 			SetBaseURL(config.BaseURL).
 			SetHeader("x-api-key", config.APIKey).
 			SetHeader("Content-Type", "application/json"),
-	}, nil
+	}
+	client.http.JSONMarshal = func(value any) ([]byte, error) { return jsonv2.Marshal(value) }
+	client.http.JSONUnmarshal = func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }
+	return client, nil
 }
 
 type summaryOptions struct {
@@ -149,6 +153,9 @@ func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.Fet
 	}
 	request = prepared
 	format := request.Format
+	if format == web.FormatText {
+		return nil, fmt.Errorf("exa: %w: plain text is not available; use markdown or html", web.ErrUnsupportedFormat)
+	}
 	raw, err := c.fetch(ctx, &fetchRequest{
 		URLs: []string{request.URL},
 		Text: fetchTextOptions{IncludeHTMLTags: format == web.FormatHTML},

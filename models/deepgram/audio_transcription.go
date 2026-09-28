@@ -41,8 +41,8 @@ var _ transcription.Model = (*AudioTranscriptionModel)(nil)
 // AudioTranscriptionModel wraps Deepgram's /v1/listen synchronous
 // transcription endpoint. Supported models include "nova-3" (latest),
 // "nova-2", "enhanced", "base". Diarization, smart_format, punctuation
-// and the long tail of Deepgram knobs live on [ListenParams] and reach
-// the API via the extension-threaded SDK params, see [getOptionsParams].
+// and provider query options use official JSON keys under
+// TranscriptionRequestExtensionKey. Core owns model and language.
 //
 // The returned [transcription.Output] holds the merged transcript of
 // channel 0 / alternative 0; per-word + per-utterance breakdown is
@@ -97,6 +97,11 @@ func (a *AudioTranscriptionModel) Call(ctx context.Context, req *transcription.R
 	params := &paramsValue
 	if err != nil {
 		return nil, err
+	}
+	for _, field := range []string{"model", "language", "tier", "version", "punctuate", "smart_format", "diarize", "numerals", "paragraphs", "utterances", "topics", "sentiment", "intents", "detect_entities", "detect_language", "summarize", "redact", "keyterm"} {
+		if _, exists := params.Extra[field]; exists {
+			return nil, fmt.Errorf("deepgram: extension %q extra field %q has a dedicated request field", TranscriptionRequestExtensionKey, field)
+		}
 	}
 	params.Model = effectiveOptions.Model
 	params.Language = effectiveOptions.Language

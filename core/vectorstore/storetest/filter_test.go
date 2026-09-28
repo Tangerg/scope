@@ -31,6 +31,7 @@ func TestFilterConformanceUnsupported(t *testing.T) {
 		Unsupported: map[string]error{
 			"like_case": errors.ErrUnsupported, "like_whole_value": errors.ErrUnsupported,
 			"like_percent": errors.ErrUnsupported, "like_unicode_rune": errors.ErrUnsupported,
+			"like_literal_syntax": errors.ErrUnsupported, "like_literal_wildcards": errors.ErrUnsupported, "like_newline_rune": errors.ErrUnsupported,
 		},
 	})
 }

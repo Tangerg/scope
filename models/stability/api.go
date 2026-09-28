@@ -38,6 +38,8 @@ func newAPI(config apiConfig) (*api, error) {
 	if config.HTTPClient != nil {
 		client = resty.NewWithClient(config.HTTPClient)
 	}
+	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
+		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
 	client.SetBaseURL(cmp.Or(config.BaseURL, DefaultBaseURL)).
 		SetAuthToken(config.APIKey)
 
@@ -49,15 +51,15 @@ func newAPI(config apiConfig) (*api, error) {
 // raw bytes; [ResponseModeJSON] returns a base64 envelope with FinishReason
 // + Seed echoed back (required when callers care about those).
 type generateRequest struct {
-	Prompt         string
-	NegativePrompt string
-	AspectRatio    string
-	Model          string
-	OutputFormat   string
-	Seed           *int64
-	StylePreset    string
-	CFGScale       *float64
-	Mode           string
+	Prompt         string   `json:"prompt,omitempty"`
+	NegativePrompt string   `json:"negative_prompt,omitempty"`
+	AspectRatio    string   `json:"aspect_ratio,omitempty"`
+	Model          string   `json:"model,omitempty"`
+	OutputFormat   string   `json:"output_format,omitempty"`
+	Seed           *int64   `json:"seed,omitzero"`
+	StylePreset    string   `json:"style_preset,omitempty"`
+	CFGScale       *float64 `json:"cfg_scale,omitzero"`
+	Mode           string   `json:"-"`
 }
 
 func (g *generateRequest) formFields() map[string]string {

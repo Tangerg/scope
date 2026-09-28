@@ -1,79 +1,60 @@
-// Package weaviate exposes Weaviate through the Core vector-store capability interfaces.
-// Documents are stored as objects in a Weaviate class (`{id,
-// vector, properties}`). Semantic retrieval runs `nearVector`; hybrid
-// retrieval combines the supplied vector with lexical evidence from `content`
-// through relative-score fusion. [StoreConfig.HybridAlpha] optionally controls
-// vector weight.
-// Documents containing media are rejected before indexing I/O because this
-// adapter persists document text and metadata only.
+// Package weaviate exposes Weaviate through the Core vector-store capabilities.
+// It uses weaviate-go-client/v5 with a Weaviate server supporting GraphQL cursor
+// listing and the configured retrieval mode. Documents store their text, vector,
+// and complete metadata JSON. Media documents are rejected before indexing I/O.
 //
-// Requirements: a reachable Weaviate v5 server (self-hosted or
-// Weaviate Cloud Services). The store uses the official
-// weaviate-go-client/v5.
+// Semantic retrieval uses nearVector. Hybrid retrieval combines the supplied
+// vector with lexical evidence from content using relative-score fusion;
+// [StoreConfig.HybridAlpha] controls vector weight. The configured distance
+// metric must agree with the class's vector index: cosine, dot, l2-squared,
+// hamming, or manhattan.
 //
-// Vector similarity functions: cosine / dot / l2-squared / hamming
-// / manhattan. The chosen value is bound to the class's vector
-// index config at creation time.
+// # Metadata filtering
 //
-// Schema. Weaviate is strongly typed — properties participating in
-// filters must be declared at class-creation time. [StoreConfig]
-// enumerates these properties so the store can issue a CREATE
-// CLASS when needed.
+// A filtered Search enumerates the class's original metadata JSON through
+// GraphQL after cursors and evaluates the Core predicate for every object. It
+// then restricts the native semantic or hybrid ranking query to all matching
+// UUIDs before applying TopK. Scalar and array values, missing and null values,
+// whitespace, nested paths, and JSON numbers therefore retain Core semantics.
+// Actual ranking results must belong to the selected UUIDs and still satisfy
+// the predicate; a mismatch fails the complete search rather than returning
+// a shortened result. Unfiltered Search issues the native ranking query directly.
 //
-// Filter visitor produces Weaviate's `where` filter operator tree
-// — `{"operator": "Equal", "path": ["author"], "valueText": "..."}`,
-// `{"operator": "And", "operands": [...]}`, `{"operator":
-// "GreaterThan", "valueNumber": 100}`. The result feeds the
-// `WithWhere` builder on the GraphQL Get call.
+// Filtering costs a full metadata scan per call and memory proportional to the
+// matching UUIDs. The final ranking request carries every matching UUID, so
+// large selections remain subject to the server's request limits. The scan
+// follows short pages until an empty page and rejects an invalid response or a
+// cursor that does not advance. Missing, malformed, or non-object metadata JSON
+// is an error; JSON null represents a document without metadata.
 //
-// Batch acknowledgment. Weaviate answers a batch whose objects individually
-// failed with a successful call, so Index requires one SUCCESS result per
-// object it sent. A rejected object returns an error while the objects accepted
-// in the same batch remain stored.
+// DeleteWhere uses the same complete selection and then deletes UUIDs. No
+// deletion starts until every page and predicate evaluation has succeeded.
+// Scan, ranking, and deletion are separate requests without snapshot or revision
+// preconditions. Hosts must coordinate concurrent writes when they require a
+// stable selection. A deletion error can leave earlier UUIDs already deleted;
+// missing UUIDs are ignored so an operation can be retried.
 //
-// Metadata filtering needs declared properties. Weaviate classes are typed and
-// a where filter may only name a declared property, so
-// [StoreConfig.MetadataProperties] enumerates the keys filters may select on.
-// Each becomes a class property under InitializeSchema and is written alongside
-// the document; the complete metadata map is also stored as JSON so every key
-// round-trips losslessly whether or not it is filterable. A filter naming an
-// undeclared key is refused, because a path with no matching field is not a
-// narrower query but one the server cannot answer.
+// # Class construction and migration
 //
-// A declared text property pins field tokenization, which "treats the entire
-// value of the property as a single token" and "preserves both case and
-// symbols". Weaviate's default word tokenization splits on non-alphanumeric
-// characters and lowercases each token, which would make equality a token
-// match rather than the whole-value, case-sensitive comparison a filter asks
-// for. The content property keeps word tokenization, which is what hybrid
-// search needs.
+// New and existing classes must have content and metadata text properties and
+// the configured distance metric. Content requires searchable word tokenization
+// for hybrid retrieval. NewStore validates the actual schema after creation as
+// well as when reusing a class; mismatches return [ErrIncompatibleClass].
+// InitializeSchema controls whether a missing class may be created.
 //
-// A nested metadata key cannot be filtered: it would need an object property
-// with declared nestedProperties, and dotted-path filtering on those leaves is
-// a Weaviate v1.38 preview feature.
+// MetadataProperties and MetadataProperty declarations have been removed. Remove
+// them from StoreConfig: metadata JSON is now the only filtering representation.
+// Existing complete metadata JSON remains usable, and old projected properties
+// are ignored. Reindex objects whose metadata JSON is absent or malformed.
+// Metadata field tokenizers and null-state indexes are not required for Core
+// filtering; only the original JSON is evaluated.
 //
-// Filtered deletion repeats. One batch delete removes at most
-// QUERY_MAXIMUM_RESULTS objects — the response calls Successful the count "in
-// this round" — and Weaviate's guidance for a filter that matches more is to
-// re-run the query, so DeleteWhere does until the round deletes everything it
-// matched. Objects that could not be deleted are reported in Failed rather
-// than as a call error, so that count is checked too; a round that matches
-// more than it deletes while deleting nothing is refused instead of repeated,
-// since it cannot progress.
+// Index requires one SUCCESS acknowledgment per submitted object, including
+// batches whose HTTP request succeeded. A partial batch failure returns an
+// error while accepted objects remain stored.
 //
-// Existing class. The class is verified whenever it is found, whatever
-// InitializeSchema says, because that flag answers whether a missing class may
-// be created and not whether the one found is the right one — and the second
-// question matters most for a class provisioned out of band. A class that is
-// neither found nor creatable fails construction rather than every later
-// request. Existence was previously taken for agreement:
-// search converts Weaviate's distance into a Score using the configured
-// metric, so a class built with l2-squared while the config says cosine
-// returned scores that were wrong rather than absent. A mismatch now fails
-// construction with [ErrIncompatibleClass]. Only the distance is compared —
-// a class whose vectorizer is none declares no vector width, so there is no
-// dimension on it to disagree with.
-//
-// See https://weaviate.io/developers/weaviate for the full API
-// surface.
+// Official protocol references:
+// https://docs.weaviate.io/weaviate/manage-objects/read-all-objects
+// https://docs.weaviate.io/weaviate/api/graphql/filters
+// https://docs.weaviate.io/weaviate/config-refs/collections
 package weaviate

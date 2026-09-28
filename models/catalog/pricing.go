@@ -5,7 +5,8 @@ import "slices"
 const tokensPerMillion = 1_000_000
 
 // Pricing is one rate-card band in USD per one million tokens. Threshold is
-// the input-token count at which the band reprices the whole call.
+// the input-token count that must be exceeded before the band reprices the
+// whole call. The first band is the base rate, including zero-token calls.
 type Pricing struct {
 	Threshold       int64   `json:"threshold,omitzero"`
 	InputPer1M      float64 `json:"input_per_1m"`
@@ -39,7 +40,7 @@ func (p PricingSchedule) Cost(usage Usage) float64 {
 	}
 	band := p[0]
 	for _, candidate := range slices.Backward(p) {
-		if usage.InputTokens >= candidate.Threshold {
+		if usage.InputTokens > candidate.Threshold {
 			band = candidate
 			break
 		}

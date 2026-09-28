@@ -60,9 +60,15 @@ func NewEmbeddingModel(_ context.Context, config EmbeddingModelConfig) (*Embeddi
 }
 
 func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequest, error) {
-	effectiveOptions, err := e.defaultOptions.Resolve(req.Options)
+	effectiveOptions := req.Options
+	nativeFields, _, err := effectiveOptions.Extensions.Decode[map[string]any](EmbeddingRequestExtensionKey)
 	if err != nil {
 		return nil, err
+	}
+	for _, field := range []string{"model", "texts", "dimensionality"} {
+		if _, exists := nativeFields[field]; exists {
+			return nil, fmt.Errorf("nomic: extension %q field %q is owned by Core", EmbeddingRequestExtensionKey, field)
+		}
 	}
 
 	apiReqValue, _, err := effectiveOptions.Extensions.Decode[embeddingRequest](EmbeddingRequestExtensionKey)
@@ -110,9 +116,18 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (resp
 	if err = req.Validate(); err != nil {
 		return nil, err
 	}
+	effectiveRequest := *req
+	effectiveRequest.Options, err = e.defaultOptions.Resolve(req.Options)
+	if err != nil {
+		return nil, err
+	}
+	req = &effectiveRequest
 	defer func() {
 		if err == nil {
 			err = response.ValidateFor(req)
+			if err != nil {
+				response = nil
+			}
 		}
 	}()
 

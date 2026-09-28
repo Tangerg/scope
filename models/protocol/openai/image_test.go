@@ -48,7 +48,7 @@ func TestImageModel_Call_Mock(t *testing.T) {
 	})
 	t.Cleanup(srv.Close)
 
-	m := newImageModel(t, srv.URL, "dall-e-3")
+	m := newImageModel(t, srv.URL, "test-image-model")
 	req, err := image.NewRequest("a serene mountain lake at sunset")
 	if err != nil {
 		t.Fatal(err)
@@ -66,5 +66,39 @@ func TestImageModel_Call_Mock(t *testing.T) {
 	}
 	if got, err := out.Outputs[1].Media.URI(); err != nil || got != "https://example.com/img2.png" {
 		t.Fatalf("second URI = %q, %v", got, err)
+	}
+}
+
+func TestImageSizeIsOmittedUntilRequested(t *testing.T) {
+	for _, explicit := range []bool{false, true} {
+		server := modeltest.JSONServer(http.StatusOK, `{"data":[{"b64_json":"aW1hZ2U="}]}`, func(request *http.Request) {
+			var body map[string]any
+			if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
+				t.Error(err)
+			}
+			size, found := body["size"]
+			if explicit {
+				if size != "1024x1024" {
+					t.Errorf("size = %#v", size)
+				}
+			} else if found {
+				t.Errorf("unspecified size = %#v", size)
+			}
+		})
+		model := newImageModel(t, server.URL, "test-image-model")
+		request, err := image.NewRequest("an image")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if explicit {
+			value := int64(1024)
+			request.Options.Width = &value
+			request.Options.Height = &value
+		}
+		_, err = model.Call(t.Context(), request)
+		server.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 }

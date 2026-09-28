@@ -5,7 +5,7 @@
 // Every model version publishes an independent OpenAPI input/output schema.
 // Accordingly, ImageModel and AudioTTSModel require an explicit schema binding
 // at construction and reject model overrides. Provider-specific fields remain
-// in PredictionRequest.Input under ImageRequestExtensionKey or
+// in the input object under ImageRequestExtensionKey or
 // SpeechRequestExtensionKey; Core fields are mapped only through the declared
 // binding. This prevents a field named "seed", "voice", or "width" on one
 // model from being guessed for an unrelated model.
@@ -20,6 +20,9 @@
 // Predictions run asynchronously. The high-level adapters submit, poll to a
 // terminal state, validate the configured output schema, and copy ephemeral
 // output files before Replicate removes API prediction data.
+// Downloads allow the configured endpoint origin and HTTPS replicate.delivery
+// hosts on the standard port. Every redirect is checked; credentials are
+// removed across origins. A supplied HTTP client keeps its redirect policy.
 //
 // Polling waits only on the two statuses the prediction lifecycle documents as
 // still running, "starting" and "processing". Every other status ends the call,

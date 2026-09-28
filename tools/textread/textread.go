@@ -157,7 +157,11 @@ func (l *lineScanner) append(fragment []byte) error {
 func (l *lineScanner) accept(ctx context.Context, readErr error, inputBytes int64) (bool, error) {
 	switch {
 	case readErr == nil:
-		if err := l.consume(l.line[:len(l.line)-1]); err != nil {
+		line := l.line[:len(l.line)-1]
+		if len(line) > 0 && line[len(line)-1] == '\r' {
+			line = line[:len(line)-1]
+		}
+		if err := l.consume(line); err != nil {
 			return false, err
 		}
 		l.line = l.line[:0]
@@ -268,9 +272,6 @@ func (l *lineCollector) result() Result {
 }
 
 func normalizeLine(line []byte, first bool) []byte {
-	if len(line) > 0 && line[len(line)-1] == '\r' {
-		line = line[:len(line)-1]
-	}
 	if first && bytes.HasPrefix(line, utf8ByteOrderMark[:]) {
 		line = line[len(utf8ByteOrderMark):]
 	}

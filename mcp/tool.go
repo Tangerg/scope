@@ -100,5 +100,5 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 	if err != nil {
 		return corechat.ToolOutput{}, fmt.Errorf("mcp: call tool %q: %w", remoteName, err)
 	}
-	return remoteResult{remoteName: remoteName, value: res}.unwrap()
+	return remoteResult{remoteName: remoteName, value: res, outputSchema: r.descriptor.outputSchema}.unwrap()
 }

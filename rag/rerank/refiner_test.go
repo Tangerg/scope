@@ -44,8 +44,8 @@ func TestRerankerMapsModelIndicesToOwnedCandidates(t *testing.T) {
 
 func TestRerankerTopKAndResponseContract(t *testing.T) {
 	model := corererank.ModelFunc(func(_ context.Context, request *corererank.Request) (*corererank.Response, error) {
-		if request.Options.TopK != 1 {
-			t.Fatalf("TopK = %d, want 1", request.Options.TopK)
+		if request.Options.TopK == nil || *request.Options.TopK != 1 {
+			t.Fatalf("TopK = %v, want pointer to 1", request.Options.TopK)
 		}
 		return &corererank.Response{Results: []*corererank.Result{{Index: 1, Score: 0.8}}}, nil
 	})

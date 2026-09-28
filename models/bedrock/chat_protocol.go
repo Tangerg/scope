@@ -12,6 +12,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 )
@@ -24,6 +25,7 @@ const (
 	// ChatMetadataExtensionKey preserves provider usage, metrics, and trace data.
 	ChatMetadataExtensionKey  = "bedrock/metadata"
 	chatReasoningKindKey      = "bedrock/reasoning_kind"
+	chatContentBlockIndexKey  = "bedrock/content_block_index"
 	chatReasoningText         = "reasoning_text"
 	chatReasoningRedacted     = "redacted_content"
 	chatNativeFinishReasonKey = "bedrock/native_finish_reason"
@@ -179,9 +181,8 @@ func (c *Chat) buildConverseStreamInput(req *corechat.Request) (*bedrockruntime.
 	if err != nil {
 		return nil, "", err
 	}
-	return &bedrockruntime.ConverseStreamInput{
+	input := &bedrockruntime.ConverseStreamInput{
 		ModelId:                           aws.String(prepared.model),
-		AdditionalModelRequestFields:      toBedrockDocument(prepared.native.AdditionalModelRequestFields),
 		AdditionalModelResponseFieldPaths: slices.Clone(prepared.native.AdditionalModelResponseFieldPaths),
 		GuardrailConfig:                   mapGuardrailOptions(prepared.native.Guardrail),
 		InferenceConfig:                   prepared.inference,
@@ -192,7 +193,11 @@ func (c *Chat) buildConverseStreamInput(req *corechat.Request) (*bedrockruntime.
 		ServiceTier:                       mapServiceTier(prepared.native.ServiceTier),
 		System:                            prepared.system,
 		ToolConfig:                        prepared.tools,
-	}, prepared.model, nil
+	}
+	if prepared.native.AdditionalModelRequestFields != nil {
+		input.AdditionalModelRequestFields = document.NewLazyDocument(prepared.native.AdditionalModelRequestFields)
+	}
+	return input, prepared.model, nil
 }
 
 func (c *Chat) prepareRequest(req *corechat.Request) (*preparedChatRequest, error) {

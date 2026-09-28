@@ -55,6 +55,8 @@ func newAPI(config apiConfig) (*api, error) {
 	if config.HTTPClient != nil {
 		client = resty.NewWithClient(config.HTTPClient)
 	}
+	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
+		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
 	client.SetBaseURL(cmp.Or(config.BaseURL, DefaultBaseURL)).
 		SetAuthToken(config.APIKey)
 	return &api{http: client}, nil

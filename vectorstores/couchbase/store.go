@@ -3,6 +3,7 @@ package couchbase
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -455,23 +456,14 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 
 	docs = make([]*vectorstore.SearchResult, 0, req.Options.ResultLimit())
 	if err = s.runStatement(ctx, stmt, func(result *gocb.QueryResult) error {
-		var raw map[string]any
-		if rowErr := result.Row(&raw); rowErr != nil {
-			return fmt.Errorf("couchbase: decode row: %w", rowErr)
+		hit, decodeErr := decodeSearchRow(result)
+		if decodeErr != nil {
+			return decodeErr
 		}
-		doc, docErr := s.toDocument(raw)
-		if docErr != nil {
-			return docErr
-		}
-		rawScore, ok := raw[resultScoreField].(float64)
-		if !ok {
-			return fmt.Errorf("couchbase: result is missing numeric %s", resultScoreField)
-		}
-		score := scoreFromRelevance(rawScore)
-		if score < req.Options.MinScore {
+		if hit.Score < req.Options.MinScore {
 			return nil
 		}
-		docs = append(docs, &vectorstore.SearchResult{Document: doc, Score: score})
+		docs = append(docs, hit)
 		return nil
 	}); err != nil {
 		return nil, err
@@ -601,22 +593,30 @@ func scoreFromRelevance(raw float64) vectorstore.Score {
 	return vectorstore.ScoreFromValue(raw / (1 + raw))
 }
 
-func (s *Store) toDocument(raw map[string]any) (*document.Document, error) {
-	id, ok := raw[idField].(string)
-	if !ok || id == "" {
+func decodeSearchRow(result interface{ Row(any) error }) (*vectorstore.SearchResult, error) {
+	// gocb's RawMessage path preserves the source bytes; decoding a generic
+	// map first would irreversibly round metadata numbers through float64.
+	var raw json.RawMessage
+	if err := result.Row(&raw); err != nil {
+		return nil, fmt.Errorf("couchbase: read row: %w", err)
+	}
+	var row struct {
+		ID       string       `json:"id"`
+		Content  string       `json:"content"`
+		Metadata metadata.Map `json:"metadata"`
+		Score    *float64     `json:"_scope_score"`
+	}
+	if err := jsonv2.Unmarshal(raw, &row); err != nil {
+		return nil, fmt.Errorf("couchbase: decode row: %w", err)
+	}
+	if row.ID == "" {
 		return nil, fmt.Errorf("couchbase: result is missing string field %q", idField)
 	}
-	content, ok := raw[contentField].(string)
-	if !ok || content == "" {
+	if row.Content == "" {
 		return nil, fmt.Errorf("couchbase: result is missing string field %q", contentField)
 	}
-	doc := &document.Document{ID: id, Text: content}
-	if meta, ok := raw[metadataField].(map[string]any); ok {
-		var err error
-		doc.Metadata, err = metadata.FromValues(meta)
-		if err != nil {
-			return nil, fmt.Errorf("couchbase: convert metadata: %w", err)
-		}
+	if row.Score == nil {
+		return nil, fmt.Errorf("couchbase: result is missing numeric %s", resultScoreField)
 	}
-	return doc, nil
+	return &vectorstore.SearchResult{Document: &document.Document{ID: row.ID, Text: row.Content, Metadata: row.Metadata}, Score: scoreFromRelevance(*row.Score)}, nil
 }

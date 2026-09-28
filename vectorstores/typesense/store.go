@@ -3,8 +3,11 @@ package typesense
 import (
 	"cmp"
 	"context"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -34,6 +37,8 @@ const (
 	contentField          = "content"
 	metadataField         = "metadata"
 	embeddingField        = "embedding"
+	// MaxResultsPerPage is Typesense's documented search pagination limit.
+	MaxResultsPerPage = 250
 )
 
 // StoreConfig contains configuration options for the Typesense vector
@@ -108,6 +113,19 @@ type Store struct {
 	documentBatcher vectorstore.Batcher
 	dimensions      int
 	hybridAlpha     *float32
+}
+
+// storedDocument retains metadata numbers from raw provider JSON. Decoding
+// through the SDK's map[string]any projection would first round them to float64.
+type storedDocument struct {
+	ID       string       `json:"id"`
+	Content  string       `json:"content"`
+	Metadata metadata.Map `json:"metadata"`
+}
+
+type searchHit struct {
+	Document       *storedDocument `json:"document"`
+	VectorDistance *float32        `json:"vector_distance"`
 }
 
 // NewStore performs schema setup during construction, which is why it takes a
@@ -291,10 +309,13 @@ func checkImportResults(results []*api.ImportDocumentResponse, documents []*docu
 	return nil
 }
 
-// Search runs semantic vector search or native hybrid search via the
-// documents.Search API.
+// Search runs semantic vector search or native hybrid search. A filter first
+// exports all document metadata and evaluates membership with [filter.Match],
+// then restricts native ranking to the resulting IDs. This requires permission
+// to export documents and reads the full collection. Search pages contain at
+// most [MaxResultsPerPage] hits. Concurrent writes are not isolated by the
+// export and subsequent search.
 func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
-	var docs []*vectorstore.SearchResult
 	if err = req.Validate(); err != nil {
 		return nil, fmt.Errorf("typesense.Store.Search: %w", err)
 	}
@@ -308,64 +329,145 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		}
 	}()
 
+	var filterBy string
+	var selectedIDs map[string]struct{}
+	if req.Options.Filter != nil {
+		ids, matchErr := s.matchingIDs(ctx, req.Options.Filter)
+		if matchErr != nil {
+			return nil, matchErr
+		}
+		if len(ids) == 0 {
+			return &vectorstore.SearchResponse{}, nil
+		}
+		filterBy, err = idFilter(ids)
+		if err != nil {
+			return nil, err
+		}
+		selectedIDs = make(map[string]struct{}, len(ids))
+		for _, id := range ids {
+			selectedIDs[id] = struct{}{}
+		}
+	}
+
 	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
 	if err != nil {
 		return nil, fmt.Errorf("typesense: embed query: %w", err)
 	}
 	queryVec := embedding.Float32Vector(vector)
-	params, err := s.searchParameters(req, queryVec)
-	if err != nil {
-		return nil, err
+	params := s.searchParameters(req, queryVec)
+	if filterBy != "" {
+		params.FilterBy = new(filterBy)
 	}
-
-	result, err := s.client.Collection(s.collectionName).Documents().Search(ctx, params)
-	if err != nil {
-		return nil, fmt.Errorf("typesense: search %s: %w", s.collectionName, err)
-	}
-	if result == nil || result.Hits == nil {
-		return nil, nil
-	}
-
-	docs = make([]*vectorstore.SearchResult, 0, len(*result.Hits))
-	for rank, hit := range *result.Hits {
-		match, err := toMatch(hit, req.Options.EffectiveMode(), rank)
+	limit := req.Options.ResultLimit()
+	var docs []*vectorstore.SearchResult
+	var ranked int
+	for page := 1; ; page++ {
+		params.Page = new(page)
+		// Carry the complete ID set and vector in a POST body, avoiding URL
+		// length limits when a filter matches a large collection.
+		wire, err := s.client.MultiSearch.PerformWithContentType(ctx, nil, api.MultiSearchSearchesParameter{
+			Searches: []api.MultiSearchCollectionParameters{*params},
+		}, "application/json")
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("typesense: search %s: %w", s.collectionName, err)
 		}
-		if match.Score < req.Options.MinScore {
-			continue
+		if wire == nil {
+			return nil, errors.New("typesense: multi-search returned no response")
 		}
-		docs = append(docs, match)
+		if wire.StatusCode() != http.StatusOK {
+			return nil, fmt.Errorf("typesense: search %s: %w", s.collectionName, &typesense.HTTPError{Status: wire.StatusCode(), Body: wire.Body})
+		}
+		var batch struct {
+			Results []struct {
+				Code         *int         `json:"code"`
+				Error        *string      `json:"error"`
+				Found        *int         `json:"found"`
+				Hits         *[]searchHit `json:"hits"`
+				SearchCutoff *bool        `json:"search_cutoff"`
+			} `json:"results"`
+		}
+		if err := jsonv2.Unmarshal(wire.Body, &batch); err != nil {
+			return nil, fmt.Errorf("typesense: decode search response: %w", err)
+		}
+		if len(batch.Results) != 1 {
+			return nil, errors.New("typesense: multi-search did not return exactly one result")
+		}
+		result := &batch.Results[0]
+		if result.Error != nil || (result.Code != nil && *result.Code >= 400) {
+			return nil, fmt.Errorf("typesense: search %s returned code %d: %s", s.collectionName, lo.FromPtr(result.Code), lo.FromPtr(result.Error))
+		}
+		if result.Hits == nil {
+			return nil, errors.New("typesense: search response is missing hits")
+		}
+		if result.SearchCutoff != nil && *result.SearchCutoff {
+			return nil, errors.New("typesense: search was cut off before completion")
+		}
+		for _, hit := range *result.Hits {
+			if ranked == limit {
+				break
+			}
+			match, err := toMatch(hit, req.Options.EffectiveMode(), ranked)
+			if err != nil {
+				return nil, err
+			}
+			if req.Options.Filter != nil {
+				if _, exists := selectedIDs[match.Document.ID]; !exists {
+					return nil, fmt.Errorf("typesense: search returned unselected ID %q", match.Document.ID)
+				}
+				values, err := match.Document.Metadata.Values()
+				if err != nil {
+					return nil, fmt.Errorf("typesense: decode returned metadata: %w", err)
+				}
+				matches, err := filter.Match(req.Options.Filter, values)
+				if err != nil {
+					return nil, fmt.Errorf("typesense: evaluate returned metadata for %s: %w", match.Document.ID, err)
+				}
+				if !matches {
+					return nil, fmt.Errorf("typesense: returned metadata for %s no longer matches the filter", match.Document.ID)
+				}
+			}
+			ranked++
+			if match.Score >= req.Options.MinScore {
+				docs = append(docs, match)
+			}
+		}
+		if ranked == limit || (result.Found != nil && ranked >= *result.Found) {
+			return &vectorstore.SearchResponse{Results: docs}, nil
+		}
+		if len(*result.Hits) < *params.PerPage {
+			if result.Found != nil && ranked < *result.Found {
+				return nil, errors.New("typesense: search page ended before the reported result count")
+			}
+			return &vectorstore.SearchResponse{Results: docs}, nil
+		}
 	}
-	return &vectorstore.SearchResponse{Results: docs}, nil
 }
 
-func (s *Store) searchParameters(req *vectorstore.SearchRequest, queryVector []float32) (*api.SearchCollectionParams, error) {
+func (s *Store) searchParameters(req *vectorstore.SearchRequest, queryVector []float32) *api.MultiSearchCollectionParameters {
 	var alpha *float32
 	if req.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
 		alpha = s.hybridAlpha
 	}
 	vectorQuery := formatVectorQuery(queryVector, req.Options.ResultLimit(), alpha)
-	filterBy, err := s.buildFilter(req.Options.Filter)
-	if err != nil {
-		return nil, err
-	}
-
-	params := &api.SearchCollectionParams{
+	params := &api.MultiSearchCollectionParameters{
+		Collection:  new(s.collectionName),
 		Q:           new("*"),
 		VectorQuery: new(vectorQuery),
-		PerPage:     new(req.Options.ResultLimit()),
+		PerPage:     new(min(req.Options.ResultLimit(), MaxResultsPerPage)),
+		// Curated hits must obey the same filter as ordinary ranked hits.
+		FilterCuratedHits: new(true),
 	}
 	if req.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
 		params.Q = new(req.Query)
 		params.QueryBy = new(contentField)
 	}
-	if filterBy != "" {
-		params.FilterBy = new(filterBy)
-	}
-	return params, nil
+	return params
 }
 
+// DeleteWhere exports and evaluates the entire collection before deleting the
+// matching IDs. Export, decoding, predicate and ID representation errors abort
+// before any deletion. It requires document export permission in addition to
+// delete permission and does not isolate concurrent writes.
 func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
 	if expr == nil {
 		return vectorstore.ErrMissingFilter
@@ -374,12 +476,16 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		return fmt.Errorf("typesense.Store.DeleteWhere: %w", err)
 	}
 
-	filterBy, err := s.buildFilter(expr)
+	ids, err := s.matchingIDs(ctx, expr)
 	if err != nil {
 		return err
 	}
-	if filterBy == "" {
-		return errors.New("typesense: refusing to delete on empty filter")
+	if len(ids) == 0 {
+		return nil
+	}
+	filterBy, err := idFilter(ids)
+	if err != nil {
+		return err
 	}
 
 	params := &api.DeleteDocumentsParams{FilterBy: new(filterBy)}
@@ -389,18 +495,68 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 	return nil
 }
 
-func (s *Store) buildFilter(expr filter.Predicate) (string, error) {
-	if expr == nil {
-		return "", nil
+func (s *Store) matchingIDs(ctx context.Context, expr filter.Predicate) (ids []string, err error) {
+	body, err := s.client.Collection(s.collectionName).Documents().Export(ctx, &api.ExportDocumentsParams{
+		IncludeFields: new(idField + "," + metadataField),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("typesense: export metadata: %w", err)
 	}
-	v := newVisitor(metadataField)
-	if err := expr.Accept(v); err != nil {
-		return "", fmt.Errorf("typesense: convert filter: %w", err)
+	defer func() {
+		if closeErr := body.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("typesense: close metadata export: %w", closeErr))
+		}
+	}()
+	decoder := jsontext.NewDecoder(body)
+	for {
+		var doc storedDocument
+		if err := jsonv2.UnmarshalDecode(decoder, &doc); err != nil {
+			if errors.Is(err, io.EOF) {
+				return ids, nil
+			}
+			return nil, fmt.Errorf("typesense: decode metadata export: %w", err)
+		}
+		if doc.ID == "" {
+			return nil, errors.New("typesense: exported document is missing its ID")
+		}
+		values, err := doc.Metadata.Values()
+		if err != nil {
+			return nil, fmt.Errorf("typesense: decode metadata for %s: %w", doc.ID, err)
+		}
+		matched, err := filter.Match(expr, values)
+		if err != nil {
+			return nil, fmt.Errorf("typesense: evaluate filter for %s: %w", doc.ID, err)
+		}
+		if matched {
+			ids = append(ids, doc.ID)
+		}
 	}
-	return v.snapshot(), nil
 }
 
-func toMatch(hit api.SearchResultHit, mode vectorstore.SearchMode, rank int) (*vectorstore.SearchResult, error) {
+// idFilter addresses Typesense's special ID field, which looks up exact keys.
+// Its parser trims ASCII edge spaces, treats a sole * as a wildcard even in
+// quotes, and cannot reliably preserve embedded backticks or trailing
+// backslashes in quoted values. Refuse those IDs
+// only when they match a filtered operation, before any search or deletion.
+func idFilter(ids []string) (string, error) {
+	var result strings.Builder
+	result.WriteString(idField + ":=[")
+	for index, id := range ids {
+		if id == "" || id == "*" || strings.Trim(id, " ") != id || strings.ContainsRune(id, '`') || strings.HasSuffix(id, `\`) {
+			return "", fmt.Errorf("typesense: matched ID %q cannot be represented exactly in an ID filter", id)
+		}
+		if index != 0 {
+			result.WriteByte(',')
+		}
+		result.WriteByte('`')
+		result.WriteString(id)
+		result.WriteByte('`')
+	}
+	result.WriteByte(']')
+	return result.String(), nil
+}
+
+func toMatch(hit searchHit, mode vectorstore.SearchMode, rank int) (*vectorstore.SearchResult, error) {
 	if hit.Document == nil {
 		return nil, errors.New("typesense: search hit is missing document")
 	}
@@ -408,22 +564,15 @@ func toMatch(hit api.SearchResultHit, mode vectorstore.SearchMode, rank int) (*v
 		return nil, errors.New("typesense: search hit is missing vector distance")
 	}
 	raw := *hit.Document
-	id, ok := raw[idField].(string)
-	if !ok || id == "" {
+	id := raw.ID
+	if id == "" {
 		return nil, fmt.Errorf("typesense: search hit is missing string field %q", idField)
 	}
-	content, ok := raw[contentField].(string)
-	if !ok || content == "" {
+	content := raw.Content
+	if content == "" {
 		return nil, fmt.Errorf("typesense: search hit is missing string field %q", contentField)
 	}
-	doc := &document.Document{ID: id, Text: content}
-	if meta, ok := raw[metadataField].(map[string]any); ok && len(meta) > 0 {
-		var err error
-		doc.Metadata, err = metadata.FromValues(meta)
-		if err != nil {
-			return nil, fmt.Errorf("typesense: convert metadata: %w", err)
-		}
-	}
+	doc := &document.Document{ID: id, Text: content, Metadata: raw.Metadata}
 	matchScore := scoreFromRank(rank)
 	if mode == vectorstore.SearchModeSemantic {
 		// Typesense returns distance in the cosine [0, 2] range; map

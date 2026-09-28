@@ -23,9 +23,9 @@ func (e *existingIndex) FT_List(ctx context.Context) *goredis.StringSliceCmd {
 	return command
 }
 
-func (e *existingIndex) FTInfo(ctx context.Context, index string) *goredis.FTInfoCmd {
-	command := new(goredis.FTInfoCmd)
-	command.SetVal(goredis.FTInfoResult{Attributes: []goredis.FTAttribute{e.attribute}})
+func (e *existingIndex) Do(ctx context.Context, _ ...any) *goredis.Cmd {
+	command := goredis.NewCmd(ctx)
+	command.SetVal(indexReply(DefaultKeyPrefix, []goredis.FTAttribute{e.attribute}))
 	return command
 }
 
@@ -45,20 +45,20 @@ func TestInitializeChecksAnExistingIndex(t *testing.T) {
 		{
 			name: "agrees",
 			attribute: goredis.FTAttribute{
-				Attribute: "embedding", Type: "VECTOR", DistanceMetric: "COSINE", Dim: 3,
+				Identifier: "embedding", Attribute: "embedding", Type: "VECTOR", DataType: "FLOAT32", DistanceMetric: "COSINE", Dim: 3,
 			},
 		},
 		{
 			name: "metric disagrees",
 			attribute: goredis.FTAttribute{
-				Attribute: "embedding", Type: "VECTOR", DistanceMetric: "L2", Dim: 3,
+				Identifier: "embedding", Attribute: "embedding", Type: "VECTOR", DataType: "FLOAT32", DistanceMetric: "L2", Dim: 3,
 			},
 			wantErr: true,
 		},
 		{
 			name: "dimension disagrees",
 			attribute: goredis.FTAttribute{
-				Attribute: "embedding", Type: "VECTOR", DistanceMetric: "COSINE", Dim: 1536,
+				Identifier: "embedding", Attribute: "embedding", Type: "VECTOR", DataType: "FLOAT32", DistanceMetric: "COSINE", Dim: 1536,
 			},
 			wantErr: true,
 		},
@@ -67,7 +67,7 @@ func TestInitializeChecksAnExistingIndex(t *testing.T) {
 			// something else entirely.
 			name: "no vector attribute under the configured name",
 			attribute: goredis.FTAttribute{
-				Attribute: "vector", Type: "VECTOR", DistanceMetric: "COSINE", Dim: 3,
+				Identifier: "vector", Attribute: "vector", Type: "VECTOR", DataType: "FLOAT32", DistanceMetric: "COSINE", Dim: 3,
 			},
 			wantErr: true,
 		},
@@ -78,6 +78,7 @@ func TestInitializeChecksAnExistingIndex(t *testing.T) {
 			store := &Store{
 				client:         &existingIndex{name: "documents", attribute: test.attribute},
 				indexName:      "documents",
+				keyPrefix:      DefaultKeyPrefix,
 				embeddingField: "embedding",
 				dimensions:     3,
 				distanceMetric: DistanceCosine,

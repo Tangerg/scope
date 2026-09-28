@@ -3,6 +3,8 @@ package openrouter
 import (
 	"cmp"
 	"context"
+	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -71,6 +73,7 @@ func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
 	// The shared reasoning dialect defaults to max_tokens, which OpenRouter's
 	// reference calls "deprecated, use max_completion_tokens".
 	dialect.TokenLimitField = openai.TokenLimitMaxCompletionTokens
+	dialect.PrepareRequest = prepareOpenAIRequest
 	protocol, err := openai.NewCompatibleChatCompletions(ctx, openai.ChatCompletionsConfig{
 		APIKey: config.APIKey, DefaultOptions: config.DefaultOptions,
 		BaseURL: cmp.Or(config.BaseURL, BaseURL), HTTPClient: config.HTTPClient,
@@ -127,4 +130,21 @@ func providerHeaders(appURL, appTitle string) http.Header {
 		headers.Set(HeaderAppTitle, appTitle)
 	}
 	return headers
+}
+
+func prepareOpenAIRequest(source *corechat.Request, _ *openai.CompatibleRequest) error {
+	fields, _, err := source.Options.Extensions.Decode[map[string]json.RawMessage](OpenAIRequestExtensionKey)
+	if err != nil {
+		return fmt.Errorf("openrouter: request extension: %w", err)
+	}
+	if raw, found := fields["reasoning"]; found {
+		var reasoning map[string]json.RawMessage
+		if err := jsonv2.Unmarshal(raw, &reasoning); err != nil {
+			return fmt.Errorf("openrouter: reasoning: %w", err)
+		}
+		if _, found := reasoning["effort"]; found {
+			return errors.New("openrouter: reasoning.effort is owned by options.reasoning_effort")
+		}
+	}
+	return nil
 }

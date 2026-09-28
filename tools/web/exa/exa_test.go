@@ -53,7 +53,7 @@ func TestSearch(t *testing.T) {
 }
 
 func TestFetchRequestsTextAndRequiresItsPresence(t *testing.T) {
-	for _, format := range []web.ContentFormat{"", web.FormatText, web.FormatMarkdown, web.FormatHTML} {
+	for _, format := range []web.ContentFormat{"", web.FormatMarkdown, web.FormatHTML} {
 		for _, body := range []string{`{"results":[{}]}`, `{"results":[{"text":""}]}`, `{"results":[{"text":"content"}]}`} {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var request map[string]json.RawMessage

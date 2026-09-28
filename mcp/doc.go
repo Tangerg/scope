@@ -6,7 +6,8 @@
 // keeps the small adapters needed around those SDK primitives:
 // context metadata, reverse-capability helpers, tool.Tool wrapping, tool
 // registration and prompt conversion. The SDK decoder preserves exact JSON
-// numbers and distinguishes explicit structured null from an omitted value;
+// numbers in structuredContent and distinguishes explicit structured null from
+// an omitted value;
 // consumers must use the same SDK module path for protocol types.
 //
 // Client and server spans record error classifications without raw error
@@ -21,6 +22,19 @@
 // Results requiring further input return ErrIncompleteResult without exposing
 // unfinished content. This adapter does not implement multi-round-trip input
 // fulfillment; hosts that need it must complete the exchange through the SDK.
+// Discovery freezes optional output schemas and validates successful structured
+// results against them. Error results remain Tool failures and do not have to
+// satisfy the successful output contract.
+//
+// Tool results and prompts share one content codec. Core text and media own
+// their payloads; [ContentMetadataKey] preserves MCP annotations, resource
+// provenance, and presentation metadata. Register restores these fields and
+// carries other Core content metadata and citations through MCP _meta. Empty
+// text without metadata is omitted; malformed or unsupported content is rejected.
+// The SDK decodes numbers in outputSchema and native protocol _meta as float64,
+// which can lose precision before Scope receives them. Exact numeric schema
+// constraints and native metadata beyond that precision require an SDK fix.
+// Core metadata uses a JSON-text envelope to preserve its numbers on round trips.
 //
 // # Naming
 //

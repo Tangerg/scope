@@ -18,7 +18,11 @@ func TestVisitor_Conformance(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		return expr.Accept(newVisitor())
+		var columns []MetadataColumn
+		for _, name := range []string{"author", "year", "published", "n", "a", "b", "c", "d", "tags", "years", "flags", "title"} {
+			columns = append(columns, MetadataColumn{Name: name, CQLType: "text"})
+		}
+		return expr.Accept(newVisitor(columns))
 	},
 		storetest.Options{
 			// CQL restrictions this store cannot lift: no OR or standalone NOT

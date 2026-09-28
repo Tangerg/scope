@@ -1,23 +1,26 @@
 // Package milvus exposes Milvus / Zilliz Cloud
 // through the Core vector-store capability interfaces. Documents are stored as rows in a Milvus
-// collection (`{id, content, embedding, <metadata columns>}`);
+// collection ({id, content, vector, metadata});
 // retrieval runs Milvus's ANN search.
 // Documents containing media are rejected before indexing I/O because this
 // adapter persists document text and metadata only.
 //
 // Requirements: a reachable Milvus 2.x server (self-hosted, Docker,
 // or Zilliz Cloud managed service). The store uses the official
-// milvus-sdk-go/v2 gRPC client.
+// github.com/milvus-io/milvus/client/v2 gRPC client.
 //
 // Vector similarity functions: cosine / L2 / IP. The chosen value
 // is bound to the collection's index at creation time; switching
 // requires rebuilding the index.
 //
-// Schema. Milvus is strongly typed — every metadata field that
-// participates in filters must be declared as a typed column at
-// schema-creation time. [StoreConfig.MetadataFields] enumerates the
-// columns; anything outside that set goes into a flexible JSON
-// field that can still be filtered but at a higher cost.
+// Schema. Construction always describes and checks the existing collection's
+// required field types, primary key, string capacities, vector dimension, and
+// vector index metric. Metadata occupies the JSON field named metadata.
+// Dimensions may be zero when attaching to a collection; the actual dimension
+// is then retained for validating subsequent embeddings. Creating a collection
+// requires explicit dimensions and never calls the embedding model. With
+// InitializeSchema disabled, construction performs only read operations and
+// the caller is responsible for loading the collection before search.
 //
 // Filter visitor produces Milvus's expression language —
 // `author == "Alice" and (year > 2020 or tag in ["a","b"])`. The

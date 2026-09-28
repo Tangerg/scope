@@ -90,7 +90,9 @@ func NewMessages(ctx context.Context, config MessagesConfig) (*Messages, error) 
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	protocol, err := anthropic.NewCompatibleMessages(ctx, anthropic.MessagesConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLAnthropic), HTTPClient: config.HTTPClient}, anthropic.Dialect{Provider: "xiaomi"})
+	headers := http.Header{"X-Api-Key": nil}
+	headers.Set("api-key", config.APIKey)
+	protocol, err := anthropic.NewCompatibleMessages(ctx, anthropic.MessagesConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLAnthropic), HTTPClient: config.HTTPClient, Headers: headers}, anthropic.Dialect{Provider: "xiaomi", PrepareRequest: prepareAnthropicRequest})
 	if err != nil {
 		return nil, fmt.Errorf("xiaomi: construct Anthropic-compatible chat: %w", err)
 	}

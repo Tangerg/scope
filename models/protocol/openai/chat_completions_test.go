@@ -116,8 +116,11 @@ func assertCoreChatAggregated(t *testing.T, response *corechat.Response) {
 		t.Fatalf("citations = %#v", citations)
 	}
 	audio := result.Message.Parts[3].Media
-	if audio == nil || audio.MIME != "audio/wav" || audio.Source.Ref != "audio-1" {
+	if audio == nil || audio.MIME != "audio/wav" || audio.ID != "audio-1" {
 		t.Fatalf("audio = %#v", audio)
+	}
+	if data, err := audio.Bytes(); err != nil || string(data) != "audio" {
+		t.Fatalf("audio bytes = %q, %v", data, err)
 	}
 	if response.Metadata.Usage.ReasoningTokens == nil || *response.Metadata.Usage.ReasoningTokens != 3 || response.Metadata.Usage.CacheReadInputTokens == nil || *response.Metadata.Usage.CacheReadInputTokens != 5 {
 		t.Fatalf("usage detail = %#v", response.Metadata.Usage)

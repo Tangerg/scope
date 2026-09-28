@@ -7,8 +7,7 @@
 //   - /embeddings — OpenAI-compatible, used via [NewEmbeddingModel]
 //     (returns an [openai.EmbeddingModel]);
 //   - /moderations — Mistral-native shape that doesn't match OpenAI's
-//     moderation response; [NewModerationModel] handles it directly
-//     against [API] from this package.
+//     moderation response; [NewModerationModel] handles it directly.
 //
 // Additional Mistral surfaces not exposed here:
 //   - /agents (stateful agent runs);
@@ -31,4 +30,7 @@
 // the native value the streaming path already kept.
 //
 // See https://docs.mistral.ai/ for the full API reference.
+// Core Options.ReasoningEffort is the only request control for reasoning
+// intensity. Native request extensions reject that field and other unknown
+// fields instead of accepting a second configuration source.
 package mistral

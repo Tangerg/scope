@@ -48,8 +48,8 @@ const (
 	DistanceL2 DistanceMetric = "L2"
 
 	// DistanceIP — inner product. RediSearch returns the inner
-	// product itself; the store maps it onto [0, 1] for unit-norm
-	// vectors via (ip+1)/2.
+	// product distance (1 minus the dot product); the store maps the
+	// recovered unbounded inner product monotonically onto [0, 1].
 	DistanceIP DistanceMetric = "IP"
 )
 
@@ -98,9 +98,8 @@ func (i IndexAlgorithm) Valid() bool {
 
 func (i IndexAlgorithm) String() string { return string(i) }
 
-// MetadataFieldType names the RediSearch schema field types the store
-// understands. Callers declare these up-front so the filter visitor
-// can validate field names and pick the right query syntax.
+// MetadataFieldType names the types supported for additional native index
+// projections. Core predicates evaluate the original JSON metadata record.
 type MetadataFieldType string
 
 const (
@@ -139,8 +138,7 @@ func (m MetadataFieldType) searchFieldType() (goredis.SearchFieldType, bool) {
 	}
 }
 
-// MetadataField declares one filterable metadata key. the framework's
-// builder calls this a "MetadataField".
+// MetadataField declares one metadata key to project into the native index.
 type MetadataField struct {
 	// Name is the HASH field / JSON key that holds the value.
 	Name string
@@ -201,10 +199,8 @@ type StoreConfig struct {
 	// index projection of it.
 	MetadataJSONField string
 
-	// MetadataFields enumerates every metadata key the index should
-	// understand. Only declared fields can appear in a filter
-	// expression — the store rejects unknown identifiers up-front to
-	// preclude query injection.
+	// MetadataFields declares additional native index projections. Core
+	// metadata filters evaluate the JSON record and do not require these fields.
 	MetadataFields []MetadataField
 
 	// EmbeddingModel produces vectors for the documents. Required.
@@ -296,8 +292,7 @@ func (s StoreConfig) Validate() error {
 }
 
 // validateFieldIdentifiers checks every name this store writes into the
-// RediSearch query language as text: FT.CREATE declares each one and the filter
-// visitor emits it as `@name`. RediSearch cannot quote a field name, so a name
+// RediSearch schema or vector query as text. RediSearch cannot quote a field name, so a name
 // carrying its syntax would be read as syntax instead of as a name.
 func (s StoreConfig) validateFieldIdentifiers() error {
 	named := []struct {

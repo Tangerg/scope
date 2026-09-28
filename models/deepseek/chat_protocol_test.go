@@ -29,7 +29,8 @@ func TestChat_ReasoningReplay(t *testing.T) {
 		wantReasoningWire bool
 	}{
 		{
-			name: "ordinary previous turn omits reasoning",
+			name:              "ordinary previous turn replays reasoning when tools are enabled",
+			wantReasoningWire: true,
 			messages: []corechat.Message{
 				corechat.NewUserMessage(corechat.NewTextPart("first")),
 				corechat.NewAssistantMessage(
@@ -81,7 +82,7 @@ func TestChat_ReasoningReplay(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewChat: %v", err)
 			}
-			if _, err := model.Call(t.Context(), &corechat.Request{Messages: test.messages}); err != nil {
+			if _, err := model.Call(t.Context(), &corechat.Request{Messages: test.messages, Tools: []corechat.ToolDefinition{{Name: "search", InputSchema: json.RawMessage(`{"type":"object"}`)}}}); err != nil {
 				t.Fatalf("Call: %v", err)
 			}
 
@@ -131,9 +132,8 @@ func TestChatMapsOfficialRequestOptions(t *testing.T) {
 	}
 	request.Options.OutputFormat = &format
 	request.Options.ReasoningEffort = "max"
-	request.ToolChoice = &corechat.ToolChoice{Mode: corechat.ToolChoiceNamed, Name: "lookup"}
+	request.ToolChoice = &corechat.ToolChoice{Mode: corechat.ToolChoiceAuto}
 	if err := request.Options.Extensions.Set(deepseek.RequestExtensionKey, deepseek.RequestOptions{
-		Thinking:    &deepseek.ThinkingConfig{Type: deepseek.ThinkingEnabled},
 		LogProbs:    &logProbs,
 		TopLogProbs: &topLogProbs,
 		UserID:      "tenant_42-user",
@@ -144,9 +144,8 @@ func TestChatMapsOfficialRequestOptions(t *testing.T) {
 		t.Fatalf("Call: %v", err)
 	}
 
-	thinking, ok := body["thinking"].(map[string]any)
-	if !ok || thinking["type"] != "enabled" {
-		t.Fatalf("thinking = %#v", body["thinking"])
+	if _, supplied := body["thinking"]; supplied {
+		t.Fatalf("second thinking control = %#v", body)
 	}
 	if body["reasoning_effort"] != "max" || body["user_id"] != "tenant_42-user" {
 		t.Fatalf("DeepSeek fields missing: %#v", body)
@@ -155,13 +154,8 @@ func TestChatMapsOfficialRequestOptions(t *testing.T) {
 	if !ok || wireFormat["type"] != "json_object" {
 		t.Fatalf("response_format = %#v", body["response_format"])
 	}
-	choice, ok := body["tool_choice"].(map[string]any)
-	if !ok || choice["type"] != "function" {
+	if body["tool_choice"] != "auto" {
 		t.Fatalf("tool_choice = %#v", body["tool_choice"])
-	}
-	function, ok := choice["function"].(map[string]any)
-	if !ok || function["name"] != "lookup" {
-		t.Fatalf("tool_choice.function = %#v", choice["function"])
 	}
 	if body["logprobs"] != true || body["top_logprobs"] != float64(5) {
 		t.Fatalf("log probability fields missing: %#v", body)
@@ -192,12 +186,7 @@ func TestChatThinkingDisabledAllowsSampling(t *testing.T) {
 	temperature := 0.7
 	request := &corechat.Request{
 		Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hello"))},
-		Options:  corechat.Options{Temperature: &temperature},
-	}
-	if err := request.Options.Extensions.Set(deepseek.RequestExtensionKey, deepseek.RequestOptions{
-		Thinking: &deepseek.ThinkingConfig{Type: deepseek.ThinkingDisabled},
-	}); err != nil {
-		t.Fatalf("SetExtension: %v", err)
+		Options:  corechat.Options{Temperature: &temperature, ReasoningEffort: "none"},
 	}
 	if _, err := model.Call(t.Context(), request); err != nil {
 		t.Fatalf("Call: %v", err)
@@ -261,8 +250,6 @@ func TestChatRejectsInvalidDeepSeekOptions(t *testing.T) {
 		tools   []corechat.ToolDefinition
 		want    string
 	}{
-		{name: "unknown thinking mode", options: deepseek.RequestOptions{Thinking: &deepseek.ThinkingConfig{Type: "sometimes"}}, want: "thinking.type has unsupported value"},
-		{name: "effort without thinking", options: deepseek.RequestOptions{Thinking: &deepseek.ThinkingConfig{Type: deepseek.ThinkingDisabled}}, core: corechat.Options{ReasoningEffort: "high"}, want: "reasoning_effort requires thinking.type=enabled"},
 		{name: "unknown effort", core: corechat.Options{ReasoningEffort: "turbo"}, want: "reasoning_effort has unsupported value"},
 		{name: "ignored temperature", core: corechat.Options{Temperature: new(0.5)}, want: "temperature has no effect"},
 		{name: "top logprobs without logprobs", options: deepseek.RequestOptions{TopLogProbs: &topLogProbs}, want: "top_logprobs requires logprobs=true"},

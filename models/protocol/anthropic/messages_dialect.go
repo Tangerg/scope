@@ -1,5 +1,7 @@
 package anthropic
 
+import corechat "github.com/Tangerg/scope/core/chat"
+
 // Dialect declares the protocol differences selected by an
 // Anthropic-compatible provider adapter.
 type Dialect struct {
@@ -14,6 +16,10 @@ type Dialect struct {
 	// output_config.format JSON Schema control. Compatible providers that do not
 	// declare it receive the shared prompt fallback.
 	NativeJSONSchema bool
+	// PrepareRequest applies provider policy to the resolved, independently
+	// owned request before the Messages wire projection is built. Fields holds
+	// the decoded native request extension and may be changed by the provider.
+	PrepareRequest func(*corechat.Request, map[string]any) error
 }
 
 func protocolRequestExtensionKey(provider string) string {

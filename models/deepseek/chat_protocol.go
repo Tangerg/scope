@@ -32,7 +32,11 @@ func (c ChatConfig) Validate() error {
 	if err := c.DefaultOptions.Validate(); err != nil {
 		return fmt.Errorf("deepseek: DefaultOptions: %w", err)
 	}
-	if err := (RequestOptions{}).ValidateFor(c.DefaultOptions, nil, false); err != nil {
+	options, _, err := c.DefaultOptions.Extensions.Decode[RequestOptions](RequestExtensionKey)
+	if err != nil {
+		return fmt.Errorf("deepseek: DefaultOptions: %w", err)
+	}
+	if err := options.ValidateFor(c.DefaultOptions, nil, true); err != nil {
 		return fmt.Errorf("deepseek: DefaultOptions: %w", err)
 	}
 	return nil
@@ -51,11 +55,11 @@ func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	dialect := openai.ReasoningContentToolReplayDialect("deepseek")
+	dialect := openai.ReasoningContentReplayDialect("deepseek")
 	dialect.NativeOutputFormat = func(formatType corechat.OutputFormatType) bool {
 		return formatType == corechat.OutputFormatText || formatType == corechat.OutputFormatJSON
 	}
-	dialect.PrepareRequest = requestDialect{defaults: config.DefaultOptions.Clone()}.prepareRequest
+	dialect.PrepareRequest = prepareRequest
 	dialect.DisableRawRequestExtension = true
 	protocol, err := openai.NewCompatibleChatCompletions(ctx,
 		openai.ChatCompletionsConfig{

@@ -146,52 +146,6 @@ func (p *protocolResponseMapper) mapMetadata(requestModel string, response *gena
 	return metadata, nil
 }
 
-func mapProtocolCandidatePart(provider string, partIndex int, part *genai.Part) (corechat.Part, bool, error) {
-	var mapped corechat.Part
-	switch {
-	case part.FunctionCall != nil:
-		if part.FunctionCall.Name == "" {
-			return corechat.Part{}, false, errors.New("function call has no name")
-		}
-		if len(part.FunctionCall.PartialArgs) != 0 {
-			return corechat.Part{}, false, errors.New("structured partial function arguments have no portable JSON-fragment representation")
-		}
-		arguments, err := protocolToolArguments(part.FunctionCall.Args)
-		if err != nil {
-			return corechat.Part{}, false, fmt.Errorf("function call arguments: %w", err)
-		}
-		id := part.FunctionCall.ID
-		if id == "" {
-			id = fmt.Sprintf("%s%d", protocolGeneratedToolPrefixFor(provider), partIndex)
-		}
-		mapped = corechat.NewToolCallPart(corechat.ToolCall{ID: id, Name: part.FunctionCall.Name, Arguments: arguments})
-	case part.Thought:
-		mapped = corechat.NewReasoningPart(part.Text, part.ThoughtSignature)
-	case part.Text != "":
-		mapped = corechat.NewTextPart(part.Text)
-	case part.InlineData != nil:
-		value, err := media.NewBytes(part.InlineData.MIMEType, part.InlineData.Data)
-		if err != nil {
-			return corechat.Part{}, false, err
-		}
-		value.Name = part.InlineData.DisplayName
-		mapped = corechat.NewMediaPart(value)
-	case part.FileData != nil:
-		value, err := media.NewURI(part.FileData.MIMEType, part.FileData.FileURI)
-		if err != nil {
-			return corechat.Part{}, false, err
-		}
-		value.Name = part.FileData.DisplayName
-		mapped = corechat.NewMediaPart(value)
-	default:
-		return corechat.Part{}, false, nil
-	}
-	if err := mapped.Metadata.Set(protocolKey(provider, "part_state"), newPartReplayState(part, mapped.Kind)); err != nil {
-		return corechat.Part{}, false, fmt.Errorf("preserve native part: %w", err)
-	}
-	return mapped, true, nil
-}
-
 func (p *protocolResponseMapper) mapCandidateDelta(candidate *genai.Candidate, response *corechat.ResponseDelta) error {
 	response.OutputMetadata = &corechat.OutputMetadata{}
 	if candidate.FinishReason != "" {
@@ -279,10 +233,13 @@ func mapProtocolCandidatePartDelta(provider string, partIndex int, part *genai.P
 		value.Name = part.FileData.DisplayName
 		mapped = corechat.NewMediaDelta(value)
 		kind = corechat.PartMedia
+	case len(part.ThoughtSignature) != 0:
+		mapped = corechat.NewReasoningDelta("", part.ThoughtSignature)
+		kind = corechat.PartReasoning
 	default:
 		return corechat.PartDelta{}, "", false, nil
 	}
-	if err := mapped.Metadata.Set(protocolKey(provider, "part_state"), newPartReplayState(part, kind)); err != nil {
+	if err := mapped.Metadata.Set(protocolKey(provider, "part_state"), newPartReplayState(part, kind, partIndex)); err != nil {
 		return corechat.PartDelta{}, "", false, fmt.Errorf("preserve native part: %w", err)
 	}
 	return mapped, kind, true, nil

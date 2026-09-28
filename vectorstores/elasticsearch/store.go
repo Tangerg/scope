@@ -10,6 +10,8 @@ import (
 	"io"
 	stdmath "math"
 	"net/http"
+	"slices"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/elastic/go-elasticsearch/v8/esapi"
@@ -65,22 +67,14 @@ type indexMappings struct {
 	Properties       map[string]any               `json:"properties"`
 }
 
-// dynamicTemplate names one dynamic-mapping rule. Metadata keys are unknown at
-// index-creation time, so their fields have to be mapped dynamically; the
-// default for a JSON string is "text with a .keyword sub-field", and the text
-// field is analyzed. Filters compare whole values, so the metadata path maps
-// strings straight to keyword instead, which also avoids the sub-field's
-// ignore_above cutoff.
+// dynamicTemplate preserves the index creation policy for native metadata terms.
+// Core predicates are evaluated from stored source, independently of these terms.
 type dynamicTemplate struct {
 	PathMatch        string         `json:"path_match"`
 	MatchMappingType string         `json:"match_mapping_type"`
 	Mapping          map[string]any `json:"mapping"`
 }
 
-// metadataKeywordTemplate keeps string metadata exactly comparable. Without it
-// `metadata.author:"Alice"` reaches the analyzed text field and matches an
-// author of "Alice Smith" or "alice", which is neither whole-value nor
-// case-sensitive and disagrees with filter.Match.
 func metadataKeywordTemplate(metadataField string) map[string]dynamicTemplate {
 	return map[string]dynamicTemplate{
 		"metadata_strings_are_keywords": {
@@ -142,8 +136,9 @@ type StoreConfig struct {
 	// Client is the go-elasticsearch typed client. Required.
 	Client *elasticsearch.Client
 
-	// IndexName names the Elasticsearch index. Optional: defaults
-	// to [DefaultIndexName].
+	// IndexName names a concrete Elasticsearch index. Aliases are unsupported
+	// because their filtering and routing cannot be discarded during selection.
+	// Optional: defaults to [DefaultIndexName].
 	IndexName string
 
 	// EmbeddingField is the dense_vector field name. Optional:
@@ -294,18 +289,23 @@ func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 	if err != nil {
 		return err
 	}
-	if exists {
-		return s.verifyVectorField(ctx)
+	if !exists {
+		if !initSchema {
+			return fmt.Errorf("%w: %q, and InitializeSchema is false", ErrIndexMissing, s.indexName)
+		}
+		if s.dimensions <= 0 {
+			return errors.New("elasticsearch: Dimensions must be > 0")
+		}
+		if err := s.createIndex(ctx); err != nil {
+			return err
+		}
 	}
-	if !initSchema {
-		return fmt.Errorf("%w: %q, and InitializeSchema is false", ErrIndexMissing, s.indexName)
+	// Index templates also affect freshly created indices. Validate the actual
+	// mapping and source policy after either construction path.
+	if err := s.verifyVectorField(ctx); err != nil {
+		return err
 	}
-
-	if s.dimensions <= 0 {
-		return errors.New("elasticsearch: Dimensions must be > 0")
-	}
-
-	return s.createIndex(ctx)
+	return s.verifySourceSettings(ctx)
 }
 
 func (s *Store) indexExists(ctx context.Context) (bool, error) {
@@ -365,8 +365,7 @@ type storedVectorField struct {
 // None of it can be repaired in place: neither similarity nor dims can be
 // changed after the field is created, so construction is the only useful place
 // to say so.
-// The return is named so the deferred body close can report a failure that
-// would otherwise be dropped, the same way parseDeleteByQueryResponse does.
+// The deferred close preserves response cleanup failures.
 func (s *Store) verifyVectorField(ctx context.Context) (err error) {
 	response, err := s.client.Indices.GetMapping(
 		s.client.Indices.GetMapping.WithIndex(s.indexName),
@@ -390,12 +389,13 @@ func (s *Store) verifyVectorField(ctx context.Context) (err error) {
 			s.indexName, response.StatusCode, string(body))
 	}
 
-	// The response is keyed by resolved index name, which differs from the
-	// configured one whenever it names an alias, so the single entry is read
-	// rather than looked up.
+	// Aliases can add filtering and routing. Rebinding to a physical index would
+	// silently remove those constraints, while retargeting between selection and
+	// deletion could address a different document. Only concrete indices bind.
 	var mappings map[string]struct {
 		Mappings struct {
 			Properties map[string]storedVectorField `json:"properties"`
+			Source     storedSource                 `json:"_source"`
 		} `json:"mappings"`
 	}
 	if err := jsonv2.UnmarshalRead(response.Body, &mappings); err != nil {
@@ -405,8 +405,17 @@ func (s *Store) verifyVectorField(ctx context.Context) (err error) {
 		return fmt.Errorf("elasticsearch: mapping for %q resolved to %d indices; point the store at one",
 			s.indexName, len(mappings))
 	}
-	for _, mapping := range mappings {
-		return s.validateVectorField(mapping.Mappings.Properties[s.embeddingField])
+	for indexName, mapping := range mappings {
+		if err := mapping.Mappings.Source.validate(s.metadataField, s.contentField); err != nil {
+			return err
+		}
+		if err := s.validateVectorField(mapping.Mappings.Properties[s.embeddingField]); err != nil {
+			return err
+		}
+		if indexName != s.indexName {
+			return fmt.Errorf("%w: index %q resolves to %q; aliases cannot preserve filtering and routing across the metadata snapshot", errors.ErrUnsupported, s.indexName, indexName)
+		}
+		return nil
 	}
 	return nil
 }
@@ -520,7 +529,9 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 		}
 
 		var body bytes.Buffer
+		expectedIDs := make([]string, len(docs))
 		for index, doc := range docs {
+			expectedIDs[index] = doc.ID
 			id := doc.ID
 
 			actionLine, encErr := jsonv2.Marshal(bulkAction{
@@ -553,35 +564,79 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 		if err != nil {
 			return fmt.Errorf("elasticsearch: bulk: %w", err)
 		}
-		if err = parseBulkResponse(resp, bulkOperationIndex); err != nil {
+		if err = parseBulkResponse(resp, bulkOperationIndex, expectedIDs); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// Search runs a KNN search over the embedding field. Optional
-// metadata filtering is expressed via a query_string clause.
+type scoredDocument struct {
+	document *document.Document
+	score    vectorstore.Score
+	rank     float64
+}
+
+// Search runs a KNN search over the embedding field. Optional metadata filtering
+// evaluates a complete metadata snapshot before KNN selection. A returned record
+// that no longer satisfies the predicate causes the whole query to fail.
 func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
-	var docs []*vectorstore.SearchResult
 	if err = req.Validate(); err != nil {
 		return nil, fmt.Errorf("elasticsearch.Store.Search: %w", err)
 	}
 	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("elasticsearch.Store.Search: %w", err)
 	}
-
 	defer func() {
 		if err == nil {
 			err = response.ValidateFor(req)
 		}
 	}()
-
 	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
 	if err != nil {
 		return nil, fmt.Errorf("elasticsearch: embed query: %w", err)
 	}
 	queryVec := embedding.Float32Vector(vector)
+	batches := [][]string{nil}
+	if req.Options.Filter != nil {
+		matches, err := s.selectMatches(ctx, req.Options.Filter)
+		if err != nil {
+			return nil, err
+		}
+		batches = nil
+		for batch := range slices.Chunk(matches, filterBatchSize) {
+			ids := make([]string, len(batch))
+			for index, hit := range batch {
+				ids[index] = hit.ID
+			}
+			batches = append(batches, ids)
+		}
+	}
+	var docs []scoredDocument
+	for _, ids := range batches {
+		partial, err := s.searchVectors(ctx, req, queryVec, ids)
+		if err != nil {
+			return nil, err
+		}
+		docs = append(docs, partial...)
+	}
+	slices.SortFunc(docs, func(left, right scoredDocument) int {
+		if left.rank != right.rank {
+			return cmp.Compare(right.rank, left.rank)
+		}
+		return cmp.Compare(left.document.ID, right.document.ID)
+	})
+	if len(docs) > req.Options.ResultLimit() {
+		docs = docs[:req.Options.ResultLimit()]
+	}
+	results := make([]*vectorstore.SearchResult, len(docs))
+	for index, doc := range docs {
+		results[index] = &vectorstore.SearchResult{Document: doc.document, Score: doc.score}
+	}
+	return &vectorstore.SearchResponse{Results: results}, nil
+}
+
+func (s *Store) searchVectors(ctx context.Context, req *vectorstore.SearchRequest, queryVec []float32, ids []string) ([]scoredDocument, error) {
 
 	knn := nearestNeighborQuery{
 		Field:         s.embeddingField,
@@ -590,12 +645,8 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		NumCandidates: int(stdmath.Ceil(float64(req.Options.ResultLimit()) * s.numCandidatesMul)),
 	}
 
-	filterQuery, err := s.buildFilterQuery(req.Options.Filter)
-	if err != nil {
-		return nil, err
-	}
-	if filterQuery != "" {
-		knn.Filter = &queryClause{QueryString: queryString{Query: filterQuery}}
+	if ids != nil {
+		knn.Filter = &queryClause{IDs: idsQuery{Values: ids}}
 	}
 
 	body, err := encodeJSONRequest(searchRequest{Size: req.Options.ResultLimit(), KNN: knn})
@@ -630,100 +681,73 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		return nil, err
 	}
 
-	docs = make([]*vectorstore.SearchResult, 0, len(parsed.Hits.Hits))
+	docs := make([]scoredDocument, 0, len(parsed.Hits.Hits))
 	for _, hit := range parsed.Hits.Hits {
 		score := s.normalizeScore(hit.Score)
-		if score < req.Options.MinScore {
-			continue
-		}
 		doc, err := s.toDocument(hit)
 		if err != nil {
 			return nil, err
 		}
-		docs = append(docs, &vectorstore.SearchResult{Document: doc, Score: score})
+		if ids != nil {
+			if !slices.Contains(ids, hit.ID) {
+				return nil, fmt.Errorf("elasticsearch: search returned unselected document %q", hit.ID)
+			}
+			values, err := doc.Metadata.Values()
+			if err != nil {
+				return nil, fmt.Errorf("elasticsearch: decode returned metadata: %w", err)
+			}
+			matched, err := filter.Match(req.Options.Filter, values)
+			if err != nil {
+				return nil, fmt.Errorf("elasticsearch: revalidate returned metadata: %w", err)
+			}
+			if !matched {
+				return nil, fmt.Errorf("elasticsearch: document %q no longer satisfies the filter", hit.ID)
+			}
+		}
+		if score < req.Options.MinScore {
+			continue
+		}
+		docs = append(docs, scoredDocument{document: doc, score: score, rank: hit.Score})
 	}
-	return &vectorstore.SearchResponse{Results: docs}, nil
+	return docs, nil
 }
 
-// DeleteWhere removes every matching document with a single delete_by_query.
-// Elasticsearch reports per-document failures, version conflicts, and query
-// timeouts inside a successful response, so the store treats an incomplete
-// deletion as an error. Documents already deleted stay deleted; the caller
-// repeats the operation to converge. Implements [vectorstore.FilterDeleter].
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
+// DeleteWhere evaluates the complete stored metadata snapshot with Core's
+// predicate semantics. Conditional bulk deletion refuses documents changed
+// since that snapshot. A conflict returns an error; earlier batches stay deleted.
+func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) error {
 	if expr == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = expr.Validate(); err != nil {
+	if err := expr.Validate(); err != nil {
 		return fmt.Errorf("elasticsearch.Store.DeleteWhere: %w", err)
 	}
-
-	var filterQuery string
-	filterQuery, err = s.buildFilterQuery(expr)
+	matches, err := s.selectMatches(ctx, expr)
 	if err != nil {
 		return err
 	}
-	if filterQuery == "" {
-		return errors.New("elasticsearch: refusing to delete on empty filter")
-	}
-
-	body, err := encodeJSONRequest(deleteByQueryRequest{
-		Query: queryClause{QueryString: queryString{Query: filterQuery}},
-	})
-	if err != nil {
-		return err
-	}
-
-	resp, err := s.client.DeleteByQuery(
-		[]string{s.indexName},
-		body,
-		s.client.DeleteByQuery.WithContext(ctx),
-	)
-	if err != nil {
-		return fmt.Errorf("elasticsearch: delete_by_query %s: %w", s.indexName, err)
-	}
-	return s.parseDeleteByQueryResponse(resp)
-}
-
-func (s *Store) parseDeleteByQueryResponse(response *esapi.Response) (err error) {
-	defer func() {
-		if closeErr := response.Body.Close(); closeErr != nil {
-			err = errors.Join(err, fmt.Errorf("elasticsearch: close delete_by_query response: %w", closeErr))
+	for batch := range slices.Chunk(matches, filterBatchSize) {
+		var body bytes.Buffer
+		expectedIDs := make([]string, len(batch))
+		for index, hit := range batch {
+			expectedIDs[index] = hit.ID
+			if hit.SeqNo == nil || hit.PrimaryTerm == nil {
+				return fmt.Errorf("elasticsearch: matched document %q has no concurrency token", hit.ID)
+			}
+			action, err := jsonv2.Marshal(bulkAction{Delete: &bulkActionTarget{Index: s.indexName, ID: hit.ID, SeqNo: hit.SeqNo, PrimaryTerm: hit.PrimaryTerm, Routing: hit.Routing}})
+			if err != nil {
+				return fmt.Errorf("elasticsearch: encode conditional deletion: %w", err)
+			}
+			body.Write(action)
+			body.WriteByte(bulkRecordSeparator)
 		}
-	}()
-	if response.IsError() {
-		body, readErr := readErrorResponse(response.Body)
-		if readErr != nil {
-			return fmt.Errorf("elasticsearch: read delete_by_query error response for %s with status %d: %w",
-				s.indexName, response.StatusCode, readErr)
+		response, err := s.client.Bulk(&body, s.client.Bulk.WithContext(ctx))
+		if err != nil {
+			return fmt.Errorf("elasticsearch: conditional bulk deletion: %w", err)
 		}
-		return fmt.Errorf("elasticsearch: delete_by_query %s: status=%d body=%s",
-			s.indexName, response.StatusCode, string(body))
-	}
-
-	var parsed deleteByQueryResponse
-	if err := jsonv2.UnmarshalRead(response.Body, &parsed); err != nil {
-		return fmt.Errorf("elasticsearch: decode delete_by_query response for %s: %w", s.indexName, err)
-	}
-	if failure := parsed.firstFailure(); failure != nil {
-		reason := failure.Cause.Reason
-		if reason == "" {
-			reason = "provider returned no reason"
+		if err := parseBulkResponse(response, bulkOperationDelete, expectedIDs); err != nil {
+			return err
 		}
-		return fmt.Errorf("elasticsearch: delete_by_query %s failed for document %q with status %d: %s",
-			s.indexName, failure.ID, failure.Status, reason)
-	}
-	if parsed.VersionConflicts != 0 {
-		return fmt.Errorf("elasticsearch: delete_by_query %s left %d document(s) on version conflict",
-			s.indexName, parsed.VersionConflicts)
-	}
-	if parsed.TimedOut {
-		return fmt.Errorf("elasticsearch: delete_by_query %s timed out after deleting %d of %d document(s)",
-			s.indexName, parsed.Deleted, parsed.Total)
-	}
-	if parsed.Deleted != parsed.Total {
-		return fmt.Errorf("elasticsearch: delete_by_query %s deleted %d of %d matched document(s)",
-			s.indexName, parsed.Deleted, parsed.Total)
 	}
 	return nil
 }
@@ -757,20 +781,7 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	if err != nil {
 		return fmt.Errorf("elasticsearch: bulk delete: %w", err)
 	}
-	return parseBulkResponse(resp, bulkOperationDelete)
-}
-
-// buildFilterQuery converts the AST filter into a Lucene query string
-// for `query_string`. Returns "" when filter is nil.
-func (s *Store) buildFilterQuery(expr filter.Predicate) (string, error) {
-	if expr == nil {
-		return "", nil
-	}
-	v := newVisitor(s.metadataField)
-	if err := expr.Accept(v); err != nil {
-		return "", fmt.Errorf("elasticsearch: convert filter: %w", err)
-	}
-	return v.snapshot(), nil
+	return parseBulkResponse(resp, bulkOperationDelete, ids)
 }
 
 // normalizeScore validates Elasticsearch's already normalized dense-vector
@@ -847,4 +858,137 @@ func readErrorResponse(reader io.Reader) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(reader, maximumErrorResponseBytes))
 }
 
-// Index embeds the documents and bulk-indexes them.
+// selectMatches scans one server snapshot. Lucene's multivalued fields cannot
+// preserve Core scalar/array/null distinctions, so no metadata expression is
+// translated into Lucene syntax. Memory is proportional to the scanned document IDs.
+func (s *Store) selectMatches(ctx context.Context, predicate filter.Predicate) (matches []searchHit, err error) {
+	body, err := encodeJSONRequest(metadataScanRequest{Size: filterBatchSize, Source: []string{s.metadataField}, Sort: []string{"_doc"}, SeqNoPrimaryTerm: true, StoredFields: []string{"_routing"}})
+	if err != nil {
+		return nil, err
+	}
+	response, err := s.client.Search(s.client.Search.WithContext(ctx), s.client.Search.WithIndex(s.indexName), s.client.Search.WithBody(body), s.client.Search.WithScroll(filterScrollLifetime))
+	if err != nil {
+		return nil, fmt.Errorf("elasticsearch: scan metadata: %w", err)
+	}
+	scrollID := ""
+	defer func() {
+		if scrollID == "" {
+			return
+		}
+		// Cleanup owns a bounded context after the caller cancels the scan.
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), filterCleanupTimeout)
+		defer cancel()
+		cleared, cleanupErr := s.client.ClearScroll(s.client.ClearScroll.WithContext(cleanup), s.client.ClearScroll.WithScrollID(scrollID))
+		if cleanupErr == nil {
+			if cleared.IsError() {
+				cleanupErr = fmt.Errorf("elasticsearch: clear metadata scroll: HTTP %d", cleared.StatusCode)
+			} else {
+				var outcome struct {
+					Succeeded bool `json:"succeeded"`
+				}
+				cleanupErr = jsonv2.UnmarshalRead(cleared.Body, &outcome)
+				if cleanupErr == nil && !outcome.Succeeded {
+					cleanupErr = errors.New("elasticsearch: metadata scroll cleanup was not acknowledged")
+				}
+			}
+			cleanupErr = errors.Join(cleanupErr, cleared.Body.Close())
+		}
+		err = errors.Join(err, cleanupErr)
+	}()
+	seen := make(map[string]struct{})
+	for {
+		page, pageErr := s.readMetadataPage(response)
+		if page.ScrollID != "" {
+			scrollID = page.ScrollID
+		}
+		if pageErr != nil {
+			return nil, pageErr
+		}
+		if completenessErr := s.checkSearchCompleteness(page); completenessErr != nil {
+			return nil, completenessErr
+		}
+		if len(page.Hits.Hits) == 0 {
+			return matches, nil
+		}
+		if page.ScrollID == "" {
+			return nil, errors.New("elasticsearch: metadata scan omitted scroll ID")
+		}
+		for _, hit := range page.Hits.Hits {
+			if contextErr := context.Cause(ctx); contextErr != nil {
+				return nil, contextErr
+			}
+			if hit.ID == "" || hit.Source == nil {
+				return nil, errors.New("elasticsearch: metadata scan omitted document ID or source")
+			}
+			if _, duplicate := seen[hit.ID]; duplicate {
+				return nil, fmt.Errorf("elasticsearch: metadata scan repeated document %q", hit.ID)
+			}
+			seen[hit.ID] = struct{}{}
+			values, metadataErr := s.hitMetadata(hit)
+			if metadataErr != nil {
+				return nil, metadataErr
+			}
+			data, valuesErr := values.Values()
+			if valuesErr != nil {
+				return nil, fmt.Errorf("elasticsearch: decode metadata values: %w", valuesErr)
+			}
+			matched, matchErr := filter.Match(predicate, data)
+			if matchErr != nil {
+				return nil, fmt.Errorf("elasticsearch: evaluate metadata for %q: %w", hit.ID, matchErr)
+			}
+			if matched {
+				hit.Source = nil
+				matches = append(matches, hit)
+			}
+		}
+		response, err = s.client.Scroll(s.client.Scroll.WithContext(ctx), s.client.Scroll.WithScrollID(scrollID), s.client.Scroll.WithScroll(filterScrollLifetime))
+		if err != nil {
+			return nil, fmt.Errorf("elasticsearch: advance metadata scroll: %w", err)
+		}
+	}
+}
+
+func (s *Store) readMetadataPage(response *esapi.Response) (page searchResponse, err error) {
+	defer func() { err = errors.Join(err, response.Body.Close()) }()
+	if response.IsError() {
+		return page, fmt.Errorf("elasticsearch: read metadata page: HTTP %d", response.StatusCode)
+	}
+	if err := jsonv2.UnmarshalRead(response.Body, &page); err != nil {
+		return page, fmt.Errorf("elasticsearch: decode metadata page: %w", err)
+	}
+	return page, nil
+}
+
+const (
+	filterBatchSize      = 512
+	filterScrollLifetime = time.Minute
+	filterCleanupTimeout = 5 * time.Second
+)
+
+func (s *Store) verifySourceSettings(ctx context.Context) (err error) {
+	response, err := s.client.Indices.GetSettings(s.client.Indices.GetSettings.WithContext(ctx), s.client.Indices.GetSettings.WithIndex(s.indexName), s.client.Indices.GetSettings.WithName("index.mapping.source.mode"), s.client.Indices.GetSettings.WithFlatSettings(true), s.client.Indices.GetSettings.WithIncludeDefaults(true))
+	if err != nil {
+		return fmt.Errorf("elasticsearch: read source settings: %w", err)
+	}
+	defer func() { err = errors.Join(err, response.Body.Close()) }()
+	if response.IsError() {
+		return fmt.Errorf("elasticsearch: read source settings: HTTP %d", response.StatusCode)
+	}
+	var indices map[string]struct {
+		Settings map[string]string `json:"settings"`
+		Defaults map[string]string `json:"defaults"`
+	}
+	if err := jsonv2.UnmarshalRead(response.Body, &indices); err != nil {
+		return fmt.Errorf("elasticsearch: decode source settings: %w", err)
+	}
+	if len(indices) != 1 {
+		return fmt.Errorf("elasticsearch: source settings resolved to %d indices", len(indices))
+	}
+	for _, index := range indices {
+		mode := cmp.Or(index.Settings["index.mapping.source.mode"], index.Defaults["index.mapping.source.mode"], "stored")
+		if mode != "stored" {
+			return fmt.Errorf("%w: source mode %q cannot preserve original metadata", ErrIncompatibleIndex, mode)
+		}
+	}
+	return nil
+}

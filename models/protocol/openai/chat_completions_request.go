@@ -122,6 +122,9 @@ func mapUserMedia(value *media.Media) (openaisdk.ChatCompletionContentPartUnionP
 		if value.Source.Kind != media.SourceBytes {
 			return openaisdk.ChatCompletionContentPartUnionParam{}, fmt.Errorf("audio requires bytes, got %q", value.Source.Kind)
 		}
+		if subtype == "mpeg" {
+			subtype = "mp3"
+		}
 		if subtype != "wav" && subtype != "mp3" {
 			return openaisdk.ChatCompletionContentPartUnionParam{}, fmt.Errorf("audio MIME subtype %q is unsupported", subtype)
 		}
@@ -146,12 +149,14 @@ func mapUserMedia(value *media.Media) (openaisdk.ChatCompletionContentPartUnionP
 				return openaisdk.ChatCompletionContentPartUnionParam{}, refErr
 			}
 			file.FileID = openaisdk.String(ref)
-		case media.SourceBytes, media.SourceURI:
+		case media.SourceBytes:
 			location, locationErr := mediaLocation(value)
 			if locationErr != nil {
 				return openaisdk.ChatCompletionContentPartUnionParam{}, locationErr
 			}
 			file.FileData = openaisdk.String(location)
+		case media.SourceURI:
+			return openaisdk.ChatCompletionContentPartUnionParam{}, fmt.Errorf("chat completions does not support file URIs; use bytes or a provider reference")
 		default:
 			return openaisdk.ChatCompletionContentPartUnionParam{}, fmt.Errorf("unsupported file source %q", value.Source.Kind)
 		}
@@ -202,10 +207,19 @@ func mapAssistantMessage(message corechat.Message) (openaisdk.ChatCompletionMess
 			if audioID != "" {
 				return openaisdk.ChatCompletionMessageParamUnion{}, fmt.Errorf("parts[%d]: Chat Completions supports at most one assistant audio part", i)
 			}
-			if part.Media.Source.Kind != media.SourceReference || part.Media.Source.Ref == "" {
+			mediaType, _, err := mime.ParseMediaType(part.Media.MIME)
+			if err != nil || !strings.HasPrefix(mediaType, "audio/") {
+				return openaisdk.ChatCompletionMessageParamUnion{}, fmt.Errorf("parts[%d]: Chat Completions supports only audio assistant media", i)
+			}
+			switch part.Media.Source.Kind {
+			case media.SourceReference:
+				audioID = part.Media.Source.Ref
+			case media.SourceBytes:
+				audioID = part.Media.ID
+			}
+			if audioID == "" {
 				return openaisdk.ChatCompletionMessageParamUnion{}, fmt.Errorf("parts[%d]: assistant audio replay requires a provider reference", i)
 			}
-			audioID = part.Media.Source.Ref
 		case corechat.PartRefusal:
 			if assistant.Refusal.Valid() {
 				return openaisdk.ChatCompletionMessageParamUnion{}, fmt.Errorf("parts[%d]: Chat Completions supports at most one refusal part", i)

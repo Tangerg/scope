@@ -131,13 +131,16 @@ func (p *protocolChunkAccumulator) mapDelta(delta types.ContentBlockDeltaEvent) 
 		}
 		return corechat.NewTextDelta(value.Value), true, nil
 	case *types.ContentBlockDeltaMemberReasoningContent:
+		if delta.ContentBlockIndex == nil {
+			return corechat.PartDelta{}, false, fmt.Errorf("bedrock: reasoning delta: %w: missing content block index", corechat.ErrInvalidResponse)
+		}
 		switch reasoning := value.Value.(type) {
 		case *types.ReasoningContentBlockDeltaMemberText:
 			if reasoning.Value == "" {
 				return corechat.PartDelta{}, false, nil
 			}
 			part := corechat.NewReasoningDelta(reasoning.Value, nil)
-			if err := setReasoningDeltaKind(&part, chatReasoningText); err != nil {
+			if err := setReasoningDeltaState(&part, chatReasoningText, *delta.ContentBlockIndex); err != nil {
 				return corechat.PartDelta{}, false, err
 			}
 			return part, true, nil
@@ -146,7 +149,7 @@ func (p *protocolChunkAccumulator) mapDelta(delta types.ContentBlockDeltaEvent) 
 				return corechat.PartDelta{}, false, nil
 			}
 			part := corechat.NewReasoningDelta("", []byte(reasoning.Value))
-			if err := setReasoningDeltaKind(&part, chatReasoningText); err != nil {
+			if err := setReasoningDeltaState(&part, chatReasoningText, *delta.ContentBlockIndex); err != nil {
 				return corechat.PartDelta{}, false, err
 			}
 			return part, true, nil
@@ -155,7 +158,7 @@ func (p *protocolChunkAccumulator) mapDelta(delta types.ContentBlockDeltaEvent) 
 				return corechat.PartDelta{}, false, nil
 			}
 			part := corechat.NewReasoningDelta("", reasoning.Value)
-			if err := setReasoningDeltaKind(&part, chatReasoningRedacted); err != nil {
+			if err := setReasoningDeltaState(&part, chatReasoningRedacted, *delta.ContentBlockIndex); err != nil {
 				return corechat.PartDelta{}, false, err
 			}
 			return part, true, nil

@@ -26,11 +26,19 @@ func (s *searchIndexClient) FT_List(ctx context.Context) *goredis.StringSliceCmd
 	return command
 }
 
-func (s *searchIndexClient) FTInfo(_ context.Context, _ string) *goredis.FTInfoCmd {
+func (s *searchIndexClient) Do(ctx context.Context, _ ...any) *goredis.Cmd {
 	s.infoCalls++
-	command := &goredis.FTInfoCmd{}
-	command.SetVal(goredis.FTInfoResult{Attributes: s.attributes})
+	command := goredis.NewCmd(ctx)
+	command.SetVal(indexReply(DefaultKeyPrefix, s.attributes))
 	return command
+}
+
+func indexReply(prefix string, attributes []goredis.FTAttribute) map[string]any {
+	var fields []any
+	for _, field := range attributes {
+		fields = append(fields, []any{"identifier", field.Identifier, "attribute", field.Attribute, "type", field.Type, "data_type", field.DataType, "distance_metric", field.DistanceMetric, "dim", field.Dim})
+	}
+	return map[string]any{"index_definition": []any{"key_type", "HASH", "prefixes", []any{prefix}}, "index_options": []any{}, "attributes": fields}
 }
 
 func vectorAttribute(metric string, dimensions int) goredis.FTAttribute {

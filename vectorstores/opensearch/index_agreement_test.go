@@ -1,6 +1,7 @@
 package opensearch
 
 import (
+	"cmp"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
@@ -19,6 +20,7 @@ func TestValidateVectorField(t *testing.T) {
 		name       string
 		field      string
 		spaceType  SpaceType
+		engine     Engine
 		dimensions int
 		wantErr    bool
 	}{
@@ -33,17 +35,18 @@ func TestValidateVectorField(t *testing.T) {
 			name:      "field carries the space type",
 			field:     `{"type":"knn_vector","dimension":768,"space_type":"innerproduct","method":{"name":"hnsw","engine":"faiss"}}`,
 			spaceType: SpaceTypeIP,
+			engine:    EngineFaiss,
 		},
 		{
 			// It "defaults to l2" when neither the field nor the method
 			// carries it, so an omitted space type is resolved, not ignored.
 			name:      "omitted space type means l2",
-			field:     `{"type":"knn_vector","dimension":768}`,
+			field:     `{"type":"knn_vector","dimension":768,"method":{"engine":"lucene"}}`,
 			spaceType: SpaceTypeL2,
 		},
 		{
 			name:      "omitted space type disagrees with a cosine store",
-			field:     `{"type":"knn_vector","dimension":768}`,
+			field:     `{"type":"knn_vector","dimension":768,"method":{"engine":"lucene"}}`,
 			spaceType: SpaceTypeCosine,
 			wantErr:   true,
 		},
@@ -96,7 +99,7 @@ func TestValidateVectorField(t *testing.T) {
 		},
 		{
 			name:       "width agrees",
-			field:      `{"type":"knn_vector","dimension":768,"space_type":"cosinesimil"}`,
+			field:      `{"type":"knn_vector","dimension":768,"space_type":"cosinesimil","method":{"engine":"lucene"}}`,
 			spaceType:  SpaceTypeCosine,
 			dimensions: 768,
 		},
@@ -115,6 +118,7 @@ func TestValidateVectorField(t *testing.T) {
 				embeddingField: "embedding",
 				spaceType:      test.spaceType,
 				dimensions:     test.dimensions,
+				engine:         cmp.Or(test.engine, EngineLucene),
 			}
 			err := store.validateVectorField(field)
 			if test.wantErr {

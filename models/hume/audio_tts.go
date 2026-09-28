@@ -53,7 +53,8 @@ var _ tts.Model = (*AudioTTSModel)(nil)
 // feature is emotion-aware synthesis driven by per-utterance
 // "description" cues — those live on the extension-threaded provider request.
 //
-// [tts.Options].Voice maps onto a HUME_AI voice id and
+// [tts.Options].Voice maps onto a voice ID; voice.provider defaults to
+// HUME_AI and may be set through SpeechRequestExtensionKey.
 // [tts.Options].Model selects the official Octave version ("1" or "2").
 type AudioTTSModel struct{ binding *speechBinding }
 

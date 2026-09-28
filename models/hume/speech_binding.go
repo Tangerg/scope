@@ -30,6 +30,48 @@ func (s *speechBinding) buildAPIRequest(req *tts.Request) (*ttsRequest, error) {
 		return nil, err
 	}
 
+	nativeFields, _, err := effectiveOptions.Extensions.Decode[map[string]any](SpeechRequestExtensionKey)
+	if err != nil {
+		return nil, err
+	}
+	if _, exists := nativeFields["version"]; exists {
+		return nil, fmt.Errorf("hume: extension %q version is owned by Core", SpeechRequestExtensionKey)
+	}
+	if format, ok := nativeFields["format"].(map[string]any); ok {
+		if _, exists := format["type"]; exists {
+			return nil, fmt.Errorf("hume: extension %q format.type is owned by Core", SpeechRequestExtensionKey)
+		}
+		if len(format) > 0 && effectiveOptions.OutputFormat == "" {
+			return nil, errors.New("hume: native format options require Options.OutputFormat")
+		}
+	}
+	if utterances, ok := nativeFields["utterances"].([]any); ok {
+		if len(utterances) > 1 {
+			return nil, errors.New("hume: multiple utterances cannot be represented by Core's single-text request")
+		}
+		for _, value := range utterances {
+			utterance, ok := value.(map[string]any)
+			if !ok {
+				return nil, errors.New("hume: utterance must be an object")
+			}
+			for _, field := range []string{"text", "speed"} {
+				if _, exists := utterance[field]; exists {
+					return nil, fmt.Errorf("hume: extension utterance %s is owned by Core", field)
+				}
+			}
+			if voice, ok := utterance["voice"].(map[string]any); ok {
+				for _, field := range []string{"id", "name"} {
+					if _, exists := voice[field]; exists {
+						return nil, fmt.Errorf("hume: extension utterance voice.%s is owned by Core", field)
+					}
+				}
+				if effectiveOptions.Voice == "" {
+					return nil, errors.New("hume: native voice options require Options.Voice")
+				}
+			}
+		}
+	}
+
 	bodyValue, _, err := effectiveOptions.Extensions.Decode[ttsRequest](SpeechRequestExtensionKey)
 
 	body := &bodyValue
@@ -47,7 +89,13 @@ func (s *speechBinding) buildAPIRequest(req *tts.Request) (*ttsRequest, error) {
 	}
 	body.Utterances[0].Text = req.Text
 	if effectiveOptions.Voice != "" {
-		body.Utterances[0].Voice = &voice{ID: effectiveOptions.Voice, Provider: "HUME_AI"}
+		if body.Utterances[0].Voice == nil {
+			body.Utterances[0].Voice = &voice{}
+		}
+		body.Utterances[0].Voice.ID = effectiveOptions.Voice
+		if body.Utterances[0].Voice.Provider == "" {
+			body.Utterances[0].Voice.Provider = "HUME_AI"
+		}
 	}
 	if effectiveOptions.Speed != 0 {
 		v := effectiveOptions.Speed
@@ -60,10 +108,13 @@ func (s *speechBinding) buildAPIRequest(req *tts.Request) (*ttsRequest, error) {
 		default:
 			return nil, errors.New("hume: speech: output_format must be mp3, wav, or pcm")
 		}
-		body.Format = map[string]any{"type": effectiveOptions.OutputFormat}
+		if body.Format == nil {
+			body.Format = map[string]any{}
+		}
+		body.Format["type"] = effectiveOptions.OutputFormat
 	}
 	if body.Version == ModelOctave2 && body.Utterances[0].Voice == nil {
-		return nil, errors.New("hume: speech: Octave 2 requires Options.Voice or a voice on the first utterance")
+		return nil, errors.New("hume: speech: Octave 2 requires Options.Voice")
 	}
 	return body, nil
 }

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/transcription"
 )
@@ -89,7 +90,7 @@ func (a *AudioTranscriptionModel) Call(ctx context.Context, req *transcription.R
 	if decodeErr != nil {
 		return nil, decodeErr
 	}
-	for _, field := range []string{"language", "transcriber"} {
+	for _, field := range []string{"media_url", "language", "transcriber"} {
 		if _, exists := nativeFields[field]; exists {
 			return nil, fmt.Errorf("revai: extension %q field %q is owned by Core", RequestExtensionKey, field)
 		}
@@ -107,7 +108,8 @@ func (a *AudioTranscriptionModel) Call(ctx context.Context, req *transcription.R
 	}
 
 	var job *job
-	if jobOpts.MediaURL != "" {
+	if req.Audio.Source.Kind == media.SourceURI {
+		jobOpts.MediaURL = req.Audio.Source.URI
 		job, err = a.api.submitURL(ctx, *jobOpts)
 	} else {
 		audio, audioErr := req.Audio.Bytes()

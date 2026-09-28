@@ -3,6 +3,7 @@ package nomic
 import (
 	"cmp"
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -38,6 +39,8 @@ func newAPI(config apiConfig) (*api, error) {
 	} else {
 		client = resty.New()
 	}
+	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
+		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
 	client.
 		SetBaseURL(cmp.Or(config.BaseURL, DefaultBaseURL)).
 		SetAuthToken(config.APIKey).

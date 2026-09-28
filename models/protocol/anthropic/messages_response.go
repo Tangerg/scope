@@ -43,6 +43,9 @@ func mapProtocolContent(blocks []anthropicsdk.ContentBlockUnion, provider string
 			if err := setProtocolReasoningState(&part, provider, protocolReasoningThinking); err != nil {
 				return nil, err
 			}
+			if err := part.Metadata.Set(protocolContentBlockIndexKey, i); err != nil {
+				return nil, err
+			}
 			parts = append(parts, part)
 		case "redacted_thinking":
 			if block.Data == "" {
@@ -50,6 +53,9 @@ func mapProtocolContent(blocks []anthropicsdk.ContentBlockUnion, provider string
 			}
 			part := corechat.NewReasoningPart("", []byte(block.Data))
 			if err := setProtocolReasoningState(&part, provider, protocolReasoningRedacted); err != nil {
+				return nil, err
+			}
+			if err := part.Metadata.Set(protocolContentBlockIndexKey, i); err != nil {
 				return nil, err
 			}
 			parts = append(parts, part)
@@ -143,12 +149,17 @@ func setProtocolReasoningState(part *corechat.Part, provider, kind string) error
 	return nil
 }
 
-func setProtocolReasoningDeltaState(part *corechat.PartDelta, provider, kind string) error {
+func setProtocolReasoningDeltaState(part *corechat.PartDelta, provider, kind string, index int64) error {
 	if err := part.Metadata.Set(protocolReasoningProviderKey, provider); err != nil {
 		return fmt.Errorf("anthropic: preserve reasoning provider: %w", err)
 	}
 	if err := part.Metadata.Set(protocolReasoningKindKey, kind); err != nil {
 		return fmt.Errorf("anthropic: preserve reasoning kind: %w", err)
+	}
+	// A signature protects one provider block. The index lets Core join its
+	// fragments without concatenating independent signed or redacted blocks.
+	if err := part.Metadata.Set(protocolContentBlockIndexKey, index); err != nil {
+		return fmt.Errorf("anthropic: preserve reasoning content block index: %w", err)
 	}
 	return nil
 }
@@ -218,8 +229,10 @@ type protocolStreamState struct {
 	id             string
 	model          string
 	tools          map[int64]protocolStreamTool
+	blocks         map[int64]bool
 	usage          *corechat.Usage
 	finish         corechat.FinishReason
+	stopped        bool
 }
 
 func newProtocolStreamState(provider string) *protocolStreamState {
@@ -227,10 +240,14 @@ func newProtocolStreamState(provider string) *protocolStreamState {
 		provider:       provider,
 		streamEventKey: protocolStreamEventExtensionKey(provider),
 		tools:          make(map[int64]protocolStreamTool),
+		blocks:         make(map[int64]bool),
 	}
 }
 
 func (p *protocolStreamState) mapEvent(event anthropicsdk.MessageStreamEventUnion) (*corechat.ResponseDelta, error) {
+	if p.stopped {
+		return nil, fmt.Errorf("anthropic: stream: %w: event after message_stop", corechat.ErrInvalidResponse)
+	}
 	response := &corechat.ResponseDelta{Metadata: &corechat.ResponseMetadata{ID: p.id, Model: p.model}}
 	if err := response.Metadata.Extra.Set(p.streamEventKey, event); err != nil {
 		return nil, err
@@ -243,6 +260,13 @@ func (p *protocolStreamState) mapEvent(event anthropicsdk.MessageStreamEventUnio
 		}
 		response.Parts = parts
 	case anthropicsdk.ContentBlockStartEvent:
+		if p.finish != "" {
+			return nil, fmt.Errorf("anthropic: stream: %w: content block %d started after the finish reason", corechat.ErrInvalidResponse, value.Index)
+		}
+		if _, exists := p.blocks[value.Index]; exists {
+			return nil, fmt.Errorf("anthropic: stream: %w: content block %d started twice", corechat.ErrInvalidResponse, value.Index)
+		}
+		p.blocks[value.Index] = true
 		part, include, err := p.mapBlockStart(value)
 		if err != nil {
 			return nil, err
@@ -251,6 +275,12 @@ func (p *protocolStreamState) mapEvent(event anthropicsdk.MessageStreamEventUnio
 			response.Parts = []corechat.PartDelta{part}
 		}
 	case anthropicsdk.ContentBlockDeltaEvent:
+		if p.finish != "" {
+			return nil, fmt.Errorf("anthropic: stream: %w: content block %d changed after the finish reason", corechat.ErrInvalidResponse, value.Index)
+		}
+		if open, exists := p.blocks[value.Index]; exists && !open {
+			return nil, fmt.Errorf("anthropic: stream: %w: content block %d changed after content_block_stop", corechat.ErrInvalidResponse, value.Index)
+		}
 		part, include, err := p.mapBlockDelta(value)
 		if err != nil {
 			return nil, err
@@ -259,10 +289,24 @@ func (p *protocolStreamState) mapEvent(event anthropicsdk.MessageStreamEventUnio
 			response.Parts = []corechat.PartDelta{part}
 		}
 	case anthropicsdk.MessageDeltaEvent:
+		for _, index := range slices.Sorted(maps.Keys(p.blocks)) {
+			if p.blocks[index] {
+				return nil, fmt.Errorf("anthropic: stream: %w: content block %d has no content_block_stop", corechat.ErrInvalidResponse, index)
+			}
+		}
 		if err := p.mapMessageDelta(value, response); err != nil {
 			return nil, err
 		}
-	case anthropicsdk.ContentBlockStopEvent, anthropicsdk.MessageStopEvent:
+	case anthropicsdk.ContentBlockStopEvent:
+		if !p.blocks[value.Index] {
+			return nil, fmt.Errorf("anthropic: stream: %w: content block %d stopped without an open block", corechat.ErrInvalidResponse, value.Index)
+		}
+		p.blocks[value.Index] = false
+	case anthropicsdk.MessageStopEvent:
+		if p.finish == "" {
+			return nil, fmt.Errorf("anthropic: stream: %w: message_stop without a finish reason", corechat.ErrInvalidResponse)
+		}
+		p.stopped = true
 	}
 	if p.usage != nil {
 		response.Metadata.Usage = new(*p.usage)
@@ -293,7 +337,7 @@ func (p *protocolStreamState) mapMessageDelta(event anthropicsdk.MessageDeltaEve
 	finish := normalizeProtocolStopReason(event.Delta.StopReason)
 	if finish != "" {
 		if p.finish != "" {
-			return errors.New("anthropic: stream emitted more than one finish reason")
+			return fmt.Errorf("anthropic: stream: %w: more than one finish reason", corechat.ErrInvalidResponse)
 		}
 		p.finish = finish
 	}
@@ -316,11 +360,11 @@ func (p *protocolStreamState) mapMessageDelta(event anthropicsdk.MessageDeltaEve
 }
 
 func (p *protocolStreamState) finished() bool {
-	return p.finish != ""
+	return p.stopped
 }
 
 func (p *protocolStreamState) complete(delta *corechat.ResponseDelta) (*corechat.ResponseDelta, error) {
-	if delta == nil || p.finish == "" {
+	if delta == nil || !p.stopped || p.finish == "" {
 		return nil, fmt.Errorf("anthropic: stream: %w: missing terminal response", corechat.ErrInvalidResponse)
 	}
 	// A Core tool-call delta cannot carry arguments without an id and a name,
@@ -388,7 +432,7 @@ func (p *protocolStreamState) mapBlockStart(event anthropicsdk.ContentBlockStart
 			return corechat.PartDelta{}, false, nil
 		}
 		part := corechat.NewReasoningDelta(block.Thinking, []byte(block.Signature))
-		if err := setProtocolReasoningDeltaState(&part, p.provider, protocolReasoningThinking); err != nil {
+		if err := setProtocolReasoningDeltaState(&part, p.provider, protocolReasoningThinking, event.Index); err != nil {
 			return corechat.PartDelta{}, false, err
 		}
 		return part, true, nil
@@ -397,7 +441,7 @@ func (p *protocolStreamState) mapBlockStart(event anthropicsdk.ContentBlockStart
 			return corechat.PartDelta{}, false, errors.New("anthropic: empty redacted thinking block")
 		}
 		part := corechat.NewReasoningDelta("", []byte(block.Data))
-		if err := setProtocolReasoningDeltaState(&part, p.provider, protocolReasoningRedacted); err != nil {
+		if err := setProtocolReasoningDeltaState(&part, p.provider, protocolReasoningRedacted, event.Index); err != nil {
 			return corechat.PartDelta{}, false, err
 		}
 		return part, true, nil
@@ -430,7 +474,7 @@ func (p *protocolStreamState) mapBlockDelta(event anthropicsdk.ContentBlockDelta
 			return corechat.PartDelta{}, false, nil
 		}
 		part := corechat.NewReasoningDelta(delta.Thinking, nil)
-		if err := setProtocolReasoningDeltaState(&part, p.provider, protocolReasoningThinking); err != nil {
+		if err := setProtocolReasoningDeltaState(&part, p.provider, protocolReasoningThinking, event.Index); err != nil {
 			return corechat.PartDelta{}, false, err
 		}
 		return part, true, nil
@@ -439,7 +483,7 @@ func (p *protocolStreamState) mapBlockDelta(event anthropicsdk.ContentBlockDelta
 			return corechat.PartDelta{}, false, nil
 		}
 		part := corechat.NewReasoningDelta("", []byte(delta.Signature))
-		if err := setProtocolReasoningDeltaState(&part, p.provider, protocolReasoningThinking); err != nil {
+		if err := setProtocolReasoningDeltaState(&part, p.provider, protocolReasoningThinking, event.Index); err != nil {
 			return corechat.PartDelta{}, false, err
 		}
 		return part, true, nil

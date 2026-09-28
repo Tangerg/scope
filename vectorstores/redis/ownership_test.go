@@ -41,7 +41,4 @@ func TestNewStoreOwnsMetadataFields(t *testing.T) {
 	if got := store.metadataFields[0].Name; got != "tenant" {
 		t.Fatalf("store retained caller-owned MetadataFields: got %q", got)
 	}
-	if got := store.fieldTypes["tenant"]; got != FieldTag {
-		t.Fatalf("fieldTypes[tenant] = %q, want %q", got, FieldTag)
-	}
 }

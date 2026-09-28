@@ -43,41 +43,36 @@
 //	    "query_vector": [...],
 //	    "k": K,
 //	    "num_candidates": ceil(K * NumCandidatesMultiplier),
-//	    "filter": {"query_string": {"query": "<lucene>"}}
+//	    "filter": {"ids": {"values": ["<matched-id>"]}}
 //	  }
 //	}
 //
-// Filter visitor produces Lucene query-string syntax — metadata
-// fields are addressed under `metadata.<key>` paths;
-// LIKE wildcards (% / _) map to Lucene wildcards (* / ?).
+// Filtering reads every document's stored metadata through a scroll snapshot,
+// then evaluates the predicate with Core filter.Match. Native term indexes
+// erase scalar/array distinctions and treat empty arrays like missing fields;
+// exact source evaluation also avoids analyzer, wildcard, and query-syntax
+// changes to a caller's predicate. Existing text or keyword metadata mappings
+// therefore do not change filter semantics. Complete, unmodified _source is
+// required; pruned, disabled, or reconstructed source is incompatible.
 //
-// Search rejects a result that lost a targeted shard or timed out, because
-// Elasticsearch answers with 200 and the surviving hits and a caller cannot
-// otherwise tell a partial index from a small result.
+// Filtered Search sends bounded ID selections to native KNN and merges their
+// ranked results. It reads all metadata before selecting TopK, costs O(N)
+// metadata reads, and holds O(N) document IDs. Unfiltered Search remains a
+// single native KNN request. A concurrent update between selection and KNN
+// may change a document; returned metadata must still satisfy the predicate
+// or the whole query fails. No cross-request snapshot is promised.
 //
-// Delete uses _delete_by_query with the same Lucene filter. Elasticsearch
-// reports version conflicts, per-document failures, and query timeouts inside a
-// successful response, so an incomplete deletion returns an error while the
-// documents it already removed stay removed.
-//
-// Metadata mapping. Metadata keys are unknown when the index is created, so
-// their fields map dynamically. The default for a JSON string is "text with a
-// .keyword sub-field" and the text field is analyzed, which would make
-// `metadata.author:"Alice"` a tokenized, case-insensitive match — it would
-// match an author of "Alice Smith" or of "alice". A dynamic template maps
-// strings under the metadata path straight to keyword instead, so the field
-// the filter compiler queries is the whole-value, case-sensitive one, and the
-// sub-field's ignore_above cutoff never applies. An index created before this
-// mapping needs a reindex for filters to compare exactly.
-//
-// Filterable keys. A metadata key is written into the Lucene query as text,
-// and query_string cannot quote a field name, so a filter can only name a
-// key that is a plain identifier. An indexed key is a string literal in the
-// filter DSL, so without that limit metadata['a:1 OR b'] compiled to
-// metadata.a:1 OR b and the caller's key became a term boundary and a
-// boolean operator. A document whose metadata key is anything at all still
-// stores and reads back fine; this is only about which keys a filter can
-// name.
+// DeleteWhere uses the same complete selection and sends conditional bulk
+// deletes with each document's routing, sequence number and primary term. A document
+// changed since selection causes a conflict instead of deleting its newer
+// contents. Partial failures return errors; earlier deletions remain applied.
+// Missing pages, missing concurrency tokens, repeated documents, shard
+// failures, and incomplete acknowledgments never become successful results.
+// Scroll cleanup uses a bounded context even when the caller cancels.
 //
 // See https://www.elastic.co/docs/reference for the full API.
+// NewStore requires a concrete index name; aliases are rejected because their
+// filters and routing cannot be dropped during multi-request selection. Both
+// newly created and existing indices must preserve stored source. Returned
+// filtered-search documents are revalidated; a predicate change fails the query.
 package elasticsearch

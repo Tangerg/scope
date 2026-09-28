@@ -177,6 +177,13 @@ func (a *AudioTTSModel) prepareRequest(req *tts.Request) (tts.Options, *predicti
 		return tts.Options{}, nil, err
 	}
 	apiReq := &apiReqValue
+	for _, key := range []string{a.inputSchema.TextKey, a.inputSchema.VoiceKey, a.inputSchema.SpeedKey} {
+		if key != "" {
+			if _, exists := apiReq.Input[key]; exists {
+				return tts.Options{}, nil, fmt.Errorf("replicate: extension input %q is owned by Core", key)
+			}
+		}
+	}
 	if apiReq.Input == nil {
 		apiReq.Input = map[string]any{}
 	}
@@ -188,11 +195,8 @@ func (a *AudioTTSModel) prepareRequest(req *tts.Request) (tts.Options, *predicti
 	if effectiveOptions.Speed > 0 {
 		apiReq.Input[a.inputSchema.SpeedKey] = effectiveOptions.Speed
 	}
-	if a.inputSchema.VoiceRequired {
-		voice, exists := apiReq.Input[a.inputSchema.VoiceKey]
-		if !exists || voice == nil || voice == "" {
-			return tts.Options{}, nil, fmt.Errorf("replicate: speech: model %q requires input %q", a.model, a.inputSchema.VoiceKey)
-		}
+	if a.inputSchema.VoiceRequired && effectiveOptions.Voice == "" {
+		return tts.Options{}, nil, fmt.Errorf("replicate: speech: model %q requires Options.Voice", a.model)
 	}
 	return effectiveOptions, apiReq, nil
 }

@@ -53,11 +53,11 @@ func TestRequestOwnsInputAndOptionsResolve(t *testing.T) {
 	if err := overrideExtensions.Set("provider/request", "value"); err != nil {
 		t.Fatal(err)
 	}
-	resolved, resolveErr := base.Resolve(rerank.Options{Model: "override", TopK: 1, Extensions: overrideExtensions})
+	resolved, resolveErr := base.Resolve(rerank.Options{Model: "override", TopK: new(1), Extensions: overrideExtensions})
 	if resolveErr != nil {
 		t.Fatal(resolveErr)
 	}
-	if resolved.Model != "override" || resolved.TopK != 1 || resolved.ResultLimit(2) != 1 {
+	if resolved.Model != "override" || (resolved.TopK == nil || *resolved.TopK != 1) || resolved.ResultLimit(2) != 1 {
 		t.Fatalf("Resolve = %#v", resolved)
 	}
 	if _, ok, err := resolved.Extensions.Decode[bool]("provider/base"); err != nil || !ok {
@@ -88,11 +88,12 @@ func TestOptionsResolveValidatesTheEffectiveValue(t *testing.T) {
 		want           rerank.Options
 		invalid        bool
 	}{
-		{name: "preserve base", base: rerank.Options{Model: "base", TopK: 2}, want: rerank.Options{Model: "base", TopK: 2}},
-		{name: "invalid base", base: rerank.Options{TopK: -1}, invalid: true},
-		{name: "invalid override", base: rerank.Options{TopK: 2}, override: rerank.Options{TopK: -1}, invalid: true},
+		{name: "preserve base", base: rerank.Options{Model: "base", TopK: new(2)}, want: rerank.Options{Model: "base", TopK: new(2)}},
+		{name: "explicit all overrides limit", base: rerank.Options{TopK: new(1)}, override: rerank.Options{TopK: new(0)}, want: rerank.Options{TopK: new(0)}},
+		{name: "invalid base", base: rerank.Options{TopK: new(-1)}, invalid: true},
+		{name: "invalid override", base: rerank.Options{TopK: new(2)}, override: rerank.Options{TopK: new(-1)}, invalid: true},
 		{name: "invalid model", override: rerank.Options{Model: " model "}, invalid: true},
-		{name: "override repairs base", base: rerank.Options{TopK: -1}, override: rerank.Options{TopK: 2}, want: rerank.Options{TopK: 2}},
+		{name: "override repairs base", base: rerank.Options{TopK: new(-1)}, override: rerank.Options{TopK: new(2)}, want: rerank.Options{TopK: new(2)}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got, err := test.base.Resolve(test.override)
@@ -109,6 +110,40 @@ func TestOptionsResolveValidatesTheEffectiveValue(t *testing.T) {
 	}
 }
 
+func TestTopKPresenceSurvivesJSONAndOwnership(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		topK *int
+		want string
+	}{
+		{name: "unspecified", want: `{"model":""}`},
+		{name: "all", topK: new(0), want: `{"model":"","top_k":0}`},
+		{name: "limited", topK: new(2), want: `{"model":"","top_k":2}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			options := rerank.Options{TopK: test.topK}
+			data, err := jsonv2.Marshal(options)
+			if err != nil || string(data) != test.want {
+				t.Fatalf("Marshal = %s, %v; want %s", data, err, test.want)
+			}
+			var decoded rerank.Options
+			if err := jsonv2.Unmarshal(data, &decoded); err != nil || !reflect.DeepEqual(decoded, options) {
+				t.Fatalf("Unmarshal = %#v, %v; want %#v", decoded, err, options)
+			}
+		})
+	}
+	base, override := rerank.Options{TopK: new(1)}, rerank.Options{TopK: new(0)}
+	cloned := base.Clone()
+	resolved, err := base.Resolve(override)
+	if err != nil {
+		t.Fatal(err)
+	}
+	*base.TopK, *override.TopK = 2, 2
+	if cloned.ResultLimit(3) != 1 || resolved.ResultLimit(3) != 3 {
+		t.Fatalf("caller mutation changed cloned or resolved limit: %d, %d", cloned.ResultLimit(3), resolved.ResultLimit(3))
+	}
+}
+
 func TestRequestValidation(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -118,8 +153,8 @@ func TestRequestValidation(t *testing.T) {
 		{name: "blank query", request: &rerank.Request{Query: " ", Documents: []string{"document"}}},
 		{name: "no documents", request: &rerank.Request{Query: "query"}},
 		{name: "blank document", request: &rerank.Request{Query: "query", Documents: []string{" "}}},
-		{name: "negative top K", request: &rerank.Request{Query: "query", Documents: []string{"document"}, Options: rerank.Options{TopK: -1}}},
-		{name: "oversized top K", request: &rerank.Request{Query: "query", Documents: []string{"document"}, Options: rerank.Options{TopK: 2}}},
+		{name: "negative top K", request: &rerank.Request{Query: "query", Documents: []string{"document"}, Options: rerank.Options{TopK: new(-1)}}},
+		{name: "oversized top K", request: &rerank.Request{Query: "query", Documents: []string{"document"}, Options: rerank.Options{TopK: new(2)}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -135,7 +170,7 @@ func TestRequestValidation(t *testing.T) {
 
 func TestResponseValidationForRequest(t *testing.T) {
 	request, _ := rerank.NewRequest("query", []string{"first", "second", "third"})
-	request.Options.TopK = 2
+	request.Options.TopK = new(2)
 	response, err := rerank.NewResponse([]*rerank.Result{
 		{Index: 2, Score: 0.9},
 		{Index: 0, Score: 0.5},
@@ -204,7 +239,7 @@ func TestJSONRoundTripAndTransactionalDecode(t *testing.T) {
 }
 
 func TestOptionsAndRequestJSONBoundaries(t *testing.T) {
-	options := rerank.Options{Model: "model", TopK: 1}
+	options := rerank.Options{Model: "model", TopK: new(1)}
 	data, marshalErr := jsonv2.Marshal(options)
 	if marshalErr != nil {
 		t.Fatal(marshalErr)
@@ -213,10 +248,10 @@ func TestOptionsAndRequestJSONBoundaries(t *testing.T) {
 	if err := jsonv2.Unmarshal(data, &decodedOptions); err != nil {
 		t.Fatal(err)
 	}
-	if decodedOptions.Model != options.Model || decodedOptions.TopK != options.TopK {
+	if decodedOptions.Model != options.Model || !reflect.DeepEqual(decodedOptions.TopK, options.TopK) {
 		t.Fatalf("options round trip = %#v", decodedOptions)
 	}
-	if _, err := jsonv2.Marshal(rerank.Options{TopK: -1}); !errors.Is(err, rerank.ErrInvalidOptions) {
+	if _, err := jsonv2.Marshal(rerank.Options{TopK: new(-1)}); !errors.Is(err, rerank.ErrInvalidOptions) {
 		t.Fatalf("invalid options marshal error = %v", err)
 	}
 	if err := decodedOptions.UnmarshalJSON([]byte(`{`)); !errors.Is(err, rerank.ErrInvalidOptions) {

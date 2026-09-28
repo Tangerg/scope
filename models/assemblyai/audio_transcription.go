@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/transcription"
 )
@@ -55,14 +56,10 @@ var _ transcription.Model = (*AudioTranscriptionModel)(nil)
 //
 // Speaker labels, sentiment analysis, auto chapters, entity detection
 // and the rest of AssemblyAI's analysis features live on
-// [TranscriptRequest] and reach the API via the extension-threaded SDK
-// params, see [getOptionsParams].
+// official JSON option names under RequestExtensionKey.
 //
-// Audio source: the [transcription.Request].Audio is uploaded by
-// bytes; if the audio is large and already hosted somewhere the API
-// can reach, callers can override the audio_url by setting it on the
-// extension-threaded TranscriptRequest and the model will skip the
-// /upload roundtrip.
+// Audio comes only from transcription.Request.Audio. URI media is submitted
+// directly; inline bytes are uploaded before the transcription is created.
 type AudioTranscriptionModel struct {
 	api            *api
 	defaultOptions transcription.Options
@@ -114,7 +111,7 @@ func (a *AudioTranscriptionModel) Call(ctx context.Context, req *transcription.R
 	if decodeErr != nil {
 		return nil, decodeErr
 	}
-	for _, field := range []string{"language_code"} {
+	for _, field := range []string{"audio_url", "language_code"} {
 		if _, exists := nativeFields[field]; exists {
 			return nil, fmt.Errorf("assemblyai: extension %q field %q is owned by Core", RequestExtensionKey, field)
 		}
@@ -131,9 +128,9 @@ func (a *AudioTranscriptionModel) Call(ctx context.Context, req *transcription.R
 	}
 	apiReq.LanguageCode = effectiveOptions.Language
 
-	// Skip the /upload roundtrip when the caller already gave us a
-	// reachable URL via Extra; otherwise upload the bytes.
-	if apiReq.AudioURL == "" {
+	if req.Audio.Source.Kind == media.SourceURI {
+		apiReq.AudioURL = req.Audio.Source.URI
+	} else {
 		var audio []byte
 		audio, err = req.Audio.Bytes()
 		if err != nil {

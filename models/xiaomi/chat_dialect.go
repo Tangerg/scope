@@ -1,6 +1,7 @@
 package xiaomi
 
 import (
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -21,8 +22,8 @@ const (
 	ThinkingDisabled ThinkingType = "disabled"
 )
 
-// ChatRequestOptions contains MiMo Chat Completions fields without a
-// provider-neutral Core equivalent.
+// ChatRequestOptions contains MiMo chat fields shared by its OpenAI and
+// Anthropic endpoints. Store it under RequestExtensionKey for either adapter.
 type ChatRequestOptions struct {
 	Thinking ThinkingType `json:"thinking,omitempty"`
 }
@@ -36,54 +37,82 @@ func (c ChatRequestOptions) Validate() error {
 	}
 }
 
-// validateRequest refuses the settings MiMo documents itself as
-// throwing away, rather than letting a caller's choice disappear on the way.
-//
-// Thinking is checked against the documented default rather than the extension
-// alone: MiMo's table defaults thinking to enabled, so an absent extension is
-// the case where the override happens, not the case to skip.
-func (c ChatRequestOptions) validateRequest(
-	source *corechat.Request,
-	target *openai.CompatibleRequest,
-) error {
-	// "when tool_choice passes non-auto values, backend defaults to removing
-	// the field, model response behavior remains equal to auto mode" -- a
-	// caller asking for a named tool would silently get free choice instead.
+// validateRequest owns MiMo's mode-dependent rules for both protocol bindings.
+func (c ChatRequestOptions) validateRequest(source *corechat.Request) error {
 	if choice := source.ToolChoice; choice != nil && choice.Mode != "" && choice.Mode != corechat.ToolChoiceAuto {
-		return fmt.Errorf("xiaomi: tool choice %q is discarded by MiMo, which serves every request as %q",
-			choice.Mode, corechat.ToolChoiceAuto)
+		return fmt.Errorf("xiaomi: tool_choice %q is discarded by MiMo, which serves every request as %q", choice.Mode, corechat.ToolChoiceAuto)
+	}
+	if source.Options.Temperature != nil && *source.Options.Temperature > 1.5 {
+		return errors.New("xiaomi: temperature must be between 0 and 1.5")
+	}
+	if source.Options.TopP != nil && *source.Options.TopP < 0.01 {
+		return errors.New("xiaomi: top_p must be between 0.01 and 1")
 	}
 	if c.Thinking == ThinkingDisabled {
 		return nil
 	}
-	// "in thinking mode, mimo-v2.5-pro, mimo-v2.5 models do not support custom
-	// temperature and top_p parameters. Even if passed, actual values forced to
-	// defaults 1.0 and 0.95."
-	if _, ok := target.Temperature(); ok {
+	if source.Options.Temperature != nil {
 		return errors.New("xiaomi: MiMo forces temperature to 1.0 in thinking mode, so options.temperature would have no effect")
 	}
-	if _, ok := target.TopP(); ok {
+	if source.Options.TopP != nil {
 		return errors.New("xiaomi: MiMo forces top_p to 0.95 in thinking mode, so options.top_p would have no effect")
 	}
 	return nil
 }
 
-func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleRequest) error {
-	if temperature, ok := target.Temperature(); ok && temperature > 1.5 {
-		return errors.New("xiaomi: temperature must be between 0 and 1.5")
+func (c *ChatRequestOptions) UnmarshalJSON(data []byte) error {
+	if c == nil {
+		return errors.New("xiaomi: nil ChatRequestOptions")
+	}
+	type wireOptions ChatRequestOptions
+	var decoded wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	candidate := ChatRequestOptions(decoded)
+	if err := candidate.Validate(); err != nil {
+		return err
+	}
+	*c = candidate
+	return nil
+}
+
+func decodeRequestOptions(source *corechat.Request, nativeKey string) (ChatRequestOptions, error) {
+	fields, _, err := source.Options.Extensions.Decode[map[string]any](nativeKey)
+	if err != nil {
+		return ChatRequestOptions{}, fmt.Errorf("xiaomi: extension %q: %w", nativeKey, err)
+	}
+	if _, exists := fields["thinking"]; exists {
+		return ChatRequestOptions{}, fmt.Errorf("xiaomi: extension %q field thinking is owned by %q", nativeKey, RequestExtensionKey)
 	}
 	options, _, err := source.Options.Extensions.Decode[ChatRequestOptions](RequestExtensionKey)
 	if err != nil {
-		return fmt.Errorf("xiaomi: extension %q: %w", RequestExtensionKey, err)
+		return ChatRequestOptions{}, fmt.Errorf("xiaomi: extension %q: %w", RequestExtensionKey, err)
 	}
-	if err = options.Validate(); err != nil {
-		return fmt.Errorf("xiaomi: extension %q: %w", RequestExtensionKey, err)
+	if err := options.validateRequest(source); err != nil {
+		return ChatRequestOptions{}, err
 	}
-	if err = options.validateRequest(source, target); err != nil {
+	return options, nil
+}
+
+func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleRequest) error {
+	options, err := decodeRequestOptions(source, OpenAIRequestExtensionKey)
+	if err != nil {
 		return err
 	}
 	if options.Thinking == "" {
 		return nil
 	}
 	return target.SetExtraField("thinking", map[string]any{"type": options.Thinking})
+}
+
+func prepareAnthropicRequest(source *corechat.Request, fields map[string]any) error {
+	options, err := decodeRequestOptions(source, AnthropicRequestExtensionKey)
+	if err != nil {
+		return err
+	}
+	if options.Thinking != "" {
+		fields["thinking"] = map[string]any{"type": options.Thinking}
+	}
+	return nil
 }

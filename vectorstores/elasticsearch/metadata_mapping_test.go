@@ -6,13 +6,8 @@ import (
 	"testing"
 )
 
-// Metadata keys are unknown when the index is created, so their fields map
-// dynamically — and the default for a JSON string is "text with a .keyword
-// sub-field", where the text field is analyzed. A filter compares whole values
-// case-sensitively, so `metadata.author:"Alice"` reaching the analyzed field
-// would match an author of "Alice Smith" or "alice" and disagree with
-// filter.Match. The dynamic template maps the metadata path to keyword so the
-// field the compiler queries is the exact-match one.
+// Keep the existing keyword mapping policy for native searches. Core predicates
+// use stored source and do not depend on keyword tokenization.
 func TestMetadataStringsMapToKeyword(t *testing.T) {
 	t.Parallel()
 

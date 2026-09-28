@@ -42,6 +42,8 @@ func newAPI(config apiConfig) (*api, error) {
 	if config.HTTPClient != nil {
 		client = resty.NewWithClient(config.HTTPClient)
 	}
+	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
+		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
 	client.SetBaseURL(cmp.Or(config.BaseURL, DefaultBaseURL)).
 		SetHeader("xi-api-key", config.APIKey).
 		SetHeader("Accept", "audio/*")
@@ -50,8 +52,12 @@ func newAPI(config apiConfig) (*api, error) {
 }
 
 type ttsRequest struct {
-	EnableLogging                   *bool                            `json:"-"`
-	OptimizeStreamingLatency        *int                             `json:"-"`
+	Body                     ttsBody `json:",embed"`
+	EnableLogging            *bool   `json:"enable_logging,omitzero"`
+	OptimizeStreamingLatency *int    `json:"optimize_streaming_latency,omitzero"`
+}
+
+type ttsBody struct {
 	Text                            string                           `json:"text"`
 	ModelID                         string                           `json:"model_id,omitempty"`
 	LanguageCode                    string                           `json:"language_code,omitempty"`
@@ -104,7 +110,7 @@ func (a *api) buildAudioRequest(ctx context.Context, outputFormat string, body *
 	req := a.http.R().
 		SetContext(ctx).
 		SetHeader("Content-Type", "application/json").
-		SetBody(body)
+		SetBody(&body.Body)
 	if outputFormat != "" {
 		req = req.SetQueryParam("output_format", outputFormat)
 	}
@@ -122,20 +128,20 @@ func (a *api) buildAudioRequest(ctx context.Context, outputFormat string, body *
 // It intentionally models only synchronous, single-result options representable
 // by Core's transcription protocol.
 type transcriptionRequest struct {
-	ModelID               string
-	LanguageCode          string
-	Diarize               *bool
-	NumSpeakers           *int
-	TagAudioEvents        *bool
-	TimestampsGranularity string
-	DiarizationThreshold  *float64
-	FileFormat            string
-	Temperature           *float64
-	Seed                  *int
-	NoVerbatim            *bool
-	UseSpeakerLibrary     *bool
-	DetectSpeakerRoles    *bool
-	Keyterms              []string
+	ModelID               string   `json:"model_id,omitempty"`
+	LanguageCode          string   `json:"language_code,omitempty"`
+	Diarize               *bool    `json:"diarize,omitzero"`
+	NumSpeakers           *int     `json:"num_speakers,omitzero"`
+	TagAudioEvents        *bool    `json:"tag_audio_events,omitzero"`
+	TimestampsGranularity string   `json:"timestamps_granularity,omitempty"`
+	DiarizationThreshold  *float64 `json:"diarization_threshold,omitzero"`
+	FileFormat            string   `json:"file_format,omitempty"`
+	Temperature           *float64 `json:"temperature,omitzero"`
+	Seed                  *int     `json:"seed,omitzero"`
+	NoVerbatim            *bool    `json:"no_verbatim,omitzero"`
+	UseSpeakerLibrary     *bool    `json:"use_speaker_library,omitzero"`
+	DetectSpeakerRoles    *bool    `json:"detect_speaker_roles,omitzero"`
+	Keyterms              []string `json:"keyterms,omitzero"`
 }
 
 func (t *transcriptionRequest) form() (map[string]string, error) {

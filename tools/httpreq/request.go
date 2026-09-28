@@ -14,7 +14,7 @@ import (
 type Request struct {
 	URL       string            `json:"url" jsonschema:"minLength=1" jsonschema_description:"Absolute http(s) URL. Host must match the configured allowlist."`
 	Method    Method            `json:"method,omitempty" jsonschema:"enum=GET,enum=HEAD,enum=POST,enum=PUT,enum=PATCH,enum=DELETE" jsonschema_description:"HTTP method: GET (default), HEAD, POST, PUT, PATCH, or DELETE. Must be in the configured method allowlist."`
-	Headers   map[string]string `json:"headers,omitempty" jsonschema_description:"Optional request headers. Values here override this tool's configured default headers."`
+	Headers   map[string]string `json:"headers,omitempty" jsonschema_description:"Optional request headers. Values here override this tool's configured default headers. Host overrides are prohibited; authority comes from the URL."`
 	Query     map[string]string `json:"query,omitempty" jsonschema_description:"Optional query parameters appended to the URL."`
 	Body      string            `json:"body,omitempty" jsonschema_description:"Optional request body — for JSON, pass a JSON-encoded string and set Content-Type via Headers."`
 	TimeoutMS int               `json:"timeout_ms,omitzero" jsonschema:"minimum=1,maximum=120000" jsonschema_description:"Per-call timeout in milliseconds, from 1 to 120000. Omit to use the configured default."`
@@ -53,6 +53,11 @@ func (r *Request) Validate() error {
 	}
 	if err := r.Method.Validate(); err != nil {
 		return err
+	}
+	for name := range r.Headers {
+		if strings.EqualFold(name, "Host") {
+			return ErrHostHeaderOverride
+		}
 	}
 	if r.TimeoutMS < 0 || r.TimeoutMS > int(MaxRequestTimeout/time.Millisecond) {
 		return ErrInvalidRequestTimeout

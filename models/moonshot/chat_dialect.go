@@ -1,6 +1,8 @@
 package moonshot
 
 import (
+	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -28,16 +30,6 @@ type ThinkingKeep string
 // spelling.
 const ThinkingKeepAll ThinkingKeep = "all"
 
-// ReasoningEffort controls Kimi K3 reasoning intensity.
-type ReasoningEffort string
-
-// These are the provider values this adapter recognizes.
-const (
-	ReasoningEffortLow  ReasoningEffort = "low"
-	ReasoningEffortHigh ReasoningEffort = "high"
-	ReasoningEffortMax  ReasoningEffort = "max"
-)
-
 // Thinking configures Kimi K2.x reasoning.
 type Thinking struct {
 	Type ThinkingType `json:"type"`
@@ -47,14 +39,14 @@ type Thinking struct {
 // ChatRequestOptions contains Kimi Chat Completions fields without a
 // provider-neutral Core equivalent.
 type ChatRequestOptions struct {
-	Thinking         *Thinking       `json:"thinking,omitzero"`
-	ReasoningEffort  ReasoningEffort `json:"reasoning_effort,omitempty"`
-	PromptCacheKey   string          `json:"prompt_cache_key,omitempty"`
-	SafetyIdentifier string          `json:"safety_identifier,omitempty"`
-	Partial          *bool           `json:"partial,omitzero"`
+	Thinking         *Thinking `json:"thinking,omitzero"`
+	PromptCacheKey   string    `json:"prompt_cache_key,omitempty"`
+	SafetyIdentifier string    `json:"safety_identifier,omitempty"`
+	Partial          *bool     `json:"partial,omitzero"`
 }
 
-func (c ChatRequestOptions) ValidateFor(model string) error {
+func (c ChatRequestOptions) ValidateFor(options corechat.Options) error {
+	model := options.Model
 	if c.Thinking != nil {
 		switch c.Thinking.Type {
 		case ThinkingEnabled, ThinkingDisabled:
@@ -70,10 +62,10 @@ func (c ChatRequestOptions) ValidateFor(model string) error {
 			return fmt.Errorf("thinking.keep requires thinking.type %q", ThinkingEnabled)
 		}
 	}
-	switch c.ReasoningEffort {
-	case "", ReasoningEffortLow, ReasoningEffortHigh, ReasoningEffortMax:
+	switch options.ReasoningEffort {
+	case "", "low", "high", "max":
 	default:
-		return fmt.Errorf("reasoning_effort must be %q, %q, or %q", ReasoningEffortLow, ReasoningEffortHigh, ReasoningEffortMax)
+		return fmt.Errorf("options.reasoning_effort has unsupported value %q", options.ReasoningEffort)
 	}
 
 	switch model {
@@ -82,14 +74,14 @@ func (c ChatRequestOptions) ValidateFor(model string) error {
 			return fmt.Errorf("model %q does not accept thinking; use reasoning_effort", model)
 		}
 	case ModelK27Code, ModelK27CodeHighSpeed:
-		if c.ReasoningEffort != "" {
+		if options.ReasoningEffort != "" {
 			return fmt.Errorf("model %q does not accept reasoning_effort", model)
 		}
 		if c.Thinking != nil && (c.Thinking.Type != ThinkingEnabled || c.Thinking.Keep != ThinkingKeepAll) {
 			return fmt.Errorf("model %q only accepts thinking {type:%q, keep:%q}", model, ThinkingEnabled, ThinkingKeepAll)
 		}
 	case ModelK26:
-		if c.ReasoningEffort != "" {
+		if options.ReasoningEffort != "" {
 			return fmt.Errorf("model %q does not accept reasoning_effort", model)
 		}
 	}
@@ -97,23 +89,15 @@ func (c ChatRequestOptions) ValidateFor(model string) error {
 }
 
 func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleRequest) error {
-	options, found, err := source.Options.Extensions.Decode[ChatRequestOptions](RequestExtensionKey)
+	options, _, err := source.Options.Extensions.Decode[ChatRequestOptions](RequestExtensionKey)
 	if err != nil {
 		return fmt.Errorf("moonshot: extension %q: %w", RequestExtensionKey, err)
 	}
-	if !found {
-		return nil
-	}
-	if err := options.ValidateFor(target.Model()); err != nil {
+	if err := options.ValidateFor(source.Options); err != nil {
 		return fmt.Errorf("moonshot: extension %q: %w", RequestExtensionKey, err)
 	}
 	if options.Thinking != nil {
 		if err := target.SetExtraField("thinking", options.Thinking); err != nil {
-			return err
-		}
-	}
-	if options.ReasoningEffort != "" {
-		if err := target.SetExtraField("reasoning_effort", options.ReasoningEffort); err != nil {
 			return err
 		}
 	}
@@ -132,5 +116,18 @@ func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleReq
 			return err
 		}
 	}
+	return nil
+}
+
+func (c *ChatRequestOptions) UnmarshalJSON(data []byte) error {
+	if c == nil {
+		return errors.New("moonshot: nil ChatRequestOptions")
+	}
+	type wireOptions ChatRequestOptions
+	var decoded wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	*c = ChatRequestOptions(decoded)
 	return nil
 }

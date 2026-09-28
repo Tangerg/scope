@@ -221,17 +221,24 @@ func (c *ChatCompletions) buildRequest(req *corechat.Request) (*openaisdk.ChatCo
 }
 
 func (c *ChatCompletions) applyRequestExtension(req *corechat.Request, params *openaisdk.ChatCompletionNewParams) error {
+	extensionKey := protocolRequestExtensionKey(c.dialect.Provider)
 	if c.dialect.DisableRawRequestExtension {
+		if _, supplied, err := req.Options.Extensions.Decode[any](extensionKey); err != nil {
+			return err
+		} else if supplied {
+			return fmt.Errorf("openai: extension %q is not supported by this provider", extensionKey)
+		}
 		return nil
 	}
 
-	extensionKey := protocolRequestExtensionKey(c.dialect.Provider)
-	fields, err := decodeRequestFields(req.Options.Extensions, extensionKey,
-		"model", "messages", "tools", "frequency_penalty", "max_tokens",
-		"max_completion_tokens", "parallel_tool_calls", "presence_penalty", "reasoning_effort", "response_format", "stop", "temperature", "tool_choice", "top_p",
-	)
+	fields, err := decodeRequestFields(req.Options.Extensions, extensionKey)
 	if err != nil {
 		return err
+	}
+	for name := range fields {
+		if coreOwnedChatField(name) {
+			return fmt.Errorf("openai: extension %q field %q is owned by Core", extensionKey, name)
+		}
 	}
 	if _, exists := fields["n"]; exists {
 		return fmt.Errorf("openai: extension %q field %q is unsupported; Core Chat produces one output", extensionKey, "n")

@@ -63,7 +63,8 @@ type ContextualAugmenterConfig struct {
 
 	// MaxContextTokens limits the encoded evidence block. Zero leaves context
 	// unbounded. A positive value requires TokenCounter. Only complete
-	// candidates are included, in retrieval order. If none fits, Augment returns
+	// candidates that fit are included, in retrieval order. Oversized candidates
+	// are skipped so later candidates can still fit. If none fits, Augment returns
 	// ErrContextBudgetExceeded regardless of AllowEmptyContext.
 	MaxContextTokens int
 
@@ -235,7 +236,7 @@ func (c *ContextualAugmenter) formatContext(ctx context.Context, candidates rag.
 			}
 			if !accepted {
 				evidence = evidence[:len(evidence)-1]
-				break
+				continue
 			}
 			encoded = candidateEncoding
 		}

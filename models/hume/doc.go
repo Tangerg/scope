@@ -4,9 +4,10 @@
 // Octave voice model — Hume's pitch is emotion-aware synthesis
 // driven by acting / description prompts in addition to plain text.
 //
-// Provider-specific knobs (description, voice (named or cloned),
-// trailing_silence, format, timestamps, and instant_mode) ride through
-// extension-threaded [TTSRequest] fields. [speech.Options].Model selects the
+// Provider-specific description, voice.provider, trailing_silence, format
+// details, timestamps, and instant_mode use SpeechRequestExtensionKey. One
+// utterance may carry these controls; Core owns its text, voice ID, speed,
+// and output format. [speech.Options].Model selects the
 // official Octave protocol version ("1" or "2"). [NewStreamingAudioTTSModel]
 // exposes streaming separately through Hume's
 // newline-delimited /v0/tts/stream/json endpoint. Timestamp output belongs

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/samber/lo"
+	"golang.org/x/text/unicode/norm"
 )
 
 // SkillFile is the required metadata file at the root of every skill
@@ -182,7 +183,7 @@ func (r *Repository) Load(ctx context.Context, name string) (*Skill, error) {
 	if err != nil {
 		return nil, invalidSkill(name, err)
 	}
-	if skill.Name != name {
+	if norm.NFKC.String(skill.Name) != norm.NFKC.String(name) {
 		return nil, invalidSkill(name, fmt.Errorf(
 			"%w: frontmatter %q vs directory %q",
 			ErrNameMismatch,
@@ -190,6 +191,7 @@ func (r *Repository) Load(ctx context.Context, name string) (*Skill, error) {
 			name,
 		))
 	}
+	skill.Name = name
 	return skill, nil
 }
 
@@ -225,11 +227,12 @@ func (r *Repository) Lookup(ctx context.Context, name string) (Summary, error) {
 	if err != nil {
 		return Summary{}, invalidSkill(name, err)
 	}
-	if skill.Name != name {
+	if norm.NFKC.String(skill.Name) != norm.NFKC.String(name) {
 		return Summary{}, invalidSkill(name, fmt.Errorf(
 			"%w: frontmatter %q vs directory %q", ErrNameMismatch, skill.Name, name,
 		))
 	}
+	skill.Name = name
 	return skill.Summary(), nil
 }
 

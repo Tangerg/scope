@@ -37,6 +37,11 @@ func rejectCoreOwnedResponsesExtension(extensions metadata.Extensions) error {
 	if !found {
 		return nil
 	}
+	for _, field := range []string{"model", "input", "tools", "max_output_tokens", "temperature", "top_p", "stream"} {
+		if _, exists := fields[field]; exists {
+			return fmt.Errorf("openai responses: extension %q field %q is owned by Core", ResponsesRequestExtensionKey, field)
+		}
+	}
 	for _, field := range []string{"parallel_tool_calls", "tool_choice"} {
 		if _, exists := fields[field]; exists {
 			return fmt.Errorf("openai responses: extension %q field %q is owned by options.tool_choice", ResponsesRequestExtensionKey, field)
@@ -100,7 +105,7 @@ func mapResponsesTools(definitions []corechat.ToolDefinition) ([]responses.ToolU
 			return nil, fmt.Errorf("openai responses: tools[%d].input_schema: %w", index, err)
 		}
 		tools = append(tools, responses.ToolUnionParam{OfFunction: &responses.FunctionToolParam{
-			Name: definitions[index].Name, Description: openaisdk.String(definitions[index].Description), Parameters: schema, Strict: openaisdk.Bool(true),
+			Name: definitions[index].Name, Description: openaisdk.String(definitions[index].Description), Parameters: schema, Strict: openaisdk.Bool(false),
 		}})
 	}
 	return tools, nil
@@ -159,6 +164,8 @@ func mapResponsesUserContent(parts []corechat.Part) (responses.ResponseInputMess
 				return nil, fmt.Errorf("parts[%d]: %w", index, err)
 			}
 			content = append(content, mapped)
+		default:
+			return nil, fmt.Errorf("parts[%d]: unsupported user part %q", index, part.Kind)
 		}
 	}
 	return content, nil
@@ -195,6 +202,8 @@ func mapResponsesAssistantItems(parts []corechat.Part) ([]responses.ResponseInpu
 			items = append(items, responses.ResponseInputItemUnionParam{OfFunctionCall: &responses.ResponseFunctionToolCallParam{
 				CallID: part.ToolCall.ID, Name: part.ToolCall.Name, Arguments: part.ToolCall.Arguments,
 			}})
+		default:
+			return nil, fmt.Errorf("parts[%d]: unsupported assistant part %q", partIndex, part.Kind)
 		}
 	}
 	return items, nil

@@ -23,6 +23,7 @@ const (
 	RequestExtensionKey          = "anthropic/request"
 	protocolReasoningKindKey     = "anthropic/reasoning_kind"
 	protocolReasoningProviderKey = "anthropic/reasoning_provider"
+	protocolContentBlockIndexKey = "anthropic/content_block_index"
 	protocolReasoningThinking    = "thinking"
 	protocolReasoningRedacted    = "redacted_thinking"
 	protocolNativeStopReasonKey  = "anthropic/native_stop_reason"
@@ -35,13 +36,21 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: options: %w", err)
 	}
-	resolvedRequest := *req
-	resolvedRequest.Options = options
-	req = &resolvedRequest
+	req = req.Clone()
+	req.Options = options
 	extensionKey := protocolRequestExtensionKey(dialect.Provider)
 	fields, _, err := req.Options.Extensions.Decode[map[string]any](extensionKey)
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: extension %q: %w", extensionKey, err)
+	}
+	if dialect.PrepareRequest != nil {
+		if fields == nil {
+			fields = make(map[string]any)
+		}
+		if prepareErr := dialect.PrepareRequest(req, fields); prepareErr != nil {
+			return nil, fmt.Errorf("anthropic: prepare %s request: %w", dialect.Provider, prepareErr)
+		}
+		options = req.Options
 	}
 	for _, name := range []string{"model", "messages", "system", "tools", "max_tokens", "temperature", "tool_choice", "top_k", "top_p", "stop_sequences"} {
 		if _, exists := fields[name]; exists {

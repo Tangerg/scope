@@ -3,6 +3,7 @@ package tavily
 import (
 	"cmp"
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -48,12 +49,15 @@ func NewClient(config Config) (*Client, error) {
 	if config.HTTPClient == nil {
 		config.HTTPClient = &http.Client{}
 	}
-	return &Client{
+	client := &Client{
 		http: resty.NewWithClient(config.HTTPClient).
 			SetBaseURL(config.BaseURL).
 			SetAuthToken(config.APIKey).
 			SetHeader("Content-Type", "application/json"),
-	}, nil
+	}
+	client.http.JSONMarshal = func(value any) ([]byte, error) { return jsonv2.Marshal(value) }
+	client.http.JSONUnmarshal = func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }
+	return client, nil
 }
 
 type searchRequest struct {

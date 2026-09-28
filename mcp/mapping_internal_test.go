@@ -23,9 +23,8 @@ func mediaPart(t *testing.T, part corechat.ToolContent) *media.Media {
 }
 
 // TestMapRemoteContentCoversEveryProtocolShape pins the inbound half of the
-// adapter. Every branch here is a distinct MCP content type, and a shape that
-// silently falls through to the JSON fallback would hand the model an encoded
-// envelope instead of the resource the server sent.
+// adapter. Every branch is a distinct MCP content type whose payload must
+// remain usable as content after projection.
 func TestMapRemoteContentCoversEveryProtocolShape(t *testing.T) {
 	cases := map[string]struct {
 		content sdkmcp.Content
@@ -126,46 +125,32 @@ func TestMapRemoteContentCoversEveryProtocolShape(t *testing.T) {
 	}
 }
 
-// TestMapRemoteContentFallsBackToEncodedJSON documents the deliberate escape
-// hatch: an unknown or unusable shape is preserved verbatim as text rather than
-// dropped, so a caller can still see what the server sent.
-func TestMapRemoteContentFallsBackToEncodedJSON(t *testing.T) {
-	cases := map[string]sdkmcp.Content{
-		"resource link without a MIME type": &sdkmcp.ResourceLink{URI: "https://example.com/a"},
-		"embedded resource with no payload": &sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{}},
-		"nil embedded resource":             &sdkmcp.EmbeddedResource{},
-	}
-	for name, content := range cases {
-		t.Run(name, func(t *testing.T) {
-			part, include, err := mapRemoteContent(content)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !include || part.Kind != corechat.PartText || part.Text == "" {
-				t.Fatalf("part = %#v, include = %t", part, include)
-			}
-		})
+func TestMapServerContentRejectsAnInvalidProtocolEnvelope(t *testing.T) {
+	for _, raw := range []string{`{}`, `{"type":"unknown"}`, `{"type":"resource_link"}`, `{"type":"text","resource":{"uri":"file:///source"}}`} {
+		part := corechat.ToolContent{Kind: corechat.PartText, Text: "body"}
+		if err := part.Metadata.Set(ContentMetadataKey, json.RawMessage(raw)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := mapServerContent(part); err == nil {
+			t.Fatalf("accepted invalid content envelope %s", raw)
+		}
 	}
 }
 
-func TestMapEmbeddedResourceSkipsUnusableResources(t *testing.T) {
-	cases := map[string]*sdkmcp.ResourceContents{
-		"nil":                nil,
-		"empty":              {},
-		"URI without a MIME": {URI: "https://example.com/a"},
-		"MIME without a URI": {MIMEType: pngMIME},
-		"unparsable MIME":    {MIMEType: "not a mime", URI: "https://example.com/a"},
+func TestMapRemoteContentRejectsUnusableResources(t *testing.T) {
+	for _, content := range []sdkmcp.Content{
+		&sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{}},
+		&sdkmcp.EmbeddedResource{},
+		&sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{MIMEType: "not a mime", URI: "https://example.com/a"}},
+		&sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{Text: "text", Blob: []byte("blob")}},
+	} {
+		if _, _, err := mapRemoteContent(content); err == nil {
+			t.Fatalf("unusable resource was admitted: %#v", content)
+		}
 	}
-	for name, resource := range cases {
-		t.Run(name, func(t *testing.T) {
-			part, include, err := mapEmbeddedResource(resource)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if include {
-				t.Fatalf("unusable resource was included as %#v", part)
-			}
-		})
+	part, include, err := mapRemoteContent(&sdkmcp.ResourceLink{URI: "https://example.com/a"})
+	if err != nil || !include || part.Kind != corechat.PartMedia || part.Media.MIME != "application/octet-stream" {
+		t.Fatalf("resource without MIME = %#v, %v, %v", part, include, err)
 	}
 }
 
@@ -325,8 +310,7 @@ func TestMapServerMediaCarriesReferences(t *testing.T) {
 }
 
 // TestPromptContentToPartCoversEveryProtocolShape mirrors the tool-result
-// mapping for prompts, which share the content vocabulary but not the code
-// path.
+// mapping for prompts through the shared content codec.
 func TestPromptContentToPartCoversEveryProtocolShape(t *testing.T) {
 	cases := map[string]struct {
 		content sdkmcp.Content

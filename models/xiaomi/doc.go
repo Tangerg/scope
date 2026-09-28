@@ -7,7 +7,7 @@
 // the one it defines as bounding visible output and reasoning tokens together.
 // The Anthropic-compatible endpoint keeps that protocol's own max_tokens.
 //
-// MiMo publishes what it discards, and [NewChat] refuses those settings rather
+// MiMo publishes what it discards, and both adapters refuse those settings rather
 // than let them vanish. "When tool_choice passes non-auto values, backend
 // defaults to removing the field, model response behavior remains equal to auto
 // mode", so a request asking for a named or required tool would silently get
@@ -15,9 +15,12 @@
 // and top_p parameters. Even if passed, actual values forced to defaults 1.0
 // and 0.95" -- and thinking is the documented default, so that is the ordinary
 // case rather than an opt-in one. Disabling thinking through
-// [ChatRequestOptions] restores both.
+// [ChatRequestOptions] under [RequestExtensionKey] restores both. This shared
+// extension is the sole thinking control for either protocol; raw native
+// thinking fields are rejected. [NewMessages] authenticates with api-key.
 //
-// Temperature is additionally bounded at the documented 1.5.
+// Temperature is additionally bounded at the documented 1.5, and TopP must
+// be at least 0.01.
 //
 // See https://mimo.mi.com/docs for the reference.
 package xiaomi

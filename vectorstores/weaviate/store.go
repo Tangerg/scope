@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/fault"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/filters"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -34,9 +36,12 @@ const (
 	fieldContent  = "content"
 	fieldMetadata = "metadata"
 
-	additionalID       = "id"
-	additionalDistance = "distance"
-	additionalScore    = "score"
+	additionalID         = "id"
+	additionalDistance   = "distance"
+	additionalScore      = "score"
+	metadataScanPageSize = 256
+	storageDataText      = "text"
+	contentTokenization  = "word"
 )
 
 // DistanceMetric selects the distance function configured on the Weaviate
@@ -79,32 +84,6 @@ func (d DistanceMetric) score(distance float64) vectorstore.Score {
 	}
 }
 
-// MetadataProperty declares one metadata key as a class property so filters
-// can select on it.
-//
-// Weaviate classes are typed and a where filter may only name a declared
-// property, so the filterable keys have to be known when the class is created
-// — the same constraint cassandra, milvus, and mongodb answer with their own
-// declarations.
-type MetadataProperty struct {
-	// Name is the metadata key, used verbatim as the property name.
-	Name string
-
-	// DataType is the Weaviate data type: "text", "int", "number",
-	// "boolean", or "date".
-	DataType string
-}
-
-// MetadataDataText is the data type whose tokenization the store pins. Filters
-// compare whole values case-sensitively, and Weaviate's default word
-// tokenization "splits text by any non-alphanumeric characters, then
-// lowercases each token" — field tokenization instead "treats the entire value
-// of the property as a single token" and "preserves both case and symbols".
-const MetadataDataText = "text"
-
-// metadataTextTokenization keeps a declared text property exactly comparable.
-const metadataTextTokenization = "field"
-
 // StoreConfig contains configuration options for Weaviate vector store.
 type StoreConfig struct {
 	// Client is the Weaviate client instance.
@@ -137,13 +116,6 @@ type StoreConfig struct {
 	// HybridAlpha controls the relative weight of vector evidence in native
 	// hybrid search. Nil preserves Weaviate's default; valid values are [0, 1].
 	HybridAlpha *float32
-
-	// MetadataProperties enumerates the metadata keys filters may select on.
-	// Each becomes a class property under InitializeSchema and is written
-	// alongside the document. A filter naming any other key is rejected,
-	// because a where filter on an undeclared property is not a narrower
-	// query — Weaviate has no such property to compare.
-	MetadataProperties []MetadataProperty
 }
 
 func (s StoreConfig) Validate() error {
@@ -166,30 +138,6 @@ func (s StoreConfig) Validate() error {
 	if s.HybridAlpha != nil && (*s.HybridAlpha < 0 || *s.HybridAlpha > 1) {
 		return fmt.Errorf("weaviate: HybridAlpha must be between 0 and 1, got %v", *s.HybridAlpha)
 	}
-	return s.validateMetadataProperties()
-}
-
-func (s StoreConfig) validateMetadataProperties() error {
-	seen := make(map[string]struct{}, len(s.MetadataProperties))
-	for index, property := range s.MetadataProperties {
-		if property.Name == "" {
-			return fmt.Errorf("weaviate: MetadataProperties[%d].Name must not be empty", index)
-		}
-		if property.Name == fieldContent || property.Name == fieldMetadata {
-			return fmt.Errorf("weaviate: MetadataProperties[%d] uses reserved property %q",
-				index, property.Name)
-		}
-		if _, duplicate := seen[property.Name]; duplicate {
-			return fmt.Errorf("weaviate: MetadataProperties[%d] duplicates %q", index, property.Name)
-		}
-		seen[property.Name] = struct{}{}
-		switch property.DataType {
-		case MetadataDataText, "int", "number", "boolean", "date":
-		default:
-			return fmt.Errorf("weaviate: MetadataProperties[%d] has unsupported DataType %q",
-				index, property.DataType)
-		}
-	}
 	return nil
 }
 
@@ -207,18 +155,17 @@ var (
 	_ vectorstore.IDDeleter     = (*Store)(nil)
 )
 
-// Store implements [vectorstore.Store] against a Weaviate class. Weaviate
+// Store implements the Core vector-store capability interfaces against a Weaviate class. Weaviate
 // names properties per class, so the field mapping is fixed at construction
 // and cannot vary per request.
 type Store struct {
-	client             *weaviate.Client
-	embeddingClient    embeddingclient.Client
-	documentBatcher    vectorstore.Batcher
-	className          string
-	metadataProperties []MetadataProperty
-	distanceMetric     DistanceMetric
-	hybridAlpha        *float32
-	initializeSchema   bool
+	client           *weaviate.Client
+	embeddingClient  embeddingclient.Client
+	documentBatcher  vectorstore.Batcher
+	className        string
+	distanceMetric   DistanceMetric
+	hybridAlpha      *float32
+	initializeSchema bool
 }
 
 // NewStore performs schema setup during construction, which is why it takes
@@ -242,14 +189,13 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		*hybridAlpha = *config.HybridAlpha
 	}
 	store := &Store{
-		client:             config.Client,
-		embeddingClient:    embeddingClient,
-		documentBatcher:    config.DocumentBatcher,
-		className:          config.ClassName,
-		metadataProperties: slices.Clone(config.MetadataProperties),
-		distanceMetric:     config.DistanceMetric,
-		hybridAlpha:        hybridAlpha,
-		initializeSchema:   config.InitializeSchema,
+		client:           config.Client,
+		embeddingClient:  embeddingClient,
+		documentBatcher:  config.DocumentBatcher,
+		className:        config.ClassName,
+		distanceMetric:   config.DistanceMetric,
+		hybridAlpha:      hybridAlpha,
+		initializeSchema: config.InitializeSchema,
 	}
 
 	if err = store.initialize(ctx); err != nil {
@@ -290,32 +236,22 @@ func (s *Store) initialize(ctx context.Context) error {
 		VectorIndexConfig: map[string]any{
 			"distance": string(s.distanceMetric),
 		},
-		Properties: s.classProperties(),
+		Properties: []*models.Property{
+			{Name: fieldContent, DataType: []string{storageDataText}, Tokenization: contentTokenization},
+			{Name: fieldMetadata, DataType: []string{storageDataText}},
+		},
 	}
 
 	if err = s.client.Schema().ClassCreator().WithClass(class).Do(ctx); err != nil {
 		return fmt.Errorf("weaviate: create class %s: %w", s.className, err)
 	}
 
-	return nil
+	return s.checkExistingClass(ctx)
 }
 
-// classProperties declares the storage fields plus every filterable metadata
-// key. A declared text property pins field tokenization so a filter compares
-// the whole value case-sensitively; content keeps Weaviate's default word
-// tokenization, which is what hybrid search needs.
-// checkExistingClass verifies that a class this store did not create ranks by
-// the distance this store scores against.
-//
-// Existence is not agreement. Search converts Weaviate's distance into a Score
-// using the metric from this store's own config, so a class built with l2
-// squared while the config says cosine returns scores that are wrong rather
-// than missing: nothing fails, the ranking is silently mis-scaled. Returning
-// early because the class was already there accepted exactly that.
-//
-// Only the distance is checked. Weaviate stores no vector width on a class
-// whose vectorizer is none — the length comes with each object — so there is
-// no declared dimension here to disagree with.
+// The existing collection must preserve the text and JSON fields used by
+// retrieval. Metadata filtering reads the original JSON, so native metadata
+// property types, tokenizers and null-state indexes cannot change its meaning.
 func (s *Store) checkExistingClass(ctx context.Context) error {
 	class, err := s.client.Schema().ClassGetter().
 		WithClassName(s.className).
@@ -323,12 +259,33 @@ func (s *Store) checkExistingClass(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("weaviate: get class %s: %w", s.className, err)
 	}
-	return s.compareClassDistance(class)
+	if err := s.compareClassDistance(class); err != nil {
+		return err
+	}
+	for _, name := range []string{fieldContent, fieldMetadata} {
+		var property *models.Property
+		for _, candidate := range class.Properties {
+			if candidate != nil && candidate.Name == name {
+				property = candidate
+				break
+			}
+		}
+		if property == nil || len(property.DataType) != 1 || property.DataType[0] != storageDataText {
+			return fmt.Errorf("%w: class %s requires text property %s", ErrIncompatibleClass, s.className, name)
+		}
+		if name == fieldContent && ((property.Tokenization != "" && property.Tokenization != contentTokenization) || (property.IndexSearchable != nil && !*property.IndexSearchable)) {
+			return fmt.Errorf("%w: class %s content requires searchable word tokenization", ErrIncompatibleClass, s.className)
+		}
+	}
+	return nil
 }
 
 // compareClassDistance is the decision checkExistingClass makes, separated from
 // the schema fetch so it can be asserted without a live Weaviate.
 func (s *Store) compareClassDistance(class *models.Class) error {
+	if class == nil {
+		return fmt.Errorf("%w: class %s has no schema", ErrIncompatibleClass, s.className)
+	}
 	config, ok := class.VectorIndexConfig.(map[string]any)
 	if !ok {
 		return fmt.Errorf("%w: class %s reports vector index config as %T, not an object",
@@ -336,6 +293,9 @@ func (s *Store) compareClassDistance(class *models.Class) error {
 	}
 	distance, ok := config["distance"].(string)
 	if !ok {
+		if _, exists := config["distance"]; exists {
+			return fmt.Errorf("%w: class %s has invalid distance %v", ErrIncompatibleClass, s.className, config["distance"])
+		}
 		// Weaviate omits the key when the class uses its default, which is
 		// cosine. Reading the omission as cosine keeps a default-built class
 		// usable instead of refusing it for saying nothing.
@@ -346,24 +306,6 @@ func (s *Store) compareClassDistance(class *models.Class) error {
 			ErrIncompatibleClass, s.className, distance, s.distanceMetric)
 	}
 	return nil
-}
-
-func (s *Store) classProperties() []*models.Property {
-	properties := []*models.Property{
-		{Name: fieldContent, DataType: []string{"text"}},
-		{Name: fieldMetadata, DataType: []string{"text"}},
-	}
-	for _, declared := range s.metadataProperties {
-		property := &models.Property{
-			Name:     declared.Name,
-			DataType: []string{declared.DataType},
-		}
-		if declared.DataType == MetadataDataText {
-			property.Tokenization = metadataTextTokenization
-		}
-		properties = append(properties, property)
-	}
-	return properties
 }
 
 func (s *Store) buildObjects(docs []*document.Document, vectors [][]float64) ([]*models.Object, error) {
@@ -379,13 +321,6 @@ func (s *Store) buildObjects(docs []*document.Document, vectors [][]float64) ([]
 			fieldContent:  doc.Text,
 			fieldMetadata: string(metaBytes),
 		}
-		// The blob round-trips every key losslessly; a declared key is
-		// written again as its own property because that is the only shape a
-		// where filter can select on.
-		if err := s.addDeclaredProperties(properties, doc); err != nil {
-			return nil, err
-		}
-
 		obj := &models.Object{
 			Class:      s.className,
 			ID:         strfmt.UUID(doc.ID),
@@ -396,23 +331,6 @@ func (s *Store) buildObjects(docs []*document.Document, vectors [][]float64) ([]
 	}
 
 	return objects, nil
-}
-
-// addDeclaredProperties copies each declared metadata key onto the object. A
-// key the document does not carry is left unset, which Weaviate reads as null
-// and IsNull matches — the same answer filter.Match gives for an absent key.
-func (s *Store) addDeclaredProperties(properties map[string]any, doc *document.Document) error {
-	for _, declared := range s.metadataProperties {
-		value, present, err := doc.Metadata.Decode[any](declared.Name)
-		if err != nil {
-			return fmt.Errorf("weaviate: decode metadata %q for document %s: %w",
-				declared.Name, doc.ID, err)
-		}
-		if present && value != nil {
-			properties[declared.Name] = value
-		}
-	}
-	return nil
 }
 
 func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
@@ -508,6 +426,11 @@ func (s *Store) buildNearVector(vector []float64, minScore vectorstore.Score) *g
 	return builder
 }
 
+// Search ranks documents with Weaviate's semantic or hybrid search. A metadata
+// filter first scans every stored metadata object and selects matching UUIDs;
+// the native ranking query receives those UUIDs before applying TopK. Returned
+// candidates are rechecked, and a changed predicate result fails the search.
+// The scan and ranking are separate requests, not a database snapshot.
 func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
 	var docs []*vectorstore.SearchResult
 	if err = req.Validate(); err != nil {
@@ -522,6 +445,17 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 			err = response.ValidateFor(req)
 		}
 	}()
+
+	var selectedIDs []string
+	if req.Options.Filter != nil {
+		selectedIDs, err = s.matchingIDs(ctx, req.Options.Filter)
+		if err != nil {
+			return nil, err
+		}
+		if len(selectedIDs) == 0 {
+			return &vectorstore.SearchResponse{}, nil
+		}
+	}
 
 	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
 	if err != nil {
@@ -563,11 +497,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	}
 
 	if req.Options.Filter != nil {
-		visitor := newVisitor(s.metadataProperties)
-		if acceptErr := req.Options.Filter.Accept(visitor); acceptErr != nil {
-			return nil, fmt.Errorf("weaviate: convert filter: %w", acceptErr)
-		}
-		getBuilder = getBuilder.WithWhere(visitor.snapshot())
+		getBuilder = getBuilder.WithWhere(filters.Where().WithPath([]string{additionalID}).WithOperator(filters.ContainsAny).WithValueText(selectedIDs...))
 	}
 
 	result, err := getBuilder.Do(ctx)
@@ -575,11 +505,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		return nil, fmt.Errorf("weaviate: query class %s: %w", s.className, err)
 	}
 
-	if len(result.Errors) > 0 {
-		return nil, fmt.Errorf("weaviate: GraphQL query error: %v", result.Errors[0].Message)
-	}
-
-	docs, err = s.buildDocumentsFromResult(result, req.Options)
+	docs, err = s.buildDocumentsFromResult(result, req.Options, selectedIDs)
 	if err != nil {
 		return nil, fmt.Errorf("weaviate: build documents from results: %w", err)
 	}
@@ -587,12 +513,12 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	return &vectorstore.SearchResponse{Results: docs}, nil
 }
 
-func (s *Store) buildDocumentsFromResult(
-	result *models.GraphQLResponse,
-	options vectorstore.SearchOptions,
-) ([]*vectorstore.SearchResult, error) {
+func (s *Store) resultObjects(result *models.GraphQLResponse) ([]map[string]any, error) {
 	if result == nil {
 		return nil, errors.New("weaviate: GraphQL response is nil")
+	}
+	if len(result.Errors) > 0 {
+		return nil, fmt.Errorf("weaviate: GraphQL query error: %s", result.Errors[0].Message)
 	}
 	getData, ok := result.Data["Get"]
 	if !ok {
@@ -614,14 +540,26 @@ func (s *Store) buildDocumentsFromResult(
 		return nil, fmt.Errorf("weaviate: GraphQL class data has type %T, want array", classData)
 	}
 
-	docs := make([]*vectorstore.SearchResult, 0, len(items))
-
-	for _, item := range items {
-		objMap, ok := item.(map[string]any)
+	objects := make([]map[string]any, len(items))
+	for index, item := range items {
+		object, ok := item.(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf("weaviate: result object has type %T, want object", item)
 		}
+		objects[index] = object
+	}
+	return objects, nil
+}
 
+func (s *Store) buildDocumentsFromResult(result *models.GraphQLResponse, options vectorstore.SearchOptions, selectedIDs []string) ([]*vectorstore.SearchResult, error) {
+	items, err := s.resultObjects(result)
+	if err != nil {
+		return nil, err
+	}
+
+	docs := make([]*vectorstore.SearchResult, 0, len(items))
+
+	for _, objMap := range items {
 		doc := &document.Document{}
 		additional, ok := objMap["_additional"].(map[string]any)
 		if !ok {
@@ -632,12 +570,10 @@ func (s *Store) buildDocumentsFromResult(
 			return nil, errors.New("weaviate: result object is missing _additional.id")
 		}
 		doc.ID = id
-		score, err := s.resultScore(additional, options.EffectiveMode())
-		if err != nil {
-			return nil, err
-		}
-		if score < options.MinScore {
-			continue
+		if options.Filter != nil {
+			if _, selected := slices.BinarySearch(selectedIDs, id); !selected {
+				return nil, fmt.Errorf("weaviate: returned object %s was not selected by the metadata filter", id)
+			}
 		}
 
 		content, ok := objMap[fieldContent].(string)
@@ -646,10 +582,29 @@ func (s *Store) buildDocumentsFromResult(
 		}
 		doc.Text = content
 
-		if metaStr, ok := objMap[fieldMetadata].(string); ok && metaStr != "" && metaStr != "null" {
-			if err := jsonv2.Unmarshal([]byte(metaStr), &doc.Metadata); err != nil {
-				return nil, fmt.Errorf("weaviate: decode metadata: %w", err)
+		doc.Metadata, err = decodeStoredMetadata(objMap[fieldMetadata])
+		if err != nil {
+			return nil, fmt.Errorf("weaviate: document %s: %w", doc.ID, err)
+		}
+		if options.Filter != nil {
+			values, err := doc.Metadata.Values()
+			if err != nil {
+				return nil, fmt.Errorf("weaviate: returned object %s metadata: %w", id, err)
 			}
+			match, err := filter.Match(options.Filter, values)
+			if err != nil {
+				return nil, fmt.Errorf("weaviate: filter returned object %s: %w", id, err)
+			}
+			if !match {
+				return nil, fmt.Errorf("weaviate: returned object %s no longer matches the metadata filter", id)
+			}
+		}
+		score, err := s.resultScore(additional, options.EffectiveMode())
+		if err != nil {
+			return nil, err
+		}
+		if score < options.MinScore {
+			continue
 		}
 
 		docs = append(docs, &vectorstore.SearchResult{Document: doc, Score: score})
@@ -682,6 +637,11 @@ func (s *Store) resultScore(additional map[string]any, mode vectorstore.SearchMo
 	}
 }
 
+// DeleteWhere scans all stored metadata with the Core predicate before deleting
+// the matching UUIDs. Scan or predicate errors prevent every deletion. Deletes
+// are individual requests without revision preconditions; concurrent writes
+// require host coordination, and a later deletion error can leave earlier
+// deletions applied.
 func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
 	if expr == nil {
 		return vectorstore.ErrMissingFilter
@@ -690,68 +650,81 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		return fmt.Errorf("weaviate.Store.DeleteWhere: %w", err)
 	}
 
-	visitor := newVisitor(s.metadataProperties)
-	if err = expr.Accept(visitor); err != nil {
-		return fmt.Errorf("weaviate: convert filter: %w", err)
+	ids, err := s.matchingIDs(ctx, expr)
+	if err != nil {
+		return err
 	}
+	return s.DeleteIDs(ctx, ids)
+}
 
-	// One batch delete removes at most QUERY_MAXIMUM_RESULTS objects — the
-	// response calls Successful the count "in this round" — and Weaviate's
-	// guidance for a filter that matches more is to re-run the query. A single
-	// call would report success after deleting the first 10,000 of them.
-	where := visitor.snapshot()
+// matchingIDs completes the cursor scan before ranking or mutation. A short
+// page is not a terminal marker; only an empty page establishes exhaustion.
+func (s *Store) matchingIDs(ctx context.Context, expr filter.Predicate) ([]string, error) {
+	var ids []string
+	var after string
 	for {
-		result, deleteErr := s.client.Batch().ObjectsBatchDeleter().
-			WithClassName(s.className).
-			WithWhere(where).
-			Do(ctx)
-		if deleteErr != nil {
-			return fmt.Errorf("weaviate: delete from class %s: %w", s.className, deleteErr)
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
-		round, roundErr := batchDeleteRound(s.className, result)
-		if roundErr != nil {
-			return roundErr
+		builder := s.client.GraphQL().Get().WithClassName(s.className).
+			WithFields(graphql.Field{Name: fieldMetadata}, graphql.Field{Name: "_additional", Fields: []graphql.Field{{Name: additionalID}}}).
+			WithLimit(metadataScanPageSize)
+		if after != "" {
+			builder = builder.WithAfter(after)
 		}
-		if round.remaining() {
-			continue
+		result, err := builder.Do(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("weaviate: enumerate class %s: %w", s.className, errors.Join(err, ctx.Err()))
 		}
-		return nil
+		objects, err := s.resultObjects(result)
+		if err != nil {
+			return nil, err
+		}
+		if len(objects) == 0 {
+			return ids, nil
+		}
+		for _, object := range objects {
+			additional, ok := object["_additional"].(map[string]any)
+			if !ok {
+				return nil, errors.New("weaviate: enumerated object is missing _additional")
+			}
+			id, ok := additional[additionalID].(string)
+			if !ok || validateObjectID(id) != nil {
+				return nil, errors.New("weaviate: enumerated object has no valid UUID")
+			}
+			if id <= after {
+				return nil, fmt.Errorf("weaviate: cursor did not advance past %q", after)
+			}
+			stored, err := decodeStoredMetadata(object[fieldMetadata])
+			if err != nil {
+				return nil, fmt.Errorf("weaviate: object %s: %w", id, err)
+			}
+			values, err := stored.Values()
+			if err != nil {
+				return nil, fmt.Errorf("weaviate: object %s metadata: %w", id, err)
+			}
+			match, err := filter.Match(expr, values)
+			if err != nil {
+				return nil, fmt.Errorf("weaviate: filter object %s: %w", id, err)
+			}
+			if match {
+				ids = append(ids, id)
+			}
+			after = id
+		}
 	}
 }
 
-// deleteRound is one batch delete's accounting.
-type deleteRound struct {
-	matches    int64
-	successful int64
-}
-
-// remaining reports whether the filter still selects objects this round did not
-// reach, which happens when it matched the server's per-query maximum.
-func (d deleteRound) remaining() bool { return d.matches > d.successful }
-
-// batchDeleteRound reads what one batch delete actually did.
-//
-// Objects that "should have been deleted but could not be" are reported in
-// Failed rather than as a call error, so a nil error alone does not mean the
-// round removed what it matched. A round that matched more than it deleted has
-// hit the per-query maximum; a round that matched more and deleted nothing is
-// not making progress, and re-running it would loop forever.
-func batchDeleteRound(className string, response *models.BatchDeleteResponse) (deleteRound, error) {
-	if response == nil || response.Results == nil {
-		return deleteRound{}, fmt.Errorf("weaviate: batch delete for class %s returned no results", className)
+func decodeStoredMetadata(value any) (metadata.Map, error) {
+	encoded, ok := value.(string)
+	if !ok || encoded == "" {
+		return nil, errors.New("weaviate: missing stored metadata JSON")
 	}
-	results := response.Results
-	if results.Failed != 0 {
-		return deleteRound{}, fmt.Errorf("weaviate: batch delete for class %s failed on %d of %d matched objects",
-			className, results.Failed, results.Matches)
+	var result metadata.Map
+	if err := jsonv2.Unmarshal([]byte(encoded), &result); err != nil {
+		return nil, fmt.Errorf("weaviate: decode metadata JSON: %w", err)
 	}
-	round := deleteRound{matches: results.Matches, successful: results.Successful}
-	if round.remaining() && results.Successful == 0 {
-		return deleteRound{}, fmt.Errorf(
-			"weaviate: batch delete for class %s matched %d objects and deleted none, so repeating cannot progress",
-			className, results.Matches)
-	}
-	return round, nil
+	return result, nil
 }
 
 // DeleteIDs removes objects by their Weaviate UUIDs. An empty slice is a

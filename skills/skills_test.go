@@ -162,7 +162,7 @@ func TestParse(t *testing.T) {
 	}
 }
 
-func TestParseNormalizesBOMAndCRLF(t *testing.T) {
+func TestParseAcceptsBOMAndPreservesCRLF(t *testing.T) {
 	skill, err := Parse([]byte("\ufeff---\r\nname: portable-skill\r\ndescription: Portable line endings\r\n---\r\n# Instructions\r\n\r\nUse it.\r\n"))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
@@ -170,8 +170,63 @@ func TestParseNormalizesBOMAndCRLF(t *testing.T) {
 	if skill.Name != "portable-skill" {
 		t.Fatalf("name = %q, want portable-skill", skill.Name)
 	}
-	if skill.Instructions != "# Instructions\n\nUse it." {
+	if skill.Instructions != "# Instructions\r\n\r\nUse it.\r\n" {
 		t.Fatalf("instructions = %q", skill.Instructions)
+	}
+}
+
+func TestParsePreservesMarkdownBody(t *testing.T) {
+	for _, body := range []string{
+		"    printf 'first'\n    printf 'second'\n",
+		"\tcode\n\tmore code\n",
+		"\n\n    code\n\n",
+		"line with hard break  \nnext line\n\n",
+		"    code\r\n\tmore\r\n",
+	} {
+		skill, err := Parse([]byte("---\nname: test\ndescription: Preserve markdown\n---\n" + body))
+		if err != nil || skill.Instructions != body {
+			t.Fatalf("Parse body = %#v, %v; want %q", skill, err, body)
+		}
+	}
+}
+
+func TestUnicodeNamesAndNormalizedDirectoryMatch(t *testing.T) {
+	for _, name := range []string{"数据分析", "café", "cafe\u0301", "ａｂｃ", "分析-٢", strings.Repeat("界", 64)} {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidateName(name); err != nil {
+				t.Fatal(err)
+			}
+			repository := mustNewFS(fstest.MapFS{name + "/SKILL.md": skillFile(name, "Unicode skill", "body")})
+			summaries, err := repository.List(t.Context())
+			if err != nil || len(summaries) != 1 || summaries[0].Name != name {
+				t.Fatalf("List = %#v, %v", summaries, err)
+			}
+			if _, err := repository.Lookup(t.Context(), summaries[0].Name); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := repository.Load(t.Context(), summaries[0].Name); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	for _, name := range []string{"Café", "Ａｂｃ", "../分析", "数据/分析", "a--b", "a\u0300\u0301", string([]byte{0xff})} {
+		if err := ValidateName(name); !errors.Is(err, ErrNameInvalid) {
+			t.Fatalf("ValidateName(%q) = %v, want ErrNameInvalid", name, err)
+		}
+	}
+	if err := ValidateName(strings.Repeat("界", 65)); !errors.Is(err, ErrNameTooLong) {
+		t.Fatalf("65 character name = %v", err)
+	}
+	for _, test := range []struct{ directory, name string }{{"cafe\u0301", "café"}, {"ａｂｃ", "abc"}} {
+		repository := mustNewFS(fstest.MapFS{test.directory + "/SKILL.md": skillFile(test.name, "Equivalent Unicode name", "body")})
+		summaries, err := repository.List(t.Context())
+		if err != nil || len(summaries) != 1 || summaries[0].Name != test.directory {
+			t.Fatalf("normalized List = %#v, %v", summaries, err)
+		}
+		skill, err := repository.Load(t.Context(), summaries[0].Name)
+		if err != nil || skill.Name != test.directory {
+			t.Fatalf("normalized Load = %#v, %v", skill, err)
+		}
 	}
 }
 

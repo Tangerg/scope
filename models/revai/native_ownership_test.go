@@ -13,7 +13,7 @@ import (
 )
 
 func TestTranscriptionRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
-	for _, field := range []string{"language", "transcriber"} {
+	for _, field := range []string{"media_url", "language", "transcriber"} {
 		for _, defaults := range []bool{false, true} {
 			t.Run(field+map[bool]string{false: "/request", true: "/defaults"}[defaults], func(t *testing.T) {
 				requests := 0

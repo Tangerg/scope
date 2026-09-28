@@ -15,7 +15,7 @@ func TestImageModel_Call_Integration(t *testing.T) {
 	key := modeltest.RequireKey(t, "openai")
 	modelID, _ := modeltest.LookupEnv("SCOPE_TEST_OPENAI_IMAGE_MODEL")
 	if modelID == "" {
-		modelID = "dall-e-2" // cheaper than dall-e-3
+		modelID = "gpt-image-1-mini"
 	}
 	opts := image.Options{Model: modelID}
 	err := opts.Validate()

@@ -80,22 +80,6 @@ func (s SearchType) Valid() bool {
 	return s == SearchTypeFast || s == SearchTypeAuto || s == SearchTypePro
 }
 
-// ReasoningEffort selects Perplexity's native reasoning budget.
-type ReasoningEffort string
-
-// These are the provider values this adapter recognizes.
-const (
-	ReasoningEffortMinimal ReasoningEffort = "minimal"
-	ReasoningEffortLow     ReasoningEffort = "low"
-	ReasoningEffortMedium  ReasoningEffort = "medium"
-	ReasoningEffortHigh    ReasoningEffort = "high"
-)
-
-func (r ReasoningEffort) Valid() bool {
-	return r == ReasoningEffortMinimal || r == ReasoningEffortLow ||
-		r == ReasoningEffortMedium || r == ReasoningEffortHigh
-}
-
 // SearchDate is a Sonar search boundary encoded as MM/DD/YYYY.
 type SearchDate string
 
@@ -168,7 +152,6 @@ type RequestOptions struct {
 	LastUpdatedAfterFilter  SearchDate        `json:"last_updated_after_filter,omitempty"`
 	ImageFormatFilter       []ImageFormat     `json:"image_format_filter,omitempty"`
 	ImageDomainFilter       []string          `json:"image_domain_filter,omitempty"`
-	ReasoningEffort         ReasoningEffort   `json:"reasoning_effort,omitempty"`
 	LanguagePreference      string            `json:"language_preference,omitempty"`
 }
 
@@ -229,6 +212,11 @@ func decodeRequestOptions(request *corechat.Request) (RequestOptions, error) {
 }
 
 func validateCoreOptions(options corechat.Options) error {
+	switch options.ReasoningEffort {
+	case "", "minimal", "low", "medium", "high":
+	default:
+		return fmt.Errorf("options.reasoning_effort has unsupported value %q", options.ReasoningEffort)
+	}
 	if options.FrequencyPenalty != nil {
 		return errors.New("options.frequency_penalty is not supported by the Sonar API")
 	}
@@ -246,9 +234,6 @@ func (r RequestOptions) ValidateFor(model string, stream bool) error {
 		return err
 	}
 	if err := validateEnum("search_recency_filter", r.SearchRecencyFilter); err != nil {
-		return err
-	}
-	if err := validateEnum("reasoning_effort", r.ReasoningEffort); err != nil {
 		return err
 	}
 	if r.EnableSearchClassifier != nil && r.DisableSearch != nil && *r.EnableSearchClassifier && *r.DisableSearch {
@@ -399,4 +384,17 @@ func (r RequestOptions) hasDateFilter() bool {
 		r.SearchBeforeDateFilter != "" ||
 		r.LastUpdatedBeforeFilter != "" ||
 		r.LastUpdatedAfterFilter != ""
+}
+
+func (r *RequestOptions) UnmarshalJSON(data []byte) error {
+	if r == nil {
+		return errors.New("perplexity: nil RequestOptions")
+	}
+	type wireOptions RequestOptions
+	var decoded wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	*r = RequestOptions(decoded)
+	return nil
 }

@@ -8,12 +8,14 @@ import (
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 type descriptorSnapshot struct {
 	remoteName      string
 	definition      corechat.ToolDefinition
 	toolAnnotations sdkmcp.ToolAnnotations
+	outputSchema    jsonschema.Schema
 }
 
 func newDescriptorSnapshot(descriptor sdkmcp.Tool, publicName string) (descriptorSnapshot, error) {
@@ -31,6 +33,16 @@ func newDescriptorSnapshot(descriptor sdkmcp.Tool, publicName string) (descripto
 		return descriptorSnapshot{}, err
 	}
 	snapshot := descriptorSnapshot{remoteName: descriptor.Name, definition: definition}
+	if descriptor.OutputSchema != nil {
+		raw, err := jsonv2.Marshal(descriptor.OutputSchema)
+		if err != nil {
+			return descriptorSnapshot{}, fmt.Errorf("mcp: encode tool output schema: %w", err)
+		}
+		snapshot.outputSchema, err = jsonschema.Parse(raw)
+		if err != nil {
+			return descriptorSnapshot{}, fmt.Errorf("mcp: compile tool output schema: %w", err)
+		}
+	}
 	if descriptor.Annotations != nil {
 		snapshot.toolAnnotations = cloneToolAnnotations(*descriptor.Annotations)
 	}

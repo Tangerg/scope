@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	tiktokenlib "github.com/pkoukk/tiktoken-go"
+	tiktokenlib "github.com/tiktoken-go/tokenizer"
 
 	"github.com/Tangerg/scope/core/tokenizer"
 )
@@ -22,28 +22,37 @@ type Encoding string
 
 // Supported encodings.
 const (
-	O200KBase  = Encoding(tiktokenlib.MODEL_O200K_BASE)
-	CL100KBase = Encoding(tiktokenlib.MODEL_CL100K_BASE)
-	P50KBase   = Encoding(tiktokenlib.MODEL_P50K_BASE)
-	P50KEdit   = Encoding(tiktokenlib.MODEL_P50K_EDIT)
-	R50KBase   = Encoding(tiktokenlib.MODEL_R50K_BASE)
+	O200KBase  = Encoding(tiktokenlib.O200kBase)
+	CL100KBase = Encoding(tiktokenlib.Cl100kBase)
+	P50KBase   = Encoding(tiktokenlib.P50kBase)
+	P50KEdit   = Encoding(tiktokenlib.P50kEdit)
+	R50KBase   = Encoding(tiktokenlib.R50kBase)
 )
 
+// Validate checks only vocabulary identity; it performs no I/O or initialization.
 func (e Encoding) Validate() error {
-	_, err := e.load()
-	return err
+	switch e {
+	case O200KBase, CL100KBase, P50KBase, P50KEdit, R50KBase:
+		return nil
+	default:
+		return fmt.Errorf("%w: %q", ErrInvalidEncoding, e)
+	}
 }
 
-func (e Encoding) load() (*tiktokenlib.Tiktoken, error) {
-	name := string(e)
-	if strings.TrimSpace(name) == "" {
-		return nil, fmt.Errorf("%w: name must not be blank", ErrInvalidEncoding)
+// The offline codec does not expose reserved-token decoding. These are the
+// vocabulary's published IDs, not text-matching rules; ordinary input still
+// passes through the codec without interpreting reserved marker strings.
+func (e Encoding) reservedTokens() map[int]string {
+	switch e {
+	case O200KBase:
+		return map[int]string{199999: "<|endoftext|>", 200018: "<|endofprompt|>"}
+	case CL100KBase:
+		return map[int]string{100257: "<|endoftext|>", 100258: "<|fim_prefix|>", 100259: "<|fim_middle|>", 100260: "<|fim_suffix|>", 100276: "<|endofprompt|>"}
+	case P50KEdit:
+		return map[int]string{50256: "<|endoftext|>", 50281: "<|fim_prefix|>", 50282: "<|fim_middle|>", 50283: "<|fim_suffix|>"}
+	default:
+		return map[int]string{50256: "<|endoftext|>"}
 	}
-	encoding, err := tiktokenlib.GetEncoding(name)
-	if err != nil {
-		return nil, fmt.Errorf("%w: load %q: %w", ErrInvalidEncoding, name, err)
-	}
-	return encoding, nil
 }
 
 var (
@@ -54,20 +63,32 @@ var (
 // Tokenizer encodes, decodes, and counts text with one tiktoken vocabulary.
 // It is safe for concurrent use.
 type Tokenizer struct {
-	encoding *tiktokenlib.Tiktoken
+	encoding tiktokenlib.Codec
+	reserved map[int]string
 }
 
-// New resolves the vocabulary once at construction rather than per call, so a
-// misspelled encoding fails where it is configured instead of on the first
-// count. The vocabulary must be named explicitly because no single encoding is
-// correct across models, and guessing one silently miscounts every budget
-// derived from it.
-func New(encoding Encoding) (Tokenizer, error) {
-	native, err := encoding.load()
-	if err != nil {
+// New initializes one explicitly selected, embedded vocabulary. Construction
+// never downloads dictionaries or reads or writes a cache.
+func New(ctx context.Context, encoding Encoding) (Tokenizer, error) {
+	if err := ctx.Err(); err != nil {
 		return Tokenizer{}, err
 	}
-	return Tokenizer{encoding: native}, nil
+	if err := encoding.Validate(); err != nil {
+		return Tokenizer{}, err
+	}
+	native, err := tiktokenlib.Get(tiktokenlib.Encoding(encoding))
+	if err != nil {
+		return Tokenizer{}, fmt.Errorf("tiktoken: initialize %q: %w", encoding, err)
+	}
+	// The codec lazily initializes its reverse vocabulary without synchronization.
+	// Finish that mutation before sharing this otherwise immutable instance.
+	if _, err := native.Decode(nil); err != nil {
+		return Tokenizer{}, fmt.Errorf("tiktoken: initialize reverse vocabulary: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return Tokenizer{}, err
+	}
+	return Tokenizer{encoding: native, reserved: encoding.reservedTokens()}, nil
 }
 
 func (t Tokenizer) CountText(ctx context.Context, text string) (int, error) {
@@ -85,7 +106,18 @@ func (t Tokenizer) Encode(ctx context.Context, text string) ([]int, error) {
 	if err := t.validate(); err != nil {
 		return nil, err
 	}
-	return t.encoding.Encode(text, nil, nil), nil
+	native, _, err := t.encoding.Encode(text)
+	if err != nil {
+		return nil, fmt.Errorf("tiktoken: encode: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	tokens := make([]int, len(native))
+	for index, token := range native {
+		tokens[index] = int(token)
+	}
+	return tokens, nil
 }
 
 func (t Tokenizer) Decode(ctx context.Context, tokens []int) (string, error) {
@@ -100,11 +132,16 @@ func (t Tokenizer) Decode(ctx context.Context, tokens []int) (string, error) {
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
-		// Every token in the supported vocabularies has a non-empty byte sequence;
-		// the SDK returns an empty string for an unknown ID, including holes.
-		decoded := t.encoding.Decode([]int{token})
-		if decoded == "" {
-			return "", fmt.Errorf("tiktoken: decode token[%d]: ID %d is outside the vocabulary", index, token)
+		decoded, reserved := t.reserved[token]
+		if !reserved {
+			if token < 0 {
+				return "", fmt.Errorf("tiktoken: decode token[%d]: ID %d is outside the vocabulary", index, token)
+			}
+			var err error
+			decoded, err = t.encoding.Decode([]uint{uint(token)})
+			if err != nil {
+				return "", fmt.Errorf("tiktoken: decode token[%d]: %w", index, err)
+			}
 		}
 		text.WriteString(decoded)
 	}

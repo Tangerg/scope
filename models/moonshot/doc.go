@@ -14,4 +14,7 @@
 // temperature at 1.0 in thinking mode and 0.6 outside it, erroring on anything
 // else. Neither can be enforced here without a model table this package would
 // then have to keep current.
+// Core Options.ReasoningEffort is the only request control for reasoning
+// intensity. Native request extensions reject that field and other unknown
+// fields instead of accepting a second configuration source.
 package moonshot

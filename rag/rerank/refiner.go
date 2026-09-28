@@ -24,7 +24,9 @@ type RefinerConfig struct {
 	// Formatter defaults to [rag.TextFormatter], which rejects media with
 	// [rag.ErrUnsupportedMedia].
 	Formatter rag.DocumentFormatter
-	TopK      int
+	// TopK explicitly caps results; zero requests every candidate, including
+	// when the model has a configured default limit.
+	TopK int
 }
 
 func (r RefinerConfig) Validate() error {
@@ -89,7 +91,7 @@ func (r *Refiner) Refine(ctx context.Context, query rag.Query, candidates rag.Ca
 	if requestErr != nil {
 		return nil, fmt.Errorf("%w: create model request: %w", rag.ErrInvalidReranking, requestErr)
 	}
-	request.Options.TopK = r.topK
+	request.Options.TopK = new(r.topK)
 	if err := request.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: model request: %w", rag.ErrInvalidReranking, err)
 	}

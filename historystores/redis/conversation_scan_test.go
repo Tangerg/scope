@@ -122,11 +122,9 @@ func TestSortedIsNeverNil(t *testing.T) {
 	}
 }
 
-// A ring shards the keyspace and SCAN carries no key, so the enumeration has to
-// go through ForEachShard rather than the client. A ring with no shards proves
-// which path runs: ForEachShard visits nothing and succeeds, while a SCAN sent
-// to the ring itself fails because no shard can serve it.
-func TestConversationsEnumeratesARingPerShard(t *testing.T) {
+// Even an empty ring must not report a complete list: the SDK cannot expose
+// whether missing shards were removed or skipped as unavailable.
+func TestConversationsRejectsIncompleteRingEnumeration(t *testing.T) {
 	t.Parallel()
 
 	ring := goredis.NewRing(&goredis.RingOptions{Addrs: map[string]string{}})
@@ -137,11 +135,11 @@ func TestConversationsEnumeratesARingPerShard(t *testing.T) {
 		t.Fatalf("NewStore() = %v, want nil", err)
 	}
 	ids, err := store.Conversations(t.Context())
-	if err != nil {
-		t.Fatalf("Conversations() = %v, want nil", err)
+	if !errors.Is(err, errors.ErrUnsupported) {
+		t.Fatalf("Conversations() error = %v, want ErrUnsupported", err)
 	}
-	if len(ids) != 0 || ids == nil {
-		t.Fatalf("Conversations() = %v, want a non-nil empty slice", ids)
+	if ids != nil {
+		t.Fatalf("Conversations() = %v, want no partial result", ids)
 	}
 }
 

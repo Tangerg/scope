@@ -13,61 +13,40 @@
 // Distance metrics: [DistanceCosine] / [DistanceL2] / [DistanceIP].
 // Vector index algorithm: [AlgorithmHNSW] (default) / [AlgorithmFlat].
 //
-// Metadata model. Every filterable metadata key MUST be declared in
-// [StoreConfig.MetadataFields] up-front with its RediSearch type —
-// [FieldTag] (exact match), [FieldNumeric] (range queries), or
-// [FieldText] (full-text). Filters against undeclared fields fail
-// fast via [ErrUnknownMetadataField] (rather than reaching Redis
-// and silently producing zero hits).
+// Metadata. The JSON in [StoreConfig.MetadataJSONField] is the exact document
+// record. [StoreConfig.MetadataFields] configures optional native index fields;
+// Core predicates are evaluated against the JSON record with filter.Match.
+// Filtering scans every key in the configured namespace (every master on a
+// Redis Cluster), before issuing bounded INKEYS vector queries. This costs
+// O(N) metadata reads and key bookkeeping, plus the selected metadata bytes,
+// and preserves scalar versus
+// array membership, case, punctuation, whole-string LIKE and missing/null
+// versus empty collections. No fixed vector candidate limit is used to decide
+// metadata membership.
 //
-// A document's metadata of record is the JSON in
-// [StoreConfig.MetadataJSONField], which is not part of the index schema. The
-// declared fields are the index projection of that record: RediSearch indexes a
-// HASH field's text as its declared type, so a declared field has to hold the
-// value in the form the index expects and cannot also carry the value's type.
-// Reading metadata back from those fields turned a number into a float64 and
-// everything else into a string, and an undeclared key had no field to read at
-// all, so a search returned a document that differed from the one that was
-// written. Reading the record instead makes the round trip exact and keeps
-// undeclared keys, and the projection no longer has to be reversible.
+// Filtered deletion finishes enumeration before making changes, then compares
+// the observed metadata bytes and deletes each key atomically with Lua. A key
+// whose metadata changed after enumeration is retained. Enumeration and search
+// are not a database snapshot: concurrent changes can be observed at different
+// times, and index visibility remains subject to RediSearch's indexing state.
+// Returned IDs and metadata are revalidated; a hit outside the selected IDs or
+// no longer satisfying the predicate fails the entire search. Ring clients
+// return errors.ErrUnsupported for filtered search and deletion because the
+// SDK cannot enumerate every current shard, including unavailable shards.
 //
-// Query path. The filter visitor emits RediSearch syntax — TAG
-// `@f:{v}`, NUMERIC `@f:[low high]`, TEXT `@f:(v)`. Vector retrieval
-// runs FT.SEARCH with the hybrid syntax
-// `(<filter>)=>[KNN K @embedding $vec AS distance]`, passing the
-// binary FLOAT32 little-endian vector through PARAMS.
+// Vector retrieval uses FT.SEARCH with KNN, binary FLOAT32 vectors in PARAMS,
+// and a bounded INKEYS list when filtered. Search rejects reported timeout
+// warnings or unreadable hits rather than treating partial output as complete.
 //
-// Result completeness. RediSearch bounds every query with TIMEOUT and its
-// default ON_TIMEOUT policy answers successfully with the hits gathered so far,
-// reporting the truncation as a warning. Search and filtered deletion reject a
-// warned result, and deletion re-queries until a page comes back empty rather
-// than reading a short page as an exhausted match set.
+// Existing indexes must select exactly HASH keys with [StoreConfig.KeyPrefix],
+// without another PREFIX or FILTER. FT.INFO also verifies the actual vector
+// field, FLOAT32 representation, metric and declared dimension. Incompatibility
+// returns [ErrIncompatibleIndex] at construction. Every returned key is checked
+// against the namespace before its ID is exposed.
 //
-// Null tests are refused. A RediSearch index has no predicate for a field that
-// was never written — an unindexed field is simply absent from the inverted
-// index — so an IS NULL filter fails rather than being approximated.
-//
-// Existing index. The index is verified whenever it is found, whatever
-// InitializeSchema says, because that flag answers whether a missing index may
-// be created and not whether the one found is the right one — and the second
-// question matters most for an index provisioned out of band. An index that is
-// neither found nor creatable fails construction rather than every later
-// request. Existence was previously taken for agreement:
-// search converts RediSearch's distance into a Score using the configured
-// metric, so an index built with L2 while the config says COSINE returned
-// scores that were wrong rather than absent — nothing failed, the ranking was
-// silently mis-scaled. FT.INFO now supplies the vector attribute's metric and
-// dimension, and a mismatch fails construction with [ErrIncompatibleIndex],
-// where the misconfiguration is.
-//
-// Field names. Every configured field name is written into the RediSearch
-// query language as text — FT.CREATE declares it and a filter emits it as
-// `@name` — and RediSearch cannot quote a field name, so construction
-// requires each to be a dot-separated path of plain identifiers. The dots
-// are allowed because a RediSearch schema is flat: a nested metadata key is
-// declared as a dotted field name, and that is the only way to filter one.
-// A filter can still only reference a declared field, so a key chosen at
-// query time never reaches the query language unchecked.
+// Configured field identifiers must remain plain dotted identifiers for the
+// native schema and vector query. Metadata selectors themselves are evaluated
+// locally and can name undeclared keys without entering Redis query syntax.
 //
 // See https://redis.io/docs/latest/develop/interact/search-and-query/
 // for the RediSearch reference.

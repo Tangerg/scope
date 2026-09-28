@@ -7,6 +7,8 @@ const (
 
 // Exported identifiers keep provider-owned names and defaults out of caller literals.
 const (
+	// EmbeddingRequestExtensionKey carries provider-only /api/embed fields.
+	// Model, input texts, and dimensions are owned by Core and are rejected here.
 	EmbeddingRequestExtensionKey = "ollama/embedding_request"
 
 	// DefaultBaseURL is Ollama's default local listen address.

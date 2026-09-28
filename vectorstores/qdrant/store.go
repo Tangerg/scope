@@ -1,9 +1,11 @@
 package qdrant
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	stdmath "math"
+	"slices"
 	"strconv"
 
 	"github.com/google/uuid"
@@ -106,6 +108,7 @@ func (d DistanceMetric) rawScoreThreshold(minScore vectorstore.Score) (float64, 
 const (
 	// payloadDocumentContentKey is the payload key for saving document content
 	payloadDocumentContentKey = "scope:ai:vectorstore:qdrant:payload_document_content"
+	filterPageSize            = 256
 )
 
 // StoreConfig contains configuration options for Qdrant vector store.
@@ -435,14 +438,6 @@ func (s *Store) buildQueryPoints(ctx context.Context, req *vectorstore.SearchReq
 		queryPoints.ScoreThreshold = &threshold32
 	}
 
-	if req.Options.Filter != nil {
-		visitor := newVisitor()
-		if err := req.Options.Filter.Accept(visitor); err != nil {
-			return nil, fmt.Errorf("qdrant: convert filter: %w", err)
-		}
-		queryPoints.Filter = visitor.snapshot()
-	}
-
 	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
 	if err != nil {
 		return nil, fmt.Errorf("qdrant: embed query: %w", err)
@@ -492,8 +487,8 @@ func (s *Store) convertQdrantStruct(qs *qdrant.Struct) map[string]any {
 }
 
 func (s *Store) convertQdrantList(l *qdrant.ListValue) []any {
-	if l == nil || len(l.Values) == 0 {
-		return nil
+	if l == nil {
+		return []any{}
 	}
 
 	result := make([]any, len(l.Values))
@@ -567,21 +562,69 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		}
 	}()
 
+	var selected []string
+	if req.Options.Filter != nil {
+		selected, err = s.matchingIDs(ctx, req.Options.Filter)
+		if err != nil {
+			return nil, err
+		}
+		if len(selected) == 0 {
+			return &vectorstore.SearchResponse{}, nil
+		}
+	}
+
 	var queryPoints *qdrant.QueryPoints
 	queryPoints, err = s.buildQueryPoints(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
-	var scoredPoints []*qdrant.ScoredPoint
-	scoredPoints, err = s.client.Query(ctx, queryPoints)
-	if err != nil {
-		return nil, fmt.Errorf("qdrant: query collection %s: %w", s.collectionName, err)
+	groups := [][]string{nil}
+	if req.Options.Filter != nil {
+		groups = slices.Collect(slices.Chunk(selected, filterPageSize))
 	}
-
-	docs, err = s.buildDocumentsFromPoints(scoredPoints)
-	if err != nil {
-		return nil, fmt.Errorf("qdrant: build documents from query results: %w", err)
+	for _, group := range groups {
+		if group != nil {
+			ids := make([]*qdrant.PointId, len(group))
+			for index, id := range group {
+				ids[index], err = parsePointID(id)
+				if err != nil {
+					return nil, err
+				}
+			}
+			queryPoints.Filter = &qdrant.Filter{Must: []*qdrant.Condition{qdrant.NewHasID(ids...)}}
+		}
+		scoredPoints, queryErr := s.client.Query(ctx, queryPoints)
+		if queryErr != nil {
+			return nil, fmt.Errorf("qdrant: query collection %s: %w", s.collectionName, queryErr)
+		}
+		matches, convertErr := s.buildDocumentsFromPoints(scoredPoints)
+		if convertErr != nil {
+			return nil, fmt.Errorf("qdrant: build documents from query results: %w", convertErr)
+		}
+		if req.Options.Filter != nil {
+			for _, match := range matches {
+				if !slices.Contains(group, match.Document.ID) {
+					return nil, fmt.Errorf("qdrant: search returned unselected ID %q", match.Document.ID)
+				}
+				values, err := match.Document.Metadata.Values()
+				if err != nil {
+					return nil, err
+				}
+				matched, err := filter.Match(req.Options.Filter, values)
+				if err != nil {
+					return nil, fmt.Errorf("qdrant: validate returned metadata for %s: %w", match.Document.ID, err)
+				}
+				if !matched {
+					return nil, fmt.Errorf("qdrant: metadata for %s changed after filter selection", match.Document.ID)
+				}
+			}
+		}
+		docs = append(docs, matches...)
+	}
+	slices.SortFunc(docs, func(left, right *vectorstore.SearchResult) int { return cmp.Compare(right.Score, left.Score) })
+	if len(docs) > req.Options.ResultLimit() {
+		docs = docs[:req.Options.ResultLimit()]
 	}
 
 	return &vectorstore.SearchResponse{Results: docs}, nil
@@ -599,20 +642,68 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		return fmt.Errorf("qdrant.Store.DeleteWhere: %w", err)
 	}
 
-	visitor := newVisitor()
-	if err = expr.Accept(visitor); err != nil {
-		return fmt.Errorf("qdrant: convert filter: %w", err)
-	}
-
-	result, err := s.client.Delete(ctx, s.buildDeletePoints(qdrant.NewPointsSelectorFilter(visitor.snapshot())))
+	ids, err := s.matchingIDs(ctx, expr)
 	if err != nil {
-		return fmt.Errorf("qdrant: delete points from collection %s: %w", s.collectionName, err)
+		return err
 	}
-	if err = requireAppliedUpdate(result, "delete"); err != nil {
-		return fmt.Errorf("qdrant: delete points from collection %s: %w", s.collectionName, err)
+	for group := range slices.Chunk(ids, filterPageSize) {
+		if err := s.DeleteIDs(ctx, group); err != nil {
+			return err
+		}
 	}
 
 	return nil
+}
+
+// matchingIDs enumerates the complete collection before applying mutations or
+// a vector limit. Native payload equality and is_empty have broader array
+// semantics than Core scalar equality and null checks.
+func (s *Store) matchingIDs(ctx context.Context, expr filter.Predicate) ([]string, error) {
+	request := &qdrant.ScrollPoints{CollectionName: s.collectionName, Limit: new(uint32(filterPageSize)), WithPayload: qdrant.NewWithPayload(true)}
+	var selected []string
+	seen := make(map[string]struct{})
+	offsets := make(map[string]struct{})
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		points, next, scrollErr := s.client.ScrollAndOffset(ctx, request)
+		if scrollErr != nil {
+			return nil, fmt.Errorf("qdrant: scroll collection %s: %w", s.collectionName, scrollErr)
+		}
+		for _, point := range points {
+			if point == nil {
+				return nil, fmt.Errorf("qdrant: scroll returned a nil point")
+			}
+			id, err := formatPointID(point.GetId())
+			if err != nil {
+				return nil, err
+			}
+			if _, exists := seen[id]; exists {
+				continue
+			}
+			seen[id] = struct{}{}
+			matched, err := filter.Match(expr, s.convertPayloadToMetadata(point.GetPayload()))
+			if err != nil {
+				return nil, fmt.Errorf("qdrant: evaluate filter for %s: %w", id, err)
+			}
+			if matched {
+				selected = append(selected, id)
+			}
+		}
+		if next == nil {
+			return selected, nil
+		}
+		key, err := formatPointID(next)
+		if err != nil {
+			return nil, err
+		}
+		if _, repeated := offsets[key]; repeated {
+			return nil, fmt.Errorf("qdrant: scroll repeated offset %s", key)
+		}
+		offsets[key] = struct{}{}
+		request.Offset = next
+	}
 }
 
 // DeleteIDs removes points by their canonical uint64 or UUID identifiers. An

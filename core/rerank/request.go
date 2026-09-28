@@ -44,8 +44,8 @@ func (r *Request) Validate() error {
 	if err := r.Options.Validate(); err != nil {
 		return fmt.Errorf("%w: options: %w", ErrInvalidRequest, err)
 	}
-	if r.Options.TopK > len(r.Documents) {
-		return fmt.Errorf("%w: top K %d exceeds document count %d", ErrInvalidRequest, r.Options.TopK, len(r.Documents))
+	if r.Options.TopK != nil && *r.Options.TopK > len(r.Documents) {
+		return fmt.Errorf("%w: top K %d exceeds document count %d", ErrInvalidRequest, *r.Options.TopK, len(r.Documents))
 	}
 	return nil
 }

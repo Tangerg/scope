@@ -18,6 +18,18 @@ import (
 // accounting.
 const MaxTextsPerEmbedRequest = 96
 
+// EmbeddingRequestOptions supplies Cohere controls under
+// EmbeddingRequestExtensionKey. InputType is required. EmbeddingTypes may be
+// omitted or contain only float, which is the Core result representation.
+// Core owns the input texts, model, and output dimensions.
+type EmbeddingRequestOptions struct {
+	InputType      string   `json:"input_type"`
+	MaxTokens      *int     `json:"max_tokens,omitzero"`
+	EmbeddingTypes []string `json:"embedding_types,omitzero"`
+	Truncate       *string  `json:"truncate,omitzero"`
+	Priority       *int     `json:"priority,omitzero"`
+}
+
 // EmbeddingModelConfig binds provider access and defaults shared by every embedding call.
 type EmbeddingModelConfig struct {
 	APIKey         string
@@ -70,16 +82,32 @@ func NewEmbeddingModel(_ context.Context, config EmbeddingModelConfig) (*Embeddi
 }
 
 func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*cohere.V2EmbedRequest, error) {
-	effectiveOptions, err := e.defaultOptions.Resolve(req.Options)
+	effectiveOptions := req.Options
+	nativeFields, _, err := effectiveOptions.Extensions.Decode[map[string]any](EmbeddingRequestExtensionKey)
 	if err != nil {
 		return nil, err
+	}
+	for _, field := range []string{"model", "texts", "images", "inputs", "output_dimension"} {
+		if _, exists := nativeFields[field]; exists {
+			return nil, fmt.Errorf("cohere: extension %q field %q is owned by Core", EmbeddingRequestExtensionKey, field)
+		}
 	}
 
-	apiRequest, _, err := effectiveOptions.Extensions.Decode[cohere.V2EmbedRequest](EmbeddingRequestExtensionKey)
+	options, _, err := effectiveOptions.Extensions.Decode[EmbeddingRequestOptions](EmbeddingRequestExtensionKey)
 	if err != nil {
 		return nil, err
 	}
-	apiReq := &apiRequest
+	apiReq := &cohere.V2EmbedRequest{
+		InputType: cohere.EmbedInputType(options.InputType),
+		MaxTokens: options.MaxTokens,
+		Priority:  options.Priority,
+	}
+	for _, encoding := range options.EmbeddingTypes {
+		apiReq.EmbeddingTypes = append(apiReq.EmbeddingTypes, cohere.EmbeddingType(encoding))
+	}
+	if options.Truncate != nil {
+		apiReq.Truncate = new(cohere.V2EmbedRequestTruncate(*options.Truncate))
+	}
 
 	if len(req.Texts) > MaxTextsPerEmbedRequest {
 		return nil, fmt.Errorf("cohere: embed accepts at most %d texts per call, got %d",
@@ -97,6 +125,10 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*cohere.V2Embe
 	// responses to float vectors, so request that wire shape explicitly.
 	if len(apiReq.EmbeddingTypes) == 0 {
 		apiReq.EmbeddingTypes = []cohere.EmbeddingType{cohere.EmbeddingTypeFloat}
+	}
+
+	if len(apiReq.EmbeddingTypes) != 1 || apiReq.EmbeddingTypes[0] != cohere.EmbeddingTypeFloat {
+		return nil, fmt.Errorf("cohere: extension %q embedding_types must contain only float", EmbeddingRequestExtensionKey)
 	}
 
 	if effectiveOptions.Dimensions != nil {
@@ -144,9 +176,18 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (resp
 	if err = req.Validate(); err != nil {
 		return nil, err
 	}
+	effectiveRequest := *req
+	effectiveRequest.Options, err = e.defaultOptions.Resolve(req.Options)
+	if err != nil {
+		return nil, err
+	}
+	req = &effectiveRequest
 	defer func() {
 		if err == nil {
 			err = response.ValidateFor(req)
+			if err != nil {
+				response = nil
+			}
 		}
 	}()
 

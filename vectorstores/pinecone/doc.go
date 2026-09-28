@@ -30,11 +30,17 @@
 // Dimensionality is never compared: this store declares none, and Pinecone
 // rejects a wrong-width vector on the first request.
 //
-// Filter visitor produces Pinecone's metadata-filter syntax —
-// `{"author": {"$eq": "Alice"}}`, `{"$and": [...]}`,
-// `{"$in": [...]}`. The result feeds the `Filter` field of the
-// query request. Pinecone has no native LIKE / regex; the visitor
-// rejects [filter.OpLike] expressions explicitly.
+// Filtered operations list the complete namespace and fetch original metadata
+// before applying Core filter.Match. This preserves scalar versus collection
+// membership, exact string matching, and missing-field semantics. The List
+// endpoint is available only for serverless vector indexes; failures remain
+// explicit. Filtered Search computes exact scores from all matching float32
+// vectors, using the index metric (euclidean means squared L2), then selects
+// TopK. Unfiltered Search uses native approximate retrieval.
+//
+// Filtering therefore costs O(N) record reads, with O(N) identity tracking
+// plus O(TopK) search results. It requires list/fetch permissions. These APIs
+// are eventually consistent and do not promise a multi-request snapshot.
 //
 // Document text. Pinecone itself stores only id + vector + flat
 // metadata — there is no first-class text body. The store always stashes
@@ -45,19 +51,19 @@
 // it accepted; Index requires that count to match what it sent rather than
 // treating a short write as a complete one.
 //
-// Filtered deletion is a pod-based index capability. Serverless and starter
-// indexes reject a metadata filter, and that rejection surfaces as an error
-// instead of an empty match set; compose deletion from DeleteIDs there.
+// DeleteWhere finishes selection before sending ID deletions in batches of
+// 1,000. Pinecone has no conditional revision delete; hosts must coordinate
+// concurrent writers when selection must stay true until deletion. A failed
+// operation reports an error and earlier completed batches remain deleted.
 //
-// Null tests map to $exists. Pinecone metadata holds strings, numbers,
-// booleans and string lists, so a key is either present with a value or
-// absent and there is no stored null — which makes $exists: false exactly the
-// filter AST's IS NULL, and $exists: true its negation.
+// Metadata must follow Pinecone's flat format: strings, exactly representable
+// numbers, booleans, and string lists. Nulls, nested objects, non-string lists,
+// keys beginning with $, and the reserved document-content key are rejected
+// before embedding or upsert. Remove an absent metadata key instead of null.
 //
-// Operation limits. A query returns at most [MaxTopK] results and one upsert
-// carries at most [MaxVectorsPerUpsert] records. Index splits a larger batch
-// rather than sending a request certain to be rejected; Search refuses a
-// larger TopK locally, because that one cannot be split. Pinecone also caps an
+// Operation limits. Search applies the adapter's [MaxTopK] result limit to
+// both native and locally ranked queries. One upsert carries at most
+// [MaxVectorsPerUpsert] records; Index splits larger batches. Pinecone caps an
 // upsert request at 2 MB, which a record count cannot predict, so that limit
 // surfaces as a provider error.
 //

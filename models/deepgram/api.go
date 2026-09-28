@@ -42,6 +42,8 @@ func newAPI(config apiConfig) (*api, error) {
 	if config.HTTPClient != nil {
 		client = resty.NewWithClient(config.HTTPClient)
 	}
+	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
+		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
 	client.SetBaseURL(cmp.Or(config.BaseURL, DefaultBaseURL)).
 		SetHeader("Authorization", "Token "+config.APIKey).
 		SetResponseBodyLimit(int(config.MaxResponseBytes))
@@ -53,25 +55,25 @@ func newAPI(config apiConfig) (*api, error) {
 // Extra is available for newly released official query parameters that have
 // not yet acquired a typed field.
 type listenParams struct {
-	Model          string
-	Language       string
-	Tier           string
-	Version        string
-	Punctuate      *bool
-	SmartFormat    *bool
-	Diarize        *bool
-	Numerals       *bool
-	Paragraphs     *bool
-	Utterances     *bool
-	Topics         *bool
-	Sentiment      *bool
-	Intents        *bool
-	DetectEntities *bool
-	DetectLanguage *bool
-	Summarize      string
-	Redact         []string
-	Keyterms       []string
-	Extra          url.Values
+	Model          string     `json:"model,omitempty"`
+	Language       string     `json:"language,omitempty"`
+	Tier           string     `json:"tier,omitempty"`
+	Version        string     `json:"version,omitempty"`
+	Punctuate      *bool      `json:"punctuate,omitzero"`
+	SmartFormat    *bool      `json:"smart_format,omitzero"`
+	Diarize        *bool      `json:"diarize,omitzero"`
+	Numerals       *bool      `json:"numerals,omitzero"`
+	Paragraphs     *bool      `json:"paragraphs,omitzero"`
+	Utterances     *bool      `json:"utterances,omitzero"`
+	Topics         *bool      `json:"topics,omitzero"`
+	Sentiment      *bool      `json:"sentiment,omitzero"`
+	Intents        *bool      `json:"intents,omitzero"`
+	DetectEntities *bool      `json:"detect_entities,omitzero"`
+	DetectLanguage *bool      `json:"detect_language,omitzero"`
+	Summarize      string     `json:"summarize,omitempty"`
+	Redact         []string   `json:"redact,omitzero"`
+	Keyterms       []string   `json:"keyterm,omitzero"`
+	Extra          url.Values `json:"extra,omitzero"`
 }
 
 func (l *listenParams) query() url.Values {
@@ -188,13 +190,13 @@ func (a *api) listen(ctx context.Context, audio []byte, contentType string, para
 // SpeakParams holds the query-string knobs Deepgram /speak accepts.
 // See https://developers.deepgram.com/reference/text-to-speech-api.
 type speakParams struct {
-	Model      string // "aura-asteria-en" / "aura-2-thalia-en" etc.
-	Encoding   string // "mp3" / "linear16" / "opus" / "flac" / "aac" / "mulaw" / "alaw"
-	Container  string // "wav" / "none"
-	SampleRate int
-	BitRate    int
-	Speed      float64
-	Extra      url.Values
+	Model      string     `json:"model,omitempty"`
+	Encoding   string     `json:"encoding,omitempty"`
+	Container  string     `json:"container,omitempty"`
+	SampleRate int        `json:"sample_rate,omitzero"`
+	BitRate    int        `json:"bit_rate,omitzero"`
+	Speed      float64    `json:"speed,omitzero"`
+	Extra      url.Values `json:"extra,omitzero"`
 }
 
 func (s *speakParams) query() url.Values {

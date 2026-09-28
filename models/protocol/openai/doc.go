@@ -10,7 +10,7 @@
 //     counting through the native Responses endpoint;
 //   - embedding via [NewEmbeddingModel] — text-embedding-3-small/large
 //     with dimension truncation;
-//   - image via [NewImageModel] — DALL·E 3 and gpt-image-1;
+//   - image via [NewImageModel] — GPT image generation;
 //   - moderation via [NewModerationModel] — omni-moderation-latest;
 //   - audio tts via [NewAudioTTSModel] — tts-1, tts-1-hd, gpt-4o-mini-tts;
 //   - audio transcription via [NewAudioTranscriptionModel] —
@@ -31,6 +31,11 @@
 // for both Call and Stream. Explicit false or null stream_options are respected;
 // compatible providers retain their own request policy. Missing provider usage
 // remains unknown, never a fabricated zero.
+// Generated Chat audio retains its bytes and provider replay ID together.
+// Assistant audio with an inline payload uses Media.ID for replay; provider
+// references remain valid without an inline payload. Responses rejects assistant
+// media history that its input projection cannot represent. Responses tools
+// use non-strict mode to preserve the caller's optional JSON Schema properties.
 //
 // Responses Call and Stream share terminal-state mapping: incomplete generation
 // preserves its stop reason, failed generation returns an error, and a stream

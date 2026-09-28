@@ -196,13 +196,9 @@ type keyScanner interface {
 // in lexical order. SCAN may observe concurrent mutations and repeat keys, so
 // results are de-duplicated.
 //
-// A cluster or ring splits the keyspace across nodes while SCAN carries no key,
-// so go-redis routes each call through its shard picker — a round robin by
-// default. A single loop therefore asked a different node each iteration and
-// fed it a cursor belonging to the previous one, and cursors are per-node: the
-// result was an arbitrary subset that changed between calls, reported as
-// success. Lister tolerates a concurrent write appearing or not, not a settled
-// conversation going missing, so each node is scanned to its own completion.
+// Cluster masters are each scanned to completion with their own cursor. Ring
+// enumeration returns errors.ErrUnsupported because go-redis's ForEachShard
+// skips unavailable shards and does not expose the complete current topology.
 func (s *Store) Conversations(ctx context.Context) ([]history.ConversationID, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -214,10 +210,8 @@ func (s *Store) Conversations(ctx context.Context) ([]history.ConversationID, er
 		seen:      make(map[string]struct{}),
 	}
 
-	// ForEachMaster and ForEachShard run concurrently and return the first
-	// error, which is why the collector is guarded. ForEachShard skips a shard
-	// it considers down, so a ring missing a shard enumerates the rest — those
-	// conversations are unreachable through Read and Write as well.
+	// ForEachMaster runs concurrently and returns the first error, which is
+	// why the collector is guarded.
 	//
 	// Only go-redis's own multi-node types can be recognized. A caller who
 	// hands over some wrapper that hides a cluster behind UniversalClient gets
@@ -230,9 +224,7 @@ func (s *Store) Conversations(ctx context.Context) ([]history.ConversationID, er
 			return nil, fmt.Errorf("redis: list conversations: scan cluster masters: %w", err)
 		}
 	case *goredis.Ring:
-		if err := client.ForEachShard(ctx, collector.scanNode); err != nil {
-			return nil, fmt.Errorf("redis: list conversations: scan ring shards: %w", err)
-		}
+		return nil, fmt.Errorf("redis: complete conversation enumeration for Ring clients: %w", errors.ErrUnsupported)
 	default:
 		if err := collector.scan(ctx, s.client); err != nil {
 			return nil, err

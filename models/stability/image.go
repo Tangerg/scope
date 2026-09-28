@@ -41,8 +41,8 @@ var _ image.Model = (*ImageModel)(nil)
 // Stability uses an aspect-ratio code ("1:1" / "16:9" / ...) rather
 // than per-pixel W×H sizes — Core/Ultra render at a fixed total pixel
 // budget. Scope's Width/Height options are intentionally NOT translated
-// to an aspect ratio (lossy guess); set AspectRatio on the
-// extension-threaded [GenerateRequest] when control is needed.
+// to an aspect ratio; set aspect_ratio under RequestExtensionKey when
+// control is needed.
 //
 // [image.Options].Model selects Core, Ultra, or one exact SD 3.5 model;
 // the adapter derives the official endpoint and request model field from it.
@@ -94,6 +94,9 @@ func (i *ImageModel) buildAPIRequest(req *image.Request) (string, *generateReque
 		if _, exists := nativeFields[field]; exists {
 			return "", nil, fmt.Errorf("stability: extension %q field %q is owned by Core", RequestExtensionKey, field)
 		}
+	}
+	if _, exists := nativeFields["mode"]; exists {
+		return "", nil, errors.New("stability: extension mode is managed by the image adapter")
 	}
 
 	apiReqValue, _, err := effectiveOptions.Extensions.Decode[generateRequest](RequestExtensionKey)

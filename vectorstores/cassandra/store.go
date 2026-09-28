@@ -452,6 +452,11 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		}
 	}()
 
+	wherePredicate, whereArgs, err := s.buildFilter(req.Options.Filter)
+	if err != nil {
+		return nil, err
+	}
+
 	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
 	if err != nil {
 		return nil, fmt.Errorf("cassandra: embed query: %w", err)
@@ -461,11 +466,6 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		return nil, fmt.Errorf("cassandra: marshal query vector: %w", err)
 	}
 	vecLiteral := string(vectorJSON)
-
-	wherePredicate, whereArgs, err := s.buildFilter(req.Options.Filter)
-	if err != nil {
-		return nil, err
-	}
 
 	wherePart := ""
 	if wherePredicate != "" {
@@ -648,7 +648,7 @@ func (s *Store) buildFilter(expr filter.Predicate) (string, []any, error) {
 	if expr == nil {
 		return "", nil, nil
 	}
-	v := newVisitor()
+	v := newVisitor(s.metadataColumns)
 	if err := expr.Accept(v); err != nil {
 		return "", nil, fmt.Errorf("cassandra: convert filter: %w", err)
 	}

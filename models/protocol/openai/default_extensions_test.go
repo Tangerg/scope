@@ -2,6 +2,7 @@ package openai
 
 import (
 	jsonv2 "encoding/json/v2"
+	"strings"
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -72,5 +73,34 @@ func TestChatDefaultsReachNativeExtensionAndDialect(t *testing.T) {
 				t.Fatal("caller request mutated")
 			}
 		})
+	}
+}
+
+func TestCompatibleRequestCannotOverwriteCoreFields(t *testing.T) {
+	for _, field := range []string{"model", "messages", "tools", "max_tokens", "max_completion_tokens", "temperature", "top_p", "reasoning_effort", "response_format", "tool_choice", "parallel_tool_calls", "stream"} {
+		t.Run(field, func(t *testing.T) {
+			model, err := NewCompatibleChatCompletions(t.Context(), ChatCompletionsConfig{APIKey: "test", DefaultOptions: corechat.Options{Model: "test-model"}}, Dialect{Provider: "test", TokenLimitField: TokenLimitMaxTokens, PrepareRequest: func(_ *corechat.Request, target *CompatibleRequest) error { return target.SetExtraField(field, nil) }})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := &corechat.Request{Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hello"))}}
+			if _, err := model.Call(t.Context(), request); err == nil || !strings.Contains(err.Error(), "owned by Core") {
+				t.Fatalf("Call=%v", err)
+			}
+		})
+	}
+}
+
+func TestDisabledRawExtensionIsRejected(t *testing.T) {
+	model, err := NewCompatibleChatCompletions(t.Context(), ChatCompletionsConfig{APIKey: "test", DefaultOptions: corechat.Options{Model: "test-model"}}, Dialect{Provider: "test", TokenLimitField: TokenLimitMaxTokens, DisableRawRequestExtension: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := &corechat.Request{Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hello"))}}
+	if err := request.Options.Extensions.Set("test/openai_request", map[string]any{"temperature": 0.7}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := model.Call(t.Context(), request); err == nil || !strings.Contains(err.Error(), "not supported by this provider") {
+		t.Fatalf("Call=%v", err)
 	}
 }

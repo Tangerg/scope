@@ -30,7 +30,8 @@ func (a apiConfig) validate() error {
 type api struct {
 	http     *resty.Client
 	download *resty.Client
-	baseHost string
+	baseURL  *url.URL
+	apiKey   string
 }
 
 type predictionRunner struct {
@@ -101,22 +102,93 @@ func newAPI(config apiConfig) (*api, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
-	client := resty.New()
-	download := resty.New()
+	apiClient := &http.Client{}
 	if config.HTTPClient != nil {
-		client = resty.NewWithClient(config.HTTPClient)
-		download = resty.NewWithClient(config.HTTPClient)
+		*apiClient = *config.HTTPClient
 	}
+	client := resty.NewWithClient(apiClient)
 	baseURL := cmp.Or(config.BaseURL, DefaultBaseURL)
 	parsedBaseURL, err := url.Parse(baseURL)
-	if err != nil || parsedBaseURL.Scheme == "" || parsedBaseURL.Host == "" {
+	if err != nil || (parsedBaseURL.Scheme != "http" && parsedBaseURL.Scheme != "https") || parsedBaseURL.Host == "" || parsedBaseURL.User != nil {
 		return nil, fmt.Errorf("replicate: invalid BaseURL %q", baseURL)
 	}
+	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
+		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
 	client.SetBaseURL(baseURL).
 		SetAuthToken(config.APIKey).
 		SetHeader("Content-Type", "application/json")
-	download.SetAuthToken(config.APIKey)
-	return &api{http: client, download: download, baseHost: parsedBaseURL.Hostname()}, nil
+	adapter := &api{http: client, baseURL: parsedBaseURL, apiKey: config.APIKey}
+	adapter.download = resty.NewWithClient(adapter.downloadHTTPClient(config.HTTPClient))
+	return adapter, nil
+}
+
+// The borrowed client keeps its own redirect policy. Downloads validate each
+// destination and never forward credentials across origins, including ports.
+func (a *api) downloadHTTPClient(source *http.Client) *http.Client {
+	client := &http.Client{}
+	if source != nil {
+		*client = *source
+	}
+	previous := client.CheckRedirect
+	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+		if err := a.validateOutputURL(request.URL); err != nil {
+			return err
+		}
+		if len(via) >= 10 {
+			return errors.New("replicate: stopped after 10 redirects")
+		}
+		if previous != nil {
+			if err := previous(request, via); err != nil {
+				return err
+			}
+		}
+		if err := a.validateOutputURL(request.URL); err != nil {
+			return err
+		}
+		if len(via) > 0 {
+			origin := via[len(via)-1].URL
+			if origin.Scheme == "https" && request.URL.Scheme != "https" {
+				return errors.New("replicate: HTTPS redirect downgrade is forbidden")
+			}
+			if !sameOrigin(origin, request.URL) {
+				request.Header.Del("Authorization")
+				request.Header.Del("Proxy-Authorization")
+				request.Header.Del("Cookie")
+			}
+		}
+		return nil
+	}
+	return client
+}
+
+func sameOrigin(left, right *url.URL) bool {
+	port := func(value *url.URL) string {
+		if value.Port() != "" {
+			return value.Port()
+		}
+		if value.Scheme == "https" {
+			return "443"
+		}
+		return "80"
+	}
+	return left.Scheme == right.Scheme && strings.EqualFold(left.Hostname(), right.Hostname()) && port(left) == port(right)
+}
+
+func (a *api) validateOutputURL(value *url.URL) error {
+	if value == nil || value.Host == "" || value.User != nil {
+		return errors.New("replicate: output URL must be absolute and contain no credentials")
+	}
+	if sameOrigin(value, a.baseURL) {
+		return nil
+	}
+	host := strings.ToLower(value.Hostname())
+	if host != "replicate.delivery" && !strings.HasSuffix(host, ".replicate.delivery") {
+		return fmt.Errorf("replicate: untrusted output host %q", host)
+	}
+	if value.Scheme != "https" || (value.Port() != "" && value.Port() != "443") {
+		return errors.New("replicate: output URL must use HTTPS on the standard port")
+	}
+	return nil
 }
 
 // predictionRequest contains the caller-controlled body fields shared by both
@@ -271,14 +343,14 @@ func (a *api) downloadOutput(ctx context.Context, rawURL string) ([]byte, string
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return nil, "", fmt.Errorf("replicate: invalid output URL %q", rawURL)
 	}
-	host := parsed.Hostname()
-	if parsed.Scheme != "https" && host != a.baseHost {
-		return nil, "", fmt.Errorf("replicate: output URL must use HTTPS, got %q", parsed.Scheme)
+	if err = a.validateOutputURL(parsed); err != nil {
+		return nil, "", err
 	}
-	if host != a.baseHost && host != "replicate.delivery" && !strings.HasSuffix(host, ".replicate.delivery") {
-		return nil, "", fmt.Errorf("replicate: untrusted output host %q", host)
+	request := a.download.R().SetContext(ctx)
+	if sameOrigin(parsed, a.baseURL) {
+		request.SetAuthToken(a.apiKey)
 	}
-	response, err := a.download.R().SetContext(ctx).Get(rawURL)
+	response, err := request.Get(rawURL)
 	if err != nil {
 		return nil, "", fmt.Errorf("replicate: download output: %w", err)
 	}

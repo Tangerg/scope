@@ -17,4 +17,7 @@
 // the namespaced Core response extension.
 //
 // See https://docs.perplexity.ai/ for the full API reference.
+// Core Options.ReasoningEffort is the only request control for reasoning
+// intensity. Native request extensions reject that field and other unknown
+// fields instead of accepting a second configuration source.
 package perplexity

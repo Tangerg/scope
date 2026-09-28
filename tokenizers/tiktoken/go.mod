@@ -4,11 +4,7 @@ go 1.27.0
 
 require (
 	github.com/Tangerg/scope/core v0.37.0
-	github.com/pkoukk/tiktoken-go v0.1.8
+	github.com/tiktoken-go/tokenizer v0.8.1
 )
 
-require (
-	github.com/dlclark/regexp2 v1.12.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
-	go.yaml.in/yaml/v3 v3.0.5 // indirect
-)
+require github.com/dlclark/regexp2/v2 v2.5.1 // indirect

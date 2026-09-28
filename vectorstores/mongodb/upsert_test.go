@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
@@ -144,6 +145,10 @@ var _ DocumentCollection = (*mongo.Collection)(nil)
 type deletionCollection struct {
 	DocumentCollection
 	result *mongo.DeleteResult
+}
+
+func (d *deletionCollection) Aggregate(context.Context, any, ...options.Lister[options.AggregateOptions]) (*mongo.Cursor, error) {
+	return mongo.NewCursorFromDocuments([]any{bson.M{"_id": "one", "metadata": bson.M{"tag": "one"}}}, nil, nil)
 }
 
 func (d *deletionCollection) DeleteMany(context.Context, any, ...options.Lister[options.DeleteManyOptions]) (*mongo.DeleteResult, error) {

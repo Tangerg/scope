@@ -1,62 +1,49 @@
-// Package typesense exposes Typesense's semantic and hybrid search
-// through the Core vector-store capability interfaces. Documents are regular Typesense documents in
-// a collection with id / content / metadata (nested object) / embedding
-// (float[]) fields, reached through the official typesense-go v3
-// client.
-// Documents containing media are rejected before indexing I/O because this
-// adapter persists document text and metadata only.
+// Package typesense exposes Typesense semantic and hybrid search through the
+// Core vector-store capability interfaces. Documents use id, content, metadata
+// and embedding fields, reached through the official typesense-go v3 client.
+// Documents containing media are rejected before indexing I/O.
 //
-// Requirements: Typesense 0.25+ (vector search GA) — the store uses
-// nested-object metadata which needs `enable_nested_fields=true` on
-// the collection.
+// The collection uses nested-object metadata with enable_nested_fields=true
+// and a cosine vector field. InitializeSchema creates that schema when
+// requested; existing collections are checked for compatible vector distance.
+// Semantic scores project cosine distance into [0, 1]. Hybrid search sends
+// lexical and vector evidence together, keeps the native fused order, and
+// assigns query-relative scores from global result rank. HybridAlpha optionally
+// controls the native vector weight.
 //
-// Distance metric: cosine only. Typesense's vector search always uses
-// cosine distance when configured by this adapter — the result `vector_distance` is in [0, 2] and the
-// store maps it onto a higher-is-better score in [0, 1].
-// Hybrid search supplies lexical and vector evidence together. Typesense owns
-// the fused ordering; [StoreConfig.HybridAlpha] optionally controls vector
-// weight, and Scope maps result rank to query-relative relevance.
+// Filters are evaluated with Core filter.Match over a complete JSONL metadata
+// export. The matched document IDs restrict native ranking before TopK. This
+// preserves scalar-versus-array equality, exact numbers, missing and null
+// values, nested keys and LIKE semantics that native metadata filters cannot
+// express. Filtered search and deletion require document export permission and
+// read the entire collection. Export and search metadata retain JSON numbers
+// without the SDK map projection's float64 rounding.
 //
-// Schema bootstrap. When [StoreConfig.InitializeSchema] is true the
-// store probes for the collection and creates it with the right
-// fields + dimensionality if missing. Existing collections are
-// always checked for a compatible vector distance, even when creation is disabled.
+// Search sends its vector and full ID set in a multi_search POST body. It reads
+// pages of at most MaxResultsPerPage hits, preserves the native ranking across
+// pages, and requires curated hits to obey the filter. Returned IDs must belong
+// to the selected set, and returned metadata is checked against the predicate
+// again. A changed value, unexpected ID, predicate error or incomplete response
+// fails the entire search; it never silently removes candidates after TopK.
 //
-// Import acknowledgment. Typesense answers the document import endpoint with
-// HTTP 200 even when individual documents were rejected, so the store requires
-// one successful per-document result for every document it sent. A rejected
-// document returns an error while accepted documents in the same batch remain
-// stored.
+// Typesense's ID filter parser trims ASCII edge spaces, treats a sole * as a
+// wildcard even when quoted, and cannot reliably preserve embedded backticks
+// or a trailing backslash in a quoted value. A filtered operation whose matched
+// set contains one of those IDs returns an error before searching or deleting.
+// Other IDs, including Unicode, internal spaces and commas, use backtick
+// literals. This restriction does not narrow Index or unfiltered Search.
 //
-// Filter visitor produces Typesense `filter_by` syntax — `metadata.k:=
-// v`, `metadata.year:>= 2020`, `metadata.tag:= [a,b]` (IN form). The
-// metadata field is a nested object so keys are addressed under the
-// configured prefix.
+// DeleteWhere finishes the complete export, predicate evaluation and ID
+// validation before deleting by the selected IDs. These operations do not
+// isolate concurrent writes. Returned-metadata checks can detect changed
+// candidates, but cannot establish an atomic snapshot; callers needing one
+// must coordinate writers externally.
 //
-// NOT caveat. Typesense `filter_by` has no top-level NOT operator —
-// the visitor rewrites `NOT (x op y)` into the operator's inverse
-// for equality predicates. Negated ordering requires null semantics unavailable
-// in Typesense and is rejected. NOT wrapping
-// anything other than a single binary comparison is rejected.
+// Import requires one successful acknowledgment per sent document because
+// Typesense can return HTTP 200 with individual document failures. Accepted
+// documents in a partially rejected batch remain stored.
 //
-// Scoring depends on the vector field's vec_dist. Typesense reports
-// vector_distance without units, and the store reads it as a cosine distance,
-// so InitializeSchema states vec_dist explicitly instead of relying on the
-// provider default and rejects an existing collection that uses "ip" — an
-// inner-product distance read as a cosine one produces plausible scores in the
-// right range that rank results wrongly, which no later call can detect.
-//
-// Null tests are refused. Typesense has no native filter for a null or missing
-// value; the sanctioned pattern is a companion boolean field written at index
-// time, which this store will not fabricate. filter_by likewise has no
-// pattern-match operator, so LIKE is refused too.
-//
-// Filterable keys. A metadata key is written into the query language as
-// text, and that language cannot quote a field name, so a filter can only
-// name a key that is a plain identifier. An indexed key is a string literal
-// in the filter DSL, so without that limit a caller's key was read as
-// syntax. A document whose metadata key is anything at all still stores and
-// reads back fine; this is only about which keys a filter can name.
-//
-// See https://typesense.org/docs/latest/api/vector-search.html.
+// See https://typesense.org/docs/30.2/api/vector-search.html,
+// https://typesense.org/docs/30.2/api/documents.html#export-documents and
+// https://typesense.org/docs/guide/tips-for-filtering.html#escaping-special-characters.
 package typesense

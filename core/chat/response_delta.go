@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
@@ -146,6 +147,9 @@ func (p PartDelta) Validate() error {
 	}
 	if err := p.Metadata.Validate(); err != nil {
 		return fmt.Errorf("%w: delta metadata: %w", ErrInvalidResponse, err)
+	}
+	if !utf8.ValidString(p.Text) {
+		return fmt.Errorf("%w: delta text is not valid UTF-8", ErrInvalidResponse)
 	}
 	carried := p.carriedPayloads()
 	if carried == 0 || carried&^allowed != 0 {

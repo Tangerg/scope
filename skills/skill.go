@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 
 	documentfrontmatter "github.com/adrg/frontmatter"
 	"go.yaml.in/yaml/v4"
@@ -28,28 +27,27 @@ type Skill struct {
 // the skill discovery path as a partially populated manifest. The body after
 // the closing fence remains untouched Markdown instruction content.
 func Parse(content []byte) (*Skill, error) {
-	normalized := bytes.ReplaceAll(content, []byte("\r\n"), []byte("\n"))
-	normalized = bytes.TrimPrefix(normalized, []byte("\ufeff"))
-	if !bytes.HasPrefix(normalized, []byte(frontmatterFence+"\n")) {
+	content = bytes.TrimPrefix(content, []byte("\ufeff"))
+	if !bytes.HasPrefix(content, []byte(frontmatterFence+"\n")) && !bytes.HasPrefix(content, []byte(frontmatterFence+"\r\n")) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidSkill, ErrNoFrontmatter)
 	}
 
 	var metadata Frontmatter
-	body, err := documentfrontmatter.MustParse(bytes.NewReader(normalized), &metadata, yamlFrontmatterFormat)
+	body, err := documentfrontmatter.MustParse(bytes.NewReader(content), &metadata, yamlFrontmatterFormat)
 	if errors.Is(err, documentfrontmatter.ErrNotFound) || errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidSkill, ErrNoFrontmatter)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: parse frontmatter: %w", ErrInvalidSkill, err)
 	}
-	consumed := normalized[:len(normalized)-len(body)]
+	consumed := content[:len(content)-len(body)]
 	if !hasExactClosingFence(consumed) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidSkill, ErrNoFrontmatter)
 	}
 
 	skill := &Skill{
 		Frontmatter:  metadata,
-		Instructions: strings.TrimSpace(string(body)),
+		Instructions: string(body),
 	}
 	if err := skill.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidSkill, err)
@@ -59,6 +57,7 @@ func Parse(content []byte) (*Skill, error) {
 
 func hasExactClosingFence(consumed []byte) bool {
 	consumed = bytes.TrimSuffix(consumed, []byte("\n"))
+	consumed = bytes.TrimSuffix(consumed, []byte("\r"))
 	lineStart := bytes.LastIndexByte(consumed, '\n') + 1
 	return bytes.Equal(consumed[lineStart:], []byte(frontmatterFence))
 }

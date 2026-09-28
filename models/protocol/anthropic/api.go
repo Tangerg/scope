@@ -40,6 +40,10 @@ func newAPI(config apiConfig) (*api, error) {
 		options = append(options, option.WithHTTPClient(config.HTTPClient))
 	}
 	for name, values := range config.Headers {
+		if len(values) == 0 {
+			options = append(options, option.WithHeaderDel(name))
+			continue
+		}
 		for _, value := range values {
 			options = append(options, option.WithHeader(name, value))
 		}

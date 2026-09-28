@@ -21,11 +21,22 @@
 // declared, since it is required to create a collection and optional to attach
 // to one.
 //
-// Filter visitor produces Qdrant's structured filter syntax —
-// `{"must": [{"key": "author", "match": {"value": "Alice"}}]}`,
-// `{"should": [...]}`, `{"must_not": [...]}` for NOT,
-// `{"range": {"gte": 100, "lt": 200}}` for numeric ranges. The
-// result feeds the `Filter` field of the search request.
+// Metadata filtering scrolls the complete collection's payloads and applies
+// filter.Match before any vector limit. Qdrant's native conditions merge scalar
+// equality with array membership, and is_empty also includes empty arrays.
+// Local evaluation preserves these distinctions and whole-string LIKE without
+// changing the payload schema. The selected IDs constrain bounded vector
+// queries, whose ranked results are merged. Filtered queries cost O(N) payload
+// reads and O(N) ID bookkeeping. Returned IDs and payloads are revalidated;
+// a hit outside the selected IDs or no longer satisfying the predicate fails
+// the entire search rather than reducing the requested result set.
+//
+// Filtered deletion enumerates before deleting bounded ID batches. Qdrant does
+// not provide a payload revision condition for this path: concurrent metadata
+// changes between enumeration and deletion may be removed according to the
+// value observed during enumeration. Applications requiring a snapshot or
+// conditional deletion must coordinate writers. Search likewise observes
+// enumeration and vector retrieval at separate times.
 //
 // Payload. Qdrant's `payload` is arbitrary JSON; the store maps the
 // document's text + metadata into the payload verbatim. Indexed
@@ -42,16 +53,6 @@
 // operations", and ClockRejected means the update was "rejected due to an
 // outdated clock". The gRPC call succeeds under all four, so the status rather
 // than the call is what establishes that the write happened.
-//
-// Null tests emit is_empty rather than is_null. Qdrant separates the two:
-// is_null matches records where the field "exists and has NULL value", while
-// is_empty matches records where it "either does not exist, or has null or []
-// value". The filter AST treats an absent key and an explicit null alike, and
-// an absent key is the ordinary case for metadata, so is_null would answer
-// nothing for the documents an IS NULL test is usually asked about. is_empty
-// is wider in one respect — it also matches a key holding an empty array,
-// which the AST reports as non-null — and Qdrant offers no condition that
-// separates that case.
 //
 // See https://qdrant.tech/documentation/ for the full API surface.
 // Metadata numbers use signed 64-bit integers where exact, otherwise doubles

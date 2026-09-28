@@ -9,10 +9,8 @@
 // otherwise doubles only when their decimal value survives JSON round-tripping.
 // Unrepresentable values are rejected before writing rather than rounded.
 //
-// Requirements: MongoDB Atlas (vector search isn't available on
-// self-hosted Community / Enterprise — it's an Atlas-only feature).
-// The store uses the v2 official driver
-// (go.mongodb.org/mongo-driver/v2).
+// Requirements: a MongoDB deployment that provides $vectorSearch and the
+// Search Indexes API. The store uses the official v2 Go driver.
 //
 // Vector similarity functions: [SimilarityCosine] /
 // [SimilarityEuclidean] / [SimilarityDotProduct]. The chosen value
@@ -25,12 +23,23 @@
 // metadata fields enumerated in
 // [StoreConfig.MetadataFieldsToFilter] as typed `filter` paths.
 //
-// Filter visitor produces MongoDB query-document syntax —
-// `{"metadata.author": {"$eq": "Alice"}}`, `{"$and": [...]}`,
-// `{"$nor": [...]}` for NOT, and an anchored `{"$regex": "^...$"}` for
-// LIKE — anchored because LIKE matches the whole value, and without the "i"
-// option because it is case-sensitive. The result feeds the `filter` field of
-// `$vectorSearch`.
+// Metadata filtering reads the complete collection's metadata with an
+// aggregation cursor and applies filter.Match before any vector limit. Native
+// equality and IN can match array elements, while Atlas's vector prefilter
+// supports a smaller operator set than ordinary MongoDB queries. The store
+// therefore passes bounded lists of selected IDs to $vectorSearch and merges
+// their ranked results. Filtered queries cost O(N) metadata reads and memory
+// for matches. The vector index must include _id as a filter path; new indexes
+// include it, and existing indexes must be updated before filtered searches.
+// MetadataFieldsToFilter still controls additional native filter index paths.
+//
+// Enumeration completes before filtered deletion. Each deletion is conditional
+// on the observed BSON metadata value (or its absence), using expression
+// equality and binary collation so an array or case variant cannot match the
+// observed document. A changed metadata value is retained. Enumeration and the later
+// vector query are separate observations, not a transactional snapshot.
+// Returned IDs and metadata are revalidated; a hit outside the selected IDs or
+// no longer satisfying the predicate fails the entire search.
 //
 // Search pipeline:
 //

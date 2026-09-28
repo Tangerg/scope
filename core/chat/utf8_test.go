@@ -3,6 +3,7 @@ package chat_test
 import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -27,6 +28,43 @@ func TestProtocolEncodingRejectsInvalidUTF8(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if _, err := jsonv2.Marshal(value); err == nil {
 				t.Fatal("protocol codec silently repaired invalid UTF-8")
+			}
+		})
+	}
+}
+
+func TestTextDeltaAdmissionRejectsInvalidUTF8Atomically(t *testing.T) {
+	invalid := string([]byte{0xff})
+	for name, part := range map[string]chat.PartDelta{
+		"text":      chat.NewTextDelta(invalid),
+		"reasoning": chat.NewReasoningDelta(invalid, nil),
+		"refusal":   chat.NewRefusalDelta(invalid),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := part.Validate(); !errors.Is(err, chat.ErrInvalidResponse) {
+				t.Fatalf("Validate = %v, want ErrInvalidResponse", err)
+			}
+			var accumulator chat.ResponseAccumulator
+			if err := accumulator.Add(&chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewTextDelta("你好")}}); err != nil {
+				t.Fatal(err)
+			}
+			rejected := &chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewTextDelta("must not append"), part}, FinishReason: chat.FinishReasonStop}
+			if err := accumulator.Add(rejected); !errors.Is(err, chat.ErrInvalidResponse) {
+				t.Fatalf("Add = %v, want ErrInvalidResponse", err)
+			}
+			if accumulator.Text() != "你好" {
+				t.Fatalf("rejected delta mutated text: %q", accumulator.Text())
+			}
+			accepted := &chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewTextDelta("世界"), chat.NewReasoningDelta("考える", nil)}, FinishReason: chat.FinishReasonStop}
+			if _, err := jsonv2.Marshal(accepted); err != nil {
+				t.Fatal(err)
+			}
+			if err := accumulator.Add(accepted); err != nil {
+				t.Fatal(err)
+			}
+			response, err := accumulator.Response()
+			if err != nil || response.Output.Message.Text() != "你好世界" {
+				t.Fatalf("Response = %#v, %v", response, err)
 			}
 		})
 	}

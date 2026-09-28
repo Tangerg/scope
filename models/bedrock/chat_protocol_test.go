@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -268,7 +269,7 @@ func TestInferenceOptionsRejectMaxTokensBeyondInt32(t *testing.T) {
 func TestConverseStreamPreservesNativeDocuments(t *testing.T) {
 	event := &types.ConverseStreamOutputMemberMessageStop{Value: types.MessageStopEvent{
 		StopReason:                    types.StopReasonEndTurn,
-		AdditionalModelResponseFields: toBedrockDocument(map[string]any{"provider_count": int64(9007199254740993)}),
+		AdditionalModelResponseFields: document.NewLazyDocument(map[string]any{"provider_count": int64(9007199254740993)}),
 	}}
 	mapper := newProtocolChunkAccumulator("model")
 	delta, include, err := mapper.add(event)
@@ -292,7 +293,7 @@ func TestConverseStreamPreservesNativeDocuments(t *testing.T) {
 	if usage.InputTokens != 14 || usage.OutputTokens != 7 || usage.CacheReadInputTokens == nil || *usage.CacheReadInputTokens != 3 {
 		t.Fatalf("usage = %#v", usage)
 	}
-	event.Value.AdditionalModelResponseFields = toBedrockDocument(make(chan int))
+	event.Value.AdditionalModelResponseFields = document.NewLazyDocument(make(chan int))
 	if delta, _, err := newProtocolChunkAccumulator("model").add(event); err == nil || delta != nil {
 		t.Fatalf("invalid native document = %v, %v", delta, err)
 	}

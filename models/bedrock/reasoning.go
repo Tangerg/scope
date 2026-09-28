@@ -44,8 +44,8 @@ func NewRedactedReasoningPart(content []byte) (corechat.Part, error) {
 	return part, nil
 }
 
-// ReasoningBlockKindOf reports whether part contains Bedrock-issued reasoning
-// replay state.
+// ReasoningBlockKindOf reports whether part contains Bedrock-issued reasoning.
+// Text without a signature is display-only and is omitted from later requests.
 func ReasoningBlockKindOf(part corechat.Part) (ReasoningBlockKind, bool, error) {
 	value, found, err := part.Metadata.Decode[string](chatReasoningKindKey)
 	if err != nil {
@@ -70,9 +70,14 @@ func setReasoningKind(part *corechat.Part, kind string) error {
 	return nil
 }
 
-func setReasoningDeltaKind(part *corechat.PartDelta, kind string) error {
+func setReasoningDeltaState(part *corechat.PartDelta, kind string, index int32) error {
 	if err := part.Metadata.Set(chatReasoningKindKey, kind); err != nil {
 		return fmt.Errorf("bedrock: preserve reasoning delta kind: %w", err)
+	}
+	// Signatures and redacted bytes belong to one content block. Core may
+	// concatenate chunks within it, but must not join independent blocks.
+	if err := part.Metadata.Set(chatContentBlockIndexKey, index); err != nil {
+		return fmt.Errorf("bedrock: preserve reasoning content block index: %w", err)
 	}
 	return nil
 }

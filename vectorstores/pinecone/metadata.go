@@ -2,9 +2,11 @@ package pinecone
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"strconv"
+	"strings"
 
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -12,6 +14,9 @@ import (
 func payloadValues(values map[string]any) (*structpb.Struct, error) {
 	fields := make(map[string]*structpb.Value, len(values))
 	for key, value := range values {
+		if strings.HasPrefix(key, "$") {
+			return nil, fmt.Errorf("pinecone: %w: metadata key %q begins with $", errors.ErrUnsupported, key)
+		}
 		converted, err := payloadValue(value)
 		if err != nil {
 			return nil, fmt.Errorf("pinecone: metadata %q: %w", key, err)
@@ -34,23 +39,20 @@ func payloadValue(value any) (*structpb.Value, error) {
 			return nil, fmt.Errorf("pinecone: metadata number %q cannot be represented without loss", value)
 		}
 		return structpb.NewNumberValue(number), nil
-	case map[string]any:
-		fields, err := payloadValues(value)
-		if err != nil {
-			return nil, err
-		}
-		return structpb.NewStructValue(fields), nil
 	case []any:
 		items := make([]*structpb.Value, len(value))
 		for index, item := range value {
-			converted, err := payloadValue(item)
-			if err != nil {
-				return nil, fmt.Errorf("pinecone: metadata item %d: %w", index, err)
+			text, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("pinecone: %w: metadata arrays must contain strings", errors.ErrUnsupported)
 			}
-			items[index] = converted
+			items[index] = structpb.NewStringValue(text)
 		}
 		return structpb.NewListValue(&structpb.ListValue{Values: items}), nil
-	default:
+	case string, bool:
 		return structpb.NewValue(value)
+
+	default:
+		return nil, fmt.Errorf("pinecone: %w: metadata value of type %T is not a string, number, boolean, or string list", errors.ErrUnsupported, value)
 	}
 }

@@ -68,25 +68,20 @@ func NewEmbeddingModel(_ context.Context, config EmbeddingModelConfig) (*Embeddi
 }
 
 func (e *EmbeddingModel) buildAPIEmbeddingRequest(req *embedding.Request) (*openai.EmbeddingNewParams, error) {
-	effectiveOptions, err := e.defaultOptions.Resolve(req.Options)
-	if err != nil {
-		return nil, err
-	}
-
-	fields, err := decodeRequestFields(effectiveOptions.Extensions, protocolModalityRequestExtensionKey(e.provider, "embedding"), "model", "input", "dimensions")
+	fields, err := decodeRequestFields(req.Options.Extensions, protocolModalityRequestExtensionKey(e.provider, "embedding"), "model", "input", "dimensions")
 	if err != nil {
 		return nil, err
 	}
 	params := &openai.EmbeddingNewParams{}
 	params.SetExtraFields(fields)
 
-	params.Model = effectiveOptions.Model
+	params.Model = req.Options.Model
 	params.Input = openai.EmbeddingNewParamsInputUnion{
 		OfArrayOfStrings: req.Texts,
 	}
 
-	if effectiveOptions.Dimensions != nil {
-		params.Dimensions = openai.Int(*effectiveOptions.Dimensions)
+	if req.Options.Dimensions != nil {
+		params.Dimensions = openai.Int(*req.Options.Dimensions)
 	}
 
 	return params, nil
@@ -100,9 +95,9 @@ func (e *EmbeddingModel) buildAPIEmbeddingRequest(req *embedding.Request) (*open
 func (e *EmbeddingModel) buildEmbeddingResponse(apiResp *openai.CreateEmbeddingResponse, expectedResults int) (*embedding.Response, error) {
 	meta := &embedding.ResponseMetadata{
 		Model: apiResp.Model,
-		Usage: &embedding.Usage{
-			InputTokens: apiResp.Usage.PromptTokens,
-		},
+	}
+	if apiResp.Usage.JSON.PromptTokens.Valid() {
+		meta.Usage = &embedding.Usage{InputTokens: apiResp.Usage.PromptTokens}
 	}
 
 	outputs := make([]*embedding.Output, expectedResults)
@@ -119,6 +114,13 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (resp
 	if err = req.Validate(); err != nil {
 		return nil, err
 	}
+	options, err := e.defaultOptions.Resolve(req.Options)
+	if err != nil {
+		return nil, err
+	}
+	effectiveRequest := *req
+	effectiveRequest.Options = options
+	req = &effectiveRequest
 	defer func() {
 		if err == nil {
 			err = response.ValidateFor(req)

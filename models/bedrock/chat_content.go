@@ -10,23 +10,12 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
 	"github.com/Tangerg/scope/core/media"
 )
 
 var bedrockDocumentNamePattern = regexp.MustCompile(`^[[:alnum:]()\[\]-]+(?: [[:alnum:]()\[\]-]+)*$`)
-
-func toBedrockDocument(value any) document.Interface {
-	if value == nil {
-		return nil
-	}
-	if object, ok := value.(map[string]any); ok && len(object) == 0 {
-		return nil
-	}
-	return document.NewLazyDocument(value)
-}
 
 func mediaToBlock(value *media.Media) (types.ContentBlock, error) {
 	if value == nil {

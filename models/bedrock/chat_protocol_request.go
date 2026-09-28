@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -149,7 +150,12 @@ func mapProtocolPart(part corechat.Part) (types.ContentBlock, bool, error) {
 		}
 		switch kind {
 		case chatReasoningText:
-			if part.Text == "" || len(part.ReasoningState) == 0 {
+			// Converse also returns unsigned display reasoning, such as DeepSeek
+			// output, which is excluded from its documented multi-turn input.
+			if len(part.ReasoningState) == 0 {
+				return nil, false, nil
+			}
+			if part.Text == "" {
 				return nil, false, errors.New("bedrock reasoning text requires text and its unmodified signature")
 			}
 			reasoning := types.ReasoningTextBlock{Text: aws.String(part.Text), Signature: aws.String(string(part.ReasoningState))}
@@ -163,7 +169,7 @@ func mapProtocolPart(part corechat.Part) (types.ContentBlock, bool, error) {
 			return nil, false, fmt.Errorf("unknown Bedrock reasoning kind %q", kind)
 		}
 	case corechat.PartToolCall:
-		var arguments any
+		var arguments any = map[string]any{}
 		if part.ToolCall.Arguments != "" {
 			if err := jsonv2.Unmarshal([]byte(part.ToolCall.Arguments), &arguments); err != nil {
 				return nil, false, fmt.Errorf("tool call arguments: %w", err)
@@ -172,7 +178,7 @@ func mapProtocolPart(part corechat.Part) (types.ContentBlock, bool, error) {
 		return &types.ContentBlockMemberToolUse{Value: types.ToolUseBlock{
 			ToolUseId: aws.String(part.ToolCall.ID),
 			Name:      aws.String(part.ToolCall.Name),
-			Input:     toBedrockDocument(arguments),
+			Input:     document.NewLazyDocument(arguments),
 		}}, true, nil
 	case corechat.PartToolResult:
 		status := types.ToolResultStatusSuccess
@@ -203,7 +209,7 @@ func mapToolResultContent(output corechat.ToolOutput) ([]types.ToolResultContent
 			return nil, err
 		}
 		return []types.ToolResultContentBlock{
-			&types.ToolResultContentBlockMemberJson{Value: toBedrockDocument(value)},
+			&types.ToolResultContentBlockMemberJson{Value: document.NewLazyDocument(value)},
 		}, nil
 	}
 	content := make([]types.ToolResultContentBlock, 0, len(output.Content))
@@ -253,7 +259,7 @@ func mapProtocolTools(definitions []corechat.ToolDefinition, choice *corechat.To
 		tools = append(tools, &types.ToolMemberToolSpec{Value: types.ToolSpecification{
 			Name:        aws.String(definitions[index].Name),
 			Description: aws.String(definitions[index].Description),
-			InputSchema: &types.ToolInputSchemaMemberJson{Value: toBedrockDocument(schema)},
+			InputSchema: &types.ToolInputSchemaMemberJson{Value: document.NewLazyDocument(schema)},
 		}})
 	}
 	configuration := &types.ToolConfiguration{Tools: tools}

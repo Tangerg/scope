@@ -1,10 +1,12 @@
 package pinecone
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"net/http"
 	"net/url"
 	"slices"
@@ -151,7 +153,8 @@ var (
 type indexConnection interface {
 	UpsertVectors(context.Context, []*pinecone.Vector) (uint32, error)
 	QueryByVectorValues(context.Context, *pinecone.QueryByVectorValuesRequest) (*pinecone.QueryVectorsResponse, error)
-	DeleteVectorsByFilter(context.Context, *pinecone.MetadataFilter) error
+	ListVectors(context.Context, *pinecone.ListVectorsRequest) (*pinecone.ListVectorsResponse, error)
+	FetchVectors(context.Context, []string) (*pinecone.FetchVectorsResponse, error)
 	DeleteVectorsById(context.Context, []string) error
 	Close() error
 }
@@ -318,6 +321,16 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 		return fmt.Errorf("pinecone.Store.Index: %w", validateErr)
 	}
 	for index, doc := range request.Documents {
+		if _, reserved := doc.Metadata[payloadDocumentContentKey]; reserved {
+			return fmt.Errorf("pinecone: %w: document %d uses the reserved content metadata key", vectorstore.ErrInvalidDocument, index)
+		}
+		values, valuesErr := doc.Metadata.Values()
+		if valuesErr != nil {
+			return fmt.Errorf("pinecone: decode document %d metadata: %w", index, valuesErr)
+		}
+		if _, payloadErr := payloadValues(values); payloadErr != nil {
+			return fmt.Errorf("pinecone: document %d metadata: %w", index, payloadErr)
+		}
 		if doc.Media != nil {
 			return fmt.Errorf("pinecone.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, index)
 		}
@@ -376,25 +389,11 @@ func (s *Store) buildDocumentsFromScoredVectors(svs []*pinecone.ScoredVector, mi
 			continue
 		}
 
-		if sv.Vector.Id == "" {
-			return nil, fmt.Errorf("pinecone: query result %d is missing its document ID", i)
-		}
-		if sv.Vector.Metadata == nil {
-			return nil, fmt.Errorf("pinecone: query result %d is missing metadata and document text", i)
-		}
-		metadataValues := sv.Vector.Metadata.AsMap()
-		text, ok := metadataValues[payloadDocumentContentKey].(string)
-		if !ok || text == "" {
-			return nil, fmt.Errorf("pinecone: query result %d is missing document text", i)
-		}
-		delete(metadataValues, payloadDocumentContentKey)
-
-		doc := &document.Document{ID: sv.Vector.Id, Text: text}
-		var err error
-		doc.Metadata, err = metadata.FromValues(metadataValues)
+		doc, err := s.toDocument(sv.Vector)
 		if err != nil {
-			return nil, fmt.Errorf("pinecone: decode metadata for query result %d: %w", i, err)
+			return nil, err
 		}
+
 		docs = append(docs, &vectorstore.SearchResult{Document: doc, Score: score})
 	}
 
@@ -432,11 +431,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	}
 
 	if req.Options.Filter != nil {
-		visitor := newVisitor()
-		if acceptErr := req.Options.Filter.Accept(visitor); acceptErr != nil {
-			return nil, fmt.Errorf("pinecone: convert filter: %w", acceptErr)
-		}
-		queryReq.MetadataFilter = visitor.snapshot()
+		return s.searchMatchingVectors(ctx, req, queryReq.Vector)
 	}
 
 	resp, err := s.index.QueryByVectorValues(ctx, queryReq)
@@ -459,29 +454,23 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	return &vectorstore.SearchResponse{Results: docs}, nil
 }
 
-// DeleteWhere removes every vector matching expr. Pinecone implements
-// metadata-filtered deletion on pod-based indexes only; serverless and starter
-// indexes reject the request, and the error is reported rather than treated as
-// an empty match set. Compose deletion from [Store.DeleteIDs] on those indexes.
-// Implements [vectorstore.FilterDeleter].
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
+// DeleteWhere lists the full namespace and applies Core's exact predicate to
+// fetched metadata before deleting matching IDs. The List API requires a
+// serverless index. Reads and deletions are not an atomic snapshot; coordinate
+// writers when a predicate must remain true until deletion.
+func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) error {
 	if expr == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = expr.Validate(); err != nil {
+	if err := expr.Validate(); err != nil {
 		return fmt.Errorf("pinecone.Store.DeleteWhere: %w", err)
 	}
-
-	visitor := newVisitor()
-	if err = expr.Accept(visitor); err != nil {
-		return fmt.Errorf("pinecone: convert filter: %w", err)
+	var ids []string
+	err := s.visitMatches(ctx, expr, func(point *pinecone.Vector) error { ids = append(ids, point.Id); return nil })
+	if err != nil {
+		return err
 	}
-
-	if err = s.index.DeleteVectorsByFilter(ctx, visitor.snapshot()); err != nil {
-		return fmt.Errorf("pinecone: delete vectors: %w", err)
-	}
-
-	return nil
+	return s.DeleteIDs(ctx, ids)
 }
 
 // DeleteIDs removes vectors by their string ids. An empty slice is a
@@ -492,8 +481,10 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 		return nil
 	}
 
-	if err = s.index.DeleteVectorsById(ctx, ids); err != nil {
-		return fmt.Errorf("pinecone: delete vectors by ids: %w", err)
+	for batch := range slices.Chunk(ids, maximumIDsPerDelete) {
+		if err := s.index.DeleteVectorsById(ctx, batch); err != nil {
+			return fmt.Errorf("pinecone: delete vectors by ids: %w", err)
+		}
 	}
 
 	return nil
@@ -501,4 +492,185 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 
 func (s *Store) Close() error {
 	return s.index.Close()
+}
+
+const (
+	metadataListPageSize = uint32(100)
+	maximumIDsPerDelete  = 1_000
+)
+
+// visitMatches reads every page before a caller can report a complete result.
+// Pinecone's native equality also matches list elements and cannot preserve
+// Core's scalar/collection distinction. No lossy native prefilter is applied.
+func (s *Store) visitMatches(ctx context.Context, predicate filter.Predicate, visit func(*pinecone.Vector) error) error {
+	var token *string
+	seenTokens := make(map[string]struct{})
+	seenIDs := make(map[string]struct{})
+	for {
+		if err := context.Cause(ctx); err != nil {
+			return err
+		}
+		page, err := s.index.ListVectors(ctx, &pinecone.ListVectorsRequest{Limit: new(metadataListPageSize), PaginationToken: token})
+		if err != nil {
+			return fmt.Errorf("pinecone: list metadata candidates (requires serverless List API): %w", err)
+		}
+		if page == nil {
+			return errors.New("pinecone: list metadata candidates returned no response")
+		}
+		ids := make([]string, 0, len(page.VectorIds))
+		for _, id := range page.VectorIds {
+			if id == nil || *id == "" {
+				return errors.New("pinecone: list returned an empty vector ID")
+			}
+			if _, duplicate := seenIDs[*id]; duplicate {
+				return fmt.Errorf("pinecone: list repeated vector %q", *id)
+			}
+			seenIDs[*id] = struct{}{}
+			ids = append(ids, *id)
+		}
+		if len(ids) > 0 {
+			fetched, err := s.index.FetchVectors(ctx, ids)
+			if err != nil {
+				return fmt.Errorf("pinecone: fetch metadata candidates: %w", err)
+			}
+			if fetched == nil {
+				return errors.New("pinecone: fetch metadata candidates returned no response")
+			}
+			for _, id := range ids {
+				point, exists := fetched.Vectors[id]
+				if !exists {
+					return fmt.Errorf("pinecone: listed vector %q disappeared before fetch", id)
+				}
+				if point == nil || point.Id != id || point.Metadata == nil {
+					return fmt.Errorf("pinecone: fetched vector %q omitted identity or metadata", id)
+				}
+				values := point.Metadata.AsMap()
+				delete(values, payloadDocumentContentKey)
+				matched, err := filter.Match(predicate, values)
+				if err != nil {
+					return fmt.Errorf("pinecone: evaluate metadata for %q: %w", id, err)
+				}
+				if matched {
+					if err := visit(point); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		if page.NextPaginationToken == nil || *page.NextPaginationToken == "" {
+			return nil
+		}
+		next := *page.NextPaginationToken
+		if _, duplicate := seenTokens[next]; duplicate {
+			return errors.New("pinecone: list repeated a pagination token")
+		}
+		seenTokens[next] = struct{}{}
+		token = new(next)
+	}
+}
+
+type scoredDocument struct {
+	result *vectorstore.SearchResult
+	rank   float64
+}
+
+func (s *Store) searchMatchingVectors(ctx context.Context, request *vectorstore.SearchRequest, query []float32) (*vectorstore.SearchResponse, error) {
+	var ranked []scoredDocument
+	limit := request.Options.ResultLimit()
+	err := s.visitMatches(ctx, request.Options.Filter, func(point *pinecone.Vector) error {
+		if point.Values == nil {
+			return fmt.Errorf("pinecone: fetched vector %q omitted values", point.Id)
+		}
+		raw, err := s.distanceMetric.vectorMetric(query, *point.Values)
+		if err != nil {
+			return fmt.Errorf("pinecone: score fetched vector %q: %w", point.Id, err)
+		}
+		score := s.distanceMetric.score(raw)
+		if score < request.Options.MinScore {
+			return nil
+		}
+		doc, err := s.toDocument(point)
+		if err != nil {
+			return err
+		}
+		rank := raw
+		if s.distanceMetric == DistanceEuclidean {
+			rank = -raw
+		}
+		result := scoredDocument{result: &vectorstore.SearchResult{Document: doc, Score: score}, rank: rank}
+		position, _ := slices.BinarySearchFunc(ranked, result, func(left, right scoredDocument) int {
+			if left.rank != right.rank {
+				return cmp.Compare(right.rank, left.rank)
+			}
+			return cmp.Compare(left.result.Document.ID, right.result.Document.ID)
+		})
+		if position >= limit {
+			return nil
+		}
+		ranked = slices.Insert(ranked, position, result)
+		if len(ranked) > limit {
+			ranked = ranked[:limit]
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	results := make([]*vectorstore.SearchResult, len(ranked))
+	for index, result := range ranked {
+		results[index] = result.result
+	}
+	return &vectorstore.SearchResponse{Results: results}, nil
+}
+
+func (s *Store) toDocument(point *pinecone.Vector) (*document.Document, error) {
+	if point == nil || point.Id == "" || point.Metadata == nil {
+		return nil, errors.New("pinecone: vector record omitted identity or metadata")
+	}
+	values := point.Metadata.AsMap()
+	content, ok := values[payloadDocumentContentKey].(string)
+	if !ok || content == "" {
+		return nil, fmt.Errorf("pinecone: vector %q omitted document text", point.Id)
+	}
+	delete(values, payloadDocumentContentKey)
+	encoded, err := metadata.FromValues(values)
+	if err != nil {
+		return nil, fmt.Errorf("pinecone: decode metadata for %q: %w", point.Id, err)
+	}
+	return &document.Document{ID: point.Id, Text: content, Metadata: encoded}, nil
+}
+
+// vectorMetric applies the same metric as the index to fetched float32 values.
+// Pinecone's euclidean score is squared L2, not its square root. Float64
+// accumulators can represent every product of finite float32 coordinates.
+func (d DistanceMetric) vectorMetric(left, right []float32) (float64, error) {
+	if len(left) == 0 || len(left) != len(right) {
+		return 0, errors.New("vector dimensions do not match")
+	}
+	var dot, leftMagnitude, rightMagnitude, squaredDistance float64
+	for index, a := range left {
+		b := float64(right[index])
+		value := float64(a)
+		if math.IsNaN(value) || math.IsNaN(b) || math.IsInf(value, 0) || math.IsInf(b, 0) {
+			return 0, errors.New("vector contains non-finite coordinates")
+		}
+		dot += value * b
+		leftMagnitude += value * value
+		rightMagnitude += b * b
+		delta := value - b
+		squaredDistance += delta * delta
+	}
+	switch d {
+	case DistanceCosine:
+		if leftMagnitude == 0 || rightMagnitude == 0 {
+			return 0, errors.New("cosine requires nonzero vectors")
+		}
+		return dot / (math.Sqrt(leftMagnitude) * math.Sqrt(rightMagnitude)), nil
+	case DistanceDot:
+		return dot, nil
+	case DistanceEuclidean:
+		return squaredDistance, nil
+	default:
+		return 0, fmt.Errorf("unsupported distance metric %q", d)
+	}
 }

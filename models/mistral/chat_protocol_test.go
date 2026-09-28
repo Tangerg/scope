@@ -42,11 +42,7 @@ func TestChatMapsNativeThinkingAndReplaysIt(t *testing.T) {
 	firstRequest.ToolChoice = &corechat.ToolChoice{
 		Mode: corechat.ToolChoiceAuto, Parallelism: corechat.ToolParallelismSingle,
 	}
-	if setExtensionErr := firstRequest.Options.Extensions.Set(mistral.RequestExtensionKey, mistral.ChatRequestOptions{
-		ReasoningEffort: mistral.ReasoningEffortHigh,
-	}); setExtensionErr != nil {
-		t.Fatalf("SetExtension: %v", setExtensionErr)
-	}
+	firstRequest.Options.ReasoningEffort = "high"
 	firstResponse, err := model.Call(t.Context(), firstRequest)
 	if err != nil {
 		t.Fatalf("first Call: %v", err)

@@ -2,6 +2,8 @@ package openai_test
 
 import (
 	jsonv2 "encoding/json/v2"
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -71,5 +73,75 @@ func TestEmbeddingModel_Call_Mock(t *testing.T) {
 	}
 	if out.Metadata.Usage == nil || out.Metadata.Usage.InputTokens != 8 {
 		t.Errorf("usage = %+v; want InputTokens=8", out.Metadata.Usage)
+	}
+}
+
+func TestEmbeddingDimensionsValidateEffectiveRequest(t *testing.T) {
+	for _, defaults := range []bool{false, true} {
+		t.Run(fmt.Sprintf("defaults=%v", defaults), func(t *testing.T) {
+			dimension := int64(2)
+			server := modeltest.JSONServer(http.StatusOK, `{"model":"test-model","data":[{"index":0,"embedding":[1,2,3]}]}`, func(request *http.Request) {
+				var body struct {
+					Dimensions int64 `json:"dimensions"`
+				}
+				if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
+					t.Error(err)
+				}
+				if body.Dimensions != 2 {
+					t.Errorf("dimensions = %d", body.Dimensions)
+				}
+			})
+			defer server.Close()
+			config := openai.EmbeddingModelConfig{Provider: "test", APIKey: "test", BaseURL: server.URL, DefaultOptions: embedding.Options{Model: "test-model"}}
+			request, err := embedding.NewRequest([]string{"text"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if defaults {
+				config.DefaultOptions.Dimensions = &dimension
+			} else {
+				request.Options.Dimensions = &dimension
+			}
+			model, err := openai.NewEmbeddingModel(t.Context(), config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = model.Call(t.Context(), request)
+			if !errors.Is(err, embedding.ErrInvalidResponse) {
+				t.Fatalf("Call = %v", err)
+			}
+			if defaults && request.Options.Dimensions != nil {
+				t.Fatal("Call mutated request options")
+			}
+		})
+	}
+}
+
+func TestEmbeddingUsagePresence(t *testing.T) {
+	for _, test := range []struct {
+		usage  string
+		known  bool
+		tokens int64
+	}{
+		{"", false, 0}, {`,"usage":null`, false, 0}, {`,"usage":{}`, false, 0}, {`,"usage":{"total_tokens":4}`, false, 0},
+		{`,"usage":{"prompt_tokens":0,"total_tokens":0}`, true, 0}, {`,"usage":{"prompt_tokens":4,"total_tokens":4}`, true, 4},
+	} {
+		t.Run(test.usage, func(t *testing.T) {
+			server := modeltest.JSONServer(http.StatusOK, `{"model":"test-model","data":[{"index":0,"embedding":[1,2]}]`+test.usage+`}`)
+			defer server.Close()
+			model := newEmbeddingModel(t, server.URL, "test-model")
+			request, err := embedding.NewRequest([]string{"text"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := model.Call(t.Context(), request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			usage := response.Metadata.Usage
+			if (usage != nil) != test.known || usage != nil && usage.InputTokens != test.tokens {
+				t.Fatalf("usage = %#v", usage)
+			}
+		})
 	}
 }

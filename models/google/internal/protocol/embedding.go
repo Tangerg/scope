@@ -2,6 +2,8 @@ package protocol
 
 import (
 	"context"
+	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -71,11 +73,26 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (string, []*gen
 		return "", nil, nil, err
 	}
 
-	cfgValue, _, err := effectiveOptions.Extensions.Decode[genai.EmbedContentConfig](protocolKey(e.provider, "embedding_request"))
-
-	config := &cfgValue
+	extensionKey := protocolKey(e.provider, "embedding_request")
+	raw, found, err := effectiveOptions.Extensions.Decode[json.RawMessage](extensionKey)
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, nil, fmt.Errorf("google: extension %q: %w", extensionKey, err)
+	}
+	config := &genai.EmbedContentConfig{}
+	if found {
+		var fields map[string]json.RawMessage
+		if err := jsonv2.Unmarshal(raw, &fields); err != nil {
+			return "", nil, nil, fmt.Errorf("google: extension %q: %w", extensionKey, err)
+		}
+		if fields == nil {
+			return "", nil, nil, fmt.Errorf("google: extension %q must be an object", extensionKey)
+		}
+		if _, exists := fields["outputDimensionality"]; exists {
+			return "", nil, nil, fmt.Errorf("google: extension %q field outputDimensionality is owned by options.dimensions", extensionKey)
+		}
+		if err := jsonv2.Unmarshal(raw, config, jsonv2.RejectUnknownMembers(true)); err != nil {
+			return "", nil, nil, fmt.Errorf("google: extension %q: %w", extensionKey, err)
+		}
 	}
 
 	if effectiveOptions.Dimensions != nil {

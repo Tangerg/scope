@@ -2,6 +2,7 @@ package opensearch
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
@@ -9,12 +10,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
+	"time"
 
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -96,30 +100,39 @@ func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 	if err != nil {
 		return err
 	}
-	if exists {
-		return s.verifyVectorField(ctx)
+	if !exists {
+		if !initSchema {
+			return fmt.Errorf("%w: %q, and InitializeSchema is false", ErrIndexMissing, s.indexName)
+		}
+		if s.dimensions <= 0 {
+			return errors.New("opensearch: embedding dimensions must be positive")
+		}
+		if err := s.createIndex(ctx); err != nil {
+			return err
+		}
 	}
-	if !initSchema {
-		return fmt.Errorf("%w: %q, and InitializeSchema is false", ErrIndexMissing, s.indexName)
+	if err := s.verifyVectorField(ctx); err != nil {
+		return err
 	}
-
-	if s.dimensions <= 0 {
-		return errors.New("opensearch: embedding dimensions must be positive")
-	}
-
-	return s.createIndex(ctx)
+	return s.verifySourceSettings(ctx)
 }
 
 func (s *Store) indexExists(ctx context.Context) (bool, error) {
 	resp, err := s.client.Indices.Exists(ctx, opensearchapi.IndicesExistsReq{Indices: []string{s.indexName}})
+	// The official SDK also returns an error for an empty HEAD 404 body.
+	// The HTTP status is the existence result, not a failed creation attempt.
+	if resp != nil && resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
 	if err != nil {
 		return false, fmt.Errorf("opensearch: check index %q: %w", s.indexName, err)
+	}
+	if resp == nil {
+		return false, fmt.Errorf("opensearch: check index %q returned no response", s.indexName)
 	}
 	switch resp.StatusCode {
 	case http.StatusOK:
 		return true, nil
-	case http.StatusNotFound:
-		return false, nil
 	default:
 		body, readErr := readErrorResponse(resp.Body)
 		if readErr != nil {
@@ -157,22 +170,32 @@ func (s *Store) verifyVectorField(ctx context.Context) error {
 		return fmt.Errorf("opensearch: nil mapping response for %q", s.indexName)
 	}
 
-	// The response is keyed by resolved index name, which differs from the
-	// configured one whenever it names an alias, so the single entry is read
-	// rather than looked up.
+	// An alias can add filtering and routing. Replacing it with the resolved
+	// physical index would silently broaden the store's data boundary.
 	indices := response.GetIndices()
 	if len(indices) != 1 {
 		return fmt.Errorf("opensearch: mapping for %q resolved to %d indices; point the store at one",
 			s.indexName, len(indices))
 	}
-	for _, index := range indices {
+	for indexName, index := range indices {
+		if indexName != s.indexName {
+			return fmt.Errorf("%w: index %q resolved to %q; only concrete indices are supported", ErrIncompatibleIndex, s.indexName, indexName)
+		}
 		var mappings struct {
 			Properties map[string]storedVectorField `json:"properties"`
+			Source     storedSource                 `json:"_source"`
 		}
 		if err := jsonv2.Unmarshal(index.Mappings, &mappings); err != nil {
 			return fmt.Errorf("opensearch: decode mapping for %q: %w", s.indexName, err)
 		}
-		return s.validateVectorField(mappings.Properties[s.embeddingField])
+		if err := mappings.Source.validate(s.metadataField, s.contentField); err != nil {
+			return err
+		}
+		if err := s.validateVectorField(mappings.Properties[s.embeddingField]); err != nil {
+			return err
+		}
+		s.engine = mappings.Properties[s.embeddingField].Method.Engine
+		return nil
 	}
 	return nil
 }
@@ -197,6 +220,12 @@ func (s *Store) validateVectorField(field storedVectorField) error {
 	if s.dimensions > 0 && field.Dimensions > 0 && field.Dimensions != s.dimensions {
 		return fmt.Errorf("%w: field %q holds %d dimensions, but the store is configured for %d",
 			ErrIncompatibleIndex, s.embeddingField, field.Dimensions, s.dimensions)
+	}
+	if field.Method == nil || !field.Method.Engine.Valid() {
+		return fmt.Errorf("%w: field %q must declare a supported engine in its method; an omitted engine depends on the index's OpenSearch version", ErrIncompatibleIndex, s.embeddingField)
+	}
+	if field.Method.Engine != s.engine {
+		return fmt.Errorf("%w: field %q uses engine %q, but the store is configured for %q", ErrIncompatibleIndex, s.embeddingField, field.Method.Engine, s.engine)
 	}
 	return nil
 }
@@ -280,7 +309,9 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 		}
 
 		var body bytes.Buffer
+		expectedIDs := make([]string, len(docs))
 		for index, doc := range docs {
+			expectedIDs[index] = doc.ID
 			id := doc.ID
 
 			actionLine, encErr := jsonv2.Marshal(bulkAction{
@@ -313,7 +344,7 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 		if err != nil {
 			return fmt.Errorf("opensearch: bulk: %w", err)
 		}
-		if err := (bulkOutcome{operation: bulkOperationIndex, response: resp}).err(); err != nil {
+		if err := (bulkOutcome{operation: bulkOperationIndex, response: resp, expectedIDs: expectedIDs}).err(); err != nil {
 			return err
 		}
 	}
@@ -321,12 +352,14 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 }
 
 func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
-	var docs []*vectorstore.SearchResult
 	if err = req.Validate(); err != nil {
 		return nil, fmt.Errorf("opensearch.Store.Search: %w", err)
 	}
 	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("opensearch.Store.Search: %w", err)
+	}
+	if req.Options.Filter != nil && s.engine != EngineLucene && s.engine != EngineFaiss {
+		return nil, fmt.Errorf("%w: opensearch: filtered KNN requires a Lucene or Faiss index, got engine %q", errors.ErrUnsupported, s.engine)
 	}
 
 	defer func() {
@@ -340,17 +373,60 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		return nil, fmt.Errorf("opensearch: embed query: %w", err)
 	}
 	queryVec := embedding.Float32Vector(vector)
+	var docs []scoredDocument
+	if req.Options.Filter == nil {
+		docs, err = s.searchVectors(ctx, req, queryVec, nil)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		matches, selectErr := s.selectMatches(ctx, req.Options.Filter)
+		if selectErr != nil {
+			return nil, selectErr
+		}
+		for batch := range slices.Chunk(matches, filterBatchSize) {
+			ids := make([]string, len(batch))
+			for index, hit := range batch {
+				ids[index] = hit.ID
+			}
+			partial, searchErr := s.searchVectors(ctx, req, queryVec, ids)
+			if searchErr != nil {
+				return nil, searchErr
+			}
+			docs = append(docs, partial...)
+		}
+	}
+	slices.SortFunc(docs, func(left, right scoredDocument) int {
+		if left.rank != right.rank {
+			return cmp.Compare(right.rank, left.rank)
+		}
+		return cmp.Compare(left.document.ID, right.document.ID)
+	})
+	if len(docs) > req.Options.ResultLimit() {
+		docs = docs[:req.Options.ResultLimit()]
+	}
+	results := make([]*vectorstore.SearchResult, len(docs))
+	for index, doc := range docs {
+		results[index] = &vectorstore.SearchResult{Document: doc.document, Score: doc.score}
+	}
+	return &vectorstore.SearchResponse{Results: results}, nil
+}
 
+// scoredDocument retains native rank until batches have been merged. Core
+// scores may saturate during normalization and cannot reconstruct that order.
+type scoredDocument struct {
+	document *document.Document
+	score    vectorstore.Score
+	rank     float32
+}
+
+func (s *Store) searchVectors(ctx context.Context, req *vectorstore.SearchRequest, queryVec []float32, ids []string) ([]scoredDocument, error) {
 	neighbor := nearestNeighbor{
 		Vector: queryVec,
 		K:      req.Options.ResultLimit(),
 	}
-	filterQuery, err := s.buildFilterQuery(req.Options.Filter)
-	if err != nil {
-		return nil, err
-	}
-	if filterQuery != "" {
-		neighbor.Filter = &queryClause{QueryString: queryString{Query: filterQuery}}
+	if ids != nil {
+		neighbor.Filter = &queryClause{IDs: idsQuery{Values: ids}}
 	}
 
 	body, err := encodeJSONRequest(searchRequest{
@@ -377,8 +453,34 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		return nil, err
 	}
 
-	docs = make([]*vectorstore.SearchResult, 0, len(resp.Hits.Hits))
+	allowedIDs := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		allowedIDs[id] = struct{}{}
+	}
+	docs := make([]scoredDocument, 0, len(resp.Hits.Hits))
 	for _, hit := range resp.Hits.Hits {
+		if ids != nil {
+			if _, allowed := allowedIDs[hit.ID]; !allowed {
+				return nil, fmt.Errorf("%w: opensearch: filtered search returned document %q outside the selected ID batch", vectorstore.ErrInvalidResponse, hit.ID)
+			}
+		}
+		doc, decodeErr := s.toDocument(hit)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		if req.Options.Filter != nil {
+			values, valuesErr := doc.Metadata.Values()
+			if valuesErr != nil {
+				return nil, fmt.Errorf("opensearch: decode returned metadata for %q: %w", hit.ID, valuesErr)
+			}
+			matched, matchErr := filter.Match(req.Options.Filter, values)
+			if matchErr != nil {
+				return nil, fmt.Errorf("opensearch: evaluate returned metadata for %q: %w", hit.ID, matchErr)
+			}
+			if !matched {
+				return nil, fmt.Errorf("%w: opensearch: returned document %q no longer matches the filter", vectorstore.ErrInvalidResponse, hit.ID)
+			}
+		}
 		score, scoreErr := s.spaceType.score(float64(hit.Score))
 		if scoreErr != nil {
 			return nil, scoreErr
@@ -386,50 +488,49 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		if score < req.Options.MinScore {
 			continue
 		}
-		doc, err := s.toDocument(hit)
-		if err != nil {
-			return nil, err
-		}
-		docs = append(docs, &vectorstore.SearchResult{Document: doc, Score: score})
+		docs = append(docs, scoredDocument{document: doc, score: score, rank: hit.Score})
 	}
-	return &vectorstore.SearchResponse{Results: docs}, nil
+	return docs, nil
 }
 
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
+// DeleteWhere evaluates the complete stored metadata snapshot with Core's
+// predicate semantics. Conditional bulk deletion refuses documents changed
+// since that snapshot. A conflict returns an error; earlier batches stay deleted.
+func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) error {
 	if expr == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = expr.Validate(); err != nil {
+	if err := expr.Validate(); err != nil {
 		return fmt.Errorf("opensearch.Store.DeleteWhere: %w", err)
 	}
-
-	var filterQuery string
-	filterQuery, err = s.buildFilterQuery(expr)
+	matches, err := s.selectMatches(ctx, expr)
 	if err != nil {
 		return err
 	}
-	if filterQuery == "" {
-		return errors.New("opensearch: refusing to delete on empty filter")
+	for batch := range slices.Chunk(matches, filterBatchSize) {
+		var body bytes.Buffer
+		expectedIDs := make([]string, len(batch))
+		for index, hit := range batch {
+			expectedIDs[index] = hit.ID
+			if hit.SeqNo == nil || hit.PrimaryTerm == nil {
+				return fmt.Errorf("opensearch: matched document %q has no concurrency token", hit.ID)
+			}
+			action, err := jsonv2.Marshal(bulkAction{Delete: &bulkActionTarget{Index: s.indexName, ID: hit.ID, Routing: hit.Routing, SeqNo: hit.SeqNo, PrimaryTerm: hit.PrimaryTerm}})
+			if err != nil {
+				return fmt.Errorf("opensearch: encode conditional deletion: %w", err)
+			}
+			body.Write(action)
+			body.WriteByte(bulkRecordSeparator)
+		}
+		response, err := s.client.Bulk(ctx, opensearchapi.BulkReq{Index: s.indexName, Body: &body})
+		if err != nil {
+			return fmt.Errorf("opensearch: conditional bulk deletion: %w", err)
+		}
+		if err := (bulkOutcome{operation: bulkOperationDelete, response: response, expectedIDs: expectedIDs}).err(); err != nil {
+			return err
+		}
 	}
-
-	body, err := encodeJSONRequest(deleteByQueryRequest{
-		Query: queryClause{QueryString: queryString{Query: filterQuery}},
-	})
-	if err != nil {
-		return err
-	}
-
-	resp, err := s.client.Document.DeleteByQuery(ctx, opensearchapi.DocumentDeleteByQueryReq{
-		Indices: []string{s.indexName},
-		Body:    body,
-	})
-	if err != nil {
-		return fmt.Errorf("opensearch: delete_by_query %s: %w", s.indexName, err)
-	}
-	if resp == nil {
-		return fmt.Errorf("opensearch: nil delete_by_query response for %s", s.indexName)
-	}
-	return s.checkDeleteByQueryCompleteness(resp)
+	return nil
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
@@ -457,20 +558,7 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	if err != nil {
 		return fmt.Errorf("opensearch: bulk delete: %w", err)
 	}
-	return (bulkOutcome{operation: bulkOperationDelete, response: resp}).err()
-}
-
-// buildFilterQuery wraps the visitor and returns the Lucene query
-// string suitable for the knn filter.
-func (s *Store) buildFilterQuery(expr filter.Predicate) (string, error) {
-	if expr == nil {
-		return "", nil
-	}
-	v := newVisitor(s.metadataField)
-	if err := expr.Accept(v); err != nil {
-		return "", fmt.Errorf("opensearch: convert filter: %w", err)
-	}
-	return v.snapshot(), nil
+	return (bulkOutcome{operation: bulkOperationDelete, response: resp, expectedIDs: ids}).err()
 }
 
 func (s *Store) toDocument(hit opensearchapi.SearchHit) (*document.Document, error) {
@@ -519,33 +607,125 @@ func (s *Store) checkSearchCompleteness(response *opensearchapi.SearchResp) erro
 	return nil
 }
 
-// checkDeleteByQueryCompleteness rejects a deletion that left matching
-// documents behind. Version conflicts, query timeouts, and per-document
-// failures are all reported inside a successful delete_by_query response, and
-// Total counts matched candidates while Deleted counts applied deletions.
-func (s *Store) checkDeleteByQueryCompleteness(response *opensearchapi.DocumentDeleteByQueryResp) error {
-	if len(response.Failures) > 0 {
-		failure := response.Failures[0]
-		reason := "provider returned no reason"
-		if failure.Cause != nil && failure.Cause.Reason != "" {
-			reason = failure.Cause.Reason
-		} else if failure.Reason != nil && failure.Reason.Reason != "" {
-			reason = failure.Reason.Reason
+// selectMatches evaluates raw metadata from one complete scroll snapshot;
+// indexed terms cannot distinguish scalar values, arrays, and empty values.
+func (s *Store) selectMatches(ctx context.Context, predicate filter.Predicate) (matches []opensearchapi.SearchHit, err error) {
+	body, err := encodeJSONRequest(metadataScanRequest{Size: filterBatchSize, Source: []string{s.metadataField}, StoredFields: []string{"_routing"}, Sort: []string{"_doc"}, SeqNoPrimaryTerm: true})
+	if err != nil {
+		return nil, err
+	}
+	page, err := s.client.Search(ctx, &opensearchapi.SearchReq{Indices: []string{s.indexName}, Body: body, Params: opensearchapi.SearchParams{Scroll: filterScrollLifetime}})
+	if err != nil {
+		return nil, fmt.Errorf("opensearch: scan metadata: %w", err)
+	}
+	scrollID := ""
+	defer func() {
+		if scrollID == "" {
+			return
 		}
-		return fmt.Errorf("opensearch: delete_by_query %s failed for document %q with status %d: %s",
-			s.indexName, failure.ID, failure.Status, reason)
+		// Cleanup owns a bounded context after the caller cancels the scan.
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), filterCleanupTimeout)
+		defer cancel()
+		response, cleanupErr := s.client.Scroll.Delete(cleanup, opensearchapi.ScrollDeleteReq{ScrollIDs: []string{scrollID}})
+		if cleanupErr == nil && (response == nil || !response.Succeeded) {
+			cleanupErr = errors.New("opensearch: clear metadata scroll was not acknowledged")
+		}
+		err = errors.Join(err, cleanupErr)
+	}()
+	seen := make(map[string]struct{})
+	for {
+		if page == nil {
+			return nil, errors.New("opensearch: metadata scan returned no page")
+		}
+		if page.ScrollID != nil {
+			scrollID = *page.ScrollID
+		}
+		if err := s.checkSearchCompleteness(page); err != nil {
+			return nil, err
+		}
+		if len(page.Hits.Hits) == 0 {
+			return matches, nil
+		}
+		if page.ScrollID == nil || *page.ScrollID == "" {
+			return nil, errors.New("opensearch: metadata scan omitted scroll ID")
+		}
+		for _, hit := range page.Hits.Hits {
+			if err := context.Cause(ctx); err != nil {
+				return nil, err
+			}
+			if hit.ID == "" || len(hit.Source) == 0 {
+				return nil, errors.New("opensearch: metadata scan omitted document ID or source")
+			}
+			if _, duplicate := seen[hit.ID]; duplicate {
+				return nil, fmt.Errorf("opensearch: metadata scan repeated document %q", hit.ID)
+			}
+			seen[hit.ID] = struct{}{}
+			var source metadata.Map
+			if err := jsonv2.Unmarshal(hit.Source, &source); err != nil {
+				return nil, fmt.Errorf("opensearch: decode metadata source: %w", err)
+			}
+			values, _, err := source.Decode[metadata.Map](s.metadataField)
+			if err != nil {
+				return nil, fmt.Errorf("opensearch: decode stored metadata: %w", err)
+			}
+			data, err := values.Values()
+			if err != nil {
+				return nil, fmt.Errorf("opensearch: decode metadata values: %w", err)
+			}
+			matched, err := filter.Match(predicate, data)
+			if err != nil {
+				return nil, fmt.Errorf("opensearch: evaluate metadata for %q: %w", hit.ID, err)
+			}
+			if matched {
+				hit.Source = nil
+				matches = append(matches, hit)
+			}
+		}
+		next, err := s.client.Scroll.Get(ctx, opensearchapi.ScrollGetReq{ScrollID: scrollID, Params: opensearchapi.ScrollGetParams{Scroll: filterScrollLifetime}})
+		if err != nil {
+			return nil, fmt.Errorf("opensearch: advance metadata scroll: %w", err)
+		}
+		if next == nil {
+			return nil, errors.New("opensearch: metadata scroll returned no page")
+		}
+		if next.TerminatedEarly {
+			return nil, errors.New("opensearch: metadata scroll terminated early")
+		}
+		page = &opensearchapi.SearchResp{Timeout: next.Timeout, Shards: next.Shards, ScrollID: next.ScrollID, Hits: opensearchapi.SearchHits{Hits: next.Hits.Hits}}
 	}
-	if response.VersionConflicts != 0 {
-		return fmt.Errorf("opensearch: delete_by_query %s left %d document(s) on version conflict",
-			s.indexName, response.VersionConflicts)
+}
+
+const (
+	filterBatchSize      = 512
+	filterScrollLifetime = time.Minute
+	filterCleanupTimeout = 5 * time.Second
+)
+
+func (s *Store) verifySourceSettings(ctx context.Context) error {
+	response, err := s.client.Indices.Settings.Get(ctx, &opensearchapi.SettingsGetReq{Indices: []string{s.indexName}, Params: opensearchapi.SettingsGetParams{FlatSettings: new(true)}})
+	if err != nil {
+		return fmt.Errorf("opensearch: read source settings: %w", err)
 	}
-	if response.TimedOut {
-		return fmt.Errorf("opensearch: delete_by_query %s timed out after deleting %d of %d document(s)",
-			s.indexName, response.Deleted, response.Total)
+	if response == nil {
+		return errors.New("opensearch: source settings returned no response")
 	}
-	if response.Deleted != response.Total {
-		return fmt.Errorf("opensearch: delete_by_query %s deleted %d of %d matched document(s)",
-			s.indexName, response.Deleted, response.Total)
+	indices := response.GetIndices()
+	if len(indices) != 1 {
+		return fmt.Errorf("opensearch: source settings resolved to %d indices", len(indices))
+	}
+	for indexName, index := range indices {
+		if indexName != s.indexName {
+			return fmt.Errorf("%w: source settings for %q resolved to %q", ErrIncompatibleIndex, s.indexName, indexName)
+		}
+		var settings struct {
+			DerivedSourceEnabled string `json:"index.derived_source.enabled"`
+		}
+		if err := jsonv2.Unmarshal(index.Settings, &settings); err != nil {
+			return fmt.Errorf("opensearch: decode source settings: %w", err)
+		}
+		if settings.DerivedSourceEnabled == "true" {
+			return fmt.Errorf("%w: derived source cannot preserve original metadata", ErrIncompatibleIndex)
+		}
 	}
 	return nil
 }

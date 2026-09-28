@@ -104,12 +104,18 @@ func (*AudioTranscriptionModel) validateOptions(options transcription.Options) e
 }
 
 func (a *AudioTranscriptionModel) buildTranscriptionResponse(apiResp *genai.GenerateContentResponse) (*transcription.Response, error) {
-	if len(apiResp.Candidates) == 0 || apiResp.Candidates[0].Content == nil {
-		return nil, errors.New("google: transcription response has no candidates")
+	if err := validateProtocolCompletion(apiResp); err != nil {
+		return nil, fmt.Errorf("google: transcription: %w: %w", transcription.ErrInvalidResponse, err)
+	}
+	if apiResp.Candidates[0].Content == nil {
+		return nil, fmt.Errorf("google: transcription: %w: candidate has no content", transcription.ErrInvalidResponse)
 	}
 
 	var text strings.Builder
 	for _, part := range apiResp.Candidates[0].Content.Parts {
+		if part == nil {
+			return nil, fmt.Errorf("google: transcription: %w: nil content part", transcription.ErrInvalidResponse)
+		}
 		// Skip thought-flagged parts: Gemini 2.5 may emit reasoning
 		// before producing the transcript; reasoning text must not be
 		// pasted into the output.

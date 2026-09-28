@@ -26,7 +26,8 @@ type MessagesConfig struct {
 	DefaultOptions corechat.Options
 	BaseURL        string
 	HTTPClient     *http.Client
-	Headers        http.Header
+	// A header with no values removes the SDK's default for that name.
+	Headers http.Header
 }
 
 func (m MessagesConfig) Validate() error {

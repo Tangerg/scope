@@ -113,8 +113,8 @@ type StoreConfig struct {
 	// Client is the typed OpenSearch transport.
 	Client *opensearchapi.Client
 
-	// IndexName names the OpenSearch index. An empty value selects
-	// [DefaultIndexName].
+	// IndexName names one concrete OpenSearch index. Aliases and expressions
+	// resolving to another name are rejected. Empty selects [DefaultIndexName].
 	IndexName string
 
 	// EmbeddingField is the knn_vector field name. An empty value selects
@@ -144,8 +144,8 @@ type StoreConfig struct {
 	// [SpaceTypeCosine].
 	SpaceType SpaceType
 
-	// Engine selects the index ANN implementation. An empty value selects
-	// [EngineLucene].
+	// Engine selects the index ANN implementation. The stored mapping must
+	// explicitly identify the same engine. Empty selects [EngineLucene].
 	Engine Engine
 
 	// MethodName selects the ANN method. An empty value selects hnsw; ivf is
@@ -153,9 +153,9 @@ type StoreConfig struct {
 	MethodName string
 
 	// InitializeSchema permits NewStore to create a missing index. When false,
-	// a missing index is reported as [ErrIndexMissing]. Either way an index
-	// that already exists is checked against these settings and refused with
-	// [ErrIncompatibleIndex] when it disagrees.
+	// a missing index is reported as [ErrIndexMissing]. New and existing indices
+	// are checked against these settings and refused with [ErrIncompatibleIndex]
+	// when their vector mapping or source-storage policy disagrees.
 	InitializeSchema bool
 }
 

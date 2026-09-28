@@ -60,10 +60,7 @@ func NewRerankModel(_ context.Context, config RerankModelConfig) (*RerankModel, 
 const MaxDocumentsPerRerankRequest = 1000
 
 func (r *RerankModel) buildAPIRequest(request *rerank.Request) (*rerankRequest, error) {
-	effective, err := r.defaultOptions.Resolve(request.Options)
-	if err != nil {
-		return nil, err
-	}
+	effective := request.Options
 	extension, _, err := effective.Extensions.Decode[RerankRequestOptions](RerankRequestExtensionKey)
 	if err != nil {
 		return nil, fmt.Errorf("voyage: decode rerank extension: %w", err)
@@ -76,8 +73,8 @@ func (r *RerankModel) buildAPIRequest(request *rerank.Request) (*rerankRequest, 
 		Model: effective.Model, Query: request.Query, Documents: request.Documents,
 		Truncation: extension.Truncation,
 	}
-	if effective.TopK != 0 {
-		apiRequest.TopK = new(effective.TopK)
+	if effective.TopK != nil && *effective.TopK > 0 {
+		apiRequest.TopK = effective.TopK
 	}
 	return apiRequest, nil
 }
@@ -105,6 +102,16 @@ func (r *RerankModel) Call(ctx context.Context, request *rerank.Request) (*reran
 	if err := request.Validate(); err != nil {
 		return nil, err
 	}
+	effectiveRequest := *request
+	var err error
+	effectiveRequest.Options, err = r.defaultOptions.Resolve(request.Options)
+	if err != nil {
+		return nil, err
+	}
+	if err = effectiveRequest.Validate(); err != nil {
+		return nil, err
+	}
+	request = &effectiveRequest
 	apiRequest, err := r.buildAPIRequest(request)
 	if err != nil {
 		return nil, err

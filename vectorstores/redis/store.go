@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"cmp"
 	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
@@ -8,12 +9,14 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	goredis "github.com/redis/go-redis/v9"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -26,7 +29,10 @@ var (
 )
 
 // RediSearch requires dialect 2 for the vector-query syntax used by Store.
-const redisSearchDialectVersion = 2
+const (
+	redisSearchDialectVersion = 2
+	filterPageSize            = 256
+)
 
 // Store is a Redis-backed implementation of the vectorstore capability interfaces. It
 // stores documents as Redis HASHes and queries them through RediSearch
@@ -39,7 +45,6 @@ type Store struct {
 	embeddingField    string
 	metadataJSONField string
 	metadataFields    []MetadataField
-	fieldTypes        map[string]MetadataFieldType
 	embeddingClient   embeddingclient.Client
 	documentBatcher   vectorstore.Batcher
 	dimensions        int
@@ -66,13 +71,6 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	}
 
 	metadataFields := slices.Clone(config.MetadataFields)
-	fieldTypes := make(map[string]MetadataFieldType, len(metadataFields))
-	for _, f := range metadataFields {
-		if f.Name == "" {
-			return nil, errors.New("redis: MetadataField.Name must not be empty")
-		}
-		fieldTypes[f.Name] = f.Type
-	}
 
 	store := &Store{
 		client:            config.Client,
@@ -82,7 +80,6 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		embeddingField:    config.EmbeddingField,
 		metadataJSONField: config.MetadataJSONField,
 		metadataFields:    metadataFields,
-		fieldTypes:        fieldTypes,
 		embeddingClient:   embeddingClient,
 		documentBatcher:   config.DocumentBatcher,
 		dimensions:        config.Dimensions,
@@ -140,7 +137,7 @@ func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 }
 
 // ErrIncompatibleIndex reports an existing index whose vector field does not
-// match the configuration this store scores against.
+// match this store's namespace and vector representation.
 var ErrIncompatibleIndex = errors.New("redis: existing index is incompatible")
 
 // checkExistingIndex verifies that an index this store did not create agrees
@@ -157,27 +154,33 @@ var ErrIncompatibleIndex = errors.New("redis: existing index is incompatible")
 // value here would make an out-of-band index unusable without repeating a fact
 // the index already holds. A wrong width fails on the first write regardless.
 func (s *Store) checkExistingIndex(ctx context.Context) error {
-	info, err := s.client.FTInfo(ctx, s.indexName).Result()
+	raw, err := s.client.Do(ctx, "FT.INFO", s.indexName).Result()
 	if err != nil {
 		return fmt.Errorf("redis: FT.INFO %s: %w", s.indexName, err)
 	}
-	for _, attribute := range info.Attributes {
-		if attribute.Attribute != s.embeddingField && attribute.Identifier != s.embeddingField {
+	info, err := parseIndexInfo(raw)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrIncompatibleIndex, err)
+	}
+	if info.keyType != "HASH" || len(info.prefixes) != 1 || info.prefixes[0] != s.keyPrefix || info.filtered {
+		return fmt.Errorf("%w: index %s must select exactly HASH keys with prefix %q and no FILTER", ErrIncompatibleIndex, s.indexName, s.keyPrefix)
+	}
+	for _, attribute := range info.attributes {
+		if attribute.Attribute != s.embeddingField || attribute.Identifier != s.embeddingField {
 			continue
 		}
+		if attribute.Type != "VECTOR" || attribute.DataType != "FLOAT32" || attribute.Dim <= 0 {
+			return fmt.Errorf("%w: index %s must hold %s as a FLOAT32 vector", ErrIncompatibleIndex, s.indexName, s.embeddingField)
+		}
 		if !strings.EqualFold(attribute.DistanceMetric, string(s.distanceMetric)) {
-			return fmt.Errorf("%w: index %s ranks %s by %s, but this store scores by %s",
-				ErrIncompatibleIndex, s.indexName, s.embeddingField,
-				attribute.DistanceMetric, s.distanceMetric)
+			return fmt.Errorf("%w: index %s ranks %s by %s, but this store scores by %s", ErrIncompatibleIndex, s.indexName, s.embeddingField, attribute.DistanceMetric, s.distanceMetric)
 		}
 		if s.dimensions > 0 && attribute.Dim != s.dimensions {
-			return fmt.Errorf("%w: index %s holds %s with %d dimensions, but this store is configured for %d",
-				ErrIncompatibleIndex, s.indexName, s.embeddingField, attribute.Dim, s.dimensions)
+			return fmt.Errorf("%w: index %s vector dimension is %d, want %d", ErrIncompatibleIndex, s.indexName, attribute.Dim, s.dimensions)
 		}
 		return nil
 	}
-	return fmt.Errorf("%w: index %s has no vector attribute %s",
-		ErrIncompatibleIndex, s.indexName, s.embeddingField)
+	return fmt.Errorf("%w: index %s has no vector attribute %s", ErrIncompatibleIndex, s.indexName, s.embeddingField)
 }
 
 func (s *Store) buildSchema() ([]*goredis.FieldSchema, error) {
@@ -222,18 +225,19 @@ func (s *Store) vectorArgs() *goredis.FTVectorArgs {
 		fallthrough
 	default:
 		args.HNSWOptions = &goredis.FTHNSWOptions{
-			Type:            "FLOAT32",
-			Dim:             s.dimensions,
-			DistanceMetric:  string(s.distanceMetric),
-			MaxEdgesPerNode: s.hnswM,
-			EFRunTime:       s.hnswEFRuntime,
+			Type:                   "FLOAT32",
+			Dim:                    s.dimensions,
+			DistanceMetric:         string(s.distanceMetric),
+			MaxEdgesPerNode:        s.hnswM,
+			MaxAllowedEdgesPerNode: s.hnswEFConstruct,
+			EFRunTime:              s.hnswEFRuntime,
 		}
 	}
 	return args
 }
 
-// Delete looks up documents matching the filter via FT.SEARCH, then
-// removes the underlying keys with DEL.
+// DeleteWhere enumerates metadata, then deletes matching keys only while the
+// observed metadata remains unchanged.
 func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
 	if expr == nil {
 		return vectorstore.ErrMissingFilter
@@ -242,47 +246,16 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		return fmt.Errorf("redis.Store.DeleteWhere: %w", err)
 	}
 
-	var query string
-	query, err = s.buildFilterQuery(expr)
+	records, err := s.matchingRecords(ctx, expr)
 	if err != nil {
 		return err
 	}
-	if query == "*" {
-		return errors.New("redis: refusing to DELETE on empty filter — pass a non-trivial expression")
-	}
-
-	const pageSize = 500
-	opts := &goredis.FTSearchOptions{
-		NoContent:      true,
-		LimitOffset:    0,
-		Limit:          pageSize,
-		DialectVersion: redisSearchDialectVersion,
-	}
-	// Only an empty page establishes that nothing matches. RediSearch runs
-	// FT.SEARCH under a query timeout whose default ON_TIMEOUT policy returns
-	// the hits accumulated so far, so a page shorter than the limit can mean a
-	// truncated scan rather than an exhausted match set. Re-querying after each
-	// DEL converges in either case; trusting a short page would report success
-	// while matching documents remained.
-	for {
-		result, err := s.client.FTSearchWithArgs(ctx, s.indexName, query, opts).Result()
-		if err != nil {
-			return fmt.Errorf("redis: FT.SEARCH %s: %w", s.indexName, err)
-		}
-		if completenessErr := checkSearchCompleteness(s.indexName, result); completenessErr != nil {
-			return completenessErr
-		}
-		if len(result.Docs) == 0 {
-			return nil
-		}
-		keys := make([]string, 0, len(result.Docs))
-		for _, hit := range result.Docs {
-			keys = append(keys, hit.ID)
-		}
-		if _, err = s.client.Del(ctx, keys...).Result(); err != nil {
-			return fmt.Errorf("redis: DEL: %w", err)
+	for key, observed := range records {
+		if _, err := s.client.Eval(ctx, deleteObservedMetadata, []string{key}, s.metadataJSONField, observed).Result(); err != nil {
+			return fmt.Errorf("redis: delete %s: %w", key, err)
 		}
 	}
+	return nil
 }
 
 // DeleteIDs removes documents by id, resolving each to its HASH key
@@ -304,22 +277,83 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	return nil
 }
 
-// buildFilterQuery turns the optional filter predicate into a
-// RediSearch query string. Returns "*" (match-all) when filter is nil,
-// matching the syntax FT.SEARCH expects in front of the KNN tail.
-func (s *Store) buildFilterQuery(expr filter.Predicate) (string, error) {
-	if expr == nil {
-		return "*", nil
+const deleteObservedMetadata = `if redis.call("HGET", KEYS[1], ARGV[1]) == ARGV[2] then return redis.call("DEL", KEYS[1]) end return 0`
+
+// matchingRecords scans the complete key namespace before a vector limit or any
+// deletion. The JSON metadata record retains distinctions TAG and TEXT indexes
+// lose, including scalar/array types, case, delimiters and whole-string LIKE.
+func (s *Store) matchingRecords(ctx context.Context, expr filter.Predicate) (map[string]string, error) {
+	if _, ring := s.client.(*goredis.Ring); ring {
+		return nil, fmt.Errorf("redis: complete metadata enumeration for Ring clients: %w", errors.ErrUnsupported)
 	}
-	v := newVisitor(s.fieldTypes)
-	if err := expr.Accept(v); err != nil {
-		return "", fmt.Errorf("redis: convert filter: %w", err)
+	selected := make(map[string]string)
+	var mu sync.Mutex
+	seen := make(map[string]struct{})
+	scan := func(ctx context.Context, client goredis.Cmdable) error {
+		var cursor uint64
+		pattern := strings.NewReplacer("\\", "\\\\", "*", "\\*", "?", "\\?", "[", "\\[", "]", "\\]").Replace(s.keyPrefix) + "*"
+		for {
+			keys, next, err := client.Scan(ctx, cursor, pattern, filterPageSize).Result()
+			if err != nil {
+				return fmt.Errorf("redis: scan document keys: %w", err)
+			}
+			for _, key := range keys {
+				if !strings.HasPrefix(key, s.keyPrefix) || len(key) == len(s.keyPrefix) {
+					return fmt.Errorf("redis: returned key %q is outside document namespace %q", key, s.keyPrefix)
+				}
+				mu.Lock()
+				_, duplicate := seen[key]
+				seen[key] = struct{}{}
+				mu.Unlock()
+				if duplicate {
+					continue
+				}
+				raw, err := client.HGet(ctx, key, s.metadataJSONField).Result()
+				if errors.Is(err, goredis.Nil) {
+					exists, existsErr := client.Exists(ctx, key).Result()
+					if existsErr != nil {
+						return fmt.Errorf("redis: check vanished document %s: %w", key, existsErr)
+					}
+					if exists == 0 {
+						continue
+					}
+					return fmt.Errorf("redis: document %s is missing metadata field %s", key, s.metadataJSONField)
+				}
+				if err != nil {
+					return fmt.Errorf("redis: read metadata for %s: %w", key, err)
+				}
+				var values metadata.Map
+				if decodeErr := jsonv2.Unmarshal([]byte(raw), &values); decodeErr != nil {
+					return fmt.Errorf("redis: decode metadata for %s: %w", key, decodeErr)
+				}
+				decoded, err := values.Values()
+				if err != nil {
+					return err
+				}
+				matched, err := filter.Match(expr, decoded)
+				if err != nil {
+					return fmt.Errorf("redis: evaluate filter for %s: %w", key, err)
+				}
+				if matched {
+					mu.Lock()
+					selected[key] = raw
+					mu.Unlock()
+				}
+			}
+			if next == 0 {
+				return nil
+			}
+			cursor = next
+		}
 	}
-	fragment := v.snapshot()
-	if fragment == "" {
-		return "*", nil
+	if cluster, ok := s.client.(*goredis.ClusterClient); ok {
+		if err := cluster.ForEachMaster(ctx, func(ctx context.Context, client *goredis.Client) error { return scan(ctx, client) }); err != nil {
+			return nil, err
+		}
+	} else if err := scan(ctx, s.client); err != nil {
+		return nil, err
 	}
-	return "(" + fragment + ")", nil
+	return selected, nil
 }
 
 // Index embeds documents and writes them as Redis HASHes keyed by
@@ -417,22 +451,28 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		}
 	}()
 
+	var selected []string
+	if req.Options.Filter != nil {
+		records, matchErr := s.matchingRecords(ctx, req.Options.Filter)
+		if matchErr != nil {
+			return nil, matchErr
+		}
+		for key := range records {
+			selected = append(selected, key)
+		}
+		slices.Sort(selected)
+		if len(selected) == 0 {
+			return &vectorstore.SearchResponse{}, nil
+		}
+	}
+
 	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
 	if err != nil {
 		return nil, fmt.Errorf("redis: embed query: %w", err)
 	}
 	queryVec := float32sToBytes(embedding.Float32Vector(vector))
 
-	filterQuery, err := s.buildFilterQuery(req.Options.Filter)
-	if err != nil {
-		return nil, err
-	}
-
-	// RediSearch hybrid syntax: <filter>=>[KNN <k> @embedding $vec AS distance]
-	queryStr := fmt.Sprintf(
-		"%s=>[KNN %d @%s $%s AS %s]",
-		filterQuery, req.Options.ResultLimit(), s.embeddingField, vectorParamName, distanceFieldName,
-	)
+	queryStr := fmt.Sprintf("*=>[KNN %d @%s $%s AS %s]", req.Options.ResultLimit(), s.embeddingField, vectorParamName, distanceFieldName)
 
 	opts := &goredis.FTSearchOptions{
 		Params: map[string]any{
@@ -447,29 +487,58 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		},
 	}
 
-	result, err := s.client.FTSearchWithArgs(ctx, s.indexName, queryStr, opts).Result()
-	if err != nil {
-		return nil, fmt.Errorf("redis: FT.SEARCH %s: %w", s.indexName, err)
+	groups := [][]string{nil}
+	if req.Options.Filter != nil {
+		groups = slices.Collect(slices.Chunk(selected, filterPageSize))
 	}
-	if err := checkSearchCompleteness(s.indexName, result); err != nil {
-		return nil, err
+	for _, group := range groups {
+		opts.InKeys = make([]any, len(group))
+		for index, key := range group {
+			opts.InKeys[index] = key
+		}
+		result, err := s.client.FTSearchWithArgs(ctx, s.indexName, queryStr, opts).Result()
+		if err != nil {
+			return nil, fmt.Errorf("redis: FT.SEARCH %s: %w", s.indexName, err)
+		}
+		if err := checkSearchCompleteness(s.indexName, result); err != nil {
+			return nil, err
+		}
+		for _, hit := range result.Docs {
+			doc, err := s.toDocument(hit)
+			if err != nil {
+				return nil, err
+			}
+			if req.Options.Filter != nil {
+				if !slices.Contains(group, hit.ID) {
+					return nil, fmt.Errorf("redis: search returned unselected key %q", hit.ID)
+				}
+				values, decodeErr := doc.Metadata.Values()
+				if decodeErr != nil {
+					return nil, decodeErr
+				}
+				matched, matchErr := filter.Match(req.Options.Filter, values)
+				if matchErr != nil {
+					return nil, fmt.Errorf("redis: validate returned metadata for %s: %w", hit.ID, matchErr)
+				}
+				if !matched {
+					return nil, fmt.Errorf("redis: metadata for %s changed after filter selection", hit.ID)
+				}
+			}
+			score, err := s.scoreFromFields(hit.Fields)
+			if err != nil {
+				return nil, err
+			}
+			if score < req.Options.MinScore {
+				continue
+			}
+			docs = append(docs, &vectorstore.SearchResult{Document: doc, Score: score})
+		}
+	}
+	slices.SortFunc(docs, func(left, right *vectorstore.SearchResult) int { return cmp.Compare(right.Score, left.Score) })
+	if len(docs) > req.Options.ResultLimit() {
+		docs = docs[:req.Options.ResultLimit()]
 	}
 
-	docs = make([]*vectorstore.SearchResult, 0, len(result.Docs))
-	for _, hit := range result.Docs {
-		score, err := s.scoreFromFields(hit.Fields)
-		if err != nil {
-			return nil, err
-		}
-		if score < req.Options.MinScore {
-			continue
-		}
-		doc, err := s.toDocument(hit)
-		if err != nil {
-			return nil, err
-		}
-		docs = append(docs, &vectorstore.SearchResult{Document: doc, Score: score})
-	}
 	return &vectorstore.SearchResponse{Results: docs}, nil
 }
 
@@ -502,6 +571,9 @@ func (s *Store) scoreFromFields(fields map[string]string) (vectorstore.Score, er
 }
 
 func (s *Store) toDocument(hit goredis.Document) (*document.Document, error) {
+	if !strings.HasPrefix(hit.ID, s.keyPrefix) {
+		return nil, fmt.Errorf("redis: returned key %q is outside document namespace %q", hit.ID, s.keyPrefix)
+	}
 	id := strings.TrimPrefix(hit.ID, s.keyPrefix)
 	if id == "" {
 		return nil, errors.New("redis: search result is missing document ID")

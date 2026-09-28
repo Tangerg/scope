@@ -59,9 +59,7 @@ func TestChatUsesCurrentKimiWireContract(t *testing.T) {
 		corechat.NewAssistantMessage(previousThinking, corechat.NewTextPart("previous answer")),
 		corechat.NewUserMessage(corechat.NewTextPart("again")),
 	}}
-	if setExtensionErr := request.Options.Extensions.Set(moonshot.RequestExtensionKey, moonshot.ChatRequestOptions{ReasoningEffort: moonshot.ReasoningEffortHigh}); setExtensionErr != nil {
-		t.Fatalf("SetExtension: %v", setExtensionErr)
-	}
+	request.Options.ReasoningEffort = "high"
 	response, err := model.Call(t.Context(), request)
 	if err != nil {
 		t.Fatalf("Call: %v", err)
@@ -72,7 +70,7 @@ func TestChatUsesCurrentKimiWireContract(t *testing.T) {
 	if _, found := body["max_tokens"]; found {
 		t.Fatalf("deprecated max_tokens sent: %#v", body)
 	}
-	if body["reasoning_effort"] != string(moonshot.ReasoningEffortHigh) {
+	if body["reasoning_effort"] != "high" {
 		t.Fatalf("reasoning_effort = %#v", body["reasoning_effort"])
 	}
 	messages := body["messages"].([]any)

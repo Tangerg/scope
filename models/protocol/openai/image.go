@@ -102,8 +102,6 @@ func (i *ImageModel) buildAPIImageRequest(req *image.Request) (*openai.ImageGene
 	}
 	if effectiveOptions.Width != nil && effectiveOptions.Height != nil {
 		params.Size = openai.ImageGenerateParamsSize(fmt.Sprintf("%dx%d", *effectiveOptions.Width, *effectiveOptions.Height))
-	} else {
-		params.Size = openai.ImageGenerateParamsSizeAuto
 	}
 
 	return params, nil

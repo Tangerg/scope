@@ -16,7 +16,8 @@ func TestMetadataNumbersRoundTripThroughProtobuf(t *testing.T) {
 	t.Parallel()
 	values := metadata.Map{
 		"number": json.RawMessage(`0.1`),
-		"nested": json.RawMessage(`{"items":[1e-16,9007199254740992]}`),
+		"small":  json.RawMessage(`1e-16`),
+		"large":  json.RawMessage(`9007199254740992`),
 	}
 	store := &Store{distanceMetric: DistanceCosine}
 	vectors, err := store.buildVectors([]*document.Document{{ID: "one", Text: "content", Metadata: values}}, [][]float64{{1, 0}})

@@ -24,12 +24,19 @@ var _ filter.Visitor = (*visitor)(nil)
 // IN values are bound as a single slice parameter so callers can pass
 // `[]string{"a", "b"}` straight through.
 type visitor struct {
-	err  error
-	sql  strings.Builder
-	args []any
+	err     error
+	sql     strings.Builder
+	args    []any
+	columns map[string]string
 }
 
-func newVisitor() *visitor { return &visitor{} }
+func newVisitor(columns []MetadataColumn) *visitor {
+	names := make(map[string]string, len(columns))
+	for _, column := range columns {
+		names[column.Name] = column.Name
+	}
+	return &visitor{columns: names}
+}
 
 func (v *visitor) snapshot() (string, []any) {
 	if v.err != nil {
@@ -76,7 +83,7 @@ func (v *visitor) visitLogicalExpr(expr *filter.BinaryExpr) error {
 }
 
 func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
-	column, err := columnName(expr.Left())
+	column, err := v.columnName(expr.Left())
 	if err != nil {
 		return fmt.Errorf("cassandra: %w (at %s)", err, expr.Start().String())
 	}
@@ -98,7 +105,7 @@ func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 }
 
 func (v *visitor) visitInExpr(expr *filter.BinaryExpr) error {
-	column, err := columnName(expr.Left())
+	column, err := v.columnName(expr.Left())
 	if err != nil {
 		return fmt.Errorf("cassandra: %w (at %s)", err, expr.Start().String())
 	}
@@ -127,10 +134,14 @@ func (v *visitor) visitInExpr(expr *filter.BinaryExpr) error {
 // columnName extracts the (single) column name from the left operand.
 // Cassandra filters work on flat indexed columns — there's no JSON
 // access — so an [filter.IndexExpr] is rejected.
-func columnName(expr filter.Expr) (string, error) {
+func (v *visitor) columnName(expr filter.Expr) (string, error) {
 	switch node := expr.(type) {
 	case *filter.Ident:
-		return node.Name(), nil
+		column, declared := v.columns[node.Name()]
+		if !declared {
+			return "", fmt.Errorf("filter references undeclared metadata column %q", node.Name())
+		}
+		return column, nil
 	case *filter.IndexExpr:
 		return "", errors.New("indexed expressions are not supported — declare the metadata key as a column")
 	default:

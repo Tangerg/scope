@@ -109,10 +109,10 @@ func (o *openAIStreamState) complete(delta *corechat.ResponseDelta) (*corechat.R
 		}
 		var value *media.Media
 		var err error
-		if o.audioID != "" {
-			value, err = media.NewReference(audioMIME(format), o.audioID)
-		} else {
+		if len(o.audio) != 0 {
 			value, err = media.NewBytes(audioMIME(format), o.audio)
+		} else {
+			value, err = media.NewReference(audioMIME(format), o.audioID)
 		}
 		if err != nil {
 			return nil, err

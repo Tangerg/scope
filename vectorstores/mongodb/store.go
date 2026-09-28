@@ -33,6 +33,7 @@ const (
 	DefaultNumCandidates   = 200
 	defaultIDField         = "_id"
 	scoreField             = "score"
+	filterPageSize         = 128
 )
 
 // MaxNumCandidates is Atlas's ceiling for the $vectorSearch numCandidates
@@ -117,8 +118,8 @@ type StoreConfig struct {
 
 	// MetadataFieldsToFilter pre-declares the metadata keys that
 	// should be indexed as filter fields in the Atlas search index.
-	// Filtering on a metadata field requires the field to be listed
-	// here when InitializeSchema is true.
+	// Core metadata filtering evaluates the stored record independently of
+	// these optional projections. The _id filter path is always provisioned.
 	MetadataFieldsToFilter []string
 
 	// EmbeddingModel produces vectors for the documents. Required.
@@ -308,6 +309,7 @@ func (s *Store) createSearchIndex(ctx context.Context) error {
 	}
 
 	fields := []bson.M{
+		{"type": "filter", "path": defaultIDField},
 		{
 			"type":          "vector",
 			"path":          s.embeddingPath,
@@ -437,6 +439,20 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		}
 	}()
 
+	var selected []string
+	if req.Options.Filter != nil {
+		records, matchErr := s.matchingDocuments(ctx, req.Options.Filter)
+		if matchErr != nil {
+			return nil, matchErr
+		}
+		for _, record := range records {
+			selected = append(selected, record.id)
+		}
+		if len(selected) == 0 {
+			return &vectorstore.SearchResponse{}, nil
+		}
+	}
+
 	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
 	if err != nil {
 		return nil, fmt.Errorf("mongodb: embed query: %w", err)
@@ -454,15 +470,6 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		"numCandidates": candidates,
 		"limit":         req.Options.ResultLimit(),
 	}
-	if req.Options.Filter != nil {
-		filterDoc, filterErr := s.buildFilter(req.Options.Filter)
-		if filterErr != nil {
-			return nil, filterErr
-		}
-		if len(filterDoc) > 0 {
-			vectorSearch["filter"] = filterDoc
-		}
-	}
 
 	pipeline := mongo.Pipeline{
 		{{Key: "$vectorSearch", Value: vectorSearch}},
@@ -476,27 +483,43 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		})
 	}
 
-	cursor, err := s.collection.Aggregate(ctx, pipeline)
-	if err != nil {
-		return nil, fmt.Errorf("mongodb: aggregate: %w", err)
+	groups := [][]string{nil}
+	if req.Options.Filter != nil {
+		groups = slices.Collect(slices.Chunk(selected, filterPageSize))
 	}
-	defer cursor.Close(ctx)
+	for _, group := range groups {
+		if group != nil {
+			vectorSearch["filter"] = bson.M{defaultIDField: bson.M{"$in": group}}
+		}
+		matches, queryErr := s.queryMatches(ctx, pipeline)
+		if queryErr != nil {
+			return nil, queryErr
+		}
+		if req.Options.Filter != nil {
+			for _, match := range matches {
+				if !slices.Contains(group, match.Document.ID) {
+					return nil, fmt.Errorf("mongodb: search returned unselected ID %q", match.Document.ID)
+				}
+				values, err := match.Document.Metadata.Values()
+				if err != nil {
+					return nil, err
+				}
+				matched, err := filter.Match(req.Options.Filter, values)
+				if err != nil {
+					return nil, fmt.Errorf("mongodb: validate returned metadata for %s: %w", match.Document.ID, err)
+				}
+				if !matched {
+					return nil, fmt.Errorf("mongodb: metadata for %s changed after filter selection", match.Document.ID)
+				}
+			}
+		}
+		docs = append(docs, matches...)
+	}
+	slices.SortFunc(docs, func(left, right *vectorstore.SearchResult) int { return cmp.Compare(right.Score, left.Score) })
+	if len(docs) > req.Options.ResultLimit() {
+		docs = docs[:req.Options.ResultLimit()]
+	}
 
-	docs = make([]*vectorstore.SearchResult, 0, req.Options.ResultLimit())
-	for cursor.Next(ctx) {
-		var raw bson.M
-		if err := cursor.Decode(&raw); err != nil {
-			return nil, fmt.Errorf("mongodb: decode hit: %w", err)
-		}
-		match, err := s.toMatch(raw)
-		if err != nil {
-			return nil, err
-		}
-		docs = append(docs, match)
-	}
-	if err := cursor.Err(); err != nil {
-		return nil, fmt.Errorf("mongodb: cursor: %w", err)
-	}
 	return &vectorstore.SearchResponse{Results: docs}, nil
 }
 
@@ -508,23 +531,94 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		return fmt.Errorf("mongodb.Store.DeleteWhere: %w", err)
 	}
 
-	var filter bson.M
-	filter, err = s.buildFilter(expr)
+	records, err := s.matchingDocuments(ctx, expr)
 	if err != nil {
 		return err
 	}
-	if len(filter) == 0 {
-		return errors.New("mongodb: refusing to delete on empty filter")
-	}
-
-	result, err := s.collection.DeleteMany(ctx, filter)
-	if err != nil {
-		return fmt.Errorf("mongodb: DeleteMany: %w", err)
-	}
-	if result == nil || !result.Acknowledged {
-		return errors.New("mongodb: deletion was not acknowledged")
+	for _, record := range records {
+		constraint := bson.M{defaultIDField: record.id}
+		if record.metadata.Type == 0 {
+			constraint[s.metadataField] = bson.M{"$exists": false}
+		} else {
+			// Expression equality compares the complete value, including its
+			// container type. $literal keeps metadata keys out of query syntax.
+			constraint["$expr"] = bson.M{"$eq": bson.A{"$" + s.metadataField, bson.M{"$literal": record.metadata}}}
+		}
+		result, err := s.collection.DeleteMany(ctx, constraint, options.DeleteMany().SetCollation(&options.Collation{Locale: "simple"}))
+		if err != nil {
+			return fmt.Errorf("mongodb: delete observed document %s: %w", record.id, err)
+		}
+		if result == nil || !result.Acknowledged {
+			return errors.New("mongodb: deletion was not acknowledged")
+		}
 	}
 	return nil
+}
+
+func (s *Store) queryMatches(ctx context.Context, pipeline mongo.Pipeline) (matches []*vectorstore.SearchResult, err error) {
+	cursor, err := s.collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, fmt.Errorf("mongodb: aggregate: %w", err)
+	}
+	defer func() { err = errors.Join(err, cursor.Close(ctx)) }()
+	for cursor.Next(ctx) {
+		var raw bson.M
+		if err := cursor.Decode(&raw); err != nil {
+			return nil, fmt.Errorf("mongodb: decode hit: %w", err)
+		}
+		match, err := s.toMatch(raw)
+		if err != nil {
+			return nil, err
+		}
+		matches = append(matches, match)
+	}
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("mongodb: cursor: %w", err)
+	}
+	return matches, nil
+}
+
+type selectedDocument struct {
+	id       string
+	metadata bson.RawValue
+}
+
+// matchingDocuments consumes every metadata record before applying a vector limit
+// or a deletion. Metadata membership uses the Core evaluator; the final vector
+// query only filters by IDs and does not translate metadata predicates.
+func (s *Store) matchingDocuments(ctx context.Context, expr filter.Predicate) (records []selectedDocument, err error) {
+	cursor, err := s.collection.Aggregate(ctx, mongo.Pipeline{{{Key: "$project", Value: bson.M{defaultIDField: 1, s.metadataField: 1}}}})
+	if err != nil {
+		return nil, fmt.Errorf("mongodb: enumerate metadata: %w", err)
+	}
+	defer func() { err = errors.Join(err, cursor.Close(ctx)) }()
+	for cursor.Next(ctx) {
+		var raw bson.M
+		if err := cursor.Decode(&raw); err != nil {
+			return nil, fmt.Errorf("mongodb: decode metadata row: %w", err)
+		}
+		id, ok := raw[defaultIDField].(string)
+		if !ok || id == "" {
+			return nil, errors.New("mongodb: metadata row is missing string _id")
+		}
+		values, err := s.metadataValues(raw)
+		if err != nil {
+			return nil, err
+		}
+		matched, err := filter.Match(expr, values)
+		if err != nil {
+			return nil, fmt.Errorf("mongodb: evaluate filter for %s: %w", id, err)
+		}
+		if matched {
+			observed := cursor.Current.Lookup(s.metadataField)
+			observed.Value = slices.Clone(observed.Value)
+			records = append(records, selectedDocument{id: id, metadata: observed})
+		}
+	}
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("mongodb: metadata cursor: %w", err)
+	}
+	return records, nil
 }
 
 // DeleteIDs removes documents by their _id — `DeleteMany({_id: {$in: ids}})`.
@@ -561,19 +655,6 @@ func (s *Store) searchCandidates(limit int) (int, error) {
 		)
 	}
 	return min(max(s.numCandidates, limit), MaxNumCandidates), nil
-}
-
-// buildFilter runs the AST through the visitor and returns the
-// MongoDB filter document.
-func (s *Store) buildFilter(expr filter.Predicate) (bson.M, error) {
-	if expr == nil {
-		return nil, nil
-	}
-	v := newVisitor(s.metadataField)
-	if err := expr.Accept(v); err != nil {
-		return nil, fmt.Errorf("mongodb: convert filter: %w", err)
-	}
-	return bson.M(v.snapshot()), nil
 }
 
 func (s *Store) toMatch(raw bson.M) (*vectorstore.SearchResult, error) {
@@ -613,21 +694,13 @@ func (s *Store) metadataValues(raw bson.M) (map[string]any, error) {
 	if !present {
 		return nil, nil
 	}
-	switch value := value.(type) {
-	case bson.M:
-		return map[string]any(value), nil
-	case map[string]any:
-		return value, nil
-	case bson.D:
-		values := make(map[string]any, len(value))
-		for _, element := range value {
-			if _, duplicate := values[element.Key]; duplicate {
-				return nil, fmt.Errorf("mongodb: result metadata contains duplicate key %q", element.Key)
-			}
-			values[element.Key] = element.Value
-		}
-		return values, nil
-	default:
+	decoded, err := decodedMetadataValue(value)
+	if err != nil {
+		return nil, err
+	}
+	values, ok := decoded.(map[string]any)
+	if !ok {
 		return nil, fmt.Errorf("mongodb: result field %q must be a document, got %T", s.metadataField, value)
 	}
+	return values, nil
 }

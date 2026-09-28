@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	// RequestExtensionKey stores an official [genai.GenerateContentConfig].
-	// Core options, messages, and tools take precedence over overlapping fields.
+	// RequestExtensionKey stores provider-specific [genai.GenerateContentConfig]
+	// fields using the SDK's JSON names. Fields owned by Core are rejected.
 	RequestExtensionKey = "google/request"
 )
 
@@ -87,13 +87,7 @@ func mapProtocolRequest(provider string, defaults corechat.Options, req *corecha
 	if err != nil {
 		return "", nil, nil, err
 	}
-	if system != nil {
-		if config.SystemInstruction == nil {
-			config.SystemInstruction = system
-		} else {
-			config.SystemInstruction.Parts = append(config.SystemInstruction.Parts, system.Parts...)
-		}
-	}
+	config.SystemInstruction = system
 	tools, err := mapProtocolTools(req.Tools)
 	if err != nil {
 		return "", nil, nil, err
@@ -139,57 +133,56 @@ func decodeProtocolConfig(provider string, req *corechat.Request) (*genai.Genera
 	if err := jsonv2.Unmarshal(raw, &fields); err != nil {
 		return nil, fmt.Errorf("google: extension %q: %w", extensionKey, err)
 	}
-	for _, name := range []string{"thinkingConfig", "thinking_config"} {
-		value, exists := fields[name]
+	if fields == nil {
+		return nil, fmt.Errorf("google: extension %q must be an object", extensionKey)
+	}
+	for _, field := range []struct{ name, owner string }{
+		{"temperature", "options.temperature"},
+		{"topP", "options.top_p"},
+		{"topK", "options.top_k"},
+		{"maxOutputTokens", "options.max_output_tokens"},
+		{"stopSequences", "options.stop"},
+		{"presencePenalty", "options.presence_penalty"},
+		{"frequencyPenalty", "options.frequency_penalty"},
+		{"responseMimeType", "options.output_format"},
+		{"responseSchema", "options.output_format"},
+		{"responseJsonSchema", "options.output_format"},
+		{"systemInstruction", "messages"},
+	} {
+		if _, exists := fields[field.name]; exists {
+			return nil, fmt.Errorf("google: extension %q field %q is owned by %s", extensionKey, field.name, field.owner)
+		}
+	}
+	for _, field := range []struct{ name, member, owner string }{
+		{"thinkingConfig", "thinkingLevel", "options.reasoning_effort"},
+		{"toolConfig", "functionCallingConfig", "tool_choice"},
+	} {
+		value, exists := fields[field.name]
 		if !exists {
 			continue
 		}
-		var thinkingFields map[string]json.RawMessage
-		if err := jsonv2.Unmarshal(value, &thinkingFields); err != nil {
-			return nil, fmt.Errorf("google: extension %q field %q: %w", extensionKey, name, err)
+		var members map[string]json.RawMessage
+		if err := jsonv2.Unmarshal(value, &members); err != nil {
+			return nil, fmt.Errorf("google: extension %q field %q: %w", extensionKey, field.name, err)
 		}
-		for _, levelName := range []string{"thinkingLevel", "thinking_level"} {
-			if _, exists := thinkingFields[levelName]; exists {
-				return nil, fmt.Errorf("google: extension %q field %q.%s is owned by options.reasoning_effort", extensionKey, name, levelName)
-			}
+		if _, exists := members[field.member]; exists {
+			return nil, fmt.Errorf("google: extension %q field %q is owned by %s", extensionKey, field.name+"."+field.member, field.owner)
 		}
 	}
-	for _, name := range []string{"responseMimeType", "response_mime_type", "responseSchema", "response_schema", "responseJsonSchema", "response_json_schema"} {
-		if _, exists := fields[name]; exists {
-			return nil, fmt.Errorf("google: extension %q field %q is owned by options.output_format", extensionKey, name)
+	if value, exists := fields["tools"]; exists {
+		var tools []map[string]json.RawMessage
+		if err := jsonv2.Unmarshal(value, &tools); err != nil {
+			return nil, fmt.Errorf("google: extension %q field %q: %w", extensionKey, "tools", err)
 		}
-	}
-	for _, name := range []string{"toolConfig", "tool_config"} {
-		value, exists := fields[name]
-		if !exists {
-			continue
-		}
-		var toolFields map[string]json.RawMessage
-		if err := jsonv2.Unmarshal(value, &toolFields); err != nil {
-			return nil, fmt.Errorf("google: extension %q field %q: %w", extensionKey, name, err)
-		}
-		for _, functionName := range []string{"functionCallingConfig", "function_calling_config"} {
-			if _, exists := toolFields[functionName]; exists {
-				return nil, fmt.Errorf("google: extension %q field %q.%s is owned by options.tool_choice", extensionKey, name, functionName)
+		for index, tool := range tools {
+			if _, exists := tool["functionDeclarations"]; exists {
+				return nil, fmt.Errorf("google: extension %q field tools[%d].functionDeclarations is owned by tools", extensionKey, index)
 			}
 		}
 	}
 	var config genai.GenerateContentConfig
-	if err := jsonv2.Unmarshal(raw, &config); err != nil {
+	if err := jsonv2.Unmarshal(raw, &config, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return nil, fmt.Errorf("google: extension %q: %w", extensionKey, err)
-	}
-	var aliases struct {
-		SafetySettings     []*genai.SafetySetting `json:"safety_settings"`
-		ResponseModalities []string               `json:"response_modalities"`
-	}
-	if err := jsonv2.Unmarshal(raw, &aliases); err != nil {
-		return nil, fmt.Errorf("google: extension %q aliases: %w", extensionKey, err)
-	}
-	if len(config.SafetySettings) == 0 && len(aliases.SafetySettings) > 0 {
-		config.SafetySettings = aliases.SafetySettings
-	}
-	if len(config.ResponseModalities) == 0 && len(aliases.ResponseModalities) > 0 {
-		config.ResponseModalities = slices.Clone(aliases.ResponseModalities)
 	}
 	return &config, nil
 }
@@ -284,7 +277,7 @@ func mapProtocolAssistantParts(provider string, parts []corechat.Part) ([]*genai
 	for i := range parts {
 		part := parts[i]
 		stateKey := protocolKey(provider, "part_state")
-		state, _, err := part.Metadata.Decode[partReplayState](stateKey)
+		state, found, err := part.Metadata.Decode[partReplayState](stateKey)
 		if err != nil {
 			return nil, fmt.Errorf("parts[%d].metadata[%q]: %w", i, stateKey, err)
 		}
@@ -320,7 +313,9 @@ func mapProtocolAssistantParts(provider string, parts []corechat.Part) ([]*genai
 		default:
 			return nil, fmt.Errorf("parts[%d]: unsupported assistant part %q", i, part.Kind)
 		}
-		state.apply(mapped[len(mapped)-1])
+		if found {
+			state.apply(mapped[len(mapped)-1], part.Kind)
+		}
 	}
 	return mapped, nil
 }

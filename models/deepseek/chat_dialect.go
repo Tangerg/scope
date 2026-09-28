@@ -1,6 +1,8 @@
 package deepseek
 
 import (
+	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"regexp"
@@ -10,13 +12,18 @@ import (
 )
 
 const (
-	maximumStopSequences = 16
-	maximumTools         = 128
-	maximumTopLogProbs   = 20
-	maximumUserIDLength  = 512
-	reasoningEffortLow   = corechat.ReasoningEffort("low")
-	reasoningEffortHigh  = corechat.ReasoningEffort("high")
-	reasoningEffortMax   = corechat.ReasoningEffort("max")
+	maximumStopSequences   = 16
+	maximumTools           = 128
+	maximumTopLogProbs     = 20
+	maximumUserIDLength    = 512
+	minimumThinkingTopP    = 0.95
+	reasoningEffortNone    = corechat.ReasoningEffort("none")
+	reasoningEffortMinimal = corechat.ReasoningEffort("minimal")
+	reasoningEffortMedium  = corechat.ReasoningEffort("medium")
+	reasoningEffortXHigh   = corechat.ReasoningEffort("xhigh")
+	reasoningEffortLow     = corechat.ReasoningEffort("low")
+	reasoningEffortHigh    = corechat.ReasoningEffort("high")
+	reasoningEffortMax     = corechat.ReasoningEffort("max")
 )
 
 // Namespacing preserves provider-specific data without promoting it into the
@@ -25,77 +32,56 @@ const RequestExtensionKey = "deepseek/request"
 
 var userIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-// ThinkingMode selects whether DeepSeek emits reasoning_content before its
-// final answer. The API defaults to enabled when the field is omitted.
-type ThinkingMode string
-
-// These are the provider values this adapter recognizes.
-const (
-	ThinkingEnabled  ThinkingMode = "enabled"
-	ThinkingDisabled ThinkingMode = "disabled"
-)
-
-// ThinkingConfig controls DeepSeek's hybrid thinking mode.
-type ThinkingConfig struct {
-	Type ThinkingMode `json:"type"`
-}
-
-func (t ThinkingConfig) Validate() error {
-	switch t.Type {
-	case ThinkingEnabled, ThinkingDisabled:
-		return nil
-	default:
-		return fmt.Errorf("thinking.type has unsupported value %q", t.Type)
-	}
-}
-
 // RequestOptions contains documented DeepSeek Chat Completions fields that
 // have no provider-neutral Core equivalent. Store it in
 // [chat.Options.Extensions] under [RequestExtensionKey].
 type RequestOptions struct {
-	Thinking     *ThinkingConfig `json:"thinking,omitzero"`
-	LogProbs     *bool           `json:"logprobs,omitzero"`
-	TopLogProbs  *int64          `json:"top_logprobs,omitzero"`
-	IncludeUsage *bool           `json:"include_usage,omitzero"`
-	UserID       string          `json:"user_id,omitempty"`
+	LogProbs     *bool  `json:"logprobs,omitzero"`
+	TopLogProbs  *int64 `json:"top_logprobs,omitzero"`
+	IncludeUsage *bool  `json:"include_usage,omitzero"`
+	UserID       string `json:"user_id,omitempty"`
 }
 
-type requestDialect struct {
-	defaults corechat.Options
-}
-
-func (r requestDialect) prepareRequest(request *corechat.Request, target *openai.CompatibleRequest) error {
-	fields, _, err := request.Options.Extensions.Decode[map[string]any](RequestExtensionKey)
-	if err != nil {
-		return fmt.Errorf("extension %q: %w", RequestExtensionKey, err)
+func (r *RequestOptions) UnmarshalJSON(data []byte) error {
+	if r == nil {
+		return errors.New("deepseek: nil RequestOptions")
+	}
+	var fields map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	for _, field := range []string{"thinking", "reasoning_effort"} {
+		if _, exists := fields[field]; exists {
+			return fmt.Errorf("field %q is owned by options.reasoning_effort", field)
+		}
 	}
 	if _, exists := fields["response_format"]; exists {
-		return fmt.Errorf("extension %q field %q is owned by options.output_format", RequestExtensionKey, "response_format")
-	}
-	if _, exists := fields["reasoning_effort"]; exists {
-		return fmt.Errorf("extension %q field %q is owned by options.reasoning_effort", RequestExtensionKey, "reasoning_effort")
+		return errors.New("field \"response_format\" is owned by options.output_format")
 	}
 	for _, field := range []string{"tool_choice", "parallel_tool_calls"} {
 		if _, exists := fields[field]; exists {
-			return fmt.Errorf("extension %q field %q is owned by options.tool_choice", RequestExtensionKey, field)
+			return fmt.Errorf("field %q is owned by options.tool_choice", field)
 		}
 	}
+	type wireOptions RequestOptions
+	var decoded wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	*r = RequestOptions(decoded)
+	return nil
+}
+
+func prepareRequest(request *corechat.Request, target *openai.CompatibleRequest) error {
 	options, _, err := request.Options.Extensions.Decode[RequestOptions](RequestExtensionKey)
 	if err != nil {
 		return fmt.Errorf("extension %q: %w", RequestExtensionKey, err)
 	}
-	effective, err := r.defaults.Resolve(request.Options)
-	if err != nil {
-		return fmt.Errorf("options: %w", err)
-	}
-	if err := options.ValidateFor(effective, request.Tools, target.Stream()); err != nil {
+	if err := options.ValidateFor(request.Options, request.Tools, target.Stream()); err != nil {
 		return err
 	}
-
-	if options.Thinking != nil {
-		if err := target.SetExtraField("thinking", options.Thinking); err != nil {
-			return err
-		}
+	if choice := request.ToolChoice; request.Options.ReasoningEffort != reasoningEffortNone && choice != nil && (choice.Mode == corechat.ToolChoiceRequired || choice.Mode == corechat.ToolChoiceNamed) {
+		return errors.New("options.tool_choice required and named modes are not supported while DeepSeek thinking is enabled")
 	}
 	if options.LogProbs != nil {
 		if err := target.SetExtraField("logprobs", *options.LogProbs); err != nil {
@@ -123,19 +109,11 @@ func (r requestDialect) prepareRequest(request *corechat.Request, target *openai
 }
 
 func (r RequestOptions) ValidateFor(generation corechat.Options, tools []corechat.ToolDefinition, stream bool) error {
-	thinkingEnabled := r.Thinking == nil || r.Thinking.Type != ThinkingDisabled
-	if r.Thinking != nil {
-		if err := r.Thinking.Validate(); err != nil {
-			return err
-		}
-	}
+	thinkingEnabled := generation.ReasoningEffort != reasoningEffortNone
 	switch generation.ReasoningEffort {
-	case "", reasoningEffortLow, reasoningEffortHigh, reasoningEffortMax:
+	case "", reasoningEffortNone, reasoningEffortMinimal, reasoningEffortLow, reasoningEffortMedium, reasoningEffortHigh, reasoningEffortXHigh, reasoningEffortMax:
 	default:
 		return fmt.Errorf("options.reasoning_effort has unsupported value %q", generation.ReasoningEffort)
-	}
-	if !thinkingEnabled && generation.ReasoningEffort != "" {
-		return errors.New("options.reasoning_effort requires thinking.type=enabled")
 	}
 	if generation.FrequencyPenalty != nil {
 		return errors.New("options.frequency_penalty is deprecated and unsupported by DeepSeek")
@@ -146,8 +124,13 @@ func (r RequestOptions) ValidateFor(generation corechat.Options, tools []corecha
 	if thinkingEnabled && generation.Temperature != nil {
 		return errors.New("options.temperature has no effect while DeepSeek thinking is enabled")
 	}
-	if thinkingEnabled && generation.TopP != nil {
-		return errors.New("options.top_p has no effect while DeepSeek thinking is enabled")
+	if generation.TopP != nil {
+		if !thinkingEnabled {
+			return errors.New("options.top_p has no effect while DeepSeek thinking is disabled")
+		}
+		if *generation.TopP < minimumThinkingTopP {
+			return fmt.Errorf("options.top_p must be at least %g while DeepSeek thinking is enabled", minimumThinkingTopP)
+		}
 	}
 	if len(generation.Stop) > maximumStopSequences {
 		return fmt.Errorf("options.stop must contain at most %d sequences for DeepSeek", maximumStopSequences)

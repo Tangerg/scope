@@ -3,9 +3,11 @@ package skills
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
+	"unicode"
 	"unicode/utf8"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 const (
@@ -14,15 +16,12 @@ const (
 	maxCompatibilityLen = 500
 )
 
-// nameRE encodes the spec's name rule: lowercase alphanumerics joined by
-// single hyphens — no leading, trailing, or consecutive hyphens.
-var nameRE = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
-
 // Frontmatter is the YAML metadata block at the head of a SKILL.md file, as
 // defined by the Agent Skills specification.
 type Frontmatter struct {
 	// Name is the unique skill identifier; it must match the skill's parent
-	// directory name. Required.
+	// directory name after Unicode NFKC normalization. Repository results use
+	// the directory's exact spelling so the identifier can reopen its files.
 	Name string `yaml:"name"`
 	// Description states what the skill does and when to use it — the text an
 	// agent reads to decide relevance. Required.
@@ -55,7 +54,6 @@ func (f Frontmatter) Validate() error {
 
 	// Description / Compatibility limits are in characters (the spec's
 	// unit), so count runes — byte length over-counts non-ASCII text.
-	// Name stays byte-counted: its regex locks it to ASCII anyway.
 	descriptionLen := utf8.RuneCountInString(f.Description)
 	switch {
 	case strings.TrimSpace(f.Description) == "":
@@ -74,15 +72,25 @@ func (f Frontmatter) Validate() error {
 // ValidateName reports whether name satisfies the Agent Skills specification.
 // It is useful at boundaries that only carry a skill identifier and should not
 // need to fabricate a [Frontmatter] value to validate it.
+// Validation compares Unicode NFKC characters without changing path spelling.
 func ValidateName(name string) error {
-	switch {
-	case strings.TrimSpace(name) == "":
+	if strings.TrimSpace(name) == "" {
 		return ErrNameEmpty
-	case len(name) > maxNameLen:
-		return fmt.Errorf("%w: %d characters", ErrNameTooLong, len(name))
-	case !nameRE.MatchString(name):
-		return fmt.Errorf("%w: %q", ErrNameInvalid, name)
-	default:
-		return nil
 	}
+	if !utf8.ValidString(name) || strings.TrimSpace(name) != name {
+		return fmt.Errorf("%w: %q", ErrNameInvalid, name)
+	}
+	normalized := norm.NFKC.String(name)
+	switch {
+	case utf8.RuneCountInString(normalized) > maxNameLen:
+		return fmt.Errorf("%w: %d characters", ErrNameTooLong, utf8.RuneCountInString(normalized))
+	case normalized != strings.ToLower(normalized), strings.HasPrefix(normalized, "-"), strings.HasSuffix(normalized, "-"), strings.Contains(normalized, "--"):
+		return fmt.Errorf("%w: %q", ErrNameInvalid, name)
+	}
+	for _, character := range normalized {
+		if character != '-' && !unicode.IsLetter(character) && !unicode.IsNumber(character) {
+			return fmt.Errorf("%w: %q", ErrNameInvalid, name)
+		}
+	}
+	return nil
 }

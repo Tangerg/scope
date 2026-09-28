@@ -2,6 +2,7 @@ package mistral_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/Tangerg/scope/core/modeltest"
@@ -43,5 +44,21 @@ func TestModerationModel_Call_Mock(t *testing.T) {
 	}
 	if len(out.Outputs) == 0 {
 		t.Fatal("empty outputs")
+	}
+}
+
+func TestModerationRejectsDuplicateProviderJSONMembers(t *testing.T) {
+	server := modeltest.JSONServer(http.StatusOK, `{"model":"test","results":[{"categories":{"sexual":true,"sexual":false},"category_scores":{"sexual":0.1}}]}`)
+	defer server.Close()
+	model, err := mistral.NewModerationModel(t.Context(), mistral.ModerationModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: moderation.Options{Model: "test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := moderation.NewRequest([]string{"text"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := model.Call(t.Context(), request); err == nil || !strings.Contains(err.Error(), "duplicate object member") {
+		t.Fatalf("Call=%v", err)
 	}
 }

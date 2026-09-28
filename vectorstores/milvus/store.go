@@ -3,12 +3,15 @@ package milvus
 import (
 	"context"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/milvus-io/milvus/client/v2/column"
 	"github.com/milvus-io/milvus/client/v2/entity"
 	"github.com/milvus-io/milvus/client/v2/index"
 	"github.com/milvus-io/milvus/client/v2/milvusclient"
+	"github.com/milvus-io/milvus/pkg/v2/util/merr"
 	"google.golang.org/grpc"
 
 	"github.com/samber/lo"
@@ -46,8 +49,8 @@ type StoreConfig struct {
 	// Required: must be a non-empty string.
 	CollectionName string
 
-	// InitializeSchema indicates whether to automatically create the collection
-	// and its vector index if they do not exist.
+	// InitializeSchema creates a missing collection or vector index and loads
+	// the collection. Existing fields and index metrics are always verified.
 	// Optional: defaults to false.
 	InitializeSchema bool
 
@@ -59,11 +62,13 @@ type StoreConfig struct {
 	// Required: must be provided.
 	DocumentBatcher vectorstore.Batcher
 
-	// Dimensions stays explicit because creating a collection must not trigger
-	// a hidden, billable embedding request.
+	// Dimensions is the expected vector dimension. Zero discovers the dimension
+	// from an existing collection; creating a collection requires a positive
+	// value and never triggers an embedding request.
 	Dimensions int
 
-	// MetricType is the similarity metric used when creating the vector index.
+	// MetricType is the expected similarity metric of the vector index.
+	// Existing indexes must agree; it is also used when creating an index.
 	// Optional: defaults to entity.COSINE.
 	MetricType entity.MetricType
 }
@@ -82,8 +87,8 @@ func (s StoreConfig) Validate() error {
 	if lo.IsNil(s.DocumentBatcher) {
 		return ErrMissingDocumentBatcher
 	}
-	if s.InitializeSchema && s.Dimensions <= 0 {
-		return fmt.Errorf("milvus: Dimensions must be > 0 when InitializeSchema is enabled")
+	if s.Dimensions < 0 {
+		return fmt.Errorf("milvus: Dimensions must be >= 0")
 	}
 	switch s.MetricType {
 	case entity.COSINE, entity.L2, entity.IP:
@@ -113,7 +118,10 @@ var (
 // checkable. *milvusclient.Client satisfies it.
 type collectionClient interface {
 	HasCollection(context.Context, milvusclient.HasCollectionOption, ...grpc.CallOption) (bool, error)
+	DescribeCollection(context.Context, milvusclient.DescribeCollectionOption, ...grpc.CallOption) (*entity.Collection, error)
 	CreateCollection(context.Context, milvusclient.CreateCollectionOption, ...grpc.CallOption) error
+	ListIndexes(context.Context, milvusclient.ListIndexOption, ...grpc.CallOption) ([]string, error)
+	DescribeIndex(context.Context, milvusclient.DescribeIndexOption, ...grpc.CallOption) (milvusclient.IndexDescription, error)
 	CreateIndex(context.Context, milvusclient.CreateIndexOption, ...grpc.CallOption) (*milvusclient.CreateIndexTask, error)
 	LoadCollection(context.Context, milvusclient.LoadCollectionOption, ...grpc.CallOption) (milvusclient.LoadTask, error)
 	Upsert(context.Context, milvusclient.UpsertOption, ...grpc.CallOption) (milvusclient.UpsertResult, error)
@@ -121,9 +129,8 @@ type collectionClient interface {
 	Delete(context.Context, milvusclient.DeleteOption, ...grpc.CallOption) (milvusclient.DeleteResult, error)
 }
 
-// Store implements [vectorstore.Store] against a Milvus collection. Milvus
-// requires a loaded collection before search, which is why the collection is
-// resolved once at construction rather than per query.
+// Store implements [vectorstore.Store] against a Milvus collection whose fields,
+// vector dimension, and index metric have been verified at construction.
 type Store struct {
 	client           collectionClient
 	embeddingClient  embeddingclient.Client
@@ -134,9 +141,10 @@ type Store struct {
 	initializeSchema bool
 }
 
-// NewStore performs schema setup during construction, which is why it takes a
-// context: a store returned before its collection exists would fail on the
-// first index rather than at wiring, where the misconfiguration actually is.
+// NewStore verifies the existing collection and index, and optionally creates
+// and loads them. With InitializeSchema disabled, the caller must arrange for
+// the collection to be loaded before search. Dimensions may be discovered from
+// an existing collection; construction never invokes the embedding model.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	config.applyDefaults()
 	if err := config.Validate(); err != nil {
@@ -186,29 +194,68 @@ func (s *Store) createSchema(dim int64) *entity.Schema {
 }
 
 func (s *Store) initialize(ctx context.Context) error {
-	if !s.initializeSchema {
-		return nil
-	}
-
 	exists, err := s.client.HasCollection(ctx, milvusclient.NewHasCollectionOption(s.collectionName))
 	if err != nil {
 		return fmt.Errorf("milvus: check collection existence: %w", err)
 	}
 
 	if !exists {
+		if !s.initializeSchema {
+			return fmt.Errorf("%w: collection %q does not exist", ErrSchemaMismatch, s.collectionName)
+		}
+		if s.dimensions <= 0 {
+			return fmt.Errorf("milvus: Dimensions must be > 0 to create collection %q", s.collectionName)
+		}
 		schema := s.createSchema(int64(s.dimensions))
 		if err = s.client.CreateCollection(ctx, milvusclient.NewCreateCollectionOption(s.collectionName, schema)); err != nil {
 			return fmt.Errorf("milvus: create collection %s: %w", s.collectionName, err)
 		}
+	}
 
+	collection, err := s.client.DescribeCollection(ctx, milvusclient.NewDescribeCollectionOption(s.collectionName))
+	if err != nil {
+		return fmt.Errorf("milvus: describe collection %s: %w", s.collectionName, err)
+	}
+	if err = s.validateCollection(collection); err != nil {
+		return err
+	}
+	indexes, err := s.client.ListIndexes(ctx, milvusclient.NewListIndexOption(s.collectionName).WithFieldName(fieldVector))
+	if err != nil && !errors.Is(err, merr.ErrIndexNotFound) {
+		return fmt.Errorf("milvus: list vector indexes on collection %s: %w", s.collectionName, err)
+	}
+	if len(indexes) == 0 && s.initializeSchema {
 		idx := index.NewAutoIndex(s.metricType)
 		indexTask, createErr := s.client.CreateIndex(ctx, milvusclient.NewCreateIndexOption(s.collectionName, fieldVector, idx))
 		if createErr != nil {
 			return fmt.Errorf("milvus: create index on collection %s: %w", s.collectionName, createErr)
 		}
+		if indexTask == nil {
+			return fmt.Errorf("milvus: create index on collection %s returned no task", s.collectionName)
+		}
 		if err = indexTask.Await(ctx); err != nil {
 			return fmt.Errorf("milvus: await index creation on collection %s: %w", s.collectionName, err)
 		}
+		indexes, err = s.client.ListIndexes(ctx, milvusclient.NewListIndexOption(s.collectionName).WithFieldName(fieldVector))
+		if err != nil {
+			return fmt.Errorf("milvus: list created vector index on collection %s: %w", s.collectionName, err)
+		}
+	}
+	if len(indexes) != 1 || indexes[0] == "" {
+		return fmt.Errorf("%w: collection %q must have exactly one named index on field %q", ErrSchemaMismatch, s.collectionName, fieldVector)
+	}
+	description, err := s.client.DescribeIndex(ctx, milvusclient.NewDescribeIndexOption(s.collectionName, indexes[0]))
+	if err != nil {
+		return fmt.Errorf("milvus: describe vector index on collection %s: %w", s.collectionName, err)
+	}
+	if lo.IsNil(description.Index) {
+		return fmt.Errorf("%w: vector index description is missing", ErrSchemaMismatch)
+	}
+	actualMetric := entity.MetricType(description.Params()[index.MetricTypeKey])
+	if actualMetric != s.metricType {
+		return fmt.Errorf("%w: vector index metric is %q, want %q", ErrSchemaMismatch, actualMetric, s.metricType)
+	}
+	if !s.initializeSchema {
+		return nil
 	}
 
 	loadTask, err := s.client.LoadCollection(ctx, milvusclient.NewLoadCollectionOption(s.collectionName))
@@ -222,6 +269,60 @@ func (s *Store) initialize(ctx context.Context) error {
 	return nil
 }
 
+func (s *Store) validateCollection(collection *entity.Collection) error {
+	if collection == nil || collection.Schema == nil {
+		return fmt.Errorf("%w: collection schema is missing", ErrSchemaMismatch)
+	}
+	schema := collection.Schema
+	if schema.AutoID || len(schema.Functions) != 0 {
+		return fmt.Errorf("%w: collection must accept caller-supplied IDs and vectors", ErrSchemaMismatch)
+	}
+	fields := make(map[string]*entity.Field, len(schema.Fields))
+	for _, field := range schema.Fields {
+		if field == nil || field.Name == "" || fields[field.Name] != nil {
+			return fmt.Errorf("%w: collection has an unnamed, nil, or duplicate field", ErrSchemaMismatch)
+		}
+		fields[field.Name] = field
+		if field.Name != fieldID && (field.PrimaryKey || field.AutoID) {
+			return fmt.Errorf("%w: field %q cannot own the document ID", ErrSchemaMismatch, field.Name)
+		}
+		switch field.Name {
+		case fieldID, fieldVector, fieldContent, fieldMeta:
+		default:
+			if !field.IsDynamic && !field.Nullable && field.DefaultValue == nil {
+				return fmt.Errorf("%w: extra field %q requires an unsupported input", ErrSchemaMismatch, field.Name)
+			}
+		}
+	}
+	for name, kind := range map[string]entity.FieldType{
+		fieldID: entity.FieldTypeVarChar, fieldVector: entity.FieldTypeFloatVector,
+		fieldContent: entity.FieldTypeVarChar, fieldMeta: entity.FieldTypeJSON,
+	} {
+		field := fields[name]
+		if field == nil || field.DataType != kind || field.Nullable {
+			return fmt.Errorf("%w: field %q must be a non-nullable %s", ErrSchemaMismatch, name, kind.Name())
+		}
+	}
+	if !fields[fieldID].PrimaryKey || fields[fieldID].AutoID {
+		return fmt.Errorf("%w: field %q must be a caller-supplied primary key", ErrSchemaMismatch, fieldID)
+	}
+	for name, minimum := range map[string]int{fieldID: maxIDLength, fieldContent: maxContentLength} {
+		length, err := strconv.Atoi(fields[name].TypeParams[entity.TypeParamMaxLength])
+		if err != nil || length < minimum {
+			return fmt.Errorf("%w: field %q must permit at least %d bytes", ErrSchemaMismatch, name, minimum)
+		}
+	}
+	dimension, err := fields[fieldVector].GetDim()
+	if err != nil || dimension <= 0 || int64(int(dimension)) != dimension {
+		return fmt.Errorf("%w: vector dimension is missing or invalid", ErrSchemaMismatch)
+	}
+	if s.dimensions > 0 && int64(s.dimensions) != dimension {
+		return fmt.Errorf("%w: vector dimension is %d, want %d", ErrSchemaMismatch, dimension, s.dimensions)
+	}
+	s.dimensions = int(dimension)
+	return nil
+}
+
 func (s *Store) buildInsertColumns(docs []*document.Document, vectors [][]float64) ([]column.Column, error) {
 	n := len(docs)
 	ids := make([]string, n)
@@ -230,6 +331,9 @@ func (s *Store) buildInsertColumns(docs []*document.Document, vectors [][]float6
 	metaBytes := make([][]byte, n)
 
 	for i, doc := range docs {
+		if len(vectors[i]) != s.dimensions {
+			return nil, fmt.Errorf("milvus: embedding for document %q has dimension %d, want %d", doc.ID, len(vectors[i]), s.dimensions)
+		}
 		ids[i] = doc.ID
 		vecs[i] = embedding.Float32Vector(vectors[i])
 
@@ -415,6 +519,9 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
 	if err != nil {
 		return nil, fmt.Errorf("milvus: embed query: %w", err)
+	}
+	if len(vector) != s.dimensions {
+		return nil, fmt.Errorf("milvus: query embedding has dimension %d, want %d", len(vector), s.dimensions)
 	}
 
 	queryVec := entity.FloatVector(embedding.Float32Vector(vector))

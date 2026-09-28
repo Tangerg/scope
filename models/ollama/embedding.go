@@ -2,6 +2,8 @@ package ollama
 
 import (
 	"context"
+	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -62,11 +64,28 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*nativeEmbedRe
 		return nil, err
 	}
 
-	apiRequest, _, err := effectiveOptions.Extensions.Decode[nativeEmbedRequest](EmbeddingRequestExtensionKey)
+	raw, found, err := effectiveOptions.Extensions.Decode[json.RawMessage](EmbeddingRequestExtensionKey)
 	if err != nil {
 		return nil, err
 	}
-	apiReq := &apiRequest
+	apiReq := &nativeEmbedRequest{}
+	if found {
+		var fields map[string]json.RawMessage
+		if err := jsonv2.Unmarshal(raw, &fields); err != nil {
+			return nil, fmt.Errorf("ollama: embedding extension: %w", err)
+		}
+		if fields == nil {
+			return nil, errors.New("ollama: embedding extension must be an object")
+		}
+		for _, name := range []string{"model", "input", "dimensions"} {
+			if _, exists := fields[name]; exists {
+				return nil, fmt.Errorf("ollama: embedding extension field %q is owned by Core", name)
+			}
+		}
+		if err := jsonv2.Unmarshal(raw, apiReq, jsonv2.RejectUnknownMembers(true)); err != nil {
+			return nil, fmt.Errorf("ollama: embedding extension: %w", err)
+		}
+	}
 	apiReq.Model = effectiveOptions.Model
 	apiReq.Input = req.Texts
 

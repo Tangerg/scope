@@ -120,18 +120,42 @@ func (i *ImageModel) Call(ctx context.Context, request *image.Request) (*image.R
 		return nil, rejectUnsupportedOptionsErr
 	}
 
-	paramsValue, _, err := effectiveOptions.Extensions.Decode[lumaagents.GenerationNewParams](ImageRequestExtensionKey)
+	options, _, err := effectiveOptions.Extensions.Decode[ImageRequestOptions](ImageRequestExtensionKey)
 	if err != nil {
 		return nil, fmt.Errorf("luma: extension %q: %w", ImageRequestExtensionKey, err)
 	}
-	params := &paramsValue
-	params.Prompt = lumaagents.F(request.Prompt)
-	params.Model = lumaagents.F(lumaagents.Model(effectiveOptions.Model))
-	if !params.Type.Present {
-		params.Type = lumaagents.F(lumaagents.GenerationNewParamsTypeImage)
+	params := lumaagents.GenerationNewParams{
+		Prompt: lumaagents.F(request.Prompt),
+		Model:  lumaagents.F(lumaagents.Model(effectiveOptions.Model)),
+		Type:   lumaagents.F(lumaagents.GenerationNewParamsTypeImage),
+	}
+	if options.Type != "" {
+		params.Type = lumaagents.F(lumaagents.GenerationNewParamsType(options.Type))
 	}
 	if params.Type.Value != lumaagents.GenerationNewParamsTypeImage && params.Type.Value != lumaagents.GenerationNewParamsTypeImageEdit {
 		return nil, fmt.Errorf("luma: extension %q type %q is not an image operation", ImageRequestExtensionKey, params.Type.Value)
+	}
+	if options.AspectRatio != "" {
+		params.AspectRatio = lumaagents.F(lumaagents.GenerationNewParamsAspectRatio(options.AspectRatio))
+	}
+	if options.Source != nil {
+		params.Source = lumaagents.F(options.Source.sdkParams())
+	}
+	if options.ImageRef != nil {
+		references := make([]lumaagents.ImageRefParam, len(options.ImageRef))
+		for index, reference := range options.ImageRef {
+			references[index] = reference.sdkParams()
+		}
+		params.ImageRef = lumaagents.F(references)
+	}
+	if options.Style != "" {
+		params.Style = lumaagents.F(lumaagents.GenerationNewParamsStyle(options.Style))
+	}
+	if options.UserID != "" {
+		params.UserID = lumaagents.F(options.UserID)
+	}
+	if options.WebSearch != nil {
+		params.WebSearch = lumaagents.F(*options.WebSearch)
 	}
 	if effectiveOptions.OutputFormat != "" {
 		format := strings.TrimPrefix(effectiveOptions.OutputFormat, "image/")
@@ -145,7 +169,7 @@ func (i *ImageModel) Call(ctx context.Context, request *image.Request) (*image.R
 		}
 	}
 
-	submitted, err := i.api.createGeneration(ctx, *params)
+	submitted, err := i.api.createGeneration(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("luma: create generation: %w", err)
 	}

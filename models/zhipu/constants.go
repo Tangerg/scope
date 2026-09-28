@@ -27,7 +27,7 @@ const (
 // Embedding model ids.
 const (
 	// ModelEmbedding3 produces 2048-dim vectors by default; the
-	// output_dimension parameter (passed through embedding.Options.Dimensions)
+	// dimensions parameter (passed through embedding.Options.Dimensions)
 	// can truncate down to 256 / 512 / 1024.
 	ModelEmbedding3 = "embedding-3"
 )

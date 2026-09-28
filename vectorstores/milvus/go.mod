@@ -4,9 +4,12 @@ go 1.27.0
 
 require (
 	github.com/Tangerg/scope/core v0.37.0
+	github.com/milvus-io/milvus-proto/go-api/v2 v2.6.23
 	github.com/milvus-io/milvus/client/v2 v2.6.5
+	github.com/milvus-io/milvus/pkg/v2 v2.6.23
 	github.com/samber/lo v1.53.0
 	google.golang.org/grpc v1.83.2
+	google.golang.org/protobuf v1.36.12
 )
 
 require (
@@ -34,8 +37,6 @@ require (
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260802145828-341c2f0c90b5 // indirect
-	github.com/milvus-io/milvus-proto/go-api/v2 v2.6.23 // indirect
-	github.com/milvus-io/milvus/pkg/v2 v2.6.23 // indirect
 	github.com/moby/sys/userns v0.2.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
@@ -79,7 +80,6 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260908043556-f8649ddbbfe6 // indirect
-	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	k8s.io/apimachinery v0.37.0 // indirect

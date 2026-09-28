@@ -141,19 +141,11 @@ func mapServerToolOutput(output corechat.ToolOutput) (*sdkmcp.CallToolResult, er
 	}
 	result := &sdkmcp.CallToolResult{Content: make([]sdkmcp.Content, 0, len(output.Content))}
 	for index := range output.Content {
-		part := output.Content[index]
-		switch part.Kind {
-		case corechat.PartText:
-			result.Content = append(result.Content, &sdkmcp.TextContent{Text: part.Text})
-		case corechat.PartMedia:
-			content, err := mapServerMedia(part.Media)
-			if err != nil {
-				return nil, fmt.Errorf("mcp: tool output content[%d]: %w", index, err)
-			}
-			result.Content = append(result.Content, content)
-		default:
-			return nil, fmt.Errorf("mcp: tool output content[%d]: unsupported part %q", index, part.Kind)
+		content, err := mapServerContent(output.Content[index])
+		if err != nil {
+			return nil, fmt.Errorf("mcp: tool output content[%d]: %w", index, err)
 		}
+		result.Content = append(result.Content, content)
 	}
 	if len(output.Details) != 0 {
 		result.StructuredContent = slices.Clone(output.Details)

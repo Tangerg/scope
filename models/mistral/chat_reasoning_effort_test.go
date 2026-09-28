@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -64,31 +65,15 @@ func TestChatRefusesAnUndocumentedReasoningEffort(t *testing.T) {
 	}
 }
 
-// An empty effort means "the model's default", so it must not overwrite a
-// reasoning_effort a caller set through the native extension.
-func TestChatLeavesTheNativeReasoningEffortAlone(t *testing.T) {
-	t.Parallel()
-
-	bodies := make(chan map[string]any, 1)
-	server := newRecordingServer(t, bodies)
-
+func TestChatRejectsNativeReasoningEffort(t *testing.T) {
 	options := corechat.Options{}
-	if err := options.Extensions.Set(mistral.RequestExtensionKey,
-		mistral.ChatRequestOptions{ReasoningEffort: mistral.ReasoningEffortMedium}); err != nil {
+	if err := options.Extensions.Set(mistral.RequestExtensionKey, map[string]any{"reasoning_effort": "medium"}); err != nil {
 		t.Fatal(err)
 	}
-
-	model := newChatModel(t, server.URL)
-	if _, err := model.Call(t.Context(), &corechat.Request{
-		Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hi"))},
-		Options:  options,
-	}); err != nil {
-		t.Fatalf("Call: %v", err)
-	}
-
-	body := <-bodies
-	if got := body["reasoning_effort"]; got != "medium" {
-		t.Fatalf("reasoning_effort = %v, want medium", got)
+	model := newChatModel(t, "http://127.0.0.1:1")
+	_, err := model.Call(t.Context(), &corechat.Request{Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hi"))}, Options: options})
+	if err == nil || !strings.Contains(err.Error(), "reasoning_effort") || !strings.Contains(err.Error(), "unknown") {
+		t.Fatalf("Call = %v", err)
 	}
 }
 

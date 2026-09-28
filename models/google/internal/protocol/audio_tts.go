@@ -69,7 +69,9 @@ func (a *AudioTTSModel) Call(ctx context.Context, req *tts.Request) (*tts.Respon
 	if err != nil {
 		return nil, err
 	}
-
+	if err := validateProtocolCompletion(apiResp); err != nil {
+		return nil, fmt.Errorf("google: speech: %w: %w", tts.ErrInvalidResponse, err)
+	}
 	return a.binding.buildTTSResponse(apiResp)
 }
 

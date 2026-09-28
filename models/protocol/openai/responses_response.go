@@ -106,13 +106,17 @@ func responsesUsage(usage responses.ResponseUsage) *corechat.Usage {
 		return nil
 	}
 	result := corechat.Usage{InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens}
-	if usage.OutputTokensDetails.ReasoningTokens > 0 {
+	if usage.OutputTokensDetails.JSON.ReasoningTokens.Valid() || usage.OutputTokensDetails.ReasoningTokens != 0 {
 		value := usage.OutputTokensDetails.ReasoningTokens
 		result.ReasoningTokens = &value
 	}
-	if usage.InputTokensDetails.CachedTokens > 0 {
+	if usage.InputTokensDetails.JSON.CachedTokens.Valid() || usage.InputTokensDetails.CachedTokens != 0 {
 		value := usage.InputTokensDetails.CachedTokens
 		result.CacheReadInputTokens = &value
+	}
+	if usage.InputTokensDetails.JSON.CacheWriteTokens.Valid() || usage.InputTokensDetails.CacheWriteTokens != 0 {
+		value := usage.InputTokensDetails.CacheWriteTokens
+		result.CacheWriteInputTokens = &value
 	}
 	return &result
 }

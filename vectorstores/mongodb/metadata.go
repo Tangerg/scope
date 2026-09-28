@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math/big"
 	"strconv"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // BSON numbers must retain their decimal value after retrieval as JSON.
@@ -25,6 +27,50 @@ func metadataNumber(number json.Number) (any, error) {
 		return nil, fmt.Errorf("mongodb: metadata number %q cannot be represented without loss", number)
 	}
 	return value, nil
+}
+
+func decodedMetadataValue(value any) (any, error) {
+	switch value := value.(type) {
+	case bson.D:
+		fields := make(map[string]any, len(value))
+		for _, element := range value {
+			if _, duplicate := fields[element.Key]; duplicate {
+				return nil, fmt.Errorf("mongodb: duplicate metadata key %q", element.Key)
+			}
+			converted, err := decodedMetadataValue(element.Value)
+			if err != nil {
+				return nil, err
+			}
+			fields[element.Key] = converted
+		}
+		return fields, nil
+	case bson.M:
+		return decodedMetadataValue(map[string]any(value))
+	case map[string]any:
+		fields := make(map[string]any, len(value))
+		for key, item := range value {
+			converted, err := decodedMetadataValue(item)
+			if err != nil {
+				return nil, err
+			}
+			fields[key] = converted
+		}
+		return fields, nil
+	case bson.A:
+		return decodedMetadataValue([]any(value))
+	case []any:
+		items := make([]any, len(value))
+		for index, item := range value {
+			converted, err := decodedMetadataValue(item)
+			if err != nil {
+				return nil, err
+			}
+			items[index] = converted
+		}
+		return items, nil
+	default:
+		return value, nil
+	}
 }
 
 func metadataDocument(values map[string]any) (map[string]any, error) {

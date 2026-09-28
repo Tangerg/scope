@@ -96,13 +96,28 @@ func (a *AudioTTSModel) buildAPIRequest(req *tts.Request) (voiceID, outputFormat
 		return "", "", nil, errors.New("elevenlabs: Voice (voice id) is required - set Options.Voice")
 	}
 
+	nativeFields, _, err := effectiveOptions.Extensions.Decode[map[string]any](SpeechRequestExtensionKey)
+	if err != nil {
+		return "", "", nil, err
+	}
+	for _, field := range []string{"text", "model_id", "voice_id", "output_format"} {
+		if _, exists := nativeFields[field]; exists {
+			return "", "", nil, fmt.Errorf("elevenlabs: extension %q field %q is owned by Core", SpeechRequestExtensionKey, field)
+		}
+	}
+	if settings, ok := nativeFields["voice_settings"].(map[string]any); ok {
+		if _, exists := settings["speed"]; exists {
+			return "", "", nil, fmt.Errorf("elevenlabs: extension %q field voice_settings.speed is owned by Core", SpeechRequestExtensionKey)
+		}
+	}
+
 	bodyValue, _, err := effectiveOptions.Extensions.Decode[ttsRequest](SpeechRequestExtensionKey)
 	if err != nil {
 		return "", "", nil, err
 	}
 	body = &bodyValue
-	body.Text = req.Text
-	body.ModelID = effectiveOptions.Model
+	body.Body.Text = req.Text
+	body.Body.ModelID = effectiveOptions.Model
 
 	// ElevenLabs documents the speed range as 0.7 to 1.2 and clamps a value
 	// outside it to the nearest limit rather than reporting one, so refusing
@@ -111,11 +126,11 @@ func (a *AudioTTSModel) buildAPIRequest(req *tts.Request) (voiceID, outputFormat
 		if effectiveOptions.Speed < 0.7 || effectiveOptions.Speed > 1.2 {
 			return "", "", nil, fmt.Errorf("elevenlabs: speech speed must be between 0.7 and 1.2, got %g", effectiveOptions.Speed)
 		}
-		if body.VoiceSettings == nil {
-			body.VoiceSettings = &voiceSettings{}
+		if body.Body.VoiceSettings == nil {
+			body.Body.VoiceSettings = &voiceSettings{}
 		}
 		v := effectiveOptions.Speed
-		body.VoiceSettings.Speed = &v
+		body.Body.VoiceSettings.Speed = &v
 	}
 	if body.OptimizeStreamingLatency != nil && (*body.OptimizeStreamingLatency < 0 || *body.OptimizeStreamingLatency > 4) {
 		return "", "", nil, fmt.Errorf("elevenlabs: optimize_streaming_latency must be between 0 and 4, got %d", *body.OptimizeStreamingLatency)

@@ -5,8 +5,6 @@ package cohere_test
 import (
 	"testing"
 
-	coheresdk "github.com/cohere-ai/cohere-go/v2"
-
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/modeltest"
 	"github.com/Tangerg/scope/models/cohere"
@@ -26,8 +24,8 @@ func TestEmbeddingModel_Integration(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := opts.Extensions.Set(cohere.EmbeddingRequestExtensionKey, coheresdk.V2EmbedRequest{
-				InputType: coheresdk.EmbedInputTypeSearchDocument,
+			if err := opts.Extensions.Set(cohere.EmbeddingRequestExtensionKey, cohere.EmbeddingRequestOptions{
+				InputType: "search_document",
 			}); err != nil {
 				t.Fatal(err)
 			}

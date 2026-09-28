@@ -3,6 +3,7 @@ package jina
 import (
 	"cmp"
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -66,7 +67,7 @@ func NewClient(config Config) (*Client, error) {
 	if config.HTTPClient == nil {
 		config.HTTPClient = &http.Client{}
 	}
-	return &Client{
+	client := &Client{
 		searchHTTP: resty.NewWithClient(config.HTTPClient).
 			SetBaseURL(config.SearchBaseURL).
 			SetAuthToken(config.APIKey).
@@ -77,7 +78,12 @@ func NewClient(config Config) (*Client, error) {
 			SetAuthToken(config.APIKey).
 			SetHeader("Content-Type", mediaTypeJSON).
 			SetHeader("Accept", mediaTypeJSON),
-	}, nil
+	}
+	client.searchHTTP.JSONMarshal = func(value any) ([]byte, error) { return jsonv2.Marshal(value) }
+	client.searchHTTP.JSONUnmarshal = func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }
+	client.fetchHTTP.JSONMarshal = func(value any) ([]byte, error) { return jsonv2.Marshal(value) }
+	client.fetchHTTP.JSONUnmarshal = func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }
+	return client, nil
 }
 
 type searchRequest struct {

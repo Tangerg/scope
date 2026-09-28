@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/transcription"
 )
@@ -45,7 +46,7 @@ var _ transcription.Model = (*AudioTranscriptionModel)(nil)
 // AudioTranscriptionModel wraps Gladia's async transcription flow.
 // One Call uploads → creates job → polls until "done". Diarization /
 // translation / summarization / NER / subtitles all reach the wire via
-// the extension-threaded [TranscriptionRequest].
+// official JSON option names under RequestExtensionKey.
 type AudioTranscriptionModel struct {
 	api            *api
 	defaultOptions transcription.Options
@@ -81,6 +82,20 @@ func (a *AudioTranscriptionModel) Call(ctx context.Context, req *transcription.R
 	if err != nil {
 		return nil, err
 	}
+	nativeFields, _, err := effectiveOptions.Extensions.Decode[map[string]any](RequestExtensionKey)
+	if err != nil {
+		return nil, err
+	}
+	for _, field := range []string{"audio_url", "model"} {
+		if _, exists := nativeFields[field]; exists {
+			return nil, fmt.Errorf("gladia: extension %q field %q is owned by Core", RequestExtensionKey, field)
+		}
+	}
+	if language, ok := nativeFields["language_config"].(map[string]any); ok {
+		if _, exists := language["languages"]; exists {
+			return nil, fmt.Errorf("gladia: extension %q language_config.languages is owned by Core", RequestExtensionKey)
+		}
+	}
 	apiReqValue, _, err := effectiveOptions.Extensions.Decode[transcriptionRequest](RequestExtensionKey)
 	apiReq := &apiReqValue
 	if err != nil {
@@ -96,7 +111,9 @@ func (a *AudioTranscriptionModel) Call(ctx context.Context, req *transcription.R
 	if validateTranscriptionRequestErr := apiReq.validate(); validateTranscriptionRequestErr != nil {
 		return nil, validateTranscriptionRequestErr
 	}
-	if apiReq.AudioURL == "" {
+	if req.Audio.Source.Kind == media.SourceURI {
+		apiReq.AudioURL = req.Audio.Source.URI
+	} else {
 		var audio []byte
 		audio, err = req.Audio.Bytes()
 		if err != nil {

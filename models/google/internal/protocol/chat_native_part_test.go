@@ -2,13 +2,29 @@ package protocol
 
 import (
 	"bytes"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"reflect"
 	"testing"
 
 	"google.golang.org/genai"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 )
+
+func TestProtocolRejectsInvalidReplayState(t *testing.T) {
+	for _, state := range []string{`{}`, `{"thought":null}`, `{"thought":true,"partIndex":-1}`, `{"thought":true,"unknown":1}`} {
+		t.Run(state, func(t *testing.T) {
+			part := corechat.NewReasoningPart("reason", []byte("signature"))
+			if err := part.Metadata.Set("google/part_state", json.RawMessage(state)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := mapProtocolAssistantParts("google", []corechat.Part{part}); err == nil {
+				t.Fatal("invalid native replay state was accepted")
+			}
+		})
+	}
+}
 
 func TestProtocolMetadataUsesEndpointNamespace(t *testing.T) {
 	mapped, err := aggregateProtocolResponse(t, "vertexai", &genai.GenerateContentResponse{
@@ -55,17 +71,35 @@ func TestNativePartRoundTripPreservesThoughtSignaturePosition(t *testing.T) {
 			},
 			kind: corechat.PartText,
 		},
+		{
+			name: "empty text signature",
+			part: &genai.Part{ThoughtSignature: []byte("signed-empty-state")},
+			kind: corechat.PartReasoning,
+		},
+		{
+			name: "inline media",
+			part: &genai.Part{InlineData: &genai.Blob{MIMEType: "image/png", Data: []byte("image")}, ThoughtSignature: []byte("signed-image")},
+			kind: corechat.PartMedia,
+		},
+		{
+			name: "media URI",
+			part: &genai.Part{FileData: &genai.FileData{MIMEType: "image/png", FileURI: "https://example.com/image.png"}, ThoughtSignature: []byte("signed-image")},
+			kind: corechat.PartMedia,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			corePart, include, err := mapProtocolCandidatePart("google", 3, tt.part)
+			response, err := aggregateProtocolResponse(t, "google", &genai.GenerateContentResponse{Candidates: []*genai.Candidate{{
+				Content: &genai.Content{Parts: []*genai.Part{tt.part}}, FinishReason: genai.FinishReasonStop,
+			}}})
 			if err != nil {
 				t.Fatalf("map response part: %v", err)
 			}
-			if !include {
-				t.Fatal("semantic part was not mapped")
+			if response.Output.Message == nil || len(response.Output.Message.Parts) != 1 {
+				t.Fatalf("message = %#v", response.Output.Message)
 			}
+			corePart := response.Output.Message.Parts[0]
 			if corePart.Kind != tt.kind {
 				t.Fatalf("Core kind = %q, want %q", corePart.Kind, tt.kind)
 			}
@@ -80,21 +114,13 @@ func TestNativePartRoundTripPreservesThoughtSignaturePosition(t *testing.T) {
 			if !bytes.Equal(replayed[0].ThoughtSignature, tt.part.ThoughtSignature) {
 				t.Fatalf("thought signature = %q, want %q", replayed[0].ThoughtSignature, tt.part.ThoughtSignature)
 			}
-			if (replayed[0].FunctionCall == nil) != (tt.part.FunctionCall == nil) || replayed[0].Text != tt.part.Text {
+			if (replayed[0].FunctionCall == nil) != (tt.part.FunctionCall == nil) || replayed[0].Text != tt.part.Text || replayed[0].Thought != tt.part.Thought {
 				t.Fatalf("replayed part = %#v, want %#v", replayed[0], tt.part)
 			}
+			if !reflect.DeepEqual(replayed[0].InlineData, tt.part.InlineData) || !reflect.DeepEqual(replayed[0].FileData, tt.part.FileData) {
+				t.Fatalf("replayed media = %#v, want %#v", replayed[0], tt.part)
+			}
 		})
-	}
-}
-
-func TestProtocolOnlyPartRemainsInNativeResponse(t *testing.T) {
-	part := &genai.Part{ThoughtSignature: []byte("signed-empty-state")}
-	_, include, err := mapProtocolCandidatePart("google", 3, part)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if include {
-		t.Fatal("provider-only part was promoted to a false Core semantic part")
 	}
 }
 
@@ -241,16 +267,16 @@ func TestRepeatedStreamTextReplaysCurrentCoreContent(t *testing.T) {
 func TestReplayUsesCurrentCoreContentAfterHistoryRoundTrip(t *testing.T) {
 	for _, provider := range []string{"google", "vertexai"} {
 		t.Run(provider, func(t *testing.T) {
-			text, _, err := mapProtocolCandidatePart(provider, 0, &genai.Part{Text: "old", ThoughtSignature: []byte("signature")})
+			response, err := aggregateProtocolResponse(t, provider, &genai.GenerateContentResponse{Candidates: []*genai.Candidate{{
+				Content: &genai.Content{Parts: []*genai.Part{
+					{Text: "old", ThoughtSignature: []byte("signature")},
+					{FunctionCall: &genai.FunctionCall{Name: "lookup", Args: map[string]any{"id": 1}}, ThoughtSignature: []byte("tool-signature")},
+				}}, FinishReason: genai.FinishReasonStop,
+			}}})
 			if err != nil {
 				t.Fatal(err)
 			}
-			call, _, err := mapProtocolCandidatePart(provider, 1, &genai.Part{FunctionCall: &genai.FunctionCall{Name: "lookup", Args: map[string]any{"id": 1}}, ThoughtSignature: []byte("tool-signature")})
-			if err != nil {
-				t.Fatal(err)
-			}
-			message := corechat.NewAssistantMessage(text, call)
-			data, err := jsonv2.Marshal(message)
+			data, err := jsonv2.Marshal(response.Output.Message)
 			if err != nil {
 				t.Fatal(err)
 			}
